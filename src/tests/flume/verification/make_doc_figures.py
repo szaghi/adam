@@ -1271,6 +1271,68 @@ def fig_gravity_rt(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+RT_SYM_CLEANINGS = (("rt2d-nl", "hydro", "k", "-"), ("rt-sym-none", "MHD, no cleaning", "tab:gray", "-"),
+                    ("rt-sym-glm", "GLM, $c_h$ = 3", "tab:green", "-"),
+                    ("rt-sym-ch1.5", "EGLM, $c_h$ = 1.5", "tab:blue", "--"),
+                    ("rt2d-mhd", "EGLM, $c_h$ = 3", "tab:blue", "-"),
+                    ("rt-sym-ch6", "EGLM, $c_h$ = 6", "tab:blue", ":"))
+RT_SYM_DAMPING = (("rt-sym-a0", r"$\alpha$ = 0", "tab:red"), ("rt2d-mhd", r"$\alpha$ = 0.18 (default)", "tab:blue"),
+                  ("rt-sym-a1", r"$\alpha$ = 1", "tab:orange"), ("rt-sym-a5", r"$\alpha$ = 5", "tab:purple"),
+                  ("rt-sym-mincell", r"$\alpha$ = 0.18, $L = \Delta x$", "tab:brown"))
+
+
+def fig_gravity_rt_symmetry(out: Path, runs: Path) -> None:
+    """Issue #83: the mirror asymmetry of the magnetised Rayleigh-Taylor run (rt2d-mhd, N = 128) under each divergence
+    control (left) and each EGLM damping (centre), and its growth rate over t in [2, 4] against the cleaning speed,
+    with the largest growth rate of the linearised cleaned equations on a magnetised shear layer (right)."""
+    ao = gravity_oracle()
+    from glm_linear import max_growth  # noqa: PLC0415 (gravity/, on the path once gravity_oracle ran)
+
+    series = {case: ao.mirror_asymmetry(runs / case)
+              for case in {c for c, *_ in RT_SYM_CLEANINGS} | {c for c, *_ in RT_SYM_DAMPING}}
+
+    def rate(case: str) -> float:
+        fit = [(t, np.log(a)) for t, a in series[case] if 2.0 <= t <= 4.0 and a > 0.0]
+        return float(np.polyfit(*zip(*fit, strict=True), 1)[0])
+
+    fig, axs = plt.subplots(1, 3, figsize=(15.5, 4.6), constrained_layout=True)
+    for case, label, color, style in RT_SYM_CLEANINGS:
+        t, a = zip(*series[case], strict=True)
+        axs[0].semilogy(t, np.maximum(a, FLOOR), color=color, ls=style, label=f"{label} ({rate(case):.2f})")
+    axs[0].set_title("divergence control (EGLM damping $\\alpha$ = 0.18, $L$ = 1)", fontsize=10)
+    t, a = zip(*series["rt-sym-none"], strict=True)
+    axs[1].semilogy(t, np.maximum(a, FLOOR), color="tab:gray", label=f"no cleaning ({rate('rt-sym-none'):.2f})")
+    for case, label, color in RT_SYM_DAMPING:
+        t, a = zip(*series[case], strict=True)
+        axs[1].semilogy(t, np.maximum(a, FLOOR), color=color, label=f"{label} ({rate(case):.2f})")
+    axs[1].set_title("EGLM, $c_h$ = 3: damping rate $\\alpha c_h / L$", fontsize=10)
+    for ax in axs[:2]:
+        ax.axvspan(2.0, 4.0, color="0.92", zorder=0)
+        ax.set_xlabel("t")
+        ax.set_ylabel(r"max $|\rho(x, y) - \rho(\lambda - x, y)|$")
+        ax.set_ylim(1e-15, 1e-1)
+        ax.legend(fontsize=8, title="rate over t in [2, 4]", title_fontsize=8)
+    chs = np.array([0.75, 1.5, 3.0, 6.0])
+    measured = [(1.5, "rt-sym-ch1.5"), (3.0, "rt2d-mhd"), (6.0, "rt-sym-ch6")]
+    axs[2].plot([c for c, _ in measured], [rate(r) for _, r in measured], "o-", color="tab:blue",
+                label="FLUME, EGLM: asymmetry rate")
+    axs[2].plot([3.0], [rate("rt-sym-glm")], "s", color="tab:green", label="FLUME, GLM: asymmetry rate")
+    axs[2].axhline(rate("rt-sym-none"), color="tab:gray", ls="--", label="FLUME, no cleaning")
+    axs[2].axhline(rate("rt2d-nl"), color="k", ls="--", label="FLUME, hydro")
+    for model, marker in (("eglm", "^"), ("glm", "v")):
+        axs[2].plot(chs, [max_growth(model, 128, 2.0 * np.pi, c) for c in chs], marker, ls=":", color="tab:red",
+                    label=f"linearised {model.upper()} PDE, shear layer, $k = 2\\pi$")
+    axs[2].set_xlabel(r"cleaning speed $c_h$")
+    axs[2].set_ylabel("growth rate")
+    axs[2].set_ylim(0.0, None)
+    axs[2].legend(fontsize=8)
+    axs[2].set_title("the growth rises with $c_h$; the cleaned PDE's does not", fontsize=10)
+    fig.suptitle("Magnetised Rayleigh-Taylor ($B_x$ = 0.1, N = 128): the mirror symmetry under each cleaning "
+                 "(MHD on FNL, hydro on CPU, 2 ranks)")
+    fig.savefig(out / "gravity-rt-symmetry.png", dpi=DPI)
+    plt.close(fig)
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
            "conservation": fig_conservation,
@@ -1280,7 +1342,8 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "viscous": fig_viscous, "viscous-fields": fig_viscous_fields, "couette": fig_couette,
            "regrid": fig_regrid, "gravity-atmospheres": fig_gravity_atmospheres, "gravity-force": fig_gravity_force,
            "gravity-order": fig_gravity_order, "gravity-balance": fig_gravity_balance,
-           "gravity-rt-linear": fig_gravity_rt_linear, "gravity-rt": fig_gravity_rt}
+           "gravity-rt-linear": fig_gravity_rt_linear, "gravity-rt": fig_gravity_rt,
+           "gravity-rt-symmetry": fig_gravity_rt_symmetry}
 
 
 def main() -> int:

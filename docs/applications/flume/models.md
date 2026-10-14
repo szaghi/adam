@@ -119,7 +119,10 @@ with `glm_alpha` $= \alpha$ and `glm_damping_length` $= L$ (a length, or `min-ce
 realm, as Mignone & Tzeferacos 2010; with runtime regridding the spacing of the finest level allowed, so that the damping
 rate does not change with the grid). $\psi$ is **not** part of the energy (mixed GLM); the damping source is applied to
 $\psi$ only. $c_h$ (`glm_ch`) is constant and uniform, and it bounds the time step (below). `glm_ch_check` warns or stops
-when the fastest wave $|u_n| + c_f$ outruns it.
+when the fastest wave $|u_n| + c_f$ outruns it. Keep $c_h$ just above that speed. Where the discrete div B is not small,
+as on the sheared flanks of magnetised Rayleigh–Taylor, the discretised cleaning amplifies small asymmetries at a rate
+that grows with $c_h$. The cleaned equations themselves have no such mode
+([verification](./verification#gv-g3-rayleigh-taylor), [#83](https://github.com/szaghi/adam/issues/83)).
 
 The $(B_n, \psi)$ system of one direction is solved exactly at a face by the Riemann solvers of `weno-riemann`
 (Dedner et al. 2002, eq. 42):

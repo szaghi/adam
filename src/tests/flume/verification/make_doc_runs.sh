@@ -10,11 +10,14 @@
 #           box2d-mhd (G1); wave-{weno,riemann}-{8,16,32} (G2a, GV-9); {strat2d,polystrat2d,strat2d-amr}-{unb,bal}
 #           saved every 5 steps, lin-{unb,bal}-{6,4} (G2b); rt-{8,16} (G3, GV-4) (23 runs, 27 min)
 #   rt      rt2d-nl, rt2d-mhd: the nonlinear single-mode Rayleigh-Taylor, hydro and EGLM, N = 128 to t = 5 (2 runs)
+#   rt-sym  rt2d-mhd under other cleanings (#83), rt-sym-{none,glm,ch1.5,ch6} and the EGLM damping rt-sym-{a0,a1,a5,
+#           mincell}; the reference (EGLM, glm_ch 3, glm_alpha 0.18, length 1) is the rt group's rt2d-mhd (8 runs,
+#           about 2 min each with the FNL build on 2 A30 GPUs)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
-#        rt: --only gravity-rt)
+#        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry)
 #
-# Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]     (default: all six)
+# Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym]   (default: all seven)
 #
 # FLUME_EXE overrides the executable (default exe/adam_flume_cpu); the caller owns the matching MPI environment.
 set -euo pipefail
@@ -27,14 +30,17 @@ NP=2
 source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
-   echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" >&2 ; exit 2
+   echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
+        "[rt-sym]" >&2
+   exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt)$ ]]; then
-      echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt)" >&2 ; exit 2
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym)$ ]]; then
+      echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym)" >&2
+      exit 2
    fi
 done
 if [[ ! -x "$EXE" ]]; then
@@ -141,6 +147,16 @@ for g in $GROUPS_; do
          for c in rt2d-nl rt2d-mhd; do
             fresh "$c"
             python3 -I "$VERIF_DIR/gravity/make_atmosphere.py" "$W/input.ini" "$c" --cells 32 --it-save 100
+            run input.ini
+         done ;;
+      rt-sym)
+         for spec in "none:--divergence-control none" "glm:--divergence-control glm" "ch1.5:--glm-ch 1.5" \
+                     "ch6:--glm-ch 6.0" "a0:--glm-alpha 0.0" "a1:--glm-alpha 1.0" "a5:--glm-alpha 5.0" \
+                     "mincell:--glm-damping-length min-cell"; do
+            fresh "rt-sym-${spec%%:*}"
+            read -ra opt <<< "${spec#*:}"
+            python3 -I "$VERIF_DIR/gravity/make_atmosphere.py" "$W/input.ini" rt2d-mhd --cells 32 --it-save 100 \
+               "${opt[@]}"
             run input.ini
          done ;;
    esac

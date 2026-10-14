@@ -8,6 +8,8 @@
     atmosphere_oracle.py linear <workA> <workB> [--tol T]
     atmosphere_oracle.py agree <workA> <workB> [--tol T]
     atmosphere_oracle.py wave <work> [<work> ...] [--min-order P]
+    atmosphere_oracle.py growth <work> [<work> ...] --t0 T0 --t1 T1 [--tol T]
+    atmosphere_oracle.py symmetry <work> [<work> ...] [--t0 T0] [--t1 T1]
 
 `profile` reads the last checkpoint of a run written by make_atmosphere.py (fields with their ghosts) and checks, with
 the constant gravity g and the region-1 state (rho_1, p_1 at the origin) of its input:
@@ -539,6 +541,38 @@ def growth(args: argparse.Namespace) -> int:
     return status
 
 
+def mirror_asymmetry(work: Path) -> list[tuple[float, float]]:
+    """Issue #83: per checkpoint (t, a) of a uniform `rayleigh-taylor` run (gravity along -y, the mode along x), a the
+    mirror asymmetry of the density, max |rho(x, y) - rho(lambda - x, y)|. The seed cos(k x) is even about x = lambda / 2
+    (and about every multiple of it), the layers are uniform in x and x is periodic, so the exact solution keeps a = 0;
+    a measures how far the scheme amplifies its round-off."""
+    ini = read_ini(work)
+    lam = float(ini["initial_conditions"]["rt_wavelength"])
+    out = []
+    for _, (t, paths) in sorted(checkpoints(work).items()):
+        rho = {(round(float(c[0]), 12), round(float(c[1]), 12)): q["r"] for c, _, q in interior(ini, paths)}
+        xs = np.array(sorted({x for x, _ in rho}))
+        ys = sorted({y for _, y in rho})
+        dx = float(xs[1] - xs[0])
+        mirror = {float(x): float(xs[int(round((lam - x - xs[0]) / dx)) % len(xs)]) for x in xs}
+        out.append((t, max(abs(rho[(x, y)] - rho[(mirror[x], y)]) for x in mirror for y in ys)))
+    return out
+
+
+def symmetry(args: argparse.Namespace) -> int:
+    """Issue #83: the density mirror asymmetry of `rayleigh-taylor` runs (`mirror_asymmetry`) at every checkpoint and
+    its mean growth rate, the least-squares slope of ln a over [t_0, t_1]. A report: no pass or fail."""
+    for work in args.works:
+        rows = mirror_asymmetry(work)
+        for t, a in rows:
+            print(f"   {work.name}: t {t:.3f}  asymmetry {a:.3e}")
+        fit = [(t, math.log(a)) for t, a in rows if args.t0 <= t <= args.t1 and a > 0.0]
+        rate = float(np.polyfit(*zip(*fit, strict=True), 1)[0]) if len(fit) > 2 else float("nan")
+        print(f"{work.name}: asymmetry growth rate {rate:.2f} over t in [{args.t0:g}, {args.t1:g}], "
+              f"{rows[-1][1]:.1e} at t = {rows[-1][0]:.2f}")
+    return 0
+
+
 def main() -> int:
     """Parse the command line and run the check."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -568,9 +602,13 @@ def main() -> int:
     p.add_argument("--t0", type=float, required=True, help="start of the fit window")
     p.add_argument("--t1", type=float, required=True, help="end of the fit window")
     p.add_argument("--tol", type=float, default=1.0e-2)
+    p = sub.add_parser("symmetry")
+    p.add_argument("works", type=Path, nargs="+")
+    p.add_argument("--t0", type=float, default=2.0, help="start of the fit window")
+    p.add_argument("--t1", type=float, default=4.0, help="end of the fit window")
     args = parser.parse_args()
     checks = {"profile": profile, "freefall": freefall, "energy": energy, "rest": rest, "agree": agree, "wave": wave,
-              "linear": linear, "growth": growth}
+              "linear": linear, "growth": growth, "symmetry": symmetry}
     return checks[args.check](args)
 
 

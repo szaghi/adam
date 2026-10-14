@@ -2207,9 +2207,61 @@ then grows at a rate of 6 to 10, against the mode's 1.5: 2.3·10⁻¹⁰ at t = 
 (invisible in the figure). `weno-riemann` with HLLD delays it by about one time unit, 9.8·10⁻¹² at t = 3 and
 2.1·10⁻⁵ at t = 5, but it grows as fast. The peak growth rates of the mode agree (1.4931 and 1.4914). It is therefore
 not the low-β flux-splitting instability of [#77](https://github.com/szaghi/adam/issues/77): it appears under both
-flux families and at $\beta \approx 200$, and only with the field on. Its origin is open: a physical small-scale
-MHD mode, the EGLM cleaning, or a grid-scale numerical mode. A resolution study separates the first from the last,
-since a numerical rate scales like $1/\Delta x$, as in #77.
+flux families and at $\beta \approx 200$, and only with the field on. The next paragraph traces it to the divergence
+cleaning.
+
+**The mirror symmetry of the MHD run ([#83](https://github.com/szaghi/adam/issues/83)).** Why: a symmetry that the
+equations keep and the scheme loses is either physics (an unstable mode of the flow, fed by round-off) or numerics,
+and a user who reads the asymmetry needs to know which. The measure is
+$a(t) = \max |\rho(x, y) - \rho(\lambda - x, y)|$, which the exact solution keeps at zero
+(`atmosphere_oracle.py symmetry`, with its mean growth rate over $t \in [2, 4]$). The runs are `rt2d-mhd` at N = 128,
+with one cleaning parameter changed at a time (`make_doc_runs.sh <dir> rt-sym`, the FNL build, about 2 min each on two
+A30 GPUs). The figures are drawn by `make_doc_figures.py --only gravity-rt-symmetry`.
+
+| Run (`rt2d-mhd`, N = 128) | rate over t ∈ [2, 4] | $a$ at t = 4 | $a$ at t = 5 | max \|div B\| at t = 4 |
+|---|---|---|---|---|
+| hydro (`rt2d-nl`, CPU) | 1.78 | 1.2·10⁻¹⁰ | 6.3·10⁻¹⁰ | — |
+| `divergence_control = none` | 2.04 | 1.1·10⁻¹⁰ | 7.0·10⁻⁶ | **8.6** |
+| `glm`, `glm_ch` = 3 | 3.27 | 3.5·10⁻¹⁰ | 4.2·10⁻⁶ | 0.87 |
+| `eglm`, `glm_ch` = 1.5 | 4.38 | 9.9·10⁻¹⁰ | 7.0·10⁻⁶ | 1.00 |
+| `eglm`, `glm_ch` = 3 (the case's default) | 6.25 | 1.4·10⁻⁷ | 2.5·10⁻³ | 0.84 |
+| `eglm`, `glm_ch` = 6 | 10.91 | 2.7·10⁻² | 5.2·10⁻² | 0.81 |
+| `eglm`, `glm_ch` = 3, `glm_alpha` = 0 | 6.87 | 5.1·10⁻⁸ | 2.8·10⁻³ | 0.86 |
+| `eglm`, `glm_ch` = 3, `glm_alpha` = 1 | 2.91 | 1.4·10⁻⁹ | 2.8·10⁻³ | 0.87 |
+| `eglm`, `glm_ch` = 3, `glm_alpha` = 5 | 4.85 | 4.0·10⁻⁹ | 2.8·10⁻³ | 0.91 |
+| `eglm`, `glm_ch` = 3, `glm_damping_length = min-cell` | 4.09 | 5.4·10⁻¹⁰ | 3.0·10⁻³ | 0.76 |
+
+![Magnetised Rayleigh-Taylor: mirror asymmetry per cleaning and damping, rate against c_h](/flume/gravity-rt-symmetry.png)
+
+- **The cleaning drives it.** Without cleaning, the MHD run keeps its symmetry about as well as hydro does (rate 2.04
+  against 1.78). GLM raises the rate to 3.27, and EGLM to 4.4, 6.3 and 10.9 at `glm_ch` = 1.5, 3 and 6. The excess
+  over the uncleaned run grows by about 1.5 `glm_ch`. It is first seen on the shear flanks between bubble and spike.
+- **It is not a time-stepping artefact.** At CFL 0.2, which takes 2.5 times the steps, the EGLM rate at `glm_ch` = 3
+  is 5.31, against 6.25 at CFL 0.4. A fixed gain per step would have doubled the excess.
+- **It is not in the cleaned equations.** `gravity/glm_linear.py` linearises the GLM and EGLM systems about an exact,
+  divergence-free double shear layer ($V_0 = 0.5$, width 0.05, field 0.3 along the flow) and solves the spectrum by
+  Fourier collocation. At $k = 2\pi$ the largest growth rate is 1.008 (N = 128) for both systems and for every
+  $c_h$ from 0.75 to 6 (right panel). Damping ($\alpha c_h / L = c_h$) and a sheared field leave it independent of
+  $c_h$. At $k = 4\pi$ it is 0.52 at N = 128 and 0.40 at N = 256, independent of $c_h$ at both: the critical layer is
+  under-resolved there, so the value itself is not converged. The $c_h$-proportional growth is therefore a property of
+  the discretised cleaning. It acts where the discrete div B is not small: max $|\nabla\cdot\mathbf{B}| \approx 0.8$,
+  so $\Delta x\,|\nabla\cdot\mathbf{B}| / |\mathbf{B}| \approx 6\,\%$ per cell. The GLM system without
+  cleaning ($c_h = 0$, conservative MHD without the Powell terms) is the negative control: it is not hyperbolic, and
+  its rate rises with $k$ (1.6 at $4\pi$, 3.2 at $8\pi$).
+- **The damping does not cure it.** `glm_alpha` from 0 to 5, or $L = \Delta x$, moves $a$ at t = 4 within a factor of
+  about 40, with no monotone trend. Every `glm_ch` = 3 run ends with the same jump between t = 4.5 and 5, to
+  $a \approx 3 \cdot 10^{-3}$. The `glm_ch` = 1.5, GLM and uncleaned runs show a smaller late jump instead, to about
+  $10^{-5}$: a current sheet on the spike's stem that narrows to 2 cells at N = 64. It is a grid-scale effect, common to
+  every run.
+- **The cleaning still does its job on div B:** 0.8–1.0 at t = 4 under every cleaning, against 8.6 without.
+
+**Guidance.** For a magnetised run whose symmetry matters (mirror-symmetric instabilities, convergence studies of the
+small scales), set `glm_ch` only just above the fastest signal speed. `glm_ch_check = error` stops the run if the
+flow outruns it. Here 1.5 is enough: the check never fired in the `glm_ch` = 1.5 run. Prefer `glm` to `eglm`: at the
+same speed EGLM's excess is about three times GLM's (4.2 against 1.2).
+`none` keeps the symmetry best but lets div B grow tenfold, so use it only as a diagnostic. With EGLM at
+`glm_ch` = 3, take the asymmetry above about $10^{-6}$ after $t \approx 4.3$ as numerical, not physical. Run at a
+second `glm_ch` to check: a physical asymmetry does not depend on it.
 
 ## Unit tests
 
