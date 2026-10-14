@@ -11,8 +11,9 @@ module adam_flume_gravity_object
 !<
 !< Giving both forms is fatal, as is a `[gravity]` section with neither. In code units the references are 1, so the
 !< number is `1 / Fr^2 = g L0 / u0^2`; the `[reference]` layer converts the dimensional components (length / time^2)
-!< and leaves `froude` as it is. `equilibrium` (the well-balanced mode, M7-G2) accepts only `none` and `potential` only
-!< `uniform` until their phases land: any other value is fatal, never ignored.
+!< and leaves `froude` as it is. `equilibrium` selects the well-balanced mode (M7-G2b): `none` (default) or `atmosphere`
+!< (the atmosphere of the initial conditions, at rest, is kept to round-off: the residual of that state is subtracted
+!< from every residual). `potential` accepts only `uniform`. Any other value is fatal, never ignored.
 !<
 !< Without the section there is no gravity (`is_active` false) and nothing changes. With it, `g` sets the atmosphere
 !< initial conditions and the `hydrostatic` boundary condition (M7-G0) and drives the momentum and energy sources
@@ -31,20 +32,23 @@ use :: penf,                  only : I4P, R8P, str
 implicit none
 private
 public :: flume_gravity_object
+public :: EQUILIBRIUM_ATMOSPHERE, EQUILIBRIUM_NONE
 
 character(len=7), parameter :: INI_SECTION_NAME="gravity"                  !< INI section name.
 character(len=3), parameter :: G_KEY(3)=['g_x', 'g_y', 'g_z']              !< Acceleration component keys.
 character(len=2), parameter :: AXIS_STR(6)=['+x', '-x', '+y', '-y', '+z', '-z'] !< Accepted `axis` spellings.
-character(len=4), parameter :: EQUILIBRIUM_NONE="none"                     !< `equilibrium`: no well-balanced mode.
+character(len=4),  parameter :: EQUILIBRIUM_NONE="none"                    !< `equilibrium`: no well-balanced mode.
+character(len=10), parameter :: EQUILIBRIUM_ATMOSPHERE="atmosphere"        !< `equilibrium`: the initial atmosphere.
 character(len=7), parameter :: POTENTIAL_UNIFORM="uniform"                 !< `potential`: constant acceleration.
 
 type :: flume_gravity_object
    !< FLUME external gravity, code units.
    real(R8P)                 :: g(3)=0._R8P   !< Constant acceleration.
    real(R8P)                 :: froude=0._R8P !< Froude number, 0 when g is given by its components.
-   character(:), allocatable :: equilibrium   !< Well-balanced equilibrium (M7-G2): none.
+   character(:), allocatable :: equilibrium   !< Well-balanced equilibrium (M7-G2b): none or atmosphere.
    character(:), allocatable :: potential     !< Potential kind: uniform.
    logical                   :: is_active=.false. !< `[gravity]` given.
+   logical                   :: is_balanced=.false. !< Well-balanced mode on (`equilibrium` not none).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -71,7 +75,7 @@ contains
 
    subroutine load_from_file(self, file_parameters)
    !< Load the gravity from file: the components or `froude` + `axis` (both fatal, neither fatal), `equilibrium` and
-   !< `potential` (optional, only `none` and `uniform` until M7-G2).
+   !< `potential` (optional: `none` or `atmosphere`, and `uniform`).
    class(flume_gravity_object), intent(inout) :: self            !< Gravity.
    type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    character(999)                             :: buff            !< Option value buffer.
@@ -84,8 +88,15 @@ contains
    self%froude = 0._R8P
    self%equilibrium = EQUILIBRIUM_NONE
    self%potential = POTENTIAL_UNIFORM
+   self%is_balanced = .false.
    self%is_active = file_parameters%has_section(section_name=INI_SECTION_NAME)
    if (.not.self%is_active) return
+   ! the string keys first: under nvfortran (26.1) a character get that follows the failed get of an absent numeric key
+   ! (an unused g_* or froude) returns an empty value (FiNeR, class(*) dummy); found by M7-G2b on FNL
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='equilibrium', val=buff, error=error)
+   if (error <= 0) self%equilibrium = trim(adjustl(strip_control(buff)))
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='potential', val=buff, error=error)
+   if (error <= 0) self%potential = trim(adjustl(strip_control(buff)))
    has_component = .false.
    do d=1, 3
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name=G_KEY(d), val=self%g(d), error=error)
@@ -112,13 +123,10 @@ contains
    elseif (.not.has_component) then
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs g_x, g_y, g_z or froude and axis')
    endif
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='equilibrium', val=buff, error=error)
-   if (error <= 0) self%equilibrium = trim(adjustl(strip_control(buff)))
-   if (self%equilibrium /= EQUILIBRIUM_NONE) &
-      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(equilibrium) "'//self%equilibrium//'" is not available '// &
-                               '(the well-balanced mode lands in issue #73, M7-G2); expected none')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='potential', val=buff, error=error)
-   if (error <= 0) self%potential = trim(adjustl(strip_control(buff)))
+   if (self%equilibrium /= EQUILIBRIUM_NONE .and. self%equilibrium /= EQUILIBRIUM_ATMOSPHERE) &
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(equilibrium) "'//self%equilibrium//'"; expected '// &
+                               EQUILIBRIUM_NONE//' or '//EQUILIBRIUM_ATMOSPHERE)
+   self%is_balanced = self%equilibrium == EQUILIBRIUM_ATMOSPHERE
    if (self%potential /= POTENTIAL_UNIFORM) &
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(potential) "'//self%potential//'"; expected '// &
                                POTENTIAL_UNIFORM)

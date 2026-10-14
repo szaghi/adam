@@ -31,7 +31,7 @@ use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, I
                                              MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,                   &
                                              POSITIVITY_LIMITER_CELL, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,            &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
-                                             SCHEME_SPACE_WENO_RIEMANN
+                                             REFLUX_POLICY_TROUBLED, SCHEME_SPACE_WENO_RIEMANN
 use :: adam_weno_object,              only : WENO_WEIGHTS_SI
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_reference_object,   only : flume_reference_object
@@ -645,8 +645,9 @@ contains
    !<
    !< Both backends allocate the same nb-sized arrays, on the host (CPU) or on the device (FNL): `q`, `dq` (2 nv),
    !< `q_aux` (nv_aux), the three face fluxes (3 nv, counted as full block fields) and the Runge-Kutta stages
-   !< (`rk_stored_stages_number` nv), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange).
-   !< Requires `physics` and `numerics` initialized.
+   !< (`rk_stored_stages_number` nv), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange),
+   !< the fourth-order gravity energy correction (1, every run, issue #73 M7-G2a) and the equilibrium residual of the
+   !< well-balanced mode (nv, M7-G2b). Requires `physics` and `numerics` initialized.
    class(flume_common_object), intent(inout) :: self            !< The equation.
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),               intent(out)   :: fields_number   !< Block-sized fields allocated per block.
@@ -661,6 +662,8 @@ contains
       call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//trim(adjustl(rk_scheme))//'" in [runge_kutta].(scheme)')
    fields_number = self%physics%nv * (2_I4P + 3_I4P + stages_number) + self%physics%nv_aux
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) fields_number = fields_number + self%physics%nv
+   fields_number = fields_number + 1_I4P
+   if (self%physics%gravity%is_balanced) fields_number = fields_number + self%physics%nv
    endsubroutine compute_fields_number
 
    subroutine destroy_common(self)
@@ -1403,6 +1406,11 @@ contains
    enddo
    if (self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': [gravity] is not supported with immersed solids yet (issue #73)')
+   ! the well-balanced mode (M7-G2b) subtracts the residual of a stored equilibrium, whose reflux correction is fixed:
+   ! a reflux that changes its cells per step (policy troubled) cannot be subtracted
+   if (self%physics%gravity%is_balanced .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
+      call mpih%error_stop(msg=': [gravity].(equilibrium) = atmosphere is refused with [numerics].(reflux_policy) = '// &
+                               'troubled (the reflux cells change per step; the equilibrium residual is fixed)')
    endsubroutine check_gravity
 
    subroutine log_gravity_regime(self)

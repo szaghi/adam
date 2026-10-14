@@ -139,7 +139,7 @@ use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_
 use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev, compute_dflux_norms_dev, copy_state_dev,          &
                                               compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
                                               add_gravity_sources_dev, add_gravity_limited_correction_dev,             &
-                                              compute_gravity_correction_faces_dev,                                    &
+                                              compute_gravity_correction_faces_dev, subtract_equilibrium_residual_dev, &
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
                                               gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skin_dev,     &
                                               scatter_seam_cells_dev, scatter_seam_faces_dev,                          &
@@ -153,6 +153,11 @@ use :: penf,                      only : I4P, I8P, R8P, str
 implicit none
 private
 public :: flume_fnl_object
+
+type :: equilibrium_seam_face
+   !< The equilibrium's flux mismatch of one register face, `F_coarse - F_fine_sum` per skin cell (issue #73, M7-G2b).
+   real(R8P), allocatable :: d(:,:) !< Mismatch [nv, nface_cells].
+endtype equilibrium_seam_face
 
 type, extends(flume_common_object) :: flume_fnl_object
    !< FLUME FNL backend object.
@@ -170,6 +175,11 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: flz_f_gpu(:,:,:,:,:)=>null() !< Z-face fluxes [nb, 1:ni, 1:nj, 0:nk, nv].
    real(R8P), pointer     :: gcor_gpu(:,:,:,:,:)=>null()  !< Fourth-order correction of the gravity energy source
                                                           !< (issue #73, M7-G2a) [nb, i, j, k, 1]; zero without gravity.
+   real(R8P), pointer     :: dq_e_gpu(:,:,:,:,:)=>null()  !< Residual of the hydrostatic equilibrium (issue #73, M7-G2b)
+                                                          !< [nb, i, j, k, nv]; well-balanced only.
+   type(equilibrium_seam_face), allocatable :: seam_e(:)  !< The equilibrium's 2:1 flux mismatch per register face.
+   logical                :: equilibrium_stale=.true.     !< dq_e_gpu describes another grid (init, regrid).
+   logical                :: equilibrium_computing=.false. !< dq_e_gpu is being computed: no subtraction.
    type(flume_seam_sync_object) :: seam                   !< Per-stage seam flux synchronisation of the limiter (issue #50).
    real(R8P), pointer     :: lam_gpu(:,:,:,:,:)=>null()   !< Positivity limiter cell factors (component 1, q-shaped for
                                                           !< the ghost exchange) [nb, i, j, k, nv]; with the limiter.
@@ -196,6 +206,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: compute_gravity_correction !< Compute the fourth-order gravity energy correction.
+      procedure, pass(self) :: refresh_equilibrium_residual !< Recompute the equilibrium residual if stale.
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
@@ -506,6 +517,12 @@ contains
    call dev_alloc(fptr_dev=self%gcor_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,1], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate gcor_gpu in flume_fnl_object%allocate_gpu')
+   if (self%physics%gravity%is_balanced) then
+      call dev_alloc(fptr_dev=self%dq_e_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
+                     init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate dq_e_gpu in flume_fnl_object%allocate_gpu')
+      self%equilibrium_stale = .true.
+   endif
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
       call dev_alloc(fptr_dev=self%lam_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                      init_value=1._R8P, ierr=ierr)
@@ -828,6 +845,7 @@ contains
    call free_gpu(self%flz_f_gpu)
    call free_gpu(self%lam_gpu)
    call free_gpu(self%gcor_gpu)
+   call free_gpu(self%dq_e_gpu)
    if (associated(self%q_inflow_gpu)) then
       call dev_free(self%q_inflow_gpu, mydev)
       nullify(self%q_inflow_gpu)
@@ -884,6 +902,9 @@ contains
    if (realms_number_ > 1_I4P .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call mpih_fnl%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported on multi-realm runs (the '// &
                                    'inter-realm seam faces carry no limiting factor)')
+   if (realms_number_ > 1_I4P .and. self%physics%gravity%is_balanced) &
+      call mpih_fnl%error_stop(msg=': [gravity].(equilibrium) = atmosphere is not supported on multi-realm runs '// &
+                                   '(the equilibrium residual would need the equilibrium of the peer realms at the seams)')
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
@@ -1470,6 +1491,7 @@ contains
    if ((self%time%it_max <= 0_I4P) .and. (self%time%time + dt > self%time%time_max)) &
       self%time%dt = self%time%time_max - self%time%time
    call self%log_gravity_regime
+   call self%refresh_equilibrium_residual
    call self%integrate_dev
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -1524,6 +1546,10 @@ contains
       if (axis == 0_I4P) call mpih_fnl%error_stop(msg=': malformed coarse face code of register face '//trim(str(f)))
       allocate(delta(self%nv,face%nface_cells))
       delta = face%F_coarse(1:self%nv,:,1) - face%F_fine_sum(1:self%nv,:,1)
+      ! the well-balanced mode (issue #73, M7-G2b): the equilibrium's own mismatch is not refluxed
+      if (allocated(self%seam_e)) then
+         if (allocated(self%seam_e(f)%d)) delta = delta - self%seam_e(f)%d
+      endif
       ! EGLM (issue #68 G3b): B is not a conserved integral under the Derigs sources, and refluxing it breaks the
       ! cancellation of the flux-generated B_z (#78); rho, rho u, E and psi are refluxed
       if (self%physics%model == MODEL_MHD_EGLM) delta(IQ_BX:IQ_BX+2,:) = 0._R8P
@@ -1847,6 +1873,7 @@ contains
    if ((self%time%it_max <= 0_I4P) .and. (self%time%time + dt > self%time%time_max)) &
       self%time%dt = self%time%time_max - self%time%time
    call self%log_gravity_regime
+   call self%refresh_equilibrium_residual
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    endsubroutine open_step_forest
 
@@ -1916,6 +1943,7 @@ contains
    enddo
    regridded = sweeps > 0_I4P
    if (.not.regridded) return
+   self%equilibrium_stale = .true. ! the equilibrium residual of the new grid (M7-G2b), at the next step
    blocks(2) = self%blocks_number
    call MPI_ALLREDUCE(MPI_IN_PLACE, blocks, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call self%check_regridded_state
@@ -1976,6 +2004,57 @@ contains
    endif
    call dev_free(buf_gpu, mydev)
    endsubroutine copy_blocks_transposed
+
+   subroutine refresh_equilibrium_residual(self)
+   !< Recompute the residual of the hydrostatic equilibrium when the grid it describes is gone (issue #73, M7-G2b;
+   !< device twin of the CPU procedure): the equilibrium is set on the host (`ic%set_equilibrium`) and copied into a
+   !< scratch device field, its residual evaluated into `dq_e_gpu`; at AMR 2:1 seams the equilibrium's seam fluxes are
+   !< accumulated with weight 1 into the realm's copy of the register, completed across the ranks, and their mismatch
+   !< stored per face (`seam_e`) for the reflux to subtract.
+   class(flume_fnl_object), intent(inout) :: self              !< The equation.
+   real(R8P), allocatable, target         :: qe(:,:,:,:,:)     !< Equilibrium, host (v, i, j, k, b).
+   real(R8P), pointer                     :: qe_gpu(:,:,:,:,:) !< Equilibrium, device (b, i, j, k, v).
+   integer(I4P)                           :: f                 !< Register face counter.
+   integer(I4P)                           :: ierr              !< Error status.
+
+   if (.not.self%physics%gravity%is_balanced) return
+   if (.not.self%equilibrium_stale) return
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nb=>self%blocks_number, &
+             reg=>self%flux_register_copy)
+   allocate(qe(1:nv,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:max(1_I4P,nb)))
+   qe = 0._R8P
+   call self%ic%set_equilibrium(field=self%adam%field, q=qe)
+   call dev_alloc(fptr_dev=qe_gpu, ubounds=[self%nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
+                  init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate qe_gpu in refresh_equilibrium_residual')
+   call copy_blocks_transposed(blocks_number=nb, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, a=qe, a_gpu=qe_gpu, &
+                               to_device=.true.)
+   if (allocated(self%seam_e)) deallocate(self%seam_e)
+   self%equilibrium_computing = .true.
+   if (self%numerics%reflux .and. reg%is_initialized_ .and. reg%nfaces > 0_I4P) then
+      call reg%reset
+      call self%compute_residuals_dev(q_gpu=qe_gpu, dq_gpu=self%dq_e_gpu, flux_register=reg)
+      call self%accumulate_seam_fluxes(s=1_I4P, flux_register=reg, weight=1._R8P)
+      call reg%reduce_fine_sums
+      allocate(self%seam_e(reg%nfaces))
+      if (allocated(reg%face)) then
+         do f=1, reg%nfaces
+            associate(face=>reg%face(f))
+            if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+            if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
+            self%seam_e(f)%d = face%F_coarse(1:nv,1:face%nface_cells,1) - face%F_fine_sum(1:nv,1:face%nface_cells,1)
+            endassociate
+         enddo
+      endif
+      call reg%reset
+   else
+      call self%compute_residuals_dev(q_gpu=qe_gpu, dq_gpu=self%dq_e_gpu)
+   endif
+   self%equilibrium_computing = .false.
+   self%equilibrium_stale = .false.
+   call dev_free(qe_gpu, mydev)
+   endassociate
+   endsubroutine refresh_equilibrium_residual
 
    subroutine compute_gravity_correction(self, q_gpu)
    !< Compute the fourth-order correction of the gravity energy source into `gcor_gpu` (issue #73, M7-G2a; device twin
@@ -2223,6 +2302,9 @@ contains
                                    q_aux_gpu=self%q_aux_gpu, dq_gpu=dq_gpu)
       endif
    endif
+   if (self%physics%gravity%is_balanced .and. .not.self%equilibrium_computing) &
+      call subtract_equilibrium_residual_dev(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
+                                             dq_e_gpu=self%dq_e_gpu, dq_gpu=dq_gpu)
    endassociate
    endsubroutine compute_residuals_weno_dev
 
@@ -2382,6 +2464,9 @@ contains
                                    q_aux_gpu=self%q_aux_gpu, dq_gpu=dq_gpu)
       endif
    endif
+   if (self%physics%gravity%is_balanced .and. .not.self%equilibrium_computing) &
+      call subtract_equilibrium_residual_dev(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
+                                             dq_e_gpu=self%dq_e_gpu, dq_gpu=dq_gpu)
    endassociate
    endsubroutine compute_residuals_riemann_dev
 

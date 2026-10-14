@@ -34,6 +34,18 @@
 #        orders of rho and p of the finest pair at least 3.5 (atmosphere_oracle.py wave). The face form of M7-G1 alone
 #        gives 2 (the energy source is then second order); its fourth-order correction restores the scheme's order.
 #
+# M7-G2b (the well-balanced mode, [gravity] equilibrium = atmosphere; with the force, np 2, N = 32):
+#   GV-2b strat2d (isothermal, ten scale heights) and polystrat2d (polytropic, G = 1.2) at rest to t = 0.5: balanced
+#         max |u| / c below 1e-12 (asserted); the unbalanced strat2d reported;
+#   GV-5  strat2d-mhdy, strat2d-mhdx (EGLM, a uniform field along and across g) to t = 0.2, balanced, on weno and on
+#         weno-riemann (HLLD): below 1e-12;
+#   GV-8  strat2d-amr (a refined box, 2:1 seams across the stratification) to t = 0.5: balanced below 1e-12 (the
+#         equilibrium's seam mismatch is subtracted from the reflux), the unbalanced one reported;
+#   GV-10 strat2d with a pressure pulse of 1e-6 and of 1e-4 to t = 0.1: the balanced responses per unit amplitude
+#         agree to 1e-2 (asserted; the unbalanced ones are reported: their stationary truncation flow does not scale).
+#   GV-7 (--agree) also compares the balanced 1e-4 pulse and the balanced strat2d-amr runs (momentum scaled by at
+#         least max rho c: a balanced momentum is the perturbation, round-off at rest).
+#
 # Usage: ./check.sh [--np "1 2"] [--cases "iso2d ..."] [--reference] [--no-force] [--scaling] [--agree TAG] [--keep]
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -141,6 +153,44 @@ if [[ $FORCE -eq 1 ]]; then
       "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" wave "${wave[@]}" || FAILED=1
       [[ $KEEP -eq 1 ]] || for w in "${wave[@]}"; do find "$w" -name '*.h5' -delete; done
    done
+   g2b() { # g2b <name> <case> [make_atmosphere options]: run one G2b case at np 2, echo its work directory
+      local work="$CASE_DIR/work-$TAG-np2-$1" ; shift
+      rm -rf "${work:?}" ; mkdir -p "$work"
+      python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" "$@"
+      run_case "$work" 2 > /dev/null && echo "$work"
+   }
+   echo "-- GV-2b: strat2d unbalanced (reported), strat2d and polystrat2d balanced (max |u| / c < 1e-12)"
+   unb=$(g2b strat2d-unb strat2d) || FAILED=1
+   [[ -n "$unb" ]] && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$unb"
+   bal=()
+   for case in strat2d polystrat2d; do
+      w=$(g2b "$case-bal" "$case" --balanced) && bal+=("$w") || FAILED=1
+   done
+   "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${bal[@]}" --max 1e-12 || FAILED=1
+   echo "-- GV-5: strat2d-mhdy, strat2d-mhdx balanced, weno and weno-riemann (HLLD) (max |u| / c < 1e-12)"
+   mhd=()
+   for case in strat2d-mhdy strat2d-mhdx; do
+      w=$(g2b "$case-bal" "$case" --balanced --time-max 0.2) && mhd+=("$w") || FAILED=1
+      w=$(g2b "$case-bal-hlld" "$case" --balanced --time-max 0.2 --riemann hlld) && mhd+=("$w") || FAILED=1
+   done
+   "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${mhd[@]}" --max 1e-12 || FAILED=1
+   echo "-- GV-8: strat2d-amr unbalanced (reported), balanced (max |u| / c < 1e-12)"
+   w=$(g2b amr-unb strat2d-amr) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w"
+   w=$(g2b amr-bal strat2d-amr --balanced) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w" --max 1e-12 \
+      || FAILED=1
+   echo "-- GV-10: a pressure pulse of 1e-6 and 1e-4 on strat2d, unbalanced (reported) and balanced (linear to 1e-2)"
+   for mode in unb bal; do
+      opt=() ; [[ $mode == bal ]] && opt=(--balanced)
+      a=$(g2b "lin-$mode-6" strat2d --pulse 1e-6 --time-max 0.1 "${opt[@]}")
+      b=$(g2b "lin-$mode-4" strat2d --pulse 1e-4 --time-max 0.1 "${opt[@]}")
+      if [[ $mode == bal ]]; then
+         "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" linear "$a" "$b" || FAILED=1
+      else
+         "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" linear "$a" "$b" | sed 's/: FAIL (tol/: reported, not asserted (tol/' || true
+      fi
+   done
+   [[ $KEEP -eq 1 || -n "$AGREE" ]] || find "$CASE_DIR"/work-"$TAG"-np2-*-bal* "$CASE_DIR"/work-"$TAG"-np2-*-unb* \
+      "$CASE_DIR"/work-"$TAG"-np2-lin-* -name '*.h5' -delete
 fi
 
 if [[ $SCALING -eq 1 ]]; then
@@ -156,8 +206,8 @@ if [[ $SCALING -eq 1 ]]; then
 fi
 
 if [[ -n "$AGREE" ]]; then
-   echo "-- GV-7: box2d, box2d-mhd against $AGREE"
-   for case in box2d box2d-mhd; do
+   echo "-- GV-7: box2d, box2d-mhd, lin-bal-4, amr-bal against $AGREE"
+   for case in box2d box2d-mhd lin-bal-4 amr-bal; do
       "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" agree "$CASE_DIR/work-$TAG-np2-$case" "$CASE_DIR/work-$AGREE-np2-$case" \
          || FAILED=1
    done

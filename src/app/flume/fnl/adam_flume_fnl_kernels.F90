@@ -29,6 +29,7 @@ public :: apply_reflux_face_dev
 public :: compute_flux_difference_dev
 public :: add_gravity_sources_dev
 public :: compute_gravity_correction_faces_dev
+public :: subtract_equilibrium_residual_dev
 public :: add_gravity_limited_correction_dev
 public :: compute_dflux_norms_dev
 public :: copy_state_dev
@@ -250,6 +251,32 @@ contains
    enddo
    enddo
    endsubroutine add_gravity_sources_dev
+
+   subroutine subtract_equilibrium_residual_dev(nv, ni, nj, nk, ngc, blocks_number, dq_e_gpu, dq_gpu)
+   !< Subtract the residual of the hydrostatic equilibrium from the residual of the stage (issue #73, M7-G2b; device
+   !< twin of the CPU `subtract_equilibrium_residual`).
+   integer(I4P), intent(in)    :: nv                                   !< Variables number.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                      !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                        !< Actual blocks number.
+   real(R8P),    intent(in)    :: dq_e_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Equilibrium residual.
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Residuals.
+   integer(I4P)                :: b, i, j, k, v                        !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(dq_e_gpu,dq_gpu) &
+   !$acc& firstprivate(nv,ni,nj,nk,blocks_number)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(dq_e_gpu,dq_gpu) firstprivate(nv,ni,nj,nk,blocks_number)
+   do v=1, nv
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      dq_gpu(b,i,j,k,v) = dq_gpu(b,i,j,k,v) - dq_e_gpu(b,i,j,k,v)
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine subtract_equilibrium_residual_dev
 
    subroutine compute_gravity_correction_faces_dev(ni, nj, nk, ngc, blocks_number, g, flx_f_gpu, fly_f_gpu, flz_f_gpu, &
                                                    gc_gpu)

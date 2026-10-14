@@ -2044,6 +2044,57 @@ mass 7.7·10⁻¹⁵, $W$ 7.7·10⁻¹⁵ (the plain $E + \rho\Phi$ 3.3·10⁻�
 $\Lambda$), no inadmissible backbone, mass 9.4·10⁻¹⁵, $W$ 1.2·10⁻⁶ (limited cells only); `box2d-stiff` runs, mass
 1.2·10⁻¹⁴; GV-2 unchanged; GV-6 and NV-5 bitwise; GV-7 FNL against CPU ≤ 7.9·10⁻¹⁴ per field.
 
+### GV (G2b): the well-balanced mode
+
+**Why.** Without balancing, the truncation errors of the flux difference and of the gravity source do not cancel on a
+stratified atmosphere at rest: it drives a stationary flow (GV-2: Mach $6\cdot10^{-4}$ on ten scale heights at N = 32,
+$10^{-2}$ across a 2:1 seam) that swamps any perturbation smaller than it. G2b keeps a known equilibrium as an exact
+discrete steady state with residual subtraction, the deviation method (Edelmann et al. 2021, §4.3; the alternative of
+Xing & Shu 2013 and Li & Xing 2018, a modified Lax–Friedrichs split with the source reconstructed by the same WENO
+operator, was prototyped in NumPy and matched it to three digits, but covers the flux-splitting path only).
+
+**The mode.** `[gravity] equilibrium = atmosphere`: the initial atmosphere at rest $q_e$ (zero velocity, region 1's
+field, no pulse). Its residual $R(q_e)$ is computed with the run's own space operator (ghosts, boundary conditions,
+seam fill, limiter, every source) once per grid, at the first step, after a restart and after every regrid, and
+subtracted from every stage residual. At $q = q_e$ the two are the same operator on the same state, at 2:1 seams too.
+The end-of-step reflux would still add the equilibrium's coarse–fine flux mismatch, so that mismatch is stored per
+register face and the reflux subtracts it. Folding it into $R(q_e)$ instead was tried and fails: the coarse seam cells
+then carry a stage residual, the stages leave the equilibrium and the fine ghosts follow (Mach $6\cdot10^{-5}$ on the
+AMR box; exact with the reflux off). The residual and the reflux each conserve for the state and for the
+equilibrium, so the difference conserves.
+
+**Cases** (`gravity/check.sh`, np 2, N = 32, CFL 0.4): `strat2d`, isothermal, $\mathbf g = (0, -10)$ on the unit box,
+ten scale heights (density ratio $2.2\cdot10^4$); `polystrat2d`, polytropic $G = 1.2$, $\mathbf g = (0, -4)$ (ratio
+243); `strat2d-mhdy`, `strat2d-mhdx`, EGLM with a uniform field along and across $\mathbf g$ ($|\mathbf B| = 0.05$,
+$\beta \approx 7$ at the top); `strat2d-amr`, a refined box $[0.25, 0.75]^2$; x periodic, y `hydrostatic`.
+
+| Leg | Asserted | Unbalanced | Balanced (CPU = FNL) |
+|---|---|---|---|
+| GV-2b `strat2d`, t = 0.5 | $\max|\mathbf u|/c < 10^{-12}$ | 5.9·10⁻⁴ | 0 |
+| GV-2b `polystrat2d`, t = 0.5 | as above | 1.5·10⁻³ | 0 |
+| GV-5 `strat2d-mhdy`, `weno` / `weno-riemann` HLLD | as above | 5.9·10⁻⁴ | 0 / 0 |
+| GV-5 `strat2d-mhdx`, `weno` / `weno-riemann` HLLD | as above | 2.3·10⁻⁴ | 0 / 0 |
+| GV-8 `strat2d-amr`, t = 0.5 | as above | 1.2·10⁻² | 2.8·10⁻¹⁵ (FNL), 3.3·10⁻¹⁵ (CPU) |
+| GV-10 pulses $10^{-6}$, $10^{-4}$ on `strat2d`, t = 0.1 | responses per unit amplitude agree to $10^{-2}$ | differ by 97 (reported) | 5.7·10⁻⁵ |
+| GV-7 FNL against CPU, the $10^{-4}$ pulse and `strat2d-amr` | per field $\le 10^{-10}$ | — | ≤ 7.8·10⁻¹⁶ |
+
+(The unbalanced MHD values are at t = 0.5 from the trial; `check.sh` runs the MHD legs to t = 0.2.) The balanced rest
+is exactly zero where the state equals the stored equilibrium bit for bit; on the AMR box the reflux arithmetic leaves
+round-off. GV-10 shows what the mode is for: the balanced response is linear in the amplitude to its second order
+(5.7·10⁻⁵ against $A = 10^{-4}$), while the unbalanced one is dominated by its own stationary flow. GV-7 scales the momentum by at least
+$\max\rho c$: a balanced run's momentum is the perturbation, round-off at rest, and the backends' round-off of the
+$O(1)$ residuals that the subtraction cancels (≤ 6·10⁻¹⁵ $\rho c$) would read $O(1)$ against its own maximum.
+
+**Limits.** The subtracted residual is outside the positivity limiter's factor: at the equilibrium the factor is 1 and
+the balance exact, but the limiter's guarantee does not cover that term (the equilibrium's truncation error, small
+where the atmosphere is resolved). Refused: multi-realm runs (the peer realms' equilibrium would be needed at the
+seams) and `reflux_policy = troubled` (its reflux cells change per step). One field and one residual evaluation per
+grid.
+
+**Found on the way** (FNL, nvfortran 26.1 with FiNeR): a character `get` right after the failed `get` of an absent
+numeric key returns an empty value with no error; `equilibrium = atmosphere` read as "" after the absent `froude`. The
+gravity section now reads its string keys first.
+
 ## Unit tests
 
 | Test | What it pins |

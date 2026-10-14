@@ -546,7 +546,7 @@ section there is no gravity and nothing changes.
 | `g_x`, `g_y`, `g_z` | real | one of the two forms | any; each optional (default 0) | The acceleration. Dimensional (length / time²) with [`[reference]`](#reference-optional-dimensional-input). |
 | `froude` | real | the other form, with `axis` | `> 0`, otherwise fatal | The number form: $g = 1/\mathrm{Fr}^2$ along `axis` ($g L_0/u_0^2$ in the reference units; not converted by `[reference]`). |
 | `axis` | string | with `froude` | `+x`, `-x`, `+y`, `-y`, `+z`, `-z`; other → fatal | The signed direction of $\mathbf g$. |
-| `equilibrium` | string | no (default `none`) | `none` only for now; any other value is fatal | The well-balanced mode (M7-G2). |
+| `equilibrium` | string | no (default `none`) | `none` or `atmosphere`; other → fatal. `atmosphere` needs an `isothermal-atmosphere` or `polytropic-atmosphere` initial condition, and is fatal with `[numerics] reflux_policy = troubled` and on multi-realm runs | The well-balanced mode (M7-G2b): the initial atmosphere at rest (zero velocity, region 1's field, no pulse) is kept to round-off. See below. |
 | `potential` | string | no (default `uniform`) | `uniform` only; other → fatal | The kind of potential: a constant acceleration. |
 
 Giving `g_*` together with `froude` is fatal, as is a section with neither.
@@ -571,6 +571,14 @@ boundary condition (M7-G0), and drives the sources (M7-G1):
   $\rho\mathbf g\cdot(\mathbf u + \mathbf g\,\Delta t/2)$, which leaves its internal energy unchanged, and limits the rest
   of the face form with the cell factor $\Lambda$: gravity never makes the backbone inadmissible (near vacuum, or with
   $g\Delta t$ above the sound speed), and $E + \rho\Phi$ stays exact wherever the limiter does not act;
+- with `equilibrium = atmosphere` (M7-G2b, the deviation method of Edelmann et al. 2021, §4.3), the residual of the
+  atmosphere at rest is computed once per grid (at the first step, after a restart, after every regrid) with the
+  run's own space operator and subtracted from every residual: the atmosphere is then an exact discrete steady state
+  (round-off), on `weno` and `weno-riemann`, Euler and MHD, across AMR 2:1 seams (the equilibrium's reflux is folded
+  into its residual), and a perturbation of it evolves without the stationary truncation flow of the unbalanced
+  scheme ([verification](./verification#gv-g2b-the-well-balanced-mode)). It costs one more field (the stored
+  residual) and one residual evaluation per grid. The subtracted residual is outside the positivity limiter's factor:
+  it is the truncation error of the equilibrium, small against the state wherever the atmosphere is resolved;
 - no time-step limit: the first step logs $|\mathbf g|\,\Delta t^2/(\mathrm{CFL}\,h_{\min})$, at least the velocity
   gravity adds in a step over the fastest wave speed (near 1 or above, gravity is stiff);
 - refused (fatal) along a null direction and with immersed solids.
@@ -655,7 +663,7 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `rotated-riemann` | any | 2 (states given in the **normal frame**: `u`, `bx` normal; `v`, `by` tangential) | `normal_x`, `normal_y` (not both 0), `interface_1`, `interface_2`, `period` (`> 0`), `interface_2_width` (`>= 0`). Requires `interface_1 < interface_2` and `interface_2 + interface_2_width < interface_1 + period`, fatal otherwise. |
 | `shu-osher` | **euler** | 2 | `axis` (string `x`/`y`/`z`), `interface`, `rho_amplitude`, `rho_wavenumber`. Requires `rho_amplitude < region_2 r`. Region 1 applies where `s <= interface`; region 2 applies elsewhere, with `r + rho_amplitude * sin(rho_wavenumber * s)`. |
 | `linear` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z` (inverse length). Every conservative variable is `q_1 (1 + g . x)`, `q_1` the state of region 1: the verification field of the ghost probe (issue #65 P0), not a flow. |
-| `isothermal-atmosphere` | any | 1 (the state at the origin; its velocity and field uniform) | No extra keys; needs `[gravity]` (fatal otherwise). $\rho = \rho_1 \exp(\mathbf g\cdot\mathbf x / T_1)$, $p = \rho T_1$, $T_1 = p_1/\rho_1$: the hydrostatic equilibrium of the constant gravity ([#73](https://github.com/szaghi/adam/issues/73)). |
+| `isothermal-atmosphere` | any | 1 (the state at the origin; its velocity and field uniform) | Needs `[gravity]` (fatal otherwise). Optional, both atmospheres: a relative pressure pulse $p(1 + A e^{-|\mathbf x - \mathbf x_0|^2/w^2})$, `pulse_amplitude` $A$ (default 0), `pulse_x`, `pulse_y`, `pulse_z` ($\mathbf x_0$), `pulse_width` $w$ (`> 0` when $A \ne 0$, fatal otherwise; M7-G2b). $\rho = \rho_1 \exp(\mathbf g\cdot\mathbf x / T_1)$, $p = \rho T_1$, $T_1 = p_1/\rho_1$: the hydrostatic equilibrium of the constant gravity ([#73](https://github.com/szaghi/adam/issues/73)). |
 | `polytropic-atmosphere` | any | 1 (as above) | `polytropic_gamma` $G > 1$ (fatal otherwise); needs `[gravity]`. $p = p_1(\rho/\rho_1)^G$, $\rho = \rho_1 s^{1/(G-1)}$, $s = 1 + \frac{G-1}{G}\frac{\rho_1}{p_1}\mathbf g\cdot\mathbf x$; fatal where $s \le 0$ (the top of the atmosphere inside the domain). |
 | `polynomial` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z`, `degree` (an integer $n \ge 1$). Every conservative variable is `q_1 (1 + sum_d g_d x_d^n)`: the ghost probe's field for the high-order seam operators ([#68](https://github.com/szaghi/adam/issues/68) D1), not a flow. Fatal under a non-dimensional reference (`g_d` has dimension $L^{-n}$). |
 

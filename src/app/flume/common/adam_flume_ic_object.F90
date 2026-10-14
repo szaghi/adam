@@ -145,6 +145,8 @@ character(len=5),  parameter :: SINE_MODE_SHEAR="shear"                  !< Sine
 character(len=8),  parameter :: SINE_MODE_ACOUSTIC="acoustic"            !< Sine wave: right-running acoustic wave.
 character(len=8),  parameter :: SINE_MODE_MAGNETIC="magnetic"            !< Sine wave: transverse field (MHD).
 character(len=7),  parameter :: SINE_MODE_ENTROPY="entropy"              !< Sine wave: density (entropy) wave.
+character(len=15), parameter :: ATM_PULSE_KEY(5)=['pulse_amplitude', 'pulse_x        ', 'pulse_y        ', &
+                                                  'pulse_z        ', 'pulse_width    '] !< Atmosphere pulse keys.
 character(len=7),  parameter :: IC_COUETTE_STR="couette"                 !< Exact compressible Couette flow (issue #65).
 character(len=16), parameter :: COUETTE_KEY(4)=['wall_y0         ', 'height          ', &
                                                 'wall_velocity   ', 'wall_temperature'] !< Couette keys.
@@ -213,12 +215,16 @@ type :: flume_ic_object
    real(R8P)                 :: cp=0._R8P            !< Specific heat at constant pressure.
    real(R8P)                 :: g(3)=0._R8P          !< Atmospheres: gravity.
    real(R8P)                 :: polytropic_gamma=0._R8P !< Polytropic atmosphere: exponent G of p ~ rho^G.
+   real(R8P)                 :: atm_pulse(5)=0._R8P  !< Atmospheres: pressure pulse amplitude (relative), centre, width.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
       procedure, pass(self) :: initialize             !< Initialize initial conditions.
       procedure, pass(self) :: load_from_file         !< Load config from file.
       procedure, pass(self) :: set_initial_conditions !< Set initial conditions on the blocks interior.
+      procedure, pass(self) :: set_equilibrium        !< Set the hydrostatic equilibrium on the blocks interior.
+      ! private methods
+      procedure, pass(self), private :: atmosphere_state !< Primitive state of the atmosphere at a point.
 endtype flume_ic_object
 
 contains
@@ -267,7 +273,7 @@ contains
    desc = desc//NL//mpih%myrankstr//'  sine wave:      '//self%sine_mode//', '//trim(str(self%wave_par))
    if (self%ic_type == IC_ISOTHERMAL_ATM_STR .or. self%ic_type == IC_POLYTROPIC_ATM_STR) &
    desc = desc//NL//mpih%myrankstr//'  atmosphere:     g '//trim(str(self%g))//', polytropic_gamma '// &
-                                    trim(str(self%polytropic_gamma))
+                                    trim(str(self%polytropic_gamma))//', pulse '//trim(str(self%atm_pulse))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -574,6 +580,15 @@ contains
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(polytropic_gamma) must be > 1 (1 is the '// &
                                      IC_ISOTHERMAL_ATM_STR//')')
       endif
+      ! optional relative pressure pulse p (1 + A exp(-|x - x_0|^2 / w^2)) on the atmosphere (issue #73, M7-G2b)
+      self%atm_pulse = 0._R8P
+      do k=1, 5
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(ATM_PULSE_KEY(k)), &
+                                  val=self%atm_pulse(k), error=error)
+         if (error > 0) self%atm_pulse(k) = 0._R8P
+      enddo
+      if (self%atm_pulse(1) /= 0._R8P .and. .not.(self%atm_pulse(5) > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(pulse_amplitude) needs a positive pulse_width')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -640,6 +655,35 @@ contains
    endif
    endsubroutine load_from_file
 
+   subroutine set_equilibrium(self, field, q)
+   !< Set the hydrostatic equilibrium of the well-balanced mode on the blocks interior (issue #73, M7-G2b): the
+   !< atmosphere of the initial conditions at rest (zero velocity, region 1's field, no pulse); the ghost cells are
+   !< filled by the residual's ghost update. Fatal if the initial conditions are not an atmosphere.
+   class(flume_ic_object), intent(in)    :: self       !< Initial conditions.
+   type(field_object),     intent(in)    :: field      !< Field (realm component, threaded in).
+   real(R8P),              intent(inout) :: q(1:,           &
+                                              1-field%ngc:, &
+                                              1-field%ngc:, &
+                                              1-field%ngc:, &
+                                              1:)        !< Conservative variables.
+   real(R8P)                             :: prim(8)    !< Primitive state of one cell.
+   integer(I4P)                          :: b, i, j, k !< Counters.
+
+   if (self%ic_type /= IC_ISOTHERMAL_ATM_STR .and. self%ic_type /= IC_POLYTROPIC_ATM_STR) &
+      call mpih%error_stop(msg=': [gravity].(equilibrium) = atmosphere needs ['//INI_SECTION_NAME//'].(type) = '// &
+                               IC_ISOTHERMAL_ATM_STR//' or '//IC_POLYTROPIC_ATM_STR)
+   do b=1, field%blocks_number
+      do k=1, field%nk
+         do j=1, field%nj
+            do i=1, field%ni
+               call self%atmosphere_state(center=[field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)], prim=prim)
+               call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine set_equilibrium
+
    subroutine set_initial_conditions(self, field, q)
    !< Set initial conditions on the blocks interior; ghost cells are filled by the following ghost update.
    class(flume_ic_object), intent(in)    :: self          !< Initial conditions.
@@ -660,27 +704,17 @@ contains
 
    select case(self%ic_type)
    case(IC_ISOTHERMAL_ATM_STR, IC_POLYTROPIC_ATM_STR)
-      ! hydrostatic equilibrium of the constant gravity, region 1 at the origin (issue #73, M7-G0): isothermal,
-      ! rho = rho_1 exp(g . x / T_1); polytropic, rho = rho_1 (1 + (G - 1) / G rho_1 / p_1 g . x)^(1 / (G - 1))
+      ! hydrostatic equilibrium of the constant gravity, region 1 at the origin (issue #73, M7-G0), with the region's
+      ! velocity and field, and the optional pressure pulse (M7-G2b)
       do b=1, field%blocks_number
          do k=1, field%nk
             do j=1, field%nj
                do i=1, field%ni
                   center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
-                  prim = self%prim_1
-                  if (self%ic_type == IC_ISOTHERMAL_ATM_STR) then
-                     prim(1) = self%prim_1(1) * exp(dot_product(self%g, center) * self%prim_1(1) / self%prim_1(5))
-                     prim(5) = prim(1) * self%prim_1(5) / self%prim_1(1)
-                  else
-                     s_ = 1._R8P + (self%polytropic_gamma - 1._R8P) / self%polytropic_gamma * self%prim_1(1) / &
-                          self%prim_1(5) * dot_product(self%g, center)
-                     if (.not.(s_ > 0._R8P)) &
-                        call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] '//IC_POLYTROPIC_ATM_STR//' has no '// &
-                                                 'mass at ('//trim(str(center))//'): the top of the atmosphere '// &
-                                                 'lies inside the domain')
-                     prim(1) = self%prim_1(1) * s_**(1._R8P / (self%polytropic_gamma - 1._R8P))
-                     prim(5) = self%prim_1(5) * s_**(self%polytropic_gamma / (self%polytropic_gamma - 1._R8P))
-                  endif
+                  call self%atmosphere_state(center=center, prim=prim)
+                  prim(2:4) = self%prim_1(2:4)
+                  if (self%atm_pulse(1) /= 0._R8P) prim(5) = prim(5) * (1._R8P + self%atm_pulse(1) * &
+                                                    exp(-sum((center - self%atm_pulse(2:4))**2) / self%atm_pulse(5)**2))
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
@@ -1108,6 +1142,32 @@ contains
       prim(3) = prim0(3) + f * rotor(6) * dx / r
    endif
    endsubroutine mhd_rotor
+
+   subroutine atmosphere_state(self, center, prim)
+   !< Primitive state of the atmosphere at rest at the point `center` (issue #73): isothermal,
+   !< `rho = rho_1 exp(g . x / T_1)`, `p = rho T_1`; polytropic, `rho = rho_1 s^(1/(G-1))`, `p = p_1 s^(G/(G-1))`,
+   !< `s = 1 + (G - 1) / G rho_1 / p_1 g . x`; zero velocity, region 1's field. Fatal where the polytrope has no mass.
+   class(flume_ic_object), intent(in)  :: self      !< Initial conditions.
+   real(R8P),              intent(in)  :: center(3) !< Point.
+   real(R8P),              intent(out) :: prim(8)   !< Primitive state (first nprim used).
+   real(R8P)                           :: s_        !< Polytropic profile variable.
+
+   prim = self%prim_1
+   prim(2:4) = 0._R8P
+   if (self%ic_type == IC_ISOTHERMAL_ATM_STR) then
+      prim(1) = self%prim_1(1) * exp(dot_product(self%g, center) * self%prim_1(1) / self%prim_1(5))
+      prim(5) = prim(1) * self%prim_1(5) / self%prim_1(1)
+   else
+      s_ = 1._R8P + (self%polytropic_gamma - 1._R8P) / self%polytropic_gamma * self%prim_1(1) / &
+           self%prim_1(5) * dot_product(self%g, center)
+      if (.not.(s_ > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] '//IC_POLYTROPIC_ATM_STR//' has no '// &
+                                  'mass at ('//trim(str(center))//'): the top of the atmosphere '// &
+                                  'lies inside the domain')
+      prim(1) = self%prim_1(1) * s_**(1._R8P / (self%polytropic_gamma - 1._R8P))
+      prim(5) = self%prim_1(5) * s_**(self%polytropic_gamma / (self%polytropic_gamma - 1._R8P))
+   endif
+   endsubroutine atmosphere_state
 
    pure subroutine rotate_to_global(normal, nprim, prim)
    !< Rotate the velocity and (MHD) the field of a primitive state from the frame of `normal` (normal, tangential, z) to

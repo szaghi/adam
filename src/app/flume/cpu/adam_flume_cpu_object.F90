@@ -118,6 +118,11 @@ implicit none
 private
 public :: flume_cpu_object
 
+type :: equilibrium_seam_face
+   !< The equilibrium's flux mismatch of one register face, `F_coarse - F_fine_sum` per skin cell (issue #73, M7-G2b).
+   real(R8P), allocatable :: d(:,:) !< Mismatch [nv, nface_cells].
+endtype equilibrium_seam_face
+
 type, extends(flume_common_object) :: flume_cpu_object
    !< FLUME CPU backend object.
    ! fluxes data
@@ -126,6 +131,11 @@ type, extends(flume_common_object) :: flume_cpu_object
    real(R8P), allocatable :: flz_f(:,:,:,:,:) !< Z-face fluxes [nv, 1:ni, 1:nj, 0:nk, nb], face k = k+1/2.
    real(R8P), allocatable :: gcor(:,:,:,:,:)  !< Fourth-order correction of the gravity energy source (issue #73,
                                               !< M7-G2a) [1, 1-ngc:ni+ngc, ..., nb]; zero without gravity.
+   real(R8P), allocatable :: dq_e(:,:,:,:,:)  !< Residual of the hydrostatic equilibrium (issue #73, M7-G2b)
+                                              !< [nv, 1-ngc:ni+ngc, ..., nb]; with the well-balanced mode.
+   type(equilibrium_seam_face), allocatable :: seam_e(:) !< The equilibrium's 2:1 flux mismatch per register face.
+   logical                :: equilibrium_stale=.true.     !< dq_e describes another grid (init, regrid).
+   logical                :: equilibrium_computing=.false. !< dq_e is being computed: no subtraction.
    ! positivity limiter data
    type(flume_seam_sync_object) :: seam        !< Per-stage seam flux synchronisation of the limiter (issue #50).
    real(R8P), allocatable :: lam(:,:,:,:,:)   !< Cell factors of the positivity limiter (component 1, q-shaped for the
@@ -146,6 +156,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: compute_gravity_correction !< Compute the fourth-order gravity energy correction.
+      procedure, pass(self) :: refresh_equilibrium_residual !< Recompute the equilibrium residual if stale.
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
       procedure, pass(self) :: limit_positivity        !< Apply the positivity limiter to the stage face fluxes.
@@ -431,6 +442,13 @@ contains
             stat=alloc_stat, errmsg=alloc_msg)
    if (alloc_stat /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gcor: '//trim(alloc_msg))
    self%gcor = 0._R8P
+   if (self%physics%gravity%is_balanced) then
+      allocate(self%dq_e(1:nv,1-self%ngc:ni+self%ngc,1-self%ngc:nj+self%ngc,1-self%ngc:nk+self%ngc,1:nb), &
+               stat=alloc_stat, errmsg=alloc_msg)
+      if (alloc_stat /= 0_I4P) call mpih%error_stop(msg=': failed to allocate dq_e: '//trim(alloc_msg))
+      self%dq_e = 0._R8P
+      self%equilibrium_stale = .true.
+   endif
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
       allocate(self%lam(1:nv,1-self%ngc:ni+self%ngc,1-self%ngc:nj+self%ngc,1-self%ngc:nk+self%ngc,1:nb), &
                stat=alloc_stat, errmsg=alloc_msg)
@@ -711,6 +729,9 @@ contains
    if (realms_number_ > 1_I4P .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported on multi-realm runs (the '// &
                                'inter-realm seam faces carry no limiting factor)')
+   if (realms_number_ > 1_I4P .and. self%physics%gravity%is_balanced) &
+      call mpih%error_stop(msg=': [gravity].(equilibrium) = atmosphere is not supported on multi-realm runs (the '// &
+                               'equilibrium residual would need the equilibrium of the peer realms at the seams)')
    call self%allocate_cpu
    select case(self%numerics%scheme_space)
    case(SCHEME_SPACE_WENO)
@@ -1390,6 +1411,7 @@ contains
    if ((self%time%it_max <= 0_I4P) .and. (self%time%time + dt > self%time%time_max)) &
       self%time%dt = self%time%time_max - self%time%time
    call self%log_gravity_regime
+   call self%refresh_equilibrium_residual
    call self%integrate
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -1442,6 +1464,10 @@ contains
          endif
          call seam_skin_cell(axis=axis, sgn=sgn, ni=self%ni, nj=self%nj, nk=self%nk, c=c, i=i, j=j, k=k)
          delta = face%F_coarse(1:self%nv,c,1) - face%F_fine_sum(1:self%nv,c,1)
+         ! the well-balanced mode (issue #73, M7-G2b): the equilibrium's own mismatch is not refluxed
+         if (allocated(self%seam_e)) then
+            if (allocated(self%seam_e(f)%d)) delta = delta - self%seam_e(f)%d(:,c)
+         endif
          ! EGLM (issue #68 G3b): B is not a conserved integral under the Derigs sources (-u div B), and refluxing it
          ! breaks the cancellation of the B_z the flux divergence generates (#78: 70 times the uniform level, 3.3
          ! without B in the reflux); rho, rho u, E and psi are refluxed
@@ -1728,6 +1754,7 @@ contains
    if ((self%time%it_max <= 0_I4P) .and. (self%time%time + dt > self%time%time_max)) &
       self%time%dt = self%time%time_max - self%time%time
    call self%log_gravity_regime
+   call self%refresh_equilibrium_residual
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    endsubroutine open_step_forest
 
@@ -1787,6 +1814,7 @@ contains
    enddo
    regridded = sweeps > 0_I4P
    if (.not.regridded) return
+   self%equilibrium_stale = .true. ! the equilibrium residual of the new grid (M7-G2b), at the next step
    blocks(2) = self%blocks_number
    call MPI_ALLREDUCE(MPI_IN_PLACE, blocks, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call self%update_ghost(q=self%q)
@@ -1953,6 +1981,30 @@ contains
    !$omp end parallel do
    endsubroutine add_gravity_limited_correction
 
+   subroutine subtract_equilibrium_residual(nv, ni, nj, nk, ngc, blocks_number, dq_e, dq)
+   !< Subtract the residual of the hydrostatic equilibrium from the residual of the stage (issue #73, M7-G2b, the
+   !< well-balanced mode: the deviation method, Edelmann et al. 2021 section 4.3): at the equilibrium the two are the
+   !< same operator on the same state, so the residual vanishes to round-off.
+   integer(I4P), intent(in)    :: nv                               !< Variables number.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                  !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                    !< Actual blocks number.
+   real(R8P),    intent(in)    :: dq_e(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Equilibrium residual.
+   real(R8P),    intent(inout) :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Residuals.
+   integer(I4P)                :: b, i, j, k                       !< Counters.
+
+   !$omp parallel do collapse(4) default(firstprivate) shared(dq_e, dq)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               dq(1:nv,i,j,k,b) = dq(1:nv,i,j,k,b) - dq_e(1:nv,i,j,k,b)
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine subtract_equilibrium_residual
+
    subroutine compute_gravity_correction_faces(ni, nj, nk, ngc, blocks_number, g, flx, fly, flz, gc)
    !< Set the fourth-order correction of the gravity energy source (issue #73, M7-G2a) from the faces the block holds:
    !< `gc = sum_d g_d (-F_{i-3/2} + F_{i-1/2} + F_{i+1/2} - F_{i+3/2}) / 24` (`F` the high-order mass flux along `d`),
@@ -2021,6 +2073,56 @@ contains
       enddo
    enddo
    endsubroutine poison_ghosts
+
+   subroutine refresh_equilibrium_residual(self)
+   !< Recompute the residual of the hydrostatic equilibrium when the grid it describes is gone (initialisation,
+   !< restart, regrid; issue #73, M7-G2b), at the start of a step: the forest's flux register is then the current
+   !< grid's.
+   !<
+   !< The equilibrium (`ic%set_equilibrium`) goes into the idle first stage buffer and its residual into `dq_e`, with
+   !< the space operator of the run (ghosts, boundary conditions, seam fill, limiter, every source): at the equilibrium
+   !< every stage residual then vanishes, at AMR 2:1 seams too (the seam ghosts of the two states are the same). The
+   !< end-of-step reflux replaces the coarse face flux with the fine one, which at the equilibrium would add
+   !< `sgn dt / dx (F_coarse - F_fine)`: the equilibrium's seam fluxes are accumulated with weight 1 into the realm's
+   !< copy of the register and their mismatch stored per face (`seam_e`), and the reflux subtracts it. (Folding it into
+   !< `dq_e` instead leaves the coarse seam cells a non-zero stage residual: the stages leave the equilibrium, the fine
+   !< ghosts prolonged from them follow, and the end-of-step reflux fixes the coarse cells' net change only.) The reflux
+   !< and the residual each conserve, for the state and for the equilibrium, so the difference does.
+   class(flume_cpu_object), intent(inout) :: self          !< The equation.
+   integer(I4P)                           :: f             !< Register face counter.
+
+   if (.not.self%physics%gravity%is_balanced) return
+   if (.not.self%equilibrium_stale) return
+   associate(nb=>self%blocks_number, reg=>self%flux_register_copy)
+   self%rk%q_rk(:,:,:,:,1:nb,1) = 0._R8P
+   call self%ic%set_equilibrium(field=self%adam%field, q=self%rk%q_rk(:,:,:,:,:,1))
+   self%dq_e = 0._R8P
+   if (allocated(self%seam_e)) deallocate(self%seam_e)
+   self%equilibrium_computing = .true.
+   if (self%numerics%reflux .and. reg%is_initialized_ .and. reg%nfaces > 0_I4P) then
+      call reg%reset
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,1), dq=self%dq_e, flux_register=reg)
+      call self%accumulate_seam_fluxes(s=1_I4P, flux_register=reg, weight=1._R8P)
+      call reg%reduce_fine_sums
+      allocate(self%seam_e(reg%nfaces))
+      if (allocated(reg%face)) then
+         do f=1, reg%nfaces
+            associate(face=>reg%face(f))
+            if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
+            if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
+            self%seam_e(f)%d = face%F_coarse(1:self%nv,1:face%nface_cells,1) - &
+                               face%F_fine_sum(1:self%nv,1:face%nface_cells,1)
+            endassociate
+         enddo
+      endif
+      call reg%reset
+   else
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,1), dq=self%dq_e)
+   endif
+   self%equilibrium_computing = .false.
+   self%equilibrium_stale = .false.
+   endassociate
+   endsubroutine refresh_equilibrium_residual
 
    subroutine compute_gravity_correction(self, q)
    !< Compute the fourth-order correction of the gravity energy source into `gcor` (issue #73, M7-G2a) from the
@@ -2250,6 +2352,9 @@ contains
                                dxyz=self%adam%field%dxyz, is_null=is_null, q=q, q_aux=self%q_aux, dq=dq)
       endif
    endif
+   if (self%physics%gravity%is_balanced .and. .not.self%equilibrium_computing) &
+      call subtract_equilibrium_residual(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
+                                         dq_e=self%dq_e, dq=dq)
    endassociate
    endsubroutine compute_residuals_weno
 
@@ -2390,6 +2495,9 @@ contains
                                dxyz=self%adam%field%dxyz, is_null=is_null, q=q, q_aux=self%q_aux, dq=dq)
       endif
    endif
+   if (self%physics%gravity%is_balanced .and. .not.self%equilibrium_computing) &
+      call subtract_equilibrium_residual(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
+                                         dq_e=self%dq_e, dq=dq)
    endassociate
    endsubroutine compute_residuals_riemann
 

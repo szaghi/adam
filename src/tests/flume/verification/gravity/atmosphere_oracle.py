@@ -4,7 +4,8 @@
     atmosphere_oracle.py profile <work> [--tol T]
     atmosphere_oracle.py freefall <work> [--tol T]
     atmosphere_oracle.py energy <work> [--tol T] [--report-total]
-    atmosphere_oracle.py rest <work> [<work> ...]
+    atmosphere_oracle.py rest <work> [<work> ...] [--max M]
+    atmosphere_oracle.py linear <workA> <workB> [--tol T]
     atmosphere_oracle.py agree <workA> <workB> [--tol T]
     atmosphere_oracle.py wave <work> [<work> ...] [--min-order P]
 
@@ -310,9 +311,11 @@ def energy(args: argparse.Namespace) -> int:
 
 
 def rest(args: argparse.Namespace) -> int:
-    """GV-2 (report): the spurious velocity of an atmosphere at rest, max |u| / c over the interior at the last
-    checkpoint of each run, and its order between consecutive runs (the runs given coarse to fine, each twice as fine)."""
+    """GV-2: the spurious velocity of an atmosphere at rest, max |u| / c over the interior at the last checkpoint of
+    each run, and its order between consecutive runs (the runs given coarse to fine, each twice as fine); reported, or
+    with `--max` asserted below it for every run (the well-balanced mode, M7-G2b)."""
     prev = None
+    status = 0
     for work in args.works:
         ini = read_ini(work)
         atm = Atmosphere(ini)
@@ -324,19 +327,66 @@ def rest(args: argparse.Namespace) -> int:
             rho, u, p, _ = primitive(q, atm.gamma, atm.mhd, eglm)
             mach = max(mach, float(np.linalg.norm(u)) / math.sqrt(atm.gamma * p / rho))
         order = f", order {math.log2(prev / mach):+.2f}" if prev and mach > 0.0 else ""
-        print(f"   {work.name}: t = {t:.4f}, max |u| / c = {mach:.3e}{order}")
+        verdict = ""
+        if args.max is not None:
+            ok = mach <= args.max
+            status |= 0 if ok else 1
+            verdict = f"  {'PASS' if ok else 'FAIL'} (max {args.max:g})"
+        print(f"   {work.name}: t = {t:.4f}, max |u| / c = {mach:.3e}{order}{verdict}")
         prev = mach
-    return 0
+    return status
+
+
+def linear(args: argparse.Namespace) -> int:
+    """GV-10 (M7-G2b): a small pressure pulse on the atmosphere is linear. Two runs of the same input with pulse
+    amplitudes A_a < A_b: the relative pressure deviation from the atmosphere over the amplitude, (p / p_e - 1) / A,
+    and the velocity over the amplitude, u / A, at the last common checkpoint, must agree to `--tol` relative to their
+    maxima (the linear response; the second order of the pulse is O(A_b)). An unbalanced scheme adds its own
+    stationary truncation flow, the same for both runs, so it does not scale with A and the two responses differ."""
+    ca, cb = checkpoints(args.a), checkpoints(args.b)
+    step = max(set(ca) & set(cb))
+    amps = []
+    resp = []
+    for work, cps in ((args.a, ca), (args.b, cb)):
+        ini = read_ini(work)
+        atm = Atmosphere(ini)
+        amp = float(ini["initial_conditions"]["pulse_amplitude"])
+        eglm = atm.mhd and ini["mhd"]["divergence_control"].split(";")[0].strip() == "eglm"
+        r = {}
+        for c, _, q in interior(ini, cps[step][1]):
+            rho, u, p, _ = primitive(q, atm.gamma, atm.mhd, eglm)
+            _, pe = atm.state(c)
+            r[tuple(np.round(c, 12))] = (p / pe - 1.0) / amp, u / amp
+        amps.append(amp)
+        resp.append(r)
+    keys = resp[0].keys()
+    scale_p = max(abs(resp[1][k][0]) for k in keys)
+    scale_u = max(float(np.max(np.abs(resp[1][k][1]))) for k in keys)
+    if not (scale_p > 0.0 and scale_u > 0.0):
+        print(f"{args.a.name} vs {args.b.name}: FAIL (no response: the pulse did not act)")
+        return 1
+    dp = max(abs(resp[0][k][0] - resp[1][k][0]) for k in keys) / scale_p
+    du = max(float(np.max(np.abs(resp[0][k][1] - resp[1][k][1]))) for k in keys) / scale_u
+    ok = max(dp, du) <= args.tol
+    print(f"   amplitudes {amps[0]:g}, {amps[1]:g} at step {step}: response difference p {dp:.2e}, u {du:.2e}")
+    print(f"{args.a.name} vs {args.b.name}: {'PASS' if ok else 'FAIL'} (tol {args.tol:g})")
+    return 0 if ok else 1
 
 
 def agree(args: argparse.Namespace) -> int:
     """GV-7: two runs of the same input (CPU and FNL) at their last common checkpoint, per field max |a - b| over the
-    field's scale (a vector component: its vector's largest component)."""
+    field's scale (a vector component: its vector's largest component; momentum at least max rho c)."""
     ca, cb = checkpoints(args.a), checkpoints(args.b)
     step = max(set(ca) & set(cb))
     ini = read_ini(args.a)
     fa = {(tuple(np.round(c, 12))): q for c, _, q in interior(ini, ca[step][1])}
     fb = {(tuple(np.round(c, 12))): q for c, _, q in interior(ini, cb[step][1])}
+    gamma = float(ini["physics"]["gamma"].split(";")[0])
+
+    def rho_c(q: dict[str, float]) -> float:
+        rho, _, p, _ = primitive(q, gamma, "bx" in q, "psi" in q)
+        return math.sqrt(gamma * p * rho)
+
     worst = 0.0
     group = {"ru": ("ru", "rv", "rw"), "rv": ("ru", "rv", "rw"), "rw": ("ru", "rv", "rw"),
              "bx": ("bx", "by", "bz"), "by": ("bx", "by", "bz"), "bz": ("bx", "by", "bz")}
@@ -346,6 +396,10 @@ def agree(args: argparse.Namespace) -> int:
         # a vector component is scaled by its vector's largest component: a component that is zero by symmetry holds
         # round-off only, and its own maximum would make the round-off difference of the backends look O(1)
         scale = max(abs(q[m]) for q in fa.values() for m in group.get(name, (name,)) if m in q) or 1.0
+        # momentum is also scaled by max rho c: in a balanced run it is the perturbation (round-off at rest), and the
+        # backends' round-off of the O(1) residuals that R(q) - R(q_e) cancels would look O(1) against it
+        if name in ("ru", "rv", "rw"):
+            scale = max(scale, max(rho_c(q) for q in fa.values()))
         diff = max(abs(fa[c][name] - fb[c][name]) for c in fa) / scale
         worst = max(worst, diff)
         print(f"   {name:>3}: max |a - b| / max |a| = {diff:.2e}")
@@ -404,6 +458,11 @@ def main() -> int:
             p.add_argument("--report-total", action="store_true", help="report E + rho Phi, do not assert it")
     p = sub.add_parser("rest")
     p.add_argument("works", type=Path, nargs="+")
+    p.add_argument("--max", type=float, default=None)
+    p = sub.add_parser("linear")
+    p.add_argument("a", type=Path)
+    p.add_argument("b", type=Path)
+    p.add_argument("--tol", type=float, default=1.0e-2)
     p = sub.add_parser("wave")
     p.add_argument("works", type=Path, nargs="+")
     p.add_argument("--min-order", type=float, default=3.5)
@@ -412,7 +471,8 @@ def main() -> int:
     p.add_argument("b", type=Path)
     p.add_argument("--tol", type=float, default=1.0e-10)
     args = parser.parse_args()
-    checks = {"profile": profile, "freefall": freefall, "energy": energy, "rest": rest, "agree": agree, "wave": wave}
+    checks = {"profile": profile, "freefall": freefall, "energy": energy, "rest": rest, "agree": agree, "wave": wave,
+              "linear": linear}
     return checks[args.check](args)
 
 
