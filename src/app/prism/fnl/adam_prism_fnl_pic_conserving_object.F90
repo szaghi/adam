@@ -1,9 +1,9 @@
-!< ADAM, PRISM charge-conserving PIC current (direct, Esirkepov, Esirkepov-modified), FNL backend.
+!< ADAM, PRISM charge-conserving PIC current (direct, Esirkepov, esirkepov_Q<N>), FNL backend.
 
 #include "fundal.H"
 
 module adam_prism_fnl_pic_conserving_object
-!< ADAM, PRISM charge-conserving PIC current (direct, Esirkepov, Esirkepov-modified), FNL backend.
+!< ADAM, PRISM charge-conserving PIC current (direct, Esirkepov, esirkepov_Q<N>), FNL backend.
 !<
 !< Device port of the CPU charge-conserving current chain of `prism_cpu_object` (integrate_rk_ssp_pic_charge_conserving and
 !< the helpers it calls). Host-side twins of the CPU matrix builders/factorization live here (private) so the CPU backend is
@@ -12,7 +12,7 @@ module adam_prism_fnl_pic_conserving_object
 !< Multi-block (single rank, single refinement level): every solver works on a *virtual block*, the whole domain seen as
 !< one `NX x NY x NZ` block (NX = nbx*ni, ...). The conserving operators are global along grid lines (the inverses of the
 !< direct/Esirkepov line matrices are dense, the modified face flux is a prefix sum from the domain boundary, the P/Q
-!< filters reach 7/5 cells), so a single-block solve of the whole domain is the reference result: on the virtual block the
+!< filters reach up to 7/5 cells), so a single-block solve of the whole domain is the reference result: on the virtual block the
 !< phase-1 single-block kernels run unchanged and the multi-block result equals the single-block one by construction.
 !< The real blocks are touched only at the two interfaces: (i) inputs, Esirkepov directly in global cell indices, the
 !< direct decomposition and the modified rho through the regular block deposit + `reduce_ghost_local_gpu` + gather of the
@@ -50,7 +50,7 @@ public :: CONSERVING_SOLVER_MODIFIED
 
 integer(I4P), parameter :: CONSERVING_SOLVER_DIRECT    = 1_I4P !< Direct line-solve of D J = -H/dt.
 integer(I4P), parameter :: CONSERVING_SOLVER_ESIRKEPOV = 2_I4P !< Esirkepov face fluxes + inverse reconstruction.
-integer(I4P), parameter :: CONSERVING_SOLVER_MODIFIED  = 3_I4P !< Esirkepov-modified matched current (P/Q kernels).
+integer(I4P), parameter :: CONSERVING_SOLVER_MODIFIED  = 3_I4P !< esirkepov_Q<N> matched current (P/Q kernels).
 
 integer(I4P), parameter :: SHAPE_NGP      = 0_I4P !< NGP particle shape.
 integer(I4P), parameter :: SHAPE_CIC      = 1_I4P !< CIC particle shape.
@@ -66,7 +66,7 @@ integer(I4P), parameter :: MAX_SPAN = 32_I4P !< Max 1D cells touched by one part
 integer(I4P), parameter :: ERR_OUTSIDE  = 1_I4P !< Particle outside the domain.
 integer(I4P), parameter :: ERR_CHARGE   = 3_I4P !< Particle charge changed during the trajectory.
 integer(I4P), parameter :: ERR_BOUNDARY = 4_I4P !< Particle shape touches the domain boundary.
-integer(I4P), parameter :: ERR_FILTER   = 5_I4P !< Esirkepov-modified P filter support reaches the domain boundary.
+integer(I4P), parameter :: ERR_FILTER   = 5_I4P !< esirkepov_Q<N> P filter support reaches the domain boundary.
 integer(I4P), parameter :: ERR_SPAN     = 6_I4P !< Trajectory support wider than MAX_SPAN (FNL-only limit).
 integer(I4P), parameter :: ERR_GAUSS    = 7_I4P !< Empty Gaussian deposition support.
 integer(I4P), parameter :: ERR_PU       = 8_I4P !< B-spline weights do not sum to one on the deposition stencil.
@@ -81,7 +81,7 @@ type :: prism_fnl_pic_conserving_object
    integer(I4P) :: solver       = 0_I4P   !< Selected solver (CONSERVING_SOLVER_*).
    integer(I4P) :: shape        = 0_I4P   !< Particle shape (SHAPE_*).
    logical      :: filter_deposition = .false. !< Binomial filter on deposition.
-   logical      :: tail_cleanup = .false. !< Esirkepov-modified per-particle tail cleanup.
+   logical      :: tail_cleanup = .false. !< esirkepov_Q<N> per-particle tail cleanup.
    real(R8P)    :: sigma        = 0._R8P  !< Gaussian width.
    real(R8P)    :: cutoff_sigma = 0._R8P  !< Gaussian cutoff in sigma units.
    integer(I4P) :: gaussian_support_cells = -1_I4P !< Gaussian support radius in cells.
@@ -98,7 +98,10 @@ type :: prism_fnl_pic_conserving_object
    integer(I4P) :: nv = 0_I4P            !< Field variables number.
    integer(I4P) :: particle_number = 0_I4P !< Particles number.
    integer(I4P) :: nrk = 0_I4P           !< RK stages number.
+   integer(I4P) :: esirkepov_q = 0_I4P   !< Q filter coefficients of esirkepov_Q<N>.
+   character(len=:), allocatable :: solver_name !< Input name of the solver (messages).
    integer(I4P) :: radius = 0_I4P, qfirst = 0_I4P, nq = 0_I4P !< Modified P/Q kernels geometry.
+   real(R8P)    :: shift(3) = 0._R8P     !< Base-shape position shift: dx/2 for the odd Q (dual nodes), 0 otherwise.
    real(R8P)    :: p(-7:7) = 0._R8P      !< Modified P kernel (cell centers / transverse lines).
    real(R8P)    :: qw(0:9) = 0._R8P      !< Modified Q kernel (normal faces to centers).
    real(R8P)    :: residual_max = 0._R8P !< Max current-solver residual of the current step.
@@ -145,7 +148,7 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self) :: combine_stage_source        !< H_s = (H_s - sum_r c_r H_r)/c_s.
       procedure, pass(self) :: solve_dispatch              !< Select the configured current solver.
       procedure, pass(self) :: solve_lines                 !< Direct / Esirkepov line solves.
-      procedure, pass(self) :: solve_modified              !< Esirkepov-modified matched current.
+      procedure, pass(self) :: solve_modified              !< esirkepov_Q<N> matched current.
       procedure, pass(self) :: solve_modified_with_cleanup !< Per-particle modified current with tail cleanup.
       procedure, pass(self) :: deposit_modified_charge     !< Unfiltered deposit + P_c filter of rho.
       procedure, pass(self) :: impose_current_ghosts       !< Odd/zero current ghosts on the physical faces of real blocks.
@@ -259,6 +262,8 @@ contains
    case default
       call mpih%error_stop(msg=': unsupported particle weighting in Esirkepov current')
    endselect
+   self%esirkepov_q            = pic%esirkepov_q
+   self%solver_name            = pic%conserving_solver_name()
    self%filter_deposition      = pic%filter_deposition
    self%tail_cleanup           = pic%esirkepov_tail_cleanup
    self%sigma                  = pic%sigma
@@ -274,15 +279,20 @@ contains
    np = self%particle_number ; ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc
 
    if (self%tail_cleanup .and. self%solver /= CONSERVING_SOLVER_MODIFIED) &
-      call mpih%error_stop(msg=': esirkepov_tail_cleanup requires esirkepov-modified')
+      call mpih%error_stop(msg=': esirkepov_tail_cleanup requires an esirkepov_Q<N> solver')
    if (self%shape == SHAPE_GAUSSIAN .and. self%solver /= CONSERVING_SOLVER_DIRECT) then
       if (self%sigma <= 0._R8P .or. self%cutoff_sigma <= 0._R8P .or. self%gaussian_support_cells < 0_I4P) &
          call mpih%error_stop(msg=': invalid Gaussian width, cutoff or support in Esirkepov current')
    endif
    if (self%solver /= CONSERVING_SOLVER_DIRECT .and. ngc > min(ni,nj,nk)) &
       call mpih%error_stop(msg=': esirkepov needs at least ngc interior cells per direction')
+   self%shift = 0._R8P
    if (self%solver == CONSERVING_SOLVER_MODIFIED) then
-      call modified_kernels(fdv_order=fdv_order, p=self%p, qw=self%qw, radius=self%radius, qfirst=self%qfirst, nq=self%nq)
+      call pic%check_esirkepov_q_order(fdv_order=fdv_order)
+      call modified_kernels(esirkepov_q=self%esirkepov_q, p=self%p, qw=self%qw, radius=self%radius, qfirst=self%qfirst, &
+                            nq=self%nq)
+      ! odd Q: the base shape lives on the dual nodes x_c+dx/2, i.e. the regular shape of the particle at x-dx/2
+      if (mod(self%esirkepov_q, 2_I4P) == 1_I4P) self%shift = 0.5_R8P*self%vdx
       ! uploaded 1-based: p_gpu(s+8) = p(s), qw_gpu(t+1) = qw(t)
       call dev_assign_to_device(src=[self%p],  dst=self%p_gpu)
       call dev_assign_to_device(src=[self%qw], dst=self%qw_gpu)
@@ -308,7 +318,9 @@ contains
       call alloc_r2(self%q_next_gpu,  [np,8], 'q_next_gpu')
       call alloc_r2(self%q_ref_gpu,   [np,8], 'q_ref_gpu')
       call alloc_r3(self%q_hist_gpu,  [np,8,nrk], 'q_hist_gpu')
-      if (self%solver == CONSERVING_SOLVER_DIRECT) call alloc_r2(self%q_mixed_gpu, [np,8], 'q_mixed_gpu')
+      ! direct: mixed positions of the decomposition; odd esirkepov_Q: shifted positions of the rho deposit
+      if (self%solver == CONSERVING_SOLVER_DIRECT .or. any(self%shift /= 0._R8P)) &
+         call alloc_r2(self%q_mixed_gpu, [np,8], 'q_mixed_gpu')
    endif
    call alloc_r5(self%jv_gpu, [1,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jv_gpu')
    if (self%solver == CONSERVING_SOLVER_DIRECT) &
@@ -550,7 +562,7 @@ contains
    real(R8P)                                             :: wref(MAX_SPAN,3), wto(MAX_SPAN,3), xc(MAX_SPAN)
    real(R8P)                                             :: dxyz(3), xr(3), xt(3), cutoff_limit, charge_density
    real(R8P)                                             :: a0, a1, da, b0, b1, db, c0, c1, dc, sigma
-   real(R8P)                                             :: e1, e2, e3, d1, d2, d3
+   real(R8P)                                             :: e1, e2, e3, d1, d2, d3, s1, s2, s3
    integer(I4P)                                          :: p, d, m, i, j, k, perr, ierr
    integer(I4P)                                          :: cr(3), ct(3), lo(3), hi(3), rr(3), rad, rmod
    integer(I4P)                                          :: ni, nj, nk, shp, nn(3)
@@ -562,6 +574,7 @@ contains
    ni = self%ni ; nj = self%nj ; nk = self%nk ; shp = self%shape
    e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
    d1 = self%vdx(1)   ; d2 = self%vdx(2)   ; d3 = self%vdx(3)
+   s1 = self%shift(1) ; s2 = self%shift(2) ; s3 = self%shift(3)
    modified   = self%solver == CONSERVING_SOLVER_MODIFIED
    filter_esk = self%filter_deposition .and. (.not. modified)
    rad  = support_radius(self) ; if (filter_esk) rad = rad + 1_I4P
@@ -571,17 +584,18 @@ contains
    ierr = 0_I4P
 
    !$acc parallel loop gang DEVICEVAR(q_ref,q_to,h,vx_gpu,vy_gpu,vz_gpu) &
-   !$acc& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3) &
+   !$acc& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3) &
    !$acc& private(nn,wref,wto,xc,dxyz,xr,xt,cr,ct,lo,hi,rr,perr,charge_density) reduction(max:ierr)
    !$omp OMPLOOP DEVICEPTR(q_ref,q_to,h,vx_gpu,vy_gpu,vz_gpu) &
-   !$omp& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3) &
+   !$omp& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3) &
    !$omp& private(nn,wref,wto,xc,dxyz,xr,xt,cr,ct,lo,hi,rr,perr,charge_density) reduction(max:ierr)
    do p=p_first, p_last
       perr = 0_I4P
       nn(1) = ni ; nn(2) = nj ; nn(3) = nk
       dxyz(1) = d1 ; dxyz(2) = d2 ; dxyz(3) = d3
-      xr(1) = q_ref(p,1) ; xr(2) = q_ref(p,2) ; xr(3) = q_ref(p,3)
-      xt(1) = q_to(p,1)  ; xt(2) = q_to(p,2)  ; xt(3) = q_to(p,3)
+      ! base-shape positions (shifted by dx/2 on the dual nodes of the odd esirkepov_Q filters)
+      xr(1) = q_ref(p,1) - s1 ; xr(2) = q_ref(p,2) - s2 ; xr(3) = q_ref(p,3) - s3
+      xt(1) = q_to(p,1)  - s1 ; xt(2) = q_to(p,2)  - s2 ; xt(3) = q_to(p,3)  - s3
       ! find_pic_position_cell for both endpoints, virtual-block cells
       cr(1) = ceiling((xr(1) - e1) / d1, kind=I4P) ; ct(1) = ceiling((xt(1) - e1) / d1, kind=I4P)
       cr(2) = ceiling((xr(2) - e2) / d2, kind=I4P) ; ct(2) = ceiling((xt(2) - e2) / d2, kind=I4P)
@@ -1212,11 +1226,13 @@ contains
       !< Virtual-block cell box spanned by the particle shape over its reference and stage positions (min/max reductions).
       integer(I4P), intent(in)  :: particle
       integer(I4P), intent(out) :: block, slo(3), shi(3)
-      real(R8P)                 :: e1, e2, e3, d1, d2, d3
+      real(R8P)                 :: e1, e2, e3, d1, d2, d3, s1, s2, s3
       integer(I4P)              :: tt, c1, c2, c3, r1, r2, r3, rx, ni, nj, nk, ierr
       integer(I4P)              :: lo1, lo2, lo3, hi1, hi2, hi3
       ni = self%ni ; nj = self%nj ; nk = self%nk
       e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
+      ! base-shape cells, same arithmetic as esirkepov_displacement (dual nodes of the odd esirkepov_Q filters)
+      s1 = self%shift(1) ; s2 = self%shift(2) ; s3 = self%shift(3)
       d1 = self%vdx(1)   ; d2 = self%vdx(2)   ; d3 = self%vdx(3)
       rx = support_radius(self)
       lo1 = huge(1_I4P) ; lo2 = huge(1_I4P) ; lo3 = huge(1_I4P)
@@ -1226,18 +1242,18 @@ contains
       ! with q_ref, then with q_hist): the second store is lost and every stage target read as q_ref, so the box missed the
       ! stage targets (NGP/TSC tail errors at the first face crossing). Correct at -O0, on the host and without -acc.
       !$acc parallel loop independent gang vector DEVICEVAR(q_ref,q_hist) &
-      !$acc& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3) private(c1,c2,c3,r1,r2,r3) &
+      !$acc& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3,s1,s2,s3) private(c1,c2,c3,r1,r2,r3) &
       !$acc& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3,ierr)
       !$omp OMPLOOP DEVICEPTR(q_ref,q_hist) &
-      !$omp& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3) private(c1,c2,c3,r1,r2,r3) &
+      !$omp& firstprivate(ni,nj,nk,rx,particle,e1,e2,e3,d1,d2,d3,s1,s2,s3) private(c1,c2,c3,r1,r2,r3) &
       !$omp& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3,ierr)
       do tt=1, stage_count
-         r1 = ceiling((q_ref(particle,1) - e1) / d1, kind=I4P)
-         r2 = ceiling((q_ref(particle,2) - e2) / d2, kind=I4P)
-         r3 = ceiling((q_ref(particle,3) - e3) / d3, kind=I4P)
-         c1 = ceiling((q_hist(particle,1,tt) - e1) / d1, kind=I4P)
-         c2 = ceiling((q_hist(particle,2,tt) - e2) / d2, kind=I4P)
-         c3 = ceiling((q_hist(particle,3,tt) - e3) / d3, kind=I4P)
+         r1 = ceiling((q_ref(particle,1) - s1 - e1) / d1, kind=I4P)
+         r2 = ceiling((q_ref(particle,2) - s2 - e2) / d2, kind=I4P)
+         r3 = ceiling((q_ref(particle,3) - s3 - e3) / d3, kind=I4P)
+         c1 = ceiling((q_hist(particle,1,tt) - s1 - e1) / d1, kind=I4P)
+         c2 = ceiling((q_hist(particle,2,tt) - s2 - e2) / d2, kind=I4P)
+         c3 = ceiling((q_hist(particle,3,tt) - s3 - e3) / d3, kind=I4P)
          if (r1 < 1_I4P .or. r1 > ni .or. r2 < 1_I4P .or. r2 > nj .or. r3 < 1_I4P .or. r3 > nk .or. &
              c1 < 1_I4P .or. c1 > ni .or. c2 < 1_I4P .or. c2 > nj .or. c3 < 1_I4P .or. c3 > nk) then
             ierr = max(ierr, ERR_OUTSIDE)
@@ -1354,7 +1370,9 @@ contains
    integer(I4P), pointer                                 :: nl_gpu(:,:), off(:,:)
    real(R8P),    pointer                                 :: wa(:,:,:,:), wb(:,:,:,:)
    integer(I4P)                                          :: n, np, rx, margin, ierr, ni, nj, nk, nbl, ngc, b, i, j, k
-   integer(I4P)                                          :: nx, ny, nz, gi, gj, gk
+   integer(I4P)                                          :: nx, ny, nz, gi, gj, gk, v
+   real(R8P),    pointer                                 :: q_shift(:,:), q_pic(:,:)
+   real(R8P)                                             :: s1, s2, s3
    logical                                               :: old_filter
 
    ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
@@ -1380,12 +1398,34 @@ contains
                 gk-rx <= margin .or. nz-gk-rx <= margin) ierr = max(ierr, ERR_FILTER)
          endif
       enddo
-      if (ierr == ERR_OUTSIDE) call mpih%error_stop(msg=': PIC particle outside the domain in esirkepov-modified charge')
-      if (ierr == ERR_FILTER) call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a domain boundary')
+      if (ierr == ERR_OUTSIDE) call mpih%error_stop(msg=': PIC particle outside the domain in '//self%solver_name//' charge')
+      if (ierr == ERR_FILTER) call mpih%error_stop(msg=': '//self%solver_name//' P filter support reaches a domain boundary')
    endif
    old_filter = pic_fnl%filter_deposition
    pic_fnl%filter_deposition = .false.
-   call pic_fnl%particle_weighting_dev(field_fnl=field_fnl, field=field, grid=grid, q_gpu=q, q_pic_gpu=pic_fnl%q_pic_gpu, nv=nv)
+   if (np > 0_I4P .and. any(self%shift /= 0._R8P)) then
+      ! odd filters: base shape on the dual nodes, deposited as the particles at x-dx/2; then restore the real lookup
+      q_shift => self%q_mixed_gpu ; q_pic => pic_fnl%q_pic_gpu
+      s1 = self%shift(1) ; s2 = self%shift(2) ; s3 = self%shift(3)
+      !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(q_shift,q_pic) firstprivate(s1,s2,s3)
+      !$omp OMPLOOP collapse(2) DEVICEPTR(q_shift,q_pic) firstprivate(s1,s2,s3)
+      do v=1, 8
+      do n=1, np
+         select case(v)
+         case(1)      ; q_shift(n,v) = q_pic(n,v) - s1
+         case(2)      ; q_shift(n,v) = q_pic(n,v) - s2
+         case(3)      ; q_shift(n,v) = q_pic(n,v) - s3
+         case default ; q_shift(n,v) = q_pic(n,v)
+         endselect
+      enddo
+      enddo
+      call pic_fnl%particle_cartesian_grid_index_dev(field_fnl=field_fnl, field=field, grid=grid, q_pic_gpu=q_shift)
+      call pic_fnl%particle_weighting_dev(field_fnl=field_fnl, field=field, grid=grid, q_gpu=q, q_pic_gpu=q_shift, nv=nv)
+      call pic_fnl%particle_cartesian_grid_index_dev(field_fnl=field_fnl, field=field, grid=grid, q_pic_gpu=pic_fnl%q_pic_gpu)
+   else
+      call pic_fnl%particle_weighting_dev(field_fnl=field_fnl, field=field, grid=grid, q_gpu=q, q_pic_gpu=pic_fnl%q_pic_gpu, &
+                                          nv=nv)
+   endif
    pic_fnl%filter_deposition = old_filter
    ! no particles: the device deposit returns before zeroing, nothing to fold back
    if (np > 0_I4P) call field_fnl%reduce_ghost_local_gpu(q_gpu=q, v_first=nv, v_last=nv)
@@ -1926,7 +1966,7 @@ contains
    case(ERR_CHARGE)   ; call mpih%error_stop(msg=': esirkepov particle charge changed during an RK stage')
    case(ERR_BOUNDARY) ; call mpih%error_stop(msg=': esirkepov particle shape touches a domain boundary; charge flux BC is '// &
                                                  'unsupported')
-   case(ERR_FILTER)   ; call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a domain boundary')
+   case(ERR_FILTER)   ; call mpih%error_stop(msg=': esirkepov_Q<N> P filter support reaches a domain boundary')
    case(ERR_SPAN)     ; call mpih%error_stop(msg=': esirkepov trajectory support exceeds the FNL limit MAX_SPAN='// &
                                                  trim(str(MAX_SPAN,.true.))//' cells')
    case(ERR_GAUSS)    ; call mpih%error_stop(msg=': empty Gaussian deposition support in Esirkepov current')
@@ -1934,27 +1974,38 @@ contains
    endselect
    endsubroutine check_particle_error
 
-   subroutine modified_kernels(fdv_order, p, qw, radius, qfirst, nq)
-   !< P acts on cell centers (or transverse face lines); Q maps normal faces to centers. CPU twin: modified_kernels.
-   integer(I4P), intent(in)  :: fdv_order
+   subroutine modified_kernels(esirkepov_q, p, qw, radius, qfirst, nq)
+   !< P = A Q (base-shape nodes to centers) and Q (face prefix sums to centers) of esirkepov_Q<N>. CPU twin: modified_kernels
+   !< (offsets and the half-cell shift of the odd filters documented there).
+   integer(I4P), intent(in)  :: esirkepov_q
    real(R8P),    intent(out) :: p(-7:7), qw(0:9)
    integer(I4P), intent(out) :: radius, qfirst, nq
 
    p = 0._R8P ; qw = 0._R8P
-   select case(fdv_order)
+   select case(esirkepov_q)
    case(2_I4P)
-      radius = 1_I4P
       p(-1:1) = [1._R8P,2._R8P,1._R8P]/4._R8P
       qw(0:1) = [1._R8P,1._R8P]/2._R8P
-      qfirst = -1_I4P ; nq = 2_I4P
+      radius = 1_I4P ; qfirst = -1_I4P ; nq = 2_I4P
+   case(5_I4P)
+      p(-5:4) = real([1,2,3,49,1985,1985,49,3,2,1],R8P)/4080._R8P
+      qw(0:4) = real([1,10,46,10,1],R8P)/68._R8P
+      radius = 6_I4P ; qfirst = -3_I4P ; nq = 5_I4P
    case(6_I4P)
-      radius = 7_I4P
+      p(-5:5) = real([1,1,1,118,1378,2522,1378,118,1,1,1],R8P)/5520._R8P
+      qw(0:5) = real([1,9,36,36,9,1],R8P)/92._R8P
+      radius = 5_I4P ; qfirst = -3_I4P ; nq = 6_I4P
+   case(8_I4P)
+      p(-6:6) = real([1,1,1,152,1167,3327,4622,3327,1167,152,1,1,1],R8P)/13920._R8P
+      qw(0:7) = real([1,9,36,70,70,36,9,1],R8P)/232._R8P
+      radius = 6_I4P ; qfirst = -4_I4P ; nq = 8_I4P
+   case(10_I4P)
       p(-7:7) = real([1,1,1,166,1111,3487,6567,8052,6567,3487,1111,166,1,1,1],R8P)/30720._R8P
       qw(0:9) = real([1,9,36,84,126,126,84,36,9,1],R8P)/512._R8P
-      qfirst = -5_I4P ; nq = 10_I4P
+      radius = 7_I4P ; qfirst = -5_I4P ; nq = 10_I4P
    case default
       radius = 0_I4P ; qfirst = 0_I4P ; nq = 0_I4P
-      call mpih%error_stop(msg=': esirkepov-modified supports FD2 and FD6 only; FD4 and FD8 are unsupported')
+      call mpih%error_stop(msg=': unsupported esirkepov_Q filter '//trim(str(esirkepov_q, .true.)))
    endselect
    endsubroutine modified_kernels
 

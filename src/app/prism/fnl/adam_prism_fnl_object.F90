@@ -535,10 +535,7 @@ contains
             call mpih%error_stop(msg=': conserving PIC current requires centered FD and SSP Runge-Kutta')
          if (self%rk%scheme /= RK_SSP_22 .and. self%rk%scheme /= RK_SSP_33 .and. self%rk%scheme /= RK_SSP_54) &
             call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
-         if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
-            if (self%fdv_order /= 2_I4P .and. self%fdv_order /= 6_I4P) &
-               call mpih%error_stop(msg=': esirkepov-modified supports FD2 and FD6 only')
-         endif
+         call self%pic%check_esirkepov_q_order(fdv_order=self%fdv_order)
       endif
    endif
    call check_pml_configuration()
@@ -5393,7 +5390,7 @@ contains
    endsubroutine integrate_rk_ssp_pic_charge_conserving
 
    subroutine initialize_pic_conserving_current_time_zero(self)
-   !< Deposit rho (esirkepov-modified) and the conserving current at t=0 on device, then return them to the host q.
+   !< Deposit rho (esirkepov_Q<N>) and the conserving current at t=0 on device, then return them to the host q.
    !< CPU twins: deposit_pic_modified_charge + initialize_pic_conserving_current_time_zero, called at the same point of
    !< set_initial_conditions (before the host-side elliptic solves that read rho and J).
    implicit none

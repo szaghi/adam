@@ -90,7 +90,8 @@ character(len=6 ), parameter :: DIRECT_CURRENT_CONSERVING_SOLVER = 'direct'     
 
 character(len=9 ), parameter :: ESIRKEPOV_CURRENT_CONSERVING_SOLVER = 'esirkepov'      !< Esirkepov particle current.
 
-character(len=18), parameter :: ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER = 'esirkepov-modified' !< Matched local current.
+character(len=11), parameter :: ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER = 'esirkepov_Q' !< Matched local current family
+                                                                                            !< esirkepov_Q<N> (filter in esirkepov_q).
 
 ! PIC variables layout in q_pic array:
 !q_pic(1) = x
@@ -127,6 +128,7 @@ type :: prism_pic_object
    character(len=99)         :: field_weighting_model       !< Field weighting model.
    logical                   :: esirkepov_tail_cleanup = .false. !< Remove small current leakage outside each particle's support.
    character(len=99)         :: current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER !< Conserving current solver.
+   integer(I4P)              :: esirkepov_q = 0_I4P         !< Q filter coefficients of esirkepov_Q<N> (2,5,6,8,10), 0 otherwise.
    character(len=99)         :: scheme_time                 !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    !< Pointer (abstract) TBP.
    procedure(particle_weighting_interface), pass(self), pointer :: particle_weighting =>null() !< Particle weighting.
@@ -134,6 +136,8 @@ type :: prism_pic_object
    procedure(field_weighting_interface),    pass(self), pointer :: field_weighting    =>null() !< field weighting.
 contains
    procedure, pass(self) :: description                   !< Return pretty-printed object description.
+   procedure, pass(self) :: conserving_solver_name        !< Input name of the conserving current solver.
+   procedure, pass(self) :: check_esirkepov_q_order       !< Check the esirkepov_Q<N> filter against the FD order.
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
    procedure, pass(self) :: particle_cartesian_grid_index !< Compute the grid index corresponding to a particle position.
@@ -202,6 +206,35 @@ interface
 endinterface
 
 contains
+   function conserving_solver_name(self) result(name)
+   !< Input name of the conserving current solver: esirkepov_Q<N> for the matched-current family, the stored tag otherwise.
+   class(prism_pic_object), intent(in) :: self !< PIC object.
+   character(len=:), allocatable       :: name !< Solver name.
+
+   if (trim(self%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+      name = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER//trim(str(self%esirkepov_q, .true.))
+   else
+      name = trim(self%current_conserving_solver)
+   endif
+   endfunction conserving_solver_name
+
+   subroutine check_esirkepov_q_order(self, fdv_order)
+   !< The matched current needs D = delta A with P = A Q: esirkepov_Q2 pairs with FD2 (A2 = [1,1]/2), esirkepov_Q5, Q6, Q8
+   !< and Q10 with FD6 (A6 = [1,-8,37,37,-8,1]/60). No-op for the other solvers.
+   class(prism_pic_object), intent(in) :: self      !< PIC object.
+   integer(I4P),            intent(in) :: fdv_order !< FD order.
+
+   if (trim(self%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) return
+   select case(self%esirkepov_q)
+   case(2_I4P)
+      if (fdv_order /= 2_I4P) call mpih%error_stop(msg=': esirkepov_Q2 requires fdv_order = 2')
+   case(5_I4P, 6_I4P, 8_I4P, 10_I4P)
+      if (fdv_order /= 6_I4P) call mpih%error_stop(msg=': '//self%conserving_solver_name()//' requires fdv_order = 6')
+   case default
+      call mpih%error_stop(msg=': unsupported esirkepov_Q filter '//trim(str(self%esirkepov_q, .true.)))
+   endselect
+   endsubroutine check_esirkepov_q_order
+
    function description(self) result(desc)
    !< Return a pretty-formatted object description.
    implicit none
@@ -234,7 +267,7 @@ contains
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
    if (self%current_weighting_model == CONSERVING_CURRENT_WEIGHTING_MODEL) &
-      desc = desc//NL//mpih%myrankstr//'    Conserving current solver: '//trim(self%current_conserving_solver)
+      desc = desc//NL//mpih%myrankstr//'    Conserving current solver: '//trim(self%conserving_solver_name())
    if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
          self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
          self%field_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
@@ -591,6 +624,7 @@ contains
    endselect
 
    self%current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER
+   self%esirkepov_q = 0_I4P
    buff = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='current_conserving_solver', val=buff, error=error)
    if (error == 0) then
@@ -600,15 +634,28 @@ contains
          self%current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER
       case('esirkepov', 'ESIRKEPOV', 'Esirkepov')
          self%current_conserving_solver = ESIRKEPOV_CURRENT_CONSERVING_SOLVER
+      case('esirkepov_Q2', 'ESIRKEPOV_Q2', 'Esirkepov_Q2', 'esirkepov_q2')
+         self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER ; self%esirkepov_q = 2_I4P
+      case('esirkepov_Q5', 'ESIRKEPOV_Q5', 'Esirkepov_Q5', 'esirkepov_q5')
+         self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER ; self%esirkepov_q = 5_I4P
+      case('esirkepov_Q6', 'ESIRKEPOV_Q6', 'Esirkepov_Q6', 'esirkepov_q6')
+         self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER ; self%esirkepov_q = 6_I4P
+      case('esirkepov_Q8', 'ESIRKEPOV_Q8', 'Esirkepov_Q8', 'esirkepov_q8')
+         self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER ; self%esirkepov_q = 8_I4P
+      case('esirkepov_Q10', 'ESIRKEPOV_Q10', 'Esirkepov_Q10', 'esirkepov_q10')
+         self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER ; self%esirkepov_q = 10_I4P
       case('esirkepov-modified', 'ESIRKEPOV-MODIFIED', 'Esirkepov-Modified', 'esirkepov_modified')
-         self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER
+         call mpih%error_stop(msg=': current conserving solver ['//trim(buff)//'] was renamed: use esirkepov_Q10 '// &
+                                  '(FD6) or esirkepov_Q2 (FD2) in ['//INI_SECTION_NAME//'].(current_conserving_solver)')
       case default
          call mpih%error_stop(msg=': invalid current conserving solver ['//trim(buff)//'] in  &
       ['//INI_SECTION_NAME//'].(current_conserving_solver)')
       endselect
    endif
-   if (self%current_weighting_model /= CONSERVING_CURRENT_WEIGHTING_MODEL) &
+   if (self%current_weighting_model /= CONSERVING_CURRENT_WEIGHTING_MODEL) then
       self%current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER
+      self%esirkepov_q = 0_I4P
+   endif
 
    if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
          self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &

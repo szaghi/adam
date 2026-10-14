@@ -267,10 +267,7 @@ contains
             call mpih%error_stop(msg=': conserving PIC current requires centered FD and SSP Runge-Kutta')
          if (self%rk%scheme /= RK_SSP_22 .and. self%rk%scheme /= RK_SSP_33 .and. self%rk%scheme /= RK_SSP_54) &
             call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
-         if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
-            if (self%fdv_order /= 2_I4P .and. self%fdv_order /= 6_I4P) &
-               call mpih%error_stop(msg=': esirkepov-modified supports FD2 and FD6 only')
-         endif
+         call self%pic%check_esirkepov_q_order(fdv_order=self%fdv_order)
       endif
    endif
    call self%allocate_cpu
@@ -4518,7 +4515,7 @@ contains
    allocate(q_pic_next(1:8, 1:np), coeff(1:nrk))
    if (self%pic%esirkepov_tail_cleanup) then
       if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) &
-         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires esirkepov-modified')
+         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires an esirkepov_Q<N> solver')
       allocate(q_pic_to_stage(1:8,1:np,1:nrk))
       allocate(q_pic_ref,source=self%q_pic)
    endif
@@ -4681,6 +4678,7 @@ contains
    integer(I4P)                           :: p_first, p_last
    integer(I4P)                           :: rx, ry, rz, i0, i1, j0, j1, k0, k1, i, j, k
    real(R8P)                              :: a0, a1, da, b0, b1, db, c0, c1, dc, charge_density
+   real(R8P)                              :: shift(3), xr(3), xt(3)
    real(R8P), allocatable                 :: wx(:,:), wy(:,:), wz(:,:)
    real(R8P), parameter                   :: tau_pu = 1.e-10_R8P !< Max |raw weight sum - 1| before the closure.
    integer(I4P)                           :: order
@@ -4716,9 +4714,13 @@ contains
    if (present(particle)) then
       p_first = particle ; p_last = particle
    endif
+   ! odd esirkepov_Q<N>: the base shape lives on the dual nodes x_c+dx/2, i.e. the particle seen at x-dx/2 (zero otherwise)
+   shift = modified_position_shift(self)
    do p=p_first,p_last
-      call find_pic_position_cell(self=self, q_pos=q_ref(:,p), b=b, i=ip, j=jp, k=kp)
-      call find_pic_position_cell(self=self, q_pos=q_to(:,p), b=bt, i=it, j=jt, k=kt)
+      xr = q_ref(1:3,p) - shift
+      xt = q_to(1:3,p) - shift
+      call find_pic_position_cell(self=self, q_pos=xr, b=b, i=ip, j=jp, k=kp)
+      call find_pic_position_cell(self=self, q_pos=xt, b=bt, i=it, j=jt, k=kt)
       if (bt /= b) call mpih%error_stop(msg=': esirkepov particle crossed a block; inter-block current is unsupported')
       if (q_ref(7,p) /= q_to(7,p)) call mpih%error_stop(msg=': esirkepov particle charge changed during an RK stage')
       call particle_weighting_radius(self=self, b=b, rx=rx, ry=ry, rz=rz)
@@ -4737,40 +4739,40 @@ contains
              self%ni-i1 <= modified_filter_radius(self) .or. &
              self%nj-j1 <= modified_filter_radius(self) .or. &
              self%nk-k1 <= modified_filter_radius(self)) &
-            call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a boundary')
+            call mpih%error_stop(msg=': '//self%pic%conserving_solver_name()//' P filter support reaches a boundary')
       endif
       if (gaussian) then
-         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_ref(1,p), x_cell=self%adam%field%x_cell(1:self%ni,b), &
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=xr(1), x_cell=self%adam%field%x_cell(1:self%ni,b), &
                                                    dx=self%adam%field%dxyz(1,b), ip=ip, radius=rx, &
                                                    lo=i0, hi=i1, w=wx(i0:i1,1))
-         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_to(1,p), x_cell=self%adam%field%x_cell(1:self%ni,b), &
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=xt(1), x_cell=self%adam%field%x_cell(1:self%ni,b), &
                                                    dx=self%adam%field%dxyz(1,b), ip=it, radius=rx, &
                                                    lo=i0, hi=i1, w=wx(i0:i1,2))
-         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_ref(2,p), x_cell=self%adam%field%y_cell(1:self%nj,b), &
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=xr(2), x_cell=self%adam%field%y_cell(1:self%nj,b), &
                                                    dx=self%adam%field%dxyz(2,b), ip=jp, radius=ry, &
                                                    lo=j0, hi=j1, w=wy(j0:j1,1))
-         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_to(2,p), x_cell=self%adam%field%y_cell(1:self%nj,b), &
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=xt(2), x_cell=self%adam%field%y_cell(1:self%nj,b), &
                                                    dx=self%adam%field%dxyz(2,b), ip=jt, radius=ry, &
                                                    lo=j0, hi=j1, w=wy(j0:j1,2))
-         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_ref(3,p), x_cell=self%adam%field%z_cell(1:self%nk,b), &
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=xr(3), x_cell=self%adam%field%z_cell(1:self%nk,b), &
                                                    dx=self%adam%field%dxyz(3,b), ip=kp, radius=rz, &
                                                    lo=k0, hi=k1, w=wz(k0:k1,1))
-         call compute_esirkepov_gaussian_shape_1d(self=self, x=q_to(3,p), x_cell=self%adam%field%z_cell(1:self%nk,b), &
+         call compute_esirkepov_gaussian_shape_1d(self=self, x=xt(3), x_cell=self%adam%field%z_cell(1:self%nk,b), &
                                                    dx=self%adam%field%dxyz(3,b), ip=kt, radius=rz, &
                                                    lo=k0, hi=k1, w=wz(k0:k1,2))
       elseif (closed) then
          wx = 0._R8P ; wy = 0._R8P ; wz = 0._R8P
-         call closed_shape_1d(x=q_ref(1,p), x_cell=self%adam%field%x_cell(:,b), ic=ip, dx=self%adam%field%dxyz(1,b), &
+         call closed_shape_1d(x=xr(1), x_cell=self%adam%field%x_cell(:,b), ic=ip, dx=self%adam%field%dxyz(1,b), &
                               w=wx(:,1))
-         call closed_shape_1d(x=q_to(1,p),  x_cell=self%adam%field%x_cell(:,b), ic=it, dx=self%adam%field%dxyz(1,b), &
+         call closed_shape_1d(x=xt(1),  x_cell=self%adam%field%x_cell(:,b), ic=it, dx=self%adam%field%dxyz(1,b), &
                               w=wx(:,2))
-         call closed_shape_1d(x=q_ref(2,p), x_cell=self%adam%field%y_cell(:,b), ic=jp, dx=self%adam%field%dxyz(2,b), &
+         call closed_shape_1d(x=xr(2), x_cell=self%adam%field%y_cell(:,b), ic=jp, dx=self%adam%field%dxyz(2,b), &
                               w=wy(:,1))
-         call closed_shape_1d(x=q_to(2,p),  x_cell=self%adam%field%y_cell(:,b), ic=jt, dx=self%adam%field%dxyz(2,b), &
+         call closed_shape_1d(x=xt(2),  x_cell=self%adam%field%y_cell(:,b), ic=jt, dx=self%adam%field%dxyz(2,b), &
                               w=wy(:,2))
-         call closed_shape_1d(x=q_ref(3,p), x_cell=self%adam%field%z_cell(:,b), ic=kp, dx=self%adam%field%dxyz(3,b), &
+         call closed_shape_1d(x=xr(3), x_cell=self%adam%field%z_cell(:,b), ic=kp, dx=self%adam%field%dxyz(3,b), &
                               w=wz(:,1))
-         call closed_shape_1d(x=q_to(3,p),  x_cell=self%adam%field%z_cell(:,b), ic=kt, dx=self%adam%field%dxyz(3,b), &
+         call closed_shape_1d(x=xt(3),  x_cell=self%adam%field%z_cell(:,b), ic=kt, dx=self%adam%field%dxyz(3,b), &
                               w=wz(:,2))
       endif
       charge_density = q_ref(7,p) / product(self%adam%field%dxyz(:,b))
@@ -4778,9 +4780,9 @@ contains
          if (gaussian .or. closed) then
             c0 = wz(k,1) ; c1 = wz(k,2)
          else
-            call esirkepov_shape_weight_1d(self=self, x=q_ref(3,p), xc=self%adam%field%z_cell(k,b), &
+            call esirkepov_shape_weight_1d(self=self, x=xr(3), xc=self%adam%field%z_cell(k,b), &
                                            dx=self%adam%field%dxyz(3,b), w=c0)
-            call esirkepov_shape_weight_1d(self=self, x=q_to(3,p), xc=self%adam%field%z_cell(k,b), &
+            call esirkepov_shape_weight_1d(self=self, x=xt(3), xc=self%adam%field%z_cell(k,b), &
                                            dx=self%adam%field%dxyz(3,b), w=c1)
          endif
          dc = c1-c0
@@ -4788,9 +4790,9 @@ contains
             if (gaussian .or. closed) then
                b0 = wy(j,1) ; b1 = wy(j,2)
             else
-               call esirkepov_shape_weight_1d(self=self, x=q_ref(2,p), xc=self%adam%field%y_cell(j,b), &
+               call esirkepov_shape_weight_1d(self=self, x=xr(2), xc=self%adam%field%y_cell(j,b), &
                                               dx=self%adam%field%dxyz(2,b), w=b0)
-               call esirkepov_shape_weight_1d(self=self, x=q_to(2,p), xc=self%adam%field%y_cell(j,b), &
+               call esirkepov_shape_weight_1d(self=self, x=xt(2), xc=self%adam%field%y_cell(j,b), &
                                               dx=self%adam%field%dxyz(2,b), w=b1)
             endif
             db = b1-b0
@@ -4798,9 +4800,9 @@ contains
                if (gaussian .or. closed) then
                   a0 = wx(i,1) ; a1 = wx(i,2)
                else
-                  call esirkepov_shape_weight_1d(self=self, x=q_ref(1,p), xc=self%adam%field%x_cell(i,b), &
+                  call esirkepov_shape_weight_1d(self=self, x=xr(1), xc=self%adam%field%x_cell(i,b), &
                                                  dx=self%adam%field%dxyz(1,b), w=a0)
-                  call esirkepov_shape_weight_1d(self=self, x=q_to(1,p), xc=self%adam%field%x_cell(i,b), &
+                  call esirkepov_shape_weight_1d(self=self, x=xt(1), xc=self%adam%field%x_cell(i,b), &
                                                  dx=self%adam%field%dxyz(1,b), w=a1)
                endif
                da = a1-a0
@@ -5212,35 +5214,62 @@ contains
    endsubroutine solve_pic_charge_conserving_current_esirkepov
 
    integer(I4P) function modified_filter_radius(self) result(radius)
+   !< Cells reached by the P filter, plus one for the half-cell shift of the odd filters (boundary margin).
    implicit none
    class(prism_cpu_object), intent(in) :: self
+   real(R8P)                           :: p(-7:7), qw(0:9)
+   integer(I4P)                        :: qfirst, nq
 
-   select case(self%fdv_order)
-   case(2_I4P) ; radius = 1_I4P
-   case(6_I4P) ; radius = 7_I4P
-   case default
-      call mpih%error_stop(msg=': esirkepov-modified supports FD2 and FD6 only; FD4 and FD8 are unsupported')
-   endselect
+   call modified_kernels(self=self, p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
    endfunction modified_filter_radius
 
+   function modified_position_shift(self) result(shift)
+   !< Odd esirkepov_Q<N> deposit the base shape on the dual nodes x_c+dx/2 (P has an even number of taps, dual nodes to
+   !< centers): this equals the regular deposit of the particle at x-dx/2. Zero for the even filters and the other solvers.
+   implicit none
+   class(prism_cpu_object), intent(in) :: self
+   real(R8P)                           :: shift(3)
+
+   shift = 0._R8P
+   if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) return
+   if (mod(self%pic%esirkepov_q, 2_I4P) == 1_I4P) shift = 0.5_R8P*self%adam%field%dxyz(:,1)
+   endfunction modified_position_shift
+
    subroutine modified_kernels(self, p, qw, radius, qfirst, nq)
-   !< P acts on cell centers (or transverse face lines); Q maps normal faces to centers.
+   !< P = A Q maps the base-shape nodes to centers, Q maps the face prefix sums to centers (A2 = [1,1]/2 for FD2,
+   !< A6 = [1,-8,37,37,-8,1]/60 for FD6, so that D J = P H). Even Q: base on centers, P odd and centered, Q from faces.
+   !< Odd Q: base on the dual nodes (node m at x_m+dx/2, see modified_position_shift), P even with taps m=i-N/2-2..i+N/2+2,
+   !< Q centered on the prefix sums at centers (flux index f = center-1). radius bounds the taps of P (plus one if odd).
    implicit none
    class(prism_cpu_object), intent(in)  :: self
    real(R8P),               intent(out) :: p(-7:7), qw(0:9)
    integer(I4P),            intent(out) :: radius, qfirst, nq
 
    p = 0._R8P ; qw = 0._R8P
-   radius = modified_filter_radius(self)
-   select case(self%fdv_order)
+   select case(self%pic%esirkepov_q)
    case(2_I4P)
       p(-1:1) = [1._R8P,2._R8P,1._R8P]/4._R8P
       qw(0:1) = [1._R8P,1._R8P]/2._R8P
-      qfirst = -1_I4P ; nq = 2_I4P
+      radius = 1_I4P ; qfirst = -1_I4P ; nq = 2_I4P
+   case(5_I4P)
+      p(-5:4) = real([1,2,3,49,1985,1985,49,3,2,1],R8P)/4080._R8P
+      qw(0:4) = real([1,10,46,10,1],R8P)/68._R8P
+      radius = 6_I4P ; qfirst = -3_I4P ; nq = 5_I4P
    case(6_I4P)
+      p(-5:5) = real([1,1,1,118,1378,2522,1378,118,1,1,1],R8P)/5520._R8P
+      qw(0:5) = real([1,9,36,36,9,1],R8P)/92._R8P
+      radius = 5_I4P ; qfirst = -3_I4P ; nq = 6_I4P
+   case(8_I4P)
+      p(-6:6) = real([1,1,1,152,1167,3327,4622,3327,1167,152,1,1,1],R8P)/13920._R8P
+      qw(0:7) = real([1,9,36,70,70,36,9,1],R8P)/232._R8P
+      radius = 6_I4P ; qfirst = -4_I4P ; nq = 8_I4P
+   case(10_I4P)
       p(-7:7) = real([1,1,1,166,1111,3487,6567,8052,6567,3487,1111,166,1,1,1],R8P)/30720._R8P
       qw(0:9) = real([1,9,36,84,126,126,84,36,9,1],R8P)/512._R8P
-      qfirst = -5_I4P ; nq = 10_I4P
+      radius = 7_I4P ; qfirst = -5_I4P ; nq = 10_I4P
+   case default
+      radius = 0_I4P ; qfirst = 0_I4P ; nq = 0_I4P
+      call mpih%error_stop(msg=': unsupported esirkepov_Q filter '//trim(str(self%pic%esirkepov_q, .true.)))
    endselect
    endsubroutine modified_kernels
 
@@ -5277,8 +5306,8 @@ contains
    implicit none
    class(prism_cpu_object), intent(inout) :: self
    real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
-   real(R8P), allocatable                 :: a(:,:,:), z(:,:,:)
-   real(R8P)                              :: p(-7:7), qw(0:9)
+   real(R8P), allocatable                 :: a(:,:,:), z(:,:,:), q_shift(:,:)
+   real(R8P)                              :: p(-7:7), qw(0:9), shift(3)
    integer(I4P)                           :: radius,qfirst,nq,b,part,rx,ry,rz,margin
    logical                                :: old_filter
 
@@ -5290,11 +5319,24 @@ contains
       if (self%pic%neighbour_list(2,part)-rx <= margin .or. self%ni-self%pic%neighbour_list(2,part)-rx <= margin .or. &
           self%pic%neighbour_list(3,part)-ry <= margin .or. self%nj-self%pic%neighbour_list(3,part)-ry <= margin .or. &
           self%pic%neighbour_list(4,part)-rz <= margin .or. self%nk-self%pic%neighbour_list(4,part)-rz <= margin) &
-         call mpih%error_stop(msg=': esirkepov-modified P filter support reaches a boundary')
+         call mpih%error_stop(msg=': '//self%pic%conserving_solver_name()//' P filter support reaches a boundary')
    enddo
    old_filter = self%pic%filter_deposition
    self%pic%filter_deposition = .false.
-   call self%pic%particle_weighting(field=self%adam%field,grid=self%adam%grid,q=q,q_pic=self%q_pic,nv=self%nv)
+   shift = modified_position_shift(self)
+   if (any(shift /= 0._R8P)) then
+      ! odd filters: base shape on the dual nodes, deposited as the particles at x-dx/2; then restore the real lookup
+      allocate(q_shift, source=self%q_pic)
+      do part=1,self%pic%particle_number
+         q_shift(1:3,part) = self%q_pic(1:3,part) - shift
+      enddo
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field,grid=self%adam%grid,q_pic=q_shift)
+      call self%pic%particle_weighting(field=self%adam%field,grid=self%adam%grid,q=q,q_pic=q_shift,nv=self%nv)
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field,grid=self%adam%grid,q_pic=self%q_pic)
+      deallocate(q_shift)
+   else
+      call self%pic%particle_weighting(field=self%adam%field,grid=self%adam%grid,q=q,q_pic=self%q_pic,nv=self%nv)
+   endif
    self%pic%filter_deposition = old_filter
    allocate(a(self%ni,self%nj,self%nk),z(self%ni,self%nj,self%nk))
    do b=1,self%blocks_number
@@ -5343,7 +5385,7 @@ contains
 
    if (self%pic%esirkepov_tail_cleanup) then
       if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) &
-         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires esirkepov-modified')
+         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires an esirkepov_Q<N> solver')
       allocate(q_plus_history(1:8,1:self%pic%particle_number,1:1))
       q_plus_history(:,:,1) = q_plus
       call solve_modified_current_with_cleanup(self=self, q=self%q, q_ref=q_minus, &
@@ -5456,7 +5498,7 @@ contains
    integer(I4P), intent(in) :: active_stage
    real(R8P), optional, intent(in) :: mixed_source(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
    real(R8P), allocatable :: source(:,:,:,:,:), source_stage(:,:,:,:,:,:), q_particle(:,:,:,:,:)
-   real(R8P) :: coeff(1:self%rk%nrk)
+   real(R8P) :: coeff(1:self%rk%nrk), shift(3)
    integer(I4P) :: particle, t, r, stage_count, slot_count, b, bt, i, j, k, rx, ry, rz
    integer(I4P) :: support_lo(3), support_hi(3), cell(3)
 
@@ -5498,12 +5540,14 @@ contains
          enddo
       endif
 
-      call find_pic_position_cell(self=self,q_pos=q_ref(:,particle),b=b,i=i,j=j,k=k)
+      ! base-shape cells, as compute_pic_esirkepov_displacement (dual nodes for the odd filters)
+      shift = modified_position_shift(self)
+      call find_pic_position_cell(self=self,q_pos=q_ref(1:3,particle)-shift,b=b,i=i,j=j,k=k)
       call particle_weighting_radius(self=self,b=b,rx=rx,ry=ry,rz=rz)
       support_lo = [i-rx,j-ry,k-rz]
       support_hi = [i+rx,j+ry,k+rz]
       do t=1,stage_count
-         call find_pic_position_cell(self=self,q_pos=q_to_history(:,particle,t),b=bt,i=i,j=j,k=k)
+         call find_pic_position_cell(self=self,q_pos=q_to_history(1:3,particle,t)-shift,b=bt,i=i,j=j,k=k)
          if (bt /= b) call mpih%error_stop(msg=': particle crossed a block in current cleanup')
          cell = [i,j,k]
          support_lo = min(support_lo,cell-[rx,ry,rz])
