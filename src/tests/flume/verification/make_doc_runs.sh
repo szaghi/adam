@@ -6,9 +6,13 @@
 #   vacuum  {leblanc,double-rarefaction,sedov}-{split,hllc}: PV-3, positivity limiter (6 runs, 55 min: Sedov takes 45)
 #   rj2a    rj2a, rj2a-hlld: Ryu-Jones 2a, 256 cells, no cleaning (2 runs, 1 min)
 #   order   linear-wave-{split,hlld}-{fast,alfven,slow,entropy}-{16,32,64}: MV-5, 1-D (24 runs, 5 min)
+#   gravity the M7 gravity cases (#73), as gravity/check.sh writes them: iso2d, poly2d (G0); freefall2d, box2d,
+#           box2d-mhd (G1); wave-{weno,riemann}-{8,16,32} (G2a, GV-9); {strat2d,polystrat2d,strat2d-amr}-{unb,bal}
+#           saved every 5 steps, lin-{unb,bal}-{6,4} (G2b) (21 runs, 12 min)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
+#       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance)
 #
-# Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order]     (default: all four)
+# Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity]     (default: all five)
 #
 # FLUME_EXE overrides the executable (default exe/adam_flume_cpu); the caller owns the matching MPI environment.
 set -euo pipefail
@@ -21,14 +25,14 @@ NP=2
 source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
-   echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order]" >&2 ; exit 2
+   echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity]" >&2 ; exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order}"
+GROUPS_="${*:-blast vacuum rj2a order gravity}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order)$ ]]; then
-      echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order)" >&2 ; exit 2
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity)$ ]]; then
+      echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity)" >&2 ; exit 2
    fi
 done
 if [[ ! -x "$EXE" ]]; then
@@ -97,6 +101,35 @@ for g in $GROUPS_; do
                      --divergence-control none
                   solver "$W/linear-wave.ini" $scheme ; run linear-wave.ini
                done
+            done
+         done ;;
+      gravity)
+         atm() { # atm <case dir> <make_atmosphere arguments>: write input.ini of a gravity case into a fresh W
+            fresh "$1" ; shift
+            python3 -I "$VERIF_DIR/gravity/make_atmosphere.py" "$W/input.ini" "$@"
+         }
+         for c in iso2d poly2d freefall2d box2d box2d-mhd; do
+            atm "$c" "$c" ; run input.ini
+         done
+         for scheme in weno riemann; do
+            extra=() ; [[ $scheme == riemann ]] && extra=(--riemann hllc)
+            for cells in 8 16 32; do
+               atm "wave-$scheme-$cells" wave2d --cells "$cells" --time-max 0.2 \
+                  --cfl "$(python3 -c "print(0.4 * (8 / $cells) ** (2 / 3))")" "${extra[@]}"
+               sed -i 's/^it_save = .*/it_save = 100000/' "$W/input.ini" ; run input.ini
+            done
+         done
+         for c in strat2d polystrat2d strat2d-amr; do
+            for mode in unb bal; do
+               opt=() ; [[ $mode == bal ]] && opt=(--balanced)
+               atm "$c-$mode" "$c" "${opt[@]}"
+               sed -i 's/^it_save = .*/it_save = 5/' "$W/input.ini" ; run input.ini
+            done
+         done
+         for mode in unb bal; do
+            opt=() ; [[ $mode == bal ]] && opt=(--balanced)
+            for a in 6 4; do
+               atm "lin-$mode-$a" strat2d --pulse "1e-$a" --time-max 0.1 "${opt[@]}" ; run input.ini
             done
          done ;;
    esac

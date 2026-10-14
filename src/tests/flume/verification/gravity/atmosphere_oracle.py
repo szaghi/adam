@@ -265,23 +265,16 @@ def freefall(args: argparse.Namespace) -> int:
     return status
 
 
-def energy(args: argparse.Namespace) -> int:
-    """GV-3: in a closed box the mass and the total energy are conserved, at every checkpoint, while E itself exchanges
-    with rho Phi (Phi = -g . x at the cell centres).
-
-    The conserved total energy of the fourth-order energy source (M7-G2a) is `W = sum (E + rho Phi) V` plus, at each
-    `wall-inviscid` face with gravity along its normal, `+- g_n dx_n rho V / 12` over the cells beside it (+ at the
-    lower face, - at the upper): the source reads the face beyond the wall, whose mirrored mass flux leaves
-    `g dx (F_1 - F_-1) / 24 = d/dt (-+ g dx rho_1 V / 12)` in the budget. W is asserted; the plain sum, which differs by
-    that O(dx^2) wall term, is reported."""
-    ini = read_ini(args.work)
+def energy_rows(work: Path) -> list[tuple[int, float, float, float, float, float]]:
+    """Per checkpoint (step, t, mass, sum E V, sum rho Phi V, the wall term of W), as `energy` defines them."""
+    ini = read_ini(work)
     atm = Atmosphere(ini)
     lo = np.array([float(ini["grid"][f"emin_{x}"]) for x in "xyz"])
     hi = np.array([float(ini["grid"][f"emax_{x}"]) for x in "xyz"])
     walls = [d for d in range(3) if atm.g[d] != 0.0 and
              all(ini[f"bc_{'xyz'[d]}_{s}"]["type"].split(";")[0].strip() == "wall-inviscid" for s in ("min", "max"))]
     rows = []
-    for step, (t, paths) in sorted(checkpoints(args.work).items()):
+    for step, (t, paths) in sorted(checkpoints(work).items()):
         m = e = w = b = 0.0
         for c, dxyz, vol, q in interior_steps(ini, paths):
             m += q["r"] * vol
@@ -293,6 +286,19 @@ def energy(args: argparse.Namespace) -> int:
                 if hi[d] - c[d] < dxyz[d]:
                     b -= atm.g[d] * dxyz[d] * q["r"] * vol / 12.0
         rows.append((step, t, m, e, w, b))
+    return rows
+
+
+def energy(args: argparse.Namespace) -> int:
+    """GV-3: in a closed box the mass and the total energy are conserved, at every checkpoint, while E itself exchanges
+    with rho Phi (Phi = -g . x at the cell centres).
+
+    The conserved total energy of the fourth-order energy source (M7-G2a) is `W = sum (E + rho Phi) V` plus, at each
+    `wall-inviscid` face with gravity along its normal, `+- g_n dx_n rho V / 12` over the cells beside it (+ at the
+    lower face, - at the upper): the source reads the face beyond the wall, whose mirrored mass flux leaves
+    `g dx (F_1 - F_-1) / 24 = d/dt (-+ g dx rho_1 V / 12)` in the budget. W is asserted; the plain sum, which differs by
+    that O(dx^2) wall term, is reported."""
+    rows = energy_rows(args.work)
     _, _, m0, e0, w0, b0 = rows[0]
     dm = max(abs(r[2] - m0) for r in rows) / abs(m0)
     dw = max(abs(r[3] + r[4] + r[5] - e0 - w0 - b0) for r in rows) / abs(e0 + w0 + b0)
@@ -310,6 +316,17 @@ def energy(args: argparse.Namespace) -> int:
     return status
 
 
+def max_mach(ini: configparser.ConfigParser, paths: list[Path]) -> float:
+    """max |u| / c over the interior of one checkpoint."""
+    atm = Atmosphere(ini)
+    eglm = atm.mhd and ini["mhd"]["divergence_control"].split(";")[0].strip() == "eglm"
+    mach = 0.0
+    for _, _, q in interior(ini, paths):
+        rho, u, p, _ = primitive(q, atm.gamma, atm.mhd, eglm)
+        mach = max(mach, float(np.linalg.norm(u)) / math.sqrt(atm.gamma * p / rho))
+    return mach
+
+
 def rest(args: argparse.Namespace) -> int:
     """GV-2: the spurious velocity of an atmosphere at rest, max |u| / c over the interior at the last checkpoint of
     each run, and its order between consecutive runs (the runs given coarse to fine, each twice as fine); reported, or
@@ -317,15 +334,9 @@ def rest(args: argparse.Namespace) -> int:
     prev = None
     status = 0
     for work in args.works:
-        ini = read_ini(work)
-        atm = Atmosphere(ini)
-        eglm = atm.mhd and ini["mhd"]["divergence_control"].split(";")[0].strip() == "eglm"
         cps = checkpoints(work)
         t, paths = cps[max(cps)]
-        mach = 0.0
-        for _, _, q in interior(ini, paths):
-            rho, u, p, _ = primitive(q, atm.gamma, atm.mhd, eglm)
-            mach = max(mach, float(np.linalg.norm(u)) / math.sqrt(atm.gamma * p / rho))
+        mach = max_mach(read_ini(work), paths)
         order = f", order {math.log2(prev / mach):+.2f}" if prev and mach > 0.0 else ""
         verdict = ""
         if args.max is not None:
@@ -335,6 +346,20 @@ def rest(args: argparse.Namespace) -> int:
         print(f"   {work.name}: t = {t:.4f}, max |u| / c = {mach:.3e}{order}{verdict}")
         prev = mach
     return status
+
+
+def pulse_response(work: Path, paths: list[Path]) -> tuple[float, dict[tuple, tuple[float, np.ndarray]]]:
+    """The pulse amplitude A of a run and, per interior cell centre of one checkpoint, ((p / p_e - 1) / A, u / A)."""
+    ini = read_ini(work)
+    atm = Atmosphere(ini)
+    amp = float(ini["initial_conditions"]["pulse_amplitude"])
+    eglm = atm.mhd and ini["mhd"]["divergence_control"].split(";")[0].strip() == "eglm"
+    r = {}
+    for c, _, q in interior(ini, paths):
+        _, u, p, _ = primitive(q, atm.gamma, atm.mhd, eglm)
+        _, pe = atm.state(c)
+        r[tuple(np.round(c, 12))] = (p / pe - 1.0) / amp, u / amp
+    return amp, r
 
 
 def linear(args: argparse.Namespace) -> int:
@@ -348,15 +373,7 @@ def linear(args: argparse.Namespace) -> int:
     amps = []
     resp = []
     for work, cps in ((args.a, ca), (args.b, cb)):
-        ini = read_ini(work)
-        atm = Atmosphere(ini)
-        amp = float(ini["initial_conditions"]["pulse_amplitude"])
-        eglm = atm.mhd and ini["mhd"]["divergence_control"].split(";")[0].strip() == "eglm"
-        r = {}
-        for c, _, q in interior(ini, cps[step][1]):
-            rho, u, p, _ = primitive(q, atm.gamma, atm.mhd, eglm)
-            _, pe = atm.state(c)
-            r[tuple(np.round(c, 12))] = (p / pe - 1.0) / amp, u / amp
+        amp, r = pulse_response(work, cps[step][1])
         amps.append(amp)
         resp.append(r)
     keys = resp[0].keys()
@@ -408,6 +425,27 @@ def agree(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def wave_errors(work: Path) -> tuple[float, float, float]:
+    """The time and the L1 errors of rho and p / p_1 at the last checkpoint of a `wave2d` run (as `wave` reports)."""
+    ini = read_ini(work)
+    atm = Atmosphere(ini)
+    ic = ini["initial_conditions"]
+    angle = math.radians(float(ic["wave_angle"]))
+    amp, lam = float(ic["wave_amplitude"]), float(ic["wavelength"])
+    n = np.array([math.cos(angle), math.sin(angle), 0.0])
+    cps = checkpoints(work)
+    t, paths = cps[max(cps)]
+    shift = atm.vel * t + 0.5 * atm.g * t * t
+    er = ep = vol = 0.0
+    for c, v, q in interior(ini, paths):
+        rho, _, p, _ = primitive(q, atm.gamma, atm.mhd, False)
+        rho_x = atm.rho1 * (1.0 + amp * math.sin(2.0 * math.pi * float(np.dot(n, c - shift)) / lam))
+        er += abs(rho - rho_x) * v
+        ep += abs(p / atm.p1 - 1.0) * v
+        vol += v
+    return t, er / vol, ep / vol
+
+
 def wave(args: argparse.Namespace) -> int:
     """GV-9 (M7-G2a): the falling entropy wave of `wave2d`, the L1 errors of rho and p at the last checkpoint against
     the exact solution (the region-1 state, the wave of [initial_conditions] advected by `u_0 t + g t^2 / 2`, p
@@ -416,23 +454,7 @@ def wave(args: argparse.Namespace) -> int:
     prev = None
     orders = (0.0, 0.0)
     for work in args.works:
-        ini = read_ini(work)
-        atm = Atmosphere(ini)
-        ic = ini["initial_conditions"]
-        angle = math.radians(float(ic["wave_angle"]))
-        amp, lam = float(ic["wave_amplitude"]), float(ic["wavelength"])
-        n = np.array([math.cos(angle), math.sin(angle), 0.0])
-        cps = checkpoints(work)
-        t, paths = cps[max(cps)]
-        shift = atm.vel * t + 0.5 * atm.g * t * t
-        er = ep = vol = 0.0
-        for c, v, q in interior(ini, paths):
-            rho, _, p, _ = primitive(q, atm.gamma, atm.mhd, False)
-            rho_x = atm.rho1 * (1.0 + amp * math.sin(2.0 * math.pi * float(np.dot(n, c - shift)) / lam))
-            er += abs(rho - rho_x) * v
-            ep += abs(p / atm.p1 - 1.0) * v
-            vol += v
-        er, ep = er / vol, ep / vol
+        t, er, ep = wave_errors(work)
         if prev:
             orders = (math.log2(prev[0] / er), math.log2(prev[1] / ep))
             tail = f", orders {orders[0]:+.2f} {orders[1]:+.2f}"

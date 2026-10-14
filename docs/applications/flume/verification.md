@@ -1910,7 +1910,10 @@ disagreed, and the field-loop case was not bitwise.
 
 External gravity lands in phases ([#73](https://github.com/szaghi/adam/issues/73), plan in the issue): G0 the inputs,
 G1 the force, G2 a well-balanced mode, G3 Rayleigh–Taylor. Self-gravity is M8
-([#81](https://github.com/szaghi/adam/issues/81)).
+([#81](https://github.com/szaghi/adam/issues/81)). The figures of this section are drawn from re-runs of the
+`check.sh` inputs (CPU, 2 ranks), whose checkpoints the checks delete: `make_doc_runs.sh <dir> gravity`, then
+`make_doc_figures.py --out docs/public/flume --runs <dir> --only gravity-atmospheres gravity-force gravity-order
+gravity-balance`.
 
 ### GV (G0): the stratified atmospheres and the `hydrostatic` boundary
 
@@ -1958,6 +1961,13 @@ decomposed nothing).
 | negative control | 192 | 9.8·10⁻² (rejected, as it must be) |
 | NV-5 | iso2d, iso2d-mhd, froude2d | bitwise; conversions exact and complete |
 
+![GV (G0): the iso2d and poly2d atmospheres with their hydrostatic ghosts, and their relative error](/flume/gravity-atmospheres.png)
+
+Left, the two atmospheres along y, every interior cell (dots) and every ghost beyond the y faces (crosses, shaded),
+against the analytic profiles. Beyond a polytropic face the ghosts leave the polytropic curve on purpose: the
+`hydrostatic` rule extends the boundary cell isothermally, and they are checked against that extension. Right, the
+relative error of every one of those cells: zero or one unit in the last place, ghosts included.
+
 **Found on the way** (pre-existing, not gravity): on FNL an MHD run dies when a rank owns no blocks
 (`dev_assign_to_device: device memory not allocated`), with or without gravity and with the executable before G0; the
 Euler model and the CPU backend run. The G0 cases now give every rank blocks.
@@ -1990,6 +2000,14 @@ gas falls toward vacuum.
 | GV-2 | $\max|\mathbf u|/c$ = 2.9·10⁻¹², 1.1·10⁻¹², 2.5·10⁻¹⁴ (scale height 1 on the unit box: a mild stratification) |
 | GV-6 | bitwise |
 | GV-7 | FNL against CPU: `box2d` ≤ 9.3·10⁻¹⁴, `box2d-mhd` ≤ 9.3·10⁻¹⁴ per field (a vector component scaled by its vector's largest: $\rho u$ is zero by symmetry, round-off only). FNL repeats every CPU number above to the last digit shown, but GV-2 at N = 128, 2.6·10⁻¹⁴ |
+
+![GV (G1): free fall, the energy budget of the closed boxes and the settled box2d](/flume/gravity-force.png)
+
+Drawn with the current scheme (G2a's fourth-order energy source). Left, GV-1: the momentum of the periodic box follows
+$\rho g t$, with a pointwise error of one or two units in the last place. Centre, GV-3 over the whole run: the mass
+and $W$ stay at round-off, while the plain $E + \rho\Phi$ drifts to 3·10⁻⁵ (`box2d`) through the $O(\Delta x^2)$
+wall-row term of G2a; $E$ alone (not drawn) exchanges 3.8 per cent with $\rho\Phi$. Right, `box2d` after 200 steps:
+the uniform gas has settled into a stratification, $\rho$ from 1.58 at the floor to 0.42 under the lid.
 
 **The limiter and gravity (owner decision: option B).** The first form put the face-form energy into the backbone. A
 cell beside a wall then gets half of the face form (the wall face carries no mass) while its momentum gains the whole
@@ -2038,6 +2056,12 @@ correction).
 At N = 128 the pressure error falls 1300-fold. The negative control is a build with the correction switched off,
 not a run-time option; it is not part of `check.sh`.
 
+![GV-9: L1 errors of the falling density wave against N, weno and weno-riemann](/flume/gravity-order.png)
+
+The two schemes lie on top of each other, $\rho$ at slope 5 and $p$ at 4.6 on the finest pair. The pressure error is
+the energy source's: on this wave the momentum source is exact and $p$ is uniform, so any pressure error comes from the
+energy equation. The control is not drawn (it needs the special build); its errors are in the table.
+
 The other GV legs with the correction (CPU and FNL): GV-1 unchanged (uniform: the correction is zero); GV-3 `box2d`
 mass 7.7·10⁻¹⁵, $W$ 7.7·10⁻¹⁵ (the plain $E + \rho\Phi$ 3.3·10⁻⁵, the wall term), `box2d-mhd` 1.2·10⁻¹⁴, 6.1·10⁻¹⁵
 (1.6·10⁻⁵); `box2d-lim` 107 984 faces limited (74 304 in G1: the correction is a high-order cell source inside
@@ -2081,7 +2105,19 @@ $\beta \approx 7$ at the top); `strat2d-amr`, a refined box $[0.25, 0.75]^2$; x 
 (The unbalanced MHD values are at t = 0.5 from the trial; `check.sh` runs the MHD legs to t = 0.2.) The balanced rest
 is exactly zero where the state equals the stored equilibrium bit for bit; on the AMR box the reflux arithmetic leaves
 round-off. GV-10 shows what the mode is for: the balanced response is linear in the amplitude to its second order
-(5.7·10⁻⁵ against $A = 10^{-4}$), while the unbalanced one is dominated by its own stationary flow. GV-7 scales the momentum by at least
+(5.7·10⁻⁵ against $A = 10^{-4}$), while the unbalanced one is dominated by its own stationary flow.
+
+![GV (G2b): spurious flows unbalanced and balanced, the refined box, the pulse responses](/flume/gravity-balance.png)
+
+Top left, $\max|\mathbf u|/c$ over the run: the unbalanced atmospheres reach their stationary flow within a few steps
+(`strat2d` levels at 6·10⁻⁴, `polystrat2d` at 1.5·10⁻³), the refined box keeps growing to 1.2·10⁻²; balanced, `strat2d`
+and `polystrat2d` stay exactly at rest (drawn at 10⁻¹⁸) and the refined box at round-off. Top centre, the unbalanced
+refined box at t = 0.5: the flow peaks at (0.52, 0.80), in the second coarse row above the top seam ($y = 0.75$), where
+the coarse and fine truncation errors meet. Top right, the same run balanced: round-off, largest in the fine cells
+(3.3·10⁻¹⁵), exactly zero in parts of the coarse rows. Bottom, the pulse at t = 0.1 along $x = 0.484$: balanced, the
+responses to $10^{-6}$ and $10^{-4}$ coincide (peak $(p/p_e - 1)/A = 0.40$); unbalanced, the curve is the stationary
+truncation flow divided by $A$ (peak 333 for $10^{-6}$, 3.4 for $10^{-4}$) and hides the pulse entirely. Bottom right,
+the balanced $10^{-6}$ response: the acoustic front, stronger upward, where the density falls. GV-7 scales the momentum by at least
 $\max\rho c$: a balanced run's momentum is the perturbation, round-off at rest, and the backends' round-off of the
 $O(1)$ residuals that the subtraction cancels (≤ 6·10⁻¹⁵ $\rho c$) would read $O(1)$ against its own maximum.
 

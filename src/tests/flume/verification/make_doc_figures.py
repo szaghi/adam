@@ -11,8 +11,8 @@ Usage:
 
 `--runs` holds the re-runs of inputs whose work directories keep no checkpoint (the MHD cases), one sub-directory per
 case: orszag-tang, orszag-tang-amr, rotor, field-loop, brio-wu, rj4d, glm-pulse, and the cases of `make_doc_runs.sh`
-(rj2a, rj2a-hlld, the limited blasts, the Euler near-vacuum problems, the linear-wave ladders). A figure whose data is
-missing is skipped with a message. Needs numpy, h5py and matplotlib.
+(rj2a, rj2a-hlld, the limited blasts, the Euler near-vacuum problems, the linear-wave ladders, the gravity cases).
+A figure whose data is missing is skipped with a message. Needs numpy, h5py and matplotlib.
 """
 
 from __future__ import annotations
@@ -959,6 +959,236 @@ def fig_regrid(out: Path, runs: Path) -> None:  # noqa: ARG001
     plt.close(fig)
 
 
+def gravity_oracle():  # noqa: ANN201
+    """Import gravity/atmosphere_oracle.py (the GV checks, #73), whose measures the gravity figures reuse."""
+    sys.path.insert(0, str(HERE / "gravity"))
+    import atmosphere_oracle  # noqa: PLC0415
+
+    return atmosphere_oracle
+
+
+FLOOR = 1e-18  # an exact zero on a log axis
+
+
+def fig_gravity_atmospheres(out: Path, runs: Path) -> None:
+    """GV (G0): the isothermal and polytropic atmospheres of iso2d and poly2d (g = (0, -1), N = 32, CPU, 2 ranks) after
+    one negligible step with poisoned ghosts: interior cells and the `hydrostatic` ghosts against the analytic profile,
+    and their relative error. The ghosts beyond a polytropic face follow the isothermal extension of the boundary cell
+    (the rule of the `hydrostatic` boundary), so that is their reference."""
+    ao = gravity_oracle()
+    fig, axs = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True)
+    for case, color in (("iso2d", "C0"), ("poly2d", "C3")):
+        work = runs / case
+        ini = ao.read_ini(work)
+        atm = ao.Atmosphere(ini)
+        ngc = int(ini["grid"]["ngc"])
+        pts = {"interior": [], "ghost": []}
+        for path in last_files(work):
+            with h5py.File(path, "r") as h5:
+                for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                    origin, d = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                    a = {n: h5[f"{blk}-{n}"][()].transpose(2, 1, 0) for n in EULER}
+                    nx, ny = a["r"].shape[:2]
+                    k = ngc if a["r"].shape[2] > 2 * ngc else 0
+                    for i in range(ngc, nx - ngc):
+                        for j in range(ny):
+                            y = origin[1] + (j + 0.5) * d[1]
+                            inside = ngc <= j < ny - ngc
+                            if not inside and 0.0 < y < 1.0:
+                                continue  # a ghost of a block interface
+                            q = {n: float(v[i, j, k]) for n, v in a.items()}
+                            rho = q["r"]
+                            p = (atm.gamma - 1.0) * (q["rE"] - 0.5 * (q["ru"] ** 2 + q["rv"] ** 2) / rho)
+                            c = np.array([origin[0] + (i + 0.5) * d[0], y, 0.0])
+                            if inside:
+                                re, pe = atm.state(c)
+                            else:  # the isothermal extension of the boundary cell
+                                c1 = c.copy()
+                                c1[1] = 0.5 * d[1] if y < 0.0 else 1.0 - 0.5 * d[1]
+                                r1, p1 = atm.state(c1)
+                                re = r1 * math.exp(atm.g[1] * (y - c1[1]) * r1 / p1)
+                                pe = re * p1 / r1
+                            err = max(abs(rho / re - 1.0), abs(p / pe - 1.0))
+                            pts["interior" if inside else "ghost"].append((y, rho, p, err))
+        ys = np.linspace(0.0, 1.0, 200)
+        prof = np.array([atm.state(np.array([0.0, y, 0.0])) for y in ys])
+        label = "isothermal" if case == "iso2d" else f"polytropic G = {atm.G:g}"
+        axs[0].plot(ys, prof[:, 0], "-", color=color, lw=1, label=rf"$\rho$ exact, {label}")
+        axs[0].plot(ys, prof[:, 1], "--", color=color, lw=1, label=rf"$p$ exact, {label}")
+        for kind, mk in (("interior", "."), ("ghost", "x")):
+            v = np.array(pts[kind])
+            axs[0].plot(v[:, 0], v[:, 1], mk, color=color, ms=3)
+            axs[0].plot(v[:, 0], v[:, 2], mk, color=color, ms=3)
+            axs[1].semilogy(v[:, 0], np.maximum(v[:, 3], FLOOR), mk, color=color, ms=4,
+                            label=f"{case}, {kind} ({len(v)} cells), max {v[:, 3].max():.1e}")
+    axs[0].axvspan(-0.2, 0.0, color="0.9")
+    axs[0].axvspan(1.0, 1.2, color="0.9")
+    axs[0].set_xlim(-0.14, 1.14)
+    axs[0].set_xlabel("y (shaded: the hydrostatic ghosts)")
+    axs[0].set_ylabel(r"$\rho$, $p$ (dots: interior, crosses: ghosts)")
+    axs[0].legend(fontsize=7)
+    axs[0].set_title("the atmospheres and their hydrostatic ghosts (beyond a polytropic face: the isothermal\n"
+                     "extension of the boundary cell, the rule of the boundary)", fontsize=10)
+    axs[1].set_xlabel("y")
+    axs[1].set_ylabel(r"$\max(|\rho/\rho_e - 1|, |p/p_e - 1|)$")
+    axs[1].grid(alpha=0.3, which="both")
+    axs[1].legend(fontsize=7)
+    axs[1].set_title("relative error against the analytic profile (exact zero drawn at 1e-18)")
+    fig.suptitle("GV (G0): stratified atmospheres under g = (0, -1), N = 32, ghosts filled in RK-stage order "
+                 "(CPU, 2 ranks)")
+    fig.savefig(out / "gravity-atmospheres.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_gravity_force(out: Path, runs: Path) -> None:
+    """GV (G1, G2a): the force. Free fall in a periodic box (freefall2d: rho v against rho g t, and its error), the
+    energy budget of the closed boxes (box2d, box2d-mhd: mass, E + rho Phi and W over time) and the box2d density after
+    the gas has fallen onto the bottom wall."""
+    ao = gravity_oracle()
+    fig, axs = plt.subplots(1, 3, figsize=(18, 4.8), constrained_layout=True)
+    work = runs / "freefall2d"
+    ini = ao.read_ini(work)
+    atm = ao.Atmosphere(ini)
+    rows = []
+    for _, (t, paths) in sorted(ao.checkpoints(work).items()):
+        mom = [q["rv"] for _, _, q in ao.interior(ini, paths)]
+        exact = atm.rho1 * atm.g[1] * t
+        err = max(abs(m - exact) for m in mom) / abs(exact) if t > 0.0 else 0.0
+        rows.append((t, float(np.mean(mom)), err))
+    r = np.array(rows)
+    ax = axs[0]
+    ax.plot(r[:, 0], r[:, 1], "o", ms=5, mfc="none", label=r"FLUME $\rho v$ (mean over the cells)")
+    ax.plot(r[:, 0], atm.rho1 * atm.g[1] * r[:, 0], "-", lw=1, label=r"exact $\rho g t$")
+    ax.set_xlabel("t")
+    ax.set_ylabel(r"$\rho v$")
+    ax.legend(fontsize=7, loc="lower left")
+    ax2 = ax.twinx()
+    ax2.semilogy(r[1:, 0], np.maximum(r[1:, 2], FLOOR), "s-", color="C3", ms=3, lw=0.8)
+    ax2.set_ylabel(r"$\max |\rho v - \rho g t| / |\rho g t|$", color="C3")
+    ax.set_title("GV-1 free fall, every face periodic")
+    ax = axs[1]
+    for case, ls in (("box2d", "-"), ("box2d-mhd", "--")):
+        e = np.array(ao.energy_rows(runs / case))
+        t, m, ee, w, b = e[:, 1], e[:, 2], e[:, 3], e[:, 4], e[:, 5]
+        tot, wtot = ee + w, ee + w + b
+        for val, name, color in ((m, "mass", "C0"), (tot, r"$E + \rho\Phi$", "C1"), (wtot, "W", "C2")):
+            ax.semilogy(t, np.maximum(np.abs(val - val[0]) / abs(val[0]), FLOOR), ls, color=color,
+                        label=f"{name}, {case}")
+    ax.set_xlabel("t")
+    ax.set_ylabel("relative drift")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend(fontsize=7, ncol=2)
+    ax.set_title("GV-3 closed boxes: W is the invariant, E + ρΦ differs by\nthe O(Δx²) wall-row term of the "
+                 "fourth-order source")
+    work = runs / "box2d"
+    ini = ao.read_ini(work)
+    bl = first_plane(blocks(work, int(ini["grid"]["ngc"]), EULER))
+    im = field_map(axs[2], bl, lambda b: b["f"]["r"][:, :, 0], outline=True)
+    fig.colorbar(im, ax=axs[2], label=r"$\rho$", shrink=0.85)
+    t_end = max(t for t, _ in ao.checkpoints(work).values())
+    axs[2].set_title(f"box2d at t = {t_end:.3f}: the gas has settled into a stratification")
+    axs[2].set_xlabel("x")
+    axs[2].set_ylabel("y")
+    fig.suptitle("GV (G1): uniform gas under g = (0, -1), N = 32, CFL 0.4 (CPU, 2 ranks)")
+    fig.savefig(out / "gravity-force.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_gravity_order(out: Path, runs: Path) -> None:
+    """GV-9 (G2a): the falling density wave of wave2d at N = 32, 64, 128, L1 errors of rho and p against the exact
+    solution on `weno` and on `weno-riemann` (HLLC), with slopes 5 and 2 (the order of the G1 face form alone)."""
+    ao = gravity_oracle()
+    fig, ax = plt.subplots(figsize=(7.5, 5), constrained_layout=True)
+    for scheme, label, color in (("weno", "weno", "C0"), ("riemann", "weno-riemann HLLC", "C3")):
+        e = np.array([(4 * n, *ao.wave_errors(runs / f"wave-{scheme}-{n}")[1:]) for n in (8, 16, 32)])
+        for col, name, ls in ((1, r"$\rho$", "o-"), (2, r"$p/p_1$", "s--")):
+            order = math.log2(e[-2, col] / e[-1, col])
+            ax.loglog(e[:, 0], e[:, col], ls, color=color, mfc="none",
+                      label=f"{name}, {label}: finest order {order:.2f}")
+    n = np.array([32.0, 128.0])
+    for slope, y0 in ((5, 4e-6), (2, 4e-6)):
+        ax.loglog(n, y0 * (n / 32.0) ** -slope, ":", color="0.4", lw=1)
+        ax.annotate(f"slope {slope}", (n[-1], y0 * 4.0 ** -slope), fontsize=8, color="0.4")
+    ax.set_xlabel("N (cells per side)")
+    ax.set_ylabel("L1 error at t = 0.2")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend(fontsize=7)
+    ax.set_title("GV-9: a density wave falling freely, g = (-0.6, -0.8)\nwith the fourth-order energy source "
+                 "(the G1 face form alone gave 2.12 / 2.00)")
+    fig.savefig(out / "gravity-order.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_gravity_balance(out: Path, runs: Path) -> None:
+    """GV (G2b): the well-balanced mode. max |u| / c over time, unbalanced and balanced, on strat2d (isothermal, ten
+    scale heights), polystrat2d and strat2d-amr; the spurious Mach number of strat2d-amr at t = 0.5 with its blocks,
+    unbalanced and balanced; the response to the 1e-6 and 1e-4 pulses along x = 0.5 at t = 0.1, balanced and not; the
+    balanced 1e-6 response field."""
+    ao = gravity_oracle()
+    fig, axs = plt.subplots(2, 3, figsize=(18, 10), constrained_layout=True)
+    ax = axs[0, 0]
+    for case, color in (("strat2d", "C0"), ("polystrat2d", "C1"), ("strat2d-amr", "C2")):
+        for mode, ls in (("unb", "-"), ("bal", "--")):
+            work = runs / f"{case}-{mode}"
+            ini = ao.read_ini(work)
+            m = np.array([(t, ao.max_mach(ini, paths)) for t, paths in
+                          (v for _, v in sorted(ao.checkpoints(work).items()))])
+            ax.semilogy(m[:, 0], np.maximum(m[:, 1], FLOOR), ls, color=color,
+                        label=f"{case}, {'balanced' if mode == 'bal' else 'unbalanced'}: {m[-1, 1]:.1e} at the end")
+    ax.set_xlabel("t")
+    ax.set_ylabel(r"$\max |u| / c$  (exact zero at 1e-18)")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend(fontsize=7)
+    ax.set_title("atmospheres at rest, N = 32")
+    for ax, mode in ((axs[0, 1], "unb"), (axs[0, 2], "bal")):
+        work = runs / f"strat2d-amr-{mode}"
+        ini = ao.read_ini(work)
+        gamma = float(ini["physics"]["gamma"])
+        bl = first_plane(blocks(work, int(ini["grid"]["ngc"]), EULER))
+        im = field_map(ax, bl, lambda b, g=gamma: np.log10(np.maximum(plane(b, g, "mach"), FLOOR)), cmap="magma",
+                       outline=True)
+        fig.colorbar(im, ax=ax, label=r"$\log_{10} |u| / c$", shrink=0.85)
+        ax.set_title(f"strat2d-amr {'balanced' if mode == 'bal' else 'unbalanced'}, t = 0.5: refined box "
+                     "[0.25, 0.75]²")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+    for ax, mode in ((axs[1, 0], "bal"), (axs[1, 1], "unb")):
+        for a, ls in (("6", "-"), ("4", "--")):
+            work = runs / f"lin-{mode}-{a}"
+            cps = ao.checkpoints(work)
+            amp, resp = ao.pulse_response(work, cps[max(cps)][1])
+            xs = sorted({k[0] for k in resp})
+            x0 = min(xs, key=lambda x: abs(x - 0.5))
+            cut = sorted((k[1], v[0]) for k, v in resp.items() if k[0] == x0)
+            c = np.array(cut)
+            ax.plot(c[:, 0], c[:, 1], ls, label=f"A = {amp:g}")
+        ax.set_xlabel(f"y (cut x = {x0:.3f})")
+        ax.set_ylabel(r"$(p/p_e - 1)/A$")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8)
+        ax.set_title("pulse response at t = 0.1, " + ("balanced: the two overlap" if mode == "bal" else
+                     "unbalanced: the stationary truncation flow over A"))
+    ax = axs[1, 2]
+    work = runs / "lin-bal-6"
+    cps = ao.checkpoints(work)
+    amp, resp = ao.pulse_response(work, cps[max(cps)][1])
+    xs = np.array(sorted({k[0] for k in resp}))
+    ys = np.array(sorted({k[1] for k in resp}))
+    z0 = next(iter(resp))[2]
+    grid = np.array([[resp[(x, y, z0)][0] for y in ys] for x in xs])
+    pc = ax.pcolormesh(np.r_[xs - 0.5 * (xs[1] - xs[0]), xs[-1] + 0.5 * (xs[1] - xs[0])],
+                       np.r_[ys - 0.5 * (ys[1] - ys[0]), ys[-1] + 0.5 * (ys[1] - ys[0])], grid.T, cmap="RdBu_r",
+                       shading="flat")
+    fig.colorbar(pc, ax=ax, label=r"$(p/p_e - 1)/A$", shrink=0.85)
+    ax.set_aspect("equal")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title(f"balanced, A = {amp:g}, t = 0.1: the acoustic response")
+    fig.suptitle("GV (G2b): the well-balanced mode, [gravity] equilibrium = atmosphere (CPU, 2 ranks)")
+    fig.savefig(out / "gravity-balance.png", dpi=DPI)
+    plt.close(fig)
+
+
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
            "conservation": fig_conservation,
@@ -966,7 +1196,8 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "rotor": fig_rotor, "field-loop": fig_field_loop, "mhd-riemann": fig_mhd_riemann, "glm-pulse": fig_glm_pulse,
            "blast": fig_blast, "near-vacuum": fig_vacuum, "eglm-energy": fig_eglm_energy, "order": fig_order,
            "viscous": fig_viscous, "viscous-fields": fig_viscous_fields, "couette": fig_couette,
-           "regrid": fig_regrid}
+           "regrid": fig_regrid, "gravity-atmospheres": fig_gravity_atmospheres, "gravity-force": fig_gravity_force,
+           "gravity-order": fig_gravity_order, "gravity-balance": fig_gravity_balance}
 
 
 def main() -> int:
