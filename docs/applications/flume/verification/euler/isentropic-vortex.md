@@ -92,5 +92,5 @@ Related cases: [Sod](./sod) checks the same schemes at discontinuities; the MHD 
 - LLF is 1.7× more dissipative than the splitting scheme on the vortex; HLL and HLLC close the gap, and HLLC is the
   most accurate of the four.
 - The quadtree layout is bitwise identical to the octree one with a null $z$ axis, and 16 times cheaper.
-- The earlier verification page and the figure's panel title called the run "one period"; the input runs to $t = 0.1$, one tenth of
-  the period of the diagonal convection through the unit box.
+- The earlier verification page and the figure's panel title called the run "one period"; the input runs to $t = 0.1$,
+  one tenth of the period of the diagonal convection through the unit box (the title is corrected since #85 R1).

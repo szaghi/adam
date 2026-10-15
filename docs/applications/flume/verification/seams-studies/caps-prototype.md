@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| B1 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| B1 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | yes | — |
 
 ## Case and scope
 
@@ -43,6 +43,7 @@ whether the seam corners explain the L∞ order 1.46 of A1's Euler vortex ([AO](
 |---|---|
 | `src/tests/flume/verification/amr-proto/proto2d.py` | the prototype; `b1 [--cells ...] [--velocity a b] [--assert ARM:NORM:MIN]` |
 | `src/tests/flume/verification/amr-proto/check.sh` | runs B1, B2 and B3 (`--long` for the finer ladders) |
+| `src/tests/flume/verification/make_doc_figures.py --only seam-proto-b1` | draws the figure (`fig_seam_proto_b1`; NumPy only, about 1 min) |
 
 ```bash
 cd src/tests/flume/verification/amr-proto && ./check.sh          # about 1 min for B1
@@ -55,8 +56,13 @@ mean restriction and of the reflux are reported.
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): order against $N$ per arm, and the corner and edge
-errors).
+![B1: order per arm and where the error lives](/flume/seam-proto-b1.png)
+
+*The `check.sh` ladder, $N$ = 32 / 64 / 128 (the legend gives the 64 → 128 orders; the table below is the `--long`
+ladder, 128 → 256): $L_1$ and $L_\infty$ per arm against the order-2 and order-5 slopes, and the $L_\infty$ error at
+$N = 128$ split by region. Every arm with the reflux on, or with the mean restriction, is capped at order 2 in
+$L_\infty$; only lag6 + quintic without reflux reaches 5, and its error is spread evenly over corners, edges and
+interior.*
 
 Orders of $N$ = 128 → 256; mass drift after one period at $N = 256$:
 

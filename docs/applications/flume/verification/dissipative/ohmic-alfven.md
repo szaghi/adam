@@ -58,7 +58,7 @@ The rates the oracle holds: Ohmic $\eta k^2$; Alfvén damping $(\nu + \eta)k^2/2
 | `src/tests/flume/verification/viscous/waves.py` | `make --mode magnetic` writes each input; `oracle` integrates the linear $(v_t, b_t)$ system exactly |
 | `src/tests/flume/verification/viscous/check.sh --leg vv5` | runs the five ladders (`--np N`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/regression/alfven-resistive/input.ini` | the frozen visco-resistive Alfvén wave at 45°, MHD-GLM, $B_n = 1$, $\mu = 0.01$, $\eta = 0.005$, $32^2$, $t = 0.05$ |
-| `make_doc_figures.py` (`fig_viscous`) | the figure, from the CPU work directories of `viscous/check.sh` |
+| `make_doc_figures.py` (`fig_viscous`, `fig_viscous_ladders`) | the figures, from the CPU and FNL work directories of `viscous/check.sh` |
 
 ```bash
 cd src/tests/flume/verification/viscous && ./check.sh --leg vv5             # CPU
@@ -70,6 +70,12 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv5       # FN
 ![VV-1 to VV-5: convergence, and Becker's shock against the exact profile](/flume/viscous.png)
 
 *Middle panel: the five VV-5 ladders, each normalised by its coarsest error, against the order-2 and order-4 slopes.*
+
+![VV-1, VV-2 and VV-5: absolute errors on CPU and FNL, and the Ohmic decay](/flume/viscous-ladders.png)
+
+*Centre: the VV-5 ladders as absolute RMS errors, CPU (filled, solid) and FNL (open, dotted), which coincide.
+Right: the decay against the exact rate, $|A_\mathrm{measured}/A_\mathrm{exact} - 1|$, converging at order 4 (order 2
+for the order-2 flux).*
 
 Oracle: as VV-1, the observed order of the finest pair $\ge 3.8$ at order 4, $\ge 1.9$ at order 2.
 

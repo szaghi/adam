@@ -263,7 +263,7 @@ def fig_vortex(out: Path, runs: Path) -> None:
     bl = first_plane(blocks(work, int(ini["grid"]["ngc"]), EULER))
     im = field_map(axs[0], bl, lambda b: b["f"]["r"][:, :, 0])
     fig.colorbar(im, ax=axs[0], label=r"$\rho$")
-    axs[0].set_title("density after one period, 128², HLLC")
+    axs[0].set_title("density at t = 0.1 (a tenth of the period), 128², HLLC")
     ladder = ("064", "128", "256")
     for lab, fmt, dirs in (("weno (split)", "s-", [HERE / "vortex" / f"{TAG}-n{n}" for n in ladder]),
                            ("weno-riemann LLF", "^-", [RF / f"{TAG}-llf-6th-weno-characteristic-vortex-n{n}"
@@ -465,7 +465,7 @@ def fig_rotor(out: Path, runs: Path) -> None:
 def fig_field_loop(out: Path, runs: Path) -> None:
     """MV-9: advected field loop, magnetic pressure at the final time."""
     mhd_field_figure(out, "field-loop", runs / "field-loop", (("pb", r"$|B|^2/2$", "viridis"),),
-                     "Field loop advected across the periodic box, 128²")
+                     "Field loop advected across the periodic box")
 
 
 def mhd_profile_figure(out: Path, name: str, work: Path, title: str, exact=None,  # noqa: ANN001
@@ -1916,6 +1916,201 @@ def _rank_blocks(paths: list[Path]) -> dict[int, int]:
             out[int(path.stem.rsplit("-proc", 1)[1])] = len({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")})
     return out
 
+def fig_viscous_ladders(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """VV-1, VV-2 and VV-5 (issue #85, R1): the absolute RMS error of every wave leg against the resolution, CPU (filled,
+    solid) and FNL (open, dotted), and the Ohmic decay: the measured amplitude of the mode over the exact one."""
+    sys.path.insert(0, str(HERE / "viscous"))
+    import waves  # noqa: PLC0415
+
+    vdir = HERE / "viscous"
+    fnl = "work-adam_flume_fnl-np2"
+    navier = (("VV-1 shear x, order 4", "o", "shear-x-o4", (32, 64, 128)),
+              ("VV-1 shear x, order 2", "s", "shear-x-o2", (32, 64, 128)),
+              ("VV-1 shear 45°, order 4", "d", "shear-xy-o4", (24, 48, 96)),
+              ("VV-2 acoustic, order 4", "^", "acoustic-x-o4", (32, 64, 128)))
+    ohmic = (("VV-5 Ohmic x, order 4", "o", "ohmic-x-o4", (32, 64, 128)),
+             ("VV-5 Ohmic x, order 2", "s", "ohmic-x-o2", (32, 64, 128)),
+             ("VV-5 Ohmic 45°, order 4", "d", "ohmic-xy-o4", (24, 48, 96)),
+             ("VV-5 Alfvén, $\\mu$ and $\\eta$, order 4", "^", "alfven-x-o4", (32, 64, 128)),
+             ("VV-5 acoustic on MHD, B = 0, order 4", "v", "acoustic-mhd-x-o4", (32, 64, 128)))
+    fig, axs = plt.subplots(1, 3, figsize=(17, 4.8), constrained_layout=True)
+    for ax, legs, title in ((axs[0], navier, "VV-1, VV-2: Navier-Stokes waves"),
+                            (axs[1], ohmic, "VV-5: Ohmic and visco-resistive waves")):
+        for i, (lab, mk, name, ns) in enumerate(legs):
+            for tag, solid in ((TAG, True), (fnl, False)):
+                res = [waves.run_error(vdir / f"{tag}-{name}-n{n}") for n in ns]
+                ax.loglog([r[0] for r in res], [r[1] for r in res], mk + ("-" if solid else ":"), color=f"C{i}",
+                          mfc=f"C{i}" if solid else "none", ms=5 if solid else 8,
+                          label=f"{lab}, {'CPU' if solid else 'FNL'}")
+            if name == legs[0][2]:
+                e0, n0 = res[0][1], res[0][0]
+        n = np.array([24.0, 128.0])
+        ax.loglog(n, e0 * 3 * (n0 / n) ** 4, "k:", lw=0.8, label="order 4")
+        ax.loglog(n, e0 * 3 * (n0 / n) ** 2, "k--", lw=0.8, label="order 2")
+        ax.set_xlabel("cells along the wave")
+        ax.set_ylabel("RMS error")
+        ax.grid(alpha=0.3, which="both")
+        ax.legend(fontsize=6.5, ncol=2)
+        ax.set_title(title)
+    for i, (lab, mk, name, ns) in enumerate(ohmic[:3]):
+        for tag, solid in ((TAG, True), (fnl, False)):
+            res = [waves.run_error(vdir / f"{tag}-{name}-n{n}") for n in ns]
+            axs[2].loglog([r[0] for r in res], [abs(r[2] / r[3] - 1.0) for r in res], mk + ("-" if solid else ":"),
+                          color=f"C{i}", mfc=f"C{i}" if solid else "none", ms=5 if solid else 8,
+                          label=f"{lab}, {'CPU' if solid else 'FNL'}")
+    axs[2].set_xlabel("cells along the wave")
+    axs[2].set_ylabel(r"$|A_\mathrm{measured} / A_\mathrm{exact} - 1|$")
+    axs[2].grid(alpha=0.3, which="both")
+    axs[2].legend(fontsize=6.5)
+    axs[2].set_title(r"VV-5: Ohmic decay against the exact rate $e^{-\eta k^2 t}$")
+    fig.savefig(out / "viscous-ladders.png", dpi=DPI)
+    plt.close(fig)
+
+
+def proto2d() -> object:
+    """Import amr-proto/proto2d.py, the NumPy prototype of #68 Phase B."""
+    sys.path.insert(0, str(HERE / "amr-proto"))
+    import proto2d as module  # noqa: PLC0415
+
+    return module
+
+
+def fig_seam_proto_b1(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """B1 (#68, issue #85 R1): the 2-D prototype, linear advection across a 2:1 box, N = 32 / 64 / 128. L1 and Linf
+    against N per arm (restriction, prolongation, reflux), and where the finest Linf error lives (corner, edge,
+    interior of the box seam)."""
+    pr = proto2d()
+    cells = (32, 64, 128)
+    arms = [("uniform", None), ("mean-cubic-on", pr.ARMS["mean-cubic-on"]),
+            ("mean-cubic-off", pr.ARMS["mean-cubic-off"]), ("lag6-cubic-off", pr.ARMS["lag6-cubic-off"]),
+            ("lag6-quintic-on", pr.ARMS["lag6-quintic-on"]), ("lag6-quintic-off", pr.ARMS["lag6-quintic-off"])]
+    res = {name: [pr.run(n, arm, (1.0, 1.0)) for n in cells] for name, arm in arms}
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4.6), constrained_layout=True)
+    for ax, norm, label in ((axs[0], "l1", "$L_1$"), (axs[1], "linf", r"$L_\infty$")):
+        for i, (name, _) in enumerate(arms):
+            e = [r[norm] for r in res[name]]
+            ax.loglog(cells, e, "o-" if name != "uniform" else "k*-", color=None if name == "uniform" else f"C{i}",
+                      mfc="none", label=f"{name} ({math.log2(e[-2] / e[-1]):.2f})")
+        n = np.array(cells, dtype=float)
+        top = res["mean-cubic-on"][0][norm]
+        ax.loglog(n, top * (32 / n) ** 2, "k--", lw=0.8, label="order 2")
+        ax.loglog(n, top * 0.1 * (32 / n) ** 5, "k:", lw=0.8, label="order 5")
+        ax.set_xlabel("coarse cells per side N")
+        ax.set_ylabel(label)
+        ax.grid(alpha=0.3, which="both")
+        ax.legend(fontsize=7, title="arm (finest-pair order)", title_fontsize=7)
+        ax.set_title(f"{label} error at t = 1")
+    names = [name for name, _ in arms[1:]]
+    x = np.arange(len(names))
+    for j, (region, color) in enumerate((("corner", "C3"), ("edge", "C1"), ("interior", "C2"))):
+        axs[2].bar(x + (j - 1) * 0.27, [res[name][-1][f"linf_{region}"] for name in names], 0.27, color=color,
+                   label=region)
+    axs[2].set_yscale("log")
+    axs[2].set_xticks(x, names, rotation=25, fontsize=7)
+    axs[2].set_ylabel(r"$L_\infty$ at N = 128")
+    axs[2].legend(fontsize=7)
+    axs[2].grid(alpha=0.3, axis="y")
+    axs[2].set_title("where the error lives (within 3 coarse cells of the seam)")
+    fig.suptitle(r"B1: $u_t + u_x + u_y = 0$, the box $[0.25, 0.75]^2$ refined 2:1, 5th-order linear upwind, RK4")
+    fig.savefig(out / "seam-proto-b1.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_seam_proto_b2(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """B2 (#68, issue #85 R1): WENO5-JS on the 2-D prototype, the reflux policies always, troubled, never. The smooth
+    order (N = 32 / 64 / 128), and on the Burgers pulses at N = 64 the mean shock position error and the mass defect."""
+    pr = proto2d()
+    cells = (32, 64, 128)
+    arms = [("uniform", None), *pr.B2_SMOOTH.items()]
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4.6), constrained_layout=True)
+    for i, (name, arm) in enumerate(arms):
+        e = [pr.run(n, arm, (1.0, 1.0), scheme="weno")["l1"] for n in cells]
+        axs[0].loglog(cells, e, "o-" if arm else "k*-", color=f"C{i}" if arm else None, mfc="none",
+                      label=f"{name} ({math.log2(e[-2] / e[-1]):.2f})")
+    n = np.array(cells, dtype=float)
+    axs[0].loglog(n, 2e-3 * (32 / n) ** 5, "k:", lw=0.8, label="order 5")
+    axs[0].set_xlabel("coarse cells per side N")
+    axs[0].set_ylabel("$L_1$")
+    axs[0].grid(alpha=0.3, which="both")
+    axs[0].legend(fontsize=7, title="arm (finest-pair order)", title_fontsize=7)
+    axs[0].set_title("smooth advection: the order of each policy")
+    cases = list(pr.PULSES)
+    pols = [("uniform", None), *pr.B2_SMOOTH.items()]
+    shock = {(c, name): pr.run_shock(64, arm, c) for c in cases for name, arm in pols}
+    x = np.arange(len(cases))
+    w = 0.8 / len(pols)
+    for j, (name, _) in enumerate(pols):
+        axs[1].bar(x + (j - 2) * w, [shock[(c, name)]["shock_mean"] for c in cases], w, label=name,
+                   color="k" if name == "uniform" else f"C{j}")
+        axs[2].bar(x + (j - 2) * w, [max(abs(shock[(c, name)]["mass"]), 1e-17) for c in cases], w, label=name,
+                   color="k" if name == "uniform" else f"C{j}")
+    for ax in axs[1:]:
+        ax.set_xticks(x, ["c2f (x = 0.25)", "f2c (x = 0.75)", "weak (1e-3)"])
+        ax.grid(alpha=0.3, axis="y")
+        ax.legend(fontsize=7)
+    axs[1].axhline(0.0, color="k", lw=0.6)
+    axs[1].set_ylabel("mean shock position error (local cells)")
+    axs[1].set_title("Burgers shocks crossing the box face, N = 64")
+    axs[2].set_yscale("log")
+    axs[2].axhline(1e-3, color="k", ls="--", lw=0.8)
+    axs[2].set_ylabel("|mass defect| / pulse mass (floor 1e-17)")
+    axs[2].set_title("mass defect (dashed: the 1e-3 criterion)")
+    fig.suptitle("B2: the reflux policies on WENO5-JS (Lax-Friedrichs splitting), lag6 restriction, quintic fill")
+    fig.savefig(out / "seam-proto-b2.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_seam_proto_b3(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """B3 (#68, issue #85 R1): the footprint of the 6-point restriction against the fine block size, reflux off: Linf
+    against N for shift-inward (lag6) at 6 and 8 fine cells per block and for the whole box, and the centred two-pass
+    lag6c, with the cubic and the quintic prolongation."""
+    pr = proto2d()
+    cells = (24, 48, 96)
+    fig, axs = plt.subplots(1, 2, figsize=(12, 4.6), constrained_layout=True, sharey=True)
+    for ax, prol in zip(axs, ("cubic", "quintic"), strict=True):
+        for i, (kind, block) in enumerate((("lag6", 6), ("lag6", 8), ("lag6", 0), ("lag6c", 0))):
+            label = "lag6c (centred, fine ghosts)" if kind == "lag6c" else \
+                f"lag6, {block} fine cells per block" if block else "lag6, one block (the whole box)"
+            e = [pr.run(n, (kind, prol, False), (1.0, 1.0), block=block)["linf"] for n in cells]
+            ax.loglog(cells, e, "o-", color=f"C{i}", mfc="none", label=f"{label} ({math.log2(e[-2] / e[-1]):.2f})")
+        n = np.array(cells, dtype=float)
+        ax.loglog(n, e[0] * (24 / n) ** (4 if prol == "cubic" else 5), "k:", lw=0.8,
+                  label=f"order {4 if prol == 'cubic' else 5}")
+        ax.set_xlabel("coarse cells per side N")
+        ax.grid(alpha=0.3, which="both")
+        ax.legend(fontsize=7, title="restriction (finest-pair order)", title_fontsize=7)
+        ax.set_title(f"{prol} prolongation")
+    axs[0].set_ylabel(r"$L_\infty$ at t = 1")
+    fig.suptitle("B3: the 6-point restriction footprint against the fine block size (reflux off; 4 fine cells per "
+                 "block is infeasible for shift-inward)")
+    fig.savefig(out / "seam-proto-b3.png", dpi=DPI)
+    plt.close(fig)
+
+
+# E0 (#68): the plateau density defect behind the shock after it crossed a static 2:1 face, FNL, N = 200, the table of
+# docs/applications/flume/verification/seams-studies/capturing-error.md (the runs keep no checkpoint)
+E0_DEFECT = {"compatible + mean": (2.32e-2, 1.82e-2, 1.97e-2, 1.83e-2),
+             "compatible + lagrange6": (2.32e-2, 1.85e-2, 1.98e-2, 1.84e-2),
+             "tricubic + mean": (2.46e-2, 3.10e-2, 1.41e-2, 1.68e-2),
+             "tricubic + lagrange6": (2.46e-2, 3.17e-2, 1.41e-2, 1.68e-2)}
+
+
+def fig_capturing_error(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """E0 (#68, issue #85 R1): the plateau density defect against fill x restriction x reflux, Sod and RJ2a."""
+    fig, ax = plt.subplots(figsize=(9, 4.4), constrained_layout=True)
+    cols = ("Sod, reflux on", "Sod, reflux off", "RJ2a, reflux on", "RJ2a, reflux off")
+    x = np.arange(len(cols))
+    w = 0.8 / len(E0_DEFECT)
+    for j, (arm, vals) in enumerate(E0_DEFECT.items()):
+        ax.bar(x + (j - 1.5) * w, vals, w, label=arm, color=f"C{j}")
+    ax.set_xticks(x, cols)
+    ax.set_ylabel("plateau density defect")
+    ax.grid(alpha=0.3, axis="y")
+    ax.legend(fontsize=8, title="coarse-to-fine fill + restriction", title_fontsize=8)
+    ax.set_title("E0: the defect behind a shock that crossed a 2:1 face (FNL); no operator removes it")
+    fig.savefig(out / "capturing-error.png", dpi=DPI)
+    plt.close(fig)
+
 
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
@@ -1934,7 +2129,10 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-isolated": fig_selfgravity_isolated,
            "selfgravity-star": fig_selfgravity_star,
            "selfgravity-amr": fig_selfgravity_amr, "selfgravity-amr-jeans": fig_selfgravity_amr_jeans,
-           "selfgravity-amr-regrid": fig_selfgravity_amr_regrid}
+           "selfgravity-amr-regrid": fig_selfgravity_amr_regrid,
+           "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
+           "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
+           "capturing-error": fig_capturing_error}
 
 
 def main() -> int:

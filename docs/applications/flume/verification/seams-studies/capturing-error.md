@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| E0 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| E0 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | partial (Sod profiles: [#85](https://github.com/szaghi/adam/issues/85)) | — |
 
 ## Case and scope
 
@@ -41,8 +41,11 @@ No `check.sh` leg runs E0.
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): the plateau density defect against fill × restriction
-× reflux, and Sod at $N$ = 200 and 400).
+![E0: the plateau defect against fill, restriction and reflux](/flume/capturing-error.png)
+
+*The table below as bars (`make_doc_figures.py --only capturing-error`): no combination of coarse-to-fine fill,
+restriction and reflux removes the defect; the largest change is the reflux on Sod with the tricubic fill. The Sod
+profiles at $N$ = 200 and 400 are still owed ([#85](https://github.com/szaghi/adam/issues/85), they need re-runs).*
 
 Plateau density defect behind the shock:
 

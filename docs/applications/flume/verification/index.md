@@ -99,14 +99,14 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 |---|---|---|---|---|
 | [Quintic coarse-to-fine fill](./seams-studies/quintic-fill) | D1 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (table: FNL) | no ([#85](https://github.com/szaghi/adam/issues/85)) |
 | [Limited coarse-to-fine fills](./seams-studies/limited-fills) | D2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (crossings); CPU, FNL (AO legs) | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [Shock-crossing defect is a capturing error](./seams-studies/capturing-error) | E0 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [Shock-crossing defect is a capturing error](./seams-studies/capturing-error) | E0 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | partial (Sod profiles: [#85](https://github.com/szaghi/adam/issues/85)) |
 | [Reflux policy: troubled against always](./seams-studies/reflux-policy) | E2 (E1) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (flags checked equal to the CPU's); AO `euler-tq`: CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |
 | [#78 is the reflux, not the restricted ghosts](./seams-studies/reflux-not-ghosts) | G3a | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) |
 | [GLM damping length on a seam](./seams-studies/glm-damping) | G2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) |
 | [EGLM reflux leaves B alone](./seams-studies/eglm-reflux) | G3b | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [2:1 caps in a 2-D prototype](./seams-studies/caps-prototype) | B1 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [Sensor-gated reflux prototype](./seams-studies/sensor-gated-reflux) | B2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [Footprint of a high-order restriction](./seams-studies/high-order-restriction) | B3 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [2:1 caps in a 2-D prototype](./seams-studies/caps-prototype) | B1 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | yes |
+| [Sensor-gated reflux prototype](./seams-studies/sensor-gated-reflux) | B2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | yes |
+| [Footprint of a high-order restriction](./seams-studies/high-order-restriction) | B3 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | yes |
 
 ## [External gravity (M7)](./gravity/)
 

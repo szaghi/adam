@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| B2 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| B2 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | yes | — |
 
 ## Case and scope
 
@@ -43,6 +43,7 @@ metric erratic). Grids: smooth leg $N$ = 32 / 64 / 128; shock legs $N = 64$ (`--
 |---|---|
 | `src/tests/flume/verification/amr-proto/proto2d.py` | `b2 [--cells ...] [--shock-cells ...] [--leg L ...] [--tau 0.2] [--check]`, L one of `smooth`, `c2f`, `f2c`, `weak` |
 | `src/tests/flume/verification/amr-proto/check.sh` | runs B1, B2 and B3 |
+| `src/tests/flume/verification/make_doc_figures.py --only seam-proto-b2` | draws the figure (`fig_seam_proto_b2`; NumPy only, about 3 min) |
 
 ```bash
 cd src/tests/flume/verification/amr-proto && ./check.sh     # B2: about 3 min
@@ -57,8 +58,13 @@ reflux).
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): order against $N$ per policy, and the Burgers shock
-positions per policy).
+![B2: the smooth order and the shock crossings per reflux policy](/flume/seam-proto-b2.png)
+
+*Left: the smooth leg, $L_1$ against $N$ per arm (64 → 128 orders in the legend); `always` is capped near order 3,
+`troubled` keeps the uniform order. Centre and right: the Burgers pulses at $N = 64$, the mean shock position error
+and the mass defect per policy. `troubled` places the strong shocks exactly where `always` does and keeps the mass
+defect below $10^{-3}$ of the pulse; `never` misplaces the c2f shock by a cell and loses $1.8\cdot10^{-2}$; on the
+weak pulse the sensor flags nothing, so `troubled` equals `never` (the missed-detection control).*
 
 Smooth leg, orders of $N$ = 64 → 128:
 

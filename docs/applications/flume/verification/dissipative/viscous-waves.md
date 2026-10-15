@@ -61,7 +61,7 @@ $O(A^3)$, at $A = 10^{-5}$.
 | `src/tests/flume/verification/viscous/waves.py` | `make` writes each input; `oracle` integrates the linear mode exactly and judges the ladder |
 | `src/tests/flume/verification/viscous/check.sh --leg vv1`, `--leg vv2` | runs the ladders (`--np N`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/regression/shear-viscous/input.ini` | the frozen diagonal shear wave, $48^2$, $t = 0.05$ |
-| `make_doc_figures.py` (`fig_viscous`, `fig_viscous_fields`) | the figures, from the CPU work directories of `viscous/check.sh` |
+| `make_doc_figures.py` (`fig_viscous`, `fig_viscous_fields`, `fig_viscous_ladders`) | the figures, from the CPU (and, for the ladders, FNL) work directories of `viscous/check.sh` |
 
 ```bash
 cd src/tests/flume/verification/viscous && ./check.sh --leg vv1 --leg vv2             # CPU
@@ -74,6 +74,11 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv1 --leg vv2 
 
 *Left: the Navier–Stokes ladders (VV-1 to VV-4), each normalised by its coarsest error, against the order-2 and
 order-4 slopes; middle: the Ohmic ladders (VV-5); right: Becker's shock (VV-4).*
+
+![VV-1, VV-2 and VV-5: absolute errors on CPU and FNL, and the Ohmic decay](/flume/viscous-ladders.png)
+
+*Absolute RMS errors of the VV-1 and VV-2 legs (left) and of the VV-5 legs (centre), CPU (filled, solid) and FNL
+(open, dotted), which coincide; right, the Ohmic decay: the measured amplitude of the mode over the exact one.*
 
 ![VV-1 and VV-8 in 2-D: the shear wave and its error on a uniform grid; the shear and Ohmic errors with the centre refined 2:1](/flume/viscous-fields.png)
 

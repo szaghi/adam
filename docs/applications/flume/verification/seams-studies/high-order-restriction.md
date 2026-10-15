@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| B3 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| B3 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | yes | — |
 
 ## Case and scope
 
@@ -41,6 +41,7 @@ FLUME's ghost update.
 |---|---|
 | `src/tests/flume/verification/amr-proto/proto2d.py` | `b3 [--cells ...] [--blocks 4 6 8 16 0] [--assert ARM:NORM:MIN]` (block 0: the whole box) |
 | `src/tests/flume/verification/amr-proto/check.sh` | runs B1, B2 and B3 |
+| `src/tests/flume/verification/make_doc_figures.py --only seam-proto-b3` | draws the figure (`fig_seam_proto_b3`; NumPy only, about 20 s) |
 
 ```bash
 cd src/tests/flume/verification/amr-proto && ./check.sh     # B3 at N = 24 / 48 / 96, about 20 s
@@ -52,7 +53,11 @@ prolongation and 4.7 with the quintic; shift-inward at $B = 4$ is reported infea
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): order against $N$ per footprint and block size).
+![B3: the restriction footprint against the fine block size](/flume/seam-proto-b3.png)
+
+*The `check.sh` ladder, $N$ = 24 / 48 / 96, reflux off: $L_\infty$ per footprint, with the cubic (left) and quintic
+(right) prolongation (48 → 96 orders in the legend). Shift-inward at 6 or 8 fine cells per block matches the whole
+box; the centred two-pass lag6c is slightly more accurate with the cubic fill and identical with the quintic one.*
 
 $N = 192$; orders of 96 → 192:
 
