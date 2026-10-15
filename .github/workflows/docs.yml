@@ -64,6 +64,9 @@ jobs:
     - name: Build documentation
       env:
         COVERAGE_PCT: ${{ steps.cov.outputs.pct }}
+        # The site (API reference + MathJax-rendered pages) peaks at about 4.3 GB, past Node 20's default heap
+        # (~4 GB): the build died with "JavaScript heap out of memory". The runner has 16 GB.
+        NODE_OPTIONS: --max-old-space-size=8192
       run: |
         formal generate --mirror-sources --diagrams --project docs/ford.md --output docs/api
         cd docs && npm ci && npm run docs:build
