@@ -43,7 +43,7 @@ The absolute $\varepsilon$ ties the weights to the units of the data: $\beta_k$ 
 on a field of magnitude $10^{-4}$ the ratio $\beta_k/\varepsilon$ is $10^{8}$ times smaller than on the same field at
 magnitude 1, the weights collapse to the linear ones and the scheme stops limiting (measured on Sod at an interstellar
 density, $10^{-21}$ kg/m³: the total variation of the density grows by 33%, and by 178% with `weno-riemann`, whose
-sensor reads the same weights; [NV-6](./verification#reference-layer-nv-5)). Two cures: the
+sensor reads the same weights; [NV-6](./verification/infrastructure/scaling-covariance)). Two cures: the
 [reference layer](./models#units-and-scaling), which hands the solver numbers of order 1, or `[weno] weights = si`,
 scale-invariant weights after Don, Li, Wang and Wang (2022):
 
@@ -71,7 +71,7 @@ the absolute $\varepsilon$ (on the isentropic vortex, $L_1 = 7.22\cdot10^{-8}$ a
 $8.38\cdot10^{-8}$ with `js`). Every term scales exactly like the field ($\sqrt{\rho p}$ and $\sqrt{p}$ by exact powers
 of two), and a power of two is exact in floating point, so multiplying the data by $2^n$ multiplies the reconstruction
 by $2^n$ bit for bit (unit tests `test_flume_weno_weights` on the host, `test_flume_weno_interpolation_fnl` on the
-device; the whole solver: the [scaling oracle](./verification#scaling-covariance)). $\mu$ is floored at the smallest
+device; the whole solver: the [scaling oracle](./verification/infrastructure/scaling-covariance)). $\mu$ is floored at the smallest
 normal number. Primitive variables have no projection: a velocity or a field component crossing zero has no magnitude
 of its own, so `si` with `weno-riemann` on `primitive` variables is refused. One property of `js` is lost at round-off:
 the smoothness indicator of a uniform field is a quadratic form, round-off rather than zero, and the `si` descaler
@@ -165,7 +165,7 @@ linear there); at discontinuities characteristic interpolation is more accurate 
 D-5), primitive keeps the 7×7 eigenvector projection out of the face kernel.
 
 **Measured** (np 2, WENO5, 6th-order correction, CPU and FNL identical to the printed digits; details in the
-[verification gallery](./verification)): on the isentropic vortex the HLLC variant reaches order 6.5 between 128² and
+[verification gallery](./verification/)): on the isentropic vortex the HLLC variant reaches order 6.5 between 128² and
 256² with $L_1(\rho) = 8.0\cdot10^{-8}$ (splitting: $8.4\cdot10^{-8}$); on Sod and Shu–Osher its $L_1$ error is 9% and 7%
 below the splitting scheme's, on Lax 1.6% above.
 
@@ -280,7 +280,7 @@ symbol is non-positive at every wavenumber ($-4.67\,\nu/\Delta x^2$ at the grid 
 operator), so it damps every mode, and its error is $O(\theta^6)$ in the wavenumber $\theta$. The 4th-order fluxes read
 cells $-2 \dots 3$ along $d$ and $\pm 2$ along the tangents, so they need `[grid] ngc` $\ge 3$ (fatal otherwise); the
 tangential differences read the edge ghosts, whose fill is exact on every path (the ghost probe GP,
-[verification](./verification#ghost-cells)). A null direction has a zero step, so its derivatives are zero exactly and
+[verification](./verification/infrastructure/ghost-probe)). A null direction has a zero step, so its derivatives are zero exactly and
 its ghosts are never read.
 
 **Walls.** `wall-noslip` and `wall-isothermal` ([boundary conditions](./boundary-conditions)) are mirrors, second-order
@@ -310,7 +310,7 @@ shear layer or a Couette flow needs its velocity axis active, if thin.
 2:1 face conserves to round-off (VV-7). A 2:1 face is second order, for them as for the inviscid fluxes: the mean
 restriction of the coarse ghosts and the reflux of point-value fluxes each cap the order at 2 (issue #68 F1); without
 the reflux the dissipative flux at the face is first order
-([VV-8](./verification#vv-8-accuracy-across-2-1-seams)).
+([VV-8](./verification/dissipative/seam-accuracy)).
 
 ## Time integration
 
@@ -318,7 +318,7 @@ The library Runge–Kutta schemes (`[runge_kutta] scheme`, listed in the [input 
 semi-discrete system: strong-stability-preserving (SSP) and low-storage schemes. Each stage refills the ghost cells,
 recomputes the auxiliary variables, applies the positivity floors (MHD) and evaluates the residual. The time step follows
 the [CFL bound](./models#time-step-bound), with the diffusive part of the
-[dissipative fluxes](#dissipative-fluxes-navier-stokes) when they are on; `[time] it_max` and `time_max` stop the run.
+[dissipative fluxes](#dissipative-fluxes-navier–stokes) when they are on; `[time] it_max` and `time_max` stop the run.
 
 ## Adaptive mesh refinement
 
@@ -338,13 +338,15 @@ one level (2:1 balance). At a coarse–fine face:
 - **conservation** is restored by the Berger–Colella **reflux**: the fluxes of every Runge–Kutta stage through the seam
   are accumulated in a flux register, weighted by the stage's coefficient in the step, and at the end of the step the
   coarse cells next to the seam are corrected by the difference between the fine fluxes and their own
-  (`[numerics] reflux = .true.`; $\mathbf{B}$ and $\psi$ included). With reflux the volume integrals of a periodic box stay
-  constant to round-off, without it they drift at $10^{-5}$ ([conservation example](./verification#conservation-across-amr-seams)).
+  (`[numerics] reflux = .true.`; with `reflux_cadence = stage` the correction is applied at every stage instead). Under
+  GLM $\mathbf{B}$ and $\psi$ are refluxed; under EGLM $\mathbf{B}$ is not, since the sources $-\mathbf u\,\nabla\cdot\mathbf B$
+  make it a non-conserved integral ([G3b](./verification/seams-studies/eglm-reflux)). With reflux the volume integrals of a periodic box stay
+  constant to round-off, without it they drift at $10^{-5}$ ([conservation example](./verification/euler/amr-conservation)).
 
 With markers the tree is an octree (`ratio = 8`, and with a null axis `nk ≥ 4`) or a quadtree (`ratio = 4`, any `nk`,
 `nk = 1` for a true 2-D run): a quadtree seam is 2:1 in x and y and 1:1 in z, and the ghost restriction, the coarse-fine
 interpolation, the reflux and the limiter's seam synchronisation work per axis (issue #46, verified by
-[MV-15](./verification#quadtree-amr)). For MHD, a cell-centred $\mathbf{B}$ cannot be kept divergence-free across a 2:1 face (Tóth & Roe 2002): the seams
+[MV-15](./verification/mhd/quadtree-amr)). For MHD, a cell-centred $\mathbf{B}$ cannot be kept divergence-free across a 2:1 face (Tóth & Roe 2002): the seams
 inject a truncation-level $\nabla\cdot\mathbf{B}$ that GLM transports and damps; the div(B) history reports it
 (`seam_max_divb`).
 
@@ -379,7 +381,7 @@ above `refine_tol`, coarsened below `derefine_tol`, kept between.
 **Keep shocks off the 2:1 seams.** A captured shock that crosses a 2:1 seam into finer cells leaves a defect behind
 it (about 2 % of the jump in density, with an entropy defect of the same size) that does not shrink with the resolution and that no
 choice of seam operator removes: restriction, coarse-to-fine fill and reflux move it by at most ±30 %
-([A3, E0](./verification#e0-the-shock-crossing-defect-is-a-capturing-error)). The evidence points to the start-up error of a
+([A3, E0](./verification/seams-studies/capturing-error)). The evidence points to the start-up error of a
 captured shock whose numerical structure is squeezed into finer cells. Refine ahead of the shocks instead: a gradient or Löhner
 marker on density or pressure with a `buffer` of a few cells and a regrid `frequency` short enough that a shock cannot
 outrun the refined region between two regrids, so shocks stay inside the finest level and never cross a seam (the
@@ -392,7 +394,7 @@ children are filled. FLUME's default is `conservative`: each child is the parent
 child within the parent's and its face neighbours' range (Barth & Jespersen 1989). The children average to the parent,
 so a regrid changes no conserved integral and a refine followed by a derefine returns the state exactly; a positive
 variable stays positive; linear data are reproduced. The library's `linear` prolongation (tensor interpolation, weights
-1/4 and 3/4) is second order too but not conservative ([RG](./verification#rg-the-regrid-round-trip-and-the-input-contract)).
+1/4 and 3/4) is second order too but not conservative ([RG](./verification/runtime-amr/regrid-round-trip)).
 Both read the parent's first ghost layer.
 
 ## Immersed boundary (Euler)
@@ -409,7 +411,7 @@ Static rigid solids (`[solids]`, `[solid_N]`, e.g. `definition = analytical_circ
    $\Delta/2 - \phi_c\,\Delta/(\phi_s - \phi_c)$; the denominator is positive ($\phi_s > 0 > \phi_c$), so it carries no
    guard (the absolute $10^{-12}$ inherited from CHASE was a length, removed with issue #49).
 
-The solid surface can drive the AMR (the refined ring of the [shock-over-a-cylinder example](./verification#shock-over-a-cylinder)).
+The solid surface can drive the AMR (the refined ring of the [shock-over-a-cylinder example](./verification/euler/shock-cylinder)).
 `mhd-ideal` with solids is refused.
 
 ## Multi-realm runs

@@ -702,7 +702,7 @@ layer scales it by $L_0$). The three keys are required.
 
 It is not a flow. It is the field on which every ghost fill FLUME uses is exact: the same-level copy, the 2:1
 restriction (the mean of the fine cells) and the tricubic coarse-to-fine fill reproduce a linear field to round-off,
-and every boundary condition maps it to a known value. The ghost probe GP ([verification](./verification#ghost-cells),
+and every boundary condition maps it to a known value. The ghost probe GP ([verification](./verification/infrastructure/ghost-probe),
 `verification/ghosts/`) runs it for one negligible step (`CFL = 1e-30`) and checks every face and edge ghost against
 that value. The state is admissible only while $1 + \mathbf g \cdot \mathbf x > 0$ over the domain; nothing checks it,
 since the probe takes no real step. Give the velocity non-zero components, so that every wall sign flip shows.
@@ -748,15 +748,15 @@ of `[initial_conditions_region_1]` ($\rho_0$, $\mathbf u_0$, $p_0$), with $s = A
 |---|---|---|
 | `shear` | $\mathbf u = \mathbf u_0 + s\,\mathbf t$, $\mathbf t = (-\sin\theta, \cos\theta, 0)$ | a velocity |
 | `acoustic` | $\rho = \rho_0(1 + s)$, $\mathbf u = \mathbf u_0 + a_0 s\,\mathbf n$, $p = p_0(1 + \gamma s)$: the right-running linear acoustic wave | relative |
-| `entropy` | $\rho = \rho_0(1 + s)$: a density wave at uniform velocity and pressure, advected exactly (under a constant gravity it falls freely: the convergence case of the gravity sources, [verification](./verification#gv-g2a-the-order-of-the-energy-source)) | relative |
+| `entropy` | $\rho = \rho_0(1 + s)$: a density wave at uniform velocity and pressure, advected exactly (under a constant gravity it falls freely: the convergence case of the gravity sources, [verification](./verification/gravity/energy-order)) | relative |
 | `magnetic` (MHD) | $\mathbf B = \mathbf B_0 + s\,\mathbf t$: a transverse field, which decays by resistivity and, with $\mathbf B_0\cdot\mathbf n \ne 0$, drives a damped Alfvén wave | a field |
-| `jeans` (self-gravity) | $\rho = \rho_0(1 + s)$, $p = p_0(1 + \gamma s)$ and, with $\omega^2 = a_0^2k^2 - 4\pi G\rho_0$, $k = 2\pi/\lambda$: for $\omega^2 \ge 0$ the right-running Jeans wave, $\mathbf u = \mathbf u_0 + (\omega/k)\,s\,\mathbf n$; for $\omega^2 < 0$ the growing mode, $\mathbf u = \mathbf u_0 + (\sigma/k)A\cos(2\pi\,\mathbf n\cdot\mathbf x/\lambda)\,\mathbf n$, $\sigma^2 = -\omega^2$ ([#81](https://github.com/szaghi/adam/issues/81), [verification](./verification#self-gravity-m8)) | relative |
+| `jeans` (self-gravity) | $\rho = \rho_0(1 + s)$, $p = p_0(1 + \gamma s)$ and, with $\omega^2 = a_0^2k^2 - 4\pi G\rho_0$, $k = 2\pi/\lambda$: for $\omega^2 \ge 0$ the right-running Jeans wave, $\mathbf u = \mathbf u_0 + (\omega/k)\,s\,\mathbf n$; for $\omega^2 < 0$ the growing mode, $\mathbf u = \mathbf u_0 + (\sigma/k)A\cos(2\pi\,\mathbf n\cdot\mathbf x/\lambda)\,\mathbf n$, $\sigma^2 = -\omega^2$ ([#81](https://github.com/szaghi/adam/issues/81), [verification](./verification/self-gravity/)) | relative |
 
 Keys: `wave_mode` (`shear`, `acoustic`, `entropy`, `magnetic` or `jeans`, other → fatal; `magnetic` needs `mhd-ideal`, `jeans` needs `[gravity] self_gravity`), `wave_angle` $\theta$ (degrees), `wave_amplitude` $A$,
 `wavelength` $\lambda$ (`> 0`). The values are point values at the cell centres. It is the initial state of the
 viscous verifications VV-1 (shear-wave decay) and VV-2 (viscous-thermal acoustic attenuation)
-([verification](./verification#vv-1-and-vv-2-viscous-waves)) and of the Ohmic ones VV-5 and VV-6
-([verification](./verification#vv-5-ohmic-decay-and-the-visco-resistive-alfven-wave)); the wave is periodic in a box whose sides are multiples
+([verification](./verification/dissipative/viscous-waves)) and of the Ohmic ones VV-5 and VV-6
+([verification](./verification/dissipative/ohmic-alfven)); the wave is periodic in a box whose sides are multiples
 of $\lambda/\cos\theta$ and $\lambda/\sin\theta$.
 
 ```ini
@@ -818,7 +818,7 @@ with the region's velocity and field uniform. `polytropic_gamma` $G > 1$; the po
 top of the atmosphere inside the domain). Optional, both: a relative pressure pulse $p\,(1 + A e^{-|\mathbf x -
 \mathbf x_0|^2/w^2})$ (`pulse_amplitude`, `pulse_x`, `pulse_y`, `pulse_z`, `pulse_width`; M7-G2b). Close them with
 `hydrostatic` faces along $\mathbf g$; with `[gravity] equilibrium = atmosphere` the atmosphere at rest is an exact
-discrete steady state ([verification](./verification#gv-g2b-the-well-balanced-mode)).
+discrete steady state ([verification](./verification/gravity/well-balanced)).
 
 ```ini
 [initial_conditions]
@@ -853,7 +853,7 @@ Keys: `rt_height` $h_0$, `rt_width` $\delta$, `rt_density_ratio` $R$ ($R < 1$: l
 control), `rt_wavelength` $\lambda$, `rt_amplitude` $A$ (0: the unseeded layers), `rt_seed_width` $w$; all required,
 $\delta, R, \lambda, w > 0$. The linear growth rate of the mode is the eigenvalue that
 `verification/gravity/rt_oracle.py` computes from the same profile (GV-4,
-[verification](./verification#gv-g3-rayleigh-taylor)); `[gravity] equilibrium = atmosphere` keeps the unseeded layers.
+[verification](./verification/gravity/rayleigh-taylor)); `[gravity] equilibrium = atmosphere` keeps the unseeded layers.
 
 ```ini
 [initial_conditions]
@@ -883,7 +883,7 @@ Density and pressure are continuous at the surface. `star_pressure_factor` $f = 
 alone (the atmosphere's own weight and gravity perturb it, by the atmosphere's share of the mass); $f < 1$ collapses
 it. Keys: `star_radius` $a$, `star_density` $\rho_c$ (both required, $> 0$), `star_x0`, `star_y0`, `star_z0` (the
 centre, default 0), `star_pressure_factor` (default 1, $> 0$). With `[gravity] poisson_bc = isolated` the star sits
-in a box without its periodic images (SV-7, SV-8, [verification](./verification#sv-6-to-sv-8-p4-isolated-boundaries)).
+in a box without its periodic images (SV-7, SV-8, [verification](./verification/self-gravity/isolated-solver)).
 A light atmosphere ($\rho_1 \lesssim 10^{-3}\rho_c$) needs `[numerics] positivity_limiter = cell` at the surface.
 
 ```ini

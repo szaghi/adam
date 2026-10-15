@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The A4 logs of #68: integral drift across static 2:1 seams, and the WENO sensor on the faces near them.
 
-Why: the reflux policy of #68 E (`reflux = always|troubled|never`) turns the Berger-Colella reflux off at the seam
+Why: the reflux policy of #68 E (`[numerics] reflux_policy = always|troubled`) turns the Berger-Colella reflux off at the seam
 faces a WENO sensor judges smooth. Two numbers decide whether that is safe and how to tune it, and neither was
 logged: how the conserved integrals drift when the reflux is off (bounded, or accumulating?), and what the sensor reads
 on the seam faces of a smooth flow (false positives) and of a shock crossing (detections).

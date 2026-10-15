@@ -20,7 +20,7 @@ OpenACC), and it supersedes the deprecated CHASE.
 | Setup | 17 initial conditions (Riemann problems, vortices, Shu–Osher, Orszag–Tang, rotor, field loop, linear waves, exact viscous states, ...), 6 boundary conditions (no-slip walls included) | [Initial conditions](./initial-conditions), [Boundary conditions](./boundary-conditions) |
 | Input | One INI file per realm, every value checked | [Input reference](./input) |
 | Output | XDMF + HDF5 checkpoints (ParaView), restart, slices, residual, conservation and div(B) histories | [Input reference](./input#io) |
-| Verification | Exact solutions, convergence orders, symmetry and conservation oracles on both backends | [Verification gallery](./verification) |
+| Verification | Exact solutions, convergence orders, symmetry and conservation oracles on both backends | [Verification gallery](./verification/) |
 
 **Status.** Milestones M1 to M5 are complete: M1 Euler ([#35](https://github.com/szaghi/adam/issues/35)), M2 ideal MHD
 with GLM ([#41](https://github.com/szaghi/adam/issues/41)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) the
@@ -71,7 +71,7 @@ reflux                   = .true.
   integration, AMR and reflux, immersed boundary, multi-realm.
 - [Initial conditions](./initial-conditions) and [boundary conditions](./boundary-conditions): formulas, keys, examples.
 - [Input reference](./input): every section and key, with two complete inputs.
-- [Verification gallery](./verification): the test cases with figures and measured results.
+- [Verification gallery](./verification/): the test cases with figures and measured results.
 - Source layout: [common](./common), [CPU backend](./cpu), [FNL backend](./fnl).
 
 ## Known limitations

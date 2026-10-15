@@ -19,7 +19,7 @@ All models use a calorically perfect ideal gas and are inviscid by default. Visc
 resistivity are milestone M4 ([#65](https://github.com/szaghi/adam/issues/65)), each given as a coefficient or as its
 number ([input](./input#dissipative-terms-issue-65-m4)): with a viscosity or a conductivity each model is its
 compressible Navier–Stokes form, and `mhd-ideal` with a resistivity is resistive MHD (Ohm's law
-$\mathbf E = -\mathbf u\times\mathbf B + \eta\mathbf J$; [numerics](./numerics#dissipative-fluxes-navier-stokes)).
+$\mathbf E = -\mathbf u\times\mathbf B + \eta\mathbf J$; [numerics](./numerics#dissipative-fluxes-navier–stokes)).
 
 ## Thermodynamics
 
@@ -122,7 +122,7 @@ $\psi$ only. $c_h$ (`glm_ch`) is constant and uniform, and it bounds the time st
 when the fastest wave $|u_n| + c_f$ outruns it. Keep $c_h$ just above that speed. Where the discrete div B is not small,
 as on the sheared flanks of magnetised Rayleigh–Taylor, the discretised cleaning amplifies small asymmetries at a rate
 that grows with $c_h$. The cleaned equations themselves have no such mode
-([verification](./verification#gv-g3-rayleigh-taylor), [#83](https://github.com/szaghi/adam/issues/83)).
+([verification](./verification/gravity/rayleigh-taylor), [#83](https://github.com/szaghi/adam/issues/83)).
 
 The $(B_n, \psi)$ system of one direction is solved exactly at a face by the Riemann solvers of `weno-riemann`
 (Dedner et al. 2002, eq. 42):
@@ -168,7 +168,7 @@ the run. Independently, every step checks the state for non-finite values and st
 
 ## External gravity
 
-A constant gravitational acceleration $\mathbf g$ (`[gravity]`, [input](./input#gravity-optional-external-gravity); milestone M7,
+A constant gravitational acceleration $\mathbf g$ (`[gravity]`, [input](./input#gravity-optional-external-gravity-and-self-gravity); milestone M7,
 [#73](https://github.com/szaghi/adam/issues/73)) adds sources to both models, with the potential $\Phi = -\mathbf
 g\cdot\mathbf x$:
 
@@ -184,7 +184,7 @@ $$
   to round-off; the fourth-order weights make the source the cell value of $\rho u\,g$ to fourth order (the face
   form $\tfrac12(F_{i-1/2} + F_{i+1/2})$ is second order on a finite-difference scheme, whose fluxes are point values
   of the primitive function of $\rho u$). At a reflecting wall the invariant is $W$, the sum plus an $O(\Delta x^2)$
-  term of the wall rows ([verification](./verification#gv-g2a-the-order-of-the-energy-source)). It takes one more
+  term of the wall rows ([verification](./verification/gravity/energy-order)). It takes one more
   ghost layer, `ngc >= S + 1`.
 - **Positivity limiter**: the backbone carries the time-centred energy $\rho\mathbf g\cdot(\mathbf u + \mathbf g\Delta t/2)$,
   which leaves its internal energy unchanged, and the high-order excess of the source is limited with the fluxes.
@@ -194,14 +194,14 @@ $$
   computed with the run's own operator once per grid, is subtracted from every residual (the deviation method of
   Edelmann et al. 2021, §4.3). The atmosphere is then an exact discrete steady state, and the scheme evolves the
   deviation from it; without it a stratified atmosphere at rest drives a stationary flow of the truncation error's size
-  ([verification](./verification#gv-g2b-the-well-balanced-mode)).
+  ([verification](./verification/gravity/well-balanced)).
 - **Through a cell potential** (`[gravity] potential = linear`, M8-P1, [#81](https://github.com/szaghi/adam/issues/81)):
   the same field as the cell potential $\Phi_i = -\mathbf g\cdot\mathbf x_i$, applied by the path self-gravity uses.
   The face gravity is $-(\Phi_{i+1} - \Phi_i)/\Delta x$, the cell gravity the mean of its two faces; the momentum
   gains $\rho_i$ times the cell gravity, the energy $\tfrac12\sum_d (g_{d,i+1/2}F^\rho_{i+1/2} + g_{d,i-1/2}
   F^\rho_{i-1/2})$. That is the face form, second order, and $\sum(E + \rho\Phi)V$ is conserved without a wall term.
   The hydrostatic ghosts take the potential drop, and the limiter the face and cell gravity. A test of that path
-  ([SV-1](./verification#sv-1-p1-gravity-from-a-cell-potential)); refused with the well-balanced mode.
+  ([SV-1](./verification/self-gravity/potential)); refused with the well-balanced mode.
 
 The equilibria FLUME builds are the `isothermal-atmosphere`, `polytropic-atmosphere` and `rayleigh-taylor` initial
 conditions ([initial conditions](./initial-conditions#isothermal-atmosphere-polytropic-atmosphere-hydrostatic-equilibria-under-gravity)).
@@ -232,15 +232,15 @@ stage, nothing time-averaged) leaves a drift of its own order in $\Delta t$; the
 correction (M7-G1) breaks the exchange wherever it acts.
 
 The coupling is second order in space whatever the WENO order. A linear Jeans mode obeys
-$\omega^2 = c^2k^2 - 4\pi G\rho_0$: it oscillates above the Jeans length $\lambda_J = c\sqrt{\pi/(G\rho_0)}$ and grows
-below it; an n = 1 polytrope star is an isolated equilibrium ([verification](./verification#self-gravity-m8)).
+$\omega^2 = c^2k^2 - 4\pi G\rho_0$: a wavelength shorter than the Jeans length $\lambda_J = c\sqrt{\pi/(G\rho_0)}$
+oscillates, a longer one grows; an n = 1 polytrope star is an isolated equilibrium ([verification](./verification/self-gravity/)).
 
 **On AMR grids** (M8-P5b, periodic only; isolated boundaries on AMR: [#87](https://github.com/szaghi/adam/issues/87)),
 $L_h$ is the composite Laplacian of the leaves. Across a 2:1 face it carries the **mimetic mean flux**: every fine
 face $f$ of a coarse cell C carries $\tfrac23 w\,(\bar\Phi_f - \Phi_C)$, where $\bar\Phi_f$ is the mean of the face's
 fine cells and $w$ is the fine face area over the fine spacing, and C receives the sum of these fluxes. The operator is
 symmetric in the volume-weighted form, so $\Phi = 4\pi G\,K\rho$ with $VK$ symmetric, and it is consistent (exact for
-linear $\Phi$ face by face). [SV-9](./verification#sv-9-p5a-the-poisson-solver-on-amr-grids) explains why the simpler
+linear $\Phi$ face by face). [SV-9](./verification/self-gravity/multigrid-amr) explains why the simpler
 couplings fail one property or the other.
 
 Both sides of the seam see the same face gravity, $-(\bar\Phi_f - \Phi_C)/(1.5h)$, which is first order there. The
@@ -259,7 +259,7 @@ again, the fine cells keep the consistent gravity, and the coarse cell next to t
 The fully discrete exchange is first order in $\Delta t$, not of the Runge–Kutta order. The reflux corrects the
 coarse cells only at the end of the step, so its stages advance them with their own seam fluxes, an $O(\Delta t)$
 inconsistency per step. Measured on the collapsing Jeans mode
-([SV-10](./verification#sv-10-p5b-self-gravity-on-a-static-amr-grid)):
+([SV-10](./verification/self-gravity/amr-jeans)):
 - with the seam work: $9\cdot10^{-8}$, $3\cdot10^{-8}$, $1.4\cdot10^{-8}$ at CFL 0.4, 0.2, 0.1;
 - without it: $10^{-5}$ at every CFL, a spatial leak.
 
@@ -270,7 +270,7 @@ $4.3\cdot10^{-9}$, $5.4\cdot10^{-10}$).
 **Under runtime AMR** (P5c) every regrid sets the solver up on the new grid and solves $\Phi$ from the regridded
 state. The regrid conserves $\rho$, $\rho\mathbf u$ and $E$, but $W = \tfrac12\sum\rho\Phi V$ is the grid's own
 discrete energy: a regrid that changes the grid changes $W$ by a truncation-sized amount, and $E + W$ jumps
-([SV-11](./verification#sv-11-p5c-self-gravity-under-runtime-amr)). The jump is not a leak of the scheme between
+([SV-11](./verification/self-gravity/runtime-amr)). The jump is not a leak of the scheme between
 regrids, which stays exact. Making the regrid itself conserve $E + W$ would need a correction of $E$ at each regrid,
 which is not done.
 
@@ -309,7 +309,7 @@ What the invariance does not remove:
 - **The discrete scheme must be scale-free too.** FLUME's is, apart from the classic WENO weights: their absolute
   $\varepsilon$ stops the limiting at small magnitudes ([numerics](./numerics#weno-reconstruction)). With
   `[weno] weights = si` a run whose input is scaled by powers of two (lengths, velocities, density) equals the base run
-  bit for bit (the [scaling oracle](./verification#scaling-covariance), NV-4); the admissibility floor of the
+  bit for bit (the [scaling oracle](./verification/infrastructure/scaling-covariance), NV-4); the admissibility floor of the
   positivity limiter and the immersed-boundary cut spacing are relative.
 
 FLUME uses the invariance in two ways. An input in physical units can carry a
@@ -328,7 +328,7 @@ $$\Delta t = \frac{\mathrm{CFL}}{\max_{\text{cells}} \sum_d \dfrac{|u_d| + c_d}{
 with $c_d = a$ (Euler) or the fast speed along $d$ (MHD), null directions excluded (`[time] CFL`). With GLM the cleaning
 waves add the bound $\Delta t \le \mathrm{CFL} / (c_h \max \sum_d 1/\Delta x_d)$. With dissipative terms each cell
 sum gains the diffusive part $2\nu\sum_d 1/\Delta x_d^2$
-([numerics](./numerics#dissipative-fluxes-navier-stokes)).
+([numerics](./numerics#dissipative-fluxes-navier–stokes)).
 
 ## Derived output fields
 

@@ -9,7 +9,7 @@ no fit of a shock position.
 
 - VV-3, `couette`: fixed isothermal wall (`T_w`) at y = 0, adiabatic wall moving at `U` along x at y = H; uniform p,
   `u = U y / H`, `T = T_w + mu U^2 / (k H) (y - y^2 / 2H)`. The wall ghosts are second order (the isothermal mirror
-  `2 T_w - T` is exact only for a linear T), so the bound is on order 2, on u and T.
+  `T_w^2 / T` is exact only for a geometric T), so the bound is on order 2, on u and T.
 - VV-4, `becker`: Becker's (1922) shock, Pr = 3/4, constant mu, in the shock frame; supersonic inflow upstream,
   extrapolation downstream. The error is measured on u, normalised by the jump u1 - u2. The shock thickness scales
   with mu and shrinks with the Mach number: mu = 0.005 at M = 2 and 0.01 at M = 3 give both about 8 cells across the

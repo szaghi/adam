@@ -128,11 +128,11 @@ construction of the mirror.
 The rule is the pure procedure `wall_noslip_ghost` in `adam_flume_bc_object.F90`, shared by both backends. It is
 model-agnostic: the field components are those present in the state vector (none for Euler), so no kernel branches on
 the model. The ghost probe GP checks it on every face and edge, moving and resting walls, Euler and MHD with EGLM
-([verification](./verification#ghost-cells)).
+([verification](./verification/infrastructure/ghost-probe)).
 
 The walls are boundary conditions of the ideal solver too: they take effect on any run. Their physical test is the
 compressible Couette flow between an isothermal wall and a moving adiabatic one, against its exact profiles
-([VV-3](./verification#vv-3-compressible-couette-flow)): the moving-wall mirror is exact for its linear velocity and
+([VV-3](./verification/dissipative/couette)): the moving-wall mirror is exact for its linear velocity and
 symmetric temperature, the isothermal mirror $T_w^2/T$ is second-order, so the run converges at order 2.
 
 ### `periodic`
@@ -146,7 +146,7 @@ with any number of blocks along the axis. The only constraint is the pairing rul
 An edge ghost lies outside its block along two axes, a corner ghost along three. The directional WENO stencils never
 read them, but a cross derivative does: the tangential derivatives of the viscous stress or of the current at a face
 (M4, [#65](https://github.com/szaghi/adam/issues/65)) read the edge ghosts of the rows next to a block edge. They are
-filled so that the ghost layer continues the face ghosts, and the probe GP of the [verification](./verification#ghost-cells)
+filled so that the ghost layer continues the face ghosts, and the probe GP of the [verification](./verification/infrastructure/ghost-probe)
 holds every face and edge ghost to a linear field on every path.
 
 Each crown row carries the boundary its cell lies beyond (`bc_fec`, from the tree), which gives two cases:
@@ -163,7 +163,7 @@ Each crown row carries the boundary its cell lies beyond (`bc_fec`, from the tre
   both normal momenta negated, and a wall beside a seam mirrors the seam ghost.
 
 Beyond seams only, the cell lies outside every realm: the re-entrant corner of an L-shaped forest, inside the step of
-the [Woodward–Colella tunnel](./verification#forward-facing-step-a-three-realm-forest-on-quadtrees). It keeps a copy of
+the [Woodward–Colella tunnel](./verification/euler/forward-facing-step). It keeps a copy of
 its inward diagonal, $\mathbf q(i-\delta_i, j-\delta_j, k-\delta_k)$: finite, and read by no stencil of a fluid cell.
 
 Both backends fill the crown in three passes, the rows beyond one face, then two, then three, each crown by crown, so

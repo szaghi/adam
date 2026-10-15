@@ -3,7 +3,7 @@
 A FLUME run reads one INI file: `mpirun -np N exe/adam_flume_cpu input.ini` (or `adam_flume_fnl`). This page lists
 every section and key the application reads, with its type, whether it is required, its default, the accepted values
 and what happens on an invalid one. The two complete inputs at the end are verification cases, copied verbatim; the
-[verification gallery](./verification) shows their results.
+[verification gallery](./verification/) shows their results.
 
 ## Program entry and read order
 
@@ -122,7 +122,7 @@ Read in three places: the grid reads `ratio`, the tree reads the refinement shap
 |-----|------|------|---------|--------------------|------|---------|
 | `ratio` | int | **no check** (effectively required) | declared 8, **not applied** | `2` (binary), `4` (quadtree), `8` (octree). Any other value leaves the block sizes undefined, with no error. `4` with `markers_number > 0` runs on CPU and FNL (issue #46; fatal on the NVF and GMP backends). | yes | Refinement ratio of the tree. |
 | `max_level` | int | **no check** | declared 12, **not applied** | Refinements beyond it are silently cancelled. | yes | Maximum refinement level. |
-| `iu_ref_levels` | int | **no check** | declared -1, **not applied** | `<= 0`: none | yes | Uniform refinement levels applied at initialisation, before the initial conditions. The blocks are spread over the ranks by whole sibling families (`ratio` blocks each, never split), so a grid with fewer families than ranks leaves ranks with no block: `iu_ref_levels = 1` on a quadtree is one family, all on rank 0. Supported on every backend ([DV-1](./verification#ranks-without-blocks-dv-1), [#82](https://github.com/szaghi/adam/issues/82)), but the empty ranks do no work. |
+| `iu_ref_levels` | int | **no check** | declared -1, **not applied** | `<= 0`: none | yes | Uniform refinement levels applied at initialisation, before the initial conditions. The blocks are spread over the ranks by whole sibling families (`ratio` blocks each, never split), so a grid with fewer families than ranks leaves ranks with no block: `iu_ref_levels = 1` on a quadtree is one family, all on rank 0. Supported on every backend ([DV-1](./verification/infrastructure/ranks-without-blocks), [#82](https://github.com/szaghi/adam/issues/82)), but the empty ranks do no work. |
 | `i_prune`, `j_prune`, `k_prune`, `l_prune` | int | **no check** | declared -1, **not applied** | See the notes below the table. | partly | Pruning of a "simple initial forest". FLUME never calls `prune`, but the values still enter the neighbour/boundary detection. |
 | `frequency` | int | yes | 100 | `>= 0` | yes | Runtime regrid cadence ([#74](https://github.com/szaghi/adam/issues/74)). `0`: no runtime regridding, the AMR of the initial condition only. `n > 0`: after every `n`-th step the markers are combined and the grid regridded (up to `iters` sweeps); fatal without markers and on a multi-realm forest. The FNL backend regrids by a host round trip (each regrid logs its wall time). Negative: fatal. |
 | `iters` | int | yes | 5 | any | yes | Maximum marker sweeps per AMR update, at initialisation and at each runtime regrid (it stops early when the grid is stable); a sweep refines or coarsens one level. |
@@ -236,7 +236,7 @@ How the pieces combine, and what to expect:
   regions set `floor` to a fraction of the feature's jump, or round-off noise marks the whole grid.
 - **Cost.** The time step is global (no subcycling), so a run regridding to level L advances at the step of level L
   everywhere; the savings come from the cells, and on the verification cases the wall time dropped by 3–19 %
-  ([verification](./verification#av-accuracy-of-runtime-amr)). On the FNL backend each regrid is a host round trip
+  ([verification](./verification/runtime-amr/accuracy)). On the FNL backend each regrid is a host round trip
   whose copies scale with the blocks in use, about 0.02 s per regrid on a 50-block grid on the development box
   ([#75](https://github.com/szaghi/adam/issues/75)).
 - **Limits.** Single-realm runs only (a multi-realm forest with `frequency > 0` is refused); with EGLM the 2:1 seams
@@ -497,7 +497,7 @@ Each term is given either as its coefficient or as the dimensionless number it s
 references are 1, so a number is the reciprocal coefficient. Giving two keys of a term is fatal; giving none leaves the
 term off, so an input without these keys stays ideal and bitwise unchanged. The viscosity and the conductivity drive
 the Navier–Stokes fluxes of every model, the resistivity the Ohmic ones of `mhd-ideal`
-([numerics](./numerics#dissipative-fluxes-navier-stokes)).
+([numerics](./numerics#dissipative-fluxes-navier–stokes)).
 
 | Key | Type | Accepted / invalid | Meaning |
 |-----|------|--------------------|---------|
@@ -549,7 +549,7 @@ no gravity and nothing changes.
 | `froude` | real | the other form, with `axis` | `> 0`, otherwise fatal | The number form: $g = 1/\mathrm{Fr}^2$ along `axis` ($g L_0/u_0^2$ in the reference units; not converted by `[reference]`). |
 | `axis` | string | with `froude` | `+x`, `-x`, `+y`, `-y`, `+z`, `-z`; other → fatal | The signed direction of $\mathbf g$. |
 | `equilibrium` | string | no (default `none`) | `none` or `atmosphere`; other → fatal. `atmosphere` needs an `isothermal-atmosphere`, `polytropic-atmosphere` or `rayleigh-taylor` initial condition, and is fatal with `[numerics] reflux_policy = troubled` and on multi-realm runs | The well-balanced mode (M7-G2b): the initial atmosphere at rest (zero velocity, region 1's field, no pulse or seed) is kept to round-off. See below. |
-| `potential` | string | no (default `uniform`) | `uniform` or `linear`; other → fatal. `linear` is fatal with `equilibrium = atmosphere` and with `self_gravity` | How g reaches the sources. `uniform`: the constant acceleration in every kernel, with the fourth-order energy source. `linear` ([#81](https://github.com/szaghi/adam/issues/81), M8-P1): the same field written as the cell potential Φ = −g·x and applied through the potential path of self-gravity (face gravity −ΔΦ/Δx, second order); a test of that path ([SV-1](./verification#sv-1-p1-gravity-from-a-cell-potential)). |
+| `potential` | string | no (default `uniform`) | `uniform` or `linear`; other → fatal. `linear` is fatal with `equilibrium = atmosphere` and with `self_gravity` | How g reaches the sources. `uniform`: the constant acceleration in every kernel, with the fourth-order energy source. `linear` ([#81](https://github.com/szaghi/adam/issues/81), M8-P1): the same field written as the cell potential Φ = −g·x and applied through the potential path of self-gravity (face gravity −ΔΦ/Δx, second order); a test of that path ([SV-1](./verification/self-gravity/potential)). |
 | `self_gravity` | logical | no (default `.false.`) | with it: `equilibrium = atmosphere`, `potential = linear`, multi-realm runs, immersed solids and a build without an FFT library (the `*-fft` modes) are fatal, as is `poisson_bc = isolated` with `[amr] frequency > 0` ([#87](https://github.com/szaghi/adam/issues/87)), and so are the boundaries `poisson_bc` cannot hold (below) | Self-gravity (M8-P3): $L_h\Phi = 4\pi G(\rho - \bar\rho)$ (periodic) or $L_h\Phi = 4\pi G\rho$, $\Phi \to 0$ at infinity (isolated, M8-P4), solved every Runge–Kutta stage, applied through the potential path. See below. |
 | `G` | real | one of `G`, `G_star` with `self_gravity` | `> 0`, otherwise fatal; fatal without `self_gravity`, and together with `G_star` | The gravitational constant. Dimensional with [`[reference]`](#reference-optional-dimensional-input). |
 | `G_star` | real | the other form | as `G` | The number $G\rho_0L_0^2/u_0^2$; not converted by `[reference]`. |
@@ -572,7 +572,7 @@ boundary condition (M7-G0), and drives the sources (M7-G1):
   finite-difference scheme are point values of the primitive function of $\rho\mathbf u$, not of $\rho\mathbf u$
   itself, so the two-face average $\tfrac12(F^\rho_{i-1/2} + F^\rho_{i+1/2})$ alone is a second-order cell value and
   takes the whole scheme to second order; the four-face form is fourth order (M7-G2a,
-  [verification](./verification#gv-g2a-the-order-of-the-energy-source)). It reads the face beyond each block end, so
+  [verification](./verification/gravity/energy-order)). It reads the face beyond each block end, so
   **gravity needs `[grid] ngc >= S + 1`** ($S$ the WENO half-stencil, 3 for WENO-5; with `weno-riemann`
   $\max(S, 2) + 1$), fatal otherwise;
 - with `positivity_limiter = cell`, the limiter's first-order backbone takes the time-centred energy
@@ -584,7 +584,7 @@ boundary condition (M7-G0), and drives the sources (M7-G1):
   run's own space operator and subtracted from every residual: the atmosphere is then an exact discrete steady state
   (round-off), on `weno` and `weno-riemann`, Euler and MHD, across AMR 2:1 seams (the equilibrium's reflux is folded
   into its residual), and a perturbation of it evolves without the stationary truncation flow of the unbalanced
-  scheme ([verification](./verification#gv-g2b-the-well-balanced-mode)). It costs one more field (the stored
+  scheme ([verification](./verification/gravity/well-balanced)). It costs one more field (the stored
   residual) and one residual evaluation per grid. The subtracted residual is outside the positivity limiter's factor:
   it is the truncation error of the equilibrium, small against the state wherever the atmosphere is resolved;
 - no time-step limit: the first step logs $|\mathbf g|\,\Delta t^2/(\mathrm{CFL}\,h_{\min})$, at least the velocity
@@ -602,7 +602,7 @@ With `self_gravity` ([models](./models#self-gravity)):
   free-space potential. The solve is serial on rank 0 and, on FNL, the density and $\Phi$ cross the host every stage:
   correct, not scalable;
 - on an AMR grid (M8-P5b) the multigrid solver (`adam_poisson_mg_object`) solves the composite Laplacian, whose 2:1
-  faces carry the mimetic mean flux (symmetric and consistent; [SV-9](./verification#sv-9-p5a-the-poisson-solver-on-amr-grids)):
+  faces carry the mimetic mean flux (symmetric and consistent; [SV-9](./verification/self-gravity/multigrid-amr)):
   flexible CG preconditioned by a V-cycle, its coarsest level solved by the FFT solver of the backend; on FNL it runs
   on the host. The face gravity at a 2:1 face is the mean-flux one on both sides (first order there, the potential
   second order), and the gravity work across each seam rides on the reflux (below), so $E + W$ stays exact in the
@@ -633,17 +633,17 @@ With `self_gravity` ([models](./models#self-gravity)):
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `scheme_space` | string | yes | `weno` (WENO flux splitting) or `weno-riemann` (WENO interpolation + Riemann flux + high-order correction). Other → fatal. | Spatial operator. MHD at very low β (≲ 1e-3, e.g. the Balsara–Spicer blast): `weno` needs the positivity limiter at every step and breaks point symmetry at the grid scale; use `weno-riemann` with `hlld` where symmetry or backend agreement matter ([#77](https://github.com/szaghi/adam/issues/77), [verification](./verification#the-mhd-blast-loses-its-point-symmetry-on-the-flux-splitting-path-77)). |
+| `scheme_space` | string | yes | `weno` (WENO flux splitting) or `weno-riemann` (WENO interpolation + Riemann flux + high-order correction). Other → fatal. | Spatial operator. MHD at very low β (≲ 1e-3, e.g. the Balsara–Spicer blast): `weno` needs the positivity limiter at every step and breaks point symmetry at the grid scale; use `weno-riemann` with `hlld` where symmetry or backend agreement matter ([#77](https://github.com/szaghi/adam/issues/77), [verification](./verification/runtime-amr/mhd-blast-symmetry)). |
 | `reconstruction_variables` | string | yes | With `weno`: `characteristic` or `conservative`. With `weno-riemann`: `characteristic` or `primitive`. Other → fatal. | Variables reconstructed (or interpolated) at the faces. |
 | `riemann_solver` | string | `weno-riemann` | `llf`, `hll`, `hllc`, `hlld`. Other → fatal. By model: `euler` allows `llf`, `hll`, `hllc`; `mhd-ideal` allows `llf`, `hll`, `hlld` (fatal otherwise). Not read with `weno`. | Face Riemann solver. |
 | `flux_correction` | string | `weno-riemann` | `6th`, `4th`, `none` (2nd order). Other → fatal. | Face-flux correction `F^ = c1 F + c2 (f_i+f_i+1) + c3 (f_i-1+f_i+2)`. |
 | `flux_correction_sensor` | string | `weno-riemann` | `weno` or `none`. Other → fatal. | `weno`: the correction is switched off at faces where `min_k w_k/d_k < 0.2` (fixed threshold `FLUX_CORRECTION_SENSOR_TAU`). `none`: always on. |
 | `reflux` | logical | yes | logical | Berger–Colella reflux at AMR coarse-fine faces (and inter-realm seams). `.false.` is a diagnostic only: the run is then not conservative across 2:1 faces. |
 | `reflux_policy` | string | no | `always`, `troubled` (default `always`; any other value is fatal) | With `reflux = .true.`, which seam face cells the reflux corrects ([#68](https://github.com/szaghi/adam/issues/68) E1). `always`: every one, conservative to round-off. `troubled`: only those flagged in some stage of the step, by the positivity limiter (a blended seam face, issue #50) or by the WENO-5 sensor (the minimum weight ratio $\min_k w_k/d_k$ of density, normal velocity or pressure across the face below 0.2, the weno-riemann flux-correction sensor); elsewhere the coarse flux stays, so smooth regions keep the accuracy of the high-order seam operators at the cost of conservation there (Sod c2f: mass drift $1.5\cdot10^{-7}$, shock unchanged). The log reports the flagged face cells per step. CPU and FNL (E1b: the FNL backend gathers the seam cells' auxiliary variables to the host and flags them there). The default stays `always` (owner decision after E2: exact conservation); `troubled` is the switch that lets `seam_restriction = lagrange6` with `seam_ghost_fill = quintic` keep sixth order across 2:1 seams with the reflux on (AO `euler-tq`), at the price of a bounded conservation drift (about $10^{-5}$ per period on the smooth vortex at N = 64, the reflux-off rate). |
-| `reflux_cadence` | string | no | `step`, `stage` (default `step`; any other value is fatal; `stage` is fatal on multi-realm runs) | With `reflux = .true.`, when the coarse cells are corrected ([#81](https://github.com/szaghi/adam/issues/81) P5c). `step`: once, at the end of the step, from the step's fluxes (Berger–Colella, the AMReX cadence). `stage`: at every Runge–Kutta stage the coarse seam cells' residual is corrected from that stage's fluxes, so every stage advances them with the restricted fine fluxes and the scheme is the conservative composite one at every stage. Both conserve to round-off; `stage` keeps the time integration's order where `step` leaves an $O(\Delta t)$ inconsistency, e.g. the $E + W$ of self-gravity on AMR (first order with `step`, third with `stage`: [SV-10](./verification#sv-10-p5b-self-gravity-on-a-static-amr-grid)). Intra-realm 2:1 faces only; the exceptions of the step cadence (the equilibrium's mismatch, B under EGLM, `troubled`) apply per stage. |
+| `reflux_cadence` | string | no | `step`, `stage` (default `step`; any other value is fatal; `stage` is fatal on multi-realm runs) | With `reflux = .true.`, when the coarse cells are corrected ([#81](https://github.com/szaghi/adam/issues/81) P5c). `step`: once, at the end of the step, from the step's fluxes (Berger–Colella, the AMReX cadence). `stage`: at every Runge–Kutta stage the coarse seam cells' residual is corrected from that stage's fluxes, so every stage advances them with the restricted fine fluxes and the scheme is the conservative composite one at every stage. Both conserve to round-off; `stage` keeps the time integration's order where `step` leaves an $O(\Delta t)$ inconsistency, e.g. the $E + W$ of self-gravity on AMR (first order with `step`, third with `stage`: [SV-10](./verification/self-gravity/amr-jeans)). Intra-realm 2:1 faces only; the exceptions of the step cadence (the equilibrium's mismatch, B under EGLM, `troubled`) apply per stage. |
 | `positivity_limiter` | string | no (default `none`) | `none` or `cell`. Other → fatal. `cell` is fatal with `[mhd] divergence_control = glm`, a non-SSP `[runge_kutta] scheme`, immersed solids, multi-realm runs and any dissipative coefficient (issue #65, D-M4-5). | `cell`: the cell-based positivity limiter ([numerics](./numerics#positivity-limiter)): every face flux blended with the first-order Lax–Friedrichs backbone so that each stage keeps the density and the pressure positive; the limited faces are logged per stage. |
 
-| `dissipative_order` | int | no (default 4) | `2` or `4`. Other → fatal; `4` needs `[grid] ngc >= 3` (fatal otherwise). | Order of the dissipative face fluxes (issue #65, D-M4-2): `4` is the conservative 4th-order flux with the Shu–Osher correction, `2` the compact central one ([numerics](./numerics#dissipative-fluxes-navier-stokes)). An ideal run ignores it. |
+| `dissipative_order` | int | no (default 4) | `2` or `4`. Other → fatal; `4` needs `[grid] ngc >= 3` (fatal otherwise). | Order of the dissipative face fluxes (issue #65, D-M4-2): `4` is the conservative 4th-order flux with the Shu–Osher correction, `2` the compact central one ([numerics](./numerics#dissipative-fluxes-navier–stokes)). An ideal run ignores it. |
 
 ---
 

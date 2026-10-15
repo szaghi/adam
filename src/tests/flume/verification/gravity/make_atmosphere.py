@@ -33,7 +33,7 @@ M7-G2b cases (the well-balanced mode), atmospheres at rest under a strong strati
 
     strat2d      isothermal, g = (0, -10): ten scale heights in the box (density ratio 2.2e4);
     polystrat2d  polytropic, G = 1.2, g = (0, -4) (density ratio 243);
-    strat2d-mhdy strat2d with EGLM and a uniform field along g, B = (0, 0.05, 0) (beta 7 at the top);
+    strat2d-mhdy strat2d with EGLM and a uniform field along g, B = (0, 0.05, 0) (beta 800 at the floor, 0.036 at the top);
     strat2d-mhdx strat2d with EGLM and a uniform field across g, B = (0.05, 0, 0);
     strat2d-amr  strat2d with a refined box [0.25, 0.75]^2 (2:1 seams across the stratification).
 
