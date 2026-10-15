@@ -333,7 +333,7 @@ Each routine accepts a stencil half-width `s` and the local mesh spacing `dxyz`,
 
 ### `adam_fnl_poisson_fft_object` — FFT Poisson solver on the GPU (cuFFT)
 
-Extends `poisson_fft_object` ([common](../common/README.md)): the gather to rank 0, the placement and the scatter of
+Extends `poisson_fft_object` ([common](/library/common)): the gather to rank 0, the placement and the scatter of
 `phi` with its ghosts are the CPU ones; the spectral solve runs on rank 0's GPU. The global source goes to the device,
 a cuFFT D2Z transform, a kernel divides by the eigenvalues of `L_h` (the host-computed tables of the CPU solver), a Z2D
 transform, and the potential comes back. cuFFT is bound to the stream of the synchronous OpenACC queue

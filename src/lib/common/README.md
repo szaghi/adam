@@ -282,13 +282,15 @@ one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the second-
   the residual of `phi` is that summed over the source (`2e-11` of `factor f` at `64^3`), not round-off.
 
 Both are symmetric linear maps of the source, which is what exact energy and momentum conservation of self-gravity
-needs (FLUME [models](../../../docs/applications/flume/models.md#self-gravity)).
+needs (FLUME [models](/applications/flume/models#self-gravity)).
 
 | Procedure | Role |
 |-----------|------|
 | `initialize(grid, field, isolated)` | Check the scope, size the solver, make the plans (and, isolated, the kernel's spectrum) on rank 0 |
 | `solve(field, q, iv, factor, phi, energy)` | Gather `q(iv)` to rank 0, transform, scatter `phi(1-ngc:n+ngc, ..., b)` with every ghost layer filled from the global solution; optionally `energy = sum f phi` |
 | `solve_packed(field, buf, factor, phi, energy)` | The same from the interior source already packed (block-major, `i` fastest: what a device kernel produces) |
+| `initialize_blocks(nblk, nijk, ngc, dxyz, level, null_xyz, isolated)` | Size the solver for an explicit uniform block lattice, no grid object and no scope check (the caller owns it): the multigrid's coarsest level |
+| `solve_blocks(nbl, coords, buf, factor, gw, out, energy)` | Solve on an explicit list of this rank's blocks (integer coordinates, packed source), returning each block's potential with `gw` ghost layers; `initialize`/`solve_packed` are wrappers over these two |
 | `destroy()` | Free the arrays and the plans |
 
 - **Data path:** `MPI_Gatherv` of the block interiors (with their integer block coordinates) to rank 0, which holds the
@@ -296,13 +298,51 @@ needs (FLUME [models](../../../docs/applications/flume/models.md#self-gravity)).
   count, ranks without blocks included; **not scalable**.
 - **Scope (fatal otherwise):** every block at one level and the blocks covering the domain. Periodic: every active
   direction periodic. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's). AMR
-  (multigrid) is a later phase of #81.
+  grids: `adam_poisson_mg_object` (below).
 - **Build:** `-D_FFTW` and `-lfftw3` (FFTW 3, `FFTW_ESTIMATE` plans: deterministic). Without an FFT library,
   `initialize` stops with "built without an FFT library". The FNL twin is `adam_fnl_poisson_fft_object` (cuFFT).
   The module is **not** re-exported by `adam_common_library`: only the modes that use it build it
   (`test-poisson-fft-*` today, with their own `mod`/`obj` directories).
 - **Verification:** SV-2 (periodic) and SV-6 (isolated), `src/tests/poisson/test_poisson_fft.F90` (`--isolated`)
   driven by `src/tests/flume/verification/selfgravity/poisson.sh`.
+
+### `adam_poisson_mg_object` — Poisson solver on AMR grids (multigrid-preconditioned CG)
+
+Solves `A phi = factor V (f - mean f)` on the leaf cells of a 2:1-balanced octree (quadtree with `null_z`), periodic
+([#81](https://github.com/szaghi/adam/issues/81), P5a). `A` is the composite second-order Laplacian, V-weighted
+(finite-volume form): the 7-point stencil between leaves of one level and, across a 2:1 face, the **mimetic mean
+flux** — every fine cell on a coarse cell's face gets the flux `(2/3) w (mean of the face's fine cells - phi_C)`, `w`
+its face area over its spacing, and the coarse cell their sum. That coupling is the hybrid mimetic finite-difference
+flux of the coarse cell with its face unknowns eliminated: exact for linear `phi` face by face (**consistent**: bounded
+truncation, `phi` second order, the 2:1 face gradient first order) and **symmetric** (`phi = K f` with `V K`
+symmetric: the exact energy exchange of self-gravity). Tomida & Stone's flux matching is consistent but not symmetric;
+its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-converging seam gravity): both measured in
+`selfgravity/seam_operators.py`.
+
+| Procedure | Role |
+|-----------|------|
+| `initialize(grid, field, tolerance, max_iterations)` | Gather the leaf list (every rank), derive the level hierarchy, assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the coarsest-level FFT solver |
+| `solve(field, q, iv, factor, phi, energy)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi` |
+| `solve_packed(field, buf, factor, phi, energy)` | The same from the packed interior source |
+| `symmetry_defect(x, y)`, `apply_a(x, y)` | Verification: `|x.Ay - y.Ax| / (|x| |Ay|)` and `y = A x` on the leaves |
+| `destroy()` | Free everything |
+
+- **Solver:** flexible CG (Notay's FCG(1)), stopping on the relative max-norm residual (`tolerance`, default `1e-10`).
+  The V-cycle runs over levels holding the leaves and a **shadow** block per refined node (ADAM keeps leaves only);
+  red-black Gauss-Seidel (2 sweeps down, 2 up), restriction by sum, piecewise-constant prolongation, the coarsest level
+  (the minimum leaf level: the whole domain) solved by `adam_poisson_fft_object%solve_blocks`. Diagnostics after a
+  solve: `iterations`, `residual`, `factor_mean`.
+- **Ghosts:** the first layer per face from the solution (across a 2:1 face, the value whose one-sided difference is
+  the operator's own face gradient), deeper layers copying the first.
+- **Distributed, assembled:** CSR rows over global cell keys, each operator with a halo-exchange plan
+  (`MPI_ALLTOALLV`); every rank owns its leaves' rows and the shadows whose first leaf it owns. Correct for any rank
+  count (results equal to round-off across rank counts); not tuned for speed.
+- **Scope (fatal otherwise):** every active direction periodic (isolated boundaries on AMR: #81 P5b); 2:1 balance across
+  faces; fewer than `2^19` cells per direction at the finest level. CPU only (the FNL path: P5b/P5c).
+- **Build:** as `adam_poisson_fft_object` (`-D_FFTW`, not re-exported by `adam_common_library`; mode
+  `test-poisson-mg-gnu`).
+- **Verification:** SV-9, `src/tests/poisson/test_poisson_mg.F90`, driven by
+  `src/tests/flume/verification/selfgravity/poisson.sh` (leg `sv9`).
 
 ### `adam_lattice_green_library` — lattice Green's function of the 7-point Laplacian (generated)
 

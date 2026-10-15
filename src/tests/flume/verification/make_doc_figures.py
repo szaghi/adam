@@ -1713,6 +1713,77 @@ def fig_selfgravity_jeans(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_selfgravity_amr(out: Path, runs: Path) -> None:
+    """SV-9 (issue #81, M8-P5a): the composite Laplacian across 2:1 faces and the multigrid solver on it. Left and
+    middle: the 2-D model of selfgravity/seam_operators.py (doubly periodic, coarse x < 1/2, fine x > 1/2, two seams),
+    N = 8 to 48, three seam couplings: Tomida & Stone's flux matching (B), its symmetrisation (S1) and the mimetic mean
+    flux (M, the one adam_poisson_mg_object assembles); left the max truncation error, middle the seam face gradient
+    error (each operator's own seam flux) and the potential error. Right: the multigrid solver on the octree and the
+    quadtree of test_poisson_mg (CPU, 2 ranks; the central box refined once, base levels 2 and 3): the potential
+    error and the 2:1 face gravity error against the fine cells, the growth of the max truncation error."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import seam_operators  # noqa: PLC0415
+
+    pattern = re.compile(r"SV-9b, AMR (\S+) \S+,\s+base level (\d+), leaves \d+ \(levels \d+-\d+\): iterations (\d+), "
+                         r"factor \S+, symmetry (\S+), truncation (\S+), \|Phi - Phi_exact\| (\S+), "
+                         r"2:1 face gravity error (\S+),")
+    amr: dict[str, list[tuple[int, int, float, float, float, float]]] = {}
+    for line in (runs / "sv9-poisson" / "log.txt").read_text(errors="replace").splitlines():
+        m = pattern.search(line)
+        if m:
+            amr.setdefault(m[1], []).append((int(m[2]), int(m[3]), float(m[4]), float(m[5]), float(m[6]),
+                                             float(m[7])))
+    if not amr:
+        raise FileNotFoundError("no SV-9b line in sv9-poisson/log.txt")
+    rows = seam_operators.ladder([8, 16, 32, 48])
+    style = {"B": ("tab:orange", "s", "B, flux matching (not symmetric)"),
+             "S1": ("tab:red", "^", "S1 = (B + B^T) / 2 (symmetric, inconsistent)"),
+             "M": ("tab:blue", "o", "M, mimetic mean flux (symmetric, consistent)")}
+    fig, axs = plt.subplots(1, 3, figsize=(15.0, 4.8), constrained_layout=True)
+    for kind, (color, marker, label) in style.items():
+        n, e_phi, tau, e_face, _ = (np.array(v) for v in zip(*rows[kind], strict=True))
+        axs[0].loglog(n, tau, marker + "-", color=color, label=label)
+        axs[1].loglog(n, e_face, marker + "-", color=color, label=f"{kind}: seam face gradient")
+        axs[1].loglog(n, e_phi, marker + ":", color=color, alpha=0.6, label=f"{kind}: potential")
+    ns = np.array([8.0, 48.0])
+    axs[0].loglog(ns, 30.0 * ns / ns[0], "-", color="0.6", lw=0.8)
+    axs[0].annotate("1/h", (24.0, 30.0 * 3.0), xytext=(-18, 2), textcoords="offset points", fontsize=8, color="0.4")
+    axs[0].set_xlabel("N (coarse cells per side)")
+    axs[0].set_ylabel("max |A Phi_exact / V - Lap Phi_exact|")
+    axs[0].legend(fontsize=7)
+    axs[0].set_title("truncation: bounded (B, M), growing as 1/h (S1)", fontsize=10)
+    for p, y0, lab in ((1, 2.0, "h"), (2, 0.2, "h^2")):
+        axs[1].loglog(ns, y0 * (ns[0] / ns) ** p, "-", color="0.6", lw=0.8)
+        axs[1].annotate(lab, (20.0, y0 * (8.0 / 20.0) ** p), xytext=(0, -12), textcoords="offset points", fontsize=8,
+                        color="0.4")
+    axs[1].set_xlabel("N (coarse cells per side)")
+    axs[1].set_ylabel("max error")
+    axs[1].legend(fontsize=6, ncol=2)
+    axs[1].set_title("the seam gradient converges for B and M, not for S1", fontsize=10)
+    for dim, color in (("3-D", "tab:blue"), ("2-D", "tab:green")):
+        lev, _, _, tau, e_phi, e_g = (np.array(v) for v in zip(*sorted(amr[dim]), strict=True))
+        nf = 8.0 * 2.0 ** (lev + 1)  # fine cells along x: 8 per block side, the box refined once
+
+        def order(e: np.ndarray, nf: np.ndarray = nf) -> float:
+            return float(np.log(e[0] / e[-1]) / np.log(nf[-1] / nf[0]))
+
+        axs[2].loglog(nf, e_phi, "o-", color=color,
+                      label=f"{dim}: potential, order {order(e_phi):.2f} (truncation growth {tau[-1] / tau[0]:.3f})")
+        axs[2].loglog(nf, e_g, "s--", color=color, label=f"{dim}: 2:1 face gravity, order {order(e_g):.2f}")
+    axs[2].set_xticks([64, 128], ["64", "128"])
+    axs[2].minorticks_off()
+    axs[2].set_xlim(56, 146)
+    axs[2].set_ylim(2e-4, 2e-1)
+    axs[2].set_xlabel("fine cells along x")
+    axs[2].set_ylabel("max error")
+    axs[2].legend(fontsize=7, loc="upper right")
+    axs[2].set_title("the multigrid solver on M (box refined once)", fontsize=10)
+    fig.suptitle("SV-9: a symmetric, consistent composite Laplacian across 2:1 faces and its multigrid solver "
+                 "(CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-amr.png", dpi=DPI)
+    plt.close(fig)
+
+
 def _rank_blocks(paths: list[Path]) -> dict[int, int]:
     """Blocks of each rank in one checkpoint (rank -> count), from the per-rank files."""
     out = {}
@@ -1737,7 +1808,8 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-poisson": fig_selfgravity_poisson,
            "selfgravity-jeans": fig_selfgravity_jeans,
            "selfgravity-isolated": fig_selfgravity_isolated,
-           "selfgravity-star": fig_selfgravity_star}
+           "selfgravity-star": fig_selfgravity_star,
+           "selfgravity-amr": fig_selfgravity_amr}
 
 
 def main() -> int:

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # FLUME verification of self-gravity (issue #81, M8). SV-2 (P2): the FFT Poisson solver on uniform periodic grids;
-# SV-6 (P4): the same solver with isolated boundaries.
+# SV-6 (P4): the same solver with isolated boundaries; SV-9 (P5a): the multigrid solver on AMR grids.
 #
 # Why: self-gravity conserves E + rho Phi and momentum exactly only if Phi solves the discrete Poisson equation
 # L_h Phi = 4 pi G (rho - mean rho) to round-off (#81 P0). The library solver (adam_poisson_fft_object, FFTW; its FNL
@@ -23,21 +23,33 @@
 #   - refused, each with its message: a periodic grid, non-cubic cells, a 2-D grid.
 # Measured (CPU): orders 2.03 (polytrope) and 1.35 (sphere), residual <= 2.1e-11 at 64^3.
 #
+# SV-9 (test_poisson_mg, P5a): adam_poisson_mg_object, FCG preconditioned by a V-cycle, on the composite Laplacian
+# with the mimetic mean flux across 2:1 faces (symmetric and consistent), SV-2's source and box:
+#   - SV-9a, uniform grids: the multigrid equals the FFT solver (1e-8 relative), in at most one iteration;
+#   - SV-9b, the central box refined once (octree and quadtree, base levels 2 and 3): FCG residual below the
+#     tolerance, symmetry defect of the assembled rows <= 1e-12, every face ghost filled, Phi order >= 1.7 against
+#     the exact potential, max truncation error growing at most 1.5x under refinement (bounded: consistent);
+#   - refused: a non-periodic grid (isolated on AMR is P5b).
+# Measured (CPU, np 1-3, rank-independent to round-off): SV-9a 3e-15; SV-9b symmetry <= 8e-18, Phi order 1.92 (3-D
+# and 2-D), truncation growth 1.005, 2:1 face gravity order 1.03 (3-D) and 1.11 (2-D), 24-39 FCG iterations.
+#
 # CPU = FNL: run this script once per build with --dump DIR, then
 #   poisson_oracle.py compare DIR_CPU DIR_FNL      (max |phi_CPU - phi_FNL| / max |phi|, 1e-13)
 #
-# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs "sv2 sv6"] [--dump DIR] [--keep]
+# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs "sv2 sv6 sv9"] [--dump DIR] [--keep]
 #
 # POISSON_EXE overrides the executable under test, e.g. POISSON_EXE=$REPO/exe/test_poisson_fft_fnl ./poisson.sh
-# (built by `fobis build --mode test-poisson-fft-gnu` or `test-poisson-fft-fnl-nvf`). The caller owns the matching
+# (built by `fobis build --mode test-poisson-fft-gnu` or `test-poisson-fft-fnl-nvf`); POISSON_MG_EXE the SV-9 one
+# (`test-poisson-mg-gnu`, CPU only; --dump covers SV-2 and SV-6). The caller owns the matching
 # environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${POISSON_EXE:-$REPO_ROOT/exe/test_poisson_fft}"
+MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
 NP_LIST="1 2 3"
-LEGS="sv2 sv6"
+LEGS="sv2 sv6 sv9"
 DUMP=""
 KEEP=0
 
@@ -51,32 +63,45 @@ while [[ $# -gt 0 ]]; do
                  exit 2 ;;
    esac
 done
-if [[ ! -x "$EXE" ]]; then
-   echo "poisson.sh: executable '$EXE' not found (build it or set POISSON_EXE)" >&2 ; exit 2
+needs_fft=0 ; needs_mg=0
+for leg in $LEGS; do
+   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9) needs_mg=1 ;; esac
+done
+if [[ -n "$DUMP" ]]; then needs_fft=1 ; fi
+if [[ $needs_fft -eq 1 ]]; then
+   if [[ ! -x "$EXE" ]]; then
+      echo "poisson.sh: executable '$EXE' not found (build it or set POISSON_EXE)" >&2 ; exit 2
+   fi
+   EXE="$(realpath "$EXE")"
 fi
-EXE="$(realpath "$EXE")"
+if [[ $needs_mg -eq 1 ]]; then
+   if [[ ! -x "$MG_EXE" ]]; then
+      echo "poisson.sh: executable '$MG_EXE' not found (build it or set POISSON_MG_EXE)" >&2 ; exit 2
+   fi
+   MG_EXE="$(realpath "$MG_EXE")"
+fi
 
 TAG="$(basename "$EXE")"
 work="$CASE_DIR/work-$TAG-poisson"
 rm -rf "$work" ; mkdir -p "$work"
 FAILED=0
-suite() { # suite <label> <flags>: the test on every rank count of the list, its lines and verdict
-   local label="$1" flags="$2" np log
+suite() { # suite <label> <flags> [exe]: the test on every rank count of the list, its lines and verdict
+   local label="$1" flags="$2" exe="${3:-$EXE}" np log
    for np in $NP_LIST; do
       log="$work/log-$label-np$np.txt"
       # shellcheck disable=SC2086
-      if ! (cd "$work" && mpirun -np "$np" "$EXE" $flags > "$log" 2>&1); then
+      if ! (cd "$work" && mpirun -np "$np" "$exe" $flags > "$log" 2>&1); then
          echo "   np $np: the run failed, see $log  FAIL"
          FAILED=1
          continue
       fi
       grep '^   ' "$log" | sed "s/^/   np $np:/"
-      if ! grep -q 'test_poisson_fft: PASSED' "$log"; then FAILED=1 ; fi
+      if ! grep -qE '^test_poisson_(fft|mg): PASSED' "$log"; then FAILED=1 ; fi
    done
 }
-refusal() { # refusal <label> <flag> <expected message>: the run must stop, naming the cause
-   local label="$1" flag="$2" msg="$3" log="$work/log-refusal-$1.txt"
-   if (cd "$work" && mpirun -np 2 "$EXE" "$flag" > "$log" 2>&1); then
+refusal() { # refusal <label> <flag> <expected message> [exe]: the run must stop, naming the cause
+   local label="$1" flag="$2" msg="$3" exe="${4:-$EXE}" log="$work/log-refusal-$1.txt"
+   if (cd "$work" && mpirun -np 2 "$exe" "$flag" > "$log" 2>&1); then
       echo "   refusal, $label: accepted  FAIL"
       FAILED=1
    elif grep -q "$msg" "$log"; then
@@ -98,7 +123,11 @@ for leg in $LEGS; do
          refusal "isolated on a periodic grid" --refuse-isolated-periodic 'direction 1 is periodic'
          refusal "isolated with non-cubic cells" --refuse-isolated-anisotropic 'isolated boundaries need cubic cells'
          refusal "isolated in 2-D" --refuse-isolated-2d 'isolated boundaries are 3-D only' ;;
-      *) echo "poisson.sh: unknown leg '$leg' (sv2, sv6)" >&2 ; exit 2 ;;
+      sv9)
+         echo ">> SV-9: the multigrid Poisson solver, AMR ($(basename "$MG_EXE"))"
+         suite multigrid "" "$MG_EXE"
+         refusal "multigrid, a non-periodic grid" --no-periodic 'direction 1 is not periodic' "$MG_EXE" ;;
+      *) echo "poisson.sh: unknown leg '$leg' (sv2, sv6, sv9)" >&2 ; exit 2 ;;
    esac
 done
 if [[ -n "$DUMP" ]]; then

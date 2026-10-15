@@ -27,14 +27,16 @@
 #           its log and dumps; sv7-l{2,3}, the equilibrium star of selfgravity/star.sh at 32^3 and 64^3 (a light
 #           atmosphere, the positivity limiter) to t = 2; sv8-collapse-{0.4,0.2,0.1}, the collapsing star, a checkpoint
 #           every 10 steps (JEANS_EXE, default exe/adam_flume_cpu_fft) (6 runs, about 60 min: sv7-l3 takes 45)
+#   amr     sv9-poisson: the SV-9 unit test of the multigrid Poisson solver on AMR grids (#81, P5a; POISSON_MG_EXE,
+#           default exe/test_poisson_mg, mode test-poisson-mg-gnu) with its log (1 run, under a minute)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
 #        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
-#        isolated: --only selfgravity-isolated selfgravity-star)
+#        isolated: --only selfgravity-isolated selfgravity-star; amr: --only selfgravity-amr)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
-#        [jeans] [isolated] (default: all eleven)
+#        [jeans] [isolated] [amr] (default: all twelve)
 #
 # FLUME_EXE overrides the executable (default exe/adam_flume_cpu); the caller owns the matching MPI environment.
 set -euo pipefail
@@ -48,16 +50,16 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
-           "selfgravity, jeans, isolated)" >&2
+           "selfgravity, jeans, isolated, amr)" >&2
       exit 2
    fi
 done
@@ -245,6 +247,14 @@ for g in $GROUPS_; do
             star "sv7-l$lev" star --levels "$lev" --atmosphere 1e-4 --limiter --time-max 2.0 --it-save 10
          done
          for cfl in 0.4 0.2 0.1; do star "sv8-collapse-$cfl" starc --cfl "$cfl" --it-save 10 ; done ;;
+      amr)
+         fresh sv9-poisson
+         POISSON_MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
+         if (cd "$W" && mpirun -np "$NP" "$POISSON_MG_EXE" > log.txt 2>&1); then
+            echo "   $(basename "$W"): done"
+         else
+            echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+         fi ;;
    esac
 done
 exit $FAILED

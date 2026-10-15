@@ -73,6 +73,8 @@ type :: poisson_fft_object
       procedure, pass(self) :: initialize !< Check the grid, size the solver, make the plans.
       procedure, pass(self) :: solve        !< Solve for phi from one variable of q.
       procedure, pass(self) :: solve_packed !< Solve for phi from the packed interior source.
+      procedure, pass(self) :: initialize_blocks !< Size the solver from block counts and spacing (no grid, no field).
+      procedure, pass(self) :: solve_blocks      !< Solve from an explicit list of blocks (coordinates and source).
       ! private methods
       procedure, pass(self), private :: make_kernel !< Rank 0, isolated: the kernel's spectrum.
       ! backend hooks
@@ -157,7 +159,7 @@ contains
    integer(I4P)                             :: lmin, lmax   !< Min and max block level over the ranks.
    integer(I4P)                             :: nblk(3)      !< Blocks per direction at the level.
    integer(I4P)                             :: blocks_total !< Blocks over the ranks.
-   integer(I4P)                             :: d, k         !< Counters.
+   integer(I4P)                             :: d            !< Counter.
    integer(I4P)                             :: ierr         !< MPI error status.
 
    call self%destroy
@@ -200,23 +202,52 @@ contains
             'supports periodic boundaries (or isolated ones, 3-D)')
       enddo
    endif
-   self%n = nblk * self%nijk
+   call self%initialize_blocks(nblk=nblk, nijk=self%nijk, ngc=self%ngc, dxyz=self%dxyz, level=self%level, &
+                               null_xyz=grid%null_xyz, isolated=self%isolated)
+   endsubroutine initialize
+
+   subroutine initialize_blocks(self, nblk, nijk, ngc, dxyz, level, null_xyz, isolated)
+   !< Size the solver for a uniform grid of `nblk` blocks per direction, `nijk` cells each, at `level` with spacing
+   !< `dxyz`, and make the plans (and, isolated, the kernel) on rank 0. No check of a grid: the caller owns the scope
+   !< (the multigrid's coarsest level calls it directly, issue #81 P5).
+   class(poisson_fft_object), intent(inout) :: self        !< The solver.
+   integer(I4P),              intent(in)    :: nblk(3)     !< Blocks per direction.
+   integer(I4P),              intent(in)    :: nijk(3)     !< Cells per block per direction.
+   integer(I4P),              intent(in)    :: ngc         !< Ghost cells per side (isolated: the padding margin).
+   real(R8P),                 intent(in)    :: dxyz(3)     !< Cell spacing.
+   integer(I4P),              intent(in)    :: level       !< Level of every block.
+   logical,                   intent(in)    :: null_xyz(3) !< Null directions.
+   logical,                   intent(in)    :: isolated    !< Isolated boundaries, else periodic.
+   integer(I4P)                             :: nblk_(3), nijk_(3), ngc_, level_ !< Copies of the arguments.
+   real(R8P)                                :: dxyz_(3)    !< Copy of the argument.
+   logical                                  :: null_(3), isolated_ !< Copies of the arguments.
+   integer(I4P)                             :: k           !< Counter.
+
+   ! copy first: the arguments may be components of self (initialize passes them), which destroy resets
+   nblk_ = nblk ; nijk_ = nijk ; ngc_ = ngc ; level_ = level ; dxyz_ = dxyz ; null_ = null_xyz ; isolated_ = isolated
+   call self%destroy
+   self%nijk = nijk_
+   self%ngc = ngc_
+   self%dxyz = dxyz_
+   self%level = level_
+   self%isolated = isolated_
+   self%n = nblk_ * self%nijk
    self%m = self%n
    if (self%isolated) self%m = 2 * (self%n + self%ngc)
    ! eigenvalue parts of L_h per direction; zero along a null direction (no derivative there)
    allocate(self%lam1(0:self%n(1)/2), self%lam2(0:self%n(2)-1), self%lam3(0:self%n(3)-1))
    self%lam1 = 0._R8P ; self%lam2 = 0._R8P ; self%lam3 = 0._R8P
-   if (.not.grid%null_xyz(1)) then
+   if (.not.null_(1)) then
       do k=0, self%n(1)/2
          self%lam1(k) = (2._R8P * cos(2._R8P * PI * k / self%n(1)) - 2._R8P) / self%dxyz(1)**2
       enddo
    endif
-   if (.not.grid%null_xyz(2)) then
+   if (.not.null_(2)) then
       do k=0, self%n(2)-1
          self%lam2(k) = (2._R8P * cos(2._R8P * PI * k / self%n(2)) - 2._R8P) / self%dxyz(2)**2
       enddo
    endif
-   if (.not.grid%null_xyz(3)) then
+   if (.not.null_(3)) then
       do k=0, self%n(3)-1
          self%lam3(k) = (2._R8P * cos(2._R8P * PI * k / self%n(3)) - 2._R8P) / self%dxyz(3)**2
       enddo
@@ -232,7 +263,7 @@ contains
       if (self%isolated) call self%make_kernel
    endif
    self%is_initialized = .true.
-   endsubroutine initialize
+   endsubroutine initialize_blocks
 
    subroutine solve(self, field, q, iv, factor, phi, energy)
    !< Solve `L_h phi = factor (q(iv) - mean(q(iv)))` (periodic) or `L_h phi = factor q(iv)` with phi -> 0 at infinity
@@ -266,13 +297,58 @@ contains
    !< Solve `L_h phi = factor (f - mean(f))` (periodic) or `L_h phi = factor f` (isolated) from the packed interior source
    !< of this rank's blocks (block-major, `i` fastest, `field%blocks_number * ni * nj * nk` values); every ghost layer of
    !< phi is filled from the global solution (the periodic wrap, or the padded free-space solution).
+   class(poisson_fft_object), intent(inout)         :: self        !< The solver.
+   type(field_object),        intent(in)            :: field       !< The field (block coordinates).
+   real(R8P),                 intent(in)            :: buf(1:)     !< Packed interior source of this rank.
+   real(R8P),                 intent(in)            :: factor      !< Source factor (4 pi G for gravity).
+   real(R8P),    intent(inout) :: phi(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Potential [i,j,k,nb].
+   real(R8P),                 intent(out), optional :: energy      !< sum_cells f phi (all ranks).
+   integer(I4P)                                     :: nbl         !< Blocks of this rank.
+   integer(I4P), allocatable                        :: coords(:,:) !< Block coordinates of this rank [3,nbl].
+   real(R8P),    allocatable                        :: rbuf(:)     !< The potential of this rank's blocks, ghosts included.
+   integer(I4P)                                     :: ub(3)       !< Upper bounds of phi per direction.
+   integer(I4P)                                     :: b, i, j, k, c !< Counters.
+
+   if (.not.self%is_initialized) call mpih%error_stop(msg='poisson_fft_object%solve: called before initialize')
+   ub = self%nijk + self%ngc
+   if (ubound(phi, dim=1) /= ub(1) .or. ubound(phi, dim=2) /= ub(2) .or. ubound(phi, dim=3) /= ub(3) .or. &
+       size(phi, dim=4) < field%blocks_number) &
+      call mpih%error_stop(msg='poisson_fft_object%solve: phi is not shaped [1-ngc:n+ngc per direction, blocks]')
+   nbl = field%blocks_number
+   allocate(coords(3,max(nbl,1)))
+   do b=1, nbl
+      if (field%coordinates(4,b) /= self%level) call mpih%error_stop(msg='poisson_fft_object%solve: a block left '// &
+         'level '//trim(str(self%level, .true.))//' after initialize (regrids are not supported)')
+      coords(:,b) = field%coordinates(1:3,b)
+   enddo
+   allocate(rbuf(max(nbl*product(self%nijk + 2 * self%ngc),1)))
+   call self%solve_blocks(nbl=nbl, coords=coords, buf=buf, factor=factor, gw=self%ngc, out=rbuf, energy=energy)
+   c = 0
+   do b=1, nbl
+      do k=1-self%ngc, ub(3)
+         do j=1-self%ngc, ub(2)
+            do i=1-self%ngc, ub(1)
+               c = c + 1
+               phi(i,j,k,b) = rbuf(c)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine solve_packed
+
+   subroutine solve_blocks(self, nbl, coords, buf, factor, gw, out, energy)
+   !< The solve on an explicit list of this rank's blocks: their integer coordinates at the solver's level and their
+   !< packed interior source (block-major, `i` fastest); `out` returns each block's potential with `gw` ghost layers
+   !< (block-major, `i` fastest, from `1-gw` to `n+gw`), filled from the global solution. Optionally the energy
+   !< `sum_cells f phi` (rank 0 computes it, every rank gets it).
    class(poisson_fft_object), intent(inout)         :: self            !< The solver.
-   type(field_object),        intent(in)            :: field           !< The field (block coordinates).
+   integer(I4P),              intent(in)            :: nbl             !< Blocks of this rank.
+   integer(I4P),              intent(in)            :: coords(1:,1:)   !< Block coordinates [3,nbl].
    real(R8P),                 intent(in)            :: buf(1:)         !< Packed interior source of this rank.
    real(R8P),                 intent(in)            :: factor          !< Source factor (4 pi G for gravity).
-   real(R8P),    intent(inout) :: phi(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Potential [i,j,k,nb].
+   integer(I4P),              intent(in)            :: gw              !< Ghost layers of `out`.
+   real(R8P),                 intent(inout)         :: out(1:)         !< Packed potential, ghosts included.
    real(R8P),                 intent(out), optional :: energy          !< sum_cells f phi (all ranks).
-   integer(I4P)                                     :: nbl             !< Blocks of this rank.
    integer(I4P)                                     :: ncell           !< Interior cells per block.
    integer(I4P)                                     :: nghost          !< Cells per block, ghosts included.
    integer(I4P)                                     :: nr              !< Ranks.
@@ -281,32 +357,21 @@ contains
    integer(I4P), allocatable                        :: displs(:)       !< Rank 0: displacement per rank (blocks).
    integer(I4P), allocatable                        :: rcounts(:)      !< Rank 0: counts per rank (values).
    integer(I4P), allocatable                        :: rdispls(:)      !< Rank 0: displacements per rank (values).
-   integer(I4P), allocatable                        :: coords(:,:)     !< Block coordinates of this rank [3,nbl].
    integer(I4P), allocatable                        :: coords_all(:,:) !< Rank 0: block coordinates of every rank.
-   real(R8P),    allocatable                        :: rbuf(:)         !< Receive buffer of this rank.
    real(R8P),    allocatable                        :: buf_all(:)      !< Rank 0: buffer of every rank.
    real(R8P)                                        :: e               !< sum_cells f phi.
-   integer(I4P)                                     :: ub(3)           !< Upper bounds of phi per direction.
+   integer(I4P)                                     :: ub(3)           !< Upper bounds per direction.
    integer(I4P)                                     :: g(3)            !< Global cell index, wrapped.
    integer(I4P)                                     :: b, i, j, k, c, r !< Counters.
    integer(I4P)                                     :: ierr            !< MPI error status.
 
    if (.not.self%is_initialized) call mpih%error_stop(msg='poisson_fft_object%solve: called before initialize')
-   ub = self%nijk + self%ngc
-   if (ubound(phi, dim=1) /= ub(1) .or. ubound(phi, dim=2) /= ub(2) .or. ubound(phi, dim=3) /= ub(3) .or. &
-       size(phi, dim=4) < field%blocks_number) &
-      call mpih%error_stop(msg='poisson_fft_object%solve: phi is not shaped [1-ngc:n+ngc per direction, blocks]')
-   nbl    = field%blocks_number
+   ub     = self%nijk + gw
    ncell  = product(self%nijk)
-   nghost = product(self%nijk + 2 * self%ngc)
+   nghost = product(self%nijk + 2 * gw)
    nr     = mpih%procs_number
    if (size(buf) < nbl*ncell) call mpih%error_stop(msg='poisson_fft_object%solve: the packed source is too short')
-   allocate(coords(3,max(nbl,1)))
-   do b=1, nbl
-      if (field%coordinates(4,b) /= self%level) call mpih%error_stop(msg='poisson_fft_object%solve: a block left '// &
-         'level '//trim(str(self%level, .true.))//' after initialize (regrids are not supported)')
-      coords(:,b) = field%coordinates(1:3,b)
-   enddo
+   if (size(out) < nbl*nghost) call mpih%error_stop(msg='poisson_fft_object%solve: the packed output is too short')
    ! gather to rank 0
    allocate(counts(nr), displs(nr), rcounts(nr), rdispls(nr))
    counts = 0 ; displs = 0 ; rcounts = 0 ; rdispls = 0
@@ -319,7 +384,7 @@ contains
       blocks_total = sum(counts)
       rcounts = 3 * counts ; rdispls = 3 * displs
    endif
-   allocate(coords_all(3,max(blocks_total,1)), buf_all(max(blocks_total*nghost,1)))
+   allocate(coords_all(3,max(blocks_total,1)), buf_all(max(blocks_total*nghost,blocks_total*ncell,1)))
    call MPI_GATHERV(coords, 3*nbl, MPI_INTEGER, coords_all, rcounts, rdispls, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
    if (mpih%myrank == 0) then
       rcounts = ncell * counts ; rdispls = ncell * displs
@@ -346,11 +411,11 @@ contains
       if (present(energy)) e = sum(self%f_source * self%f_global)
       c = 0
       do b=1, blocks_total
-         do k=1-self%ngc, ub(3)
+         do k=1-gw, ub(3)
             g(3) = modulo(coords_all(3,b)*self%nijk(3) + k - 1, self%m(3)) + 1
-            do j=1-self%ngc, ub(2)
+            do j=1-gw, ub(2)
                g(2) = modulo(coords_all(2,b)*self%nijk(2) + j - 1, self%m(2)) + 1
-               do i=1-self%ngc, ub(1)
+               do i=1-gw, ub(1)
                   g(1) = modulo(coords_all(1,b)*self%nijk(1) + i - 1, self%m(1)) + 1
                   c = c + 1
                   buf_all(c) = self%f_global(g(1),g(2),g(3))
@@ -361,24 +426,12 @@ contains
       rcounts = nghost * counts ; rdispls = nghost * displs
    endif
    ! scatter back, ghosts included
-   allocate(rbuf(max(nbl*nghost,1)))
-   call MPI_SCATTERV(buf_all, rcounts, rdispls, MPI_REAL8, rbuf, nbl*nghost, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
-   c = 0
-   do b=1, nbl
-      do k=1-self%ngc, ub(3)
-         do j=1-self%ngc, ub(2)
-            do i=1-self%ngc, ub(1)
-               c = c + 1
-               phi(i,j,k,b) = rbuf(c)
-            enddo
-         enddo
-      enddo
-   enddo
+   call MPI_SCATTERV(buf_all, rcounts, rdispls, MPI_REAL8, out, nbl*nghost, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
    if (present(energy)) then
       call MPI_BCAST(e, 1, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
       energy = e
    endif
-   endsubroutine solve_packed
+   endsubroutine solve_blocks
 
    ! backend hooks
    ! private methods

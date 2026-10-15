@@ -2540,6 +2540,95 @@ initial one. Run with `make_doc_runs.sh <dir> isolated` (it needs `exe/adam_flum
 `exe/test_poisson_fft`) and `make_doc_figures.py --only selfgravity-star`; the check is `selfgravity/star.sh`
 (FLUME_EXE for FNL).
 
+### SV-9 (P5a): the Poisson solver on AMR grids
+
+**Why.** On an AMR grid the exact $E + W$ exchange needs the composite Laplacian $A$ (finite-volume form, rows
+weighted by the cell volume $V$) to be **symmetric**: $\Phi = 4\pi G\,K\rho$ with $VK$ symmetric, the AMR form of
+$K = K^T$ now that the volumes differ. Accuracy needs it **consistent**: a bounded truncation error at the 2:1 faces and
+a converging face gradient there, the face gravity the momentum and energy sources use. The coupling across a 2:1 face
+decides both, and the usual choices give one or the other.
+
+**The operator.** Three couplings of a coarse cell C and the fine cells $f_k$ on its face, measured in a 2-D model
+(`selfgravity/seam_operators.py`: the doubly periodic unit square, coarse on $x < 1/2$, fine on $x > 1/2$, two seams;
+$\Phi = \sin 2\pi x\cos 2\pi y + \tfrac12\cos(2\pi x + 4\pi y)$):
+- **B**, Tomida and Stone's flux matching: the fine ghost interpolated from C and its tangential neighbours, the coarse
+  flux the sum of the fine ones. Consistent, not symmetric.
+- **S1** $= (B + B^T)/2$, the symmetrisation the P5-0 design proposed. The transposed tangential terms land in the
+  coarse rows with no matching Taylor terms.
+- **M**, the **mimetic mean flux** (`adam_poisson_mg_object`): every fine face carries
+  $\tfrac23 w\,(\bar\Phi_f - \Phi_C)$, $\bar\Phi_f$ the mean of the face's fine cells and $w$ the fine face area over
+  the fine spacing; C gets their sum. It is the hybrid mimetic finite-difference flux of the coarse cell, seen as a
+  polygon with hanging nodes, with its face unknowns eliminated: consistency makes the coarse cell's sub-face block
+  rank one (it sees only the mean of its face unknowns), and the elimination gives $\bar\Phi_f$. Exact for linear
+  $\Phi$ face by face, and symmetric by construction.
+
+| Coupling, N = 8 → 48 | $\lVert A - A^T\rVert/\lVert A\rVert$ | $\max\lvert\tau\rvert$ | seam face gradient error, order (32 → 48) | $\Phi$ order (32 → 48) |
+|---|---|---|---|---|
+| B | 6.8·10⁻³ | 18.1 → 3.2 | 4.1·10⁻² at N = 48, 1.93 | 1.99 |
+| S1 | 0 | 30.7 → 107, growing as $1/h$ | 0.98 at N = 48, **0.11: does not converge** | 1.99 |
+| M | 0 | 37.4 → 41.0, bounded | 0.42 at N = 48, 1.04 | 2.00 |
+
+Findings:
+- **S1 is refuted.** The P5-0 design comment claimed the symmetrisation costs nothing. Its potential is second order
+  like the others, but its truncation grows as $1/h$ and the gravity at the seam does not converge. The potential's
+  max-norm hides the defect; the gravity, the quantity the scheme uses, shows it.
+- **M pays for symmetry with one order of seam gravity.** Its seam face gradient is first order (B's is second order
+  in this model), and 10 times B's at N = 48. The error sits on the one layer of seam faces; the potential stays
+  second order.
+
+**The solver** (`adam_poisson_mg_object`, CPU). Flexible conjugate gradients (Notay's FCG(1)) on $A$, stopping at a
+relative max-norm residual of $10^{-10}$, preconditioned by one V-cycle:
+- **levels:** each holds its leaves plus a **shadow** block for every refined node (ADAM keeps leaves only);
+- **smoothing:** red-black Gauss–Seidel, 2 sweeps down and 2 up;
+- **transfers:** restriction by sum, piecewise-constant prolongation;
+- **coarsest level:** the minimum leaf level, which covers the domain, solved exactly by the FFT solver
+  (`solve_blocks`).
+
+The operators are assembled from the geometry as distributed sparse rows over global cell keys, each with its
+halo-exchange plan. The first ghost layer across a 2:1 face is the value whose one-sided difference equals M's face
+gradient. The scope is fatal otherwise:
+- periodic, since isolated boundaries on AMR come in P5b;
+- 2:1-balanced faces.
+
+**The leg** (`selfgravity/poisson.sh`, leg `sv9`; the unit test `src/tests/poisson/test_poisson_mg.F90`):
+
+| | |
+|---|---|
+| Domain and source | SV-2's: $[0,1]\times[0,2]\times[0,3]$, periodic, two oblique modes, $G = 1$, the exact potential in closed form |
+| Grids | SV-9a: uniform, octree and quadtree at level 2. SV-9b: the central box $[L/4, 3L/4]$ refined once over base levels 2 and 3, octree (120 and 960 leaves) and quadtree (28 and 112); 8 cells per block side, 3 ghosts |
+| Ranks | 1, 2, 3 (CPU); the FNL path comes with FLUME on AMR (P5b, P5c) |
+
+| Asserted | Bound | Measured (CPU) |
+|---|---|---|
+| SV-9a: multigrid against the FFT solver, $\max\lvert\Phi_{mg} - \Phi_{fft}\rvert / \max\lvert\Phi\rvert$; FCG iterations | 10⁻⁸; ≤ 1 | ≤ 3.0·10⁻¹⁵; 1 |
+| SV-9b: FCG residual, relative max norm | 10⁻¹⁰ | below it |
+| symmetry defect of the assembled rows, $\lvert x\cdot Ay - y\cdot Ax\rvert/(\lvert x\rvert\lvert Ay\rvert)$ (rows not symmetrised by the assembly) | 10⁻¹² | ≤ 7.9·10⁻¹⁸ |
+| ghost cells left unfilled | 0 | 0 |
+| order of $\Phi$ against the exact potential, base level 2 → 3 | ≥ 1.7 | 1.92 (3-D), 1.92 (2-D) |
+| growth of $\max\lvert\tau\rvert$ under refinement | ≤ 1.5 | 1.006 (3-D), 1.005 (2-D) |
+| a non-periodic grid | refused, exit 1 | refused |
+
+Reported, not bounded:
+- **2:1 face gravity order:** 1.03 (3-D) and 1.11 (2-D).
+- **FCG iterations:** 36–39 in 3-D (mean factor 0.52–0.54) and 24–25 in 2-D (0.37–0.40).
+
+Every printed number is the same on 1, 2 and 3 ranks, up to round-off. The bound on the potential's order is 1.7, not
+1.9, because two grids give a single pair.
+
+![SV-9: three 2:1 couplings against N, and the multigrid solver's errors on AMR](/flume/selfgravity-amr.png)
+
+**Left:** the truncation error of S1 grows as $1/h$. M's stays at about 40: an $O(1)$ seam truncation that is still
+consistent, the classical supra-convergence of cell-centred schemes. B's decays in this model.
+
+**Middle:** the potentials of the three couplings coincide at second order. The seam face gradient converges at second
+order for B and first order for M, and stalls for S1.
+
+**Right:** the multigrid solver on M in 3-D and 2-D. The potential is second order, the 2:1 face gravity first order,
+and the truncation is bounded.
+
+Run with `make_doc_runs.sh <dir> amr` (it needs `exe/test_poisson_mg`) and `make_doc_figures.py --only
+selfgravity-amr`, which also runs `seam_operators.py`.
+
 ## Ranks without blocks (DV-1)
 
 **Why.** The tree never splits a family of sibling blocks across ranks. `tree%mpi_redistribute` cuts the Morton-ordered
