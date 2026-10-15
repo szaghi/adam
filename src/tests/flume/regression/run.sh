@@ -11,12 +11,16 @@
 # within the digest tolerances).
 #
 # Usage:
-#   ./run.sh cpu                       # build flume-cpu-gnu (default varset), run, diff
-#   ./run.sh fnl --varset local_nvf    # build flume-fnl-nvf with that varset, run, diff (see run-fnl-local.sh)
+#   ./run.sh cpu                       # build flume-cpu-gnu and flume-cpu-gnu-fft (default varset), run, diff
+#   ./run.sh fnl --varset local_nvf    # build flume-fnl-nvf and flume-fnl-nvf-fft, run, diff (see run-fnl-local.sh)
 #   ./run.sh cpu --no-build            # skip the build step (use existing exe/)
 #   REGRESSION_CASES="rj2a-x brio-wu" ./run.sh cpu --no-build   # only the named cases
 #
 # Exits 0 on full pass, non-zero on any case failure.
+#
+# Two executables per backend: the plain one, and the FFT one (`-fft` mode: FFTW on cpu, cuFFT on fnl) that every case
+# with `self_gravity = .true.` runs on, since every self-gravity solve (the multigrid's coarsest level included) needs it
+# (issue #81, P6). The cpu FFT build links -lfftw3 (libfftw3-dev).
 #
 # Cases (the input.ini of each is a frozen copy of a verification input; the verification oracles live in
 # src/tests/flume/verification and assert the physics, this suite only detects changes):
@@ -66,6 +70,10 @@
 #                            restriction, redistribution and the flux register rebuilt at each regrid; per-backend goldens
 #   field-loop-regrid        runtime AMR on MHD: the GLM field loop tracked from 64x32 to 128x64 (gradient OR Loehner
 #                            with floor), 150 steps, 10 regrids; per-backend goldens
+#   selfgravity-jeans        self-gravity, FFT solver: the unstable Jeans mode at amplitude 1e-2, 32^2, 20 steps (#81)
+#   selfgravity-amr-stage    selfgravity-jeans with the central box refined 2:1: the multigrid solver, the seam gravity
+#                            work in the reflux, reflux_cadence = stage (#81)
+#   selfgravity-star         self-gravity, isolated boundaries: the n = 1 polytrope in a closed box, 16^3, 20 steps (#81)
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 
@@ -94,10 +102,12 @@ case "$BACKEND" in
    cpu)
       MODE="flume-cpu-gnu"
       EXE="exe/adam_flume_cpu"
+      EXE_FFT="exe/adam_flume_cpu_fft"
       ;;
    fnl)
       MODE="flume-fnl-nvf"
       EXE="exe/adam_flume_fnl"
+      EXE_FFT="exe/adam_flume_fnl_fft"
       ;;
    *)
       echo "Usage: $0 {cpu|fnl} [--no-build] [--varset <name>]" >&2
@@ -151,19 +161,24 @@ fi
 cd "$REPO_ROOT"
 
 if [[ $NO_BUILD -eq 0 ]]; then
-   build_args=(build --mode "$MODE")
-   if [[ -n "$VARSET" ]]; then
-      build_args+=(--varset "$VARSET")
-   fi
-   echo ">> building: fobis ${build_args[*]}"
-   fobis "${build_args[@]}"
+   for mode in "$MODE" "$MODE-fft"; do
+      build_args=(build --mode "$mode")
+      if [[ -n "$VARSET" ]]; then
+         build_args+=(--varset "$VARSET")
+      fi
+      echo ">> building: fobis ${build_args[*]}"
+      fobis "${build_args[@]}"
+   done
 fi
 
-if [[ ! -x "$EXE" ]]; then
-   echo "ERROR: executable $EXE not found after build" >&2
-   exit 2
-fi
+for exe in "$EXE" "$EXE_FFT"; do
+   if [[ ! -x "$exe" ]]; then
+      echo "ERROR: executable $exe not found after build" >&2
+      exit 2
+   fi
+done
 EXE_ABS="$REPO_ROOT/$EXE"
+EXE_FFT_ABS="$REPO_ROOT/$EXE_FFT"
 
 # Stale-executable guard: the build step can exit 0 without relinking (e.g. an nvfortran internal compiler error in a
 # parallel forced build, measured on the WSL box: the suite then ran the previous binary and reported green). Refuse to
@@ -171,17 +186,20 @@ EXE_ABS="$REPO_ROOT/$EXE"
 # src/lib/fnl for the FNL executable), the third-party code, and this application's common/ plus the backend
 # directory named by the executable (adam_flume_cpu -> cpu/, adam_flume_fnl -> fnl/; other applications' and other
 # backends' sources do not enter it). Also guards --no-build runs.
+# The FFT executable shares the sources (adam_flume_cpu_fft -> cpu/).
 backend_dir="${EXE##*_}"
 source_dirs=("$REPO_ROOT/src/lib/common" "$REPO_ROOT/src/third_party" "$REPO_ROOT/src/app/flume/common" \
              "$REPO_ROOT/src/app/flume/$backend_dir")
 [[ -d "$REPO_ROOT/src/lib/$backend_dir" ]] && source_dirs+=("$REPO_ROOT/src/lib/$backend_dir")
-stale_sources="$(find "${source_dirs[@]}" \( -name '*.F90' -o -name '*.f90' -o -name '*.inc' \) \
-                      -newer "$EXE_ABS" -print 2>/dev/null || true)"
-if [[ -n "$stale_sources" ]]; then
-   echo "ERROR: $EXE is older than $(wc -l <<< "$stale_sources") of its sources; rebuild it (check the build log) first:" >&2
-   head -n 5 <<< "$stale_sources" | sed "s|^$REPO_ROOT/|   |" >&2
-   exit 2
-fi
+for exe in "$EXE" "$EXE_FFT"; do
+   stale_sources="$(find "${source_dirs[@]}" \( -name '*.F90' -o -name '*.f90' -o -name '*.inc' \) \
+                         -newer "$REPO_ROOT/$exe" -print 2>/dev/null || true)"
+   if [[ -n "$stale_sources" ]]; then
+      echo "ERROR: $exe is older than $(wc -l <<< "$stale_sources") of its sources; rebuild it (check the build log) first:" >&2
+      head -n 5 <<< "$stale_sources" | sed "s|^$REPO_ROOT/|   |" >&2
+      exit 2
+   fi
+done
 
 # ---------------------------------------------------------------------------
 # Run every regression case
@@ -243,7 +261,9 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    mpirun_timeout="${REGRESSION_MPIRUN_TIMEOUT:-$default_timeout}"
    teardown_detect="${REGRESSION_TEARDOWN_DETECT:-1}"
    teardown_grace="${REGRESSION_TEARDOWN_GRACE:-15}"
-   mpirun_cmd=(mpirun -np 2 "$EXE_ABS" input.ini)
+   case_exe="$EXE_ABS"
+   grep -qiE '^[[:space:]]*self_gravity[[:space:]]*=[[:space:]]*\.true\.' "$case_dir"/*.ini && case_exe="$EXE_FFT_ABS"
+   mpirun_cmd=(mpirun -np 2 "$case_exe" input.ini)
    if [[ "$mpirun_timeout" != "0" ]]; then
       mpirun_cmd=(timeout --signal=TERM --kill-after=30s "$mpirun_timeout" "${mpirun_cmd[@]}")
    fi

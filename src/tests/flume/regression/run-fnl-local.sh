@@ -15,7 +15,7 @@
 # backend-agnostic run.sh with `--varset local_nvf`.
 #
 # Usage:
-#   ./run-fnl-local.sh                # build flume-fnl-nvf, run, diff FNL golden
+#   ./run-fnl-local.sh                # build flume-fnl-nvf and flume-fnl-nvf-fft, run, diff FNL golden
 #   ./run-fnl-local.sh --no-build     # skip the build (use existing exe/)
 #
 # Capturing / refreshing the FNL golden (only after an intentional change):
