@@ -1126,7 +1126,8 @@ contains
                              1:self%nb))
       self%phi_grav = 0._R8P
       if (.not.allocated(self%poisson)) allocate(poisson_fft_object :: self%poisson)
-      call self%poisson%initialize(grid=self%adam%grid, field=self%adam%field)
+      call self%poisson%initialize(grid=self%adam%grid, field=self%adam%field, &
+                                   isolated=self%physics%gravity%isolated)
       call self%solve_potential(q=self%q)
       return
    endif

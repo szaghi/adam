@@ -2277,7 +2277,8 @@ discretisation of Mullen et al. (2021), with the 7-point Laplacian:
 
 Summed over the cells, the energy source is $\sum_i \Phi_i (F_{i+1/2} - F_{i-1/2})/\Delta x$. So $E + \rho\Phi$ is
 conserved exactly with a static potential, and $E + \tfrac12\rho\Phi$ with a self-consistent one: in the semi-discrete
-form, given a Poisson solution at round-off. The scheme is second order.
+form, given a Poisson solve that is linear and symmetric, $\Phi = 4\pi G\,K\rho$ with $K = K^T$ (P4 corrected the
+first claim, which asked for a round-off residual; see [models](./models#self-gravity)). The scheme is second order.
 
 ### SV-1 (P1): gravity from a cell potential
 
@@ -2310,16 +2311,18 @@ gives 5.0 and 4.6. Run with `make_doc_runs.sh <dir> selfgravity` and `make_doc_f
 
 ### SV-2 (P2): the FFT Poisson solver
 
-**Why.** The semi-discrete conservation of $E + \tfrac12\rho\Phi$ and momentum holds only if $\Phi$ solves the
-*discrete* equation $L_h\Phi = 4\pi G(\rho - \bar\rho)$ to round-off, with $L_h$ the 7-point Laplacian the gravity
-stencils telescope against. A solver accurate only to truncation order would leave a conservation error of that order.
+**Why.** Self-gravity needs a Poisson solver that is exact for the *discrete* equation $L_h\Phi = 4\pi G(\rho -
+\bar\rho)$, with $L_h$ the 7-point Laplacian the gravity stencils telescope against, so that the scheme is the one P0
+analysed. (Written at P2 as the condition of exact conservation; P4 found the condition weaker: any linear, symmetric
+solve conserves $E + \tfrac12\rho\Phi$ and momentum exactly in the semi-discrete form, see SV-6 below. The round-off
+residual remains a property of this solver, verified here.)
 
 **The solver** (`adam_poisson_fft_object`, FFTW; `adam_fnl_poisson_fft_object`, cuFFT on rank 0's GPU). Rank 0
 gathers the block interiors and transforms. It divides each Fourier mode by the eigenvalue of $L_h$ itself,
 $\lambda_k = \sum_d (2\cos(2\pi k_d/N_d) - 2)/\Delta x_d^2$, sets the mean ($\lambda_k = 0$) to zero, transforms
 back, and scatters every block with all its ghost layers filled by the periodic wrap. The grid must be uniform and
 periodic; anything else stops the run. The gather makes the solve **serial on rank 0**: correct for any rank count,
-not scalable. Isolated boundaries (P4) and AMR (P5) come later.
+not scalable. Isolated boundaries come in P4 (SV-6) and AMR in P5.
 
 **The leg** (`selfgravity/poisson.sh`, the unit test `src/tests/poisson/test_poisson_fft.F90`):
 
@@ -2411,6 +2414,131 @@ $e^{\sigma t}$, the fit on the exact line. Bottom left: in the collapse, $E$ and
 drifts at the Runge–Kutta order, a factor 8 per halving of the CFL number (the curves of $E$ alone and $W$ alone
 coincide). Bottom right: the collapsing density at $t = 0.4$, peak 1.73. Run with `make_doc_runs.sh <dir> jeans` (it needs `exe/adam_flume_cpu_fft`, mode `flume-cpu-gnu-fft`) and
 `make_doc_figures.py --only selfgravity-jeans`; the check is `selfgravity/jeans.sh` (FLUME_EXE for FNL).
+
+### SV-6 to SV-8 (P4): isolated boundaries
+
+**Why.** On a periodic domain a self-gravitating object feels its own images, and the mean density must be removed.
+Isolated boundaries give the free-space potential, $\Phi \to 0$ at infinity, of the mass on the grid: what a star, a
+collapsing cloud or a binary needs. P4 adds them to the FFT solver and verifies the solver (SV-6), a star in
+equilibrium (SV-7) and a collapsing one (SV-8).
+
+**The solver** (`poisson_bc = isolated`). Hockney and Eastwood's zero padding: the density sits in an array of
+$m = 2(N + n_{gc})$ cells per direction, zero outside the domain, and is convolved, by one r2c transform, a product
+and one c2r, with the **lattice** Green's function of $L_h$, $h^2G(\mathbf n)$. The circular convolution equals the
+free-space one on every cell the scatter reads, ghosts included, because $m$ exceeds twice the largest offset. Using
+the lattice kernel of $L_h$ rather than the sampled continuum $-1/(4\pi r)$ makes $\Phi$ satisfy the discrete Poisson
+equation, not just approximate it.
+
+$G$ is generated once, offline, by `scripts/lattice_green.py` into `adam_lattice_green_library` (6545 values):
+- **near field**, $\max|n_d| \le 32$: the Dirichlet problem $L_1G = \delta$ on the cube $[-32, 32]^3$, solved exactly
+  by a type-I sine transform, with the far-field series on its faces;
+- **far field**: the series $G_0 + G_1 + G_2 + G_3$, $G_0 = -1/(4\pi r)$,
+  $G_1 = -5(n_1^4 + n_2^4 + n_3^4 - \tfrac35r^4)/(32\pi r^7)$, $G_2 = P_8/r^{13}$, $G_3 = P_{12}/r^{19}$, each term solving
+  its order of the Taylor series of $L_1$ (checked symbolically). The series leaves one coefficient free in $G_2$ and
+  one in $G_3$ (the cubic harmonics of degree 4 and 6); the lattice fixes them, and they are fitted to the table.
+
+| Generator check (deterministic) | Bound | Measured |
+|---|---|---|
+| residual of $L_1$ on the table | 10⁻¹³ | 2.2·10⁻¹⁶ |
+| residual of $L_1$ on the composite kernel (table and series, as the Fortran evaluates it) on $[-64, 64]^3$, across the faces where they meet | 10⁻¹² | 1.0·10⁻¹³ |
+| $G(\mathbf 0)$ against Watson's closed form for the simple cubic lattice, relative | 10⁻¹² | 2.0·10⁻¹³ |
+| $G(1,0,0) - G(\mathbf 0) - 1/6$ | 10⁻¹⁴ | 2.8·10⁻¹⁷ |
+
+With $G_0 + G_1$ alone the composite residual was $7\cdot10^{-10}$, concentrated on the cube's faces, and summed over a
+$64^3$ source it showed as a residual of $3.4\cdot10^{-10}$ in $\Phi$; with $G_2$ and $G_3$ they are $1.0\cdot10^{-13}$
+and $2.1\cdot10^{-11}$.
+
+The scope is fatal otherwise: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's).
+
+#### SV-6: the solver
+
+`selfgravity/poisson.sh` (leg `sv6`), the unit test `test_poisson_fft --isolated`:
+
+| | |
+|---|---|
+| Domain | the cube $[-1, 1]^3$, non-periodic; octree levels 1–3 ($16^3$ to $64^3$ cells, 8 per block side, 3 ghosts) |
+| Sources ($G = 1$) | the n = 1 polytrope $\rho = \sin(kr)/(kr)$, $k = \pi/a$, $a = 1/2$ (smooth; its derivative jumps at $r = a$), exact $\Phi = -(4\pi/k^2)\sin(kr)/(kr) - M/a$ inside, $-M/r$ outside, $M = 4a^3/\pi$; the uniform sphere $\rho = 1$, $r < a$, as cell averages ($8^3$ samples per cell), exact $-2\pi(a^2 - r^2/3)$ inside, $-M/r$ outside |
+| Ranks | 1, 2, 3 (CPU); 1, 2 (FNL) |
+
+| Asserted | Bound | CPU (FFTW) | FNL (cuFFT, A30 and the WSL GPU) |
+|---|---|---|---|
+| residual of $L_h$, relative to $\max\lvert 4\pi G\rho\rvert$ | 10⁻¹⁰ | ≤ 2.1·10⁻¹¹ | ≤ 2.1·10⁻¹¹ |
+| least-squares order against the exact $\Phi$, every cell and ghost, polytrope | ≥ 1.9 | 2.03 | 2.03 |
+| the same, uniform sphere | ≥ 1.2 | 1.35 | 1.35 |
+| ghost cells left unfilled | 0 | 0 | 0 |
+| isolated on a periodic grid, with non-cubic cells, in 2-D | refused, exit 1 | refused | refused |
+| CPU against FNL (`poisson_oracle.py compare`, the padded arrays) | 10⁻¹³ | ≤ 1.6·10⁻¹⁵ | ≤ 1.6·10⁻¹⁵ |
+
+Findings:
+- **The residual is the kernel's, not round-off.** It is $10^{-14}$ while every offset lies inside the table ($16^3$,
+  $32^3$) and $2\cdot10^{-11}$ at $64^3$, where the offsets reach the series: about $10^{-13}$ per offset, summed over the
+  source cells. At $128^3$ (measured once, 6 ranks) it is $5\cdot10^{-11}$.
+- **The polytrope converges at second order** (2.14, 1.92, 2.02 per pair from $16^3$ to $128^3$; the dip is the kink of
+  its density at the surface). **The uniform sphere converges irregularly** (0.6, 2.1, 1.75): its surface cuts cells,
+  and the bound only asserts better than first order.
+- **Conservation needs symmetry, not a round-off residual.** The convolution with an even kernel is a symmetric linear
+  map, which is what the exact exchange of $E$ and $W$ needs ([models](./models#self-gravity)): SV-8 measures it.
+
+![SV-6: the errors against N, the polytrope's potential across the padded array, its error](/flume/selfgravity-isolated.png)
+
+Left: the error against the exact potentials falls as $\Delta x^2$ (the sphere less regularly); the residual sits at
+the kernel's level. Middle: the polytrope's potential along the line through the centre over the whole padded array,
+the domain and its free-space continuation, on the exact curve, $-GM/r$ outside the star. Right: the error on the
+plane through the centre, $6.1\cdot10^{-4}$ at most, at the centre where the potential is deepest; it is smooth, with
+no trace of the domain's edge or of the padding. Run with `make_doc_runs.sh <dir> isolated` and
+`make_doc_figures.py --only selfgravity-isolated`.
+
+#### SV-7 and SV-8: the n = 1 polytrope
+
+`selfgravity/star.sh`, the cases of `selfgravity/make_polytrope.py`, the [`polytrope`](./initial-conditions) initial
+condition:
+
+| | |
+|---|---|
+| Star | n = 1 polytrope, radius $a = 1/2$, $\rho_c = 1$, $G = 1$, $p = K\rho^2$ with $K = 2Ga^2/\pi$ (the Lane–Emden equilibrium), $\gamma = 2$; mass $4\rho_ca^3/\pi$, free-fall time of its mean density $t_{ff} = 0.98$ |
+| Atmosphere | isothermal at the central temperature and hydrostatic in the star's field, $\rho = \rho_1 e^{GM/T\,(1/r - 1/a)}$ outside; inside, $\rho_1$ and $p_1$ added to the star |
+| Box | $[-1, 1]^3$, an octree, uniform; `wall-inviscid` on every face: closed, no mass or energy crosses it |
+| Scheme | `weno` (WENO-5 characteristic), SSP-RK3, isolated self-gravity, 2 ranks |
+| SV-7, equilibrium | `star_pressure_factor` 1, atmosphere $\rho_1 = 10^{-4}\rho_c$, positivity limiter, $32^3$ and $64^3$ to $t = 2$ |
+| SV-8, collapse | pressure halved, atmosphere $\rho_1 = 10^{-2}\rho_c$, no limiter, $32^3$ to $t = 1.5$ at CFL 0.4, 0.2, 0.1 |
+
+| Leg | Asserted | Bound | CPU | FNL |
+|---|---|---|---|---|
+| SV-7 | the largest central-density drift to $t = 2$: $9.91\cdot10^{-2}$ ($32^3$), $5.71\cdot10^{-2}$ ($64^3$); reduction | ≥ 1.5 | 1.74 | 1.73 |
+| SV-7 | the largest Mach number inside $0.8a$: 0.154, 0.075; reduction | ≥ 1.5 | 2.05 | 2.06 |
+| SV-7 | the largest Mach number in the whole star (set at its surface): 0.43, 0.29; reduction | reported | 1.50 | 1.49 |
+| SV-8 | drift of $E + W$ at CFL 0.4, 0.2, 0.1: $5.97\cdot10^{-7}$, $8.29\cdot10^{-8}$, $9.71\cdot10^{-9}$; order in Δt | ≥ 2.5 | 2.85, 3.09 | 2.85, 3.09 (the same drifts) |
+| SV-8 | the largest $\lvert\int\rho\mathbf u\rvert$ | 10⁻¹⁴ | $7.3\cdot10^{-18}$ | $6.9\cdot10^{-18}$ |
+
+Findings:
+- **Only the time integration drifts.** In the collapse $E$ and $W$ each change by 74 % of $\lvert E + W\rvert$, while
+  $E + W$ drifts by $6\cdot10^{-7}$ at CFL 0.4 and falls as $\Delta t^3$: the isolated solver conserves as exactly as
+  the periodic one (SV-4), through its symmetry.
+- **The positivity limiter breaks the exchange where it acts.** Its gravity energy correction (M7-G1, option B) is not
+  part of the flux form. A star in a $10^{-4}$ atmosphere needs it at its surface (without it the gas there reaches
+  $\lvert\mathbf u\rvert \approx 0.4$ in ten steps and its pressure goes negative), and with it $E + W$ drifts by
+  $2.8\cdot10^{-3}$ by $t = 4$ at $32^3$, against $3\cdot10^{-9}$ without it in a $10^{-2}$ atmosphere. SV-8 therefore
+  runs in the heavier atmosphere, without the limiter.
+- **A heavy atmosphere is not an equilibrium test.** The $10^{-2}$ atmosphere holds 22 % of the star's mass, and the
+  star then pulsates with 13 % of its central density at $32^3$; SV-7 uses the light one.
+- **The equilibrium converges at about first order, set by the star's surface.** The n = 1 surface has a kink in the
+  density ($\rho_s \propto a - r$, $p \propto (a - r)^2$), the light atmosphere needs the limiter there (first order
+  where it acts), and the surface is where the largest Mach number sits ($r = 0.454$, $a = 0.5$): it shrinks only
+  1.5-fold from $32^3$ to $64^3$. The pulsation it drives sets the core's drift, which shrinks 1.7-fold, and the
+  interior motion 2.1-fold. A star of radius 8 cells pulsates by 10 % of its central density, of 16 cells by 6 %.
+  The bound asserts convergence, not an order; P0 asked for 100 free-fall times, the runs reach 2 ($64^3$ took 37 min
+  on the WSL CPU, 20 min on the A30).
+
+![SV-7 and SV-8: the equilibrium star's core and spurious motion at two resolutions; the collapse's energy drift and density](/flume/selfgravity-star.png)
+
+Top: at $32^3$ and $64^3$, the core first expands (the central density falls, by 10 % and 4.5 %) and then
+recompresses past its initial value within two time units; on the finer grid the swing is smaller and the interior
+Mach number about half. Bottom left: in the collapse, $E$ and $W$ exchange 74 % of $\lvert E + W\rvert$ (the curves
+of $E$ alone and $W$ alone coincide) while $E + W$ drifts at the Runge–Kutta order, a factor 8 per halving of the CFL
+number. Bottom right: the collapsing star at its densest checkpoint, $t = 1.03$, its central density four times the
+initial one. Run with `make_doc_runs.sh <dir> isolated` (it needs `exe/adam_flume_cpu_fft` and
+`exe/test_poisson_fft`) and `make_doc_figures.py --only selfgravity-star`; the check is `selfgravity/star.sh`
+(FLUME_EXE for FNL).
 
 ## Ranks without blocks (DV-1)
 

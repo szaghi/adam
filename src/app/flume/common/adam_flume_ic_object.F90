@@ -101,6 +101,14 @@ module adam_flume_ic_object
 !<   `f = exp(-((h - h_0) / rt_seed_width)^2)`: divergence-free, so the seed starts no sound waves. Every layer is
 !<   stably stratified, so the interface is the only instability; the linear growth rate is
 !<   `verification/gravity/rt_oracle.py`.
+!< * `polytrope` (issue #81, M8-P4, SV-7/SV-8; Euler, `[gravity].(self_gravity)` required): an n = 1 polytrope star of
+!<   radius `star_radius` (a) and central density `star_density` (rho_c), centred at (`star_x0`, `star_y0`, `star_z0`)
+!<   (default the origin), in a light atmosphere set by region 1: inside, `rho = rho_1 + rho_s`, `p = p_1 + f K rho_s^2`,
+!<   `rho_s = rho_c sin(k r) / (k r)` (k = pi / a), `K = 2 G a^2 / pi` (the star alone is then in equilibrium:
+!<   Lane-Emden n = 1) and `f = star_pressure_factor` (default 1; f < 1 collapses it); outside, the atmosphere is
+!<   isothermal at `T = p_1 / rho_1` and hydrostatic in the star's field, `rho = rho_1 exp(G M / T (1/r - 1/a))`,
+!<   `p = rho T`, `M = 4 rho_c a^3 / pi` (a uniform atmosphere would fall onto the star and thin at its surface, which
+!<   only the positivity limiter survives); region 1's velocity. Density and pressure are continuous at the surface.
 
 ! ADAM classes, libraries, parameters
 use :: adam_field_object,         only : field_object
@@ -165,6 +173,10 @@ character(len=12), parameter :: IC_BECKER_STR="becker-shock"             !< Beck
 character(len=21), parameter :: IC_ISOTHERMAL_ATM_STR="isothermal-atmosphere" !< Isothermal atmosphere (issue #73).
 character(len=21), parameter :: IC_POLYTROPIC_ATM_STR="polytropic-atmosphere" !< Polytropic atmosphere (issue #73).
 character(len=15), parameter :: IC_RAYLEIGH_TAYLOR_STR="rayleigh-taylor" !< Two isothermal layers, heavy over light (#73).
+character(len=9),  parameter :: IC_POLYTROPE_STR="polytrope"             !< n = 1 polytrope star, self-gravity (#81).
+character(len=20), parameter :: STAR_KEY(6)=['star_radius         ', 'star_density        ', &
+                                             'star_x0             ', 'star_y0             ', &
+                                             'star_z0             ', 'star_pressure_factor'] !< Polytrope keys.
 character(len=16), parameter :: RT_KEY(6)=['rt_height       ', 'rt_width        ', 'rt_density_ratio', &
                                            'rt_wavelength   ', 'rt_amplitude    ', 'rt_seed_width   '] !< RT keys.
 character(len=8),  parameter :: BECKER_KEY(2)=['mach    ', 'shock_x0']  !< Becker shock keys.
@@ -235,6 +247,9 @@ type :: flume_ic_object
                                                      !< seed amplitude, seed width.
    integer(I4P)              :: rt_axis=0_I4P        !< Rayleigh-Taylor: axis of the gravity.
    integer(I4P)              :: rt_t1=0_I4P          !< Rayleigh-Taylor: axis of the seeded mode.
+   real(R8P)                 :: star(6)=0._R8P       !< Polytrope: radius, central density, centre, pressure factor.
+   real(R8P)                 :: star_k=0._R8P        !< Polytrope: K of p = K rho^2 in equilibrium, 2 G a^2 / pi.
+   real(R8P)                 :: star_gm=0._R8P       !< Polytrope: G M of the star, 4 G rho_c a^3 / pi.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -296,6 +311,9 @@ contains
    if (self%ic_type == IC_RAYLEIGH_TAYLOR_STR) &
    desc = desc//NL//mpih%myrankstr//'  rayleigh-taylor: g '//trim(str(self%g))//', height, width, ratio, '// &
                                     'wavelength, amplitude, seed width '//trim(str(self%rt))
+   if (self%ic_type == IC_POLYTROPE_STR) &
+   desc = desc//NL//mpih%myrankstr//'  polytrope:      radius, central density, centre, pressure factor '// &
+                                    trim(str(self%star))//', K '//trim(str(self%star_k))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -634,6 +652,28 @@ contains
       if (.not.(self%rt(2) > 0._R8P .and. self%rt(3) > 0._R8P .and. self%rt(4) > 0._R8P .and. self%rt(6) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(rt_width, rt_density_ratio, rt_wavelength, '// &
                                   'rt_seed_width) must be positive')
+   case(IC_POLYTROPE_STR)
+      if (.not.physics%gravity%self_gravity) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_POLYTROPE_STR//' needs '// &
+                                  '[gravity].(self_gravity) = .true.')
+      if (self%model /= MODEL_EULER) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_POLYTROPE_STR//' is an Euler state '// &
+                                  '([physics].(physical_model) = euler)')
+      self%regions_number = 1_I4P
+      self%star = [0._R8P, 0._R8P, 0._R8P, 0._R8P, 0._R8P, 1._R8P]
+      do k=1, 6
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(STAR_KEY(k)), val=self%star(k), &
+                                  error=error)
+         if (error > 0 .and. k <= 2) &
+            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(STAR_KEY(k))//')')
+         if (error > 0 .and. k == 6) self%star(6) = 1._R8P
+         if (error > 0 .and. k > 2 .and. k < 6) self%star(k) = 0._R8P
+      enddo
+      if (.not.(self%star(1) > 0._R8P .and. self%star(2) > 0._R8P .and. self%star(6) > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(star_radius, star_density, star_pressure_factor) '// &
+                                  'must be positive')
+      self%star_k = 2._R8P * physics%gravity%grav_const * self%star(1)**2 / PI
+      self%star_gm = 4._R8P * physics%gravity%grav_const * self%star(2) * self%star(1)**3 / PI
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -649,7 +689,7 @@ contains
                                IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
                                IC_SINE_WAVE_STR//', '// &
                                IC_COUETTE_STR//', '//IC_BECKER_STR//', '//IC_ISOTHERMAL_ATM_STR//', '// &
-                               IC_POLYTROPIC_ATM_STR//', '//IC_RAYLEIGH_TAYLOR_STR)
+                               IC_POLYTROPIC_ATM_STR//', '//IC_RAYLEIGH_TAYLOR_STR//', '//IC_POLYTROPE_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -783,6 +823,36 @@ contains
                        sin(2._R8P * PI * center(self%rt_t1) / self%rt(4))] * self%rt(5) * exp(-(s_ / self%rt(6))**2)
                   prim(1+self%rt_axis) = -sign(1._R8P, self%g(self%rt_axis)) * h(1)
                   prim(1+self%rt_t1) = h(2) * self%rt(4) / PI * s_ / self%rt(6)**2 ! -A/k sin f', f' = -2 s f / w^2
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_POLYTROPE_STR)
+      ! the n = 1 polytrope star in region 1's atmosphere (issue #81, M8-P4): inside rho = rho_1 + rho_s, p = p_1 + f K
+      ! rho_s^2, rho_s = rho_c sin(k r) / (k r) (k = pi / a); outside the isothermal atmosphere hydrostatic in the star's
+      ! field; rho and p continuous at the surface, region 1's velocity. f = 1 is the equilibrium of the star alone
+      ! (K = 2 G a^2 / pi), f < 1 collapses it.
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  s_ = PI / self%star(1) * norm2(center - self%star(3:5)) ! k r
+                  h(1) = 0._R8P                                           ! rho_s
+                  if (s_ < PI) then
+                     h(1) = self%star(2)
+                     if (s_ > 0._R8P) h(1) = self%star(2) * sin(s_) / s_
+                  endif
+                  prim = self%prim_1
+                  if (s_ < PI) then
+                     prim(1) = self%prim_1(1) + h(1)
+                     prim(5) = self%prim_1(5) + self%star(6) * self%star_k * h(1)**2
+                  else ! the isothermal atmosphere, hydrostatic in the field of the star's mass M = 4 rho_c a^3 / pi
+                     prim(1) = self%prim_1(1) * exp(self%star_gm * self%prim_1(1) / self%prim_1(5) * &
+                                                    (PI / (self%star(1) * s_) - 1._R8P / self%star(1)))
+                     prim(5) = prim(1) * self%prim_1(5) / self%prim_1(1)
+                  endif
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo

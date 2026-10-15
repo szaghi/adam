@@ -550,11 +550,11 @@ no gravity and nothing changes.
 | `axis` | string | with `froude` | `+x`, `-x`, `+y`, `-y`, `+z`, `-z`; other → fatal | The signed direction of $\mathbf g$. |
 | `equilibrium` | string | no (default `none`) | `none` or `atmosphere`; other → fatal. `atmosphere` needs an `isothermal-atmosphere`, `polytropic-atmosphere` or `rayleigh-taylor` initial condition, and is fatal with `[numerics] reflux_policy = troubled` and on multi-realm runs | The well-balanced mode (M7-G2b): the initial atmosphere at rest (zero velocity, region 1's field, no pulse or seed) is kept to round-off. See below. |
 | `potential` | string | no (default `uniform`) | `uniform` or `linear`; other → fatal. `linear` is fatal with `equilibrium = atmosphere` and with `self_gravity` | How g reaches the sources. `uniform`: the constant acceleration in every kernel, with the fourth-order energy source. `linear` ([#81](https://github.com/szaghi/adam/issues/81), M8-P1): the same field written as the cell potential Φ = −g·x and applied through the potential path of self-gravity (face gravity −ΔΦ/Δx, second order); a test of that path ([SV-1](./verification#sv-1-p1-gravity-from-a-cell-potential)). |
-| `self_gravity` | logical | no (default `.false.`) | with it: `equilibrium = atmosphere`, `potential = linear`, multi-realm runs, `[amr] frequency > 0`, immersed solids, a non-uniform grid (initial AMR), a non-periodic active direction and a build without an FFT library (the `*-fft` modes) are fatal | Self-gravity (M8-P3): $L_h\Phi = 4\pi G(\rho - \bar\rho)$ solved every Runge–Kutta stage, applied through the potential path. See below. |
+| `self_gravity` | logical | no (default `.false.`) | with it: `equilibrium = atmosphere`, `potential = linear`, multi-realm runs, `[amr] frequency > 0`, immersed solids, a non-uniform grid (initial AMR) and a build without an FFT library (the `*-fft` modes) are fatal, and so are the boundaries `poisson_bc` cannot hold (below) | Self-gravity (M8-P3): $L_h\Phi = 4\pi G(\rho - \bar\rho)$ (periodic) or $L_h\Phi = 4\pi G\rho$, $\Phi \to 0$ at infinity (isolated, M8-P4), solved every Runge–Kutta stage, applied through the potential path. See below. |
 | `G` | real | one of `G`, `G_star` with `self_gravity` | `> 0`, otherwise fatal; fatal without `self_gravity`, and together with `G_star` | The gravitational constant. Dimensional with [`[reference]`](#reference-optional-dimensional-input). |
 | `G_star` | real | the other form | as `G` | The number $G\rho_0L_0^2/u_0^2$; not converted by `[reference]`. |
 | `poisson_solver` | string | no (default `fft`) | `fft`; other → fatal | The Poisson solver: the library FFT solver (FFTW on the CPU, cuFFT on FNL). Multigrid on AMR is #81 P5. |
-| `poisson_bc` | string | no (default `periodic`) | `periodic`; `isolated` → fatal (not implemented yet, #81 P4); other → fatal | Periodic: every active direction periodic, the mean density removed. |
+| `poisson_bc` | string | no (default `periodic`) | `periodic` or `isolated`; other → fatal. `periodic` is fatal with a non-periodic active direction; `isolated` is fatal in 2-D, with a periodic direction and with non-cubic cells | `periodic`: every active direction periodic, the mean density removed. `isolated` (M8-P4): the free-space potential of the mass on the grid (Hockney–Eastwood zero padding with the lattice Green's function of $L_h$); the fluid boundaries are the `[bc_*]` ones, e.g. `wall-inviscid` for a closed box. |
 
 Giving `g_*` together with `froude` is fatal, as is a section with neither (unless `self_gravity`, where $\mathbf g$
 defaults to 0).
@@ -594,14 +594,22 @@ boundary condition (M7-G0), and drives the sources (M7-G1):
 With `self_gravity` ([models](./models#self-gravity)):
 
 - every Runge–Kutta stage solves $\Phi$ from that stage's density after the ghost update, with the library FFT solver:
-  rank 0 gathers the grid, divides each Fourier mode by the eigenvalue of the 7-point Laplacian $L_h$ (so the discrete
-  residual is round-off), and scatters $\Phi$ with every ghost layer filled. The solve is serial on rank 0 and, on FNL,
-  the density and $\Phi$ cross the host every stage: correct, not scalable;
+  rank 0 gathers the grid and scatters $\Phi$ back with every ghost layer filled. Periodic: it divides each Fourier
+  mode by the eigenvalue of the 7-point Laplacian $L_h$, so the discrete residual is round-off. Isolated: the density
+  sits in a zero-padded array of $2(N + n_{gc})$ cells per direction and is convolved with the lattice Green's function
+  of $L_h$, whose residual is about $10^{-13}$ per offset (`scripts/lattice_green.py`); the residual of $\Phi$ is that
+  summed over the source, $2\cdot10^{-11}$ of $4\pi G\rho$ at $64^3$, and the ghosts beyond the domain hold the
+  free-space potential. The solve is serial on rank 0 and, on FNL, the density and $\Phi$ cross the host every stage:
+  correct, not scalable;
 - the conservation history gains the columns `W` $= \tfrac12\sum\rho\Phi\,dV$ and `E_plus_W`, the energy the scheme
   conserves (each row solves $\Phi$ from the committed state);
 - the first step logs $G$, the free-fall time $t_{ff} = \sqrt{3\pi/(32G\rho_{\max})}$ of the densest cell, $\Delta t/t_{ff}$
   (a warning above 0.1) and the wall time of one solve;
 - a constant $\mathbf g$ may be given too; it adds through its own kernels;
+- with `positivity_limiter = cell`, the limiter's gravity energy correction (above) acts on the potential path too:
+  $E + W$ stays exact only where the limiter does not act. A star in a light atmosphere ($10^{-4}$ of its central
+  density) needs the limiter at its surface and drifts by $2\cdot10^{-3}$ of $E + W$ over a free-fall time at $32^3$,
+  against $10^{-9}$ without it (the SV-7 and SV-8 cases use a $10^{-2}$ atmosphere, which runs without it);
 - **build:** `flume-cpu-gnu-fft` (FFTW 3, executable `adam_flume_cpu_fft`) or `flume-fnl-nvf-fft` (cuFFT,
   `adam_flume_fnl_fft`); the default modes refuse `self_gravity` at the first solve.
 

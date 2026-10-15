@@ -267,30 +267,56 @@ Iterative solver and smoother infrastructure for implicit operators (e.g., ellip
 
 Convergence is controlled by `tolerance` (default 10⁻⁶) and `iterations`. Configuration section: `[linear-algebra]`.
 
-### `adam_poisson_fft_object` — FFT Poisson solver (uniform periodic grids)
+### `adam_poisson_fft_object` — FFT Poisson solver (uniform grids, periodic or isolated)
 
-Solves `L_h phi = factor (f - mean f)` for one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the
-second-order 7-point Laplacian (5-point in 2-D; a null direction has no derivative). Each Fourier mode is divided by
-the eigenvalue of `L_h` itself, `lambda_k = sum_d (2 cos(2 pi k_d/N_d) - 2)/dx_d^2`, so the discrete residual is at
-round-off: the property self-gravity needs for exact energy and momentum conservation ([#81](https://github.com/szaghi/adam/issues/81)).
+Solves `L_h phi = factor (f - mean f)` (periodic) or `L_h phi = factor f` with `phi -> 0` at infinity (isolated) for
+one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the second-order 7-point Laplacian (5-point in
+2-D; a null direction has no derivative) ([#81](https://github.com/szaghi/adam/issues/81)).
+
+- **Periodic (P2):** each Fourier mode is divided by the eigenvalue of `L_h` itself,
+  `lambda_k = sum_d (2 cos(2 pi k_d/N_d) - 2)/dx_d^2`, so the discrete residual is at round-off.
+- **Isolated (P4), Hockney–Eastwood:** the source sits in a zero-padded array of `m = 2 (n + ngc)` cells per direction
+  and is convolved (one r2c, a product, one c2r) with the **lattice** Green's function of `L_h`, `h^2 G(n)`, whose
+  spectrum is computed once. The circular convolution equals the free-space one on every cell the scatter reads,
+  ghosts included. `G` comes from `adam_lattice_green_library` (below): its residual is about `1e-13` per offset, so
+  the residual of `phi` is that summed over the source (`2e-11` of `factor f` at `64^3`), not round-off.
+
+Both are symmetric linear maps of the source, which is what exact energy and momentum conservation of self-gravity
+needs (FLUME [models](../../../docs/applications/flume/models.md#self-gravity)).
 
 | Procedure | Role |
 |-----------|------|
-| `initialize(grid, field)` | Check the scope, size the solver, make the plans on rank 0 |
-| `solve(field, q, iv, factor, phi)` | Gather `q(iv)` to rank 0, transform, scatter `phi(1-ngc:n+ngc, ..., b)` with every ghost layer filled by the periodic wrap |
+| `initialize(grid, field, isolated)` | Check the scope, size the solver, make the plans (and, isolated, the kernel's spectrum) on rank 0 |
+| `solve(field, q, iv, factor, phi, energy)` | Gather `q(iv)` to rank 0, transform, scatter `phi(1-ngc:n+ngc, ..., b)` with every ghost layer filled from the global solution; optionally `energy = sum f phi` |
+| `solve_packed(field, buf, factor, phi, energy)` | The same from the interior source already packed (block-major, `i` fastest: what a device kernel produces) |
 | `destroy()` | Free the arrays and the plans |
 
 - **Data path:** `MPI_Gatherv` of the block interiors (with their integer block coordinates) to rank 0, which holds the
   whole grid, solves and `MPI_Scatterv`s every block with its ghosts, so no ghost exchange follows. Correct for any rank
   count, ranks without blocks included; **not scalable**.
-- **Scope (fatal otherwise):** every block at one level and the blocks covering the domain, every active direction
-  periodic. Isolated boundaries and AMR are later phases of #81.
+- **Scope (fatal otherwise):** every block at one level and the blocks covering the domain. Periodic: every active
+  direction periodic. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's). AMR
+  (multigrid) is a later phase of #81.
 - **Build:** `-D_FFTW` and `-lfftw3` (FFTW 3, `FFTW_ESTIMATE` plans: deterministic). Without an FFT library,
   `initialize` stops with "built without an FFT library". The FNL twin is `adam_fnl_poisson_fft_object` (cuFFT).
   The module is **not** re-exported by `adam_common_library`: only the modes that use it build it
   (`test-poisson-fft-*` today, with their own `mod`/`obj` directories).
-- **Verification:** SV-2, `src/tests/poisson/test_poisson_fft.F90` driven by
-  `src/tests/flume/verification/selfgravity/poisson.sh`.
+- **Verification:** SV-2 (periodic) and SV-6 (isolated), `src/tests/poisson/test_poisson_fft.F90` (`--isolated`)
+  driven by `src/tests/flume/verification/selfgravity/poisson.sh`.
+
+### `adam_lattice_green_library` — lattice Green's function of the 7-point Laplacian (generated)
+
+`lattice_green(n)` returns `G(n)` on the unit cubic lattice, `L_1 G = delta_(n,0)`, `G -> -1/(4 pi |n|)`: the kernel of
+the isolated FFT solver. **Generated, do not edit:** `scripts/lattice_green.py` writes it and validates it
+(`--check` compares the committed file byte for byte). For `max |n_d| <= 32` it is a table (the wedge
+`n1 >= n2 >= n3 >= 0`, 6545 values): the Dirichlet problem on the cube `[-32, 32]^3`, solved exactly by a type-I sine
+transform, with the asymptotic expansion on the faces. Beyond, the expansion itself:
+`G0 + G1 + G2 + G3`, `G0 = -1/(4 pi r)`, `G1 = -5 (n1^4 + n2^4 + n3^4 - 3 r^4/5)/(32 pi r^7)`, `G2 = P8/r^13`,
+`G3 = P12/r^19`, each order of the Taylor series of `L_1` solved symbolically; the two coefficients the series
+leaves free (one cubic harmonic of degree 4 in `G2`, one of degree 6 in `G3`) are fitted to the table. Checked by the
+generator: the table's residual `2.2e-16`; the residual of the composite kernel on `[-64, 64]^3`, across the faces
+where table and expansion meet, `1.0e-13`; `G(0)` against Watson's closed form for the simple cubic lattice,
+`2.0e-13` relative.
 
 ---
 

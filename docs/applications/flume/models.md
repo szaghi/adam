@@ -213,15 +213,27 @@ conditions ([initial conditions](./initial-conditions#isothermal-atmosphere-poly
 $$\nabla^2\Phi = 4\pi G(\rho - \bar\rho), \qquad \partial_t(\rho\mathbf u) \mathrel{+}= -\rho\nabla\Phi, \qquad
 \partial_t E \mathrel{+}= -\rho\mathbf u\cdot\nabla\Phi,$$
 
-with the mean density removed on a periodic domain (the Jeans swindle). The discretisation is that of Mullen et al.
-(2021): $\Phi$ solves $L_h\Phi = 4\pi G(\rho - \bar\rho)$ with the 7-point Laplacian (5-point in 2-D), and enters through
-the potential path above (face gravity, cell gravity, the energy from the face mass fluxes). Given a Poisson solution at
-round-off, the semi-discrete scheme conserves the momentum and $E + W$, $W = \tfrac12\sum\rho\Phi\,V$, exactly; the
-Runge–Kutta integration (one solve per stage, nothing time-averaged) leaves a drift of its own order in $\Delta t$.
+with the mean density removed on a periodic domain (the Jeans swindle), or $\Phi \to 0$ at infinity with isolated
+boundaries (`poisson_bc = isolated`, M8-P4). The discretisation is that of Mullen et al. (2021): $\Phi$ solves
+$L_h\Phi = 4\pi G(\rho - \bar\rho)$ (periodic) or $L_h\Phi = 4\pi G\rho$ (isolated) with the 7-point Laplacian (5-point
+in 2-D, periodic only), and enters through the potential path above (face gravity, cell gravity, the energy from the
+face mass fluxes).
+
+**What is conserved, and why.** Both solvers are linear and symmetric, $\Phi = 4\pi G\,K\rho$ with $K = K^T$: the
+periodic one inverts $L_h$ on the zero-mean modes, the isolated one convolves with an even kernel. Summed over the
+cells, the energy source is $\sum_i\Phi_i\,(\nabla\cdot F^\rho)_i V = -\sum\Phi\,\dot\rho\,V$, and
+$\dot W = \tfrac12\tfrac{d}{dt}(\rho^T K\rho) = \Phi^T\dot\rho$ because $K$ is symmetric: the semi-discrete scheme
+conserves $E + W$, $W = \tfrac12\sum\rho\Phi\,V$, exactly (with periodic boundaries or closed walls, where no mass
+flux crosses the boundary). The momentum source $-\sum\rho\,\bar g\,V$ vanishes because the centred difference of an
+even, translation-invariant kernel is antisymmetric. Neither needs the discrete Poisson equation to hold at round-off
+(the isolated residual is about $10^{-11}$); the symmetry is what counts. The Runge–Kutta integration (one solve per
+stage, nothing time-averaged) leaves a drift of its own order in $\Delta t$; the positivity limiter's gravity energy
+correction (M7-G1) breaks the exchange wherever it acts.
+
 The coupling is second order in space whatever the WENO order. A linear Jeans mode obeys
 $\omega^2 = c^2k^2 - 4\pi G\rho_0$: it oscillates above the Jeans length $\lambda_J = c\sqrt{\pi/(G\rho_0)}$ and grows
-below it ([verification](./verification#self-gravity-m8)). Periodic uniform grids only, for now (isolated boundaries:
-#81 P4; AMR: P5).
+below it; an n = 1 polytrope star is an isolated equilibrium ([verification](./verification#self-gravity-m8)). Uniform
+grids only, for now (AMR: #81 P5).
 
 ## Units and scaling
 

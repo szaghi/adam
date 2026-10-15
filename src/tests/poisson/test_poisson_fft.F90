@@ -1,6 +1,6 @@
-!< Unit test of the FFT Poisson solver on uniform periodic grids (issue #81, P2, SV-2).
+!< Unit test of the FFT Poisson solver on uniform grids, periodic (issue #81, P2, SV-2) and isolated (P4, SV-6).
 program test_poisson_fft
-!< Unit test of the FFT Poisson solver on uniform periodic grids (issue #81, P2, SV-2).
+!< Unit test of the FFT Poisson solver on uniform grids, periodic (issue #81, P2, SV-2) and isolated (P4, SV-6).
 !<
 !< **Why this test exists.** Self-gravity conserves E + rho Phi and momentum exactly only if Phi solves the discrete
 !< Poisson equation `L_h Phi = 4 pi G (rho - mean rho)` to round-off (#81 P0, Mullen et al. 2021). The FFT solver
@@ -22,11 +22,28 @@ program test_poisson_fft
 !< The FNL build (`-D_FNL -D_CUFFT`) runs the spectral solve with cuFFT on rank 0's GPU and is held to the same bounds,
 !< so CPU and FNL agree to round-off through the discrete solution.
 !<
-!< `--no-periodic` builds one configuration without periodic boundaries: the solver must stop (exit status 1).
-!< `--dump DIR` writes rank 0's global potential of every level to `DIR/phi-r<ratio>-nk<nk>-l<level>.bin` (3 int32
-!< sizes, then float64 values, x fastest): `selfgravity/poisson_oracle.py` compares two builds and plots them.
+!< **Isolated (`--isolated`, SV-6).** On the cube [-1,1]^3 (octree, 16^3 to 64^3 cells), two spheres of radius
+!< `A_SPHERE` centred at the origin, phi -> 0 at infinity:
+!<   - the n = 1 polytrope, `rho = sin(k r) / (k r)`, `k = pi / a` (smooth, its derivative jumps at r = a), exact
+!<     `Phi = -(4 pi G / k^2) sin(k r) / (k r) - G M / a` inside, `-G M / r` outside, `M = 4 a^3 / pi`;
+!<   - the uniform sphere, `rho = 1` (cell averages, `SUB^3` samples per cell), exact `-2 pi G (a^2 - r^2 / 3)` inside,
+!<     `-G M / r` outside, `M = 4 pi a^3 / 3`.
+!< Asserted: the residual `max |L_h Phi - 4 pi G rho| / max |4 pi G rho|` over the interior (`TOL_RES_ISOLATED`: the
+!< lattice kernel's own residual, about 1e-13 per offset, summed over the source cells; 1e-14 while every offset is
+!< inside its table, 2e-11 at 64^3); the max error against the exact Phi over every cell, ghosts included (so the
+!< padded far field too), and its order, the least-squares slope over the whole ladder (`MIN_ORDER` for the
+!< polytrope; `MIN_ORDER_SPHERE` for the uniform sphere, whose surface cuts cells: its convergence is irregular, 0.6
+!< then 2.1 then 1.8 per pair from 16^3 to 128^3, so the bound only asserts better than first order).
 !<
-!< Usage: `mpirun -np N exe/test_poisson_fft [--no-periodic] [--dump DIR]` (or `exe/test_poisson_fft_fnl`).
+!< `--no-periodic` builds one configuration without periodic boundaries: the solver must stop (exit status 1). The
+!< isolated refusals, each must stop: `--refuse-isolated-periodic` (a periodic grid), `--refuse-isolated-anisotropic`
+!< (cells 1/8 x 2/8 x 3/8), `--refuse-isolated-2d` (null z).
+!< `--dump DIR` writes rank 0's global potential of every level to `DIR/phi-r<ratio>-nk<nk>-l<level>-p<profile>.bin`
+!< (3 int32 sizes, then float64 values, x fastest; isolated: the padded array): `selfgravity/poisson_oracle.py`
+!< compares two builds and plots them.
+!<
+!< Usage: `mpirun -np N exe/test_poisson_fft [--isolated] [--no-periodic | --refuse-isolated-*] [--dump DIR]` (or
+!< `exe/test_poisson_fft_fnl`).
 
 #ifdef _FNL
 #include "fundal.H"
@@ -55,17 +72,30 @@ real(R8P), parameter :: SENTINEL=-1.e30_R8P           !< Value of a phi cell the
 real(R8P), parameter :: TOL_DISCRETE=1.e-12_R8P       !< Bound on the error against the discrete solution, relative.
 real(R8P), parameter :: TOL_RESIDUAL=1.e-10_R8P       !< Bound on the discrete residual, relative.
 real(R8P), parameter :: MIN_ORDER=1.9_R8P             !< Bound on the order against the continuum solution.
+real(R8P), parameter :: A_SPHERE=0.5_R8P              !< Radius of the isolated spheres.
+integer(I4P), parameter :: SUB=8_I4P                  !< Samples per direction of a cell average (uniform sphere).
+real(R8P), parameter :: TOL_RES_ISOLATED=1.e-10_R8P   !< Bound on the isolated residual, relative.
+real(R8P), parameter :: MIN_ORDER_SPHERE=1.2_R8P      !< Bound on the uniform sphere's order (least squares).
+integer(I4P), parameter :: PROFILE_PERIODIC=0_I4P     !< The periodic modes.
+integer(I4P), parameter :: PROFILE_POLYTROPE=1_I4P    !< The isolated n = 1 polytrope.
+integer(I4P), parameter :: PROFILE_UNIFORM=2_I4P      !< The isolated uniform sphere.
 logical              :: test_passed                   !< Aggregate pass flag.
 logical              :: no_periodic                   !< Run the non-periodic refusal only.
+logical              :: isolated                      !< Run the isolated suite.
+character(64)        :: refusal                       !< Isolated refusal to run ('': none).
 character(256)       :: arg                           !< Command argument.
 character(256)       :: dump_dir                      !< Directory of the potential dumps ('': no dump).
 integer(I4P)         :: a                             !< Counter.
 
 no_periodic = .false.
+isolated = .false.
+refusal = ''
 dump_dir = ''
 do a=1, command_argument_count()
    call get_command_argument(a, arg)
    if (trim(arg) == '--no-periodic') no_periodic = .true.
+   if (trim(arg) == '--isolated') isolated = .true.
+   if (index(arg, '--refuse-isolated-') == 1) refusal = arg(19:)
    if (trim(arg) == '--dump') call get_command_argument(a+1, dump_dir)
 enddo
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
@@ -79,9 +109,37 @@ if (no_periodic) then
    call mpih%finalize
    error stop 1
 endif
-call check_ladder(label='3-D octree,    ', ratio=8_I4P, nk=8_I4P, levels=[1_I4P, 2_I4P, 3_I4P], periodic=.true.)
-call check_ladder(label='2-D quadtree,  ', ratio=4_I4P, nk=1_I4P, levels=[1_I4P, 2_I4P, 3_I4P], periodic=.true.)
-call check_ladder(label='3-D one block, ', ratio=8_I4P, nk=8_I4P, levels=[0_I4P], periodic=.true.)
+if (len_trim(refusal) > 0) then
+   select case(trim(refusal))
+   case('periodic')
+      call check_ladder(label='isolated, periodic grid', ratio=8_I4P, nk=8_I4P, levels=[1_I4P], periodic=.true., &
+                        profile=PROFILE_POLYTROPE)
+   case('anisotropic')
+      call check_ladder(label='isolated, anisotropic cells', ratio=8_I4P, nk=8_I4P, levels=[1_I4P], periodic=.false., &
+                        profile=PROFILE_POLYTROPE, cube=.false.)
+   case('2d')
+      call check_ladder(label='isolated, 2-D', ratio=4_I4P, nk=1_I4P, levels=[1_I4P], periodic=.false., &
+                        profile=PROFILE_POLYTROPE)
+   case default
+      if (mpih%myrank == 0) print '(A)', 'test_poisson_fft: unknown refusal "'//trim(refusal)//'"'
+      call mpih%finalize
+      error stop 2
+   endselect
+   if (mpih%myrank == 0) print '(A)', 'test_poisson_fft: FAILED (the solver accepted the isolated '//trim(refusal)// &
+                                      ' configuration)'
+   call mpih%finalize
+   error stop 1
+endif
+if (isolated) then
+   call check_ladder(label='polytrope n=1, ', ratio=8_I4P, nk=8_I4P, levels=[1_I4P, 2_I4P, 3_I4P], periodic=.false., &
+                     profile=PROFILE_POLYTROPE)
+   call check_ladder(label='uniform sphere,', ratio=8_I4P, nk=8_I4P, levels=[1_I4P, 2_I4P, 3_I4P], periodic=.false., &
+                     profile=PROFILE_UNIFORM)
+else
+   call check_ladder(label='3-D octree,    ', ratio=8_I4P, nk=8_I4P, levels=[1_I4P, 2_I4P, 3_I4P], periodic=.true.)
+   call check_ladder(label='2-D quadtree,  ', ratio=4_I4P, nk=1_I4P, levels=[1_I4P, 2_I4P, 3_I4P], periodic=.true.)
+   call check_ladder(label='3-D one block, ', ratio=8_I4P, nk=8_I4P, levels=[0_I4P], periodic=.true.)
+endif
 if (mpih%myrank == 0) then
    if (test_passed) then
       print '(A)', 'test_poisson_fft: PASSED'
@@ -93,13 +151,18 @@ call mpih%finalize
 if (.not.test_passed) error stop 1
 
 contains
-   subroutine check_ladder(label, ratio, nk, levels, periodic)
-   !< Solve on each level of a ladder, assert the discrete error, the residual and the continuum order.
-   character(*), intent(in) :: label                !< Configuration label.
-   integer(I4P), intent(in) :: ratio                !< Tree ratio.
-   integer(I4P), intent(in) :: nk                   !< Cells per block along z (1: 2-D, null z).
-   integer(I4P), intent(in) :: levels(:)            !< Uniform refinement levels.
-   logical,      intent(in) :: periodic             !< Periodic boundaries.
+   subroutine check_ladder(label, ratio, nk, levels, periodic, profile, cube)
+   !< Solve on each level of a ladder, assert the discrete error (periodic), the residual and the continuum order.
+   character(*), intent(in)           :: label      !< Configuration label.
+   integer(I4P), intent(in)           :: ratio      !< Tree ratio.
+   integer(I4P), intent(in)           :: nk         !< Cells per block along z (1: 2-D, null z).
+   integer(I4P), intent(in)           :: levels(:)  !< Uniform refinement levels.
+   logical,      intent(in)           :: periodic   !< Periodic boundaries.
+   integer(I4P), intent(in), optional :: profile    !< Source (default: the periodic modes).
+   logical,      intent(in), optional :: cube       !< Isolated on the cube [-1,1]^3 (default .true. when isolated).
+   integer(I4P)                       :: prof       !< Source.
+   logical                            :: is_cube    !< The cube domain.
+   real(R8P)                          :: min_ord    !< Bound on the order.
    real(R8P)                :: e_disc(size(levels)) !< Error against the discrete solution, relative.
    real(R8P)                :: e_res(size(levels))  !< Discrete residual, relative.
    real(R8P)                :: e_cont(size(levels)) !< Max error against the continuum solution.
@@ -109,22 +172,36 @@ contains
    logical                  :: ok                   !< Ladder pass flag.
    integer(I4P)             :: m                    !< Counter.
 
+   prof = PROFILE_PERIODIC ; if (present(profile)) prof = profile
+   is_cube = prof /= PROFILE_PERIODIC ; if (present(cube)) is_cube = cube
+   min_ord = MIN_ORDER ; if (prof == PROFILE_UNIFORM) min_ord = MIN_ORDER_SPHERE
    ok = .true.
    do m=1, size(levels)
-      call solve_level(ratio=ratio, nk=nk, level=levels(m), periodic=periodic, n=n(m), e_disc=e_disc(m), &
-                       e_res=e_res(m), e_cont=e_cont(m), unfilled=unfilled)
-      ok = ok .and. e_disc(m) <= TOL_DISCRETE .and. e_res(m) <= TOL_RESIDUAL .and. unfilled == 0_I4P
+      call solve_level(ratio=ratio, nk=nk, level=levels(m), periodic=periodic, prof=prof, is_cube=is_cube, n=n(m), &
+                       e_disc=e_disc(m), e_res=e_res(m), e_cont=e_cont(m), unfilled=unfilled)
+      if (prof == PROFILE_PERIODIC) then
+         ok = ok .and. e_disc(m) <= TOL_DISCRETE .and. e_res(m) <= TOL_RESIDUAL .and. unfilled == 0_I4P
+      else
+         ok = ok .and. e_res(m) <= TOL_RES_ISOLATED .and. unfilled == 0_I4P
+      endif
       if (mpih%myrank == 0) print '(A)', '   '//label//' N = '//trim(str(n(m), .true.))//                  &
          ': |Phi - Phi_h| '//trim(str(e_disc(m), .true.))//', residual '//trim(str(e_res(m), .true.))//      &
          ', |Phi - Phi_exact| '//trim(str(e_cont(m), .true.))//', unfilled '//trim(str(unfilled, .true.))
    enddo
    if (size(levels) > 1) then
       m = size(levels)
-      order = log(e_cont(m-1) / e_cont(m)) / log(real(n(m), R8P) / n(m-1))
-      ok = ok .and. order >= MIN_ORDER
-      if (mpih%myrank == 0) print '(A)', '   '//label//' order against the exact Phi, N = '//                     &
-         trim(str(n(m-1), .true.))//' -> '//trim(str(n(m), .true.))//': '//trim(str(order, .true.))//            &
-         ' (min '//trim(str(MIN_ORDER, .true.))//')'
+      if (prof == PROFILE_PERIODIC) then
+         order = log(e_cont(m-1) / e_cont(m)) / log(real(n(m), R8P) / n(m-1))
+         if (mpih%myrank == 0) print '(A)', '   '//label//' order against the exact Phi, N = '//                  &
+            trim(str(n(m-1), .true.))//' -> '//trim(str(n(m), .true.))//': '//trim(str(order, .true.))//         &
+            ' (min '//trim(str(min_ord, .true.))//')'
+      else
+         order = -slope(log(real(n, R8P)), log(e_cont))
+         if (mpih%myrank == 0) print '(A)', '   '//label//' order against the exact Phi, least squares over N = '// &
+            trim(str(n(1), .true.))//' to '//trim(str(n(m), .true.))//': '//trim(str(order, .true.))//           &
+            ' (min '//trim(str(min_ord, .true.))//')'
+      endif
+      ok = ok .and. order >= min_ord
    endif
    if (mpih%myrank == 0) then
       if (ok) then
@@ -136,12 +213,14 @@ contains
    test_passed = test_passed .and. ok
    endsubroutine check_ladder
 
-   subroutine solve_level(ratio, nk, level, periodic, n, e_disc, e_res, e_cont, unfilled)
+   subroutine solve_level(ratio, nk, level, periodic, prof, is_cube, n, e_disc, e_res, e_cont, unfilled)
    !< Build the uniform grid of one level, solve, measure.
    integer(I4P), intent(in)     :: ratio         !< Tree ratio.
    integer(I4P), intent(in)     :: nk            !< Cells per block along z.
    integer(I4P), intent(in)     :: level         !< Uniform refinement level.
    logical,      intent(in)     :: periodic      !< Periodic boundaries.
+   integer(I4P), intent(in)     :: prof          !< Source.
+   logical,      intent(in)     :: is_cube       !< The cube domain [-1,1]^3.
    integer(I4P), intent(out)    :: n             !< Cells along x.
    real(R8P),    intent(out)    :: e_disc        !< Error against the discrete solution, relative.
    real(R8P),    intent(out)    :: e_res         !< Discrete residual, relative.
@@ -160,15 +239,19 @@ contains
    real(R8P)                    :: h(3)          !< Cell spacing.
    real(R8P)                    :: lap           !< L_h phi.
    real(R8P)                    :: scale(2)      !< Max |Phi_h|, max |4 pi G (rho - rho0)|.
+   real(R8P)                    :: rho_ref       !< Density the solve removes (rho0 periodic, 0 isolated).
+   logical                      :: is_iso        !< Isolated solve.
    logical                      :: active(3)     !< Active directions.
    integer(I4P)                 :: ngc, ni, nj   !< Grid dimensions.
    integer(I4P)                 :: b, i, j, k, d !< Counters.
    integer(I4P)                 :: o(3)          !< Unit offset along a direction.
    integer(I4P)                 :: ierr          !< MPI error status.
 
+   is_iso = prof /= PROFILE_PERIODIC
+   rho_ref = RHO0 ; if (is_iso) rho_ref = 0._R8P
    filename = 'test_poisson_fft-r'//trim(str(ratio, .true.))//'-nk'//trim(str(nk, .true.))//'-l'// &
-              trim(str(level, .true.))//'.ini'
-   if (mpih%myrank == 0) call write_input(filename=filename, nk=nk, ratio=ratio, level=level)
+              trim(str(level, .true.))//'-p'//trim(str(prof, .true.))//'.ini'
+   if (mpih%myrank == 0) call write_input(filename=filename, nk=nk, ratio=ratio, level=level, cube=is_cube)
    call MPI_BARRIER(MPI_COMM_WORLD, ierr)
    call realm%initialize(filename=filename, memory_avail=4._R8P, nv=1_I4P) ! 64^3 on one rank: 512 blocks
    if (periodic) call realm%adam%grid%set_bc_type(bc_type=[(BC_PERIODIC, d=1, 6)])
@@ -182,15 +265,19 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               q(1,i,j,k,b) = rho([realm%adam%field%x_cell(i,b), realm%adam%field%y_cell(j,b), &
-                                   realm%adam%field%z_cell(k,b)], active)
+               xyz = [realm%adam%field%x_cell(i,b), realm%adam%field%y_cell(j,b), realm%adam%field%z_cell(k,b)]
+               if (is_iso) then
+                  q(1,i,j,k,b) = rho_sphere(xyz, prof, realm%adam%field%dxyz(:,b))
+               else
+                  q(1,i,j,k,b) = rho(xyz, active)
+               endif
             enddo
          enddo
       enddo
    enddo
    allocate(phi(1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:realm%adam%field%nb))
    phi = SENTINEL
-   call solver%initialize(grid=realm%adam%grid, field=realm%adam%field)
+   call solver%initialize(grid=realm%adam%grid, field=realm%adam%field, isolated=is_iso)
    call solver%solve(field=realm%adam%field, q=q, iv=1_I4P, factor=FACTOR, phi=phi)
    n = solver%n(1)
    h = solver%dxyz
@@ -205,10 +292,16 @@ contains
                   cycle
                endif
                xyz = [realm%adam%field%x_cell(i,b), realm%adam%field%y_cell(j,b), realm%adam%field%z_cell(k,b)]
-               e_disc   = max(e_disc, abs(phi(i,j,k,b) - phi_exact(xyz, active, h)))
-               scale(1) = max(scale(1), abs(phi_exact(xyz, active, h)))
-               if (i < 1 .or. i > ni .or. j < 1 .or. j > nj .or. k < 1 .or. k > nk) cycle
-               e_cont = max(e_cont, abs(phi(i,j,k,b) - phi_exact(xyz, active)))
+               if (is_iso) then ! no discrete closed form; the continuum error over every cell, ghosts included
+                  e_cont = max(e_cont, abs(phi(i,j,k,b) - phi_sphere(xyz, prof)))
+                  scale(1) = 1._R8P
+                  if (i < 1 .or. i > ni .or. j < 1 .or. j > nj .or. k < 1 .or. k > nk) cycle
+               else
+                  e_disc   = max(e_disc, abs(phi(i,j,k,b) - phi_exact(xyz, active, h)))
+                  scale(1) = max(scale(1), abs(phi_exact(xyz, active, h)))
+                  if (i < 1 .or. i > ni .or. j < 1 .or. j > nj .or. k < 1 .or. k > nk) cycle
+                  e_cont = max(e_cont, abs(phi(i,j,k,b) - phi_exact(xyz, active)))
+               endif
                lap = 0._R8P
                do d=1, 3
                   if (.not.active(d)) cycle
@@ -216,8 +309,8 @@ contains
                   lap = lap + (phi(i+o(1),j+o(2),k+o(3),b) - 2._R8P * phi(i,j,k,b) + &
                                phi(i-o(1),j-o(2),k-o(3),b)) / h(d)**2
                enddo
-               e_res    = max(e_res, abs(lap - FACTOR * (q(1,i,j,k,b) - RHO0)))
-               scale(2) = max(scale(2), abs(FACTOR * (q(1,i,j,k,b) - RHO0)))
+               e_res    = max(e_res, abs(lap - FACTOR * (q(1,i,j,k,b) - rho_ref)))
+               scale(2) = max(scale(2), abs(FACTOR * (q(1,i,j,k,b) - rho_ref)))
             enddo
          enddo
       enddo
@@ -230,8 +323,8 @@ contains
    e_disc = e_disc / scale(1)
    e_res  = e_res / scale(2)
    if (mpih%myrank == 0 .and. len_trim(dump_dir) > 0) call dump(filename=trim(dump_dir)//'/phi-r'//         &
-      trim(str(ratio, .true.))//'-nk'//trim(str(nk, .true.))//'-l'//trim(str(level, .true.))//'.bin', &
-      n=solver%n, f=solver%f_global)
+      trim(str(ratio, .true.))//'-nk'//trim(str(nk, .true.))//'-l'//trim(str(level, .true.))//'-p'//     &
+      trim(str(prof, .true.))//'.bin', n=solver%m, f=solver%f_global)
    call solver%destroy
    endsubroutine solve_level
 
@@ -292,6 +385,78 @@ contains
                  A2 * cos(dot_product(k2, xyz)) / lam2)
    endfunction phi_exact
 
+   pure function slope(x, y) result(sl)
+   !< Least-squares slope of y against x.
+   real(R8P), intent(in) :: x(:) !< Abscissae.
+   real(R8P), intent(in) :: y(:) !< Ordinates.
+   real(R8P)             :: sl   !< Slope.
+
+   sl = sum((x - sum(x) / size(x)) * (y - sum(y) / size(y))) / sum((x - sum(x) / size(x))**2)
+   endfunction slope
+
+   pure function rho_sphere(xyz, prof, dxyz) result(r)
+   !< The isolated source: the n = 1 polytrope at the point, or the uniform sphere's cell average (SUB^3 samples).
+   real(R8P),    intent(in) :: xyz(3)  !< Cell centre.
+   integer(I4P), intent(in) :: prof    !< Source.
+   real(R8P),    intent(in) :: dxyz(3) !< Cell spacing.
+   real(R8P)                :: r       !< Density.
+   real(R8P)                :: kr      !< k r.
+   real(R8P)                :: p(3)    !< Sample point.
+   integer(I4P)             :: i, j, k !< Counters.
+
+   if (prof == PROFILE_POLYTROPE) then
+      kr = PI / A_SPHERE * norm2(xyz)
+      r = 0._R8P
+      if (kr < PI) then
+         r = 1._R8P
+         if (kr > 0._R8P) r = sin(kr) / kr
+      endif
+   else
+      r = 0._R8P
+      do k=1, SUB
+         do j=1, SUB
+            do i=1, SUB
+               p = xyz + dxyz * ([real(i, R8P), real(j, R8P), real(k, R8P)] - 0.5_R8P) / SUB - 0.5_R8P * dxyz
+               if (norm2(p) < A_SPHERE) r = r + 1._R8P
+            enddo
+         enddo
+      enddo
+      r = r / SUB**3
+   endif
+   endfunction rho_sphere
+
+   pure function phi_sphere(xyz, prof) result(p)
+   !< The exact potential of the isolated source (G = 1).
+   real(R8P),    intent(in) :: xyz(3) !< Point.
+   integer(I4P), intent(in) :: prof   !< Source.
+   real(R8P)                :: p      !< Potential.
+   real(R8P)                :: rr, kk !< Radius, k.
+   real(R8P)                :: mass   !< Mass.
+
+   rr = norm2(xyz)
+   if (prof == PROFILE_POLYTROPE) then
+      kk = PI / A_SPHERE
+      mass = 4._R8P * A_SPHERE**3 / PI
+      if (rr < A_SPHERE) then
+         p = -mass / A_SPHERE
+         if (rr > 0._R8P) then
+            p = p - FACTOR / kk**2 * sin(kk * rr) / (kk * rr)
+         else
+            p = p - FACTOR / kk**2
+         endif
+      else
+         p = -mass / rr
+      endif
+   else
+      mass = 4._R8P * PI * A_SPHERE**3 / 3._R8P
+      if (rr < A_SPHERE) then
+         p = -2._R8P * PI * (A_SPHERE**2 - rr**2 / 3._R8P)
+      else
+         p = -mass / rr
+      endif
+   endif
+   endfunction phi_sphere
+
    pure function eigenvalue(kv, active, h) result(lam)
    !< Eigenvalue of L_h for a mode of wave vector kv.
    real(R8P), intent(in) :: kv(3)     !< Wave vector.
@@ -306,12 +471,14 @@ contains
    enddo
    endfunction eigenvalue
 
-   subroutine write_input(filename, nk, ratio, level)
-   !< Write the input of one configuration: the sections realm_object%initialize reads, domain [0,1] x [0,2] x [0,3].
+   subroutine write_input(filename, nk, ratio, level, cube)
+   !< Write the input of one configuration: the sections realm_object%initialize reads, domain [0,1] x [0,2] x [0,3]
+   !< or the cube [-1,1]^3 (isolated).
    character(*), intent(in) :: filename !< Input file name.
    integer(I4P), intent(in) :: nk       !< Cells per block along z.
    integer(I4P), intent(in) :: ratio    !< Tree ratio.
    integer(I4P), intent(in) :: level    !< Uniform refinement level.
+   logical,      intent(in) :: cube     !< The cube [-1,1]^3.
    integer(I4P)             :: u        !< File unit.
 
    open(newunit=u, file=filename, action='write', status='replace')
@@ -333,12 +500,21 @@ contains
    write(u, '(A)') 'nj     = 8'
    write(u, '(A)') 'nk     = '//trim(str(nk, .true.))
    write(u, '(A)') 'ngc    = 3'
-   write(u, '(A)') 'emin_x = 0.0'
-   write(u, '(A)') 'emin_y = 0.0'
-   write(u, '(A)') 'emin_z = 0.0'
-   write(u, '(A)') 'emax_x = 1.0'
-   write(u, '(A)') 'emax_y = 2.0'
-   write(u, '(A)') 'emax_z = 3.0'
+   if (cube) then
+      write(u, '(A)') 'emin_x = -1.0'
+      write(u, '(A)') 'emin_y = -1.0'
+      write(u, '(A)') 'emin_z = -1.0'
+      write(u, '(A)') 'emax_x = 1.0'
+      write(u, '(A)') 'emax_y = 1.0'
+      write(u, '(A)') 'emax_z = 1.0'
+   else
+      write(u, '(A)') 'emin_x = 0.0'
+      write(u, '(A)') 'emin_y = 0.0'
+      write(u, '(A)') 'emin_z = 0.0'
+      write(u, '(A)') 'emax_x = 1.0'
+      write(u, '(A)') 'emax_y = 2.0'
+      write(u, '(A)') 'emax_z = 3.0'
+   endif
    write(u, '(A)') 'null_x = .false.'
    write(u, '(A)') 'null_y = .false.'
    if (nk == 1_I4P) then

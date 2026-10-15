@@ -15,6 +15,7 @@ accepted values.
 | `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `mhd-rotor`, `field-loop` | ✗ | ✓ | ✓ | 1 |
 | `orszag-tang` | ✗ | ✓ | ✓ | 0 |
 | `linear` (verification) | ✓ | ✓ | ✓ | 1 |
+| `polytrope` (self-gravity) | ✓ | ✗ | ✗ | 1 (the atmosphere) |
 
 "MHD" in the error messages means `[physics] physical_model = mhd-ideal`. `glm` versus `none` is chosen separately by
 `[mhd] divergence_control`.
@@ -52,7 +53,7 @@ the `update_ghost` call that follows.
 
 | key | type | meaning |
 |---|---|---|
-| `type` | string (control characters are blanked by `strip_control`, so CRLF files parse) | one of the 14 names below. Any other value stops the run and the message lists all 14. |
+| `type` | string (control characters are blanked by `strip_control`, so CRLF files parse) | one of the 22 names below. Any other value stops the run and the message lists all 22. |
 | `amr_iterations` | integer, **required** | the number of init-time AMR passes (set the IC, refine, repeat). The value is clamped to $\ge 0$. The loop is at `cpu/adam_flume_cpu_object.F90` and `fnl/adam_flume_fnl_object.F90`. When the value is $>0$, every refined non-null axis must have an even block cell count of at least `2 ngc`, otherwise `error_stop`. |
 
 **Region sections** are named `[initial_conditions_region_N]`, with $N = 1..$`regions_number`. They hold the primitive keys `r, u, v, w, p`, plus `bx, by, bz` for either MHD
@@ -864,4 +865,44 @@ rt_density_ratio = 2.0
 rt_wavelength    = 0.5
 rt_amplitude     = 1.0e-5
 rt_seed_width    = 0.1
+```
+
+## `polytrope`: an n = 1 polytrope star (self-gravity)
+
+A self-gravitating star in equilibrium ([#81](https://github.com/szaghi/adam/issues/81), M8-P4; Euler, `[gravity]
+self_gravity` required). The n = 1 polytrope, $p = K\rho^2$, is the Lane–Emden solution
+$\rho_s = \rho_c\,\sin(kr)/(kr)$, $k = \pi/a$, of radius $a$, in equilibrium under its own gravity when
+$K = 2Ga^2/\pi$; its mass is $M = 4\rho_ca^3/\pi$. Region 1 sets a light atmosphere ($\rho_1$, $p_1$, the velocity):
+
+- inside, $r < a$: $\rho = \rho_1 + \rho_s$, $p = p_1 + fK\rho_s^2$;
+- outside: the atmosphere isothermal at $T = p_1/\rho_1$ and hydrostatic in the star's field,
+  $\rho = \rho_1\exp\big(GM/T\,(1/r - 1/a)\big)$, $p = \rho T$. A uniform atmosphere would fall onto the star and
+  thin at its surface.
+
+Density and pressure are continuous at the surface. `star_pressure_factor` $f = 1$ is the equilibrium of the star
+alone (the atmosphere's own weight and gravity perturb it, by the atmosphere's share of the mass); $f < 1$ collapses
+it. Keys: `star_radius` $a$, `star_density` $\rho_c$ (both required, $> 0$), `star_x0`, `star_y0`, `star_z0` (the
+centre, default 0), `star_pressure_factor` (default 1, $> 0$). With `[gravity] poisson_bc = isolated` the star sits
+in a box without its periodic images (SV-7, SV-8, [verification](./verification#sv-6-to-sv-8-p4-isolated-boundaries)).
+A light atmosphere ($\rho_1 \lesssim 10^{-3}\rho_c$) needs `[numerics] positivity_limiter = cell` at the surface.
+
+```ini
+[gravity]
+self_gravity = .true.
+G            = 1.0
+poisson_bc   = isolated
+
+[initial_conditions]
+type                 = polytrope
+amr_iterations       = 0
+star_radius          = 0.5
+star_density         = 1.0
+star_pressure_factor = 1.0
+
+[initial_conditions_region_1]
+r = 1.0e-4
+u = 0.0
+v = 0.0
+w = 0.0
+p = 1.5915494309189535e-05
 ```

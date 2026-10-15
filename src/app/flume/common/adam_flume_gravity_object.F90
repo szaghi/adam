@@ -20,12 +20,14 @@ module adam_flume_gravity_object
 !< never ignored.
 !<
 !< **Self-gravity** (issue #81, M8-P3): `self_gravity = .true.` solves `L_h Phi = 4 pi G (rho - mean rho)` every
-!< Runge-Kutta stage (the library FFT solver, `poisson_solver = fft`, `poisson_bc = periodic`: every active direction
-!< periodic, the grid uniform) and applies it through the potential path. The constant is `G` (dimensional: the
+!< Runge-Kutta stage (the library FFT solver, `poisson_solver = fft`; `poisson_bc = periodic`: every active direction
+!< periodic, the grid uniform) and applies it through the potential path. `poisson_bc = isolated` (M8-P4) solves
+!< `L_h Phi = 4 pi G rho` with `Phi -> 0` at infinity instead (zero padding and the lattice Green's function: 3-D,
+!< every direction non-periodic, cubic cells; the solver refuses anything else). The constant is `G` (dimensional: the
 !< `[reference]` layer converts it, dimension `u0^2 / (rho0 L0^2)`) or `G_star` (the number `G rho0 L0^2 / u0^2`, never
 !< converted); exactly one of them is required with `self_gravity`, and either without it is fatal. The constant `g` is
 !< optional with `self_gravity` (default 0) and is added through its own kernels (`potential = uniform`); `potential =
-!< linear`, `equilibrium = atmosphere` and `poisson_bc = isolated` (issue #81, P4) are refused with it.
+!< linear` and `equilibrium = atmosphere` are refused with it.
 !<
 !< Without the section there is no gravity (`is_active` false) and nothing changes. With it, `g` sets the atmosphere
 !< initial conditions and the `hydrostatic` boundary condition (M7-G0) and drives the momentum and energy sources
@@ -72,7 +74,8 @@ type :: flume_gravity_object
    real(R8P)                 :: grav_const=0._R8P     !< Gravitational constant G, code units (self-gravity).
    real(R8P)                 :: four_pi_g=0._R8P      !< 4 pi G, the source factor of the Poisson equation.
    character(:), allocatable :: poisson_solver        !< Poisson solver: fft.
-   character(:), allocatable :: poisson_bc            !< Poisson boundary conditions: periodic.
+   character(:), allocatable :: poisson_bc            !< Poisson boundary conditions: periodic or isolated.
+   logical                   :: isolated=.false.      !< `poisson_bc = isolated` (M8-P4).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -126,6 +129,7 @@ contains
    self%four_pi_g = 0._R8P
    self%poisson_solver = POISSON_SOLVER_FFT
    self%poisson_bc = POISSON_BC_PERIODIC
+   self%isolated = .false.
    self%is_active = file_parameters%has_section(section_name=INI_SECTION_NAME)
    if (.not.self%is_active) return
    ! the string keys first: under nvfortran (26.1) a character get that follows the failed get of an absent numeric key
@@ -195,12 +199,10 @@ contains
       if (self%poisson_solver /= POISSON_SOLVER_FFT) &
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(poisson_solver) "'//self%poisson_solver// &
                                   '"; expected '//POISSON_SOLVER_FFT)
-      if (self%poisson_bc == POISSON_BC_ISOLATED) &
-         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(poisson_bc) = '//POISSON_BC_ISOLATED//' is not '// &
-                                  'implemented yet (issue #81, P4); use '//POISSON_BC_PERIODIC)
-      if (self%poisson_bc /= POISSON_BC_PERIODIC) &
+      if (self%poisson_bc /= POISSON_BC_PERIODIC .and. self%poisson_bc /= POISSON_BC_ISOLATED) &
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(poisson_bc) "'//self%poisson_bc// &
-                                  '"; expected '//POISSON_BC_PERIODIC)
+                                  '"; expected '//POISSON_BC_PERIODIC//' or '//POISSON_BC_ISOLATED)
+      self%isolated = self%poisson_bc == POISSON_BC_ISOLATED
       ! a linear potential is not periodic: the FFT solver's periodic wrap cannot hold it
       if (self%potential == POTENTIAL_LINEAR) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(potential) = '//POTENTIAL_LINEAR//' is refused with '// &

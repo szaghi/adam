@@ -8,6 +8,10 @@ module adam_fnl_poisson_fft_object
 !< `lam1..3` as the CPU solver), a Z2D transform, and the potential comes back. cuFFT runs on the stream of the
 !< synchronous OpenACC queue, so the transforms and the kernel between them are ordered.
 !<
+!< Isolated boundaries (issue #81, M8-P4): the transforms are the padded ones (`m`), the kernel's spectrum `khat` is
+!< computed once on the device (`transform_kernel`) and stays there (`enter data`, released by `destroy_plans`); the
+!< solve multiplies by it instead of dividing by the eigenvalues.
+!<
 !< cuFFT is NVIDIA only: built without `_CUFFT` (an AMD build), making the plans stops the run.
 use :: adam_mpih_global, only : mpih
 use :: adam_poisson_fft_object, only : poisson_fft_object
@@ -27,11 +31,13 @@ type, extends(poisson_fft_object) :: poisson_fft_fnl_object
    integer(c_int) :: plan_d2z=0_c_int  !< cuFFT forward plan (rank 0).
    integer(c_int) :: plan_z2d=0_c_int  !< cuFFT backward plan (rank 0).
    logical        :: has_plans=.false. !< The cuFFT plans exist.
+   logical        :: khat_on_device=.false. !< `khat` is on the device (isolated).
    contains
       ! backend hooks
       procedure, pass(self) :: destroy_plans => destroy_plans_fnl !< Destroy the cuFFT plans.
       procedure, pass(self) :: make_plans    => make_plans_fnl    !< Make the cuFFT plans (rank 0).
       procedure, pass(self) :: transform     => transform_fnl     !< The spectral solve on the GPU (rank 0).
+      procedure, pass(self) :: transform_kernel => transform_kernel_fnl !< The kernel's spectrum on the GPU (isolated).
 endtype poisson_fft_fnl_object
 
 contains
@@ -47,8 +53,12 @@ contains
       ierr = cufftDestroy(self%plan_d2z)
       ierr = cufftDestroy(self%plan_z2d)
    endif
+   if (self%khat_on_device) then
+      !$acc exit data delete(self%khat)
+   endif
 #endif
    self%has_plans = .false.
+   self%khat_on_device = .false.
    endsubroutine destroy_plans_fnl
 
    subroutine make_plans_fnl(self)
@@ -58,10 +68,10 @@ contains
 
    ierr = 0_c_int
 #ifdef _CUFFT
-   ierr = cufftPlan3d(self%plan_d2z, int(self%n(3), c_int), int(self%n(2), c_int), int(self%n(1), c_int), CUFFT_D2Z)
+   ierr = cufftPlan3d(self%plan_d2z, int(self%m(3), c_int), int(self%m(2), c_int), int(self%m(1), c_int), CUFFT_D2Z)
    if (ierr /= CUFFT_SUCCESS) call mpih%error_stop(msg='poisson_fft_fnl_object%make_plans: cufftPlan3d D2Z failed, '// &
                                                        'status '//trim(str(int(ierr, I4P), .true.)))
-   ierr = cufftPlan3d(self%plan_z2d, int(self%n(3), c_int), int(self%n(2), c_int), int(self%n(1), c_int), CUFFT_Z2D)
+   ierr = cufftPlan3d(self%plan_z2d, int(self%m(3), c_int), int(self%m(2), c_int), int(self%m(1), c_int), CUFFT_Z2D)
    if (ierr /= CUFFT_SUCCESS) call mpih%error_stop(msg='poisson_fft_fnl_object%make_plans: cufftPlan3d Z2D failed, '// &
                                                        'status '//trim(str(int(ierr, I4P), .true.)))
    ierr = cufftSetStream(self%plan_d2z, acc_get_cuda_stream(acc_async_sync))
@@ -80,6 +90,11 @@ contains
    real(R8P),                     intent(in)    :: factor !< Source factor.
 
 #ifdef _CUFFT
+   if (self%isolated) then
+      call spectral_convolve_dev(plan_d2z=self%plan_d2z, plan_z2d=self%plan_z2d, m1=self%m(1), m2=self%m(2), &
+                                 m3=self%m(3), factor=factor, khat=self%khat, f=self%f_global, f_hat=self%f_hat)
+      return
+   endif
    call spectral_solve_dev(plan_d2z=self%plan_d2z, plan_z2d=self%plan_z2d,                     &
                            n1=self%n(1), n2=self%n(2), n3=self%n(3),                            &
                            scale=factor / real(product(self%n), R8P),                           &
@@ -88,6 +103,22 @@ contains
    call mpih%error_stop(msg='poisson_fft_fnl_object%transform: built without cuFFT, factor '//trim(str(factor)))
 #endif
    endsubroutine transform_fnl
+
+   subroutine transform_kernel_fnl(self)
+   !< Rank 0, isolated: `khat <- FFT(f_global) / prod(m)` on the GPU (real: the kernel is even); `khat` stays on the
+   !< device for every solve.
+   class(poisson_fft_fnl_object), intent(inout) :: self !< The solver.
+
+#ifdef _CUFFT
+   call kernel_spectrum_dev(plan_d2z=self%plan_d2z, m1=self%m(1), m2=self%m(2), m3=self%m(3), f=self%f_global, &
+                            f_hat=self%f_hat)
+   self%khat = real(self%f_hat, R8P) / real(product(self%m), R8P)
+   !$acc enter data copyin(self%khat)
+   self%khat_on_device = .true.
+#else
+   call mpih%error_stop(msg='poisson_fft_fnl_object%transform_kernel: built without cuFFT')
+#endif
+   endsubroutine transform_kernel_fnl
 
 #ifdef _CUFFT
    ! private procedures
@@ -130,5 +161,54 @@ contains
    if (ierr /= CUFFT_SUCCESS) call mpih%error_stop(msg='poisson_fft_fnl_object: cufftExecZ2D failed')
    !$acc end data
    endsubroutine spectral_solve_dev
+
+   subroutine spectral_convolve_dev(plan_d2z, plan_z2d, m1, m2, m3, factor, khat, f, f_hat)
+   !< The isolated solve on the device: D2Z, the product with the kernel's spectrum (already on the device), Z2D; the
+   !< padded source in, the potential out (in place).
+   integer(c_int), intent(in)    :: plan_d2z            !< cuFFT forward plan.
+   integer(c_int), intent(in)    :: plan_z2d            !< cuFFT backward plan.
+   integer(I4P),   intent(in)    :: m1, m2, m3          !< Transform cells per direction.
+   real(R8P),      intent(in)    :: factor              !< Source factor.
+   real(R8P),      intent(in)    :: khat(m1/2+1,m2,m3)  !< Kernel's spectrum over prod(m), on the device.
+   real(R8P),      intent(inout) :: f(m1,m2,m3)         !< Padded source in, potential out.
+   complex(R8P),   intent(inout) :: f_hat(m1/2+1,m2,m3) !< Transform workspace.
+   integer(c_int)                :: ierr                !< cuFFT status.
+   integer(I4P)                  :: i, j, k             !< Counters.
+
+   !$acc data copy(f) create(f_hat)
+   !$acc host_data use_device(f, f_hat)
+   ierr = cufftExecD2Z(plan_d2z, f, f_hat)
+   !$acc end host_data
+   if (ierr /= CUFFT_SUCCESS) call mpih%error_stop(msg='poisson_fft_fnl_object: cufftExecD2Z failed')
+   !$acc parallel loop collapse(3) present(f_hat, khat)
+   do k=1, m3
+      do j=1, m2
+         do i=1, m1/2+1
+            f_hat(i,j,k) = f_hat(i,j,k) * (factor * khat(i,j,k))
+         enddo
+      enddo
+   enddo
+   !$acc host_data use_device(f_hat, f)
+   ierr = cufftExecZ2D(plan_z2d, f_hat, f)
+   !$acc end host_data
+   if (ierr /= CUFFT_SUCCESS) call mpih%error_stop(msg='poisson_fft_fnl_object: cufftExecZ2D failed')
+   !$acc end data
+   endsubroutine spectral_convolve_dev
+
+   subroutine kernel_spectrum_dev(plan_d2z, m1, m2, m3, f, f_hat)
+   !< The kernel's forward transform on the device: f in, its spectrum out to the host.
+   integer(c_int), intent(in)    :: plan_d2z            !< cuFFT forward plan.
+   integer(I4P),   intent(in)    :: m1, m2, m3          !< Transform cells per direction.
+   real(R8P),      intent(in)    :: f(m1,m2,m3)         !< Kernel.
+   complex(R8P),   intent(inout) :: f_hat(m1/2+1,m2,m3) !< Its spectrum.
+   integer(c_int)                :: ierr                !< cuFFT status.
+
+   !$acc data copyin(f) copyout(f_hat)
+   !$acc host_data use_device(f, f_hat)
+   ierr = cufftExecD2Z(plan_d2z, f, f_hat)
+   !$acc end host_data
+   !$acc end data
+   if (ierr /= CUFFT_SUCCESS) call mpih%error_stop(msg='poisson_fft_fnl_object: cufftExecD2Z failed (kernel)')
+   endsubroutine kernel_spectrum_dev
 #endif
 endmodule adam_fnl_poisson_fft_object

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Oracle of the FFT Poisson solver (issue #81, P2, SV-2): two builds agree on the potential.
+"""Oracle of the FFT Poisson solver (issue #81, P2 SV-2 and P4 SV-6): two builds agree on the potential.
 
     poisson_oracle.py compare <dirA> <dirB> [--tol T]
 
 `compare` reads the potential dumps that `test_poisson_fft --dump DIR` writes for every configuration and level
-(`phi-r<ratio>-nk<nk>-l<level>.bin`: 3 int32 sizes, then the float64 values, x fastest) from two directories, e.g.
-the CPU (FFTW) and the FNL (cuFFT) builds, and reports `max |phi_A - phi_B| / max |phi_A|` per file. Exit 0 when every
-file of A has its twin in B with the same sizes and every difference is within `--tol` (default 1e-13).
+(`phi-r<ratio>-nk<nk>-l<level>-p<profile>.bin`: 3 int32 sizes, then the float64 values, x fastest; profile 0 the
+periodic modes, 1 and 2 the isolated polytrope and uniform sphere, whose arrays are the padded ones) from two
+directories, e.g. the CPU (FFTW) and the FNL (cuFFT) builds, and reports `max |phi_A - phi_B| / max |phi_A|` per file.
+Exit 0 when every file of A has its twin in B with the same sizes and every difference is within `--tol` (default
+1e-13).
 """
 
 from __future__ import annotations

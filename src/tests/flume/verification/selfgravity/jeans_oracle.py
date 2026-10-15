@@ -4,7 +4,7 @@
     jeans_oracle.py wave <work> [<work> ...] [--min-order P]
     jeans_oracle.py growth <work> [--t0 T0] [--t1 T1] [--tol T]
     jeans_oracle.py symmetry <work> [--tol T]
-    jeans_oracle.py conservation <work> [<work> ...] [--tol-momentum M] [--min-order P]
+    jeans_oracle.py conservation <work> [<work> ...] [--tol-momentum M] [--min-order P] [--label NAME]
 
 The exact linear solution of a Jeans mode of [initial_conditions] (`sine-wave`, `wave_mode = jeans`) on the uniform
 state of region 1 under the self-gravity of [gravity] (`G` or `G_star`): with k = 2 pi / wavelength along
@@ -211,7 +211,7 @@ def conservation(args: argparse.Namespace) -> int:
     if len(drifts) > 1:
         order = math.log2(drifts[-2] / drifts[-1])
         ok = ok and order >= args.min_order
-    print(f"Jeans conservation: {'PASS' if ok else 'FAIL'} (momentum tol {args.tol_momentum:g}, min order "
+    print(f"{args.label} conservation: {'PASS' if ok else 'FAIL'} (momentum tol {args.tol_momentum:g}, min order "
           f"{args.min_order:g})")
     return 0 if ok else 1
 
@@ -235,6 +235,7 @@ def main() -> int:
     p.add_argument("works", type=Path, nargs="+")
     p.add_argument("--tol-momentum", type=float, default=1.0e-14)
     p.add_argument("--min-order", type=float, default=2.5)
+    p.add_argument("--label", default="Jeans", help="name of the case in the verdict line")
     args = parser.parse_args()
     checks = {"wave": wave, "growth": growth, "symmetry": symmetry, "conservation": conservation}
     return checks[args.check](args)

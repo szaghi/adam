@@ -23,13 +23,18 @@
 #   jeans   the Jeans cases of selfgravity/jeans.sh (#81, SV-3, SV-4) with the FFT executable (JEANS_EXE, default
 #           exe/adam_flume_cpu_fft, mode flume-cpu-gnu-fft): sv3-2d-{8,16,32}, sv3-3d-{8,16}, sv4-linear (a checkpoint
 #           every 5 steps), sv4-collapse-{0.4,0.2,0.1} (8 runs, about 15 min)
+#   isolated the isolated self-gravity cases (#81, P4): sv6-poisson, the SV-6 unit test (`--isolated`, POISSON_EXE) with
+#           its log and dumps; sv7-l{2,3}, the equilibrium star of selfgravity/star.sh at 32^3 and 64^3 (a light
+#           atmosphere, the positivity limiter) to t = 2; sv8-collapse-{0.4,0.2,0.1}, the collapsing star, a checkpoint
+#           every 10 steps (JEANS_EXE, default exe/adam_flume_cpu_fft) (6 runs, about 60 min: sv7-l3 takes 45)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
-#        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans)
+#        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
+#        isolated: --only selfgravity-isolated selfgravity-star)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
-#        [jeans] (default: all ten)
+#        [jeans] [isolated] (default: all eleven)
 #
 # FLUME_EXE overrides the executable (default exe/adam_flume_cpu); the caller owns the matching MPI environment.
 set -euo pipefail
@@ -43,16 +48,16 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
-           "selfgravity, jeans)" >&2
+           "selfgravity, jeans, isolated)" >&2
       exit 2
    fi
 done
@@ -218,6 +223,28 @@ for g in $GROUPS_; do
          for cells in 8 16; do jeans "sv3-3d-$cells" jeans3d --cells "$cells" ; done
          jeans sv4-linear jeansu2d --cells 16 --it-save 5
          for cfl in 0.4 0.2 0.1; do jeans "sv4-collapse-$cfl" jeansc2d --cells 16 --cfl "$cfl" ; done ;;
+      isolated)
+         fresh sv6-poisson
+         POISSON_EXE="${POISSON_EXE:-$REPO_ROOT/exe/test_poisson_fft}"
+         if (cd "$W" && mpirun -np "$NP" "$POISSON_EXE" --isolated --dump "$W" > log.txt 2>&1); then
+            echo "   $(basename "$W"): done"
+         else
+            echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+         fi
+         STAR_EXE="${JEANS_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
+         star() { # star <case dir> <make_polytrope arguments>: write and run one polytrope case with the FFT executable
+            fresh "$1" ; shift
+            python3 -I "$VERIF_DIR/selfgravity/make_polytrope.py" "$W/input.ini" "$@"
+            if (cd "$W" && mpirun -np "$NP" "$STAR_EXE" input.ini > log.txt 2>&1); then
+               echo "   $(basename "$W"): done"
+            else
+               echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+            fi
+         }
+         for lev in 2 3; do
+            star "sv7-l$lev" star --levels "$lev" --atmosphere 1e-4 --limiter --time-max 2.0 --it-save 10
+         done
+         for cfl in 0.4 0.2 0.1; do star "sv8-collapse-$cfl" starc --cfl "$cfl" --it-save 10 ; done ;;
    esac
 done
 exit $FAILED

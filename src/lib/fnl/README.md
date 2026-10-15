@@ -344,8 +344,11 @@ transform, and the potential comes back. cuFFT is bound to the stream of the syn
   stops the run.
 - **Not FUNDAL-agnostic**, by necessity: the device arrays live in an OpenACC data region around the cuFFT calls
   (`host_data use_device`), not in FUNDAL allocations.
-- **Verification:** SV-2 asserts it against the discrete solution at round-off and against the FFTW solver
-  (`selfgravity/poisson_oracle.py compare`).
+- **Isolated (P4):** the padded transforms (`m = 2 (n + ngc)` per direction); the kernel's spectrum `khat` is made
+  once on the device (a D2Z of the kernel) and stays there (`enter data`, released by `destroy_plans`); each solve
+  multiplies by it instead of dividing by the eigenvalues.
+- **Verification:** SV-2 asserts it against the discrete solution at round-off, SV-6 against the exact potentials of
+  two spheres; both against the FFTW solver (`selfgravity/poisson_oracle.py compare`: isolated, `1.6e-15`).
 
 ---
 

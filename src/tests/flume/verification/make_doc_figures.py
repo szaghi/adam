@@ -1471,7 +1471,7 @@ def fig_selfgravity_poisson(out: Path, runs: Path) -> None:
     axs[0].set_ylim(1e-16, 1e-1)
     axs[0].legend(fontsize=7)
     axs[0].set_title("second order against the PDE, round-off against L_h", fontsize=10)
-    phi = poisson_oracle.load(work / "phi-r4-nk1-l3.bin")[:, :, 0]
+    phi = poisson_oracle.load(work / "phi-r4-nk1-l3-p0.bin")[:, :, 0]
     nx, ny = phi.shape
     x = (np.arange(nx) + 0.5) / nx
     y = 2.0 * (np.arange(ny) + 0.5) / ny
@@ -1493,6 +1493,146 @@ def fig_selfgravity_poisson(out: Path, runs: Path) -> None:
     fig.suptitle("SV-2: the FFT Poisson solver, L_h Phi = 4 pi (rho - mean rho) on a periodic box (CPU, 2 ranks)")
     fig.savefig(out / "selfgravity-poisson.png", dpi=DPI)
     plt.close(fig)
+
+def fig_selfgravity_isolated(out: Path, runs: Path) -> None:
+    """SV-6 (issue #81, M8-P4): the FFT Poisson solver with isolated boundaries on the cube [-1, 1]^3 (test_poisson_fft
+    --isolated, CPU, 2 ranks), two spheres of radius 1/2, G = 1. Left: against N, the max error of Phi against the
+    exact potential over every cell and ghost (the n = 1 polytrope and the uniform sphere) and the residual of L_h.
+    Middle: Phi of the polytrope at N = 64 along the line through the centre, over the whole padded array (the domain
+    and its free-space continuation on both sides), against the exact Phi (-G M / r outside). Right: the error on the
+    plane through the centre."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import poisson_oracle  # noqa: PLC0415
+
+    work = runs / "sv6-poisson"
+    rows: dict[str, list[tuple[int, float, float]]] = {}
+    pattern = re.compile(r"(polytrope n=1|uniform sphere),\s+N = (\d+): \|Phi - Phi_h\| \S+, residual (\S+), "
+                         r"\|Phi - Phi_exact\| (\S+),")
+    for line in (work / "log.txt").read_text().splitlines():
+        m = pattern.search(line)
+        if m:
+            rows.setdefault(m[1], []).append((int(m[2]), float(m[3]), float(m[4])))
+    fig, axs = plt.subplots(1, 3, figsize=(15.0, 4.8), constrained_layout=True, width_ratios=(1.3, 1.3, 1.0))
+    for name, color in (("polytrope n=1", "tab:blue"), ("uniform sphere", "tab:red")):
+        n, res, cont = (np.array(v) for v in zip(*rows[name], strict=True))
+        order = -np.polyfit(np.log(n), np.log(cont), 1)[0]
+        axs[0].loglog(n, cont, "o-", color=color, label=f"{name}: |Phi - Phi_exact|, least-squares order {order:.2f}")
+        axs[0].loglog(n, res, "^:", color=color, alpha=0.7, label=f"{name}: residual of L_h, relative")
+    ns = np.array([16.0, 64.0])
+    axs[0].loglog(ns, 1.0e-2 * (ns[0] / ns) ** 2, "-", color="0.6", lw=0.8)
+    axs[0].annotate("dx^2", (32.0, 1.0e-2 * (ns[0] / 32.0) ** 2), xytext=(0, -12), textcoords="offset points",
+                    fontsize=8, color="0.4")
+    axs[0].set_xlabel("N (cells per side)")
+    axs[0].set_ylabel("max error")
+    axs[0].set_ylim(1e-15, 1e-1)
+    axs[0].legend(fontsize=7)
+    axs[0].set_title("second order against the PDE; the residual is the kernel's", fontsize=10)
+    phi = poisson_oracle.load(work / "phi-r8-nk8-l3-p1.bin")
+    m, n, h = phi.shape[0], 64, 2.0 / 64
+    a, kk = 0.5, math.pi / 0.5
+    mass = 4.0 * a**3 / math.pi
+
+    def exact(r: np.ndarray) -> np.ndarray:
+        kr = np.maximum(kk * r, 1e-300)
+        inside = -mass / a - 4.0 * math.pi / kk**2 * np.sin(kr) / kr
+        return np.where(r < a, inside, -mass / np.maximum(r, 1e-300))
+
+    # the padded array holds the free-space potential at the cell offsets -(m - n)/2 .. n - 1 + (m - n)/2 (wrapped)
+    t = np.arange(m)
+    t = np.where(t >= n + (m - n) // 2, t - m, t)
+    order_t = np.argsort(t)
+    x = -1.0 + (t[order_t] + 0.5) * h
+    line = phi[order_t, n // 2, n // 2]
+    yc = -1.0 + (n // 2 + 0.5) * h
+    r_line = np.sqrt(x**2 + 2.0 * yc**2)
+    axs[1].plot(x, line, ".", ms=3, color="tab:blue", label="Phi, the padded array (N = 64)")
+    axs[1].plot(x, exact(r_line), "-", color="0.3", lw=0.8, label="exact, -G M / r outside")
+    axs[1].axvspan(-1.0, 1.0, color="0.92", zorder=0, label="the domain")
+    axs[1].set_xlabel("x (y = z = h/2)")
+    axs[1].set_ylabel("Phi")
+    axs[1].legend(fontsize=7)
+    axs[1].set_title("the polytrope's potential and its free-space continuation", fontsize=10)
+    xs = -1.0 + (np.arange(n) + 0.5) * h
+    xx, yy = np.meshgrid(xs, xs, indexing="ij")
+    err = phi[:n, :n, n // 2] - exact(np.sqrt(xx**2 + yy**2 + yc**2))
+    im = axs[2].imshow(err.T, origin="lower", extent=(-1.0, 1.0, -1.0, 1.0), cmap="PuOr")
+    fig.colorbar(im, ax=axs[2], shrink=0.85)
+    axs[2].set_title(f"Phi - Phi_exact, z = h/2 (max {np.max(np.abs(err)):.1e})", fontsize=10)
+    axs[2].set_xlabel("x")
+    axs[2].set_ylabel("y")
+    fig.suptitle("SV-6: the FFT Poisson solver with isolated boundaries, zero padding and the lattice Green's function "
+                 "(CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-isolated.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_selfgravity_star(out: Path, runs: Path) -> None:
+    """SV-7 and SV-8 (issue #81, M8-P4): the n = 1 polytrope star of selfgravity/make_polytrope.py (radius 1/2,
+    rho_c = 1, G = 1, gamma = 2) in the closed box [-1, 1]^3 under isolated self-gravity (CPU, 2 ranks). Top: SV-7, the
+    equilibrium in a light atmosphere with the positivity limiter, at 32^3 and 64^3: the central density against its
+    initial value, and the largest Mach number inside 0.8 a. Bottom left: SV-8, the collapse (pressure halved) at
+    32^3, the drift of E + W at CFL 0.4, 0.2, 0.1, with E and W alone. Bottom right: its density on the plane through
+    the centre at the densest checkpoint."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import jeans_oracle  # noqa: PLC0415
+    import star_oracle  # noqa: PLC0415
+
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    for lev, color in ((2, "tab:blue"), (3, "tab:red")):
+        rows = star_oracle.star_rows(runs / f"sv7-l{lev}")
+        t = np.array([r[0] for r in rows])
+        rc = np.array([r[1] for r in rows])
+        mach = np.array([r[3] for r in rows])
+        n = 8 * 2**lev
+        axs[0, 0].plot(t, rc / rc[0] - 1.0, "-", color=color, label=f"{n}^3")
+        axs[0, 1].plot(t, mach, "-", color=color, label=f"{n}^3")
+    axs[0, 0].axhline(0.0, color="0.6", lw=0.6)
+    axs[0, 0].set_xlabel("t")
+    axs[0, 0].set_ylabel("central density / initial - 1")
+    axs[0, 0].legend(fontsize=8)
+    axs[0, 0].set_title("SV-7: the equilibrium star, its core", fontsize=10)
+    axs[0, 1].set_xlabel("t")
+    axs[0, 1].set_ylabel("largest Mach number inside 0.8 a")
+    axs[0, 1].legend(fontsize=8)
+    axs[0, 1].set_title("SV-7: the spurious motion inside the star", fontsize=10)
+    ax = axs[1, 0]
+    for cfl, color in (("0.4", "tab:blue"), ("0.2", "tab:orange"), ("0.1", "tab:green")):
+        h = jeans_oracle.history(runs / f"sv8-collapse-{cfl}")
+        ew0 = h["E_plus_W"][0]
+        ax.semilogy(h["time"][1:], np.maximum(np.abs(h["E_plus_W"][1:] - ew0) / abs(ew0), FLOOR), "-", color=color,
+                    label=f"E + W, CFL {cfl}")
+        if cfl == "0.1":
+            ax.semilogy(h["time"][1:], np.abs(h["int_rE"][1:] - h["int_rE"][0]) / abs(ew0), "--", color="0.4",
+                        label="E alone")
+            ax.semilogy(h["time"][1:], np.abs(h["W"][1:] - h["W"][0]) / abs(ew0), ":", color="0.4", label="W alone")
+    ax.set_xlabel("t")
+    ax.set_ylabel("relative change")
+    ax.legend(fontsize=8)
+    ax.set_title("SV-8: the collapse, E + W drifts at the time integration's order", fontsize=10)
+    ax = axs[1, 1]
+    col = runs / "sv8-collapse-0.1"
+    rows = star_oracle.star_rows(col)
+    k = int(np.argmax([r[1] for r in rows]))
+    ini = star_oracle.read_ini(col)
+    cps = star_oracle.checkpoints(col)
+    tc, paths = cps[sorted(cps)[k]]
+    cells = [(c, q["r"]) for c, dxyz, _, q in star_oracle.interior_steps(ini, paths) if abs(c[2]) < 0.6 * dxyz[2]]
+    xs = sorted({round(float(c[0]), 10) for c, _ in cells})
+    ys = sorted({round(float(c[1]), 10) for c, _ in cells})
+    img = np.zeros((len(xs), len(ys)))
+    ix = {x: i for i, x in enumerate(xs)}
+    iy = {y: j for j, y in enumerate(ys)}
+    for c, r in cells:
+        img[ix[round(float(c[0]), 10)], iy[round(float(c[1]), 10)]] = r
+    im = ax.imshow(img.T, origin="lower", extent=(-1.0, 1.0, -1.0, 1.0), cmap="magma")
+    fig.colorbar(im, ax=ax, shrink=0.85)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title(f"SV-8: the density at t = {tc:.2f}, z = h/2 (max {img.max():.3f})", fontsize=10)
+    fig.suptitle("SV-7, SV-8: the n = 1 polytrope under isolated self-gravity in a closed box (CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-star.png", dpi=DPI)
+    plt.close(fig)
+
 
 def fig_selfgravity_jeans(out: Path, runs: Path) -> None:
     """SV-3 and SV-4 (issue #81, M8-P3): the Jeans modes of selfgravity/make_jeans.py (rho_0 = 1, c = 1,
@@ -1595,7 +1735,9 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "gravity-rt-symmetry": fig_gravity_rt_symmetry, "ranks": fig_ranks,
            "selfgravity-potential": fig_selfgravity_potential,
            "selfgravity-poisson": fig_selfgravity_poisson,
-           "selfgravity-jeans": fig_selfgravity_jeans}
+           "selfgravity-jeans": fig_selfgravity_jeans,
+           "selfgravity-isolated": fig_selfgravity_isolated,
+           "selfgravity-star": fig_selfgravity_star}
 
 
 def main() -> int:

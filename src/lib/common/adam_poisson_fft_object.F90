@@ -23,9 +23,19 @@ module adam_poisson_fft_object
 !< `energy = sum_cells f Phi` (computed on rank 0 from the global arrays, broadcast): `W = energy dV / 2` is the
 !< gravitational energy of self-gravity on a uniform grid.
 !<
-!< **Scope (fatal otherwise).** One level for every block, the blocks covering the domain, every active direction
-!< periodic. Isolated boundaries (zero padding) and AMR (multigrid) are later phases of #81.
+!< **Isolated boundaries (issue #81, M8-P4), Hockney and Eastwood.** `initialize(..., isolated=.true.)` solves
+!< `L_h phi = factor f` with `phi -> 0` at infinity (no mean removed): the source sits in a zero-padded array of
+!< `m = 2 (n + ngc)` cells per direction, and the circular convolution with the lattice Green's function of `L_h`
+!< (`adam_lattice_green_library`, `h^2 G(n)`) equals the free-space one on every cell the scatter reads, the ghost
+!< layers included, since `m` exceeds the largest offset, `n - 1 + ngc`, twice. The kernel's spectrum (`khat`, real:
+!< the kernel is even) is computed once. Inside the domain the discrete residual is that of the kernel, about 1e-11
+!< of the source (`scripts/lattice_green.py`).
+!<
+!< **Scope (fatal otherwise).** One level for every block, the blocks covering the domain. Periodic: every active
+!< direction periodic. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's).
+!< AMR (multigrid) is a later phase of #81.
 use :: adam_grid_object, only : grid_object
+use :: adam_lattice_green_library, only : lattice_green
 use :: adam_field_object, only : field_object
 use :: adam_mpih_global, only : mpih
 use :: iso_c_binding
@@ -42,6 +52,8 @@ type :: poisson_fft_object
    !< FFT Poisson solver on uniform periodic grids.
    logical                   :: is_initialized=.false. !< Initialization status.
    integer(I4P)              :: n(3)=1_I4P             !< Global cells per direction.
+   integer(I4P)              :: m(3)=1_I4P             !< Transform cells per direction: n, or 2 (n + ngc) isolated.
+   logical                   :: isolated=.false.       !< Isolated boundaries (zero padding), else periodic.
    integer(I4P)              :: nijk(3)=1_I4P          !< Cells per block per direction.
    integer(I4P)              :: ngc=0_I4P              !< Ghost cells per side.
    integer(I4P)              :: level=0_I4P            !< Level of every block.
@@ -49,9 +61,10 @@ type :: poisson_fft_object
    real(R8P),    allocatable :: lam1(:)                !< Eigenvalue part along x [0:n(1)/2].
    real(R8P),    allocatable :: lam2(:)                !< Eigenvalue part along y [0:n(2)-1].
    real(R8P),    allocatable :: lam3(:)                !< Eigenvalue part along z [0:n(3)-1].
-   real(R8P),    allocatable :: f_global(:,:,:)        !< Rank 0: the source, then the potential [n(1),n(2),n(3)].
+   real(R8P),    allocatable :: f_global(:,:,:)        !< Rank 0: the source, then the potential [m(1),m(2),m(3)].
    real(R8P),    allocatable :: f_source(:,:,:)        !< Rank 0: a copy of the source, for the energy.
-   complex(R8P), allocatable :: f_hat(:,:,:)           !< Rank 0: the transform [n(1)/2+1,n(2),n(3)].
+   complex(R8P), allocatable :: f_hat(:,:,:)           !< Rank 0: the transform [m(1)/2+1,m(2),m(3)].
+   real(R8P),    allocatable :: khat(:,:,:)            !< Rank 0, isolated: the kernel's spectrum over prod(m).
    type(c_ptr)               :: plan_r2c=c_null_ptr    !< FFTW forward plan (rank 0).
    type(c_ptr)               :: plan_c2r=c_null_ptr    !< FFTW backward plan (rank 0).
    contains
@@ -60,10 +73,13 @@ type :: poisson_fft_object
       procedure, pass(self) :: initialize !< Check the grid, size the solver, make the plans.
       procedure, pass(self) :: solve        !< Solve for phi from one variable of q.
       procedure, pass(self) :: solve_packed !< Solve for phi from the packed interior source.
+      ! private methods
+      procedure, pass(self), private :: make_kernel !< Rank 0, isolated: the kernel's spectrum.
       ! backend hooks
-      procedure, pass(self) :: destroy_plans !< Destroy the transform plans.
-      procedure, pass(self) :: make_plans    !< Make the transform plans (rank 0).
-      procedure, pass(self) :: transform     !< f_global <- factor * L_h^-1 f_global, mean removed (rank 0).
+      procedure, pass(self) :: destroy_plans    !< Destroy the transform plans.
+      procedure, pass(self) :: make_plans       !< Make the transform plans (rank 0).
+      procedure, pass(self) :: transform        !< f_global <- factor * L_h^-1 f_global (rank 0).
+      procedure, pass(self) :: transform_kernel !< khat <- the spectrum of f_global over prod(m) (rank 0, isolated).
 endtype poisson_fft_object
 
 #ifdef _FFTW
@@ -125,15 +141,19 @@ contains
    if (allocated(self%f_global)) deallocate(self%f_global)
    if (allocated(self%f_source)) deallocate(self%f_source)
    if (allocated(self%f_hat))    deallocate(self%f_hat)
-   self%n = 1_I4P ; self%nijk = 1_I4P ; self%ngc = 0_I4P ; self%level = 0_I4P ; self%dxyz = 0._R8P
+   if (allocated(self%khat))     deallocate(self%khat)
+   self%n = 1_I4P ; self%m = 1_I4P ; self%nijk = 1_I4P ; self%ngc = 0_I4P ; self%level = 0_I4P ; self%dxyz = 0._R8P
+   self%isolated = .false.
    self%is_initialized = .false.
    endsubroutine destroy
 
-   subroutine initialize(self, grid, field)
-   !< Check the grid (one level, the domain covered, active directions periodic), size the solver, make the plans.
+   subroutine initialize(self, grid, field, isolated)
+   !< Check the grid (one level, the domain covered, the boundaries), size the solver, make the plans and, isolated,
+   !< the kernel.
    class(poisson_fft_object), intent(inout) :: self         !< The solver.
    type(grid_object),         intent(in)    :: grid         !< The grid.
    type(field_object),        intent(in)    :: field        !< The field (block coordinates).
+   logical, optional,         intent(in)    :: isolated     !< Isolated boundaries (default: periodic).
    integer(I4P)                             :: lmin, lmax   !< Min and max block level over the ranks.
    integer(I4P)                             :: nblk(3)      !< Blocks per direction at the level.
    integer(I4P)                             :: blocks_total !< Blocks over the ranks.
@@ -141,6 +161,7 @@ contains
    integer(I4P)                             :: ierr         !< MPI error status.
 
    call self%destroy
+   self%isolated = .false. ; if (present(isolated)) self%isolated = isolated
    self%nijk = [grid%ni, grid%nj, grid%nk]
    self%ngc  = grid%ngc
    lmin = huge(1_I4P) ; lmax = -huge(1_I4P)
@@ -160,12 +181,28 @@ contains
    if (blocks_total /= product(nblk)) call mpih%error_stop(msg='poisson_fft_object%initialize: '// &
       trim(str(blocks_total, .true.))//' blocks do not cover the domain ('//trim(str(product(nblk), .true.))// &
       ' at level '//trim(str(self%level, .true.))//')')
-   do d=1, 3
-      if (.not.grid%null_xyz(d) .and. .not.grid%is_ijk_periodic(d)) call mpih%error_stop(msg= &
-         'poisson_fft_object%initialize: direction '//trim(str(d, .true.))//' is not periodic; the FFT solver '// &
-         'supports periodic boundaries only')
-   enddo
+   if (self%isolated) then
+      do d=1, 3
+         if (grid%null_xyz(d)) call mpih%error_stop(msg='poisson_fft_object%initialize: isolated boundaries are '// &
+            '3-D only, direction '//trim(str(d, .true.))//' is null')
+         if (grid%is_ijk_periodic(d)) call mpih%error_stop(msg='poisson_fft_object%initialize: isolated '// &
+            'boundaries need non-periodic directions, direction '//trim(str(d, .true.))//' is periodic')
+      enddo
+      if (abs(self%dxyz(2) - self%dxyz(1)) > 1e-12_R8P * self%dxyz(1) .or. &
+          abs(self%dxyz(3) - self%dxyz(1)) > 1e-12_R8P * self%dxyz(1)) call mpih%error_stop(msg= &
+         'poisson_fft_object%initialize: isolated boundaries need cubic cells (the lattice Green''s function is the '// &
+         'unit lattice''s), cells '//trim(str(self%dxyz(1)))//' x '//trim(str(self%dxyz(2)))//' x '// &
+         trim(str(self%dxyz(3))))
+   else
+      do d=1, 3
+         if (.not.grid%null_xyz(d) .and. .not.grid%is_ijk_periodic(d)) call mpih%error_stop(msg= &
+            'poisson_fft_object%initialize: direction '//trim(str(d, .true.))//' is not periodic; the FFT solver '// &
+            'supports periodic boundaries (or isolated ones, 3-D)')
+      enddo
+   endif
    self%n = nblk * self%nijk
+   self%m = self%n
+   if (self%isolated) self%m = 2 * (self%n + self%ngc)
    ! eigenvalue parts of L_h per direction; zero along a null direction (no derivative there)
    allocate(self%lam1(0:self%n(1)/2), self%lam2(0:self%n(2)-1), self%lam3(0:self%n(3)-1))
    self%lam1 = 0._R8P ; self%lam2 = 0._R8P ; self%lam3 = 0._R8P
@@ -185,19 +222,21 @@ contains
       enddo
    endif
    if (mpih%myrank == 0) then
-      allocate(self%f_global(self%n(1),self%n(2),self%n(3)))
-      allocate(self%f_source(self%n(1),self%n(2),self%n(3)))
-      allocate(self%f_hat(self%n(1)/2+1,self%n(2),self%n(3)))
+      allocate(self%f_global(self%m(1),self%m(2),self%m(3)))
+      allocate(self%f_source(self%m(1),self%m(2),self%m(3)))
+      allocate(self%f_hat(self%m(1)/2+1,self%m(2),self%m(3)))
       self%f_global = 0._R8P
       self%f_source = 0._R8P
       self%f_hat = (0._R8P, 0._R8P)
       call self%make_plans
+      if (self%isolated) call self%make_kernel
    endif
    self%is_initialized = .true.
    endsubroutine initialize
 
    subroutine solve(self, field, q, iv, factor, phi, energy)
-   !< Solve `L_h phi = factor (q(iv) - mean(q(iv)))`; every ghost layer of phi is filled by the periodic wrap.
+   !< Solve `L_h phi = factor (q(iv) - mean(q(iv)))` (periodic) or `L_h phi = factor q(iv)` with phi -> 0 at infinity
+   !< (isolated); every ghost layer of phi is filled from the global solution.
    class(poisson_fft_object), intent(inout)         :: self                       !< The solver.
    type(field_object),        intent(in)            :: field                      !< The field (coordinates).
    real(R8P),    intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)    !< Conservative [nv,i,j,k,nb].
@@ -224,8 +263,9 @@ contains
    endsubroutine solve
 
    subroutine solve_packed(self, field, buf, factor, phi, energy)
-   !< Solve `L_h phi = factor (f - mean(f))` from the packed interior source of this rank's blocks (block-major, `i`
-   !< fastest, `field%blocks_number * ni * nj * nk` values); every ghost layer of phi is filled by the periodic wrap.
+   !< Solve `L_h phi = factor (f - mean(f))` (periodic) or `L_h phi = factor f` (isolated) from the packed interior source
+   !< of this rank's blocks (block-major, `i` fastest, `field%blocks_number * ni * nj * nk` values); every ghost layer of
+   !< phi is filled from the global solution (the periodic wrap, or the padded free-space solution).
    class(poisson_fft_object), intent(inout)         :: self            !< The solver.
    type(field_object),        intent(in)            :: field           !< The field (block coordinates).
    real(R8P),                 intent(in)            :: buf(1:)         !< Packed interior source of this rank.
@@ -288,6 +328,7 @@ contains
    ! rank 0: place, transform, pack every block with its ghosts by the periodic wrap
    e = 0._R8P
    if (mpih%myrank == 0) then
+      if (self%isolated) self%f_global = 0._R8P ! the padding must hold no source
       c = 0
       do b=1, blocks_total
          do k=1, self%nijk(3)
@@ -306,11 +347,11 @@ contains
       c = 0
       do b=1, blocks_total
          do k=1-self%ngc, ub(3)
-            g(3) = modulo(coords_all(3,b)*self%nijk(3) + k - 1, self%n(3)) + 1
+            g(3) = modulo(coords_all(3,b)*self%nijk(3) + k - 1, self%m(3)) + 1
             do j=1-self%ngc, ub(2)
-               g(2) = modulo(coords_all(2,b)*self%nijk(2) + j - 1, self%n(2)) + 1
+               g(2) = modulo(coords_all(2,b)*self%nijk(2) + j - 1, self%m(2)) + 1
                do i=1-self%ngc, ub(1)
-                  g(1) = modulo(coords_all(1,b)*self%nijk(1) + i - 1, self%n(1)) + 1
+                  g(1) = modulo(coords_all(1,b)*self%nijk(1) + i - 1, self%m(1)) + 1
                   c = c + 1
                   buf_all(c) = self%f_global(g(1),g(2),g(3))
                enddo
@@ -340,6 +381,30 @@ contains
    endsubroutine solve_packed
 
    ! backend hooks
+   ! private methods
+   subroutine make_kernel(self)
+   !< Rank 0, isolated: place the kernel `h^2 G(o)` at every offset `o`, wrapped into `(-m/2, m/2]` per direction, and
+   !< keep its spectrum over `prod(m)` (`transform_kernel`).
+   class(poisson_fft_object), intent(inout) :: self    !< The solver.
+   integer(I4P)                             :: o(3)    !< Offset.
+   integer(I4P)                             :: i, j, k !< Counters.
+
+   do k=1, self%m(3)
+      o(3) = k - 1 ; if (o(3) > self%m(3) / 2) o(3) = o(3) - self%m(3)
+      do j=1, self%m(2)
+         o(2) = j - 1 ; if (o(2) > self%m(2) / 2) o(2) = o(2) - self%m(2)
+         do i=1, self%m(1)
+            o(1) = i - 1 ; if (o(1) > self%m(1) / 2) o(1) = o(1) - self%m(1)
+            self%f_global(i,j,k) = self%dxyz(1)**2 * lattice_green(o)
+         enddo
+      enddo
+   enddo
+   allocate(self%khat(self%m(1)/2+1,self%m(2),self%m(3)))
+   call self%transform_kernel
+   self%f_global = 0._R8P
+   endsubroutine make_kernel
+
+   ! backend hooks
    subroutine destroy_plans(self)
    !< Destroy the FFTW plans.
    class(poisson_fft_object), intent(inout) :: self !< The solver.
@@ -358,9 +423,9 @@ contains
 
 #ifdef _FFTW
    ! FFTW is row-major: the slowest dimension first
-   self%plan_r2c = fftw_plan_dft_r2c_3d(int(self%n(3), c_int), int(self%n(2), c_int), int(self%n(1), c_int), &
+   self%plan_r2c = fftw_plan_dft_r2c_3d(int(self%m(3), c_int), int(self%m(2), c_int), int(self%m(1), c_int), &
                                         self%f_global, self%f_hat, FFTW_ESTIMATE)
-   self%plan_c2r = fftw_plan_dft_c2r_3d(int(self%n(3), c_int), int(self%n(2), c_int), int(self%n(1), c_int), &
+   self%plan_c2r = fftw_plan_dft_c2r_3d(int(self%m(3), c_int), int(self%m(2), c_int), int(self%m(1), c_int), &
                                         self%f_hat, self%f_global, FFTW_ESTIMATE)
    if (.not.c_associated(self%plan_r2c) .or. .not.c_associated(self%plan_c2r)) &
       call mpih%error_stop(msg='poisson_fft_object%make_plans: FFTW could not make the plans')
@@ -371,7 +436,8 @@ contains
    endsubroutine make_plans
 
    subroutine transform(self, factor)
-   !< Rank 0: `f_global <- factor * L_h^-1 f_global`, the modes of zero eigenvalue (the mean) set to zero.
+   !< Rank 0: `f_global <- factor * L_h^-1 f_global`. Periodic: the modes of zero eigenvalue (the mean) set to zero;
+   !< isolated: the convolution with the kernel (`khat`).
    class(poisson_fft_object), intent(inout) :: self    !< The solver.
    real(R8P),                 intent(in)    :: factor  !< Source factor.
    real(R8P)                                :: scale   !< Factor over the unnormalised transform pair.
@@ -380,6 +446,11 @@ contains
 
 #ifdef _FFTW
    call fftw_execute_dft_r2c(self%plan_r2c, self%f_global, self%f_hat)
+   if (self%isolated) then
+      self%f_hat = self%f_hat * (factor * self%khat)
+      call fftw_execute_dft_c2r(self%plan_c2r, self%f_hat, self%f_global)
+      return
+   endif
    scale = factor / real(product(self%n), R8P)
    do k=1, self%n(3)
       do j=1, self%n(2)
@@ -398,4 +469,16 @@ contains
    call mpih%error_stop(msg='poisson_fft_object%transform: built without an FFT library')
 #endif
    endsubroutine transform
+
+   subroutine transform_kernel(self)
+   !< Rank 0, isolated: `khat <- FFT(f_global) / prod(m)`, real (the kernel is even in every direction).
+   class(poisson_fft_object), intent(inout) :: self !< The solver.
+
+#ifdef _FFTW
+   call fftw_execute_dft_r2c(self%plan_r2c, self%f_global, self%f_hat)
+   self%khat = real(self%f_hat, R8P) / real(product(self%m), R8P)
+#else
+   call mpih%error_stop(msg='poisson_fft_object%transform_kernel: built without an FFT library')
+#endif
+   endsubroutine transform_kernel
 endmodule adam_poisson_fft_object
