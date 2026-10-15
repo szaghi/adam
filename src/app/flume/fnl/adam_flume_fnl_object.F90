@@ -315,6 +315,8 @@ contains
          allocate(skin(self%nv,cells))
          call dev_memcpy_from_device(dst=skin, src=skin_gpu)
          call dev_free(skin_gpu, mydev)
+         ! the seam gravity work of self-gravity (issue #81, P5b); not in the one-evaluation D_flux diagnostic
+         if (.not.present(weight)) call self%add_seam_gravity_work(flux_register=flux_register, b=b, fec=fec, skin=skin)
          call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=w, skin=skin)
          deallocate(skin)
       enddo
@@ -636,7 +638,7 @@ contains
    row = integrals * factors
    if (self%physics%gravity%self_gravity) then
       call self%solve_potential_gpu(q_gpu=self%q_gpu, energy=w)
-      w = 0.5_R8P * w * product(self%poisson%dxyz)
+      w = 0.5_R8P * w
       row = [row, w * factors(IQ_RE), (integrals(IQ_RE) + w) * factors(IQ_RE)]
    endif
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
@@ -889,14 +891,15 @@ contains
    !< Solve the self-gravity potential of the device state `q_gpu` (issue #81, M8-P3): a device kernel packs the
    !< interior density, the host gathers it to rank 0 through the library solver (cuFFT on rank 0's GPU), and the
    !< potential, every ghost layer filled, comes back to `phi_grav` and, for the active blocks only, to the device
-   !< (`unpack_potential_dev`). Optionally the energy `sum_cells rho Phi` (every rank). The density and the potential
+   !< (`unpack_potential_dev`); on an AMR grid the multigrid solver runs on the host, its coarsest level on cuFFT
+   !< (P5b). Optionally the energy `sum_cells rho Phi dV` (every rank). The density and the potential
    !< cross the host every stage (gather to rank 0).
    !<
    !< Only the active blocks cross the bus: `phi_grav` is sized to the block capacity (23270 blocks against 16 in use
    !< on an A30 at 32^2), and copying it whole every stage cost 0.73 s per solve, 99.6% of the solve.
    class(flume_fnl_object), intent(inout)         :: self       !< The equation.
    real(R8P), intent(in) :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Device state (b, i, j, k, v).
-   real(R8P),               intent(out), optional :: energy     !< sum_cells rho Phi.
+   real(R8P),               intent(out), optional :: energy     !< sum_cells rho Phi dV.
    real(R8P), pointer                             :: buf_gpu(:) !< Packed density, then packed potential, device.
    real(R8P), allocatable                         :: buf(:)     !< Packed density, then packed potential, host.
    real(R8P)                                      :: t0         !< Wall clock at the start.
@@ -918,8 +921,7 @@ contains
                                          blocks_number=nb, q_gpu=q_gpu, buf_gpu=buf_gpu)
    allocate(buf(n))
    call dev_memcpy_from_device(dst=buf, src=buf_gpu)
-   call self%poisson%solve_packed(field=self%adam%field, buf=buf(1:max(n_rho,1_I4P)), &
-                                  factor=self%physics%gravity%four_pi_g, phi=self%phi_grav, energy=energy)
+   call self%solve_potential_packed(buf=buf(1:max(n_rho,1_I4P)), energy=energy)
    if (.not.associated(self%phi_grav_gpu)) then
       call self%copy_potential_gpu
    elseif (nb > 0_I4P) then

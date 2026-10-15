@@ -5,6 +5,7 @@
     jeans_oracle.py growth <work> [--t0 T0] [--t1 T1] [--tol T]
     jeans_oracle.py symmetry <work> [--tol T]
     jeans_oracle.py conservation <work> [<work> ...] [--tol-momentum M] [--min-order P] [--label NAME]
+    jeans_oracle.py compare <work_a> <work_b> [--tol T]
 
 The exact linear solution of a Jeans mode of [initial_conditions] (`sine-wave`, `wave_mode = jeans`) on the uniform
 state of region 1 under the self-gravity of [gravity] (`G` or `G_star`): with k = 2 pi / wavelength along
@@ -25,6 +26,8 @@ n = (cos a, sin a), the phase theta = k n . x and w^2 = c^2 k^2 - 4 pi G rho_0 (
   over |(E + W)(0)|) and the largest |momentum integral|, per run; with several runs of one case at decreasing CFL
   (each half the previous), the order of the E + W drift in dt. Exit 1 when a momentum exceeds `--tol-momentum` or
   the order of the finest pair is below `--min-order`.
+- `compare` (SV-10, issue #81 P5b): two runs of one case on one grid (the FFT and the multigrid solver), their density
+  at the last checkpoint, max |rho_a - rho_b| over rho_0 times the mode amplitude; exit 1 above `--tol`.
 """
 
 from __future__ import annotations
@@ -216,6 +219,25 @@ def conservation(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def compare(args: argparse.Namespace) -> int:
+    """SV-10: two runs of one case on one grid agree at the last checkpoint."""
+    dens = []
+    for work in (args.work_a, args.work_b):
+        ini = read_ini(work)
+        cps = checkpoints(work)
+        t, paths = cps[max(cps)]
+        dens.append((t, {tuple(round(float(x), 10) for x in c): q["r"] for c, _, q in interior(ini, paths)}))
+    jm = Jeans(read_ini(args.work_a))
+    (ta, ra), (tb, rb) = dens
+    same = ta == tb and ra.keys() == rb.keys()
+    diff = max(abs(ra[k] - rb[k]) for k in ra) / (jm.rho0 * jm.amplitude(ta)) if same else math.inf
+    ok = diff <= args.tol
+    print(f"   {args.work_a.name} against {args.work_b.name}: t = {ta:.4f}, {len(ra)} cells, max |rho_a - rho_b| / "
+          f"(rho_0 A) {diff:.2e}")
+    print(f"Jeans compare: {'PASS' if ok else 'FAIL'} (tol {args.tol:g})")
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Parse the command line and run the check."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -236,8 +258,12 @@ def main() -> int:
     p.add_argument("--tol-momentum", type=float, default=1.0e-14)
     p.add_argument("--min-order", type=float, default=2.5)
     p.add_argument("--label", default="Jeans", help="name of the case in the verdict line")
+    p = sub.add_parser("compare")
+    p.add_argument("work_a", type=Path)
+    p.add_argument("work_b", type=Path)
+    p.add_argument("--tol", type=float, default=1.0e-6)
     args = parser.parse_args()
-    checks = {"wave": wave, "growth": growth, "symmetry": symmetry, "conservation": conservation}
+    checks = {"wave": wave, "growth": growth, "symmetry": symmetry, "conservation": conservation, "compare": compare}
     return checks[args.check](args)
 
 

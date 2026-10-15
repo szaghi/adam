@@ -15,9 +15,21 @@
 #     drift of E + W, which only the time integration leaves: its order in dt >= MIN_DRIFT_ORDER (SSP-RK3);
 #   - SV-5, scaling covariance: the stable 2-D case written in the dimensional units L0 = 2^2, u0 = 2^-1, rho0 = 4^-2
 #     with a [reference] section (G converted with u0^2 / (rho0 L0^2)) equals the code-unit run bit for bit
-#     (scaling/reference.sh, NV-5).
+#     (scaling/reference.sh, NV-5);
+#   - SV-10 (issue #81, P5b), self-gravity on a static AMR grid (make_jeans.py --box: the central box, a quarter of the
+#     period from every face, refined once; the multigrid Poisson solver, and the seam gravity work in the reflux):
+#       - on a uniform grid, `poisson_solver = multigrid` equals `fft` (max |rho_mg - rho_fft| / (rho_0 A),
+#         TOL_COMPARE);
+#       - sv10-wave: the stable wave across the 2:1 seams, second order (>= MIN_ORDER) in 2-D (32^2 .. 128^2 base) and
+#         3-D (16^3, 32^3 base);
+#       - the unstable mode: growth rate (TOL_GROWTH) and mirror symmetry (TOL_SYMMETRY; the box is symmetric too);
+#       - the collapse at CFL 0.4, 0.2, 0.1: momentum (TOL_MOMENTUM) and the E + W drift converging in dt, order >=
+#         MIN_DRIFT_ORDER_AMR: the seam work makes the semi-discrete E + W exact, the end-of-step reflux leaves a
+#         first-order time error (without the seam work the drift does not converge in dt: order 0.07);
+#       - refused: isolated boundaries with the multigrid solver (so on AMR; issue #87), `poisson_solver = fft` on
+#         AMR.
 #
-# Usage: ./jeans.sh [--np N] [--legs "sv3-2d sv3-3d sv4 sv5"] [--keep]
+# Usage: ./jeans.sh [--np N] [--legs "sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave"] [--keep]
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft, mode flume-cpu-gnu-fft; FNL:
 # exe/adam_flume_fnl_fft, mode flume-fnl-nvf-fft). The caller owns the matching environment (FNL: nvhpc mpirun on PATH
@@ -28,13 +40,15 @@ CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 NP=2
-LEGS="sv3-2d sv3-3d sv4 sv5"
+LEGS="sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave"
 KEEP=0
 MIN_ORDER=1.8
 TOL_GROWTH=1.0e-2
 TOL_SYMMETRY=1.0e-9
 TOL_MOMENTUM=1.0e-14
 MIN_DRIFT_ORDER=2.5
+MIN_DRIFT_ORDER_AMR=0.8
+TOL_COMPARE=1.0e-6
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -78,6 +92,18 @@ run() { # run <name> <make_jeans arguments>: write and run one case
    fi
 }
 
+refuse() { # refuse <name> <expected message> <make_jeans arguments>: the run must stop, naming the cause
+   local name="$1" msg="$2" ; shift 2
+   case_dir "$name" "$@"
+   if (cd "$W" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
+      echo "   refusal, $name: accepted  FAIL" ; FAILED=1
+   elif grep -aq "$msg" "$W/log.txt"; then
+      echo "   refusal, $name: stops the run ($msg)  PASS"
+   else
+      echo "   refusal, $name: the run failed without the expected message, see $W/log.txt  FAIL" ; FAILED=1
+   fi
+}
+
 for leg in $LEGS; do
    case $leg in
       sv3-2d)
@@ -102,16 +128,42 @@ for leg in $LEGS; do
             "$VENV_PY" "$ORACLE" conservation "${ws[@]}" --tol-momentum "$TOL_MOMENTUM" \
                --min-order "$MIN_DRIFT_ORDER" || FAILED=1
          fi ;;
+      sv10)
+         echo ">> SV-10: self-gravity on a static AMR grid (the multigrid solver)"
+         if run sv10-fft jeans2d --cells 8 --solver fft && run sv10-mg jeans2d --cells 8 --solver multigrid; then
+            "$VENV_PY" "$ORACLE" compare "$CASE_DIR/work-$TAG-sv10-fft" "$CASE_DIR/work-$TAG-sv10-mg" \
+               --tol "$TOL_COMPARE" || FAILED=1
+         fi
+         if run sv10-linear jeansu2d --box --cells 16 --it-save 5; then
+            "$VENV_PY" "$ORACLE" growth "$W" --tol "$TOL_GROWTH" || FAILED=1
+            "$VENV_PY" "$ORACLE" symmetry "$W" --tol "$TOL_SYMMETRY" || FAILED=1
+         fi
+         ws=()
+         for cfl in 0.4 0.2 0.1; do run "sv10-collapse-$cfl" jeansc2d --box --cells 16 --cfl "$cfl" && ws+=("$W") ; done
+         if [[ ${#ws[@]} -eq 3 ]]; then
+            "$VENV_PY" "$ORACLE" conservation "${ws[@]}" --tol-momentum "$TOL_MOMENTUM" \
+               --min-order "$MIN_DRIFT_ORDER_AMR" --label "Jeans AMR" || FAILED=1
+         fi
+         refuse sv10-isolated 'not supported by the multigrid solver' jeans2d --solver multigrid --poisson-bc isolated
+         refuse sv10-fft-amr 'poisson_solver) = fft needs a uniform grid' jeans2d --box --solver fft ;;
+      sv10-wave)
+         echo ">> SV-10: the stable Jeans wave across 2:1 seams, 2-D and 3-D"
+         ws=()
+         for cells in 8 16 32; do run "sv10-2d-$cells" jeans2d --box --cells "$cells" && ws+=("$W") ; done
+         if [[ ${#ws[@]} -eq 3 ]]; then "$VENV_PY" "$ORACLE" wave "${ws[@]}" --min-order "$MIN_ORDER" || FAILED=1 ; fi
+         ws=()
+         for cells in 8 16; do run "sv10-3d-$cells" jeans3d --box --cells "$cells" && ws+=("$W") ; done
+         if [[ ${#ws[@]} -eq 2 ]]; then "$VENV_PY" "$ORACLE" wave "${ws[@]}" --min-order "$MIN_ORDER" || FAILED=1 ; fi ;;
       sv5)
          echo ">> SV-5: scaling covariance with G"
          case_dir sv5-input jeans2d --cells 8 --time-max 0.2
          FLUME_EXE="$EXE" "$CASE_DIR/../scaling/reference.sh" --np "$NP" --inputs "$W/input.ini" || FAILED=1 ;;
       *)
-         echo "jeans.sh: unknown leg '$leg' (accepted: sv3-2d, sv3-3d, sv4, sv5)" >&2 ; exit 2 ;;
+         echo "jeans.sh: unknown leg '$leg' (accepted: sv3-2d, sv3-3d, sv4, sv5, sv10, sv10-wave)" >&2 ; exit 2 ;;
    esac
 done
 if [[ $KEEP -eq 0 && $FAILED -eq 0 ]]; then rm -rf "${WORKS[@]}" ; fi
 if [[ $FAILED -ne 0 ]]; then
-   echo "SV-3..5 FAILED ($TAG)" ; exit 1
+   echo "SV-3..5, SV-10 FAILED ($TAG)" ; exit 1
 fi
-echo "SV-3..5 PASSED ($TAG)"
+echo "SV-3..5, SV-10 PASSED ($TAG)"

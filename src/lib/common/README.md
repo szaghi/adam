@@ -321,13 +321,16 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 
 | Procedure | Role |
 |-----------|------|
-| `initialize(grid, field, tolerance, max_iterations)` | Gather the leaf list (every rank), derive the level hierarchy, assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the coarsest-level FFT solver |
+| `initialize(grid, field, tolerance, max_iterations, coarse)` | Gather the leaf list (every rank), derive the level hierarchy, assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the coarsest-level FFT solver, of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise |
 | `solve(field, q, iv, factor, phi, energy)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi` |
 | `solve_packed(field, buf, factor, phi, energy)` | The same from the packed interior source |
 | `symmetry_defect(x, y)`, `apply_a(x, y)` | Verification: `|x.Ay - y.Ax| / (|x| |Ay|)` and `y = A x` on the leaves |
 | `destroy()` | Free everything |
 
-- **Solver:** flexible CG (Notay's FCG(1)), stopping on the relative max-norm residual (`tolerance`, default `1e-10`).
+- **Solver:** flexible CG (Notay's FCG(1)), stopping on the relative max-norm residual: `tolerance` (default `1e-10`)
+  or, when the source's mean dominates it, its round-off floor `100 eps max|factor f| / max|factor (f - mean f)|` (a
+  `1e-6` perturbation of a uniform density is known to `1e-10` of itself; without the floor every solve ran to the cap,
+  #81 P5b); `tolerance_used` keeps the one applied, and reaching `max_iterations` (200) above it prints a warning.
   The V-cycle runs over levels holding the leaves and a **shadow** block per refined node (ADAM keeps leaves only);
   red-black Gauss-Seidel (2 sweeps down, 2 up), restriction by sum, piecewise-constant prolongation, the coarsest level
   (the minimum leaf level: the whole domain) solved by `adam_poisson_fft_object%solve_blocks`. Diagnostics after a
@@ -338,7 +341,8 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
   (`MPI_ALLTOALLV`); every rank owns its leaves' rows and the shadows whose first leaf it owns. Correct for any rank
   count (results equal to round-off across rank counts); not tuned for speed.
 - **Scope (fatal otherwise):** every active direction periodic (isolated boundaries on AMR: #81 P5b); 2:1 balance across
-  faces; fewer than `2^19` cells per direction at the finest level. CPU only (the FNL path: P5b/P5c).
+  faces; fewer than `2^19` cells per direction at the finest level. Host code: FLUME's FNL backend runs it on the host
+  with a cuFFT coarsest level (#81 P5b).
 - **Build:** as `adam_poisson_fft_object` (`-D_FFTW`, not re-exported by `adam_common_library`; mode
   `test-poisson-mg-gnu`).
 - **Verification:** SV-9, `src/tests/poisson/test_poisson_mg.F90`, driven by

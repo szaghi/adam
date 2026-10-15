@@ -2629,6 +2629,60 @@ and the truncation is bounded.
 Run with `make_doc_runs.sh <dir> amr` (it needs `exe/test_poisson_mg`) and `make_doc_figures.py --only
 selfgravity-amr`, which also runs `seam_operators.py`.
 
+### SV-10 (P5b): self-gravity on a static AMR grid
+
+**Why.** On an AMR grid three things change in self-gravity:
+- the potential comes from the multigrid solver of SV-9;
+- the face gravity at the 2:1 faces is that solver's first-order mean-flux gradient;
+- the energy exchange needs the seam gravity work carried by the reflux ([models](./models#self-gravity)).
+
+The Jeans modes of SV-3 and SV-4 check the coupling, now with a 2:1 seam the wave crosses on every side of the refined
+box.
+
+**The cases.** `make_jeans.py --box` refines the central box (a quarter of the period from every face) once more. The
+symmetry of the unstable mode survives, because the box is symmetric about the point the oracle reflects through. The
+legs are `jeans.sh` legs `sv10` and `sv10-wave`:
+
+| | |
+|---|---|
+| Physics | as SV-3 / SV-4: $\rho_0 = 1$, $c = 1$, $\gamma = 5/3$, $\mathbf k = 2\pi(1, 1)$, periodic; the stable wave $\lambda = \lambda_J/2$, the unstable mode $\lambda = 1.5\lambda_J$ |
+| Grids | base $32^2$, $64^2$, $128^2$ (2-D) and $16^3$, $32^3$ (3-D), the box at twice the resolution; `poisson_solver = auto` picks the multigrid |
+| Ranks, backends | 2; CPU and FNL (the multigrid runs on the host, its coarsest level on cuFFT) |
+
+| Asserted | Bound | CPU | FNL (WSL GPU) |
+|---|---|---|---|
+| on a uniform $32^2$ grid, `poisson_solver = multigrid` against `fft`, $\max\lvert\rho_{mg} - \rho_{fft}\rvert / (\rho_0A)$ after one period | 10⁻⁶ | 3.8·10⁻⁹ | 2.7·10⁻⁹ |
+| stable wave, order of the L1 error, finest pair, 2-D | ≥ 1.8 | 1.98 (1.97, 1.98) | 1.98 |
+| the same, 3-D ($16^3 \to 32^3$) | ≥ 1.8 | 2.00 | 2.00 |
+| unstable mode (base $64^2$), growth rate, relative error | 10⁻² | 5.8·10⁻⁴ | 5.8·10⁻⁴ |
+| its mirror symmetry at t = 0.5 | 10⁻⁹ | 5.7·10⁻¹¹ | 4.7·10⁻¹¹ |
+| collapse (amplitude 10⁻², base $64^2$, t = 0.4), max \|momentum\| | 10⁻¹⁴ | 3.5·10⁻¹⁸ | 6.9·10⁻¹⁸ |
+| its E + W drift at CFL 0.4, 0.2, 0.1, order of the finest pair | ≥ 0.8 | 8.8·10⁻⁸, 3.1·10⁻⁸, 1.4·10⁻⁸ (1.50, 1.16) | the same to 3 digits |
+| isolated boundaries with the multigrid solver; `poisson_solver = fft` on AMR | refused, exit 1 | refused | refused |
+
+Findings:
+- **The seam gravity work makes the energy exchange exact in space.** A run with the work switched off (a temporary
+  ablation build, not a leg) drifts by $1.03\cdot10^{-5}$, $9.8\cdot10^{-6}$, $9.6\cdot10^{-6}$ at the three CFL
+  numbers, orders 0.07 and 0.02. That is a spatial leak at the seams, which no dt removes. With the work the drift is
+  12 times smaller at CFL 0.4 and converges in dt.
+- **On AMR the drift is first order in dt, not third.** The reflux corrects the coarse cells at the end of the step,
+  and the stages in between advance them with their own seam fluxes. On a uniform grid (SV-4) the order is that of
+  SSP-RK3. A per-stage reflux would restore it.
+- **The multigrid's stopping rule needed a round-off floor.** With a $10^{-6}$ mode on a unit density the source is
+  known to $10^{-16}/10^{-6} = 10^{-10}$ of itself. The $10^{-10}$ relative tolerance was unreachable, and every solve
+  ran to the 200-iteration cap. The solver now stops at $\max(10^{-10},\ 100\,\epsilon\max\lvert4\pi G\rho\rvert/
+  \max\lvert4\pi G(\rho - \bar\rho)\rvert)$ and warns if it hits the cap.
+- **The AMR wave is more accurate than the uniform one at the same base N.** At base $32^2$ the L1 error is
+  $1.9\cdot10^{-3}$ against $2.1\cdot10^{-3}$, because the box adds resolution. The first-order seam gravity shows in
+  no norm the legs measure.
+
+![SV-10: the wave error on AMR against N, the drift of E + W in the collapse, the collapse density on the composite grid](/flume/selfgravity-amr-jeans.png)
+
+**Left:** the L1 error of the stable wave falls at second order across the seams. **Middle:** in the collapse, E and W
+trade 17 % of $\lvert E + W\rvert$ while $E + W$ drifts by about $10^{-7}$; the drift falls 2.8 and then 2.2 times per
+halving of the CFL number. **Right:** the collapse density at t = 0.4 on the composite grid; the refined blocks are the
+central box. Run with `make_doc_runs.sh <dir> amr` and `make_doc_figures.py --only selfgravity-amr-jeans`.
+
 ## Ranks without blocks (DV-1)
 
 **Why.** The tree never splits a family of sibling blocks across ranks. `tree%mpi_redistribute` cuts the Morton-ordered

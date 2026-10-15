@@ -28,12 +28,14 @@
 #           atmosphere, the positivity limiter) to t = 2; sv8-collapse-{0.4,0.2,0.1}, the collapsing star, a checkpoint
 #           every 10 steps (JEANS_EXE, default exe/adam_flume_cpu_fft) (6 runs, about 60 min: sv7-l3 takes 45)
 #   amr     sv9-poisson: the SV-9 unit test of the multigrid Poisson solver on AMR grids (#81, P5a; POISSON_MG_EXE,
-#           default exe/test_poisson_mg, mode test-poisson-mg-gnu) with its log (1 run, under a minute)
+#           default exe/test_poisson_mg, mode test-poisson-mg-gnu) with its log; the SV-10 Jeans cases on the
+#           box-refined grid (#81, P5b; JEANS_EXE): sv10-2d-{8,16,32}, the stable wave, sv10-uniform-{8,16,32}, the
+#           same on the uniform grid, and sv10-collapse-{0.4,0.2,0.1}, the collapse (10 runs, about 25 min)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
 #        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
-#        isolated: --only selfgravity-isolated selfgravity-star; amr: --only selfgravity-amr)
+#        isolated: --only selfgravity-isolated selfgravity-star; amr: --only selfgravity-amr selfgravity-amr-jeans)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
 #        [jeans] [isolated] [amr] (default: all twelve)
@@ -254,7 +256,20 @@ for g in $GROUPS_; do
             echo "   $(basename "$W"): done"
          else
             echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
-         fi ;;
+         fi
+         JEANS_EXE="${JEANS_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
+         amr_jeans() { # amr_jeans <case dir> <make_jeans arguments>: one Jeans case (with --box: the box-refined grid)
+            fresh "$1" ; shift
+            python3 -I "$VERIF_DIR/selfgravity/make_jeans.py" "$W/input.ini" "$@"
+            if (cd "$W" && mpirun -np "$NP" "$JEANS_EXE" input.ini > log.txt 2>&1); then
+               echo "   $(basename "$W"): done"
+            else
+               echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+            fi
+         }
+         for cells in 8 16 32; do amr_jeans "sv10-2d-$cells" jeans2d --cells "$cells" --box ; done
+         for cells in 8 16 32; do amr_jeans "sv10-uniform-$cells" jeans2d --cells "$cells" ; done
+         for cfl in 0.4 0.2 0.1; do amr_jeans "sv10-collapse-$cfl" jeansc2d --cells 16 --cfl "$cfl" --box ; done ;;
    esac
 done
 exit $FAILED

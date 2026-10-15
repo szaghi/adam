@@ -550,11 +550,11 @@ no gravity and nothing changes.
 | `axis` | string | with `froude` | `+x`, `-x`, `+y`, `-y`, `+z`, `-z`; other → fatal | The signed direction of $\mathbf g$. |
 | `equilibrium` | string | no (default `none`) | `none` or `atmosphere`; other → fatal. `atmosphere` needs an `isothermal-atmosphere`, `polytropic-atmosphere` or `rayleigh-taylor` initial condition, and is fatal with `[numerics] reflux_policy = troubled` and on multi-realm runs | The well-balanced mode (M7-G2b): the initial atmosphere at rest (zero velocity, region 1's field, no pulse or seed) is kept to round-off. See below. |
 | `potential` | string | no (default `uniform`) | `uniform` or `linear`; other → fatal. `linear` is fatal with `equilibrium = atmosphere` and with `self_gravity` | How g reaches the sources. `uniform`: the constant acceleration in every kernel, with the fourth-order energy source. `linear` ([#81](https://github.com/szaghi/adam/issues/81), M8-P1): the same field written as the cell potential Φ = −g·x and applied through the potential path of self-gravity (face gravity −ΔΦ/Δx, second order); a test of that path ([SV-1](./verification#sv-1-p1-gravity-from-a-cell-potential)). |
-| `self_gravity` | logical | no (default `.false.`) | with it: `equilibrium = atmosphere`, `potential = linear`, multi-realm runs, `[amr] frequency > 0`, immersed solids, a non-uniform grid (initial AMR) and a build without an FFT library (the `*-fft` modes) are fatal, and so are the boundaries `poisson_bc` cannot hold (below) | Self-gravity (M8-P3): $L_h\Phi = 4\pi G(\rho - \bar\rho)$ (periodic) or $L_h\Phi = 4\pi G\rho$, $\Phi \to 0$ at infinity (isolated, M8-P4), solved every Runge–Kutta stage, applied through the potential path. See below. |
+| `self_gravity` | logical | no (default `.false.`) | with it: `equilibrium = atmosphere`, `potential = linear`, multi-realm runs, `[amr] frequency > 0` (runtime AMR: #81 P5c), immersed solids and a build without an FFT library (the `*-fft` modes) are fatal, and so are the boundaries `poisson_bc` cannot hold (below) | Self-gravity (M8-P3): $L_h\Phi = 4\pi G(\rho - \bar\rho)$ (periodic) or $L_h\Phi = 4\pi G\rho$, $\Phi \to 0$ at infinity (isolated, M8-P4), solved every Runge–Kutta stage, applied through the potential path. See below. |
 | `G` | real | one of `G`, `G_star` with `self_gravity` | `> 0`, otherwise fatal; fatal without `self_gravity`, and together with `G_star` | The gravitational constant. Dimensional with [`[reference]`](#reference-optional-dimensional-input). |
 | `G_star` | real | the other form | as `G` | The number $G\rho_0L_0^2/u_0^2$; not converted by `[reference]`. |
-| `poisson_solver` | string | no (default `fft`) | `fft`; other → fatal | The Poisson solver: the library FFT solver (FFTW on the CPU, cuFFT on FNL). Multigrid on AMR is #81 P5. |
-| `poisson_bc` | string | no (default `periodic`) | `periodic` or `isolated`; other → fatal. `periodic` is fatal with a non-periodic active direction; `isolated` is fatal in 2-D, with a periodic direction and with non-cubic cells | `periodic`: every active direction periodic, the mean density removed. `isolated` (M8-P4): the free-space potential of the mass on the grid (Hockney–Eastwood zero padding with the lattice Green's function of $L_h$); the fluid boundaries are the `[bc_*]` ones, e.g. `wall-inviscid` for a closed box. |
+| `poisson_solver` | string | no (default `auto`) | `auto`, `fft` or `multigrid`; other → fatal. `fft` is fatal on an AMR grid | `auto`: the FFT solver on a uniform grid, the multigrid solver on an AMR grid (leaves at more than one level, M8-P5b). `fft`: the library FFT solver only (FFTW on the CPU, cuFFT on FNL). `multigrid`: the multigrid solver on any grid (periodic only), a check against `fft` on a uniform one. |
+| `poisson_bc` | string | no (default `periodic`) | `periodic` or `isolated`; other → fatal. `periodic` is fatal with a non-periodic active direction; `isolated` is fatal in 2-D, with a periodic direction, with non-cubic cells and with the multigrid solver (on AMR grids: [#87](https://github.com/szaghi/adam/issues/87)) | `periodic`: every active direction periodic, the mean density removed. `isolated` (M8-P4): the free-space potential of the mass on the grid (Hockney–Eastwood zero padding with the lattice Green's function of $L_h$); the fluid boundaries are the `[bc_*]` ones, e.g. `wall-inviscid` for a closed box. |
 
 Giving `g_*` together with `froude` is fatal, as is a section with neither (unless `self_gravity`, where $\mathbf g$
 defaults to 0).
@@ -601,6 +601,17 @@ With `self_gravity` ([models](./models#self-gravity)):
   summed over the source, $2\cdot10^{-11}$ of $4\pi G\rho$ at $64^3$, and the ghosts beyond the domain hold the
   free-space potential. The solve is serial on rank 0 and, on FNL, the density and $\Phi$ cross the host every stage:
   correct, not scalable;
+- on an AMR grid (M8-P5b) the multigrid solver (`adam_poisson_mg_object`) solves the composite Laplacian, whose 2:1
+  faces carry the mimetic mean flux (symmetric and consistent; [SV-9](./verification#sv-9-p5a-the-poisson-solver-on-amr-grids)):
+  flexible CG preconditioned by a V-cycle, its coarsest level solved by the FFT solver of the backend; on FNL it runs
+  on the host. The face gravity at a 2:1 face is the mean-flux one on both sides (first order there, the potential
+  second order), and the gravity work across each seam rides on the reflux (below), so $E + W$ stays exact in the
+  semi-discrete form;
+- across a 2:1 face the reflux, which corrects the coarse cells once at the end of the step, also hands the coarse cell
+  the seam's gravity work, so that summed over the cells the energy sources equal $-\dot W$ exactly. Its stages,
+  though, advance the coarse cells with their own seam fluxes: on AMR the drift of $E + W$ is first order in
+  $\Delta t$, not of the Runge–Kutta order (SV-10). `reflux = .false.` or `reflux_policy = troubled` leave the work
+  uncorrected where they leave the flux;
 - the conservation history gains the columns `W` $= \tfrac12\sum\rho\Phi\,dV$ and `E_plus_W`, the energy the scheme
   conserves (each row solves $\Phi$ from the committed state);
 - the first step logs $G$, the free-fall time $t_{ff} = \sqrt{3\pi/(32G\rho_{\max})}$ of the densest cell, $\Delta t/t_{ff}$

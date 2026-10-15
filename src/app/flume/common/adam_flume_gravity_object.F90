@@ -20,8 +20,10 @@ module adam_flume_gravity_object
 !< never ignored.
 !<
 !< **Self-gravity** (issue #81, M8-P3): `self_gravity = .true.` solves `L_h Phi = 4 pi G (rho - mean rho)` every
-!< Runge-Kutta stage (the library FFT solver, `poisson_solver = fft`; `poisson_bc = periodic`: every active direction
-!< periodic, the grid uniform) and applies it through the potential path. `poisson_bc = isolated` (M8-P4) solves
+!< Runge-Kutta stage and applies it through the potential path. `poisson_solver`: `auto` (default) the library FFT solver
+!< on a uniform grid and the multigrid solver on an AMR grid (P5b), `fft` the FFT solver only (an AMR grid is fatal),
+!< `multigrid` the multigrid solver on any grid (periodic only); `poisson_bc = periodic`: every active direction
+!< periodic. `poisson_bc = isolated` (M8-P4) solves
 !< `L_h Phi = 4 pi G rho` with `Phi -> 0` at infinity instead (zero padding and the lattice Green's function: 3-D,
 !< every direction non-periodic, cubic cells; the solver refuses anything else). The constant is `G` (dimensional: the
 !< `[reference]` layer converts it, dimension `u0^2 / (rho0 L0^2)`) or `G_star` (the number `G rho0 L0^2 / u0^2`, never
@@ -47,6 +49,7 @@ implicit none
 private
 public :: flume_gravity_object
 public :: EQUILIBRIUM_ATMOSPHERE, EQUILIBRIUM_NONE
+public :: POISSON_SOLVER_AUTO, POISSON_SOLVER_FFT, POISSON_SOLVER_MULTIGRID
 
 character(len=7), parameter :: INI_SECTION_NAME="gravity"                  !< INI section name.
 character(len=3), parameter :: G_KEY(3)=['g_x', 'g_y', 'g_z']              !< Acceleration component keys.
@@ -55,7 +58,9 @@ character(len=4),  parameter :: EQUILIBRIUM_NONE="none"                    !< `e
 character(len=10), parameter :: EQUILIBRIUM_ATMOSPHERE="atmosphere"        !< `equilibrium`: the initial atmosphere.
 character(len=7), parameter :: POTENTIAL_UNIFORM="uniform"                 !< `potential`: constant acceleration.
 character(len=6), parameter :: POTENTIAL_LINEAR="linear"                   !< `potential`: `Phi = -g . x` (M8-P1).
+character(len=4), parameter :: POISSON_SOLVER_AUTO="auto"                  !< `poisson_solver`: FFT if uniform, else MG.
 character(len=3), parameter :: POISSON_SOLVER_FFT="fft"                    !< `poisson_solver`: the FFT solver (M8-P2).
+character(len=9), parameter :: POISSON_SOLVER_MULTIGRID="multigrid"        !< `poisson_solver`: the multigrid (P5b).
 character(len=8), parameter :: POISSON_BC_PERIODIC="periodic"              !< `poisson_bc`: periodic (mean removed).
 character(len=8), parameter :: POISSON_BC_ISOLATED="isolated"              !< `poisson_bc`: isolated (issue #81, P4).
 real(R8P),        parameter :: PI=acos(-1._R8P)                            !< Pi.
@@ -73,7 +78,7 @@ type :: flume_gravity_object
    logical                   :: self_gravity=.false.  !< Self-gravity on (M8-P3).
    real(R8P)                 :: grav_const=0._R8P     !< Gravitational constant G, code units (self-gravity).
    real(R8P)                 :: four_pi_g=0._R8P      !< 4 pi G, the source factor of the Poisson equation.
-   character(:), allocatable :: poisson_solver        !< Poisson solver: fft.
+   character(:), allocatable :: poisson_solver        !< Poisson solver: auto, fft or multigrid.
    character(:), allocatable :: poisson_bc            !< Poisson boundary conditions: periodic or isolated.
    logical                   :: isolated=.false.      !< `poisson_bc = isolated` (M8-P4).
    contains
@@ -127,7 +132,7 @@ contains
    self%self_gravity = .false.
    self%grav_const = 0._R8P
    self%four_pi_g = 0._R8P
-   self%poisson_solver = POISSON_SOLVER_FFT
+   self%poisson_solver = POISSON_SOLVER_AUTO
    self%poisson_bc = POISSON_BC_PERIODIC
    self%isolated = .false.
    self%is_active = file_parameters%has_section(section_name=INI_SECTION_NAME)
@@ -196,9 +201,11 @@ contains
       if (.not.(self%grav_const > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(G, G_star) must be '// &
                                                                     'positive')
       self%four_pi_g = 4._R8P * PI * self%grav_const
-      if (self%poisson_solver /= POISSON_SOLVER_FFT) &
+      if (self%poisson_solver /= POISSON_SOLVER_AUTO .and. self%poisson_solver /= POISSON_SOLVER_FFT .and. &
+          self%poisson_solver /= POISSON_SOLVER_MULTIGRID)                                                &
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(poisson_solver) "'//self%poisson_solver// &
-                                  '"; expected '//POISSON_SOLVER_FFT)
+                                  '"; expected '//POISSON_SOLVER_AUTO//', '//POISSON_SOLVER_FFT//' or '//        &
+                                  POISSON_SOLVER_MULTIGRID)
       if (self%poisson_bc /= POISSON_BC_PERIODIC .and. self%poisson_bc /= POISSON_BC_ISOLATED) &
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(poisson_bc) "'//self%poisson_bc// &
                                   '"; expected '//POISSON_BC_PERIODIC//' or '//POISSON_BC_ISOLATED)

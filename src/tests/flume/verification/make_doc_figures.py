@@ -1784,6 +1784,79 @@ def fig_selfgravity_amr(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_selfgravity_amr_jeans(out: Path, runs: Path) -> None:
+    """SV-10 (issue #81, M8-P5b): self-gravity on a static AMR grid, the Jeans cases of selfgravity/make_jeans.py with
+    `--box` (the central box refined once: 2:1 seams the wave crosses; the multigrid solver, the seam gravity work in the
+    reflux; CPU, 2 ranks). Left: the L1 error of the stable wave after one period against the base N (the box has twice
+    the resolution), and the same wave on the uniform grid of the base N. Middle: the collapse (amplitude 1e-2,
+    base 64^2), the drift of E + W at CFL 0.4, 0.2, 0.1, with E and W alone. Right: the collapse density at t = 0.4 on
+    the composite grid, the block outlines drawn."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import jeans_oracle  # noqa: PLC0415
+
+    fig, axs = plt.subplots(1, 3, figsize=(16.0, 4.9), constrained_layout=True, width_ratios=(1.0, 1.0, 1.1))
+    ax = axs[0]
+    for label, tag, color, mk in (("AMR, box refined once", "sv10-2d", "tab:blue", "o"),
+                                  ("uniform", "sv10-uniform", "0.5", "s")):
+        works = [runs / f"{tag}-{c}" for c in (8, 16, 32)]
+        if not all(w.is_dir() for w in works):
+            continue
+        n = np.array([32.0, 64.0, 128.0])
+        err = np.array([jeans_oracle.wave_error(w)[1] for w in works])
+        ax.loglog(n, err, f"{mk}-", color=color, mfc="none", ms=8,
+                  label=f"{label}: order {math.log2(err[-2] / err[-1]):.2f}")
+    ns = np.array([32.0, 128.0])
+    ax.loglog(ns, 8e-4 * (32.0 / ns) ** 2, "-", color="0.6", lw=0.8)
+    ax.annotate("dx^2", (64.0, 8e-4 * 0.25), xytext=(0, -12), textcoords="offset points", fontsize=8, color="0.4")
+    ax.set_xlabel("base N (cells per side)")
+    ax.set_ylabel("L1 rho / (rho_0 A) after one period")
+    ax.legend(fontsize=8)
+    ax.set_title("the stable wave across the 2:1 seams: second order", fontsize=10)
+    ax = axs[1]
+    for cfl, color in (("0.4", "tab:blue"), ("0.2", "tab:orange"), ("0.1", "tab:green")):
+        h = jeans_oracle.history(runs / f"sv10-collapse-{cfl}")
+        ew0 = h["E_plus_W"][0]
+        ax.semilogy(h["time"][1:], np.maximum(np.abs(h["E_plus_W"][1:] - ew0) / abs(ew0), FLOOR), "-", color=color,
+                    label=f"E + W, CFL {cfl}")
+        if cfl == "0.1":
+            ax.semilogy(h["time"][1:], np.abs(h["int_rE"][1:] - h["int_rE"][0]) / abs(ew0), "--", color="0.4",
+                        label="E alone")
+            ax.semilogy(h["time"][1:], np.abs(h["W"][1:] - h["W"][0]) / abs(ew0), ":", color="0.4", label="W alone (on E alone)")
+    ax.set_xlabel("t")
+    ax.set_ylabel("relative change")
+    ax.legend(fontsize=8)
+    ax.set_title("the collapse: E + W drifts at first order in dt", fontsize=10)
+    ax = axs[2]
+    col = runs / "sv10-collapse-0.1"
+    ini = jeans_oracle.read_ini(col)
+    ngc = int(ini["grid"]["ngc"])
+    cps = jeans_oracle.checkpoints(col)
+    tc, paths = cps[max(cps)]
+    rmin, rmax = math.inf, -math.inf
+    blocks = []
+    for path in paths:
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                origin, dxyz = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                r = h5[f"{blk}-r"][()].transpose(2, 1, 0)[ngc:-ngc, ngc:-ngc, 0]
+                rmin, rmax = min(rmin, float(r.min())), max(rmax, float(r.max()))
+                x0, y0 = origin[0] + ngc * dxyz[0], origin[1] + ngc * dxyz[1]
+                blocks.append((x0, y0, r.shape[0] * dxyz[0], r.shape[1] * dxyz[1], r))
+    for x0, y0, wx, wy, r in blocks:
+        im = ax.imshow(r.T, origin="lower", extent=(x0, x0 + wx, y0, y0 + wy), cmap="magma", vmin=rmin, vmax=rmax)
+        ax.add_patch(Rectangle((x0, y0), wx, wy, fill=False, lw=0.4, ec="w", alpha=0.6))
+    lo = float(ini["grid"]["emin_x"])
+    ax.set_xlim(lo, lo + 1.0)
+    ax.set_ylim(lo, lo + 1.0)
+    fig.colorbar(im, ax=ax, shrink=0.85)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title(f"the collapse density at t = {tc:.2f}, {len(blocks)} blocks (max {rmax:.3f})", fontsize=10)
+    fig.suptitle("SV-10: Jeans modes under self-gravity on a static AMR grid, the multigrid solver (CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-amr-jeans.png", dpi=DPI)
+    plt.close(fig)
+
+
 def _rank_blocks(paths: list[Path]) -> dict[int, int]:
     """Blocks of each rank in one checkpoint (rank -> count), from the per-rank files."""
     out = {}
@@ -1809,7 +1882,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-jeans": fig_selfgravity_jeans,
            "selfgravity-isolated": fig_selfgravity_isolated,
            "selfgravity-star": fig_selfgravity_star,
-           "selfgravity-amr": fig_selfgravity_amr}
+           "selfgravity-amr": fig_selfgravity_amr, "selfgravity-amr-jeans": fig_selfgravity_amr_jeans}
 
 
 def main() -> int:

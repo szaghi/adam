@@ -219,9 +219,10 @@ $L_h\Phi = 4\pi G(\rho - \bar\rho)$ (periodic) or $L_h\Phi = 4\pi G\rho$ (isolat
 in 2-D, periodic only), and enters through the potential path above (face gravity, cell gravity, the energy from the
 face mass fluxes).
 
-**What is conserved, and why.** Both solvers are linear and symmetric, $\Phi = 4\pi G\,K\rho$ with $K = K^T$: the
-periodic one inverts $L_h$ on the zero-mean modes, the isolated one convolves with an even kernel. Summed over the
-cells, the energy source is $\sum_i\Phi_i\,(\nabla\cdot F^\rho)_i V = -\sum\Phi\,\dot\rho\,V$, and
+**What is conserved, and why.** The solvers are linear and symmetric, $\Phi = 4\pi G\,K\rho$ with $K = K^T$ ($VK$
+symmetric on AMR, below): the periodic one inverts $L_h$ on the zero-mean modes, the isolated one convolves with an
+even kernel. Summed over the cells, the energy source is
+$\sum_i\Phi_i\,(\nabla\cdot F^\rho)_i V = -\sum\Phi\,\dot\rho\,V$, and
 $\dot W = \tfrac12\tfrac{d}{dt}(\rho^T K\rho) = \Phi^T\dot\rho$ because $K$ is symmetric: the semi-discrete scheme
 conserves $E + W$, $W = \tfrac12\sum\rho\Phi\,V$, exactly (with periodic boundaries or closed walls, where no mass
 flux crosses the boundary). The momentum source $-\sum\rho\,\bar g\,V$ vanishes because the centred difference of an
@@ -232,8 +233,37 @@ correction (M7-G1) breaks the exchange wherever it acts.
 
 The coupling is second order in space whatever the WENO order. A linear Jeans mode obeys
 $\omega^2 = c^2k^2 - 4\pi G\rho_0$: it oscillates above the Jeans length $\lambda_J = c\sqrt{\pi/(G\rho_0)}$ and grows
-below it; an n = 1 polytrope star is an isolated equilibrium ([verification](./verification#self-gravity-m8)). Uniform
-grids only, for now (AMR: #81 P5).
+below it; an n = 1 polytrope star is an isolated equilibrium ([verification](./verification#self-gravity-m8)).
+
+**On AMR grids** (M8-P5b, periodic only; isolated boundaries on AMR: [#87](https://github.com/szaghi/adam/issues/87)),
+$L_h$ is the composite Laplacian of the leaves. Across a 2:1 face it carries the **mimetic mean flux**: every fine
+face $f$ of a coarse cell C carries $\tfrac23 w\,(\bar\Phi_f - \Phi_C)$, where $\bar\Phi_f$ is the mean of the face's
+fine cells and $w$ is the fine face area over the fine spacing, and C receives the sum of these fluxes. The operator is
+symmetric in the volume-weighted form, so $\Phi = 4\pi G\,K\rho$ with $VK$ symmetric, and it is consistent (exact for
+linear $\Phi$ face by face). [SV-9](./verification#sv-9-p5a-the-poisson-solver-on-amr-grids) explains why the simpler
+couplings fail one property or the other.
+
+Both sides of the seam see the same face gravity, $-(\bar\Phi_f - \Phi_C)/(1.5h)$, which is first order there. The
+energy sources, however, need the two-point work. For $E + W$ to telescope, the seam's sources must sum to
+$\sum_f A_fF^\rho_f(\Phi_C - \Phi_f)$ (with the sign of the mass flux), and the two kernels give
+$\sum_f A_fF^\rho_f(\Phi_C - \bar\Phi_f)$ instead. The difference, $\sum_f A_fF^\rho_f(\bar\Phi_f - \Phi_f)$, is small
+($\sum_f(\bar\Phi_f - \Phi_f) = 0$) but not zero.
+
+It rides on the reflux. Every stage adds to the flux register's energy entry:
+- the coarse side: its own seam source, taken back;
+- the fine side: the exact two-point work less the fine cell's own source.
+
+The end-of-step correction then gives the coarse cell exactly the missing work. The semi-discrete $E + W$ is exact
+again, the fine cells keep the consistent gravity, and the coarse cell next to the seam takes an $O(h)$ local error.
+
+The fully discrete exchange is first order in $\Delta t$, not of the Runge–Kutta order. The reflux corrects the
+coarse cells only at the end of the step, so its stages advance them with their own seam fluxes, an $O(\Delta t)$
+inconsistency per step. Measured on the collapsing Jeans mode
+([SV-10](./verification#sv-10-p5b-self-gravity-on-a-static-amr-grid)):
+- with the seam work: $9\cdot10^{-8}$, $3\cdot10^{-8}$, $1.4\cdot10^{-8}$ at CFL 0.4, 0.2, 0.1;
+- without it: $10^{-5}$ at every CFL, a spatial leak.
+
+A per-stage reflux would restore the Runge–Kutta order. Runtime AMR is #81 P5c.
 
 ## Units and scaling
 

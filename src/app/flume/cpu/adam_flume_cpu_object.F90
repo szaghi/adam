@@ -263,6 +263,8 @@ contains
                enddo
             enddo
          endselect
+         ! the seam gravity work of self-gravity (issue #81, P5b); not in the one-evaluation D_flux diagnostic
+         if (.not.present(weight)) call self%add_seam_gravity_work(flux_register=flux_register, b=b, fec=fec, skin=skin)
          call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=w, skin=skin)
       enddo
    enddo
@@ -561,7 +563,7 @@ contains
    row = integrals * factors
    if (self%physics%gravity%self_gravity) then
       call self%solve_potential(q=self%q, energy=w)
-      w = 0.5_R8P * w * product(self%poisson%dxyz)
+      w = 0.5_R8P * w
       row = [row, w * factors(IQ_RE), (integrals(IQ_RE) + w) * factors(IQ_RE)]
    endif
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &

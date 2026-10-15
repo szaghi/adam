@@ -14,9 +14,10 @@ use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX,
                                              AMR_LOHNER, prolongation_name
 use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
-                                             SEAM_KIND_INTER_REALM
+                                             SEAM_KIND_INTER_REALM, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_parameters,               only : AMR_PROLONGATION_CONSERVATIVE, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_poisson_fft_object,       only : poisson_fft_object
+use :: adam_poisson_mg_object,        only : poisson_mg_object
 use :: adam_realm_object,             only : realm_object
 use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
@@ -25,11 +26,12 @@ use :: adam_mpih_global,              only : mpih
 use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, flume_bc_object
 use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
+use :: adam_flume_gravity_object,     only : POISSON_SOLVER_AUTO, POISSON_SOLVER_FFT
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
-use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RU, &
-                                             MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,                   &
+use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, &
+                                             IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,            &
                                              POSITIVITY_LIMITER_CELL, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,            &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
                                              REFLUX_POLICY_TROUBLED, SCHEME_SPACE_WENO_RIEMANN
@@ -70,6 +72,8 @@ type, extends(realm_object) :: flume_common_object
    real(R8P),         allocatable :: phi_grav(:,:,:,:)   !< Gravitational potential [1-ngc:ni+ngc, ..., nb] (issue #81);
                                                          !< a one-cell placeholder without a potential.
    class(poisson_fft_object), allocatable :: poisson     !< Self-gravity Poisson solver (issue #81; FNL: the cuFFT one).
+   type(poisson_mg_object),   allocatable :: poisson_mg  !< Self-gravity on AMR grids (issue #81, P5b): the multigrid
+                                                         !< solver, its coarsest level solved by `poisson`.
    real(R8P)                      :: poisson_wall=0._R8P !< Wall time of the last Poisson solve (s).
    type(string),      allocatable :: q_name(:)           !< Conservative variables names.
    type(string),      allocatable :: dq_name(:)          !< Residuals names.
@@ -95,6 +99,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: is_regrid_step   !< Whether the step just closed is a runtime regrid step (issue #74).
       ! public methods
       procedure, pass(self) :: accumulate_seam_skin  !< Route one weighted seam face skin to the forest's flux register.
+      procedure, pass(self) :: add_seam_gravity_work !< Add the seam gravity work of self-gravity to a seam skin.
       procedure, pass(self) :: allocate_common       !< Allocate common data.
       procedure, pass(self) :: compute_fields_number !< Compute the block-sized fields allocated per block.
       procedure, pass(self) :: compute_phi           !< Compute the immersed solids distance function (host).
@@ -104,6 +109,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: log_dt_limit          !< Log which limit, hyperbolic or diffusive, sets dt.
       procedure, pass(self) :: log_gravity_regime    !< Log the velocity gravity adds in a step (issue #73).
       procedure, pass(self) :: log_self_gravity      !< Log the self-gravity regime (issue #81).
+      procedure, pass(self) :: poisson_iterations    !< FCG iterations of the last multigrid solve.
       procedure, pass(self) :: wall_temperature_bound !< Return the hottest isothermal wall temperature of the dt bound.
       procedure, pass(self) :: null_freeze           !< Return the variable each null direction freezes.
       procedure, pass(self) :: output_factors        !< Return the output factors of written variables.
@@ -120,6 +126,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: set_glm_damping       !< Set the GLM damping once the grid exists.
       procedure, pass(self) :: set_potential         !< Set the gravitational potential of the current grid.
       procedure, pass(self) :: solve_potential       !< Solve the self-gravity potential of a host state.
+      procedure, pass(self) :: solve_potential_packed !< Solve the self-gravity potential of a packed density.
       ! forest methods
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
       ! private methods
@@ -620,6 +627,114 @@ contains
    endif
    endsubroutine accumulate_seam_skin
 
+   subroutine add_seam_gravity_work(self, flux_register, b, fec, skin)
+   !< Add the gravity work of self-gravity across a 2:1 AMR seam to the energy row of a seam skin (issue #81, P5b), so
+   !< that the end-of-step reflux makes `E + W` telescope exactly at the seam.
+   !<
+   !< The potential sources give each cell `1/2 g F` per face (`add_potential_sources`), `g` its own face gravity and `F`
+   !< the face mass flux. The mass update moves `A_f F_f` across every fine sub-face f of a coarse face, which changes
+   !< `W` by `s A_f F_f (Phi_f - Phi_C)` (`s = +1` when the fine side lies at +axis of the coarse cell C), so exact
+   !< `E + W` needs the seam's energy sources to sum to `s sum_f A_f F_f (Phi_C - Phi_f)`; the two kernels give instead
+   !< the multigrid's mean-flux gravity (`(mean_f - Phi_C) / (1.5 h)` on both sides). The difference rides on the
+   !< register's energy entry, which the reflux turns into `sgn (G_coarse - G_fine) / H` in the coarse cell:
+   !<   - coarse skin: `G_c = -s 1/2 g_c F_c H` (takes the coarse cell's own seam source back);
+   !<   - fine skin: `G_f = -F_f (Phi_C - Phi_f) + s 1/2 g_f F_f h` (the exact two-point work, less the fine cell's own
+   !<     source, which stays: the fine cells keep the consistent gravity).
+   !< The fine side recovers `Phi_C` from its ghost, `Phi_C = mean_f - 1.5 (Phi_f - Phi_ghost)` (the multigrid's ghost
+   !< fill), `mean_f` the mean of the fine skin cells of the coarse face. Every term is per stage, weighted with the
+   !< fluxes, so the identity holds stage by stage. Exact only where the reflux corrects every seam cell (not under the
+   !< `troubled` reflux policy) and the positivity limiter does not act (its gravity energy correction, M7).
+   class(flume_common_object),  intent(in)    :: self          !< The equation.
+   class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
+   integer(I4P),                intent(in)    :: b             !< Block index.
+   integer(I4P),                intent(in)    :: fec           !< Face (1..6: -x, +x, -y, +y, -z, +z).
+   real(R8P),                   intent(inout) :: skin(1:,1:)   !< Face skin (nv, inner_n*outer_n).
+   integer(I4P)                               :: sgn_idx       !< Signed register face index.
+   integer(I4P)                               :: axis          !< Face normal axis.
+   integer(I4P)                               :: s             !< +1 when the fine side lies at +axis of the coarse.
+   integer(I4P)                               :: inner_n, outer_n !< Tangential cell counts.
+   integer(I4P)                               :: ratios(2)     !< Tangential refinement ratios.
+   integer(I4P)                               :: a, o, c, a0, o0, aa, oo !< Tangential counters.
+   integer(I4P)                               :: ijk(3), gijk(3) !< Skin cell and its ghost.
+   real(R8P)                                  :: dx            !< Normal spacing of this block.
+   real(R8P)                                  :: g             !< Face gravity, -(Phi_+ - Phi_-) / dx.
+   real(R8P)                                  :: phi_f, phi_g, phi_mean, phi_c !< Potentials.
+
+   if (.not.(self%physics%gravity%self_gravity .and. allocated(self%poisson_mg))) return
+   sgn_idx = self%adam%maps%inter_realm_face_register_index(b, fec)
+   if (sgn_idx == 0_I4P) return
+   if (abs(sgn_idx) > flux_register%nfaces) return
+   if (flux_register%face(abs(sgn_idx))%seam_kind /= SEAM_KIND_INTRA_REALM_AMR) return
+   axis = (fec + 1_I4P) / 2_I4P
+   dx = self%adam%field%dxyz(axis,b)
+   select case(fec)
+   case(1_I4P, 2_I4P)
+      inner_n = self%nj ; outer_n = self%nk
+   case(3_I4P, 4_I4P)
+      inner_n = self%ni ; outer_n = self%nk
+   case default
+      inner_n = self%ni ; outer_n = self%nj
+   endselect
+   ratios = face_tangential_ratios(fec=fec, refine_ratio=self%adam%maps%refine_ratio)
+   if (sgn_idx > 0_I4P) then ! coarse side
+      s = merge(1_I4P, -1_I4P, mod(fec, 2_I4P) == 0_I4P)
+   else                      ! fine side
+      s = merge(1_I4P, -1_I4P, mod(fec, 2_I4P) == 1_I4P)
+   endif
+   do o=1, outer_n
+      do a=1, inner_n
+         c = a + (o - 1_I4P) * inner_n
+         call cells(a, o, ijk, gijk)
+         phi_f = self%phi_grav(ijk(1),ijk(2),ijk(3),b)
+         phi_g = self%phi_grav(gijk(1),gijk(2),gijk(3),b)
+         if (mod(fec, 2_I4P) == 1_I4P) then
+            g = -(phi_f - phi_g) / dx
+         else
+            g = -(phi_g - phi_f) / dx
+         endif
+         if (sgn_idx > 0_I4P) then
+            skin(IQ_RE,c) = skin(IQ_RE,c) - s * 0.5_R8P * g * skin(IQ_R,c) * dx
+         else
+            a0 = ((a - 1_I4P) / ratios(1)) * ratios(1)
+            o0 = ((o - 1_I4P) / ratios(2)) * ratios(2)
+            phi_mean = 0._R8P
+            do oo=o0+1, o0+ratios(2)
+               do aa=a0+1, a0+ratios(1)
+                  call cells(aa, oo, ijk, gijk)
+                  phi_mean = phi_mean + self%phi_grav(ijk(1),ijk(2),ijk(3),b)
+               enddo
+            enddo
+            phi_mean = phi_mean / real(ratios(1) * ratios(2), R8P)
+            phi_c = phi_mean - 1.5_R8P * (phi_f - phi_g)
+            skin(IQ_RE,c) = skin(IQ_RE,c) - skin(IQ_R,c) * (phi_c - phi_f) + s * 0.5_R8P * g * skin(IQ_R,c) * dx
+         endif
+      enddo
+   enddo
+   contains
+      subroutine cells(ai, oi, sk, gh)
+      !< The skin cell at tangential (ai, oi) of face fec and its ghost across the face.
+      integer(I4P), intent(in)  :: ai, oi  !< Inner, outer tangential indexes.
+      integer(I4P), intent(out) :: sk(3)   !< Skin cell.
+      integer(I4P), intent(out) :: gh(3)   !< Ghost cell.
+      integer(I4P)              :: n_axis  !< Cells along the normal.
+
+      select case(fec)
+      case(1_I4P, 2_I4P)
+         sk = [0_I4P, ai, oi] ; n_axis = self%ni
+      case(3_I4P, 4_I4P)
+         sk = [ai, 0_I4P, oi] ; n_axis = self%nj
+      case default
+         sk = [ai, oi, 0_I4P] ; n_axis = self%nk
+      endselect
+      gh = sk
+      if (mod(fec, 2_I4P) == 1_I4P) then
+         sk(axis) = 1_I4P ; gh(axis) = 0_I4P
+      else
+         sk(axis) = n_axis ; gh(axis) = n_axis + 1_I4P
+      endif
+      endsubroutine cells
+   endsubroutine add_seam_gravity_work
+
    subroutine allocate_common(self)
    !< Allocate common data.
    class(flume_common_object), intent(inout) :: self       !< The equation.
@@ -687,6 +802,10 @@ contains
    if (allocated(self%poisson)) then
       call self%poisson%destroy
       deallocate(self%poisson)
+   endif
+   if (allocated(self%poisson_mg)) then
+      call self%poisson_mg%destroy
+      deallocate(self%poisson_mg)
    endif
    if (allocated(self%q_name))     deallocate(self%q_name)
    if (allocated(self%dq_name))    deallocate(self%dq_name)
@@ -1108,12 +1227,15 @@ contains
    subroutine set_potential(self)
    !< Set the gravitational potential of the current grid, ghost cells included (issue #81, M8-P1). With
    !< `[gravity] potential = linear` it is `Phi = -g . x` at the cell centres, the constant field written as a potential;
-   !< with `self_gravity` (M8-P3) the Poisson solver is set up on the current grid (it checks that the grid is uniform
-   !< and periodic) and Phi is solved from the host state `q`; without a potential the array is a one-cell placeholder
+   !< with `self_gravity` (M8-P3) the Poisson solver is set up on the current grid and Phi is solved from the host state
+   !< `q`: on a uniform grid the FFT solver (periodic or isolated), on an AMR grid (leaves at more than one level, P5b)
+   !< the multigrid solver, periodic only, its coarsest level solved by the FFT solver of the backend; without a potential the array is a one-cell placeholder
    !< (the kernels take it and do not read it). Sized by the block capacity `nb`, as the other block arrays; call it
    !< after the initial grid and after every regrid.
    class(flume_common_object), intent(inout) :: self    !< The equation.
    integer(I4P)                              :: b, i, j, k !< Counters.
+   integer(I4P)                              :: lev(2)  !< Lowest and (negated) highest leaf level over the ranks.
+   integer(I4P)                              :: ierr    !< MPI error status.
 
    if (allocated(self%phi_grav)) deallocate(self%phi_grav)
    if (.not.self%physics%gravity%has_potential) then
@@ -1126,8 +1248,30 @@ contains
                              1:self%nb))
       self%phi_grav = 0._R8P
       if (.not.allocated(self%poisson)) allocate(poisson_fft_object :: self%poisson)
-      call self%poisson%initialize(grid=self%adam%grid, field=self%adam%field, &
-                                   isolated=self%physics%gravity%isolated)
+      lev = [huge(1_I4P), huge(1_I4P)]
+      do b=1, self%adam%field%blocks_number
+         lev = min(lev, [self%adam%field%coordinates(4,b), -self%adam%field%coordinates(4,b)])
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, lev, 2, MPI_INTEGER, MPI_MIN, MPI_COMM_WORLD, ierr)
+      if (allocated(self%poisson_mg)) then
+         call self%poisson_mg%destroy
+         deallocate(self%poisson_mg)
+      endif
+      associate(solver=>self%physics%gravity%poisson_solver)
+      if (lev(1) /= -lev(2) .and. solver == POISSON_SOLVER_FFT) &
+         call mpih%error_stop(msg=': [gravity].(poisson_solver) = fft needs a uniform grid (the leaves are at more '// &
+                                  'than one level): use auto or multigrid')
+      if (solver == POISSON_SOLVER_FFT .or. (solver == POISSON_SOLVER_AUTO .and. lev(1) == -lev(2))) then
+         call self%poisson%initialize(grid=self%adam%grid, field=self%adam%field, &
+                                      isolated=self%physics%gravity%isolated)
+      else
+         if (self%physics%gravity%isolated) &
+            call mpih%error_stop(msg=': [gravity].(poisson_bc) = isolated is not supported by the multigrid solver '// &
+                                     '(AMR grids, or poisson_solver = multigrid): it is periodic only (issue #87)')
+         allocate(self%poisson_mg)
+         call self%poisson_mg%initialize(grid=self%adam%grid, field=self%adam%field, coarse=self%poisson)
+      endif
+      endassociate
       call self%solve_potential(q=self%q)
       return
    endif
@@ -1149,18 +1293,43 @@ contains
 
    subroutine solve_potential(self, q, energy)
    !< Solve the self-gravity potential of the host state `q` (issue #81, M8-P3): `L_h Phi = 4 pi G (rho - mean rho)`,
-   !< every ghost layer filled (the solver's periodic wrap), the wall time kept in `poisson_wall`; optionally the
-   !< energy `sum_cells rho Phi` (every rank). The FNL backend solves from the device state with `solve_potential_gpu`.
+   !< every ghost layer filled (the FFT solver's wrap, or the multigrid's ghost fill on AMR), the wall time kept in
+   !< `poisson_wall`; optionally the energy `sum_cells rho Phi dV` (every rank). The FNL backend solves from the device
+   !< state with `solve_potential_gpu`, through `solve_potential_packed`.
    class(flume_common_object), intent(inout)         :: self   !< The equation.
    real(R8P),                  intent(in)            :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< State.
-   real(R8P),                  intent(out), optional :: energy !< sum_cells rho Phi.
+   real(R8P),                  intent(out), optional :: energy !< sum_cells rho Phi dV.
    real(R8P)                                         :: t0     !< Wall clock at the start.
 
    t0 = MPI_WTIME()
-   call self%poisson%solve(field=self%adam%field, q=q, iv=IQ_R, factor=self%physics%gravity%four_pi_g, &
-                           phi=self%phi_grav, energy=energy)
+   if (allocated(self%poisson_mg)) then
+      call self%poisson_mg%solve(field=self%adam%field, q=q, iv=IQ_R, factor=self%physics%gravity%four_pi_g, &
+                                 phi=self%phi_grav, energy=energy)
+   else
+      call self%poisson%solve(field=self%adam%field, q=q, iv=IQ_R, factor=self%physics%gravity%four_pi_g, &
+                              phi=self%phi_grav, energy=energy)
+      if (present(energy)) energy = energy * product(self%poisson%dxyz) ! uniform grid: one cell volume
+   endif
    self%poisson_wall = MPI_WTIME() - t0
    endsubroutine solve_potential
+
+   subroutine solve_potential_packed(self, buf, energy)
+   !< Solve the self-gravity potential from the packed interior density of the active blocks (block-major, `i`
+   !< fastest), into `phi_grav` with every ghost filled (issue #81): the FNL backend's host step. Optionally the energy
+   !< `sum_cells rho Phi dV` (every rank).
+   class(flume_common_object), intent(inout)         :: self   !< The equation.
+   real(R8P),                  intent(in)            :: buf(1:) !< Packed density.
+   real(R8P),                  intent(out), optional :: energy !< sum_cells rho Phi dV.
+
+   if (allocated(self%poisson_mg)) then
+      call self%poisson_mg%solve_packed(field=self%adam%field, buf=buf, factor=self%physics%gravity%four_pi_g, &
+                                        phi=self%phi_grav, energy=energy)
+   else
+      call self%poisson%solve_packed(field=self%adam%field, buf=buf, factor=self%physics%gravity%four_pi_g, &
+                                     phi=self%phi_grav, energy=energy)
+      if (present(energy)) energy = energy * product(self%poisson%dxyz) ! uniform grid: one cell volume
+   endif
+   endsubroutine solve_potential_packed
 
    subroutine set_glm_damping(self)
    !< Set the GLM damping once the grid exists (issue #41, section 3.5): the minimum cell spacing of the realm over the
@@ -1526,8 +1695,12 @@ contains
    real(R8P)                              :: rmax(1)  !< Largest density over the blocks and the ranks.
    real(R8P)                              :: t_ff     !< Free-fall time.
    real(R8P), parameter                   :: PI=acos(-1._R8P) !< Pi.
+   character(:), allocatable              :: solver   !< The solver in use, on AMR.
 
    if (.not.self%physics%gravity%self_gravity) return
+   solver = ''
+   if (allocated(self%poisson_mg)) solver = ', multigrid solver, '//trim(str(self%poisson_iterations(), .true.))// &
+                                            ' FCG iterations'
    rmax = 0._R8P
    if (self%blocks_number > 0) rmax(1) = maxval(self%q(IQ_R,1:self%ni,1:self%nj,1:self%nk,1:self%blocks_number))
    call MPI_ALLREDUCE(MPI_IN_PLACE, rmax, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
@@ -1535,11 +1708,20 @@ contains
    if (mpih%myrank == 0) then
       print '(A)', mpih%myrankstr//'self-gravity (issue #81): G '//trim(str(self%physics%gravity%grav_const))// &
                    ', rho_max '//trim(str(rmax(1)))//', t_ff '//trim(str(t_ff))//', dt / t_ff '//            &
-                   trim(str(self%time%dt / t_ff))//', Poisson solve '//trim(str(self%poisson_wall))//' s'
+                   trim(str(self%time%dt / t_ff))//', Poisson solve '//trim(str(self%poisson_wall))//' s'//solver
       if (self%time%dt > 0.1_R8P * t_ff) print '(A)', mpih%myrankstr//'warning: dt > t_ff / 10, the collapse is '// &
                                                       'under-resolved in time'
    endif
    endsubroutine log_self_gravity
+
+   function poisson_iterations(self) result(iterations)
+   !< FCG iterations of the last multigrid solve (0 without the multigrid solver).
+   class(flume_common_object), intent(in) :: self       !< The equation.
+   integer(I4P)                           :: iterations !< Iterations.
+
+   iterations = 0_I4P
+   if (allocated(self%poisson_mg)) iterations = self%poisson_mg%iterations
+   endfunction poisson_iterations
 
    subroutine check_dissipation(self)
    !< Refuse the dissipative terms where they are not computed (issue #65): immersed solids, whose walls are inviscid

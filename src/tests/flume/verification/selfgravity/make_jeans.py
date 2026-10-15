@@ -19,9 +19,13 @@ equations (density even, velocity odd), maps cell (i, j) to (N + 1 - i, N + 1 - 
 
 Usage:
     make_jeans.py <out.ini> <case> [--cells N] [--cfl C] [--time-max T] [--it-save N] [--amplitude A] [--levels L]
+                  [--box] [--solver auto|fft|multigrid] [--poisson-bc periodic|isolated]
 
 `--cells` sets the cells per block side (default 8); the 2-D cases have 4x4 blocks (two uniform levels), the 3-D one
-2x2x2 (one level), so the grid is 4 N (2-D) or 2 N (3-D) cells per side.
+2x2x2 (one level), so the grid is 4 N (2-D) or 2 N (3-D) cells per side. `--box` (issue #81, P5b) refines the central
+box, a quarter of the period from every face, one level more (2:1 seams the wave crosses): self-gravity on a static
+AMR grid, through the multigrid Poisson solver. `--solver` and `--poisson-bc` write `[gravity] poisson_solver` and
+`poisson_bc` (absent: the defaults, auto and periodic).
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ P0 = 1.0 / GAMMA
 
 
 def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save: int, amplitude: float | None,
-             levels: int | None) -> str:
+             levels: int | None, box: bool = False, solver: str | None = None, poisson_bc: str | None = None) -> str:
     """Return the INI of a case."""
     is3d = case == "jeans3d"
     unstable = case in ("jeansu2d", "jeansc2d")
@@ -56,8 +60,17 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
         f"emin_x = {lo!r}", f"emin_y = {lo!r}", f"emin_z = {0.0!r}", f"emax_x = {lo + 1.0!r}", f"emax_y = {lo + 1.0!r}",
         f"emax_z = {1.0!r}",
         "null_x = .false.", "null_y = .false.", f"null_z = {'.false.' if is3d else '.true.'}",
-        "[amr]", f"max_level = {lev}", f"ratio = {8 if is3d else 4}", f"iu_ref_levels = {lev}",
-        "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", "frequency = 0", "iters = 1", "markers_number = 0",
+        "[amr]", f"max_level = {lev + 1 if box else lev}", f"ratio = {8 if is3d else 4}", f"iu_ref_levels = {lev}",
+        "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", "frequency = 0", "iters = 1",
+        f"markers_number = {1 if box else 0}",
+    ]
+    if box:
+        hi_z = 0.75 if is3d else 1.0
+        lines += ["[amr_marker_1]", "mode = 1", "geo_type = primitive-box", "delta_type = max", "delta_fine = 0.0",
+                  "delta_coarse = 0.0", f"box_xmin = {lo + 0.25!r}", f"box_ymin = {lo + 0.25!r}",
+                  f"box_zmin = {0.25 if is3d else 0.0!r}", f"box_xmax = {lo + 0.75!r}", f"box_ymax = {lo + 0.75!r}",
+                  f"box_zmax = {hi_z!r}", f"target_level = {lev + 1}"]
+    lines += [
         "[field]", "nv = 5", "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5", "ror_number = 0", "ror_threshold = 0.9", "ror_vars_number = 0",
         "enable_ror_stats = .false.", "ib_reduction_extent = 0", "ib_reduced_order = 2",
@@ -74,7 +87,10 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
     lines += ["[time]", "it_max = -1", f"time_max = {t_end!r}", f"CFL = {cfl!r}",
               "[diagnostics]", "conservation_history_save = 1",
               "[gravity]", "self_gravity = .true.", f"G = {G_UNSTABLE if unstable else G_STABLE!r}",
-              "[initial_conditions]", "type = sine-wave", "amr_iterations = 0", "wave_mode = jeans", "wave_angle = 45.0",
+              *([f"poisson_solver = {solver}"] if solver else []),
+              *([f"poisson_bc = {poisson_bc}"] if poisson_bc else []),
+              "[initial_conditions]", "type = sine-wave", f"amr_iterations = {1 if box else 0}", "wave_mode = jeans",
+              "wave_angle = 45.0",
               f"wave_amplitude = {amp!r}", f"wavelength = {1.0 / math.sqrt(2.0)!r}",
               "[initial_conditions_region_1]", "r = 1.0", "u = 0.0", "v = 0.0", "w = 0.0", f"p = {P0!r}"]
     return "\n".join(lines) + "\n"
@@ -91,9 +107,12 @@ def main() -> int:
     parser.add_argument("--it-save", type=int, default=1000000)
     parser.add_argument("--amplitude", type=float, default=None)
     parser.add_argument("--levels", type=int, default=None)
+    parser.add_argument("--box", action="store_true")
+    parser.add_argument("--solver", choices=("auto", "fft", "multigrid"), default=None)
+    parser.add_argument("--poisson-bc", choices=("periodic", "isolated"), default=None)
     args = parser.parse_args()
     args.out.write_text(case_ini(args.case, args.cells, args.cfl, args.time_max, args.it_save, args.amplitude,
-                                 args.levels))
+                                 args.levels, args.box, args.solver, args.poisson_bc))
     return 0
 
 

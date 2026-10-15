@@ -25,7 +25,9 @@ module adam_poisson_mg_object
 !< Gauss-Seidel sweeps down and up on the plain level Laplacian, a face to a cell outside the level reading the
 !< coarser correction (piecewise constant) on the way up; restriction the sum of the children's residuals, prolongation
 !< piecewise constant; the coarsest level (every block at the minimum leaf level: the whole domain) solved exactly by
-!< the FFT solver (`adam_poisson_fft_object%solve_blocks`).
+!< the FFT solver (`adam_poisson_fft_object%solve_blocks`; of the caller's backend type with `initialize(coarse=)`). It
+!< stops at `tolerance` or at the round-off floor of the source, `100 eps max|factor f| / max|factor (f - mean f)|`,
+!< whichever is larger (a small perturbation of a uniform density is known only to that floor, #81 P5b).
 !<
 !< **Distributed and assembled.** Every rank gathers the leaf list once (block coordinates, owner, local index),
 !< derives the shadow blocks and their owners (the owner of the first leaf below, in the gathered order: the same on
@@ -128,13 +130,15 @@ type :: poisson_mg_object
    type(rvec),   allocatable :: diag(:)                !< Level operator diagonals [lmin+1:lmax].
    type(rvec),   allocatable :: colour(:)              !< Red-black colour (0, 1) of the level cells [lmin+1:lmax].
    real(R8P),    allocatable :: vol(:)                 !< Leaf cell volumes.
-   type(poisson_fft_object)  :: fft                    !< The coarsest-level solver.
+   class(poisson_fft_object), allocatable :: fft       !< The coarsest-level solver (FFTW, or the caller's backend).
    ! controls and diagnostics
    real(R8P)                 :: tolerance=1.e-10_R8P   !< Relative max-norm residual to stop.
    integer(I4P)              :: max_iterations=200_I4P !< FCG iterations at most.
    integer(I4P)              :: sweeps=2_I4P           !< Red-black sweeps per level, down and up.
    integer(I4P)              :: iterations=0_I4P       !< Iterations of the last solve.
    real(R8P)                 :: residual=0._R8P        !< Relative residual of the last solve.
+   real(R8P)                 :: tolerance_used=0._R8P  !< Stop tolerance of the last solve (the round-off floor of the
+                                                       !< source when above `tolerance`).
    real(R8P)                 :: factor_mean=0._R8P     !< Mean convergence factor per iteration of the last solve.
    real(R8P),    allocatable :: u(:)                   !< The last solution (warm start).
    logical                   :: has_guess=.false.      !< u holds a solution of the current grid.
@@ -170,7 +174,10 @@ contains
    !< Destroy the solver.
    class(poisson_mg_object), intent(inout) :: self !< The solver.
 
-   call self%fft%destroy
+   if (allocated(self%fft)) then
+      call self%fft%destroy
+      deallocate(self%fft)
+   endif
    if (allocated(self%leaf_c))       deallocate(self%leaf_c, self%leaf_owner, self%leaf_loc)
    if (allocated(self%node_c))       deallocate(self%node_c, self%node_owner, self%node_loc, self%node_leaf)
    if (allocated(self%nloc_lev))     deallocate(self%nloc_lev, self%lev_node)
@@ -187,14 +194,16 @@ contains
    self%is_initialized = .false.
    endsubroutine destroy
 
-   subroutine initialize(self, grid, field, tolerance, max_iterations)
+   subroutine initialize(self, grid, field, tolerance, max_iterations, coarse)
    !< Gather the leaves, derive the hierarchy, assemble the operator, the ghost fill and the preconditioner, set up the
-   !< coarsest-level FFT solver.
+   !< coarsest-level FFT solver: of the dynamic type of `coarse` when given (the FNL backend passes its cuFFT solver),
+   !< the FFTW one otherwise.
    class(poisson_mg_object), intent(inout)        :: self           !< The solver.
    type(grid_object),        intent(in)           :: grid           !< The grid.
    type(field_object),       intent(in)           :: field          !< The field (block coordinates).
    real(R8P),                intent(in), optional :: tolerance      !< Relative residual to stop.
    integer(I4P),             intent(in), optional :: max_iterations !< FCG iterations at most.
+   class(poisson_fft_object), intent(in), optional :: coarse        !< Mold of the coarsest-level solver.
    integer(I4P), allocatable :: counts(:), displs(:) !< Allgather counts and displacements.
    integer(I4P), allocatable :: mine(:,:)            !< This rank's block coordinates and index [5,nb].
    integer(I4P), allocatable :: all_(:,:)            !< Every rank's [5,nleaf].
@@ -300,6 +309,11 @@ contains
    call assemble_ghost_fill
    call assemble_levels
    ! the coarsest level: every block at lmin, the whole domain
+   if (present(coarse)) then
+      allocate(self%fft, mold=coarse)
+   else
+      allocate(poisson_fft_object :: self%fft)
+   endif
    call self%fft%initialize_blocks(nblk=self%nblk0 * merge(1, 2**self%lmin, self%null), nijk=self%nijk, ngc=0_I4P, &
                                    dxyz=self%dx_of(self%lmin), level=self%lmin, null_xyz=self%null, isolated=.false.)
    allocate(self%u(max(n*self%ncb,1)))
@@ -535,6 +549,7 @@ contains
    real(R8P),                intent(out), optional :: energy  !< sum_cells V f phi (all ranks).
    real(R8P), allocatable :: f(:), r(:), z(:), p(:), qv(:), pp(:), qp(:), gv(:) !< Vectors.
    real(R8P)              :: fmax, alpha, beta, vsum, mean, r0, e_ !< Scalars.
+   real(R8P)              :: fraw(1), tol !< Max |factor f| before the mean is removed, the stop tolerance.
    integer(I4P)           :: n, it, b, i, j, k, c, row, l, nn !< Counters.
    logical                :: has_prev                          !< A previous direction exists.
    integer(I4P)           :: ierr                              !< MPI error status.
@@ -554,6 +569,15 @@ contains
       fmax = max(fmax, abs(f(i) / self%vol(i)))
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, fmax, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   ! the stop: the tolerance, or the round-off floor of the source when its mean dominates (a 1e-6 perturbation of a
+   ! uniform density is known to 1e-16 / 1e-6 = 1e-10 of itself, issue #81 P5b: the iteration would never stop); the
+   ! recursive residual reaches about 2 epsilon max|factor f| / max|f - mean| (measured 1.7), so the floor is 100 of it
+   fraw = 0._R8P
+   if (n > 0) fraw(1) = abs(factor) * maxval(abs(buf(1:n)))
+   call MPI_ALLREDUCE(MPI_IN_PLACE, fraw, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   tol = self%tolerance
+   if (fmax > 0._R8P) tol = max(tol, 100._R8P * epsilon(1._R8P) * fraw(1) / fmax)
+   self%tolerance_used = tol
    if (.not.self%has_guess) self%u = 0._R8P
    call self%apply(self%a, self%u, qv)
    if (n > 0) r(1:n) = f(1:n) - qv(1:n)
@@ -562,7 +586,7 @@ contains
    self%residual = r0
    has_prev = .false.
    do it=1, self%max_iterations
-      if (self%residual <= self%tolerance .or. fmax == 0._R8P) exit
+      if (self%residual <= tol .or. fmax == 0._R8P) exit
       call self%vcycle(r, z)
       mean = gdot(z, self%vol, n) / vsum
       if (n > 0) z(1:n) = z(1:n) - mean
@@ -581,6 +605,9 @@ contains
       self%iterations = it
       self%residual = rel_max(r)
    enddo
+   if (self%residual > tol .and. fmax > 0._R8P .and. self%me == 0) &
+      print '(A)', mpih%myrankstr//'warning: poisson_mg_object: '//trim(str(self%max_iterations, .true.))// &
+                   ' FCG iterations left the residual at '//trim(str(self%residual))//' (tolerance '//trim(str(tol))//')'
    self%factor_mean = 0._R8P
    if (self%iterations > 0 .and. r0 > 0._R8P .and. self%residual > 0._R8P) &
       self%factor_mean = (self%residual / r0)**(1._R8P / self%iterations)
