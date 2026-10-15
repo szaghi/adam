@@ -33,6 +33,7 @@ use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, seam_face_cells,             &
                                               REFLUX_POLICY_TROUBLED, IA_R, IA_U, IA_P, FLUX_CORRECTION_SENSOR_TAU,     &
+                                              REFLUX_CADENCE_STAGE,                                                     &
                                               seam_weno5_sensor,                                                        &
                                               seam_fine_to_coarse, seam_skin_cell, seam_skin_index,                    &
                                               MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM,                                  &
@@ -201,6 +202,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    contains
       ! public methods
       procedure, pass(self) :: accumulate_seam_fluxes  !< Accumulate the weighted seam face fluxes of one stage.
+      procedure, pass(self) :: reflux_stage            !< The per-stage reflux (issue #81, P5c).
       procedure, pass(self) :: flag_troubled_seam_cells !< Flag the troubled seam face cells of one stage (#68 E1).
       procedure, pass(self) :: add_dissipative_fluxes_dev !< Add the dissipative face fluxes on the device (issue #65).
       procedure, pass(self) :: apply_floors            !< Apply the MHD positivity floors of a stage.
@@ -280,7 +282,7 @@ endinterface
 
 contains
    ! public methods
-   subroutine accumulate_seam_fluxes(self, s, flux_register, weight)
+   subroutine accumulate_seam_fluxes(self, s, flux_register, weight, with_gravity_work)
    !< Accumulate the seam face fluxes of stage `s`, weighted by its SSP coefficient, into the forest's flux register.
    !<
    !< The register is host-side: each seam face skin is packed on the device and copied to the host (a few KB per face
@@ -289,6 +291,9 @@ contains
    integer(I4P),                intent(in)           :: s             !< Runge-Kutta stage.
    class(flux_register_object), intent(inout)        :: flux_register !< Forest's flux register.
    real(R8P),                   intent(in), optional :: weight        !< Weight replacing beta(s) (D_flux, #68 A2).
+   logical,                     intent(in), optional :: with_gravity_work !< Add the seam gravity work (default:
+                                                                  !< without `weight`; issue #81).
+   logical                                           :: gw            !< Add the seam gravity work.
    real(R8P)                                         :: w             !< Accumulation weight.
    real(R8P), pointer                         :: skin_gpu(:,:) !< Device face skin (nv, cells).
    real(R8P), allocatable                     :: skin(:,:)     !< Host face skin (nv, cells).
@@ -297,6 +302,7 @@ contains
    integer(I4P)                               :: ierr          !< Error status.
 
    w = self%rk%beta(s) ; if (present(weight)) w = weight
+   gw = .not.present(weight) ; if (present(with_gravity_work)) gw = with_gravity_work
    do b=1, self%blocks_number
       do fec=1, 6
          if (self%adam%maps%inter_realm_face_register_index(b, fec) == 0_I4P) cycle
@@ -315,8 +321,9 @@ contains
          allocate(skin(self%nv,cells))
          call dev_memcpy_from_device(dst=skin, src=skin_gpu)
          call dev_free(skin_gpu, mydev)
-         ! the seam gravity work of self-gravity (issue #81, P5b); not in the one-evaluation D_flux diagnostic
-         if (.not.present(weight)) call self%add_seam_gravity_work(flux_register=flux_register, b=b, fec=fec, skin=skin)
+         ! the seam gravity work of self-gravity (issue #81, P5b): in the step and stage registers, not in the
+         ! one-evaluation D_flux diagnostic
+         if (gw) call self%add_seam_gravity_work(flux_register=flux_register, b=b, fec=fec, skin=skin)
          call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=w, skin=skin)
          deallocate(skin)
       enddo
@@ -1010,6 +1017,9 @@ contains
    if (realms_number_ > 1_I4P .and. self%physics%gravity%self_gravity) &
       call mpih_fnl%error_stop(msg=': [gravity].(self_gravity) is not supported on multi-realm runs (each realm would '// &
                                    'solve its own Poisson equation; issue #81)')
+   if (realms_number_ > 1_I4P .and. self%numerics%reflux_cadence == REFLUX_CADENCE_STAGE) &
+      call mpih_fnl%error_stop(msg=': [numerics].(reflux_cadence) = stage is not supported on multi-realm runs (the '// &
+                               'per-stage reflux corrects intra-realm 2:1 faces only; issue #81)')
    ! the cuFFT solver (issue #81): set_potential sets it up on the grid
    if (self%physics%gravity%self_gravity) allocate(poisson_fft_fnl_object :: self%poisson)
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
@@ -1655,6 +1665,7 @@ contains
    if (flux_register%nfaces == 0_I4P) return
    if (.not.allocated(flux_register%face)) return
    if (stage /= self%rk%nrk) return
+   if (self%numerics%reflux_cadence == REFLUX_CADENCE_STAGE) return ! corrected at every stage (reflux_stage)
    troubled_only = self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED
    nflag = 0_I4P
    ncell = 0_I4P
@@ -1812,8 +1823,61 @@ contains
    else
       call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k)
    endif
+   if (present(flux_register) .and. self%numerics%reflux .and. self%numerics%reflux_cadence == REFLUX_CADENCE_STAGE) &
+      call self%reflux_stage(s=k)
    call rk_assign_stage(self, s=k)
    endsubroutine end_stage_forest
+
+   subroutine reflux_stage(self, s)
+   !< The per-stage reflux (`[numerics] reflux_cadence = stage`, issue #81 P5c; FNL twin of the CPU `reflux_stage`): the
+   !< seam fluxes of stage `s` (with the seam gravity work) into the realm's register copy with weight 1, completed
+   !< across the ranks; each coarse seam face's mismatch `F_coarse - F_fine` goes to the device and corrects the stage
+   !< residual `dq_gpu` by `sgn / H` (`apply_reflux_face_dev`). The end-of-step reflux is then skipped.
+   class(flume_fnl_object), intent(inout) :: self           !< The equation.
+   integer(I4P),            intent(in)    :: s              !< Runge-Kutta stage.
+   real(R8P), allocatable                 :: delta(:,:)     !< Host flux mismatch (nv, cells).
+   real(R8P), pointer                     :: delta_gpu(:,:) !< Device flux mismatch (nv, cells).
+   integer(I4P)                           :: f, c           !< Face, face cell counters.
+   integer(I4P)                           :: axis, sgn      !< Face normal axis and side.
+   integer(I4P)                           :: ierr           !< Error status.
+
+   associate(reg=>self%flux_register_copy)
+   if (.not.reg%is_initialized_) return
+   if (reg%nfaces == 0_I4P .or. .not.allocated(reg%face)) return
+   call reg%reset
+   call self%accumulate_seam_fluxes(s=s, flux_register=reg, weight=1._R8P, with_gravity_work=.true.)
+   if (self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) call self%flag_troubled_seam_cells(flux_register=reg)
+   call reg%reduce_fine_sums
+   do f=1, reg%nfaces
+      associate(face=>reg%face(f))
+      if (face%seam_kind /= SEAM_KIND_INTRA_REALM_AMR) cycle
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
+      call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
+      allocate(delta(self%nv,face%nface_cells))
+      delta = face%F_coarse(1:self%nv,:,1) - face%F_fine_sum(1:self%nv,:,1)
+      if (allocated(self%seam_e)) then
+         if (allocated(self%seam_e(f)%d)) delta = delta - self%seam_e(f)%d
+      endif
+      if (self%physics%model == MODEL_MHD_EGLM) delta(IQ_BX:IQ_BX+2,:) = 0._R8P
+      if (self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) then
+         do c=1, face%nface_cells
+            if (.not.face%troubled(c)) delta(:,c) = 0._R8P
+         enddo
+      endif
+      call dev_alloc(fptr_dev=delta_gpu, lbounds=[1,1], ubounds=[self%nv,face%nface_cells], ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate delta_gpu in reflux_stage')
+      call dev_memcpy_to_device(dst=delta_gpu, src=delta)
+      call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk, &
+                                 ngc=self%ngc, nv=self%nv, nface_cells=face%nface_cells,                      &
+                                 scale=real(sgn, R8P) / self%adam%field%dxyz(axis,face%coarse_block),         &
+                                 delta_gpu=delta_gpu, q_gpu=self%dq_gpu)
+      call dev_free(delta_gpu, mydev)
+      deallocate(delta)
+      endassociate
+   enddo
+   endassociate
+   endsubroutine reflux_stage
 
    subroutine fill_seam_from_peer_forest(self, peer, p_idx)
    !< Fill this realm's seam ghosts for peer slot `p_idx` from the peer's interior, on the active device buffers

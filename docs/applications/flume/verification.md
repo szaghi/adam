@@ -2658,6 +2658,7 @@ legs are `jeans.sh` legs `sv10` and `sv10-wave`:
 | its mirror symmetry at t = 0.5 | 10⁻⁹ | 5.7·10⁻¹¹ | 4.7·10⁻¹¹ |
 | collapse (amplitude 10⁻², base $64^2$, t = 0.4), max \|momentum\| | 10⁻¹⁴ | 3.5·10⁻¹⁸ | 6.9·10⁻¹⁸ |
 | its E + W drift at CFL 0.4, 0.2, 0.1, order of the finest pair | ≥ 0.8 | 8.8·10⁻⁸, 3.1·10⁻⁸, 1.4·10⁻⁸ (1.50, 1.16) | the same to 3 digits |
+| the same with `reflux_cadence = stage` (P5c), order of the finest pair; mass drift | ≥ 2.5; 10⁻¹⁴ | 3.5·10⁻⁸, 4.3·10⁻⁹, 5.4·10⁻¹⁰ (2.99, 3.00); 2.2·10⁻¹⁶ | the same to 3 digits; 3.3·10⁻¹⁶ |
 | isolated boundaries with the multigrid solver; `poisson_solver = fft` on AMR | refused, exit 1 | refused | refused |
 
 Findings:
@@ -2665,9 +2666,10 @@ Findings:
   ablation build, not a leg) drifts by $1.03\cdot10^{-5}$, $9.8\cdot10^{-6}$, $9.6\cdot10^{-6}$ at the three CFL
   numbers, orders 0.07 and 0.02. That is a spatial leak at the seams, which no dt removes. With the work the drift is
   12 times smaller at CFL 0.4 and converges in dt.
-- **On AMR the drift is first order in dt, not third.** The reflux corrects the coarse cells at the end of the step,
-  and the stages in between advance them with their own seam fluxes. On a uniform grid (SV-4) the order is that of
-  SSP-RK3. A per-stage reflux would restore it.
+- **With the end-of-step reflux the drift is first order in dt, not third.** The reflux corrects the coarse cells at
+  the end of the step, and the stages in between advance them with their own seam fluxes. On a uniform grid (SV-4) the
+  order is that of SSP-RK3. The per-stage reflux (`reflux_cadence = stage`, P5c) restores it: orders 2.99 and 3.00,
+  and the drift at CFL 0.1 falls from $1.4\cdot10^{-8}$ to $5.4\cdot10^{-10}$.
 - **The multigrid's stopping rule needed a round-off floor.** With a $10^{-6}$ mode on a unit density the source is
   known to $10^{-16}/10^{-6} = 10^{-10}$ of itself. The $10^{-10}$ relative tolerance was unreachable, and every solve
   ran to the 200-iteration cap. The solver now stops at $\max(10^{-10},\ 100\,\epsilon\max\lvert4\pi G\rho\rvert/
@@ -2679,9 +2681,50 @@ Findings:
 ![SV-10: the wave error on AMR against N, the drift of E + W in the collapse, the collapse density on the composite grid](/flume/selfgravity-amr-jeans.png)
 
 **Left:** the L1 error of the stable wave falls at second order across the seams. **Middle:** in the collapse, E and W
-trade 17 % of $\lvert E + W\rvert$ while $E + W$ drifts by about $10^{-7}$; the drift falls 2.8 and then 2.2 times per
-halving of the CFL number. **Right:** the collapse density at t = 0.4 on the composite grid; the refined blocks are the
+trade 17 % of $\lvert E + W\rvert$ while $E + W$ drifts by about $10^{-7}$. With the end-of-step reflux (solid) the drift
+falls 2.8 and then 2.2 times per halving of the CFL number; with the per-stage reflux (dashed) 8 times, the SSP-RK3
+order. **Right:** the collapse density at t = 0.4 on the composite grid; the refined blocks are the
 central box. Run with `make_doc_runs.sh <dir> amr` and `make_doc_figures.py --only selfgravity-amr-jeans`.
+
+### SV-11 (P5c): self-gravity under runtime AMR
+
+**Why.** Under runtime AMR the grid, and with it the solver, change during the run. Every regrid must:
+- set up the right solver: the FFT on a uniform grid, the multigrid on an AMR one;
+- solve $\Phi$ from the regridded state;
+- rebuild the flux register the seam gravity work rides on.
+
+**What changes and what does not.** The regrid itself conserves $\rho$, $\rho\mathbf u$ and $E$ (conservative
+prolongation and restriction). $W = \tfrac12\sum\rho\Phi V$, though, is the energy of the grid's own discrete
+Laplacian, so a regrid that changes the grid changes $W$, and $E + W$ jumps by a truncation-sized amount. Between
+regrids the scheme stays exact (SV-10). The leg separates the two.
+
+**The case.** `jeans.sh` leg `sv11`: the collapse of SV-4 at base $32^2$, regridded every 5 steps by a Löhner
+estimator on the density (refine above 0.3, derefine below 0.1, one level above the base), with the per-stage reflux;
+2 ranks. The oracle (`jeans_oracle.py regrid`) calls a step change of $E + W$ above 100 times the median a jump.
+
+| Asserted | Bound | CPU | FNL (WSL GPU) |
+|---|---|---|---|
+| the grid changes (blocks of the first and the last checkpoint) | must differ | 16 → 52 | 16 → 52 |
+| every jump of $E + W$ on a regrid step | yes | one jump, at step 60: $-2.3\cdot10^{-4}$ | the same, $-2.3\cdot10^{-4}$ |
+| the largest other step change of $E + W$ | 10⁻⁶ | 7.6·10⁻⁸ | 7.6·10⁻⁸ |
+| max \|momentum\|; mass drift | 10⁻¹⁴; 10⁻¹⁴ | 2.9·10⁻¹⁸; 0 | 4.7·10⁻¹⁸; 1.1·10⁻¹⁶ |
+| isolated boundaries with runtime AMR | refused, exit 1 | refused | refused |
+
+Findings:
+- **The regrid jump is the change of the discrete W.** At the regrid E is unchanged and $W$ moves by $1.4\cdot10^{-3}$
+  of itself, the size of the $O(h^2)$ truncation at $32^2$. It does not converge in a resolution ladder, because the
+  refinement happens at different stages of the collapse (at base $64^2$ the ridge crosses the threshold later, when
+  it is sharper). The jumps are reported, not bounded. Correcting E at each regrid would make the regrid conserve
+  $E + W$; it is not done.
+- **The solver follows the grid.** With refine and derefine thresholds of 0.1 and 0.03 the same collapse refines
+  everywhere by $t = 0.27$, so the grid becomes uniform again and the FFT solver takes over. That run passes the same
+  oracle, with jumps at steps 40 and 50.
+
+![SV-11: the change of E + W through the regrid, the blocks, and the density on the final composite grid](/flume/selfgravity-amr-regrid.png)
+
+**Left:** $E + W$ drifts at the time integration's level until the regrid at $t = 0.35$ refines the ridge (16 → 52
+blocks), then jumps once and stays flat. **Right:** the final density, the refined blocks along the ridge. Run with
+`make_doc_runs.sh <dir> amr` and `make_doc_figures.py --only selfgravity-amr-regrid`.
 
 ## Ranks without blocks (DV-1)
 

@@ -6,7 +6,11 @@ module adam_flume_numerics_object
 !<
 !< `reflux` switches the Berger-Colella correction at AMR coarse-fine faces: `.true.` for every production run;
 !< `.false.` is a diagnostic (the negative control of the conservation test, issue #35 V3), since a run on a grid
-!< with coarse-fine faces is then not conservative.
+!< with coarse-fine faces is then not conservative. `reflux_cadence` (optional, issue #81 P5c): `step` (default) corrects
+!< the coarse cells once, at the end of the step, from the step's fluxes (Berger-Colella, the AMReX cadence); `stage`
+!< corrects the coarse cells' residual at every Runge-Kutta stage from that stage's fluxes, so every stage advances the
+!< coarse cells with the fine fluxes and the scheme is the conservative composite one at every stage (the time
+!< integration then keeps its order on what the step cadence makes first order, e.g. the E + W of self-gravity).
 !<
 !< `scheme_space = weno-riemann` (issue #47) interpolates the `reconstruction_variables` (`characteristic` or
 !< `primitive`) to the faces by WENO, takes the `riemann_solver` flux of the two face states and adds the
@@ -23,7 +27,7 @@ use :: adam_flume_parameters, only : FLUX_CORRECTION_4TH, FLUX_CORRECTION_6TH, F
                                      POSITIVITY_LIMITER_CELL, POSITIVITY_LIMITER_NONE, RECON_CHARACTERISTIC,               &
                                      RECON_CONSERVATIVE, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,         &
                                      RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO, REFLUX_POLICY_ALWAYS,     &
-                                     REFLUX_POLICY_TROUBLED,                                                         &
+                                     REFLUX_POLICY_TROUBLED, REFLUX_CADENCE_STAGE, REFLUX_CADENCE_STEP,             &
                                      SCHEME_SPACE_WENO_RIEMANN, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
@@ -45,6 +49,7 @@ type :: flume_numerics_object
    character(:), allocatable :: flux_correction_sensor   !< Face flux correction sensor (weno-riemann only).
    character(:), allocatable :: positivity_limiter       !< Positivity limiter: none or cell.
    character(:), allocatable :: reflux_policy            !< Reflux policy (with reflux on): always or troubled (#68 E1).
+   character(:), allocatable :: reflux_cadence           !< Reflux cadence (with reflux on): step or stage (#81 P5c).
    integer(I4P)              :: dissipative_order=4_I4P  !< Order of the dissipative face fluxes, 2 or 4 (issue #65).
    contains
       ! public methods
@@ -97,6 +102,7 @@ contains
    desc = desc//mpih%myrankstr//'  reconstruction_variables: '//self%reconstruction_variables//NL
    desc = desc//mpih%myrankstr//'  reflux:                   '//trim(merge('.true. ', '.false.', self%reflux))
    if (self%reflux) desc = desc//NL//mpih%myrankstr//'  reflux_policy:            '//self%reflux_policy
+   if (self%reflux) desc = desc//NL//mpih%myrankstr//'  reflux_cadence:           '//self%reflux_cadence
    desc = desc//NL//mpih%myrankstr//'  positivity_limiter:       '//self%positivity_limiter
    desc = desc//NL//mpih%myrankstr//'  dissipative_order:        '//trim(str(self%dissipative_order))
    if (self%scheme_space == SCHEME_SPACE_WENO_RIEMANN) then
@@ -171,6 +177,14 @@ contains
    else
       call load_choice(key='reflux_policy', val=self%reflux_policy,                                           &
                        accepted=[character(8) :: REFLUX_POLICY_ALWAYS, REFLUX_POLICY_TROUBLED])
+   endif
+   ! optional (default step, issue #81 P5c): the end-of-step correction, or the per-stage one
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux_cadence', val=buff, error=error)
+   if (error > 0) then
+      self%reflux_cadence = REFLUX_CADENCE_STEP
+   else
+      call load_choice(key='reflux_cadence', val=self%reflux_cadence,                                         &
+                       accepted=[character(5) :: REFLUX_CADENCE_STEP, REFLUX_CADENCE_STAGE])
    endif
 
    ! optional (default none): an absent key keeps every pre-M3-P5 input valid

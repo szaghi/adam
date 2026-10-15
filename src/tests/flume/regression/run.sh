@@ -23,6 +23,7 @@
 #   sod-x, sod-y, sod-z      V1 Sod shock tube along each direction, WENO-5 characteristic, SSP-33, fast path
 #   vortex-periodic          V2 isentropic vortex, periodic quadtree, SSP-54, 100 steps
 #   amr-periodic-reflux      V3 init-time AMR, 2:1 faces on every side of the refined octant, reflux, staged path
+#   amr-periodic-reflux-stage  amr-periodic-reflux with reflux_cadence = stage, the per-stage reflux (issue #81, P5c)
 #   shock-cylinder-ib        V6 Mach 2 shock over a cylinder, immersed boundary, solid AMR marker, 120 steps
 #   sod-2realm               sod-x split in two realms at the diaphragm, mirror seam, beta cadence (issue #37); a forest
 #                            manifest (input.ini) plus one INI per realm; equivalent_to sod-x

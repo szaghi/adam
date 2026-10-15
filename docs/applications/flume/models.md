@@ -263,7 +263,16 @@ inconsistency per step. Measured on the collapsing Jeans mode
 - with the seam work: $9\cdot10^{-8}$, $3\cdot10^{-8}$, $1.4\cdot10^{-8}$ at CFL 0.4, 0.2, 0.1;
 - without it: $10^{-5}$ at every CFL, a spatial leak.
 
-A per-stage reflux would restore the Runge–Kutta order. Runtime AMR is #81 P5c.
+`[numerics] reflux_cadence = stage` (P5c) restores the Runge–Kutta order: every stage corrects the coarse cells'
+residual from that stage's fluxes, and the drift falls at third order in $\Delta t$ ($3.5\cdot10^{-8}$,
+$4.3\cdot10^{-9}$, $5.4\cdot10^{-10}$).
+
+**Under runtime AMR** (P5c) every regrid sets the solver up on the new grid and solves $\Phi$ from the regridded
+state. The regrid conserves $\rho$, $\rho\mathbf u$ and $E$, but $W = \tfrac12\sum\rho\Phi V$ is the grid's own
+discrete energy: a regrid that changes the grid changes $W$ by a truncation-sized amount, and $E + W$ jumps
+([SV-11](./verification#sv-11-p5c-self-gravity-under-runtime-amr)). The jump is not a leak of the scheme between
+regrids, which stays exact. Making the regrid itself conserve $E + W$ would need a correction of $E$ at each regrid,
+which is not done.
 
 ## Units and scaling
 

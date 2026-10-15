@@ -6,6 +6,7 @@
     jeans_oracle.py symmetry <work> [--tol T]
     jeans_oracle.py conservation <work> [<work> ...] [--tol-momentum M] [--min-order P] [--label NAME]
     jeans_oracle.py compare <work_a> <work_b> [--tol T]
+    jeans_oracle.py regrid <work> --frequency N [--tol-step T] [--tol-momentum M] [--tol-mass M]
 
 The exact linear solution of a Jeans mode of [initial_conditions] (`sine-wave`, `wave_mode = jeans`) on the uniform
 state of region 1 under the self-gravity of [gravity] (`G` or `G_star`): with k = 2 pi / wavelength along
@@ -25,7 +26,12 @@ n = (cos a, sin a), the phase theta = k n . x and w^2 = c^2 k^2 - 4 pi G rho_0 (
 - `conservation` (SV-4): from the conservation history, the drift of E + W (`E_plus_W`, max |(E + W)(t) - (E + W)(0)|
   over |(E + W)(0)|) and the largest |momentum integral|, per run; with several runs of one case at decreasing CFL
   (each half the previous), the order of the E + W drift in dt. Exit 1 when a momentum exceeds `--tol-momentum` or
-  the order of the finest pair is below `--min-order`.
+  the order of the finest pair is below `--min-order`, or (with `--tol-mass`) a relative mass drift exceeds it.
+- `regrid` (SV-11, issue #81 P5c): a run under runtime AMR. The grid must change (the blocks of the first and the last
+  checkpoint differ); the E + W history is split into jumps (a step change above 100 times the median) and the rest:
+  every jump must fall on a regrid step (a multiple of `--frequency`), the largest other step change must stay below
+  `--tol-step` (relative to E + W), the momentum below `--tol-momentum` and the mass drift below `--tol-mass`. The jumps
+  (the discrete W changes with the grid) are reported, not bounded.
 - `compare` (SV-10, issue #81 P5b): two runs of one case on one grid (the FFT and the multigrid solver), their density
   at the last checkpoint, max |rho_a - rho_b| over rho_0 times the mode amplitude; exit 1 above `--tol`.
 """
@@ -204,12 +210,13 @@ def conservation(args: argparse.Namespace) -> int:
         mom = float(max(np.max(np.abs(h[k])) for k in ("int_ru", "int_rv", "int_rw")))
         w_range = float(np.max(np.abs(h["W"] - h["W"][0])) / abs(ew[0]))
         e_range = float(np.max(np.abs(h["int_rE"] - h["int_rE"][0])) / abs(ew[0]))
+        mass = float(np.max(np.abs(h["int_r"] - h["int_r"][0])) / abs(h["int_r"][0]))
         tail = ""
         if drifts:
             tail = f", order {math.log2(drifts[-1] / drift):+.2f}"
         print(f"   {work.name}: {len(ew)} rows, E + W drift {drift:.2e} (E alone {e_range:.2e}, W alone "
-              f"{w_range:.2e}), max |momentum| {mom:.2e}{tail}")
-        ok = ok and mom <= args.tol_momentum
+              f"{w_range:.2e}), max |momentum| {mom:.2e}, mass drift {mass:.1e}{tail}")
+        ok = ok and mom <= args.tol_momentum and (args.tol_mass is None or mass <= args.tol_mass)
         drifts.append(drift)
     if len(drifts) > 1:
         order = math.log2(drifts[-2] / drifts[-1])
@@ -238,6 +245,40 @@ def compare(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def checkpoint_blocks(paths: list[Path]) -> int:
+    """The blocks of one checkpoint over its per-rank files."""
+    import h5py  # noqa: PLC0415
+
+    n = 0
+    for path in paths:
+        with h5py.File(path, "r") as h5:
+            n += len({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")})
+    return n
+
+
+def regrid(args: argparse.Namespace) -> int:
+    """SV-11: E + W, the mass and the momentum of a run under runtime AMR."""
+    cps = checkpoints(args.work)
+    first, last = checkpoint_blocks(cps[min(cps)][1]), checkpoint_blocks(cps[max(cps)][1])
+    h = history(args.work)
+    ew = h["E_plus_W"]
+    d = np.diff(ew) / abs(ew[0])
+    big = np.abs(d) > 100.0 * np.median(np.abs(d))
+    its = h["it"][1:].astype(int)
+    jumps = [(int(its[i]), float(d[i])) for i in np.nonzero(big)[0]]
+    on_regrid = all(it % args.frequency == 0 for it, _ in jumps)
+    other = float(np.max(np.abs(d[~big]))) if np.any(~big) else 0.0
+    mom = float(max(np.max(np.abs(h[k])) for k in ("int_ru", "int_rv", "int_rw")))
+    mass = float(np.max(np.abs(h["int_r"] - h["int_r"][0])) / abs(h["int_r"][0]))
+    ok = first != last and on_regrid and other <= args.tol_step and mom <= args.tol_momentum and mass <= args.tol_mass
+    print(f"   {args.work.name}: blocks {first} -> {last}, {len(ew)} rows; E + W jumps at regrids "
+          f"{', '.join(f'it {it}: {x:+.2e}' for it, x in jumps) or 'none'}; largest other step change {other:.2e}; "
+          f"max |momentum| {mom:.2e}; mass drift {mass:.1e}")
+    print(f"Jeans regrid: {'PASS' if ok else 'FAIL'} (grid changed {first != last}, jumps on regrid steps {on_regrid}, "
+          f"step tol {args.tol_step:g}, momentum tol {args.tol_momentum:g}, mass tol {args.tol_mass:g})")
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Parse the command line and run the check."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -258,12 +299,20 @@ def main() -> int:
     p.add_argument("--tol-momentum", type=float, default=1.0e-14)
     p.add_argument("--min-order", type=float, default=2.5)
     p.add_argument("--label", default="Jeans", help="name of the case in the verdict line")
+    p.add_argument("--tol-mass", type=float, default=None, help="bound on the relative mass drift (default: none)")
+    p = sub.add_parser("regrid")
+    p.add_argument("work", type=Path)
+    p.add_argument("--frequency", type=int, required=True)
+    p.add_argument("--tol-step", type=float, default=1.0e-6)
+    p.add_argument("--tol-momentum", type=float, default=1.0e-14)
+    p.add_argument("--tol-mass", type=float, default=1.0e-14)
     p = sub.add_parser("compare")
     p.add_argument("work_a", type=Path)
     p.add_argument("work_b", type=Path)
     p.add_argument("--tol", type=float, default=1.0e-6)
     args = parser.parse_args()
-    checks = {"wave": wave, "growth": growth, "symmetry": symmetry, "conservation": conservation, "compare": compare}
+    checks = {"wave": wave, "growth": growth, "symmetry": symmetry, "conservation": conservation, "compare": compare,
+              "regrid": regrid}
     return checks[args.check](args)
 
 

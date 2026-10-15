@@ -19,13 +19,16 @@ equations (density even, velocity odd), maps cell (i, j) to (N + 1 - i, N + 1 - 
 
 Usage:
     make_jeans.py <out.ini> <case> [--cells N] [--cfl C] [--time-max T] [--it-save N] [--amplitude A] [--levels L]
-                  [--box] [--solver auto|fft|multigrid] [--poisson-bc periodic|isolated]
+                  [--box] [--solver auto|fft|multigrid] [--poisson-bc periodic|isolated] [--reflux-cadence step|stage]
+                  [--regrid N]
 
 `--cells` sets the cells per block side (default 8); the 2-D cases have 4x4 blocks (two uniform levels), the 3-D one
 2x2x2 (one level), so the grid is 4 N (2-D) or 2 N (3-D) cells per side. `--box` (issue #81, P5b) refines the central
 box, a quarter of the period from every face, one level more (2:1 seams the wave crosses): self-gravity on a static
 AMR grid, through the multigrid Poisson solver. `--solver` and `--poisson-bc` write `[gravity] poisson_solver` and
-`poisson_bc` (absent: the defaults, auto and periodic).
+`poisson_bc` (absent: the defaults, auto and periodic); `--reflux-cadence` writes `[numerics] reflux_cadence` (P5c).
+`--regrid N` (P5c) regrids every N steps, one level above the base, by a Loehner estimator on the density (refine
+above 0.3, derefine below 0.1): self-gravity under runtime AMR.
 """
 
 from __future__ import annotations
@@ -42,7 +45,8 @@ P0 = 1.0 / GAMMA
 
 
 def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save: int, amplitude: float | None,
-             levels: int | None, box: bool = False, solver: str | None = None, poisson_bc: str | None = None) -> str:
+             levels: int | None, box: bool = False, solver: str | None = None, poisson_bc: str | None = None,
+             reflux_cadence: str | None = None, regrid: int = 0) -> str:
     """Return the INI of a case."""
     is3d = case == "jeans3d"
     unstable = case in ("jeansu2d", "jeansc2d")
@@ -60,9 +64,9 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
         f"emin_x = {lo!r}", f"emin_y = {lo!r}", f"emin_z = {0.0!r}", f"emax_x = {lo + 1.0!r}", f"emax_y = {lo + 1.0!r}",
         f"emax_z = {1.0!r}",
         "null_x = .false.", "null_y = .false.", f"null_z = {'.false.' if is3d else '.true.'}",
-        "[amr]", f"max_level = {lev + 1 if box else lev}", f"ratio = {8 if is3d else 4}", f"iu_ref_levels = {lev}",
-        "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", "frequency = 0", "iters = 1",
-        f"markers_number = {1 if box else 0}",
+        "[amr]", f"max_level = {lev + 1 if box or regrid else lev}", f"ratio = {8 if is3d else 4}",
+        f"iu_ref_levels = {lev}", "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1",
+        f"frequency = {regrid}", "iters = 1", f"markers_number = {int(box) + int(regrid > 0)}",
     ]
     if box:
         hi_z = 0.75 if is3d else 1.0
@@ -70,6 +74,9 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
                   "delta_coarse = 0.0", f"box_xmin = {lo + 0.25!r}", f"box_ymin = {lo + 0.25!r}",
                   f"box_zmin = {0.25 if is3d else 0.0!r}", f"box_xmax = {lo + 0.75!r}", f"box_ymax = {lo + 0.75!r}",
                   f"box_zmax = {hi_z!r}", f"target_level = {lev + 1}"]
+    if regrid:
+        lines += [f"[amr_marker_{int(box) + 1}]", "mode = 4", "delta_type = max", "delta_fine = 0.0",
+                  "delta_coarse = 0.0", "field = 1", "var = 1", "refine_tol = 0.3", "derefine_tol = 0.1", "floor = 1e-4", "buffer = 2"]
     lines += [
         "[field]", "nv = 5", "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5", "ror_number = 0", "ror_threshold = 0.9", "ror_vars_number = 0",
@@ -80,6 +87,7 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
         "[slices]", "slices_number = 0",
         "[physics]", "physical_model = euler", f"gamma = {GAMMA!r}",
         "[numerics]", "scheme_space = weno", "reconstruction_variables = characteristic", "reflux = .true.",
+        *([f"reflux_cadence = {reflux_cadence}"] if reflux_cadence else []),
     ]
     for face in ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max"):
         bc = "extrapolation" if face[0] == "z" and not is3d else "periodic"
@@ -110,9 +118,12 @@ def main() -> int:
     parser.add_argument("--box", action="store_true")
     parser.add_argument("--solver", choices=("auto", "fft", "multigrid"), default=None)
     parser.add_argument("--poisson-bc", choices=("periodic", "isolated"), default=None)
+    parser.add_argument("--reflux-cadence", choices=("step", "stage"), default=None)
+    parser.add_argument("--regrid", type=int, default=0)
     args = parser.parse_args()
     args.out.write_text(case_ini(args.case, args.cells, args.cfl, args.time_max, args.it_save, args.amplitude,
-                                 args.levels, args.box, args.solver, args.poisson_bc))
+                                 args.levels, args.box, args.solver, args.poisson_bc, args.reflux_cadence,
+                                 args.regrid))
     return 0
 
 

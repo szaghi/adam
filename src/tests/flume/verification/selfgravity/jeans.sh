@@ -26,10 +26,17 @@
 #       - the collapse at CFL 0.4, 0.2, 0.1: momentum (TOL_MOMENTUM) and the E + W drift converging in dt, order >=
 #         MIN_DRIFT_ORDER_AMR: the seam work makes the semi-discrete E + W exact, the end-of-step reflux leaves a
 #         first-order time error (without the seam work the drift does not converge in dt: order 0.07);
+#       - the same collapse with `[numerics] reflux_cadence = stage` (P5c): the per-stage reflux restores the
+#         time integration's order, >= MIN_DRIFT_ORDER (SSP-RK3), with the mass at round-off;
 #       - refused: isolated boundaries with the multigrid solver (so on AMR; issue #87), `poisson_solver = fft` on
 #         AMR.
+#   - SV-11 (issue #81, P5c), self-gravity under runtime AMR: the collapse (base 32^2) regridded every REGRID steps by a
+#     Loehner estimator on the density, with the per-stage reflux. The grid must change, every jump of E + W must fall
+#     on a regrid step (the discrete W changes with the grid: the jumps are reported, not bounded), the other step
+#     changes of E + W stay below TOL_STEP, the momentum and the mass at round-off; isolated boundaries with runtime AMR
+#     are refused (#87).
 #
-# Usage: ./jeans.sh [--np N] [--legs "sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave"] [--keep]
+# Usage: ./jeans.sh [--np N] [--legs "sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave sv11"] [--keep]
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft, mode flume-cpu-gnu-fft; FNL:
 # exe/adam_flume_fnl_fft, mode flume-fnl-nvf-fft). The caller owns the matching environment (FNL: nvhpc mpirun on PATH
@@ -40,7 +47,7 @@ CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 NP=2
-LEGS="sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave"
+LEGS="sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave sv11"
 KEEP=0
 MIN_ORDER=1.8
 TOL_GROWTH=1.0e-2
@@ -49,6 +56,9 @@ TOL_MOMENTUM=1.0e-14
 MIN_DRIFT_ORDER=2.5
 MIN_DRIFT_ORDER_AMR=0.8
 TOL_COMPARE=1.0e-6
+TOL_MASS=1.0e-14
+TOL_STEP=1.0e-6
+REGRID=5
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -144,6 +154,15 @@ for leg in $LEGS; do
             "$VENV_PY" "$ORACLE" conservation "${ws[@]}" --tol-momentum "$TOL_MOMENTUM" \
                --min-order "$MIN_DRIFT_ORDER_AMR" --label "Jeans AMR" || FAILED=1
          fi
+         ws=()
+         for cfl in 0.4 0.2 0.1; do
+            run "sv10-stage-$cfl" jeansc2d --box --cells 16 --cfl "$cfl" --reflux-cadence stage && ws+=("$W")
+         done
+         if [[ ${#ws[@]} -eq 3 ]]; then
+            "$VENV_PY" "$ORACLE" conservation "${ws[@]}" --tol-momentum "$TOL_MOMENTUM" \
+               --min-order "$MIN_DRIFT_ORDER" --tol-mass "$TOL_MASS" --label "Jeans AMR, per-stage reflux" \
+               || FAILED=1
+         fi
          refuse sv10-isolated 'not supported by the multigrid solver' jeans2d --solver multigrid --poisson-bc isolated
          refuse sv10-fft-amr 'poisson_solver) = fft needs a uniform grid' jeans2d --box --solver fft ;;
       sv10-wave)
@@ -154,16 +173,23 @@ for leg in $LEGS; do
          ws=()
          for cells in 8 16; do run "sv10-3d-$cells" jeans3d --box --cells "$cells" && ws+=("$W") ; done
          if [[ ${#ws[@]} -eq 2 ]]; then "$VENV_PY" "$ORACLE" wave "${ws[@]}" --min-order "$MIN_ORDER" || FAILED=1 ; fi ;;
+      sv11)
+         echo ">> SV-11: self-gravity under runtime AMR"
+         if run sv11-regrid jeansc2d --cells 8 --regrid "$REGRID" --reflux-cadence stage; then
+            "$VENV_PY" "$ORACLE" regrid "$W" --frequency "$REGRID" --tol-step "$TOL_STEP" \
+               --tol-momentum "$TOL_MOMENTUM" --tol-mass "$TOL_MASS" || FAILED=1
+         fi
+         refuse sv11-isolated 'isolated is refused with runtime AMR' jeans2d --regrid "$REGRID" --poisson-bc isolated ;;
       sv5)
          echo ">> SV-5: scaling covariance with G"
          case_dir sv5-input jeans2d --cells 8 --time-max 0.2
          FLUME_EXE="$EXE" "$CASE_DIR/../scaling/reference.sh" --np "$NP" --inputs "$W/input.ini" || FAILED=1 ;;
       *)
-         echo "jeans.sh: unknown leg '$leg' (accepted: sv3-2d, sv3-3d, sv4, sv5, sv10, sv10-wave)" >&2 ; exit 2 ;;
+         echo "jeans.sh: unknown leg '$leg' (accepted: sv3-2d, sv3-3d, sv4, sv5, sv10, sv10-wave, sv11)" >&2 ; exit 2 ;;
    esac
 done
 if [[ $KEEP -eq 0 && $FAILED -eq 0 ]]; then rm -rf "${WORKS[@]}" ; fi
 if [[ $FAILED -ne 0 ]]; then
-   echo "SV-3..5, SV-10 FAILED ($TAG)" ; exit 1
+   echo "SV-3..5, SV-10, SV-11 FAILED ($TAG)" ; exit 1
 fi
-echo "SV-3..5, SV-10 PASSED ($TAG)"
+echo "SV-3..5, SV-10, SV-11 PASSED ($TAG)"

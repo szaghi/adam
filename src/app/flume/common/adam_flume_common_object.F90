@@ -1651,11 +1651,11 @@ contains
    enddo
    if (self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': [gravity] is not supported with immersed solids yet (issue #73)')
-   ! self-gravity (issue #81, M8-P3): the FFT solver needs a fixed uniform grid (it refuses a non-uniform or
-   ! non-periodic one when it is set up)
-   if (self%physics%gravity%self_gravity .and. self%amr%frequency > 0_I4P) &
-      call mpih%error_stop(msg=': [gravity].(self_gravity) is refused with runtime AMR ([amr].(frequency) > 0): the '// &
-                               'FFT Poisson solver needs a uniform grid (issue #81, P5 brings AMR)')
+   ! self-gravity with runtime AMR (issue #81, P5c): every regrid sets the solver up again (set_potential), the multigrid
+   ! on an AMR grid; isolated boundaries have no AMR solver yet (#87), refused here rather than at the first refinement
+   if (self%physics%gravity%self_gravity .and. self%physics%gravity%isolated .and. self%amr%frequency > 0_I4P) &
+      call mpih%error_stop(msg=': [gravity].(poisson_bc) = isolated is refused with runtime AMR ([amr].(frequency) '// &
+                               '> 0): the multigrid solver is periodic only (issue #87)')
    ! the well-balanced mode (M7-G2b) subtracts the residual of a stored equilibrium, whose reflux correction is fixed:
    ! a reflux that changes its cells per step (policy troubled) cannot be subtracted
    if (self%physics%gravity%is_balanced .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &

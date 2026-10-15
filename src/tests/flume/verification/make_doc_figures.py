@@ -1789,7 +1789,8 @@ def fig_selfgravity_amr_jeans(out: Path, runs: Path) -> None:
     `--box` (the central box refined once: 2:1 seams the wave crosses; the multigrid solver, the seam gravity work in the
     reflux; CPU, 2 ranks). Left: the L1 error of the stable wave after one period against the base N (the box has twice
     the resolution), and the same wave on the uniform grid of the base N. Middle: the collapse (amplitude 1e-2,
-    base 64^2), the drift of E + W at CFL 0.4, 0.2, 0.1, with E and W alone. Right: the collapse density at t = 0.4 on
+    base 64^2), the drift of E + W at CFL 0.4, 0.2, 0.1 with the end-of-step reflux (solid) and the per-stage one
+    (dashed, `reflux_cadence = stage`, P5c), with E and W alone. Right: the collapse density at t = 0.4 on
     the composite grid, the block outlines drawn."""
     sys.path.insert(0, str(HERE / "selfgravity"))
     import jeans_oracle  # noqa: PLC0415
@@ -1817,21 +1818,35 @@ def fig_selfgravity_amr_jeans(out: Path, runs: Path) -> None:
         h = jeans_oracle.history(runs / f"sv10-collapse-{cfl}")
         ew0 = h["E_plus_W"][0]
         ax.semilogy(h["time"][1:], np.maximum(np.abs(h["E_plus_W"][1:] - ew0) / abs(ew0), FLOOR), "-", color=color,
-                    label=f"E + W, CFL {cfl}")
+                    label=f"E + W, CFL {cfl}, reflux each step")
+        hs = jeans_oracle.history(runs / f"sv10-stage-{cfl}")
+        ax.semilogy(hs["time"][1:], np.maximum(np.abs(hs["E_plus_W"][1:] - hs["E_plus_W"][0]) / abs(ew0), FLOOR),
+                    "--", color=color, label=f"E + W, CFL {cfl}, reflux each stage")
         if cfl == "0.1":
             ax.semilogy(h["time"][1:], np.abs(h["int_rE"][1:] - h["int_rE"][0]) / abs(ew0), "--", color="0.4",
                         label="E alone")
             ax.semilogy(h["time"][1:], np.abs(h["W"][1:] - h["W"][0]) / abs(ew0), ":", color="0.4", label="W alone (on E alone)")
     ax.set_xlabel("t")
     ax.set_ylabel("relative change")
-    ax.legend(fontsize=8)
-    ax.set_title("the collapse: E + W drifts at first order in dt", fontsize=10)
+    ax.legend(fontsize=6)
+    ax.set_title("E + W: first order in dt (step reflux), third (stage reflux)", fontsize=10)
     ax = axs[2]
-    col = runs / "sv10-collapse-0.1"
-    ini = jeans_oracle.read_ini(col)
+    _draw_composite_density(fig, ax, runs / "sv10-collapse-0.1")
+    fig.suptitle("SV-10: Jeans modes under self-gravity on a static AMR grid, the multigrid solver (CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-amr-jeans.png", dpi=DPI)
+    plt.close(fig)
+
+
+def _draw_composite_density(fig: plt.Figure, ax: plt.Axes, work: Path, step: int | None = None) -> None:
+    """The density of one checkpoint of a 2-D FLUME run (the last, or `step`) on its composite grid, block by block,
+    the block outlines drawn."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import jeans_oracle  # noqa: PLC0415
+
+    ini = jeans_oracle.read_ini(work)
     ngc = int(ini["grid"]["ngc"])
-    cps = jeans_oracle.checkpoints(col)
-    tc, paths = cps[max(cps)]
+    cps = jeans_oracle.checkpoints(work)
+    tc, paths = cps[max(cps) if step is None else step]
     rmin, rmax = math.inf, -math.inf
     blocks = []
     for path in paths:
@@ -1851,9 +1866,45 @@ def fig_selfgravity_amr_jeans(out: Path, runs: Path) -> None:
     fig.colorbar(im, ax=ax, shrink=0.85)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    ax.set_title(f"the collapse density at t = {tc:.2f}, {len(blocks)} blocks (max {rmax:.3f})", fontsize=10)
-    fig.suptitle("SV-10: Jeans modes under self-gravity on a static AMR grid, the multigrid solver (CPU, 2 ranks)")
-    fig.savefig(out / "selfgravity-amr-jeans.png", dpi=DPI)
+    ax.set_title(f"the density at t = {tc:.2f}, {len(blocks)} blocks (max {rmax:.3f})", fontsize=10)
+
+
+def fig_selfgravity_amr_regrid(out: Path, runs: Path) -> None:
+    """SV-11 (issue #81, M8-P5c): the collapse of make_jeans.py (base 32^2) under runtime AMR, regridded every 5 steps by
+    a Loehner estimator on the density, with the per-stage reflux (CPU, 2 ranks). Left: the change of E + W (relative)
+    against t, the regrid steps that changed the grid marked, and the number of blocks of every checkpoint. Right: the
+    density at the end on the composite grid."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import jeans_oracle  # noqa: PLC0415
+
+    work = runs / "sv11-regrid"
+    h = jeans_oracle.history(work)
+    ew = h["E_plus_W"]
+    d = np.diff(ew) / abs(ew[0])
+    big = np.abs(d) > 100.0 * np.median(np.abs(d))
+    fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.9), constrained_layout=True, width_ratios=(1.2, 1.0))
+    ax = axs[0]
+    ax.semilogy(h["time"][1:], np.maximum(np.abs(ew[1:] - ew[0]) / abs(ew[0]), FLOOR), "-", color="tab:blue",
+                label="|E + W - (E + W)(0)|")
+    for i in np.nonzero(big)[0]:
+        ax.axvline(h["time"][i + 1], color="tab:red", lw=0.8, ls=":")
+        ax.annotate(f"regrid, {d[i]:+.1e}", (h["time"][i + 1], 1e-6), rotation=90, fontsize=7, color="tab:red",
+                    xytext=(3, 0), textcoords="offset points")
+    ax.set_xlabel("t")
+    ax.set_ylabel("relative change of E + W")
+    ax.legend(fontsize=8, loc="upper left")
+    cps = jeans_oracle.checkpoints(work)
+    times = [cps[k][0] for k in sorted(cps)]
+    nblk = [jeans_oracle.checkpoint_blocks(cps[k][1]) for k in sorted(cps)]
+    ax2 = ax.twinx()
+    ax2.step(times, nblk, where="post", color="tab:green", lw=1.0, ls="--", alpha=0.7, label="blocks")
+    ax2.set_ylabel("blocks (dashed)", color="tab:green")
+    ax2.set_ylim(0, 1.25 * max(nblk))
+    ax2.legend(fontsize=8, loc="center left")
+    ax.set_title("E + W changes only at the regrids that change the grid", fontsize=10)
+    _draw_composite_density(fig, axs[1], work)
+    fig.suptitle("SV-11: self-gravity under runtime AMR, the collapse regridded on the density (CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-amr-regrid.png", dpi=DPI)
     plt.close(fig)
 
 
@@ -1882,7 +1933,8 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-jeans": fig_selfgravity_jeans,
            "selfgravity-isolated": fig_selfgravity_isolated,
            "selfgravity-star": fig_selfgravity_star,
-           "selfgravity-amr": fig_selfgravity_amr, "selfgravity-amr-jeans": fig_selfgravity_amr_jeans}
+           "selfgravity-amr": fig_selfgravity_amr, "selfgravity-amr-jeans": fig_selfgravity_amr_jeans,
+           "selfgravity-amr-regrid": fig_selfgravity_amr_regrid}
 
 
 def main() -> int:

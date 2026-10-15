@@ -30,12 +30,15 @@
 #   amr     sv9-poisson: the SV-9 unit test of the multigrid Poisson solver on AMR grids (#81, P5a; POISSON_MG_EXE,
 #           default exe/test_poisson_mg, mode test-poisson-mg-gnu) with its log; the SV-10 Jeans cases on the
 #           box-refined grid (#81, P5b; JEANS_EXE): sv10-2d-{8,16,32}, the stable wave, sv10-uniform-{8,16,32}, the
-#           same on the uniform grid, and sv10-collapse-{0.4,0.2,0.1}, the collapse (10 runs, about 25 min)
+#           same on the uniform grid, sv10-collapse-{0.4,0.2,0.1}, the collapse, sv10-stage-{0.4,0.2,0.1}, the same
+#           with reflux_cadence = stage (P5c), and sv11-regrid, the collapse (base 32^2) under runtime AMR with a
+#           checkpoint every 10 steps (14 runs, about 35 min)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
 #        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
-#        isolated: --only selfgravity-isolated selfgravity-star; amr: --only selfgravity-amr selfgravity-amr-jeans)
+#        isolated: --only selfgravity-isolated selfgravity-star; amr: --only selfgravity-amr selfgravity-amr-jeans
+#        selfgravity-amr-regrid)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
 #        [jeans] [isolated] [amr] (default: all twelve)
@@ -269,7 +272,11 @@ for g in $GROUPS_; do
          }
          for cells in 8 16 32; do amr_jeans "sv10-2d-$cells" jeans2d --cells "$cells" --box ; done
          for cells in 8 16 32; do amr_jeans "sv10-uniform-$cells" jeans2d --cells "$cells" ; done
-         for cfl in 0.4 0.2 0.1; do amr_jeans "sv10-collapse-$cfl" jeansc2d --cells 16 --cfl "$cfl" --box ; done ;;
+         for cfl in 0.4 0.2 0.1; do amr_jeans "sv10-collapse-$cfl" jeansc2d --cells 16 --cfl "$cfl" --box ; done
+         for cfl in 0.4 0.2 0.1; do
+            amr_jeans "sv10-stage-$cfl" jeansc2d --cells 16 --cfl "$cfl" --box --reflux-cadence stage
+         done
+         amr_jeans sv11-regrid jeansc2d --cells 8 --regrid 5 --reflux-cadence stage --it-save 10 ;;
    esac
 done
 exit $FAILED
