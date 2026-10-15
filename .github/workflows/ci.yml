@@ -22,7 +22,7 @@ jobs:
 
     - name: Fetch dependencies
       if: hashFiles('**/.deps_config.ini') != ''
-      run: FoBiS.py fetch
+      run: fobis fetch
 
     - name: Run tests with coverage
       id: cov
@@ -46,7 +46,7 @@ jobs:
 
     - name: Fetch dependencies
       if: hashFiles('**/.deps_config.ini') != ''
-      run: FoBiS.py fetch
+      run: fobis fetch
 
     - name: Run PRISM CPU regression
       # No HDF5_PREFIX needed: fobos resolves HDF5 paths from its default
@@ -85,7 +85,7 @@ jobs:
 
     - name: Fetch dependencies
       if: hashFiles('**/.deps_config.ini') != ''
-      run: FoBiS.py fetch
+      run: fobis fetch
 
     - name: Run FLUME CPU regression
       # No HDF5_PREFIX needed: fobos resolves HDF5 paths from its default

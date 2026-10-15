@@ -12,6 +12,9 @@ modes = test-fdv-curl-trigonometric-gnu               test-fdv-curl-trigonometri
         test-fdv-operators-step-gnu                   test-fdv-operators-step-gnu-debug
         test-fdv-operators-trigonometric-gnu          test-fdv-operators-trigonometric-gnu-debug
         test-prism-reflux-apply-gnu                   test-prism-reflux-apply-gnu-debug
+        test-fdv-curl-trigonometric-gnu-cov           test-fdv-divergence-trigonometric-gnu-cov
+        test-fdv-gradient-trigonometric-gnu-cov       test-fdv-laplacian-trigonometric-gnu-cov
+        test-fdv-operators-step-gnu-cov               test-fdv-operators-trigonometric-gnu-cov
 
 [test-fdv-curl-trigonometric-gnu]
 template = template-gnu
@@ -112,3 +115,35 @@ target   = test_prism_reflux_apply.F90
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = test_prism_reflux_apply.F90
+
+# coverage builds (rule build-tests-fdv): every object, the library included, instrumented, in exe/obj/gnu-cov
+
+[test-fdv-curl-trigonometric-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_fdv_curl_trigonometric.F90
+
+[test-fdv-divergence-trigonometric-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_fdv_divergence_trigonometric.F90
+
+[test-fdv-gradient-trigonometric-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_fdv_gradient_trigonometric.F90
+
+[test-fdv-laplacian-trigonometric-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_fdv_laplacian_trigonometric.F90
+
+[test-fdv-operators-step-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_fdv_operators_step.F90
+
+[test-fdv-operators-trigonometric-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_fdv_operators_trigonometric.F90

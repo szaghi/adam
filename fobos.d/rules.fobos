@@ -25,18 +25,29 @@ rule_1 = fobis rule --ex deldoc
 rule_2 = fobis rule --ex delexe
 rule_3 = rm -f *.gcov
 
+[rule-build-tests-fdv]
+help   = Build the FDV operator tests (GNU) instrumented for coverage: modes test-fdv-*-gnu-cov (template-gnu-cov), every
+         object in their own exe/obj/gnu-cov and exe/mod/gnu-cov, never mixed with the shared gnu ones
+rule_1 = rm -rf exe/obj/gnu-cov exe/mod/gnu-cov
+rule_2 = fobis build --mode test-fdv-curl-trigonometric-gnu-cov
+rule_3 = fobis build --mode test-fdv-divergence-trigonometric-gnu-cov
+rule_4 = fobis build --mode test-fdv-gradient-trigonometric-gnu-cov
+rule_5 = fobis build --mode test-fdv-laplacian-trigonometric-gnu-cov
+rule_6 = fobis build --mode test-fdv-operators-step-gnu-cov
+rule_7 = fobis build --mode test-fdv-operators-trigonometric-gnu-cov
+
 [rule-makecoverage]
-help   = Rule for performing coverage analysis
+help   = Rule for performing coverage analysis (the third-party objects are dropped before gcov: ADAM's own lines only)
 rule_1 = fobis rule --ex build-tests-fdv
 rule_2 = ./scripts/run_tests.sh --np 1
-rule_3 = rm -f exe/obj/befor64* exe/obj/face* exe/obj/finer* exe/obj/fundal* exe/obj/fossil* exe/obj/foxy* exe/obj/mortif* exe/obj/motion* exe/obj/penf* exe/obj/stringifor* exe/obj/vtkfortran* exe/obj/vecfor*
+rule_3 = rm -f exe/obj/gnu-cov/befor64* exe/obj/gnu-cov/face* exe/obj/gnu-cov/finer* exe/obj/gnu-cov/fundal* exe/obj/gnu-cov/fossil* exe/obj/gnu-cov/foxy* exe/obj/gnu-cov/mortif* exe/obj/gnu-cov/motion* exe/obj/gnu-cov/penf* exe/obj/gnu-cov/stringifor* exe/obj/gnu-cov/vtkfortran* exe/obj/gnu-cov/vecfor* exe/obj/gnu-cov/heat_*
 rule_4 = ./scripts/compute-coverage.sh
 
 [rule-makecoverage-analysis]
 help   = Rule for performing coverage analysis and saving reports in markdown
 rule_1 = fobis rule --ex build-tests-fdv
 rule_2 = ./scripts/run_tests.sh --np 1
-rule_3 = rm -f exe/obj/befor64* exe/obj/face* exe/obj/finer* exe/obj/fundal* exe/obj/fossil* exe/obj/foxy* exe/obj/mortif* exe/obj/motion* exe/obj/penf* exe/obj/stringifor* exe/obj/vtkfortran* exe/obj/vecfor*
+rule_3 = rm -f exe/obj/gnu-cov/befor64* exe/obj/gnu-cov/face* exe/obj/gnu-cov/finer* exe/obj/gnu-cov/fundal* exe/obj/gnu-cov/fossil* exe/obj/gnu-cov/foxy* exe/obj/gnu-cov/mortif* exe/obj/gnu-cov/motion* exe/obj/gnu-cov/penf* exe/obj/gnu-cov/stringifor* exe/obj/gnu-cov/vtkfortran* exe/obj/gnu-cov/vecfor* exe/obj/gnu-cov/heat_*
 rule_4 = ./scripts/compute-coverage.sh
-rule_5 = fobis rule -gcov_analyzer docs/guide/
+rule_5 = fobis rule --gcov-analyzer docs/guide/
 rule_6 = rm -f *.gcov

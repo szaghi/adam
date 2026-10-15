@@ -53,5 +53,5 @@ runs:
         mpif90 --version
         mpirun --version
         python --version
-        FoBiS.py --version
+        fobis --version
         ford --version

@@ -42,7 +42,7 @@ jobs:
 
     - name: Fetch dependencies
       if: hashFiles('**/.deps_config.ini') != ''
-      run: FoBiS.py fetch
+      run: fobis fetch
 
     - name: Run coverage analysis
       id: cov

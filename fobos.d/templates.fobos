@@ -59,6 +59,12 @@ compiler = gnu
 cflags   = -cpp -c -O2
 lflags   = -O2
 
+[template-gnu-cov]
+template = template-gnu
+mod_dir  = ./mod/gnu-cov/
+obj_dir  = ./obj/gnu-cov/
+coverage = True
+
 [template-gnu-debug]
 template = template-gnu
 mod_dir  = ./mod/gnu/debug/
