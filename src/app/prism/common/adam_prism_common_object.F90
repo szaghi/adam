@@ -408,6 +408,7 @@ contains
       call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
                                do_blocks_reorder=.false., q=self%q)
    endif
+   if (is_pic_model(self%physics%physical_model)) call self%pic%set_gaussian_support_cells(field=self%adam%field)
    call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, &
                   tree=self%adam%tree, file_parameters=file_parameters, physics=self%physics)
    call self%pml%initialize(field=self%adam%field, grid=self%adam%grid, tree=self%adam%tree, &

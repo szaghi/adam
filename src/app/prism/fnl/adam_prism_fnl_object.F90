@@ -799,6 +799,8 @@ contains
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
+      ! the step leaves the ghosts of q as the last stage refilled them: refresh them, the gather reads interface/wall ghosts
+      call self%update_ghost(q_gpu=self%q_gpu)
       call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
                                                           grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
       if (self%external_fields%ef_type /= EF_TYPE_NONE) &
@@ -5285,6 +5287,15 @@ contains
       call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
       if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
          call self%rk_pml_fnl%compute_stage(s=s, dt=self%time%dt)
+
+      ! compute_stage fills only the interior cells and the stage ghosts are refreshed by compute_residuals_dev, which
+      ! here runs after the gather: refresh them now, or the gather reads stale ghosts at block interfaces and walls
+      ! (no coil re-stamp: the stage current is solved and stamped below)
+      call self%field_fnl%update_ghost_local_gpu(q_gpu=q_rk_gpu(:,:,:,:,:,s))
+      call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                               comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                               q_gpu=q_rk_gpu(:,:,:,:,:,s))
+      call self%set_boundary_conditions(q_gpu=q_rk_gpu(:,:,:,:,:,s))
 
       ! gather at the stage particles, then the particle right-hand side
       call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &

@@ -7,6 +7,7 @@ use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
 ! ADAM singleton objects
 use :: adam_mpih_global,  only : mpih
+use :: mpi
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
@@ -141,6 +142,7 @@ contains
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
    procedure, pass(self) :: particle_cartesian_grid_index !< Compute the grid index corresponding to a particle position.
+   procedure, pass(self) :: set_gaussian_support_cells    !< Automatic Gaussian support radius on the final grid.
    procedure, pass(self) :: stencil_radius_cells          !< Max cells reached by deposit/gather stencils beyond the particle cell.
    procedure, pass(self) :: CIC_charge_weighting          !< Cloud-in-Cell weighting of particle quantities to the grid.
    procedure, pass(self) :: NGP_charge_weighting          !< Nearest Grid Point weighting of particle quantities to the grid.
@@ -289,7 +291,6 @@ contains
    type(prism_physics_object), intent(in) :: physics
    real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
                                                              !< present at t0
-   integer(I4P)                           :: b
 	character(len=:),        allocatable   :: desc
    character(len=1),        parameter     :: NL=new_line('a')
 
@@ -326,15 +327,7 @@ contains
    elseif (self%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
       self%particle_number = 1_I4P
    endif
-   if ((self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
-        self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
-        self%field_weighting_model == GAUSSIAN_WEIGHTING_MODEL) .and. self%gaussian_support_cells < 0_I4P) then
-      self%gaussian_support_cells = 0_I4P
-      do b=1, blocks_number
-         self%gaussian_support_cells = max(self%gaussian_support_cells, &
-            ceiling(self%cutoff_sigma*self%sigma/minval(field%dxyz(:,b)), kind=I4P) + 1_I4P)
-      enddo
-   endif
+   ! the automatic Gaussian support depends on the final cell size: set_gaussian_support_cells, after the uniform refinement
    endassociate
 
    print '(A)', self%description()
@@ -735,6 +728,28 @@ contains
    enddo
    endassociate
    endsubroutine particle_cartesian_grid_index
+
+   subroutine set_gaussian_support_cells(self, field)
+   !< Automatic Gaussian support radius (gaussian_support_cells < 0 in input): ceiling(cutoff_sigma*sigma/dx_min) + 1 over all
+   !< blocks of all ranks. To be called once the grid is final (after the uniform refinement): on the root blocks the support
+   !< would be underestimated by 2**iu_ref_levels.
+   class(prism_pic_object), intent(inout) :: self    !< PIC object.
+   type(field_object),      intent(in)    :: field   !< Field (sibling realm component, threaded in).
+   integer(I4P)                           :: b       !< Counter.
+   integer(I4P)                           :: support !< Local support radius.
+
+   if (self%gaussian_support_cells >= 0_I4P) return
+   if (self%particle_weighting_model /= GAUSSIAN_WEIGHTING_MODEL .and. &
+       self%current_weighting_model  /= GAUSSIAN_WEIGHTING_MODEL .and. &
+       self%field_weighting_model    /= GAUSSIAN_WEIGHTING_MODEL) return
+   support = 0_I4P
+   do b=1, field%blocks_number
+      support = max(support, ceiling(self%cutoff_sigma*self%sigma/minval(field%dxyz(:,b)), kind=I4P) + 1_I4P)
+   enddo
+   call MPI_ALLREDUCE(support, self%gaussian_support_cells, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   call mpih%print_message('prism_pic_object: automatic Gaussian support cells = '// &
+                           trim(str(self%gaussian_support_cells, .true.)))
+   endsubroutine set_gaussian_support_cells
 
    function stencil_radius_cells(self) result(radius)
    !< Max number of cells, beyond the particle cell, reached by the configured charge, current and field stencils.

@@ -448,6 +448,8 @@ contains
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
+      ! the step leaves the ghosts of q as the last stage refilled them: refresh them, the gather reads interface/wall ghosts
+      call self%update_ghost(q=self%q)
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
       if (self%external_fields%ef_type /= EF_TYPE_NONE) then
          allocate(q_view, mold=self%q)
@@ -4535,6 +4537,12 @@ contains
       if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
 
       q_stage = self%rk%q_rk(:,:,:,:,:,s)
+      ! compute_stage fills only the interior cells and the stage ghosts are refreshed by compute_residuals, which here
+      ! runs after the gather: refresh them now, or the gather reads stale ghosts at the walls
+      ! (no coil re-stamp: the stage current is solved and stamped below)
+      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q_stage)
+      call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q_stage)
+      call self%set_boundary_conditions(q=q_stage, s=s)
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, &
                                                    q_pic=self%rk_pic%q_pic_rk(:,:,s))
       if (self%external_fields%ef_type /= EF_TYPE_NONE) then
