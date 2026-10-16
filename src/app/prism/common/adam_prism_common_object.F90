@@ -99,6 +99,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
       procedure, pass(self) :: compute_fields_number    !< Compute the block-sized fields allocated per block.
       procedure, pass(self) :: initialize               !< Initialize the equation common data.
+      procedure, pass(self) :: fold_deposited_ghosts !< Fold PIC deposits spilled into ghosts, locally and across ranks.
       procedure, pass(self) :: initialize_pic_time_zero !< Host-side PIC particle injection plus charge/current deposition at t=0.
       procedure, pass(self) :: verify_no_pic_deposition_on_coils !< Guard against PIC deposition on coil cells.
       procedure, pass(self) :: weight_pic_fields_time_zero !< Host-side PIC field interpolation at t=0.
@@ -514,31 +515,55 @@ contains
 
    call self%particle_injection%set_particle_initial_injection(field=self%adam%field, grid=self%adam%grid, &
                                                                pic=self%pic, q_pic=self%q_pic)
+   ! the random sequence may differ between processes (gfortran seeds each one differently): the set of rank 0 is the set
+   if (mpih%procs_number > 1_I4P) &
+      call MPI_BCAST(self%q_pic, size(self%q_pic), MPI_REAL8, 0, MPI_COMM_WORLD, mpih%error)
    if (is_adim_model(self%physics%physical_model)) then
       ! Positions are already in grid units; thermal velocities, charges and masses come from SI input.
       self%q_pic(4:6,:) = self%q_pic(4:6,:)/C0
       self%q_pic(7,:) = self%q_pic(7,:)/self%physics%Q0
       self%q_pic(8,:) = self%q_pic(8,:)/self%physics%M0
    endif
-   call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
-   call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list, R8P), &
-                                    np=self%pic%particle_number)
+   if (mpih%myrank == 0_I4P) then
+      ! the whole injected set (every rank holds it until the distribution below)
+      call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
+      call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list, R8P), &
+                                       np=self%pic%particle_number)
+   endif
+   call self%adam%field%check_reduce_ghost_maps(grid=self%adam%grid, maps=self%adam%maps)
+   call self%pic%distribute_particles(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
 
    if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
       ! The CPU backend deposits the conserving current from a centered virtual trajectory.
       self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
    else
       call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
-      call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, &
-                                            v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
+      call self%fold_deposited_ghosts(q=self%q, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
    endif
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, v_first=self%nv, v_last=self%nv)
+   call self%fold_deposited_ghosts(q=self%q, v_first=self%nv, v_last=self%nv)
    call self%verify_no_pic_deposition_on_coils(q=self%q, &
                                                check_current=trim(self%pic%current_weighting_model) /= &
                                                              CONSERVING_CURRENT_WEIGHTING_MODEL, check_charge=.true., &
                                                context='initialize_pic_time_zero')
    endsubroutine initialize_pic_time_zero
+
+   subroutine fold_deposited_ghosts(self, q, v_first, v_last)
+   !< Fold the PIC deposits that spilled into ghost cells back onto the cells they mirror, on this rank and across ranks,
+   !< then refill the ghosts: the result equals a single-block deposit of the same particles. With one rank this is
+   !< reduce_ghost_local alone. Collective.
+   class(prism_common_object), intent(inout) :: self    !< The equation.
+   real(R8P),                  intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   integer(I4P),               intent(in)    :: v_first !< First variable to fold.
+   integer(I4P),               intent(in)    :: v_last  !< Last variable to fold.
+
+   call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q, v_first=v_first, v_last=v_last)
+   if (mpih%procs_number > 1_I4P) then
+      call self%adam%field%reduce_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, v_first=v_first, v_last=v_last)
+      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+      call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q)
+   endif
+   endsubroutine fold_deposited_ghosts
 
    subroutine verify_no_pic_deposition_on_coils(self, q, check_current, check_charge, context)
    !< Ensure PIC deposition does not populate cells carrying analytic coil current.
@@ -892,11 +917,12 @@ contains
    endsubroutine save_pic_self_force_diagnostic_time_zero
 
    subroutine initialize_single_particle_output(filename)
-   !< Reset the single-particle output file before a fresh run from t = 0.
+   !< Reset the single-particle output file before a fresh run from t = 0 (rank 0 writes it).
    implicit none
    character(len=*), intent(in) :: filename
    integer(I4P)                 :: iu, ios
 
+   if (mpih%myrank /= 0_I4P) return
    open(newunit=iu, file=trim(filename), status='replace', action='write', form='formatted', iostat=ios)
    if (ios /= 0) then
       write(*,'(a,i0)') 'initialize_single_particle_output: errore open(), iostat=', ios
@@ -907,35 +933,46 @@ contains
    close(iu)
    endsubroutine initialize_single_particle_output
 
-   subroutine write_single_particle_output(filename, time, q_pic, pic_fields)
-   !< Append the single-particle trajectory/state sample.
+   subroutine write_single_particle_output(filename, time, q_pic, pic_fields, particle_number)
+   !< Append the single-particle trajectory/state sample. The particle lives on one rank (the owner of its block): the
+   !< sample is reduced over the ranks and rank 0 writes it. Collective.
    implicit none
    character(len=1), parameter  :: TAB = achar(9)
    character(len=*), intent(in) :: filename
    real(R8P),        intent(in) :: q_pic(1:,1:)
    real(R8P),        intent(in) :: pic_fields(1:,1:)
    real(R8P),        intent(in) :: time
+   integer(I4P),     intent(in) :: particle_number !< Particles owned by this rank.
    integer(I4P)                 :: iu, ios, l, j
    real(R8P)                    :: force_E(3)
    real(R8P)                    :: force_vxB(3)
+   real(R8P)                    :: sample(15), sample_all(15) !< q_pic(:,1), pic_fields(:,1), owner count.
 
    l = size(q_pic, dim=1)
-   force_E(1) = q_pic(7,1) * pic_fields(1,1)
-   force_E(2) = q_pic(7,1) * pic_fields(2,1)
-   force_E(3) = q_pic(7,1) * pic_fields(3,1)
-   force_vxB(1) = q_pic(7,1) * (q_pic(5,1) * pic_fields(6,1) - q_pic(6,1) * pic_fields(5,1))
-   force_vxB(2) = q_pic(7,1) * (q_pic(6,1) * pic_fields(4,1) - q_pic(4,1) * pic_fields(6,1))
-   force_vxB(3) = q_pic(7,1) * (q_pic(4,1) * pic_fields(5,1) - q_pic(5,1) * pic_fields(4,1))
+   sample = 0._R8P
+   if (particle_number > 0_I4P) sample = [q_pic(1:8,1), pic_fields(1:6,1), 1._R8P]
+   call MPI_ALLREDUCE(sample, sample_all, 15, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (nint(sample_all(15)) /= 1) call mpih%error_stop(msg=': single particle owned by '// &
+                                                           trim(str(nint(sample_all(15)),.true.))//' ranks')
+   if (mpih%myrank /= 0_I4P) return
+   associate(qp=>sample_all(1:8), pf=>sample_all(9:14))
+   force_E(1) = qp(7) * pf(1)
+   force_E(2) = qp(7) * pf(2)
+   force_E(3) = qp(7) * pf(3)
+   force_vxB(1) = qp(7) * (qp(5) * pf(6) - qp(6) * pf(5))
+   force_vxB(2) = qp(7) * (qp(6) * pf(4) - qp(4) * pf(6))
+   force_vxB(3) = qp(7) * (qp(4) * pf(5) - qp(5) * pf(4))
    open(newunit=iu, file=trim(filename), status='unknown', action='write', &
         form='formatted', position='append', iostat=ios)
    if (ios /= 0) then
       write(*,'(a,i0)') 'write_current_tab: errore open(), iostat=', ios
       error stop
    endif
-   write(iu,'(ES24.16,14(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l), &
+   write(iu,'(ES24.16,14(a,ES24.16))') time, (TAB, qp(j), j=1,l), &
                                         (TAB, force_E(j), j=1,3), (TAB, force_vxB(j), j=1,3)
    flush(iu)
    close(iu)
+   endassociate
    endsubroutine write_single_particle_output
 
    ! IO methods
@@ -957,6 +994,7 @@ contains
    integer(I4P)                              :: file_unit             !< Restart file unit.
    integer(I4P)                              :: particle_variables    !< Stored PIC state width.
    integer(I4P)                              :: particle_number       !< Stored particle count.
+   integer(I4P)                              :: total_number          !< Stored particle count, all ranks.
    integer(I4P)                              :: history_slots         !< Stored leapfrog history depth.
    logical                                   :: file_exist            !< File-existence flag.
 
@@ -975,10 +1013,17 @@ contains
       call mpih%error_stop(msg=': PIC restart variable count "'//trim(str(particle_variables))// &
                                '" differs from allocated q_pic width "'//trim(str(size(self%q_pic, dim=1)))//'"')
    endif
-   if (particle_number /= self%pic%particle_number) then
+   ! the stored count is the one owned by this rank (the arrays keep the global capacity)
+   if (particle_number < 0_I4P .or. particle_number > size(self%q_pic, dim=2)) then
       call mpih%error_stop(msg=': PIC restart particle count "'//trim(str(particle_number))// &
-                               '" differs from configured particle count "'//trim(str(self%pic%particle_number))//'"')
+                               '" exceeds the particle arrays capacity "'//trim(str(size(self%q_pic, dim=2)))//'"')
    endif
+   call MPI_ALLREDUCE(particle_number, total_number, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (total_number /= self%pic%particle_number_global) then
+      call mpih%error_stop(msg=': PIC restart particle count "'//trim(str(total_number))// &
+                               '" differs from configured particle count "'//trim(str(self%pic%particle_number_global))//'"')
+   endif
+   self%pic%particle_number = particle_number
 
    read(unit=file_unit) self%q_pic
 

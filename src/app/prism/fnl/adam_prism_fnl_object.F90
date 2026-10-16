@@ -119,6 +119,9 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: mark_by_j_vec_total_variation !< Override: device TV marker (common default error_stops).
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
+      procedure, pass(self) :: fold_deposited_ghosts_dev !< Fold PIC deposits spilled into ghosts, locally and across ranks.
+      procedure, pass(self) :: migrate_particles       !< Migrate particles between ranks (end of a time step).
+      procedure, pass(self) :: sync_particle_number    !< Align the device helpers to the local particle count.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       procedure, pass(self) :: update_rk_ghost         !< Update RK stage ghost cells.
       ! numerical methods, FDV operators
@@ -754,6 +757,7 @@ contains
    real(R8P),               intent(out)   :: time !< Time.
 
    call self%prism_common_object%load_restart_files(t=t, time=time)
+   if (is_pic_model(self%physics%physical_model)) call self%sync_particle_number
    call self%copy_cpu_gpu
    endsubroutine load_restart_files
 
@@ -813,7 +817,7 @@ contains
          call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                       dt=0._R8P, time=self%time%time, q_gpu=self%q_gpu)
       call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
-      if (self%time%it == 0_I4P) then
+      if (self%time%it == 0_I4P .and. self%pic%particle_number > 0_I4P) then
          allocate(pic_fields_dev, source=self%pic_fields)
          allocate(neighbour_list_dev, source=self%pic%neighbour_list)
          allocate(pic_fields_host, mold=self%pic_fields)
@@ -860,7 +864,7 @@ contains
          self%pic%neighbour_list = neighbour_list_dev
       endif
       call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic, &
-                                        pic_fields=self%pic_fields)
+                                        pic_fields=self%pic_fields, particle_number=self%pic%particle_number)
       self%single_particle_output_last_time = self%time%time
       self%single_particle_output_written = .true.
    endif
@@ -1969,6 +1973,7 @@ contains
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, &
                                                             q=self%q)
    if (.not.is_restart) call self%initialize_pic_time_zero()
+   if (.not.is_restart .and. is_pic_model(self%physics%physical_model)) call self%sync_particle_number
    if (.not.is_restart .and. is_pic_model(self%physics%physical_model)) then
       if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
          call initialize_pic_conserving_current_time_zero(self=self)
@@ -5186,11 +5191,8 @@ contains
       call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                               q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
                                               q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
-      ! no particles: the device deposit returns before zeroing, nothing to fold back
-      if (self%pic_fnl%particle_number > 0_I4P) then
-         call self%field_fnl%reduce_ghost_local_gpu(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
-                                                    v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
-      endif
+      call self%fold_deposited_ghosts_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                          v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
       call self%accumulate_charge_conservation_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
                                                        weight=self%rk%beta(s), s=s)
       call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), check_current=.true., &
@@ -5238,21 +5240,61 @@ contains
                                                        grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
    call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                            q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
-   ! no particles: the device deposit returns before zeroing, nothing to fold back
-   if (self%pic_fnl%particle_number > 0_I4P) then
-      call self%field_fnl%reduce_ghost_local_gpu(q_gpu=self%q_gpu, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
-   endif
+   call self%fold_deposited_ghosts_dev(q_gpu=self%q_gpu, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
    call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                             q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
-   ! no particles: the device deposit returns before zeroing, nothing to fold back
-   if (self%pic_fnl%particle_number > 0_I4P) then
-      call self%field_fnl%reduce_ghost_local_gpu(q_gpu=self%q_gpu, v_first=self%nv, v_last=self%nv)
-   endif
+   call self%fold_deposited_ghosts_dev(q_gpu=self%q_gpu, v_first=self%nv, v_last=self%nv)
    call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
                                                    context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%finalize_charge_conservation_diagnostic
+   ! hand the particles that left the blocks of this rank to their new owners
+   call self%migrate_particles
    endsubroutine integrate_rk_ssp_pic
+
+   subroutine fold_deposited_ghosts_dev(self, q_gpu, v_first, v_last)
+   !< Fold the PIC deposits that spilled into ghost cells back onto the cells they mirror, on this rank and across ranks,
+   !< then refill the ghosts. CPU twin: prism_common_object%fold_deposited_ghosts. With one rank this is reduce_ghost_local_gpu
+   !< alone. Collective: called even by a rank without particles (its deposits are zero).
+   class(prism_fnl_object), intent(inout) :: self    !< The equation.
+   real(R8P),               intent(inout) :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables on device.
+   integer(I4P),            intent(in)    :: v_first !< First variable to fold.
+   integer(I4P),            intent(in)    :: v_last  !< Last variable to fold.
+
+   call self%field_fnl%reduce_ghost_local_gpu(q_gpu=q_gpu, v_first=v_first, v_last=v_last)
+   if (mpih_fnl%procs_number > 1_I4P) then
+      call self%field_fnl%reduce_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                               comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                               q_gpu=q_gpu, v_first=v_first, v_last=v_last)
+      call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+      call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                               comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                               q_gpu=q_gpu)
+   endif
+   endsubroutine fold_deposited_ghosts_dev
+
+   subroutine migrate_particles(self)
+   !< Hand the particles that left the blocks of this rank to their new owners (end of a time step), then align the local
+   !< particle counts of the device helpers. No-op with one rank.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   if (mpih_fnl%procs_number == 1_I4P) return
+   call self%pic_fnl%migrate_particles_dev(pic=self%pic, field_fnl=self%field_fnl, field=self%adam%field, &
+                                           grid=self%adam%grid)
+   call self%sync_particle_number
+   endsubroutine migrate_particles
+
+   subroutine sync_particle_number(self)
+   !< Copy the number of particles owned by this rank (host pic, after injection/distribution, restart or migration) into
+   !< the device helpers, whose kernels loop on it. The particle arrays keep their global capacity.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   self%pic_fnl%particle_number = self%pic%particle_number
+   self%rk_pic_fnl%particle_number = self%pic%particle_number
+   self%leapfrog_pic_fnl%particle_number = self%pic%particle_number
+   if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
+      self%conserving_fnl%particle_number = self%pic%particle_number
+   endsubroutine sync_particle_number
 
    subroutine integrate_rk_ssp_pic_charge_conserving(self)
    !< Integrate PIC equations with SSP RK and charge-conserving current reconstruction on device.
@@ -5331,6 +5373,8 @@ contains
          call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=self%pic_fnl%q_pic_gpu, q_to=cc%q_next_gpu, &
                                         h=cc%h_gpu(:,:,:,:,:,s), p_first=1_I4P, p_last=cc%particle_number)
       endif
+      ! the source of the particles of all the ranks
+      call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,s))
       call cc%combine_stage_source(h=cc%h_gpu, s=s, coeff=coeff)
 
       ! stage current
@@ -5380,10 +5424,7 @@ contains
    else
       call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                                q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
-      ! no particles: the device deposit returns before zeroing, nothing to fold back
-      if (self%pic_fnl%particle_number > 0_I4P) then
-         call self%field_fnl%reduce_ghost_local_gpu(q_gpu=self%q_gpu, v_first=self%nv, v_last=self%nv)
-      endif
+      call self%fold_deposited_ghosts_dev(q_gpu=self%q_gpu, v_first=self%nv, v_last=self%nv)
    endif
    call self%finalize_charge_conservation_diagnostic
    if (cleanup) then
@@ -5398,6 +5439,8 @@ contains
                                                    context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    endassociate
+   ! hand the particles that left the blocks of this rank to their new owners
+   call self%migrate_particles
    endsubroutine integrate_rk_ssp_pic_charge_conserving
 
    subroutine initialize_pic_conserving_current_time_zero(self)
@@ -5432,6 +5475,8 @@ contains
       call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=cc%q_ref_gpu, q_to=cc%q_next_gpu, &
                                      h=cc%h_gpu(:,:,:,:,:,1), p_first=1_I4P, p_last=cc%particle_number)
    endif
+   ! the source of the particles of all the ranks
+   call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,1))
    if (cc%tail_cleanup) then
       call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,1))
       call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=self%q_gpu, &

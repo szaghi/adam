@@ -463,7 +463,7 @@ contains
                                        pic_fields=self%pic_fields, nv=self%nv)
       endif
       call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic, &
-                                        pic_fields=self%pic_fields)
+                                        pic_fields=self%pic_fields, particle_number=self%pic%particle_number)
       self%single_particle_output_last_time = self%time%time
       self%single_particle_output_written = .true.
    endif
@@ -4333,8 +4333,7 @@ contains
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
       call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
-      call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q_stage, &
-                                            v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
+      call self%fold_deposited_ghosts(q=q_stage, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
       call self%accumulate_charge_conservation_current(q=q_stage, weight=self%rk%beta(s))
       call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
                                                   context='integrate_rk_ssp_pic(stage current)')
@@ -4376,14 +4375,15 @@ contains
    call self%impose_div_free
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, &
-                                         v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
+   call self%fold_deposited_ghosts(q=self%q, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, v_first=self%nv, v_last=self%nv)
+   call self%fold_deposited_ghosts(q=self%q, v_first=self%nv, v_last=self%nv)
    call self%finalize_charge_conservation_diagnostic
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
                                                context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q=self%q)
+   ! hand the particles that left the blocks of this rank to their new owners
+   call self%pic%migrate_particles(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    endsubroutine integrate_rk_ssp_pic
 
    !subroutine update_q_BC(self, dt, phi)
@@ -5411,9 +5411,9 @@ contains
    implicit none
    class(prism_cpu_object), intent(in) :: self
 
-   if (self%adam%field%blocks_number > 1_I4P) &
-      call mpih%error_stop(msg=': charge-conserving PIC current is single-block on the CPU backend '// &
-                               '(multi-block is supported by the FNL backend only)')
+   if (self%adam%field%blocks_number > 1_I4P .or. mpih%procs_number > 1_I4P) &
+      call mpih%error_stop(msg=': charge-conserving PIC current is single-block, single-rank on the CPU backend '// &
+                               '(multi-block and multi-rank are supported by the FNL backend only)')
    endsubroutine check_conserving_single_block
 
    subroutine modified_current_line(self, source, dir, b, n, qw, qfirst, nq, sol)

@@ -9,7 +9,7 @@ module adam_prism_fnl_pic_conserving_object
 !< the helpers it calls). Host-side twins of the CPU matrix builders/factorization live here (private) so the CPU backend is
 !< left untouched; the arithmetic of every kernel follows the CPU routine named in its header line.
 !<
-!< Multi-block (single rank, single refinement level): every solver works on a *virtual block*, the whole domain seen as
+!< Multi-block and multi-rank (single refinement level): every solver works on a *virtual block*, the whole domain seen as
 !< one `NX x NY x NZ` block (NX = nbx*ni, ...). The conserving operators are global along grid lines (the inverses of the
 !< direct/Esirkepov line matrices are dense, the modified face flux is a prefix sum from the domain boundary, the P/Q
 !< filters reach up to 7/5 cells), so a single-block solve of the whole domain is the reference result: on the virtual block the
@@ -19,6 +19,11 @@ module adam_prism_fnl_pic_conserving_object
 !< block interiors; (ii) outputs, J (and the filtered rho) scattered from the virtual block to every real cell, ghosts
 !< included, so interface ghosts get the neighbour values and physical ghosts the single-block odd/zero values.
 !< With one block the virtual block is the block itself (same origin, spacing and cell centers): phase-1 arithmetic.
+!< Several ranks: the virtual block is replicated on every rank. Each rank adds the sources of its own particles on the
+!< virtual cells (block interiors and in-domain ghosts, so that no ghost fold is needed), the complete sources are summed
+!< over the ranks (`reduce_virtual`, MPI_Allreduce staged through the host), every rank runs the same virtual solve and
+!< scatters the result on its own blocks. The per-particle cleanup sums the particle currents of each rank, then reduces
+!< the virtual current.
 !<
 !< Device layouts (FNL convention, block index first):
 !<+ real q-like fields: `[nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nv]`;
@@ -39,6 +44,7 @@ use :: adam_prism_common_library
 use :: adam_prism_fnl_pic_object
 ! third party modules
 use :: fundal
+use :: mpi
 use :: penf
 
 implicit none
@@ -96,7 +102,8 @@ type :: prism_fnl_pic_conserving_object
    real(R8P)    :: vemin(3) = 0._R8P     !< Virtual block origin (domain minimum).
    real(R8P)    :: vdx(3) = 0._R8P       !< Cell size (single refinement level).
    integer(I4P) :: nv = 0_I4P            !< Field variables number.
-   integer(I4P) :: particle_number = 0_I4P !< Particles number.
+   integer(I4P) :: particle_number = 0_I4P !< Particles number owned by this rank.
+   integer(I4P) :: particle_number_global = 0_I4P !< Particles number, all ranks.
    integer(I4P) :: nrk = 0_I4P           !< RK stages number.
    integer(I4P) :: esirkepov_q = 0_I4P   !< Q filter coefficients of esirkepov_Q<N>.
    character(len=:), allocatable :: solver_name !< Input name of the solver (messages).
@@ -152,6 +159,9 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self) :: solve_modified_with_cleanup !< Per-particle modified current with tail cleanup.
       procedure, pass(self) :: deposit_modified_charge     !< Unfiltered deposit + P_c filter of rho.
       procedure, pass(self) :: impose_current_ghosts       !< Odd/zero current ghosts on the physical faces of real blocks.
+      procedure, pass(self) :: reduce_virtual4             !< Sum a rank-4 virtual-block array over the ranks.
+      procedure, pass(self) :: reduce_virtual5             !< Sum a rank-5 virtual-block array over the ranks.
+      generic               :: reduce_virtual => reduce_virtual4, reduce_virtual5 !< Sum a virtual-block array over the ranks.
       ! private methods
       procedure, pass(self), private :: build_virtual_geometry  !< Virtual block of the whole domain.
       procedure, pass(self), private :: scatter_current         !< Real q(J) = virtual J, ghosts included.
@@ -276,6 +286,7 @@ contains
    self%nb = 1_I4P ; self%blocks_number = 1_I4P
    call self%build_virtual_geometry(field=field, grid=grid)
    self%particle_number = pic%particle_number
+   self%particle_number_global = pic%particle_number_global
    np = self%particle_number ; ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc
 
    if (self%tail_cleanup .and. self%solver /= CONSERVING_SOLVER_MODIFIED) &
@@ -693,7 +704,7 @@ contains
 
    call zero_h(self=self, h=h)
    np = self%particle_number
-   if (np == 0_I4P) return
+   if (np == 0_I4P) return ! the caller reduces h over the ranks (reduce_virtual)
    q_mixed => self%q_mixed_gpu
    do p=1, 6
       do step=1, 3
@@ -726,43 +737,40 @@ contains
       call pic_fnl%particle_cartesian_grid_index_dev(field_fnl=field_fnl, field=field, grid=grid, q_pic_gpu=q_mixed)
       call pic_fnl%particle_weighting_dev(field_fnl=field_fnl, field=field, grid=grid, q_gpu=self%rho_work_gpu, &
                                           q_pic_gpu=q_mixed, nv=1_I4P)
-      call field_fnl%reduce_ghost_local_gpu(q_gpu=self%rho_work_gpu, v_first=1_I4P, v_last=1_I4P)
       endsubroutine deposit
 
       subroutine accumulate_rho(dir, sgn)
+      !< H += sgn rho/6 over the block interiors AND the in-domain ghosts: a ghost deposit is the share of the virtual cell it
+      !< mirrors (the ghost fold, done here in global indices), so blocks and ranks add up without exchanges. Physical ghosts
+      !< are skipped (a deposit there is a support touching the boundary, an error of the Esirkepov checks).
       integer(I4P), intent(in) :: dir
       real(R8P),    intent(in) :: sgn
       real(R8P), pointer       :: rho(:,:,:,:,:)
       integer(I4P), pointer    :: off(:,:)
-      integer(I4P)             :: b, i, j, k, ni, nj, nk, nbl
+      integer(I4P)             :: b, i, j, k, ni, nj, nk, nbl, ngc, nx, ny, nz, gi, gj, gk
+      real(R8P)                :: w
       rho => self%rho_work_gpu ; off => self%off_gpu
-      ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks
-      ! real blocks tile the virtual block: one writer per virtual cell
-      if (sgn < 0._R8P) then
-         !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(h,rho,off)
-         !$omp OMPLOOP collapse(4) DEVICEPTR(h,rho,off)
-         do k=1, nk
-         do j=1, nj
-         do i=1, ni
-         do b=1, nbl
-            h(1,off(b,1)+i,off(b,2)+j,off(b,3)+k,dir) = h(1,off(b,1)+i,off(b,2)+j,off(b,3)+k,dir) - rho(b,i,j,k,1) / 6._R8P
-         enddo
-         enddo
-         enddo
-         enddo
-      else
-         !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(h,rho,off)
-         !$omp OMPLOOP collapse(4) DEVICEPTR(h,rho,off)
-         do k=1, nk
-         do j=1, nj
-         do i=1, ni
-         do b=1, nbl
-            h(1,off(b,1)+i,off(b,2)+j,off(b,3)+k,dir) = h(1,off(b,1)+i,off(b,2)+j,off(b,3)+k,dir) + rho(b,i,j,k,1) / 6._R8P
-         enddo
-         enddo
-         enddo
-         enddo
-      endif
+      ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
+      nx = self%ni ; ny = self%nj ; nz = self%nk
+      w = sgn ! +-1: same rounding as the single-block h +- rho/6
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(h,rho,off) firstprivate(w,nx,ny,nz) private(gi,gj,gk)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(h,rho,off) firstprivate(w,nx,ny,nz) private(gi,gj,gk)
+      do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+      do i=1-ngc, ni+ngc
+      do b=1, nbl
+         gi = off(b,1) + i ; gj = off(b,2) + j ; gk = off(b,3) + k
+         if (gi >= 1 .and. gi <= nx .and. gj >= 1 .and. gj <= ny .and. gk >= 1 .and. gk <= nz) then
+            if (rho(b,i,j,k,1) /= 0._R8P) then
+               !$acc atomic update
+               !$omp atomic update
+               h(1,gi,gj,gk,dir) = h(1,gi,gj,gk,dir) + w * (rho(b,i,j,k,1) / 6._R8P)
+            endif
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
       endsubroutine accumulate_rho
    endsubroutine decomposition_displacement
 
@@ -1095,7 +1103,8 @@ contains
 
    np = self%particle_number
    stage_count = max(1_I4P, active_stage)
-   single = np == 1_I4P .and. present(mixed_source)
+   ! the mixed stage source is the whole source: it is the particle's own only with one particle in the whole run
+   single = self%particle_number_global == 1_I4P .and. np == 1_I4P .and. present(mixed_source)
    call zero_current(self=self, q=self%jv_gpu, var_jx=1_I4P)
    ! P/Q support offsets (CPU: cleanup_modified_particle_current)
    p_min = huge(1_I4P) ; p_max = -huge(1_I4P)
@@ -1171,6 +1180,8 @@ contains
       call self%impose_virtual_ghosts(q=self%jp_gpu, var_jx=1_I4P)
       call add_particle_current
    enddo
+   ! the particle currents of all the ranks
+   call self%reduce_virtual(a=self%jv_gpu)
    call self%scatter_current(q=q, var_jx=var_jx)
    contains
       subroutine copy_source(src, dst)
@@ -1427,21 +1438,37 @@ contains
                                           nv=nv)
    endif
    pic_fnl%filter_deposition = old_filter
-   ! no particles: the device deposit returns before zeroing, nothing to fold back
-   if (np > 0_I4P) call field_fnl%reduce_ghost_local_gpu(q_gpu=q, v_first=nv, v_last=nv)
    wa => self%work_a_gpu ; wb => self%work_b_gpu
-   ! gather the real interiors (they tile the virtual block: one writer per virtual cell)
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wa,off) firstprivate(nv)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(q,wa,off) firstprivate(nv)
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
+   ! gather the real interiors and the in-domain ghosts (a ghost deposit is the share of the virtual cell it mirrors: the
+   ! ghost fold in global indices), then sum over the ranks; physical ghosts are skipped (zero after the margin check)
+   !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(wa)
+   !$omp OMPLOOP collapse(3) DEVICEPTR(wa)
+   do k=1, nz
+   do j=1, ny
+   do i=1, nx
+      wa(1,i,j,k) = 0._R8P
+   enddo
+   enddo
+   enddo
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wa,off) firstprivate(nv,nx,ny,nz) private(gi,gj,gk)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q,wa,off) firstprivate(nv,nx,ny,nz) private(gi,gj,gk)
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
    do b=1, nbl
-      wa(1,off(b,1)+i,off(b,2)+j,off(b,3)+k) = q(b,i,j,k,nv)
+      gi = off(b,1) + i ; gj = off(b,2) + j ; gk = off(b,3) + k
+      if (gi >= 1 .and. gi <= nx .and. gj >= 1 .and. gj <= ny .and. gk >= 1 .and. gk <= nz) then
+         if (q(b,i,j,k,nv) /= 0._R8P) then
+            !$acc atomic update
+            !$omp atomic update
+            wa(1,gi,gj,gk) = wa(1,gi,gj,gk) + q(b,i,j,k,nv)
+         endif
+      endif
    enddo
    enddo
    enddo
    enddo
+   call self%reduce_virtual(a=self%work_a_gpu)
    call filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P)
    call filter_axis(self=self, input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P)
    call filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P)
@@ -1508,28 +1535,63 @@ contains
    enddo
    endsubroutine impose_current_ghosts
 
+   subroutine reduce_virtual4(self, a)
+   !< Sum a rank-4 virtual-block device array over the ranks, in place: every rank adds the sources of its own particles,
+   !< the sum is the source of all the particles. Staged through the host: an MPI_Allreduce on device buffers is not
+   !< portable (the UCC/UCX collectives of HPC-X read device memory as host memory on WSL, SIGSEGV). No-op on one rank.
+   !< Collective.
+   class(prism_fnl_pic_conserving_object), intent(in)    :: self       !< Conserving current object.
+   real(R8P),                              intent(inout) :: a(:,:,:,:) !< Device array.
+   real(R8P), allocatable                                :: buf(:,:,:,:)
+
+   if (mpih%procs_number == 1_I4P) return
+   allocate(buf(size(a,1),size(a,2),size(a,3),size(a,4)))
+   call dev_memcpy_from_device(dst=buf, src=a)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, buf, size(buf), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call dev_memcpy_to_device(dst=a, src=buf)
+   endsubroutine reduce_virtual4
+
+   subroutine reduce_virtual5(self, a)
+   !< Rank-5 twin of reduce_virtual4.
+   class(prism_fnl_pic_conserving_object), intent(in)    :: self         !< Conserving current object.
+   real(R8P),                              intent(inout) :: a(:,:,:,:,:) !< Device array.
+   real(R8P), allocatable                                :: buf(:,:,:,:,:)
+
+   if (mpih%procs_number == 1_I4P) return
+   allocate(buf(size(a,1),size(a,2),size(a,3),size(a,4),size(a,5)))
+   call dev_memcpy_from_device(dst=buf, src=a)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, buf, size(buf), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call dev_memcpy_to_device(dst=a, src=buf)
+   endsubroutine reduce_virtual5
+
    ! private methods
    subroutine build_virtual_geometry(self, field, grid)
-   !< Build the virtual block of the whole domain: sizes, origin, spacing, cell centers and the origin of every real block.
-   !< Requirements (error otherwise): one MPI rank, one refinement level (all blocks with the same spacing), real blocks
-   !< tiling the domain exactly once. With one block the virtual block is the block itself.
+   !< Build the virtual block of the whole domain: sizes, origin, spacing, cell centers and the origin of every local real
+   !< block. Requirements (error otherwise): one refinement level (all blocks of all ranks with the same spacing), real
+   !< blocks of all ranks tiling the domain exactly once. With one block the virtual block is the block itself. The virtual
+   !< cell centers are the real ones of the blocks that hold them (gathered over the ranks): the Esirkepov weights use the
+   !< field geometry of the run, identical on every rank.
    class(prism_fnl_pic_conserving_object), intent(inout) :: self  !< Conserving current object.
    type(field_object),                     intent(in)    :: field !< Host field.
    type(grid_object),                      intent(in)    :: grid  !< Grid.
    integer(I4P), allocatable                             :: off(:,:), slot(:,:,:)
    real(R8P),    allocatable                             :: vx(:), vy(:), vz(:)
    integer(I4P)                                          :: b, d, i, nbl, nvirt(3), nblk(3), nbs(3)
+   real(R8P)                                             :: dx_min(3), dx_max(3)
+   real(R8P), parameter                                  :: UNSET = -huge(1._R8P)
 
-   if (mpih%procs_number > 1_I4P) &
-      call mpih%error_stop(msg=': the FNL conserving PIC current supports one MPI rank (distributed lines are not implemented)')
    nbl = field%blocks_number
    nblk = [self%bni, self%bnj, self%bnk]
    self%vemin = grid%domain_emin
-   self%vdx   = field%dxyz(:,1)
-   do b=2, nbl
-      if (any(field%dxyz(:,b) /= self%vdx)) &
-         call mpih%error_stop(msg=': the FNL conserving PIC current needs a single refinement level (uniform block spacing)')
+   dx_min = huge(1._R8P) ; dx_max = -huge(1._R8P)
+   do b=1, nbl
+      dx_min = min(dx_min, field%dxyz(:,b)) ; dx_max = max(dx_max, field%dxyz(:,b))
    enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, dx_min, 3, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, dx_max, 3, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (any(dx_min /= dx_max)) &
+      call mpih%error_stop(msg=': the FNL conserving PIC current needs a single refinement level (uniform block spacing)')
+   self%vdx = dx_min
    do d=1, 3
       nvirt(d) = nint((grid%domain_emax(d) - grid%domain_emin(d)) / self%vdx(d), kind=I4P)
       if (mod(nvirt(d), nblk(d)) /= 0_I4P) &
@@ -1546,15 +1608,23 @@ contains
       enddo
       slot(off(b,1)/nblk(1),off(b,2)/nblk(2),off(b,3)/nblk(3)) = slot(off(b,1)/nblk(1),off(b,2)/nblk(2),off(b,3)/nblk(3)) + 1
    enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, slot, size(slot), MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    if (any(slot /= 1_I4P)) &
       call mpih%error_stop(msg=': the FNL conserving PIC current: blocks do not tile the domain exactly once')
-   ! virtual cell centers: the real ones, so that the Esirkepov weights use the field geometry of this run
+   ! virtual cell centers: the real ones, so that the Esirkepov weights use the field geometry of this run (blocks sharing a
+   ! line of cells hold the same centers: the max over the ranks picks them exactly)
    allocate(vx(1:nvirt(1)), vy(1:nvirt(2)), vz(1:nvirt(3)))
+   vx = UNSET ; vy = UNSET ; vz = UNSET
    do b=1, nbl
       do i=1, nblk(1) ; vx(off(b,1)+i) = field%x_cell(i,b) ; enddo
       do i=1, nblk(2) ; vy(off(b,2)+i) = field%y_cell(i,b) ; enddo
       do i=1, nblk(3) ; vz(off(b,3)+i) = field%z_cell(i,b) ; enddo
    enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, vx, nvirt(1), MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, vy, nvirt(2), MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, vz, nvirt(3), MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (any(vx == UNSET) .or. any(vy == UNSET) .or. any(vz == UNSET)) &
+      call mpih%error_stop(msg=': the FNL conserving PIC current: virtual cell centers not covered by the blocks')
    self%ni = nvirt(1) ; self%nj = nvirt(2) ; self%nk = nvirt(3)
    self%bblocks = nbl
    call dev_assign_to_device(src=off, dst=self%off_gpu)

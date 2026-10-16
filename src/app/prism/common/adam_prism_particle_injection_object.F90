@@ -46,6 +46,7 @@ procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_
 type :: prism_particle_injection_object
    !character(len=99)  :: space_distribution				    !< Particle space distribution type.
    character(len=99)  :: space_random_number_generator	 !< Type of random number generator for space distribution
+   integer(I4P)       :: seed = -1_I4P                       !< Random seed of the plasma injection (<0: processor default).
    real(R8P)		    :: box_number = 0.0_R8P				 !< Number of boxes in which ensure charge neutrality
    logical			    :: space_pairing = .false.			 !< Enable space pairing of particles
 	character(len=99)  :: electrons_velocity_distribution	 !< Electrons velocity distribution type.
@@ -373,6 +374,9 @@ contains
    	!   ['//INI_SECTION_NAME//'].(space_distribution)')
 		!endselect
 
+		! optional: a fixed seed makes the injected plasma reproducible (default: the processor-dependent seed)
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='random_seed', val=self%seed, error=error)
+		if (error > 0) self%seed = -1_I4P
 		call file_parameters%get(section_name=INI_SECTION_NAME, &
 										 option_name='space_random_number_generator', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
@@ -654,7 +658,16 @@ contains
 	type(prism_pic_object),					 	 intent(inout)	:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
 
+	integer(I4P), allocatable :: seed(:)
+	integer(I4P)              :: n, k
+
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
+		if (self%seed >= 0_I4P) then
+			call random_seed(size=n)
+			allocate(seed(n))
+			seed = self%seed + 7919_I4P * [(k, k=1, n)]
+			call random_seed(put=seed)
+		endif
 		!Setta posizione spaziale delle particelle e relativa tipologia
 		call self%particle_space_injection(field=field, grid=grid, pic=pic, q_pic=q_pic)
 		!Setta velocità iniziale delle particelle
@@ -662,7 +675,7 @@ contains
 		call self%electrons_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'e')
 		call self%neutrals_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'n')
 		!Definisci neighbour list
-		call pic%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic)
+		call pic%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic, owned_only=.true.)
 
 		!Aggiungo qui successivamente interpolazione iniziale dei campi e spalmatura particelle (cariche e correnti) su griglia
 
@@ -670,7 +683,7 @@ contains
 	!Setta posizione velocità e caratteristiche della particella
 	call self%single_particle_injection(q_pic=q_pic)
 	!Definisci neighbour list
-	call pic%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic)
+	call pic%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic, owned_only=.true.)
 
 	!Aggiungo qui successivamente interpolazione iniziale dei campi e spalmatura particelle (cariche e correnti) su griglia
 

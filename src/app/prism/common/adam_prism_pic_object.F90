@@ -19,6 +19,7 @@ implicit none
 private
 public :: INI_SECTION_NAME
 public :: prism_pic_object
+public :: compaction_moves
 !public :: particle_weighting_interface
 !public :: current_weighting_interface
 !public :: field_weighting_interface
@@ -114,7 +115,8 @@ type :: prism_pic_object
    real(R8P)                 :: sigma = 0.0_R8P             !< Standard deviation for a gaussian weighting
    real(R8P)                 :: cutoff_sigma = 0._R8P       !< Gaussian cutoff.
    integer(I4P)              :: gaussian_support_cells = -1_I4P !< Gaussian support radius; negative selects automatic.
-   integer(I4P)              :: particle_number  = 0_I4P    !< Total number of particles.
+   integer(I4P)              :: particle_number  = 0_I4P    !< Number of particles owned by this rank.
+   integer(I4P)              :: particle_number_global = 0_I4P !< Total number of particles (all ranks).
 	integer(I4P)				  :: n_ions = 0_I4P              !< Total ions number
 	integer(I4P)				  :: n_electrons = 0_I4P         !< Total electrons number
 	integer(I4P)				  :: n_neutrals = 0_I4P          !< Total neutrals number
@@ -142,6 +144,10 @@ contains
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
    procedure, pass(self) :: particle_cartesian_grid_index !< Compute the grid index corresponding to a particle position.
+   procedure, pass(self) :: halo_margin_cells             !< Cells a particle may lie outside its block interior.
+   procedure, pass(self) :: distribute_particles          !< Keep the injected particles owned by this rank.
+   procedure, pass(self) :: exchange_particles            !< Hand departing particles to their owner ranks.
+   procedure, pass(self) :: migrate_particles             !< Migrate particles between ranks (host arrays).
    procedure, pass(self) :: set_gaussian_support_cells    !< Automatic Gaussian support radius on the final grid.
    procedure, pass(self) :: stencil_radius_cells          !< Max cells reached by deposit/gather stencils beyond the particle cell.
    procedure, pass(self) :: CIC_charge_weighting          !< Cloud-in-Cell weighting of particle quantities to the grid.
@@ -327,6 +333,8 @@ contains
    elseif (self%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
       self%particle_number = 1_I4P
    endif
+   ! every rank holds the whole set until distribute_particles keeps its own ones; the arrays keep the global capacity
+   self%particle_number_global = self%particle_number
    ! the automatic Gaussian support depends on the final cell size: set_gaussian_support_cells, after the uniform refinement
    endassociate
 
@@ -685,25 +693,37 @@ contains
    endselect
    endsubroutine load_from_file
 
-   subroutine particle_cartesian_grid_index(self, field, grid, q_pic)
+   subroutine particle_cartesian_grid_index(self, field, grid, q_pic, owned_only)
    !< Compute the grid index corresponding to a particle position. Good for cartesian grids only.
-   class(prism_pic_object), intent(inout) :: self               !< External fields.
-   type(field_object),      intent(in)    :: field              !< The field.
-   type(grid_object),       intent(in)    :: grid               !< Grid (sibling realm component, threaded in)
-   real(R8P),               intent(in)    :: q_pic(1:,1:)       !< PIC variables.
-   integer(I4P)                           :: n, b               !< Counters
-   integer(I4P)                           :: i_p, j_p, k_p, b_p !< Particle grid indices
+   !<
+   !< A particle is first searched in the interior cells of the local blocks (ownership). With several ranks a particle may
+   !< leave the blocks of its rank within a time step (RK stages, end-of-step deposit before the migration): it is then
+   !< located in the ghost cells of a local block, at most halo_margin_cells() cells outside the interior, so that its
+   !< stencil stays within the ghosts (deposits are folded back by reduce_ghost_local/mpi, gathers read exchanged ghosts).
+   !< With owned_only the halo search is skipped and a non-owned particle gets a zero row, without errors (injection,
+   !< migration). A particle outside the domain, or beyond the halo of every local block, stops the run.
+   class(prism_pic_object), intent(inout)        :: self               !< PIC object.
+   type(field_object),      intent(in)           :: field              !< The field.
+   type(grid_object),       intent(in)           :: grid               !< Grid (sibling realm component, threaded in)
+   real(R8P),               intent(in)           :: q_pic(1:,1:)       !< PIC variables.
+   logical,                 intent(in), optional :: owned_only         !< Locate owned particles only, no halo search.
+   logical                                       :: owned_only_        !< Locate owned particles only, local var.
+   integer(I4P)                                  :: n, b               !< Counters
+   integer(I4P)                                  :: i_p, j_p, k_p      !< Particle grid indices
+   integer(I4P)                                  :: m                  !< Halo margin in cells.
 
+   owned_only_ = .false. ; if (present(owned_only)) owned_only_ = owned_only
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                                   &
             nk=>grid%nk, ngc=>grid%ngc, dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), &
             np => self%particle_number, domain_emin => grid%domain_emin, domain_emax => grid%domain_emax,    &
-            emin => field%emin, emax => field%emax, neighbour_list => self%neighbour_list)
+            emin => field%emin, neighbour_list => self%neighbour_list)
 
    ! Multi-block: a stencil spilling beyond the owner-block ghosts would be truncated, while the single-block run of the same
    ! domain keeps it (deposits are folded back with field%reduce_ghost_local, gathers read the exchanged ghosts).
    if (blocks_number > 1_I4P .and. self%stencil_radius_cells() > ngc) &
       call mpih%error_stop(msg=': PIC multi-block needs deposit/gather stencils within ngc cells (stencil radius '// &
                                trim(str(self%stencil_radius_cells(),.true.))//', ngc '//trim(str(ngc,.true.))//')')
+   m = self%halo_margin_cells(ngc=ngc)
    do n = 1, np
       ! a particle owned by no block must not keep a stale index: particle boundary conditions are not implemented yet
       neighbour_list(:,n) = 0_I4P
@@ -711,23 +731,163 @@ contains
          i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
          j_p = ceiling((q_pic(2,n) - emin(2,b)) / dy(b))
          k_p = ceiling((q_pic(3,n) - emin(3,b)) / dz(b))
-         b_p = b
          if (i_p >= 1_I4P .and. i_p <= ni .and. &
              j_p >= 1_I4P .and. j_p <= nj .and. &
              k_p >= 1_I4P .and. k_p <= nk) then
-            neighbour_list(1,n) = b_p
-            neighbour_list(2,n) = i_p
-            neighbour_list(3,n) = j_p
-            neighbour_list(4,n) = k_p
+            neighbour_list(:,n) = [b, i_p, j_p, k_p]
+            exit
+         endif
+      enddo
+      if (neighbour_list(1,n) /= 0_I4P .or. owned_only_) cycle
+      if (any(q_pic(1:3,n) <= domain_emin) .or. any(q_pic(1:3,n) > domain_emax)) &
+         call mpih%error_stop(msg=': PIC particle '//trim(str(n,.true.))//' is outside the domain; particle boundary '// &
+                                  'conditions are not implemented')
+      do b = 1, blocks_number
+         i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
+         j_p = ceiling((q_pic(2,n) - emin(2,b)) / dy(b))
+         k_p = ceiling((q_pic(3,n) - emin(3,b)) / dz(b))
+         if (i_p >= 1_I4P-m .and. i_p <= ni+m .and. &
+             j_p >= 1_I4P-m .and. j_p <= nj+m .and. &
+             k_p >= 1_I4P-m .and. k_p <= nk+m) then
+            neighbour_list(:,n) = [b, i_p, j_p, k_p]
             exit
          endif
       enddo
       if (neighbour_list(1,n) == 0_I4P) &
-         call mpih%error_stop(msg=': PIC particle '//trim(str(n,.true.))//' is outside the domain; particle boundary '// &
-                                  'conditions are not implemented')
+         call mpih%error_stop(msg=': PIC particle '//trim(str(n,.true.))//' moved beyond the ghost halo of its rank '// &
+                                  'within a time step')
    enddo
    endassociate
    endsubroutine particle_cartesian_grid_index
+
+   function halo_margin_cells(self, ngc) result(m)
+   !< Cells a particle may lie outside the interior of a local block while its deposit/gather stencil stays within the ghosts.
+   class(prism_pic_object), intent(in) :: self !< PIC object.
+   integer(I4P),            intent(in) :: ngc  !< Ghost cells number.
+   integer(I4P)                        :: m    !< Halo margin in cells.
+
+   m = max(0_I4P, ngc - self%stencil_radius_cells() - 1_I4P)
+   endfunction halo_margin_cells
+
+   subroutine distribute_particles(self, field, grid, q_pic)
+   !< Keep only the particles owned by the local blocks: the injection fills the whole set on every rank (same sequence),
+   !< each rank keeps its own ones, in injection order, and the local count becomes particle_number. Every particle must be
+   !< owned by exactly one rank (checked globally). With one rank nothing moves.
+   class(prism_pic_object), intent(inout) :: self         !< PIC object.
+   type(field_object),      intent(in)    :: field        !< The field.
+   type(grid_object),       intent(in)    :: grid         !< Grid (sibling realm component, threaded in)
+   real(R8P),               intent(inout) :: q_pic(1:,1:) !< PIC variables.
+   integer(I4P)                           :: n, kept      !< Counters.
+   integer(I4P)                           :: total        !< Particles owned by all ranks.
+
+   self%particle_number = self%particle_number_global
+   call self%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic, owned_only=.true.)
+   kept = 0_I4P
+   do n=1, self%particle_number
+      if (self%neighbour_list(1,n) == 0_I4P) cycle
+      kept = kept + 1_I4P
+      if (kept /= n) q_pic(:,kept) = q_pic(:,n)
+   enddo
+   if (kept < size(q_pic, dim=2)) q_pic(:,kept+1:) = 0._R8P
+   call MPI_ALLREDUCE(kept, total, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (total /= self%particle_number_global) &
+      call mpih%error_stop(msg=': PIC particles owned by the ranks '//trim(str(total,.true.))//' instead of '// &
+                               trim(str(self%particle_number_global,.true.))//' (particle outside the domain?)')
+   self%particle_number = kept
+   call self%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic)
+   endsubroutine distribute_particles
+
+   subroutine exchange_particles(self, field, grid, departing, arrived, n_arrived)
+   !< Hand the departing particles (no longer owned by this rank) to the ranks that own them: every rank receives all the
+   !< departing particles (MPI_Allgatherv) and keeps the ones owned by its local blocks, in rank order. Every departing
+   !< particle must be claimed by exactly one rank (checked globally; particles do not leave the domain yet).
+   class(prism_pic_object), intent(inout) :: self              !< PIC object.
+   type(field_object),      intent(in)    :: field             !< The field.
+   type(grid_object),       intent(in)    :: grid              !< Grid (sibling realm component, threaded in)
+   real(R8P),               intent(in)    :: departing(1:,1:)  !< Departing particles [variable, particle].
+   real(R8P), allocatable,  intent(inout) :: arrived(:,:)      !< Arrived particles owned by this rank [variable, particle].
+   integer(I4P),            intent(out)   :: n_arrived         !< Number of arrived particles.
+   real(R8P),    allocatable              :: all_departing(:,:) !< Departing particles of every rank.
+   integer(I4P), allocatable              :: counts(:), displs(:) !< Allgatherv layout (values).
+   integer(I4P)                           :: nvar, n_dep, n_all, p, n, b, i_p, j_p, k_p
+   integer(I4P)                           :: claimed           !< Particles claimed by all ranks.
+
+   nvar = size(departing, dim=1)
+   n_dep = size(departing, dim=2)
+   allocate(counts(0:mpih%procs_number-1), displs(0:mpih%procs_number-1))
+   call MPI_ALLGATHER(n_dep*nvar, 1, MPI_INTEGER, counts, 1, MPI_INTEGER, MPI_COMM_WORLD, mpih%error)
+   displs(0) = 0_I4P
+   do p=1, mpih%procs_number-1
+      displs(p) = displs(p-1) + counts(p-1)
+   enddo
+   n_all = sum(counts) / nvar
+   n_arrived = 0_I4P
+   if (n_all == 0_I4P) return
+   allocate(all_departing(nvar, n_all))
+   call MPI_ALLGATHERV(departing, n_dep*nvar, MPI_REAL8, all_departing, counts, displs, MPI_REAL8, MPI_COMM_WORLD, &
+                       mpih%error)
+   if (allocated(arrived)) deallocate(arrived)
+   allocate(arrived(nvar, n_all))
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), &
+             emin=>field%emin)
+   do n=1, n_all
+      do b=1, field%blocks_number
+         i_p = ceiling((all_departing(1,n) - emin(1,b)) / dx(b))
+         j_p = ceiling((all_departing(2,n) - emin(2,b)) / dy(b))
+         k_p = ceiling((all_departing(3,n) - emin(3,b)) / dz(b))
+         if (i_p >= 1_I4P .and. i_p <= ni .and. j_p >= 1_I4P .and. j_p <= nj .and. k_p >= 1_I4P .and. k_p <= nk) then
+            n_arrived = n_arrived + 1_I4P
+            arrived(:,n_arrived) = all_departing(:,n)
+            exit
+         endif
+      enddo
+   enddo
+   endassociate
+   call MPI_ALLREDUCE(n_arrived, claimed, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (claimed /= n_all) &
+      call mpih%error_stop(msg=': PIC migration: '//trim(str(n_all,.true.))//' departing particles, '// &
+                               trim(str(claimed,.true.))//' claimed (particle outside the domain?)')
+   endsubroutine exchange_particles
+
+   subroutine migrate_particles(self, field, grid, q_pic)
+   !< Hand the particles that left the local blocks to the owner ranks (end of a time step, host arrays). The departed slots
+   !< are filled by the last particles (stable for the particles that stay before the first hole), the arrived ones are
+   !< appended, then the particles are located again. Collective; with one rank it is a no-op.
+   class(prism_pic_object), intent(inout) :: self          !< PIC object.
+   type(field_object),      intent(in)    :: field         !< The field.
+   type(grid_object),       intent(in)    :: grid          !< Grid (sibling realm component, threaded in)
+   real(R8P),               intent(inout) :: q_pic(1:,1:)  !< PIC variables.
+   integer(I4P), allocatable              :: departed(:)   !< Indexes of the departing particles.
+   integer(I4P), allocatable              :: moves(:,:)    !< Compaction moves [from/to, move].
+   real(R8P),    allocatable              :: departing(:,:), arrived(:,:)
+   integer(I4P)                           :: n, n_dep, n_arrived, n_moves
+
+   if (mpih%procs_number == 1_I4P) return
+   call self%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic, owned_only=.true.)
+   n_dep = count(self%neighbour_list(1,1:self%particle_number) == 0_I4P)
+   allocate(departed(n_dep), departing(size(q_pic,dim=1), n_dep))
+   n_dep = 0_I4P
+   do n=1, self%particle_number
+      if (self%neighbour_list(1,n) /= 0_I4P) cycle
+      n_dep = n_dep + 1_I4P
+      departed(n_dep) = n
+      departing(:,n_dep) = q_pic(:,n)
+   enddo
+   call self%exchange_particles(field=field, grid=grid, departing=departing, arrived=arrived, n_arrived=n_arrived)
+   call compaction_moves(particle_number=self%particle_number, departed=departed, moves=moves, n_moves=n_moves)
+   do n=1, n_moves
+      q_pic(:,moves(2,n)) = q_pic(:,moves(1,n))
+   enddo
+   self%particle_number = self%particle_number - n_dep
+   if (self%particle_number + n_arrived > size(q_pic, dim=2)) &
+      call mpih%error_stop(msg=': PIC migration: local particles exceed the particle arrays capacity')
+   do n=1, n_arrived
+      q_pic(:,self%particle_number+n) = arrived(:,n)
+   enddo
+   if (self%particle_number + n_arrived < size(q_pic, dim=2)) q_pic(:,self%particle_number+n_arrived+1:) = 0._R8P
+   self%particle_number = self%particle_number + n_arrived
+   call self%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic)
+   endsubroutine migrate_particles
 
    subroutine set_gaussian_support_cells(self, field)
    !< Automatic Gaussian support radius (gaussian_support_cells < 0 in input): ceiling(cutoff_sigma*sigma/dx_min) + 1 over all
@@ -2029,4 +2189,34 @@ contains
       weight = 0.0_R8P
    endselect
    endfunction bspline_weight
+
+   ! non type-bound procedures
+   pure subroutine compaction_moves(particle_number, departed, moves, n_moves)
+   !< Moves that compact the particle arrays after the departure of the particles listed (ascending) in departed: the holes
+   !< within the first particle_number-size(departed) slots are filled, in order, by the particles that stay among the last
+   !< size(departed) slots. Deterministic, and the particles before the first hole do not move.
+   integer(I4P),              intent(in)  :: particle_number !< Particles before the departure.
+   integer(I4P),              intent(in)  :: departed(1:)    !< Departing particles, ascending.
+   integer(I4P), allocatable, intent(out) :: moves(:,:)      !< Moves [from/to, move].
+   integer(I4P),              intent(out) :: n_moves         !< Number of moves.
+   integer(I4P)                           :: n_keep, h, d, src
+
+   n_keep = particle_number - size(departed)
+   allocate(moves(2, size(departed)))
+   n_moves = 0_I4P
+   d = size(departed)            ! departed are scanned from the end to skip the tail ones
+   src = particle_number
+   do h=1, size(departed)
+      if (departed(h) > n_keep) exit
+      ! next survivor of the tail
+      do while (d > 0)
+         if (departed(d) /= src) exit
+         d = d - 1_I4P
+         src = src - 1_I4P
+      enddo
+      n_moves = n_moves + 1_I4P
+      moves(:,n_moves) = [src, departed(h)]
+      src = src - 1_I4P
+   enddo
+   endsubroutine compaction_moves
 endmodule adam_prism_pic_object

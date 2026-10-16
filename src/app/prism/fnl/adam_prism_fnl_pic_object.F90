@@ -39,6 +39,8 @@ type :: prism_fnl_pic_object
    real(R8P), allocatable :: buf_q_pic_R8P(:,:)           !< Host buffer with device layout for q_pic copies.
    real(R8P), allocatable :: buf_pic_fields_R8P(:,:)      !< Host buffer with device layout for pic_fields copies.
    integer(I4P), allocatable :: buf_neighbour_list_I4P(:,:) !< Host buffer with device layout for neighbour_list copies.
+   integer(I4P), pointer :: mig_index_gpu(:) => null()        !< Migration: ownership flags, then indexes [capacity*2].
+   real(R8P),    pointer :: mig_buffer_gpu(:) => null()       !< Migration: packed particles [capacity*variables].
    real(R8P)             :: sigma        = 0.0_R8P           !< Standard deviation for Gaussian weighting.
    real(R8P)             :: cutoff_sigma = 0.0_R8P           !< Gaussian cutoff radius in sigma units.
    integer(I4P)          :: gaussian_support_cells = -1_I4P  !< Gaussian compact support radius in cells.
@@ -58,6 +60,7 @@ contains
    procedure, pass(self) :: copy_q_pic_gpu_cpu
    procedure, pass(self) :: destroy
    procedure, pass(self) :: initialize
+   procedure, pass(self) :: migrate_particles_dev
    procedure, pass(self) :: particle_cartesian_grid_index_dev_impl
    procedure, pass(self) :: NGP_charge_weighting_dev
    procedure, pass(self) :: CIC_charge_weighting_dev
@@ -86,13 +89,14 @@ contains
 endtype prism_fnl_pic_object
 
 interface
-   subroutine particle_cartesian_grid_index_interface_dev(self, field_fnl, field, grid, q_pic_gpu)
+   subroutine particle_cartesian_grid_index_interface_dev(self, field_fnl, field, grid, q_pic_gpu, owned_only)
    import :: prism_fnl_pic_object, field_fnl_object, field_object, grid_object, R8P
-   class(prism_fnl_pic_object), intent(inout) :: self             !< PIC object on device.
-   type(field_fnl_object),      intent(in)    :: field_fnl        !< Device field helper.
-   type(field_object),          intent(in)    :: field            !< Host field helper.
-   type(grid_object),           intent(in)    :: grid             !< Host grid helper.
-   real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:) !< PIC variables on device.
+   class(prism_fnl_pic_object), intent(inout)        :: self             !< PIC object on device.
+   type(field_fnl_object),      intent(in)           :: field_fnl        !< Device field helper.
+   type(field_object),          intent(in)           :: field            !< Host field helper.
+   type(grid_object),           intent(in)           :: grid             !< Host grid helper.
+   real(R8P),                   intent(in)           :: q_pic_gpu(1:,1:) !< PIC variables on device.
+   logical,                     intent(in), optional :: owned_only       !< Locate owned particles only, no halo search.
    endsubroutine particle_cartesian_grid_index_interface_dev
 
    subroutine particle_weighting_interface_dev(self, field_fnl, field, grid, q_gpu, q_pic_gpu, nv)
@@ -148,6 +152,14 @@ contains
       call dev_free(self%q_pic_gpu, mydev)
       nullify(self%q_pic_gpu)
    endif
+   if (associated(self%mig_index_gpu)) then
+      call dev_free(self%mig_index_gpu, mydev)
+      nullify(self%mig_index_gpu)
+   endif
+   if (associated(self%mig_buffer_gpu)) then
+      call dev_free(self%mig_buffer_gpu, mydev)
+      nullify(self%mig_buffer_gpu)
+   endif
    if (associated(self%pic_fields_gpu)) then
       call dev_free(self%pic_fields_gpu, mydev)
       nullify(self%pic_fields_gpu)
@@ -185,7 +197,7 @@ contains
    logical                                            :: verbose_         !< Trigger verbose output, local var.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (self%particle_number == 0) return
+   if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
    if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_cpu_gpu start')
    call dev_memcpy_to_device(bb=self%db2_q_pic,              tb=self%hb2_q_pic,              &
                              dst=self%q_pic_gpu,             src=q_pic,                       &
@@ -209,7 +221,7 @@ contains
    logical                                             :: verbose_          !< Trigger verbose output, local var.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (self%particle_number == 0) return
+   if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
    if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_gpu_cpu start')
    call dev_memcpy_from_device(bb=self%db2_q_pic,           tb=self%hb2_q_pic,           &
                                dst=q_pic,                   src=self%q_pic_gpu,           &
@@ -231,7 +243,7 @@ contains
    logical                                           :: verbose_     !< Trigger verbose output, local var.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (self%particle_number == 0) return
+   if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
    if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_q_pic_gpu_cpu start')
    call dev_memcpy_from_device(bb=self%db2_q_pic, tb=self%hb2_q_pic, dst=q_pic, src=self%q_pic_gpu, buf=self%buf_q_pic_R8P)
    if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_q_pic_gpu_cpu finish')
@@ -376,31 +388,150 @@ contains
    call mpih_fnl%print_message('prism_fnl_pic_object%initialize finish')
    endsubroutine initialize
 
-   subroutine particle_cartesian_grid_index_dev_impl(self, field_fnl, field, grid, q_pic_gpu)
+   subroutine migrate_particles_dev(self, pic, field_fnl, field, grid)
+   !< Hand the particles that left the local blocks to the owner ranks (end of a time step). Device twin of
+   !< prism_pic_object%migrate_particles: the ownership flags and the compaction indexes go through the host (deterministic
+   !< order), the particles are packed, moved and appended on the device; the departing ones travel through the host
+   !< (prism_pic_object%exchange_particles, MPI_Allgatherv). The host pic%particle_number is updated as well. Collective;
+   !< with one rank it is a no-op.
+   class(prism_fnl_pic_object), intent(inout) :: self      !< PIC object on device.
+   type(prism_pic_object),      intent(inout) :: pic       !< PIC object on host.
+   type(field_fnl_object),      intent(in)    :: field_fnl !< Device field helper.
+   type(field_object),          intent(in)    :: field     !< Host field helper.
+   type(grid_object),           intent(in)    :: grid      !< Host grid helper.
+   integer(I4P), allocatable                  :: owned(:), departed(:), moves(:,:)
+   real(R8P),    allocatable                  :: departing(:,:), arrived(:,:), packed(:)
+   integer(I4P)                               :: np, capacity, n, k, v, n_dep, n_arrived, n_moves, n_keep, ierr
+   integer(I4P), pointer                      :: mig_index_gpu(:), neighbour_list_gpu(:,:)
+   real(R8P),    pointer                      :: mig_buffer_gpu(:), q_pic_gpu(:,:)
+
+   if (mpih_fnl%procs_number == 1_I4P .or. .not.associated(self%q_pic_gpu)) return
+   capacity = size(self%q_pic_gpu, dim=1)
+   if (.not.associated(self%mig_index_gpu)) then
+      call dev_alloc(fptr_dev=self%mig_index_gpu, ubounds=[2*capacity], lbounds=[1], ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mig_index_gpu in migrate_particles_dev')
+      call dev_alloc(fptr_dev=self%mig_buffer_gpu, ubounds=[PIC_VARIABLES_NUMBER*capacity], lbounds=[1], ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mig_buffer_gpu in migrate_particles_dev')
+   endif
+   mig_index_gpu => self%mig_index_gpu
+   mig_buffer_gpu => self%mig_buffer_gpu
+   q_pic_gpu => self%q_pic_gpu
+   neighbour_list_gpu => self%neighbour_list_gpu
+   np = self%particle_number
+
+   ! ownership flags
+   call self%particle_cartesian_grid_index_dev(field_fnl=field_fnl, field=field, grid=grid, q_pic_gpu=self%q_pic_gpu, &
+                                               owned_only=.true.)
+   allocate(owned(1:max(1_I4P,np)))
+   if (np > 0_I4P) then
+      !$acc parallel loop independent DEVICEVAR(mig_index_gpu, neighbour_list_gpu)
+      !$omp OMPLOOP DEVICEPTR(mig_index_gpu, neighbour_list_gpu)
+      do n=1, np
+         mig_index_gpu(n) = neighbour_list_gpu(n,1)
+      enddo
+      call dev_memcpy_from_device(dst=owned(1:np), src=self%mig_index_gpu(1:np))
+   endif
+   n_dep = count(owned(1:np) == 0_I4P)
+   allocate(departed(n_dep))
+   k = 0_I4P
+   do n=1, np
+      if (owned(n) /= 0_I4P) cycle
+      k = k + 1_I4P
+      departed(k) = n
+   enddo
+
+   ! pack the departing particles: indexes up, particles down
+   allocate(departing(PIC_VARIABLES_NUMBER, n_dep))
+   if (n_dep > 0_I4P) then
+      call dev_memcpy_to_device(dst=self%mig_index_gpu(1:n_dep), src=departed)
+      !$acc parallel loop independent collapse(2) DEVICEVAR(mig_index_gpu, mig_buffer_gpu, q_pic_gpu)
+      !$omp OMPLOOP collapse(2) DEVICEPTR(mig_index_gpu, mig_buffer_gpu, q_pic_gpu)
+      do k=1, n_dep
+         do v=1, PIC_VARIABLES_NUMBER
+            mig_buffer_gpu(PIC_VARIABLES_NUMBER*(k-1)+v) = q_pic_gpu(mig_index_gpu(k),v)
+         enddo
+      enddo
+      allocate(packed(PIC_VARIABLES_NUMBER*n_dep))
+      call dev_memcpy_from_device(dst=packed, src=self%mig_buffer_gpu(1:PIC_VARIABLES_NUMBER*n_dep))
+      departing = reshape(packed, [PIC_VARIABLES_NUMBER, n_dep])
+      deallocate(packed)
+   endif
+   call pic%exchange_particles(field=field, grid=grid, departing=departing, arrived=arrived, n_arrived=n_arrived)
+
+   ! fill the holes with the last particles (same moves as the host twin)
+   call compaction_moves(particle_number=np, departed=departed, moves=moves, n_moves=n_moves)
+   if (n_moves > 0_I4P) then
+      call dev_memcpy_to_device(dst=self%mig_index_gpu(1:2*n_moves), src=reshape(moves(:,1:n_moves), [2*n_moves]))
+      !$acc parallel loop independent collapse(2) DEVICEVAR(mig_index_gpu, q_pic_gpu)
+      !$omp OMPLOOP collapse(2) DEVICEPTR(mig_index_gpu, q_pic_gpu)
+      do k=1, n_moves
+         do v=1, PIC_VARIABLES_NUMBER
+            q_pic_gpu(mig_index_gpu(2*k),v) = q_pic_gpu(mig_index_gpu(2*k-1),v)
+         enddo
+      enddo
+   endif
+   n_keep = np - n_dep
+   if (n_keep + n_arrived > capacity) &
+      call mpih_fnl%error_stop(msg=': PIC migration: local particles exceed the particle arrays capacity')
+   ! append the arrived particles, zero the slots left free
+   if (n_arrived > 0_I4P) then
+      call dev_memcpy_to_device(dst=self%mig_buffer_gpu(1:PIC_VARIABLES_NUMBER*n_arrived), &
+                                src=reshape(arrived(:,1:n_arrived), [PIC_VARIABLES_NUMBER*n_arrived]))
+      !$acc parallel loop independent collapse(2) DEVICEVAR(mig_buffer_gpu, q_pic_gpu)
+      !$omp OMPLOOP collapse(2) DEVICEPTR(mig_buffer_gpu, q_pic_gpu)
+      do k=1, n_arrived
+         do v=1, PIC_VARIABLES_NUMBER
+            q_pic_gpu(n_keep+k,v) = mig_buffer_gpu(PIC_VARIABLES_NUMBER*(k-1)+v)
+         enddo
+      enddo
+   endif
+   if (n_keep + n_arrived < np) then
+      !$acc parallel loop independent collapse(2) DEVICEVAR(q_pic_gpu)
+      !$omp OMPLOOP collapse(2) DEVICEPTR(q_pic_gpu)
+      do n=n_keep+n_arrived+1, np
+         do v=1, PIC_VARIABLES_NUMBER
+            q_pic_gpu(n,v) = 0._R8P
+         enddo
+      enddo
+   endif
+   self%particle_number = n_keep + n_arrived
+   pic%particle_number  = self%particle_number
+   call self%particle_cartesian_grid_index_dev(field_fnl=field_fnl, field=field, grid=grid, q_pic_gpu=self%q_pic_gpu)
+   endsubroutine migrate_particles_dev
+
+   subroutine particle_cartesian_grid_index_dev_impl(self, field_fnl, field, grid, q_pic_gpu, owned_only)
    !< Compute the grid index corresponding to a particle position. Good for cartesian grids only.
-   class(prism_fnl_pic_object), intent(inout) :: self             !< PIC object on device.
-   type(field_fnl_object),      intent(in)    :: field_fnl        !< Device field helper.
-   type(field_object),          intent(in)    :: field            !< Host field helper.
-   type(grid_object),           intent(in)    :: grid             !< Host grid helper.
-   real(R8P),                   intent(in)    :: q_pic_gpu(1:,1:) !< PIC variables on device.
-   integer(I4P)                               :: n, b             !< Counters.
-   integer(I4P)                               :: ngc              !< Ghost cells number.
-   integer(I4P)                               :: ni, nj, nk       !< Grid sizes.
+   !< CPU twin: prism_pic_object%particle_cartesian_grid_index (ownership first, then the ghost halo of a local block within
+   !< halo_margin cells; owned_only skips the halo search and leaves non-owned particles with a zero row, without errors).
+   class(prism_fnl_pic_object), intent(inout)        :: self             !< PIC object on device.
+   type(field_fnl_object),      intent(in)           :: field_fnl        !< Device field helper.
+   type(field_object),          intent(in)           :: field            !< Host field helper.
+   type(grid_object),           intent(in)           :: grid             !< Host grid helper.
+   real(R8P),                   intent(in)           :: q_pic_gpu(1:,1:) !< PIC variables on device.
+   logical,                     intent(in), optional :: owned_only       !< Locate owned particles only, no halo search.
+   logical                                    :: owned_only_       !< Locate owned particles only, local var.
+   integer(I4P)                               :: n, b, pass        !< Counters.
+   integer(I4P)                               :: ngc               !< Ghost cells number.
+   integer(I4P)                               :: ni, nj, nk        !< Grid sizes.
+   integer(I4P)                               :: m, mm             !< Halo margin (pass 2), margin of the current pass.
    integer(I4P)                               :: blocks_number     !< Number of blocks.
    integer(I4P)                               :: i_p, j_p, k_p     !< Particle cell indices.
    integer(I4P)                               :: block_p           !< Particle block index.
    real(R8P)                                  :: x_p, y_p, z_p     !< Particle coordinates.
    real(R8P)                                  :: dx, dy, dz        !< Local cell spacings.
    real(R8P)                                  :: emin_x, emin_y, emin_z !< Block minimum coordinates.
+   real(R8P)                                  :: dmin_x, dmin_y, dmin_z, dmax_x, dmax_y, dmax_z !< Domain bounds.
    real(R8P), pointer                        :: x_cell_gpu(:,:)   !< Cells x coordinates on GPU.
    real(R8P), pointer                        :: y_cell_gpu(:,:)   !< Cells y coordinates on GPU.
    real(R8P), pointer                        :: z_cell_gpu(:,:)   !< Cells z coordinates on GPU.
    real(R8P), pointer                        :: dxyz_gpu(:,:)     !< Cells deltas on GPU.
    integer(I4P), pointer                     :: neighbour_list_gpu(:,:) !< Neighbour list on GPU.
-   integer(I4P)                               :: lost              !< Particles owned by no block.
+   integer(I4P)                               :: outside           !< Particles outside the domain.
+   integer(I4P)                               :: lost              !< Particles beyond the ghost halo of every local block.
    integer(I4P)                               :: np                !< Particles number (local: no implicit copy of self).
 
    if (self%particle_number == 0) return
+   owned_only_ = .false. ; if (present(owned_only)) owned_only_ = owned_only
    ! CPU twin of the multi-block stencil check of prism_pic_object%particle_cartesian_grid_index
    if (field_fnl%blocks_number > 1_I4P .and. self%stencil_radius > grid%ngc) &
       call mpih_fnl%error_stop(msg=': PIC multi-block needs deposit/gather stencils within ngc cells (stencil radius '// &
@@ -410,6 +541,10 @@ contains
    ni = grid%ni
    nj = grid%nj
    nk = grid%nk
+   m = max(0_I4P, ngc - self%stencil_radius - 1_I4P) ! CPU twin: prism_pic_object%halo_margin_cells
+   if (owned_only_) m = -1_I4P
+   dmin_x = grid%domain_emin(1) ; dmin_y = grid%domain_emin(2) ; dmin_z = grid%domain_emin(3)
+   dmax_x = grid%domain_emax(1) ; dmax_y = grid%domain_emax(2) ; dmax_z = grid%domain_emax(3)
    blocks_number = field_fnl%blocks_number
    x_cell_gpu => field_fnl%x_cell_gpu
    y_cell_gpu => field_fnl%y_cell_gpu
@@ -417,12 +552,15 @@ contains
    dxyz_gpu   => field_fnl%dxyz_gpu
    neighbour_list_gpu => self%neighbour_list_gpu
 
+   outside = 0_I4P
    lost = 0_I4P
    np = self%particle_number
    !$acc parallel loop independent DEVICEVAR(q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
-   !$acc& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p) reduction(+:lost)
+   !$acc& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p, mm) &
+   !$acc& reduction(+:lost,outside)
    !$omp OMPLOOP DEVICEPTR(q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
-   !$omp& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p) reduction(+:lost)
+   !$omp& private(x_p, y_p, z_p, dx, dy, dz, emin_x, emin_y, emin_z, i_p, j_p, k_p, block_p, mm) &
+   !$omp& reduction(+:lost,outside)
    do n = 1, np
       x_p = q_pic_gpu(n,1)
       y_p = q_pic_gpu(n,2)
@@ -431,29 +569,43 @@ contains
       block_p = 0_I4P
       i_p = 0_I4P ; j_p = 0_I4P ; k_p = 0_I4P
 
+      ! pass 1: ownership (interior cells); pass 2: ghost halo within m cells (inside the domain only)
       !$acc loop seq
-      do b = 1, blocks_number
-         dx = dxyz_gpu(b,1)
-         dy = dxyz_gpu(b,2)
-         dz = dxyz_gpu(b,3)
-         emin_x = x_cell_gpu(b,1+ngc) - 0.5_R8P * dx
-         emin_y = y_cell_gpu(b,1+ngc) - 0.5_R8P * dy
-         emin_z = z_cell_gpu(b,1+ngc) - 0.5_R8P * dz
-         i_p = ceiling((x_p - emin_x) / dx, kind=I4P)
-         j_p = ceiling((y_p - emin_y) / dy, kind=I4P)
-         k_p = ceiling((z_p - emin_z) / dz, kind=I4P)
-         if (i_p >= 1_I4P .and. i_p <= ni .and. &
-             j_p >= 1_I4P .and. j_p <= nj .and. &
-             k_p >= 1_I4P .and. k_p <= nk) then
-            block_p = b
-            exit
+      do pass = 1, 2
+         if (pass == 2) then
+            if (m < 0_I4P) exit
+            if (x_p <= dmin_x .or. y_p <= dmin_y .or. z_p <= dmin_z .or. &
+                x_p >  dmax_x .or. y_p >  dmax_y .or. z_p >  dmax_z) then
+               outside = outside + 1_I4P
+               exit
+            endif
          endif
+         mm = 0_I4P ; if (pass == 2) mm = m
+         !$acc loop seq
+         do b = 1, blocks_number
+            dx = dxyz_gpu(b,1)
+            dy = dxyz_gpu(b,2)
+            dz = dxyz_gpu(b,3)
+            emin_x = x_cell_gpu(b,1+ngc) - 0.5_R8P * dx
+            emin_y = y_cell_gpu(b,1+ngc) - 0.5_R8P * dy
+            emin_z = z_cell_gpu(b,1+ngc) - 0.5_R8P * dz
+            i_p = ceiling((x_p - emin_x) / dx, kind=I4P)
+            j_p = ceiling((y_p - emin_y) / dy, kind=I4P)
+            k_p = ceiling((z_p - emin_z) / dz, kind=I4P)
+            if (i_p >= 1_I4P-mm .and. i_p <= ni+mm .and. &
+                j_p >= 1_I4P-mm .and. j_p <= nj+mm .and. &
+                k_p >= 1_I4P-mm .and. k_p <= nk+mm) then
+               block_p = b
+               exit
+            endif
+         enddo
+         if (block_p > 0_I4P) exit
+         if (pass == 2) lost = lost + 1_I4P
       enddo
       if (block_p == 0_I4P) then
          i_p = 0_I4P
          j_p = 0_I4P
          k_p = 0_I4P
-         lost = lost + 1_I4P
       endif
 
       neighbour_list_gpu(n,1) = block_p
@@ -461,9 +613,11 @@ contains
       neighbour_list_gpu(n,3) = j_p
       neighbour_list_gpu(n,4) = k_p
    enddo
-   ! CPU twin: a particle owned by no block stops the run (particle boundary conditions are not implemented yet)
-   if (lost > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(lost,.true.))//' PIC particle(s) outside the domain; '// &
-                                                  'particle boundary conditions are not implemented')
+   ! CPU twin: a particle outside the domain stops the run (particle boundary conditions are not implemented yet)
+   if (outside > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(outside,.true.))//' PIC particle(s) outside the '// &
+                                                     'domain; particle boundary conditions are not implemented')
+   if (lost > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(lost,.true.))//' PIC particle(s) moved beyond the '// &
+                                                  'ghost halo of their rank within a time step')
    endsubroutine particle_cartesian_grid_index_dev_impl
 
    subroutine NGP_charge_weighting_dev(self, field_fnl, field, grid, q_gpu, q_pic_gpu, nv)
@@ -822,7 +976,7 @@ contains
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
-   if (self%particle_number == 0) return
+   if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
 
    ngc = grid%ngc ; ni = grid%ni ; nj = grid%nj ; nk = grid%nk
    blocks_number = field_fnl%blocks_number
@@ -968,7 +1122,7 @@ contains
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
-   if (self%particle_number == 0) return
+   if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
 
    ngc = grid%ngc ; ni = grid%ni ; nj = grid%nj ; nk = grid%nk
    blocks_number = field_fnl%blocks_number
@@ -1099,7 +1253,7 @@ contains
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
-   if (self%particle_number == 0) return
+   if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
 
    ngc = grid%ngc ; ni = grid%ni ; nj = grid%nj ; nk = grid%nk
    blocks_number = field_fnl%blocks_number
@@ -1212,7 +1366,7 @@ contains
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
    integer(I4P), pointer                      :: neighbour_list_gpu(:,:)
 
-   if (self%particle_number == 0) return
+   if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
 
    ngc = grid%ngc ; ni = grid%ni ; nj = grid%nj ; nk = grid%nk
    blocks_number = field_fnl%blocks_number
