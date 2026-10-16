@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| RV-5, RV-6, RV-7 | Ideal MHD | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P3c) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) | `rj2a-hlld` |
+| RV-5, RV-6, RV-7 | Ideal MHD | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P3c) | CPU, FNL | yes | `rj2a-hlld` |
 
 ## Case and scope
 
@@ -53,6 +53,7 @@ The inputs are those of the verifications, unchanged except for the `[numerics]`
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/mhd/numerics.sh` | `numerics_check`, `numerics_tag`, `numerics_apply`: validates the spec and rewrites `[numerics]` |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> rj2a mhd`, `make_doc_figures.py --only weno-riemann` | `rj2a` re-runs the splitting and HLLD-characteristic runs, `mhd` the HLLD-primitive run `rj2a-hlld-prim` |
 | `src/tests/flume/verification/mhd/{rj2a,linear-wave,cpaw,riemann,orszag-tang,rotor,field-loop}/check.sh` | the seven scripts that take `--numerics` |
 
 ```bash
@@ -61,11 +62,11 @@ rj2a/check.sh --numerics hlld                     # HLLD, characteristic interpo
 rotor/check.sh --numerics hlld:primitive          # HLLD, primitive interpolation
 ```
 
-No figure yet: [#85](https://github.com/szaghi/adam/issues/85) lists the Ryu–Jones 2a profiles, splitting against HLLD
-primitive and characteristic, over the exact solution. The [Ryu–Jones 2a](./ryu-jones-2a) figure already overlays the
-splitting scheme and HLLD characteristic.
-
 ## Results
+
+![Ryu-Jones 2a on the splitting scheme and on HLLD](/flume/weno-riemann.png)
+
+*Ryu–Jones 2a at 256 cells, CPU, over the exact solution: the splitting scheme and `weno-riemann` with HLLD on characteristic and on primitive interpolation. The three agree at this scale; the primitive interpolation has the largest $L_1$ sum of the three (table below).*
 
 Measured in issue #47, M3-P3c; CPU and FNL agree to the printed digits:
 

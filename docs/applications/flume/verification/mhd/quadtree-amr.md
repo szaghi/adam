@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| MV-15 | Ideal MHD | [#46](https://github.com/szaghi/adam/issues/46) (no milestone, after M3) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| MV-15 | Ideal MHD | [#46](https://github.com/szaghi/adam/issues/46) (no milestone, after M3) | CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -51,6 +51,7 @@ Both legs: 2 ranks.
 | `src/tests/flume/verification/mhd/positivity-probe/make_blast.py` | writes the `blast` inputs (`--eglm --cells 32 --time-max 0.006 --refine-box ... --ratio 8\|4`) |
 | `src/tests/flume/verification/mhd/amr_box.py` | the one-level box refinement on either tree |
 | `src/tests/flume/verification/mhd/quadtree/check.sh` | runs the legs (`--legs ot,blast`, `--np N`, `--keep`) |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> quadtree`, `make_doc_figures.py --only quadtree` | re-runs the `ot` leg on the octree and the quadtree with checkpoints kept (2 runs, about 3 min) |
 | `src/tests/flume/verification/mhd/quadtree/quadtree_oracle.py` | the per-variable $z$ invariance and the agreement with the reference at the same $(x, y)$ |
 | `src/tests/amr/test_quadtree_seam_ghost.F90` | the unit test of the seam exchange on a linear field |
 
@@ -60,10 +61,11 @@ quadtree/check.sh                                                     # CPU (abo
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl quadtree/check.sh    # FNL (about 9 min on WSL)
 ```
 
-No figure yet: [#85](https://github.com/szaghi/adam/issues/85) lists the Orszag–Tang density on the quadtree against the
-octree, and the per-variable difference map.
-
 ## Results
+
+![Orszag-Tang on the quadtree against the octree](/flume/quadtree.png)
+
+*Orszag–Tang, $32^2$ with $[0.25, 0.75]^2$ refined 2:1, $t = 0.2$, CPU: the density on the quadtree ($nk = 1$) with its blocks; the per-cell density difference against the octree with a null $z$ axis (its first $z$ layer), largest along the refined box and with no structure; and the largest difference per variable relative to the variable's largest value ($\psi$: $8\cdot10^{-12}$, the others $\le 6\cdot10^{-13}$): round-off.*
 
 | Leg | Quadtree `nk = 1` against the octree | Octree z spread | Quadtree `nk = 4` z spread |
 |---|---|---|---|

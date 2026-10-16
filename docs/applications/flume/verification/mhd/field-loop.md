@@ -65,8 +65,7 @@ field-loop/check.sh --agree                                             # CPU ag
 field-loop/check.sh --amr                                               # 2:1 seams (about 28 min)
 ```
 
-`make_doc_runs.sh` has no group that writes `<runs>/field-loop`: the figure run is not reproducible from the scripts
-alone ([#85](https://github.com/szaghi/adam/issues/85)).
+`make_doc_runs.sh <runs> mhd` writes the figure run (`<runs>/field-loop`: $128 \times 64$); `make_doc_figures.py --runs <runs>` draws it.
 
 ## Results
 

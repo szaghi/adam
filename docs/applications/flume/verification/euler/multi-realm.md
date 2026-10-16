@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| multirealm legs 1–6 | Euler | M2 entry ([#37](https://github.com/szaghi/adam/issues/37)); [#40](https://github.com/szaghi/adam/issues/40), [#51](https://github.com/szaghi/adam/issues/51), [#52](https://github.com/szaghi/adam/issues/52), [#54](https://github.com/szaghi/adam/issues/54); M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) | `sod-2realm`, `sod-2realm-blocks`, `sod-amr`, `sod-amr-2realm`, `sod-amr-refined` |
+| multirealm legs 1–6 | Euler | M2 entry ([#37](https://github.com/szaghi/adam/issues/37)); [#40](https://github.com/szaghi/adam/issues/40), [#51](https://github.com/szaghi/adam/issues/51), [#52](https://github.com/szaghi/adam/issues/52), [#54](https://github.com/szaghi/adam/issues/54); M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | yes | `sod-2realm`, `sod-2realm-blocks`, `sod-amr`, `sod-amr-2realm`, `sod-amr-refined` |
 
 ## Case and scope
 
@@ -66,6 +66,7 @@ Every leg is the Sod problem of [Sod](./sod): $(\rho, u, p) = (1, 0, 1)$ for $x 
 | `src/tests/flume/verification/multirealm/sod-2realm-blocks{,-r1,-r2}.ini`, `sod-2realm-blocks-z{,-r1,-r2}.ini` | leg 5 |
 | `src/tests/flume/verification/sod/sod-{x,z}.ini` | the single-realm references of legs 1, 3 and 5 |
 | `src/tests/flume/verification/multirealm/check.sh` | runs the six legs and the refusals (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> multirealm`, `make_doc_figures.py --only multirealm` | re-runs legs 1 and 4 and their single-realm twins with checkpoints kept (4 runs, about 4 min) |
 | `src/tests/flume/verification/multirealm/multirealm_oracle.py` | the union against the single-realm run, cell by cell, tolerance 0, and the summed conservation histories |
 | `src/tests/flume/verification/mhd/multirealm/check.sh` | the MHD twin (MV-14) |
 | `src/tests/amr/test_tree_closest_block.F90` | the unit test of the tree lookup ([#54](https://github.com/szaghi/adam/issues/54)) |
@@ -78,8 +79,9 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh               # FNL
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): the Sod union against the single realm with the seam
-marked, and the rotor split on the quadtree).
+![Multi-realm Sod unions against the single realm](/flume/multirealm.png)
+
+*Sod at $t = 0.2$, CPU, 2 ranks: leg 1 (two realms glued by a 1:1 mirror seam at the diaphragm) over `sod-x`, and leg 4 (a coarse and a fine realm glued by the 2:1 `refined` coupling at $x = 0.75$) over the single-realm `sod-amr`; the legend gives the largest cell difference, 0 in both (bitwise). The rotor split on the quadtree (MV-14 leg 6) has no figure: it is bitwise too, and a map of zero carries nothing.*
 
 | Leg | Check | Bound | CPU | FNL |
 |---|---|---|---|---|

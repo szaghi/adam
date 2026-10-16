@@ -33,6 +33,16 @@
 #           same on the uniform grid, sv10-collapse-{0.4,0.2,0.1}, the collapse, sv10-stage-{0.4,0.2,0.1}, the same
 #           with reflux_cadence = stage (P5c), and sv11-regrid, the collapse (base 32^2) under runtime AMR with a
 #           checkpoint every 10 steps (14 runs, about 35 min)
+#   mhd     the MHD figures of the gallery (issue #85, R2a): brio-wu (512 cells, GLM), rj4d (512, no cleaning), glm-pulse
+#           (128, GLM, amplitude 0.1), orszag-tang (128^2, t = 0.5), orszag-tang-amr (32^2 + [0.25, 0.75]^2 refined),
+#           rotor (256^2), field-loop (128 x 64), rj2a-hlld-prim (RJ2a on HLLD with primitive interpolation) (8 runs,
+#           about 40 min)
+#   rotated rst-{63,45}-256 and their 1-D references rst-{63,45}-ref: the rotated shock tube MV-8 (4 runs, about 40 min)
+#   quadtree ot-octree, ot-quad-nk1: MV-15, Orszag-Tang 32^2 + [0.25, 0.75]^2 refined, t = 0.2 (2 runs, about 3 min)
+#   regrid  regrid-vortex-{conservative,linear}: the rg3 vortex regridding every 5 steps, a checkpoint every 5 steps
+#           (2 runs, about 2 min)
+#   multirealm sod-x, sod-2realm, sod-amr, sod-amr-refined: the Sod unions of multirealm/check.sh legs 1 and 4 and
+#           their single-realm twins (4 runs, about 4 min)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
@@ -55,16 +65,16 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
-           "selfgravity, jeans, isolated, amr)" >&2
+           "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm)" >&2
       exit 2
    fi
 done
@@ -277,6 +287,70 @@ for g in $GROUPS_; do
             amr_jeans "sv10-stage-$cfl" jeansc2d --cells 16 --cfl "$cfl" --box --reflux-cadence stage
          done
          amr_jeans sv11-regrid jeansc2d --cells 8 --regrid 5 --reflux-cadence stage --it-save 10 ;;
+      mhd)
+         M="$VERIF_DIR/mhd"
+         fresh brio-wu
+         "$VENV_PY" "$M/riemann/make_riemann.py" "$VERIF_DIR/sod/sod-x.ini" "$W/input.ini" --case bw --cells 512 \
+            --divergence-control glm --rho-floor 1e-10 --p-floor 1e-10 ; run input.ini
+         fresh rj4d
+         "$VENV_PY" "$M/riemann/make_riemann.py" "$VERIF_DIR/sod/sod-x.ini" "$W/input.ini" --case rj4d --cells 512 \
+            --divergence-control none --rho-floor 1e-10 --p-floor 1e-10 ; run input.ini
+         fresh glm-pulse
+         "$VENV_PY" "$M/glm-pulse/make_glm_pulse.py" "$VERIF_DIR/sod/sod-x.ini" "$W/glm-pulse.ini" --amplitude 0.1 \
+            --cells 128 --divergence-control glm ; run glm-pulse.ini
+         fresh orszag-tang
+         "$VENV_PY" "$M/orszag-tang/make_orszag_tang.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$W/orszag-tang.ini" \
+            --cells 128 ; run orszag-tang.ini
+         fresh orszag-tang-amr
+         "$VENV_PY" "$M/orszag-tang/make_orszag_tang.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$W/orszag-tang.ini" \
+            --cells 32 --refine-box 0.25 0.25 0.75 0.75 ; run orszag-tang.ini
+         fresh rotor
+         "$VENV_PY" "$M/rotor/make_rotor.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$W/rotor.ini" --cells 256
+         run rotor.ini
+         fresh field-loop
+         "$VENV_PY" "$M/field-loop/make_field_loop.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$W/field-loop.ini" \
+            --cells 128 ; run field-loop.ini
+         fresh rj2a-hlld-prim
+         "$VENV_PY" "$M/rj2a/make_rj2a.py" "$VERIF_DIR/sod/sod-x.ini" "$W/rj2a-x.ini" --axis x --cells 256 \
+            --divergence-control none
+         NUMERICS=hlld NUMERICS_SOLVER=hlld NUMERICS_RECON=primitive NUMERICS_CORRECTION=6th NUMERICS_SENSOR=weno \
+            numerics_apply "$W/rj2a-x.ini"
+         run rj2a-x.ini ;;
+      rotated)
+         for angle in 63 45; do
+            fresh "rst-$angle-256"
+            "$VENV_PY" "$VERIF_DIR/mhd/rotated-shock-tube/make_rotated_shock_tube.py" "$VERIF_DIR/vortex/vortex-n064.ini" \
+               "$W/rst.ini" --angle "$angle" --cells 256 ; run rst.ini
+            fresh "rst-$angle-ref"
+            "$VENV_PY" "$VERIF_DIR/mhd/rotated-shock-tube/make_rotated_shock_tube.py" "$VERIF_DIR/sod/sod-x.ini" \
+               "$W/rst.ini" --angle "$angle" --cells 256 --reference ; run rst.ini
+         done ;;
+      quadtree)
+         for tree in octree quad-nk1; do
+            fresh "ot-$tree"
+            ratio=8 ; [[ $tree == quad-nk1 ]] && ratio=4
+            "$VENV_PY" "$VERIF_DIR/mhd/orszag-tang/make_orszag_tang.py" "$VERIF_DIR/vortex/vortex-n064.ini" \
+               "$W/orszag-tang.ini" --cells 32 --time-max 0.2 --refine-box 0.25 0.25 0.75 0.75 --ratio "$ratio"
+            run orszag-tang.ini
+         done ;;
+      regrid)
+         for prol in conservative linear; do
+            fresh "regrid-vortex-$prol"
+            python3 -I "$VERIF_DIR/regrid/make_regrid.py" vortex "$W/input.ini" --prolongation "$prol"
+            sed -i -E 's/^(\s*it_save\s*=).*/\1 5/' "$W/input.ini"
+            grep -qE '^\s*it_save\s*=\s*5\b' "$W/input.ini" || { echo "   it_save not set" ; FAILED=1 ; }
+            run input.ini
+         done ;;
+      multirealm)
+         mr() { # mr <case dir> <manifest or input> [<realm inputs>]: copy the inputs of multirealm/ and run the first
+            fresh "$1" ; shift
+            for f in "$@"; do cp "$VERIF_DIR/multirealm/$f" "$W/" 2>/dev/null || cp "$VERIF_DIR/sod/$f" "$W/" ; done
+            run "$1"
+         }
+         mr sod-x sod-x.ini
+         mr sod-2realm sod-2realm.ini sod-2realm-r1.ini sod-2realm-r2.ini
+         mr sod-amr sod-amr.ini
+         mr sod-amr-refined sod-amr-refined.ini sod-amr-refined-r1.ini sod-amr-refined-r2.ini ;;
    esac
 done
 exit $FAILED

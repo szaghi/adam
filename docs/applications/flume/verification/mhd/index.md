@@ -38,12 +38,11 @@ The `check.sh` scripts delete their checkpoints after the oracles, so the figure
 
 ```bash
 cd src/tests/flume/verification
-./make_doc_runs.sh <runs-dir> blast vacuum rj2a order    # PV-1, PV-2, PV-3, Ryu-Jones 2a, the MV-5 ladders
+./make_doc_runs.sh <runs-dir> blast vacuum rj2a order mhd rotated quadtree   # every MHD figure run
 ./make_doc_figures.py --out ../../../../docs/public/flume --runs <runs-dir> \
-   --only blast near-vacuum mhd-riemann order glm-pulse orszag-tang rotor field-loop eglm-energy
+   --only blast near-vacuum mhd-riemann order glm-pulse orszag-tang rotor field-loop eglm-energy \
+          weno-riemann rotated-shock-tube quadtree
 ```
 
-`eglm-energy` reads the conservation histories kept in the `mhd/orszag-tang` work directories. The `--runs`
-sub-directories `orszag-tang`, `orszag-tang-amr`, `rotor`, `field-loop`, `brio-wu`, `rj4d` and `glm-pulse` are not
-written by `make_doc_runs.sh`: their figures cannot be regenerated from the scripts alone
-([#85](https://github.com/szaghi/adam/issues/85)).
+`eglm-energy` reads the conservation histories kept in the `mhd/orszag-tang` work directories. The group `mhd` (issue #85, R2a) writes the runs of the gallery figures: Brio–Wu, RJ4d, the GLM
+pulse, Orszag–Tang and its AMR run, the rotor, the field loop, and RJ2a on HLLD with primitive interpolation.

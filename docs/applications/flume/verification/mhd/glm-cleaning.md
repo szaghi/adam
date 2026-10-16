@@ -95,8 +95,7 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl glm-pulse/check.sh    # MV-3, F
 divb-peak/check.sh                                                     # MV-10
 ```
 
-`make_doc_runs.sh` has no group that writes `<runs>/glm-pulse`: the figure run is not reproducible from the scripts
-alone ([#85](https://github.com/szaghi/adam/issues/85)).
+`make_doc_runs.sh <runs> mhd` writes the figure run (`<runs>/glm-pulse`: 128 cells, GLM, amplitude 0.1); `make_doc_figures.py --runs <runs>` draws it.
 
 ## Results
 

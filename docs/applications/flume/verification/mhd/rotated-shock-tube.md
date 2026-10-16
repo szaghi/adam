@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| MV-8 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) | `rotated-shock-tube` |
+| MV-8 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes | `rotated-shock-tube` |
 
 ## Case and scope
 
@@ -47,6 +47,7 @@ What the case catches:
 |---|---|
 | `src/tests/flume/verification/mhd/rotated-shock-tube/make_rotated_shock_tube.py` | writes the 2-D input from `vortex/vortex-n064.ini` or the 1-D reference from `sod/sod-x.ini` (`--angle 45\|63`, `--cells`, `--reference`, `--cfl`, `--glm-ch`) |
 | `src/tests/flume/verification/mhd/rotated-shock-tube/check.sh` | runs the reference and the ladder for both normals (`--np N`; about 30 min) |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> rotated`, `make_doc_figures.py --only rotated-shock-tube` | re-runs both normals at $N = 256$ and their 1-D references with checkpoints kept (4 runs, about 40 min) |
 | `src/tests/flume/verification/mhd/rotated-shock-tube/rotated_shock_tube_oracle.py` | $\delta B_\parallel$ and the mean relative error against the reference |
 
 ```bash
@@ -55,10 +56,11 @@ rotated-shock-tube/check.sh                                                     
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl rotated-shock-tube/check.sh    # FNL
 ```
 
-No figure yet: [#85](https://github.com/szaghi/adam/issues/85) lists the $B_\parallel$ deviation map at 63.4° and 45°
-and the 1-D cut against the exact profile.
-
 ## Results
+
+![Rotated shock tube at 63.4 and 45 degrees](/flume/rotated-shock-tube.png)
+
+*The $256^2$ runs at 63.4° (top) and 45° (bottom), CPU. Left: $B_\parallel/B_0 - 1$, the deviation of the normal field from its exact uniform value, at most 1.5 % (63.4°) and 2.5 % (45°), on the discontinuities. Centre and right: the density and the tangential field of every cell against $s = \mathbf n\cdot\mathbf x$, over the 1-D reference; the 2-D runs smear the peaks of the fan the reference resolves, the source of the mean error in the table.*
 
 | Check | Bound (CPU baseline M2-P6d + 2%) | CPU | FNL |
 |---|---|---|---|

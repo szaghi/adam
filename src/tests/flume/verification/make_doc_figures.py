@@ -9,9 +9,10 @@ change of the solver and compared with the published one.
 Usage:
     make_doc_figures.py --out DIR [--runs DIR] [--only NAME ...]
 
-`--runs` holds the re-runs of inputs whose work directories keep no checkpoint (the MHD cases), one sub-directory per
-case: orszag-tang, orszag-tang-amr, rotor, field-loop, brio-wu, rj4d, glm-pulse, and the cases of `make_doc_runs.sh`
-(rj2a, rj2a-hlld, the limited blasts, the Euler near-vacuum problems, the linear-wave ladders, the gravity cases).
+`--runs` holds the re-runs of inputs whose work directories keep no checkpoint, one sub-directory per case, all written
+by `make_doc_runs.sh` (its groups: the MHD gallery, the limited blasts, the Euler near-vacuum problems, the linear-wave
+ladders, the rotated shock tube, the quadtree, the runtime regrids, the multi-realm unions, the gravity and
+self-gravity cases).
 A figure whose data is missing is skipped with a message. Needs numpy, h5py and matplotlib.
 """
 
@@ -54,19 +55,20 @@ def gamma_of(ini: configparser.ConfigParser) -> float:
     return float(ini["physics"]["cp"]) / float(ini["physics"]["cv"])
 
 
-def last_files(work: Path) -> list[Path]:
-    """Return the checkpoint files of the last saved iteration of a run."""
-    files = sorted(p for p in work.glob("*-proc*.h5") if "restart" not in p.name)
+def last_files(work: Path, prefix: str = "", it: int | None = None) -> list[Path]:
+    """Return the checkpoint files of the last saved iteration of a run (of the realm `prefix`, or of iteration `it`)."""
+    files = sorted(p for p in work.glob(f"{prefix}*-proc*.h5") if "restart" not in p.name)
     if not files:
         raise FileNotFoundError(f"no checkpoint in {work}")
-    last = max(int(p.name.split("-")[-2]) for p in files)
+    last = max(int(p.name.split("-")[-2]) for p in files) if it is None else it
     return [p for p in files if int(p.name.split("-")[-2]) == last]
 
 
-def blocks(work: Path, ngc: int, names: tuple[str, ...]) -> list[dict]:
-    """Return the blocks of the last checkpoint: interior fields (x, y, z order), cell spacing and interior corner."""
+def blocks(work: Path, ngc: int, names: tuple[str, ...], prefix: str = "", it: int | None = None) -> list[dict]:
+    """Return the blocks of the last checkpoint (of the realm `prefix`, or of iteration `it`): interior fields (x, y,
+    z order), cell spacing and interior corner."""
     out = []
-    for path in last_files(work):
+    for path in last_files(work, prefix, it):
         with h5py.File(path, "r") as h5:
             for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
                 # geometry and fields are stored (z, y, x) with ghosts: reverse and strip them
@@ -80,11 +82,11 @@ def blocks(work: Path, ngc: int, names: tuple[str, ...]) -> list[dict]:
     return out
 
 
-def profile(work: Path, ngc: int, names: tuple[str, ...]) -> tuple[int, np.ndarray, np.ndarray]:
+def profile(work: Path, ngc: int, names: tuple[str, ...], prefix: str = "") -> tuple[int, np.ndarray, np.ndarray]:
     """Return the active axis, the cell centres and the fields of a 1-D run (first transverse copy)."""
     cells: dict[float, np.ndarray] = {}
     axis = -1
-    for b in blocks(work, ngc, names):
+    for b in blocks(work, ngc, names, prefix):
         q = np.stack([b["f"][v] for v in names])
         if axis < 0:
             axis = int(np.argmax(q.shape[1:]))
@@ -2111,6 +2113,220 @@ def fig_capturing_error(out: Path, runs: Path) -> None:  # noqa: ARG001
     fig.savefig(out / "capturing-error.png", dpi=DPI)
     plt.close(fig)
 
+def fig_multirealm(out: Path, runs: Path) -> None:
+    """Multi-realm legs 1 and 4 (issue #85, R2a): Sod split at the diaphragm into two realms glued by a mirror seam,
+    and the refined Sod split at its 2:1 face into a coarse and a fine realm (coupling = refined), each union over its
+    single-realm twin; the maximum difference of every cell is in the legend (the check asserts bitwise)."""
+    fig, axs = plt.subplots(1, 2, figsize=(13, 4.4), constrained_layout=True)
+    legs = (("sod-2realm", "sod-x", "mirror seam, 1:1, x = 0.5", "realm 1", "realm 2"),
+            ("sod-amr-refined", "sod-amr", "refined seam, 2:1, x = 0.75", "realm 1 (coarse)", "realm 2 (fine)"))
+    for ax, (multi, single, title, lab1, lab2) in zip(axs, legs, strict=True):
+        w, ws = runs / multi, runs / single
+        ngc = int(read_ini(next(ws.glob("*.ini")))["grid"]["ngc"])
+        _, xs, q = profile(ws, ngc, EULER)
+        ax.plot(xs, q[0], "k-", lw=1.0, label=f"single realm ({single})")
+        worst = 0.0
+        ref = dict(zip(np.round(xs, 12), q[0], strict=True))
+        for prefix, lab, mk in ((f"{multi}-r1", lab1, "o"), (f"{multi}-r2", lab2, "s")):
+            _, xr, qr = profile(w, ngc, EULER, prefix)
+            ax.plot(xr, qr[0], mk, ms=3, mfc="none", label=lab)
+            worst = max(worst, max(abs(ref[x] - r) for x, r in zip(np.round(xr, 12), qr[0], strict=True)))
+        seam = 0.5 if multi == "sod-2realm" else 0.75
+        ax.axvline(seam, color="C3", ls="--", lw=0.8, label="seam")
+        ax.set_xlabel("x")
+        ax.set_ylabel(r"$\rho$")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8, title=f"max |union - single| = {worst:.1e}", title_fontsize=8)
+        ax.set_title(f"Sod at t = 0.2, {title}")
+    fig.suptitle("Multi-realm runs: the union of the realms against the single-realm run (CPU, 2 ranks)")
+    fig.savefig(out / "multirealm.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_rotated_shock_tube(out: Path, runs: Path) -> None:
+    """MV-8 (issue #85, R2a): the rotated shock tube at N = 256. Left, the deviation of the normal field from its exact
+    uniform value 5/sqrt(4 pi); right, every cell's density and tangential field against s = n.x, over the 1-D
+    reference run (the same problem along x, 4 times finer along the normal)."""
+    sys.path.insert(0, str(HERE / "mhd" / "rotated-shock-tube"))
+    import rotated_shock_tube_oracle as rst  # noqa: PLC0415
+
+    b0 = 5.0 / math.sqrt(4.0 * math.pi)
+    fig, axs = plt.subplots(2, 3, figsize=(16, 8.4), constrained_layout=True)
+    for row, angle in enumerate((63, 45)):
+        w, wr = runs / f"rst-{angle}-256", runs / f"rst-{angle}-ref"
+        nx, ny, _, gamma = rst.setup(w)
+        nn = math.hypot(nx, ny)
+        nx, ny = nx / nn, ny / nn  # setup returns the normal unnormalised, (1, 2) or (1, 1)
+        ngc = int(read_ini(next(w.glob("*.ini")))["grid"]["ngc"])
+        bl = first_plane(blocks(w, ngc, MHD))
+        im = field_map(axs[row, 0], bl, lambda b, nx=nx, ny=ny: (nx * b["f"]["bx"][:, :, 0] +
+                                                                  ny * b["f"]["by"][:, :, 0]) / b0 - 1.0,
+                       cmap="RdBu_r")
+        fig.colorbar(im, ax=axs[row, 0], label=r"$B_\parallel / B_0 - 1$", shrink=0.85)
+        axs[row, 0].set_title(f"normal at {math.degrees(math.atan2(ny, nx)):.1f}°: $B_\\parallel$ deviation")
+        s2, p2 = rst.primitives(w, ngc)
+        sr, pr = rst.primitives(wr, ngc)
+        order = np.argsort(sr)
+        for col, k, lab in ((1, 0, r"$\rho$"), (2, 5, r"$B_\perp$")):
+            axs[row, col].plot(s2, p2[:, k], ".", ms=1, alpha=0.3, color="C0", label="2-D cells, N = 256")
+            axs[row, col].plot(sr[order], pr[order, k], "k-", lw=0.9, label="1-D reference")
+            axs[row, col].set_xlabel(r"$s = \mathbf{n}\cdot\mathbf{x}$")
+            axs[row, col].set_title(lab)
+            axs[row, col].grid(alpha=0.3)
+            axs[row, col].legend(fontsize=8, markerscale=6)
+    fig.suptitle(r"Rotated shock tube (Ryu-Jones 1a), $256^2$, GLM: every 2-D cell against the 1-D reference")
+    fig.savefig(out / "rotated-shock-tube.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_weno_riemann(out: Path, runs: Path) -> None:
+    """RV-5 (issue #85, R2a): Ryu-Jones 2a at 256 cells on the splitting scheme and on weno-riemann HLLD with
+    characteristic and with primitive interpolation, over the exact solution."""
+    sys.path.insert(0, str(HERE / "mhd" / "rj2a"))
+    import rj2a_oracle  # noqa: PLC0415
+
+    def rj2a_exact(xs: np.ndarray) -> dict[str, np.ndarray]:
+        q = rj2a_oracle.exact(xs)
+        kin = 0.5 * (q[1] ** 2 + q[2] ** 2 + q[3] ** 2) / q[0]
+        mag = 0.5 * (q[5] ** 2 + q[6] ** 2 + q[7] ** 2)
+        return {"r": q[0], "u": q[1] / q[0], "p": (rj2a_oracle.GAMMA - 1.0) * (q[4] - kin - mag), "bt1": q[6],
+                "bt2": q[7]}
+
+    mhd_profile_figure(out, "weno-riemann", runs / "rj2a", "Ryu-Jones 2a, 256 cells: the splitting scheme and HLLD",
+                       rj2a_exact, label="weno (split)",
+                       extra=(("HLLD, characteristic", runs / "rj2a-hlld", "s"),
+                              ("HLLD, primitive", runs / "rj2a-hlld-prim", "^")))
+
+
+def fig_quadtree(out: Path, runs: Path) -> None:
+    """MV-15 (issue #85, R2a): Orszag-Tang 32^2 with [0.25, 0.75]^2 refined 2:1, t = 0.2: the density on the quadtree
+    (nk = 1) with its blocks, and the per-cell difference against the octree with a null z axis (first z layer),
+    density map and the maximum per variable."""
+    def cells(work: Path) -> dict[tuple[float, float], dict[str, float]]:
+        ngc = int(read_ini(next(work.glob("*.ini")))["grid"]["ngc"])
+        out_: dict[tuple[float, float], dict[str, float]] = {}
+        for b in first_plane(blocks(work, ngc, (*MHD, "psi"))):
+            nx, ny = b["f"]["r"].shape[:2]
+            for i in range(nx):
+                for j in range(ny):
+                    key = (round(b["lo"][0] + (i + 0.5) * b["d"][0], 10), round(b["lo"][1] + (j + 0.5) * b["d"][1], 10))
+                    out_[key] = {v: float(a[i, j, 0]) for v, a in b["f"].items()}
+        return out_
+
+    wq, wo = runs / "ot-quad-nk1", runs / "ot-octree"
+    cq, co = cells(wq), cells(wo)
+    ngc = int(read_ini(next(wq.glob("*.ini")))["grid"]["ngc"])
+    fig, axs = plt.subplots(1, 3, figsize=(16.5, 4.8), constrained_layout=True)
+    bl = first_plane(blocks(wq, ngc, (*MHD, "psi")))
+    gamma = gamma_of(read_ini(next(wq.glob("*.ini"))))
+    im = field_map(axs[0], bl, lambda b: plane(b, gamma, "r"), cmap="magma", outline=True)
+    fig.colorbar(im, ax=axs[0], label=r"$\rho$", shrink=0.85)
+    axs[0].set_title("quadtree (nk = 1): density and blocks")
+    keys = sorted(cq)
+    xs, ys = np.array([k[0] for k in keys]), np.array([k[1] for k in keys])
+    d = np.array([abs(cq[k]["r"] - co[k]["r"]) for k in keys])
+    sc = axs[1].scatter(xs, ys, c=np.log10(np.maximum(d, 1e-17)), s=4, marker="s", cmap="viridis")
+    fig.colorbar(sc, ax=axs[1], label=r"$\log_{10}|\rho_\mathrm{quad} - \rho_\mathrm{oct}|$ (floor -17)", shrink=0.85)
+    axs[1].set_aspect("equal")
+    axs[1].set_title("quadtree against octree, density")
+    names = ("r", "ru", "rv", "rw", "rE", "bx", "by", "bz", "psi")
+    worst = [max(abs(cq[k][v] - co[k][v]) / max(max(abs(co[c][v]) for c in keys), 1e-300) for k in keys)
+             for v in names]
+    axs[2].bar(range(len(names)), np.maximum(worst, 1e-17), color="C0")
+    axs[2].set_yscale("log")
+    axs[2].set_xticks(range(len(names)), names)
+    axs[2].set_ylabel("max |quadtree - octree| / max |octree|")
+    axs[2].grid(alpha=0.3, axis="y")
+    axs[2].set_title("per variable: round-off, not structure")
+    fig.suptitle(r"Quadtree AMR (MV-15): Orszag-Tang, $32^2$ + $[0.25, 0.75]^2$ refined 2:1, t = 0.2, CPU")
+    fig.savefig(out / "quadtree.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_regrid_runtime(out: Path, runs: Path) -> None:
+    """RG rg3 (issue #85, R2a): the isentropic vortex crossing a periodic quadtree, a regrid every 5 steps. The density
+    and the blocks at three steps, and the relative drift of the volume integrals per step, conservative against
+    linear prolongation (the regrid steps marked)."""
+    wc, wl = runs / "regrid-vortex-conservative", runs / "regrid-vortex-linear"
+    ini = read_ini(wc / "input.ini")
+    ngc = int(ini["grid"]["ngc"])
+    its = sorted({int(p.name.split("-")[-2]) for p in wc.glob("*-proc*.h5")})
+    picks = (its[0], its[len(its) // 2], its[-1])
+    fig, axs = plt.subplots(1, 4, figsize=(20, 4.6), constrained_layout=True)
+    for ax, it in zip(axs[:3], picks, strict=True):
+        bl = first_plane(blocks(wc, ngc, EULER, it=it))
+        im = field_map(ax, bl, lambda b: b["f"]["r"][:, :, 0], cmap="viridis", outline=True)
+        ax.set_title(f"step {it}: {len(bl)} blocks")
+    fig.colorbar(im, ax=axs[2], label=r"$\rho$", shrink=0.85)
+    freq = int(ini["amr"]["frequency"])
+    for w, lab, ls in ((wc, "conservative", "-"), (wl, "linear", "--")):
+        lines = next(w.glob("*-conservation_history.dat")).read_text().splitlines()
+        names = [v.strip('"').removeprefix("int_") for v in lines[0].split("=", 1)[1].split()][2:]
+        rows = np.array([[float(v) for v in line.split()] for line in lines[1:] if line.split()])
+        for i, v in enumerate(names):
+            if v in ("r", "rE"):
+                drift = np.abs(rows[:, 2 + i] - rows[0, 2 + i]) / abs(rows[0, 2 + i])
+                axs[3].semilogy(rows[:, 0], np.maximum(drift, 1e-17), ls, label=f"{lab}, {v}")
+    for k in range(freq, int(rows[-1, 0]) + 1, freq):
+        axs[3].axvline(k, color="0.85", lw=0.5, zorder=0)
+    axs[3].set_xlabel("step (grey: regrid steps)")
+    axs[3].set_ylabel("relative drift (floor 1e-17)")
+    axs[3].grid(alpha=0.3)
+    axs[3].legend(fontsize=8)
+    axs[3].set_title("volume integrals through the regrids")
+    fig.suptitle("Runtime regridding (rg3): the vortex on a periodic quadtree, levels 1-3, a regrid every 5 steps")
+    fig.savefig(out / "regrid-runtime.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_seam_conservation(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """VV-7 (issue #85, R2a): the drift of the volume integrals per step with the dissipative fluxes across 2:1 seams
+    (reflux on, off, and the ideal twin without dissipation) and across forest seams (mirror 1:1, refined 2:1), from
+    the kept histories of viscous/check.sh --leg vv7 (CPU)."""
+    vdir = HERE / "viscous"
+
+    def history(path: Path) -> tuple[list[str], np.ndarray]:
+        lines = path.read_text().splitlines()
+        names = [v.strip('"').removeprefix("int_") for v in lines[0].split("=", 1)[1].split()][2:]
+        return names, np.array([[float(v) for v in line.split()] for line in lines[1:] if line.split()])
+
+    def drift(work: Path, var: str) -> tuple[np.ndarray, np.ndarray]:
+        """The drift of one integral per step; a forest sums the histories of its realms (one file per realm)."""
+        hs = [history(f) for f in sorted(work.glob("*-conservation_history.dat"))]
+        names, rows = hs[0][0], sum(h[1] for h in hs)
+        i = names.index(var)
+        rows[:, 0] /= len(hs)
+        scale = np.abs(rows[:, 2 + i]).max() or 1.0
+        return rows[:, 0], np.maximum(np.abs(rows[:, 2 + i] - rows[0, 2 + i]) / scale, 1e-17)
+
+    fig, axs = plt.subplots(1, 3, figsize=(17, 4.6), constrained_layout=True)
+    for ax, model, var in ((axs[0], "euler", "rE"), (axs[1], "mhd", "rE")):
+        for suffix, lab, ls in (("", "reflux on", "-"), ("-off", "reflux off", "--"), ("-ideal", "ideal twin", ":")):
+            for v, c in (("r", "C0"), (var, "C3")):
+                it, d = drift(vdir / f"{TAG}-conserve-{model}-quadtree{suffix}", v)
+                ax.semilogy(it, d, ls, color=c, label=f"{lab}, {v}")
+        ax.set_title(f"{'Euler, acoustic' if model == 'euler' else 'MHD-GLM, Alfvén'} wave across a 2:1 box")
+    for kind, ls in (("mirror", "-"), ("refined", "--")):
+        hf = [history(f) for f in sorted((vdir / f"{TAG}-forest-euler-{kind}-forest").glob("*-conservation_history.dat"))]
+        names, rows = hf[0][0], sum(h[1] for h in hf)
+        single = history(next((vdir / f"{TAG}-forest-euler-{kind}-single").glob("*-conservation_history.dat")))[1]
+        n = min(len(rows), len(single))
+        for v, c in (("r", "C0"), ("rE", "C3")):
+            i = 2 + names.index(v)
+            d = np.abs(rows[:n, i] - single[:n, i]) / np.abs(single[:n, i]).max()
+            axs[2].semilogy(single[:n, 0], np.maximum(d, 1e-17), ls, color=c, label=f"{kind} forest, {v}")
+    axs[2].set_title("Euler across forest seams: union against the single realm")
+    axs[2].set_ylabel("|I_forest - I_single| / max |I_single| (floor 1e-17)")
+    for ax in axs[:2]:
+        ax.set_ylabel("|I(t) - I(0)| / max |I| (floor 1e-17)")
+    for ax in axs:
+        ax.set_xlabel("step")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.suptitle("VV-7: conservation with the dissipative fluxes across seams (CPU, 2 ranks)")
+    fig.savefig(out / "seam-conservation.png", dpi=DPI)
+    plt.close(fig)
+
 
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
@@ -2132,7 +2348,9 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-amr-regrid": fig_selfgravity_amr_regrid,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
-           "capturing-error": fig_capturing_error}
+           "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,
+           "rotated-shock-tube": fig_rotated_shock_tube, "weno-riemann": fig_weno_riemann, "quadtree": fig_quadtree,
+           "regrid-runtime": fig_regrid_runtime, "seam-conservation": fig_seam_conservation}
 
 
 def main() -> int:

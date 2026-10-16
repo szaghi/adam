@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| RG (rg3 to rg6) | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | no (#85) | `vortex-regrid` |
+| RG (rg3 to rg6) | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes | `vortex-regrid` |
 
 ## Case and scope
 
@@ -44,6 +44,7 @@ What the case catches:
 |---|---|
 | `src/tests/flume/verification/regrid/make_regrid.py` | `vortex` and `cylinder` write the inputs |
 | `src/tests/flume/verification/regrid/check.sh --leg rg3` … `--leg rg6` | runs the legs (`FLUME_EXE` selects the backend; rg6 compares the work directories of both) |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> regrid`, `make_doc_figures.py --only regrid-runtime` | re-runs rg3, conservative and linear, with a checkpoint every 5 steps (2 runs, about 2 min) |
 | `src/tests/flume/verification/conservation/conservation_oracle.py` | the drift bounds (rg3), the bitwise and tolerance comparisons (rg4, rg6) |
 | `src/tests/flume/regression/vortex-regrid/input.ini` | the frozen rg3 conservative case to 100 steps: six regrids that refine and coarsen |
 
@@ -55,7 +56,9 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg rg3 --leg rg4 
 
 ## Results
 
-No figure yet: #85 lists the moving blocks over the field for one leg and the conservation drift across the regrids.
+![Runtime regridding of the travelling vortex](/flume/regrid-runtime.png)
+
+*The rg3 vortex on a periodic quadtree (levels 1–3, a Löhner marker on the density, a regrid every 5 steps), CPU: the density and the blocks at steps 0, 100 and 200 (4, 43 and 52 blocks; the grid refines ahead of the vortex and coarsens behind it), and the relative drift of the mass and energy integrals per step. With the conservative prolongation they stay at round-off through 40 regrids; with the linear one each regrid that moves data shifts them (to $3\cdot10^{-5}$), the negative control.*
 
 | Leg | Asserted |
 |---|---|

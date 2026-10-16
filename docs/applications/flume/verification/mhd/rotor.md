@@ -56,8 +56,7 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl rotor/check.sh    # FNL
 rotor/check.sh --numerics hlld:primitive                           # weno-riemann, HLLD, primitive interpolation
 ```
 
-`make_doc_runs.sh` has no group that writes `<runs>/rotor`: the figure run is not reproducible from the scripts alone
-([#85](https://github.com/szaghi/adam/issues/85)).
+`make_doc_runs.sh <runs> mhd` writes the figure run (`<runs>/rotor`: $256^2$); `make_doc_figures.py --runs <runs>` draws it.
 
 ## Results
 

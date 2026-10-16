@@ -64,8 +64,7 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl riemann/check.sh    # FNL
 riemann/check.sh --numerics hlld                                     # weno-riemann, HLLD
 ```
 
-`make_doc_runs.sh` has no group that writes `<runs>/brio-wu` and `<runs>/rj4d`: the figure runs are not reproducible
-from the scripts alone ([#85](https://github.com/szaghi/adam/issues/85)).
+`make_doc_runs.sh <runs> mhd` writes the figure runs (`<runs>/brio-wu`: 512 cells, GLM; `<runs>/rj4d`: 512 cells, no cleaning); `make_doc_figures.py --runs <runs>` draws it.
 
 ## Results
 

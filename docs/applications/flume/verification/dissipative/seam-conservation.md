@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| VV-7 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | no (#85) | `seam-viscous-amr` |
+| VV-7 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | yes | `seam-viscous-amr` |
 
 ## Case and scope
 
@@ -55,6 +55,7 @@ refined-box leg keeps the quadtree; the octree's 2:1 seams are exercised by the 
 | `src/tests/flume/verification/viscous/waves.py` | `make --refine ... --reflux`, `split` (the two-realm forest), `conserve` (the drift oracle) |
 | `src/tests/flume/verification/multirealm/multirealm_oracle.py` | the forest union against the single realm (`--fields-only`) |
 | `src/tests/flume/verification/viscous/check.sh --leg vv7` | runs the 6 refined-box runs and the 8 forest runs (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/make_doc_figures.py --only seam-conservation` | the figure, from the histories that `viscous/check.sh --leg vv7` keeps (CPU) |
 | `src/tests/flume/regression/seam-viscous-amr/input.ini` | the frozen Alfvén wave, $A = 0.01$, MHD-GLM with $\mu$ and $\eta$, $48^2$ with the centre refined 2:1, $t = 0.02$ |
 
 ```bash
@@ -64,7 +65,9 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv7       # FN
 
 ## Results
 
-No figure yet: #85 lists the drift of mass and energy against the step, reflux on and off, AMR and forest.
+![VV-7: drift of the integrals across seams](/flume/seam-conservation.png)
+
+*The drift of the mass and energy integrals per step, CPU. Left and centre: the acoustic wave on Euler and the Alfvén wave on MHD-GLM across a 2:1 box; with the reflux the integrals stay at round-off, without it they drift, and so does the ideal twin without the dissipative coefficients, so the drift is the seam, not the dissipative fluxes. Right: the forests (1:1 mirror and 2:1 refined, outflow in $x$) against their single-realm runs: the summed integrals of the two realms agree to round-off at every step.*
 
 Oracle (`waves.py conserve`). The drift of each conserved integral is divided by $\int|q|\,dV$, the scale of its
 round-off (the momentum of a sine wave integrates to zero, so its own value is no scale; $\psi$, sourced only by the

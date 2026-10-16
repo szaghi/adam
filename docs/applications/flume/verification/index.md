@@ -33,14 +33,14 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 | [Isentropic vortex: order of accuracy](./euler/isentropic-vortex) | V2, RV-2 | M1 ([#35](https://github.com/szaghi/adam/issues/35)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU (all schemes), FNL (`weno`, `weno-riemann` LLF and HLLC) | yes |
 | [Shock over a cylinder](./euler/shock-cylinder) | V6 | M1 ([#35](https://github.com/szaghi/adam/issues/35)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU, FNL | yes |
 | [Conservation across AMR seams](./euler/amr-conservation) | V3, RV-4 | M1 ([#35](https://github.com/szaghi/adam/issues/35)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU, FNL | yes |
-| [Multi-realm runs](./euler/multi-realm) | multirealm legs 1–6 | M2 entry ([#37](https://github.com/szaghi/adam/issues/37)); [#40](https://github.com/szaghi/adam/issues/40), [#51](https://github.com/szaghi/adam/issues/51), [#52](https://github.com/szaghi/adam/issues/52), [#54](https://github.com/szaghi/adam/issues/54); M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [Multi-realm runs](./euler/multi-realm) | multirealm legs 1–6 | M2 entry ([#37](https://github.com/szaghi/adam/issues/37)); [#40](https://github.com/szaghi/adam/issues/40), [#51](https://github.com/szaghi/adam/issues/51), [#52](https://github.com/szaghi/adam/issues/52), [#54](https://github.com/szaghi/adam/issues/54); M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | yes |
 | [Forward-facing step: a three-realm forest on quadtrees](./euler/forward-facing-step) | EV-step | — ([#46](https://github.com/szaghi/adam/issues/46), quadtree AMR; [#66](https://github.com/szaghi/adam/issues/66)) | CPU, FNL (`trees` leg); CPU only (`full` leg) | yes |
 
 ## [Ideal MHD](./mhd/)
 
 | Case | ID | Milestone | Backends | Figure |
 |---|---|---|---|---|
-| [MHD on `weno-riemann`](./mhd/weno-riemann) | RV-5, RV-6, RV-7 | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P3c) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [MHD on `weno-riemann`](./mhd/weno-riemann) | RV-5, RV-6, RV-7 | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P3c) | CPU, FNL | yes |
 | [Ryu–Jones 2a: all seven waves](./mhd/ryu-jones-2a) | MV-4 | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
 | [Brio–Wu and Ryu–Jones 4d](./mhd/brio-wu-rj4d) | — (`mhd/riemann`, M2-P3 exit) | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
 | [GLM divergence cleaning](./mhd/glm-cleaning) | MV-3, MV-10 | M2 ([#41](https://github.com/szaghi/adam/issues/41)); the MV-10 monitor M6 ([#68](https://github.com/szaghi/adam/issues/68), G1) | CPU, FNL | yes |
@@ -48,10 +48,10 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 | [Orszag–Tang vortex](./mhd/orszag-tang) | MV-12 | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
 | [MHD rotor](./mhd/rotor) | MV-13 | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
 | [Field loop advection](./mhd/field-loop) | MV-9 | M2 ([#41](https://github.com/szaghi/adam/issues/41)); `--agree` [#79](https://github.com/szaghi/adam/issues/79) | CPU, FNL | yes |
-| [Rotated shock tube](./mhd/rotated-shock-tube) | MV-8 | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [Rotated shock tube](./mhd/rotated-shock-tube) | MV-8 | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
 | [EGLM cleaning](./mhd/eglm) | EV-2, EV-3, EV-4 | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P4) | CPU, FNL | yes |
 | [Positivity limiter](./mhd/positivity-limiter) | PV-1 to PV-5 | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P5); PV-5 [#50](https://github.com/szaghi/adam/issues/50) | CPU, FNL (PV-1 as a sphere: FNL only) | yes |
-| [Quadtree AMR](./mhd/quadtree-amr) | MV-15 | [#46](https://github.com/szaghi/adam/issues/46) (no milestone, after M3) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [Quadtree AMR](./mhd/quadtree-amr) | MV-15 | [#46](https://github.com/szaghi/adam/issues/46) (no milestone, after M3) | CPU, FNL | yes |
 
 ## [Infrastructure](./infrastructure/)
 
@@ -71,7 +71,7 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 | [Becker's viscous shock](./dissipative/becker-shock) | VV-4 | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | yes |
 | [Ohmic decay and the visco-resistive Alfvén wave](./dissipative/ohmic-alfven) | VV-5 | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | yes |
 | [Ohmic heating and the divergence constraint](./dissipative/ohmic-heating) | VV-6 | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | no |
-| [Conservation across 2:1 seams and forest seams](./dissipative/seam-conservation) | VV-7 | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | no (#85) |
+| [Conservation across 2:1 seams and forest seams](./dissipative/seam-conservation) | VV-7 | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | yes |
 | [Accuracy across 2:1 seams](./dissipative/seam-accuracy) | VV-8 | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | yes |
 | [CPU and FNL agree run by run](./dissipative/cpu-fnl-agreement) | VV `agree` | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | no |
 
@@ -80,7 +80,7 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 | Case | ID | Milestone | Backends | Figure |
 |---|---|---|---|---|
 | [Regrid round trip and input contract](./runtime-amr/regrid-round-trip) | RG (rg0, rg1, rg2) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU (rg0, a host program); rg1 and rg2 CPU, FNL | no |
-| [Runtime regrids in FLUME](./runtime-amr/runtime-regrids) | RG (rg3 to rg6) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | no (#85) |
+| [Runtime regrids in FLUME](./runtime-amr/runtime-regrids) | RG (rg3 to rg6) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes |
 | [Accuracy of runtime AMR](./runtime-amr/accuracy) | AV (av2 to av8) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes |
 | [MHD blast symmetry on the flux-splitting path](./runtime-amr/mhd-blast-symmetry) | #77 study, bounded by av3c | M5 ([#74](https://github.com/szaghi/adam/issues/74)), [#77](https://github.com/szaghi/adam/issues/77) | CPU, FNL | no (#85) |
 

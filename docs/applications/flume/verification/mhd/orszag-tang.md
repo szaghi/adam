@@ -64,8 +64,7 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl orszag-tang/check.sh    # FNL
 orszag-tang/check.sh --amr                                               # 2:1 seams (about 6 min)
 ```
 
-`make_doc_runs.sh` has no group that writes `<runs>/orszag-tang` and `<runs>/orszag-tang-amr`: the figure runs are not
-reproducible from the scripts alone ([#85](https://github.com/szaghi/adam/issues/85)).
+`make_doc_runs.sh <runs> mhd` writes the figure runs (`<runs>/orszag-tang`: $128^2$; `<runs>/orszag-tang-amr`: $32^2$ with $[0.25, 0.75]^2$ refined); `make_doc_figures.py --runs <runs>` draws it.
 
 ## Results
 
