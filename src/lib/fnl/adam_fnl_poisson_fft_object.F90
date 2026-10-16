@@ -96,8 +96,8 @@ contains
       return
    endif
    call spectral_solve_dev(plan_d2z=self%plan_d2z, plan_z2d=self%plan_z2d,                     &
-                           n1=self%n(1), n2=self%n(2), n3=self%n(3),                            &
-                           scale=factor / real(product(self%n), R8P),                           &
+                           n1=self%nt(1), n2=self%nt(2), n3=self%nt(3),                         &
+                           scale=factor / real(product(self%nt), R8P),                          &
                            lam1=self%lam1, lam2=self%lam2, lam3=self%lam3, f=self%f_global, f_hat=self%f_hat)
 #else
    call mpih%error_stop(msg='poisson_fft_fnl_object%transform: built without cuFFT, factor '//trim(str(factor)))

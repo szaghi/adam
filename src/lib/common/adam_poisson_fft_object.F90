@@ -31,9 +31,14 @@ module adam_poisson_fft_object
 !< the kernel is even) is computed once. Inside the domain the discrete residual is that of the kernel, about 1e-11
 !< of the source (`scripts/lattice_green.py`).
 !<
+!< **Homogeneous Dirichlet boundaries (issue #87, P1)** are for the multigrid's coarsest level only
+!< (`initialize_blocks(..., dirichlet=.true.)`): `phi = 0` at the centres of the first ghost layer. The source is
+!< extended odd about those centres to `m = 2 (n + 1)` cells per active direction, and the periodic transform of `m`
+!< cells solves it: the odd extension is the type-I sine transform, exact for the 7-point operator with zero ghosts.
+!<
 !< **Scope (fatal otherwise).** One level for every block, the blocks covering the domain. Periodic: every active
 !< direction periodic. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's).
-!< AMR (multigrid) is a later phase of #81.
+!< AMR is the multigrid's (`adam_poisson_mg_object`), which calls this solver on its coarsest level.
 use :: adam_grid_object, only : grid_object
 use :: adam_lattice_green_library, only : lattice_green
 use :: adam_field_object, only : field_object
@@ -54,6 +59,9 @@ type :: poisson_fft_object
    integer(I4P)              :: n(3)=1_I4P             !< Global cells per direction.
    integer(I4P)              :: m(3)=1_I4P             !< Transform cells per direction: n, or 2 (n + ngc) isolated.
    logical                   :: isolated=.false.       !< Isolated boundaries (zero padding), else periodic.
+   logical                   :: dirichlet=.false.      !< Homogeneous Dirichlet boundaries (odd extension, #87).
+   integer(I4P)              :: nt(3)=1_I4P            !< Cells of the periodic transform the eigenvalues refer to: n,
+                                                       !< or m with dirichlet.
    integer(I4P)              :: nijk(3)=1_I4P          !< Cells per block per direction.
    integer(I4P)              :: ngc=0_I4P              !< Ghost cells per side.
    integer(I4P)              :: level=0_I4P            !< Level of every block.
@@ -146,6 +154,8 @@ contains
    if (allocated(self%khat))     deallocate(self%khat)
    self%n = 1_I4P ; self%m = 1_I4P ; self%nijk = 1_I4P ; self%ngc = 0_I4P ; self%level = 0_I4P ; self%dxyz = 0._R8P
    self%isolated = .false.
+   self%dirichlet = .false.
+   self%nt = 1_I4P
    self%is_initialized = .false.
    endsubroutine destroy
 
@@ -206,10 +216,10 @@ contains
                                null_xyz=grid%null_xyz, isolated=self%isolated)
    endsubroutine initialize
 
-   subroutine initialize_blocks(self, nblk, nijk, ngc, dxyz, level, null_xyz, isolated)
+   subroutine initialize_blocks(self, nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet)
    !< Size the solver for a uniform grid of `nblk` blocks per direction, `nijk` cells each, at `level` with spacing
    !< `dxyz`, and make the plans (and, isolated, the kernel) on rank 0. No check of a grid: the caller owns the scope
-   !< (the multigrid's coarsest level calls it directly, issue #81 P5).
+   !< (the multigrid's coarsest level calls it directly, issue #81 P5; with `dirichlet`, issue #87).
    class(poisson_fft_object), intent(inout) :: self        !< The solver.
    integer(I4P),              intent(in)    :: nblk(3)     !< Blocks per direction.
    integer(I4P),              intent(in)    :: nijk(3)     !< Cells per block per direction.
@@ -218,38 +228,46 @@ contains
    integer(I4P),              intent(in)    :: level       !< Level of every block.
    logical,                   intent(in)    :: null_xyz(3) !< Null directions.
    logical,                   intent(in)    :: isolated    !< Isolated boundaries, else periodic.
+   logical, optional,         intent(in)    :: dirichlet   !< Homogeneous Dirichlet boundaries (default false).
    integer(I4P)                             :: nblk_(3), nijk_(3), ngc_, level_ !< Copies of the arguments.
    real(R8P)                                :: dxyz_(3)    !< Copy of the argument.
-   logical                                  :: null_(3), isolated_ !< Copies of the arguments.
+   logical                                  :: null_(3), isolated_, dirichlet_ !< Copies of the arguments.
    integer(I4P)                             :: k           !< Counter.
 
    ! copy first: the arguments may be components of self (initialize passes them), which destroy resets
    nblk_ = nblk ; nijk_ = nijk ; ngc_ = ngc ; level_ = level ; dxyz_ = dxyz ; null_ = null_xyz ; isolated_ = isolated
+   dirichlet_ = .false.
+   if (present(dirichlet)) dirichlet_ = dirichlet
+   if (isolated_ .and. dirichlet_) call mpih%error_stop(msg='poisson_fft_object%initialize_blocks: isolated and '// &
+                                                         'dirichlet are exclusive')
    call self%destroy
    self%nijk = nijk_
    self%ngc = ngc_
    self%dxyz = dxyz_
    self%level = level_
    self%isolated = isolated_
+   self%dirichlet = dirichlet_
    self%n = nblk_ * self%nijk
    self%m = self%n
    if (self%isolated) self%m = 2 * (self%n + self%ngc)
-   ! eigenvalue parts of L_h per direction; zero along a null direction (no derivative there)
-   allocate(self%lam1(0:self%n(1)/2), self%lam2(0:self%n(2)-1), self%lam3(0:self%n(3)-1))
+   if (self%dirichlet) self%m = merge(self%n, 2 * (self%n + 1), null_) ! odd about the ghost centres 0 and n + 1
+   self%nt = merge(self%m, self%n, self%dirichlet)
+   ! eigenvalue parts of L_h per direction on the nt-cell periodic transform; zero along a null direction
+   allocate(self%lam1(0:self%nt(1)/2), self%lam2(0:self%nt(2)-1), self%lam3(0:self%nt(3)-1))
    self%lam1 = 0._R8P ; self%lam2 = 0._R8P ; self%lam3 = 0._R8P
    if (.not.null_(1)) then
-      do k=0, self%n(1)/2
-         self%lam1(k) = (2._R8P * cos(2._R8P * PI * k / self%n(1)) - 2._R8P) / self%dxyz(1)**2
+      do k=0, self%nt(1)/2
+         self%lam1(k) = (2._R8P * cos(2._R8P * PI * k / self%nt(1)) - 2._R8P) / self%dxyz(1)**2
       enddo
    endif
    if (.not.null_(2)) then
-      do k=0, self%n(2)-1
-         self%lam2(k) = (2._R8P * cos(2._R8P * PI * k / self%n(2)) - 2._R8P) / self%dxyz(2)**2
+      do k=0, self%nt(2)-1
+         self%lam2(k) = (2._R8P * cos(2._R8P * PI * k / self%nt(2)) - 2._R8P) / self%dxyz(2)**2
       enddo
    endif
    if (.not.null_(3)) then
-      do k=0, self%n(3)-1
-         self%lam3(k) = (2._R8P * cos(2._R8P * PI * k / self%n(3)) - 2._R8P) / self%dxyz(3)**2
+      do k=0, self%nt(3)-1
+         self%lam3(k) = (2._R8P * cos(2._R8P * PI * k / self%nt(3)) - 2._R8P) / self%dxyz(3)**2
       enddo
    endif
    if (mpih%myrank == 0) then
@@ -366,6 +384,8 @@ contains
    integer(I4P)                                     :: ierr            !< MPI error status.
 
    if (.not.self%is_initialized) call mpih%error_stop(msg='poisson_fft_object%solve: called before initialize')
+   if (self%dirichlet .and. present(energy)) call mpih%error_stop(msg='poisson_fft_object%solve_blocks: no energy '// &
+      'with dirichlet (the odd images would enter the sum)')
    ub     = self%nijk + gw
    ncell  = product(self%nijk)
    nghost = product(self%nijk + 2 * gw)
@@ -393,7 +413,7 @@ contains
    ! rank 0: place, transform, pack every block with its ghosts by the periodic wrap
    e = 0._R8P
    if (mpih%myrank == 0) then
-      if (self%isolated) self%f_global = 0._R8P ! the padding must hold no source
+      if (self%isolated .or. self%dirichlet) self%f_global = 0._R8P ! the padding (odd images) must hold no source
       c = 0
       do b=1, blocks_total
          do k=1, self%nijk(3)
@@ -406,6 +426,7 @@ contains
             enddo
          enddo
       enddo
+      if (self%dirichlet) call odd_extend
       if (present(energy)) self%f_source = self%f_global
       call self%transform(factor=factor)
       if (present(energy)) e = sum(self%f_source * self%f_global)
@@ -431,6 +452,39 @@ contains
       call MPI_BCAST(e, 1, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
       energy = e
    endif
+   contains
+      subroutine odd_extend
+      !< Rank 0, dirichlet: the source odd about the ghost centres 0 and n + 1 of every active direction, cell index
+      !< t = 0..m-1 (array index t + 1): f(t) for t < n, 0 at t = n and t = m - 1 (the ghost centre -1), -f(2 n - t)
+      !< for n < t < m - 1. The extensions are separable, applied one direction after the other.
+      integer(I4P) :: t, d_ !< Cell index, direction.
+
+      do d_=1, 3
+         if (self%m(d_) == self%n(d_)) cycle ! a null direction
+         do t=self%n(d_), self%m(d_)-1
+            select case(d_)
+            case(1)
+               if (t == self%n(1) .or. t == self%m(1)-1) then
+                  self%f_global(t+1,:,:) = 0._R8P
+               else
+                  self%f_global(t+1,:,:) = -self%f_global(2*self%n(1)-t+1,:,:)
+               endif
+            case(2)
+               if (t == self%n(2) .or. t == self%m(2)-1) then
+                  self%f_global(:,t+1,:) = 0._R8P
+               else
+                  self%f_global(:,t+1,:) = -self%f_global(:,2*self%n(2)-t+1,:)
+               endif
+            case(3)
+               if (t == self%n(3) .or. t == self%m(3)-1) then
+                  self%f_global(:,:,t+1) = 0._R8P
+               else
+                  self%f_global(:,:,t+1) = -self%f_global(:,:,2*self%n(3)-t+1)
+               endif
+            endselect
+         enddo
+      enddo
+      endsubroutine odd_extend
    endsubroutine solve_blocks
 
    ! backend hooks
@@ -504,10 +558,10 @@ contains
       call fftw_execute_dft_c2r(self%plan_c2r, self%f_hat, self%f_global)
       return
    endif
-   scale = factor / real(product(self%n), R8P)
-   do k=1, self%n(3)
-      do j=1, self%n(2)
-         do i=1, self%n(1)/2+1
+   scale = factor / real(product(self%nt), R8P)
+   do k=1, self%nt(3)
+      do j=1, self%nt(2)
+         do i=1, self%nt(1)/2+1
             lam = self%lam1(i-1) + self%lam2(j-1) + self%lam3(k-1)
             if (lam == 0._R8P) then
                self%f_hat(i,j,k) = (0._R8P, 0._R8P)

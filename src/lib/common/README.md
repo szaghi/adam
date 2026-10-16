@@ -289,7 +289,7 @@ needs (FLUME [models](/applications/flume/models#self-gravity)).
 | `initialize(grid, field, isolated)` | Check the scope, size the solver, make the plans (and, isolated, the kernel's spectrum) on rank 0 |
 | `solve(field, q, iv, factor, phi, energy)` | Gather `q(iv)` to rank 0, transform, scatter `phi(1-ngc:n+ngc, ..., b)` with every ghost layer filled from the global solution; optionally `energy = sum f phi` |
 | `solve_packed(field, buf, factor, phi, energy)` | The same from the interior source already packed (block-major, `i` fastest: what a device kernel produces) |
-| `initialize_blocks(nblk, nijk, ngc, dxyz, level, null_xyz, isolated)` | Size the solver for an explicit uniform block lattice, no grid object and no scope check (the caller owns it): the multigrid's coarsest level |
+| `initialize_blocks(nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet)` | Size the solver for an explicit uniform block lattice, no grid object and no scope check (the caller owns it): the multigrid's coarsest level; `dirichlet` (#87) zero at the first ghost centres, by the odd extension to `2 (n + 1)` cells per active direction (the type-I sine transform) |
 | `solve_blocks(nbl, coords, buf, factor, gw, out, energy)` | Solve on an explicit list of this rank's blocks (integer coordinates, packed source), returning each block's potential with `gw` ghost layers; `initialize`/`solve_packed` are wrappers over these two |
 | `destroy()` | Free the arrays and the plans |
 
@@ -322,9 +322,10 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 | Procedure | Role |
 |-----------|------|
 | `initialize(grid, field, tolerance, max_iterations, coarse)` | Gather the leaf list (every rank), derive the level hierarchy, assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the coarsest-level FFT solver, of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise |
-| `solve(field, q, iv, factor, phi, energy)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi` |
-| `solve_packed(field, buf, factor, phi, energy)` | The same from the packed interior source |
+| `solve(field, q, iv, factor, phi, energy, ghost)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi`; Dirichlet: `ghost` the values at the boundary faces' ghost centres |
+| `solve_packed(field, buf, factor, phi, energy, ghost)` | The same from the packed interior source |
 | `symmetry_defect(x, y)`, `apply_a(x, y)` | Verification: `|x.Ay - y.Ax| / (|x| |Ay|)` and `y = A x` on the leaves |
+| `apply_b(g, y)`, `apply_bt(x, s)` | Dirichlet: `y = B g` (the ghost values onto the boundary rows) and `s = B^T x`; the boundary faces are `nbnd`, `bnd_row`, `bnd_w`, `bnd_x` (the ghost centre) |
 | `destroy()` | Free everything |
 
 - **Solver:** flexible CG (Notay's FCG(1)), stopping on the relative max-norm residual: `tolerance` (default `1e-10`)
@@ -340,12 +341,15 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 - **Distributed, assembled:** CSR rows over global cell keys, each operator with a halo-exchange plan
   (`MPI_ALLTOALLV`); every rank owns its leaves' rows and the shadows whose first leaf it owns. Correct for any rank
   count (results equal to round-off across rank counts); not tuned for speed.
-- **Scope (fatal otherwise):** every active direction periodic (isolated boundaries on AMR: #81 P5b); 2:1 balance across
+- **Dirichlet faces (#87, P1):** when no active direction is periodic, a domain face takes the value `g` at its ghost
+  centre: `-w phi_C` stays in the row (symmetric), `w g` goes to the right-hand side (`A phi = factor V f - B g`); no
+  mean is removed; the V-cycle's levels take zero ghosts and the coarsest level the FFT solver's Dirichlet mode.
+- **Scope (fatal otherwise):** every active direction periodic, or none (mixed boundaries refused); 2:1 balance across
   faces; fewer than `2^19` cells per direction at the finest level. Host code: FLUME's FNL backend runs it on the host
   with a cuFFT coarsest level (#81 P5b).
 - **Build:** as `adam_poisson_fft_object` (`-D_FFTW`, not re-exported by `adam_common_library`; mode
   `test-poisson-mg-gnu`).
-- **Verification:** SV-9, `src/tests/poisson/test_poisson_mg.F90`, driven by
+- **Verification:** SV-9 and SV-12 (Dirichlet), `src/tests/poisson/test_poisson_mg.F90`, driven by
   `src/tests/flume/verification/selfgravity/poisson.sh` (leg `sv9`).
 
 ### `adam_lattice_green_library` — lattice Green's function of the 7-point Laplacian (generated)

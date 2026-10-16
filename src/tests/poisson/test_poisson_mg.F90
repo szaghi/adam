@@ -18,12 +18,20 @@ program test_poisson_mg
 !<     between the two grids (`MIN_ORDER`); the max truncation error `|A Phi_exact - f|` bounded under refinement
 !<     (growth at most `MAX_TRUNCATION_GROWTH`: an inconsistent seam coupling grows it as 1/h). Reported: the iterations, the
 !<     mean convergence factor, and the face-gravity error on the fine side of the 2:1 faces with its order.
-!< The printed numbers must not depend on the rank count (the driver compares np 1, 2, 3).
+!<   - SV-12 (issue #87, P1), Dirichlet boundaries: the same source on the box without periodic boundaries, the ghost
+!<     values the exact potential at the ghost centres, so the discrete problem is `A Phi = factor V (rho - rho0) - B g`.
+!<     SV-12a, a uniform octree: the coarsest-level solve (the FFT solver's Dirichlet mode, an odd extension) is the
+!<     whole solve, so at most one FCG iteration, and the error against the exact potential at second order between
+!<     two grids. SV-12b, static AMR as SV-9b: the residual, the symmetry defect of the Dirichlet rows, every face
+!<     ghost filled (the domain faces with the given values), the order of Phi, the truncation error `|A Phi_exact +
+!<     B g - f|` bounded under refinement.
+!< The printed numbers agree across rank counts to round-off (the reductions sum in another order) and the iteration
+!< counts exactly (the driver runs np 1, 2, 3).
 !<
-!< `--no-periodic` builds one uniform grid without periodic boundaries: the solver must stop (exit status 1; isolated
-!< boundaries on AMR are #81 P5b).
+!< `--mixed` builds one uniform grid periodic along x only: the solver must stop (exit status 1; every active direction
+!< periodic, or none).
 !<
-!< Usage: `mpirun -np N exe/test_poisson_mg [--no-periodic]`.
+!< Usage: `mpirun -np N exe/test_poisson_mg [--mixed]`.
 
 use :: adam_common_library,     only : realm_object
 use :: adam_parameters,         only : BC_PERIODIC, TO_BE_REFINED
@@ -49,20 +57,20 @@ real(R8P),    parameter :: MIN_ORDER=1.7_R8P             !< Bound on the order o
 integer(I4P), parameter :: MAX_ITERATIONS=60_I4P         !< FCG iterations allowed.
 real(R8P),    parameter :: MAX_TRUNCATION_GROWTH=1.5_R8P !< Bound on max truncation (fine grid) / (coarse grid).
 logical                 :: test_passed                   !< Aggregate pass flag.
-logical                 :: no_periodic                   !< Run the non-periodic refusal only.
+logical                 :: mixed                         !< Run the mixed-boundary refusal only.
 character(256)          :: arg                           !< Command argument.
 integer(I4P)            :: a                             !< Counter.
 
-no_periodic = .false.
+mixed = .false.
 do a=1, command_argument_count()
    call get_command_argument(a, arg)
-   if (trim(arg) == '--no-periodic') no_periodic = .true.
+   if (trim(arg) == '--mixed') mixed = .true.
 enddo
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
 test_passed = .true.
-if (no_periodic) then
-   call refuse_non_periodic
-   if (mpih%myrank == 0) print '(A)', 'test_poisson_mg: FAILED (the solver accepted a non-periodic grid)'
+if (mixed) then
+   call refuse_mixed
+   if (mpih%myrank == 0) print '(A)', 'test_poisson_mg: FAILED (the solver accepted mixed boundaries)'
    call mpih%finalize
    error stop 1
 endif
@@ -70,6 +78,12 @@ call check_uniform(label='SV-9a, uniform 3-D octree,  ', ratio=8_I4P, nk=8_I4P, 
 call check_uniform(label='SV-9a, uniform 2-D quadtree,', ratio=4_I4P, nk=1_I4P, level=2_I4P)
 call check_amr(label='SV-9b, AMR 3-D octree,      ', ratio=8_I4P, nk=8_I4P, levels=[2_I4P, 3_I4P])
 call check_amr(label='SV-9b, AMR 2-D quadtree,    ', ratio=4_I4P, nk=1_I4P, levels=[2_I4P, 3_I4P])
+call check_dirichlet(label='SV-12a, Dirichlet, uniform 3-D octree,', ratio=8_I4P, nk=8_I4P, levels=[1_I4P, 2_I4P], &
+                     sphere=.false.)
+call check_dirichlet(label='SV-12b, Dirichlet, AMR 3-D octree,    ', ratio=8_I4P, nk=8_I4P, levels=[2_I4P, 3_I4P], &
+                     sphere=.true.)
+call check_dirichlet(label='SV-12b, Dirichlet, AMR 2-D quadtree,  ', ratio=4_I4P, nk=1_I4P, levels=[2_I4P, 3_I4P], &
+                     sphere=.true.)
 if (mpih%myrank == 0) then
    if (test_passed) then
       print '(A)', 'test_poisson_mg: PASSED'
@@ -81,15 +95,79 @@ call mpih%finalize
 if (.not.test_passed) error stop 1
 
 contains
-   subroutine refuse_non_periodic
-   !< A uniform 3-D grid without periodic boundaries: `initialize` must stop the run.
+   subroutine refuse_mixed
+   !< A uniform 3-D grid periodic along x only: `initialize` must stop the run.
    type(realm_object)      :: realm !< Realm.
    type(poisson_mg_object) :: mg    !< Multigrid solver.
    real(R8P), allocatable  :: q(:,:,:,:,:) !< Source.
 
    call build(realm, 8_I4P, 8_I4P, 1_I4P, sphere=.false., q=q, periodic=.false.)
+   call realm%adam%grid%set_bc_type(bc_type=[BC_PERIODIC, BC_PERIODIC, 0_I4P, 0_I4P, 0_I4P, 0_I4P])
    call mg%initialize(grid=realm%adam%grid, field=realm%adam%field)
-   endsubroutine refuse_non_periodic
+   endsubroutine refuse_mixed
+
+   subroutine check_dirichlet(label, ratio, nk, levels, sphere)
+   !< SV-12: Dirichlet boundaries, the exact potential as the ghost values; two base levels, uniform or with the box
+   !< refined one level more.
+   character(*), intent(in) :: label     !< Label.
+   integer(I4P), intent(in) :: ratio     !< Tree ratio.
+   integer(I4P), intent(in) :: nk        !< Cells per block along z.
+   integer(I4P), intent(in) :: levels(2) !< Base levels.
+   logical,      intent(in) :: sphere    !< Refine the central box.
+   real(R8P), allocatable   :: q(:,:,:,:,:), phi(:,:,:,:), x(:), y(:), ghost(:) !< Fields, vectors, ghost values.
+   real(R8P)                :: e_phi(2), e_grav(2), h(2), trunc(2), sym, order !< Measures.
+   integer(I4P)             :: unfilled, m, i, nl, iters(2), nbnd, ierr !< Counters.
+   logical                  :: ok        !< Pass flag.
+   logical                  :: active(3) !< Active directions.
+   character(:), allocatable :: note     !< The uniform grid's extra assertion.
+
+   ok = .true.
+   do m=1, 2
+      block
+      type(realm_object)      :: realm !< Realm (a fresh one per grid).
+      type(poisson_mg_object) :: mg    !< Solver.
+      call build(realm, ratio, nk, levels(m), sphere=sphere, q=q, periodic=.false.)
+      active = .not.realm%adam%grid%null_xyz
+      q = q - RHO0 ! the exact potential solves lap Phi = factor (rho - rho0)
+      allocate(phi(lbound(q,2):ubound(q,2),lbound(q,3):ubound(q,3),lbound(q,4):ubound(q,4),ubound(q,5)))
+      phi = SENTINEL
+      call mg%initialize(grid=realm%adam%grid, field=realm%adam%field, max_iterations=MAX_ITERATIONS)
+      allocate(ghost(max(mg%nbnd,1)))
+      do i=1, mg%nbnd
+         ghost(i) = phi_exact(mg%bnd_x(:,i), active)
+      enddo
+      call mg%solve(field=realm%adam%field, q=q, iv=1_I4P, factor=FACTOR, phi=phi, ghost=ghost)
+      nl = realm%adam%field%blocks_number * realm%adam%grid%ni * realm%adam%grid%nj * nk
+      allocate(x(max(nl,1)), y(max(nl,1)))
+      do i=1, nl
+         x(i) = sin(1.3_R8P * i + 0.7_R8P * mpih%myrank) ; y(i) = cos(2.1_R8P * i - 0.4_R8P * mpih%myrank)
+      enddo
+      sym = mg%symmetry_defect(x, y)
+      call truncation(realm, mg, active, nk, trunc(m), ghost=ghost, source_mean=0._R8P)
+      call measure(realm, phi, active, e_phi(m), e_grav(m), unfilled, periodic=.false.)
+      h(m) = realm%adam%grid%cell_dxyz(1,levels(m))
+      iters(m) = mg%iterations
+      nbnd = mg%nbnd
+      call MPI_ALLREDUCE(MPI_IN_PLACE, nbnd, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
+      ok = ok .and. mg%residual <= mg%tolerance .and. sym <= TOL_SYMMETRY .and. unfilled == 0
+      if (.not.sphere) ok = ok .and. mg%iterations <= 1
+      if (mpih%myrank == 0) print '(A)', '   '//label//' base level '//trim(str(levels(m), .true.))// &
+         ', boundary faces '//trim(str(nbnd, .true.))//': iterations '//trim(str(mg%iterations, .true.))// &
+         ', symmetry '//trim(str(sym, .true.))//', truncation '//trim(str(trunc(m), .true.))// &
+         ', |Phi - Phi_exact| '//trim(str(e_phi(m), .true.))//', unfilled '//trim(str(unfilled, .true.))
+      call mg%destroy
+      deallocate(phi, x, y, ghost)
+      endblock
+   enddo
+   order = log(e_phi(1) / e_phi(2)) / log(h(1) / h(2))
+   ok = ok .and. order >= MIN_ORDER .and. trunc(2) / trunc(1) <= MAX_TRUNCATION_GROWTH
+   note = ''
+   if (.not.sphere) note = ', iterations at most 1'
+   if (mpih%myrank == 0) print '(A)', '   '//label//' order of Phi '//trim(str(order, .true.))//' (min '// &
+      trim(str(MIN_ORDER, .true.))//'), truncation growth '//trim(str(trunc(2) / trunc(1), .true.))//' (max '// &
+      trim(str(MAX_TRUNCATION_GROWTH, .true.))//')'//note//merge('  PASS', '  FAIL', ok)
+   test_passed = test_passed .and. ok
+   endsubroutine check_dirichlet
 
    subroutine check_uniform(label, ratio, nk, level)
    !< SV-9a: the multigrid on a uniform grid against the FFT solver.
@@ -190,16 +268,20 @@ contains
    test_passed = test_passed .and. ok
    endsubroutine check_amr
 
-   subroutine truncation(realm, mg, active, nk, tmax)
+   subroutine truncation(realm, mg, active, nk, tmax, ghost, source_mean)
    !< The operator's truncation error: S applied to the exact potential against V 4 pi G (rho - rho0), the max over
    !< the leaves per unit volume. A consistent seam keeps it bounded under refinement; an inconsistent one (O(1/h))
-   !< doubles it per level.
+   !< doubles it per level. Dirichlet: S Phi_exact + B g with the ghost values g, against V 4 pi G (rho - mean), the
+   !< mean `source_mean` (the source the test passes is rho - rho0 already).
    type(realm_object),      intent(in)    :: realm     !< Realm.
    type(poisson_mg_object), intent(inout) :: mg        !< Solver.
    logical,                 intent(in)    :: active(3) !< Active directions.
    integer(I4P),            intent(in)    :: nk        !< Cells along z.
    real(R8P),               intent(out)   :: tmax      !< Max truncation.
-   real(R8P), allocatable :: pe(:), ye(:)               !< Exact potential, the operator on it.
+   real(R8P), optional,     intent(in)    :: ghost(1:)   !< Dirichlet: the ghost values.
+   real(R8P), optional,     intent(in)    :: source_mean !< The mean subtracted from rho (default rho0).
+   real(R8P), allocatable :: pe(:), ye(:), yb(:)        !< Exact potential, the operator on it, B g.
+   real(R8P)              :: rmean                      !< The mean subtracted from rho.
    real(R8P)              :: xyz(3), v, t              !< Measures.
    integer(I4P)           :: b, i, j, k, c, n, ierr    !< Counters.
 
@@ -218,6 +300,13 @@ contains
       enddo
    enddo
    call mg%apply_a(pe, ye)
+   if (present(ghost)) then
+      allocate(yb(max(n,1)))
+      call mg%apply_b(ghost, yb)
+      if (n > 0) ye(1:n) = ye(1:n) + yb(1:n)
+   endif
+   rmean = RHO0
+   if (present(source_mean)) rmean = RHO0 - source_mean
    tmax = 0._R8P
    c = 0
    do b=1, f%blocks_number
@@ -227,7 +316,7 @@ contains
             do i=1, g%ni
                c = c + 1
                xyz = [f%x_cell(i,b), f%y_cell(j,b), f%z_cell(k,b)]
-               t = abs(ye(c) / v - FACTOR * (rho(xyz, active) - RHO0))
+               t = abs(ye(c) / v - FACTOR * (rho(xyz, active) - rmean))
                tmax = max(tmax, t)
             enddo
          enddo
@@ -237,7 +326,7 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, tmax, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
    endsubroutine truncation
 
-   subroutine measure(realm, phi, active, e_phi, e_grav, unfilled)
+   subroutine measure(realm, phi, active, e_phi, e_grav, unfilled, periodic)
    !< Max error of Phi against the exact one (leaves); max error of the face gravity on the faces whose neighbour is
    !< coarser (the fine side of 2:1 faces, from the filled ghost); unfilled face ghosts. The leaves of every rank are
    !< gathered first (extents and levels) so that the neighbour level is found locally.
@@ -247,6 +336,7 @@ contains
    real(R8P),          intent(out) :: e_phi     !< Max |Phi - Phi_exact|.
    real(R8P),          intent(out) :: e_grav    !< Max face-gravity error on 2:1 faces.
    integer(I4P),       intent(out) :: unfilled  !< Unfilled face ghosts.
+   logical, optional,  intent(in)  :: periodic  !< Periodic boundaries (default); else a domain face is no 2:1 face.
    real(R8P),    allocatable :: ext(:,:), ext_all(:,:) !< Leaf extents and levels [7, n].
    integer(I4P), allocatable :: counts(:), displs(:)   !< Allgather counts and displacements.
    real(R8P)                 :: xyz(3), xf(3), p(3), g_num, g_ex, hd !< Measures.
@@ -282,6 +372,9 @@ contains
                      if (phi(nb(1),nb(2),nb(3),b) == SENTINEL) unfilled = unfilled + 1
                      hd = g%cell_dxyz(d,lv)
                      p = xyz ; p(d) = p(d) + s * hd
+                     if (present(periodic)) then
+                        if (.not.periodic .and. (p(d) < g%domain_emin(d) .or. p(d) > g%domain_emax(d))) cycle
+                     endif
                      p(d) = g%domain_emin(d) + modulo(p(d) - g%domain_emin(d), g%domain_emax(d) - g%domain_emin(d))
                      if (level_at(ext_all, p) >= lv) cycle
                      g_num = s * (phi(nb(1),nb(2),nb(3),b) - phi(i,j,k,b)) / hd

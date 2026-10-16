@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| SV-9 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5a | CPU only | yes | — |
+| SV-9, SV-12 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5a; [#87](https://github.com/szaghi/adam/issues/87), P1 | CPU only | yes | — |
 
 ## Case and scope
 
@@ -16,7 +16,11 @@ The case has two parts:
 - **the operator study** (`seam_operators.py`): three couplings of a coarse cell C and the fine cells $f_k$ on its
   face, measured in a 2-D model, to choose the one the solver uses;
 - **the solver leg** (`test_poisson_mg`): the multigrid solver on that operator, on uniform grids against the FFT
-  solver (SV-9a) and on box-refined grids against the exact potential (SV-9b).
+  solver (SV-9a) and on box-refined grids against the exact potential (SV-9b);
+- **the Dirichlet legs** (`test_poisson_mg`, [#87](https://github.com/szaghi/adam/issues/87) P1): the same solver with
+  Dirichlet domain faces, the ground the isolated solve on AMR is built on: on a uniform grid the coarsest-level solve
+  (the FFT solver's Dirichlet mode) is the whole solve (SV-12a); on box-refined grids against the exact potential
+  (SV-12b).
 
 What the case catches:
 - a non-symmetric assembled operator (the symmetry defect of the assembled rows, which the assembly does not
@@ -58,7 +62,9 @@ The operator on AMR grids is described in [models](../../models#self-gravity).
 | Operator study (`seam_operators.py`) | the doubly periodic unit square; $\Phi = \sin 2\pi x\cos 2\pi y + \tfrac12\cos(2\pi x + 4\pi y)$ | coarse ($H = 1/N$) on $x < 1/2$, fine ($h = H/2$) on $x > 1/2$: two seams ($x = 1/2$ and $x = 0 \equiv 1$); $N$ = 8, 16, 32, 48; dense solves | — (NumPy) |
 | SV-9a | SV-2's: $[0,1]\times[0,2]\times[0,3]$, periodic, the two oblique modes, $G = 1$, the exact potential in closed form | uniform, octree and quadtree at level 2 | 1, 2, 3 |
 | SV-9b | the same | the central box $[L/4, 3L/4]$ refined once over base levels 2 and 3: octree (120 and 960 leaves) and quadtree (28 and 112); 8 cells per block side, 3 ghosts | 1, 2, 3 |
-| Refusal | `--no-periodic`: one uniform grid without periodic boundaries | — | 2 |
+| SV-12a | the same source and box without periodic boundaries, the exact potential as the ghost values (Dirichlet at the centres of the first ghost layer): $A\Phi = 4\pi G V(\rho - \rho_0) - Bg$ | uniform octree at levels 1 and 2 | 1, 2, 3 |
+| SV-12b | the same | SV-9b's box-refined grids, octree and quadtree | 1, 2, 3 |
+| Refusal | `--mixed`: one uniform grid periodic along $x$ only (every active direction periodic, or none) | — | 2 |
 
 The FNL path comes with FLUME on AMR (P5b, P5c: [SV-10](./amr-jeans), [SV-11](./runtime-amr)).
 
@@ -67,7 +73,7 @@ The FNL path comes with FLUME on AMR (P5b, P5c: [SV-10](./amr-jeans), [SV-11](./
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/selfgravity/seam_operators.py` | the operator study (`[N ...]`, default 8 16 32 48) |
-| `src/tests/poisson/test_poisson_mg.F90` | the unit test (mode `test-poisson-mg-gnu`), SV-9a and SV-9b; `--no-periodic` the refusal |
+| `src/tests/poisson/test_poisson_mg.F90` | the unit test (mode `test-poisson-mg-gnu`), SV-9a, SV-9b, SV-12a, SV-12b; `--mixed` the refusal |
 | `src/tests/flume/verification/selfgravity/poisson.sh` | leg `sv9`: the test on every rank count of `--np-list`, and the refusal; `POISSON_MG_EXE` selects the build |
 | `src/tests/flume/verification/make_doc_runs.sh`, group `amr` | `sv9-poisson`: the test with its log |
 | `src/tests/flume/verification/make_doc_figures.py`, `fig_selfgravity_amr` | draws the figure (`--only selfgravity-amr`), running `seam_operators.py` |
@@ -105,11 +111,16 @@ face gravity first order, the truncation bounded.*
 | ghost cells left unfilled | 0 | 0 |
 | order of $\Phi$ against the exact potential, base level 2 → 3 | $\ge 1.7$ | 1.92 (3-D), 1.92 (2-D) |
 | growth of $\max\lvert\tau\rvert$ under refinement | $\le 1.5$ | 1.006 (3-D), 1.005 (2-D) |
-| a non-periodic grid | refused, exit 1 | refused |
+| SV-12a (Dirichlet, uniform): FCG iterations; order of $\Phi$, level 1 → 2 | $\le 1$; $\ge 1.7$ | 1; 1.95 |
+| SV-12a: growth of $\max\lvert A\Phi_{exact} + Bg - f\rvert$ | $\le 1.5$ | 0.27 (it falls at second order, 0.64 → 0.17) |
+| SV-12b (Dirichlet, AMR): FCG residual; symmetry defect of the Dirichlet rows; ghosts unfilled | $10^{-10}$; $10^{-12}$; 0 | below it; $\le 6.7\cdot10^{-18}$; 0 |
+| SV-12b: order of $\Phi$; growth of $\max\lvert\tau\rvert$ | $\ge 1.7$; $\le 1.5$ | 1.91 (3-D), 1.93 (2-D); 1.006, 1.005 |
+| mixed periodic and non-periodic directions | refused, exit 1 | refused |
 
 Reported, not bounded:
 - **2:1 face gravity order:** 1.03 (3-D) and 1.11 (2-D).
-- **FCG iterations:** 36–39 in 3-D (mean factor 0.52–0.54) and 24–25 in 2-D (0.37–0.40).
+- **FCG iterations:** 36–39 in 3-D (mean factor 0.52–0.54) and 24–25 in 2-D (0.37–0.40); with Dirichlet faces
+  35–36 (3-D) and 22–23 (2-D).
 
 Every printed number is the same on 1, 2 and 3 ranks, up to round-off. The bound on the potential's order is 1.7, not
 1.9, because two grids give a single pair.
@@ -128,3 +139,7 @@ AMR grid is [SV-10](./amr-jeans), under runtime AMR [SV-11](./runtime-amr).
 - **M's truncation is $O(1)$ at the seam but consistent:** bounded under refinement, the classical supra-convergence
   of cell-centred schemes.
 - The multigrid runs on the host only (CPU); the FNL backend calls it with its coarsest level on cuFFT (SV-10).
+- **Dirichlet boundaries cost nothing in symmetry or order** (SV-12): a boundary face adds $-w\Phi_C$ to its row and
+  moves $wg$ to the right-hand side, so the rows stay symmetric ($6.7\cdot10^{-18}$) and consistent (the uniform
+  truncation falls at second order). The coarsest level's odd extension is exact: one iteration on a uniform grid.
+  Mixed boundaries are refused; the periodic legs are unchanged to every printed digit.

@@ -29,9 +29,13 @@
 #   - SV-9b, the central box refined once (octree and quadtree, base levels 2 and 3): FCG residual below the
 #     tolerance, symmetry defect of the assembled rows <= 1e-12, every face ghost filled, Phi order >= 1.7 against
 #     the exact potential, max truncation error growing at most 1.5x under refinement (bounded: consistent);
-#   - refused: a non-periodic grid (isolated on AMR is P5b).
+#   - SV-12 (issue #87, P1), Dirichlet faces (no active direction periodic), the exact potential as the ghost values:
+#     SV-12a uniform, at most one iteration (the coarsest level's odd extension is the whole solve), Phi order >= 1.7;
+#     SV-12b as SV-9b with Dirichlet rows;
+#   - refused: mixed periodic and non-periodic directions.
 # Measured (CPU, np 1-3, rank-independent to round-off): SV-9a 3e-15; SV-9b symmetry <= 8e-18, Phi order 1.92 (3-D
-# and 2-D), truncation growth 1.005, 2:1 face gravity order 1.03 (3-D) and 1.11 (2-D), 24-39 FCG iterations.
+# and 2-D), truncation growth 1.005, 2:1 face gravity order 1.03 (3-D) and 1.11 (2-D), 24-39 FCG iterations;
+# SV-12a 1 iteration, order 1.95; SV-12b symmetry <= 6.7e-18, Phi order 1.91 (3-D) and 1.93 (2-D), 22-36 iterations.
 #
 # CPU = FNL: run this script once per build with --dump DIR, then
 #   poisson_oracle.py compare DIR_CPU DIR_FNL      (max |phi_CPU - phi_FNL| / max |phi|, 1e-13)
@@ -126,7 +130,7 @@ for leg in $LEGS; do
       sv9)
          echo ">> SV-9: the multigrid Poisson solver, AMR ($(basename "$MG_EXE"))"
          suite multigrid "" "$MG_EXE"
-         refusal "multigrid, a non-periodic grid" --no-periodic 'direction 1 is not periodic' "$MG_EXE" ;;
+         refusal "multigrid, mixed boundaries" --mixed 'mixed periodic and non-periodic directions' "$MG_EXE" ;;
       *) echo "poisson.sh: unknown leg '$leg' (sv2, sv6, sv9)" >&2 ; exit 2 ;;
    esac
 done

@@ -35,9 +35,19 @@ module adam_poisson_mg_object
 !< operators and transfers. Columns are global cell keys; every operator owns a halo-exchange plan (the remote columns
 !< it reads, fetched from their owners by `MPI_ALLTOALLV`). Correct for any rank count; not tuned for speed.
 !<
-!< **Scope (fatal otherwise).** Every active direction periodic (isolated boundaries on AMR: #81 P5b); 2:1 balance
+!< **Dirichlet boundaries (issue #87, P1).** When no active direction is periodic, the domain faces take Dirichlet
+!< values at the centres of the first ghost layer (the cell beyond the face, at the boundary cell's level): a boundary
+!< face contributes `-w phi_C` to its row and `w g` (the ghost value `g`) to the right-hand side, so the operator `A`
+!< keeps the zero-ghost rows, symmetric, and `solve(..., ghost=g)` solves `A phi = factor V f - B g`, `B` the map of
+!< the ghost values onto the boundary rows (`apply_b`; its transpose `apply_bt`, the boundary rows onto the faces). The
+!< faces are listed per rank (`nbnd`, `bnd_row`, `bnd_w`, `bnd_x`: the ghost centre). No mean is removed; the V-cycle's
+!< levels take zero ghosts, its coarsest level the FFT solver's Dirichlet mode (an odd extension). The isolated solve
+!< of #87 builds on this.
+!<
+!< **Scope (fatal otherwise).** Every active direction periodic, or none (mixed boundaries are refused); 2:1 balance
 !< across faces; fewer than 2^19 cells per direction at the finest level (the cell keys).
-!< On output phi holds the leaf solution and its first ghost layer per face: same level, the neighbour; across a 2:1
+!< On output phi holds the leaf solution and its first ghost layer per face: same level, the neighbour; at a domain
+!< face (Dirichlet), the ghost value (0 when none is given); across a 2:1
 !< face, the value that makes the one-sided face difference equal the operator's own face gradient,
 !< `(mean_f - phi_C) / (1.5 h)` (fine side: `phi_f - (mean_f - phi_C) / 1.5`; coarse side:
 !< `phi_C + (mean_f - phi_C) / 0.75`); deeper ghost layers copy the first.
@@ -130,6 +140,14 @@ type :: poisson_mg_object
    type(rvec),   allocatable :: diag(:)                !< Level operator diagonals [lmin+1:lmax].
    type(rvec),   allocatable :: colour(:)              !< Red-black colour (0, 1) of the level cells [lmin+1:lmax].
    real(R8P),    allocatable :: vol(:)                 !< Leaf cell volumes.
+   ! Dirichlet boundaries (issue #87)
+   logical                   :: dirichlet=.false.      !< No active direction periodic: Dirichlet domain faces.
+   real(R8P)                 :: emin(3)=0._R8P         !< Domain lower corner.
+   integer(I4P)              :: nbnd=0_I4P             !< This rank's boundary faces.
+   integer(I4P), allocatable :: bnd_row(:)             !< Boundary face: the local leaf cell (row) it bounds.
+   real(R8P),    allocatable :: bnd_w(:)               !< Boundary face: its V-weighted weight.
+   real(R8P),    allocatable :: bnd_x(:,:)             !< Boundary face: the ghost centre [3,nbnd].
+   integer(I4P), allocatable :: g_bnd(:)               !< Ghost-fill row: its boundary face, 0 for an interior one.
    class(poisson_fft_object), allocatable :: fft       !< The coarsest-level solver (FFTW, or the caller's backend).
    ! controls and diagnostics
    real(R8P)                 :: tolerance=1.e-10_R8P   !< Relative max-norm residual to stop.
@@ -150,6 +168,8 @@ type :: poisson_mg_object
       procedure, pass(self) :: solve_packed    !< Solve for phi from the packed interior source.
       procedure, pass(self) :: symmetry_defect !< |x . A y - y . A x| / (|x| |A y|) (verification).
       procedure, pass(self) :: apply_a        !< y = A x on the leaves (verification).
+      procedure, pass(self) :: apply_b        !< y = B g: the ghost values onto the boundary rows (Dirichlet).
+      procedure, pass(self) :: apply_bt       !< s = B^T x: the boundary rows onto the boundary faces (Dirichlet).
       ! private methods
       procedure, pass(self), private :: apply       !< y = M x for a distributed operator.
       procedure, pass(self), private :: assemble    !< Finish a distributed operator from triplets.
@@ -161,6 +181,7 @@ type :: poisson_mg_object
       procedure, pass(self), private :: face_cells  !< The fine cells of a coarse face.
       procedure, pass(self), private :: face_weight !< V-weighted face weight (area over distance) at a level.
       procedure, pass(self), private :: lin         !< Linear index of a cell in a block.
+      procedure, pass(self), private :: outside     !< A cell position beyond a domain face (Dirichlet).
       procedure, pass(self), private :: locate      !< Owner and local index of a cell key in a space.
       procedure, pass(self), private :: parent3     !< Parent cell coordinates.
       procedure, pass(self), private :: smooth      !< Red-black Gauss-Seidel on a level.
@@ -186,6 +207,10 @@ contains
    if (allocated(self%vol))          deallocate(self%vol)
    if (allocated(self%g_dst))        deallocate(self%g_dst)
    if (allocated(self%u))            deallocate(self%u)
+   if (allocated(self%bnd_row))      deallocate(self%bnd_row, self%bnd_w, self%bnd_x)
+   if (allocated(self%g_bnd))        deallocate(self%g_bnd)
+   self%nbnd = 0
+   self%dirichlet = .false.
    call hash_free(self%leaf_hash)
    call hash_free(self%node_hash)
    self%a = dcsr()
@@ -224,11 +249,15 @@ contains
    self%nd = 0
    do d=1, 3
       if (self%null(d)) cycle
-      if (.not.grid%is_ijk_periodic(d)) call mpih%error_stop(msg='poisson_mg_object%initialize: direction '// &
-         trim(str(d, .true.))//' is not periodic; the multigrid solver supports periodic boundaries (isolated: #81 P5b)')
       self%nd = self%nd + 1
       self%act(self%nd) = d
    enddo
+   ! every active direction periodic, or none (Dirichlet faces, issue #87)
+   p = count([(grid%is_ijk_periodic(self%act(d)), d=1, self%nd)])
+   if (p /= 0 .and. p /= self%nd) call mpih%error_stop(msg='poisson_mg_object%initialize: mixed periodic and '// &
+      'non-periodic directions; the multigrid solver takes every active direction periodic, or none (Dirichlet)')
+   self%dirichlet = p == 0
+   self%emin = grid%domain_emin
    self%nblk0 = nint((grid%domain_emax - grid%domain_emin) / grid%block_dxyz(:,0))
    self%dx0 = grid%cell_dxyz(:,0)
    ! the global leaf list
@@ -315,7 +344,8 @@ contains
       allocate(poisson_fft_object :: self%fft)
    endif
    call self%fft%initialize_blocks(nblk=self%nblk0 * merge(1, 2**self%lmin, self%null), nijk=self%nijk, ngc=0_I4P, &
-                                   dxyz=self%dx_of(self%lmin), level=self%lmin, null_xyz=self%null, isolated=.false.)
+                                   dxyz=self%dx_of(self%lmin), level=self%lmin, null_xyz=self%null, isolated=.false., &
+                                   dirichlet=self%dirichlet)
    allocate(self%u(max(n*self%ncb,1)))
    self%u = 0._R8P
    self%has_guess = .false.
@@ -372,6 +402,12 @@ contains
       integer(I8P), allocatable :: keys_f(:) !< The fine cells of a coarse face.
 
       allocate(dst(4,max(2*self%nd*self%ncb*field%blocks_number,1)))
+      allocate(self%g_bnd(max(2*self%nd*self%ncb*field%blocks_number,1)))
+      allocate(self%bnd_row(max(2*self%nd*self%ncb*field%blocks_number,1)), &
+               self%bnd_w(max(2*self%nd*self%ncb*field%blocks_number,1)), &
+               self%bnd_x(3,max(2*self%nd*self%ncb*field%blocks_number,1)))
+      self%g_bnd = 0
+      self%nbnd = 0
       nrow = 0
       do b=1, field%blocks_number
          lv = field%coordinates(4,b)
@@ -387,9 +423,22 @@ contains
                         cc = field%coordinates(1:3,b) * self%nijk + ijk - 1
                         nb3 = cc ; nb3(dd) = nb3(dd) + sgn
                         nb3 = self%wrap(lv, nb3)
-                        cls = self%classify(lv, nb3)
                         if (allocated(keys)) deallocate(keys, wts)
                         allocate(keys(0), wts(0))
+                        cls = 0
+                        if (self%outside(lv, nb3)) then ! a domain face: the ghost value, set by solve
+                           self%nbnd = self%nbnd + 1
+                           self%bnd_row(self%nbnd) = (b - 1) * self%ncb + self%lin(ijk)
+                           self%bnd_w(self%nbnd) = self%face_weight(lv, dd)
+                           self%bnd_x(:,self%nbnd) = self%emin + (real(nb3, R8P) + 0.5_R8P) * self%dx_of(lv)
+                           do a_=1, 3
+                              if (self%null(a_)) self%bnd_x(a_,self%nbnd) = field%emin(a_,b) + &
+                                 0.5_R8P * (field%emax(a_,b) - field%emin(a_,b))
+                           enddo
+                           self%g_bnd(nrow+1) = self%nbnd
+                        else
+                           cls = self%classify(lv, nb3)
+                        endif
                         select case(cls)
                         case(CLS_SAME)
                            keys = [ckey(lv, nb3)] ; wts = [1._R8P]
@@ -472,7 +521,9 @@ contains
                         nb3 = self%wrap(lv, nb3)
                         call trip_add(ta, row, ckey(lv, cc), -w)
                         self%diag(lv)%v(row) = self%diag(lv)%v(row) - w
-                        if (hash_get(self%node_hash, bkey([nb3 / self%nijk, lv])) > 0) then
+                        if (self%outside(lv, nb3)) then ! a domain face: the correction's ghost is zero
+                           cycle
+                        elseif (hash_get(self%node_hash, bkey([nb3 / self%nijk, lv])) > 0) then
                            call trip_add(ta, row, ckey(lv, nb3), w)
                         else
                            call trip_add(te, row, ckey(lv-1, self%parent3(nb3)), w)
@@ -511,8 +562,9 @@ contains
 
    endsubroutine initialize
 
-   subroutine solve(self, field, q, iv, factor, phi, energy)
-   !< Solve `L_h phi = factor (q(iv) - mean(q(iv)))` on the leaves; phi's ghosts filled (see the module).
+   subroutine solve(self, field, q, iv, factor, phi, energy, ghost)
+   !< Solve `L_h phi = factor (q(iv) - mean(q(iv)))` on the leaves (periodic), or `A phi = factor V q(iv) - B ghost`
+   !< (Dirichlet); phi's ghosts filled (see the module).
    class(poisson_mg_object), intent(inout)         :: self                     !< The solver.
    type(field_object),       intent(in)            :: field                    !< The field (coordinates).
    real(R8P),    intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Conservative [nv,i,j,k,nb].
@@ -520,6 +572,7 @@ contains
    real(R8P),    intent(in)    :: factor                                       !< Source factor (4 pi G).
    real(R8P),    intent(inout) :: phi(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)  !< Potential [i,j,k,nb].
    real(R8P),    intent(out), optional :: energy                               !< sum_cells V f phi (all ranks).
+   real(R8P),    intent(in),  optional :: ghost(1:)                            !< Dirichlet: the ghost value per face.
    real(R8P),    allocatable                       :: buf(:)                   !< Packed interior source.
    integer(I4P)                                    :: b, i, j, k, c            !< Counters.
 
@@ -535,10 +588,10 @@ contains
          enddo
       enddo
    enddo
-   call self%solve_packed(field=field, buf=buf, factor=factor, phi=phi, energy=energy)
+   call self%solve_packed(field=field, buf=buf, factor=factor, phi=phi, energy=energy, ghost=ghost)
    endsubroutine solve
 
-   subroutine solve_packed(self, field, buf, factor, phi, energy)
+   subroutine solve_packed(self, field, buf, factor, phi, energy, ghost)
    !< Solve from the packed interior source of this rank's leaves (block-major, `i` fastest): FCG on the operator, preconditioned
    !< by the V-cycle, from the previous solution when there is one; then the ghost fill.
    class(poisson_mg_object), intent(inout)         :: self    !< The solver.
@@ -547,6 +600,7 @@ contains
    real(R8P),                intent(in)            :: factor  !< Source factor.
    real(R8P),    intent(inout) :: phi(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Potential [i,j,k,nb].
    real(R8P),                intent(out), optional :: energy  !< sum_cells V f phi (all ranks).
+   real(R8P),                intent(in),  optional :: ghost(1:) !< Dirichlet: the ghost value per boundary face.
    real(R8P), allocatable :: f(:), r(:), z(:), p(:), qv(:), pp(:), qp(:), gv(:) !< Vectors.
    real(R8P)              :: fmax, alpha, beta, vsum, mean, r0, e_ !< Scalars.
    real(R8P)              :: fraw(1), tol !< Max |factor f| before the mean is removed, the stop tolerance.
@@ -560,10 +614,23 @@ contains
    allocate(f(nn), r(nn), z(nn), p(nn), qv(nn), pp(nn), qp(nn))
    f = 0._R8P ; r = 0._R8P ; z = 0._R8P ; p = 0._R8P ; qv = 0._R8P ; pp = 0._R8P ; qp = 0._R8P
    if (n > 0) f(1:n) = factor * self%vol(1:n) * buf(1:n)
-   ! zero mean (periodic): f - V sum(f) / sum(V)
+   if (present(ghost) .and. .not.self%dirichlet) call mpih%error_stop(msg='poisson_mg_object%solve: ghost values '// &
+      'given on a periodic grid')
+   if (present(ghost)) then
+      if (size(ghost) < self%nbnd) call mpih%error_stop(msg='poisson_mg_object%solve: fewer ghost values than faces')
+   endif
+   ! zero mean (periodic): f - V sum(f) / sum(V); Dirichlet: the ghost values to the right-hand side, f - B g
    vsum = gdot(self%vol, [(1._R8P, i=1, nn)], n)
-   mean = gdot(f, [(1._R8P, i=1, nn)], n) / vsum
-   if (n > 0) f(1:n) = f(1:n) - mean * self%vol(1:n)
+   if (self%dirichlet) then
+      if (present(ghost)) then
+         do i=1, self%nbnd
+            f(self%bnd_row(i)) = f(self%bnd_row(i)) - self%bnd_w(i) * ghost(i)
+         enddo
+      endif
+   else
+      mean = gdot(f, [(1._R8P, i=1, nn)], n) / vsum
+      if (n > 0) f(1:n) = f(1:n) - mean * self%vol(1:n)
+   endif
    fmax = 0._R8P
    do i=1, n
       fmax = max(fmax, abs(f(i) / self%vol(i)))
@@ -588,8 +655,10 @@ contains
    do it=1, self%max_iterations
       if (self%residual <= tol .or. fmax == 0._R8P) exit
       call self%vcycle(r, z)
-      mean = gdot(z, self%vol, n) / vsum
-      if (n > 0) z(1:n) = z(1:n) - mean
+      if (.not.self%dirichlet) then
+         mean = gdot(z, self%vol, n) / vsum
+         if (n > 0) z(1:n) = z(1:n) - mean
+      endif
       p = z
       if (has_prev) then
          beta = gdot(z, qp, n) / gdot(pp, qp, n)
@@ -612,8 +681,10 @@ contains
    if (self%iterations > 0 .and. r0 > 0._R8P .and. self%residual > 0._R8P) &
       self%factor_mean = (self%residual / r0)**(1._R8P / self%iterations)
    ! remove the solution's mean, keep it for the next solve, fill phi
-   mean = gdot(self%u, self%vol, n) / vsum
-   if (n > 0) self%u(1:n) = self%u(1:n) - mean
+   if (.not.self%dirichlet) then
+      mean = gdot(self%u, self%vol, n) / vsum
+      if (n > 0) self%u(1:n) = self%u(1:n) - mean
+   endif
    self%has_guess = .true.
    c = 0
    do b=1, field%blocks_number
@@ -631,6 +702,10 @@ contains
    do row=1, self%g%nrow
       b = self%g_dst(4,row)
       i = self%g_dst(1,row) ; j = self%g_dst(2,row) ; k = self%g_dst(3,row)
+      if (self%g_bnd(row) > 0) then ! a domain face: the ghost value (0 without one)
+         gv(row) = 0._R8P
+         if (present(ghost)) gv(row) = ghost(self%g_bnd(row))
+      endif
       phi(i,j,k,b) = gv(row)
       do l=2, self%ngc ! deeper layers copy the first along the normal
          if (i < 1)            phi(1-l,j,k,b) = gv(row)
@@ -689,6 +764,32 @@ contains
 
    call self%apply(self%a, x, y)
    endsubroutine apply_a
+
+   subroutine apply_b(self, g, y)
+   !< y = B g on this rank's leaf cells: every boundary face adds its weight times its ghost value to its row
+   !< (Dirichlet; `A phi + B g` is the operator with the ghosts at g).
+   class(poisson_mg_object), intent(in)    :: self  !< The solver.
+   real(R8P),                intent(in)    :: g(1:) !< Ghost value per boundary face.
+   real(R8P),                intent(inout) :: y(1:) !< Result, a leaf vector.
+   integer(I4P)                            :: i     !< Counter.
+
+   y(1:self%a%nrow) = 0._R8P
+   do i=1, self%nbnd
+      y(self%bnd_row(i)) = y(self%bnd_row(i)) + self%bnd_w(i) * g(i)
+   enddo
+   endsubroutine apply_b
+
+   subroutine apply_bt(self, x, s)
+   !< s = B^T x: every boundary face takes its weight times the value of its row (Dirichlet).
+   class(poisson_mg_object), intent(in)    :: self  !< The solver.
+   real(R8P),                intent(in)    :: x(1:) !< Leaf vector.
+   real(R8P),                intent(inout) :: s(1:) !< Result, one value per boundary face.
+   integer(I4P)                            :: i     !< Counter.
+
+   do i=1, self%nbnd
+      s(i) = self%bnd_w(i) * x(self%bnd_row(i))
+   enddo
+   endsubroutine apply_bt
 
    ! private methods
    subroutine apply(self, m, x, y)
@@ -840,6 +941,11 @@ contains
       do sgn=-1, 1, 2
          nb3 = cc ; nb3(d) = nb3(d) + sgn
          nb3 = self%wrap(lv, nb3)
+         if (self%outside(lv, nb3)) then ! a domain face (Dirichlet): the ghost value goes to the right-hand side
+            w = self%face_weight(lv, d)
+            keys = [keys, ky] ; vals = [vals, -w]
+            cycle
+         endif
          cls = self%classify(lv, nb3)
          select case(cls)
          case(CLS_SAME)
@@ -1148,8 +1254,24 @@ contains
    enddo
    endsubroutine vcycle
 
+   pure function outside(self, lv, cc) result(beyond)
+   !< A cell position at level lv beyond a domain face along an active direction (Dirichlet; never when periodic).
+   class(poisson_mg_object), intent(in) :: self   !< The solver.
+   integer(I4P),             intent(in) :: lv     !< Level.
+   integer(I4P),             intent(in) :: cc(3)  !< Cell coordinates.
+   logical                              :: beyond !< Result.
+   integer(I4P)                         :: p, d   !< Counters.
+
+   beyond = .false.
+   if (.not.self%dirichlet) return
+   do p=1, self%nd
+      d = self%act(p)
+      if (cc(d) < 0 .or. cc(d) >= self%nblk0(d) * 2**lv * self%nijk(d)) beyond = .true.
+   enddo
+   endfunction outside
+
    pure function wrap(self, lv, cc) result(cw)
-   !< Periodic wrap of cell coordinates at level lv along the active directions.
+   !< Periodic wrap of cell coordinates at level lv along the active directions (Dirichlet: unchanged).
    class(poisson_mg_object), intent(in) :: self  !< The solver.
    integer(I4P),             intent(in) :: lv    !< Level.
    integer(I4P),             intent(in) :: cc(3) !< Cell coordinates.
@@ -1157,6 +1279,7 @@ contains
    integer(I4P)                         :: p, d  !< Counters.
 
    cw = cc
+   if (self%dirichlet) return
    do p=1, self%nd
       d = self%act(p)
       cw(d) = modulo(cc(d), self%nblk0(d) * 2**lv * self%nijk(d))
