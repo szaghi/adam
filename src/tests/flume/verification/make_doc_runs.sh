@@ -28,7 +28,8 @@
 #           atmosphere, the positivity limiter) to t = 2; sv8-collapse-{0.4,0.2,0.1}, the collapsing star, a checkpoint
 #           every 10 steps (JEANS_EXE, default exe/adam_flume_cpu_fft) (6 runs, about 60 min: sv7-l3 takes 45)
 #   amr     sv9-poisson: the SV-9 unit test of the multigrid Poisson solver on AMR grids (#81, P5a; POISSON_MG_EXE,
-#           default exe/test_poisson_mg, mode test-poisson-mg-gnu) with its log; the SV-10 Jeans cases on the
+#           default exe/test_poisson_mg, mode test-poisson-mg-gnu) with its log; sv13-poisson, the same with
+#           `--isolated` (#87, P2: the James step, SV-13); the SV-10 Jeans cases on the
 #           box-refined grid (#81, P5b; JEANS_EXE): sv10-2d-{8,16,32}, the stable wave, sv10-uniform-{8,16,32}, the
 #           same on the uniform grid, sv10-collapse-{0.4,0.2,0.1}, the collapse, sv10-stage-{0.4,0.2,0.1}, the same
 #           with reflux_cadence = stage (P5c), and sv11-regrid, the collapse (base 32^2) under runtime AMR with a
@@ -61,7 +62,7 @@
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
 #        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
 #        isolated: --only selfgravity-isolated selfgravity-star; amr: --only selfgravity-amr selfgravity-amr-jeans
-#        selfgravity-amr-regrid)
+#        selfgravity-amr-regrid selfgravity-amr-isolated)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
 #        [jeans] [isolated] [amr] (default: all twelve)
@@ -280,6 +281,12 @@ for g in $GROUPS_; do
          fresh sv9-poisson
          POISSON_MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
          if (cd "$W" && mpirun -np "$NP" "$POISSON_MG_EXE" > log.txt 2>&1); then
+            echo "   $(basename "$W"): done"
+         else
+            echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+         fi
+         fresh sv13-poisson
+         if (cd "$W" && mpirun -np "$NP" "$POISSON_MG_EXE" --isolated > log.txt 2>&1); then
             echo "   $(basename "$W"): done"
          else
             echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1

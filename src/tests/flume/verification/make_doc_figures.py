@@ -1871,6 +1871,70 @@ def _draw_composite_density(fig: plt.Figure, ax: plt.Axes, work: Path, step: int
     ax.set_title(f"the density at t = {tc:.2f}, {len(blocks)} blocks (max {rmax:.3f})", fontsize=10)
 
 
+def fig_selfgravity_amr_isolated(out: Path, runs: Path) -> None:
+    """SV-13 (issue #87, P2): isolated boundaries on AMR, the symmetric James step of adam_poisson_mg_object, from the
+    log of test_poisson_mg --isolated (CPU, 2 ranks): SV-6's stars (radius 1/2) on the cube [-1,1]^3, uniform (16^3,
+    32^3) or with the star's box refined once over base levels 2 and 3. Left: the max error of the potential on the
+    leaves (solid) and of the James ghost values against the exact potential (dashed) against the finest cells per side.
+    Right: the two exactness measures against their bounds, the multigrid against the FFT solver's isolated mode
+    (uniform) and the symmetry defect of the solution map in situ (the first grid of each leg)."""
+    pattern = re.compile(r"(SV-13[ab]), isolated, (uniform|AMR), (polytrope n=1|uniform sphere),\s+base level (\d+), "
+                         r"leaves \d+: iterations (\d+) \+ (\d+)(.*?), \|Phi - Phi_exact\| (\S+), "
+                         r"boundary ghosts (\S+),")
+    legs: dict[str, list[tuple[int, float, float]]] = {}
+    exact: list[tuple[str, float, str]] = []
+    for line in (runs / "sv13-poisson" / "log.txt").read_text(errors="replace").splitlines():
+        m = pattern.search(line)
+        if not m:
+            continue
+        key = f"{m[2]}, {m[3]}"
+        legs.setdefault(key, []).append((int(m[4]), float(m[8]), float(m[9])))
+        fft = re.search(r"\|Phi_mg - Phi_fft\| / max\|Phi\| ([^,\s]+)", m[7])
+        sym = re.search(r"symmetry of V K ([^,\s]+)", m[7])
+        tick = f"{m[2]}\n{'polytrope' if m[3].startswith('poly') else 'sphere'}\nlevel {m[4]}"
+        if fft:
+            exact.append((tick, float(fft[1]), "multigrid - FFT"))
+        if sym:
+            exact.append((tick, float(sym[1]), "symmetry of V K"))
+    if not legs:
+        raise FileNotFoundError("no SV-13 line in sv13-poisson/log.txt")
+    fig, axs = plt.subplots(1, 2, figsize=(13.5, 4.9), constrained_layout=True, width_ratios=(1.1, 1.0))
+    colors = {"uniform, polytrope n=1": "tab:gray", "AMR, polytrope n=1": "tab:blue",
+              "AMR, uniform sphere": "tab:orange"}
+    for key, rows in legs.items():
+        lev, e_phi, e_gh = (np.array(v) for v in zip(*sorted(rows), strict=True))
+        nf = 8.0 * 2.0 ** (lev + (1 if key.startswith("AMR") else 0))  # finest cells per side
+        order = float(np.log(e_phi[0] / e_phi[-1]) / np.log(nf[-1] / nf[0]))
+        axs[0].loglog(nf, e_phi, "o-", color=colors[key], label=f"{key}: potential, order {order:.2f}")
+        axs[0].loglog(nf, e_gh, "s--", color=colors[key], alpha=0.7, label=f"{key}: boundary ghosts")
+    ns = np.array([16.0, 128.0])
+    axs[0].loglog(ns, 2e-2 * (ns[0] / ns) ** 2, "-", color="0.6", lw=0.8)
+    axs[0].annotate("h^2", (40.0, 2e-2 * (16.0 / 40.0) ** 2), xytext=(0, -12), textcoords="offset points", fontsize=8,
+                    color="0.4")
+    axs[0].set_xticks([16, 32, 64, 128], ["16", "32", "64", "128"])
+    axs[0].minorticks_off()
+    axs[0].set_xlabel("finest cells per side")
+    axs[0].set_ylabel("max |Phi - Phi_exact|")
+    axs[0].set_ylim(1e-5, 1e-1)
+    axs[0].legend(fontsize=7, loc="upper right")
+    axs[0].set_title("second order on AMR; the James ghosts converge with the potential", fontsize=10)
+    ax = axs[1]
+    kinds = {"multigrid - FFT": ("tab:green", 1e-9), "symmetry of V K": ("tab:purple", 1e-9)}
+    for i, (lab, val, kind) in enumerate(exact):
+        ax.bar(i, val, color=kinds[kind][0], label=kind if kind not in [e[2] for e in exact[:i]] else None)
+    ax.axhline(1e-9, color="tab:red", lw=1.0, ls="--", label="bound, 1e-9")
+    ax.axhline(1e-12, color="0.5", lw=0.8, ls=":", label="FCG tolerance, 1e-12")
+    ax.set_yscale("log")
+    ax.set_ylim(1e-16, 1e-7)
+    ax.set_xticks(range(len(exact)), [e[0] for e in exact], fontsize=8)
+    ax.set_ylabel("relative defect")
+    ax.legend(fontsize=7, loc="upper left")
+    ax.set_title("the free-space solution of the FFT solver; a symmetric map", fontsize=10)
+    fig.suptitle("SV-13: isolated self-gravity on AMR, the symmetric James step (CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-amr-isolated.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_selfgravity_amr_regrid(out: Path, runs: Path) -> None:
     """SV-11 (issue #81, M8-P5c): the collapse of make_jeans.py (base 32^2) under runtime AMR, regridded every 5 steps by
     a Loehner estimator on the density, with the per-stage reflux (CPU, 2 ranks). Left: the change of E + W (relative)
@@ -2805,6 +2869,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-star": fig_selfgravity_star,
            "selfgravity-amr": fig_selfgravity_amr, "selfgravity-amr-jeans": fig_selfgravity_amr_jeans,
            "selfgravity-amr-regrid": fig_selfgravity_amr_regrid,
+           "selfgravity-amr-isolated": fig_selfgravity_amr_isolated,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
            "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,

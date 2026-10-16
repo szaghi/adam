@@ -321,8 +321,8 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 
 | Procedure | Role |
 |-----------|------|
-| `initialize(grid, field, tolerance, max_iterations, coarse)` | Gather the leaf list (every rank), derive the level hierarchy, assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the coarsest-level FFT solver, of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise |
-| `solve(field, q, iv, factor, phi, energy, ghost)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi`; Dirichlet: `ghost` the values at the boundary faces' ghost centres |
+| `initialize(grid, field, tolerance, max_iterations, coarse, isolated)` | Gather the leaf list (every rank), derive the level hierarchy, assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the coarsest-level FFT solver, of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise; `isolated` also sizes the ghost-to-ghost Green's function of the James step (an isolated FFT solver of the same type on the coarsest box widened by the ghost layer) |
+| `solve(field, q, iv, factor, phi, energy, ghost)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi`; Dirichlet: `ghost` the values at the boundary faces' ghost centres; isolated: the James step (no `ghost`) |
 | `solve_packed(field, buf, factor, phi, energy, ghost)` | The same from the packed interior source |
 | `symmetry_defect(x, y)`, `apply_a(x, y)` | Verification: `|x.Ay - y.Ax| / (|x| |Ay|)` and `y = A x` on the leaves |
 | `apply_b(g, y)`, `apply_bt(x, s)` | Dirichlet: `y = B g` (the ghost values onto the boundary rows) and `s = B^T x`; the boundary faces are `nbnd`, `bnd_row`, `bnd_w`, `bnd_x` (the ghost centre) |
@@ -344,13 +344,20 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 - **Dirichlet faces (#87, P1):** when no active direction is periodic, a domain face takes the value `g` at its ghost
   centre: `-w phi_C` stays in the row (symmetric), `w g` goes to the right-hand side (`A phi = factor V f - B g`); no
   mean is removed; the V-cycle's levels take zero ghosts and the coarsest level the FFT solver's Dirichlet mode.
-- **Scope (fatal otherwise):** every active direction periodic, or none (mixed boundaries refused); 2:1 balance across
+- **Isolated boundaries (#87, P2), the James step:** `phi0 = A^-1 factor V f` (zero ghosts), the screening charge
+  `s = B^T phi0` on the ghost cells, their free-space values `g = -G s` (`G` the lattice Green's function over the
+  coarsest spacing, from ghost cell to ghost cell, by the padded FFT on the coarsest box widened by the ghost layer,
+  gathered on rank 0), then `phi = A^-1 (factor V f - B g)`: the map `(A^-1 + A^-1 B G B^T A^-1) factor V` is
+  symmetric in the V-weighted form, the exact discrete free-space solution on a uniform grid, second order on AMR.
+  Two solves per call, each warm-started from its own last solution (`iterations0`, `iterations`).
+- **Scope (fatal otherwise):** every active direction periodic, or none (mixed boundaries refused); isolated: 3-D,
+  cubic cells, every leaf on the domain boundary at the coarsest level; 2:1 balance across
   faces; fewer than `2^19` cells per direction at the finest level. Host code: FLUME's FNL backend runs it on the host
   with a cuFFT coarsest level (#81 P5b).
 - **Build:** as `adam_poisson_fft_object` (`-D_FFTW`, not re-exported by `adam_common_library`; mode
   `test-poisson-mg-gnu`).
-- **Verification:** SV-9 and SV-12 (Dirichlet), `src/tests/poisson/test_poisson_mg.F90`, driven by
-  `src/tests/flume/verification/selfgravity/poisson.sh` (leg `sv9`).
+- **Verification:** SV-9, SV-12 (Dirichlet) and SV-13 (isolated), `src/tests/poisson/test_poisson_mg.F90`, driven
+  by `src/tests/flume/verification/selfgravity/poisson.sh` (legs `sv9`, `sv13`).
 
 ### `adam_lattice_green_library` — lattice Green's function of the 7-point Laplacian (generated)
 

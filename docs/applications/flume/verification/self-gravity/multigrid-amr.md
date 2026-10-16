@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| SV-9, SV-12 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5a; [#87](https://github.com/szaghi/adam/issues/87), P1 | CPU only | yes | — |
+| SV-9, SV-12, SV-13 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5a; [#87](https://github.com/szaghi/adam/issues/87), P1, P2 | CPU only | yes | — |
 
 ## Case and scope
 
@@ -20,14 +20,21 @@ The case has two parts:
 - **the Dirichlet legs** (`test_poisson_mg`, [#87](https://github.com/szaghi/adam/issues/87) P1): the same solver with
   Dirichlet domain faces, the ground the isolated solve on AMR is built on: on a uniform grid the coarsest-level solve
   (the FFT solver's Dirichlet mode) is the whole solve (SV-12a); on box-refined grids against the exact potential
-  (SV-12b).
+  (SV-12b);
+- **the isolated legs** (`test_poisson_mg --isolated`, [#87](https://github.com/szaghi/adam/issues/87) P2): free-space
+  boundaries on AMR by a symmetric James step, SV-6's stars: on uniform grids against the FFT solver's isolated mode
+  (SV-13a), on grids with the star refined against the exact potentials (SV-13b), the symmetry of the solution map
+  measured in situ.
 
 What the case catches:
 - a non-symmetric assembled operator (the symmetry defect of the assembled rows, which the assembly does not
   symmetrise);
 - an inconsistent seam coupling: a truncation error that grows as $1/h$ under refinement;
 - a multigrid that is not the FFT solve on a uniform grid, a ghost the fill leaves empty, a stalled FCG;
-- a solver that accepts a non-periodic grid.
+- mixed periodic and non-periodic boundaries accepted;
+- an isolated solve that is not the free-space solution on a uniform grid, or not a symmetric map ($VK \ne (VK)^T$:
+  $E + W$ would not be conserved);
+- an isolated solve accepted with a refined leaf on the domain boundary.
 
 ## Models and numerics
 
@@ -50,7 +57,9 @@ What the case catches:
 | Iteration | flexible conjugate gradients (Notay's FCG(1)) on $A$, stopping at a relative max-norm residual of $10^{-10}$ | `solve`, `solve_packed`, [`adam_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_mg_object.F90) |
 | Preconditioner | one V-cycle. Levels: each holds its leaves plus a **shadow** block for every refined node (ADAM keeps leaves only). Smoothing: red-black Gauss–Seidel, 2 sweeps down and 2 up. Transfers: restriction by sum, piecewise-constant prolongation | `vcycle`, `smooth`, [`adam_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_mg_object.F90) |
 | Coarsest level | the minimum leaf level, which covers the domain, solved exactly by the FFT solver | `solve_blocks`, [`adam_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_fft_object.F90) |
-| Scope | periodic only (P5a deferred isolated boundaries on AMR to P5b; they remain refused, [#87](https://github.com/szaghi/adam/issues/87)); 2:1-balanced faces; anything else is fatal | `initialize` (periodicity), `classify` (2:1 balance), [`adam_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_mg_object.F90) |
+| Dirichlet faces ([#87](https://github.com/szaghi/adam/issues/87) P1) | no active direction periodic: a domain face keeps $-w\Phi_C$ in its row (the zero ghost), and $wg$ moves to the right-hand side; the coarsest level by the FFT solver's odd extension (a DST-I) | `a_row`, `assemble_ghost_fill`, `solve(..., ghost)`, `apply_b`, `apply_bt`, [`adam_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_mg_object.F90) |
+| Isolated, the James step ([#87](https://github.com/szaghi/adam/issues/87) P2) | `initialize(..., isolated=.true.)`: the zero-ghost solve $\Phi_0 = A^{-1}4\pi G V\rho$; the screening charge $s = B^T\Phi_0$ on the ghost cells; their values $g = -Gs$, $G$ the inverse of the $V$-weighted coarsest operator on the infinite lattice (the lattice Green's function over $H$), by the zero-padded FFT on the coarsest box widened by the ghost layer; then $\Phi = A^{-1}(4\pi G V\rho - Bg)$. The map $K = A^{-1} + A^{-1}BGB^TA^{-1}$ is symmetric since $A$ and $G$ are. Each solve warm-starts from its own last solution | `solve_packed`, `ghost_green`, `solve_fcg`, [`adam_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_mg_object.F90); `solve_blocks` (isolated), [`adam_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_fft_object.F90) |
+| Scope | every active direction periodic, or none (mixed is fatal); isolated: 3-D, cubic cells, and every leaf on the domain boundary at the coarsest level (D-87-2; the ghost cells then form the coarse lattice $G$ is exact on); 2:1-balanced faces; anything else is fatal | `initialize` (boundaries), `assemble_ghost_fill` (the boundary layer), `classify` (2:1 balance), [`adam_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_mg_object.F90) |
 | Verification hooks | the symmetry defect $\lvert x\cdot Ay - y\cdot Ax\rvert/(\lvert x\rvert\lvert Ay\rvert)$, $y = Ax$ on the leaves | `symmetry_defect`, `apply_a`, [`adam_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_mg_object.F90) |
 
 The operator on AMR grids is described in [models](../../models#self-gravity).
@@ -64,7 +73,9 @@ The operator on AMR grids is described in [models](../../models#self-gravity).
 | SV-9b | the same | the central box $[L/4, 3L/4]$ refined once over base levels 2 and 3: octree (120 and 960 leaves) and quadtree (28 and 112); 8 cells per block side, 3 ghosts | 1, 2, 3 |
 | SV-12a | the same source and box without periodic boundaries, the exact potential as the ghost values (Dirichlet at the centres of the first ghost layer): $A\Phi = 4\pi G V(\rho - \rho_0) - Bg$ | uniform octree at levels 1 and 2 | 1, 2, 3 |
 | SV-12b | the same | SV-9b's box-refined grids, octree and quadtree | 1, 2, 3 |
-| Refusal | `--mixed`: one uniform grid periodic along $x$ only (every active direction periodic, or none) | — | 2 |
+| SV-13a | SV-6's: the cube $[-1,1]^3$, isolated, the $n = 1$ polytrope $\rho = \sin(kr)/(kr)$, $k = \pi/a$, radius $a = 1/2$, $G = 1$, the exact potential | uniform octree at levels 1 and 2 ($16^3$, $32^3$) | 1, 2, 3 |
+| SV-13b | the same polytrope, and the uniform sphere ($\rho = 1$, cell averages of $8^3$ samples) | base levels 2 and 3 with the star's box $[-1/2, 1/2]^3$ refined once (120 and 960 leaves; finest $64^3$ and $128^3$ equivalent) | 1, 2, 3 |
+| Refusals | `--mixed`: one uniform grid periodic along $x$ only (every active direction periodic, or none); `--refuse-boundary-refined`: the isolated cube at level 1 with the octant $x, y, z > 0$ refined | — | 2 |
 
 The FNL path comes with FLUME on AMR (P5b, P5c: [SV-10](./amr-jeans), [SV-11](./runtime-amr)).
 
@@ -73,14 +84,14 @@ The FNL path comes with FLUME on AMR (P5b, P5c: [SV-10](./amr-jeans), [SV-11](./
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/selfgravity/seam_operators.py` | the operator study (`[N ...]`, default 8 16 32 48) |
-| `src/tests/poisson/test_poisson_mg.F90` | the unit test (mode `test-poisson-mg-gnu`), SV-9a, SV-9b, SV-12a, SV-12b; `--mixed` the refusal |
-| `src/tests/flume/verification/selfgravity/poisson.sh` | leg `sv9`: the test on every rank count of `--np-list`, and the refusal; `POISSON_MG_EXE` selects the build |
-| `src/tests/flume/verification/make_doc_runs.sh`, group `amr` | `sv9-poisson`: the test with its log |
-| `src/tests/flume/verification/make_doc_figures.py`, `fig_selfgravity_amr` | draws the figure (`--only selfgravity-amr`), running `seam_operators.py` |
+| `src/tests/poisson/test_poisson_mg.F90` | the unit test (mode `test-poisson-mg-gnu`), SV-9a, SV-9b, SV-12a, SV-12b; `--isolated` SV-13a, SV-13b; `--mixed` and `--refuse-boundary-refined` the refusals |
+| `src/tests/flume/verification/selfgravity/poisson.sh` | legs `sv9` and `sv13`: the test on every rank count of `--np-list`, and the refusals; `POISSON_MG_EXE` selects the build |
+| `src/tests/flume/verification/make_doc_runs.sh`, group `amr` | `sv9-poisson` and `sv13-poisson`: the test (and `--isolated`) with its log |
+| `src/tests/flume/verification/make_doc_figures.py`, `fig_selfgravity_amr`, `fig_selfgravity_amr_isolated` | draws the figures (`--only selfgravity-amr selfgravity-amr-isolated`), the first running `seam_operators.py` |
 
 ```bash
 python3 src/tests/flume/verification/selfgravity/seam_operators.py      # the three couplings
-cd src/tests/flume/verification/selfgravity && ./poisson.sh --legs sv9   # the solver, np 1, 2, 3
+cd src/tests/flume/verification/selfgravity && ./poisson.sh --legs "sv9 sv13"   # the solver, np 1, 2, 3
 ```
 
 ## Results
@@ -115,18 +126,39 @@ face gravity first order, the truncation bounded.*
 | SV-12a: growth of $\max\lvert A\Phi_{exact} + Bg - f\rvert$ | $\le 1.5$ | 0.27 (it falls at second order, 0.64 → 0.17) |
 | SV-12b (Dirichlet, AMR): FCG residual; symmetry defect of the Dirichlet rows; ghosts unfilled | $10^{-10}$; $10^{-12}$; 0 | below it; $\le 6.7\cdot10^{-18}$; 0 |
 | SV-12b: order of $\Phi$; growth of $\max\lvert\tau\rvert$ | $\ge 1.7$; $\le 1.5$ | 1.91 (3-D), 1.93 (2-D); 1.006, 1.005 |
+| SV-13a (isolated, uniform): $\max\lvert\Phi_{mg} - \Phi_{fft}\rvert / \max\lvert\Phi\rvert$ against the FFT solver's isolated mode; FCG iterations of each solve | $10^{-9}$; $\le 1$ | $\le 2.6\cdot10^{-13}$; 1 + 1 |
+| SV-13a: order of $\Phi$ against the exact potential, $16^3 \to 32^3$ | $\ge 1.7$ | 2.14 |
+| SV-13b (isolated, AMR): FCG residual (tolerance $10^{-12}$); ghosts unfilled | below it; 0 | below it; 0 |
+| SV-13b: order of $\Phi$, base level 2 → 3 | $\ge 1.7$ (polytrope), $\ge 1.2$ (uniform sphere, as SV-6) | 2.01, 1.86 |
+| SV-13: symmetry of the solution map in situ, $\lvert x\cdot VKy - y\cdot VKx\rvert / \lvert x\cdot VKy\rvert$ for two pseudo-random sources, first grid of each leg | $10^{-9}$ | $\le 1.7\cdot10^{-11}$ |
 | mixed periodic and non-periodic directions | refused, exit 1 | refused |
+| isolated, a leaf above the coarsest level on the boundary | refused, exit 1 | refused |
 
 Reported, not bounded:
 - **2:1 face gravity order:** 1.03 (3-D) and 1.11 (2-D).
 - **FCG iterations:** 36–39 in 3-D (mean factor 0.52–0.54) and 24–25 in 2-D (0.37–0.40); with Dirichlet faces
-  35–36 (3-D) and 22–23 (2-D).
+  35–36 (3-D) and 22–23 (2-D); isolated (SV-13b, tolerance $10^{-12}$) 24–25 for the zero-ghost solve and 23 for the
+  second.
+- **The James ghost values** against the exact potential at the ghost centres: $9.1\cdot10^{-4} \to 6.2\cdot10^{-5}$
+  (SV-13a), $1.0\cdot10^{-4} \to 2.5\cdot10^{-5}$ (SV-13b polytrope), $2.8\cdot10^{-4} \to 8.9\cdot10^{-5}$
+  (sphere).
+- **AMR against the uniform grid at the same base level** ($32^3$, polytrope): $1.18\cdot10^{-3}$ against
+  $2.31\cdot10^{-3}$.
 
 Every printed number is the same on 1, 2 and 3 ranks, up to round-off. The bound on the potential's order is 1.7, not
 1.9, because two grids give a single pair.
 
-Related cases: the FFT solver the coarsest level uses is [SV-2](./fft-poisson); the solver coupled to FLUME on a static
-AMR grid is [SV-10](./amr-jeans), under runtime AMR [SV-11](./runtime-amr).
+![SV-13: the isolated solve on AMR, errors against the finest cells per side, and its exactness measures](/flume/selfgravity-amr-isolated.png)
+
+*Left: the potential (solid) and the James ghost values (dashed) against the exact potential, uniform and with the
+star refined: second order, the ghost values converging with the potential. Right: the multigrid against the FFT
+solver's isolated mode on uniform grids (the same discrete free-space solution, to $2.6\cdot10^{-13}$, the lattice
+Green's function's own accuracy), and the symmetry defect of the solution map, within 20 times the FCG tolerance, against
+the bound. CPU, 2 ranks.*
+
+Related cases: the FFT solver the coarsest level uses is [SV-2](./fft-poisson), its isolated mode
+[SV-6](./isolated-solver); the solver coupled to FLUME on a static AMR grid is [SV-10](./amr-jeans), under runtime AMR
+[SV-11](./runtime-amr).
 
 ## Findings
 
@@ -143,3 +175,9 @@ AMR grid is [SV-10](./amr-jeans), under runtime AMR [SV-11](./runtime-amr).
   moves $wg$ to the right-hand side, so the rows stay symmetric ($6.7\cdot10^{-18}$) and consistent (the uniform
   truncation falls at second order). The coarsest level's odd extension is exact: one iteration on a uniform grid.
   Mixed boundaries are refused; the periodic legs are unchanged to every printed digit.
+- **The James step is symmetric and second order on AMR** (SV-13), the P0 prototype's result in the library: on a
+  uniform grid it is the discrete free-space solution (the FFT solver's, to $2.6\cdot10^{-13}$), on AMR the potential
+  is second order (2.01 for the polytrope) and the solution map is symmetric to the solve tolerance, which the exact
+  $E + W$ exchange needs. The cost is two composite solves and one padded FFT of the coarsest box per Poisson solve.
+  The price is D-87-2: every leaf on the domain boundary at the coarsest level, fatal otherwise; the FLUME coupling
+  (P3) lifts the run-time refusals.

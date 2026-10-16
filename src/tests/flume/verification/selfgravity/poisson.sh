@@ -37,13 +37,25 @@
 # and 2-D), truncation growth 1.005, 2:1 face gravity order 1.03 (3-D) and 1.11 (2-D), 24-39 FCG iterations;
 # SV-12a 1 iteration, order 1.95; SV-12b symmetry <= 6.7e-18, Phi order 1.91 (3-D) and 1.93 (2-D), 22-36 iterations.
 #
+# SV-13 (test_poisson_mg --isolated, issue #87, P2): isolated boundaries on AMR by the symmetric James step (two
+# Dirichlet solves around the ghost-to-ghost lattice Green's function, a padded FFT on the coarsest box widened by the
+# ghost layer), SV-6's stars on the cube [-1,1]^3:
+#   - SV-13a, uniform 16^3 and 32^3: the multigrid equals the FFT solver's isolated mode (1e-9 relative), each solve
+#     in at most one iteration; SV-13b, the star's box [-1/2,1/2]^3 refined once over base levels 2 and 3: Phi order
+#     >= 1.7 (polytrope) and >= 1.2 (uniform sphere); both: every face ghost filled, the solution map symmetric in
+#     situ (|x . V K y - y . V K x| / |x . V K y| <= 1e-9, FCG tolerance 1e-12);
+#   - refused: a leaf above the coarsest level on the boundary.
+# Measured (CPU, np 1-3): SV-13a |Phi_mg - Phi_fft| <= 2.6e-13, 1 + 1 iterations, order 2.14; SV-13b orders 2.01
+# (polytrope) and 1.86 (sphere), 23-25 iterations per solve; symmetry <= 1.7e-11; boundary ghosts within 1e-4 of the
+# exact potential (2.5e-5 at base level 3).
+#
 # CPU = FNL: run this script once per build with --dump DIR, then
 #   poisson_oracle.py compare DIR_CPU DIR_FNL      (max |phi_CPU - phi_FNL| / max |phi|, 1e-13)
 #
-# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs "sv2 sv6 sv9"] [--dump DIR] [--keep]
+# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs "sv2 sv6 sv9 sv13"] [--dump DIR] [--keep]
 #
 # POISSON_EXE overrides the executable under test, e.g. POISSON_EXE=$REPO/exe/test_poisson_fft_fnl ./poisson.sh
-# (built by `fobis build --mode test-poisson-fft-gnu` or `test-poisson-fft-fnl-nvf`); POISSON_MG_EXE the SV-9 one
+# (built by `fobis build --mode test-poisson-fft-gnu` or `test-poisson-fft-fnl-nvf`); POISSON_MG_EXE the SV-9/13 one
 # (`test-poisson-mg-gnu`, CPU only; --dump covers SV-2 and SV-6). The caller owns the matching
 # environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
@@ -53,7 +65,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${POISSON_EXE:-$REPO_ROOT/exe/test_poisson_fft}"
 MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
 NP_LIST="1 2 3"
-LEGS="sv2 sv6 sv9"
+LEGS="sv2 sv6 sv9 sv13"
 DUMP=""
 KEEP=0
 
@@ -69,7 +81,7 @@ while [[ $# -gt 0 ]]; do
 done
 needs_fft=0 ; needs_mg=0
 for leg in $LEGS; do
-   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9) needs_mg=1 ;; esac
+   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13) needs_mg=1 ;; esac
 done
 if [[ -n "$DUMP" ]]; then needs_fft=1 ; fi
 if [[ $needs_fft -eq 1 ]]; then
@@ -131,7 +143,12 @@ for leg in $LEGS; do
          echo ">> SV-9: the multigrid Poisson solver, AMR ($(basename "$MG_EXE"))"
          suite multigrid "" "$MG_EXE"
          refusal "multigrid, mixed boundaries" --mixed 'mixed periodic and non-periodic directions' "$MG_EXE" ;;
-      *) echo "poisson.sh: unknown leg '$leg' (sv2, sv6, sv9)" >&2 ; exit 2 ;;
+      sv13)
+         echo ">> SV-13: the multigrid Poisson solver, isolated on AMR ($(basename "$MG_EXE"))"
+         suite multigrid-isolated "--isolated" "$MG_EXE"
+         refusal "isolated, a refined leaf on the boundary" --refuse-boundary-refined 'touches the domain boundary' \
+            "$MG_EXE" ;;
+      *) echo "poisson.sh: unknown leg '$leg' (sv2, sv6, sv9, sv13)" >&2 ; exit 2 ;;
    esac
 done
 if [[ -n "$DUMP" ]]; then

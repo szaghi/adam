@@ -41,11 +41,24 @@ module adam_poisson_mg_object
 !< keeps the zero-ghost rows, symmetric, and `solve(..., ghost=g)` solves `A phi = factor V f - B g`, `B` the map of
 !< the ghost values onto the boundary rows (`apply_b`; its transpose `apply_bt`, the boundary rows onto the faces). The
 !< faces are listed per rank (`nbnd`, `bnd_row`, `bnd_w`, `bnd_x`: the ghost centre). No mean is removed; the V-cycle's
-!< levels take zero ghosts, its coarsest level the FFT solver's Dirichlet mode (an odd extension). The isolated solve
-!< of #87 builds on this.
+!< levels take zero ghosts, its coarsest level the FFT solver's Dirichlet mode (an odd extension).
 !<
-!< **Scope (fatal otherwise).** Every active direction periodic, or none (mixed boundaries are refused); 2:1 balance
-!< across faces; fewer than 2^19 cells per direction at the finest level (the cell keys).
+!< **Isolated boundaries (issue #87, P2), a symmetric James step.** `initialize(..., isolated=.true.)`: each solve is
+!< the zero-ghost solve `phi0 = A^-1 factor V f`; the screening charge `s = B^T phi0` on the ghost cells (extended by
+!< zero, `phi0` satisfies the infinite operator with the extra source `-s` there); the ghost values of the free-space
+!< solution `g = -G s`, `G` the inverse of the V-weighted operator on the infinite coarsest lattice from ghost cell to
+!< ghost cell (the lattice Green's function over the coarsest spacing; `ghost_green`, a zero-padded FFT of the coarsest
+!< box widened by the ghost layer, `gfft`); and the solve with them. The map `(A^-1 + A^-1 B G B^T A^-1) factor V` is
+!< symmetric in the V-weighted form (A and G are), so self-gravity keeps its exact `E + W` exchange; on a uniform grid
+!< it is the discrete free-space solution (the FFT solver's isolated mode), on AMR second order (G misses the refined
+!< interior, a truncation-order perturbation). `G` is exact on the boundary only if every boundary leaf is at the
+!< coarsest level (each face then has its own ghost cell of the coarse lattice): fatal otherwise (D-87-2). The textbook
+!< James method (the screening charge on the boundary surface, the potential at the ghost centres) is not symmetric
+!< (`selfgravity/james_proto.py`, the P0 prototype).
+!<
+!< **Scope (fatal otherwise).** Every active direction periodic, or none (mixed boundaries are refused); isolated: 3-D,
+!< cubic cells, every boundary leaf at the coarsest level; 2:1 balance across faces; fewer than 2^19 cells per
+!< direction at the finest level (the cell keys).
 !< On output phi holds the leaf solution and its first ghost layer per face: same level, the neighbour; at a domain
 !< face (Dirichlet), the ghost value (0 when none is given); across a 2:1
 !< face, the value that makes the one-sided face difference equal the operator's own face gradient,
@@ -148,7 +161,14 @@ type :: poisson_mg_object
    real(R8P),    allocatable :: bnd_w(:)               !< Boundary face: its V-weighted weight.
    real(R8P),    allocatable :: bnd_x(:,:)             !< Boundary face: the ghost centre [3,nbnd].
    integer(I4P), allocatable :: g_bnd(:)               !< Ghost-fill row: its boundary face, 0 for an interior one.
+   ! isolated boundaries, the James step (issue #87, P2)
+   logical                   :: isolated=.false.       !< Free-space boundaries: the ghost values by the James step.
+   integer(I4P)              :: nc(3)=1_I4P            !< Cells per direction at the coarsest level.
+   integer(I4P), allocatable :: bnd_gi(:)              !< Boundary face: its ghost cell in the widened coarsest box.
+   real(R8P),    allocatable :: u0(:)                  !< The last zero-ghost solution (warm start of the first solve).
+   integer(I4P)              :: iterations0=0_I4P      !< Iterations of the last zero-ghost solve.
    class(poisson_fft_object), allocatable :: fft       !< The coarsest-level solver (FFTW, or the caller's backend).
+   class(poisson_fft_object), allocatable :: gfft      !< Isolated: the ghost-to-ghost Green's function (padded FFT).
    ! controls and diagnostics
    real(R8P)                 :: tolerance=1.e-10_R8P   !< Relative max-norm residual to stop.
    integer(I4P)              :: max_iterations=200_I4P !< FCG iterations at most.
@@ -180,6 +200,8 @@ type :: poisson_mg_object
       procedure, pass(self), private :: dx_of       !< Cell spacing at a level.
       procedure, pass(self), private :: face_cells  !< The fine cells of a coarse face.
       procedure, pass(self), private :: face_weight !< V-weighted face weight (area over distance) at a level.
+      procedure, pass(self), private :: ghost_green !< Isolated: g = -G s, the ghost-to-ghost Green's function.
+      procedure, pass(self), private :: solve_fcg   !< The FCG solve with given ghost values (or none).
       procedure, pass(self), private :: lin         !< Linear index of a cell in a block.
       procedure, pass(self), private :: outside     !< A cell position beyond a domain face (Dirichlet).
       procedure, pass(self), private :: locate      !< Owner and local index of a cell key in a space.
@@ -199,6 +221,14 @@ contains
       call self%fft%destroy
       deallocate(self%fft)
    endif
+   if (allocated(self%gfft)) then
+      call self%gfft%destroy
+      deallocate(self%gfft)
+   endif
+   if (allocated(self%bnd_gi))       deallocate(self%bnd_gi)
+   if (allocated(self%u0))           deallocate(self%u0)
+   self%isolated = .false.
+   self%iterations0 = 0
    if (allocated(self%leaf_c))       deallocate(self%leaf_c, self%leaf_owner, self%leaf_loc)
    if (allocated(self%node_c))       deallocate(self%node_c, self%node_owner, self%node_loc, self%node_leaf)
    if (allocated(self%nloc_lev))     deallocate(self%nloc_lev, self%lev_node)
@@ -219,16 +249,17 @@ contains
    self%is_initialized = .false.
    endsubroutine destroy
 
-   subroutine initialize(self, grid, field, tolerance, max_iterations, coarse)
+   subroutine initialize(self, grid, field, tolerance, max_iterations, coarse, isolated)
    !< Gather the leaves, derive the hierarchy, assemble the operator, the ghost fill and the preconditioner, set up the
    !< coarsest-level FFT solver: of the dynamic type of `coarse` when given (the FNL backend passes its cuFFT solver),
-   !< the FFTW one otherwise.
+   !< the FFTW one otherwise. With `isolated` (issue #87), also the ghost-to-ghost Green's function of the James step.
    class(poisson_mg_object), intent(inout)        :: self           !< The solver.
    type(grid_object),        intent(in)           :: grid           !< The grid.
    type(field_object),       intent(in)           :: field          !< The field (block coordinates).
    real(R8P),                intent(in), optional :: tolerance      !< Relative residual to stop.
    integer(I4P),             intent(in), optional :: max_iterations !< FCG iterations at most.
    class(poisson_fft_object), intent(in), optional :: coarse        !< Mold of the coarsest-level solver.
+   logical,                  intent(in), optional :: isolated       !< Free-space boundaries (James), else as the grid.
    integer(I4P), allocatable :: counts(:), displs(:) !< Allgather counts and displacements.
    integer(I4P), allocatable :: mine(:,:)            !< This rank's block coordinates and index [5,nb].
    integer(I4P), allocatable :: all_(:,:)            !< Every rank's [5,nleaf].
@@ -257,6 +288,13 @@ contains
    if (p /= 0 .and. p /= self%nd) call mpih%error_stop(msg='poisson_mg_object%initialize: mixed periodic and '// &
       'non-periodic directions; the multigrid solver takes every active direction periodic, or none (Dirichlet)')
    self%dirichlet = p == 0
+   if (present(isolated)) self%isolated = isolated
+   if (self%isolated) then
+      if (.not.self%dirichlet) call mpih%error_stop(msg='poisson_mg_object%initialize: isolated boundaries on a '// &
+         'periodic grid')
+      if (self%nd /= 3) call mpih%error_stop(msg='poisson_mg_object%initialize: isolated boundaries are 3-D only '// &
+         '(the kernel is the 3-D lattice Green function)')
+   endif
    self%emin = grid%domain_emin
    self%nblk0 = nint((grid%domain_emax - grid%domain_emin) / grid%block_dxyz(:,0))
    self%dx0 = grid%cell_dxyz(:,0)
@@ -334,6 +372,11 @@ contains
    do b=1, n
       self%vol((b-1)*self%ncb+1:b*self%ncb) = self%cell_volume(field%coordinates(4,b))
    enddo
+   if (self%isolated) then ! the unit lattice's Green's function needs cubic cells
+      if (any(abs(self%dx0 - self%dx0(1)) > 1.e-12_R8P * self%dx0(1))) &
+         call mpih%error_stop(msg='poisson_mg_object%initialize: isolated boundaries need cubic cells')
+   endif
+   self%nc = self%nblk0 * merge(1, 2**self%lmin, self%null) * self%nijk
    call assemble_a
    call assemble_ghost_fill
    call assemble_levels
@@ -346,8 +389,18 @@ contains
    call self%fft%initialize_blocks(nblk=self%nblk0 * merge(1, 2**self%lmin, self%null), nijk=self%nijk, ngc=0_I4P, &
                                    dxyz=self%dx_of(self%lmin), level=self%lmin, null_xyz=self%null, isolated=.false., &
                                    dirichlet=self%dirichlet)
-   allocate(self%u(max(n*self%ncb,1)))
+   if (self%isolated) then ! the coarsest box widened by the ghost layer, zero-padded: sources and values on its shell
+      if (present(coarse)) then
+         allocate(self%gfft, mold=coarse)
+      else
+         allocate(poisson_fft_object :: self%gfft)
+      endif
+      call self%gfft%initialize_blocks(nblk=[1_I4P, 1_I4P, 1_I4P], nijk=self%nc + 2, ngc=0_I4P, &
+                                       dxyz=self%dx_of(self%lmin), level=self%lmin, null_xyz=self%null, isolated=.true.)
+   endif
+   allocate(self%u(max(n*self%ncb,1)), self%u0(max(n*self%ncb,1)))
    self%u = 0._R8P
+   self%u0 = 0._R8P
    self%has_guess = .false.
    self%is_initialized = .true.
    contains
@@ -405,8 +458,10 @@ contains
       allocate(self%g_bnd(max(2*self%nd*self%ncb*field%blocks_number,1)))
       allocate(self%bnd_row(max(2*self%nd*self%ncb*field%blocks_number,1)), &
                self%bnd_w(max(2*self%nd*self%ncb*field%blocks_number,1)), &
-               self%bnd_x(3,max(2*self%nd*self%ncb*field%blocks_number,1)))
+               self%bnd_x(3,max(2*self%nd*self%ncb*field%blocks_number,1)), &
+               self%bnd_gi(max(2*self%nd*self%ncb*field%blocks_number,1)))
       self%g_bnd = 0
+      self%bnd_gi = 0
       self%nbnd = 0
       nrow = 0
       do b=1, field%blocks_number
@@ -427,6 +482,10 @@ contains
                         allocate(keys(0), wts(0))
                         cls = 0
                         if (self%outside(lv, nb3)) then ! a domain face: the ghost value, set by solve
+                           if (self%isolated .and. lv /= self%lmin) call mpih%error_stop(msg= &
+                              'poisson_mg_object%initialize: a leaf at level '//trim(str(lv, .true.))//          &
+                              ' touches the domain boundary; isolated boundaries need every leaf on the boundary '// &
+                              'at the coarsest level, '//trim(str(self%lmin, .true.))//' (issue #87, D-87-2)')
                            self%nbnd = self%nbnd + 1
                            self%bnd_row(self%nbnd) = (b - 1) * self%ncb + self%lin(ijk)
                            self%bnd_w(self%nbnd) = self%face_weight(lv, dd)
@@ -436,6 +495,9 @@ contains
                                  0.5_R8P * (field%emax(a_,b) - field%emin(a_,b))
                            enddo
                            self%g_bnd(nrow+1) = self%nbnd
+                           ! its ghost cell in the coarsest box widened by one cell per side, i fastest
+                           self%bnd_gi(self%nbnd) = (nb3(1) + 2) + (self%nc(1) + 2) * ((nb3(2) + 1) + &
+                                                    (self%nc(2) + 2) * (nb3(3) + 1))
                         else
                            cls = self%classify(lv, nb3)
                         endif
@@ -592,6 +654,38 @@ contains
    endsubroutine solve
 
    subroutine solve_packed(self, field, buf, factor, phi, energy, ghost)
+   !< Solve from the packed interior source of this rank's leaves (block-major, `i` fastest); then the ghost fill.
+   !< Isolated (issue #87, P2), the James step: the zero-ghost solve `phi0 = A^-1 factor V f`, the screening charge
+   !< `s = B^T phi0` on the ghost cells, the ghost values of the free-space solution `g = -G s` (`ghost_green`), and
+   !< the solve with them, `phi = A^-1 (factor V f - B g)`: the map is `(A^-1 + A^-1 B G B^T A^-1) factor V`,
+   !< symmetric in the V-weighted form since A and G are. Each of the two solves warm-starts from its own last solution.
+   class(poisson_mg_object), intent(inout)         :: self    !< The solver.
+   type(field_object),       intent(in)            :: field   !< The field.
+   real(R8P),                intent(in)            :: buf(1:) !< Packed interior source.
+   real(R8P),                intent(in)            :: factor  !< Source factor.
+   real(R8P),    intent(inout) :: phi(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Potential [i,j,k,nb].
+   real(R8P),                intent(out), optional :: energy  !< sum_cells V f phi (all ranks).
+   real(R8P),                intent(in),  optional :: ghost(1:) !< Dirichlet: the ghost value per boundary face.
+   real(R8P), allocatable :: g(:), s(:), u_(:) !< Ghost values, screening charge, the last solution aside.
+
+   if (.not.self%isolated) then
+      call self%solve_fcg(field=field, buf=buf, factor=factor, phi=phi, energy=energy, ghost=ghost)
+      return
+   endif
+   if (present(ghost)) call mpih%error_stop(msg='poisson_mg_object%solve: ghost values given with isolated '// &
+      'boundaries (the James step computes them)')
+   allocate(g(max(self%nbnd,1)), s(max(self%nbnd,1)))
+   g = 0._R8P ; s = 0._R8P
+   call move_alloc(self%u, u_) ; call move_alloc(self%u0, self%u)
+   call self%solve_fcg(field=field, buf=buf, factor=factor, phi=phi, ghost=g)
+   self%iterations0 = self%iterations
+   call self%apply_bt(self%u, s)
+   call move_alloc(self%u, self%u0) ; call move_alloc(u_, self%u)
+   call self%ghost_green(s, g)
+   call self%solve_fcg(field=field, buf=buf, factor=factor, phi=phi, energy=energy, ghost=g)
+   endsubroutine solve_packed
+
+   subroutine solve_fcg(self, field, buf, factor, phi, energy, ghost)
    !< Solve from the packed interior source of this rank's leaves (block-major, `i` fastest): FCG on the operator, preconditioned
    !< by the V-cycle, from the previous solution when there is one; then the ghost fill.
    class(poisson_mg_object), intent(inout)         :: self    !< The solver.
@@ -738,7 +832,7 @@ contains
       call MPI_ALLREDUCE(MPI_IN_PLACE, rm, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
       if (fmax > 0._R8P) rm = rm / fmax
       endfunction rel_max
-   endsubroutine solve_packed
+   endsubroutine solve_fcg
 
    function symmetry_defect(self, x, y) result(defect)
    !< |x . A y - y . A x| / (|x| |A y|) over the ranks, for two leaf vectors: the operator's symmetry, verified.
@@ -1004,6 +1098,56 @@ contains
       keys_f(o+1) = ckey(lf, c2)
    enddo
    endsubroutine face_cells
+
+   subroutine ghost_green(self, s, g)
+   !< Isolated: `g = -G s` on this rank's boundary faces, `G` the inverse of the V-weighted coarsest-level operator on
+   !< the infinite lattice, from ghost cell to ghost cell (`G(n) / H`, the unit lattice's Green's function over the
+   !< coarsest spacing). Rank 0 gathers the charges into the coarsest box widened by the ghost layer (every face has
+   !< its own ghost cell: a boundary leaf is at the coarsest level), convolves with the padded FFT (`gfft`, which solves
+   !< `L_H phi = factor f` by the kernel `H^2 G`, so `factor = -1 / H^3`), and scatters the values back.
+   class(poisson_mg_object), intent(inout) :: self  !< The solver.
+   real(R8P),                intent(in)    :: s(1:) !< Screening charge per boundary face.
+   real(R8P),                intent(inout) :: g(1:) !< Ghost value per boundary face.
+   integer(I4P), allocatable :: counts(:), displs(:) !< Gather counts and displacements.
+   integer(I4P), allocatable :: gi_all(:)            !< Rank 0: the ghost cells of every face.
+   real(R8P),    allocatable :: v_all(:)             !< Rank 0: the charges, then the values, of every face.
+   real(R8P),    allocatable :: box(:), out(:)       !< Rank 0: the widened box, source and potential.
+   real(R8P)                 :: h(3)                 !< Coarsest spacing.
+   integer(I4P)              :: ntot, nbl, c, r, ierr !< Faces, blocks of the box solve, counters, MPI status.
+
+   allocate(counts(self%nr), displs(self%nr))
+   call MPI_GATHER(self%nbnd, 1, MPI_INTEGER, counts, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+   displs = 0 ; ntot = 0
+   if (self%me == 0) then
+      do r=2, self%nr
+         displs(r) = displs(r-1) + counts(r-1)
+      enddo
+      ntot = sum(counts)
+   endif
+   allocate(gi_all(max(ntot,1)), v_all(max(ntot,1)))
+   call MPI_GATHERV(self%bnd_gi, self%nbnd, MPI_INTEGER, gi_all, counts, displs, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+   call MPI_GATHERV(s, self%nbnd, MPI_REAL8, v_all, counts, displs, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
+   nbl = 0
+   if (self%me == 0) then
+      nbl = 1
+      allocate(box(product(self%nc + 2)), out(product(self%nc + 2)))
+      box = 0._R8P
+      do c=1, ntot
+         box(gi_all(c)) = box(gi_all(c)) + v_all(c)
+      enddo
+   else
+      allocate(box(1), out(1))
+   endif
+   h = self%dx_of(self%lmin)
+   call self%gfft%solve_blocks(nbl=nbl, coords=reshape([0_I4P, 0_I4P, 0_I4P], [3, 1]), buf=box, &
+                               factor=-1._R8P / h(1)**3, gw=0_I4P, out=out)
+   if (self%me == 0) then
+      do c=1, ntot
+         v_all(c) = out(gi_all(c))
+      enddo
+   endif
+   call MPI_SCATTERV(v_all, counts, displs, MPI_REAL8, g, self%nbnd, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
+   endsubroutine ghost_green
 
    pure function cell_volume(self, lv) result(v)
    !< Cell volume at level lv (the product over the active directions).
