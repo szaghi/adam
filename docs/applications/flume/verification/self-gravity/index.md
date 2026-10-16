@@ -29,6 +29,7 @@ The phases of #81 and the cases that verify them:
 | P6 | the regression cases `selfgravity-jeans`, `selfgravity-amr-stage`, `selfgravity-star` | — |
 | [#87](https://github.com/szaghi/adam/issues/87) P1 | Dirichlet faces in the multigrid solver, a DST-I coarsest level | SV-12 |
 | [#87](https://github.com/szaghi/adam/issues/87) P2 | isolated boundaries on AMR, the symmetric James step | SV-13 |
+| [#87](https://github.com/szaghi/adam/issues/87) P3 | isolated self-gravity on AMR in FLUME: the refusals lifted, a regrid that refines a boundary block fatal | SV-14 |
 
 The figures are regenerated with `make_doc_runs.sh <dir> <group>` and `make_doc_figures.py --only <figure>`
 (`src/tests/flume/verification/`):
@@ -46,7 +47,7 @@ The figures are regenerated with `make_doc_runs.sh <dir> <group>` and `make_doc_
 | [The FFT Poisson solver](./fft-poisson) | SV-2 | the periodic solver is exact for $L_h$, second order against the continuum |
 | [Jeans modes](./jeans) | SV-3 to SV-5 | the coupling: dispersion relation, growth rate, symmetry, exact $E + W$ exchange, scaling covariance |
 | [The isolated solver](./isolated-solver) | SV-6 | zero padding with the lattice Green's function: free-space potential of the mass on the grid |
-| [The n = 1 polytrope](./polytrope) | SV-7, SV-8 | a star in equilibrium and a collapsing one under isolated self-gravity |
+| [The n = 1 polytrope](./polytrope) | SV-7, SV-8, SV-14 | a star in equilibrium and a collapsing one under isolated self-gravity, uniform and on AMR |
 | [The multigrid solver on AMR grids](./multigrid-amr) | SV-9, SV-12, SV-13 | the mimetic 2:1 coupling (symmetric and consistent), the FCG solver, Dirichlet faces, isolated boundaries by the symmetric James step |
 | [Jeans modes on a static AMR grid](./amr-jeans) | SV-10 | the multigrid coupling, the seam gravity work, the per-stage reflux |
 | [Self-gravity under runtime AMR](./runtime-amr) | SV-11 | the solver and $\Phi$ follow every regrid; $E + W$ exact between regrids |

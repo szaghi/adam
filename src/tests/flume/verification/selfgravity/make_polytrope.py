@@ -20,9 +20,19 @@ The mean density of the star is 3 rho_c / pi^2, so its free-fall time is t_ff = 
 
 Usage:
     make_polytrope.py <out.ini> <case> [--cells N] [--levels L] [--cfl C] [--time-max T] [--it-save N]
+                      [--box] [--regrid N] [--boundary-box] [--reflux-cadence step|stage]
 
 `--cells` sets the cells per block side (default 8), `--levels` the uniform levels (default 2): the grid is
-N 2^L cells per side (32^3 by default).
+N 2^L cells per side (32^3 by default). `--radius` sets the star's radius a (default 1/2; K = 2 G a^2 / pi follows).
+On AMR (issue #87, P3; isolated self-gravity by the multigrid's James step,
+which needs every leaf on the domain boundary at the coarsest level): `--box` refines the box [-1/2, 1/2]^3 one
+level more at the start (`amr_iterations = 1`): with `--radius 0.3` the 2:1 seam lies in the atmosphere, 0.2 off the
+surface (with a = 1/2 it cuts the surface at the face centres, and the light atmosphere blows up there, issue #87); `--regrid N` regrids every N steps, a Loehner estimator on the density
+refining one level more (the star's surface), at most `levels + 1`, with the atmosphere's surface density as the
+estimator's noise floor (without it the estimator marks the atmosphere's kink at the walls, whose mirror ghosts fold
+its hydrostatic profile, and refines boundary blocks); `--boundary-box` adds the box [1/2, 1]^3, which
+touches the domain boundary, to the regrid's markers (not at the start): the first regrid refines a boundary block,
+which must stop the run (D-87-4).
 """
 
 from __future__ import annotations
@@ -38,13 +48,36 @@ RHO_C = 1.0
 GAMMA = 2.0
 RHO_ATM = 1.0e-2
 K = 2.0 * G * RADIUS**2 / math.pi
+BOX = 0.5  # the refined box of --box: [-BOX, BOX]^3, block-aligned from level 2 on
 
 
 def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | None, it_save: int,
-             atmosphere: float, limiter: bool) -> str:
+             atmosphere: float, limiter: bool, box: bool = False, regrid: int = 0, boundary_box: bool = False,
+             reflux_cadence: str | None = None, radius: float = RADIUS) -> str:
     """Return the INI of a case."""
+    k = 2.0 * G * radius**2 / math.pi
     t_end = time_max if time_max is not None else {"star": 4.0, "starc": 1.5}[case]
     factor = 1.0 if case == "star" else 0.5
+    markers: list[list[str]] = []
+
+    def primitive_box(lo: float, hi: float) -> list[str]:
+        return ["mode = 1", "geo_type = primitive-box", "delta_type = max", "delta_fine = 0.0", "delta_coarse = 0.0",
+                f"box_xmin = {lo!r}", f"box_ymin = {lo!r}", f"box_zmin = {lo!r}", f"box_xmax = {hi!r}",
+                f"box_ymax = {hi!r}", f"box_zmax = {hi!r}", f"target_level = {levels + 1}"]
+
+    if box:
+        markers.append(primitive_box(-BOX, BOX))
+    if regrid:
+        markers.append(["mode = 4", "delta_type = max", "delta_fine = 0.0", "delta_coarse = 0.0", "field = 1",
+                        "var = 1", "refine_tol = 0.3", "derefine_tol = 0.1", f"floor = {atmosphere * RHO_C!r}",
+                        "buffer = 2"])
+    if boundary_box:
+        markers.append(primitive_box(0.5, 1.0))
+    amr = ["[amr]", f"max_level = {levels + 1 if markers else levels}", "ratio = 8", f"iu_ref_levels = {levels}",
+           "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", f"frequency = {regrid}", "iters = 1",
+           f"markers_number = {len(markers)}"]
+    for m, marker in enumerate(markers, start=1):
+        amr += [f"[amr_marker_{m}]", *marker]
     lines = [
         f"; FLUME self-gravity case {case} (verification/selfgravity/make_polytrope.py, issue #81 M8-P4)",
         "[IO]", f"output_basename = {case}", f"it_save = {it_save}", "restart = .false.",
@@ -54,8 +87,7 @@ def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | N
         "[grid]", f"ni = {cells}", f"nj = {cells}", f"nk = {cells}", "ngc = 4",
         "emin_x = -1.0", "emin_y = -1.0", "emin_z = -1.0", "emax_x = 1.0", "emax_y = 1.0", "emax_z = 1.0",
         "null_x = .false.", "null_y = .false.", "null_z = .false.",
-        "[amr]", f"max_level = {levels}", "ratio = 8", f"iu_ref_levels = {levels}",
-        "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", "frequency = 0", "iters = 1", "markers_number = 0",
+        *amr,
         "[field]", "nv = 5", "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5", "ror_number = 0", "ror_threshold = 0.9", "ror_vars_number = 0",
         "enable_ror_stats = .false.", "ib_reduction_extent = 0", "ib_reduced_order = 2",
@@ -66,16 +98,18 @@ def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | N
         "[physics]", "physical_model = euler", f"gamma = {GAMMA!r}",
         "[numerics]", "scheme_space = weno", "reconstruction_variables = characteristic", "reflux = .true.",
         f"positivity_limiter = {'cell' if limiter else 'none'}",
+        *([f"reflux_cadence = {reflux_cadence}"] if reflux_cadence else []),
     ]
     for face in ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max"):
         lines += [f"[bc_{face}]", "type = wall-inviscid"]
     lines += ["[time]", "it_max = -1", f"time_max = {t_end!r}", f"CFL = {cfl!r}",
               "[diagnostics]", "conservation_history_save = 1",
               "[gravity]", "self_gravity = .true.", f"G = {G!r}", "poisson_bc = isolated",
-              "[initial_conditions]", "type = polytrope", "amr_iterations = 0", f"star_radius = {RADIUS!r}",
+              "[initial_conditions]", "type = polytrope", f"amr_iterations = {1 if box else 0}",
+              f"star_radius = {radius!r}",
               f"star_density = {RHO_C!r}", f"star_pressure_factor = {factor!r}",
               "[initial_conditions_region_1]", f"r = {atmosphere * RHO_C!r}", "u = 0.0", "v = 0.0", "w = 0.0",
-              f"p = {K * RHO_C * atmosphere * RHO_C!r}"]
+              f"p = {k * RHO_C * atmosphere * RHO_C!r}"]
     return "\n".join(lines) + "\n"
 
 
@@ -91,9 +125,19 @@ def main() -> int:
     parser.add_argument("--it-save", type=int, default=1000000)
     parser.add_argument("--atmosphere", type=float, default=RHO_ATM, help="surface density of the atmosphere / rho_c")
     parser.add_argument("--limiter", action="store_true", help="the cell positivity limiter")
+    parser.add_argument("--box", action="store_true", help="refine the star's box once at the start (issue #87)")
+    parser.add_argument("--regrid", type=int, default=0, help="regrid every N steps on the density (issue #87)")
+    parser.add_argument("--boundary-box", action="store_true",
+                        help="a regrid marker on [1/2, 1]^3, at the boundary: must stop the run (issue #87, D-87-4)")
+    parser.add_argument("--reflux-cadence", choices=("step", "stage"), default=None)
+    parser.add_argument("--radius", type=float, default=RADIUS,
+                        help="star radius (default 1/2); with --box keep it below 1/2, the 2:1 seam off the surface")
     args = parser.parse_args()
+    if args.boundary_box and not args.regrid:
+        parser.error("--boundary-box needs --regrid (the marker acts at the regrids)")
     args.out.write_text(case_ini(args.case, args.cells, args.levels, args.cfl, args.time_max, args.it_save,
-                                 args.atmosphere, args.limiter))
+                                 args.atmosphere, args.limiter, args.box, args.regrid, args.boundary_box,
+                                 args.reflux_cadence, args.radius))
     return 0
 
 

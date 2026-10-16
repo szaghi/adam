@@ -1229,9 +1229,11 @@ contains
    !< `[gravity] potential = linear` it is `Phi = -g . x` at the cell centres, the constant field written as a potential;
    !< with `self_gravity` (M8-P3) the Poisson solver is set up on the current grid and Phi is solved from the host state
    !< `q`: on a uniform grid the FFT solver (periodic or isolated), on an AMR grid (leaves at more than one level, P5b)
-   !< the multigrid solver, periodic only, its coarsest level solved by the FFT solver of the backend; without a potential the array is a one-cell placeholder
-   !< (the kernels take it and do not read it). Sized by the block capacity `nb`, as the other block arrays; call it
-   !< after the initial grid and after every regrid.
+   !< the multigrid solver, its coarsest level solved by the FFT solver of the backend, periodic or isolated (the
+   !< symmetric James step, issue #87: every leaf on the domain boundary at the coarsest level, which a regrid that
+   !< refines a boundary block breaks, fatal in the solver's initialize, D-87-4); without a potential the array is a
+   !< one-cell placeholder (the kernels take it and do not read it). Sized by the block capacity `nb`, as the other
+   !< block arrays; call it after the initial grid and after every regrid.
    class(flume_common_object), intent(inout) :: self    !< The equation.
    integer(I4P)                              :: b, i, j, k !< Counters.
    integer(I4P)                              :: lev(2)  !< Lowest and (negated) highest leaf level over the ranks.
@@ -1265,11 +1267,9 @@ contains
          call self%poisson%initialize(grid=self%adam%grid, field=self%adam%field, &
                                       isolated=self%physics%gravity%isolated)
       else
-         if (self%physics%gravity%isolated) &
-            call mpih%error_stop(msg=': [gravity].(poisson_bc) = isolated is not supported by the multigrid solver '// &
-                                     '(AMR grids, or poisson_solver = multigrid): it is periodic only (issue #87)')
          allocate(self%poisson_mg)
-         call self%poisson_mg%initialize(grid=self%adam%grid, field=self%adam%field, coarse=self%poisson)
+         call self%poisson_mg%initialize(grid=self%adam%grid, field=self%adam%field, coarse=self%poisson, &
+                                         isolated=self%physics%gravity%isolated)
       endif
       endassociate
       call self%solve_potential(q=self%q)
@@ -1652,10 +1652,8 @@ contains
    if (self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': [gravity] is not supported with immersed solids yet (issue #73)')
    ! self-gravity with runtime AMR (issue #81, P5c): every regrid sets the solver up again (set_potential), the multigrid
-   ! on an AMR grid; isolated boundaries have no AMR solver yet (#87), refused here rather than at the first refinement
-   if (self%physics%gravity%self_gravity .and. self%physics%gravity%isolated .and. self%amr%frequency > 0_I4P) &
-      call mpih%error_stop(msg=': [gravity].(poisson_bc) = isolated is refused with runtime AMR ([amr].(frequency) '// &
-                               '> 0): the multigrid solver is periodic only (issue #87)')
+   ! on an AMR grid; isolated boundaries (issue #87) stop the run at a regrid that refines a block on the domain
+   ! boundary (the solver's initialize, D-87-4)
    ! the well-balanced mode (M7-G2b) subtracts the residual of a stored equilibrium, whose reflux correction is fixed:
    ! a reflux that changes its cells per step (policy troubled) cannot be subtracted
    if (self%physics%gravity%is_balanced .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &

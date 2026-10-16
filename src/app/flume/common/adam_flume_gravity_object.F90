@@ -22,14 +22,15 @@ module adam_flume_gravity_object
 !< **Self-gravity** (issue #81, M8-P3): `self_gravity = .true.` solves `L_h Phi = 4 pi G (rho - mean rho)` every
 !< Runge-Kutta stage and applies it through the potential path. `poisson_solver`: `auto` (default) the library FFT solver
 !< on a uniform grid and the multigrid solver on an AMR grid (P5b), `fft` the FFT solver only (an AMR grid is fatal),
-!< `multigrid` the multigrid solver on any grid (periodic only); `poisson_bc = periodic`: every active direction
+!< `multigrid` the multigrid solver on any grid; `poisson_bc = periodic`: every active direction
 !< periodic. `poisson_bc = isolated` (M8-P4) solves
 !< `L_h Phi = 4 pi G rho` with `Phi -> 0` at infinity instead (zero padding and the lattice Green's function: 3-D,
-!< every direction non-periodic, cubic cells; the solver refuses anything else). The constant is `G` (dimensional: the
-!< `[reference]` layer converts it, dimension `u0^2 / (rho0 L0^2)`) or `G_star` (the number `G rho0 L0^2 / u0^2`, never
-!< converted); exactly one of them is required with `self_gravity`, and either without it is fatal. The constant `g` is
-!< optional with `self_gravity` (default 0) and is added through its own kernels (`potential = uniform`); `potential =
-!< linear` and `equilibrium = atmosphere` are refused with it.
+!< every direction non-periodic, cubic cells; on AMR the multigrid's symmetric James step, issue #87, which also needs
+!< every leaf on the domain boundary at the coarsest level; the solver refuses anything else). The constant is `G`
+!< (dimensional: the `[reference]` layer converts it, dimension `u0^2 / (rho0 L0^2)`) or `G_star` (the number
+!< `G rho0 L0^2 / u0^2`, never converted); exactly one of them is required with `self_gravity`, and either without it
+!< is fatal. The constant `g` is optional with `self_gravity` (default 0) and is added through its own kernels
+!< (`potential = uniform`); `potential = linear` and `equilibrium = atmosphere` are refused with it.
 !<
 !< Without the section there is no gravity (`is_active` false) and nothing changes. With it, `g` sets the atmosphere
 !< initial conditions and the `hydrostatic` boundary condition (M7-G0) and drives the momentum and energy sources

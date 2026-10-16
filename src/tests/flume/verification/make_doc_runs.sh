@@ -26,7 +26,9 @@
 #   isolated the isolated self-gravity cases (#81, P4): sv6-poisson, the SV-6 unit test (`--isolated`, POISSON_EXE) with
 #           its log and dumps; sv7-l{2,3}, the equilibrium star of selfgravity/star.sh at 32^3 and 64^3 (a light
 #           atmosphere, the positivity limiter) to t = 2; sv8-collapse-{0.4,0.2,0.1}, the collapsing star, a checkpoint
-#           every 10 steps (JEANS_EXE, default exe/adam_flume_cpu_fft) (6 runs, about 60 min: sv7-l3 takes 45)
+#           every 10 steps (JEANS_EXE, default exe/adam_flume_cpu_fft); sv14-{uniform,box},
+#           sv14-collapse-{0.4,0.2,0.1}, the smaller star (radius 0.3) on AMR (#87, P3: isolated self-gravity by the
+#           multigrid's James step) as selfgravity/star.sh runs them (11 runs)
 #   amr     sv9-poisson: the SV-9 unit test of the multigrid Poisson solver on AMR grids (#81, P5a; POISSON_MG_EXE,
 #           default exe/test_poisson_mg, mode test-poisson-mg-gnu) with its log; sv13-poisson, the same with
 #           `--isolated` (#87, P2: the James step, SV-13); the SV-10 Jeans cases on the
@@ -61,7 +63,7 @@
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
 #        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
-#        isolated: --only selfgravity-isolated selfgravity-star; amr: --only selfgravity-amr selfgravity-amr-jeans
+#        isolated: --only selfgravity-isolated selfgravity-star selfgravity-star-amr; amr: --only selfgravity-amr selfgravity-amr-jeans
 #        selfgravity-amr-regrid selfgravity-amr-isolated)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
@@ -276,7 +278,15 @@ for g in $GROUPS_; do
          for lev in 2 3; do
             star "sv7-l$lev" star --levels "$lev" --atmosphere 1e-4 --limiter --time-max 2.0 --it-save 10
          done
-         for cfl in 0.4 0.2 0.1; do star "sv8-collapse-$cfl" starc --cfl "$cfl" --it-save 10 ; done ;;
+         for cfl in 0.4 0.2 0.1; do star "sv8-collapse-$cfl" starc --cfl "$cfl" --it-save 10 ; done
+         # SV-14 (issue #87, P3), the smaller star on AMR as selfgravity/star.sh runs it
+         for grid in uniform box; do
+            star "sv14-$grid" star --levels 2 --radius 0.3 $([[ $grid == box ]] && echo --box) --atmosphere 1e-4 \
+               --limiter --time-max 2.0 --it-save 10
+         done
+         for cfl in 0.4 0.2 0.1; do
+            star "sv14-collapse-$cfl" starc --radius 0.3 --box --reflux-cadence stage --cfl "$cfl"
+         done ;;
       amr)
          fresh sv9-poisson
          POISSON_MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"

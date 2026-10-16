@@ -20,8 +20,10 @@ What the case catches:
 - a regrid that keeps the old solver or the old potential: the step changes of $E + W$ between regrids leave the
   time-integration level;
 - a jump of $E + W$ off a regrid step (a leak that is not the change of the discrete $W$);
-- a momentum or mass leak through the regrid;
-- isolated boundaries accepted under runtime AMR, which no AMR solver supports.
+- a momentum or mass leak through the regrid.
+
+Isolated boundaries under runtime AMR, refused here until [#87](https://github.com/szaghi/adam/issues/87), are
+verified with the polytrope ([SV-14](./polytrope)), with the refusal of a regrid that refines a boundary block.
 
 ## Models and numerics
 
@@ -31,7 +33,6 @@ What the case catches:
 | Regrid | every 5 steps (`[amr] frequency = 5`), one level above the base, a Löhner estimator on the density (mode 4): refine above 0.3, derefine below 0.1 | `regrid_forest`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90), [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90); [numerics](../../numerics#adaptive-mesh-refinement) |
 | Solver after a regrid | `set_potential` sets the solver up on the new grid (FFT if the leaves are at one level, multigrid otherwise) and solves $\Phi$ from the regridded state; the FNL backend copies it to the device | `set_potential`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90); `refresh_potential`, [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90) |
 | Seam gravity work | in the per-stage reflux | `add_seam_gravity_work`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90); `reflux_stage`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
-| Refusal | `poisson_bc = isolated` with `[amr] frequency > 0` | `check_gravity`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
 | Space, time | WENO5 flux splitting (`weno`), SSP-RK3, CFL 0.4 | [numerics](../../numerics#scheme-space-weno-flux-splitting) |
 
 ## Initial and boundary conditions
@@ -44,7 +45,6 @@ What the case catches:
 | Reflux | per stage (`reflux_cadence = stage`) |
 | Ranks | 2 |
 | End | $t = 0.4$ (the figure's run: a checkpoint every 10 steps) |
-| Refusal | `jeans2d --regrid 5 --poisson-bc isolated` must stop with exit 1 |
 
 ## Input files
 
@@ -74,7 +74,6 @@ blocks), then jumps once and stays flat. Right: the final density, the refined b
 | every jump of $E + W$ on a regrid step | yes | one jump, at step 60: $-2.3\cdot10^{-4}$ | the same, $-2.3\cdot10^{-4}$ |
 | the largest other step change of $E + W$, relative | $10^{-6}$ | $7.6\cdot10^{-8}$ | $7.6\cdot10^{-8}$ |
 | max $\lvert$momentum$\rvert$; mass drift | $10^{-14}$; $10^{-14}$ | $2.9\cdot10^{-18}$; 0 | $4.7\cdot10^{-18}$; $1.1\cdot10^{-16}$ |
-| isolated boundaries with runtime AMR | refused, exit 1 | refused | refused |
 
 Related cases: the same collapse on a static AMR grid is [SV-10](./amr-jeans), on a uniform grid [SV-4](./jeans);
 runtime regridding without gravity is [runtime regrids](../runtime-amr/runtime-regrids).

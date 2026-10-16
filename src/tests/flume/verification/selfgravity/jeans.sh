@@ -28,13 +28,14 @@
 #         first-order time error (without the seam work the drift does not converge in dt: order 0.07);
 #       - the same collapse with `[numerics] reflux_cadence = stage` (P5c): the per-stage reflux restores the
 #         time integration's order, >= MIN_DRIFT_ORDER (SSP-RK3), with the mass at round-off;
-#       - refused: isolated boundaries with the multigrid solver (so on AMR; issue #87), `poisson_solver = fft` on
-#         AMR.
+#       - refused: isolated boundaries on a periodic grid with the multigrid solver (the solver's own check since
+#         issue #87, which made isolated boundaries on AMR work: selfgravity/star.sh, SV-14), `poisson_solver = fft`
+#         on AMR.
 #   - SV-11 (issue #81, P5c), self-gravity under runtime AMR: the collapse (base 32^2) regridded every REGRID steps by a
 #     Loehner estimator on the density, with the per-stage reflux. The grid must change, every jump of E + W must fall
 #     on a regrid step (the discrete W changes with the grid: the jumps are reported, not bounded), the other step
-#     changes of E + W stay below TOL_STEP, the momentum and the mass at round-off; isolated boundaries with runtime AMR
-#     are refused (#87).
+#     changes of E + W stay below TOL_STEP, the momentum and the mass at round-off. (Isolated boundaries under runtime
+#     AMR: star.sh, SV-14.)
 #
 # Usage: ./jeans.sh [--np N] [--legs "sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave sv11"] [--keep]
 #
@@ -163,7 +164,7 @@ for leg in $LEGS; do
                --min-order "$MIN_DRIFT_ORDER" --tol-mass "$TOL_MASS" --label "Jeans AMR, per-stage reflux" \
                || FAILED=1
          fi
-         refuse sv10-isolated 'not supported by the multigrid solver' jeans2d --solver multigrid --poisson-bc isolated
+         refuse sv10-isolated 'isolated boundaries on a periodic grid' jeans2d --solver multigrid --poisson-bc isolated
          refuse sv10-fft-amr 'poisson_solver) = fft needs a uniform grid' jeans2d --box --solver fft ;;
       sv10-wave)
          echo ">> SV-10: the stable Jeans wave across 2:1 seams, 2-D and 3-D"
@@ -178,8 +179,7 @@ for leg in $LEGS; do
          if run sv11-regrid jeansc2d --cells 8 --regrid "$REGRID" --reflux-cadence stage; then
             "$VENV_PY" "$ORACLE" regrid "$W" --frequency "$REGRID" --tol-step "$TOL_STEP" \
                --tol-momentum "$TOL_MOMENTUM" --tol-mass "$TOL_MASS" || FAILED=1
-         fi
-         refuse sv11-isolated 'isolated is refused with runtime AMR' jeans2d --regrid "$REGRID" --poisson-bc isolated ;;
+         fi ;;
       sv5)
          echo ">> SV-5: scaling covariance with G"
          case_dir sv5-input jeans2d --cells 8 --time-max 0.2

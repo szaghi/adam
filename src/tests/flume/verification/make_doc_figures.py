@@ -1636,6 +1636,86 @@ def fig_selfgravity_star(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_selfgravity_star_amr(out: Path, runs: Path) -> None:
+    """SV-14 (issue #87, P3): the n = 1 polytrope of SV-7 and SV-8 on AMR, isolated self-gravity by the multigrid's
+    symmetric James step, the star of radius 0.3 so that the 2:1 seam of the box [-1/2, 1/2]^3 lies in the atmosphere
+    (CPU, 2 ranks). Top: the equilibrium with the box refined once over the 32^3 base (the star at the 64^3 spacing)
+    against the same star on the uniform 32^3 grid: the central density against its initial value, and the largest
+    Mach number inside 0.8 a. Bottom left: the
+    collapse on that grid with the per-stage reflux, the drift of E + W at CFL 0.4, 0.2, 0.1, with E and W alone.
+    Bottom right: the equilibrium star at the end on the plane z = h/2, block by block, its radius dashed: the 2:1
+    seam of the box lies in the atmosphere."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import jeans_oracle  # noqa: PLC0415
+    import star_oracle  # noqa: PLC0415
+
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    eq = [("sv14-uniform", "uniform 32^3", "tab:blue", "-"),
+          ("sv14-box", "AMR, 32^3 + the box [-1/2, 1/2]^3 at 64^3", "tab:green", "-")]
+    for name, label, color, ls in eq:
+        rows = star_oracle.star_rows(runs / name)
+        t = np.array([r[0] for r in rows])
+        rc = np.array([r[1] for r in rows])
+        axs[0, 0].plot(t, rc / rc[0] - 1.0, ls, color=color, label=label)
+        axs[0, 1].plot(t, [r[3] for r in rows], ls, color=color, label=label)
+    axs[0, 0].axhline(0.0, color="0.6", lw=0.6)
+    axs[0, 0].set_xlabel("t")
+    axs[0, 0].set_ylabel("central density / initial - 1")
+    axs[0, 0].legend(fontsize=8)
+    axs[0, 0].set_title("the equilibrium star on AMR, its core", fontsize=10)
+    axs[0, 1].set_xlabel("t")
+    axs[0, 1].set_ylabel("largest Mach number inside 0.8 a")
+    axs[0, 1].legend(fontsize=8)
+    axs[0, 1].set_title("the spurious motion inside the star", fontsize=10)
+    ax = axs[1, 0]
+    for cfl, color in (("0.4", "tab:blue"), ("0.2", "tab:orange"), ("0.1", "tab:green")):
+        h = jeans_oracle.history(runs / f"sv14-collapse-{cfl}")
+        ew0 = h["E_plus_W"][0]
+        ax.semilogy(h["time"][1:], np.maximum(np.abs(h["E_plus_W"][1:] - ew0) / abs(ew0), FLOOR), "-", color=color,
+                    label=f"E + W, CFL {cfl}")
+        if cfl == "0.1":
+            ax.semilogy(h["time"][1:], np.abs(h["int_rE"][1:] - h["int_rE"][0]) / abs(ew0), "--", color="0.4",
+                        label="E alone")
+            ax.semilogy(h["time"][1:], np.abs(h["W"][1:] - h["W"][0]) / abs(ew0), ":", color="0.4", label="W alone")
+    ax.set_xlabel("t")
+    ax.set_ylabel("relative change")
+    ax.legend(fontsize=8)
+    ax.set_title("the collapse on AMR, E + W drifts at the time integration's order", fontsize=10)
+    ax = axs[1, 1]
+    work = runs / "sv14-box"
+    ini = jeans_oracle.read_ini(work)
+    ngc = int(ini["grid"]["ngc"])
+    cps = jeans_oracle.checkpoints(work)
+    tc, paths = cps[max(cps)]
+    rmax, blocks = -math.inf, []
+    for path in paths:
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                origin, dxyz = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                r = h5[f"{blk}-r"][()].transpose(2, 1, 0)[ngc:-ngc, ngc:-ngc, ngc:-ngc]
+                x0, y0, z0 = (origin + ngc * dxyz)[:3]
+                k = int(np.floor((0.0 - z0) / dxyz[2]))  # the cell layer just above z = 0
+                if not 0 <= k < r.shape[2]:
+                    continue
+                rmax = max(rmax, float(r[:, :, k].max()))
+                blocks.append((x0, y0, r.shape[0] * dxyz[0], r.shape[1] * dxyz[1], r[:, :, k]))
+    for x0, y0, wx, wy, r in blocks:
+        im = ax.imshow(r.T, origin="lower", extent=(x0, x0 + wx, y0, y0 + wy), cmap="magma", vmin=0.0, vmax=rmax)
+        ax.add_patch(Rectangle((x0, y0), wx, wy, fill=False, lw=0.4, ec="w", alpha=0.6))
+    ax.add_patch(Circle((0.0, 0.0), float(ini["initial_conditions"]["star_radius"].split(";")[0]), fill=False, lw=0.8,
+                        ec="c", ls="--"))
+    ax.set_xlim(-1.0, 1.0)
+    ax.set_ylim(-1.0, 1.0)
+    fig.colorbar(im, ax=ax, shrink=0.85)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title(f"the AMR star at t = {tc:.2f}, z = h/2: the seam 0.2 off the surface (dashed)", fontsize=10)
+    fig.suptitle("SV-14: an n = 1 polytrope (radius 0.3) on AMR, isolated self-gravity by the multigrid's James step "
+                 "(CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-star-amr.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_selfgravity_jeans(out: Path, runs: Path) -> None:
     """SV-3 and SV-4 (issue #81, M8-P3): the Jeans modes of selfgravity/make_jeans.py (rho_0 = 1, c = 1,
     k = 2 pi (1, 1), periodic, CPU, 2 ranks). Top left: SV-3, the L1 error of the stable wave (lambda = lambda_J / 2)
@@ -2870,6 +2950,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-amr": fig_selfgravity_amr, "selfgravity-amr-jeans": fig_selfgravity_amr_jeans,
            "selfgravity-amr-regrid": fig_selfgravity_amr_regrid,
            "selfgravity-amr-isolated": fig_selfgravity_amr_isolated,
+           "selfgravity-star-amr": fig_selfgravity_star_amr,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
            "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,

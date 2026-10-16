@@ -227,7 +227,11 @@ $\dot W = \tfrac12\tfrac{d}{dt}(\rho^T K\rho) = \Phi^T\dot\rho$ because $K$ is s
 conserves $E + W$, $W = \tfrac12\sum\rho\Phi\,V$, exactly (with periodic boundaries or closed walls, where no mass
 flux crosses the boundary). The momentum source $-\sum\rho\,\bar g\,V$ vanishes because the centred difference of an
 even, translation-invariant kernel is antisymmetric. Neither needs the discrete Poisson equation to hold at round-off
-(the isolated residual is about $10^{-11}$); the symmetry is what counts. The Runge–Kutta integration (one solve per
+(the isolated residual is about $10^{-11}$); the symmetry is what counts. That holds exactly for the FFT solvers,
+which are fixed linear maps. The multigrid solver on AMR stops at a tolerance, so its $K$ is symmetric, and $E + W$
+exact, only to that tolerance: the defect measured in situ is $1.7\cdot10^{-11}$ at a tolerance of $10^{-12}$
+([SV-13](./verification/self-gravity/multigrid-amr)), the point Mullen et al. make (round-off conservation needs a
+round-off Poisson solution). The Runge–Kutta integration (one solve per
 stage, nothing time-averaged) leaves a drift of its own order in $\Delta t$; the positivity limiter's gravity energy
 correction (M7-G1) breaks the exchange wherever it acts.
 
@@ -235,7 +239,7 @@ The coupling is second order in space whatever the WENO order. A linear Jeans mo
 $\omega^2 = c^2k^2 - 4\pi G\rho_0$: a wavelength shorter than the Jeans length $\lambda_J = c\sqrt{\pi/(G\rho_0)}$
 oscillates, a longer one grows; an n = 1 polytrope star is an isolated equilibrium ([verification](./verification/self-gravity/)).
 
-**On AMR grids** (M8-P5b, periodic only; isolated boundaries on AMR: [#87](https://github.com/szaghi/adam/issues/87)),
+**On AMR grids** (M8-P5b; isolated boundaries: [#87](https://github.com/szaghi/adam/issues/87), below),
 $L_h$ is the composite Laplacian of the leaves. Across a 2:1 face it carries the **mimetic mean flux**: every fine
 face $f$ of a coarse cell C carries $\tfrac23 w\,(\bar\Phi_f - \Phi_C)$, where $\bar\Phi_f$ is the mean of the face's
 fine cells and $w$ is the fine face area over the fine spacing, and C receives the sum of these fluxes. The operator is
@@ -273,6 +277,24 @@ discrete energy: a regrid that changes the grid changes $W$ by a truncation-size
 ([SV-11](./verification/self-gravity/runtime-amr)). The jump is not a leak of the scheme between
 regrids, which stays exact. Making the regrid itself conserve $E + W$ would need a correction of $E$ at each regrid,
 which is not done.
+
+**Isolated boundaries on AMR** ([#87](https://github.com/szaghi/adam/issues/87)) use a symmetric form of James's
+method. With $A$ the composite operator with zero ghosts at the domain faces and $B$ the map of ghost values onto the
+boundary rows, the zero-ghost solve $\Phi_0 = A^{-1}4\pi G V\rho$, extended by zero, satisfies the infinite operator
+with a screening charge $s = B^T\Phi_0$ on the ghost cells. The free-space ghost values are $g = -Gs$, $G$ the lattice
+Green's function from ghost cell to ghost cell (a zero-padded FFT of the coarsest grid widened by the ghost layer), and
+the second solve is $\Phi = A^{-1}(4\pi G V\rho - Bg)$:
+
+$$K = A^{-1} + A^{-1}BGB^TA^{-1},$$
+
+symmetric because $A$ and $G$ are, so the $E + W$ exchange above stays exact. On a uniform grid it is the discrete
+free-space solution of the FFT solver; on AMR it is second order ($G$ ignores the refinement inside the domain, a
+truncation-order error). The textbook James method, with the screening charge on the boundary surface and the
+potential at the ghost centres, is not symmetric. $G$ is the coarse lattice's only if **every leaf on the domain
+boundary is at the coarsest level**: anything else is fatal, at start and at the regrid that would refine a boundary
+block (an isolated problem keeps its mass away from the boundary, where refinement is not needed). Each Poisson solve
+costs two composite solves and one FFT of the coarsest grid
+([SV-13](./verification/self-gravity/multigrid-amr), [SV-14](./verification/self-gravity/polytrope)).
 
 ## Units and scaling
 

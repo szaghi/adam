@@ -105,8 +105,8 @@ most, at the centre; smooth, with no trace of the domain's edge or of the paddin
 | CPU against FNL (`poisson_oracle.py compare`, the padded arrays) | $10^{-13}$ | $\le 1.6\cdot10^{-15}$ | $\le 1.6\cdot10^{-15}$ |
 
 Related cases: the periodic solver is [SV-2](./fft-poisson); the stars it holds and collapses are
-[SV-7 and SV-8](./polytrope); isolated boundaries on AMR are not supported ([#87](https://github.com/szaghi/adam/issues/87),
-[SV-10](./amr-jeans)).
+[SV-7 and SV-8](./polytrope); isolated boundaries on AMR are the multigrid's James step
+([#87](https://github.com/szaghi/adam/issues/87), [SV-13](./multigrid-amr), [SV-14](./polytrope)).
 
 ## Findings
 

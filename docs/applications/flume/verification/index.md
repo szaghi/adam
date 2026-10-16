@@ -130,7 +130,7 @@ round trip): a setup table documents it better than a plot of a difference that 
 | [The FFT Poisson solver](./self-gravity/fft-poisson) | SV-2 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P2 | CPU, FNL | yes |
 | [Jeans modes under self-gravity](./self-gravity/jeans) | SV-3, SV-4, SV-5 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P3 | CPU, FNL | yes |
 | [The isolated Poisson solver](./self-gravity/isolated-solver) | SV-6 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4 | CPU, FNL | yes |
-| [The n = 1 polytrope: equilibrium and collapse](./self-gravity/polytrope) | SV-7, SV-8 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4 | CPU, FNL | yes |
+| [The n = 1 polytrope: equilibrium and collapse](./self-gravity/polytrope) | SV-7, SV-8, SV-14 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4; [#87](https://github.com/szaghi/adam/issues/87), P3 | CPU, FNL | yes |
 | [The multigrid Poisson solver on AMR grids](./self-gravity/multigrid-amr) | SV-9, SV-12, SV-13 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5a; [#87](https://github.com/szaghi/adam/issues/87), P1, P2 | CPU only | yes |
 | [Jeans modes on a static AMR grid](./self-gravity/amr-jeans) | SV-10 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5b, P5c | CPU, FNL | yes |
 | [Self-gravity under runtime AMR](./self-gravity/runtime-amr) | SV-11 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5c | CPU, FNL | yes |

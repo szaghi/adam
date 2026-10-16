@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| SV-7, SV-8 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4 | CPU, FNL | yes | `selfgravity-star` |
+| SV-7, SV-8, SV-14 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4; [#87](https://github.com/szaghi/adam/issues/87), P3 | CPU, FNL | yes | `selfgravity-star` |
 
 ## Case and scope
 
@@ -16,14 +16,19 @@ What the case catches:
   star) must shrink with the grid;
 - **SV-8, the collapse:** a leak in the exact exchange of $E$ and $W$ through the isolated solver. Its symmetry (an
   even kernel) must give the same exactness as the periodic solver: $E + W$ drifts only at the Runge–Kutta order while
-  $E$ and $W$ exchange, and the momentum stays at round-off.
+  $E$ and $W$ exchange, and the momentum stays at round-off;
+- **SV-14, the star on AMR** ([#87](https://github.com/szaghi/adam/issues/87) P3): isolated self-gravity by the
+  multigrid's symmetric James step ([SV-13](./multigrid-amr)) coupled to the scheme. The equilibrium on a grid with
+  the star refined must have less spurious motion than on the uniform base; the collapse must keep the exact
+  exchange (the per-stage reflux carries the seam gravity work); a regrid that refines a boundary block must stop the
+  run (D-87-4).
 
 ## Models and numerics
 
 | Item | Choice | Code |
 |---|---|---|
 | Equations | compressible Euler, $\gamma = 2$ (the adiabatic exponent of $p = K\rho^2$), isolated self-gravity, $G = 1$ | [models](../../models#self-gravity) |
-| Poisson solver | FFT with isolated boundaries (`poisson_bc = isolated`): zero padding and the lattice Green's function | [`adam_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_fft_object.F90), [`adam_fnl_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/fnl/adam_fnl_poisson_fft_object.F90) |
+| Poisson solver | FFT with isolated boundaries (`poisson_bc = isolated`): zero padding and the lattice Green's function; on AMR (SV-14) the multigrid's James step, its coarsest level on the same FFT solver | [`adam_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_mg_object.F90), [`adam_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_fft_object.F90), [`adam_fnl_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/fnl/adam_fnl_poisson_fft_object.F90) |
 | Coupling | one solve per Runge–Kutta stage, the potential path | `solve_potential`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90); `add_potential_sources`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
 | Space | WENO5 (`weno-u-5`) flux splitting on characteristic variables (`weno`) | [numerics](../../numerics#scheme-space-weno-flux-splitting) |
 | Time | SSP Runge–Kutta, 3 stages, CFL 0.4 (SV-8: 0.4, 0.2, 0.1) | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
@@ -41,19 +46,24 @@ What the case catches:
 | Ranks | 2 |
 | SV-7, equilibrium (`star`) | `star_pressure_factor` 1, atmosphere $\rho_1 = 10^{-4}\rho_c$, positivity limiter `cell`; $32^3$ and $64^3$ (levels 2 and 3) to $t = 2$, CFL 0.4, a checkpoint every 10 steps |
 | SV-8, collapse (`starc`) | `star_pressure_factor` 0.5, atmosphere $\rho_1 = 10^{-2}\rho_c$, no limiter; $32^3$ to $t = 1.5$ at CFL 0.4, 0.2, 0.1 |
+| SV-14, the star on AMR | a smaller star, radius $a = 0.3$, so that the 2:1 seam of the box $[-1/2, 1/2]^3$ lies in the atmosphere, 0.2 off the surface (with $a = 1/2$ the seam cuts the surface at the face centres and the light atmosphere goes non-finite, [#88](https://github.com/szaghi/adam/issues/88)); the box refined once over the $32^3$ base (`--box`: 120 blocks, the star at the $64^3$ spacing, 9.6 cells per radius) |
+| SV-14, equilibrium | as SV-7 (atmosphere $10^{-4}\rho_c$, limiter `cell`, to $t = 2$), on the AMR grid and on the uniform $32^3$ grid |
+| SV-14, collapse | as SV-8 (atmosphere $10^{-2}\rho_c$, no limiter, to $t = 1.5$, CFL 0.4, 0.2, 0.1) on the AMR grid with `reflux_cadence = stage` |
+| SV-14, refusal | `starc --regrid 2 --boundary-box`: a runtime marker on $[1/2, 1]^3$, at the boundary; the first regrid refines a boundary block |
 | Regression `selfgravity-star` | `star --levels 1`: $16^3$ (2×2×2 blocks of $8^3$), atmosphere $10^{-2}\rho_c$, no limiter, 20 steps |
 
 ## Input files
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/selfgravity/make_polytrope.py` | writes `star` and `starc` (`--cells`, `--levels`, `--cfl`, `--time-max`, `--it-save`, `--atmosphere`, `--limiter`) |
-| `src/tests/flume/verification/selfgravity/star.sh` | runs the legs `sv7`, `sv8` (`--np N`, `--legs LIST`, `--keep`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/selfgravity/make_polytrope.py` | writes `star` and `starc` (`--cells`, `--levels`, `--cfl`, `--time-max`, `--it-save`, `--atmosphere`, `--limiter`; on AMR `--radius`, `--box`, `--regrid`, `--boundary-box`, `--reflux-cadence`) |
+| `src/tests/flume/verification/selfgravity/star.sh` | runs the legs `sv7`, `sv8`, `sv14` (`--np N`, `--legs LIST`, `--keep`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/selfgravity/star_oracle.py` | `convergence` (SV-7): the drifts on two grids and their reduction |
 | `src/tests/flume/verification/selfgravity/jeans_oracle.py` | `conservation` (SV-8): $E + W$ against $\Delta t$, the momentum |
 | `src/tests/flume/regression/selfgravity-star/input.ini` | the frozen equilibrium at $16^3$, 20 steps |
 | `src/tests/flume/verification/make_doc_runs.sh`, group `isolated` | `sv7-l{2,3}`, `sv8-collapse-{0.4,0.2,0.1}` (a checkpoint every 10 steps); needs `exe/adam_flume_cpu_fft` and `exe/test_poisson_fft` |
-| `src/tests/flume/verification/make_doc_figures.py`, `fig_selfgravity_star` | draws the figure (`--only selfgravity-star`) |
+| `src/tests/flume/verification/make_doc_runs.sh`, group `isolated` | also `sv14-{uniform,box}`, `sv14-collapse-{0.4,0.2,0.1}` |
+| `src/tests/flume/verification/make_doc_figures.py`, `fig_selfgravity_star`, `fig_selfgravity_star_amr` | draws the figures (`--only selfgravity-star selfgravity-star-amr`) |
 
 ```bash
 cd src/tests/flume/verification/selfgravity && ./star.sh                   # CPU (exe/adam_flume_cpu_fft)
@@ -81,7 +91,27 @@ $0.8a$ and over the whole star (the cells denser than a tenth of the central den
 | SV-8 | drift of $E + W$ at CFL 0.4, 0.2, 0.1: $5.97\cdot10^{-7}$, $8.29\cdot10^{-8}$, $9.71\cdot10^{-9}$; order in $\Delta t$ | $\ge 2.5$ | 2.85, 3.09 | 2.85, 3.09 (the same drifts) |
 | SV-8 | the largest $\lvert\int\rho\mathbf u\rvert$ | $10^{-14}$ | $7.3\cdot10^{-18}$ | $6.9\cdot10^{-18}$ |
 
-Related cases: the periodic analogue of the collapse is [SV-4](./jeans); the solver is [SV-6](./isolated-solver);
+**SV-14, the star on AMR** ([#87](https://github.com/szaghi/adam/issues/87) P3):
+
+![SV-14: the smaller star on AMR, its core and spurious motion against the uniform grid; the collapse's energy drift; the star on its composite grid](/flume/selfgravity-star-amr.png)
+
+*Top: the star of radius 0.3 on the uniform $32^3$ grid (4.8 cells per radius) and with the box refined (9.6): on
+the AMR grid the core swings half as far and the interior Mach number stays at half. Bottom left: the collapse on the
+AMR grid, $E + W$ at the Runge–Kutta order while $E$ and $W$ exchange 81 % of $\lvert E + W\rvert$ (their curves
+coincide). Bottom right: the equilibrium star at $t = 2$ on its composite grid, the radius dashed; the 2:1 seam lies
+in the atmosphere.*
+
+| Leg | Asserted | Bound | CPU | FNL |
+|---|---|---|---|---|
+| SV-14 | the largest central-density drift to $t = 2$: $1.65\cdot10^{-1}$ (uniform $32^3$), $8.24\cdot10^{-2}$ (AMR); reduction | $\ge 1.5$ | 2.00 | 2.00 |
+| SV-14 | the largest Mach number inside $0.8a$: 0.414, 0.189; reduction | $\ge 1.5$ | 2.19 | 2.19 |
+| SV-14 | the largest Mach number in the whole star: 15.2 (uniform: the surface spans 5 cells), 0.36; reduction | reported | 42 | 42 |
+| SV-14 | collapse on AMR, drift of $E + W$ at CFL 0.4, 0.2, 0.1: $4.76\cdot10^{-7}$, $6.07\cdot10^{-8}$, $7.72\cdot10^{-9}$; order in $\Delta t$ | $\ge 2.5$ | 2.97, 2.97 | 2.97, 2.97 (the same drifts) |
+| SV-14 | the largest $\lvert\int\rho\mathbf u\rvert$; mass drift | $10^{-14}$; $10^{-14}$ | $2.2\cdot10^{-19}$; $2.4\cdot10^{-16}$ | $4.3\cdot10^{-19}$; $2.4\cdot10^{-16}$ |
+| SV-14 | a regrid that refines a boundary block | refused, exit 1 | refused | refused |
+
+Related cases: the periodic analogue of the collapse is [SV-4](./jeans); the solver is [SV-6](./isolated-solver), on
+AMR [SV-13](./multigrid-amr);
 the limiter's gravity energy correction comes from [the force](../gravity/force) (M7-G1).
 
 ## Findings
@@ -105,3 +135,17 @@ the limiter's gravity energy correction comes from [the force](../gravity/force)
   37 min on the WSL CPU, 20 min on the A30).
 - The regression case `selfgravity-star` freezes the equilibrium at $16^3$ in the $10^{-2}$ atmosphere without the
   limiter, not SV-7's light-atmosphere setup.
+- **Isolated self-gravity on AMR holds the star and keeps the exchange exact** (SV-14). Refining the star halves its
+  spurious motion against the uniform base, as a uniform grid of the fine spacing would; the collapse drifts at third
+  order in $\Delta t$ with the momentum at round-off, as on the uniform grid (SV-8): the James step is symmetric and
+  the per-stage reflux carries the seam gravity work.
+- **Keep refinement boundaries off the stellar surface.** With the SV-7 star ($a = 1/2$) the box's faces lie on the
+  surface; in the light atmosphere the end-of-step reflux run goes non-finite at $t = 1.41$, the per-stage one
+  reaches $t = 2$ ([#88](https://github.com/szaghi/adam/issues/88)). Production codes keep coarse–fine boundaries out
+  of dense gas for the same reason (Castro refines everything far below the stellar density, Katz et al. 2016;
+  Berger and Colella 1989 on the spurious waves of a resolution jump at a steep gradient).
+- **No runtime-AMR star with a changing grid.** One level above the $32^3$ base can only refine the 8 inner blocks
+  (0.5 wide), two levels carry the 2:1 balance to the boundary blocks (refused, D-87-4), and 4-cell blocks are below
+  $2\,n_{gc}$; the regrid path is covered by the refusal and, periodic, by [SV-11](./runtime-amr). A coarse star
+  prolonged at its first regrid also drained one cell's internal energy to negative in the collapse
+  ([#88](https://github.com/szaghi/adam/issues/88)).
