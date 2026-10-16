@@ -30,6 +30,8 @@ public :: populate_send_buffer_ghost_gpu_dev
 public :: receive_recv_buffer_ghost_gpu_dev
 public :: update_ghost_local_gpu_dev
 public :: reduce_ghost_local_gpu_dev
+public :: pack_reduce_ghost_mpi_gpu_dev
+public :: fold_reduce_ghost_mpi_gpu_dev
 
 contains
    subroutine pack_blocks_transposed_dev(blocks_number, ni, nj, nk, ngc, nv, a_gpu, buf_gpu)
@@ -432,6 +434,82 @@ contains
       enddo
    enddo
    endsubroutine reduce_ghost_local_gpu_dev
+
+   subroutine pack_reduce_ghost_mpi_gpu_dev(ngc, v_first, v_last, comm_map_recv_ghost_cell_gpu, recv_buffer_ghost_gpu, q_gpu)
+   !< Pack the received ghost cells of variables v_first:v_last into their receive-buffer slots (transpose of
+   !< receive_recv_buffer_ghost_gpu_dev); every other slot is zeroed, so superseded (deduplicated) slots carry nothing back.
+   integer(I4P),          intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P),          intent(in)    :: v_first                           !< First variable to reduce.
+   integer(I4P),          intent(in)    :: v_last                            !< Last variable to reduce.
+   integer(I8P), pointer, intent(in)    :: comm_map_recv_ghost_cell_gpu(:,:) !< Comm map, cell information.
+   real(R8P),    pointer, intent(inout) :: recv_buffer_ghost_gpu(:)          !< Receive buffer of ghost cells.
+   real(R8P),             intent(in)    :: q_gpu(1:,    &
+                                                 1-ngc:,&
+                                                 1-ngc:,&
+                                                 1-ngc:,&
+                                                 1:)                         !< Field component to be reduced.
+   integer(I4P)                         :: c, rf, v                          !< Counters.
+
+   if (.not.associated(recv_buffer_ghost_gpu)) return
+   !$acc parallel loop independent DEVICEVAR(recv_buffer_ghost_gpu)
+   !$omp OMPLOOP DEVICEPTR(recv_buffer_ghost_gpu)
+   do c=1, size(recv_buffer_ghost_gpu, dim=1)
+      recv_buffer_ghost_gpu(c) = 0._R8P
+   enddo
+   if (.not.associated(comm_map_recv_ghost_cell_gpu)) return
+   !$acc parallel loop independent DEVICEVAR(comm_map_recv_ghost_cell_gpu, recv_buffer_ghost_gpu, q_gpu) private(v)
+   !$omp OMPLOOP DEVICEPTR(comm_map_recv_ghost_cell_gpu, recv_buffer_ghost_gpu, q_gpu) private(v)
+   do rf=1, size(comm_map_recv_ghost_cell_gpu, dim=1)
+      v = int(comm_map_recv_ghost_cell_gpu(rf,6), I4P)
+      if (v >= v_first .and. v <= v_last) &
+         recv_buffer_ghost_gpu(comm_map_recv_ghost_cell_gpu(rf,1)) = q_gpu(comm_map_recv_ghost_cell_gpu(rf,2), &
+                                                                           comm_map_recv_ghost_cell_gpu(rf,3), &
+                                                                           comm_map_recv_ghost_cell_gpu(rf,4), &
+                                                                           comm_map_recv_ghost_cell_gpu(rf,5), v)
+   enddo
+   endsubroutine pack_reduce_ghost_mpi_gpu_dev
+
+   subroutine fold_reduce_ghost_mpi_gpu_dev(ngc, v_first, v_last, comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, &
+                                            q_gpu, bad_rows)
+   !< Add the slots sent back by the other ranks to their donor cells (transpose of populate_send_buffer_ghost_gpu_dev),
+   !< variables v_first:v_last, same-level rows only (`bad_rows` returns the number of 2:1 rows, in which case nothing is
+   !< touched). A donor may own several slots (edges, corners): atomic updates.
+   integer(I4P),          intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P),          intent(in)    :: v_first                           !< First variable to reduce.
+   integer(I4P),          intent(in)    :: v_last                            !< Last variable to reduce.
+   integer(I8P), pointer, intent(in)    :: comm_map_send_ghost_cell_gpu(:,:) !< Comm map, cell information.
+   real(R8P),    pointer, intent(in)    :: send_buffer_ghost_gpu(:)          !< Send buffer of ghost cells.
+   real(R8P),             intent(inout) :: q_gpu(1:,    &
+                                                 1-ngc:,&
+                                                 1-ngc:,&
+                                                 1-ngc:,&
+                                                 1:)                         !< Field component to be reduced.
+   integer(I4P),          intent(out)   :: bad_rows                          !< Number of 2:1 (non same-level) rows.
+   integer(I4P)                         :: sf, nrows, v                      !< Counters.
+   integer(I4P)                         :: b, i, j, k                        !< Donor cell.
+
+   bad_rows = 0_I4P
+   if (.not.associated(comm_map_send_ghost_cell_gpu)) return
+   nrows = size(comm_map_send_ghost_cell_gpu, dim=1)
+   !$acc parallel loop independent gang vector DEVICEVAR(comm_map_send_ghost_cell_gpu) reduction(+:bad_rows)
+   !$omp OMPLOOP DEVICEPTR(comm_map_send_ghost_cell_gpu) reduction(+:bad_rows)
+   do sf=1, nrows
+      if (comm_map_send_ghost_cell_gpu(sf,7) /= 1_I8P) bad_rows = bad_rows + 1_I4P
+   enddo
+   if (bad_rows > 0_I4P) return
+   !$acc parallel loop independent gang vector DEVICEVAR(comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu) &
+   !$acc& private(b,i,j,k,v)
+   !$omp OMPLOOP DEVICEPTR(comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu) private(b,i,j,k,v)
+   do sf=1, nrows
+      v = int(comm_map_send_ghost_cell_gpu(sf,5), I4P)
+      if (v < v_first .or. v > v_last) cycle
+      b = int(comm_map_send_ghost_cell_gpu(sf,1), I4P) ; i = int(comm_map_send_ghost_cell_gpu(sf,2), I4P)
+      j = int(comm_map_send_ghost_cell_gpu(sf,3), I4P) ; k = int(comm_map_send_ghost_cell_gpu(sf,4), I4P)
+      !$acc atomic update
+      !$omp atomic update
+      q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + send_buffer_ghost_gpu(comm_map_send_ghost_cell_gpu(sf,6))
+   enddo
+   endsubroutine fold_reduce_ghost_mpi_gpu_dev
 
    ! private procedures
    pure function interp_seam_ghost_gpu_dev(regime, meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send) result(value_)

@@ -51,6 +51,7 @@ type :: field_fnl_object
       procedure, pass(self) :: destroy                !< Free device data owned by the helper.
       procedure, pass(self) :: initialize             !< Initialize field from realm-local CPU grid/field/maps.
       procedure, pass(self) :: reduce_ghost_local_gpu !< Fold deposited ghosts back onto their owner cells locally.
+      procedure, pass(self) :: reduce_ghost_mpi_gpu   !< Fold deposited ghosts back onto their owner cells of other ranks.
       procedure, pass(self) :: update_ghost_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu   !< Update ghosts MPI.
 endtype field_fnl_object
@@ -285,6 +286,54 @@ contains
                                    bad_rows=bad_rows)
    if (bad_rows > 0_I4P) call mpih_fnl%error_stop(msg=': reduce_ghost_local_gpu does not support 2:1 (AMR) ghost rows')
    endsubroutine reduce_ghost_local_gpu
+
+   subroutine reduce_ghost_mpi_gpu(self, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu, v_first, v_last)
+   !< Fold the ghost cells filled by other ranks back onto their donor cells, the transpose of update_ghost_mpi_gpu.
+   !< Device twin of `field_object%reduce_ghost_mpi` (see there for the semantics): the ghosts are not refilled, the caller
+   !< completes the reduction with update_ghost_local_gpu + update_ghost_mpi_gpu. Collective. GPU-direct buffers, as in
+   !< update_ghost_mpi_gpu.
+   class(field_fnl_object), intent(inout) :: self                        !< The field.
+   integer(I4P),            intent(in)    :: comm_map_send_ptr_ghost(0:) !< Per-rank send offsets (realm-local CPU map).
+   integer(I4P),            intent(in)    :: comm_map_recv_ptr_ghost(0:) !< Per-rank recv offsets (realm-local CPU map).
+   real(R8P),               intent(inout) :: q_gpu(1:,                    &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:)                   !< Field component to be reduced.
+   integer(I4P),            intent(in)    :: v_first                     !< First variable to reduce.
+   integer(I4P),            intent(in)    :: v_last                      !< Last variable to reduce.
+   integer(I4P)                           :: p                           !< Counter.
+   integer(I4P)                           :: ptr_start, ptr_end, n_slots !< Buffer segment.
+   integer(I4P)                           :: bad_rows                    !< Number of 2:1 rows.
+
+   if (mpih_fnl%procs_number == 1_I4P) return
+   associate(procs_number=>mpih_fnl%procs_number, error=>mpih_fnl%error, req_send_recv=>mpih_fnl%req_send_recv, &
+             recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu, send_buffer_ghost_gpu=>self%maps%send_buffer_ghost_gpu)
+   req_send_recv = MPI_REQUEST_NULL
+   call pack_reduce_ghost_mpi_gpu_dev(ngc=self%ngc, v_first=v_first, v_last=v_last,                          &
+                                      comm_map_recv_ghost_cell_gpu=self%maps%comm_map_recv_ghost_cell_gpu, &
+                                      recv_buffer_ghost_gpu=self%maps%recv_buffer_ghost_gpu, q_gpu=q_gpu)
+   ! the receive segments go back to their senders, which collect them in their send segments
+   do p=0, procs_number - 1_I4P
+      ptr_start = comm_map_send_ptr_ghost(p) + 1 ; ptr_end = comm_map_send_ptr_ghost(p+1)
+      n_slots = ptr_end - ptr_start + 1
+      if (n_slots > 0) call MPI_IRECV(send_buffer_ghost_gpu(ptr_start), n_slots, MPI_REAL8, p, 101, MPI_COMM_WORLD, &
+                                      req_send_recv(p), error)
+   enddo
+   do p=0, procs_number - 1_I4P
+      ptr_start = comm_map_recv_ptr_ghost(p) + 1 ; ptr_end = comm_map_recv_ptr_ghost(p+1)
+      n_slots = ptr_end - ptr_start + 1
+      if (n_slots > 0) call MPI_ISEND(recv_buffer_ghost_gpu(ptr_start), n_slots, MPI_REAL8, p, 101, MPI_COMM_WORLD, &
+                                      req_send_recv(p+procs_number), error)
+   enddo
+   call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+   call fold_reduce_ghost_mpi_gpu_dev(ngc=self%ngc, v_first=v_first, v_last=v_last,                          &
+                                      comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
+                                      send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu, q_gpu=q_gpu,  &
+                                      bad_rows=bad_rows)
+   if (bad_rows > 0_I4P) call mpih_fnl%error_stop(msg=': reduce_ghost_mpi_gpu does not support 2:1 (AMR) ghost rows')
+   endassociate
+   endsubroutine reduce_ghost_mpi_gpu
 
    subroutine update_ghost_mpi_gpu(self, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu, step)
    !< Update ghost cells within other processes.

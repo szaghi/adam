@@ -151,7 +151,9 @@ type :: field_object
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
       procedure, pass(self) :: save_blocks                   !< Save blocks data, used for restarting.
+      procedure, pass(self) :: check_reduce_ghost_maps       !< Check that every ghost is folded by one map row at most.
       procedure, pass(self) :: reduce_ghost_local            !< Fold deposited ghosts back onto their owner cells locally.
+      procedure, pass(self) :: reduce_ghost_mpi              !< Fold deposited ghosts back onto their owner cells of other ranks.
       procedure, pass(self) :: update_ghost_local            !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi              !< Update ghosts MPI.
       ! private methods
@@ -1000,6 +1002,113 @@ contains
    enddo
    endassociate
    endsubroutine reduce_ghost_local
+
+   subroutine reduce_ghost_mpi(self, grid, maps, q, v_first, v_last)
+   !< Fold the ghost cells filled by other ranks back onto their donor cells: the transpose of update_ghost_mpi.
+   !<
+   !< MPI twin of reduce_ghost_local, for deposited quantities (e.g. PIC charge/current). The forward maps and buffers are
+   !< reused with the roles swapped: every received ghost is packed into its receive-buffer slot, the receive segments
+   !< travel back to the ranks that sent them, and each send-map row adds its slot to the donor cell. Superseded slots of
+   !< the deduplicated receive map stay zero. The ghosts are NOT refilled: the caller completes the reduction with
+   !< update_ghost_local + update_ghost_mpi once every fold (local and MPI) is done. Collective: every rank must call it.
+   !< Only same-level rows are supported (2:1 seams have no transpose yet); see check_reduce_ghost_maps for the disjointness
+   !< of the local and MPI maps that makes the two folds add each ghost exactly once.
+   class(field_object), intent(inout) :: self              !< The field.
+   type(grid_object),   intent(in)    :: grid              !< Grid (sibling realm component, threaded in).
+   type(maps_object),   intent(inout) :: maps              !< Maps (sibling realm component, threaded in).
+   real(R8P),           intent(inout) :: q(1:,              &
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1-grid%ngc:,&
+                                           1:)             !< Field component to be reduced.
+   integer(I4P),        intent(in)    :: v_first           !< First variable to reduce.
+   integer(I4P),        intent(in)    :: v_last            !< Last variable to reduce.
+   integer(I4P)                       :: p, sf, rf         !< Counters.
+   integer(I4P)                       :: ptr_start, ptr_end, n_slots !< Buffer segment.
+   integer(I4P)                       :: b, i, j, k, v, c  !< Map row entries.
+
+   if (mpih%procs_number == 1_I4P) return
+   associate(procs_number=>mpih%procs_number, error=>mpih%error, req_send_recv=>self%req_send_recv, &
+             recv_buffer_ghost=>maps%recv_buffer_ghost, send_buffer_ghost=>maps%send_buffer_ghost)
+   if (allocated(maps%comm_map_send_ghost_cell)) then
+      if (any(maps%comm_map_send_ghost_cell(:,7) /= 1_I8P)) &
+         call mpih%error_stop(msg=': reduce_ghost_mpi does not support 2:1 (AMR) ghost rows')
+   endif
+   req_send_recv = MPI_REQUEST_NULL
+   if (allocated(maps%recv_buffer_ghost)) recv_buffer_ghost = 0._R8P
+   if (allocated(maps%comm_map_recv_ghost_cell)) then
+      do rf=1, size(maps%comm_map_recv_ghost_cell, dim=1)
+         v = int(maps%comm_map_recv_ghost_cell(rf,6), I4P)
+         if (v < v_first .or. v > v_last) cycle
+         c = int(maps%comm_map_recv_ghost_cell(rf,1), I4P) ; b = int(maps%comm_map_recv_ghost_cell(rf,2), I4P)
+         i = int(maps%comm_map_recv_ghost_cell(rf,3), I4P) ; j = int(maps%comm_map_recv_ghost_cell(rf,4), I4P)
+         k = int(maps%comm_map_recv_ghost_cell(rf,5), I4P)
+         recv_buffer_ghost(c) = q(v,i,j,k,b)
+      enddo
+   endif
+   ! the receive segments go back to their senders, which collect them in their send segments
+   do p=0, procs_number - 1_I4P
+      ptr_start = maps%comm_map_send_ptr_ghost(p) + 1 ; ptr_end = maps%comm_map_send_ptr_ghost(p+1)
+      n_slots = ptr_end - ptr_start + 1
+      if (n_slots > 0) call MPI_IRECV(send_buffer_ghost(ptr_start), n_slots, MPI_REAL8, p, 101, MPI_COMM_WORLD, &
+                                      req_send_recv(p), error)
+   enddo
+   do p=0, procs_number - 1_I4P
+      ptr_start = maps%comm_map_recv_ptr_ghost(p) + 1 ; ptr_end = maps%comm_map_recv_ptr_ghost(p+1)
+      n_slots = ptr_end - ptr_start + 1
+      if (n_slots > 0) call MPI_ISEND(recv_buffer_ghost(ptr_start), n_slots, MPI_REAL8, p, 101, MPI_COMM_WORLD, &
+                                      req_send_recv(p+procs_number), error)
+   enddo
+   call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+   ! a donor may receive from several slots (edges, corners): sequential accumulation
+   if (allocated(maps%comm_map_send_ghost_cell)) then
+      do sf=1, size(maps%comm_map_send_ghost_cell, dim=1)
+         v = int(maps%comm_map_send_ghost_cell(sf,5), I4P)
+         if (v < v_first .or. v > v_last) cycle
+         b = int(maps%comm_map_send_ghost_cell(sf,1), I4P) ; i = int(maps%comm_map_send_ghost_cell(sf,2), I4P)
+         j = int(maps%comm_map_send_ghost_cell(sf,3), I4P) ; k = int(maps%comm_map_send_ghost_cell(sf,4), I4P)
+         c = int(maps%comm_map_send_ghost_cell(sf,6), I4P)
+         q(v,i,j,k,b) = q(v,i,j,k,b) + send_buffer_ghost(c)
+      enddo
+   endif
+   endassociate
+   endsubroutine reduce_ghost_mpi
+
+   subroutine check_reduce_ghost_maps(self, grid, maps)
+   !< Check that the transposed ghost updates (reduce_ghost_local + reduce_ghost_mpi) fold every ghost cell once at most:
+   !< a ghost listed by two map rows (two local rows, two MPI rows, or one of each) would be added twice. The forward update
+   !< tolerates such duplicates (last writer wins), the transpose does not. Only same-level maps are meaningful here.
+   class(field_object), intent(in) :: self          !< The field.
+   type(grid_object),   intent(in) :: grid          !< Grid (sibling realm component, threaded in).
+   type(maps_object),   intent(in) :: maps          !< Maps (sibling realm component, threaded in).
+   integer(I4P), allocatable       :: hits(:,:,:,:) !< Number of rows per ghost cell.
+   integer(I4P)                    :: mf, rf, v_ref !< Counters.
+   integer(I4P)                    :: duplicated    !< Ghost cells listed more than once.
+
+   allocate(hits(1-grid%ngc:grid%ni+grid%ngc, 1-grid%ngc:grid%nj+grid%ngc, 1-grid%ngc:grid%nk+grid%ngc, &
+                 1:max(1_I4P,self%blocks_number)))
+   hits = 0_I4P
+   if (allocated(maps%local_map_ghost_cell)) then
+      do mf=1, size(maps%local_map_ghost_cell, dim=1)
+         associate(row=>maps%local_map_ghost_cell(mf,:))
+         hits(row(6),row(7),row(8),row(2)) = hits(row(6),row(7),row(8),row(2)) + 1_I4P
+         endassociate
+      enddo
+   endif
+   if (allocated(maps%comm_map_recv_ghost_cell)) then
+      if (size(maps%comm_map_recv_ghost_cell, dim=1) > 0) then
+         v_ref = int(minval(maps%comm_map_recv_ghost_cell(:,6)), I4P) ! rows exist for every variable: count one
+         do rf=1, size(maps%comm_map_recv_ghost_cell, dim=1)
+            associate(row=>maps%comm_map_recv_ghost_cell(rf,:))
+            if (row(6) == v_ref) hits(row(3),row(4),row(5),row(2)) = hits(row(3),row(4),row(5),row(2)) + 1_I4P
+            endassociate
+         enddo
+      endif
+   endif
+   duplicated = count(hits > 1_I4P)
+   if (duplicated > 0_I4P) call mpih%error_stop(msg=': '//trim(str(duplicated, .true.))//' ghost cells are filled by more '// &
+                                                    'than one map row: their deposits would be folded twice')
+   endsubroutine check_reduce_ghost_maps
 
    pure function interp_seam_ghost(regime, meta, ngc, q, v, i_send, j_send, k_send, b_send) result(value_)
    !< Evaluate the coarse->fine seam ghost interpolant for one (variable, fine
