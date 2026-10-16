@@ -68,6 +68,7 @@ REGRESSION_CASES="sod-x rotor" src/tests/flume/regression/run.sh cpu --no-build
 | `selfgravity-jeans` | [Jeans modes](./self-gravity/jeans): the unstable mode at amplitude $10^{-2}$, FFT solver, 20 steps | [#81](https://github.com/szaghi/adam/issues/81) |
 | `selfgravity-amr-stage` | [self-gravity on a static AMR grid](./self-gravity/amr-jeans): multigrid, the seam gravity work, per-stage reflux | [#81](https://github.com/szaghi/adam/issues/81) |
 | `selfgravity-star` | [the n = 1 polytrope](./self-gravity/polytrope), isolated boundaries, $16^3$ | [#81](https://github.com/szaghi/adam/issues/81) |
+| `selfgravity-star-amr` | [the n = 1 polytrope on AMR](./self-gravity/polytrope) (SV-14): isolated boundaries by the multigrid's James step, the star of radius 0.3 collapsing, the box refined over $32^3$, per-stage reflux, 20 steps | [#87](https://github.com/szaghi/adam/issues/87) |
 
 The self-gravity goldens agree across the backends to $9\cdot10^{-14}$ relative in the volume integrals and $E + W$,
 and to $1.8\cdot10^{-18}$ absolute in the momentum, which is round-off.

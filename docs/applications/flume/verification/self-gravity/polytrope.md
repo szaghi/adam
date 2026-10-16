@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| SV-7, SV-8, SV-14 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4; [#87](https://github.com/szaghi/adam/issues/87), P3 | CPU, FNL | yes | `selfgravity-star` |
+| SV-7, SV-8, SV-14 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4; [#87](https://github.com/szaghi/adam/issues/87), P3, P4 | CPU, FNL | yes | `selfgravity-star`, `selfgravity-star-amr` |
 
 ## Case and scope
 
@@ -51,6 +51,7 @@ What the case catches:
 | SV-14, collapse | as SV-8 (atmosphere $10^{-2}\rho_c$, no limiter, to $t = 1.5$, CFL 0.4, 0.2, 0.1) on the AMR grid with `reflux_cadence = stage` |
 | SV-14, refusal | `starc --regrid 2 --boundary-box`: a runtime marker on $[1/2, 1]^3$, at the boundary; the first regrid refines a boundary block |
 | Regression `selfgravity-star` | `star --levels 1`: $16^3$ (2×2×2 blocks of $8^3$), atmosphere $10^{-2}\rho_c$, no limiter, 20 steps |
+| Regression `selfgravity-star-amr` | `starc --radius 0.3 --box --reflux-cadence stage`: SV-14's collapse, 120 blocks of $8^3$, 20 steps |
 
 ## Input files
 
@@ -61,6 +62,7 @@ What the case catches:
 | `src/tests/flume/verification/selfgravity/star_oracle.py` | `convergence` (SV-7): the drifts on two grids and their reduction |
 | `src/tests/flume/verification/selfgravity/jeans_oracle.py` | `conservation` (SV-8): $E + W$ against $\Delta t$, the momentum |
 | `src/tests/flume/regression/selfgravity-star/input.ini` | the frozen equilibrium at $16^3$, 20 steps |
+| `src/tests/flume/regression/selfgravity-star-amr/input.ini` | the frozen SV-14 collapse on AMR, 20 steps ([#87](https://github.com/szaghi/adam/issues/87) P4) |
 | `src/tests/flume/verification/make_doc_runs.sh`, group `isolated` | `sv7-l{2,3}`, `sv8-collapse-{0.4,0.2,0.1}` (a checkpoint every 10 steps); needs `exe/adam_flume_cpu_fft` and `exe/test_poisson_fft` |
 | `src/tests/flume/verification/make_doc_runs.sh`, group `isolated` | also `sv14-{uniform,box}`, `sv14-collapse-{0.4,0.2,0.1}` |
 | `src/tests/flume/verification/make_doc_figures.py`, `fig_selfgravity_star`, `fig_selfgravity_star_amr` | draws the figures (`--only selfgravity-star selfgravity-star-amr`) |
