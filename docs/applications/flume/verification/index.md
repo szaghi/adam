@@ -19,8 +19,8 @@ cd src/tests/flume/verification/sod && ./check.sh                  # CPU backend
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh        # FNL backend (GPU)
 ```
 
-In the catalog, **Figure** "no (#85)" marks a figure still owed by [#85](https://github.com/szaghi/adam/issues/85);
-a plain "no" marks a contract or bitwise leg, which a setup table documents better than a plot.
+In the catalog, **Figure** "no" marks a contract or bitwise leg (an input refusal, CPU = FNL, a restart, a
+round trip): a setup table documents it better than a plot of a difference that is zero.
 
 
 ## [Euler](./euler/)
@@ -43,8 +43,11 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 | [MHD on `weno-riemann`](./mhd/weno-riemann) | RV-5, RV-6, RV-7 | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P3c) | CPU, FNL | yes |
 | [Ryu–Jones 2a: all seven waves](./mhd/ryu-jones-2a) | MV-4 | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
 | [Brio–Wu and Ryu–Jones 4d](./mhd/brio-wu-rj4d) | — (`mhd/riemann`, M2-P3 exit) | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
+| [MHD plumbing](./mhd/plumbing) | — (`mhd/plumbing`, M2-P1) | M2 ([#41](https://github.com/szaghi/adam/issues/41), P1) | CPU, FNL | no |
+| [MHD with a zero field](./mhd/zero-field) | MV-2 | M2 ([#41](https://github.com/szaghi/adam/issues/41), P3) | CPU, FNL | no |
 | [GLM divergence cleaning](./mhd/glm-cleaning) | MV-3, MV-10 | M2 ([#41](https://github.com/szaghi/adam/issues/41)); the MV-10 monitor M6 ([#68](https://github.com/szaghi/adam/issues/68), G1) | CPU, FNL | yes |
 | [Order of accuracy: linear waves, CPAW, magnetised vortex](./mhd/order-of-accuracy) | MV-5, MV-6, MV-7 | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
+| [MHD conservation across AMR seams](./mhd/conservation) | MV-11 | M2 ([#41](https://github.com/szaghi/adam/issues/41), P7a) | CPU, FNL | yes |
 | [Orszag–Tang vortex](./mhd/orszag-tang) | MV-12 | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
 | [MHD rotor](./mhd/rotor) | MV-13 | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes |
 | [Field loop advection](./mhd/field-loop) | MV-9 | M2 ([#41](https://github.com/szaghi/adam/issues/41)); `--agree` [#79](https://github.com/szaghi/adam/issues/79) | CPU, FNL | yes |
@@ -60,6 +63,7 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 | [Ghost probe: every face and edge ghost on a linear field](./infrastructure/ghost-probe) | GP | M4 ([#65](https://github.com/szaghi/adam/issues/65) P0, P1), M6 ([#68](https://github.com/szaghi/adam/issues/68) C2, D1) | CPU, FNL | yes |
 | [Scaling covariance and the reference layer](./infrastructure/scaling-covariance) | NV-0, NV-4, NV-5, NV-6, NV-8, NV-9 | — ([#49](https://github.com/szaghi/adam/issues/49), non-dimensional form, N0–N2) | CPU, FNL | no |
 | [Ranks without blocks](./infrastructure/ranks-without-blocks) | DV-1 | — ([#82](https://github.com/szaghi/adam/issues/82)) | CPU, FNL | yes |
+| [Non-finite state guard](./infrastructure/nonfinite) | — (`nonfinite`) | — ([#45](https://github.com/szaghi/adam/issues/45)) | CPU, FNL | no |
 
 ## [Dissipative terms (M4)](./dissipative/)
 

@@ -2760,6 +2760,32 @@ def fig_blast_symmetry(out: Path, runs: Path) -> None:
     fig.savefig(out / "mhd-blast-symmetry.png", dpi=DPI)
     plt.close(fig)
 
+def fig_mhd_conservation(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """MV-11 (issue #85, R4): MHD conservation across 2:1 AMR faces, the periodic box with the refined octant, from the
+    kept conservation histories of mhd/conservation/check.sh (CPU): the relative drift of every volume integral per
+    step for GLM with reflux, damped GLM with reflux, GLM without reflux and no cleaning with reflux."""
+    cdir = HERE / "mhd" / "conservation"
+    variants = (("glm-reflux", "GLM, reflux"), ("glm-damped-reflux", "damped GLM, reflux"),
+                ("glm-noreflux", "GLM, no reflux"), ("none-reflux", "no cleaning, reflux"))
+    fig, axs = plt.subplots(1, 4, figsize=(20, 4.6), constrained_layout=True, sharey=True)
+    for ax, (run_, title) in zip(axs, variants, strict=True):
+        path = next((cdir / f"{TAG}-{run_}").glob("*-conservation_history.dat"))
+        lines = path.read_text().splitlines()
+        names = [v.strip('"').removeprefix("int_") for v in lines[0].split("=", 1)[1].split()][2:]
+        rows = np.array([[float(v) for v in ln.split()] for ln in lines[1:] if ln.strip()])
+        for i, v in enumerate(names):
+            col = rows[:, 2 + i]
+            scale = max(abs(col[0]), np.abs(rows[0, 2:]).max() * 1e-12) if v != "psi" else 1.0
+            ax.semilogy(rows[:, 0], np.maximum(np.abs(col - col[0]) / scale, 1e-17), label=v)
+        ax.set_xlabel("step")
+        ax.grid(alpha=0.3)
+        ax.set_title(title)
+    axs[0].set_ylabel("|I(t) - I(0)| / |I(0)| (psi: absolute; floor 1e-17)")
+    axs[0].legend(fontsize=7, ncol=2)
+    fig.suptitle("MV-11: the MHD volume integrals across the 2:1 faces of the refined octant (CPU, 2 ranks)")
+    fig.savefig(out / "mhd-conservation.png", dpi=DPI)
+    plt.close(fig)
+
 
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
@@ -2789,7 +2815,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "limited-fills": fig_limited_fills, "reflux-policy": fig_reflux_policy, "integral-drift": fig_integral_drift,
            "divergence-across-seams": fig_divergence_across_seams, "glm-damping": fig_glm_damping,
            "field-loop-seams": fig_field_loop_seams, "shock-crossing-rj2a": fig_shock_crossing_rj2a,
-           "mhd-blast-symmetry": fig_blast_symmetry}
+           "mhd-blast-symmetry": fig_blast_symmetry, "mhd-conservation": fig_mhd_conservation}
 
 
 def main() -> int:
