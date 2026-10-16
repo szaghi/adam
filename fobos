@@ -51,6 +51,11 @@ default = local_gnu
 [varset:local_gnu]
 $HDF5_PREFIX = lib/hdf5/develop/gnu/16.2.0
 
+# GitHub Actions CI: Ubuntu 24.04's apt gfortran-14 (.github/actions/setup-build-env) cannot read the .mod files of the
+# gfortran 16.2 HDF5 above, so CI builds against the gfortran 14 HDF5 kept in the repo (ci.yml passes --varset ci_gnu).
+[varset:ci_gnu]
+$HDF5_PREFIX = lib/hdf5/develop/gnu/14.2.0
+
 [varset:local_nvf]
 $HDF5_PREFIX = lib/hdf5/develop/nvf/26.9
 $NVF_CC      = cc89

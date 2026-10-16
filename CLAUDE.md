@@ -215,7 +215,8 @@ capability) is defined only in the NVF varsets, not the `local_gnu` default.
 Build any `*-fnl-nvf` / `*-nvf*` mode with `--varset local_nvf` (sets
 `$NVF_CC=cc89` for this workstation's Ada GPU); omitting it leaves `-gpu=$NVF_CC`
 unexpanded and the build dies on the first nvfortran invocation. Other varsets:
-`leonardo`, `iac` (both `cc80`). nvfortran must be on PATH first: `module load nvhpc`.
+`leonardo`, `iac` (both `cc80`). nvfortran must be on PATH first: `module load nvhpc` on WSL (26.9, the default,
+matching `local_nvf`); on medooza `source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh` (see the varset table below).
 
 ```bash
 # List all available build modes
@@ -329,14 +330,22 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
     `$HDF5_gnu`/`$HDF5_nvf` variables; the only `[common-variables]` entry is
     `$GPU_ARCH` for the AMD modes). Selecting a varset selects the HDF5 build:
 
-    | Varset | `$HDF5_PREFIX` | `$NVF_CC` |
-    |---|---|---|
-    | `local_gnu` (**default**) | `lib/hdf5/develop/gnu/14.2.0` | — |
-    | `local_nvf` | `lib/hdf5/develop/nvf/26.1` | `cc89` |
-    | `leonardo` | Spack path (NVHPC 24.5) | `cc80` |
-    | `iac_gnu` | `lib/hdf5/develop/iac/gnu/12.2.1/openmpi-4.1.6` | — |
-    | `iac_nvf` | `lib/hdf5/develop/iac/nvf/25.5` | `cc80` |
-    | `spacehpc` | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` |
+    | Varset | Machine and toolchain | `$HDF5_PREFIX` | `$NVF_CC` |
+    |---|---|---|---|
+    | `local_gnu` (**default**) | WSL: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/gnu/16.2.0` | — |
+    | `local_nvf` | WSL: nvfortran 26.9 | `lib/hdf5/develop/nvf/26.9` | `cc89` |
+    | `ci_gnu` | GitHub Actions: Ubuntu 24.04 apt gfortran-14 + Open MPI | `lib/hdf5/develop/gnu/14.2.0` | — |
+    | `leonardo` | Spack path (NVHPC 24.5) | Spack | `cc80` |
+    | `iac_gnu` | medooza: gfortran 16.2.0 + Open MPI 5.0.11 (`source /ifs/hpc/home/szaghi/gnu/gnu.sh`) | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — |
+    | `iac_nvf` | medooza: nvfortran 26.9, CUDA 12.9 (`source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh`) | `lib/hdf5/develop/iac/nvf/26.9` | `cc80` |
+    | `spacehpc` | Cray PE | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` |
+
+  - **The toolchain must match the varset exactly** (since 2026-10-16, HDF5 2.3.0 develop `ab5df552` for the
+    `local_*`/`iac_*` rows): Fortran `.mod` files work only with the compiler version that wrote them. A mismatch
+    stops the build at `use hdf5` ("created by a different version of GNU Fortran") or, under nvfortran, as an
+    internal compiler error ("mpi_f08_types ... member symbol not found"). Build clean after switching compilers.
+    On medooza never use the cluster modules (nvhpc 25.5, gcc 12). CI runs `--varset ci_gnu` because its apt
+    gfortran-14 cannot read the 16.2 HDF5. The full setup is in `toolchain-update.md` (untracked, in the repo root).
 
   - These are fobos *variables*, **not** shell environment variables —
     exporting them has no effect. Build a new machine by adding a `[varset:*]`

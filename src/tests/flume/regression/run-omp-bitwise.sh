@@ -13,6 +13,7 @@
 #   ./run-omp-bitwise.sh                     # build flume-cpu-gnu and flume-cpu-gnu-omp, np 2, 2 threads per rank
 #   ./run-omp-bitwise.sh --no-build          # use the existing exe/adam_flume_cpu and exe/adam_flume_cpu_omp
 #   ./run-omp-bitwise.sh --threads 4 --np 2  # threads per rank, MPI ranks
+#   ./run-omp-bitwise.sh --varset ci_gnu     # the fobos varset of the builds (default: fobos's default, local_gnu)
 #
 # Exits 0 when the two runs are bitwise identical, 1 on any difference (printing the first divergent iteration),
 # 2 on a usage or setup error.
@@ -21,12 +22,14 @@ set -euo pipefail
 NO_BUILD=0
 THREADS=2
 NP=2
+VARSET=()
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --no-build) NO_BUILD=1 ; shift ;;
       --threads)  THREADS="$2" ; shift 2 ;;
       --np)       NP="$2" ; shift 2 ;;
-      *) echo "ERROR: unknown argument '$1' (accepted: --no-build, --threads N, --np N)" >&2 ; exit 2 ;;
+      --varset)   VARSET=(--varset "$2") ; shift 2 ;;
+      *) echo "ERROR: unknown argument '$1' (accepted: --no-build, --threads N, --np N, --varset NAME)" >&2 ; exit 2 ;;
    esac
 done
 
@@ -49,8 +52,8 @@ fi
 
 cd "$REPO_ROOT"
 if [[ $NO_BUILD -eq 0 ]]; then
-   fobis build --mode flume-cpu-gnu
-   fobis build --mode flume-cpu-gnu-omp
+   fobis build --mode flume-cpu-gnu "${VARSET[@]}"
+   fobis build --mode flume-cpu-gnu-omp "${VARSET[@]}"
 fi
 for exe in exe/adam_flume_cpu exe/adam_flume_cpu_omp; do
    [[ -x "$exe" ]] || { echo "ERROR: executable $exe not found" >&2 ; exit 2 ; }
