@@ -36,7 +36,7 @@ which of the two, the ghosts or the reflux, causes it.
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/amr-divb/make_amr_divb.py loop` | the field loop inputs (`--cleaning glm` or `eglm`; the seam operators and the reflux policy are added to the input by hand: the script has no option for them) |
+| `src/tests/flume/verification/amr-divb/make_amr_divb.py loop` | the field loop inputs (`--cleaning glm` or `eglm`, `--seam-ghost-fill`, `--seam-restriction`, `--reflux-policy`, `--no-reflux`) |
 | `src/tests/flume/verification/amr-divb/amr_divb_oracle.py loop` | the $\langle\lvert B_z\rvert\rangle/A_0$ report |
 
 ## Results

@@ -35,7 +35,7 @@ the coarse and the finest spacings on A2's source-free CPAW.
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/amr-divb/make_amr_divb.py cpaw` | the CPAW inputs (`glm_damping_length` is written as 1.0; the other lengths are set in the input by hand: the script has no option for it) |
+| `src/tests/flume/verification/amr-divb/make_amr_divb.py cpaw` | the CPAW inputs (`--glm-damping-length`: 1.0, the coarse spacing, `min-cell`) |
 | `src/tests/flume/verification/amr-divb/amr_divb_oracle.py growth` | the seam floor and its growth |
 
 ## Results

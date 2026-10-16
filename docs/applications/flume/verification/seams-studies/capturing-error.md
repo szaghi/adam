@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| E0 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | partial (Sod profiles: [#85](https://github.com/szaghi/adam/issues/85)) | — |
+| E0 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL; CPU re-runs agree to the printed digits | yes | — |
 
 ## Case and scope
 
@@ -34,7 +34,7 @@ operator can fix it.
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the crossings (`--seam-restriction`, `--no-reflux`; the fill key is added to the input by hand: the script has no `--seam-ghost-fill` option) |
+| `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the crossings (`--seam-ghost-fill`, `--seam-restriction`, `--no-reflux`) |
 | `src/tests/flume/verification/amr-shock/amr_shock_oracle.py` | the plateau and band defects, the mass and the shock position |
 
 No `check.sh` leg runs E0.
@@ -44,8 +44,14 @@ No `check.sh` leg runs E0.
 ![E0: the plateau defect against fill, restriction and reflux](/flume/capturing-error.png)
 
 *The table below as bars (`make_doc_figures.py --only capturing-error`): no combination of coarse-to-fine fill,
-restriction and reflux removes the defect; the largest change is the reflux on Sod with the tricubic fill. The Sod
-profiles at $N$ = 200 and 400 are still owed ([#85](https://github.com/szaghi/adam/issues/85), they need re-runs).*
+restriction and reflux removes the defect; the largest change is the reflux on Sod with the tricubic fill. *
+
+![E0: the Sod plateau and the defect per arm, CPU](/flume/capturing-error-sod.png)
+
+*The CPU re-runs (`make_doc_runs.sh <runs> seams`): left, the plateau after the c2f crossing with the tricubic and the
+compatible fills at $N$ = 200 and 400, the bump behind the face the same at both resolutions; right, the defect of
+every arm, which the CPU reproduces to the printed digits of the FNL table below (2.32, 1.82, 2.46, 3.10, 3.17
+$\cdot10^{-2}$; at $N = 400$: 2.35 and 2.14 $\cdot10^{-2}$, band $1.71\cdot10^{-3}$).*
 
 Plateau density defect behind the shock:
 

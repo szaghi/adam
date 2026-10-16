@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| AO (A1, C1) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| AO (A1, C1) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -81,6 +81,7 @@ Legs of the euler ladder (each: refined and uniform runs, $N$ = 64 / 128 / 256):
 | `src/tests/flume/verification/amr-order/make_amr_order.py` | writes the inputs from the V2 input `vortex/vortex-n{064,128,256}.ini` (euler) or `mhd/vortex/make_mhd_vortex.py` (mhd); `--ratio`, `--uniform`, `--no-reflux`, `--seam-restriction`, `--seam-ghost-fill`, `--reflux-policy`, `--time-max`, `--it-save` |
 | `src/tests/flume/verification/mhd/amr_box.py` | `refine_box`: the refined quadrant, one 2:1 level at initialisation |
 | `src/tests/flume/verification/amr-order/amr_order_oracle.py` | the per-region errors against the exact vortex, the orders, the bounds |
+| `src/tests/flume/verification/make_doc_figures.py --only order-across-seams` | the figure, from the kept work directories of `amr-order/check.sh --keep` (CPU) |
 | `src/tests/flume/verification/amr-order/check.sh` | runs the legs (`--leg`, `--np N`, `--keep`; `FLUME_EXE` selects the backend) |
 
 ```bash
@@ -106,8 +107,9 @@ Cost of `euler-l6`: about 10 min on the CPU, 2 on FNL.
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): error maps refined against uniform with the seam band,
-and L1/L∞ against $N$ for `mean`, `lagrange6` and the uniform control).
+![AO ladders and error maps](/flume/order-across-seams.png)
+
+*CPU, from the work directories `amr-order/check.sh --leg euler --leg euler-l6 --leg euler-q6 --keep` leaves: $L_1(\rho)$ over all cells and $L_\infty(\rho)$ in the seam band against $N$ (the 128 → 256 orders in the legend), today's operators (mean + tricubic, reflux on) capped at 2.01 and 1.46, lagrange6 without reflux at the uniform control, lagrange6 + quintic below it; and the density error maps at $N = 128$ (the refined quadrant in white): today's error concentrates on the seams, lagrange6 + quintic leaves the vortex's own.*
 
 Baselines (A1). CPU and FNL identical to every printed digit, 2 ranks; orders of the finest pair, $N$ = 128 → 256:
 

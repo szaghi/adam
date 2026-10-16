@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| D1 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (table: FNL) | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| D1 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (table: FNL) | yes | — |
 
 ## Case and scope
 
@@ -40,8 +40,9 @@ All runs on 2 ranks unless stated.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/amr-order/check.sh --leg euler-q6` | the AO ladder: orders $\ge 5.5$ and the errors at most the baseline plus 2 % |
-| `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the crossings (its `--seam-restriction`; the fill key is added to the input by hand, the script has no `--seam-ghost-fill` option) |
+| `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the crossings (`--seam-restriction`, `--seam-ghost-fill`) |
 | `src/tests/flume/verification/ghosts/check.sh --seam-restriction lagrange6 --seam-ghost-fill quintic --degree 5` | GP on a degree-5 field |
+| `src/tests/flume/verification/make_doc_figures.py --only quintic-fill` | the figure, from the probe runs of `ghosts/check.sh --degree 5 --keep` (default operators, then lagrange6 + quintic) and the kept AO work directories (CPU) |
 | `src/tests/flume/verification/multirealm/check.sh` | leg 6, every seam operator across a refined inter-realm seam |
 | `src/tests/flume/verification/mhd/positivity/check.sh` | PV-5 |
 
@@ -52,8 +53,9 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg euler-q6
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): the GP degree-5 fill error and the AO `euler-q6`
-ladder).
+![D1: the quintic fill in situ and on the AO vortex](/flume/quintic-fill.png)
+
+*CPU. Left and centre: the ghost probe on a degree-5 field, box3d (octree) and channel2d (quadtree), 2 ranks, the largest error per ghost group: mean + tricubic misses the field by up to $5\cdot10^{-5}$ in every group a seam operator fills (the expected failure: exact to degree 1 and 3), lagrange6 + quintic matches it to $10^{-14}$. Right: the AO ladder without reflux, lagrange6 with the tricubic and the quintic fill.*
 
 FNL, 2 ranks (plateau values in units of $10^{-2}$; band values absolute):
 

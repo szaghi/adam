@@ -2327,6 +2327,263 @@ def fig_seam_conservation(out: Path, runs: Path) -> None:  # noqa: ARG001
     fig.savefig(out / "seam-conservation.png", dpi=DPI)
     plt.close(fig)
 
+def oracle_module(sub: str, name: str) -> object:
+    """Import a verification oracle module from its case directory."""
+    sys.path.insert(0, str(HERE / sub))
+    return __import__(name)
+
+
+AO = HERE / "amr-order"
+AO_TAG = "work-adam_flume_cpu-np2"
+AO_BOX = [0.5, 0.5, 1.0, 1.0]
+
+
+def ao_ladder(leg: str, uniform: bool = False) -> tuple[list[int], list[dict]]:
+    """Return the base cells and the region errors (amr_order_oracle.region_errors) of an AO Euler ladder."""
+    ao = oracle_module("amr-order", "amr_order_oracle")
+    ns, errs = [], []
+    for n in (64, 128, 256):
+        work = AO / f"{AO_TAG}-{leg}{'-uniform' if uniform else ''}-n{n}"
+        cells, e = ao.region_errors("euler", work, None if uniform else AO_BOX)
+        ns.append(cells)
+        errs.append(e)
+    return ns, errs
+
+
+def ao_axes(ax_l1, ax_linf, legs: tuple[tuple[str, str, str], ...]) -> None:  # noqa: ANN001
+    """Draw the L1 (all cells) and Linf (seam band) ladders of AO legs, with the uniform control."""
+    ns, eu = ao_ladder("euler", uniform=True)
+    ax_l1.loglog(ns, [e["all"][0] for e in eu], "k*-", label="uniform (coarse)")
+    ax_linf.loglog(ns, [e["all"][1] for e in eu], "k*-", label="uniform (coarse)")
+    for leg, lab, fmt in legs:
+        ns, er = ao_ladder(leg)
+        for ax, region, k in ((ax_l1, "all", 0), (ax_linf, "band", 1)):
+            v = [e[region][k] for e in er]
+            ax.loglog(ns, v, fmt, mfc="none", label=f"{lab} ({math.log2(v[-2] / v[-1]):.2f})")
+    n = np.array([64.0, 256.0])
+    for ax, top in ((ax_l1, eu[0]["all"][0]), (ax_linf, eu[0]["all"][1])):
+        ax.loglog(n, top * 3 * (64 / n) ** 2, "k--", lw=0.8, label="order 2")
+        ax.loglog(n, top * (64 / n) ** 5, "k:", lw=0.8, label="order 5")
+        ax.set_xlabel("base cells per side N")
+        ax.grid(alpha=0.3, which="both")
+        ax.legend(fontsize=7, title="(128 → 256 order)", title_fontsize=7)
+    ax_l1.set_ylabel(r"$L_1(\rho)$, all cells")
+    ax_linf.set_ylabel(r"$L_\infty(\rho)$, seam band")
+
+
+def fig_order_across_seams(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """AO (#68, issue #85 R2b): the Euler vortex across the static 2:1 quadrant [0.5, 1]^2, CPU, from the kept work
+    directories of amr-order/check.sh. L1 and Linf ladders of today's operators (mean + tricubic, reflux on), the
+    6-point restriction without reflux and with the quintic fill, against the uniform coarse control; and the density
+    error maps at N = 128 of today's operators and of lagrange6 + quintic."""
+    ao = oracle_module("amr-order", "amr_order_oracle")
+    fig, axs = plt.subplots(1, 4, figsize=(21, 4.8), constrained_layout=True)
+    ao_axes(axs[0], axs[1], (("euler", "mean + tricubic, reflux", "o-"), ("euler-l6", "lagrange6, no reflux", "s-"),
+                             ("euler-q6", "lagrange6 + quintic, no reflux", "d-")))
+    axs[0].set_title("all cells")
+    axs[1].set_title("the seam band")
+    maps = [(leg, lab) for leg, lab in (("euler", "mean + tricubic, reflux"), ("euler-q6", "lagrange6 + quintic"))]
+    errs = []
+    for leg, _ in maps:
+        work = AO / f"{AO_TAG}-{leg}-n128"
+        xy, h, q = ao.last_cells(work, ("r",))
+        errs.append((xy, h, np.abs(q[:, 0] - ao.exact_density(xy[:, 0], xy[:, 1], ao.read_ini(work)))))
+    lo = np.log10(max(min(float(e[2].max()) for e in errs) * 1e-4, 1e-14))
+    hi = np.log10(max(float(e[2].max()) for e in errs))
+    for ax, (leg, lab), (xy, h, e) in zip(axs[2:], maps, errs, strict=True):
+        sc = ax.scatter(xy[:, 0], xy[:, 1], c=np.log10(np.maximum(e, 10**lo)), s=(h[:, 0] / h.max()) * 6, marker="s",
+                        cmap="viridis", vmin=lo, vmax=hi)
+        ax.add_patch(Rectangle((0.5, 0.5), 0.5, 0.5, fill=False, ec="w", lw=0.8))
+        ax.set_aspect("equal")
+        ax.set_title(f"N = 128, {lab}: max {e.max():.1e}")
+    fig.colorbar(sc, ax=axs[3], label=r"$\log_{10}|\rho - \rho_\mathrm{exact}|$", shrink=0.85)
+    fig.suptitle("AO: the isentropic vortex across the static 2:1 quadrant (white), CPU, 2 ranks")
+    fig.savefig(out / "order-across-seams.png", dpi=DPI)
+    plt.close(fig)
+
+
+def sod_columns(work: Path) -> tuple[np.ndarray, np.ndarray, object]:
+    """Return the cell centres, the density and the exact Problem of an AS Sod run."""
+    ash = oracle_module("amr-shock", "amr_shock_oracle")
+    ini = ash.read_ini(work)
+    prob = ash.Problem(ini)
+    xs, _, q, _ = ash.load(work, ash.EULER, int(ini["grid"]["ngc"]))
+    return xs, q[0], prob
+
+
+def sod_zoom(ax, runs: Path, cases: tuple[tuple[str, str, str], ...], title: str, plateau: bool = True) -> None:  # noqa: ANN001
+    """Draw the density behind the Sod shock (the plateau) of several AS runs, the exact value and the face x = 0.75."""
+    for case, lab, mk in cases:
+        xs, rho, prob = sod_columns(runs / case)
+        ax.plot(xs, rho, mk, ms=3, mfc="none", label=lab)
+    xe = np.linspace(prob.x_left - 0.05, prob.x_shock + 0.05, 2001)
+    ax.plot(xe, prob.density(xe), "k-", lw=0.9, label="exact")
+    ax.axvline(0.75, color="C3", ls="--", lw=0.8, label="2:1 face")
+    if plateau:
+        ax.set_xlim(prob.x_left - 0.03, prob.x_shock + 0.03)
+        ax.set_ylim(prob.q2[0] - 0.03, prob.q2[0] + 0.03)
+    ax.set_xlabel("x")
+    ax.set_ylabel(r"$\rho$")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7)
+    ax.set_title(title)
+
+
+def fig_shock_crossing(out: Path, runs: Path) -> None:
+    """AS (#68, issue #85 R2b): the Sod shock crossing the static 2:1 face at x = 0.75, coarse to fine and fine to
+    coarse (today's operators), N = 200, t = 0.2, CPU: the density against the exact solution, and the plateau behind
+    the shock with the uniform controls at the coarse and the fine spacing."""
+    fig, axs = plt.subplots(1, 3, figsize=(17, 4.6), constrained_layout=True)
+    for case, lab, mk in (("as-c2f", "c2f (x > 0.75 refined)", "o"), ("as-f2c", "f2c (x < 0.75 refined)", "s")):
+        xs, rho, prob = sod_columns(runs / case)
+        axs[0].plot(xs, rho, mk, ms=2.5, mfc="none", label=lab)
+    xe = np.linspace(0.0, 1.0, 2001)
+    axs[0].plot(xe, prob.density(xe), "k-", lw=0.9, label="exact")
+    axs[0].axvline(0.75, color="C3", ls="--", lw=0.8, label="2:1 face")
+    axs[0].set_xlabel("x")
+    axs[0].set_ylabel(r"$\rho$")
+    axs[0].grid(alpha=0.3)
+    axs[0].legend(fontsize=8)
+    axs[0].set_title("Sod at t = 0.2, N = 200")
+    sod_zoom(axs[1], runs, (("as-c2f", "c2f", "o"), ("as-uniform-200", "uniform, N = 200", "^"),
+                            ("as-uniform-400", "uniform, N = 400", "v")), "the plateau, coarse to fine")
+    sod_zoom(axs[2], runs, (("as-f2c", "f2c", "s"), ("as-uniform-200", "uniform, N = 200", "^"),
+                            ("as-uniform-400", "uniform, N = 400", "v")), "the plateau, fine to coarse")
+    fig.suptitle("AS: a shock crossing a static 2:1 face (mean restriction, tricubic fill, reflux), CPU")
+    fig.savefig(out / "shock-crossing.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_capturing_error_sod(out: Path, runs: Path) -> None:
+    """E0 (#68, issue #85 R2b): the Sod plateau after the c2f crossing, the tricubic and the restriction-compatible
+    fills at N = 200 and 400, and the plateau defect (amr_shock_oracle.measure) of every fill x restriction x reflux
+    arm of the CPU re-runs."""
+    ash = oracle_module("amr-shock", "amr_shock_oracle")
+    fig, axs = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True)
+    sod_zoom(axs[0], runs, (("e0-tricubic-mean-on", "tricubic, N = 200", "o"),
+                            ("e0-restriction-compatible-mean-on", "compatible, N = 200", "s"),
+                            ("e0-tricubic-400", "tricubic, N = 400", "^"),
+                            ("e0-restriction-compatible-400", "compatible, N = 400", "v")),
+             "the plateau behind the shock (reflux on, mean restriction)")
+    arms = [(f, r) for f in ("restriction-compatible", "tricubic") for r in ("mean", "lagrange6")]
+    x = np.arange(len(arms))
+    for j, (refl, color) in enumerate((("on", "C0"), ("off", "C1"))):
+        d = [ash.measure(runs / f"e0-{f}-{r}-{refl}", 0.75, 0.03)["plateau_r"] for f, r in arms]  # check.sh margin
+        axs[1].bar(x + (j - 0.5) * 0.38, d, 0.38, color=color, label=f"reflux {refl}")
+    axs[1].set_xticks(x, [f"{'compatible' if f.startswith('restriction') else f} + {r}" for f, r in arms], fontsize=8)
+    axs[1].set_ylabel("plateau density defect / jump")
+    axs[1].grid(alpha=0.3, axis="y")
+    axs[1].legend(fontsize=8)
+    axs[1].set_title("Sod, c2f, N = 200 (CPU re-runs)")
+    fig.suptitle("E0: the defect behind a shock that crossed a 2:1 face does not converge away and no operator removes it")
+    fig.savefig(out / "capturing-error-sod.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_quintic_fill(out: Path, runs: Path) -> None:
+    """D1 (#68, issue #85 R2b): the ghost probe on a degree-5 polynomial field (box3d, octree, and channel2d, quadtree;
+    2 ranks), the largest error per ghost group of today's operators (mean + tricubic: exact to degree 1 and 3) and of
+    lagrange6 + quintic (exact to degree 5); and the AO ladder of lagrange6 with the tricubic and the quintic fill."""
+    gp = oracle_module("ghosts", "ghost_probe")
+    fig, axs = plt.subplots(1, 3, figsize=(20, 6.0), constrained_layout=True, width_ratios=(2.2, 1.1, 1.0))
+    for ax, case in zip(axs[:2], ("box3d", "channel2d"), strict=True):
+        res = {arm: gp.probe(runs / f"gp5-{arm}-{case}") for arm in ("default", "q6")}
+        keys = sorted(set(res["default"]) | set(res["q6"]), key=lambda k: (k[0], k[1]))
+        keys = [k for k in keys if k[0] != "solid"]
+        x = np.arange(len(keys))
+        for j, (arm, lab, color) in enumerate((("default", "mean + tricubic", "C3"), ("q6", "lagrange6 + quintic", "C2"))):
+            v = [max((r[0] for r in res[arm].get(k, [])), default=0.0) for k in keys]
+            ax.bar(x + (j - 0.5) * 0.4, np.maximum(v, 1e-17), 0.4, color=color, label=lab)
+        ax.set_yscale("log")
+        ax.set_xticks(x, [f"{c}: {b}" for c, b in keys], rotation=90, fontsize=5.5)
+        ax.set_ylabel("largest ghost error / field scale (floor 1e-17)")
+        ax.grid(alpha=0.3, axis="y")
+        ax.legend(fontsize=8)
+        ax.set_title(f"ghost probe, degree-5 field, {case}")
+    ns, eu = ao_ladder("euler", uniform=True)
+    axs[2].loglog(ns, [e["all"][0] for e in eu], "k*-", label="uniform (coarse)")
+    for leg, lab, fmt in (("euler-l6", "lagrange6 + tricubic", "s-"), ("euler-q6", "lagrange6 + quintic", "d-")):
+        nn, er = ao_ladder(leg)
+        v = [e["all"][0] for e in er]
+        axs[2].loglog(nn, v, fmt, mfc="none", label=f"{lab} ({math.log2(v[-2] / v[-1]):.2f})")
+    axs[2].set_xlabel("base cells per side N")
+    axs[2].set_ylabel(r"$L_1(\rho)$, all cells")
+    axs[2].grid(alpha=0.3, which="both")
+    axs[2].legend(fontsize=8, title="reflux off (128 → 256 order)", title_fontsize=7)
+    axs[2].set_title("AO vortex: the quintic fill removes the tricubic error")
+    fig.suptitle("D1: the quintic coarse-to-fine fill, in situ (ghost probe) and on the AO vortex (CPU)")
+    fig.savefig(out / "quintic-fill.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_limited_fills(out: Path, runs: Path) -> None:
+    """D2 (#68, issue #85 R2b): the Sod plateau after the crossing with the 6-point fills on lagrange6 (quintic, weno6,
+    quintic-mp) against the tricubic fill, coarse to fine and fine to coarse, N = 200, CPU."""
+    fig, axs = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True)
+    for ax, side in zip(axs, ("c2f", "f2c"), strict=True):
+        base = (("e0-tricubic-lagrange6-on", "tricubic", "o"),) if side == "c2f" else ()
+        sod_zoom(ax, runs, (*base, (f"d-quintic-{side}", "quintic", "s"), (f"d-weno6-{side}", "weno6", "^"),
+                            (f"d-quintic-mp-{side}", "quintic-mp", "v")),
+                 f"{side}: the plateau behind the shock (lagrange6, reflux on)")
+    fig.suptitle("D2: the limited coarse-to-fine fills do not remove the plateau defect (CPU)")
+    fig.savefig(out / "limited-fills.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_reflux_policy(out: Path, runs: Path) -> None:
+    """E2 (#68, issue #85 R2b): reflux_policy = troubled against always. The AO ladder (lagrange6 + quintic) under
+    troubled, without reflux and today's operators; and the Sod shock after the crossing, always against troubled."""
+    fig, axs = plt.subplots(1, 3, figsize=(17, 4.6), constrained_layout=True)
+    ns, eu = ao_ladder("euler", uniform=True)
+    axs[0].loglog(ns, [e["all"][0] for e in eu], "k*-", label="uniform (coarse)")
+    for leg, lab, fmt in (("euler", "mean + tricubic, reflux always", "o-"),
+                          ("euler-q6", "lagrange6 + quintic, no reflux", "d-"),
+                          ("euler-tq", "lagrange6 + quintic, reflux troubled", "x-")):
+        nn, er = ao_ladder(leg)
+        v = [e["all"][0] for e in er]
+        axs[0].loglog(nn, v, fmt, mfc="none", label=f"{lab} ({math.log2(v[-2] / v[-1]):.2f})")
+    axs[0].set_xlabel("base cells per side N")
+    axs[0].set_ylabel(r"$L_1(\rho)$, all cells")
+    axs[0].grid(alpha=0.3, which="both")
+    axs[0].legend(fontsize=7, title="(128 → 256 order)", title_fontsize=7)
+    axs[0].set_title("AO vortex: troubled keeps the 6th order")
+    for ax, side in zip(axs[1:], ("c2f", "f2c"), strict=True):
+        sod_zoom(ax, runs, ((f"d-quintic-{side}", "always", "o"), (f"e2-troubled-{side}", "troubled", "x")),
+                 f"Sod {side}: the shock, lagrange6 + quintic", plateau=False)
+        _, _, prob = sod_columns(runs / f"d-quintic-{side}")
+        ax.set_xlim(prob.x_shock - 0.04, prob.x_shock + 0.03)
+        ax.set_ylim(0.1, 0.3)
+    fig.suptitle("E2: the reflux policy troubled against always (CPU)")
+    fig.savefig(out / "reflux-policy.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_integral_drift(out: Path, runs: Path) -> None:  # noqa: ARG001
+    """AL (#68, issue #85 R2b): the relative drift of the domain integrals per step, reflux on, off and troubled, on
+    the AO vortex and the AS Sod, from the kept work directories of amr-log/check.sh (CPU)."""
+    adir = HERE / "amr-log"
+    fig, axs = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True)
+    for ax, leg, vars_ in ((axs[0], "vortex", ("r", "rE")), (axs[1], "sod", ("r", "rE"))):
+        for run_, lab, ls in (("reflux", "reflux always", "-"), ("noreflux", "reflux off", "--"),
+                              ("reflux-troubled", "reflux troubled", ":")):
+            path = next((adir / f"{AO_TAG}-{leg}-{run_}").glob("*-conservation_history.dat"))
+            lines = path.read_text().splitlines()
+            header = lines[0].split("=", 1)[1].replace('"', "").split()
+            data = np.array([[float(v) for v in ln.split()] for ln in lines[1:] if ln.strip()])
+            for v, c in zip(vars_, ("C0", "C3"), strict=True):
+                col = data[:, header.index(f"int_{v}")]
+                ax.semilogy(data[:, 0], np.maximum(np.abs(col - col[0]) / abs(col[0]), 1e-17), ls, color=c,
+                            label=f"{lab}, {v}")
+        ax.set_xlabel("step")
+        ax.set_ylabel("relative drift (floor 1e-17)")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    axs[0].set_title("AO vortex, N = 64, t = 1 (periodic)")
+    axs[1].set_title("AS Sod c2f, N = 200, t = 0.2")
+    fig.suptitle("AL: the domain integrals across static 2:1 seams (CPU, 2 ranks)")
+    fig.savefig(out / "integral-drift.png", dpi=DPI)
+    plt.close(fig)
+
 
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
@@ -2350,7 +2607,10 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
            "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,
            "rotated-shock-tube": fig_rotated_shock_tube, "weno-riemann": fig_weno_riemann, "quadtree": fig_quadtree,
-           "regrid-runtime": fig_regrid_runtime, "seam-conservation": fig_seam_conservation}
+           "regrid-runtime": fig_regrid_runtime, "seam-conservation": fig_seam_conservation,
+           "order-across-seams": fig_order_across_seams, "shock-crossing": fig_shock_crossing,
+           "capturing-error-sod": fig_capturing_error_sod, "quintic-fill": fig_quintic_fill,
+           "limited-fills": fig_limited_fills, "reflux-policy": fig_reflux_policy, "integral-drift": fig_integral_drift}
 
 
 def main() -> int:

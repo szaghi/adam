@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| AL (A4) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (the two backends log the same values) | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| AL (A4) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (the two backends log the same values) | yes | — |
 
 ## Case and scope
 
@@ -46,6 +46,7 @@ Both legs run with the reflux on and off, a checkpoint every 10 steps, 2 ranks.
 | `src/tests/flume/verification/amr-order/make_amr_order.py` | the `vortex` inputs (`--cells 64 --time-max 1.0 --it-save 10 [--no-reflux]`) |
 | `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the `sod` inputs (`--cells 200 --side c2f --it-save 10 [--no-reflux]`) |
 | `src/tests/flume/verification/amr-log/amr_log.py` | `drift` and `sensor` logs |
+| `src/tests/flume/verification/make_doc_figures.py --only integral-drift` | the figure, from the kept work directories of `amr-log/check.sh` (CPU) |
 | `src/tests/flume/verification/amr-log/check.sh` | runs the legs (`--leg vortex`, `--leg sod`, `--np N`, `--keep`) |
 
 ```bash
@@ -69,8 +70,9 @@ dump of the scheme's own weights.
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): drift against step with the reflux on and off, and the
-sensor map near the seams).
+![AL: the integrals across static seams](/flume/integral-drift.png)
+
+*CPU, from the work directories `amr-log/check.sh --keep` and `--reflux-policy troubled --keep` leave: the relative drift of mass and energy per step. The reflux keeps both at round-off; without it the vortex drifts to $2\cdot10^{-5}$ and the Sod crossing to $2\cdot10^{-4}$; under `troubled` the smooth vortex drifts as without reflux, so the sensor leaves its seam faces unrefluxed, the Sod crossing only to $2\cdot10^{-7}$ (the shock faces are flagged).*
 
 Drift (2 ranks):
 

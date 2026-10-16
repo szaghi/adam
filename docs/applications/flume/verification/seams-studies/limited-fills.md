@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| D2 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (crossings); CPU, FNL (AO legs) | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| D2 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (crossings); CPU, FNL (AO legs) | yes | — |
 
 ## Case and scope
 
@@ -37,8 +37,9 @@ the shock-crossing defect is not.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/amr-order/check.sh --leg euler-ww`, `--leg euler-mp` | the AO legs: orders $\ge 4.8$ / 4.5 (`euler-ww`) and $\ge 5.5$ (`euler-mp`), the errors at most the baseline plus 2 % |
-| `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the crossings (the fill key is added to the input by hand: the script has no `--seam-ghost-fill` option) |
+| `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the crossings (`--seam-ghost-fill`, `--seam-restriction`) |
 | `src/tests/flume/verification/ghosts/check.sh --seam-ghost-fill F` | GP |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> seams`, `make_doc_figures.py --only limited-fills` | re-runs the crossings `d-{quintic,weno6,quintic-mp}-{c2f,f2c}` (CPU) |
 | `src/tests/flume/verification/multirealm/check.sh` | leg 6 runs `weno6` and `quintic-mp` across a refined inter-realm seam |
 
 ```bash
@@ -47,7 +48,9 @@ cd src/tests/flume/verification/amr-order && ./check.sh --leg euler-ww --leg eul
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): plateau profiles for the limited fills).
+![D2: the plateau with the 6-point fills](/flume/limited-fills.png)
+
+*Sod at $N = 200$, lagrange6, reflux on, CPU: the plateau behind the shock with the quintic, weno6 and quintic-mp fills (and the tricubic, c2f), coarse to fine and fine to coarse. The fills differ by at most about $10^{-3}$ in density, against a defect of $2.5\cdot10^{-2}$ of the jump: the defect is not the fill.*
 
 Every fill on the `c2f` crossings (FNL, 2 ranks, `lagrange6` restriction; plateau and band defects as in
 [AS](../seams/shock-crossing)):

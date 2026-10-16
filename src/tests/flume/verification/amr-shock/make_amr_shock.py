@@ -17,11 +17,14 @@ Sides:
 --seam-restriction R writes `[amr] seam_restriction = R` (#68 C3 measurement); the octree refines the null y and z
 too, so their 4-cell blocks are widened to 8 (the 6-point footprint needs 6), the same for both values of R so that
 a comparison runs on one grid (the 1-D solution is the same on every transverse copy).
+--seam-ghost-fill F writes `[amr] seam_ghost_fill = F` (#68 D1, D2, E0: the coarse-to-fine fill of the crossings); the
+6-point fills (quintic, weno6, quintic-mp) widen the null axes to 8 cells as well.
 
 Usage:
     make_amr_shock.py sod|rj2a <out.ini> --cells N [--side c2f|f2c] [--uniform] [--no-reflux] [--it-save K]
                       [--reflux-policy always|troubled]
                       [--seam-restriction mean|lagrange6|weno6]
+                      [--seam-ghost-fill injection|restriction-compatible|tricubic|quintic|weno6|quintic-mp]
 """
 
 from __future__ import annotations
@@ -81,6 +84,9 @@ def main() -> None:
                         help="[amr] seam_restriction, null axes widened to 8 cells (default: the key absent)")
     parser.add_argument("--reflux-policy", choices=("always", "troubled"), default=None,
                         help="[numerics] reflux_policy (#68 E1; default: the key absent, always)")
+    parser.add_argument("--seam-ghost-fill", choices=("injection", "restriction-compatible", "tricubic", "quintic", "weno6", "quintic-mp"), default=None,
+                        help="[amr] seam_ghost_fill (#68 D1, D2, E0; default: the key absent, tricubic); the 6-point fills "
+                             "widen the null axes to 8 cells")
     args = parser.parse_args()
     ini = base_input(args.case, args.cells)
     if not args.uniform:
@@ -89,8 +95,11 @@ def main() -> None:
         ini["numerics"]["reflux"] = ".false."
     if args.reflux_policy is not None:
         ini["numerics"]["reflux_policy"] = args.reflux_policy
-    if args.seam_restriction is not None:
-        ini["amr"]["seam_restriction"] = args.seam_restriction
+    if args.seam_ghost_fill is not None:
+        ini["amr"]["seam_ghost_fill"] = args.seam_ghost_fill
+    if args.seam_restriction is not None or args.seam_ghost_fill in ("quintic", "weno6", "quintic-mp"):
+        if args.seam_restriction is not None:
+            ini["amr"]["seam_restriction"] = args.seam_restriction
         for axis in "jk":
             if int(ini["grid"][f"n{axis}"]) == 4:
                 ini["grid"][f"n{axis}"] = "8"

@@ -43,6 +43,11 @@
 #           (2 runs, about 2 min)
 #   multirealm sod-x, sod-2realm, sod-amr, sod-amr-refined: the Sod unions of multirealm/check.sh legs 1 and 4 and
 #           their single-realm twins (4 runs, about 4 min)
+#   seams   the Sod shock crossing a static 2:1 face at x = 0.75 (amr-shock/make_amr_shock.py, #68; issue #85 R2b):
+#           as-{c2f,f2c} (AS, today's operators), as-uniform-{200,400}; e0-{fill}-{restriction}-{on,off} for the fills
+#           tricubic and restriction-compatible, the restrictions mean and lagrange6, the reflux on and off, and
+#           e0-{tricubic,compatible}-400 (E0); d-{quintic,weno6,quintic-mp}-{c2f,f2c} on lagrange6 (D1, D2);
+#           e2-troubled-{c2f,f2c} (lagrange6 + quintic under reflux_policy = troubled, E2); N = 200 unless named
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
@@ -65,16 +70,16 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
-           "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm)" >&2
+           "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, seams)" >&2
       exit 2
    fi
 done
@@ -351,6 +356,32 @@ for g in $GROUPS_; do
          mr sod-2realm sod-2realm.ini sod-2realm-r1.ini sod-2realm-r2.ini
          mr sod-amr sod-amr.ini
          mr sod-amr-refined sod-amr-refined.ini sod-amr-refined-r1.ini sod-amr-refined-r2.ini ;;
+      seams)
+         as_run() { # as_run <case dir> <make_amr_shock arguments>: one Sod crossing
+            fresh "$1" ; shift
+            "$VENV_PY" "$VERIF_DIR/amr-shock/make_amr_shock.py" sod "$W/sod.ini" "$@" ; run sod.ini
+         }
+         as_run as-c2f --cells 200 --side c2f
+         as_run as-f2c --cells 200 --side f2c
+         as_run as-uniform-200 --cells 200 --uniform
+         as_run as-uniform-400 --cells 400 --uniform
+         for fill in tricubic restriction-compatible; do
+            for restr in mean lagrange6; do
+               as_run "e0-$fill-$restr-on" --cells 200 --side c2f --seam-ghost-fill "$fill" --seam-restriction "$restr"
+               as_run "e0-$fill-$restr-off" --cells 200 --side c2f --seam-ghost-fill "$fill" --seam-restriction "$restr" \
+                  --no-reflux
+            done
+            as_run "e0-$fill-400" --cells 400 --side c2f --seam-ghost-fill "$fill"
+         done
+         for fill in quintic weno6 quintic-mp; do
+            for side in c2f f2c; do
+               as_run "d-$fill-$side" --cells 200 --side "$side" --seam-ghost-fill "$fill" --seam-restriction lagrange6
+            done
+         done
+         for side in c2f f2c; do
+            as_run "e2-troubled-$side" --cells 200 --side "$side" --seam-ghost-fill quintic --seam-restriction lagrange6 \
+               --reflux-policy troubled
+         done ;;
    esac
 done
 exit $FAILED

@@ -88,19 +88,19 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 
 | Case | ID | Milestone | Backends | Figure |
 |---|---|---|---|---|
-| [Order across static 2:1 seams](./seams/order-across-seams) | AO (A1, C1) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [Order across static 2:1 seams](./seams/order-across-seams) | AO (A1, C1) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | yes |
 | [Divergence across seams](./seams/divergence-across-seams) | AD (A2) | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL (tables); CPU for the loop leg and the D_flux cross-check | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [Shock crossing a static 2:1 face](./seams/shock-crossing) | AS (A3, C3, C3b, C3c) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (Sod); FNL only (RJ2a, C3, C3c) | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [Integral drift and the WENO sensor near seams](./seams/integral-drift) | AL (A4) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (the two backends log the same values) | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [Shock crossing a static 2:1 face](./seams/shock-crossing) | AS (A3, C3, C3b, C3c) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (Sod); FNL only (RJ2a, C3, C3c) | partial (RJ2a: [#85](https://github.com/szaghi/adam/issues/85), R3) |
+| [Integral drift and the WENO sensor near seams](./seams/integral-drift) | AL (A4) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (the two backends log the same values) | yes |
 
 ## [Seam studies (M6)](./seams-studies/)
 
 | Case | ID | Milestone | Backends | Figure |
 |---|---|---|---|---|
-| [Quintic coarse-to-fine fill](./seams-studies/quintic-fill) | D1 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (table: FNL) | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [Limited coarse-to-fine fills](./seams-studies/limited-fills) | D2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (crossings); CPU, FNL (AO legs) | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [Shock-crossing defect is a capturing error](./seams-studies/capturing-error) | E0 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | partial (Sod profiles: [#85](https://github.com/szaghi/adam/issues/85)) |
-| [Reflux policy: troubled against always](./seams-studies/reflux-policy) | E2 (E1) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (flags checked equal to the CPU's); AO `euler-tq`: CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [Quintic coarse-to-fine fill](./seams-studies/quintic-fill) | D1 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (table: FNL) | yes |
+| [Limited coarse-to-fine fills](./seams-studies/limited-fills) | D2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (crossings); CPU, FNL (AO legs) | yes |
+| [Shock-crossing defect is a capturing error](./seams-studies/capturing-error) | E0 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL; CPU re-runs agree to the printed digits | yes |
+| [Reflux policy: troubled against always](./seams-studies/reflux-policy) | E2 (E1) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (flags checked equal to the CPU's); AO `euler-tq`: CPU, FNL | yes |
 | [#78 is the reflux, not the restricted ghosts](./seams-studies/reflux-not-ghosts) | G3a | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) |
 | [GLM damping length on a seam](./seams-studies/glm-damping) | G2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) |
 | [EGLM reflux leaves B alone](./seams-studies/eglm-reflux) | G3b | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |

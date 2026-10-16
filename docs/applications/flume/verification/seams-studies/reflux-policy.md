@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| E2 (E1) | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (flags checked equal to the CPU's); AO `euler-tq`: CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| E2 (E1) | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (flags checked equal to the CPU's); AO `euler-tq`: CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -41,19 +41,21 @@ FNL, 2 ranks.
 | `src/tests/flume/verification/amr-order/check.sh --leg euler-tq` | the AO leg under `troubled` with `lagrange6` + `quintic`: orders $\ge 5.5$, errors at most the `euler-q6` baseline plus 2 % |
 | `src/tests/flume/verification/amr-order/make_amr_order.py --reflux-policy troubled` | the other AO runs |
 | `src/tests/flume/verification/amr-shock/make_amr_shock.py --reflux-policy troubled` | the crossings |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> seams`, `make_doc_figures.py --only reflux-policy` | re-runs the crossings `e2-troubled-{c2f,f2c}` and `d-quintic-{c2f,f2c}` (CPU); the AO ladders from the kept work directories |
 
 ```bash
 cd src/tests/flume/verification/amr-order && ./check.sh --leg euler-tq
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg euler-tq
 ```
 
-The A2 and A4 runs under `troubled` have no script option (`make_amr_divb.py` and `amr-log/check.sh` do not pass the
-policy).
+The A2 and A4 runs under `troubled`: `amr-divb/make_amr_divb.py --reflux-policy troubled` and
+`amr-log/check.sh --reflux-policy troubled` (issue #85 R2b; before, the policy was added to the inputs by hand).
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): the AO ladder under `troubled` against `always`, and
-the Sod shock position).
+![E2: troubled against always](/flume/reflux-policy.png)
+
+*CPU. Left: the AO ladder, `troubled` with lagrange6 + quintic at the order of the run without reflux (6.11), today's operators at 2. Centre and right: the Sod shock after the crossing, lagrange6 + quintic under `always` and `troubled`: the same profile (the shock faces are flagged, so they are refluxed).*
 
 | Check | `always` | `troubled` |
 |---|---|---|
