@@ -49,10 +49,10 @@ $GPU_ARCH = gfx942
 default = local_gnu
 
 [varset:local_gnu]
-$HDF5_PREFIX = lib/hdf5/develop/gnu/14.2.0
+$HDF5_PREFIX = lib/hdf5/develop/gnu/16.2.0
 
 [varset:local_nvf]
-$HDF5_PREFIX = lib/hdf5/develop/nvf/26.1
+$HDF5_PREFIX = lib/hdf5/develop/nvf/26.9
 $NVF_CC      = cc89
 
 [varset:local_amd]
@@ -92,10 +92,10 @@ $HDF5_PREFIX = /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/nvhpc-24
 $NVF_CC      = cc80
 
 [varset:iac_gnu]
-$HDF5_PREFIX = lib/hdf5/develop/iac/gnu/12.2.1/openmpi-4.1.6
+$HDF5_PREFIX = lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11
 
 [varset:iac_nvf]
-$HDF5_PREFIX = lib/hdf5/develop/iac/nvf/25.5
+$HDF5_PREFIX = lib/hdf5/develop/iac/nvf/26.9
 $NVF_CC      = cc80
 
 [varset:spacehpc]
