@@ -344,15 +344,22 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
     `local_*`/`iac_*` rows): Fortran `.mod` files work only with the compiler version that wrote them. A mismatch
     stops the build at `use hdf5` ("created by a different version of GNU Fortran") or, under nvfortran, as an
     internal compiler error ("mpi_f08_types ... member symbol not found"). Build clean after switching compilers.
-    On medooza never use the cluster modules (nvhpc 25.5, gcc 12). CI runs `--varset ci_gnu` because its apt
-    gfortran-14 cannot read the 16.2 HDF5. The full setup is in `toolchain-update.md` (untracked, in the repo root).
+    On medooza never use the cluster modules (nvhpc 25.5, gcc 12). CI runs `--varset ci_gnu` (jobs pinned to
+    `ubuntu-24.04`) because its apt gfortran-14 cannot read the 16.2 HDF5.
+  - The `local_*` HDF5 builds were made on Ubuntu 24.04 and need glibc ≥ 2.38: an `undefined reference to
+    __isoc23_strtol` means the HDF5 was built on a newer glibc than the machine that links, so rebuild it there
+    (the `iac_*` ones are built on medooza). With the WSL `cuda_13.3` NVHPC bundle, an older Windows driver needs the
+    `cuda_multi` bundle and `-gpu=cuda12.9`; medooza's nodes run CUDA 12.9 only.
 
   - These are fobos *variables*, **not** shell environment variables —
     exporting them has no effect. Build a new machine by adding a `[varset:*]`
     block; see the [bring-up tutorial](docs/tests/prism-regression-tutorial.md).
   - `scripts/hdf5_build.sh -build` fetches and builds szip + zlib + parallel
     HDF5 with `CC=mpicc FC=mpif90` — load the intended compiler/MPI modules
-    *before* running it.
+    *before* running it. Full form: `scripts/hdf5_build.sh -build -sdk NVF|GNU -abs-paths -lsrc /tmp/hdf5-src
+    -hdf5 $PWD/lib/hdf5/develop/<sdk>/<compiler-version>`, then point the varset's `$HDF5_PREFIX` at it. It builds
+    the HDF5 `develop` branch (the repo's builds are commit `ab5df552`, 2.3.0); on Rocky/RHEL HDF5 2.3 installs into
+    `lib64/`, so add `-DCMAKE_INSTALL_LIBDIR=lib` to the script's cmake line (ADAM expects `lib/`).
   - Collective I/O optimization: Set `H5Pset_dxpl_mpio` for MPI-IO hints
 
 ### Build System
