@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
 
@@ -32,7 +32,7 @@ jobs:
     # PRISM CPU regression suite. Reference baseline for the
     # forest-of-trees migration (issue #10): every structural change
     # must leave this suite green.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
 
@@ -72,7 +72,7 @@ jobs:
   regression-flume-cpu:
     # FLUME CPU regression suite (issue #35, P8): V1 Sod x/y/z, V2 vortex, V3 AMR + reflux, V6 shock-cylinder with the
     # immersed boundary. The FNL goldens are checked locally (run-fnl-local.sh): the hosted runners have no GPU.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
 
