@@ -89,6 +89,70 @@ contains
    endif
    endsubroutine barrier
 
+   function cgroup_memory_limit() result(limit)
+   !< Return the memory limit (bytes) of this process' cgroup, the tightest along its path to the root; -1 if none is
+   !< set or there is no cgroup memory controller.
+   !<
+   !< The controller is located through /proc/self/cgroup: a v1 line `<id>:<controllers>:<path>` whose controller list
+   !< holds `memory` (limit file `/sys/fs/cgroup/memory<path>/memory.limit_in_bytes`), else the v2 line `0::<path>`
+   !< (`/sys/fs/cgroup<path>/memory.max`). The ancestors are read too: Slurm sets the --mem limit on the job and step
+   !< cgroups while the task cgroup itself is unlimited (measured on medooza, cgroup v1).
+   integer(I8P)              :: limit                              !< Memory limit (bytes), -1 if none.
+   integer(I8P), parameter   :: UNLIMITED=4611686018427387904_I8P  !< 2**62: v1 reports "no limit" as about 2**63.
+   character(999)            :: line                               !< Line buffer.
+   character(:), allocatable :: path                               !< Cgroup path, walked up to the root.
+   character(:), allocatable :: root                               !< Controller mount point.
+   character(:), allocatable :: leaf                               !< Limit file name.
+   integer(I8P)              :: value                              !< Limit read at one level.
+   integer(I4P)              :: file_unit                          !< File unit.
+   integer(I4P)              :: ios                                !< I/O status.
+   integer(I4P)              :: c1, c2                             !< Positions of the two colons of a line.
+   logical                   :: is_v1                              !< A v1 memory controller line was found.
+
+   limit = -1_I8P
+   path = ''
+   is_v1 = .false.
+   open(newunit=file_unit, file='/proc/self/cgroup', status='old', action='read', iostat=ios)
+   if (ios /= 0) return
+   do
+      read(file_unit, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      c1 = index(line, ':')
+      if (c1 == 0) cycle
+      c2 = index(line(c1+1:), ':') + c1
+      if (c2 == c1) cycle
+      if (index(','//line(c1+1:c2-1)//',', ',memory,') > 0) then
+         path = trim(line(c2+1:))
+         is_v1 = .true.
+         exit
+      elseif (line(1:c2) == '0::') then
+         path = trim(line(c2+1:))
+      endif
+   enddo
+   close(file_unit)
+   if (path == '') return
+   if (is_v1) then
+      root = '/sys/fs/cgroup/memory'
+      leaf = '/memory.limit_in_bytes'
+   else
+      root = '/sys/fs/cgroup'
+      leaf = '/memory.max'
+   endif
+   do
+      if (path == '/') path = '' ! the root level
+      open(newunit=file_unit, file=root//path//leaf, status='old', action='read', iostat=ios)
+      if (ios == 0) then
+         read(file_unit, *, iostat=ios) value ! v2 "max" (no limit) does not read as an integer
+         if (ios == 0 .and. value > 0_I8P .and. value < UNLIMITED) then
+            if (limit < 0_I8P .or. value < limit) limit = value
+         endif
+         close(file_unit)
+      endif
+      if (path == '') exit
+      path = path(1:index(path, '/', back=.true.)-1)
+   enddo
+   endfunction cgroup_memory_limit
+
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(mpih_object) , intent(in) :: self             !< MPI handler.
@@ -150,6 +214,7 @@ contains
    logical                                   :: verbose_               !< Trigger verbose output, local variable.
    integer(I4P)                              :: myrankstr_char_length_ !< MPI ID string length, local variable.
    integer(C_LONG)                           :: mem_free, mem_total    !< CPU memory.
+   integer(I8P)                              :: mem_limit              !< Cgroup memory limit (bytes), -1 if none.
    logical                                   :: is_initialized         !< Flag to check if MPI has been inizialied.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
@@ -173,6 +238,11 @@ contains
    call MPI_COMM_SIZE(self%node_comm, self%node_procs_number, self%error)
    if (self%node_procs_number < 1_I4P) self%node_procs_number = 1_I4P
    call get_memory_info(mem_free=mem_free, mem_total=mem_total)
+   ! The node's RAM is not the job's: under a batch scheduler (Slurm --mem) or a container the process lives in a memory
+   ! cgroup whose limit /proc/meminfo does not show, and a pool sized from MemTotal is killed by the OOM handler (medooza,
+   ! 2026-10-16: 1 TB nodes, 2 ranks -> 425 GB per rank in a 64 GB job). Cap by the cgroup limit; none -> unchanged.
+   mem_limit = cgroup_memory_limit()
+   if (mem_limit > 0_I8P) mem_total = min(mem_total, int(mem_limit/1024_I8P, kind(mem_total))) ! meminfo is in kB
    self%memory_avail = real(mem_total, R8P)/1e6/self%node_procs_number
    if (verbose_) then
       print '(A)', self%description()
