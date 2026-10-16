@@ -82,15 +82,15 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 | [Regrid round trip and input contract](./runtime-amr/regrid-round-trip) | RG (rg0, rg1, rg2) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU (rg0, a host program); rg1 and rg2 CPU, FNL | no |
 | [Runtime regrids in FLUME](./runtime-amr/runtime-regrids) | RG (rg3 to rg6) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes |
 | [Accuracy of runtime AMR](./runtime-amr/accuracy) | AV (av2 to av8) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes |
-| [MHD blast symmetry on the flux-splitting path](./runtime-amr/mhd-blast-symmetry) | #77 study, bounded by av3c | M5 ([#74](https://github.com/szaghi/adam/issues/74)), [#77](https://github.com/szaghi/adam/issues/77) | CPU, FNL | no (#85) |
+| [MHD blast symmetry on the flux-splitting path](./runtime-amr/mhd-blast-symmetry) | #77 study, bounded by av3c | M5 ([#74](https://github.com/szaghi/adam/issues/74)), [#77](https://github.com/szaghi/adam/issues/77) | CPU, FNL | yes |
 
 ## [Seam accuracy and divergence (M6)](./seams/)
 
 | Case | ID | Milestone | Backends | Figure |
 |---|---|---|---|---|
 | [Order across static 2:1 seams](./seams/order-across-seams) | AO (A1, C1) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | yes |
-| [Divergence across seams](./seams/divergence-across-seams) | AD (A2) | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL (tables); CPU for the loop leg and the D_flux cross-check | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [Shock crossing a static 2:1 face](./seams/shock-crossing) | AS (A3, C3, C3b, C3c) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (Sod); FNL only (RJ2a, C3, C3c) | partial (RJ2a: [#85](https://github.com/szaghi/adam/issues/85), R3) |
+| [Divergence across seams](./seams/divergence-across-seams) | AD (A2) | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL (tables); CPU for the loop leg and the D_flux cross-check | yes |
+| [Shock crossing a static 2:1 face](./seams/shock-crossing) | AS (A3, C3, C3b, C3c) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (Sod); FNL only (RJ2a, C3, C3c) | yes |
 | [Integral drift and the WENO sensor near seams](./seams/integral-drift) | AL (A4) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (the two backends log the same values) | yes |
 
 ## [Seam studies (M6)](./seams-studies/)
@@ -101,9 +101,9 @@ a plain "no" marks a contract or bitwise leg, which a setup table documents bett
 | [Limited coarse-to-fine fills](./seams-studies/limited-fills) | D2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (crossings); CPU, FNL (AO legs) | yes |
 | [Shock-crossing defect is a capturing error](./seams-studies/capturing-error) | E0 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL; CPU re-runs agree to the printed digits | yes |
 | [Reflux policy: troubled against always](./seams-studies/reflux-policy) | E2 (E1) | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (flags checked equal to the CPU's); AO `euler-tq`: CPU, FNL | yes |
-| [#78 is the reflux, not the restricted ghosts](./seams-studies/reflux-not-ghosts) | G3a | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [GLM damping length on a seam](./seams-studies/glm-damping) | G2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) |
-| [EGLM reflux leaves B alone](./seams-studies/eglm-reflux) | G3b | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) |
+| [#78 is the reflux, not the restricted ghosts](./seams-studies/reflux-not-ghosts) | G3a | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL only | yes |
+| [GLM damping length on a seam](./seams-studies/glm-damping) | G2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | yes |
+| [EGLM reflux leaves B alone](./seams-studies/eglm-reflux) | G3b | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | CPU, FNL | yes |
 | [2:1 caps in a 2-D prototype](./seams-studies/caps-prototype) | B1 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | yes |
 | [Sensor-gated reflux prototype](./seams-studies/sensor-gated-reflux) | B2 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | yes |
 | [Footprint of a high-order restriction](./seams-studies/high-order-restriction) | B3 | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | NumPy prototype (no ADAM run) | yes |

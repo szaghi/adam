@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| #77 study, bounded by av3c | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)), [#77](https://github.com/szaghi/adam/issues/77) | CPU, FNL | no (#85) | `blast-limiter` |
+| #77 study, bounded by av3c | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)), [#77](https://github.com/szaghi/adam/issues/77) | CPU, FNL | yes | `blast-limiter` |
 
 ## Case and scope
 
@@ -45,6 +45,7 @@ rotation), a grid-scale instability, or a backend divergence hidden behind a sym
 | `src/tests/flume/verification/regrid/make_regrid.py` (`blast-av`) | the av3b and av3c inputs |
 | `src/tests/flume/verification/regrid/accuracy.sh --leg av3c` | the symmetry bound on the Riemann-flux path |
 | `src/tests/flume/verification/regrid/av_oracle.py` (`blast`) | the point-symmetry measure, bound $10^{-10}$ |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> blast77` (FNL), `make_doc_figures.py --only mhd-blast-symmetry` | re-runs the uniform blast on the splitting scheme and on HLLD with a checkpoint every 20 steps |
 
 ```bash
 cd src/tests/flume/verification/regrid && ./accuracy.sh --leg av3c          # CPU
@@ -55,8 +56,9 @@ The probes of the table below are investigation runs, not legs of a script.
 
 ## Results
 
-No figure yet: #85 lists the density with its blocks, the point-symmetry defect map and the defect against time for
-the splitting and HLLD paths (FNL runs on medooza).
+![The MHD blast point-symmetry defect](/flume/mhd-blast-symmetry.png)
+
+*The uniform $N = 128$ blast on FNL (WSL GPU, 2 ranks), a checkpoint every 20 steps. Left: the splitting scheme's density at $t = 0.01$. Centre: its point-symmetry defect $|\rho(\mathbf x) - \rho(\mathbf 1 - \mathbf x)| / \max\rho$, spread over the whole blast, not along the grid axes. Right: the largest defect of $\rho$ and $B_y$ against the step: on the splitting scheme it leaves round-off by step 20, grows exponentially and saturates at 0.18 (this measure) by step 260; on `weno-riemann` HLLD it stays near $10^{-12}$, under the av3c bound.*
 
 | Probe | Result |
 |---|---|

@@ -48,6 +48,14 @@
 #           tricubic and restriction-compatible, the restrictions mean and lagrange6, the reflux on and off, and
 #           e0-{tricubic,compatible}-400 (E0); d-{quintic,weno6,quintic-mp}-{c2f,f2c} on lagrange6 (D1, D2);
 #           e2-troubled-{c2f,f2c} (lagrange6 + quintic under reflux_policy = troubled, E2); N = 200 unless named
+# The groups below run on FNL (issue #85, R3; FLUME_EXE=exe/adam_flume_fnl, the caller's nvhpc environment):
+#   blast77 blast77-{split,hlld}: the av3b/av3c MHD blast (EGLM, positivity limiter), uniform N = 128, to t = 0.01,
+#           a checkpoint every 20 steps, splitting and weno-riemann HLLD (#77) (2 runs)
+#   divb    ad-cpaw-n64: the AD CPAW refined at N = 64, its last checkpoint kept; g2-cpaw-{coarse,mincell}-{64,128}: the
+#           same with glm_damping_length = the coarse spacing sqrt(5)/N and min-cell (G2); loop-{glm,eglm}-{n64,
+#           n64-noreflux,uniform-n128}: the A2 field loop, the divergence history every step and a checkpoint every
+#           20 steps (G3a, G3b) (11 runs)
+#   rj2a-shock as-rj2a-{c2f,f2c,uniform}: the AS RJ2a crossing at N = 256, t = 0.2 (3 runs)
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
@@ -70,16 +78,17 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
-           "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, seams)" >&2
+           "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, seams, blast77, divb," \
+           "rj2a-shock)" >&2
       exit 2
    fi
 done
@@ -382,6 +391,48 @@ for g in $GROUPS_; do
             as_run "e2-troubled-$side" --cells 200 --side "$side" --seam-ghost-fill quintic --seam-restriction lagrange6 \
                --reflux-policy troubled
          done ;;
+      blast77)
+         for scheme in split hlld; do
+            fresh "blast77-$scheme"
+            python3 -I "$VERIF_DIR/regrid/make_regrid.py" blast-av "$W/blast-av.ini" --base-level 3 --max-level 3 \
+               --frequency 0 --time-max 0.01
+            sed -i -E 's/^(\s*it_save\s*=).*/\1 20/' "$W/blast-av.ini"
+            if [[ $scheme == hlld ]]; then # as regrid/accuracy.sh riemann(): weno-riemann, HLLD, 6th-order correction
+               sed -i -e 's/^scheme_space *=.*/scheme_space = weno-riemann/' \
+                      -e 's/^reconstruction_variables *=.*/reconstruction_variables = characteristic\nriemann_solver = hlld\nflux_correction = 6th\nflux_correction_sensor = weno/' \
+                      "$W/blast-av.ini"
+            fi
+            run blast-av.ini
+         done ;;
+      divb)
+         DIVB="$VERIF_DIR/amr-divb/make_amr_divb.py"
+         fresh ad-cpaw-n64
+         "$VENV_PY" "$DIVB" cpaw "$W/cpaw.ini" --cells 64 ; run cpaw.ini
+         for n in 64 128; do
+            coarse=$(python3 -c "import math; print(repr(math.sqrt(5.0) / $n))")
+            fresh "g2-cpaw-coarse-$n"
+            "$VENV_PY" "$DIVB" cpaw "$W/cpaw.ini" --cells "$n" --glm-damping-length "$coarse" ; run cpaw.ini
+            fresh "g2-cpaw-mincell-$n"
+            "$VENV_PY" "$DIVB" cpaw "$W/cpaw.ini" --cells "$n" --glm-damping-length min-cell ; run cpaw.ini
+         done
+         for cl in glm eglm; do
+            fresh "loop-$cl-n64"
+            "$VENV_PY" "$DIVB" loop "$W/loop.ini" --cells 64 --cleaning "$cl" --history 1 --it-save 20 ; run loop.ini
+            fresh "loop-$cl-n64-noreflux"
+            "$VENV_PY" "$DIVB" loop "$W/loop.ini" --cells 64 --cleaning "$cl" --history 1 --it-save 20 --no-reflux
+            run loop.ini
+            fresh "loop-$cl-uniform-n128"
+            "$VENV_PY" "$DIVB" loop "$W/loop.ini" --cells 128 --cleaning "$cl" --uniform --history 1 --it-save 20
+            run loop.ini
+         done ;;
+      rj2a-shock)
+         for side in c2f f2c; do
+            fresh "as-rj2a-$side"
+            "$VENV_PY" "$VERIF_DIR/amr-shock/make_amr_shock.py" rj2a "$W/rj2a.ini" --cells 256 --side "$side"
+            run rj2a.ini
+         done
+         fresh as-rj2a-uniform
+         "$VENV_PY" "$VERIF_DIR/amr-shock/make_amr_shock.py" rj2a "$W/rj2a.ini" --cells 256 --uniform ; run rj2a.ini ;;
    esac
 done
 exit $FAILED

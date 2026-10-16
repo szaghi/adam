@@ -2584,6 +2584,182 @@ def fig_integral_drift(out: Path, runs: Path) -> None:  # noqa: ARG001
     fig.savefig(out / "integral-drift.png", dpi=DPI)
     plt.close(fig)
 
+def divb_history(work: Path) -> tuple[list[str], np.ndarray]:
+    """Return the column names and the rows of the div(B) history of a run (`[diagnostics] divb_flux`)."""
+    lines = next(work.glob("*-divb_history.dat")).read_text().splitlines()
+    names = [v.strip('"') for v in lines[0].split("=", 1)[1].split()]
+    return names, np.array([[float(v) for v in ln.split()] for ln in lines[1:] if ln.strip()])
+
+
+def fig_divergence_across_seams(out: Path, runs: Path) -> None:
+    """AD (#68, issue #85 R3): the divergence the cleaning acts on (D_flux, from the psi face fluxes) across static 2:1
+    seams, FNL: the seam maximum against time on the source-free CPAW (refined N = 64 and 128, the uniform N = 128
+    global maximum for scale), and on the A2 field loop under GLM and EGLM (refined N = 64 against uniform N = 128)."""
+    adir = HERE / "amr-divb"
+    fig, axs = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True)
+    for run_, col, lab, ls in (("cpaw-n64", "seam_max_dflux", "refined N = 64, seam", "-"),
+                               ("cpaw-n128", "seam_max_dflux", "refined N = 128, seam", "-"),
+                               ("cpaw-uniform-n128", "max_dflux", "uniform N = 128, global", "--")):
+        names, rows = divb_history(adir / f"work-adam_flume_fnl-np2-{run_}")
+        axs[0].semilogy(rows[1:, 1], rows[1:, names.index(col)], ls, lw=0.8, label=lab)
+    axs[0].set_xlabel("t (wave periods)")
+    axs[0].set_title("source-free CPAW, GLM: the seam floor stays bounded")
+    for cl, c in (("glm", "C0"), ("eglm", "C3")):
+        for run_, col, lab, ls in ((f"loop-{cl}-n64", "seam_max_dflux", "refined N = 64, seam", "-"),
+                                   (f"loop-{cl}-uniform-n128", "max_dflux", "uniform N = 128, global", ":")):
+            names, rows = divb_history(runs / run_)
+            axs[1].semilogy(rows[1:, 1], rows[1:, names.index(col)], ls, color=c, lw=0.8, label=f"{cl.upper()}, {lab}")
+    axs[1].set_xlabel("t")
+    axs[1].set_title("field loop (A2): GLM and EGLM")
+    for ax in axs:
+        ax.set_ylabel("max |D_flux|")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.suptitle("AD: the divergence the cleaning acts on, across static 2:1 seams (FNL, 2 ranks)")
+    fig.savefig(out / "divergence-across-seams.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_glm_damping(out: Path, runs: Path) -> None:
+    """G2 (#68, issue #85 R3): the seam D_flux of the source-free CPAW against time for three GLM damping lengths, the
+    domain-scale 1.0 (the AD runs), the coarse spacing and min-cell, N = 64 and 128, FNL."""
+    adir = HERE / "amr-divb"
+    fig, axs = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True, sharey=True)
+    for ax, n in zip(axs, (64, 128), strict=True):
+        for work, lab in ((adir / f"work-adam_flume_fnl-np2-cpaw-n{n}", "1.0 (A2)"),
+                          (runs / f"g2-cpaw-coarse-{n}", r"coarse spacing $L_x/N$"),
+                          (runs / f"g2-cpaw-mincell-{n}", "min-cell (finest spacing)")):
+            names, rows = divb_history(work)
+            ax.semilogy(rows[1:, 1], rows[1:, names.index("seam_max_dflux")], lw=0.8, label=lab)
+        ax.set_xlabel("t (wave periods)")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8, title="glm_damping_length", title_fontsize=8)
+        ax.set_title(f"refined N = {n}")
+    axs[0].set_ylabel("seam max |D_flux|")
+    fig.suptitle("G2: the GLM damping length on the source-free CPAW across 2:1 seams (FNL)")
+    fig.savefig(out / "glm-damping.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_field_loop_seams(out: Path, runs: Path) -> None:
+    """G3a and G3b (#68, issue #85 R3): the A2 field loop across the 2:1 box under GLM and EGLM, reflux on and off,
+    against the uniform N = 128 run, FNL, today's code: the magnetic energy and <|B_z|>/A0 per checkpoint (every 20
+    steps)."""
+    fig, axs = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True)
+    for cl, c in (("glm", "C0"), ("eglm", "C3")):
+        for suffix, lab, ls in (("n64", "refined, reflux", "-"), ("n64-noreflux", "refined, no reflux", "--"),
+                                ("uniform-n128", "uniform N = 128", ":")):
+            work = runs / f"loop-{cl}-{suffix}"
+            ini = read_ini(next(work.glob("*.ini")))
+            ngc = int(ini["grid"]["ngc"])
+            its = sorted({int(p.name.split("-")[-2]) for p in work.glob("*-proc*.h5")})
+            ts, eb, bz = [], [], []
+            for it in its:
+                bl = first_plane(blocks(work, ngc, MHD, it=it))
+                vol = [float(np.prod(b["d"][:2])) for b in bl]
+                eb.append(sum(v * 0.5 * float(np.sum(b["f"]["bx"] ** 2 + b["f"]["by"] ** 2 + b["f"]["bz"] ** 2))
+                              for v, b in zip(vol, bl, strict=True)))
+                area = sum(v * b["f"]["bz"].size for v, b in zip(vol, bl, strict=True))
+                bz.append(sum(v * float(np.sum(np.abs(b["f"]["bz"]))) for v, b in zip(vol, bl, strict=True)) / area)
+                ts.append(it)
+            a0 = 1.0e-3
+            axs[0].plot(ts, np.array(eb) / eb[0], ls, color=c, label=f"{cl.upper()}, {lab}")
+            axs[1].semilogy(ts, np.maximum(np.array(bz) / a0, 1e-17), ls, color=c, label=f"{cl.upper()}, {lab}")
+    axs[0].set_ylabel("magnetic energy / initial")
+    axs[1].set_ylabel(r"$\langle|B_z|\rangle / A_0$")
+    for ax in axs:
+        ax.set_xlabel("step")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    axs[0].set_title("the loop's magnetic energy")
+    axs[1].set_title(r"$B_z$ generated by the divergence error ($w = 1$)")
+    fig.suptitle("G3a, G3b: the field loop across a 2:1 box, GLM and EGLM, reflux on and off (FNL, today's code)")
+    fig.savefig(out / "field-loop-seams.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_shock_crossing_rj2a(out: Path, runs: Path) -> None:
+    """AS RJ2a (#68, issue #85 R3): the RJ2a fast shock crossing the static 2:1 face at x = 0.75, N = 256, t = 0.2, FNL:
+    the density against the exact solution, c2f and f2c, and the plateau behind the shock with the uniform control."""
+    ash = oracle_module("amr-shock", "amr_shock_oracle")
+
+    def cols(work: Path) -> tuple[np.ndarray, np.ndarray, object]:
+        ini = ash.read_ini(work)
+        prob = ash.Problem(ini)
+        xs, _, q, _ = ash.load(work, ash.MHD, int(ini["grid"]["ngc"]))
+        return xs, q[0], prob
+
+    fig, axs = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True)
+    for case, lab, mk in (("as-rj2a-c2f", "c2f", "o"), ("as-rj2a-f2c", "f2c", "s"),
+                          ("as-rj2a-uniform", "uniform", "^")):
+        xs, rho, prob = cols(runs / case)
+        for ax in axs:
+            ax.plot(xs, rho, mk, ms=2.5, mfc="none", label=lab)
+    xe = np.linspace(0.0, 1.0, 4001)
+    for ax in axs:
+        ax.plot(xe, prob.density(xe), "k-", lw=0.9, label="exact")
+        ax.axvline(0.75, color="C3", ls="--", lw=0.8, label="2:1 face")
+        ax.set_xlabel("x")
+        ax.set_ylabel(r"$\rho$")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8)
+    axs[1].set_xlim(prob.x_left - 0.02, prob.x_shock + 0.02)
+    axs[1].set_ylim(prob.q2[0] - 0.03, prob.q2[0] + 0.03)
+    axs[0].set_title("Ryu-Jones 2a at t = 0.2, N = 256")
+    axs[1].set_title("the plateau behind the fast shock")
+    fig.suptitle("AS: the RJ2a fast shock crossing a static 2:1 face (mean restriction, tricubic fill, reflux), FNL")
+    fig.savefig(out / "shock-crossing-rj2a.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_blast_symmetry(out: Path, runs: Path) -> None:
+    """#77 (issue #85 R3): the Balsara-Spicer MHD blast (EGLM, positivity limiter), uniform N = 128, FNL: the density at
+    t = 0.01, the map of its point-symmetry defect about the centre on the splitting scheme, and the defect of density
+    and B_y against the step for the splitting scheme and weno-riemann HLLD."""
+    def grid(work: Path, it: int | None, name: str) -> np.ndarray:
+        ini = read_ini(next(work.glob("*.ini")))
+        ngc = int(ini["grid"]["ngc"])
+        bl = first_plane(blocks(work, ngc, MHD, it=it))
+        d = min(float(b["d"][0]) for b in bl)
+        n = round(1.0 / d)
+        g = np.zeros((n, n))
+        for b in bl:
+            i0, j0 = round(b["lo"][0] / d), round(b["lo"][1] / d)
+            a = b["f"][name][:, :, 0]
+            g[i0:i0 + a.shape[0], j0:j0 + a.shape[1]] = a
+        return g
+
+    def defect(g: np.ndarray, parity: float) -> np.ndarray:
+        return np.abs(g - parity * g[::-1, ::-1]) / np.abs(g).max()
+
+    fig, axs = plt.subplots(1, 3, figsize=(17, 4.8), constrained_layout=True)
+    ws = runs / "blast77-split"
+    rho = grid(ws, None, "r")
+    im = axs[0].imshow(rho.T, origin="lower", extent=(0, 1, 0, 1), cmap="magma")
+    fig.colorbar(im, ax=axs[0], label=r"$\rho$", shrink=0.85)
+    axs[0].set_title("splitting scheme, density at t = 0.01")
+    dmap = defect(rho, 1.0)
+    im = axs[1].imshow(np.log10(np.maximum(dmap, 1e-17)).T, origin="lower", extent=(0, 1, 0, 1), cmap="viridis")
+    fig.colorbar(im, ax=axs[1], label=r"$\log_{10}$ point-symmetry defect of $\rho$", shrink=0.85)
+    axs[1].set_title(f"splitting: the defect map (max {dmap.max():.1e})")
+    for scheme, c in (("split", "C0"), ("hlld", "C3")):
+        work = runs / f"blast77-{scheme}"
+        its = sorted({int(p.name.split("-")[-2]) for p in work.glob("*-proc*.h5")})
+        for name, parity, ls in (("r", 1.0, "-"), ("by", 1.0, "--")):
+            dd = [float(defect(grid(work, it, name), parity).max()) for it in its]
+            axs[2].semilogy(its, np.maximum(dd, 1e-17), ls, color=c,
+                            label=f"{'splitting' if scheme == 'split' else 'HLLD'}, {'density' if name == 'r' else '$B_y$'}")
+    axs[2].axhline(1e-10, color="k", ls=":", lw=0.8, label="av3c bound (HLLD)")
+    axs[2].set_xlabel("step")
+    axs[2].set_ylabel("max point-symmetry defect (floor 1e-17)")
+    axs[2].grid(alpha=0.3)
+    axs[2].legend(fontsize=8)
+    axs[2].set_title("the defect against the step")
+    fig.suptitle(r"#77: the MHD blast ($\beta = 2.5\cdot10^{-4}$, EGLM, limiter) loses its point symmetry on the "
+                 "flux-splitting path (FNL, N = 128)")
+    fig.savefig(out / "mhd-blast-symmetry.png", dpi=DPI)
+    plt.close(fig)
+
 
 FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex": fig_vortex,
            "shock-cylinder": fig_cylinder, "step": fig_step, "step-trees": fig_step_trees, "ghosts": fig_ghosts,
@@ -2610,7 +2786,10 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "regrid-runtime": fig_regrid_runtime, "seam-conservation": fig_seam_conservation,
            "order-across-seams": fig_order_across_seams, "shock-crossing": fig_shock_crossing,
            "capturing-error-sod": fig_capturing_error_sod, "quintic-fill": fig_quintic_fill,
-           "limited-fills": fig_limited_fills, "reflux-policy": fig_reflux_policy, "integral-drift": fig_integral_drift}
+           "limited-fills": fig_limited_fills, "reflux-policy": fig_reflux_policy, "integral-drift": fig_integral_drift,
+           "divergence-across-seams": fig_divergence_across_seams, "glm-damping": fig_glm_damping,
+           "field-loop-seams": fig_field_loop_seams, "shock-crossing-rj2a": fig_shock_crossing_rj2a,
+           "mhd-blast-symmetry": fig_blast_symmetry}
 
 
 def main() -> int:

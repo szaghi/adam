@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| G3b | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | CPU, FNL | no ([#85](https://github.com/szaghi/adam/issues/85)) | `blast-amr-limiter` |
+| G3b | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | CPU, FNL | yes | `blast-amr-limiter` |
 
 ## Case and scope
 
@@ -36,6 +36,7 @@ and checked that it does not break the regressions, the MV-5 orders and the mult
 | `src/tests/flume/verification/amr-divb/check.sh --leg loop` | the field loop, GLM and EGLM, refined against uniform |
 | `src/tests/flume/regression/blast-amr-limiter/input.ini` | the regression case with EGLM across 2:1 seams (golden digest, rtol $10^{-6}$) |
 | `src/tests/flume/regression/run.sh` | the regression suite |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> divb` (FNL), `make_doc_figures.py --only field-loop-seams` | re-runs the six field loops with a checkpoint every 20 steps |
 
 ```bash
 cd src/tests/flume/verification/amr-divb && ./check.sh --leg loop
@@ -44,8 +45,9 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg loop
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): the field-loop magnetic energy against time, GLM and
-EGLM, reflux on and off).
+![G3a and G3b: the field loop across the 2:1 box](/flume/field-loop-seams.png)
+
+*FNL, today's code (after G3b): the A2 field loop under GLM and EGLM, refined $N = 64$ with and without reflux, and uniform $N = 128$, a checkpoint every 20 steps. Left: the magnetic energy; right: $\langle|B_z|\rangle/A_0$. The re-runs end at exactly the values of the tables (EGLM $9.11\cdot10^{-6}$ with the reflux, $9.31\cdot10^{-6}$ without, $2.72\cdot10^{-6}$ uniform; GLM $1.10\cdot10^{-3}$, $1.18\cdot10^{-3}$, $6.86\cdot10^{-4}$). The pre-G3b reflux of B (70 times the uniform level) is a code state that no longer exists, so it is not drawn.*
 
 **The first attempt, the source divergence from the face fluxes,** keeps the MV-5 orders (4.96 to 4.97 on every wave)
 but raises EGLM's uniform $\langle|B_z|\rangle$ from $2.72\cdot10^{-6}$ to $1.28\cdot10^{-4}$ (47 times; refined

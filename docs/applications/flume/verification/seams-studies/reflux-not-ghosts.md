@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| G3a | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| G3a | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL only | yes | — |
 
 ## Case and scope
 
@@ -38,11 +38,13 @@ which of the two, the ghosts or the reflux, causes it.
 |---|---|
 | `src/tests/flume/verification/amr-divb/make_amr_divb.py loop` | the field loop inputs (`--cleaning glm` or `eglm`, `--seam-ghost-fill`, `--seam-restriction`, `--reflux-policy`, `--no-reflux`) |
 | `src/tests/flume/verification/amr-divb/amr_divb_oracle.py loop` | the $\langle\lvert B_z\rvert\rangle/A_0$ report |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> divb` (FNL), `make_doc_figures.py --only field-loop-seams` | re-runs the six field loops with a checkpoint every 20 steps |
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): the field-loop magnetic energy against time, GLM and
-EGLM, reflux on and off).
+![G3a and G3b: the field loop across the 2:1 box](/flume/field-loop-seams.png)
+
+*FNL, today's code (after G3b): the A2 field loop under GLM and EGLM, refined $N = 64$ with and without reflux, and uniform $N = 128$, a checkpoint every 20 steps. Left: the magnetic energy; right: $\langle|B_z|\rangle/A_0$. The re-runs end at exactly the values of the tables (EGLM $9.11\cdot10^{-6}$ with the reflux, $9.31\cdot10^{-6}$ without, $2.72\cdot10^{-6}$ uniform; GLM $1.10\cdot10^{-3}$, $1.18\cdot10^{-3}$, $6.86\cdot10^{-4}$). The pre-G3b reflux of B (70 times the uniform level) is a code state that no longer exists, so it is not drawn.*
 
 | Seam operators, reflux | EGLM $\langle\lvert B_z\rvert\rangle/A_0$ (× uniform) | GLM (× uniform) |
 |---|---|---|

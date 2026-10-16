@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| AD (A2) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL (tables); CPU for the loop leg and the D_flux cross-check | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| AD (A2) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL (tables); CPU for the loop leg and the D_flux cross-check | yes | — |
 
 ## Case and scope
 
@@ -55,6 +55,7 @@ What the case catches:
 | `src/tests/flume/verification/mhd/amr_box.py` | `refine_box`: the refined region, one 2:1 level at initialisation |
 | `src/tests/flume/verification/amr-divb/amr_divb_oracle.py` | `growth` (the `cpaw` floors, growth and orders) and `loop` (a report) |
 | `src/tests/flume/verification/amr-divb/check.sh` | runs the legs (`--leg cpaw` or `--leg loop`, `--long`, `--np N`, `--keep`) |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> divb` (FNL), `make_doc_figures.py --only divergence-across-seams` | re-runs the field loops (GLM, EGLM; refined, without reflux, uniform) with the history every step; the CPAW panel reads the histories of `check.sh` |
 
 ```bash
 cd src/tests/flume/verification/amr-divb
@@ -73,8 +74,9 @@ at least 1 on the finest pair. `loop`: the final seam and global D_flux and $\la
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): a div(B) map of the CPAW across the seam, and max
-div(B) against time).
+![AD: the seam D_flux against time](/flume/divergence-across-seams.png)
+
+*FNL, 2 ranks. Left: the seam maximum of D_flux on the source-free CPAW over 10 periods, refined $N = 64$ and 128 (the histories `check.sh` keeps), against the global maximum of the uniform $N = 128$ run: the seam floor is bounded and falls 10 times from 64 to 128. Right: the A2 field loop under GLM and EGLM, the refined seam maximum against the uniform global one. No divergence map: FLUME writes no divergence field, and a centred difference of the checkpoints would read unfilled ghosts exactly at the seams.*
 
 The instrument: the signed integral of D_flux over the periodic composite domain is round-off, $\le 10^{-17}$ every
 step on the refined MHD vortex, against $4\cdot10^{-7}$ without the fine fluxes; CPU and FNL agree to $10^{-11}$

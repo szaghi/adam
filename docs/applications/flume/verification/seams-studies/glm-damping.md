@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| G2 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | no ([#85](https://github.com/szaghi/adam/issues/85)) | — |
+| G2 | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL only | yes | — |
 
 ## Case and scope
 
@@ -37,10 +37,13 @@ the coarse and the finest spacings on A2's source-free CPAW.
 |---|---|
 | `src/tests/flume/verification/amr-divb/make_amr_divb.py cpaw` | the CPAW inputs (`--glm-damping-length`: 1.0, the coarse spacing, `min-cell`) |
 | `src/tests/flume/verification/amr-divb/amr_divb_oracle.py growth` | the seam floor and its growth |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> divb` (FNL), `make_doc_figures.py --only glm-damping` | re-runs the CPAW with the coarse spacing and `min-cell` (`--glm-damping-length`), $N = 64$ and 128; the 1.0 runs are those of AD |
 
 ## Results
 
-No figure yet ([#85](https://github.com/szaghi/adam/issues/85): max div(B) against the damping length).
+![G2: the seam D_flux per damping length](/flume/glm-damping.png)
+
+*FNL: the seam maximum of D_flux on the source-free CPAW for the three damping lengths, refined $N = 64$ and 128. The re-runs reproduce the table below (the medians of the second half): every length bounded, `min-cell` doubling the floor at $N = 128$.*
 
 | `glm_damping_length` | rate $c_h^2/c_p^2$ (N = 128) | seam D_flux floor N = 64 / 128 | × uniform (N = 128) | growth N = 128 |
 |---|---|---|---|---|

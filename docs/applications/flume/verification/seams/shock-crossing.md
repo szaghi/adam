@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| AS (A3, C3, C3b, C3c) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (Sod); FNL only (RJ2a, C3, C3c) | partial (RJ2a: [#85](https://github.com/szaghi/adam/issues/85), R3) | — |
+| AS (A3, C3, C3b, C3c) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (Sod); FNL only (RJ2a, C3, C3c) | yes | — |
 
 ## Case and scope
 
@@ -79,7 +79,7 @@ to 14 minutes there.
 | `src/tests/flume/verification/amr-shock/make_amr_shock.py` | writes the inputs from `sod/sod-x.ini` (Sod) or `mhd/rj2a/make_rj2a.py` (RJ2a); `--side c2f` or `f2c`, `--uniform`, `--no-reflux`, `--seam-restriction`, `--reflux-policy`, `--it-save` |
 | `src/tests/flume/verification/mhd/amr_box.py` | `refine_box`: the refined side, one 2:1 level at initialisation |
 | `src/tests/flume/verification/amr-shock/amr_shock_oracle.py` | mass, shock position, plateau, band and spread against the exact solution |
-| `src/tests/flume/verification/make_doc_runs.sh <runs> seams`, `make_doc_figures.py --only shock-crossing` | re-runs the Sod crossings `as-c2f`, `as-f2c` and the uniform controls with checkpoints kept (CPU) |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> seams`, `make_doc_figures.py --only shock-crossing` | re-runs the Sod crossings `as-c2f`, `as-f2c` and the uniform controls with checkpoints kept (CPU); `rj2a-shock` (FNL) the RJ2a crossings `as-rj2a-{c2f,f2c,uniform}` |
 | `src/tests/flume/verification/amr-shock/check.sh` | runs the legs (`--leg sod`, `--leg rj2a`, `--long`, `--np N`, `--keep`) |
 | `src/tests/flume/verification/mhd/positivity/check.sh` | the PV-5 blast across 2:1 seams (C3) |
 | `src/tests/amr/test_seam_interpolation.F90` | the unit test of the seam interpolants and restrictions (C3c) |
@@ -118,7 +118,13 @@ contact, wider in cells on the fine controls, into their plateau.
 
 ![AS: the Sod shock crossing a 2:1 face](/flume/shock-crossing.png)
 
-*Sod at $t = 0.2$, $N = 200$, today's operators, CPU: the density against the exact solution, coarse to fine and fine to coarse, and the plateau behind the shock with the uniform controls at the coarse ($N = 200$) and the fine ($N = 400$) spacing: the c2f crossing leaves a bump behind the face at $x \approx 0.81$, the f2c one a dip on both sides; neither control has it. The RJ2a crossings are owed to R3 (they run on FNL).*
+*Sod at $t = 0.2$, $N = 200$, today's operators, CPU: the density against the exact solution, coarse to fine and fine to coarse, and the plateau behind the shock with the uniform controls at the coarse ($N = 200$) and the fine ($N = 400$) spacing: the c2f crossing leaves a bump behind the face at $x \approx 0.81$, the f2c one a dip on both sides; neither control has it.*
+
+![AS: the RJ2a fast shock crossing a 2:1 face](/flume/shock-crossing-rj2a.png)
+
+*RJ2a at $t = 0.2$, $N = 256$, today's operators, FNL (`make_doc_runs.sh <runs> rj2a-shock`): the density against the
+exact solution and the plateau behind the fast shock with the uniform control; the same signature as on Sod, a bump
+behind the face after c2f and a dip after f2c, which the uniform run does not have.*
 
 **A3** (2 ranks; Sod: CPU and FNL agree to every printed digit; RJ2a: FNL). Plateau maxima of the refined run and, in
 brackets, of its uniform control at the spacing of the side that holds the shock:
