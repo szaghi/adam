@@ -38,7 +38,9 @@
 # --cases "sod-x rotor ..." is an older spelling of --legs. --inputs (NV-5 only) runs the given files instead and
 # takes no leg selection (--inputs with --legs or --cases is refused); with --restart or --output it is ignored.
 #
-# FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./reference.sh
+# FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./reference.sh. An input with
+# `self_gravity = .true.` runs on its FFT twin, as in the regression harness: <FLUME_EXE>_fft (FLUME_EXE itself when it
+# is already the FFT build; FLUME_EXE_FFT overrides), so one NV-5 run covers every regression case.
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
@@ -86,12 +88,28 @@ else
    legs_resolve reference.sh
 fi
 [[ -x "$EXE" ]] || { echo "reference.sh: executable '$EXE' not found" >&2 ; exit 2 ; }
+EXE="$(realpath "$EXE")"
+# the FFT twin for the self-gravity inputs: <exe>_fft, or the executable itself when it is already the FFT build
+EXE_FFT="${FLUME_EXE_FFT:-$EXE}"
+[[ -z ${FLUME_EXE_FFT:-} && $EXE != *_fft ]] && EXE_FFT="${EXE}_fft"
 
 TAG="$(basename "$EXE")-np$NP"
 fails=0 ; passed=0 ; skipped=0
 
+case_exe() { # case_exe <work-dir>: the executable of an input; self-gravity needs the FFT build, as in run.sh
+   if grep -qiE '^[[:space:]]*self_gravity[[:space:]]*=[[:space:]]*\.true\.' "$1"/*.ini; then
+      [[ -x "$EXE_FFT" ]] || { echo "reference.sh: $1 needs the FFT executable '$EXE_FFT' (set FLUME_EXE_FFT)" >&2 ; \
+                               exit 2 ; }
+      echo "$EXE_FFT"
+   else
+      echo "$EXE"
+   fi
+}
+
 run() { # run <work-dir>
-   if ! (cd "$1" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
+   local exe
+   exe="$(case_exe "$1")" || exit 2
+   if ! (cd "$1" && mpirun -np "$NP" "$exe" input.ini > log.txt 2>&1); then
       echo "reference.sh: run failed, see $1/log.txt" >&2
       exit 1
    fi
@@ -125,7 +143,9 @@ PYEOF
 }
 
 refused() { # refused <work-dir> <expected message>: the run must stop with the message
-   (cd "$1" && mpirun -np "$NP" "$EXE" input.ini > log-refused.txt 2>&1) || true
+   local exe
+   exe="$(case_exe "$1")" || exit 2
+   (cd "$1" && mpirun -np "$NP" "$exe" input.ini > log-refused.txt 2>&1) || true
    grep -aqF "$2" "$1/log-refused.txt"
 }
 

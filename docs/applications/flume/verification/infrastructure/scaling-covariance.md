@@ -134,3 +134,8 @@ inputs; [Ranks without blocks](./ranks-without-blocks) is the other identity leg
   independent tables disagreed, and the field-loop case was not bitwise.
 - `reference.sh` runs every single-realm case of the suite by default; the suite has grown since N2 (39 cases, 34 of
   them single-realm), so the 21/21 count is the measurement of that time, not of the current list.
+- A self-gravity case runs on the FFT twin of the executable under test (`<exe>_fft`, or `FLUME_EXE_FFT`), as in the
+  regression harness, so one run covers the whole suite. The polytrope's `star_radius`, `star_x0`, `star_y0`,
+  `star_z0` (lengths), `star_density` (a density) and `star_pressure_factor` (a pure number) are classified in both
+  tables since 2026-10: before, the two star cases stopped on an unclassified option, loudly, and NV-5 did not cover
+  them.

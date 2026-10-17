@@ -73,7 +73,10 @@ IC_KEYS = {"type": NONE, "amr_iterations": NONE, "regions_number": NONE, "axis":
            "wavelength": LENGTH, "wave_angle": NONE, "wave_amplitude": NONE, "b_par": FIELD,
            "gradient_x": INV_LENGTH, "gradient_y": INV_LENGTH, "gradient_z": INV_LENGTH,
            "wave_mode": NONE, "mach": NONE, "wall_y0": LENGTH, "height": LENGTH, "shock_x0": LENGTH,
-           "wall_velocity": VELOCITY}
+           "wall_velocity": VELOCITY,
+           # the polytrope (issue #81): radius and centre, central density; the pressure factor f is a pure number
+           "star_radius": LENGTH, "star_x0": LENGTH, "star_y0": LENGTH, "star_z0": LENGTH, "star_density": DENSITY,
+           "star_pressure_factor": NONE}
 MHD_KEYS = {"divergence_control": NONE, "divb_error": NONE, "glm_alpha": NONE, "glm_ch_check": NONE,
             "glm_ch": VELOCITY, "glm_damping_length": LENGTH, "rho_floor": DENSITY, "p_floor": PRESSURE,
             "divb_tol": NONE}  # the normalised D_flux, dimensionless (#68 G1)

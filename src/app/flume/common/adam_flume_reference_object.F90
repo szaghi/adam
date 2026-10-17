@@ -463,17 +463,18 @@ contains
    case('initial_conditions')
       select case(option_name)
       case('amr_iterations', 'type', 's', 'pulse_axis', 'wave', 'wave_angle', 'polarisation', 'axis', 'regions_number', &
-           'normal_x', 'normal_y', 'wave_mode', 'mach', 'polytropic_gamma')
+           'normal_x', 'normal_y', 'wave_mode', 'mach', 'polytropic_gamma', &
+           'star_pressure_factor')
          kind = KIND_NONE
       case('x0', 'y0', 'radius', 'r0', 'r1', 'pulse_center', 'pulse_width', 'peak_x0', 'peak_y0', 'peak_radius', &
            'wavelength', 'loop_radius', 'interface_1', 'interface_2', 'period', 'interface_2_width', 'interface', &
-           'wall_y0', 'height', 'shock_x0')
+           'wall_y0', 'height', 'shock_x0', 'star_radius', 'star_x0', 'star_y0', 'star_z0')
          kind = KIND_SCALED ; dim = DIM_LENGTH
       case('strength', 'kappa', 'v0', 'wall_velocity')
          kind = KIND_SCALED ; dim = DIM_VELOCITY
       case('wall_temperature')
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
-      case('rho_in', 'rho_amplitude')
+      case('rho_in', 'rho_amplitude', 'star_density')
          kind = KIND_SCALED ; dim = DIM_DENSITY
       case('pulse_amplitude', 'peak_amplitude', 'b_par', 'mu', 'loop_amplitude')
          kind = KIND_SCALED ; dim = DIM_FIELD
