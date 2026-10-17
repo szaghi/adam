@@ -201,8 +201,9 @@ Known limitations:
   ([#50](https://github.com/szaghi/adam/issues/50), PV-5).
 - **GLM damping and reflux.** With damping, $\int \psi$ is not conserved across 2:1 faces (O(k dt) of the uncorrected
   leak, MV-11); the 8 physical integrals are.
-- The FNL backend copies the coarse-fine seam faces to the host at every stage, which dominates its run time on AMR
-  cases.
+- The FNL backend still copies the coarse-fine seam faces to the host at every stage (the flux register is host-side),
+  but in one transfer for all the faces of a rank since [#90](https://github.com/szaghi/adam/issues/90) F-B, no longer
+  one per face: on an A30, 25% off the steps of an AMR case and 27% off a two-rank 2:1 split.
 - **Inter-realm seams** ([#40](https://github.com/szaghi/adam/issues/40),
   [#52](https://github.com/szaghi/adam/issues/52)) work across ranks, whatever the partition of each realm. A `mirror`
   seam joins cells of the same size, a `refined` one a 2:1 jump: the fine realm is one level finer on every axis, both

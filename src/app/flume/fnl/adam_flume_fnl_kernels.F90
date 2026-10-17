@@ -41,10 +41,10 @@ public :: gather_seam_cells_dev
 public :: gather_seam_faces_dev
 public :: gather_seam_stencils_dev
 public :: pack_density_dev
-public :: pack_seam_skin_dev
 public :: scatter_seam_cells_dev
 public :: scatter_seam_faces_dev
 public :: set_boundary_conditions_dev
+public :: pack_seam_skins_dev
 public :: poison_ghosts_dev
 public :: unpack_potential_dev
 
@@ -559,49 +559,60 @@ contains
    enddo
    endsubroutine fill_seam_copy_dev
 
-   subroutine pack_seam_skin_dev(fec, b, ni, nj, nk, nv, flx_f_gpu, fly_f_gpu, flz_f_gpu, skin_gpu)
-   !< Pack the face fluxes of face `fec` of block `b` into the skin `skin_gpu(v, c)`, `c` running over the two
-   !< tangential axes, inner fastest (the flux register order, `accumulate_seam_skin`).
-   integer(I4P), intent(in)    :: fec                       !< Face (1..6: -x, +x, -y, +y, -z, +z).
-   integer(I4P), intent(in)    :: b                         !< Block.
+   subroutine pack_seam_skins_dev(n_faces, max_cells, faces_gpu, ni, nj, nk, nv, flx_f_gpu, fly_f_gpu, flz_f_gpu, &
+                                  skins_gpu)
+   !< Pack the face fluxes of every seam register face `f` of the rank in one launch (issue #90, F-B): face
+   !< `faces_gpu(:,f) = [block, fec, first column - 1]` goes to `skins_gpu(:, first column:)`, its cells over the two
+   !< tangential axes, inner fastest (x faces: j, k; y faces: i, k; z faces: i, j), the flux register order
+   !< (`accumulate_seam_skin`).
+   integer(I4P), intent(in)    :: n_faces                   !< Register faces number.
+   integer(I4P), intent(in)    :: max_cells                 !< Most skin cells of a face, max(nj nk, ni nk, ni nj).
+   integer(I4P), intent(in)    :: faces_gpu(1:,1:)          !< Faces [3, n_faces]: block, fec, first column - 1.
    integer(I4P), intent(in)    :: ni, nj, nk                !< Grid dimensions.
    integer(I4P), intent(in)    :: nv                        !< Variables number.
    real(R8P),    intent(in)    :: flx_f_gpu(1:,0:,1:,1:,1:) !< X-face fluxes.
    real(R8P),    intent(in)    :: fly_f_gpu(1:,1:,0:,1:,1:) !< Y-face fluxes.
    real(R8P),    intent(in)    :: flz_f_gpu(1:,1:,1:,0:,1:) !< Z-face fluxes.
-   real(R8P),    intent(inout) :: skin_gpu(1:,1:)           !< Face skin (nv, inner_n*outer_n).
-   integer(I4P)                :: inner, outer, v           !< Counters.
+   real(R8P),    intent(inout) :: skins_gpu(1:,1:)          !< Packed skins (nv, columns).
+   integer(I4P)                :: f, cell, inner, outer, v  !< Counters.
+   integer(I4P)                :: b, fec, col               !< Face block, fec, skin column.
    integer(I4P)                :: inner_n, outer_n          !< Tangential cells numbers.
    integer(I4P)                :: n                         !< Face normal index (0 or n).
 
-   select case(fec)
-   case(1_I4P, 2_I4P)
-      inner_n = nj ; outer_n = nk ; n = merge(0_I4P, ni, fec == 1_I4P)
-   case(3_I4P, 4_I4P)
-      inner_n = ni ; outer_n = nk ; n = merge(0_I4P, nj, fec == 3_I4P)
-   case default
-      inner_n = ni ; outer_n = nj ; n = merge(0_I4P, nk, fec == 5_I4P)
-   endselect
-   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(flx_f_gpu,fly_f_gpu,flz_f_gpu,skin_gpu) &
-   !$acc& firstprivate(fec,b,nv,n,inner_n,outer_n)
-   !$omp OMPLOOP collapse(2) DEVICEPTR(flx_f_gpu,fly_f_gpu,flz_f_gpu,skin_gpu) &
-   !$omp& firstprivate(fec,b,nv,n,inner_n,outer_n)
-   do outer=1, outer_n
-   do inner=1, inner_n
-      !$acc loop seq
-      do v=1, nv
-         select case(fec)
-         case(1_I4P, 2_I4P)
-            skin_gpu(v,(outer-1)*inner_n+inner) = flx_f_gpu(b,n,inner,outer,v)
-         case(3_I4P, 4_I4P)
-            skin_gpu(v,(outer-1)*inner_n+inner) = fly_f_gpu(b,inner,n,outer,v)
-         case default
-            skin_gpu(v,(outer-1)*inner_n+inner) = flz_f_gpu(b,inner,outer,n,v)
-         endselect
-      enddo
+   !$acc parallel loop independent gang vector collapse(2) &
+   !$acc& DEVICEVAR(faces_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,skins_gpu) &
+   !$acc& firstprivate(n_faces,max_cells,ni,nj,nk,nv) private(b,fec,col,inner,outer,inner_n,outer_n,n)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(faces_gpu,flx_f_gpu,fly_f_gpu,flz_f_gpu,skins_gpu) &
+   !$omp& firstprivate(n_faces,max_cells,ni,nj,nk,nv) private(b,fec,col,inner,outer,inner_n,outer_n,n)
+   do f=1, n_faces
+   do cell=1, max_cells
+      b = faces_gpu(1,f) ; fec = faces_gpu(2,f)
+      select case(fec)
+      case(1_I4P, 2_I4P)
+         inner_n = nj ; outer_n = nk ; n = merge(0_I4P, ni, fec == 1_I4P)
+      case(3_I4P, 4_I4P)
+         inner_n = ni ; outer_n = nk ; n = merge(0_I4P, nj, fec == 3_I4P)
+      case default
+         inner_n = ni ; outer_n = nj ; n = merge(0_I4P, nk, fec == 5_I4P)
+      endselect
+      if (cell <= inner_n * outer_n) then
+         inner = mod(cell - 1_I4P, inner_n) + 1_I4P ; outer = (cell - 1_I4P) / inner_n + 1_I4P
+         col = faces_gpu(3,f) + cell
+         !$acc loop seq
+         do v=1, nv
+            select case(fec)
+            case(1_I4P, 2_I4P)
+               skins_gpu(v,col) = flx_f_gpu(b,n,inner,outer,v)
+            case(3_I4P, 4_I4P)
+               skins_gpu(v,col) = fly_f_gpu(b,inner,n,outer,v)
+            case default
+               skins_gpu(v,col) = flz_f_gpu(b,inner,outer,n,v)
+            endselect
+         enddo
+      endif
    enddo
    enddo
-   endsubroutine pack_seam_skin_dev
+   endsubroutine pack_seam_skins_dev
 
    subroutine pack_density_dev(ni, nj, nk, ngc, blocks_number, q_gpu, buf_gpu)
    !< Pack the interior density of every block into `buf_gpu`, block-major then `k`, `j`, `i` fastest: the order of the

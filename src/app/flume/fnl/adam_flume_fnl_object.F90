@@ -144,7 +144,7 @@ use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev, compute_dfl
                                               add_gravity_limited_correction_dev,                                      &
                                               compute_gravity_correction_faces_dev, subtract_equilibrium_residual_dev, &
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
-                                              gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skin_dev,     &
+                                              gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skins_dev,    &
                                               pack_density_dev, unpack_potential_dev,                                  &
                                               scatter_seam_cells_dev, scatter_seam_faces_dev,                          &
                                               poison_ghosts_dev, set_boundary_conditions_dev
@@ -194,6 +194,9 @@ type, extends(flume_common_object) :: flume_fnl_object
    integer(I4P), pointer  :: divb_seam_gpu(:,:)=>null()   !< Seam faces flags of the div(B) history [nb, 6].
    integer(I4P), pointer  :: bc_rows_gpu(:,:)=>null()     !< BC crown map rows grouped by pass [rows, ngc] (#90 F-A').
    integer(I4P), allocatable :: bc_pass_range(:,:,:)      !< First, last entry of each pass in bc_rows_gpu [2, 3, ngc].
+   integer(I4P), allocatable :: skin_faces(:,:)           !< Register faces [3, n]: block, fec, column - 1 (#90 F-B).
+   integer(I4P), pointer  :: skin_faces_gpu(:,:)=>null()  !< Device copy of skin_faces.
+   real(R8P),    pointer  :: skins_gpu(:,:)=>null()       !< Packed skins of the register faces [nv, columns].
    ! host staging
    real(R8P), allocatable :: buf_5D_R8P(:,:,:,:,:)        !< Transposed copy buffer, extent identical to q_gpu.
    integer(I4P)           :: db5(2,5)=0_I4P               !< Device bounds of the transposed copies.
@@ -288,8 +291,8 @@ contains
    subroutine accumulate_seam_fluxes(self, s, flux_register, weight, with_gravity_work)
    !< Accumulate the seam face fluxes of stage `s`, weighted by its SSP coefficient, into the forest's flux register.
    !<
-   !< The register is host-side: each seam face skin is packed on the device and copied to the host (a few KB per face
-   !< and stage), then routed by the shared `accumulate_seam_skin`, as on the CPU.
+   !< The register is host-side: the skins of all the seam faces of the rank are packed on the device in one launch and
+   !< copied to the host in one transfer, then each is routed by the shared `accumulate_seam_skin`, as on the CPU.
    class(flume_fnl_object),     intent(inout)        :: self          !< The equation.
    integer(I4P),                intent(in)           :: s             !< Runge-Kutta stage.
    class(flux_register_object), intent(inout)        :: flux_register !< Forest's flux register.
@@ -298,39 +301,83 @@ contains
                                                                   !< without `weight`; issue #81).
    logical                                           :: gw            !< Add the seam gravity work.
    real(R8P)                                         :: w             !< Accumulation weight.
-   real(R8P), pointer                         :: skin_gpu(:,:) !< Device face skin (nv, cells).
-   real(R8P), allocatable                     :: skin(:,:)     !< Host face skin (nv, cells).
-   integer(I4P)                               :: b, fec        !< Block, face counters.
-   integer(I4P)                               :: cells         !< Skin cells number.
-   integer(I4P)                               :: ierr          !< Error status.
+   real(R8P), allocatable                            :: skins(:,:)    !< Host skins of all the register faces.
+   integer(I4P), allocatable                         :: faces(:,:)    !< Register faces [3, n]: block, fec, column - 1.
+   integer(I4P)                                      :: b, fec, f, n  !< Block, face, register face counters.
+   integer(I4P)                                      :: cells, cols   !< Skin cells of a face, columns of all.
+   integer(I4P)                                      :: ierr          !< Error status.
 
    w = self%rk%beta(s) ; if (present(weight)) w = weight
    gw = .not.present(weight) ; if (present(with_gravity_work)) gw = with_gravity_work
+   if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) return
+   ! One pack and one copy for all the register faces of the rank (issue #90, F-B), instead of a device allocation, a
+   ! launch, a blocking copy and a free per face and stage: the faces, in the block-then-face order of the per-face
+   ! loop, are listed with the first column of their skin; the list, its device copy and the device skins persist and
+   ! are rebuilt only when the faces change (a regrid, a new topology). The host then routes each face's skin as before.
+   n = count(self%adam%maps%inter_realm_face_register_index(1:self%blocks_number,:) /= 0_I4P)
+   allocate(faces(3, n)) ; f = 0_I4P ; cols = 0_I4P
    do b=1, self%blocks_number
       do fec=1, 6
          if (self%adam%maps%inter_realm_face_register_index(b, fec) == 0_I4P) cycle
-         select case(fec)
-         case(1_I4P, 2_I4P)
-            cells = self%nj * self%nk
-         case(3_I4P, 4_I4P)
-            cells = self%ni * self%nk
-         case default
-            cells = self%ni * self%nj
-         endselect
-         call dev_alloc(fptr_dev=skin_gpu, lbounds=[1,1], ubounds=[self%nv,cells], ierr=ierr)
-         if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate skin_gpu in accumulate_seam_fluxes')
-         call pack_seam_skin_dev(fec=fec, b=b, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv, flx_f_gpu=self%flx_f_gpu, &
-                                 fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, skin_gpu=skin_gpu)
-         allocate(skin(self%nv,cells))
-         call dev_memcpy_from_device(dst=skin, src=skin_gpu)
-         call dev_free(skin_gpu, mydev)
-         ! the seam gravity work of self-gravity (issue #81, P5b): in the step and stage registers, not in the
-         ! one-evaluation D_flux diagnostic
-         if (gw) call self%add_seam_gravity_work(flux_register=flux_register, b=b, fec=fec, skin=skin)
-         call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=w, skin=skin)
-         deallocate(skin)
+         f = f + 1_I4P
+         faces(:, f) = [b, fec, cols]
+         cols = cols + skin_cells(fec)
       enddo
    enddo
+   if (n == 0_I4P) return
+   if (.not.allocated(self%skin_faces)) then
+      call update_skin_buffers
+   elseif (any(shape(self%skin_faces) /= shape(faces))) then
+      call update_skin_buffers
+   elseif (any(self%skin_faces /= faces)) then
+      call update_skin_buffers
+   endif
+   call pack_seam_skins_dev(n_faces=n, max_cells=max(self%nj*self%nk, self%ni*self%nk, self%ni*self%nj),         &
+                            faces_gpu=self%skin_faces_gpu, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv,      &
+                            flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu,       &
+                            skins_gpu=self%skins_gpu)
+   allocate(skins(self%nv, cols))
+   call dev_memcpy_from_device(dst=skins, src=self%skins_gpu)
+   do f=1, n
+      b = faces(1, f) ; fec = faces(2, f) ; cells = skin_cells(fec)
+      ! the seam gravity work of self-gravity (issue #81, P5b): in the step and stage registers, not in the
+      ! one-evaluation D_flux diagnostic
+      if (gw) call self%add_seam_gravity_work(flux_register=flux_register, b=b, fec=fec, &
+                                              skin=skins(:, faces(3, f)+1:faces(3, f)+cells))
+      call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=w, &
+                                     skin=skins(:, faces(3, f)+1:faces(3, f)+cells))
+   enddo
+   contains
+      pure function skin_cells(fec_) result(c)
+      !< Skin cells of a face of a block: the two tangential axes.
+      integer(I4P), intent(in) :: fec_ !< Face (1..6).
+      integer(I4P)             :: c    !< Cells.
+
+      select case(fec_)
+      case(1_I4P, 2_I4P)
+         c = self%nj * self%nk
+      case(3_I4P, 4_I4P)
+         c = self%ni * self%nk
+      case default
+         c = self%ni * self%nj
+      endselect
+      endfunction skin_cells
+
+      subroutine update_skin_buffers
+      !< Store the face list, refresh its device copy and resize the device skins.
+      if (associated(self%skin_faces_gpu)) then
+         call dev_free(self%skin_faces_gpu, mydev)
+         nullify(self%skin_faces_gpu)
+      endif
+      if (associated(self%skins_gpu)) then
+         call dev_free(self%skins_gpu, mydev)
+         nullify(self%skins_gpu)
+      endif
+      self%skin_faces = faces
+      call dev_assign_to_device(src=self%skin_faces, dst=self%skin_faces_gpu)
+      call dev_alloc(fptr_dev=self%skins_gpu, lbounds=[1,1], ubounds=[self%nv,cols], ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate skins_gpu in accumulate_seam_fluxes')
+      endsubroutine update_skin_buffers
    endsubroutine accumulate_seam_fluxes
 
    subroutine flag_troubled_seam_cells(self, flux_register)
@@ -976,6 +1023,15 @@ contains
       nullify(self%bc_rows_gpu)
    endif
    if (allocated(self%bc_pass_range)) deallocate(self%bc_pass_range)
+   if (associated(self%skin_faces_gpu)) then
+      call dev_free(self%skin_faces_gpu, mydev)
+      nullify(self%skin_faces_gpu)
+   endif
+   if (associated(self%skins_gpu)) then
+      call dev_free(self%skins_gpu, mydev)
+      nullify(self%skins_gpu)
+   endif
+   if (allocated(self%skin_faces)) deallocate(self%skin_faces)
    if (allocated(self%buf_5D_R8P)) deallocate(self%buf_5D_R8P)
    call self%rk_fnl%destroy()
    call self%weno_fnl%destroy()
