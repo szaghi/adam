@@ -300,7 +300,9 @@ type :: maps_object
    ! Seam exchange timing (issue #53, off unless ADAM_SEAM_TIMING=1): wall time of the phases of `seam_fill` filling
    ! this realm's ghosts, summed over the calls on this rank.
    logical      :: seam_timing     = .false.  !< Accumulate the timers below.
-   real(R8P)    :: seam_wtime(5)   = 0._R8P   !< Local copy, buffers, pack (peer owner), MPI (post to wait), unpack.
+   real(R8P)    :: seam_wtime(5)   = 0._R8P   !< Local copy, buffers, pack (peer owner), MPI, unpack; MPI is the posts
+                                              !< (and, outside the forest's batch, the wait; the batch's one wait is
+                                              !< the forest's `seam wait`, issue #53 F3).
    integer(I8P) :: seam_fills      = 0_I8P    !< Calls that moved cross-rank (or to-self) rows on this rank.
    integer(I8P) :: seam_rows(2)    = 0_I8P    !< Cross-rank rows moved: received (unpacked), packed (sent).
    contains

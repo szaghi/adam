@@ -40,7 +40,7 @@ use :: adam_forest_manifest,      only : forest_manifest_t, forest_face_pair_t
 use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM, SEAM_KIND_INTER_REALM_REFINED, &
                                          SEAM_KIND_INTRA_REALM_AMR
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
-use :: adam_seam_exchange,        only : seam_fill, SEAM_ROW_COPY, SEAM_ROW_INTERPOLATE, SEAM_ROW_RESTRICT
+use :: adam_seam_exchange,        only : seam_fill_batch, SEAM_ROW_COPY, SEAM_ROW_INTERPOLATE, SEAM_ROW_RESTRICT
 use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, seam_tricubic_centered_pos, &
                                                seam_quintic_centered_pos, SEAM_FILL_QUINTIC, &
                                                seam_compatible_centered_pos, SEAM_RESTRICT_MEAN, &
@@ -59,9 +59,10 @@ type :: forest_object
    type(flux_register_object) :: flux_register !< Coarse-fine interface reflux machinery.
    ! Timing report (issue #53), on when the environment sets ADAM_SEAM_TIMING=1; wall time on this rank of: the time
    ! loop, evolve_one_step, the end-of-step reflux fine-sum reduction, the wait at a barrier put before it when timing
-   ! (load imbalance, which the collective reduction would otherwise absorb), and the reflux correction.
+   ! (load imbalance, which the collective reduction would otherwise absorb), the reflux correction, and of the batched
+   ! seam fills (F3): the wait at a barrier put before their posts (load imbalance) and their single wait.
    logical                    :: timing   = .false.
-   real(R8P)                  :: wtime(5) = 0._R8P
+   real(R8P)                  :: wtime(7) = 0._R8P
    contains
       ! public methods
       ! initialize/finalize
@@ -342,17 +343,10 @@ contains
          ! array element dispatch bug (same fix shape as Phase 3 below;
          ! commit 0062a237). Pre-emptive: this is a new dispatch site that
          ! the workaround should cover from the start.
-         ! The slots come from the manifest (the same on every rank, whatever rows a rank holds): `seam_fill` moves the
-         ! local and the cross-rank rows (issue #40), and every rank must reach the same (realm, slot) pairs in order.
-         do is = 1_I4P, int(size(realm), I4P)
-            if (.not. allocated(realm(is)%adam%maps%seam_local_peer_realm)) cycle
-            do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
-               if (realm(is)%adam%maps%seam_local_cadence(p) /= CADENCE_STAGE_COINCIDENT) cycle
-               associate(r=>realm(is)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
-                  call seam_fill(self=r, realm=realm, p=p)
-               endassociate
-            enddo
-         enddo
+         ! The slots come from the manifest (the same on every rank, whatever rows a rank holds): `seam_fill_batch`
+         ! moves the local and the cross-rank rows (issue #40) of every (realm, slot) pair of the cadence, posted in the
+         ! same order on every rank and completed by one wait (issue #53, F3).
+         call seam_fill_batch(realm=realm, cadence=CADENCE_STAGE_COINCIDENT, wtime=self%wtime(6:7))
 
          ! Phase 3 — residuals (with flux_register) + assign on each participating realm.
          do is = 1_I4P, int(size(realm), I4P)
@@ -418,15 +412,7 @@ contains
       !
       ! `associate` wrapper: same nvfortran 26.1 workaround as Phase 2 and
       ! Phase 3 (commit 0062a237). Pre-emptive coverage.
-      do is = 1_I4P, int(size(realm), I4P)
-         if (.not. allocated(realm(is)%adam%maps%seam_local_peer_realm)) cycle
-         do p = 1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
-            if (realm(is)%adam%maps%seam_local_cadence(p) /= CADENCE_END_OF_STEP) cycle
-            associate(r=>realm(is)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
-               call seam_fill(self=r, realm=realm, p=p)
-            endassociate
-         enddo
-      enddo
+      call seam_fill_batch(realm=realm, cadence=CADENCE_END_OF_STEP, wtime=self%wtime(6:7))
 
       deallocate(K_realm)
    endif
@@ -579,16 +565,17 @@ contains
    !< fill phases (local copy, buffers, pack, MPI, unpack) and of their sum; fills and rows summed over the ranks.
    class(forest_object), intent(in) :: self     !< The forest.
    class(realm_object),  intent(in) :: realm(:) !< The realms.
-   real(R8P)                        :: w(6)     !< Timers reduced over the ranks.
+   real(R8P)                        :: w(7)     !< Timers reduced over the ranks.
    integer(I8P)                     :: c(3)     !< Counters reduced over the ranks.
    integer(I4P)                     :: is       !< Realm index.
    integer                          :: ierr     !< MPI error.
    character(len=256)               :: line     !< Report line.
 
-   w(1:5) = self%wtime
-   call MPI_ALLREDUCE(MPI_IN_PLACE, w, 5, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
-   write(line, '(A,5(F11.4,A),I0,A)') 'forest timing (max over ranks, s): loop', w(1), ', steps', w(2),               &
+   w(1:7) = self%wtime
+   call MPI_ALLREDUCE(MPI_IN_PLACE, w, 7, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   write(line, '(A,7(F11.4,A),I0,A)') 'forest timing (max over ranks, s): loop', w(1), ', steps', w(2),               &
                                       ', imbalance before reflux', w(4), ', reflux reduce', w(3), ', reflux apply', w(5), &
+                                      ', seam imbalance', w(6), ', seam wait', w(7),                                      &
                                       '; ', self%flux_register%nfaces, ' register faces'
    if (mpih%myrank == 0) call mpih%print_message(trim(line))
    do is = 1_I4P, int(size(realm), I4P)

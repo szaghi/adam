@@ -34,6 +34,7 @@ implicit none
 private
 public :: seam_fill
 public :: seam_fill_all
+public :: seam_fill_batch
 public :: seam_peer_slot
 public :: pack_seam_rows
 public :: unpack_seam_rows
@@ -45,73 +46,169 @@ integer(I4P), parameter :: SEAM_ROW_COPY        = 1_I4P !< Same cell size: copy 
 integer(I4P), parameter :: SEAM_ROW_INTERPOLATE = 4_I4P !< Coarse cell to a fine ghost: interpolate (`interp_seam_ghost`).
 integer(I4P), parameter :: SEAM_ROW_RESTRICT    = 8_I4P !< Fine cells to a coarse ghost: mean of the 2x2x2 fine cells.
 
+type :: seam_post_object
+   !< A posted seam fill of one (realm, peer slot) pair (issue #53, F3): its buffers and requests live until the wait.
+   integer(I4P)              :: is = 0_I4P       !< Realm owning the ghosts.
+   integer(I4P)              :: p = 0_I4P        !< Peer slot.
+   integer(I4P)              :: n_recv = 0_I4P   !< Cross-rank receive rows.
+   integer(I4P)              :: n_req = 0_I4P    !< Posted requests.
+   logical                   :: active = .false. !< Cross-rank (or to-self) rows were posted.
+   logical                   :: timing = .false. !< Accumulate the phase timers.
+   integer(I4P), allocatable :: req(:)           !< MPI requests.
+   real(R8P),    allocatable :: send_buf(:)      !< Packed values sent (alive until the wait).
+   real(R8P),    allocatable :: recv_buf(:)      !< Values received.
+endtype seam_post_object
+
 contains
    subroutine seam_fill(self, realm, p)
    !< Fill the seam ghosts of `self` (the forest realm `self%realm_index`) from its peer slot `p`: local rows, then
    !< cross-rank rows. Only `self` is written; `realm(:)` (which contains `self`) is read for the peer.
-   class(realm_object), intent(inout), target :: self                       !< Realm owning the ghosts.
-   class(realm_object), intent(in),    target :: realm(:)                   !< Forest realms.
-   integer(I4P),        intent(in)            :: p                          !< Peer slot of `self`.
-   integer(I4P)                               :: is                         !< Forest index of `self`.
-   integer(I4P)                               :: ip                         !< Peer realm owning the cells.
-   integer(I4P)                               :: q                          !< Slot of realm `is` in the peer's lists.
-   integer(I4P)                               :: nv                         !< Values per cell.
-   integer(I4P)                               :: n_send, n_recv             !< Cross-rank rows of this rank.
-   integer(I4P)                               :: s0, r0                     !< First send/receive row of the slot.
-   real(R8P), allocatable                     :: send_buf(:), recv_buf(:)   !< Packed values.
-   integer(I4P), allocatable                  :: req(:)                     !< MPI requests.
-   integer(I4P)                               :: n_req                      !< Posted requests.
-   integer(I4P)                               :: r, r_end, rank             !< Row segment bounds and partner rank.
-   integer(I4P)                               :: self_recv(2), self_send(2) !< Same-rank row segments (0 if none).
-   logical                                    :: timing                     !< Accumulate the phase timers (issue #53).
-   real(R8P)                                  :: tw(0:5)                    !< Phase boundaries (MPI_Wtime).
+   class(realm_object), intent(inout), target :: self   !< Realm owning the ghosts.
+   class(realm_object), intent(in),    target :: realm(:) !< Forest realms.
+   integer(I4P),        intent(in)            :: p      !< Peer slot of `self`.
+   type(seam_post_object)                     :: post   !< The posted exchange of the pair.
+   real(R8P)                                  :: t0     !< Wait start (MPI_Wtime).
+
+   call seam_fill_post(self=self, realm=realm, p=p, post=post)
+   if (.not.post%active) return
+   if (post%timing) t0 = MPI_Wtime()
+   call MPI_WAITALL(post%n_req, post%req, MPI_STATUSES_IGNORE, mpih%error)
+   if (post%timing) self%adam%maps%seam_wtime(4) = self%adam%maps%seam_wtime(4) + (MPI_Wtime() - t0)
+   call seam_fill_complete(self=self, post=post)
+   endsubroutine seam_fill
+
+   subroutine seam_fill_batch(realm, cadence, wtime)
+   !< Fill the seam ghosts of every (realm, peer slot) pair of seam cadence `cadence` with one wait (issue #53, F3):
+   !< post every pair (local rows, pack, receives and sends), wait once on all the requests, then unpack every pair in
+   !< pair order. Every rank reaches the same pairs in the same order (the slots come from the manifest), and each pair
+   !< has its own tag. Batching moves every pack before every unpack: the packs read real (interior) cells only, never
+   !< a seam ghost, so the values sent are the ones the pair-by-pair exchange sends. `wtime` (timing only) accumulates
+   !< the wait at a barrier put before the posts (the partners' arrival skew, load imbalance) and the single wait.
+   class(realm_object), intent(inout), target :: realm(:) !< Forest realms.
+   integer(I4P),        intent(in)            :: cadence  !< Seam cadence of the pairs to fill.
+   real(R8P),           intent(inout)         :: wtime(2) !< Timing: imbalance before the posts, wait.
+   type(seam_post_object), allocatable        :: post(:)  !< The posted exchanges, in pair order.
+   integer(I4P), allocatable                  :: req(:)   !< All the requests.
+   integer(I4P)                               :: is, p    !< Realm and slot.
+   integer(I4P)                               :: n, k     !< Pairs counter.
+   integer(I4P)                               :: n_req    !< Requests counter.
+   logical                                    :: timing   !< Timing on.
+   real(R8P)                                  :: t0       !< Phase start (MPI_Wtime).
+
+   n = 0_I4P
+   do is=1_I4P, int(size(realm), I4P)
+      if (.not.allocated(realm(is)%adam%maps%seam_local_peer_realm)) cycle
+      n = n + count(realm(is)%adam%maps%seam_local_cadence == cadence)
+   enddo
+   if (n == 0_I4P) return
+   timing = realm(1)%adam%maps%seam_timing
+   if (timing) then
+      t0 = MPI_Wtime()
+      call MPI_BARRIER(MPI_COMM_WORLD, mpih%error)
+      wtime(1) = wtime(1) + (MPI_Wtime() - t0)
+   endif
+   allocate(post(n)) ; k = 0_I4P
+   do is=1_I4P, int(size(realm), I4P)
+      if (.not.allocated(realm(is)%adam%maps%seam_local_peer_realm)) cycle
+      do p=1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
+         if (realm(is)%adam%maps%seam_local_cadence(p) /= cadence) cycle
+         k = k + 1_I4P
+         associate(r=>realm(is)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
+            call seam_fill_post(self=r, realm=realm, p=p, post=post(k))
+         endassociate
+      enddo
+   enddo
+   n_req = sum([(post(k)%n_req, k=1_I4P, n)])
+   allocate(req(max(n_req, 1_I4P))) ; n_req = 0_I4P
+   do k=1_I4P, n
+      if (post(k)%n_req == 0_I4P) cycle
+      req(n_req+1_I4P:n_req+post(k)%n_req) = post(k)%req(1:post(k)%n_req)
+      n_req = n_req + post(k)%n_req
+   enddo
+   if (timing) t0 = MPI_Wtime()
+   call MPI_WAITALL(n_req, req, MPI_STATUSES_IGNORE, mpih%error)
+   if (timing) wtime(2) = wtime(2) + (MPI_Wtime() - t0)
+   do k=1_I4P, n
+      if (.not.post(k)%active) cycle
+      associate(r=>realm(post(k)%is)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
+         call seam_fill_complete(self=r, post=post(k))
+      endassociate
+   enddo
+   endsubroutine seam_fill_batch
+
+   subroutine seam_fill_post(self, realm, p, post)
+   !< Post the fill of the seam ghosts of `self` from its peer slot `p`: the local rows (copied now), the pack of the
+   !< rows `self`'s ghosts receive from the cells this rank owns, the receives and the sends (one message per partner
+   !< rank, tagged by the pair) and the message to self. `seam_fill_complete` unpacks once the requests are complete.
+   class(realm_object),    intent(inout), target :: self                       !< Realm owning the ghosts.
+   class(realm_object),    intent(in),    target :: realm(:)                   !< Forest realms.
+   integer(I4P),           intent(in)            :: p                          !< Peer slot of `self`.
+   type(seam_post_object), intent(out)           :: post                       !< The posted exchange.
+   integer(I4P)                                  :: is                         !< Forest index of `self`.
+   integer(I4P)                                  :: ip                         !< Peer realm owning the cells.
+   integer(I4P)                                  :: q                          !< Slot of `is` in the peer's lists.
+   integer(I4P)                                  :: nv                         !< Values per cell.
+   integer(I4P)                                  :: n_send                     !< Cross-rank send rows of this rank.
+   integer(I4P)                                  :: s0, r0                     !< First send/receive row of the slot.
+   integer(I4P)                                  :: r, r_end, rank             !< Row segment bounds and partner rank.
+   integer(I4P)                                  :: tag                        !< MPI tag of the pair.
+   integer(I4P)                                  :: self_recv(2), self_send(2) !< Same-rank row segments (0 if none).
+   real(R8P)                                     :: tw(0:4)                    !< Phase boundaries (MPI_Wtime).
 
    is = self%realm_index
    ip = self%adam%maps%seam_local_peer_realm(p)
+   post%is = is ; post%p = p
    ! The phase boundaries need no device synchronisation: the FNL seam kernels are synchronous and the packed buffers
    ! cross the host through blocking copies (issue #53).
-   timing = self%adam%maps%seam_timing
-   if (timing) tw(0) = MPI_Wtime()
+   post%timing = self%adam%maps%seam_timing
+   if (post%timing) tw(0) = MPI_Wtime()
    ! local rows: the receiver's own copy kernel
-   if (self%adam%maps%seam_local_peer_row_count(p) > 0_I4P) call self%fill_seam_from_peer_forest(peer=realm(ip), p_idx=p)
-   if (timing) tw(1) = MPI_Wtime()
+   if (self%adam%maps%seam_local_peer_row_count(p) > 0_I4P) &
+      call self%fill_seam_from_peer_forest(peer=realm(ip), p_idx=p)
+   if (post%timing) tw(1) = MPI_Wtime()
    ! cross-rank rows
    q = seam_peer_slot(realm(ip), is)
-   n_recv = 0_I4P ; n_send = 0_I4P
-   if (allocated(self%adam%maps%seam_mpi_recv_row_count)) n_recv = self%adam%maps%seam_mpi_recv_row_count(p)
+   post%n_recv = 0_I4P ; n_send = 0_I4P
+   if (allocated(self%adam%maps%seam_mpi_recv_row_count)) post%n_recv = self%adam%maps%seam_mpi_recv_row_count(p)
    if (allocated(realm(ip)%adam%maps%seam_mpi_send_row_count)) n_send = realm(ip)%adam%maps%seam_mpi_send_row_count(q)
-   if (n_recv + n_send == 0_I4P) then
-      if (timing) self%adam%maps%seam_wtime(1) = self%adam%maps%seam_wtime(1) + (tw(1) - tw(0))
+   if (post%n_recv + n_send == 0_I4P) then
+      if (post%timing) self%adam%maps%seam_wtime(1) = self%adam%maps%seam_wtime(1) + (tw(1) - tw(0))
       return
    endif
+   post%active = .true.
+   ! one tag per (realm, slot) pair, so the batched messages of different pairs between two ranks never match each other
+   if (p > 100_I4P .or. SEAM_TAG + 100_I4P * is > 32767_I4P) &
+      call mpih%error_stop(msg='adam_seam_exchange%seam_fill_post: realm '//trim(str(is, .true.))//', slot '// &
+                           trim(str(p, .true.))//' exceeds the seam tag space (100 slots per realm, tag <= 32767)')
+   tag = SEAM_TAG + 100_I4P * (is - 1_I4P) + (p - 1_I4P)
    self_recv = 0_I4P ; self_send = 0_I4P
    nv = self%nv
-   allocate(req(n_recv + n_send)) ; n_req = 0_I4P
-   allocate(recv_buf(nv * n_recv), send_buf(nv * n_send))
-   if (timing) tw(2) = MPI_Wtime()
+   allocate(post%req(post%n_recv + n_send)) ; post%n_req = 0_I4P
+   allocate(post%recv_buf(nv * post%n_recv), post%send_buf(nv * n_send))
+   if (post%timing) tw(2) = MPI_Wtime()
    if (n_send > 0_I4P) then
       associate(r_ip=>realm(ip)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
-         call r_ip%pack_seam_cells_forest(p_idx=q, buf=send_buf)
+         call r_ip%pack_seam_cells_forest(p_idx=q, buf=post%send_buf)
       endassociate
    endif
-   if (timing) tw(3) = MPI_Wtime()
+   if (post%timing) tw(3) = MPI_Wtime()
    ! one message per partner rank: the rows of a slot are grouped by rank
-   if (n_recv > 0_I4P) then
+   if (post%n_recv > 0_I4P) then
       associate(rows=>self%adam%maps%seam_mpi_recv_cell)
       r0 = self%adam%maps%seam_mpi_recv_row_start(p)
       r = 1_I4P
-      do while (r <= n_recv)
+      do while (r <= post%n_recv)
          rank = rows(r0 + r - 1_I4P, 1) ; r_end = r
-         do while (r_end < n_recv)
+         do while (r_end < post%n_recv)
             if (rows(r0 + r_end, 1) /= rank) exit
             r_end = r_end + 1_I4P
          enddo
          if (rank == mpih%myrank) then
             self_recv = [r, r_end]
          else
-            n_req = n_req + 1_I4P
-            call MPI_IRECV(recv_buf(nv * (r - 1_I4P) + 1_I4P), nv * (r_end - r + 1_I4P), MPI_REAL8, rank, SEAM_TAG, &
-                           MPI_COMM_WORLD, req(n_req), mpih%error)
+            post%n_req = post%n_req + 1_I4P
+            call MPI_IRECV(post%recv_buf(nv * (r - 1_I4P) + 1_I4P), nv * (r_end - r + 1_I4P), MPI_REAL8, rank, tag, &
+                           MPI_COMM_WORLD, post%req(post%n_req), mpih%error)
          endif
          r = r_end + 1_I4P
       enddo
@@ -130,9 +227,9 @@ contains
          if (rank == mpih%myrank) then
             self_send = [r, r_end]
          else
-            n_req = n_req + 1_I4P
-            call MPI_ISEND(send_buf(nv * (r - 1_I4P) + 1_I4P), nv * (r_end - r + 1_I4P), MPI_REAL8, rank, SEAM_TAG, &
-                           MPI_COMM_WORLD, req(n_req), mpih%error)
+            post%n_req = post%n_req + 1_I4P
+            call MPI_ISEND(post%send_buf(nv * (r - 1_I4P) + 1_I4P), nv * (r_end - r + 1_I4P), MPI_REAL8, rank, tag, &
+                           MPI_COMM_WORLD, post%req(post%n_req), mpih%error)
          endif
          r = r_end + 1_I4P
       enddo
@@ -143,18 +240,27 @@ contains
       if (self_send(1) == 0_I4P .or. self_send(2) - self_send(1) /= self_recv(2) - self_recv(1)) &
          call mpih%error_stop(msg='adam_seam_exchange%seam_fill: same-rank seam rows do not match (realm '// &
                               trim(str(is, .true.))//', slot '//trim(str(p, .true.))//')')
-      recv_buf(nv*(self_recv(1)-1_I4P)+1_I4P:nv*self_recv(2)) = send_buf(nv*(self_send(1)-1_I4P)+1_I4P:nv*self_send(2))
+      post%recv_buf(nv*(self_recv(1)-1_I4P)+1_I4P:nv*self_recv(2)) = &
+         post%send_buf(nv*(self_send(1)-1_I4P)+1_I4P:nv*self_send(2))
    endif
-   call MPI_WAITALL(n_req, req, MPI_STATUSES_IGNORE, mpih%error)
-   if (timing) tw(4) = MPI_Wtime()
-   if (n_recv > 0_I4P) call self%unpack_seam_cells_forest(p_idx=p, buf=recv_buf)
-   if (timing) then
-      tw(5) = MPI_Wtime()
-      self%adam%maps%seam_wtime = self%adam%maps%seam_wtime + (tw(1:5) - tw(0:4))
+   if (post%timing) then
+      tw(4) = MPI_Wtime()
+      self%adam%maps%seam_wtime(1:4) = self%adam%maps%seam_wtime(1:4) + (tw(1:4) - tw(0:3))
       self%adam%maps%seam_fills = self%adam%maps%seam_fills + 1_I8P
-      self%adam%maps%seam_rows = self%adam%maps%seam_rows + int([n_recv, n_send], I8P)
+      self%adam%maps%seam_rows = self%adam%maps%seam_rows + int([post%n_recv, n_send], I8P)
    endif
-   endsubroutine seam_fill
+   endsubroutine seam_fill_post
+
+   subroutine seam_fill_complete(self, post)
+   !< Complete a posted fill (`seam_fill_post`), its requests complete: unpack the received rows into `self`'s ghosts.
+   class(realm_object),    intent(inout) :: self !< Realm owning the ghosts.
+   type(seam_post_object), intent(in)    :: post !< The posted exchange.
+   real(R8P)                             :: t0   !< Phase start (MPI_Wtime).
+
+   if (post%timing) t0 = MPI_Wtime()
+   if (post%n_recv > 0_I4P) call self%unpack_seam_cells_forest(p_idx=post%p, buf=post%recv_buf)
+   if (post%timing) self%adam%maps%seam_wtime(5) = self%adam%maps%seam_wtime(5) + (MPI_Wtime() - t0)
+   endsubroutine seam_fill_complete
 
    subroutine seam_fill_all(self, realm)
    !< Fill the seam ghosts of `self` from every peer slot, whatever the cadence (diagnostics on the committed state).

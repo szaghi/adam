@@ -312,7 +312,9 @@ received and sent.
 
 **Cost.** Set `ADAM_SEAM_TIMING=1` (`mpirun -x ADAM_SEAM_TIMING`) to print, at the end, the time per phase of the
 seam fill and of the reflux ([#53](https://github.com/szaghi/adam/issues/53)). On FNL the cross-rank rows go through
-host buffers, measured at 2.4-5.5% of the step on the test cases (WSL, not a benchmark).
+host buffers; the fills of all pairs are posted together and completed by one wait. On medooza (A30, 2-4 ranks) the
+transfer is at most about 3.5% of the step; a large `seam imbalance` means one rank reaches the fill late (load
+imbalance), not a slow exchange.
 
 **Verified by** FLUME `multirealm/check.sh` legs 1-5 at np 2, 3 and 4 (leg 3: the z split equals `sod-z` bitwise on
 1 and N ranks).

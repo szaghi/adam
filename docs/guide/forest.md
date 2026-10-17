@@ -79,10 +79,12 @@ Before issue #52, `periodic` and `interpolate` were accepted and silently run as
 `src/tests/flume/verification/multirealm/check.sh` (leg 3, `--legs leg3`) splits Sod along $z$: on one rank and on $N$ ranks the union reproduces the single-realm `sod-z` bit for bit (measured on 2, 3 and 4 ranks; on 2 every seam ghost crosses ranks, 3468 rows each way). Before issue #40 the two-rank run ended normally with a wrong solution (205 steps instead of 174, realm 1 mass frozen at 0.5, reflux mismatch 69).
 
 **Timing the exchange** ([issue #53](https://github.com/szaghi/adam/issues/53)). With `ADAM_SEAM_TIMING=1` in the environment (pass it to the ranks, e.g. `mpirun -x ADAM_SEAM_TIMING`), any forest run (single realm included) prints at the end:
-- one line with the time loop, the steps, the reflux fine-sum reduction, a barrier wait before it (the load imbalance the collective would otherwise absorb; the barrier exists only when timing) and the reflux correction;
-- one line per realm with the phases of the seam fills of its ghosts: the local copy, buffers, pack (on the owner of the cells), MPI (post to completion, partner waits included), and unpack, plus the fills and rows moved.
+- one line with the time loop, the steps, the reflux fine-sum reduction, a barrier wait before it (the load imbalance the collective would otherwise absorb; the barrier exists only when timing), the reflux correction, and the two timers of the batched seam fills: `seam imbalance`, a barrier wait before their posts (the partners' arrival skew, timing only), and `seam wait`, their single wait;
+- one line per realm with the phases of the seam fills of its ghosts: the local copy, buffers, pack (on the owner of the cells), MPI (the posts) and unpack, plus the fills and rows moved.
 
-Times are the maximum over the ranks; counts are summed. Without the variable nothing is timed and nothing is printed. Measured on the WSL box (not a benchmark, see the issue), the exchange takes 0.2-5.5% of the step time on the FLUME and PRISM splits.
+Times are the maximum over the ranks; counts are summed. Without the variable nothing is timed and nothing is printed.
+
+**Batched fills** (issue #53, F3). The forest posts the fills of every (realm, slot) pair of a cadence (β at every stage, α at the end of the step) in manifest order, each pair with its own message tag, and completes them with one wait, instead of one round trip per pair. Every pack precedes every unpack, which is exact because a pack reads real cells only, never a seam ghost. Measured on medooza (A30, FNL, 2 and 4 ranks): the transfer itself (`seam wait`) is 0.005-0.14 s, at most about 3.5% of the step; what the earlier single `MPI` timer showed on the $z$ splits (up to 27% of the step) was mostly a partner arriving late, 0.06-0.72 s of load imbalance. The batch gains 1-4% of the step on the $z$ splits.
 
 ## Coupling cadence: α vs β
 
@@ -154,9 +156,8 @@ sequenceDiagram
         F->>Ra: begin_stage_forest(k, ...)
         F->>Rb: begin_stage_forest(k, ...)
         Note over F,Rb: Phase 2 — β seam fill (per-seam, stage_coincident only)
-        F->>Ra: seam_fill(Ra, slot of Rb)
+        F->>F: seam_fill_batch(β pairs): post (Ra, slot of Rb), (Rb, slot of Ra), one wait, unpack
         Note over Ra: local rows + cross-rank rows:<br/>self's stage-k ghosts from peer's stage-k interior
-        F->>Rb: seam_fill(Rb, slot of Ra)
         Note over F,Rb: Phase 3 — close stage k (residuals + assign)
         F->>Ra: end_stage_forest(k, ..., flux_register)
         F->>Rb: end_stage_forest(k, ..., flux_register)
@@ -167,9 +168,8 @@ sequenceDiagram
     F->>Rb: close_step_forest(dt)
     F->>F: apply_reflux_corrections (on the committed q)
     Note over F,Rb: Phase 5 — α seam fill (per-seam, end_of_step only)
-    F->>Ra: seam_fill(Ra, slot of Rb)
+    F->>F: seam_fill_batch(α pairs): post (Ra, slot of Rb), (Rb, slot of Ra), one wait, unpack
     Note over Ra: self's q ghosts<br/>from peer's committed q
-    F->>Rb: seam_fill(Rb, slot of Ra)
 ```
 
 Per-seam gating: Phase 2 fires only on seams declared `stage_coincident` (β); Phase 5 fires only on seams declared `end_of_step` (α). A seam is filled exactly once per step under either cadence — Phase 2 may execute K times per step but at successive substages, never duplicating the same substage.
@@ -215,7 +215,7 @@ The two families are structurally disjoint and use different machinery:
 |---|---|---|
 | Declared by | `[forest]` manifest face-pairs | AMR refinement markers |
 | Resolution | same (`mirror`, blocks lined up or not) or 2:1 (`refined`) | 2:1 coarse↔fine jump |
-| Ghost fill | `adam_seam_exchange%seam_fill`: local rows and cross-rank rows (copy, interpolate, restrict) | `update_ghost_local` flag-4 path → `interp_seam_ghost` |
+| Ghost fill | `adam_seam_exchange%seam_fill_batch` (`seam_fill_post` / `seam_fill_complete` per pair; `seam_fill` for one pair): local rows and cross-rank rows (copy, interpolate, restrict) | `update_ghost_local` flag-4 path → `interp_seam_ghost` |
 | Fill regime | copy (`mirror`); the `seam_ghost_fill` regime and the 2x2x2 mean (`refined`) | selectable: injection / restriction-compatible / **tricubic** |
 | Cadence | α / β per seam | intrinsic to `update_ghost` (every stage) |
 | Registered as | `SEAM_KIND_INTER_REALM` (with `maps%seam_overlap` for misaligned blocks), `SEAM_KIND_INTER_REALM_REFINED` | `SEAM_KIND_INTRA_REALM_AMR` |
