@@ -79,8 +79,14 @@ reflux                   = .true.
 - **Seam div(B).** A cell-centred $\mathbf{B}$ cannot be kept divergence-free across a 2:1 coarse–fine face (Tóth & Roe
   2002): the seams inject a truncation-level $\nabla\cdot\mathbf{B}$, which GLM keeps bounded; `seam_max_divb` in the div(B)
   history monitors it.
-- **Positivity at very low plasma β.** The floors are a heuristic under the mixed GLM; the Balsara–Spicer strong blast
-  ($\beta = 2.5\cdot10^{-4}$) fails within a few steps. EGLM and a positivity limiter are planned in M3.
+- **Positivity at very low plasma β.** The floors alone do not hold it: without the positivity limiter the
+  flux-splitting scheme stops on the Balsara–Spicer blast ($\beta = 2.5\cdot10^{-4}$) at step 3 and on the Wu–Shu blast
+  ($\beta = 2.51\cdot10^{-6}$) at step 1. With `[numerics] positivity_limiter = cell` (M3,
+  [#47](https://github.com/szaghi/adam/issues/47)) both schemes run both to the end
+  ([positivity limiter](./verification/mhd/positivity-limiter)). On the flux-splitting path at $\beta \lesssim 10^{-3}$
+  the point symmetry and the CPU–FNL agreement then hold only to a grid-scale instability
+  ([#77](https://github.com/szaghi/adam/issues/77), [MHD blast symmetry](./verification/runtime-amr/mhd-blast-symmetry));
+  where they matter, use `scheme_space = weno-riemann` with `riemann_solver = hlld`.
 - **GLM damping and reflux.** With damping, $\int\psi$ is not conserved across 2:1 faces; the 8 physical integrals are.
 - The GPU backend copies the coarse–fine seam faces to the host at every stage (the flux register is host-side), in
   one transfer for all the faces of a rank since [#90](https://github.com/szaghi/adam/issues/90).
