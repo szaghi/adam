@@ -16,7 +16,8 @@ module adam_flume_fnl_kernels
 ! ADAM classes, libraries, parameters
 use :: adam_parameters,           only : FEC_1_6_ARRAY, FEC_TO_DELTA
 ! FLUME modules
-use :: adam_flume_common_library, only : ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
+use :: adam_flume_common_library, only : reflux_positivity_theta,                                                 &
+                                         ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
                                          BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, realm_edge_donor, realm_edge_face,           &
                                          wall_noslip_ghost, BC_HYDROSTATIC, hydrostatic_ghost
 use :: adam_flume_parameters,     only : IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
@@ -50,28 +51,56 @@ public :: unpack_potential_dev
 
 contains
    ! public procedures
-   subroutine apply_reflux_face_dev(axis, sgn, b, ni, nj, nk, ngc, nv, nface_cells, scale, delta_gpu, q_gpu)
+   subroutine apply_reflux_face_dev(axis, sgn, b, ni, nj, nk, ngc, nv, nface_cells, scale, limit, mag_w, psi_w, &
+                                    delta_gpu, q_gpu, nclip)
    !< Add the Berger-Colella correction `scale delta(:, c)` of one register face to the coarse skin cells of block `b`.
+   !< With `limit` (the positivity limiter, issue #88) each cell receives the largest admissible fraction of its
+   !< correction (`reflux_positivity_theta`), exactly the full one whenever admissible; `nclip` counts the others.
    integer(I4P), intent(in)    :: axis, sgn                         !< Face normal axis (1..3) and side (+-1).
    integer(I4P), intent(in)    :: b                                 !< Coarse block.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)    :: nv                                !< Variables number.
    integer(I4P), intent(in)    :: nface_cells                       !< Skin cells number.
    real(R8P),    intent(in)    :: scale                             !< Correction scale, sgn dt / dx_coarse.
+   logical,      intent(in)    :: limit                             !< Keep the corrected cells admissible.
+   real(R8P),    intent(in)    :: mag_w, psi_w                      !< Magnetic and psi energy weights of the model.
    real(R8P),    intent(in)    :: delta_gpu(1:,1:)                  !< Flux mismatch F_coarse - F_fine_sum (nv, cells).
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   integer(I4P), intent(out)   :: nclip                             !< Cells whose correction was limited.
    integer(I4P)                :: c, i, j, k, v                     !< Counters and skin cell indexes.
+   real(R8P)                   :: qc(9), dc(9)                      !< Cell state and full correction (nv <= 9).
+   real(R8P)                   :: theta                             !< Admissible fraction of the correction.
 
+   nclip = 0_I4P
    !$acc parallel loop independent gang vector DEVICEVAR(delta_gpu,q_gpu) &
-   !$acc& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale) private(i,j,k)
+   !$acc& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w) private(i,j,k,qc,dc,theta) &
+   !$acc& reduction(+:nclip)
    !$omp OMPLOOP DEVICEPTR(delta_gpu,q_gpu) &
-   !$omp& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale) private(i,j,k)
+   !$omp& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w) private(i,j,k,qc,dc,theta) &
+   !$omp& reduction(+:nclip)
    do c=1, nface_cells
       call seam_skin_cell(axis=axis, sgn=sgn, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
-      !$acc loop seq
-      do v=1, nv
-         q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + scale * delta_gpu(v,c)
-      enddo
+      theta = 1._R8P
+      if (limit) then
+         !$acc loop seq
+         do v=1, nv
+            qc(v) = q_gpu(b,i,j,k,v)
+            dc(v) = scale * delta_gpu(v,c)
+         enddo
+         theta = reflux_positivity_theta(nv=nv, q=qc(1:nv), d=dc(1:nv), mag_w=mag_w, psi_w=psi_w)
+      endif
+      if (theta < 1._R8P) then
+         nclip = nclip + 1_I4P
+         !$acc loop seq
+         do v=1, nv
+            q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + theta * (scale * delta_gpu(v,c))
+         enddo
+      else
+         !$acc loop seq
+         do v=1, nv
+            q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + scale * delta_gpu(v,c)
+         enddo
+      endif
    enddo
    endsubroutine apply_reflux_face_dev
 

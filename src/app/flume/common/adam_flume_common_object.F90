@@ -32,7 +32,8 @@ use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
 use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, &
                                              IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,            &
-                                             POSITIVITY_LIMITER_CELL, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,            &
+                                             IQ_PSI, POSITIVITY_LIMITER_CELL, POSITIVITY_LIMITER_KAPPA,               &
+                                             RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,                                     &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
                                              REFLUX_POLICY_TROUBLED, SCHEME_SPACE_WENO_RIEMANN
 use :: adam_weno_object,              only : WENO_WEIGHTS_SI
@@ -50,6 +51,7 @@ implicit none
 private
 public :: flume_common_object
 public :: ib_cut_spacing
+public :: reflux_positivity_theta
 public :: seam_skin_cell
 
 character(len=11), parameter :: SCHEME_TIME_TAG="runge_kutta" !< Time-integration family tag (forest admissibility).
@@ -1455,6 +1457,67 @@ contains
       i = 0_I4P ; j = 0_I4P ; k = 0_I4P
    endselect
    endsubroutine seam_skin_cell
+
+   pure function reflux_positivity_theta(nv, q, d, mag_w, psi_w) result(theta)
+   !< Largest fraction `theta` in [0, 1] of the end-of-step reflux correction `d` that keeps the coarse cell `q`
+   !< admissible (issue #88): the density and the internal energy of `q + theta d` stay at least
+   !< `POSITIVITY_LIMITER_KAPPA` times those of `q`, the positivity limiter's relative floor. The correction is applied
+   !< after the stages, where the limiter has already acted, so without this a near-vacuum coarse cell at a 2:1 seam can
+   !< be driven to a negative internal energy. The internal energy
+   !< `E - |m|^2 / (2 rho) - mag_w |B|^2 / 2 - psi_w psi^2 / 2` (`mag_w` 1 for MHD, `psi_w` 1 for EGLM, as the models'
+   !< `internal_energy`) is concave in `theta`, so the admissible fractions are an interval holding 0, whose end the
+   !< bisection finds. 1 when the full correction is admissible, and for a cell that is not admissible to begin with
+   !< (left to the scheme).
+   integer(I4P), intent(in) :: nv     !< Variables number.
+   real(R8P),    intent(in) :: q(nv)  !< Coarse cell state before the correction.
+   real(R8P),    intent(in) :: d(nv)  !< Full correction (scale times the flux mismatch).
+   real(R8P),    intent(in) :: mag_w  !< Weight of the magnetic energy (1 MHD, 0 Euler).
+   real(R8P),    intent(in) :: psi_w  !< Weight of psi^2/2 in the total energy (1 EGLM, 0 otherwise).
+   real(R8P)                :: theta  !< Admissible fraction of the correction.
+   real(R8P)                :: e0     !< Internal energy before the correction.
+   real(R8P)                :: lo, hi !< Bisection bracket.
+   integer(I4P)             :: it     !< Bisection counter.
+   !$acc routine seq
+   !$omp declare target
+
+   theta = 1._R8P
+   e0 = reflux_internal_energy(nv, q, mag_w, psi_w)
+   if (q(IQ_R) <= 0._R8P .or. e0 <= 0._R8P) return
+   if (q(IQ_R) + d(IQ_R) >= POSITIVITY_LIMITER_KAPPA * q(IQ_R)) then
+      if (reflux_internal_energy(nv, q + d, mag_w, psi_w) >= POSITIVITY_LIMITER_KAPPA * e0) return
+   endif
+   hi = 1._R8P
+   if (d(IQ_R) < 0._R8P) hi = min(1._R8P, (1._R8P - POSITIVITY_LIMITER_KAPPA) * q(IQ_R) / (-d(IQ_R)))
+   lo = 0._R8P
+   if (reflux_internal_energy(nv, q + hi * d, mag_w, psi_w) >= POSITIVITY_LIMITER_KAPPA * e0) then
+      lo = hi
+   else
+      do it=1, 50
+         theta = 0.5_R8P * (lo + hi)
+         if (reflux_internal_energy(nv, q + theta * d, mag_w, psi_w) >= POSITIVITY_LIMITER_KAPPA * e0) then
+            lo = theta
+         else
+            hi = theta
+         endif
+      enddo
+   endif
+   theta = lo
+   endfunction reflux_positivity_theta
+
+   pure function reflux_internal_energy(nv, q, mag_w, psi_w) result(e)
+   !< Internal energy per unit volume of a state, any model by the weights of `reflux_positivity_theta`.
+   integer(I4P), intent(in) :: nv    !< Variables number.
+   real(R8P),    intent(in) :: q(nv) !< Conservative variables.
+   real(R8P),    intent(in) :: mag_w !< Weight of the magnetic energy.
+   real(R8P),    intent(in) :: psi_w !< Weight of psi^2/2.
+   real(R8P)                :: e     !< Internal energy.
+   !$acc routine seq
+   !$omp declare target
+
+   e = q(IQ_RE) - 0.5_R8P * (q(IQ_RU)**2 + q(IQ_RU+1)**2 + q(IQ_RU+2)**2) / q(IQ_R)
+   if (mag_w > 0._R8P) e = e - 0.5_R8P * mag_w * (q(IQ_BX)**2 + q(IQ_BY)**2 + q(IQ_BZ)**2)
+   if (psi_w > 0._R8P) e = e - 0.5_R8P * psi_w * q(IQ_PSI)**2
+   endfunction reflux_internal_energy
 
    ! private methods
    subroutine check_slices(self)

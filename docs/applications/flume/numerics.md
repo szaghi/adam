@@ -212,6 +212,17 @@ $\rho e < 0$ (issue #50). A limited run therefore synchronises the seam flux at 
 - both sides blend with $\theta_s = \min(\Lambda_C, \min \Lambda_f)$, so each cell stays in its corner box and the
   coarse flux is exactly the mean of the fine ones. The stage is conservative, and the reflux only corrects round-off.
 
+With self-gravity the register also carries the seam gravity work ([#81](https://github.com/szaghi/adam/issues/81)
+P5b), so the end-of-step correction is not round-off: on a star whose surface a 2:1 seam cuts, in a $10^{-4}$
+atmosphere, it drove one coarse atmosphere cell beside the seam to $\rho e < 0$ at step 688, and the run stopped
+non-finite ([#88](https://github.com/szaghi/adam/issues/88)). A limited run therefore gives each coarse cell the
+largest fraction $\theta \in [0, 1]$ of its end-of-step correction that keeps $\rho$ and $\rho e$ at least $\kappa$
+times their values before it (`reflux_positivity_theta`; $\rho e$ is concave in $\theta$, so a bisection finds the
+bound). A cell whose full correction is admissible receives it exactly, so a run that never clips is unchanged; a
+clipped cell gives up conservation by the part it did not receive, and each step that clips logs
+`reflux positivity: +N coarse cells limited`. On that star one cell was limited on five steps, and the run reached
+its end. `reflux_cadence = stage` needs no such bound: its correction acts inside the stages, before the limiter.
+
 The coarse states, the fine means and the factors travel over the ranks in seam skins (four reductions of seam size
 per stage); on the GPU the seam cells are gathered to the host, which recomputes their factors and returns them with
 the seam face fluxes.

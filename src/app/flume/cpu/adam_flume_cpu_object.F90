@@ -21,6 +21,7 @@ use :: adam_mpih_global,          only : mpih
 use :: adam_flume_parameters,          only : IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RW
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, ib_cut_spacing,             &
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
+                                              reflux_positivity_theta,                                                 &
                                               BC_EXTRAPOLATION,                                                        &
                                               BC_INFLOW, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP,          &
                                               realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
@@ -1478,6 +1479,10 @@ contains
    real(R8P)                                  :: delta(1:self%nv) !< Flux mismatch of one face cell.
    integer(I4P)                               :: axis, sgn     !< Face normal axis and side.
    integer(I4P)                               :: i, j, k       !< Coarse cell indexes.
+   logical                                    :: limit         !< Keep the corrected cells admissible (issue #88).
+   real(R8P)                                  :: mag_w, psi_w  !< Magnetic and psi energy weights of the model.
+   real(R8P)                                  :: theta         !< Admissible fraction of a cell's correction.
+   integer(I4P)                               :: nclip         !< Cells whose correction was limited.
 
    if (.not.self%numerics%reflux) return
    if (.not.flux_register%is_initialized_) return
@@ -1488,6 +1493,12 @@ contains
    troubled_only = self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED
    nflag = 0_I4P
    ncell = 0_I4P
+   ! with the positivity limiter (issue #88) a cell receives the largest fraction of its correction that keeps its
+   ! density and internal energy above the limiter's relative floor; exactly the full correction whenever admissible
+   limit = self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL
+   mag_w = merge(0._R8P, 1._R8P, self%physics%model == MODEL_EULER)
+   psi_w = merge(1._R8P, 0._R8P, self%physics%model == MODEL_MHD_EGLM)
+   nclip = 0_I4P
    do f=1, flux_register%nfaces
       associate(face=>flux_register%face(f))
       if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
@@ -1511,12 +1522,22 @@ contains
          ! breaks the cancellation of the B_z the flux divergence generates (#78: 70 times the uniform level, 3.3
          ! without B in the reflux); rho, rho u, E and psi are refluxed
          if (self%physics%model == MODEL_MHD_EGLM) delta(IQ_BX:IQ_BZ) = 0._R8P
-         self%q(:,i,j,k,face%coarse_block) = self%q(:,i,j,k,face%coarse_block) + scale * delta
+         theta = 1._R8P
+         if (limit) theta = reflux_positivity_theta(nv=self%nv, q=self%q(:,i,j,k,face%coarse_block), d=scale*delta, &
+                                                    mag_w=mag_w, psi_w=psi_w)
+         if (theta < 1._R8P) then
+            self%q(:,i,j,k,face%coarse_block) = self%q(:,i,j,k,face%coarse_block) + theta * (scale * delta)
+            nclip = nclip + 1_I4P
+         else
+            self%q(:,i,j,k,face%coarse_block) = self%q(:,i,j,k,face%coarse_block) + scale * delta
+         endif
       enddo
       endassociate
    enddo
    if (troubled_only .and. ncell > 0_I4P) call mpih%print_message('reflux troubled: +'//trim(str(nflag, .true.))// &
                                                                   ' of +'//trim(str(ncell, .true.))//' face cells')
+   if (nclip > 0_I4P) call mpih%print_message('reflux positivity: +'//trim(str(nclip, .true.))//' coarse cells '// &
+                                              'limited at step '//trim(str(self%time%it, .true.)))
    endsubroutine apply_reflux_to_stage_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)

@@ -1775,6 +1775,9 @@ contains
    integer(I4P)                               :: c              !< Face cell counter.
    integer(I4P)                               :: nflag, ncell   !< Troubled and owned face cells (#68 E1).
    logical                                    :: troubled_only  !< Reflux policy `troubled`.
+   logical                                    :: limit          !< Keep the corrected cells admissible (issue #88).
+   real(R8P)                                  :: mag_w, psi_w   !< Magnetic and psi energy weights of the model.
+   integer(I4P)                               :: nclip, nclip_f !< Cells whose correction was limited: all, a face.
 
    if (.not.self%numerics%reflux) return
    if (.not.flux_register%is_initialized_) return
@@ -1785,6 +1788,12 @@ contains
    troubled_only = self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED
    nflag = 0_I4P
    ncell = 0_I4P
+   ! with the positivity limiter (issue #88) a cell receives the largest fraction of its correction that keeps its
+   ! density and internal energy above the limiter's relative floor; exactly the full correction whenever admissible
+   limit = self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL
+   mag_w = merge(0._R8P, 1._R8P, self%physics%model == MODEL_EULER)
+   psi_w = merge(1._R8P, 0._R8P, self%physics%model == MODEL_MHD_EGLM)
+   nclip = 0_I4P
    do f=1, flux_register%nfaces
       associate(face=>flux_register%face(f))
       if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
@@ -1816,13 +1825,17 @@ contains
       call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk,  &
                                  ngc=self%ngc, nv=self%nv, nface_cells=face%nface_cells,                       &
                                  scale=real(sgn, R8P) * self%time%dt / self%adam%field%dxyz(axis,face%coarse_block), &
-                                 delta_gpu=delta_gpu, q_gpu=self%q_gpu)
+                                 limit=limit, mag_w=mag_w, psi_w=psi_w, delta_gpu=delta_gpu, q_gpu=self%q_gpu,      &
+                                 nclip=nclip_f)
+      nclip = nclip + nclip_f
       call dev_free(delta_gpu, mydev)
       deallocate(delta)
       endassociate
    enddo
    if (troubled_only .and. ncell > 0_I4P) call mpih_fnl%print_message('reflux troubled: +'//trim(str(nflag, .true.))// &
                                                                       ' of +'//trim(str(ncell, .true.))//' face cells')
+   if (nclip > 0_I4P) call mpih_fnl%print_message('reflux positivity: +'//trim(str(nclip, .true.))//' coarse cells '// &
+                                                  'limited at step '//trim(str(self%time%it, .true.)))
    endsubroutine apply_reflux_to_stage_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -1956,6 +1969,7 @@ contains
    integer(I4P)                           :: f, c           !< Face, face cell counters.
    integer(I4P)                           :: axis, sgn      !< Face normal axis and side.
    integer(I4P)                           :: ierr           !< Error status.
+   integer(I4P)                           :: nclip_stage    !< Unused: the residual is not bounded (issue #88).
 
    associate(reg=>self%flux_register_copy)
    if (.not.reg%is_initialized_) return
@@ -1987,7 +2001,8 @@ contains
       call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk, &
                                  ngc=self%ngc, nv=self%nv, nface_cells=face%nface_cells,                      &
                                  scale=real(sgn, R8P) / self%adam%field%dxyz(axis,face%coarse_block),         &
-                                 delta_gpu=delta_gpu, q_gpu=self%dq_gpu)
+                                 limit=.false., mag_w=0._R8P, psi_w=0._R8P,                                   &
+                                 delta_gpu=delta_gpu, q_gpu=self%dq_gpu, nclip=nclip_stage)
       call dev_free(delta_gpu, mydev)
       deallocate(delta)
       endassociate
