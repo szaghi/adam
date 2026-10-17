@@ -32,6 +32,11 @@ src/tests/prism/regression/run-fnl-local.sh
 
 `run.sh {cpu|fnl} [--no-build] [--varset <name>]` builds the backend, then **auto-discovers** cases: every subdirectory with an `input.ini` is a case. A case with no `golden/<backend>/` directory is **skipped** (it is not yet an anchor); set `REGRESSION_RUN_GOLDENLESS=1` to run it anyway for the initial golden capture. Before any case runs, a [GPU race-shape lint gate](https://github.com/szaghi/adam/issues/26) checks the FNL kernels.
 
+A case fails when its outputs differ from the goldens, and also when its run exits non-zero (a crash or the hard
+timeout), since a crash after the last checkpoint is still a crash. The harness's own termination of a run that hung in
+`MPI_Finalize` after its end-of-run marker is exempt; `REGRESSION_ALLOW_MPIRUN_FAILURE=1` turns the failure into a
+warning on an environment whose crash is known.
+
 ### Two reference files per case
 
 A full PRISM checkpoint is ~100 MB/rank, far too large to commit. Instead each case commits two compact references, both compared **tolerance-aware**:

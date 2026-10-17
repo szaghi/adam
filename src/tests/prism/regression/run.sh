@@ -20,7 +20,8 @@
 #   ./run.sh amd-omp --varset "thera_amd gfx942" # AMD OpenMP-offload GPU build
 #   ./run.sh cpu --no-build                      # skip the build step (use existing exe/)
 #
-# Exits 0 on full pass, non-zero on any case failure.
+# Exits 0 on full pass, non-zero on any case failure. A case fails when its outputs differ from the goldens or when its
+# run exits non-zero (a crash or the hard timeout; REGRESSION_ALLOW_MPIRUN_FAILURE=1 downgrades that to a warning).
 #
 # HDF5 paths, NVF_CC and GPU_ARCH are fobos *variables* resolved from the active
 # varset (see the repo `fobos` [varset:*] sections) — they are NOT shell
@@ -350,12 +351,20 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    detector_fired=0
    grep -q '^\[detector\]' run.log 2>/dev/null && detector_fired=1
    popd >/dev/null
+   # A run that exits non-zero fails the case even when its outputs match: a crash after the last checkpoint (e.g. hcoll
+   # segfaulting in MPI_Finalize on medooza's compute nodes, exit 139) passed unseen before. The outputs are still
+   # compared, for the report. Exempt: the detector's own termination of a hung finalize (above). Downgrade to a warning
+   # with REGRESSION_ALLOW_MPIRUN_FAILURE=1 on an environment whose crash is known.
+   mpirun_failure=""
    if [[ "$detector_fired" -eq 1 ]]; then
       echo ">> [$case_name/$BACKEND] run complete; hung MPI_Finalize terminated after ${teardown_grace}s — continuing to digest"
    elif [[ "$mpirun_rc" -eq 124 ]]; then
-      echo ">> [$case_name/$BACKEND] mpirun hit the ${mpirun_timeout}s hard timeout — continuing to digest produced output"
+      mpirun_failure="mpirun hit the ${mpirun_timeout}s hard timeout"
    elif [[ "$mpirun_rc" -ne 0 ]]; then
-      echo ">> [$case_name/$BACKEND] mpirun exited non-zero ($mpirun_rc) — continuing to digest (checkpoints decide pass/fail)"
+      mpirun_failure="mpirun exited non-zero ($mpirun_rc)"
+   fi
+   if [[ -n "$mpirun_failure" ]]; then
+      echo ">> [$case_name/$BACKEND] $mpirun_failure — continuing to digest the produced output"
    fi
    echo ">> [$case_name/$BACKEND] runtime: $((t1 - t0))s"
 
@@ -449,6 +458,15 @@ for case_dir in "$REGRESSION_DIR"/*/; do
          case_failed=1
       else
          echo ">> [$case_name/$BACKEND] β cross-config oracle: matches single-realm rmf golden"
+      fi
+   fi
+
+   if [[ -n "$mpirun_failure" ]]; then
+      if [[ "${REGRESSION_ALLOW_MPIRUN_FAILURE:-0}" == "1" ]]; then
+         echo "WARN [$case_name/$BACKEND] $mpirun_failure (allowed by REGRESSION_ALLOW_MPIRUN_FAILURE=1)"
+      else
+         echo "FAIL [$case_name/$BACKEND] $mpirun_failure, see $workdir/run.log"
+         case_failed=1
       fi
    fi
 

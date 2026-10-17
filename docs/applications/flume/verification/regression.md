@@ -28,6 +28,12 @@ on FNL), since every self-gravity solve needs an FFT; the CI job installs `libff
 build; `REGRESSION_CASES="a b"` restricts the run; `REGRESSION_RUN_GOLDENLESS=1` runs a case that has no golden yet (the
 capture of a new case). Before running, the harness refuses an executable older than any of its sources.
 
+A case also fails when its run exits non-zero, a crash or the hard timeout, even if its outputs match the goldens: a
+crash after the last checkpoint is still a crash (hcoll segfaulting in `MPI_Finalize` on a cluster passed unseen
+before). The outputs are compared anyway, for the report. The one exemption is the harness's own termination of a run
+that hung in `MPI_Finalize` after its end-of-run marker (the WSL GPU stack). `REGRESSION_ALLOW_MPIRUN_FAILURE=1`
+turns the failure into a warning on an environment whose crash is known.
+
 ```bash
 src/tests/flume/regression/run.sh cpu                     # build, run, compare (CPU)
 src/tests/flume/regression/run-fnl-local.sh               # the same on the GPU
