@@ -171,7 +171,7 @@ that every donor is filled before it is read (`set_boundary_conditions` on the C
 FNL). Within the first pass no row reads another row of the pass: a wall row reads the mirrored interior cell, an
 extrapolation row the **first interior cell** along its normal (not the previous ghost of the chain, which gives the
 same value but is a row of the same launch: on FNL the chain raced, and a ghost beyond a block interface along another
-axis could read its donor before it was written; issue #65 P1). The kind of each realm face comes from `[bc_*]`, overridden by `maps%seam_face` for the faces the forest glued.
+axis could read its donor before it was written; issue #65 P1). The kind of each realm face comes from `[bc_*]`, overridden by `maps%seam_face` for the faces the forest glued. On FNL each launch visits the rows of its own pass only: the rows of every crown are grouped by pass on the host whenever the device map is copied (`build_bc_pass_rows`), and an empty pass is not launched (issue #90; before, each of the 3 × $n_{gc}$ launches scanned the whole crown map).
 
 Before [#65](https://github.com/szaghi/adam/issues/65) P0 every row beyond two realm faces held its inward diagonal
 copy. On a linear field that is off by up to 0.78 of the field scale at a wall corner (wrong sign of the normal

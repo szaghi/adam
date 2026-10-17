@@ -778,7 +778,8 @@ contains
 
    subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, crown, pass, face_kind, gamma, R, psi_energy, &
                                           wall_velocity, wall_temperature, g, has_phi, phi_gpu,             &
-                                          local_map_bc_crown_gpu, q_inflow_gpu, wall_sign_gpu, dxyz_gpu, q_gpu)
+                                          local_map_bc_crown_gpu, row_first, row_last, bc_rows_gpu,         &
+                                          q_inflow_gpu, wall_sign_gpu, dxyz_gpu, q_gpu)
    !< Set boundary conditions on one crown, for the rows beyond `pass` realm faces (see the CPU
    !< `set_boundary_conditions`): pass 1 the face rows (each face's kind, inward along its normal), pass 2 and 3 the
    !< rows beyond two or three realm faces (the kind of one physical face among them, `realm_edge_face`, on the donor
@@ -790,6 +791,8 @@ contains
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)    :: nv                                !< Conservative variables number.
    integer(I4P), intent(in)    :: crown                             !< Crown counter.
+   integer(I4P), intent(in)    :: row_first, row_last               !< The rows of `pass` in `bc_rows_gpu(:,crown)`.
+   integer(I4P), intent(in)    :: bc_rows_gpu(:,:)                  !< Crown map rows grouped by pass, per crown.
    integer(I4P), intent(in)    :: pass                              !< Realm faces the rows of this launch lie beyond.
    integer(I4P), intent(in)    :: face_kind(6)                      !< Kind of each realm face, BC_SEAM for a seam.
    real(R8P),    intent(in)    :: gamma, R                          !< Specific heats ratio, gas constant.
@@ -804,7 +807,7 @@ contains
    real(R8P),    intent(in)    :: wall_sign_gpu(1:,1:)              !< Wall mirror sign per variable and direction [nv, 3].
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                   !< Cell spacing of each block [nb, 3].
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
-   integer(I4P)                :: b, c, i, j, k, v                  !< Counters.
+   integer(I4P)                :: b, c, row, i, j, k, v             !< Counters.
    integer(I4P)                :: idelta, jdelta, kdelta            !< IJK inward step.
    integer(I4P)                :: bc_type                           !< Boundary condition type.
    integer(I4P)                :: fec                               !< Boundary fec (1 to 26).
@@ -816,14 +819,18 @@ contains
    real(R8P)                   :: q1(9), ws(9)                      !< Hydrostatic: its state, the wall signs.
    real(R8P)                   :: gs                                !< Hydrostatic: the potential drop g . s.
 
+   ! the rows of this pass only (issue #90, F-A'): `bc_rows_gpu(row_first:row_last,crown)` lists them; scanning the
+   ! whole crown map for them made a launch of a pass with few rows cost as much as one with all of them (the kernel
+   ! runs at 255 registers, 2 thread blocks per SM). The pass test below is kept: it is true for every listed row.
    !$acc parallel loop independent gang vector &
-   !$acc& DEVICEVAR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
+   !$acc& DEVICEVAR(local_map_bc_crown_gpu,bc_rows_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
    !$acc& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g,has_phi) &
-   !$acc& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
-   !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
+   !$acc& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
+   !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,bc_rows_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
    !$omp& firstprivate(ni,nj,nk,nv,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g,has_phi) &
-   !$omp& private(b,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
-   do c=1, size(local_map_bc_crown_gpu, dim=1)
+   !$omp& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
+   do row=row_first, row_last
+      c = bc_rows_gpu(row,crown)
       b = int(local_map_bc_crown_gpu(c,1,crown), I4P)
       fec = int(local_map_bc_crown_gpu(c,9,crown), I4P)
       if (b > 0_I4P) then

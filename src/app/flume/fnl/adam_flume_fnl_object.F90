@@ -16,7 +16,7 @@ module adam_flume_fnl_object
 use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_flume_parameters,     only : IQ_BX, IQ_PSI, IQ_R, IQ_RE
 use :: adam_maps_object,          only : face_axis_sign
-use :: adam_parameters,           only : BC_SEAM
+use :: adam_parameters,           only : BC_SEAM, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object
 use :: adam_seam_exchange,        only : seam_fill_all
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
@@ -192,6 +192,8 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: q_inflow_gpu(:,:)=>null()    !< Conservative inflow state of each face [nv, 6].
    real(R8P), pointer     :: wall_sign_gpu(:,:)=>null()   !< Wall mirror sign per variable and direction [nv, 3].
    integer(I4P), pointer  :: divb_seam_gpu(:,:)=>null()   !< Seam faces flags of the div(B) history [nb, 6].
+   integer(I4P), pointer  :: bc_rows_gpu(:,:)=>null()     !< BC crown map rows grouped by pass [rows, ngc] (#90 F-A').
+   integer(I4P), allocatable :: bc_pass_range(:,:,:)      !< First, last entry of each pass in bc_rows_gpu [2, 3, ngc].
    ! host staging
    real(R8P), allocatable :: buf_5D_R8P(:,:,:,:,:)        !< Transposed copy buffer, extent identical to q_gpu.
    integer(I4P)           :: db5(2,5)=0_I4P               !< Device bounds of the transposed copies.
@@ -232,6 +234,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: save_residuals          !< Save residuals history.
       procedure, pass(self) :: save_simulation_data    !< Save fields, restart and diagnostics on their cadence.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions on the device crown maps.
+      procedure, pass(self) :: build_bc_pass_rows      !< Group the BC crown map rows by pass (issue #90).
       procedure, pass(self) :: update_ghost            !< Update ghost cells: local, MPI, boundary conditions.
       ! forest methods
       procedure, pass(self) :: advance_one_step_forest      !< Advance one full step (fast path).
@@ -818,6 +821,7 @@ contains
       call dev_memcpy_to_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q_gpu, src=self%q, buf=self%buf_5D_R8P)
    endif
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
+   call self%build_bc_pass_rows
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self)
@@ -967,6 +971,11 @@ contains
       call dev_free(self%divb_seam_gpu, mydev)
       nullify(self%divb_seam_gpu)
    endif
+   if (associated(self%bc_rows_gpu)) then
+      call dev_free(self%bc_rows_gpu, mydev)
+      nullify(self%bc_rows_gpu)
+   endif
+   if (allocated(self%bc_pass_range)) deallocate(self%bc_pass_range)
    if (allocated(self%buf_5D_R8P)) deallocate(self%buf_5D_R8P)
    call self%rk_fnl%destroy()
    call self%weno_fnl%destroy()
@@ -1554,11 +1563,14 @@ contains
    real(R8P)                              :: psi_energy        !< 1 if the total energy holds psi^2 / 2 (EGLM).
 
    if (.not.associated(self%field_fnl%maps%local_map_bc_crown_gpu)) return
+   if (.not.allocated(self%bc_pass_range)) call mpih_fnl%error_stop(msg=': set_boundary_conditions: the BC rows by '// &
+                                                                  'pass are not built (build_bc_pass_rows)')
    psi_energy = merge(1._R8P, 0._R8P, self%physics%model == MODEL_MHD_EGLM)
    face_kind = self%bc%bc_type
    where (self%adam%maps%seam_face) face_kind = BC_SEAM
    do pass=1, 3
       do crown=1, self%ngc
+         if (self%bc_pass_range(2,pass,crown) < self%bc_pass_range(1,pass,crown)) cycle ! no row of this pass
          call set_boundary_conditions_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, crown=crown, &
                                           pass=pass, face_kind=face_kind, gamma=self%physics%gamma,                &
                                           R=self%physics%R, psi_energy=psi_energy,                                 &
@@ -1567,11 +1579,50 @@ contains
                                           g=self%physics%gravity%g_uniform,                                        &
                                           has_phi=self%physics%gravity%has_potential, phi_gpu=self%phi_grav_gpu,   &
                                           local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu,       &
+                                          row_first=self%bc_pass_range(1,pass,crown),                              &
+                                          row_last=self%bc_pass_range(2,pass,crown), bc_rows_gpu=self%bc_rows_gpu, &
                                           q_inflow_gpu=self%q_inflow_gpu, wall_sign_gpu=self%wall_sign_gpu,        &
                                           dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu)
       enddo
    enddo
    endsubroutine set_boundary_conditions
+
+   subroutine build_bc_pass_rows(self)
+   !< Group the rows of the BC crown map by pass, per crown, for `set_boundary_conditions` (issue #90, F-A'): pass p
+   !< (rows beyond p realm faces: 1 faces, 2 edges, 3 corners) of crown c is `bc_rows_gpu(r1:r2,c)`, with
+   !< `[r1, r2] = bc_pass_range(:,p,c)` (empty when r2 < r1), so each launch visits its own rows only. The rows are
+   !< the live ones (block > 0) in map order; built from the host map, after every copy of the device map.
+   class(flume_fnl_object), intent(inout) :: self                !< The equation.
+   integer(I4P), allocatable              :: rows(:,:)           !< Rows by pass, per crown.
+   integer(I4P)                           :: crown, pass, c, n   !< Counters.
+   integer(I4P)                           :: fec                 !< Row fec.
+
+   if (associated(self%bc_rows_gpu)) then
+      call dev_free(self%bc_rows_gpu, mydev)
+      nullify(self%bc_rows_gpu)
+   endif
+   if (allocated(self%bc_pass_range)) deallocate(self%bc_pass_range)
+   if (.not.allocated(self%adam%maps%local_map_bc_crown)) return
+   associate(map=>self%adam%maps%local_map_bc_crown)
+   allocate(rows(max(size(map, dim=1), 1), size(map, dim=3)), source=0_I4P)
+   allocate(self%bc_pass_range(2, 3, size(map, dim=3)))
+   do crown=1, size(map, dim=3)
+      n = 0_I4P
+      do pass=1, 3
+         self%bc_pass_range(1,pass,crown) = n + 1_I4P
+         do c=1, size(map, dim=1)
+            if (map(c,1,crown) <= 0_I8P) cycle
+            fec = int(map(c,9,crown), I4P)
+            if (abs(FEC_TO_DELTA(1,fec)) + abs(FEC_TO_DELTA(2,fec)) + abs(FEC_TO_DELTA(3,fec)) /= pass) cycle
+            n = n + 1_I4P
+            rows(n,crown) = c
+         enddo
+         self%bc_pass_range(2,pass,crown) = n
+      enddo
+   enddo
+   endassociate
+   call dev_assign_to_device(src=rows, dst=self%bc_rows_gpu)
+   endsubroutine build_bc_pass_rows
 
    subroutine update_ghost(self, q_gpu)
    !< Update ghost cells on the device: intra-realm local copies, GPU-direct MPI exchange, boundary conditions, then the
@@ -1634,6 +1685,7 @@ contains
    class(flume_fnl_object), intent(inout) :: self !< The equation.
 
    call self%field_fnl%maps%copy_cpu_gpu(maps=self%adam%maps)
+   call self%build_bc_pass_rows
    endsubroutine after_topology_build_forest
 
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
