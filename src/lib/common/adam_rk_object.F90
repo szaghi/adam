@@ -595,7 +595,9 @@ contains
       enddo
       !$omp end parallel do
    else
-      if (present(dq)) dq = 0._R8P
+      ! only the blocks in use: dq spans the whole fill-the-node pool, and zeroing all of it every step made the step
+      ! cost grow with the allocated memory instead of with the blocks (issue #89)
+      if (present(dq)) dq(:,:,:,:,1:blocks_number) = 0._R8P
       !$omp parallel do collapse(5) default(firstprivate) shared(q,dq,self)
       do b=1, blocks_number
          do k=1, nk

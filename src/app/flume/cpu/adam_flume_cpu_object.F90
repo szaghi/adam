@@ -2359,7 +2359,7 @@ contains
    class(flume_cpu_object), intent(inout) :: self          !< The equation.
    integer(I4P)                           :: b, i, j, k, s !< Counters.
 
-   self%dq = 0._R8P
+   self%dq(:,:,:,:,1:self%blocks_number) = 0._R8P ! the blocks in use, not the whole pool (issue #89)
    !$omp parallel do collapse(4) default(firstprivate) shared(self)
    do b=1, self%blocks_number
       do k=1, self%nk
