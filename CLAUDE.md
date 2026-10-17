@@ -553,7 +553,7 @@ When adding a BC kind, update **both** `select case`s.
 
 Recorded in [issue #36](https://github.com/szaghi/adam/issues/36); each needs a numerical confirmation test first:
 
-- **S-1** library LLF Riemann solver may double-count tangential kinetic energy in the energy flux (`adam_riemann_euler_library.F90:560,564`).
+- **S-1 — confirmed and fixed (2026-10-17).** The library LLF and HLLC-LM solvers added `f(1)*(v²+w²)/0.5` to an energy flux `ρ u_n H` that already holds the tangential kinetic energy: with `qL = qR` both returned `F(q)·n + 2ρu_n(v²+w²)` in energy (measured, x and y). The four lines are removed; both now return `F(q)·n` to round-off. Consumers: NASTO CPU (LLF; unmaintained) only — FLUME and PRISM call neither.
 - **S-2** NASTO FNL eigenvectors: `uvw_r2` evaluates to `-u` for the y direction (`adam_nasto_fnl_cns_kernels.F90:103`); reported `|L·R − I| ≈ 1` in y.
 
 Confirmed by code reading (not planned for a fix — CHASE is superseded by FLUME, #35): CHASE's characteristic projection is applied transposed and its y/z right-eigenvector matrix is singular; only 1-D x Sod inputs ever exercised it.

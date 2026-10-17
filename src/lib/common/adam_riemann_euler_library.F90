@@ -423,14 +423,14 @@ contains
       f(1  ) = 0.5_R8P*(F1(1  )+F4(1  )) + 0.5_R8P*(S1*(Q1S(1)-Q1(1  )) + abs(s)*(Q1S(1)-Q4S(1)) + S4*(Q4S(1)-Q4(1  )))
       f(uni) = 0.5_R8P*(F1(uni)+F4(uni)) + 0.5_R8P*(S1*(Q1S(2)-Q1(uni)) + abs(s)*(Q1S(2)-Q4S(2)) + S4*(Q4S(2)-Q4(uni)))
       f(5  ) = 0.5_R8P*(F1(5  )+F4(5  )) + 0.5_R8P*(S1*(Q1S(3)-Q1(5  )) + abs(s)*(Q1S(3)-Q4S(3)) + S4*(Q4S(3)-Q4(5  )))
+      ! the tangential momentum is upwinded; the energy flux already holds the tangential kinetic energy (F(5) =
+      ! rho u_n H, H the total enthalpy): adding it again made LLF(q, q) differ from F(q) (issue #36, S-1)
       if (f(1)>0._R8P) then
          f(ut1) = f(1)*v1
          f(ut2) = f(1)*w1
-         f(5  ) = f(5) + f(1)*(v1*v1+w1*w1)/0.5_R8P
       else
          f(ut1) = f(1)*v4
          f(ut2) = f(1)*w4
-         f(5  ) = f(5) + f(1)*(v4*v4+w4*w4)/0.5_R8P
       endif
    endif
    endassociate
@@ -556,14 +556,14 @@ contains
    f(1  ) = 0.5_R8P*(F1(1  ) + F4(1  ) - lmax_*(Q4(1  )-Q1(1  )))
    f(uni) = 0.5_R8P*(F1(uni) + F4(uni) - lmax_*(Q4(uni)-Q1(uni)))
    f(5  ) = 0.5_R8P*(F1(5  ) + F4(5  ) - lmax_*(Q4(5  )-Q1(5  )))
+   ! the tangential momentum is upwinded; the energy flux already holds the tangential kinetic energy (F(5) =
+   ! rho u_n H, H the total enthalpy): adding it again made LLF(q, q) differ from F(q) (issue #36, S-1)
    if (f(1)>0._R8P) then
       f(ut1) = f(1)*v1
       f(ut2) = f(1)*w1
-      f(5  ) = f(5) + f(1)*(v1*v1+w1*w1)/0.5_R8P
    else
       f(ut1) = f(1)*v4
       f(ut2) = f(1)*w4
-      f(5  ) = f(5) + f(1)*(v4*v4+w4*w4)/0.5_R8P
    endif
    endassociate
    endsubroutine compute_riemann_euler_llf
