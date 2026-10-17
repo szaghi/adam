@@ -19,9 +19,11 @@
 #   5. EV-3 of issue #47 (M3-P4c): EGLM (N = 256, x) equal to GLM BITWISE on the 8 shared variables, psi exactly zero
 #      (psi = 0 makes the EGLM energy coupling and sources vanish); under --numerics within PAIR_TOL (measured, M3-P4b,
 #      HLLD characteristic: 6.3e-13 CPU, 0 FNL).
-# One run at a time; checkpoints deleted after use.
+# One run at a time; checkpoints deleted after use. Legs: mv4 (1 to 3), rv6 (4, a leg only with --numerics hlld[:...]),
+# ev3 (5); rv6 and ev3 compare against the runs of mv4, which they therefore require.
 #
-# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]] [--legs LIST]
+#        LIST: mv4, rv6, ev3 or all (default all)
 #
 # --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c). The specs
 # hlld:primitive and hlld:characteristic (6th, weno) assert the bounds measured on them (CPU, M3-P3c);
@@ -41,14 +43,25 @@ L1_MAX_256="3.919e-02" # CPU and FNL baseline 3.842043e-02 (M2-P3b), plus 2%
 L1_MAX_512="2.159e-02" # CPU and FNL baseline 2.116856e-02 (M2-P3b), plus 2%
 DIR_TOL="0.0"          # x/y/z in the rotated frame, bitwise (1.4e-12 before M2-P3d)
 PAIR_TOL="0.0"         # GLM vs no cleaning, bitwise; weno-riemann (--numerics): 1e-11, see the GLM leg
+source "$VERIF_DIR/legs.sh"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+if [[ ${NUMERICS%%:*} == hlld ]]; then # RV-6 compares HLLD with HLL: a leg under HLLD only
+   legs_declare "mv4 rv6 ev3"
+else
+   legs_declare "mv4 ev3"
+fi
+legs_resolve check.sh
+if ! has_leg mv4; then
+   echo "check.sh: the legs rv6 and ev3 compare against the runs of mv4: select mv4 too" >&2 ; exit 2
+fi
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -88,22 +101,24 @@ case_run() { # case_run <axis> <cells> <variant>: run one case, print its work d
    echo "$w"
 }
 
-echo ">> MV-4 RJ2a, N = 256, x/y/z, no cleaning ($(basename "$EXE"), np $NP)"
-W256=()
-for axis in x y z; do w="$(case_run $axis 256 none)" || exit 1 ; W256+=("$w"); done
-"$VENV_PY" "$ORACLE" "${W256[@]}" "${B256[@]}" --dir-tol "$DIR_TOL" || FAILED=1
-echo ">> MV-4 RJ2a, N = 512, x, no cleaning"
-W512="$(case_run x 512 none)" || exit 1
-"$VENV_PY" "$ORACLE" "$W512" "${B512[@]}" || FAILED=1
-sum256=$("$VENV_PY" "$ORACLE" "${W256[0]}" | sed -n 's/.*sum \([0-9.e+-]*\).*/\1/p')
-sum512=$("$VENV_PY" "$ORACLE" "$W512" | sed -n 's/.*sum \([0-9.e+-]*\).*/\1/p')
-if "$VENV_PY" -c "import sys; sys.exit(0 if $sum512 < $sum256 else 1)"; then
-   echo "   convergence: L1 sum N=512 $sum512 < N=256 $sum256  PASS"
-else
-   echo "   convergence: L1 sum N=512 $sum512 not below N=256 $sum256  FAIL" ; FAILED=1
+if has_leg mv4; then
+   echo ">> MV-4 RJ2a, N = 256, x/y/z, no cleaning ($(basename "$EXE"), np $NP)"
+   W256=()
+   for axis in x y z; do w="$(case_run $axis 256 none)" || exit 1 ; W256+=("$w"); done
+   "$VENV_PY" "$ORACLE" "${W256[@]}" "${B256[@]}" --dir-tol "$DIR_TOL" || FAILED=1
+   echo ">> MV-4 RJ2a, N = 512, x, no cleaning"
+   W512="$(case_run x 512 none)" || exit 1
+   "$VENV_PY" "$ORACLE" "$W512" "${B512[@]}" || FAILED=1
+   sum256=$("$VENV_PY" "$ORACLE" "${W256[0]}" | sed -n 's/.*sum \([0-9.e+-]*\).*/\1/p')
+   sum512=$("$VENV_PY" "$ORACLE" "$W512" | sed -n 's/.*sum \([0-9.e+-]*\).*/\1/p')
+   if "$VENV_PY" -c "import sys; sys.exit(0 if $sum512 < $sum256 else 1)"; then
+      echo "   convergence: L1 sum N=512 $sum512 < N=256 $sum256  PASS"
+   else
+      echo "   convergence: L1 sum N=512 $sum512 not below N=256 $sum256  FAIL" ; FAILED=1
+   fi
+   find "$W512" -name '*.h5' -delete
 fi
-find "$W512" -name '*.h5' -delete
-if [[ $NUMERICS_SOLVER == hlld ]]; then
+if has_leg rv6; then
    echo ">> RV-6 RJ2a, N = 256, x, no cleaning, HLL: the HLLD L1 sum at most the HLL one"
    NUMERICS_SOLVER=hll ; TAG_HLLD="$TAG" ; TAG="${TAG/-hlld-/-hll-}"
    WHLL="$(case_run x 256 none)" || exit 1
@@ -116,17 +131,22 @@ if [[ $NUMERICS_SOLVER == hlld ]]; then
    fi
    find "$WHLL" -name '*.h5' -delete
 fi
-echo ">> MV-4 RJ2a, N = 256, x, GLM against no cleaning"
-WGLM="$(case_run x 256 glm)" || exit 1
-"$VENV_PY" "$ORACLE" --pair "${W256[0]}" "$WGLM" --pair-tol "$PAIR_TOL" || FAILED=1
-echo ">> EV-3 RJ2a, N = 256, x, EGLM against GLM"
-WEGLM="$(case_run x 256 eglm)" || exit 1
-"$VENV_PY" "$ORACLE" --pair "$WGLM" "$WEGLM" --pair-tol "$PAIR_TOL" || FAILED=1
-for w in "${W256[@]}" "$WGLM" "$WEGLM"; do find "$w" -name '*.h5' -delete; done
+if has_leg mv4; then
+   echo ">> MV-4 RJ2a, N = 256, x, GLM against no cleaning"
+   WGLM="$(case_run x 256 glm)" || exit 1
+   "$VENV_PY" "$ORACLE" --pair "${W256[0]}" "$WGLM" --pair-tol "$PAIR_TOL" || FAILED=1
+fi
+if has_leg ev3; then
+   echo ">> EV-3 RJ2a, N = 256, x, EGLM against GLM"
+   WEGLM="$(case_run x 256 eglm)" || exit 1
+   "$VENV_PY" "$ORACLE" --pair "$WGLM" "$WEGLM" --pair-tol "$PAIR_TOL" || FAILED=1
+   find "$WEGLM" -name '*.h5' -delete
+fi
+for w in "${W256[@]}" "$WGLM"; do find "$w" -name '*.h5' -delete; done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "MV-4 PASSED ($TAG)"
+   echo "MV-4 PASSED (legs: $LEGS) ($TAG)"
 else
-   echo "MV-4 FAILED ($TAG)"
+   echo "MV-4 FAILED (legs: $LEGS) ($TAG)"
    exit 1
 fi

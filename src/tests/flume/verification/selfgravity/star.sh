@@ -29,7 +29,7 @@
 #     ever refine the 8 inner blocks (0.5 wide), two levels carry the 2:1 balance to the boundary blocks (refused),
 #     and 4-cell blocks are below 2 ngc.
 #
-# Usage: ./star.sh [--np N] [--legs "sv7 sv8 sv14"] [--keep]
+# Usage: ./star.sh [--np N] [--legs LIST] [--keep]   LIST: sv7, sv8, sv14 or all (default all)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft, mode flume-cpu-gnu-fft; FNL:
 # exe/adam_flume_fnl_fft, mode flume-fnl-nvf-fft). The caller owns the matching environment (FNL: nvhpc mpirun on PATH
@@ -37,10 +37,12 @@
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 NP=2
-LEGS="sv7 sv8 sv14"
+source "$VERIF_DIR/legs.sh"
+legs_declare "sv7 sv8 sv14"
 KEEP=0
 SV7_TIME=2.0
 MIN_REDUCTION=1.5
@@ -52,11 +54,12 @@ SV14_RADIUS=0.3
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)   NP="$2" ; shift 2 ;;
-      --legs) LEGS="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
       --keep) KEEP=1 ; shift ;;
       *)      echo "star.sh: unknown argument '$1' (accepted: --np N, --legs LIST, --keep)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve star.sh
 if [[ ! -x "$EXE" ]]; then
    echo "star.sh: executable '$EXE' not found (build mode flume-cpu-gnu-fft or set FLUME_EXE)" >&2 ; exit 2
 fi
@@ -140,8 +143,6 @@ for leg in $LEGS; do
                --min-order "$MIN_DRIFT_ORDER" --tol-mass "$TOL_MASS" --label "Polytrope AMR" || FAILED=1
          fi
          refuse sv14-boundary 'touches the domain boundary' starc --regrid 2 --boundary-box --time-max 0.2 ;;
-      *)
-         echo "star.sh: unknown leg '$leg' (accepted: sv7, sv8, sv14)" >&2 ; exit 2 ;;
    esac
 done
 if [[ $KEEP -eq 0 && $FAILED -eq 0 ]]; then rm -rf "${WORKS[@]}" ; fi

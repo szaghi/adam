@@ -33,7 +33,7 @@
 # meets inadmissible backbones (NaN at step 10, at any CFL).
 # One run at a time; checkpoints deleted after use. On the CPU: pv1 4 min, pv2 4 min, pv3 55 min, pv4 9 min.
 #
-# Usage: ./check.sh [--np N] [--legs pv1,pv1-3d,pv2,pv3,pv4,pv5]     (default legs: pv1,pv2,pv3,pv4)
+# Usage: ./check.sh [--np N] [--legs LIST]   LIST: pv1, pv1-3d, pv2, pv5, pv3, pv4 or all (default pv1,pv2,pv3,pv4)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh (M3-P5b)
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -44,22 +44,18 @@ VERIF_DIR="$(cd "$CASE_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
-LEGS="pv1,pv2,pv3,pv4"
 source "$CASE_DIR/../numerics.sh"
+source "$VERIF_DIR/legs.sh"
+legs_declare "pv1 pv1-3d pv2 pv5 pv3 pv4" "pv1 pv2 pv3 pv4"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)   NP="$2" ; shift 2 ;;
-      --legs) LEGS="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
       *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
-for leg in ${LEGS//,/ }; do
-   if [[ ! $leg =~ ^(pv1|pv1-3d|pv2|pv3|pv4|pv5)$ ]]; then
-      echo "check.sh: unknown leg '$leg' (accepted: pv1, pv1-3d, pv2, pv3, pv4, pv5)" >&2 ; exit 2
-   fi
-done
-has_leg() { [[ ",$LEGS," == *",$1,"* ]]; }
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2

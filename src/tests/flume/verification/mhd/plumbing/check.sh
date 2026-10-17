@@ -15,7 +15,10 @@
 # Plus two refused configurations (variant none only): an unknown divergence_control and isentropic-vortex + MHD
 # must stop with their error message.
 #
-# Usage: ./check.sh [--build] [--np N]
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]
+#
+# --legs selects none (legs 1-3, divergence_control = none), glm (legs 1-3, glm), refused (the two refused
+# configurations) or all; the default is all. The page has no verification ID, so the legs are named after the variant.
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12);
@@ -23,18 +26,23 @@
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
+source "$VERIF_DIR/legs.sh"
+legs_declare "none glm refused"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --build) BUILD=1 ; shift ;;
       --np)    NP="$2" ; shift 2 ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N)" >&2 ; exit 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 
 if [[ $BUILD -eq 1 ]]; then
    (cd "$REPO_ROOT" && fobis build --mode flume-cpu-gnu)
@@ -83,6 +91,7 @@ refused() { # refused <label> <expected message> <source-ini> [sed expressions..
 }
 
 for variant in none glm; do
+   has_leg "$variant" || continue
    ini="$CASE_DIR/mhd-uniform-$variant.ini"
    names=(r ru rv rw rE bx by bz)
    [[ $variant == glm ]] && names+=(psi)
@@ -113,15 +122,17 @@ for variant in none glm; do
    find "$base"-* -name '*.h5' -delete
 done
 
-echo ">> refused configurations"
-refused divergence-control 'unknown [mhd].(divergence_control) "bogus"' "$CASE_DIR/mhd-uniform-none.ini" \
-        -e "s/^divergence_control = .*/divergence_control = bogus/"
-refused vortex-mhd 'isentropic-vortex requires [physics].(physical_model) = euler' "$CASE_DIR/mhd-uniform-none.ini" \
-        -e "s/^type           = uniform/type           = isentropic-vortex/"
+if has_leg refused; then
+   echo ">> refused configurations"
+   refused divergence-control 'unknown [mhd].(divergence_control) "bogus"' "$CASE_DIR/mhd-uniform-none.ini" \
+           -e "s/^divergence_control = .*/divergence_control = bogus/"
+   refused vortex-mhd 'isentropic-vortex requires [physics].(physical_model) = euler' "$CASE_DIR/mhd-uniform-none.ini" \
+           -e "s/^type           = uniform/type           = isentropic-vortex/"
+fi
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "MHD plumbing verification PASSED ($TAG)"
+   echo "MHD plumbing verification PASSED ($TAG, legs: $LEGS)"
 else
-   echo "MHD plumbing verification FAILED ($TAG)"
+   echo "MHD plumbing verification FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

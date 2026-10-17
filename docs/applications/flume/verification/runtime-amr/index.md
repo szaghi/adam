@@ -27,9 +27,9 @@ Run every leg:
 ```bash
 cd src/tests/flume/verification/regrid
 ./check.sh && ./accuracy.sh                                                           # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg rg3 --leg rg4 --leg rg5
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs rg3,rg4,rg5
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./accuracy.sh                        # FNL
-./check.sh --leg rg6 && ./accuracy.sh --leg av8                                       # CPU against FNL
+./check.sh --legs rg6 && ./accuracy.sh --legs av8                                     # CPU against FNL
 ```
 
 The figure (`regrid.png`) is drawn by `make_doc_figures.py` from the CPU work directories `av2-tracked` and

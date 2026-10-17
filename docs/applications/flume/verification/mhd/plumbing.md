@@ -73,7 +73,7 @@ still describes the P1 state ("no face fluxes yet"); its `--static` mode is no l
 |---|---|
 | `src/tests/flume/verification/mhd/plumbing/mhd-uniform-none.ini` | the case, `divergence_control = none` |
 | `src/tests/flume/verification/mhd/plumbing/mhd-uniform-glm.ini` | the case, `divergence_control = glm` |
-| `src/tests/flume/verification/mhd/plumbing/check.sh` | runs every leg (`--np N`, `--build`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/mhd/plumbing/check.sh` | runs every leg (`--np N`, `--build`, `--legs LIST`: `none`, `glm`, `refused`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/mhd/plumbing/mhd_plumbing_oracle.py` | `--dt`, `--aux`, `--compare`; also `--zero` and `--steady` used by [MV-2](./zero-field) |
 
 ```bash

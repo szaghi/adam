@@ -36,14 +36,14 @@ the shock-crossing defect is not.
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/amr-order/check.sh --leg euler-ww`, `--leg euler-mp` | the AO legs: orders $\ge 4.8$ / 4.5 (`euler-ww`) and $\ge 5.5$ (`euler-mp`), the errors at most the baseline plus 2 % |
+| `src/tests/flume/verification/amr-order/check.sh --legs euler-ww,euler-mp` | the AO legs: orders $\ge 4.8$ / 4.5 (`euler-ww`) and $\ge 5.5$ (`euler-mp`), the errors at most the baseline plus 2 % |
 | `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the crossings (`--seam-ghost-fill`, `--seam-restriction`) |
 | `src/tests/flume/verification/ghosts/check.sh --seam-ghost-fill F` | GP |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> seams`, `make_doc_figures.py --only limited-fills` | re-runs the crossings `d-{quintic,weno6,quintic-mp}-{c2f,f2c}` (CPU) |
-| `src/tests/flume/verification/multirealm/check.sh` | leg 6 runs `weno6` and `quintic-mp` across a refined inter-realm seam |
+| `src/tests/flume/verification/multirealm/check.sh` | leg 6 (`--legs leg6`) runs `weno6` and `quintic-mp` across a refined inter-realm seam |
 
 ```bash
-cd src/tests/flume/verification/amr-order && ./check.sh --leg euler-ww --leg euler-mp
+cd src/tests/flume/verification/amr-order && ./check.sh --legs euler-ww,euler-mp
 ```
 
 ## Results

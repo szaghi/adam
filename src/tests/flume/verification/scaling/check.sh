@@ -18,19 +18,22 @@
 # --weights si runs every case with the scale-invariant WENO weights (issue #49, N1); the default keeps the inputs' own.
 #
 # Usage: ./check.sh [--np N] [--j J --k K --m M] [--weights js|si] [--expect-bitwise]
-#                   [--cases "sod-x vortex rj2a blast orszag-tang"]
+#                   [--legs LIST]   (legs sod-x vortex rj2a blast orszag-tang, all; default all;
+#                                    --cases "..." is an older spelling of --legs)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TOOL="$CASE_DIR/scaling.py"
 NP=2 ; J=2 ; K=-1 ; M=-2 ; GATE=0 ; WEIGHTS=()
-CASES="sod-x vortex rj2a blast orszag-tang"
+source "$VERIF_DIR/legs.sh"
+legs_declare "sod-x vortex rj2a blast orszag-tang"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -38,12 +41,15 @@ while [[ $# -gt 0 ]]; do
       --j)              J="$2" ; shift 2 ;;
       --k)              K="$2" ; shift 2 ;;
       --m)              M="$2" ; shift 2 ;;
-      --cases)          CASES="$2" ; shift 2 ;;
+      --legs)           legs_select "$2" ; shift 2 ;;
+      --cases)          legs_select "$2" ; shift 2 ;;
       --weights)        WEIGHTS=(--weights "$2") ; shift 2 ;;
       --expect-bitwise) GATE=1 ; shift ;;
-      *) echo "check.sh: unknown argument '$1'" >&2 ; exit 2 ;;
+      *) echo "check.sh: unknown argument '$1' (accepted: --np, --j, --k, --m, --legs, --cases, --weights," \
+              "--expect-bitwise)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 [[ -x "$EXE" ]] || { echo "check.sh: executable '$EXE' not found" >&2 ; exit 2 ; }
 
 declare -A INPUT=([sod-x]="$REPO_ROOT/src/tests/flume/verification/sod/sod-x.ini"
@@ -63,7 +69,7 @@ run() { # run <work-dir> <ini-name>
 }
 
 echo ">> scaling covariance ($(basename "$EXE"), np $NP): j = $J, k = $K, m = $M"
-for c in $CASES; do
+for c in $LEGS; do
    ini="${INPUT[$c]}" ; name="$(basename "$ini")"
    base="$CASE_DIR/work-$TAG-$c-base"
    rm -rf "$base" ; mkdir -p "$base"

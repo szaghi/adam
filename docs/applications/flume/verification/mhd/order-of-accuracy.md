@@ -49,11 +49,11 @@ All legs: 2 ranks, periodic on the active axes.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/mhd/linear-wave/make_linear_wave.py` | writes the MV-5 input (`--wave`, `--geometry 1d\|2d`, `--cells`, `--amplitude`, `--divergence-control`) |
-| `src/tests/flume/verification/mhd/linear-wave/check.sh`, `linear_wave_oracle.py` | MV-5: the error $\epsilon$ of Stone et al. (last against first checkpoint), the bounds and the order (`--numerics`, `--divergence-control`) |
+| `src/tests/flume/verification/mhd/linear-wave/check.sh`, `linear_wave_oracle.py` | MV-5: the error $\epsilon$ of Stone et al. (last against first checkpoint), the bounds and the order (`--numerics`, `--divergence-control`, `--legs LIST`: `mv5-1d`, `mv5-2d`) |
 | `src/tests/flume/verification/mhd/cpaw/make_cpaw.py` | writes the MV-6 input (`--polarisation`, `--geometry`, `--cells`) |
-| `src/tests/flume/verification/mhd/cpaw/check.sh`, `cpaw_oracle.py` | MV-6: bounds, order, left = right (`--numerics`) |
+| `src/tests/flume/verification/mhd/cpaw/check.sh`, `cpaw_oracle.py` | MV-6: bounds, order, left = right (`--numerics`, `--legs mv6`) |
 | `src/tests/flume/verification/mhd/vortex/make_mhd_vortex.py` | writes the MV-7 input (`--cells`, `--half-width`, `--cfl`) |
-| `src/tests/flume/verification/mhd/vortex/check.sh`, `mhd_vortex_oracle.py` | MV-7: $L_1$, $L_\infty$, orders, div(B), initial checkpoint against the exact vortex |
+| `src/tests/flume/verification/mhd/vortex/check.sh`, `mhd_vortex_oracle.py` | MV-7: $L_1$, $L_\infty$, orders, div(B), initial checkpoint against the exact vortex (`--legs mv7`) |
 | `src/tests/flume/verification/make_doc_runs.sh` group `order` | the 1-D ladders 16/32/64 on the two schemes (24 runs) |
 | `src/tests/flume/verification/make_doc_figures.py` `fig_order` | draws `linear-wave-order.png` (`--only order`) |
 

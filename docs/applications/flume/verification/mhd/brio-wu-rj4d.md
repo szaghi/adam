@@ -54,7 +54,7 @@ Athena C test `athinput.rj4d`):
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/mhd/riemann/make_riemann.py` | writes the input from `sod/sod-x.ini` (`--case bw\|rj4d\|negative`, `--cells`, `--divergence-control`, `--rho-floor`, `--p-floor`) |
-| `src/tests/flume/verification/mhd/riemann/check.sh` | runs the legs and checks the logs and the final checkpoint (`--np N`, `--numerics SPEC`) |
+| `src/tests/flume/verification/mhd/riemann/check.sh` | runs the legs and checks the logs and the final checkpoint (`--np N`, `--numerics SPEC`, `--legs LIST`: `clean`, `floored`, `stop`) |
 | `src/tests/flume/verification/make_doc_figures.py` `fig_mhd_riemann` | draws `brio-wu.png` and `rj4d.png` from `<runs>/brio-wu` and `<runs>/rj4d` (`--only mhd-riemann`) |
 
 ```bash

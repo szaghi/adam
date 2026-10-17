@@ -56,18 +56,29 @@
 #         fit window's share; the two resolutions agree to 1.2e-4);
 #   GV-7 (--agree) also compares the seeded rt2d at N = 32.
 #
-# Usage: ./check.sh [--np "1 2"] [--cases "iso2d ..."] [--reference] [--no-force] [--scaling] [--agree TAG] [--keep]
+# Usage: ./check.sh [--np "1 2"] [--legs LIST] [--cases "iso2d ..."] [--reference] [--no-force] [--scaling]
+#        [--agree TAG] [--keep]
+# Legs, in run order: the G0 cases iso2d poly2d tilted2d tilted3d iso2d-mhd froude2d (on each --np), negative (the
+# negative control), the force legs gv1 gv3 limiter gv2 gv9 gv2b gv5 gv8 gv10 gv4a gv4b gv4c, then gv6 and nv5.
+# Default: every leg but gv6 and nv5; --no-force drops the force legs from it (selecting one with it is an error),
+# --scaling adds gv6 and --reference nv5. --cases "..." selects G0 cases and keeps the other default legs, as
+# before --legs. GV-7 is not a leg: --agree TAG runs it and needs gv3, gv8, gv10 and gv4c selected.
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
+source "$VERIF_DIR/legs.sh"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 NPS="1 2"
 CASES="iso2d poly2d tilted2d tilted3d iso2d-mhd froude2d"
+FORCE_LEGS="gv1 gv3 limiter gv2 gv9 gv2b gv5 gv8 gv10 gv4a gv4b gv4c"
+legs_declare "$CASES negative $FORCE_LEGS gv6 nv5" "$CASES negative $FORCE_LEGS"
+CASES_SEL=""
 REFERENCE=0
 KEEP=0
 FORCE=1
@@ -76,15 +87,43 @@ AGREE=""
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)        NPS="$2" ; shift 2 ;;
-      --cases)     CASES="$2" ; shift 2 ;;
+      --legs)      legs_select "$2" ; shift 2 ;;
+      --cases)     CASES_SEL+=" ${2//,/ }" ; shift 2 ;;
       --reference) REFERENCE=1 ; shift ;;
       --no-force)  FORCE=0 ; shift ;;
       --scaling)   SCALING=1 ; shift ;;
       --agree)     AGREE="$2" ; shift 2 ;;
       --keep)      KEEP=1 ; shift ;;
-      *) echo "check.sh: unknown argument '$1' (accepted: --np, --cases, --reference, --keep)" >&2 ; exit 2 ;;
+      *) echo "check.sh: unknown argument '$1' (accepted: --np, --legs, --cases, --reference, --no-force, --scaling, --agree, --keep)" \
+                >&2 ; exit 2 ;;
    esac
 done
+if [[ $FORCE -eq 0 ]]; then
+   legs_declare "$CASES negative $FORCE_LEGS gv6 nv5" "$CASES negative"
+fi
+if [[ -n $CASES_SEL ]]; then # --cases: the G0 cases named, with the other legs of the default
+   for case in $CASES_SEL; do
+      [[ " $CASES " == *" $case "* ]] || { echo "check.sh: unknown case '$case' (accepted: $CASES)" >&2 ; exit 2 ; }
+   done
+   legs_select "$CASES_SEL negative"
+   if [[ $FORCE -eq 1 ]]; then legs_select "$FORCE_LEGS" ; fi
+fi
+if [[ -z $LEGS_SELECTED && ( $SCALING -eq 1 || $REFERENCE -eq 1 ) ]]; then
+   legs_select "$LEGS_DEFAULT"
+fi
+if [[ $SCALING -eq 1 ]]; then legs_select gv6 ; fi
+if [[ $REFERENCE -eq 1 ]]; then legs_select nv5 ; fi
+legs_resolve check.sh
+if [[ $FORCE -eq 0 ]]; then
+   for leg in $FORCE_LEGS; do
+      if has_leg "$leg"; then echo "check.sh: --no-force excludes the force leg '$leg'" >&2 ; exit 2 ; fi
+   done
+fi
+if [[ -n "$AGREE" ]]; then # GV-7 compares the runs of these legs
+   for leg in gv3 gv8 gv10 gv4c; do
+      if ! has_leg "$leg"; then echo "check.sh: --agree (GV-7) needs the leg '$leg'" >&2 ; exit 2 ; fi
+   done
+fi
 TAG="$(basename "$EXE")"
 FAILED=0
 
@@ -97,6 +136,7 @@ run_case() { # run_case <work> <np>: run the input of <work>, report a failure
 echo ">> GV: stratified atmospheres ($TAG)"
 for np in $NPS; do
    for case in $CASES; do
+      has_leg "$case" || continue
       work="$CASE_DIR/work-$TAG-np$np-$case"
       rm -rf "${work:?}" ; mkdir -p "$work"
       python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" "$case"
@@ -107,23 +147,28 @@ for np in $NPS; do
    done
 done
 
-echo "-- negative control: iso2d with extrapolation on the y faces, judged as hydrostatic (must FAIL)"
-work="$CASE_DIR/work-$TAG-negative"
-rm -rf "${work:?}" ; mkdir -p "$work"
-python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" iso2d
-sed -i '/^\[bc_y_m[ai][nx]\]/{n;s/^type = hydrostatic/type = extrapolation/}' "$work/input.ini"
-if run_case "$work" 1; then
-   sed -i '/^\[bc_y_m[ai][nx]\]/{n;s/^type = extrapolation/type = hydrostatic/}' "$work/input.ini"
-   if "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" profile "$work" > "$work/oracle.txt"; then
-      echo "   the oracle passed copied ghosts: FAIL" ; FAILED=1
-   else
-      echo "   the oracle rejects copied ghosts ($(grep -a 'hydrostatic ghosts rho' "$work/oracle.txt" | sed 's/^ *//')): PASS"
+if has_leg negative; then
+   echo "-- negative control: iso2d with extrapolation on the y faces, judged as hydrostatic (must FAIL)"
+   work="$CASE_DIR/work-$TAG-negative"
+   rm -rf "${work:?}" ; mkdir -p "$work"
+   python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" iso2d
+   sed -i '/^\[bc_y_m[ai][nx]\]/{n;s/^type = hydrostatic/type = extrapolation/}' "$work/input.ini"
+   if run_case "$work" 1; then
+      sed -i '/^\[bc_y_m[ai][nx]\]/{n;s/^type = extrapolation/type = hydrostatic/}' "$work/input.ini"
+      if "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" profile "$work" > "$work/oracle.txt"; then
+         echo "   the oracle passed copied ghosts: FAIL" ; FAILED=1
+      else
+         echo "   the oracle rejects copied ghosts" \
+              "($(grep -a 'hydrostatic ghosts rho' "$work/oracle.txt" | sed 's/^ *//')): PASS"
+      fi
    fi
+   [[ $KEEP -eq 1 ]] || find "$work" -name '*.h5' -delete
 fi
-[[ $KEEP -eq 1 ]] || find "$work" -name '*.h5' -delete
 
 if [[ $FORCE -eq 1 ]]; then
    for case in freefall2d box2d box2d-mhd box2d-lim box2d-stiff; do
+      case $case in freefall2d) leg=gv1 ;; box2d|box2d-mhd) leg=gv3 ;; *) leg=limiter ;; esac
+      has_leg "$leg" || continue
       work="$CASE_DIR/work-$TAG-np2-$case"
       rm -rf "${work:?}" ; mkdir -p "$work"
       python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" "$case"
@@ -137,87 +182,111 @@ if [[ $FORCE -eq 1 ]]; then
       esac
       [[ $KEEP -eq 1 || -n "$AGREE" ]] || find "$work" -name '*.h5' -delete
    done
-   echo "-- GV-2: iso2d at rest under the force to t = 0.5, N = 32, 64, 128 (reported)"
-   rest=()
-   for cells in 8 16 32; do
-      work="$CASE_DIR/work-$TAG-np2-rest-$cells"
-      rm -rf "${work:?}" ; mkdir -p "$work"
-      python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" iso2d --cells "$cells" --cfl 0.4 --time-max 0.5
-      sed -i 's/^it_save = .*/it_save = 100000/' "$work/input.ini"
-      run_case "$work" 2 && rest+=("$work")
-   done
-   "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${rest[@]}"
-   [[ $KEEP -eq 1 ]] || for w in "${rest[@]}"; do find "$w" -name '*.h5' -delete; done
-   for scheme in weno riemann; do
-      echo "-- GV-9: wave2d on $scheme, N = 32, 64, 128 (orders >= 3.5)"
-      wave=()
+   if has_leg gv2; then
+      echo "-- GV-2: iso2d at rest under the force to t = 0.5, N = 32, 64, 128 (reported)"
+      rest=()
       for cells in 8 16 32; do
-         work="$CASE_DIR/work-$TAG-np2-wave-$scheme-$cells"
+         work="$CASE_DIR/work-$TAG-np2-rest-$cells"
          rm -rf "${work:?}" ; mkdir -p "$work"
-         extra=() ; [[ $scheme == riemann ]] && extra=(--riemann hllc)
-         python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" wave2d --cells "$cells" --time-max 0.2 \
-            --cfl "$(python3 -c "print(0.4 * (8 / $cells) ** (2 / 3))")" "${extra[@]}"
+         python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" iso2d --cells "$cells" --cfl 0.4 --time-max 0.5
          sed -i 's/^it_save = .*/it_save = 100000/' "$work/input.ini"
-         run_case "$work" 2 && wave+=("$work")
+         run_case "$work" 2 && rest+=("$work")
       done
-      "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" wave "${wave[@]}" || FAILED=1
-      [[ $KEEP -eq 1 ]] || for w in "${wave[@]}"; do find "$w" -name '*.h5' -delete; done
-   done
+      "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${rest[@]}"
+      [[ $KEEP -eq 1 ]] || for w in "${rest[@]}"; do find "$w" -name '*.h5' -delete; done
+   fi
+   if has_leg gv9; then
+      for scheme in weno riemann; do
+         echo "-- GV-9: wave2d on $scheme, N = 32, 64, 128 (orders >= 3.5)"
+         wave=()
+         for cells in 8 16 32; do
+            work="$CASE_DIR/work-$TAG-np2-wave-$scheme-$cells"
+            rm -rf "${work:?}" ; mkdir -p "$work"
+            extra=() ; [[ $scheme == riemann ]] && extra=(--riemann hllc)
+            python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" wave2d --cells "$cells" --time-max 0.2 \
+               --cfl "$(python3 -c "print(0.4 * (8 / $cells) ** (2 / 3))")" "${extra[@]}"
+            sed -i 's/^it_save = .*/it_save = 100000/' "$work/input.ini"
+            run_case "$work" 2 && wave+=("$work")
+         done
+         "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" wave "${wave[@]}" || FAILED=1
+         [[ $KEEP -eq 1 ]] || for w in "${wave[@]}"; do find "$w" -name '*.h5' -delete; done
+      done
+   fi
    g2b() { # g2b <name> <case> [make_atmosphere options]: run one G2b case at np 2, echo its work directory
       local work="$CASE_DIR/work-$TAG-np2-$1" ; shift
       rm -rf "${work:?}" ; mkdir -p "$work"
       python3 -I "$CASE_DIR/make_atmosphere.py" "$work/input.ini" "$@"
       run_case "$work" 2 > /dev/null && echo "$work"
    }
-   echo "-- GV-2b: strat2d unbalanced (reported), strat2d and polystrat2d balanced (max |u| / c < 1e-12)"
-   unb=$(g2b strat2d-unb strat2d) || FAILED=1
-   [[ -n "$unb" ]] && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$unb"
-   bal=()
-   for case in strat2d polystrat2d; do
-      w=$(g2b "$case-bal" "$case" --balanced) && bal+=("$w") || FAILED=1
-   done
-   "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${bal[@]}" --max 1e-12 || FAILED=1
-   echo "-- GV-5: strat2d-mhdy, strat2d-mhdx balanced, weno and weno-riemann (HLLD) (max |u| / c < 1e-12)"
-   mhd=()
-   for case in strat2d-mhdy strat2d-mhdx; do
-      w=$(g2b "$case-bal" "$case" --balanced --time-max 0.2) && mhd+=("$w") || FAILED=1
-      w=$(g2b "$case-bal-hlld" "$case" --balanced --time-max 0.2 --riemann hlld) && mhd+=("$w") || FAILED=1
-   done
-   "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${mhd[@]}" --max 1e-12 || FAILED=1
-   echo "-- GV-8: strat2d-amr unbalanced (reported), balanced (max |u| / c < 1e-12)"
-   w=$(g2b amr-unb strat2d-amr) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w"
-   w=$(g2b amr-bal strat2d-amr --balanced) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w" --max 1e-12 \
-      || FAILED=1
-   echo "-- GV-10: a pressure pulse of 1e-6 and 1e-4 on strat2d, unbalanced (reported) and balanced (linear to 1e-2)"
-   for mode in unb bal; do
-      opt=() ; [[ $mode == bal ]] && opt=(--balanced)
-      a=$(g2b "lin-$mode-6" strat2d --pulse 1e-6 --time-max 0.1 "${opt[@]}")
-      b=$(g2b "lin-$mode-4" strat2d --pulse 1e-4 --time-max 0.1 "${opt[@]}")
-      if [[ $mode == bal ]]; then
-         "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" linear "$a" "$b" || FAILED=1
-      else
-         "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" linear "$a" "$b" | sed 's/: FAIL (tol/: reported, not asserted (tol/' || true
-      fi
-   done
-   [[ $KEEP -eq 1 || -n "$AGREE" ]] || find "$CASE_DIR"/work-"$TAG"-np2-*-bal* "$CASE_DIR"/work-"$TAG"-np2-*-unb* \
-      "$CASE_DIR"/work-"$TAG"-np2-lin-* -name '*.h5' -delete
-   echo "-- GV-4a: rt2d unseeded, one negligible step: the layers and their hydrostatic ghosts (1e-13)"
-   w=$(g2b rt-profile rt2d --seed 0 --steps 1 --cfl 1e-30) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" profile "$w" \
-      || FAILED=1
-   echo "-- GV-4b: rt2d unseeded to t = 1, unbalanced (reported) and balanced (max |u| / c < 1e-12)"
-   w=$(g2b rt-unb rt2d --seed 0 --time-max 1.0) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w"
-   w=$(g2b rt-bal rt2d --seed 0 --time-max 1.0 --balanced) && \
-      "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w" --max 1e-12 || FAILED=1
-   echo "-- GV-4c: rt2d growth rate at N = 32, 64 against the compressible linear theory (1e-3)"
-   rt=()
-   for cells in 8 16; do
-      w=$(g2b "rt-$cells" rt2d --cells "$cells" --it-save $((5 * cells))) && rt+=("$w") || FAILED=1
-   done
-   "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" growth "${rt[@]}" --t0 2 --t1 4 --tol 1e-3 || FAILED=1
-   [[ $KEEP -eq 1 || -n "$AGREE" ]] || find "$CASE_DIR"/work-"$TAG"-np2-rt-* -name '*.h5' -delete
+   if has_leg gv2b; then
+      echo "-- GV-2b: strat2d unbalanced (reported), strat2d and polystrat2d balanced (max |u| / c < 1e-12)"
+      unb=$(g2b strat2d-unb strat2d) || FAILED=1
+      [[ -n "$unb" ]] && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$unb"
+      bal=()
+      for case in strat2d polystrat2d; do
+         w=$(g2b "$case-bal" "$case" --balanced) && bal+=("$w") || FAILED=1
+      done
+      "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${bal[@]}" --max 1e-12 || FAILED=1
+   fi
+   if has_leg gv5; then
+      echo "-- GV-5: strat2d-mhdy, strat2d-mhdx balanced, weno and weno-riemann (HLLD) (max |u| / c < 1e-12)"
+      mhd=()
+      for case in strat2d-mhdy strat2d-mhdx; do
+         w=$(g2b "$case-bal" "$case" --balanced --time-max 0.2) && mhd+=("$w") || FAILED=1
+         w=$(g2b "$case-bal-hlld" "$case" --balanced --time-max 0.2 --riemann hlld) && mhd+=("$w") || FAILED=1
+      done
+      "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "${mhd[@]}" --max 1e-12 || FAILED=1
+   fi
+   if has_leg gv8; then
+      echo "-- GV-8: strat2d-amr unbalanced (reported), balanced (max |u| / c < 1e-12)"
+      w=$(g2b amr-unb strat2d-amr) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w"
+      w=$(g2b amr-bal strat2d-amr --balanced) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w" --max 1e-12 \
+         || FAILED=1
+   fi
+   if has_leg gv10; then
+      echo "-- GV-10: a pressure pulse of 1e-6 and 1e-4 on strat2d, unbalanced (reported) and balanced (linear to 1e-2)"
+      for mode in unb bal; do
+         opt=() ; [[ $mode == bal ]] && opt=(--balanced)
+         a=$(g2b "lin-$mode-6" strat2d --pulse 1e-6 --time-max 0.1 "${opt[@]}")
+         b=$(g2b "lin-$mode-4" strat2d --pulse 1e-4 --time-max 0.1 "${opt[@]}")
+         if [[ $mode == bal ]]; then
+            "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" linear "$a" "$b" || FAILED=1
+         else
+            "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" linear "$a" "$b" | \
+               sed 's/: FAIL (tol/: reported, not asserted (tol/' || true
+         fi
+      done
+   fi
+   if has_leg gv2b || has_leg gv5 || has_leg gv8 || has_leg gv10; then
+      [[ $KEEP -eq 1 || -n "$AGREE" ]] || find "$CASE_DIR"/work-"$TAG"-np2-*-bal* "$CASE_DIR"/work-"$TAG"-np2-*-unb* \
+         "$CASE_DIR"/work-"$TAG"-np2-lin-* -name '*.h5' -delete 2> /dev/null || true # a glob of a leg not run
+   fi
+   if has_leg gv4a; then
+      echo "-- GV-4a: rt2d unseeded, one negligible step: the layers and their hydrostatic ghosts (1e-13)"
+      w=$(g2b rt-profile rt2d --seed 0 --steps 1 --cfl 1e-30) && \
+         "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" profile "$w" \
+         || FAILED=1
+   fi
+   if has_leg gv4b; then
+      echo "-- GV-4b: rt2d unseeded to t = 1, unbalanced (reported) and balanced (max |u| / c < 1e-12)"
+      w=$(g2b rt-unb rt2d --seed 0 --time-max 1.0) && "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w"
+      w=$(g2b rt-bal rt2d --seed 0 --time-max 1.0 --balanced) && \
+         "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" rest "$w" --max 1e-12 || FAILED=1
+   fi
+   if has_leg gv4c; then
+      echo "-- GV-4c: rt2d growth rate at N = 32, 64 against the compressible linear theory (1e-3)"
+      rt=()
+      for cells in 8 16; do
+         w=$(g2b "rt-$cells" rt2d --cells "$cells" --it-save $((5 * cells))) && rt+=("$w") || FAILED=1
+      done
+      "$VENV_PY" "$CASE_DIR/atmosphere_oracle.py" growth "${rt[@]}" --t0 2 --t1 4 --tol 1e-3 || FAILED=1
+   fi
+   if has_leg gv4a || has_leg gv4b || has_leg gv4c; then
+      [[ $KEEP -eq 1 || -n "$AGREE" ]] || find "$CASE_DIR"/work-"$TAG"-np2-rt-* -name '*.h5' -delete
+   fi
 fi
 
-if [[ $SCALING -eq 1 ]]; then
+if has_leg gv6; then
    echo "-- GV-6: box2d (scale-invariant weights) against its input rescaled by 2^2, 2^-1, 4^-2"
    base="$CASE_DIR/work-$TAG-np2-scaling-base" ; scaled="$CASE_DIR/work-$TAG-np2-scaling-scaled"
    rm -rf "${base:?}" "${scaled:?}" ; mkdir -p "$base" "$scaled"
@@ -237,7 +306,7 @@ if [[ -n "$AGREE" ]]; then
    done
 fi
 
-if [[ $REFERENCE -eq 1 ]]; then
+if has_leg nv5; then
    echo "-- NV-5: [reference] on iso2d, iso2d-mhd, froude2d"
    inputs=()
    mkdir -p "$CASE_DIR/work-$TAG-ref"
@@ -249,8 +318,8 @@ if [[ $REFERENCE -eq 1 ]]; then
 fi
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "GV PASSED ($TAG)"
+   echo "GV PASSED ($TAG, legs: $LEGS)"
 else
-   echo "GV FAILED ($TAG)"
+   echo "GV FAILED ($TAG, legs: $LEGS)"
 fi
 exit $FAILED

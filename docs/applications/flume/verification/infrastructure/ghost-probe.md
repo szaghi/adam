@@ -84,14 +84,14 @@ no M4 stencil reads them, and neither are the ghosts that lie outside every real
 |---|---|
 | `src/tests/flume/verification/ghosts/make_probe.py` | writes the cases; `--linearize` rewrites the step forest into a probe run |
 | `src/tests/flume/verification/step/make_step.py` | the step forest (`--cells 80 --refine`) |
-| `src/tests/flume/verification/ghosts/check.sh` | runs the cases (`--np "1 2 3"`, `--cases`, `--keep`, `--seam-restriction R`, `--seam-ghost-fill F`, `--degree N`) |
+| `src/tests/flume/verification/ghosts/check.sh` | runs the cases (`--np "1 2 3"`, `--legs LIST`: a leg is a case, `box3d`, `box3d-mhd`, `channel2d`, `mirror3d`, `refined3d`, `walls3d`, `walls3d-mhd`, `step`, default all; `--keep`, `--seam-restriction R`, `--seam-ghost-fill F`, `--degree N`) |
 | `src/tests/flume/verification/ghosts/ghost_probe.py` | the expected value of every ghost, the report by class (face, edge, corner) and by what lies beyond, the bound (`--tol 1e-12`) |
-| `src/tests/flume/verification/make_doc_figures.py` (`fig_ghosts`) | the figure, from `ghosts/check.sh --cases step --np 2 --keep` and the before-P0 run kept as `ghosts/work-before-p0-np2-step` (built from `3f51451d`) |
+| `src/tests/flume/verification/make_doc_figures.py` (`fig_ghosts`) | the figure, from `ghosts/check.sh --legs step --np 2 --keep` and the before-P0 run kept as `ghosts/work-before-p0-np2-step` (built from `3f51451d`) |
 
 ```bash
 cd src/tests/flume/verification/ghosts && ./check.sh                    # CPU, np 1 2 3, every case
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --np "1 2"  # FNL
-./check.sh --cases "box3d channel2d refined3d" --degree 5 --seam-restriction lagrange6 --seam-ghost-fill quintic
+./check.sh --legs box3d,channel2d,refined3d --degree 5 --seam-restriction lagrange6 --seam-ghost-fill quintic
 ```
 
 ## Results

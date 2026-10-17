@@ -54,16 +54,16 @@ The case is the [Sod](./sod) input with the two region states and the final time
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/sod/sod-{x,y,z}.ini` | the base inputs, rewritten into the Lax problem |
-| `src/tests/flume/verification/riemann-flux/check.sh --leg lax` | rewrites the inputs (`set_lax`, `set_numerics`), runs the three directions; `--solver split\|llf\|hll\|hllc`, `--correction`, `--sensor`, `--lax-l1-max` |
+| `src/tests/flume/verification/riemann-flux/check.sh --legs lax` | rewrites the inputs (`set_lax`, `set_numerics`), runs the three directions; `--solver split\|llf\|hll\|hllc`, `--correction`, `--sensor`, `--lax-l1-max` |
 | `src/tests/flume/verification/sod/sod_oracle.py` | the exact solution (normal velocity read from the input), the $L_1$ bound, the bitwise checks |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_lax`) | the figure, from the `split`, `llf` and `hllc` work directories of `riemann-flux/` |
 
 ```bash
 cd src/tests/flume/verification/riemann-flux
-./check.sh --leg lax                                    # HLLC (default), bound 1.12e-2
-./check.sh --leg lax --solver split                     # the splitting baseline
-./check.sh --leg lax --solver llf --lax-l1-max X        # LLF needs an explicit bound X
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg lax   # FNL
+./check.sh --legs lax                                   # HLLC (default), bound 1.12e-2
+./check.sh --legs lax --solver split                    # the splitting baseline
+./check.sh --legs lax --solver llf --lax-l1-max X       # LLF needs an explicit bound X
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs lax  # FNL
 ```
 
 ## Results

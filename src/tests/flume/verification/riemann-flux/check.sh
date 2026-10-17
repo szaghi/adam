@@ -16,9 +16,10 @@
 #   V6 cylinder  the Mach 2 shock over the immersed cylinder with solid AMR (shock-cylinder/): refined surface blocks,
 #                mirror symmetry within 1e-10, positive density and pressure.
 #
-# Usage: ./check.sh [--np N] [--leg vortex|sod|lax|shu-osher|conservation|cylinder|all] [--solver S] [--correction C]
+# Usage: ./check.sh [--np N] [--legs LIST] [--solver S] [--correction C]
 #                   [--sensor S] [--recon R]
 #                   [--order-min X] [--l1-max X] [--lax-l1-max X] [--so-l1-max X]
+# --legs LIST: vortex, sod, lax, shu-osher, conservation, cylinder or all; --leg L (repeatable) is an older spelling.
 # Defaults: all legs, hllc, 6th, weno, characteristic; ORDER_MIN 4.8 (#47 RV-2); the RV-3 bounds are 1.05 x the split
 # scheme's L1(rho) (#47 RV-3, owner decision 2026-09-30): L1_MAX (Sod) 3.41e-03, LAX_L1_MAX 1.12e-02, SO_L1_MAX 0.274;
 # LLF exceeds the Lax and Shu-Osher bounds (see README) and needs explicit ones.
@@ -33,7 +34,8 @@ VER_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
-LEG=all
+source "$VER_DIR/legs.sh"
+legs_declare "vortex sod lax shu-osher conservation cylinder"
 SOLVER=hllc
 CORRECTION=6th
 SENSOR=weno
@@ -46,7 +48,8 @@ SO_L1_MAX="0.274"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)         NP="$2" ; shift 2 ;;
-      --leg)        LEG="$2" ; shift 2 ;;
+      --legs)       legs_select "$2" ; shift 2 ;;
+      --leg)        legs_select "$2" ; shift 2 ;;
       --solver)     SOLVER="$2" ; shift 2 ;;
       --correction) CORRECTION="$2" ; shift 2 ;;
       --sensor)     SENSOR="$2" ; shift 2 ;;
@@ -55,9 +58,11 @@ while [[ $# -gt 0 ]]; do
       --l1-max)     L1_MAX="$2" ; shift 2 ;;
       --lax-l1-max) LAX_L1_MAX="$2" ; shift 2 ;;
       --so-l1-max)  SO_L1_MAX="$2" ; shift 2 ;;
-      *) echo "check.sh: unknown argument '$1'" >&2 ; exit 2 ;;
+      *) echo "check.sh: unknown argument '$1' (accepted: --np, --legs, --leg, --solver, --correction, --sensor," \
+              "--recon, --order-min, --l1-max, --lax-l1-max, --so-l1-max)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -158,7 +163,7 @@ run() { # case-dir input work [input-hook]
    echo "   done in $(( $(date +%s) - start )) s"
 }
 
-if [[ $LEG == vortex || $LEG == all ]]; then
+if has_leg vortex; then
    WORK=()
    for n in 064 128 256; do
       run "$VER_DIR/vortex" "vortex-n$n.ini" "$CASE_DIR/work-$TAG-vortex-n$n"
@@ -167,7 +172,7 @@ if [[ $LEG == vortex || $LEG == all ]]; then
    "$VENV_PY" "$VER_DIR/vortex/vortex_oracle.py" "${WORK[@]}" --order-min "$ORDER_MIN"
    echo "RV-2 PASSED ($TAG)"
 fi
-if [[ $LEG == sod || $LEG == all ]]; then
+if has_leg sod; then
    WORK=()
    for d in x y z; do
       run "$VER_DIR/sod" "sod-$d.ini" "$CASE_DIR/work-$TAG-sod-$d"
@@ -176,7 +181,7 @@ if [[ $LEG == sod || $LEG == all ]]; then
    "$VENV_PY" "$VER_DIR/sod/sod_oracle.py" "$VER_DIR/sod/sod-x.ini" "${WORK[@]}" --l1-max "$L1_MAX"
    echo "RV-3 sod PASSED ($TAG)"
 fi
-if [[ $LEG == lax || $LEG == all ]]; then
+if has_leg lax; then
    WORK=()
    for d in x y z; do
       run "$VER_DIR/sod" "sod-$d.ini" "$CASE_DIR/work-$TAG-lax-$d" set_lax
@@ -185,7 +190,7 @@ if [[ $LEG == lax || $LEG == all ]]; then
    "$VENV_PY" "$VER_DIR/sod/sod_oracle.py" "${WORK[0]}/sod-x.ini" "${WORK[@]}" ${LAX_L1_MAX:+--l1-max "$LAX_L1_MAX"}
    echo "RV-3 lax PASSED ($TAG)"
 fi
-if [[ $LEG == shu-osher || $LEG == all ]]; then
+if has_leg shu-osher; then
    WORK=()
    for d in x y z; do
       run "$VER_DIR/sod" "sod-$d.ini" "$CASE_DIR/work-$TAG-shu-osher-$d" set_shu_osher
@@ -194,7 +199,7 @@ if [[ $LEG == shu-osher || $LEG == all ]]; then
    "$VENV_PY" "$CASE_DIR/shu_osher_oracle.py" "${WORK[0]}/sod-x.ini" "${WORK[@]}" ${SO_L1_MAX:+--l1-max "$SO_L1_MAX"}
    echo "RV-3 shu-osher PASSED ($TAG)"
 fi
-if [[ $LEG == conservation || $LEG == all ]]; then
+if has_leg conservation; then
    run "$VER_DIR/conservation" amr-periodic.ini "$CASE_DIR/work-$TAG-conservation-reflux-true"
    run "$VER_DIR/conservation" amr-periodic.ini "$CASE_DIR/work-$TAG-conservation-reflux-false" set_reflux_off
    for reflux in true false; do
@@ -209,7 +214,7 @@ if [[ $LEG == conservation || $LEG == all ]]; then
       --leaky "$CASE_DIR/work-$TAG-conservation-reflux-false" --min-drift 1.0e-10
    echo "RV-4 PASSED ($TAG)"
 fi
-if [[ $LEG == cylinder || $LEG == all ]]; then
+if has_leg cylinder; then
    run "$VER_DIR/shock-cylinder" shock-cylinder.ini "$CASE_DIR/work-$TAG-cylinder"
    "$VENV_PY" "$VER_DIR/shock-cylinder/shock_cylinder_oracle.py" "$CASE_DIR/work-$TAG-cylinder" --mirror-tol 1.0e-10
    echo "V6 cylinder PASSED ($TAG)"

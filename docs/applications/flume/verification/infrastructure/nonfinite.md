@@ -49,7 +49,7 @@ What the case catches:
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/sod/sod-x.ini` | the base input |
-| `src/tests/flume/verification/nonfinite/check.sh` | plants the NaN, runs the case, requires the failure on the guard (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/nonfinite/check.sh` | plants the NaN, runs the case, requires the failure on the guard (`--np N`, `--legs nonfinite`, its one leg; `FLUME_EXE` selects the backend) |
 
 ```bash
 cd src/tests/flume/verification/nonfinite && ./check.sh              # CPU

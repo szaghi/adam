@@ -38,14 +38,14 @@ FNL, 2 ranks.
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/amr-order/check.sh --leg euler-tq` | the AO leg under `troubled` with `lagrange6` + `quintic`: orders $\ge 5.5$, errors at most the `euler-q6` baseline plus 2 % |
+| `src/tests/flume/verification/amr-order/check.sh --legs euler-tq` | the AO leg under `troubled` with `lagrange6` + `quintic`: orders $\ge 5.5$, errors at most the `euler-q6` baseline plus 2 % |
 | `src/tests/flume/verification/amr-order/make_amr_order.py --reflux-policy troubled` | the other AO runs |
 | `src/tests/flume/verification/amr-shock/make_amr_shock.py --reflux-policy troubled` | the crossings |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> seams`, `make_doc_figures.py --only reflux-policy` | re-runs the crossings `e2-troubled-{c2f,f2c}` and `d-quintic-{c2f,f2c}` (CPU); the AO ladders from the kept work directories |
 
 ```bash
-cd src/tests/flume/verification/amr-order && ./check.sh --leg euler-tq
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg euler-tq
+cd src/tests/flume/verification/amr-order && ./check.sh --legs euler-tq
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs euler-tq
 ```
 
 The A2 and A4 runs under `troubled`: `amr-divb/make_amr_divb.py --reflux-policy troubled` and

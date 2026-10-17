@@ -46,12 +46,12 @@ sides of each forest, on 2 ranks, one clean build of each backend. The setups ar
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/viscous/check.sh --leg agree` | runs nothing: pairs every `work-adam_flume_cpu-np2-*` directory with its `work-adam_flume_fnl-np2-*` twin, after every leg has run on both executables |
+| `src/tests/flume/verification/viscous/check.sh --legs agree` | runs nothing: pairs every `work-adam_flume_cpu-np2-*` directory with its `work-adam_flume_fnl-np2-*` twin, after every leg has run on both executables |
 | `src/tests/flume/verification/viscous/waves.py agree` | the cell-by-cell comparison |
 
 ```bash
 cd src/tests/flume/verification/viscous
-./check.sh && FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh && ./check.sh --leg agree
+./check.sh && FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh && ./check.sh --legs agree
 ```
 
 No figure: a run-by-run identity has nothing a plot would show (#85).

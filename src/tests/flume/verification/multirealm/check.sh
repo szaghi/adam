@@ -48,7 +48,8 @@
 # so the unions must still reproduce the single-realm runs bit for bit (the shock crosses the seam: another operator
 # on either side differs).
 #
-# Usage: ./check.sh [--build] [--np N]
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg6 or all (default all); leg4 compares against
+#        the sod-amr run of leg2, leg5 against the sod-x and sod-z runs of leg1 and leg3, so they require those legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12);
@@ -61,14 +62,24 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
+source "$VERIF_DIR/legs.sh"
+legs_declare "leg1 leg2 leg3 leg4 leg5 leg6"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --build) BUILD=1 ; shift ;;
       --np)    NP="$2" ; shift 2 ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N)" >&2 ; exit 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
+if has_leg leg4 && ! has_leg leg2; then
+   echo "check.sh: leg4 compares against the sod-amr run of leg2: select leg2 too" >&2 ; exit 2
+fi
+if has_leg leg5 && ! { has_leg leg1 && has_leg leg3; }; then
+   echo "check.sh: leg5 compares against the sod-x and sod-z runs of leg1 and leg3: select them too" >&2 ; exit 2
+fi
 
 if [[ $BUILD -eq 1 ]]; then
    (cd "$REPO_ROOT" && fobis build --mode flume-cpu-gnu)
@@ -105,104 +116,118 @@ run() { # run <work-dir> <input> <files...>; RUN_NP overrides the rank count, RU
    fi
 }
 
-echo "== leg 1: 2-realm Sod vs sod-x"
-single="$CASE_DIR/work-$TAG-single"
-multi="$CASE_DIR/work-$TAG-2realm"
-run "$single" sod-x.ini "$VERIF_DIR/sod/sod-x.ini"
-run "$multi" sod-2realm.ini "$CASE_DIR/sod-2realm.ini" "$CASE_DIR/sod-2realm-r1.ini" "$CASE_DIR/sod-2realm-r2.ini"
-"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
-
-echo "== leg 2: seam + AMR, 2-realm Sod with realm 2 refined on x > 0.75 vs sod-amr"
-single="$CASE_DIR/work-$TAG-amr-single"
-multi="$CASE_DIR/work-$TAG-amr-2realm"
-run "$single" sod-amr.ini "$CASE_DIR/sod-amr.ini"
-run "$multi" sod-amr-2realm.ini "$CASE_DIR/sod-amr-2realm.ini" "$CASE_DIR/sod-amr-2realm-r1.ini" \
-    "$CASE_DIR/sod-amr-2realm-r2.ini"
-"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
-echo "== leg 3: z-split 2-realm Sod vs sod-z, on one rank and on $NP (the seam crosses ranks, issue #40)"
-zfiles=("$CASE_DIR/sod-2realm-z.ini" "$CASE_DIR/sod-2realm-z-r1.ini" "$CASE_DIR/sod-2realm-z-r2.ini")
-single="$CASE_DIR/work-$TAG-z-single"
-run "$single" sod-z.ini "$VERIF_DIR/sod/sod-z.ini"
-multi="$CASE_DIR/work-$TAG-z-2realm"
-run "$multi" sod-2realm-z.ini "${zfiles[@]}"
-"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
-if [[ $NP -ge 2 ]]; then
-   single="$CASE_DIR/work-$TAG-z-single-np1"
-   RUN_NP=1 run "$single" sod-z.ini "$VERIF_DIR/sod/sod-z.ini"
-   multi="$CASE_DIR/work-$TAG-z-2realm-np1"
-   RUN_NP=1 run "$multi" sod-2realm-z.ini "${zfiles[@]}"
+if has_leg leg1; then
+   echo "== leg 1: 2-realm Sod vs sod-x"
+   single="$CASE_DIR/work-$TAG-single"
+   multi="$CASE_DIR/work-$TAG-2realm"
+   run "$single" sod-x.ini "$VERIF_DIR/sod/sod-x.ini"
+   run "$multi" sod-2realm.ini "$CASE_DIR/sod-2realm.ini" "$CASE_DIR/sod-2realm-r1.ini" "$CASE_DIR/sod-2realm-r2.ini"
    "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
 fi
-echo "== leg 4: refined (2:1) 2-realm Sod vs sod-amr (issue #52)"
-rfiles=("$CASE_DIR/sod-amr-refined.ini" "$CASE_DIR/sod-amr-refined-r1.ini" "$CASE_DIR/sod-amr-refined-r2.ini")
-multi="$CASE_DIR/work-$TAG-refined"
-run "$multi" sod-amr-refined.ini "${rfiles[@]}"
-"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-amr-single" --ngc 3 --tol 0
-single="$CASE_DIR/work-$TAG-amr-z-single"
-run "$single" sod-amr-z.ini "$CASE_DIR/sod-amr-z.ini"
-multi="$CASE_DIR/work-$TAG-refined-z"
-run "$multi" sod-amr-refined-z.ini "$CASE_DIR/sod-amr-refined-z.ini" "$CASE_DIR/sod-amr-refined-z-r1.ini" \
-    "$CASE_DIR/sod-amr-refined-z-r2.ini"
-"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
-work="$CASE_DIR/work-$TAG-refined-as-mirror"
-mirror_dir="$CASE_DIR/work-$TAG-refined-as-mirror-src" ; rm -rf "$mirror_dir" ; mkdir -p "$mirror_dir"
-sed 's/^coupling *= *refined/coupling         = mirror/' "${rfiles[0]}" > "$mirror_dir/sod-amr-refined.ini"
-RUN_MUST_FAIL=1 run "$work" sod-amr-refined.ini "$mirror_dir/sod-amr-refined.ini" "${rfiles[1]}" "${rfiles[2]}"
-if ! grep -aq 'error stop forest_object%populate_inter_realm_topology: .*coupling = mirror joins cells of the same size' \
-     "$work/log.txt"; then
-   echo "check.sh: the refined pair declared mirror was not refused, see $work/log.txt" >&2
-   exit 1
+
+if has_leg leg2; then
+   echo "== leg 2: seam + AMR, 2-realm Sod with realm 2 refined on x > 0.75 vs sod-amr"
+   single="$CASE_DIR/work-$TAG-amr-single"
+   multi="$CASE_DIR/work-$TAG-amr-2realm"
+   run "$single" sod-amr.ini "$CASE_DIR/sod-amr.ini"
+   run "$multi" sod-amr-2realm.ini "$CASE_DIR/sod-amr-2realm.ini" "$CASE_DIR/sod-amr-2realm-r1.ini" \
+       "$CASE_DIR/sod-amr-2realm-r2.ini"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
 fi
-echo "   $(basename "$work"): refused as expected"
-work="$CASE_DIR/work-$TAG-refined-limiter"
-limiter_dir="$CASE_DIR/work-$TAG-refined-limiter-src" ; rm -rf "$limiter_dir" ; mkdir -p "$limiter_dir"
-for f in "${rfiles[@]:1}"; do
-   sed 's/^\[numerics\]/&\npositivity_limiter = cell/' "$f" > "$limiter_dir/$(basename "$f")"
-done
-RUN_MUST_FAIL=1 run "$work" sod-amr-refined.ini "${rfiles[0]}" "$limiter_dir"/sod-amr-refined-r?.ini
-if ! grep -aq 'positivity_limiter)=cell is not supported on multi-realm runs' "$work/log.txt"; then
-   echo "check.sh: the positivity limiter on the refined pair was not refused, see $work/log.txt" >&2
-   exit 1
+if has_leg leg3; then
+   echo "== leg 3: z-split 2-realm Sod vs sod-z, on one rank and on $NP (the seam crosses ranks, issue #40)"
+   zfiles=("$CASE_DIR/sod-2realm-z.ini" "$CASE_DIR/sod-2realm-z-r1.ini" "$CASE_DIR/sod-2realm-z-r2.ini")
+   single="$CASE_DIR/work-$TAG-z-single"
+   run "$single" sod-z.ini "$VERIF_DIR/sod/sod-z.ini"
+   multi="$CASE_DIR/work-$TAG-z-2realm"
+   run "$multi" sod-2realm-z.ini "${zfiles[@]}"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+   if [[ $NP -ge 2 ]]; then
+      single="$CASE_DIR/work-$TAG-z-single-np1"
+      RUN_NP=1 run "$single" sod-z.ini "$VERIF_DIR/sod/sod-z.ini"
+      multi="$CASE_DIR/work-$TAG-z-2realm-np1"
+      RUN_NP=1 run "$multi" sod-2realm-z.ini "${zfiles[@]}"
+      "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+   fi
 fi
-echo "   $(basename "$work"): refused as expected"
-echo "== leg 5: seam blocks that do not line up (issue #51)"
-bfiles=("$CASE_DIR/sod-2realm-blocks.ini" "$CASE_DIR/sod-2realm-blocks-r1.ini" "$CASE_DIR/sod-2realm-blocks-r2.ini")
-multi="$CASE_DIR/work-$TAG-blocks"
-run "$multi" sod-2realm-blocks.ini "${bfiles[@]}"
-"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-single" --ngc 3 --tol 0
-bfiles=("$CASE_DIR/sod-2realm-blocks-z.ini" "$CASE_DIR/sod-2realm-blocks-z-r1.ini" "$CASE_DIR/sod-2realm-blocks-z-r2.ini")
-multi="$CASE_DIR/work-$TAG-blocks-z"
-run "$multi" sod-2realm-blocks-z.ini "${bfiles[@]}"
-"$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-z-single" --ngc 3 --tol 0
-for cfg in "seam_restriction = lagrange6|lagrange6 *restriction" "seam_restriction = weno6|weno6 *restriction" \
-           "seam_ghost_fill = quintic|seam ghost fill regime: *+3" \
-           "seam_ghost_fill = weno6|seam ghost fill regime: *+4" \
-           "seam_ghost_fill = quintic-mp|seam ghost fill regime: *+5"; do
-key="${cfg%%|*}" ; pat="${cfg#*|}" ; rs="${key%% *}-${key##* }" # e.g. seam_ghost_fill-weno6
-echo "== leg 6: leg 4 with [amr] $key (issue #68 C2, C3, D1)"
-# the refined seam's coarse ghosts take the 6-point restriction of the fine owner (the codes and the regime packed in
-# the send rows' meta), its fine ghosts the quintic fill of the coarse owner (the 6-point anchor shifts in the meta),
-# the intra-realm 2:1 face the same: the unions must still reproduce the single-realm runs bit for bit, which they
-# cannot if either side uses another operator (the shock crosses the seam); the single run must log the regime
-l6_dir="$CASE_DIR/work-$TAG-$rs-src" ; rm -rf "$l6_dir" ; mkdir -p "$l6_dir"
-for f in sod-amr.ini sod-amr-z.ini sod-amr-refined-r1.ini sod-amr-refined-r2.ini sod-amr-refined-z-r1.ini \
-         sod-amr-refined-z-r2.ini; do
-   # the octree refines the null axes too, so their 4-cell blocks would not fit the 6-point footprint (fatal): 8
-   sed -e "s/^\[amr\]/&\n$key/" -e 's/^\(n[ijk]\) *= *4 *$/\1 = 8/' \
-       "$CASE_DIR/$f" > "$l6_dir/$f"
-done
-for axis in x z; do
-   sfx="" ; [[ $axis == z ]] && sfx="-z"
-   single="$CASE_DIR/work-$TAG-$rs-amr$sfx-single"
-   run "$single" "sod-amr$sfx.ini" "$l6_dir/sod-amr$sfx.ini"
-   if ! grep -aq "$pat" "$single/log.txt"; then
-      echo "check.sh: [amr] $key is not active in $single/log.txt" >&2
+if has_leg leg4; then
+   echo "== leg 4: refined (2:1) 2-realm Sod vs sod-amr (issue #52)"
+   rfiles=("$CASE_DIR/sod-amr-refined.ini" "$CASE_DIR/sod-amr-refined-r1.ini" "$CASE_DIR/sod-amr-refined-r2.ini")
+   multi="$CASE_DIR/work-$TAG-refined"
+   run "$multi" sod-amr-refined.ini "${rfiles[@]}"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-amr-single" --ngc 3 --tol 0
+   single="$CASE_DIR/work-$TAG-amr-z-single"
+   run "$single" sod-amr-z.ini "$CASE_DIR/sod-amr-z.ini"
+   multi="$CASE_DIR/work-$TAG-refined-z"
+   run "$multi" sod-amr-refined-z.ini "$CASE_DIR/sod-amr-refined-z.ini" "$CASE_DIR/sod-amr-refined-z-r1.ini" \
+       "$CASE_DIR/sod-amr-refined-z-r2.ini"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+   work="$CASE_DIR/work-$TAG-refined-as-mirror"
+   mirror_dir="$CASE_DIR/work-$TAG-refined-as-mirror-src" ; rm -rf "$mirror_dir" ; mkdir -p "$mirror_dir"
+   sed 's/^coupling *= *refined/coupling         = mirror/' "${rfiles[0]}" > "$mirror_dir/sod-amr-refined.ini"
+   RUN_MUST_FAIL=1 run "$work" sod-amr-refined.ini "$mirror_dir/sod-amr-refined.ini" "${rfiles[1]}" "${rfiles[2]}"
+   if ! grep -aq \
+        'error stop forest_object%populate_inter_realm_topology: .*coupling = mirror joins cells of the same size' \
+        "$work/log.txt"; then
+      echo "check.sh: the refined pair declared mirror was not refused, see $work/log.txt" >&2
       exit 1
    fi
-   multi="$CASE_DIR/work-$TAG-$rs-refined$sfx"
-   run "$multi" "sod-amr-refined$sfx.ini" "$CASE_DIR/sod-amr-refined$sfx.ini" "$l6_dir/sod-amr-refined$sfx-r1.ini" \
-       "$l6_dir/sod-amr-refined$sfx-r2.ini"
-   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
-done
-done
-echo "multi-realm verification PASSED ($TAG)"
+   echo "   $(basename "$work"): refused as expected"
+   work="$CASE_DIR/work-$TAG-refined-limiter"
+   limiter_dir="$CASE_DIR/work-$TAG-refined-limiter-src" ; rm -rf "$limiter_dir" ; mkdir -p "$limiter_dir"
+   for f in "${rfiles[@]:1}"; do
+      sed 's/^\[numerics\]/&\npositivity_limiter = cell/' "$f" > "$limiter_dir/$(basename "$f")"
+   done
+   RUN_MUST_FAIL=1 run "$work" sod-amr-refined.ini "${rfiles[0]}" "$limiter_dir"/sod-amr-refined-r?.ini
+   if ! grep -aq 'positivity_limiter)=cell is not supported on multi-realm runs' "$work/log.txt"; then
+      echo "check.sh: the positivity limiter on the refined pair was not refused, see $work/log.txt" >&2
+      exit 1
+   fi
+   echo "   $(basename "$work"): refused as expected"
+fi
+if has_leg leg5; then
+   echo "== leg 5: seam blocks that do not line up (issue #51)"
+   bfiles=("$CASE_DIR/sod-2realm-blocks.ini" "$CASE_DIR/sod-2realm-blocks-r1.ini" "$CASE_DIR/sod-2realm-blocks-r2.ini")
+   multi="$CASE_DIR/work-$TAG-blocks"
+   run "$multi" sod-2realm-blocks.ini "${bfiles[@]}"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-single" --ngc 3 --tol 0
+   bfiles=("$CASE_DIR/sod-2realm-blocks-z.ini" "$CASE_DIR/sod-2realm-blocks-z-r1.ini"
+           "$CASE_DIR/sod-2realm-blocks-z-r2.ini")
+   multi="$CASE_DIR/work-$TAG-blocks-z"
+   run "$multi" sod-2realm-blocks-z.ini "${bfiles[@]}"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-z-single" --ngc 3 --tol 0
+fi
+if has_leg leg6; then
+   for cfg in "seam_restriction = lagrange6|lagrange6 *restriction" "seam_restriction = weno6|weno6 *restriction" \
+              "seam_ghost_fill = quintic|seam ghost fill regime: *+3" \
+              "seam_ghost_fill = weno6|seam ghost fill regime: *+4" \
+              "seam_ghost_fill = quintic-mp|seam ghost fill regime: *+5"; do
+   key="${cfg%%|*}" ; pat="${cfg#*|}" ; rs="${key%% *}-${key##* }" # e.g. seam_ghost_fill-weno6
+   echo "== leg 6: leg 4 with [amr] $key (issue #68 C2, C3, D1)"
+   # the refined seam's coarse ghosts take the 6-point restriction of the fine owner (the codes and the regime packed in
+   # the send rows' meta), its fine ghosts the quintic fill of the coarse owner (the 6-point anchor shifts in the meta),
+   # the intra-realm 2:1 face the same: the unions must still reproduce the single-realm runs bit for bit, which they
+   # cannot if either side uses another operator (the shock crosses the seam); the single run must log the regime
+   l6_dir="$CASE_DIR/work-$TAG-$rs-src" ; rm -rf "$l6_dir" ; mkdir -p "$l6_dir"
+   for f in sod-amr.ini sod-amr-z.ini sod-amr-refined-r1.ini sod-amr-refined-r2.ini sod-amr-refined-z-r1.ini \
+            sod-amr-refined-z-r2.ini; do
+      # the octree refines the null axes too, so their 4-cell blocks would not fit the 6-point footprint (fatal): 8
+      sed -e "s/^\[amr\]/&\n$key/" -e 's/^\(n[ijk]\) *= *4 *$/\1 = 8/' \
+          "$CASE_DIR/$f" > "$l6_dir/$f"
+   done
+   for axis in x z; do
+      sfx="" ; [[ $axis == z ]] && sfx="-z"
+      single="$CASE_DIR/work-$TAG-$rs-amr$sfx-single"
+      run "$single" "sod-amr$sfx.ini" "$l6_dir/sod-amr$sfx.ini"
+      if ! grep -aq "$pat" "$single/log.txt"; then
+         echo "check.sh: [amr] $key is not active in $single/log.txt" >&2
+         exit 1
+      fi
+      multi="$CASE_DIR/work-$TAG-$rs-refined$sfx"
+      run "$multi" "sod-amr-refined$sfx.ini" "$CASE_DIR/sod-amr-refined$sfx.ini" "$l6_dir/sod-amr-refined$sfx-r1.ini" \
+          "$l6_dir/sod-amr-refined$sfx-r2.ini"
+      "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+   done
+   done
+fi
+echo "multi-realm verification PASSED (legs: $LEGS) ($TAG)"

@@ -58,7 +58,7 @@ reported for comparison.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/gravity/make_atmosphere.py` | writes the cases (`--balanced`, `--pulse A`, `--time-max`, `--riemann hlld`) |
-| `src/tests/flume/verification/gravity/check.sh` | runs the G2b legs with the force legs; `--agree TAG` adds GV-7 |
+| `src/tests/flume/verification/gravity/check.sh` | runs the G2b legs with the force legs (`--legs gv2b,gv5,gv8,gv10`); `--agree TAG` adds GV-7 |
 | `src/tests/flume/verification/gravity/atmosphere_oracle.py` | `rest` ($\max|\mathbf u|/c$, `--max 1e-12`), `linear` (GV-10, $10^{-2}$), `agree` (GV-7, $10^{-10}$) |
 | `src/tests/flume/verification/make_doc_runs.sh` (group `gravity`) | re-runs `{strat2d,polystrat2d,strat2d-amr}-{unb,bal}` saved every 5 steps and `lin-{unb,bal}-{6,4}` |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_gravity_balance`) | draws the figure |

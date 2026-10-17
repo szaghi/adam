@@ -52,7 +52,7 @@ What the case catches:
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/mhd/field-loop/make_field_loop.py` | writes the input from `vortex/vortex-n064.ini` (`--cells`, `--time-max`, `--glm-ch`, `--vz`, `--refine-box`) |
-| `src/tests/flume/verification/mhd/field-loop/check.sh` | runs the ladder (`--amr`, `--agree`, `--numerics SPEC`) |
+| `src/tests/flume/verification/mhd/field-loop/check.sh` | runs the ladder (`--amr`, `--agree`, `--numerics SPEC`, `--legs mv9`) |
 | `src/tests/flume/verification/mhd/field-loop/field_loop_oracle.py` | $\langle\lvert B_z\rvert\rangle/A_0$, its rate, $E_B(T)/E_B(0)$, the CPU–FNL agreement |
 | `src/tests/flume/verification/mhd/seam_divb_oracle.py` | the seam div(B) decay (`--amr`) |
 | `src/tests/flume/verification/make_doc_figures.py` `fig_field_loop` | draws `field-loop.png` from `<runs>/field-loop` (`--only field-loop`) |

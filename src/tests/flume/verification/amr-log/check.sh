@@ -19,7 +19,8 @@
 # whose work directories then end in -reflux-P; under `troubled` the reflux is partial, so their drift is logged, not
 # asserted.
 #
-# Usage: ./check.sh [--np N] [--leg vortex|sod ...] [--reflux-policy always|troubled] [--keep]
+# Usage: ./check.sh [--np N] [--legs vortex,sod|all] [--reflux-policy always|troubled] [--keep]   (default: vortex,sod;
+#        --leg L is an older spelling of --legs, repeatable)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -27,25 +28,29 @@ set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 VERIF="$(cd "$CASE_DIR/.." && pwd)"
+VERIF_DIR="$VERIF"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
+source "$VERIF_DIR/legs.sh"
+legs_declare "vortex sod" "vortex sod"
 NP=2
 KEEP=0
-LEGS=()
 POLICY=""
 DRIFT_MAX="1.0e-13"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)   NP="$2" ; shift 2 ;;
-      --leg)  LEGS+=("$2") ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      --leg)  legs_select "$2" ; shift 2 ;;
       --keep) KEEP=1 ; shift ;;
       --reflux-policy) POLICY="$2" ; shift 2 ;;
-      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --leg L, --reflux-policy P, --keep)" >&2
+      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs L, --leg L, --reflux-policy P," \
+                   "--keep)" >&2
               exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(vortex sod)
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -70,7 +75,7 @@ run() { # run <work> <case> <generator> [generator options]: write the input, ru
 }
 
 echo ">> AL: integral drift and WENO sensor near 2:1 seams ($(basename "$EXE"), np $NP)"
-for leg in "${LEGS[@]}"; do
+for leg in $LEGS; do
    pre="$CASE_DIR/work-$TAG-$leg"
    case "$leg" in
       vortex)
@@ -87,7 +92,6 @@ for leg in "${LEGS[@]}"; do
          run "$pre-noreflux" sod "$VERIF/amr-shock/make_amr_shock.py" --cells 200 --side c2f --it-save 10 \
              --no-reflux || continue
          vars=(r rE) ; where=(--seam-x 0.75) ;;
-      *) echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
    if [[ $POLICY == troubled ]]; then
       "$VENV_PY" "$CASE_DIR/amr_log.py" drift "$pre-$ON" --vars "${vars[@]}"
@@ -102,8 +106,8 @@ if [[ $KEEP -eq 0 ]]; then
 fi
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "AL PASSED ($TAG)"
+   echo "AL PASSED ($TAG, legs: $LEGS)"
 else
-   echo "AL FAILED ($TAG)"
+   echo "AL FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

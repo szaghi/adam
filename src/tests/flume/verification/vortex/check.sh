@@ -12,7 +12,7 @@
 # The ladder is 64/128/256 and the order is asserted on the finest pair only: 64 -> 128 is pre-asymptotic (the vortex
 # radius spans 4.5 cells at 64, and WENO-JS weights are still far from optimal there; measured L1 order 4.15).
 #
-# Usage: ./check.sh [--build] [--np N]
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: v2 (the only leg) or all (default v2)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12);
@@ -20,20 +20,25 @@
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 ORDER_MIN="4.5"
 NP=2
 BUILD=0
 LADDER=(064 128 256)
+source "$VERIF_DIR/legs.sh"
+legs_declare "v2"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --build)       BUILD=1 ; shift ;;
       --np)          NP="$2" ; shift 2 ;;
-      *)             echo "check.sh: unknown argument '$1' (accepted: --build, --np N)" >&2 ; exit 2 ;;
+      --legs)        legs_select "$2" ; shift 2 ;;
+      *)             echo "check.sh: unknown argument '$1' (accepted: --build, --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 
 if [[ $BUILD -eq 1 ]]; then
    (cd "$REPO_ROOT" && fobis build --mode flume-cpu-gnu)

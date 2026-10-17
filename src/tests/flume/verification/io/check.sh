@@ -13,7 +13,8 @@
 #   2. sod-x with [IO] save_auxiliary_fields and one trilinear slice on the x cell centres: io_oracle.py checks the
 #      auxiliary fields against the conservative ones and the slice against the cell values.
 #
-# Usage: ./check.sh [--build] [--np N]
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]
+# Legs (default: all): v7 (leg 1, the restart round trips), slices (leg 2, slices and auxiliary fields).
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12);
@@ -26,14 +27,18 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
+source "$VERIF_DIR/legs.sh"
+legs_declare "v7 slices"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --build) BUILD=1 ; shift ;;
       --np)    NP="$2" ; shift 2 ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N)" >&2 ; exit 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 
 if [[ $BUILD -eq 1 ]]; then
    (cd "$REPO_ROOT" && fobis build --mode flume-cpu-gnu)
@@ -88,20 +93,24 @@ restart_round_trip() { # restart_round_trip <case-ini> <N>
    done
 }
 
-restart_round_trip "$VERIF_DIR/sod/sod-x.ini" 40
-restart_round_trip "$VERIF_DIR/conservation/amr-periodic.ini" 20
-restart_round_trip "$VERIF_DIR/shock-cylinder/shock-cylinder.ini" 40
-# issue #42: 8 blocks, all on rank 0 after the uniform refinement at np 2, so rank 1 owns none when the restart is
-# saved; it used to write no .fbd and the restart aborted (error -104). The state is uniform, so this leg checks that
-# an empty rank saves and restarts, not the field values.
-restart_round_trip "$VERIF_DIR/uniform/input.ini" 10
+if has_leg v7; then
+   restart_round_trip "$VERIF_DIR/sod/sod-x.ini" 40
+   restart_round_trip "$VERIF_DIR/conservation/amr-periodic.ini" 20
+   restart_round_trip "$VERIF_DIR/shock-cylinder/shock-cylinder.ini" 40
+   # issue #42: 8 blocks, all on rank 0 after the uniform refinement at np 2, so rank 1 owns none when the restart is
+   # saved; it used to write no .fbd and the restart aborted (error -104). The state is uniform, so this leg checks
+   # that an empty rank saves and restarts, not the field values.
+   restart_round_trip "$VERIF_DIR/uniform/input.ini" 10
+fi
 
-work="$CASE_DIR/work-$TAG-sod-x-io"
-rm -rf "$work" ; mkdir -p "$work"
-echo ">> slices and auxiliary fields: sod-x, 40 steps"
-sed -e "s/^it_max   = .*/it_max   = 40/" -e "s/^save_auxiliary_fields  = .*/save_auxiliary_fields  = .true./" \
-    -e "s/^slices_number = 0/slices_number = 1\n\n[slice_1]\nitype  = trilinear\nn_save = 40\nni     = 200\nnj     = 1\nnk     = 1\nemin_x = 0.0\nemin_y = 0.46875\nemin_z = 0.46875\nemax_x = 1.0\nemax_y = 0.53125\nemax_z = 0.53125/" \
-    "$VERIF_DIR/sod/sod-x.ini" > "$work/sod-x.ini"
-run "$work" sod-x.ini log.txt
-"$VENV_PY" "$CASE_DIR/io_oracle.py" "$work"
-echo "I/O verification PASSED ($TAG)"
+if has_leg slices; then
+   work="$CASE_DIR/work-$TAG-sod-x-io"
+   rm -rf "$work" ; mkdir -p "$work"
+   echo ">> slices and auxiliary fields: sod-x, 40 steps"
+   sed -e "s/^it_max   = .*/it_max   = 40/" -e "s/^save_auxiliary_fields  = .*/save_auxiliary_fields  = .true./" \
+       -e "s/^slices_number = 0/slices_number = 1\n\n[slice_1]\nitype  = trilinear\nn_save = 40\nni     = 200\nnj     = 1\nnk     = 1\nemin_x = 0.0\nemin_y = 0.46875\nemin_z = 0.46875\nemax_x = 1.0\nemax_y = 0.53125\nemax_z = 0.53125/" \
+       "$VERIF_DIR/sod/sod-x.ini" > "$work/sod-x.ini"
+   run "$work" sod-x.ini log.txt
+   "$VENV_PY" "$CASE_DIR/io_oracle.py" "$work"
+fi
+echo "I/O verification PASSED ($TAG, legs: $LEGS)"

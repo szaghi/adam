@@ -22,20 +22,23 @@
 # Cost, 2 ranks: sod about 7 min on the CPU, 8 min on FNL; rj2a about 25 min on FNL and hours on the CPU (the octree
 # refines the null y and z too: 88 and 200 blocks against 32), so run the rj2a leg on FNL.
 #
-# Usage: ./check.sh [--np N] [--leg sod|rj2a ...] [--long] [--keep]
+# Usage: ./check.sh [--np N] [--legs sod,rj2a|all] [--long] [--keep]   (default: sod,rj2a; --leg L is an older spelling
+#        of --legs, repeatable)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
+source "$VERIF_DIR/legs.sh"
+legs_declare "sod rj2a" "sod rj2a"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 NP=2
 KEEP=0
 LONG=0
-LEGS=()
 MASS_MAX="1.0e-8"
 SHOCK_MAX="0.5"
 SPREAD_MAX="1.0e-12"
@@ -54,13 +57,15 @@ declare -A BOUNDS=(
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)   NP="$2" ; shift 2 ;;
-      --leg)  LEGS+=("$2") ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      --leg)  legs_select "$2" ; shift 2 ;;
       --long) LONG=1 ; shift ;;
       --keep) KEEP=1 ; shift ;;
-      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --leg L, --long, --keep)" >&2 ; exit 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs L, --leg L, --long, --keep)" >&2
+              exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(sod rj2a)
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -87,8 +92,7 @@ oracle() { # oracle <control> <refined> [bounds]: compare a refined run with its
 }
 
 echo ">> AS: a shock crossing a static 2:1 face ($(basename "$EXE"), np $NP)"
-for leg in "${LEGS[@]}"; do
-   [[ -n "${CELLS[$leg]:-}" ]] || { echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ; }
+for leg in $LEGS; do
    ladder=("${CELLS[$leg]}") ; [[ $LONG -eq 1 ]] && ladder+=($(( 2 * CELLS[$leg] )))
    for n in "${ladder[@]}"; do
       echo "-- $leg, N = $n"
@@ -109,8 +113,8 @@ if [[ $KEEP -eq 0 ]]; then
 fi
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "AS PASSED ($TAG)"
+   echo "AS PASSED ($TAG, legs: $LEGS)"
 else
-   echo "AS FAILED ($TAG)"
+   echo "AS FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

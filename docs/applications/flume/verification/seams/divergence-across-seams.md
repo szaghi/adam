@@ -54,14 +54,14 @@ What the case catches:
 | `src/tests/flume/verification/amr-divb/make_amr_divb.py` | writes the inputs from `mhd/cpaw/make_cpaw.py` and `mhd/field-loop/make_field_loop.py`; `--uniform`, `--periods`, `--cleaning`, `--time-max`, `--history` |
 | `src/tests/flume/verification/mhd/amr_box.py` | `refine_box`: the refined region, one 2:1 level at initialisation |
 | `src/tests/flume/verification/amr-divb/amr_divb_oracle.py` | `growth` (the `cpaw` floors, growth and orders) and `loop` (a report) |
-| `src/tests/flume/verification/amr-divb/check.sh` | runs the legs (`--leg cpaw` or `--leg loop`, `--long`, `--np N`, `--keep`) |
+| `src/tests/flume/verification/amr-divb/check.sh` | runs the legs (`--legs cpaw,loop`, `--long`, `--np N`, `--keep`) |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> divb` (FNL), `make_doc_figures.py --only divergence-across-seams` | re-runs the field loops (GLM, EGLM; refined, without reflux, uniform) with the history every step; the CPAW panel reads the histories of `check.sh` |
 
 ```bash
 cd src/tests/flume/verification/amr-divb
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh          # FNL: about 12 min
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --long   # adds N = 256 (30 more minutes)
-./check.sh --leg loop                                                # the loop leg on the CPU
+./check.sh --legs loop                                               # the loop leg on the CPU
 ```
 
 The `cpaw` leg costs about 2 h on the CPU ($N = 128$ dominates): run it on FNL.

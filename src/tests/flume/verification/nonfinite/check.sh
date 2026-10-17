@@ -7,7 +7,7 @@
 # pressure = nan) and requires the run to fail with the guard's message; a guard that never fires would pass every
 # other test unnoticed.
 #
-# Usage: ./check.sh [--np N]
+# Usage: ./check.sh [--np N] [--legs nonfinite|all]   (one leg, the default)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -18,13 +18,17 @@ VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
+source "$VERIF_DIR/legs.sh"
+legs_declare "nonfinite"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
-      --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --np)   NP="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2

@@ -51,7 +51,7 @@ through the `--divergence-control eglm` option of the glm-pulse, Orszag–Tang a
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/mhd/glm-pulse/check.sh --divergence-control eglm` | EV-2 |
-| `src/tests/flume/verification/mhd/rj2a/check.sh` | EV-3 (the EGLM leg is part of the default run) |
+| `src/tests/flume/verification/mhd/rj2a/check.sh` | EV-3 (the EGLM leg `ev3`, which needs `mv4`, is part of the default run) |
 | `src/tests/flume/verification/mhd/orszag-tang/check.sh --divergence-control eglm` | EV-4 and the symmetry |
 | `src/tests/flume/verification/mhd/eglm_conservation_oracle.py` | the EV-4 drift bounds |
 | `src/tests/flume/verification/mhd/linear-wave/check.sh --divergence-control eglm` | MV-5 under EGLM |

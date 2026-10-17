@@ -52,9 +52,9 @@ cases, unchanged except for the units.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/scaling/scaling.py` | `rescale`, `dimensionalize`, `physical`, `compare` (`--conservative`, `--output`), `check-log` |
-| `src/tests/flume/verification/scaling/check.sh` | NV-0 / NV-4 (`--weights js\|si`, `--expect-bitwise`, `--cases`) |
-| `src/tests/flume/verification/scaling/reference.sh` | NV-5, NV-8 (`--restart`), NV-9 (`--output`) |
-| `src/tests/flume/verification/scaling/interstellar.sh`, `interstellar_oracle.py` | NV-6 |
+| `src/tests/flume/verification/scaling/check.sh` | NV-0 / NV-4 (`--weights js\|si`, `--expect-bitwise`, `--legs LIST`: `sod-x`, `vortex`, `rj2a`, `blast`, `orszag-tang`, default all) |
+| `src/tests/flume/verification/scaling/reference.sh` | NV-5, NV-8 (`--restart`), NV-9 (`--output`); `--legs LIST` names regression cases, default every case for NV-5 and the cases of the table for NV-8 and NV-9; `--inputs` takes no leg selection |
+| `src/tests/flume/verification/scaling/interstellar.sh`, `interstellar_oracle.py` | NV-6 (`--legs LIST`: `nv6-weno`, `nv6-weno-riemann`, default both) |
 | `src/tests/flume/verification/scaling/weights-exe.sh` | runs any verification script with `[weno] weights = si` (`FLUME_EXE` pointed at it, `WEIGHTS_EXE` at the executable) |
 | `src/tests/flume/regression/*/input.ini` | the inputs of NV-0, NV-5, NV-8, NV-9 |
 

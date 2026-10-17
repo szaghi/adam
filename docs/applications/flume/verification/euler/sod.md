@@ -54,14 +54,14 @@ The scheme options are described in [numerics](../../numerics).
 |---|---|
 | `src/tests/flume/verification/sod/sod-{x,y,z}.ini` | the three directions |
 | `src/tests/flume/verification/sod/sod-wall-{x,y,z}.ini` | the reflecting-wall double Sod |
-| `src/tests/flume/verification/sod/check.sh` | runs the cases (`--wall`, `--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/sod/check.sh` | runs the cases (`--np N`, `--legs LIST`: `v1` (default) and `v1-wall`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/sod/sod_oracle.py` | the exact solution, the $L_1$ bound, the bitwise and mirror checks |
-| `src/tests/flume/verification/riemann-flux/check.sh --leg sod` | the `weno-riemann` runs (RV-3) |
+| `src/tests/flume/verification/riemann-flux/check.sh --legs sod` | the `weno-riemann` runs (RV-3) |
 
 ```bash
 cd src/tests/flume/verification/sod && ./check.sh             # CPU
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh   # FNL
-./check.sh --wall                                             # the reflecting-wall variant
+./check.sh --legs v1-wall                                     # the reflecting-wall variant
 ```
 
 The figure is drawn by `make_doc_figures.py` (`fig_sod`) from the work directories of the two scripts.

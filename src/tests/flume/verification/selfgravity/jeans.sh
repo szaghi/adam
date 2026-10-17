@@ -37,7 +37,8 @@
 #     changes of E + W stay below TOL_STEP, the momentum and the mass at round-off. (Isolated boundaries under runtime
 #     AMR: star.sh, SV-14.)
 #
-# Usage: ./jeans.sh [--np N] [--legs "sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave sv11"] [--keep]
+# Usage: ./jeans.sh [--np N] [--legs LIST] [--keep]   LIST: sv3-2d, sv3-3d, sv4, sv5, sv10, sv10-wave, sv11 or all
+#        (default all)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft, mode flume-cpu-gnu-fft; FNL:
 # exe/adam_flume_fnl_fft, mode flume-fnl-nvf-fft). The caller owns the matching environment (FNL: nvhpc mpirun on PATH
@@ -45,10 +46,12 @@
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 NP=2
-LEGS="sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave sv11"
+source "$VERIF_DIR/legs.sh"
+legs_declare "sv3-2d sv3-3d sv4 sv5 sv10 sv10-wave sv11"
 KEEP=0
 MIN_ORDER=1.8
 TOL_GROWTH=1.0e-2
@@ -64,11 +67,12 @@ REGRID=5
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)   NP="$2" ; shift 2 ;;
-      --legs) LEGS="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
       --keep) KEEP=1 ; shift ;;
       *)      echo "jeans.sh: unknown argument '$1' (accepted: --np N, --legs LIST, --keep)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve jeans.sh
 if [[ ! -x "$EXE" ]]; then
    echo "jeans.sh: executable '$EXE' not found (build mode flume-cpu-gnu-fft or set FLUME_EXE)" >&2 ; exit 2
 fi
@@ -184,12 +188,10 @@ for leg in $LEGS; do
          echo ">> SV-5: scaling covariance with G"
          case_dir sv5-input jeans2d --cells 8 --time-max 0.2
          FLUME_EXE="$EXE" "$CASE_DIR/../scaling/reference.sh" --np "$NP" --inputs "$W/input.ini" || FAILED=1 ;;
-      *)
-         echo "jeans.sh: unknown leg '$leg' (accepted: sv3-2d, sv3-3d, sv4, sv5, sv10, sv10-wave, sv11)" >&2 ; exit 2 ;;
    esac
 done
 if [[ $KEEP -eq 0 && $FAILED -eq 0 ]]; then rm -rf "${WORKS[@]}" ; fi
 if [[ $FAILED -ne 0 ]]; then
-   echo "SV-3..5, SV-10, SV-11 FAILED ($TAG)" ; exit 1
+   echo "SV-3..5, SV-10, SV-11 FAILED ($TAG, legs: $LEGS)" ; exit 1
 fi
-echo "SV-3..5, SV-10, SV-11 PASSED ($TAG)"
+echo "SV-3..5, SV-10, SV-11 PASSED ($TAG, legs: $LEGS)"

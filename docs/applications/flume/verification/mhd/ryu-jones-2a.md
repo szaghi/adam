@@ -58,7 +58,7 @@ sets the time step and the GLM run takes the same steps as the run without clean
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/mhd/rj2a/make_rj2a.py` | writes the input from `sod/sod-{x,y,z}.ini` (`--axis`, `--cells`, `--divergence-control none\|glm\|eglm`) |
-| `src/tests/flume/verification/mhd/rj2a/check.sh` | runs the legs (`--np N`, `--numerics SPEC`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/mhd/rj2a/check.sh` | runs the legs (`--np N`, `--numerics SPEC`, `--legs LIST`: `mv4`, `rv6` (with `--numerics hlld[:...]` only), `ev3`; `rv6` and `ev3` need `mv4`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/mhd/rj2a/rj2a_oracle.py` | the exact 7-state solution, the $L_1$ bound, the 1-D consistency, the bitwise direction and pair checks |
 | `src/tests/flume/verification/mhd/numerics.sh` | the shared `--numerics` option ([MHD on `weno-riemann`](./weno-riemann)) |
 | `src/tests/flume/verification/make_doc_runs.sh` group `rj2a` | re-runs `rj2a` (splitting) and `rj2a-hlld` at 256 cells with checkpoints kept |

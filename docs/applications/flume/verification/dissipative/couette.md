@@ -46,13 +46,13 @@ shows as a departure from the exact profile.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/viscous/profiles.py` | `make --case couette` writes each input; `oracle` measures the RMS of $u/U$ and $T/T_w$ against the exact profile |
-| `src/tests/flume/verification/viscous/check.sh --leg vv3` | runs the ladder (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/viscous/check.sh --legs vv3` | runs the ladder (`--np N`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/regression/couette/input.ini` | the frozen case, $t = 0.05$ |
 | `make_doc_figures.py` (`fig_couette`, `fig_viscous`) | the figures, from the CPU work directories of `viscous/check.sh` |
 
 ```bash
-cd src/tests/flume/verification/viscous && ./check.sh --leg vv3             # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv3       # FNL
+cd src/tests/flume/verification/viscous && ./check.sh --legs vv3             # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs vv3       # FNL
 ```
 
 ## Results

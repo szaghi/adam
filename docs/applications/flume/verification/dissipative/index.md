@@ -29,7 +29,7 @@ Run every leg:
 cd src/tests/flume/verification/dissipation && ./check.sh                   # DC, CPU
 cd src/tests/flume/verification/viscous && ./check.sh                       # VV-1 to VV-8, CPU
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh                 # FNL
-./check.sh --leg agree                                                      # CPU against FNL
+./check.sh --legs agree                                                     # CPU against FNL
 ```
 
 The figures (`viscous.png`, `viscous-fields.png`, `couette.png`) are drawn by `make_doc_figures.py` from the CPU work

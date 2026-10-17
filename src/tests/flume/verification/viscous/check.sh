@@ -37,17 +37,20 @@
 #        last checkpoint, each difference over the physical scale of its variable (waves.py agree): <= AGREE_TOL.
 #        Needs the work directories of both executables (run the legs with each first); not in the default set.
 #
-# Usage: ./check.sh [--np N] [--leg vv1|vv2|vv3|vv4|vv5|vv6|vv7|vv8|agree ...]
+# Usage: ./check.sh [--np N] [--legs LIST]   LIST: vv1, vv2, vv3, vv4, vv5, vv6, vv7, vv8, agree or all (default vv1 to
+#        vv8); --leg L (repeatable) is an older spelling of --legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
-LEGS=()
+source "$VERIF_DIR/legs.sh"
+legs_declare "vv1 vv2 vv3 vv4 vv5 vv6 vv7 vv8 agree" "vv1 vv2 vv3 vv4 vv5 vv6 vv7 vv8"
 ORDER4_MIN="3.8"
 ORDER2_MIN="1.9"
 BECKER_ORDER_MIN="3.0"
@@ -60,12 +63,13 @@ AGREE_TOL="1.0e-10"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
-      --np)  NP="$2" ; shift 2 ;;
-      --leg) LEGS+=("$2") ; shift 2 ;;
-      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --leg L)" >&2 ; exit 2 ;;
+      --np)   NP="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      --leg)  legs_select "$2" ; shift 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(vv1 vv2 vv3 vv4 vv5 vv6 vv7 vv8)
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -152,7 +156,7 @@ budget() { # budget <name> <waves.py make options...>: the resistive run and its
 }
 
 echo ">> VV: Navier-Stokes and Ohmic dissipative fluxes ($TAG)"
-for leg in "${LEGS[@]}"; do
+for leg in $LEGS; do
    case "$leg" in
       vv1)
          ladder waves.py shear-x-o4 "$ORDER4_MIN" "32 64 128" --mode shear --angle 0 --order 4
@@ -216,13 +220,12 @@ for leg in "${LEGS[@]}"; do
          done
          if [[ $pairs -eq 0 ]]; then echo "   no CPU/FNL pair of work directories: run the legs on both first" ; FAILED=1
          else echo "   $pairs pairs compared"; fi ;;
-      *) echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
 done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "VV PASSED ($TAG)"
+   echo "VV PASSED ($TAG, legs: $LEGS)"
 else
-   echo "VV FAILED ($TAG)"
+   echo "VV FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

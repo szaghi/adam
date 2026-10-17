@@ -15,7 +15,7 @@
 # For reference, Toth's second-order base scheme at 63.4 degrees, N = 256 on his strip (twice the cells across the fan
 # of N = 256 here): dB_par 0.0037, mean error 0.0238. One run at a time; checkpoints deleted after use; ~30 min.
 #
-# Usage: ./check.sh [--np N]
+# Usage: ./check.sh [--np N] [--legs LIST]   LIST: mv8-63 (tan^-1 2), mv8-45 or all (default all)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -32,13 +32,17 @@ DBPAR_MAX_63=(6.146e-03 2.842e-03) # CPU baseline (M2-P6d) plus 2 %, per N of th
 DMEAN_MAX_63=(8.989e-02 4.095e-02)
 DBPAR_MAX_45=(6.424e-03 4.252e-03)
 DMEAN_MAX_45=(5.440e-02 2.600e-02)
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv8-63 mv8-45"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -60,6 +64,7 @@ case_run() { # case_run <angle> <cells> <2d|ref>: run one case, print its work d
 }
 
 for angle in 63 45; do
+   has_leg "mv8-$angle" || continue
    echo ">> MV-8 rotated shock tube, normal angle $angle, N = ${LADDER[*]} ($(basename "$EXE"), np $NP)"
    ref="$(case_run "$angle" "$REFERENCE" ref)" || exit 1
    works=()
@@ -76,8 +81,8 @@ for angle in 63 45; do
 done
 
 if [[ $STATUS -eq 0 ]]; then
-   echo "MV-8 PASSED ($TAG)"
+   echo "MV-8 PASSED (legs: $LEGS) ($TAG)"
 else
-   echo "MV-8 FAILED ($TAG)"
+   echo "MV-8 FAILED (legs: $LEGS) ($TAG)"
    exit 1
 fi

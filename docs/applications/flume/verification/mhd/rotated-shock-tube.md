@@ -46,7 +46,7 @@ What the case catches:
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/mhd/rotated-shock-tube/make_rotated_shock_tube.py` | writes the 2-D input from `vortex/vortex-n064.ini` or the 1-D reference from `sod/sod-x.ini` (`--angle 45\|63`, `--cells`, `--reference`, `--cfl`, `--glm-ch`) |
-| `src/tests/flume/verification/mhd/rotated-shock-tube/check.sh` | runs the reference and the ladder for both normals (`--np N`; about 30 min) |
+| `src/tests/flume/verification/mhd/rotated-shock-tube/check.sh` | runs the reference and the ladder for both normals (`--np N`, `--legs LIST`: `mv8-63`, `mv8-45`; about 30 min) |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> rotated`, `make_doc_figures.py --only rotated-shock-tube` | re-runs both normals at $N = 256$ and their 1-D references with checkpoints kept (4 runs, about 40 min) |
 | `src/tests/flume/verification/mhd/rotated-shock-tube/rotated_shock_tube_oracle.py` | $\delta B_\parallel$ and the mean relative error against the reference |
 

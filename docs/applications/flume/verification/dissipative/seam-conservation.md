@@ -54,13 +54,13 @@ refined-box leg keeps the quadtree; the octree's 2:1 seams are exercised by the 
 |---|---|
 | `src/tests/flume/verification/viscous/waves.py` | `make --refine ... --reflux`, `split` (the two-realm forest), `conserve` (the drift oracle) |
 | `src/tests/flume/verification/multirealm/multirealm_oracle.py` | the forest union against the single realm (`--fields-only`) |
-| `src/tests/flume/verification/viscous/check.sh --leg vv7` | runs the 6 refined-box runs and the 8 forest runs (`--np N`; `FLUME_EXE` selects the backend) |
-| `src/tests/flume/verification/make_doc_figures.py --only seam-conservation` | the figure, from the histories that `viscous/check.sh --leg vv7` keeps (CPU) |
+| `src/tests/flume/verification/viscous/check.sh --legs vv7` | runs the 6 refined-box runs and the 8 forest runs (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/make_doc_figures.py --only seam-conservation` | the figure, from the histories that `viscous/check.sh --legs vv7` keeps (CPU) |
 | `src/tests/flume/regression/seam-viscous-amr/input.ini` | the frozen Alfvén wave, $A = 0.01$, MHD-GLM with $\mu$ and $\eta$, $48^2$ with the centre refined 2:1, $t = 0.02$ |
 
 ```bash
-cd src/tests/flume/verification/viscous && ./check.sh --leg vv7             # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv7       # FNL
+cd src/tests/flume/verification/viscous && ./check.sh --legs vv7             # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs vv7       # FNL
 ```
 
 ## Results

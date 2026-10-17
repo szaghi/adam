@@ -42,12 +42,12 @@ whether the seam corners explain the L∞ order 1.46 of A1's Euler vortex ([AO](
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/amr-proto/proto2d.py` | the prototype; `b1 [--cells ...] [--velocity a b] [--assert ARM:NORM:MIN]` |
-| `src/tests/flume/verification/amr-proto/check.sh` | runs B1, B2 and B3 (`--long` for the finer ladders) |
+| `src/tests/flume/verification/amr-proto/check.sh` | runs B1, B2 and B3 (`--legs b1,b2,b3`, a leg runs only when the ones before it pass; `--long` for the finer ladders) |
 | `src/tests/flume/verification/make_doc_figures.py --only seam-proto-b1` | draws the figure (`fig_seam_proto_b1`; NumPy only, about 1 min) |
 
 ```bash
-cd src/tests/flume/verification/amr-proto && ./check.sh          # about 1 min for B1
-./check.sh --long                                                # B1 at N = 64 / 128 / 256, about 4 min
+cd src/tests/flume/verification/amr-proto && ./check.sh --legs b1  # about 1 min for B1
+./check.sh --legs b1 --long                                        # B1 at N = 64 / 128 / 256, about 4 min
 ```
 
 Bounds asserted by `check.sh`, lower bounds only (a transfer that recovers order passes): the uniform control L∞ order

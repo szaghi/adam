@@ -61,12 +61,12 @@ The regrid algorithms are described in [numerics](../../numerics#adaptive-mesh-r
 | File | Role |
 |---|---|
 | `src/tests/amr/test_amr_regrid_roundtrip.F90` | the rg0 unit test (`fobis build --mode test-amr-regrid-roundtrip-gnu`) |
-| `src/tests/flume/verification/regrid/check.sh --leg rg0`, `--leg rg1`, `--leg rg2` | runs the legs (`FLUME_EXE` selects the backend of rg1 and rg2) |
+| `src/tests/flume/verification/regrid/check.sh --legs rg0,rg1,rg2` | runs the legs (`FLUME_EXE` selects the backend of rg1 and rg2) |
 | `src/tests/flume/regression/sod-x/input.ini` | the base input of rg1 and rg2 |
 
 ```bash
-cd src/tests/flume/verification/regrid && ./check.sh --leg rg0 --leg rg1 --leg rg2         # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg rg1 --leg rg2           # FNL
+cd src/tests/flume/verification/regrid && ./check.sh --legs rg0,rg1,rg2                    # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs rg1,rg2                # FNL
 ```
 
 No figure: the legs are a transfer identity and an input contract (#85).

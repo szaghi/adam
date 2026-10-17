@@ -44,11 +44,11 @@ What the case catches:
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/viscous/waves.py` | `make` writes the inputs; `budget` judges the energy budget and $\nabla\cdot\mathbf B$ against the ideal twin |
-| `src/tests/flume/verification/viscous/check.sh --leg vv6` | runs the four runs (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/viscous/check.sh --legs vv6` | runs the four runs (`--np N`; `FLUME_EXE` selects the backend) |
 
 ```bash
-cd src/tests/flume/verification/viscous && ./check.sh --leg vv6             # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv6       # FNL
+cd src/tests/flume/verification/viscous && ./check.sh --legs vv6             # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs vv6       # FNL
 ```
 
 No figure (#85 lists none for VV-6).

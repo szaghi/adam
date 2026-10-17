@@ -82,7 +82,7 @@ with `glm_ch` = 1.5, 6; `glm_alpha` = 0, 1, 5; `glm_damping_length = min-cell`.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/gravity/make_atmosphere.py` | writes `rt2d`, `rt2d-nl`, `rt2d-mhd` (`--seed`, `--cells`, `--it-save`, `--balanced`, `--divergence-control`, `--glm-ch`, `--glm-alpha`, `--glm-damping-length`) |
-| `src/tests/flume/verification/gravity/check.sh` | runs GV-4a, GV-4b, GV-4c with the force legs; `--agree TAG` adds GV-7 on `rt-8` |
+| `src/tests/flume/verification/gravity/check.sh` | runs GV-4a, GV-4b, GV-4c with the force legs (`--legs gv4a,gv4b,gv4c`); `--agree TAG` adds GV-7 on `rt-8` |
 | `src/tests/flume/verification/gravity/rt_oracle.py` | the linear growth rate (`sigma <input.ini>`) and its self-test (`selftest`) |
 | `src/tests/flume/verification/gravity/atmosphere_oracle.py` | `profile` (GV-4a, $10^{-13}$), `rest` (GV-4b, `--max 1e-12`), `growth` (GV-4c, `--t0 2 --t1 4 --tol 1e-3`), `agree` (GV-7), `symmetry` (#83) |
 | `src/tests/flume/verification/gravity/glm_linear.py` | #83: the spectrum of the linearised GLM and EGLM systems about a magnetised double shear layer |

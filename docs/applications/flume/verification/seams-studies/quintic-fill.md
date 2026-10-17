@@ -39,16 +39,16 @@ All runs on 2 ranks unless stated.
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/amr-order/check.sh --leg euler-q6` | the AO ladder: orders $\ge 5.5$ and the errors at most the baseline plus 2 % |
+| `src/tests/flume/verification/amr-order/check.sh --legs euler-q6` | the AO ladder: orders $\ge 5.5$ and the errors at most the baseline plus 2 % |
 | `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the crossings (`--seam-restriction`, `--seam-ghost-fill`) |
 | `src/tests/flume/verification/ghosts/check.sh --seam-restriction lagrange6 --seam-ghost-fill quintic --degree 5` | GP on a degree-5 field |
 | `src/tests/flume/verification/make_doc_figures.py --only quintic-fill` | the figure, from the probe runs of `ghosts/check.sh --degree 5 --keep` (default operators, then lagrange6 + quintic) and the kept AO work directories (CPU) |
-| `src/tests/flume/verification/multirealm/check.sh` | leg 6, every seam operator across a refined inter-realm seam |
-| `src/tests/flume/verification/mhd/positivity/check.sh` | PV-5 |
+| `src/tests/flume/verification/multirealm/check.sh` | leg 6 (`--legs leg6`), every seam operator across a refined inter-realm seam |
+| `src/tests/flume/verification/mhd/positivity/check.sh` | PV-5 (`--legs pv5`, not a default leg) |
 
 ```bash
-cd src/tests/flume/verification/amr-order && ./check.sh --leg euler-q6
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg euler-q6
+cd src/tests/flume/verification/amr-order && ./check.sh --legs euler-q6
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs euler-q6
 ```
 
 ## Results

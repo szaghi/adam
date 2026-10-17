@@ -24,7 +24,10 @@
 # the EGLM runs at 1e-3 (CPU, M3-P4c) plus 2 %; int B_x within CONSERVED_TOL (its drift scales as the amplitude cubed,
 # 3.7e-16 at 1e-3, N = 128); leg 5 is GLM-only.
 #
-# Usage: ./check.sh [--np N] [--divergence-control glm|eglm]
+# Usage: ./check.sh [--np N] [--divergence-control glm|eglm] [--legs LIST]
+#
+# --legs selects mv3-dalembert, mv3-damped, mv3-mincell, mv3-walls, mv3-none (legs 1-5) or all; the default is all.
+# Under --divergence-control eglm the legs are the first four (mv3-none is GLM-only and is refused).
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -47,14 +50,26 @@ L1_MAX_M_EGLM="1.201e-09"                     # CPU 1.177522e-09 (M3-P4c), plus 
 L1_MAX_W_EGLM="9.021e-08"                     # CPU 8.843625e-08 (M3-P4c), plus 2%
 AMPLITUDE="0.1"
 DC="glm"
+source "$VERIF_DIR/legs.sh"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
       --divergence-control) DC="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --divergence-control glm|eglm)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --divergence-control glm|eglm, --legs LIST)" >&2
+            exit 2 ;;
    esac
 done
+if [[ $DC == eglm ]]; then
+   if [[ " $LEGS_SELECTED " == *" mv3-none "* ]]; then
+      echo "check.sh: leg mv3-none is GLM-only, not run with --divergence-control eglm" >&2 ; exit 2
+   fi
+   legs_declare "mv3-dalembert mv3-damped mv3-mincell mv3-walls"
+else
+   legs_declare "mv3-dalembert mv3-damped mv3-mincell mv3-walls mv3-none"
+fi
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -85,35 +100,45 @@ case_run() { # case_run <name> <make_glm_pulse.py options...>: run one case, pri
    echo "$w"
 }
 
-echo ">> MV-3 d'Alembert, periodic, N = 64, 128, 256 ($(basename "$EXE"), np $NP, $DC)"
 WP=()
-for n in 64 128 256; do w="$(case_run p$n --cells $n --divergence-control "$DC")" || exit 1 ; WP+=("$w"); done
-"$VENV_PY" "$ORACLE" "${WP[@]}" --l1-max "${L1_MAX_P[@]}" --order-min "$ORDER_MIN" --conserved "$CONSERVED_TOL" \
-   || FAILED=1
-echo ">> MV-3 damping on (glm_alpha = 0.5, glm_damping_length = 0.1), N = 64, 128, 256"
+if has_leg mv3-dalembert; then
+   echo ">> MV-3 d'Alembert, periodic, N = 64, 128, 256 ($(basename "$EXE"), np $NP, $DC)"
+   for n in 64 128 256; do w="$(case_run p$n --cells $n --divergence-control "$DC")" || exit 1 ; WP+=("$w"); done
+   "$VENV_PY" "$ORACLE" "${WP[@]}" --l1-max "${L1_MAX_P[@]}" --order-min "$ORDER_MIN" --conserved "$CONSERVED_TOL" \
+      || FAILED=1
+fi
 WD=()
-for n in 64 128 256; do
-   w="$(case_run d$n --cells $n --divergence-control "$DC" --alpha 0.5 --damping-length 0.1)" || exit 1 ; WD+=("$w")
-done
-"$VENV_PY" "$ORACLE" "${WD[@]}" --l1-max "${L1_MAX_D[@]}" --order-min "$ORDER_MIN" || FAILED=1
-echo ">> MV-3 damping length min-cell (glm_alpha = 0.1), N = 128"
-WM="$(case_run m128 --cells 128 --divergence-control "$DC" --alpha 0.1 --damping-length min-cell)" || exit 1
-echo "   $(grep -m1 'MHD GLM damping' "$WM/log.txt" | sed 's/^.*MHD GLM damping: //')"
-"$VENV_PY" "$ORACLE" "$WM" --l1-max "$L1_MAX_M" || FAILED=1
-echo ">> MV-3 reflecting walls (B_x odd, psi even), t = 0.4, N = 128"
-WW="$(case_run w128 --cells 128 --divergence-control "$DC" --bc wall --time 0.4)" || exit 1
-"$VENV_PY" "$ORACLE" "$WW" --l1-max "$L1_MAX_W" || FAILED=1
+if has_leg mv3-damped; then
+   echo ">> MV-3 damping on (glm_alpha = 0.5, glm_damping_length = 0.1), N = 64, 128, 256"
+   for n in 64 128 256; do
+      w="$(case_run d$n --cells $n --divergence-control "$DC" --alpha 0.5 --damping-length 0.1)" || exit 1 ; WD+=("$w")
+   done
+   "$VENV_PY" "$ORACLE" "${WD[@]}" --l1-max "${L1_MAX_D[@]}" --order-min "$ORDER_MIN" || FAILED=1
+fi
+WM=()
+if has_leg mv3-mincell; then
+   echo ">> MV-3 damping length min-cell (glm_alpha = 0.1), N = 128"
+   WM=("$(case_run m128 --cells 128 --divergence-control "$DC" --alpha 0.1 --damping-length min-cell)") || exit 1
+   echo "   $(grep -m1 'MHD GLM damping' "${WM[0]}/log.txt" | sed 's/^.*MHD GLM damping: //')"
+   "$VENV_PY" "$ORACLE" "${WM[0]}" --l1-max "$L1_MAX_M" || FAILED=1
+fi
+WW=()
+if has_leg mv3-walls; then
+   echo ">> MV-3 reflecting walls (B_x odd, psi even), t = 0.4, N = 128"
+   WW=("$(case_run w128 --cells 128 --divergence-control "$DC" --bc wall --time 0.4)") || exit 1
+   "$VENV_PY" "$ORACLE" "${WW[0]}" --l1-max "$L1_MAX_W" || FAILED=1
+fi
 WN=()
-if [[ $DC == glm ]]; then
+if has_leg mv3-none; then
    echo ">> MV-3 divergence_control = none, N = 128: B_x frozen"
    WN=("$(case_run n128 --cells 128 --divergence-control none)") || exit 1
    "$VENV_PY" "$ORACLE" "${WN[0]}" --unchanged || FAILED=1
 fi
-for w in "${WP[@]}" "${WD[@]}" "$WM" "$WW" "${WN[@]}"; do find "$w" -name '*.h5' -delete; done
+for w in "${WP[@]}" "${WD[@]}" "${WM[@]}" "${WW[@]}" "${WN[@]}"; do find "$w" -name '*.h5' -delete; done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "MV-3 PASSED ($TAG)"
+   echo "MV-3 PASSED ($TAG, legs: $LEGS)"
 else
-   echo "MV-3 FAILED ($TAG)"
+   echo "MV-3 FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

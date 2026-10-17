@@ -80,12 +80,12 @@ to 14 minutes there.
 | `src/tests/flume/verification/mhd/amr_box.py` | `refine_box`: the refined side, one 2:1 level at initialisation |
 | `src/tests/flume/verification/amr-shock/amr_shock_oracle.py` | mass, shock position, plateau, band and spread against the exact solution |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> seams`, `make_doc_figures.py --only shock-crossing` | re-runs the Sod crossings `as-c2f`, `as-f2c` and the uniform controls with checkpoints kept (CPU); `rj2a-shock` (FNL) the RJ2a crossings `as-rj2a-{c2f,f2c,uniform}` |
-| `src/tests/flume/verification/amr-shock/check.sh` | runs the legs (`--leg sod`, `--leg rj2a`, `--long`, `--np N`, `--keep`) |
-| `src/tests/flume/verification/mhd/positivity/check.sh` | the PV-5 blast across 2:1 seams (C3) |
+| `src/tests/flume/verification/amr-shock/check.sh` | runs the legs (`--legs sod,rj2a`, `--long`, `--np N`, `--keep`) |
+| `src/tests/flume/verification/mhd/positivity/check.sh` | the PV-5 blast across 2:1 seams (C3; `--legs pv5`, not a default leg) |
 | `src/tests/amr/test_seam_interpolation.F90` | the unit test of the seam interpolants and restrictions (C3c) |
 
 ```bash
-cd src/tests/flume/verification/amr-shock && ./check.sh --leg sod    # CPU
+cd src/tests/flume/verification/amr-shock && ./check.sh --legs sod   # CPU
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh          # FNL, both legs
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --long   # adds the refined runs at 2N
 ```

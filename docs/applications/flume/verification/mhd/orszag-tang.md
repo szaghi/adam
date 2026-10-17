@@ -52,7 +52,7 @@ hold there too, and the seam must not be a larger div(B) source than the flow fe
 |---|---|
 | `src/tests/flume/verification/mhd/orszag-tang/make_orszag_tang.py` | writes the input from `vortex/vortex-n064.ini` (`--cells`, `--refine-box`, `--ratio`, `--nk`, `--divergence-control`, `--it-save`) |
 | `src/tests/flume/verification/mhd/amr_box.py` | refines a box by one 2:1 level at initialisation |
-| `src/tests/flume/verification/mhd/orszag-tang/check.sh` | runs the uniform leg, or `--amr`, or `--divergence-control eglm` (`--numerics SPEC`) |
+| `src/tests/flume/verification/mhd/orszag-tang/check.sh` | runs the uniform leg, or `--amr`, or `--divergence-control eglm` (`--numerics SPEC`, `--legs mv12`) |
 | `src/tests/flume/verification/mhd/orszag-tang/orszag_tang_oracle.py` | the 180° symmetry, the conservation, the positivity |
 | `src/tests/flume/verification/mhd/seam_divb_oracle.py` | the seam div(B) against the uniform reference (`--amr`) |
 | `src/tests/flume/verification/make_doc_figures.py` `fig_orszag_tang` | draws `orszag-tang.png` and `orszag-tang-amr.png` from `<runs>/orszag-tang` and `<runs>/orszag-tang-amr` (`--only orszag-tang`) |

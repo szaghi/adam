@@ -410,6 +410,6 @@ chosen so that `dx` halves). Drop the markers in both. `verification/multirealm/
 | R8 many ranks | legs 1-5 at np 2-4, leg 3 (z split) | np 2 in every case | bitwise |
 | R9 restart | MV-14 legs 2-3 | — | bitwise, histories identical |
 
-"leg N" is `src/tests/flume/verification/multirealm/check.sh`; "MV-14 leg N" is
-`src/tests/flume/verification/mhd/multirealm/check.sh`. FLUME case names are regression cases under
-`src/tests/flume/regression/`, PRISM ones under `src/tests/prism/regression/`.
+"leg N" is `src/tests/flume/verification/multirealm/check.sh` (`--legs legN`; leg 4 needs leg 2, leg 5 needs legs 1
+and 3); "MV-14 leg N" is `src/tests/flume/verification/mhd/multirealm/check.sh` (`--legs mv14-N`; leg 2 needs leg 1).
+FLUME case names are regression cases under `src/tests/flume/regression/`, PRISM ones under `src/tests/prism/regression/`.

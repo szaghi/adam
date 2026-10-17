@@ -16,7 +16,7 @@ The two figures of the group are regenerated from kept runs:
 
 ```bash
 cd src/tests/flume/verification
-(cd ghosts && ./check.sh --cases step --np 2 --keep)      # the "after" run; the "before" run is ghosts/work-before-p0-np2-step
+(cd ghosts && ./check.sh --legs step --np 2 --keep)       # the "after" run; the "before" run is ghosts/work-before-p0-np2-step
 ./make_doc_runs.sh <dir> ranks
 python3 make_doc_figures.py --out ../../../../docs/public/flume --runs <dir> --only ghosts ranks
 ```

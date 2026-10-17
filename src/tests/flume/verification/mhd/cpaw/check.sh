@@ -11,7 +11,9 @@
 #     rounding is symmetric under a sign change (measured on CPU, M2-P5b).
 # One run at a time; checkpoints deleted after use.
 #
-# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]] [--legs LIST]
+#
+# --legs accepts the one leg mv6 (the left = right check compares both ladders) or all; the default is mv6.
 #
 # --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c). The specs
 # hlld:primitive and hlld:characteristic (6th, weno) assert the bounds measured on them (CPU, M3-P3c), ORDER_MIN 4.8
@@ -32,14 +34,18 @@ ORDER_MIN="4.7"
 LR_TOL="0.0"
 LADDER=(32 64 128)
 EPS_MAX=(1.049e-03 3.537e-05 1.112e-06) # CPU baseline (M2-P5b) plus 2 %, per N of the ladder
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv6"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2

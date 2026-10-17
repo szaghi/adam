@@ -58,7 +58,7 @@ The 25 cases (`make_contract.py --list`):
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/dissipation/make_contract.py` | the 25 cases (`--list`), writes each input, judges the logged coefficients (`--check-log`) |
-| `src/tests/flume/verification/dissipation/check.sh` | runs every case and applies its oracle (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/dissipation/check.sh` | runs every case and applies its oracle (`--np N`, `--legs LIST`: `dc-refuse`, `dc-log`, `dc-ideal`, `dc-convert`, `dc-convert-refuse`, each the cases of that kind, default all; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/scaling/scaling.py` | `dimensionalize` and `check-log` of the `convert` cases |
 | `src/tests/flume/regression/sod-x/input.ini`, `src/tests/flume/regression/uniform-amr-mhd/input.ini` | the base inputs |
 

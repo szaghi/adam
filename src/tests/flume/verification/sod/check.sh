@@ -17,7 +17,8 @@
 # momentum negated), the box must be closed (mass and energy relative drift <= CLOSED_TOL; extrapolation ends would
 # leak ~10%), and the three directions must agree bitwise. It exercises the wall-inviscid ghost mirror on all six faces.
 #
-# Usage: ./check.sh [--build] [--np N] [--wall]
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: v1 (Sod), v1-wall (the reflecting-wall double Sod) or all
+#        (default v1); --wall is an older spelling of --legs v1-wall
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12);
@@ -25,6 +26,7 @@
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 L1_MAX="3.31e-03"
@@ -32,16 +34,19 @@ MIRROR_TOL="1.0e-12"
 CLOSED_TOL="1.0e-11"
 NP=2
 BUILD=0
-CASE="sod"
+source "$VERIF_DIR/legs.sh"
+legs_declare "v1 v1-wall" "v1"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --build) BUILD=1 ; shift ;;
       --np)    NP="$2" ; shift 2 ;;
-      --wall)  CASE="sod-wall" ; shift ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N, --wall)" >&2 ; exit 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      --wall)  legs_select v1-wall ; shift ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N, --legs LIST, --wall)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 
 if [[ $BUILD -eq 1 ]]; then
    (cd "$REPO_ROOT" && fobis build --mode flume-cpu-gnu)
@@ -59,25 +64,30 @@ if ! "$VENV_PY" -c 'import h5py, numpy' 2>/dev/null; then
    "$VENV_PY" -m pip install --quiet h5py numpy
 fi
 
-TAG="$CASE-$(basename "$EXE")-np$NP"
-WORK=()
-for axis in x y z; do
-   work="$CASE_DIR/work-$TAG-$axis"
-   rm -rf "$work"
-   mkdir -p "$work"
-   cp "$CASE_DIR/$CASE-$axis.ini" "$work/"
-   echo ">> $CASE-$axis: mpirun -np $NP $(basename "$EXE")"
-   if ! (cd "$work" && mpirun -np "$NP" "$EXE" "$CASE-$axis.ini" > log.txt 2>&1); then
-      echo "check.sh: $CASE-$axis run failed, see $work/log.txt" >&2
-      exit 1
-   fi
-   WORK+=("$work")
-done
+for leg in $LEGS; do
+   CASE="sod"
+   [[ $leg == v1-wall ]] && CASE="sod-wall"
+   TAG="$CASE-$(basename "$EXE")-np$NP"
+   WORK=()
+   for axis in x y z; do
+      work="$CASE_DIR/work-$TAG-$axis"
+      rm -rf "$work"
+      mkdir -p "$work"
+      cp "$CASE_DIR/$CASE-$axis.ini" "$work/"
+      echo ">> $CASE-$axis: mpirun -np $NP $(basename "$EXE")"
+      if ! (cd "$work" && mpirun -np "$NP" "$EXE" "$CASE-$axis.ini" > log.txt 2>&1); then
+         echo "check.sh: $CASE-$axis run failed, see $work/log.txt" >&2
+         exit 1
+      fi
+      WORK+=("$work")
+   done
 
-if [[ "$CASE" == "sod" ]]; then
-   "$VENV_PY" "$CASE_DIR/sod_oracle.py" "$CASE_DIR/sod-x.ini" "${WORK[@]}" --l1-max "$L1_MAX"
-   echo "V1 PASSED ($TAG)"
-else
-   "$VENV_PY" "$CASE_DIR/sod_oracle.py" "$CASE_DIR/sod-wall-x.ini" "${WORK[@]}" --mirror "$MIRROR_TOL" --closed "$CLOSED_TOL"
-   echo "reflecting-wall Sod PASSED ($TAG)"
-fi
+   if [[ "$CASE" == "sod" ]]; then
+      "$VENV_PY" "$CASE_DIR/sod_oracle.py" "$CASE_DIR/sod-x.ini" "${WORK[@]}" --l1-max "$L1_MAX"
+      echo "V1 PASSED ($TAG)"
+   else
+      "$VENV_PY" "$CASE_DIR/sod_oracle.py" "$CASE_DIR/sod-wall-x.ini" "${WORK[@]}" --mirror "$MIRROR_TOL" \
+         --closed "$CLOSED_TOL"
+      echo "reflecting-wall Sod PASSED ($TAG)"
+   fi
+done

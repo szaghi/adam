@@ -43,15 +43,15 @@ What the case catches:
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/regrid/make_regrid.py` | `vortex` and `cylinder` write the inputs |
-| `src/tests/flume/verification/regrid/check.sh --leg rg3` … `--leg rg6` | runs the legs (`FLUME_EXE` selects the backend; rg6 compares the work directories of both) |
+| `src/tests/flume/verification/regrid/check.sh --legs rg3,rg4,rg5,rg6` | runs the legs (`FLUME_EXE` selects the backend; rg6, not a default leg, compares the work directories of both) |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> regrid`, `make_doc_figures.py --only regrid-runtime` | re-runs rg3, conservative and linear, with a checkpoint every 5 steps (2 runs, about 2 min) |
 | `src/tests/flume/verification/conservation/conservation_oracle.py` | the drift bounds (rg3), the bitwise and tolerance comparisons (rg4, rg6) |
 | `src/tests/flume/regression/vortex-regrid/input.ini` | the frozen rg3 conservative case to 100 steps: six regrids that refine and coarsen |
 
 ```bash
-cd src/tests/flume/verification/regrid && ./check.sh --leg rg3 --leg rg4 --leg rg5              # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg rg3 --leg rg4 --leg rg5      # FNL
-./check.sh --leg rg6                                                                            # CPU against FNL
+cd src/tests/flume/verification/regrid && ./check.sh --legs rg3,rg4,rg5                         # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs rg3,rg4,rg5                 # FNL
+./check.sh --legs rg6                                                                           # CPU against FNL
 ```
 
 ## Results

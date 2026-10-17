@@ -55,7 +55,7 @@ Every run on 2 ranks unless stated (av6).
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/regrid/make_regrid.py` | `vortex-av`, `sod-av`, `blast-av`, `loop-av`, `cylinder-av` write the inputs |
-| `src/tests/flume/verification/regrid/accuracy.sh` | runs the legs (`--leg av2` … `--leg av8`; `FLUME_EXE` selects the backend; av8 compares the work directories of both) |
+| `src/tests/flume/verification/regrid/accuracy.sh` | runs the legs (`--legs av2,av3a,av3b,av3c,av4,av6,av7,av8`, default all but av8; `FLUME_EXE` selects the backend; av8 compares the work directories of both) |
 | `src/tests/flume/verification/regrid/av_oracle.py` | the bounds, on top of the V1, V2, V6 and MV-9 oracles |
 | `src/tests/flume/verification/conservation/conservation_oracle.py` | the av6 rank comparison |
 | `src/tests/flume/regression/field-loop-regrid/input.ini` | the frozen av4 GLM tracked run, 150 steps, 10 regrids |
@@ -64,7 +64,7 @@ Every run on 2 ranks unless stated (av6).
 ```bash
 cd src/tests/flume/verification/regrid && ./accuracy.sh                     # CPU, av2 to av7
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./accuracy.sh              # FNL
-./accuracy.sh --leg av8                                                     # CPU against FNL
+./accuracy.sh --legs av8                                                    # CPU against FNL
 ```
 
 ## Results

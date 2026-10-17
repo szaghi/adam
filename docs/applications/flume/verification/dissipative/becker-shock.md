@@ -51,13 +51,13 @@ At Mach 3 with $\mu = 0.005$ the shock spans 4 cells, WENO's nonlinear weights s
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/viscous/profiles.py` | `make --case becker` writes each input; `oracle` measures $(u - u_\mathrm{exact})/(u_1 - u_2)$ |
-| `src/tests/flume/verification/viscous/check.sh --leg vv4` | runs the two ladders (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/viscous/check.sh --legs vv4` | runs the two ladders (`--np N`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/regression/becker-shock/input.ini` | the frozen case: Mach 2, 64 cells, $t = 0.01$ |
 | `make_doc_figures.py` (`fig_viscous`) | the figure, from the CPU work directories of `viscous/check.sh` |
 
 ```bash
-cd src/tests/flume/verification/viscous && ./check.sh --leg vv4             # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv4       # FNL
+cd src/tests/flume/verification/viscous && ./check.sh --legs vv4             # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs vv4       # FNL
 ```
 
 ## Results

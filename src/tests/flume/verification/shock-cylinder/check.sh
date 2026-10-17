@@ -16,7 +16,7 @@
 # summary the solution moves by 3.9e-2). The FNL run is ~4x slower than the CPU on the WSL box (per-face, per-stage
 # seam copies).
 #
-# Usage: ./check.sh [--build] [--np N]
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: v6 (the only leg) or all (default v6)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12);
@@ -24,19 +24,24 @@
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 MIRROR_TOL="1.0e-10"
 NP=2
 BUILD=0
+source "$VERIF_DIR/legs.sh"
+legs_declare "v6"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --build) BUILD=1 ; shift ;;
       --np)    NP="$2" ; shift 2 ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N)" >&2 ; exit 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 
 if [[ $BUILD -eq 1 ]]; then
    (cd "$REPO_ROOT" && fobis build --mode flume-cpu-gnu)

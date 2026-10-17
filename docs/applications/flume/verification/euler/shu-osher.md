@@ -52,16 +52,16 @@ The case is the [Sod](./sod) input rewritten by `riemann-flux/check.sh` (`set_sh
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/sod/sod-{x,y,z}.ini` | the base inputs, rewritten into the Shu–Osher problem |
-| `src/tests/flume/verification/riemann-flux/check.sh --leg shu-osher` | rewrites the inputs (`set_shu_osher`, `set_numerics`), runs the three directions; `--solver`, `--so-l1-max` |
+| `src/tests/flume/verification/riemann-flux/check.sh --legs shu-osher` | rewrites the inputs (`set_shu_osher`, `set_numerics`), runs the three directions; `--solver`, `--so-l1-max` |
 | `src/tests/flume/verification/riemann-flux/shu_osher_oracle.py` | the reference (computed once, a few minutes, cached in the temporary directory), the $L_1$ bound, positivity, the bitwise checks |
 | `src/tests/flume/verification/riemann-flux/hybrid_proto.py` | the NumPy splitting scheme that computes the reference |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_shu_osher`) | the figure, from the `split` and `hllc` work directories and the cached reference |
 
 ```bash
 cd src/tests/flume/verification/riemann-flux
-./check.sh --leg shu-osher                                         # HLLC (default), bound 0.274
-./check.sh --leg shu-osher --solver split                          # the splitting baseline
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg shu-osher   # FNL
+./check.sh --legs shu-osher                                        # HLLC (default), bound 0.274
+./check.sh --legs shu-osher --solver split                         # the splitting baseline
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs shu-osher  # FNL
 ```
 
 ## Results

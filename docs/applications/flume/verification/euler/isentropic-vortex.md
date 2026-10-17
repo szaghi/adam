@@ -46,15 +46,15 @@ discontinuities):
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/vortex/vortex-n{064,128,256}.ini` | the ladder |
-| `src/tests/flume/verification/vortex/check.sh` | V2: runs the ladder (`--np N`; `FLUME_EXE` selects the backend), order bound 4.5 |
+| `src/tests/flume/verification/vortex/check.sh` | V2: runs the ladder (`--np N`, `--legs v2`; `FLUME_EXE` selects the backend), order bound 4.5 |
 | `src/tests/flume/verification/vortex/vortex_oracle.py` | the exact density, $L_1$ and $L_\infty$ errors, the finest-pair order, the null-$z$ copies identical |
-| `src/tests/flume/verification/riemann-flux/check.sh --leg vortex` | RV-2: the ladder on `weno-riemann`, order bound 4.8 |
+| `src/tests/flume/verification/riemann-flux/check.sh --legs vortex` | RV-2: the ladder on `weno-riemann`, order bound 4.8 |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_vortex`) | the figure, from the work directories of the two scripts |
 
 ```bash
 cd src/tests/flume/verification/vortex && ./check.sh                    # V2, CPU
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh             # V2, FNL
-cd ../riemann-flux && ./check.sh --leg vortex --solver hllc             # RV-2 (also llf, hll)
+cd ../riemann-flux && ./check.sh --legs vortex --solver hllc            # RV-2 (also llf, hll)
 ```
 
 ## Results

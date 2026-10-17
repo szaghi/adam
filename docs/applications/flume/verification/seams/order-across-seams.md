@@ -82,12 +82,12 @@ Legs of the euler ladder (each: refined and uniform runs, $N$ = 64 / 128 / 256):
 | `src/tests/flume/verification/mhd/amr_box.py` | `refine_box`: the refined quadrant, one 2:1 level at initialisation |
 | `src/tests/flume/verification/amr-order/amr_order_oracle.py` | the per-region errors against the exact vortex, the orders, the bounds |
 | `src/tests/flume/verification/make_doc_figures.py --only order-across-seams` | the figure, from the kept work directories of `amr-order/check.sh --keep` (CPU) |
-| `src/tests/flume/verification/amr-order/check.sh` | runs the legs (`--leg`, `--np N`, `--keep`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/amr-order/check.sh` | runs the legs (`--legs euler,mhd,euler-octree,euler-l6,euler-w6,euler-q6,euler-ww,euler-mp,euler-tq`, default all but `euler-octree`; `--np N`, `--keep`; `FLUME_EXE` selects the backend) |
 
 ```bash
 cd src/tests/flume/verification/amr-order && ./check.sh             # CPU, default legs (all but euler-octree)
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh         # FNL
-./check.sh --leg euler-octree                                       # the octree leg, on request
+./check.sh --legs euler-octree                                      # the octree leg, on request
 ```
 
 **Oracle** (`amr_order_oracle.py`). Each cell of the last checkpoint is compared with the exact convected vortex: the
@@ -109,7 +109,7 @@ Cost of `euler-l6`: about 10 min on the CPU, 2 on FNL.
 
 ![AO ladders and error maps](/flume/order-across-seams.png)
 
-*CPU, from the work directories `amr-order/check.sh --leg euler --leg euler-l6 --leg euler-q6 --keep` leaves: $L_1(\rho)$ over all cells and $L_\infty(\rho)$ in the seam band against $N$ (the 128 → 256 orders in the legend), today's operators (mean + tricubic, reflux on) capped at 2.01 and 1.46, lagrange6 without reflux at the uniform control, lagrange6 + quintic below it; and the density error maps at $N = 128$ (the refined quadrant in white): today's error concentrates on the seams, lagrange6 + quintic leaves the vortex's own.*
+*CPU, from the work directories `amr-order/check.sh --legs euler,euler-l6,euler-q6 --keep` leaves: $L_1(\rho)$ over all cells and $L_\infty(\rho)$ in the seam band against $N$ (the 128 → 256 orders in the legend), today's operators (mean + tricubic, reflux on) capped at 2.01 and 1.46, lagrange6 without reflux at the uniform control, lagrange6 + quintic below it; and the density error maps at $N = 128$ (the refined quadrant in white): today's error concentrates on the seams, lagrange6 + quintic leaves the vortex's own.*
 
 Baselines (A1). CPU and FNL identical to every printed digit, 2 ranks; orders of the finest pair, $N$ = 128 → 256:
 

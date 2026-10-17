@@ -26,7 +26,7 @@
 #          limiter activity, 579 stages). Before #46 a quadtree seam gave 1e-2 at the first step.
 # About 6 min on the CPU, 9 on FNL (WSL).
 #
-# Usage: ./check.sh [--np N] [--legs ot,blast]
+# Usage: ./check.sh [--np N] [--legs LIST] [--keep]   LIST: ot, blast or all (default ot,blast)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -37,21 +37,23 @@ VERIF_DIR="$(cd "$CASE_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
-LEGS="ot,blast"
 TOL="1.0e-10"               # agreement with the octree reference, relative (measured 4.1e-12, psi)
 Z_TOL="1.0e-10"             # z invariance of the octree reference (measured 5.7e-12, psi)
 BLAST_Z_TOL="1.0e-4"        # z invariance of the blast reference (measured 2.8e-5, psi)
 BLAST_SPREAD_FACTOR="2.0"   # blast agreement over the reference z spread (measured 0.40-0.80 CPU, 0.87-1.02 FNL)
 KEEP=0
+source "$VERIF_DIR/legs.sh"
+legs_declare "ot blast"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)   NP="$2" ; shift 2 ;;
-      --legs) LEGS="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
       --keep) KEEP=1 ; shift ;;
-      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs ot,blast, --keep)" >&2 ; exit 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST, --keep)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -60,7 +62,6 @@ VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TAG="$(basename "$EXE")-np$NP"
 FAILED=0
 
-has_leg() { [[ ",$LEGS," == *",$1,"* ]]; }
 run() { # run <work> <ini>: run one case, fail the check if the run fails
    if ! (cd "$1" && mpirun -np "$NP" "$EXE" "$2" > log.txt 2>&1); then
       echo "check.sh: $(basename "$1") failed, see $1/log.txt" >&2
@@ -116,8 +117,8 @@ if has_leg blast; then
 fi
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "MV-15 PASSED ($TAG)"
+   echo "MV-15 PASSED (legs: $LEGS) ($TAG)"
 else
-   echo "MV-15 FAILED ($TAG)"
+   echo "MV-15 FAILED (legs: $LEGS) ($TAG)"
    exit 1
 fi

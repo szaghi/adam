@@ -67,7 +67,7 @@ octant.
 |---|---|
 | `src/tests/flume/verification/conservation/amr-periodic.ini` | the V3 base input |
 | `src/tests/flume/verification/mhd/zero-field/make_input.py` | derives the MHD input (`--divergence-control`, `--b 0.8 0.5 -0.3`, `--set mhd.glm_alpha=…`, `--set numerics.reflux=…`) |
-| `src/tests/flume/verification/mhd/conservation/check.sh` | runs the four legs and checks the six registered faces (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/mhd/conservation/check.sh` | runs the four legs and checks the six registered faces (`--np N`, `--legs LIST`: `mv11-glm` for legs 1 and 2, `mv11-damped`, `mv11-none`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/conservation/conservation_oracle.py` | the drifts (`--conserved`, `--max-drift`, `--leaky`, `--min-drift`, `--exclude psi`) |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_mhd_conservation`) | the figure, from the kept CPU conservation histories of `mhd/conservation/` (`--only mhd-conservation`) |
 

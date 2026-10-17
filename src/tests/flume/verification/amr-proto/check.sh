@@ -15,31 +15,44 @@
 # fine cells per block and centred two-pass, each with the cubic (order 3.7) and quintic (order 4.7) prolongation;
 # shift-inward at 4 fine cells is reported infeasible. N = 24 / 48 / 96 (--long: 48 / 96 / 192). About 20 s.
 #
-# Usage: ./check.sh [--long]
+# Usage: ./check.sh [--legs b1,b2,b3|all] [--long]   (default: b1,b2,b3; a leg runs only when the ones before it pass)
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
+source "$VERIF_DIR/legs.sh"
+legs_declare "b1 b2 b3" "b1 b2 b3"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 CELLS=(32 64 128)
 SHOCK_CELLS=(64)
 B3_CELLS=(24 48 96)
 while [[ $# -gt 0 ]]; do
    case "$1" in
+      --legs) legs_select "$2" ; shift 2 ;;
       --long) CELLS=(64 128 256) ; SHOCK_CELLS=(64 128) ; B3_CELLS=(48 96 192) ; shift ;;
-      *)      echo "check.sh: unknown argument '$1' (accepted: --long)" >&2 ; exit 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --legs L, --long)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 
-if "$VENV_PY" "$CASE_DIR/proto2d.py" b1 --cells "${CELLS[@]}" \
+FAILED=0
+if has_leg b1; then
+   "$VENV_PY" "$CASE_DIR/proto2d.py" b1 --cells "${CELLS[@]}" \
       --assert uniform:linf:4.8 --assert lag6-quintic-off:l1:4.7 --assert lag6-quintic-off:linf:4.7 \
-      --assert lag6-cubic-off:linf:3.7 && \
-   "$VENV_PY" "$CASE_DIR/proto2d.py" b2 --cells 32 64 128 --shock-cells "${SHOCK_CELLS[@]}" --check && \
+      --assert lag6-cubic-off:linf:3.7 || FAILED=1
+fi
+if [[ $FAILED -eq 0 ]] && has_leg b2; then
+   "$VENV_PY" "$CASE_DIR/proto2d.py" b2 --cells 32 64 128 --shock-cells "${SHOCK_CELLS[@]}" --check || FAILED=1
+fi
+if [[ $FAILED -eq 0 ]] && has_leg b3; then
    "$VENV_PY" "$CASE_DIR/proto2d.py" b3 --cells "${B3_CELLS[@]}" --blocks 4 6 8 0 \
       --assert lag6-b6-quintic:linf:4.7 --assert lag6c-quintic:linf:4.7 --assert lag6-b6-cubic:linf:3.7 \
-      --assert lag6c-cubic:linf:3.7; then
-   echo "PROTO PASSED"
+      --assert lag6c-cubic:linf:3.7 || FAILED=1
+fi
+if [[ $FAILED -eq 0 ]]; then
+   echo "PROTO PASSED (legs: $LEGS)"
 else
-   echo "PROTO FAILED"
+   echo "PROTO FAILED (legs: $LEGS)"
    exit 1
 fi

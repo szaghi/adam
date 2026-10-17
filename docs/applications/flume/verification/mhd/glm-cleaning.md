@@ -81,10 +81,10 @@ also checks the div(B) history, the derived output fields and the `divb_tol` mon
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/mhd/glm-pulse/make_glm_pulse.py` | writes the MV-3 input from `sod/sod-x.ini` |
-| `src/tests/flume/verification/mhd/glm-pulse/check.sh` | runs the MV-3 legs (`--np N`, `--divergence-control glm\|eglm`) |
+| `src/tests/flume/verification/mhd/glm-pulse/check.sh` | runs the MV-3 legs (`--np N`, `--divergence-control glm\|eglm`, `--legs LIST`: `mv3-dalembert`, `mv3-damped`, `mv3-mincell`, `mv3-walls`, `mv3-none`, the last GLM-only) |
 | `src/tests/flume/verification/mhd/glm-pulse/glm_pulse_oracle.py` | the exact telegraph solution, the $L_1$ bounds, the order, $\int B_x$, the frozen `none` run |
 | `src/tests/flume/verification/mhd/divb-peak/make_divb_peak.py` | writes the MV-10 input from `conservation/amr-periodic.ini` |
-| `src/tests/flume/verification/mhd/divb-peak/check.sh` | runs the MV-10 legs and the monitor legs |
+| `src/tests/flume/verification/mhd/divb-peak/check.sh` | runs the MV-10 legs and the monitor legs (`--np N`, `--legs LIST`: `mv10-uniform`, `mv10-amr`, `mv10-monitor` for the monitor runs) |
 | `src/tests/flume/verification/mhd/divb-peak/divb_peak_oracle.py` | the decay, $\int\mathbf{B}$, $\max\lvert\psi\rvert$, the derived fields, the seam column |
 | `src/tests/flume/verification/make_doc_figures.py` `fig_glm_pulse` | draws `glm-pulse.png` from `<runs>/glm-pulse` (`--only glm-pulse`) |
 

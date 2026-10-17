@@ -45,7 +45,7 @@ There is no conservation check: the outflow boundaries do not conserve.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/mhd/rotor/make_rotor.py` | writes the input from `vortex/vortex-n064.ini` (`--cells`, `--cfl`, `--time-max`, `--glm-ch`, `--it-save`) |
-| `src/tests/flume/verification/mhd/rotor/check.sh` | runs the case (`--np N`, `--numerics SPEC`) |
+| `src/tests/flume/verification/mhd/rotor/check.sh` | runs the case (`--np N`, `--numerics SPEC`, `--legs mv13`) |
 | `src/tests/flume/verification/mhd/orszag-tang/orszag_tang_oracle.py` | the symmetry check, `--field-parity even` (the $\mathbf{B} \to -\mathbf{B}$ composition) |
 | `src/tests/flume/verification/make_doc_figures.py` `fig_rotor` | draws `rotor.png` from `<runs>/rotor` (`--only rotor`) |
 

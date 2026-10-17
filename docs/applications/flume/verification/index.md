@@ -19,6 +19,21 @@ cd src/tests/flume/verification/sod && ./check.sh                  # CPU backend
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh        # FNL backend (GPU)
 ```
 
+The verification cases are complete simulations, and they are run with a focused scope: the legs a change touches,
+not the whole catalog. The [regression suite](./regression) is the layer that runs on every change. Every script
+therefore selects its legs the same way, through the shared `legs.sh`:
+
+```bash
+./check.sh --legs vv1,vv3          # the listed legs (commas or blanks)
+./check.sh --legs all              # every leg, including those the default leaves out
+./check.sh                         # the default selection (the script's header lists it)
+```
+
+Each script lists its legs and its default in its `Usage:` header. An unknown leg, or a selection that names no leg,
+stops the script with exit status 2 before anything runs, so a misspelt leg can never pass by running nothing. Each
+log opens with the resolved selection (`>> legs: ...`). The older spellings `--leg` and `--cases` still work as
+aliases of `--legs`.
+
 In the catalog, **Figure** "no" marks a contract or bitwise leg (an input refusal, CPU = FNL, a restart, a
 round trip): a setup table documents it better than a plot of a difference that is zero.
 

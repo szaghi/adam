@@ -16,7 +16,7 @@
 #         all-ones state happens to be exact), so the criterion is the interface's, not the MHD kernels'.
 # Inputs are derived from the committed Euler ones (make_input.py). One run at a time; checkpoints deleted after use.
 #
-# Usage: ./check.sh [--np N]
+# Usage: ./check.sh [--np N] [--legs LIST]   LIST: mv2-sod (1), mv2-uniform (2) or all (default all)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -29,13 +29,17 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 L1_MAX="3.31e-03"     # the M1 V1 bound (verification/sod/check.sh)
 STEADY_TOL="1.0e-14"  # uniform state across the 2:1 patch: a few ulp
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv2-sod mv2-uniform"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -55,37 +59,42 @@ run() { # run <work-dir> <ini>
 for variant in none glm; do
    names=(bx by bz)
    [[ $variant == glm ]] && names+=(psi)
-   echo ">> MV-2 Sod with B = 0 through the MHD path, divergence_control = $variant ($(basename "$EXE"), np $NP)"
-   works=()
-   for axis in x y z; do
-      w="$CASE_DIR/work-$TAG-$variant-sod-$axis"
-      rm -rf "$w" ; mkdir -p "$w"
-      "$VENV_PY" "$CASE_DIR/make_input.py" "$VERIF_DIR/sod/sod-$axis.ini" "$w/sod-$axis.ini" --divergence-control $variant
-      run "$w" "sod-$axis.ini"
-      "$VENV_PY" "$MHD_ORACLE" --zero "$w" --names "${names[@]}" || FAILED=1
-      works+=("$w")
-   done
-   "$VENV_PY" "$VERIF_DIR/sod/sod_oracle.py" "${works[0]}/sod-x.ini" "${works[@]}" --l1-max "$L1_MAX" || FAILED=1
-   for w in "${works[@]}"; do find "$w" -name '*.h5' -delete; done
-   for grid in single amr; do
-      echo ">> MV-2 uniform MHD state, $grid grid, divergence_control = $variant"
-      w="$CASE_DIR/work-$TAG-$variant-uniform-$grid"
-      rm -rf "$w" ; mkdir -p "$w"
-      extra=() ; tol=0.0
-      if [[ $grid == single ]]; then extra=(--set amr.markers_number=0) ; else tol=$STEADY_TOL ; fi
-      "$VENV_PY" "$CASE_DIR/make_input.py" "$VERIF_DIR/conservation/amr-periodic.ini" "$w/input.ini" \
-         --divergence-control $variant --b 0.8 0.5 -0.3 --set initial_conditions.s=0.0 --set time.it_max=10 \
-         --set IO.it_save=10 --set initial_conditions_region_1.u=0.3 --set initial_conditions_region_1.v=-0.2 \
-         --set initial_conditions_region_1.w=0.1 "${extra[@]}"
-      run "$w" input.ini
-      "$VENV_PY" "$MHD_ORACLE" --steady "$w" --steady-tol $tol || FAILED=1
-      find "$w" -name '*.h5' -delete
-   done
+   if has_leg mv2-sod; then
+      echo ">> MV-2 Sod with B = 0 through the MHD path, divergence_control = $variant ($(basename "$EXE"), np $NP)"
+      works=()
+      for axis in x y z; do
+         w="$CASE_DIR/work-$TAG-$variant-sod-$axis"
+         rm -rf "$w" ; mkdir -p "$w"
+         "$VENV_PY" "$CASE_DIR/make_input.py" "$VERIF_DIR/sod/sod-$axis.ini" "$w/sod-$axis.ini" \
+            --divergence-control $variant
+         run "$w" "sod-$axis.ini"
+         "$VENV_PY" "$MHD_ORACLE" --zero "$w" --names "${names[@]}" || FAILED=1
+         works+=("$w")
+      done
+      "$VENV_PY" "$VERIF_DIR/sod/sod_oracle.py" "${works[0]}/sod-x.ini" "${works[@]}" --l1-max "$L1_MAX" || FAILED=1
+      for w in "${works[@]}"; do find "$w" -name '*.h5' -delete; done
+   fi
+   if has_leg mv2-uniform; then
+      for grid in single amr; do
+         echo ">> MV-2 uniform MHD state, $grid grid, divergence_control = $variant"
+         w="$CASE_DIR/work-$TAG-$variant-uniform-$grid"
+         rm -rf "$w" ; mkdir -p "$w"
+         extra=() ; tol=0.0
+         if [[ $grid == single ]]; then extra=(--set amr.markers_number=0) ; else tol=$STEADY_TOL ; fi
+         "$VENV_PY" "$CASE_DIR/make_input.py" "$VERIF_DIR/conservation/amr-periodic.ini" "$w/input.ini" \
+            --divergence-control $variant --b 0.8 0.5 -0.3 --set initial_conditions.s=0.0 --set time.it_max=10 \
+            --set IO.it_save=10 --set initial_conditions_region_1.u=0.3 --set initial_conditions_region_1.v=-0.2 \
+            --set initial_conditions_region_1.w=0.1 "${extra[@]}"
+         run "$w" input.ini
+         "$VENV_PY" "$MHD_ORACLE" --steady "$w" --steady-tol $tol || FAILED=1
+         find "$w" -name '*.h5' -delete
+      done
+   fi
 done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "MV-2 PASSED ($TAG)"
+   echo "MV-2 PASSED (legs: $LEGS) ($TAG)"
 else
-   echo "MV-2 FAILED ($TAG)"
+   echo "MV-2 FAILED (legs: $LEGS) ($TAG)"
    exit 1
 fi

@@ -269,7 +269,7 @@ $$
 
 The phase is $k\,s$ in the **absolute** coordinate, not $k(s-s_I)$.
 
-*Test input:* the RV-3 leg of `src/tests/flume/verification/riemann-flux/check.sh` (function `set_shu_osher`) rewrites `verification/sod/sod-{x,y,z}.ini`, for example:
+*Test input:* the RV-3 `shu-osher` leg of `src/tests/flume/verification/riemann-flux/check.sh` (function `set_shu_osher`) rewrites `verification/sod/sod-{x,y,z}.ini`, for example:
 ```ini
 [initial_conditions]
 axis           = x

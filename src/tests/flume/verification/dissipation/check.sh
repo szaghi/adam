@@ -15,23 +15,30 @@
 #   convert-refuse  the dimensionalised case is refused (lundquist without the Alfvenic preset).
 # Base inputs: the regression sod-x (Euler) and uniform-amr-mhd (MHD) inputs.
 #
-# Usage: ./check.sh [--np N]
+# Usage: ./check.sh [--np N] [--legs dc-refuse,dc-log,dc-ideal,dc-convert,dc-convert-refuse|all]   (default: all;
+#        leg dc-<kind> runs the cases of that kind)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
+source "$VERIF_DIR/legs.sh"
+legs_declare "dc-refuse dc-log dc-ideal dc-convert dc-convert-refuse" \
+             "dc-refuse dc-log dc-ideal dc-convert dc-convert-refuse"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
-      --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --np)   NP="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs L)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -78,6 +85,7 @@ EOF
 echo ">> DC: input contract of the dissipative terms ($TAG)"
 base_done=""
 while IFS=$'\t' read -r name kind model expected; do
+   has_leg "dc-$kind" || continue
    w="$CASE_DIR/work-$TAG-$name"
    rm -rf "$w" ; mkdir -p "$w"
    base="$(base_of "$model")"
@@ -118,8 +126,8 @@ while IFS=$'\t' read -r name kind model expected; do
 done < <("$VENV_PY" "$TOOL" --list)
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "DC PASSED ($TAG)"
+   echo "DC PASSED ($TAG, legs: $LEGS)"
 else
-   echo "DC FAILED ($TAG)"
+   echo "DC FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

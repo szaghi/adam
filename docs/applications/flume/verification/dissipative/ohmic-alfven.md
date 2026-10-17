@@ -56,13 +56,13 @@ The rates the oracle holds: Ohmic $\eta k^2$; Alfvén damping $(\nu + \eta)k^2/2
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/viscous/waves.py` | `make --mode magnetic` writes each input; `oracle` integrates the linear $(v_t, b_t)$ system exactly |
-| `src/tests/flume/verification/viscous/check.sh --leg vv5` | runs the five ladders (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/viscous/check.sh --legs vv5` | runs the five ladders (`--np N`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/regression/alfven-resistive/input.ini` | the frozen visco-resistive Alfvén wave at 45°, MHD-GLM, $B_n = 1$, $\mu = 0.01$, $\eta = 0.005$, $32^2$, $t = 0.05$ |
 | `make_doc_figures.py` (`fig_viscous`, `fig_viscous_ladders`) | the figures, from the CPU and FNL work directories of `viscous/check.sh` |
 
 ```bash
-cd src/tests/flume/verification/viscous && ./check.sh --leg vv5             # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv5       # FNL
+cd src/tests/flume/verification/viscous && ./check.sh --legs vv5             # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs vv5       # FNL
 ```
 
 ## Results

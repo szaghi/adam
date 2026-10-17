@@ -28,9 +28,9 @@ The figures are drawn by `src/tests/flume/verification/make_doc_figures.py` from
 cd src/tests/flume/verification
 (cd sod && ./check.sh) ; (cd vortex && ./check.sh) ; (cd conservation && ./check.sh)
 (cd riemann-flux && ./check.sh                                    # HLLC, every leg
-   ./check.sh --solver split --leg lax ; ./check.sh --solver split --leg shu-osher
-   ./check.sh --solver llf --leg lax --lax-l1-max 1 ; ./check.sh --solver llf --leg vortex
-   ./check.sh --solver hll --leg vortex)                            # LLF exceeds the default Lax bound
+   ./check.sh --solver split --legs lax ; ./check.sh --solver split --legs shu-osher
+   ./check.sh --solver llf --legs lax --lax-l1-max 1 ; ./check.sh --solver llf --legs vortex
+   ./check.sh --solver hll --legs vortex)                           # LLF exceeds the default Lax bound
 (cd step && ./check.sh --legs trees,full --keep)
 python3 make_doc_figures.py --out ../../../../docs/public/flume \
    --only sod lax shu-osher vortex shock-cylinder conservation step step-trees

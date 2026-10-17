@@ -8,9 +8,10 @@
 #      (no "MHD floors:" line in the log), and the final density and pressure are positive and finite;
 #   2. the negative-pressure state with p_floor = 1e-3: the run completes and the log reports floored cells;
 #   3. the same state with the floors disabled (0): the run stops on the non-positive state with its message.
-# One run at a time; checkpoints deleted after use.
+# One run at a time; checkpoints deleted after use. The legs are selected as `clean` (1), `floored` (2), `stop` (3).
 #
-# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]] [--legs LIST]
+#        LIST: clean, floored, stop or all (default all)
 #
 # --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c): the bounds
 # measured on the flux-splitting scheme are then not asserted (measurement), the scheme-independent checks are.
@@ -25,14 +26,18 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 source "$CASE_DIR/../numerics.sh"
+source "$VERIF_DIR/legs.sh"
+legs_declare "clean floored stop"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -75,44 +80,51 @@ sys.exit(0 if ok else 1)
 PYEOF
 }
 
-for spec in "bw none" "bw glm" "rj4d none"; do
-   set -- $spec
-   echo ">> $1 ($2), N = 512, floors armed at 1e-10 ($(basename "$EXE"), np $NP)"
-   w="$(prepare "$1-$2" --case "$1" --cells 512 --divergence-control "$2" --rho-floor 1e-10 --p-floor 1e-10)"
-   if ! (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
-      echo "   $1 ($2): run failed, see $w/log.txt  FAIL" ; FAILED=1 ; continue
+if has_leg clean; then
+   for spec in "bw none" "bw glm" "rj4d none"; do
+      set -- $spec
+      echo ">> $1 ($2), N = 512, floors armed at 1e-10 ($(basename "$EXE"), np $NP)"
+      w="$(prepare "$1-$2" --case "$1" --cells 512 --divergence-control "$2" --rho-floor 1e-10 --p-floor 1e-10)"
+      if ! (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
+         echo "   $1 ($2): run failed, see $w/log.txt  FAIL" ; FAILED=1 ; continue
+      fi
+      n=$(grep -c "MHD floors:" "$w/log.txt" || true)
+      if [[ "$n" -eq 0 ]]; then echo "   $1 ($2): no floored cell in any stage  PASS"
+      else echo "   $1 ($2): $n stages floored cells  FAIL" ; FAILED=1 ; fi
+      n=$(grep -c "HLLD fallbacks to HLL" "$w/log.txt" || true)
+      [[ "$n" -gt 0 ]] && echo "   $1 ($2): HLLD fell back to HLL in $n stages (reported, not asserted)"
+      positive "$w" || FAILED=1
+      find "$w" -name '*.h5' -delete
+   done
+fi
+
+if has_leg floored; then
+   echo ">> negative pressure, p_floor = 1e-3: the floors fix the state"
+   w="$(prepare negative-floored --case negative --cells 512 --divergence-control none --p-floor 1e-3)"
+   if (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) && grep -q "MHD floors:" "$w/log.txt"; then
+      echo "   floors engaged: $(grep -m1 "MHD floors:" "$w/log.txt" | sed 's/^.*MHD floors: //')  PASS"
+   else
+      echo "   floors not engaged or run failed, see $w/log.txt  FAIL" ; FAILED=1
    fi
-   n=$(grep -c "MHD floors:" "$w/log.txt" || true)
-   if [[ "$n" -eq 0 ]]; then echo "   $1 ($2): no floored cell in any stage  PASS"
-   else echo "   $1 ($2): $n stages floored cells  FAIL" ; FAILED=1 ; fi
-   n=$(grep -c "HLLD fallbacks to HLL" "$w/log.txt" || true)
-   [[ "$n" -gt 0 ]] && echo "   $1 ($2): HLLD fell back to HLL in $n stages (reported, not asserted)"
-   positive "$w" || FAILED=1
    find "$w" -name '*.h5' -delete
-done
-
-echo ">> negative pressure, p_floor = 1e-3: the floors fix the state"
-w="$(prepare negative-floored --case negative --cells 512 --divergence-control none --p-floor 1e-3)"
-if (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) && grep -q "MHD floors:" "$w/log.txt"; then
-   echo "   floors engaged: $(grep -m1 "MHD floors:" "$w/log.txt" | sed 's/^.*MHD floors: //')  PASS"
-else
-   echo "   floors not engaged or run failed, see $w/log.txt  FAIL" ; FAILED=1
 fi
-find "$w" -name '*.h5' -delete
 
-echo ">> negative pressure, floors disabled: the run stops on the non-positive state"
-w="$(prepare negative-stop --case negative --cells 512 --divergence-control none)"
-(cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) || true
-if grep -aq "cells with a non-positive density or pressure" "$w/log.txt"; then
-   echo "   stops with: $(grep -a -m1 "non-positive density" "$w/log.txt" | sed 's/^.*: \([0-9]* cells\)/\1/' | cut -c1-110)  PASS"
-else
-   echo "   the expected stop message was not found in $w/log.txt  FAIL" ; FAILED=1
+if has_leg stop; then
+   echo ">> negative pressure, floors disabled: the run stops on the non-positive state"
+   w="$(prepare negative-stop --case negative --cells 512 --divergence-control none)"
+   (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) || true
+   if grep -aq "cells with a non-positive density or pressure" "$w/log.txt"; then
+      echo "   stops with: $(grep -a -m1 "non-positive density" "$w/log.txt" \
+                             | sed 's/^.*: \([0-9]* cells\)/\1/' | cut -c1-110)  PASS"
+   else
+      echo "   the expected stop message was not found in $w/log.txt  FAIL" ; FAILED=1
+   fi
+   find "$w" -name '*.h5' -delete
 fi
-find "$w" -name '*.h5' -delete
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "MHD Riemann/floors verification PASSED ($TAG)"
+   echo "MHD Riemann/floors verification PASSED (legs: $LEGS) ($TAG)"
 else
-   echo "MHD Riemann/floors verification FAILED ($TAG)"
+   echo "MHD Riemann/floors verification FAILED (legs: $LEGS) ($TAG)"
    exit 1
 fi

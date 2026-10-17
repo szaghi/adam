@@ -18,7 +18,9 @@
 #      stops the run with its message, and divb_tol > 0 without divb_flux is refused at initialisation.
 # One run at a time; checkpoints deleted after use.
 #
-# Usage: ./check.sh [--np N]
+# Usage: ./check.sh [--np N] [--legs LIST]
+#
+# --legs selects mv10-uniform (leg 1), mv10-amr (leg 2), mv10-monitor (leg 3) or all; the default is all.
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -35,13 +37,17 @@ DECAY_MAX_AMR="0.2"   # AMR GLM final / initial (CPU baseline 0.091: the 2:1 sea
 CONSERVED_TOL="1e-11" # int B_x, B_y, B_z (int B_z = 1.13; measured drift <= 8.3e-13)
 PSI_MAX="0.141"       # c_h A / 10, A the peak amplitude (CPU baseline 3.6e-3 uniform, 1.3e-2 AMR)
 DERIVED_TOL="1e-12"   # saved derived fields vs definitions and history (CPU: exact)
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv10-uniform mv10-amr mv10-monitor"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -68,45 +74,56 @@ case_run() { # case_run <name> <options...>: run one case, print its work direct
    echo "$w"
 }
 
-echo ">> MV-10 Dedner peak, uniform 64^2, GLM and none ($(basename "$EXE"), np $NP)"
-WG="$(case_run glm --divergence-control glm --save-aux)" || exit 1
-WN="$(case_run none --divergence-control none)" || exit 1
-"$VENV_PY" "$ORACLE" --decay "$WG" "$WN" --decay-max "$DECAY_MAX" --ratio-max "$RATIO_MAX" || FAILED=1
-"$VENV_PY" "$ORACLE" "$WG" --conserved "$CONSERVED_TOL" --psi-max "$PSI_MAX" --derived --derived-tol "$DERIVED_TOL" \
-   || FAILED=1
-"$VENV_PY" "$ORACLE" "$WN" --conserved "$CONSERVED_TOL" || FAILED=1
-echo ">> MV-10 Dedner peak, 2:1 AMR box, GLM"
-WA="$(case_run amr --divergence-control glm --amr --cells-per-block 8)" || exit 1
-"$VENV_PY" "$ORACLE" --decay "$WA" --decay-max "$DECAY_MAX_AMR" || FAILED=1
-"$VENV_PY" "$ORACLE" "$WA" --conserved "$CONSERVED_TOL" --psi-max "$PSI_MAX" --seam || FAILED=1
-for w in "$WG" "$WN" "$WA"; do find "$w" -name '*.h5' -delete; done
+works=()
+if has_leg mv10-uniform; then
+   echo ">> MV-10 Dedner peak, uniform 64^2, GLM and none ($(basename "$EXE"), np $NP)"
+   WG="$(case_run glm --divergence-control glm --save-aux)" || exit 1
+   WN="$(case_run none --divergence-control none)" || exit 1
+   "$VENV_PY" "$ORACLE" --decay "$WG" "$WN" --decay-max "$DECAY_MAX" --ratio-max "$RATIO_MAX" || FAILED=1
+   "$VENV_PY" "$ORACLE" "$WG" --conserved "$CONSERVED_TOL" --psi-max "$PSI_MAX" --derived --derived-tol "$DERIVED_TOL" \
+      || FAILED=1
+   "$VENV_PY" "$ORACLE" "$WN" --conserved "$CONSERVED_TOL" || FAILED=1
+   works+=("$WG" "$WN")
+fi
+if has_leg mv10-amr; then
+   echo ">> MV-10 Dedner peak, 2:1 AMR box, GLM"
+   WA="$(case_run amr --divergence-control glm --amr --cells-per-block 8)" || exit 1
+   "$VENV_PY" "$ORACLE" --decay "$WA" --decay-max "$DECAY_MAX_AMR" || FAILED=1
+   "$VENV_PY" "$ORACLE" "$WA" --conserved "$CONSERVED_TOL" --psi-max "$PSI_MAX" --seam || FAILED=1
+   works+=("$WA")
+fi
+for w in "${works[@]}"; do find "$w" -name '*.h5' -delete; done
 
-echo ">> MV-10 divb_tol monitor on the normalised D_flux, 5 steps with GLM, divb_tol = 0.01"
-WW="$(case_run warn --divergence-control glm --it-max 5 --divb-tol 0.01 --divb-flux)" || exit 1
-n=$(grep -c 'warning: max h|D_flux|/max|B|' "$WW/log.txt" || true)
-if [[ "$n" -gt 0 ]]; then echo "   divb_error = .false.: $n warnings, the run completes  PASS"
-else echo "   divb_error = .false.: no warning in $WW/log.txt  FAIL" ; FAILED=1 ; fi
-WS="$(prepare stop --divergence-control glm --it-max 5 --divb-tol 0.01 --divb-error --divb-flux)"
-if (cd "$WS" && mpirun -np "$NP" "$EXE" divb-peak.ini > log.txt 2>&1); then
-   echo "   divb_error = .true.: the run completed instead of stopping  FAIL" ; FAILED=1
-elif grep -aq 'max h|D_flux|/max|B| = .*divb_error' "$WS/log.txt"; then
-   echo "   divb_error = .true.: stops with: $(grep -a -m1 'max h|D_flux|' "$WS/log.txt" | sed 's/^.*error stop : //' | cut -c1-90)  PASS"
-else
-   echo "   divb_error = .true.: the run failed without the expected message, see $WS/log.txt  FAIL" ; FAILED=1
+if has_leg mv10-monitor; then
+   echo ">> MV-10 divb_tol monitor on the normalised D_flux, 5 steps with GLM, divb_tol = 0.01"
+   WW="$(case_run warn --divergence-control glm --it-max 5 --divb-tol 0.01 --divb-flux)" || exit 1
+   n=$(grep -c 'warning: max h|D_flux|/max|B|' "$WW/log.txt" || true)
+   if [[ "$n" -gt 0 ]]; then echo "   divb_error = .false.: $n warnings, the run completes  PASS"
+   else echo "   divb_error = .false.: no warning in $WW/log.txt  FAIL" ; FAILED=1 ; fi
+   WS="$(prepare stop --divergence-control glm --it-max 5 --divb-tol 0.01 --divb-error --divb-flux)"
+   if (cd "$WS" && mpirun -np "$NP" "$EXE" divb-peak.ini > log.txt 2>&1); then
+      echo "   divb_error = .true.: the run completed instead of stopping  FAIL" ; FAILED=1
+   elif grep -aq 'max h|D_flux|/max|B| = .*divb_error' "$WS/log.txt"; then
+      msg="$(grep -a -m1 'max h|D_flux|' "$WS/log.txt" | sed 's/^.*error stop : //' | cut -c1-90)"
+      echo "   divb_error = .true.: stops with: $msg  PASS"
+   else
+      echo "   divb_error = .true.: the run failed without the expected message, see $WS/log.txt  FAIL" ; FAILED=1
+   fi
+   WR="$(prepare refuse --divergence-control glm --it-max 5 --divb-tol 0.01)"
+   if (cd "$WR" && mpirun -np "$NP" "$EXE" divb-peak.ini > log.txt 2>&1); then
+      echo "   divb_tol without divb_flux: the run started instead of being refused  FAIL" ; FAILED=1
+   elif grep -aq 'divb_tol) > 0 monitors the normalised D_flux' "$WR/log.txt"; then
+      echo "   divb_tol without divb_flux: refused at initialisation  PASS"
+   else
+      echo "   divb_tol without divb_flux: the run failed without the expected message, see $WR/log.txt  FAIL"
+      FAILED=1
+   fi
+   for w in "$WW" "$WS" "$WR"; do find "$w" -name '*.h5' -delete; done
 fi
-WR="$(prepare refuse --divergence-control glm --it-max 5 --divb-tol 0.01)"
-if (cd "$WR" && mpirun -np "$NP" "$EXE" divb-peak.ini > log.txt 2>&1); then
-   echo "   divb_tol without divb_flux: the run started instead of being refused  FAIL" ; FAILED=1
-elif grep -aq 'divb_tol) > 0 monitors the normalised D_flux' "$WR/log.txt"; then
-   echo "   divb_tol without divb_flux: refused at initialisation  PASS"
-else
-   echo "   divb_tol without divb_flux: the run failed without the expected message, see $WR/log.txt  FAIL" ; FAILED=1
-fi
-for w in "$WW" "$WS" "$WR"; do find "$w" -name '*.h5' -delete; done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "MV-10 PASSED ($TAG)"
+   echo "MV-10 PASSED ($TAG, legs: $LEGS)"
 else
-   echo "MV-10 FAILED ($TAG)"
+   echo "MV-10 FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

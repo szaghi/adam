@@ -52,7 +52,8 @@
 # CPU = FNL: run this script once per build with --dump DIR, then
 #   poisson_oracle.py compare DIR_CPU DIR_FNL      (max |phi_CPU - phi_FNL| / max |phi|, 1e-13)
 #
-# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs "sv2 sv6 sv9 sv13"] [--dump DIR] [--keep]
+# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs LIST] [--dump DIR] [--keep]   LIST: sv2, sv6, sv9, sv13 or all
+#        (default all)
 #
 # POISSON_EXE overrides the executable under test, e.g. POISSON_EXE=$REPO/exe/test_poisson_fft_fnl ./poisson.sh
 # (built by `fobis build --mode test-poisson-fft-gnu` or `test-poisson-fft-fnl-nvf`); POISSON_MG_EXE the SV-9/13 one
@@ -61,24 +62,27 @@
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${POISSON_EXE:-$REPO_ROOT/exe/test_poisson_fft}"
 MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
 NP_LIST="1 2 3"
-LEGS="sv2 sv6 sv9 sv13"
+source "$VERIF_DIR/legs.sh"
+legs_declare "sv2 sv6 sv9 sv13"
 DUMP=""
 KEEP=0
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np-list) NP_LIST="$2" ; shift 2 ;;
-      --legs)    LEGS="$2" ; shift 2 ;;
+      --legs)    legs_select "$2" ; shift 2 ;;
       --dump)    DUMP="$2" ; shift 2 ;;
       --keep)    KEEP=1 ; shift ;;
       *)         echo "poisson.sh: unknown argument '$1' (accepted: --np-list LIST, --legs LIST, --dump DIR, --keep)" >&2
                  exit 2 ;;
    esac
 done
+legs_resolve poisson.sh
 needs_fft=0 ; needs_mg=0
 for leg in $LEGS; do
    case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13) needs_mg=1 ;; esac
@@ -148,7 +152,6 @@ for leg in $LEGS; do
          suite multigrid-isolated "--isolated" "$MG_EXE"
          refusal "isolated, a refined leaf on the boundary" --refuse-boundary-refined 'touches the domain boundary' \
             "$MG_EXE" ;;
-      *) echo "poisson.sh: unknown leg '$leg' (sv2, sv6, sv9, sv13)" >&2 ; exit 2 ;;
    esac
 done
 if [[ -n "$DUMP" ]]; then

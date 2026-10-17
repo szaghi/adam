@@ -54,7 +54,7 @@ is uniform, so any pressure error is the energy source's. A second-order energy 
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/gravity/make_atmosphere.py` | writes `wave2d` (`--cells`, `--cfl`, `--time-max`, `--riemann hllc`) |
-| `src/tests/flume/verification/gravity/check.sh` | runs the ladder on both schemes with the force legs (GV-9) |
+| `src/tests/flume/verification/gravity/check.sh` | runs the ladder on both schemes with the force legs (GV-9, `--legs gv9`) |
 | `src/tests/flume/verification/gravity/atmosphere_oracle.py` | `wave`: the $L_1$ errors against the exact falling wave and their orders (`--min-order 3.5`) |
 | `src/tests/flume/verification/make_doc_runs.sh` (group `gravity`) | re-runs `wave-{weno,riemann}-{8,16,32}` |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_gravity_order`) | draws the figure |

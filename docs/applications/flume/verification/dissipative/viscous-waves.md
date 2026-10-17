@@ -59,13 +59,13 @@ $O(A^3)$, at $A = 10^{-5}$.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/viscous/waves.py` | `make` writes each input; `oracle` integrates the linear mode exactly and judges the ladder |
-| `src/tests/flume/verification/viscous/check.sh --leg vv1`, `--leg vv2` | runs the ladders (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/viscous/check.sh --legs vv1,vv2` | runs the ladders (`--np N`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/regression/shear-viscous/input.ini` | the frozen diagonal shear wave, $48^2$, $t = 0.05$ |
 | `make_doc_figures.py` (`fig_viscous`, `fig_viscous_fields`, `fig_viscous_ladders`) | the figures, from the CPU (and, for the ladders, FNL) work directories of `viscous/check.sh` |
 
 ```bash
-cd src/tests/flume/verification/viscous && ./check.sh --leg vv1 --leg vv2             # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv1 --leg vv2       # FNL
+cd src/tests/flume/verification/viscous && ./check.sh --legs vv1,vv2             # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs vv1,vv2       # FNL
 ```
 
 ## Results

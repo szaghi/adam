@@ -55,7 +55,7 @@ Ranks: 2 in every leg.
 | `src/tests/flume/verification/mhd/zero-field/make_input.py` | derives the MHD input from an Euler one (`--divergence-control`, `--b`, `--set section.key=value`) |
 | `src/tests/flume/verification/sod/sod-{x,y,z}.ini` | the Sod base inputs |
 | `src/tests/flume/verification/conservation/amr-periodic.ini` | the V3 base input of the uniform legs |
-| `src/tests/flume/verification/mhd/zero-field/check.sh` | runs every leg (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/mhd/zero-field/check.sh` | runs every leg (`--np N`, `--legs LIST`: `mv2-sod`, `mv2-uniform`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/sod/sod_oracle.py` | $L_1(\rho)$ against the exact solution (`--l1-max 3.31e-03`), the $y$/$z$ against $x$ bitwise check |
 | `src/tests/flume/verification/mhd/plumbing/mhd_plumbing_oracle.py` | `--zero` ($\mathbf{B}$, $\psi$ exactly zero), `--steady` (last checkpoint against step 0) |
 

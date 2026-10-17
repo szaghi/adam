@@ -65,10 +65,10 @@ Every leg is the Sod problem of [Sod](./sod): $(\rho, u, p) = (1, 0, 1)$ for $x 
 | `src/tests/flume/verification/multirealm/sod-amr-refined{,-r1,-r2}.ini`, `sod-amr-z.ini`, `sod-amr-refined-z{,-r1,-r2}.ini` | legs 4 and 6 |
 | `src/tests/flume/verification/multirealm/sod-2realm-blocks{,-r1,-r2}.ini`, `sod-2realm-blocks-z{,-r1,-r2}.ini` | leg 5 |
 | `src/tests/flume/verification/sod/sod-{x,z}.ini` | the single-realm references of legs 1, 3 and 5 |
-| `src/tests/flume/verification/multirealm/check.sh` | runs the six legs and the refusals (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/multirealm/check.sh` | runs the six legs and the refusals (`--np N`, `--legs LIST`: `leg1` .. `leg6`, the refusals with `leg4`; leg4 needs leg2, leg5 needs leg1 and leg3; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> multirealm`, `make_doc_figures.py --only multirealm` | re-runs legs 1 and 4 and their single-realm twins with checkpoints kept (4 runs, about 4 min) |
 | `src/tests/flume/verification/multirealm/multirealm_oracle.py` | the union against the single-realm run, cell by cell, tolerance 0, and the summed conservation histories |
-| `src/tests/flume/verification/mhd/multirealm/check.sh` | the MHD twin (MV-14) |
+| `src/tests/flume/verification/mhd/multirealm/check.sh` | the MHD twin (MV-14; `--legs LIST`: `mv14-1` .. `mv14-6`, mv14-2 needs mv14-1) |
 | `src/tests/amr/test_tree_closest_block.F90` | the unit test of the tree lookup ([#54](https://github.com/szaghi/adam/issues/54)) |
 
 ```bash

@@ -17,7 +17,10 @@
 # Every run must register the 6 coarse-fine faces. Measured (M2-P7a, CPU): drift <= 4.7e-14 with reflux (B_z the
 # largest), 7e-6 to 1.7e-5 without. Inputs are derived from the committed V3 one (mhd/zero-field/make_input.py).
 #
-# Usage: ./check.sh [--np N]
+# Usage: ./check.sh [--np N] [--legs LIST]
+#
+# --legs selects mv11-glm (legs 1 and 2: the reflux run and its negative control, compared by one oracle call),
+# mv11-damped (leg 3), mv11-none (leg 4) or all; the default is all.
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -30,13 +33,17 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 MAX_DRIFT="1.0e-13"
 MIN_DRIFT="1.0e-10"
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv11-glm mv11-damped mv11-none"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -63,19 +70,27 @@ case_run() { # case_run <name> <none|glm> <glm_alpha> <reflux true|false>: run o
 }
 
 echo ">> MV-11 MHD conservation across 2:1 faces ($(basename "$EXE"), np $NP)"
-glm=$(case_run glm-reflux glm 0.0 true) || exit 1
-leaky=$(case_run glm-noreflux glm 0.0 false) || exit 1
-damped=$(case_run glm-damped-reflux glm 0.18 true) || exit 1
-none=$(case_run none-reflux none 0 true) || exit 1
+works=()
+if has_leg mv11-glm; then
+   glm=$(case_run glm-reflux glm 0.0 true) || exit 1
+   leaky=$(case_run glm-noreflux glm 0.0 false) || exit 1
+   works+=("$glm" "$leaky")
+fi
+if has_leg mv11-damped; then damped=$(case_run glm-damped-reflux glm 0.18 true) || exit 1 ; works+=("$damped"); fi
+if has_leg mv11-none; then none=$(case_run none-reflux none 0 true) || exit 1 ; works+=("$none"); fi
 STATUS=0
-"$VENV_PY" "$ORACLE" --conserved "$glm" --max-drift "$MAX_DRIFT" --leaky "$leaky" --min-drift "$MIN_DRIFT" || STATUS=1
-"$VENV_PY" "$ORACLE" --conserved "$damped" --max-drift "$MAX_DRIFT" --exclude psi || STATUS=1
-"$VENV_PY" "$ORACLE" --conserved "$none" --max-drift "$MAX_DRIFT" || STATUS=1
-for w in "$glm" "$leaky" "$damped" "$none"; do find "$w" -name '*.h5' -delete; done
+if has_leg mv11-glm; then
+   "$VENV_PY" "$ORACLE" --conserved "$glm" --max-drift "$MAX_DRIFT" --leaky "$leaky" --min-drift "$MIN_DRIFT" || STATUS=1
+fi
+if has_leg mv11-damped; then
+   "$VENV_PY" "$ORACLE" --conserved "$damped" --max-drift "$MAX_DRIFT" --exclude psi || STATUS=1
+fi
+if has_leg mv11-none; then "$VENV_PY" "$ORACLE" --conserved "$none" --max-drift "$MAX_DRIFT" || STATUS=1; fi
+for w in "${works[@]}"; do find "$w" -name '*.h5' -delete; done
 
 if [[ $STATUS -eq 0 ]]; then
-   echo "MV-11 PASSED ($TAG)"
+   echo "MV-11 PASSED ($TAG, legs: $LEGS)"
 else
-   echo "MV-11 FAILED ($TAG)"
+   echo "MV-11 FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

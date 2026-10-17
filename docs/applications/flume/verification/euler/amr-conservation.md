@@ -61,15 +61,15 @@ What the case catches:
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/conservation/amr-periodic.ini` | the case |
-| `src/tests/flume/verification/conservation/check.sh` | V3: the four legs (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/conservation/check.sh` | V3: the four legs (`--np N`, `--legs LIST`: `v3-reflux` for legs 1 and 2, `v3-odd`, `v3-thin`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/conservation/conservation_oracle.py` | the drift of the integrals (`--conserved`, `--leaky`); `--compare` for two runs cell by cell |
-| `src/tests/flume/verification/riemann-flux/check.sh --leg conservation` | RV-4: the reflux on and off legs on `weno-riemann` |
+| `src/tests/flume/verification/riemann-flux/check.sh --legs conservation` | RV-4: the reflux on and off legs on `weno-riemann` |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_conservation`) | the figure, from the conservation histories of `conservation/` |
 
 ```bash
 cd src/tests/flume/verification/conservation && ./check.sh               # CPU
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh              # FNL
-cd ../riemann-flux && ./check.sh --leg conservation                      # RV-4, HLLC
+cd ../riemann-flux && ./check.sh --legs conservation                     # RV-4, HLLC
 ```
 
 ## Results

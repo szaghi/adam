@@ -29,7 +29,10 @@
 # Measured (CPU, M2-P7c): leg 1 bitwise over 297 steps, summed conservation within 1.7e-16; leg 2 (148 + restart)
 # bitwise, 6 histories identical; leg 3 bitwise with max |psi| 1.7e-3. About 4.5 min on the CPU.
 #
-# Usage: ./check.sh [--np N]
+# Usage: ./check.sh [--np N] [--legs LIST]
+#
+# --legs selects mv14-1 .. mv14-6 (legs 1-6) or all; the default is all. mv14-2 restarts the 2-realm run of mv14-1 and
+# compares against it, so it needs mv14-1 in the selection.
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -40,13 +43,21 @@ VERIF_DIR="$(cd "$CASE_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv14-1 mv14-2 mv14-3 mv14-4 mv14-5 mv14-6"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
+if has_leg mv14-2 && ! has_leg mv14-1; then
+   echo "check.sh: leg mv14-2 restarts the 2-realm run of mv14-1 and compares against it: select mv14-1 too" >&2
+   exit 2
+fi
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -75,92 +86,112 @@ same_histories() { # same_histories <dir-a> <dir-b>: every history file of a byt
 }
 steps() { tail -1 "$1" | awk '{print $1+0}' ; } # last step of a residuals history
 
-echo ">> MV-14 leg 1: RJ2a N = 256, 2 realms vs 1 ($(basename "$EXE"), np $NP)"
-single="$CASE_DIR/work-$TAG-single" ; multi="$CASE_DIR/work-$TAG-2realm"
-rm -rf "$single" "$multi" ; mkdir -p "$single" "$multi"
-"$VENV_PY" "$VERIF_DIR/mhd/rj2a/make_rj2a.py" "$VERIF_DIR/sod/sod-x.ini" "$single/rj2a.ini" --axis x --cells 256 \
-   --divergence-control glm
-"$VENV_PY" "$CASE_DIR/make_split.py" "$single/rj2a.ini" "$multi" rj2a-2realm
-run "$single" rj2a.ini log.txt
-run "$multi" rj2a-2realm.ini log.txt
-"$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$multi" "$single" --ngc 3 || STATUS=1
+works=()
+if has_leg mv14-1; then
+   echo ">> MV-14 leg 1: RJ2a N = 256, 2 realms vs 1 ($(basename "$EXE"), np $NP)"
+   single="$CASE_DIR/work-$TAG-single" ; multi="$CASE_DIR/work-$TAG-2realm"
+   rm -rf "$single" "$multi" ; mkdir -p "$single" "$multi"
+   "$VENV_PY" "$VERIF_DIR/mhd/rj2a/make_rj2a.py" "$VERIF_DIR/sod/sod-x.ini" "$single/rj2a.ini" --axis x --cells 256 \
+      --divergence-control glm
+   "$VENV_PY" "$CASE_DIR/make_split.py" "$single/rj2a.ini" "$multi" rj2a-2realm
+   run "$single" rj2a.ini log.txt
+   run "$multi" rj2a-2realm.ini log.txt
+   "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$multi" "$single" --ngc 3 || STATUS=1
+   works+=("$single" "$multi")
+fi
 
-n=$(steps "$multi/rj2a-2realm-r1-residuals.dat") ; h=$(( n / 2 ))
-echo ">> MV-14 leg 2: 2-realm restart round trip, $n steps vs $h + restart"
-rst="$CASE_DIR/work-$TAG-2realm-restart"
-rm -rf "$rst" ; mkdir -p "$rst"
-"$VENV_PY" "$CASE_DIR/make_split.py" "$single/rj2a.ini" "$rst" rj2a-2realm --set "time.it_max=$h" \
-   --set "IO.restart_save=$h"
-run "$rst" rj2a-2realm.ini log-1.txt
-"$VENV_PY" "$CASE_DIR/make_split.py" "$single/rj2a.ini" "$rst" rj2a-2realm --set "IO.restart=.true."
-run "$rst" rj2a-2realm.ini log-2.txt
-"$VENV_PY" "$ORACLE" --compare "$multi" "$rst" --tol 0 --ngc 3 || STATUS=1
-same_histories "$multi" "$rst"
+if has_leg mv14-2; then
+   n=$(steps "$multi/rj2a-2realm-r1-residuals.dat") ; h=$(( n / 2 ))
+   echo ">> MV-14 leg 2: 2-realm restart round trip, $n steps vs $h + restart"
+   rst="$CASE_DIR/work-$TAG-2realm-restart"
+   rm -rf "$rst" ; mkdir -p "$rst"
+   "$VENV_PY" "$CASE_DIR/make_split.py" "$single/rj2a.ini" "$rst" rj2a-2realm --set "time.it_max=$h" \
+      --set "IO.restart_save=$h"
+   run "$rst" rj2a-2realm.ini log-1.txt
+   "$VENV_PY" "$CASE_DIR/make_split.py" "$single/rj2a.ini" "$rst" rj2a-2realm --set "IO.restart=.true."
+   run "$rst" rj2a-2realm.ini log-2.txt
+   "$VENV_PY" "$ORACLE" --compare "$multi" "$rst" --tol 0 --ngc 3 || STATUS=1
+   same_histories "$multi" "$rst"
+   works+=("$rst")
+fi
 
-echo ">> MV-14 leg 3: MV-11 box (AMR, reflux, damped GLM, psi != 0) restart round trip, 20 steps vs 10 + restart"
-box=(--divergence-control glm --b 0.8 0.5 -0.3 --set "mhd.glm_alpha=0.18")
-make_box=("$VENV_PY" "$VERIF_DIR/mhd/zero-field/make_input.py" "$VERIF_DIR/conservation/amr-periodic.ini")
-a="$CASE_DIR/work-$TAG-box-A" ; b="$CASE_DIR/work-$TAG-box-B"
-rm -rf "$a" "$b" ; mkdir -p "$a" "$b"
-"${make_box[@]}" "$a/input.ini" "${box[@]}" \
-   --set "time.it_max=20"
-run "$a" input.ini log.txt
-"${make_box[@]}" "$b/input.ini" "${box[@]}" \
-   --set "time.it_max=10" --set "IO.restart_save=10"
-run "$b" input.ini log-1.txt
-"${make_box[@]}" "$b/input.ini" "${box[@]}" \
-   --set "time.it_max=20" --set "IO.restart=.true."
-run "$b" input.ini log-2.txt
-"$VENV_PY" "$ORACLE" --compare "$a" "$b" --tol 0 --ngc 3 --nonzero psi || STATUS=1
-same_histories "$a" "$b"
+if has_leg mv14-3; then
+   echo ">> MV-14 leg 3: MV-11 box (AMR, reflux, damped GLM, psi != 0) restart round trip, 20 steps vs 10 + restart"
+   box=(--divergence-control glm --b 0.8 0.5 -0.3 --set "mhd.glm_alpha=0.18")
+   make_box=("$VENV_PY" "$VERIF_DIR/mhd/zero-field/make_input.py" "$VERIF_DIR/conservation/amr-periodic.ini")
+   a="$CASE_DIR/work-$TAG-box-A" ; b="$CASE_DIR/work-$TAG-box-B"
+   rm -rf "$a" "$b" ; mkdir -p "$a" "$b"
+   "${make_box[@]}" "$a/input.ini" "${box[@]}" \
+      --set "time.it_max=20"
+   run "$a" input.ini log.txt
+   "${make_box[@]}" "$b/input.ini" "${box[@]}" \
+      --set "time.it_max=10" --set "IO.restart_save=10"
+   run "$b" input.ini log-1.txt
+   "${make_box[@]}" "$b/input.ini" "${box[@]}" \
+      --set "time.it_max=20" --set "IO.restart=.true."
+   run "$b" input.ini log-2.txt
+   "$VENV_PY" "$ORACLE" --compare "$a" "$b" --tol 0 --ngc 3 --nonzero psi || STATUS=1
+   same_histories "$a" "$b"
+   works+=("$a" "$b")
+fi
 
-echo ">> MV-14 leg 4: RJ2a on the sod-amr cells, refined (2:1) 2-realm split vs 1 realm (issue #52)"
-mr="$VERIF_DIR/multirealm"
-rs="$CASE_DIR/work-$TAG-amr-single" ; rm_="$CASE_DIR/work-$TAG-refined"
-rm -rf "$rs" "$rm_" ; mkdir -p "$rs" "$rm_"
-rj2a=("$VENV_PY" "$VERIF_DIR/mhd/rj2a/make_rj2a.py")
-"${rj2a[@]}" "$mr/sod-amr.ini" "$rs/sod-amr.ini" --axis x --divergence-control glm
-cp "$mr/sod-amr-refined.ini" "$rm_/"
-for r in 1 2; do
-   "${rj2a[@]}" "$mr/sod-amr-refined-r$r.ini" "$rm_/sod-amr-refined-r$r.ini" --axis x --divergence-control glm
-done
-run "$rs" sod-amr.ini log.txt
-run "$rm_" sod-amr-refined.ini log.txt
-"$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rm_" "$rs" --ngc 3 || STATUS=1
+if has_leg mv14-4; then
+   echo ">> MV-14 leg 4: RJ2a on the sod-amr cells, refined (2:1) 2-realm split vs 1 realm (issue #52)"
+   mr="$VERIF_DIR/multirealm"
+   rs="$CASE_DIR/work-$TAG-amr-single" ; rm_="$CASE_DIR/work-$TAG-refined"
+   rm -rf "$rs" "$rm_" ; mkdir -p "$rs" "$rm_"
+   rj2a=("$VENV_PY" "$VERIF_DIR/mhd/rj2a/make_rj2a.py")
+   "${rj2a[@]}" "$mr/sod-amr.ini" "$rs/sod-amr.ini" --axis x --divergence-control glm
+   cp "$mr/sod-amr-refined.ini" "$rm_/"
+   for r in 1 2; do
+      "${rj2a[@]}" "$mr/sod-amr-refined-r$r.ini" "$rm_/sod-amr-refined-r$r.ini" --axis x --divergence-control glm
+   done
+   run "$rs" sod-amr.ini log.txt
+   run "$rm_" sod-amr-refined.ini log.txt
+   "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rm_" "$rs" --ngc 3 || STATUS=1
+   works+=("$rs" "$rm_")
+fi
 
-echo ">> MV-14 leg 5: rotor (octree) split with seam blocks that do not line up, both ways, vs 1 realm (issue #51)"
-ro="$CASE_DIR/work-$TAG-rotor-single" ; rb1="$CASE_DIR/work-$TAG-rotor-blocks1" ; rb2="$CASE_DIR/work-$TAG-rotor-blocks2"
-rm -rf "$ro" "$rb1" "$rb2" ; mkdir -p "$ro" "$rb1" "$rb2"
-sed 's/^ratio = 4/ratio = 8/; s/^nk = 1/nk = 4/; s/^it_max = 100/it_max = 50/' \
-   "$REPO_ROOT/src/tests/flume/regression/rotor/input.ini" > "$ro/rotor.ini"
-"$VENV_PY" "$CASE_DIR/make_split.py" "$ro/rotor.ini" "$rb1" rotor-2realm --coarse-blocks 1
-"$VENV_PY" "$CASE_DIR/make_split.py" "$ro/rotor.ini" "$rb2" rotor-2realm --coarse-blocks 2
-run "$ro" rotor.ini log.txt
-run "$rb1" rotor-2realm.ini log.txt
-run "$rb2" rotor-2realm.ini log.txt
-"$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rb1" "$ro" --ngc 3 --fields-only || STATUS=1
-"$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rb2" "$ro" --ngc 3 --fields-only || STATUS=1
+if has_leg mv14-5; then
+   echo ">> MV-14 leg 5: rotor (octree) split with seam blocks that do not line up, both ways, vs 1 realm (issue #51)"
+   ro="$CASE_DIR/work-$TAG-rotor-single"
+   rb1="$CASE_DIR/work-$TAG-rotor-blocks1" ; rb2="$CASE_DIR/work-$TAG-rotor-blocks2"
+   rm -rf "$ro" "$rb1" "$rb2" ; mkdir -p "$ro" "$rb1" "$rb2"
+   sed 's/^ratio = 4/ratio = 8/; s/^nk = 1/nk = 4/; s/^it_max = 100/it_max = 50/' \
+      "$REPO_ROOT/src/tests/flume/regression/rotor/input.ini" > "$ro/rotor.ini"
+   "$VENV_PY" "$CASE_DIR/make_split.py" "$ro/rotor.ini" "$rb1" rotor-2realm --coarse-blocks 1
+   "$VENV_PY" "$CASE_DIR/make_split.py" "$ro/rotor.ini" "$rb2" rotor-2realm --coarse-blocks 2
+   run "$ro" rotor.ini log.txt
+   run "$rb1" rotor-2realm.ini log.txt
+   run "$rb2" rotor-2realm.ini log.txt
+   "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rb1" "$ro" --ngc 3 --fields-only || STATUS=1
+   "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$rb2" "$ro" --ngc 3 --fields-only || STATUS=1
+   works+=("$ro" "$rb1" "$rb2")
+fi
 
-echo ">> MV-14 leg 6: rotor (quadtree) split, blocks lined up and not, vs 1 realm (issue #54)"
-qo="$CASE_DIR/work-$TAG-rotor-quad-single" ; qa="$CASE_DIR/work-$TAG-rotor-quad-aligned"
-qb1="$CASE_DIR/work-$TAG-rotor-quad-blocks1" ; qb2="$CASE_DIR/work-$TAG-rotor-quad-blocks2"
-rm -rf "$qo" "$qa" "$qb1" "$qb2" ; mkdir -p "$qo" "$qa" "$qb1" "$qb2"
-sed 's/^it_max = 100/it_max = 50/' "$REPO_ROOT/src/tests/flume/regression/rotor/input.ini" > "$qo/rotor.ini"
-"$VENV_PY" "$CASE_DIR/make_split.py" "$qo/rotor.ini" "$qa" rotor-2realm
-"$VENV_PY" "$CASE_DIR/make_split.py" "$qo/rotor.ini" "$qb1" rotor-2realm --coarse-blocks 1
-"$VENV_PY" "$CASE_DIR/make_split.py" "$qo/rotor.ini" "$qb2" rotor-2realm --coarse-blocks 2
-run "$qo" rotor.ini log.txt
-for w in "$qa" "$qb1" "$qb2"; do
-   run "$w" rotor-2realm.ini log.txt
-   "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$w" "$qo" --ngc 3 --fields-only || STATUS=1
-done
+if has_leg mv14-6; then
+   echo ">> MV-14 leg 6: rotor (quadtree) split, blocks lined up and not, vs 1 realm (issue #54)"
+   qo="$CASE_DIR/work-$TAG-rotor-quad-single" ; qa="$CASE_DIR/work-$TAG-rotor-quad-aligned"
+   qb1="$CASE_DIR/work-$TAG-rotor-quad-blocks1" ; qb2="$CASE_DIR/work-$TAG-rotor-quad-blocks2"
+   rm -rf "$qo" "$qa" "$qb1" "$qb2" ; mkdir -p "$qo" "$qa" "$qb1" "$qb2"
+   sed 's/^it_max = 100/it_max = 50/' "$REPO_ROOT/src/tests/flume/regression/rotor/input.ini" > "$qo/rotor.ini"
+   "$VENV_PY" "$CASE_DIR/make_split.py" "$qo/rotor.ini" "$qa" rotor-2realm
+   "$VENV_PY" "$CASE_DIR/make_split.py" "$qo/rotor.ini" "$qb1" rotor-2realm --coarse-blocks 1
+   "$VENV_PY" "$CASE_DIR/make_split.py" "$qo/rotor.ini" "$qb2" rotor-2realm --coarse-blocks 2
+   run "$qo" rotor.ini log.txt
+   for w in "$qa" "$qb1" "$qb2"; do
+      run "$w" rotor-2realm.ini log.txt
+      "$VENV_PY" "$VERIF_DIR/multirealm/multirealm_oracle.py" "$w" "$qo" --ngc 3 --fields-only || STATUS=1
+   done
+   works+=("$qo" "$qa" "$qb1" "$qb2")
+fi
 
-for w in "$single" "$multi" "$rst" "$a" "$b" "$rs" "$rm_" "$ro" "$rb1" "$rb2" "$qo" "$qa" "$qb1" "$qb2"; do
+for w in "${works[@]}"; do
    find "$w" -name '*.h5' -delete
 done
 if [[ $STATUS -eq 0 ]]; then
-   echo "MV-14 PASSED ($TAG)"
+   echo "MV-14 PASSED ($TAG, legs: $LEGS)"
 else
-   echo "MV-14 FAILED ($TAG)"
+   echo "MV-14 FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

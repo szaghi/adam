@@ -47,7 +47,7 @@ Both legs run with the reflux on and off, a checkpoint every 10 steps, 2 ranks.
 | `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the `sod` inputs (`--cells 200 --side c2f --it-save 10 [--no-reflux]`) |
 | `src/tests/flume/verification/amr-log/amr_log.py` | `drift` and `sensor` logs |
 | `src/tests/flume/verification/make_doc_figures.py --only integral-drift` | the figure, from the kept work directories of `amr-log/check.sh` (CPU) |
-| `src/tests/flume/verification/amr-log/check.sh` | runs the legs (`--leg vortex`, `--leg sod`, `--np N`, `--keep`) |
+| `src/tests/flume/verification/amr-log/check.sh` | runs the legs (`--legs vortex,sod`, `--np N`, `--keep`) |
 
 ```bash
 cd src/tests/flume/verification/amr-log && ./check.sh             # CPU: about 11 min

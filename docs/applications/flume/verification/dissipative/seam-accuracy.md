@@ -42,12 +42,12 @@ dissipative flux crossing the seam is the one the register replaces.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/viscous/waves.py` | `make --refine 0.25 0.25 0.75 0.75 --ratio 4 [--reflux false]` writes each input; `oracle` judges the ladder |
-| `src/tests/flume/verification/viscous/check.sh --leg vv8` | runs the three ladders (`--np N`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/viscous/check.sh --legs vv8` | runs the three ladders (`--np N`; `FLUME_EXE` selects the backend) |
 | `make_doc_figures.py` (`fig_viscous_fields`) | the figure, from the CPU work directories of `viscous/check.sh` |
 
 ```bash
-cd src/tests/flume/verification/viscous && ./check.sh --leg vv8             # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg vv8       # FNL
+cd src/tests/flume/verification/viscous && ./check.sh --legs vv8             # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs vv8       # FNL
 ```
 
 ## Results

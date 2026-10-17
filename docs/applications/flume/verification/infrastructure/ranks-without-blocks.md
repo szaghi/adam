@@ -64,7 +64,7 @@ Asserted (`ranks_oracle.py`):
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/gravity/make_atmosphere.py` | writes the inputs |
-| `src/tests/flume/verification/ranks/check.sh` | rewrites them to one family, runs each case on 1 and $N$ ranks (`--np N`, `--cases`, `--keep`, `--it-save N`) |
+| `src/tests/flume/verification/ranks/check.sh` | rewrites them to one family, runs each case on 1 and $N$ ranks (`--np N`, `--legs LIST`: `repro`, `euler`, `mhd-none`, `mhd-glm`, `mhd-eglm`, `limiter`, `balanced`, `hlld`, `amr`, default all; `--keep`, `--it-save N`) |
 | `src/tests/flume/verification/ranks/ranks_oracle.py` | `ownership` (`--empty-at-start`, `--filled-at-end`) and `same` (bitwise) |
 | `src/tests/flume/verification/make_doc_runs.sh` (group `ranks`) | the AMR case on 1 and 2 ranks, a checkpoint every step |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_ranks`) | the figure |

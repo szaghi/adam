@@ -19,7 +19,8 @@ The phases of #68, in the order the evidence led:
 
 The defaults are unchanged by every study except G3b: `mean` restriction, `tricubic` fill, `reflux_policy = always`.
 No study has a figure yet: they are listed in [#85](https://github.com/szaghi/adam/issues/85). The prototypes run from
-`src/tests/flume/verification/amr-proto/check.sh` (about 5 min; `--long` for the finer ladders).
+`src/tests/flume/verification/amr-proto/check.sh` (about 5 min; `--legs b1,b2,b3` selects the prototypes, `--long` the
+finer ladders).
 
 | Case | ID | What it verifies |
 |---|---|---|

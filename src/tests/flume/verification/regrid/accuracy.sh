@@ -33,7 +33,8 @@
 #        tolerance would not test the regrid: on MHD the backends may differ without any regrid (the blast at O(1),
 #        issue #77; B differed by ~1e-6 on the field loop until issue #79), on Euler they agree to round-off.
 #
-# Usage: ./accuracy.sh [--leg av2|av3a|av3b|av3c|av4|av6|av7|av8 ...]
+# Usage: ./accuracy.sh [--legs LIST]   (legs av2 av3a av3b av3c av4 av6 av7 av8, all; default av2 to av7;
+#                                       --leg L, repeatable, is an older spelling of --legs)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./accuracy.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -47,14 +48,16 @@ VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 MAKE=(python3 -I "$CASE_DIR/make_regrid.py")
 ORACLE=("$VENV_PY" "$CASE_DIR/av_oracle.py")
 CONSERVATION="$VERIF_DIR/conservation/conservation_oracle.py"
-LEGS=()
+source "$VERIF_DIR/legs.sh"
+legs_declare "av2 av3a av3b av3c av4 av6 av7 av8" "av2 av3a av3b av3c av4 av6 av7"
 while [[ $# -gt 0 ]]; do
    case "$1" in
-      --leg) LEGS+=("$2") ; shift 2 ;;
-      *)     echo "accuracy.sh: unknown argument '$1' (accepted: --leg L)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      --leg)  legs_select "$2" ; shift 2 ;;
+      *)      echo "accuracy.sh: unknown argument '$1' (accepted: --legs LIST, --leg L)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(av2 av3a av3b av3c av4 av6 av7)
+legs_resolve accuracy.sh
 TAG="$(basename "$EXE")"
 FAILED=0
 UNTIMED='s/, [^,]* s (host round trip)$//' # the FNL regrid log lines end with their wall time
@@ -81,7 +84,7 @@ riemann() { # riemann <ini>: switch an input to weno-riemann, HLLD, 6th-order co
 }
 
 echo ">> AV: runtime AMR accuracy ($TAG)"
-for leg in "${LEGS[@]}"; do
+for leg in $LEGS; do
    case "$leg" in
       av2)
          echo "-- av2: isentropic vortex, N = 32 tracked to N = 128 against uniform 32 and 128"
@@ -170,12 +173,11 @@ for leg in "${LEGS[@]}"; do
             "${ORACLE[@]}" agree "$c" "$f" "$CASE_DIR/work-adam_flume_cpu-$uniform" \
                                  "$CASE_DIR/work-adam_flume_fnl-$uniform" || FAILED=1
          done ;;
-      *) echo "accuracy.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
 done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "AV PASSED ($TAG)"
+   echo "AV PASSED ($TAG, legs: $LEGS)"
 else
    echo "AV FAILED ($TAG)"
    exit 1

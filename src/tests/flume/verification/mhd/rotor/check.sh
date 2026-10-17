@@ -10,7 +10,7 @@
 #   - positivity with zero floored cells: the floors are disabled, so a non-positive density or pressure stops the run.
 # No conservation check: the outflow boundaries do not conserve. About 10 min on the CPU.
 #
-# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+# Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]] [--legs LIST]   LIST: mv13 or all
 #
 # --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c). The final defect
 # grows smoothly from round-off (time series, M3-P3c: no jump, so no switch flip) and orders by the dissipation of the
@@ -33,14 +33,18 @@ source "$CASE_DIR/../numerics.sh"
 SYM_TOL="1.0e-8"
 EARLY_SYM_TOL="1.0e-8"
 OT_DIR="$(cd "$CASE_DIR/../orszag-tang" && pwd)"
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv13"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np) NP="$2" ; shift 2 ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -52,28 +56,32 @@ MAKE_OPTS=()
 [[ -n $NUMERICS ]] && MAKE_OPTS=(--it-save 100)
 TAG="$(basename "$EXE")-np$NP$(numerics_tag)"
 
-echo ">> MV-13 rotor 256^2 ($(basename "$EXE"), np $NP)"
-w="$CASE_DIR/work-$TAG"
-rm -rf "$w" ; mkdir -p "$w"
-"$VENV_PY" "$CASE_DIR/make_rotor.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$w/rotor.ini" --cells 256 "${MAKE_OPTS[@]}"
-numerics_apply "$w/rotor.ini"
-if ! (cd "$w" && mpirun -np "$NP" "$EXE" rotor.ini > log.txt 2>&1); then
-   echo "check.sh: rotor run failed (a floor stop is a positivity failure), see $w/log.txt" >&2
-   exit 1
-fi
-if "$VENV_PY" "$OT_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$SYM_TOL" --field-parity even; then
-   STATUS=0
-else
-   STATUS=1
-fi
-if [[ -n $NUMERICS ]]; then
-   "$VENV_PY" "$OT_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$EARLY_SYM_TOL" --field-parity even --step 100 || STATUS=1
-fi
-find "$w" -name '*.h5' -delete
+STATUS=0
+if has_leg mv13; then
+   echo ">> MV-13 rotor 256^2 ($(basename "$EXE"), np $NP)"
+   w="$CASE_DIR/work-$TAG"
+   rm -rf "$w" ; mkdir -p "$w"
+   "$VENV_PY" "$CASE_DIR/make_rotor.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$w/rotor.ini" --cells 256 "${MAKE_OPTS[@]}"
+   numerics_apply "$w/rotor.ini"
+   if ! (cd "$w" && mpirun -np "$NP" "$EXE" rotor.ini > log.txt 2>&1); then
+      echo "check.sh: rotor run failed (a floor stop is a positivity failure), see $w/log.txt" >&2
+      exit 1
+   fi
+   if "$VENV_PY" "$OT_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$SYM_TOL" --field-parity even; then
+      STATUS=0
+   else
+      STATUS=1
+   fi
+   if [[ -n $NUMERICS ]]; then
+      "$VENV_PY" "$OT_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$EARLY_SYM_TOL" --field-parity even --step 100 \
+         || STATUS=1
+   fi
+   find "$w" -name '*.h5' -delete
 
+fi
 if [[ $STATUS -eq 0 ]]; then
-   echo "MV-13 PASSED ($TAG)"
+   echo "MV-13 PASSED (legs: $LEGS) ($TAG)"
 else
-   echo "MV-13 FAILED ($TAG)"
+   echo "MV-13 FAILED (legs: $LEGS) ($TAG)"
    exit 1
 fi

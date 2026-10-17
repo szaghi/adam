@@ -33,14 +33,14 @@ and checked that it does not break the regressions, the MV-5 orders and the mult
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/amr-divb/check.sh --leg loop` | the field loop, GLM and EGLM, refined against uniform |
+| `src/tests/flume/verification/amr-divb/check.sh --legs loop` | the field loop, GLM and EGLM, refined against uniform |
 | `src/tests/flume/regression/blast-amr-limiter/input.ini` | the regression case with EGLM across 2:1 seams (golden digest, rtol $10^{-6}$) |
 | `src/tests/flume/regression/run.sh` | the regression suite |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> divb` (FNL), `make_doc_figures.py --only field-loop-seams` | re-runs the six field loops with a checkpoint every 20 steps |
 
 ```bash
-cd src/tests/flume/verification/amr-divb && ./check.sh --leg loop
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --leg loop
+cd src/tests/flume/verification/amr-divb && ./check.sh --legs loop
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs loop
 ```
 
 ## Results

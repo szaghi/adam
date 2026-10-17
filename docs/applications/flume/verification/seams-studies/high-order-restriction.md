@@ -40,12 +40,12 @@ FLUME's ghost update.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/amr-proto/proto2d.py` | `b3 [--cells ...] [--blocks 4 6 8 16 0] [--assert ARM:NORM:MIN]` (block 0: the whole box) |
-| `src/tests/flume/verification/amr-proto/check.sh` | runs B1, B2 and B3 |
+| `src/tests/flume/verification/amr-proto/check.sh` | runs B1, B2 and B3 (`--legs b3` for B3 alone) |
 | `src/tests/flume/verification/make_doc_figures.py --only seam-proto-b3` | draws the figure (`fig_seam_proto_b3`; NumPy only, about 20 s) |
 
 ```bash
-cd src/tests/flume/verification/amr-proto && ./check.sh     # B3 at N = 24 / 48 / 96, about 20 s
-./check.sh --long                                           # B3 at N = 48 / 96 / 192
+cd src/tests/flume/verification/amr-proto && ./check.sh --legs b3  # B3 at N = 24 / 48 / 96, about 20 s
+./check.sh --legs b3 --long                                        # B3 at N = 48 / 96 / 192
 ```
 
 Bounds asserted by `check.sh`: the L∞ orders of shift-inward ($B = 6$) and two-pass at least 3.7 with the cubic

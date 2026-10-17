@@ -16,7 +16,8 @@
 # the flux the committed step actually used; measured (P5): drift <= 6e-15 CPU, 2.2e-16 FNL, with reflux; 2.2e-5
 # without, on np 1 and np 2.
 #
-# Usage: ./check.sh [--build] [--np N]
+# Usage: ./check.sh [--build] [--np N] [--legs v3-reflux,v3-odd,v3-thin|all]   (default: all three)
+#   v3-reflux: legs 1 and 2 (one oracle judges both runs); v3-odd: leg 3; v3-thin: leg 4.
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12);
@@ -24,7 +25,10 @@
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
+source "$VERIF_DIR/legs.sh"
+legs_declare "v3-reflux v3-odd v3-thin" "v3-reflux v3-odd v3-thin"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 MAX_DRIFT="1.0e-13"
 MIN_DRIFT="1.0e-10"
@@ -35,9 +39,11 @@ while [[ $# -gt 0 ]]; do
    case "$1" in
       --build) BUILD=1 ; shift ;;
       --np)    NP="$2" ; shift 2 ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N)" >&2 ; exit 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --build, --np N, --legs L)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 
 if [[ $BUILD -eq 1 ]]; then
    (cd "$REPO_ROOT" && fobis build --mode flume-cpu-gnu)
@@ -56,56 +62,63 @@ if ! "$VENV_PY" -c 'import h5py, numpy' 2>/dev/null; then
 fi
 
 TAG="$(basename "$EXE")-np$NP"
-for reflux in true false; do
-   work="$CASE_DIR/work-$TAG-reflux-$reflux"
-   rm -rf "$work"
-   mkdir -p "$work"
-   sed "s/^reflux                   = .true./reflux                   = .$reflux./" \
-       "$CASE_DIR/amr-periodic.ini" > "$work/amr-periodic.ini"
-   echo ">> amr-periodic, reflux .$reflux.: mpirun -np $NP $(basename "$EXE")"
-   if ! (cd "$work" && mpirun -np "$NP" "$EXE" amr-periodic.ini > log.txt 2>&1); then
-      echo "check.sh: amr-periodic (reflux .$reflux.) run failed, see $work/log.txt" >&2
-      exit 1
-   fi
-   if ! grep -q "registered intra-realm AMR seam faces: +6" "$work/log.txt"; then
-      echo "check.sh: the case must register 6 coarse-fine faces, see $work/log.txt" >&2
-      exit 1
-   fi
-done
+if has_leg v3-reflux; then
+   for reflux in true false; do
+      work="$CASE_DIR/work-$TAG-reflux-$reflux"
+      rm -rf "$work"
+      mkdir -p "$work"
+      sed "s/^reflux                   = .true./reflux                   = .$reflux./" \
+          "$CASE_DIR/amr-periodic.ini" > "$work/amr-periodic.ini"
+      echo ">> amr-periodic, reflux .$reflux.: mpirun -np $NP $(basename "$EXE")"
+      if ! (cd "$work" && mpirun -np "$NP" "$EXE" amr-periodic.ini > log.txt 2>&1); then
+         echo "check.sh: amr-periodic (reflux .$reflux.) run failed, see $work/log.txt" >&2
+         exit 1
+      fi
+      if ! grep -q "registered intra-realm AMR seam faces: +6" "$work/log.txt"; then
+         echo "check.sh: the case must register 6 coarse-fine faces, see $work/log.txt" >&2
+         exit 1
+      fi
+   done
 
-"$VENV_PY" "$CASE_DIR/conservation_oracle.py" --conserved "$CASE_DIR/work-$TAG-reflux-true" --max-drift "$MAX_DRIFT" \
-                                              --leaky "$CASE_DIR/work-$TAG-reflux-false" --min-drift "$MIN_DRIFT"
+   "$VENV_PY" "$CASE_DIR/conservation_oracle.py" \
+      --conserved "$CASE_DIR/work-$TAG-reflux-true" --max-drift "$MAX_DRIFT" \
+      --leaky "$CASE_DIR/work-$TAG-reflux-false" --min-drift "$MIN_DRIFT"
+fi
 
 # Refused input (issue #39): the same case with an odd block cell count along a refined axis (ni = 7) must stop at
 # initialization; before the library check, a 2:1 child boundary in the middle of a parent cell gave NaN silently.
-work="$CASE_DIR/work-$TAG-odd-cells"
-rm -rf "$work" ; mkdir -p "$work"
-sed 's/^ni     = 8/ni     = 7/' "$CASE_DIR/amr-periodic.ini" > "$work/amr-periodic.ini"
-echo ">> amr-periodic with ni = 7: must be refused"
-if (cd "$work" && mpirun -np "$NP" "$EXE" amr-periodic.ini > log.txt 2>&1); then
-   echo "check.sh: the odd block cell count was not refused, see $work/log.txt" >&2
-   exit 1
+if has_leg v3-odd; then
+   work="$CASE_DIR/work-$TAG-odd-cells"
+   rm -rf "$work" ; mkdir -p "$work"
+   sed 's/^ni     = 8/ni     = 7/' "$CASE_DIR/amr-periodic.ini" > "$work/amr-periodic.ini"
+   echo ">> amr-periodic with ni = 7: must be refused"
+   if (cd "$work" && mpirun -np "$NP" "$EXE" amr-periodic.ini > log.txt 2>&1); then
+      echo "check.sh: the odd block cell count was not refused, see $work/log.txt" >&2
+      exit 1
+   fi
+   if ! grep -aq '\[grid\].(ni)=+7 is odd: 2:1 refinement' "$work/log.txt"; then
+      echo "check.sh: the odd-cell run failed without the expected message, see $work/log.txt" >&2
+      exit 1
+   fi
+   echo "   refused as expected"
 fi
-if ! grep -aq '\[grid\].(ni)=+7 is odd: 2:1 refinement' "$work/log.txt"; then
-   echo "check.sh: the odd-cell run failed without the expected message, see $work/log.txt" >&2
-   exit 1
-fi
-echo "   refused as expected"
 
 # Refused input: an even block cell count below 2*ngc along a refined axis (ni = 4, ngc = 3) must stop at
 # initialization; the outer coarse ghost layers would be restricted from the fine block's own, stale ghosts (wrong
 # results that depend on the exchange order, measured 0.2 in density between 1 and 2 ranks on the step forest).
-work="$CASE_DIR/work-$TAG-thin-blocks"
-rm -rf "$work" ; mkdir -p "$work"
-sed 's/^ni     = 8/ni     = 4/' "$CASE_DIR/amr-periodic.ini" > "$work/amr-periodic.ini"
-echo ">> amr-periodic with ni = 4 < 2*ngc: must be refused"
-if (cd "$work" && mpirun -np "$NP" "$EXE" amr-periodic.ini > log.txt 2>&1); then
-   echo "check.sh: the thin block was not refused, see $work/log.txt" >&2
-   exit 1
+if has_leg v3-thin; then
+   work="$CASE_DIR/work-$TAG-thin-blocks"
+   rm -rf "$work" ; mkdir -p "$work"
+   sed 's/^ni     = 8/ni     = 4/' "$CASE_DIR/amr-periodic.ini" > "$work/amr-periodic.ini"
+   echo ">> amr-periodic with ni = 4 < 2*ngc: must be refused"
+   if (cd "$work" && mpirun -np "$NP" "$EXE" amr-periodic.ini > log.txt 2>&1); then
+      echo "check.sh: the thin block was not refused, see $work/log.txt" >&2
+      exit 1
+   fi
+   if ! grep -aq '\[grid\].(ni)=+4 is less than 2\*ngc' "$work/log.txt"; then
+      echo "check.sh: the thin-block run failed without the expected message, see $work/log.txt" >&2
+      exit 1
+   fi
+   echo "   refused as expected"
 fi
-if ! grep -aq '\[grid\].(ni)=+4 is less than 2\*ngc' "$work/log.txt"; then
-   echo "check.sh: the thin-block run failed without the expected message, see $work/log.txt" >&2
-   exit 1
-fi
-echo "   refused as expected"
-echo "V3 PASSED ($TAG)"
+echo "V3 PASSED ($TAG, legs: $LEGS)"

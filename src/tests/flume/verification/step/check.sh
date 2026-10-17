@@ -22,7 +22,7 @@
 # A first layout with 4-cell blocks in A refined made the quadtree differ by 2.4e-5 across ranks: issue #66, now
 # refused by the library (blocks need 2 ngc cells along refined axes).
 #
-# Usage: ./check.sh [--np N] [--legs trees,full] [--keep]
+# Usage: ./check.sh [--np N] [--legs LIST] [--keep]   LIST: trees, full or all (default trees)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -33,7 +33,8 @@ VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
-LEGS="trees"
+source "$VERIF_DIR/legs.sh"
+legs_declare "trees full" "trees"
 KEEP=0
 TOL="1.0e-10"    # quadtree against octree, relative (measured 6.5e-13)
 Z_TOL="1.0e-10"  # z invariance, relative (measured: octree 7.6e-13, quadtree 0)
@@ -41,11 +42,12 @@ Z_TOL="1.0e-10"  # z invariance, relative (measured: octree 7.6e-13, quadtree 0)
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)   NP="$2" ; shift 2 ;;
-      --legs) LEGS="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
       --keep) KEEP=1 ; shift ;;
-      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs trees,full, --keep)" >&2 ; exit 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST, --keep)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -54,7 +56,6 @@ VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TAG="$(basename "$EXE")-np$NP"
 FAILED=0
 
-has_leg() { [[ ",$LEGS," == *",$1,"* ]]; }
 run() { # run <work> <make_step.py arguments>: write the forest, run it
    local w=$1
    shift
@@ -121,8 +122,8 @@ if has_leg full; then
 fi
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "EV-step PASSED ($TAG)"
+   echo "EV-step PASSED ($TAG, legs: $LEGS)"
 else
-   echo "EV-step FAILED ($TAG)"
+   echo "EV-step FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

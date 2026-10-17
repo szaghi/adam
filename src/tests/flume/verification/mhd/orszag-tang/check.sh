@@ -32,6 +32,9 @@
 # --amr is not combined with eglm (the EGLM sources at 2:1 seams are out of scope).
 #
 # Usage: ./check.sh [--np N] [--amr] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]] [--divergence-control glm|eglm]
+#                   [--legs LIST]
+#
+# --legs accepts the one leg mv12 (--amr and --divergence-control select its variant) or all; the default is mv12.
 #
 # --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c): the bounds
 # measured on the flux-splitting scheme are then not asserted (measurement), the scheme-independent checks are.
@@ -52,6 +55,8 @@ SEAM_REF_RATIO="1.0"
 EARLY_SYM_TOL="1.0e-8"
 AMR=0
 DC="glm"
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv12"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -59,10 +64,12 @@ while [[ $# -gt 0 ]]; do
       --amr) AMR=1 ; shift ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
       --divergence-control) DC="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
       *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --numerics SPEC," \
-                  "--divergence-control glm|eglm)" >&2 ; exit 2 ;;
+                  "--divergence-control glm|eglm, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2

@@ -32,24 +32,28 @@
 # The P1 legs of rg0 also cover the conservative prolongation: the round trip exact and the integral unchanged on
 # every field, linear data reproduced, a steep front kept in the range of its data (no negative child).
 #
-# Usage: ./check.sh [--leg rg0|rg1|rg2|rg3|rg4|rg5|rg6 ...]
+# Usage: ./check.sh [--legs LIST]   (legs rg0 rg1 rg2 rg3 rg4 rg5 rg6, all; default rg0 to rg5;
+#                                    --leg L, repeatable, is an older spelling of --legs)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 UNIT="$REPO_ROOT/exe/test_amr_regrid_roundtrip"
-LEGS=()
+source "$VERIF_DIR/legs.sh"
+legs_declare "rg0 rg1 rg2 rg3 rg4 rg5 rg6" "rg0 rg1 rg2 rg3 rg4 rg5"
 while [[ $# -gt 0 ]]; do
    case "$1" in
-      --leg) LEGS+=("$2") ; shift 2 ;;
-      *)     echo "check.sh: unknown argument '$1' (accepted: --leg L)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      --leg)  legs_select "$2" ; shift 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --legs LIST, --leg L)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(rg0 rg1 rg2 rg3 rg4 rg5)
+legs_resolve check.sh
 AGREE_TOL=1e-10
 TAG="$(basename "$EXE")"
 FAILED=0
@@ -81,7 +85,7 @@ expect_refused() { # expect_refused <work> <message regex>: the run must fail an
 }
 
 echo ">> RG: runtime regridding ($TAG)"
-for leg in "${LEGS[@]}"; do
+for leg in $LEGS; do
    case "$leg" in
       rg0)
          echo "-- rg0: library regrid round trip"
@@ -196,12 +200,11 @@ for leg in "${LEGS[@]}"; do
          grep -a "flume: regrid at" "$f/log.txt" | sed -n 's/.*sweeps, \(.*\) s (host round trip)$/\1/p' | \
             awk '{t+=$1; if ($1>m) m=$1} END {if (NR) printf "   FNL host round trips: %d, %.3g s in all, %.3g s at most\n", NR, t, m}'
          "$VENV_PY" "$ORACLE" --compare "$c" "$f" --tol "$AGREE_TOL" --ngc 3 || FAILED=1 ;;
-      *) echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
 done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "RG PASSED ($TAG)"
+   echo "RG PASSED ($TAG, legs: $LEGS)"
 else
    echo "RG FAILED ($TAG)"
    exit 1

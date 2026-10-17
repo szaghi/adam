@@ -42,12 +42,12 @@ metric erratic). Grids: smooth leg $N$ = 32 / 64 / 128; shock legs $N = 64$ (`--
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/amr-proto/proto2d.py` | `b2 [--cells ...] [--shock-cells ...] [--leg L ...] [--tau 0.2] [--check]`, L one of `smooth`, `c2f`, `f2c`, `weak` |
-| `src/tests/flume/verification/amr-proto/check.sh` | runs B1, B2 and B3 |
+| `src/tests/flume/verification/amr-proto/check.sh` | runs B1, B2 and B3 (`--legs b2` for B2 alone) |
 | `src/tests/flume/verification/make_doc_figures.py --only seam-proto-b2` | draws the figure (`fig_seam_proto_b2`; NumPy only, about 3 min) |
 
 ```bash
-cd src/tests/flume/verification/amr-proto && ./check.sh     # B2: about 3 min
-./check.sh --long                                           # shock legs at N = 64 and 128, about 5 min
+cd src/tests/flume/verification/amr-proto && ./check.sh --legs b2  # B2: about 3 min
+./check.sh --legs b2 --long                                        # shock legs at N = 64 and 128, about 5 min
 ```
 
 **Metrics** against the exact solution: the mass defect over the pulse's own mass, and the mass-equivalent shock

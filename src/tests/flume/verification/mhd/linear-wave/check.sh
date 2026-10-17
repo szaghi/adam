@@ -15,6 +15,9 @@
 # One run at a time; checkpoints deleted after use.
 #
 # Usage: ./check.sh [--np N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]] [--divergence-control none|glm|eglm]
+#                   [--legs LIST]
+#
+# --legs selects mv5-1d (the four families along x), mv5-2d (the four families inclined) or all; the default is all.
 #
 # --divergence-control glm|eglm runs the same modes with cleaning (issue #47, M3-P4c, MV-5 under EGLM): c_h = 1.1 times
 # the fastest wave sets the time step, so the errors differ from the none baseline (2-D slow wave 2.4x); bounds for eglm
@@ -39,6 +42,8 @@ source "$CASE_DIR/../numerics.sh"
 ORDER_MIN="4.7"
 AMPLITUDE="1.0e-7"
 DC="none"
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv5-1d mv5-2d"
 declare -A EPS_MAX=( # CPU baseline (M2-P5a) plus 2 %, per geometry, wave and N
    [1d-fast-16]=1.512e-10    [1d-fast-32]=4.843e-12
    [1d-alfven-16]=8.693e-11  [1d-alfven-32]=2.784e-12
@@ -55,10 +60,13 @@ while [[ $# -gt 0 ]]; do
       --np) NP="$2" ; shift 2 ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
       --divergence-control) DC="$2" ; shift 2 ;;
-      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC, --divergence-control D)" >&2
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)    echo "check.sh: unknown argument '$1' (accepted: --np N, --numerics SPEC, --divergence-control D," \
+                 "--legs LIST)" >&2
             exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -130,6 +138,7 @@ case_run() { # case_run <geometry> <wave> <cells>: run one case, print its work 
 }
 
 for geo in 1d 2d; do
+   has_leg "mv5-$geo" || continue
    if [[ $geo == 1d ]]; then ladder=(16 32) ; else ladder=(32 64) ; fi
    for wave in fast alfven slow entropy; do
       echo ">> MV-5 $wave wave, $geo, N = ${ladder[*]} ($(basename "$EXE"), np $NP)"
@@ -145,8 +154,8 @@ for geo in 1d 2d; do
 done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "MV-5 PASSED ($TAG)"
+   echo "MV-5 PASSED ($TAG, legs: $LEGS)"
 else
-   echo "MV-5 FAILED ($TAG)"
+   echo "MV-5 FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

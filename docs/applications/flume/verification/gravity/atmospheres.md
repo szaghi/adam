@@ -66,7 +66,7 @@ unchanged to round-off.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/gravity/make_atmosphere.py` | writes the input of each case (`<out.ini> <case>`) |
-| `src/tests/flume/verification/gravity/check.sh` | runs the cases (`--np`, `--cases`, `--no-force`, `--reference` for NV-5, `--keep`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/gravity/check.sh` | runs the cases (`--np`, `--legs LIST`: the G0 cases, `negative`, the force legs `gv1`, `gv3`, `limiter`, `gv2`, `gv9`, `gv2b`, `gv5`, `gv8`, `gv10`, `gv4a`, `gv4b`, `gv4c`, then `gv6`, `nv5`; default every leg but `gv6` and `nv5`; `--cases` selects G0 cases and keeps the other default legs; `--no-force`, `--reference` for NV-5, `--keep`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/gravity/atmosphere_oracle.py` | `profile`: the interior and the ghosts against the closed form, tolerance $10^{-13}$ |
 | `src/tests/flume/verification/scaling/reference.sh` | NV-5, the `[reference]` layer on the gravity inputs |
 | `src/tests/flume/verification/make_doc_runs.sh` (group `gravity`) | re-runs `iso2d`, `poly2d` with their checkpoints |

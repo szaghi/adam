@@ -43,13 +43,13 @@ rotation), a grid-scale instability, or a backend divergence hidden behind a sym
 | `src/tests/flume/regression/blast-limiter/input.ini` | the blast (written by `verification/mhd/positivity-probe/make_blast.py --cells 64 --eglm`); its golden is per backend |
 | `src/tests/flume/verification/mhd/positivity-probe/make_blast.py` | the blast generator (`--b0` for the β probe) |
 | `src/tests/flume/verification/regrid/make_regrid.py` (`blast-av`) | the av3b and av3c inputs |
-| `src/tests/flume/verification/regrid/accuracy.sh --leg av3c` | the symmetry bound on the Riemann-flux path |
+| `src/tests/flume/verification/regrid/accuracy.sh --legs av3c` | the symmetry bound on the Riemann-flux path |
 | `src/tests/flume/verification/regrid/av_oracle.py` (`blast`) | the point-symmetry measure, bound $10^{-10}$ |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> blast77` (FNL), `make_doc_figures.py --only mhd-blast-symmetry` | re-runs the uniform blast on the splitting scheme and on HLLD with a checkpoint every 20 steps |
 
 ```bash
-cd src/tests/flume/verification/regrid && ./accuracy.sh --leg av3c          # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./accuracy.sh --leg av3c   # FNL
+cd src/tests/flume/verification/regrid && ./accuracy.sh --legs av3c         # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./accuracy.sh --legs av3c  # FNL
 ```
 
 The probes of the table below are investigation runs, not legs of a script.

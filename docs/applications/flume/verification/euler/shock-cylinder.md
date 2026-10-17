@@ -53,15 +53,15 @@ What the case catches:
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/shock-cylinder/shock-cylinder.ini` | the case (`[solids]`, `[solid_1] definition = analytical_circle`, an `[amr]` solid marker) |
-| `src/tests/flume/verification/shock-cylinder/check.sh` | V6 (`--np N`; `FLUME_EXE` selects the backend), mirror tolerance $10^{-10}$ |
+| `src/tests/flume/verification/shock-cylinder/check.sh` | V6 (`--np N`, `--legs v6`; `FLUME_EXE` selects the backend), mirror tolerance $10^{-10}$ |
 | `src/tests/flume/verification/shock-cylinder/shock_cylinder_oracle.py` | the refinement, mirror-symmetry and fluid-sanity checks; `--compare` for two runs |
-| `src/tests/flume/verification/riemann-flux/check.sh --leg cylinder` | the same case on `weno-riemann` |
+| `src/tests/flume/verification/riemann-flux/check.sh --legs cylinder` | the same case on `weno-riemann` |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_cylinder`) | the figure, from the HLLC work directory of `riemann-flux/` |
 
 ```bash
 cd src/tests/flume/verification/shock-cylinder && ./check.sh                  # CPU
 FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh                   # FNL
-cd ../riemann-flux && ./check.sh --leg cylinder                               # weno-riemann HLLC
+cd ../riemann-flux && ./check.sh --legs cylinder                              # weno-riemann HLLC
 ```
 
 ## Results

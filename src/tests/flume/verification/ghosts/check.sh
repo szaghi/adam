@@ -32,18 +32,21 @@
 # 1, tricubic 3, lagrange6 and quintic 5), so with N > 1 the probe checks the high-order operators' accuracy in situ
 # (N = 5: --seam-restriction lagrange6 --seam-ghost-fill quintic).
 #
-# Usage: ./check.sh [--np "1 2 3"] [--cases "box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"]
+# Usage: ./check.sh [--np "1 2 3"] [--legs box3d,box3d-mhd,channel2d,mirror3d,refined3d,walls3d,walls3d-mhd,step|all]
 #        [--keep] [--seam-restriction mean|lagrange6|weno6] [--seam-ghost-fill tricubic|quintic] [--degree N]
+#        (default: every case; a leg is a case, run on each --np; --cases "..." is an older spelling of --legs)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
+source "$VERIF_DIR/legs.sh"
+legs_declare "box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NPS="1 2 3"
-CASES="box3d box3d-mhd channel2d mirror3d refined3d walls3d walls3d-mhd step"
 KEEP=0
 RESTRICTION=""
 FILL=""
@@ -52,15 +55,17 @@ DEGREE=1
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NPS="$2" ; shift 2 ;;
-      --cases) CASES="$2" ; shift 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      --cases) legs_select "$2" ; shift 2 ;;
       --keep)  KEEP=1 ; shift ;;
       --seam-restriction) RESTRICTION="$2" ; shift 2 ;;
       --seam-ghost-fill) FILL="$2" ; shift 2 ;;
       --degree) DEGREE="$2" ; shift 2 ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --np \"N ...\", --cases \"...\", --keep," \
-                    "--seam-restriction R, --seam-ghost-fill F, --degree N)" >&2 ; exit 2 ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --np \"N ...\", --legs L, --cases \"...\"," \
+                    "--keep, --seam-restriction R, --seam-ghost-fill F, --degree N)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -70,7 +75,7 @@ TAG="$(basename "$EXE")"
 FAILED=0
 
 for np in $NPS; do
-   for case in $CASES; do
+   for case in $LEGS; do
       w="$CASE_DIR/work-$TAG-np$np-$case"
       rm -rf "$w" ; mkdir -p "$w"
       input=probe.ini
@@ -103,8 +108,8 @@ for np in $NPS; do
 done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "GP PASSED ($TAG)"
+   echo "GP PASSED ($TAG, legs: $LEGS)"
 else
-   echo "GP FAILED ($TAG)"
+   echo "GP FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

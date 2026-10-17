@@ -17,13 +17,15 @@
 # Measured at N2d (CPU, np 2), TV of rho / rho0 (code units js: 0.877 weno, 0.884 weno-riemann): raw SI js 1.162 and
 # 2.455 (new extrema 2e-2 and 9e-2; weno-riemann L1 x20); legs 1 and 2 within 1.1e-13.
 #
-# Usage: ./interstellar.sh [--np N]
+# Usage: ./interstellar.sh [--np N] [--legs LIST]   (legs nv6-weno nv6-weno-riemann, all; default all:
+#                                                    the three assertions on the weno and the weno-riemann path)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./interstellar.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
@@ -32,13 +34,17 @@ ORACLE="$CASE_DIR/interstellar_oracle.py"
 SOD="$CASE_DIR/../sod/sod-x.ini"
 L0=3.0857e16 ; U0=1.0e4 ; RHO0=1.0e-21
 NP=2
+source "$VERIF_DIR/legs.sh"
+legs_declare "nv6-weno nv6-weno-riemann"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
-      --np) NP="$2" ; shift 2 ;;
-      *) echo "interstellar.sh: unknown argument '$1'" >&2 ; exit 2 ;;
+      --np)   NP="$2" ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *) echo "interstellar.sh: unknown argument '$1' (accepted: --np N, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve interstellar.sh
 [[ -x "$EXE" ]] || { echo "interstellar.sh: executable '$EXE' not found" >&2 ; exit 2 ; }
 TAG="$(basename "$EXE")-np$NP"
 
@@ -71,6 +77,7 @@ fails=0
 echo ">> NV-6 interstellar Sod ($(basename "$EXE"), np $NP): L0 = $L0 m, u0 = $U0 m/s, rho0 = $RHO0 kg/m^3"
 for SCHEME in "" weno-riemann; do
    path="${SCHEME:-weno}"
+   has_leg "nv6-$path" || continue
    w="$CASE_DIR/work-nv6-$TAG-$path"
    physical=(--length "$L0" --velocity "$U0" --density "$RHO0")
    run "$w-code-js"              --length 1 --velocity 1 --density 1 --weights js
@@ -98,4 +105,5 @@ if [[ $fails -gt 0 ]]; then
    echo "NV-6 FAILED: $fails assertions ($TAG)"
    exit 1
 fi
-echo "NV-6: limiting active in interstellar units with si weights and with [reference], collapse detected without ($TAG)"
+echo "NV-6: limiting active in interstellar units with si weights and with [reference], collapse detected without" \
+     "($TAG, legs: $LEGS)"

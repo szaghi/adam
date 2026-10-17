@@ -19,7 +19,8 @@
 #     Measured (CPU and FNL): orders 2.12 (rho) and 2.00 (p); the constant-g path gives 5.0 and 4.6 (GV-9).
 # The constant-g path itself is unchanged bitwise: the regression suite (src/tests/flume/regression) holds it.
 #
-# Usage: ./check.sh [--np N] [--cases "iso2d ..."] [--keep]
+# Usage: ./check.sh [--np N] [--legs LIST] [--keep]   LIST: iso2d, iso2d-mhd, freefall2d, box2d, box2d-mhd, box2d-lim,
+#        wave2d (the convergence ladder) or all (default all); --cases is an older spelling of --legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -28,20 +29,24 @@ set -euo pipefail
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 GRAVITY_DIR="$CASE_DIR/../gravity"
 NP=2
 MIN_ORDER=1.8
-CASES="iso2d iso2d-mhd freefall2d box2d box2d-mhd box2d-lim"
 KEEP=0
+source "$VERIF_DIR/legs.sh"
+legs_declare "iso2d iso2d-mhd freefall2d box2d box2d-mhd box2d-lim wave2d"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
-      --cases) CASES="$2" ; shift 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      --cases) legs_select "$2" ; shift 2 ;;
       --keep)  KEEP=1 ; shift ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --np N, --cases LIST, --keep)" >&2 ; exit 2 ;;
+      *)       echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST, --keep)" >&2 ; exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2 ; exit 2
 fi
@@ -57,7 +62,8 @@ fi
 TAG="$(basename "$EXE")-np$NP"
 FAILED=0
 echo ">> SV-1: gravity from the potential Phi = -g . x ([gravity] potential = linear)"
-for c in $CASES; do
+for c in $LEGS; do
+   [[ $c == wave2d ]] && continue
    work="$CASE_DIR/work-$TAG-sv1-$c"
    rm -rf "$work" ; mkdir -p "$work"
    python3 -I "$GRAVITY_DIR/make_atmosphere.py" "$work/input.ini" "$c" --potential linear
@@ -74,24 +80,26 @@ for c in $CASES; do
    esac
    if [[ $KEEP -eq 0 ]]; then rm -rf "$work" ; fi
 done
-works=()
-for cells in 8 16 32; do
-   work="$CASE_DIR/work-$TAG-sv1-wave-$cells"
-   rm -rf "$work" ; mkdir -p "$work"
-   python3 -I "$GRAVITY_DIR/make_atmosphere.py" "$work/input.ini" wave2d --cells "$cells" --time-max 0.2 \
-      --cfl "$(python3 -c "print(0.4 * (8 / $cells) ** (2 / 3))")" --potential linear
-   sed -i 's/^it_save = .*/it_save = 100000/' "$work/input.ini"
-   if ! (cd "$work" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
-      echo "   wave2d $cells: the run failed, see $work/log.txt  FAIL"
-      FAILED=1
+if has_leg wave2d; then
+   works=()
+   for cells in 8 16 32; do
+      work="$CASE_DIR/work-$TAG-sv1-wave-$cells"
+      rm -rf "$work" ; mkdir -p "$work"
+      python3 -I "$GRAVITY_DIR/make_atmosphere.py" "$work/input.ini" wave2d --cells "$cells" --time-max 0.2 \
+         --cfl "$(python3 -c "print(0.4 * (8 / $cells) ** (2 / 3))")" --potential linear
+      sed -i 's/^it_save = .*/it_save = 100000/' "$work/input.ini"
+      if ! (cd "$work" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
+         echo "   wave2d $cells: the run failed, see $work/log.txt  FAIL"
+         FAILED=1
+      fi
+      works+=("$work")
+   done
+   if [[ $FAILED -eq 0 ]]; then
+      "$VENV_PY" "$GRAVITY_DIR/atmosphere_oracle.py" wave "${works[@]}" --min-order "$MIN_ORDER" || FAILED=1
    fi
-   works+=("$work")
-done
-if [[ $FAILED -eq 0 ]]; then
-   "$VENV_PY" "$GRAVITY_DIR/atmosphere_oracle.py" wave "${works[@]}" --min-order "$MIN_ORDER" || FAILED=1
+   if [[ $KEEP -eq 0 ]]; then rm -rf "${works[@]}" ; fi
 fi
-if [[ $KEEP -eq 0 ]]; then rm -rf "${works[@]}" ; fi
 if [[ $FAILED -ne 0 ]]; then
-   echo "SV-1 FAILED ($TAG)" ; exit 1
+   echo "SV-1 FAILED ($TAG, legs: $LEGS)" ; exit 1
 fi
-echo "SV-1 PASSED ($TAG)"
+echo "SV-1 PASSED ($TAG, legs: $LEGS)"

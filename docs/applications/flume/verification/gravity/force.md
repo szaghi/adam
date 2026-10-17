@@ -60,7 +60,7 @@ Checkpoints every 10 steps (GV-3 asserts every one of them).
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/gravity/make_atmosphere.py` | writes each case (`freefall2d`, `box2d`, `box2d-mhd`, `box2d-lim`, `box2d-stiff`, `iso2d`; `--cells`, `--cfl`, `--time-max`, `--weights`, `--steps`) |
-| `src/tests/flume/verification/gravity/check.sh` | runs the legs (the force legs unless `--no-force`; `--scaling` for GV-6, `--agree TAG` for GV-7, `--keep`) |
+| `src/tests/flume/verification/gravity/check.sh` | runs the legs (`--legs LIST`, e.g. `gv1,gv3,limiter,gv2`; the force legs unless `--no-force`; `--scaling` adds `gv6` (GV-6); `--agree TAG` for GV-7, which needs the legs `gv3`, `gv8`, `gv10`, `gv4c`; `--keep`) |
 | `src/tests/flume/verification/gravity/atmosphere_oracle.py` | `freefall` (GV-1, $10^{-12}$), `energy` (GV-3, $10^{-12}$; `--report-total` for the limiter cases), `rest` (GV-2), `agree` (GV-7, $10^{-10}$) |
 | `src/tests/flume/verification/scaling/scaling.py` | GV-6: `rescale --j 2 --k -1 --m -2` and `compare` |
 | `src/tests/flume/verification/make_doc_runs.sh` (group `gravity`) | re-runs `freefall2d`, `box2d`, `box2d-mhd` with their checkpoints |

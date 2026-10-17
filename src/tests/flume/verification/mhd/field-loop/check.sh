@@ -25,7 +25,10 @@
 # backends differed by ~1e-6 on B before the slow-wave normalisation of the eigenvectors was made cancellation-free;
 # measured after it ~1e-14 at step 4).
 #
-# Usage: ./check.sh [--np N] [--amr] [--agree] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+# Usage: ./check.sh [--np N] [--amr] [--agree] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]] [--legs LIST]
+#
+# --legs accepts the one leg mv9 (the ladder is one convergence check; --amr and --agree select its variant) or all;
+# the default is mv9.
 #
 # --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c). The specs
 # hlld:primitive and hlld:characteristic (6th, weno) assert the bounds measured on them (CPU, M3-P3c) on the uniform
@@ -53,6 +56,8 @@ ENERGY_MIN_AMR=(0.80066 0.89888)   # CPU baseline (M2-P7b) minus 0.2 %
 SEAM_DECAY="0.1"
 AGREE=0
 AGREE_TOL="1.0e-10"
+source "$VERIF_DIR/legs.sh"
+legs_declare "mv9"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -60,9 +65,12 @@ while [[ $# -gt 0 ]]; do
       --amr) AMR=1 ; shift ;;
       --agree) AGREE=1 ; shift ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
-      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --agree, --numerics SPEC)" >&2 ; exit 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --agree, --numerics SPEC, --legs LIST)" >&2
+             exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2

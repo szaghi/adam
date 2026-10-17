@@ -52,29 +52,33 @@
 #                 default switch. Measured: equal to euler-q6 (L1 6.03e-8, orders 6.11 / 6.35), against 4.05e-6 and
 #                 order 2.01 with reflux_policy = always. Asserted as euler-q6.
 #
-# Usage: ./check.sh [--np N] [--leg euler|mhd|euler-octree|euler-l6|euler-w6|euler-q6|euler-ww|euler-mp|euler-tq ...]
-#        [--keep]
+# Usage: ./check.sh [--np N] [--legs euler,mhd,euler-octree,euler-l6,euler-w6,euler-q6,euler-ww,euler-mp,euler-tq|all]
+#        [--keep]   (default: every leg but euler-octree; --leg L is an older spelling of --legs, repeatable)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
+source "$VERIF_DIR/legs.sh"
+legs_declare "euler mhd euler-octree euler-l6 euler-w6 euler-q6 euler-ww euler-mp euler-tq" \
+             "euler mhd euler-l6 euler-w6 euler-q6 euler-ww euler-mp euler-tq"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 NP=2
 KEEP=0
-LEGS=()
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)   NP="$2" ; shift 2 ;;
-      --leg)  LEGS+=("$2") ; shift 2 ;;
+      --legs) legs_select "$2" ; shift 2 ;;
+      --leg)  legs_select "$2" ; shift 2 ;;
       --keep) KEEP=1 ; shift ;;
-      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --leg L, --keep)" >&2 ; exit 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --np N, --legs L, --leg L, --keep)" >&2 ; exit 2 ;;
    esac
 done
-[[ ${#LEGS[@]} -eq 0 ]] && LEGS=(euler mhd euler-l6 euler-w6 euler-q6 euler-ww euler-mp euler-tq)
+legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then
    echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2
    exit 2
@@ -136,7 +140,7 @@ ladder() { # ladder <leg> <case> <box> <ratio> <bounds-array-name> <cells...>: t
 }
 
 echo ">> AO: order across static 2:1 seams ($(basename "$EXE"), np $NP)"
-for leg in "${LEGS[@]}"; do
+for leg in $LEGS; do
    case "$leg" in
       euler)        echo "-- euler: V2 vortex on a quadtree, quadrant [0.5, 1]^2 refined"
                     ladder euler euler "0.5 0.5 1.0 1.0" 4 MAX_EULER 64 128 256 ;;
@@ -172,13 +176,12 @@ for leg in "${LEGS[@]}"; do
                     LEG_OPTS=(--seam-restriction weno6 --no-reflux) ; ORDER_ASSERTS=("${ORDER_W6[@]}")
                     ladder euler-w6 euler "0.5 0.5 1.0 1.0" 4 MAX_EULER_W6 64 128 256
                     LEG_OPTS=() ; ORDER_ASSERTS=() ;;
-      *)            echo "check.sh: unknown leg '$leg'" >&2 ; exit 2 ;;
    esac
 done
 
 if [[ $FAILED -eq 0 ]]; then
-   echo "AO PASSED ($TAG)"
+   echo "AO PASSED ($TAG, legs: $LEGS)"
 else
-   echo "AO FAILED ($TAG)"
+   echo "AO FAILED ($TAG, legs: $LEGS)"
    exit 1
 fi

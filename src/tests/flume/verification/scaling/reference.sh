@@ -32,21 +32,26 @@
 # for bit (scaling.py compare --output); the temperature, p / (rho R) against (p / rho) / R with the cp, cv of the
 # regression inputs, within a few roundings.
 #
-# Usage: ./reference.sh [--np N] [--j J --k K --m M] [--cases "sod-x rotor ..." | --inputs "a.ini b.ini ..."]
+# Usage: ./reference.sh [--np N] [--j J --k K --m M] [--legs LIST | --inputs "a.ini b.ini ..."]
 #                       [--restart | --output]
+# --legs LIST: regression case names (or all); default every case for NV-5, the cases above for NV-8 and NV-9;
+# --cases "sod-x rotor ..." is an older spelling of --legs. --inputs (NV-5 only) runs the given files instead and
+# takes no leg selection (--inputs with --legs or --cases is refused); with --restart or --output it is ignored.
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./reference.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 REG_DIR="$REPO_ROOT/src/tests/flume/regression"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TOOL="$CASE_DIR/scaling.py"
 NP=2 ; J=2 ; K=-1 ; M=-2 ; INPUTS="" ; RESTART=0 ; OUTPUT=0
-CASES="$(cd "$REG_DIR" && for d in */; do [[ -f "$d/input.ini" ]] && echo "${d%/}"; done)"
+ALL_CASES="$(echo $(cd "$REG_DIR" && for d in */; do [[ -f "$d/input.ini" ]] && echo "${d%/}"; done))"
+source "$VERIF_DIR/legs.sh"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -54,13 +59,32 @@ while [[ $# -gt 0 ]]; do
       --j)     J="$2" ; shift 2 ;;
       --k)     K="$2" ; shift 2 ;;
       --m)     M="$2" ; shift 2 ;;
-      --cases) CASES="$2" ; shift 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      --cases) legs_select "$2" ; shift 2 ;;
       --inputs) INPUTS="$2" ; shift 2 ;;
       --restart) RESTART=1 ; shift ;;
       --output) OUTPUT=1 ; shift ;;
-      *) echo "reference.sh: unknown argument '$1'" >&2 ; exit 2 ;;
+      *) echo "reference.sh: unknown argument '$1' (accepted: --np, --j, --k, --m, --legs, --cases, --inputs," \
+              "--restart, --output)" >&2 ; exit 2 ;;
    esac
 done
+if [[ $RESTART -eq 1 ]]; then
+   DEFAULT_CASES="sod-x shock-cylinder-ib amr-periodic-reflux blast-amr-limiter"
+elif [[ $OUTPUT -eq 1 ]]; then
+   DEFAULT_CASES="sod-x shock-cylinder-ib field-loop blast-amr-limiter uniform-amr-mhd"
+else
+   DEFAULT_CASES="$ALL_CASES"
+fi
+# the legs run in declaration order: the mode's default cases first, in their order, then the others
+legs_declare "$DEFAULT_CASES $(for c in $ALL_CASES; do [[ " $DEFAULT_CASES " == *" $c "* ]] || echo "$c"; done)" \
+             "$DEFAULT_CASES"
+if [[ -n $INPUTS && $RESTART -eq 0 && $OUTPUT -eq 0 ]]; then
+   if [[ -n ${LEGS_SELECTED// /} ]]; then
+      echo "reference.sh: --inputs runs the given files, not legs: drop --legs/--cases" >&2 ; exit 2
+   fi
+else
+   legs_resolve reference.sh
+fi
 [[ -x "$EXE" ]] || { echo "reference.sh: executable '$EXE' not found" >&2 ; exit 2 ; }
 
 TAG="$(basename "$EXE")-np$NP"
@@ -106,10 +130,8 @@ refused() { # refused <work-dir> <expected message>: the run must stop with the 
 }
 
 if [[ $RESTART -eq 1 ]]; then
-   [[ "$CASES" == "$(cd "$REG_DIR" && for d in */; do [[ -f "$d/input.ini" ]] && echo "${d%/}"; done)" ]] && \
-      CASES="sod-x shock-cylinder-ib amr-periodic-reflux blast-amr-limiter"
    echo ">> reference layer NV-8 restart ($(basename "$EXE"), np $NP): L0 = 2^$J, u0 = 2^$K, rho0 = 4^$M, N = 20"
-   for c in $CASES; do
+   for c in $LEGS; do
       a="$CASE_DIR/work-ref-$TAG-$c-restart-A" ; b="$CASE_DIR/work-ref-$TAG-$c-restart-B"
       copy_case "$c" "$a" ; copy_case "$c" "$b"
       "$VENV_PY" "$TOOL" dimensionalize "$a/input.ini" "$b/input.ini" --j "$J" --k "$K" --m "$M" > /dev/null
@@ -151,10 +173,8 @@ grid_value() { # grid_value <ini> <key>: a [grid] value
 }
 
 if [[ $OUTPUT -eq 1 ]]; then
-   [[ "$CASES" == "$(cd "$REG_DIR" && for d in */; do [[ -f "$d/input.ini" ]] && echo "${d%/}"; done)" ]] && \
-      CASES="sod-x shock-cylinder-ib field-loop blast-amr-limiter uniform-amr-mhd"
    echo ">> reference layer NV-9 output units ($(basename "$EXE"), np $NP): L0 = 2^$J, u0 = 2^$K, rho0 = 4^$M"
-   for c in $CASES; do
+   for c in $LEGS; do
       base="$CASE_DIR/work-ref-$TAG-$c-output-base" ; dim="$CASE_DIR/work-ref-$TAG-$c-output-dimensional"
       copy_case "$c" "$base" ; copy_case "$c" "$dim"
       ini="$base/input.ini"
@@ -187,6 +207,7 @@ if [[ $OUTPUT -eq 1 ]]; then
 fi
 
 echo ">> reference layer NV-5 ($(basename "$EXE"), np $NP): L0 = 2^$J, u0 = 2^$K, rho0 = 4^$M"
+CASES="$LEGS"
 [[ -n $INPUTS ]] && CASES="$INPUTS"
 for item in $CASES; do
    c="$(basename "$item" .ini)"

@@ -57,7 +57,7 @@ once through each path.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/gravity/make_atmosphere.py` | writes the M7 cases; `--potential linear` selects the potential path |
-| `src/tests/flume/verification/selfgravity/check.sh` | runs the SV-1 leg (`--np N`, `--cases LIST`, `--keep`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/selfgravity/check.sh` | runs SV-1 (`--np N`, `--legs LIST`: `iso2d`, `iso2d-mhd`, `freefall2d`, `box2d`, `box2d-mhd`, `box2d-lim`, `wave2d` (the ladder), default all; `--keep`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/gravity/atmosphere_oracle.py` | the M7 oracles: `profile`, `freefall`, `energy`, `wave` |
 | `src/tests/flume/verification/make_doc_runs.sh`, group `selfgravity` | `sv1-box2d-{uniform,linear}`, `sv1-wave-{uniform,linear}-{8,16,32}`: both paths |
 | `src/tests/flume/verification/make_doc_figures.py`, `fig_selfgravity_potential` | draws the figure (`--only selfgravity-potential`) |

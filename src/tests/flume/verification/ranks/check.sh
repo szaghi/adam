@@ -24,7 +24,8 @@
 # Measured (P0/P2, FNL on 2 A30 GPUs, nvhpc 25.5): before the fix every MHD case aborted at np 2
 # ("dev_assign_to_device: device memory not allocated"), Euler ran; after it every case runs and is bitwise.
 #
-# Usage: ./check.sh [--np N] [--cases "repro euler ..."] [--keep] [--it-save N]
+# Usage: ./check.sh [--np N] [--legs LIST] [--keep] [--it-save N]
+# (--legs: the cases above, default all; --cases "repro euler ..." is an older spelling of --legs)
 # (--it-save: a checkpoint every N steps, for the docs figure; the default saves the first and the last only)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -32,24 +33,29 @@
 set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 GEN="$CASE_DIR/../gravity/make_atmosphere.py"
 NP=2
-CASES="repro euler mhd-none mhd-glm mhd-eglm limiter balanced hlld amr"
+source "$VERIF_DIR/legs.sh"
+legs_declare "repro euler mhd-none mhd-glm mhd-eglm limiter balanced hlld amr"
 KEEP=0
 IT_SAVE=""
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
-      --cases) CASES="$2" ; shift 2 ;;
+      --legs)  legs_select "$2" ; shift 2 ;;
+      --cases) legs_select "$2" ; shift 2 ;;
       --keep)  KEEP=1 ; shift ;;
       --it-save) IT_SAVE="$2" ; shift 2 ;;
-      *)       echo "check.sh: unknown argument '$1' (accepted: --np N, --cases LIST, --keep, --it-save N)" >&2
+      *)       echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST," \
+                    "--cases LIST, --keep, --it-save N)" >&2
                exit 2 ;;
    esac
 done
+legs_resolve check.sh
 if [[ $NP -lt 2 ]]; then
    echo "check.sh: --np must be at least 2 (an empty rank needs a second rank)" >&2 ; exit 2
 fi
@@ -98,7 +104,7 @@ case_ini() { # case_ini <name> <ini>: write the input of a case
 
 TAG="$(basename "$EXE")"
 FAILED=0
-for name in $CASES; do
+for name in $LEGS; do
    for np in 1 "$NP"; do
       work="$CASE_DIR/work-$TAG-$name-np$np"
       rm -rf "$work" ; mkdir -p "$work"
@@ -121,4 +127,4 @@ done
 if [[ $FAILED -ne 0 ]]; then
    echo "DV-1 FAILED ($TAG, np $NP)" ; exit 1
 fi
-echo "DV-1 PASSED ($TAG, np $NP)"
+echo "DV-1 PASSED ($TAG, np $NP, legs: $LEGS)"
