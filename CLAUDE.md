@@ -368,6 +368,10 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
   - Centralizes compiler flags, preprocessor macros, dependency tracking
 
 ### Cluster-Specific Considerations
+- **medooza, CPU (gfortran 16.2 + Open MPI 5.0.11):** hcoll segfaults in `MPI_Finalize` on the compute nodes, so a
+  correct run exits 139; `gnu.sh` exports `OMPI_MCA_coll_hcoll_enable=0` since 2026-10-17. The regression harnesses
+  fail a case whose run exits non-zero, so a crash after the last checkpoint can no longer pass unseen.
+
 - **Job Scheduler**: Slurm (assumed)
   - Use `#SBATCH --gpus-per-node=<N>` for GPU allocation
   - MPI binding: `srun --cpu-bind=cores --gpu-bind=closest` for affinity

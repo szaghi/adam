@@ -33,7 +33,9 @@
 # (N = 5: --seam-restriction lagrange6 --seam-ghost-fill quintic).
 #
 # Usage: ./check.sh [--np "1 2 3"] [--legs box3d,box3d-mhd,channel2d,mirror3d,refined3d,walls3d,walls3d-mhd,step|all]
-#        [--keep] [--seam-restriction mean|lagrange6|weno6] [--seam-ghost-fill tricubic|quintic] [--degree N]
+#        [--keep] [--seam-restriction mean|lagrange6|weno6] [--degree N]
+#        [--seam-ghost-fill injection|restriction-compatible|tricubic|quintic|weno6|quintic-mp]
+#        (the solver refuses any other fill or restriction value)
 #        (default: every case; a leg is a case, run on each --np; --cases "..." is an older spelling of --legs)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh

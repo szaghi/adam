@@ -17,7 +17,7 @@ What the case catches:
   the axes;
 - **loss of accuracy** of the shock-capturing scheme: $L_1(\rho)$ against the exact solution under a recorded bound;
 - **broken 1-D consistency:** every transverse copy of the solution, in every block, must be bitwise identical;
-- **wall boundaries** (the `--wall` variant): a double Sod in a closed box must stay mirror symmetric and keep its mass
+- **wall boundaries** (the `v1-wall` leg): a double Sod in a closed box must stay mirror symmetric and keep its mass
   and energy.
 
 ## Models and numerics
@@ -29,7 +29,7 @@ What the case catches:
 | Characteristic projection | left and right eigenvectors of the flux Jacobian in direction $d$ | `compute_eigenvectors`, [`adam_flume_euler_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_euler_library.F90) |
 | Space, `weno-riemann` (RV-3) | WENO interpolation of the face states, then an LLF, HLL or HLLC Riemann solver | `compute_residuals_riemann`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90); [`adam_flume_cpu_euler_hllc_kernels.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_euler_hllc_kernels.F90) (and the `_llf`, `_hll` twins) |
 | Time | SSP Runge–Kutta, 3 stages (`runge-kutta-ssp-33`), CFL 0.5 | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
-| Boundaries | zeroth-order extrapolation; reflecting inviscid walls in the `--wall` variant | `set_boundary_conditions`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90); [`adam_flume_bc_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_bc_object.F90) |
+| Boundaries | zeroth-order extrapolation; reflecting inviscid walls in the `v1-wall` leg | `set_boundary_conditions`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90); [`adam_flume_bc_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_bc_object.F90) |
 | FNL backend | the same kernels on the device | [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90) |
 
 The scheme options are described in [numerics](../../numerics).
@@ -46,7 +46,7 @@ The scheme options are described in [numerics](../../numerics).
 | Initial condition | [`riemann-problem`](../../initial-conditions#riemann-problem-piecewise-constant-axis-aligned-regions), two regions |
 | Boundaries | `extrapolation` on all six faces |
 | Final time | $t = 0.2$ |
-| `--wall` variant | walls at both ends, the high state in the middle, $t = 0.4$ |
+| `v1-wall` leg | walls at both ends, the high state in the middle, $t = 0.4$ |
 
 ## Input files
 
@@ -54,7 +54,7 @@ The scheme options are described in [numerics](../../numerics).
 |---|---|
 | `src/tests/flume/verification/sod/sod-{x,y,z}.ini` | the three directions |
 | `src/tests/flume/verification/sod/sod-wall-{x,y,z}.ini` | the reflecting-wall double Sod |
-| `src/tests/flume/verification/sod/check.sh` | runs the cases (`--np N`, `--legs LIST`: `v1` (default) and `v1-wall`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/sod/check.sh` | runs the cases (`--np N`, `--legs LIST`: `v1` (default) and `v1-wall` (`--wall` is its older spelling); `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/sod/sod_oracle.py` | the exact solution, the $L_1$ bound, the bitwise and mirror checks |
 | `src/tests/flume/verification/riemann-flux/check.sh --legs sod` | the `weno-riemann` runs (RV-3) |
 
@@ -78,8 +78,8 @@ The figure is drawn by `make_doc_figures.py` (`fig_sod`) from the work directori
 | $L_1(\rho)$, `weno-riemann` LLF / HLL / HLLC | — | $3.426$ / $3.013$ / $2.942\cdot10^{-3}$ | the same |
 | $y$ and $z$ runs against $x$ | bitwise | bitwise | bitwise |
 | transverse copies of the 1-D solution | bitwise | bitwise | bitwise |
-| `--wall`: mirror symmetry about the centre | $10^{-12}$ | pass | pass |
-| `--wall`: relative drift of mass and energy | $10^{-11}$ | pass | pass |
+| `v1-wall`: mirror symmetry about the centre | $10^{-12}$ | pass | pass |
+| `v1-wall`: relative drift of mass and energy | $10^{-11}$ | pass | pass |
 
 Related cases: [Lax](./lax) and [Shu–Osher](./shu-osher) compare the same Riemann solvers on harder problems; the MHD
 analogue is [Ryu–Jones 2a](../mhd/ryu-jones-2a).
@@ -92,5 +92,5 @@ analogue is [Ryu–Jones 2a](../mhd/ryu-jones-2a).
   agree that closely because the host and device WENO weights share one exponent (`weno_weights_exponent`).
 - HLLC is the most accurate of the Riemann solvers on the contact, and slightly more accurate than the splitting
   scheme.
-- Symmetry alone does not prove that the walls reflect: extrapolation at both ends is symmetric too. The `--wall`
-  variant therefore also requires a closed box (extrapolated ends would leak about 10% of the mass).
+- Symmetry alone does not prove that the walls reflect: extrapolation at both ends is symmetric too. The `v1-wall`
+  leg therefore also requires a closed box (extrapolated ends would leak about 10% of the mass).

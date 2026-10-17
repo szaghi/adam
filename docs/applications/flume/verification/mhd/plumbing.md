@@ -22,7 +22,7 @@ the wall rule, the outputs and the restart. The leg checks that plumbing, for bo
    error messages.
 
 What the case catches: a wrong fast-speed formula, a wrong $\mathbf{B}$ index, a wrong auxiliary layout on the device
-(the dt leg exercises the device auxiliary and fast-speed kernels on FNL), a kernel instance of the wrong model,
+(the dt check exercises the device auxiliary and fast-speed kernels on FNL), a kernel instance of the wrong model,
 $c_h$ missing from the time step, a missing $\mathbf{B}$ or $\psi$ field in the output, a restart that loses $\psi$,
 and a silently accepted invalid input.
 
@@ -53,13 +53,13 @@ still describes the P1 state ("no face fluxes yet"); its `--static` mode is no l
 | Item | Value |
 |---|---|
 | Domain | $[0, 1]^3$ |
-| Grid | octree, two uniform levels (`iu_ref_levels = 2`): 64 blocks of $8^3$ cells, $32^3$ cells, $\Delta x = 1/32$, `ngc = 3` (both ranks own blocks, so the restart leg is meaningful) |
+| Grid | octree, two uniform levels (`iu_ref_levels = 2`): 64 blocks of $8^3$ cells, $32^3$ cells, $\Delta x = 1/32$, `ngc = 3` (both ranks own blocks, so the restart check is meaningful) |
 | Ranks | 2 |
-| Initial condition | [`uniform`](../../initial-conditions#uniform-seeded-uniform-state): $(\rho, u, v, w, p) = (1, 0.3, -0.2, 0.1, 1)$, $\mathbf{B} = (0.8, 0.5, -0.3)$, seeded density/pressure perturbation $s = 0.05$ ($s = 0$ in the dt leg) |
+| Initial condition | [`uniform`](../../initial-conditions#uniform-seeded-uniform-state): $(\rho, u, v, w, p) = (1, 0.3, -0.2, 0.1, 1)$, $\mathbf{B} = (0.8, 0.5, -0.3)$, seeded density/pressure perturbation $s = 0.05$ ($s = 0$ in the dt check) |
 | Boundaries | $x$: `extrapolation`; $y$: `wall-inviscid`; $z_{\min}$: `inflow` with the region state; $z_{\max}$: `extrapolation` |
-| Steps | dt leg 1; auxiliary leg 10; restart leg 5 + 5 against 10 |
+| Steps | dt check 1; auxiliary check 10; restart check 5 + 5 against 10 |
 
-| Leg | Variant | Change | Expected |
+| Check | Variant (leg) | Change | Expected |
 |---|---|---|---|
 | dt | `none`, `glm` | $s = 0$, `it_max = 1` | step 1 equals the oracle's dt to $10^{-13}$ relative |
 | aux | `none`, `glm` | — | auxiliaries equal the recomputed ones to $10^{-12}$ relative |
@@ -73,7 +73,7 @@ still describes the P1 state ("no face fluxes yet"); its `--static` mode is no l
 |---|---|
 | `src/tests/flume/verification/mhd/plumbing/mhd-uniform-none.ini` | the case, `divergence_control = none` |
 | `src/tests/flume/verification/mhd/plumbing/mhd-uniform-glm.ini` | the case, `divergence_control = glm` |
-| `src/tests/flume/verification/mhd/plumbing/check.sh` | runs every leg (`--np N`, `--build`, `--legs LIST`: `none`, `glm`, `refused`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/mhd/plumbing/check.sh` | runs every leg (`--np N`, `--build`, `--legs LIST`: `none`, `glm`, `refused`; `FLUME_EXE` selects the backend); a leg is a variant, `none` and `glm` each run the dt, aux and restart checks |
 | `src/tests/flume/verification/mhd/plumbing/mhd_plumbing_oracle.py` | `--dt`, `--aux`, `--compare`; also `--zero` and `--steady` used by [MV-2](./zero-field) |
 
 ```bash
