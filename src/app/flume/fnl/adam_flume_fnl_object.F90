@@ -564,6 +564,10 @@ contains
    integer(I4P)                           :: alloc_stat !< Allocation status.
    character(999)                         :: alloc_msg  !< Allocation error message.
 
+   ! refuse a second call without `destroy` (issue #63): FUNDAL's `dev_alloc` declares its pointer intent(out), so it
+   ! cannot see an existing allocation, and a re-entry would leak every device buffer below without a diagnostic
+   if (associated(self%q_gpu)) call mpih_fnl%error_stop(msg=': flume_fnl_object%allocate_gpu called twice: the '// &
+                                                          'device buffers exist (call destroy first; issue #63)')
    associate(nv=>self%physics%nv, nv_aux=>self%physics%nv_aux, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, &
              nk=>self%nk)
    call dev_alloc(fptr_dev=self%q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
@@ -865,6 +869,10 @@ contains
       call copy_blocks_transposed(blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                   nv=self%nv, a=self%q, a_gpu=self%q_gpu, to_device=.true.)
    else
+      ! a buffered transposed copy needs a staging buffer of the destination's extent (issue #63; #31: otherwise the
+      ! copy goes through a host temporary and fails on the device)
+      if (any(shape(self%buf_5D_R8P) /= shape(self%q_gpu))) &
+         call mpih_fnl%error_stop(msg=': flume_fnl_object%copy_cpu_gpu: buf_5D_R8P does not match q_gpu (issue #63)')
       call dev_memcpy_to_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q_gpu, src=self%q, buf=self%buf_5D_R8P)
    endif
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
