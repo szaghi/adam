@@ -156,8 +156,8 @@ Keys that are read but unused by FLUME's handling of a mode must still be presen
 
 | Key | Type | Req. | Accepted / invalid | Used | Meaning |
 |-----|------|------|--------------------|------|---------|
-| `mode` | int | yes | `1` = geometric (`AMR_GEO`), `2` = gradient (`AMR_GRAD`), `3` = total variation (`AMR_TV`), `4` = Löhner (`AMR_LOHNER`). FLUME supports 1, 2 and 4 (4 at runtime regrids only, see below). `3` or any other value → fatal "mode ... is not supported by FLUME" at the first AMR pass. An unknown mode reads no further keys. | yes | Marker kind. |
-| `delta_type` | string | yes (all modes) | `x`, `y`, `z`, `max` (max over active directions). Other → fatal at marking. | modes 1 (solid) and 2 | Which block spacing is compared with `delta_fine`/`delta_coarse`. |
+| `mode` | int | yes | `1` = geometric (`AMR_GEO`), `2` = gradient (`AMR_GRAD`), `3` = total variation (`AMR_TV`), `4` = Löhner (`AMR_LOHNER`), `5` = Jeans length (`AMR_JEANS`, [#91](https://github.com/szaghi/adam/issues/91)). FLUME supports 1, 2, 4 and 5 (4 at runtime regrids only, see below; 5 needs `[gravity] self_gravity = .true.`, fatal otherwise). `3` or any other value → fatal "mode ... is not supported by FLUME" at the first AMR pass. An unknown mode reads no further keys. | yes | Marker kind. |
+| `delta_type` | string | yes (all modes) | `x`, `y`, `z`, `max` (max over active directions). Other → fatal at marking. | modes 1 (solid), 2 and 5 | Which block spacing is compared with `delta_fine`/`delta_coarse` (mode 5: the spacing that resolves the Jeans length). |
 | `delta_fine` | real | yes (all modes) | no check | modes 1 (solid) and 2 | Admissible spacing where the criterion fires. |
 | `delta_coarse` | real | yes (all modes) | no check | modes 1 (solid) and 2 | Admissible spacing elsewhere. A block is derefined when twice its spacing is still `<=` this. |
 | `geo_type` | string | mode 1 | `solid`, `primitive-box`, `stl`. Other → fatal. `stl` → fatal in FLUME ("not supported"). | yes | Geometric marker kind. |
@@ -172,6 +172,8 @@ Keys that are read but unused by FLUME's handling of a mode must still be presen
 | `epsilon` | real | no (mode 4) | `>= 0`, default 0.01 | yes | Noise filter of the estimator: ripples smaller than about `epsilon` times the variable do not mark. |
 | `floor` | real | no (mode 4) | `>= 0`, default 0 | yes | Absolute noise filter: variations of the variable well below `floor` do not mark. Needed on a variable that vanishes in quiet regions (the field outside a magnetic loop), where `epsilon`, relative to the variable, filters nothing and round-off noise reads as a jump; a fraction of the feature's jump is a fair value. |
 | `buffer` | int | no (mode 4) | `0..ngc-1`, default 1 | yes | Ghost layers the estimator reads, so a feature at a neighbour's edge marks the block too. |
+| `jeans_cells` | real | no (mode 5) | `> 0`, default 8 | yes | Refine a block where some interior cell resolves its Jeans length $\lambda_J = \sqrt{\pi\gamma p/(G\rho^2)}$ (the thermal sound speed) with fewer than this many cells. Truelove et al. (1997) ask for at least 4; 16 or more for MHD or turbulence (Federrath et al. 2010, 2011). Acts at the initial AMR too (cell-local, no ghost cells), where it only refines. |
+| `jeans_cells_derefine` | real | no (mode 5) | `> jeans_cells`, default `2 * jeans_cells`; otherwise fatal | yes | Coarsen a block where every interior cell has more than this many cells per Jeans length; between the two, keep (hysteresis). |
 
 Variable indices for the gradient marker:
 

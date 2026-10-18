@@ -26,13 +26,15 @@
 #        same steps into the same grids (the regrid log lines equal, timing aside) and end with the same fields
 #        within AGREE_TOL (relative to each variable's largest magnitude). The FNL backend regrids by a host round
 #        trip, so the grid decisions are the host's in both; the fields differ only by the device arithmetic.
+#   rg7  (#91) the Jeans marker contract on sod-x: a Jeans marker (mode 5) without self-gravity is refused, and so is
+#        a hysteresis band with jeans_cells_derefine <= jeans_cells (the positive case is selfgravity/star.sh SV-16);
 #
 # rg0 runs the library unit test (a host program) and rg6 compares the two backends: both run once, with any EXE.
 #
 # The P1 legs of rg0 also cover the conservative prolongation: the round trip exact and the integral unchanged on
 # every field, linear data reproduced, a steep front kept in the range of its data (no negative child).
 #
-# Usage: ./check.sh [--legs LIST]   (legs rg0 rg1 rg2 rg3 rg4 rg5 rg6, all; default rg0 to rg5;
+# Usage: ./check.sh [--legs LIST]   (legs rg0 to rg7, all; default all but rg6;
 #                                    --leg L, repeatable, is an older spelling of --legs)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -45,7 +47,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 UNIT="$REPO_ROOT/exe/test_amr_regrid_roundtrip"
 source "$VERIF_DIR/legs.sh"
-legs_declare "rg0 rg1 rg2 rg3 rg4 rg5 rg6" "rg0 rg1 rg2 rg3 rg4 rg5"
+legs_declare "rg0 rg1 rg2 rg3 rg4 rg5 rg6 rg7" "rg0 rg1 rg2 rg3 rg4 rg5 rg7"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -113,6 +115,21 @@ for leg in $LEGS; do
                -1) expect_refused "$work" "must be 0 \(no runtime regridding\) or positive" ;;
                5)  expect_refused "$work" "nothing would mark a block" ;;
             esac
+         done ;;
+      rg7)
+         base="$REPO_ROOT/src/tests/flume/regression/sod-x/input.ini"
+         for c in no-gravity band; do
+            echo "-- rg7: Jeans marker, $c"
+            work="$CASE_DIR/work-$TAG-jeans-$c" ; rm -rf "$work" ; mkdir -p "$work"
+            band="jeans_cells = 8.0" ; [[ $c == band ]] && band="jeans_cells = 8.0\njeans_cells_derefine = 4.0"
+            sed -E "s/^(\s*markers_number\s*=).*/\1 1/; s/^(\s*time_max\s*=).*/\1 0.002/" "$base" > "$work/input.ini"
+            printf '%b\n' "[amr_marker_1]\nmode = 5\ndelta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0\n$band" \
+               >> "$work/input.ini"
+            if [[ $c == no-gravity ]]; then
+               expect_refused "$work" "needs \[gravity\]\.\(self_gravity\) = \.true\."
+            else
+               expect_refused "$work" "needs 0 < jeans_cells < jeans_cells_derefine"
+            fi
          done ;;
       rg2)
          base="$REPO_ROOT/src/tests/flume/regression/sod-x/input.ini"

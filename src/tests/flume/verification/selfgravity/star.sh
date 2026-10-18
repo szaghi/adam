@@ -36,7 +36,14 @@
 # prolongation, `conservative`, is reported: after the regrid its coldest cells (children limited variable by
 # variable) keep cooling and the collapse drains one to a negative internal energy (non-finite at step 64).
 #
-# Usage: ./star.sh [--np N] [--legs LIST] [--keep]   LIST: sv7, sv8, sv14, sv15 or all (default all)
+# SV-16 (issue #91): the Jeans criterion. The star of radius SV16_RADIUS (3.5 cells per radius on the 32^3 base; the
+# Jeans length of this collapsing n = 1, gamma = 2 polytrope is sqrt(2) times its radius, 5 base cells) with a Jeans
+# marker (8 cells per Jeans length) next to the SV-15 Loehner marker, a regrid every 5 steps: the initial AMR refines
+# the star before the collapse (more blocks than the 64 of the base at step 0, asserted), and the collapse reaches
+# t = 1.5 with the default prolongation, mass and momentum at round-off (asserted). Without the Jeans marker the same
+# star is refined only by the step-5 regrid, mid-collapse, and goes non-finite (reported).
+#
+# Usage: ./star.sh [--np N] [--legs LIST] [--keep]   LIST: sv7, sv8, sv14, sv15, sv16 or all (default all)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft, mode flume-cpu-gnu-fft; FNL:
 # exe/adam_flume_fnl_fft, mode flume-fnl-nvf-fft). The caller owns the matching environment (FNL: nvhpc mpirun on PATH
@@ -49,7 +56,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 NP=2
 source "$VERIF_DIR/legs.sh"
-legs_declare "sv7 sv8 sv14 sv15"
+legs_declare "sv7 sv8 sv14 sv15 sv16"
 KEEP=0
 SV7_TIME=2.0
 MIN_REDUCTION=1.5
@@ -57,6 +64,7 @@ TOL_MOMENTUM=1.0e-14
 MIN_DRIFT_ORDER=2.5
 TOL_MASS=1.0e-14
 SV14_RADIUS=0.3
+SV16_RADIUS=0.22
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -171,10 +179,33 @@ for leg in $LEGS; do
             echo "   conservative (the default): stops, $(grep -a -m1 -o 'non-finite.*at step +[0-9]*' "$W/log.txt" || true)" \
                  "(reported, #88)"
          fi ;;
+      sv16)
+         echo ">> SV-16: the runtime-AMR collapse refined by the Jeans criterion (issue #91)"
+         if run sv16-jeans starc --radius "$SV16_RADIUS" --reflux-cadence stage --regrid 5 --jeans 8; then
+            n0=$("$VENV_PY" -c 'import sys, h5py, pathlib
+print(sum(sum(1 for k in h5py.File(f, "r") if k.endswith("-origin"))
+          for f in pathlib.Path(sys.argv[1]).glob("starc-000000000-proc*.h5")))' "$W")
+            if [[ $n0 -gt 64 ]]; then
+               echo "   jeans: the initial grid holds $n0 blocks (64 on the base), and the collapse reaches t = 1.5  PASS"
+            else
+               echo "   jeans: the initial grid holds $n0 blocks, the star is not refined before the collapse  FAIL"
+               FAILED=1
+            fi
+            "$VENV_PY" "$VERIF_DIR/conservation/conservation_oracle.py" --conserved "$W" --exclude rE W E_plus_W || FAILED=1
+         fi
+         W="$CASE_DIR/work-$TAG-sv16-control" ; rm -rf "$W" ; mkdir -p "$W" ; WORKS+=("$W")
+         python3 -I "$CASE_DIR/make_polytrope.py" "$W/input.ini" starc --radius "$SV16_RADIUS" --reflux-cadence stage \
+            --regrid 5
+         if (cd "$W" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
+            echo "   without the Jeans marker: reaches t = 1.5 (reported)"
+         else
+            echo "   without the Jeans marker: stops, $(grep -a -m1 -o 'non-finite.*at step +[0-9]*' "$W/log.txt" || true)" \
+                 "(reported)"
+         fi ;;
    esac
 done
 if [[ $KEEP -eq 0 && $FAILED -eq 0 ]]; then rm -rf "${WORKS[@]}" ; fi
 if [[ $FAILED -ne 0 ]]; then
-   echo "SV-7, SV-8, SV-14, SV-15 ($LEGS) FAILED ($TAG)" ; exit 1
+   echo "SV-7, SV-8, SV-14, SV-15, SV-16 ($LEGS) FAILED ($TAG)" ; exit 1
 fi
-echo "SV-7, SV-8, SV-14, SV-15 ($LEGS) PASSED ($TAG)"
+echo "SV-7, SV-8, SV-14, SV-15, SV-16 ($LEGS) PASSED ($TAG)"

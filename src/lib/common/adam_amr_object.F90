@@ -20,6 +20,7 @@ public :: AMR_GEO
 public :: AMR_GRAD
 public :: AMR_TV
 public :: AMR_LOHNER
+public :: AMR_JEANS
 public :: AMR_GEO_SOLID
 public :: AMR_GEO_PRIMITIVE_BOX
 public :: AMR_GEO_STL
@@ -36,6 +37,7 @@ integer(I4P), parameter :: AMR_GEO               = 1_I4P   !< Geometrical marker
 integer(I4P), parameter :: AMR_GRAD              = 2_I4P   !< Field gradient marker.
 integer(I4P), parameter :: AMR_TV                = 3_I4P   !< Field total variation marker.
 integer(I4P), parameter :: AMR_LOHNER            = 4_I4P   !< Loehner normalized second derivative marker (issue #74).
+integer(I4P), parameter :: AMR_JEANS             = 5_I4P   !< Jeans length resolution marker (issue #91).
 integer(I4P), parameter :: AMR_GEO_SOLID         = 101_I4P !< AMR_GEO geometry kind: solid/IB index (legacy default).
 integer(I4P), parameter :: AMR_GEO_PRIMITIVE_BOX = 102_I4P !< AMR_GEO geometry kind: primitive axis-aligned box.
 integer(I4P), parameter :: AMR_GEO_STL           = 103_I4P !< AMR_GEO geometry kind: STL surface file.
@@ -64,6 +66,8 @@ type :: amr_marker_object
    real(R8P)                 :: epsilon=0.01_R8P       !< Noise filter of the estimator (AMR_LOHNER).
    real(R8P)                 :: floor=0._R8P           !< Absolute variation counted as noise (AMR_LOHNER).
    integer(I4P)              :: buffer=1_I4P           !< Ghost layers the estimator reads (AMR_LOHNER).
+   real(R8P)                 :: jeans_cells=8._R8P     !< Refine below this many cells per Jeans length (AMR_JEANS).
+   real(R8P)                 :: jeans_cells_derefine=16._R8P !< Derefine above this many cells per Jeans length (AMR_JEANS).
 endtype amr_marker_object
 
 type :: amr_object
@@ -241,6 +245,20 @@ contains
          if (m%epsilon < 0._R8P) call mpih%error_stop(msg=': ['//sname//'].(epsilon) must be >= 0')
          if (m%floor < 0._R8P) call mpih%error_stop(msg=': ['//sname//'].(floor) must be >= 0')
          if (m%buffer < 0_I4P) call mpih%error_stop(msg=': ['//sname//'].(buffer) must be >= 0')
+         endassociate
+      case(AMR_JEANS)
+         ! Jeans length resolution (Truelove et al. 1997): refine where a block resolves the local Jeans length with
+         ! fewer than jeans_cells cells, derefine where every cell has more than jeans_cells_derefine (the hysteresis
+         ! band, Federrath et al. 2010); both optional, the derefine threshold defaulting to twice the refine one
+         call file_parameters%get(section_name=sname, option_name='jeans_cells', val=self%markers(i_marker)%jeans_cells, &
+                                  error=error)
+         self%markers(i_marker)%jeans_cells_derefine = 2._R8P * self%markers(i_marker)%jeans_cells
+         call file_parameters%get(section_name=sname, option_name='jeans_cells_derefine', &
+                                  val=self%markers(i_marker)%jeans_cells_derefine, error=error)
+         associate(m=>self%markers(i_marker))
+         if (.not.(0._R8P < m%jeans_cells .and. m%jeans_cells < m%jeans_cells_derefine)) &
+            call mpih%error_stop(msg=': ['//sname//'] needs 0 < jeans_cells < jeans_cells_derefine, got '// &
+                                     trim(str(m%jeans_cells))//' and '//trim(str(m%jeans_cells_derefine)))
          endassociate
       endselect
    enddo

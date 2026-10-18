@@ -45,8 +45,9 @@
 #   regrid  regrid-vortex-{conservative,linear}: the rg3 vortex regridding every 5 steps, a checkpoint every 5 steps
 #           (2 runs, about 2 min)
 #   collapse-regrid sv15-{conservative-state,conservative}: the runtime-AMR collapse of selfgravity/star.sh SV-15
-#           (#88), a checkpoint every 2 steps, with the FFT executable (JEANS_EXE); the conservative run goes
-#           non-finite by design and is kept (2 runs, about 3 min)
+#           (#88); sv16-{jeans,control}: SV-16, the smaller star with and without the Jeans marker (#91); a
+#           checkpoint every 2 steps, with the FFT executable (JEANS_EXE); the conservative and control runs go
+#           non-finite by design and are kept (4 runs, about 5 min)
 #   multirealm sod-x, sod-2realm, sod-amr, sod-amr-refined: the Sod unions of multirealm/check.sh legs 1 and 4 and
 #           their single-realm twins (4 runs, about 4 min)
 #   seams   the Sod shock crossing a static 2:1 face at x = 0.75 (amr-shock/make_amr_shock.py, #68; issue #85 R2b):
@@ -301,6 +302,19 @@ for g in $GROUPS_; do
                echo "   $(basename "$W"): done"
             elif [[ $prol == conservative ]]; then
                echo "   $(basename "$W"): stopped, as expected (#88)"
+            else
+               echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+            fi
+         done
+         # SV-16 (issue #91): the radius-0.22 star with and without the Jeans marker; the control stops by design
+         for v in jeans control; do
+            fresh "sv16-$v"
+            python3 -I "$VERIF_DIR/selfgravity/make_polytrope.py" "$W/input.ini" starc --radius 0.22 --reflux-cadence stage \
+               --regrid 5 --it-save 2 $([[ $v == jeans ]] && echo --jeans 8)
+            if (cd "$W" && mpirun -np "$NP" "${JEANS_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}" input.ini > log.txt 2>&1); then
+               echo "   $(basename "$W"): done"
+            elif [[ $v == control ]]; then
+               echo "   $(basename "$W"): stopped, as expected (#91)"
             else
                echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
             fi

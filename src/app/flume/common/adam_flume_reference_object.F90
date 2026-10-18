@@ -337,7 +337,8 @@ contains
    if (index(section_name, 'amr_marker_') == 1) then
       select case(option_name)
       case('mode', 'delta_type', 'geo_type', 'solid', 'target_level', 'stl_filename', 'field', 'var', &
-           'refine_tol', 'derefine_tol', 'epsilon', 'buffer') ! Loehner: a normalised estimator, a relative filter
+           'refine_tol', 'derefine_tol', 'epsilon', 'buffer', & ! Loehner: a normalised estimator, a relative filter
+           'jeans_cells', 'jeans_cells_derefine')               ! Jeans: cells per Jeans length (issue #91)
          kind = KIND_NONE
       case('delta_fine', 'delta_coarse', 'box_xmin', 'box_ymin', 'box_zmin', 'box_xmax', 'box_ymax', 'box_zmax')
          kind = KIND_SCALED ; dim = DIM_LENGTH

@@ -1721,7 +1721,8 @@ def fig_selfgravity_star_regrid(out: Path, runs: Path) -> None:
     on the density (Loehner), per-stage reflux, no limiter (CPU, 2 ranks), with the default prolongation
     (`conservative`, each variable limited by its own slope) and with `conservative-state` (one limit for the whole
     state). Left: the smallest specific internal energy e / rho over the leaves, per checkpoint, the regrids that
-    refine blocks dotted. Right: the drift of the mass and of E + W."""
+    refine blocks dotted. Right: the drift of the mass and of E + W. Bottom row, SV-16 (issue #91): the smaller star
+    (radius 0.22) with and without a Jeans marker (8 cells per Jeans length), the same two measures."""
     sys.path.insert(0, str(HERE / "selfgravity"))
     import jeans_oracle  # noqa: PLC0415
 
@@ -1747,31 +1748,34 @@ def fig_selfgravity_star_regrid(out: Path, runs: Path) -> None:
                                                      (work / "log.txt").read_text(errors="replace"))]
         return [float(h["time"][np.searchsorted(h["it"], n)]) for n in steps if n <= h["it"][-1]]
 
-    fig, axs = plt.subplots(1, 2, figsize=(12.5, 4.6), constrained_layout=True)
-    cases = [("sv15-conservative", "conservative (the default)", "tab:red"),
-             ("sv15-conservative-state", "conservative-state", "tab:blue")]
-    for name, label, color in cases:
-        work = runs / name
-        t, e = emin(work)
-        axs[0].plot(t, e, "-", color=color, label=label)
-        for tr in regrid_times(work):
-            axs[0].axvline(tr, color=color, ls=":", lw=0.8)
-        h = jeans_oracle.history(work)
-        axs[1].semilogy(h["time"][1:], np.maximum(np.abs(h["int_r"][1:] / h["int_r"][0] - 1.0), FLOOR), "-",
-                        color=color, label=f"mass, {label}")
-        ew0 = h["E_plus_W"][0]
-        axs[1].semilogy(h["time"][1:], np.maximum(np.abs(h["E_plus_W"][1:] - ew0) / abs(ew0), FLOOR), "--",
-                        color=color, label=f"E + W, {label}")
-    axs[0].axhline(0.0, color="0.6", lw=0.6)
-    axs[0].set_xlabel("t")
-    axs[0].set_ylabel("min e / rho over the leaves")
-    axs[0].legend(fontsize=8)
-    axs[0].set_title("the coldest cell; dotted: the regrids that refine blocks", fontsize=10)
-    axs[1].set_xlabel("t")
-    axs[1].set_ylabel("relative drift")
-    axs[1].legend(fontsize=8)
-    axs[1].set_title("mass at round-off; E + W at the time integration's error", fontsize=10)
-    fig.suptitle("SV-15: the runtime-AMR collapse of the n = 1 polytrope (radius 0.3), a regrid every 5 steps "
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    rows = [(0, "SV-15, radius 0.3", [("sv15-conservative", "conservative (the default)", "tab:red"),
+                                      ("sv15-conservative-state", "conservative-state", "tab:blue")]),
+            (1, "SV-16, radius 0.22", [("sv16-control", "Loehner marker only", "tab:red"),
+                                       ("sv16-jeans", "Loehner and Jeans markers", "tab:green")])]
+    for row, title, cases in rows:
+        for name, label, color in cases:
+            work = runs / name
+            t, e = emin(work)
+            axs[row, 0].plot(t, e, "-", color=color, label=label)
+            for tr in regrid_times(work):
+                axs[row, 0].axvline(tr, color=color, ls=":", lw=0.8)
+            h = jeans_oracle.history(work)
+            axs[row, 1].semilogy(h["time"][1:], np.maximum(np.abs(h["int_r"][1:] / h["int_r"][0] - 1.0), FLOOR), "-",
+                                 color=color, label=f"mass, {label}")
+            ew0 = h["E_plus_W"][0]
+            axs[row, 1].semilogy(h["time"][1:], np.maximum(np.abs(h["E_plus_W"][1:] - ew0) / abs(ew0), FLOOR), "--",
+                                 color=color, label=f"E + W, {label}")
+        axs[row, 0].axhline(0.0, color="0.6", lw=0.6)
+        axs[row, 0].set_xlabel("t")
+        axs[row, 0].set_ylabel("min e / rho over the leaves")
+        axs[row, 0].legend(fontsize=8)
+        axs[row, 0].set_title(f"{title}: the coldest cell; dotted: the regrids that refine blocks", fontsize=10)
+        axs[row, 1].set_xlabel("t")
+        axs[row, 1].set_ylabel("relative drift")
+        axs[row, 1].legend(fontsize=7)
+        axs[row, 1].set_title(f"{title}: mass at round-off; E + W at the time integration's error", fontsize=10)
+    fig.suptitle("SV-15 and SV-16: the runtime-AMR collapse of the n = 1 polytrope, a regrid every 5 steps "
                  "(CPU, 2 ranks)")
     fig.savefig(out / "selfgravity-star-regrid.png", dpi=DPI)
     plt.close(fig)

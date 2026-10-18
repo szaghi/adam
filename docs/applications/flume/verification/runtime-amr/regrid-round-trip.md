@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| RG (rg0, rg1, rg2) | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU (rg0, a host program); rg1 and rg2 CPU, FNL | no | — |
+| RG (rg0, rg1, rg2, rg7) | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)); [#91](https://github.com/szaghi/adam/issues/91) (rg7) | CPU (rg0, a host program); rg1, rg2 and rg7 CPU, FNL | no | — |
 
 ## Case and scope
 
@@ -17,7 +17,8 @@ What the case catches:
   conservative prolongation the round trip must return the initial state and $\sum q\,\Delta V$ must not change;
 - **a prolongation that leaves the range of the data:** a steep front must stay in $(0.01, 1)$, so a positive
   variable stays positive;
-- **a silent input:** a negative `frequency`, a `frequency > 0` without markers, an unknown `regrid_prolongation`.
+- **a silent input:** a negative `frequency`, a `frequency > 0` without markers, an unknown `regrid_prolongation`, a
+  Jeans marker without self-gravity or with an inverted hysteresis band.
 
 ### The conservative prolongation
 
@@ -89,18 +90,19 @@ The regrid algorithms are described in [numerics](../../numerics#adaptive-mesh-r
 | rg0 fields | linear $f = 1 + 0.3x + 0.7y + 0.5z$; quadratic, $f + 2x^2 + 1.5y^2 + xy$; a steep front from 1 to 0.01, $0.505 + 0.495\tanh((c - s)/0.03)$, a tanh half a coarse cell wide across $s = x+y+z = c = 0.45$ on the octree, $s = x+y = c = 0.3$ on the quadtree |
 | rg1 | the regression `sod-x` input ([Sod](../euler/sod)) to $t = 0.002$, 2 ranks, with `[amr] frequency` = 0, −1, 5 (and no markers) |
 | rg2 | the same input with `[amr] regrid_prolongation` absent, `linear`, `conservative`, `conservative-state`, `bogus` |
+| rg7 | the same input with one Jeans marker (`mode = 5`, `jeans_cells = 8`): as is (no `[gravity]`), and with `jeans_cells_derefine = 4` |
 
 ## Input files
 
 | File | Role |
 |---|---|
 | `src/tests/amr/test_amr_regrid_roundtrip.F90` | the rg0 unit test (`fobis build --mode test-amr-regrid-roundtrip-gnu`) |
-| `src/tests/flume/verification/regrid/check.sh --legs rg0,rg1,rg2` | runs the legs (`FLUME_EXE` selects the backend of rg1 and rg2) |
+| `src/tests/flume/verification/regrid/check.sh --legs rg0,rg1,rg2,rg7` | runs the legs (`FLUME_EXE` selects the backend of rg1, rg2 and rg7) |
 | `src/tests/flume/regression/sod-x/input.ini` | the base input of rg1 and rg2 |
 
 ```bash
-cd src/tests/flume/verification/regrid && ./check.sh --legs rg0,rg1,rg2                    # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs rg1,rg2                # FNL
+cd src/tests/flume/verification/regrid && ./check.sh --legs rg0,rg1,rg2,rg7                # CPU
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs rg1,rg2,rg7                # FNL
 ```
 
 No figure: the legs are a transfer identity and an input contract (#85).
@@ -136,6 +138,8 @@ after refine then derefine.
 | rg2 | `regrid_prolongation` absent | runs, resolved to `conservative` | pass | pass |
 | rg2 | `linear`, `conservative`, `conservative-state` | runs, taken as given | pass | pass |
 | rg2 | `bogus` | fatal: `unknown [amr].(regrid_prolongation) "bogus"` | pass | pass |
+| rg7 | Jeans marker, no self-gravity | fatal: "needs [gravity].(self_gravity) = .true." | pass | pass |
+| rg7 | `jeans_cells_derefine = 4` | fatal: "needs 0 < jeans_cells < jeans_cells_derefine" | pass | pass |
 
 The FNL column of rg1 and rg2 is read from the logs of the `work-adam_flume_fnl-*` directories of `regrid/check.sh`.
 

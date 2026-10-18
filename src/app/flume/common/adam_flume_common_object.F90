@@ -11,7 +11,7 @@ module adam_flume_common_object
 ! ADAM classes, libraries, parameters
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
                                              AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD, &
-                                             AMR_LOHNER, prolongation_name
+                                             AMR_JEANS, AMR_LOHNER, prolongation_name
 use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
                                              SEAM_KIND_INTER_REALM, SEAM_KIND_INTRA_REALM_AMR
@@ -30,8 +30,8 @@ use :: adam_flume_gravity_object,     only : POISSON_SOLVER_AUTO, POISSON_SOLVER
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
-use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, &
-                                             IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,            &
+use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IA_R, IQ_BX, IQ_BY, IQ_BZ, IQ_R, &
+                                             IQ_RE, IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,            &
                                              IQ_PSI, POSITIVITY_LIMITER_CELL, POSITIVITY_LIMITER_KAPPA,               &
                                              RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,                                     &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
@@ -96,6 +96,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: mark_by_gradient !< Mark blocks by the gradient of a conservative or auxiliary variable.
       procedure, pass(self) :: mark_by_solid    !< Mark blocks crossed by the surface of an immersed solid.
       procedure, pass(self) :: mark_by_lohner   !< Mark blocks by the Loehner estimator of a variable (issue #74).
+      procedure, pass(self) :: mark_by_jeans    !< Mark blocks by the cells per Jeans length (issue #91).
       procedure, pass(self) :: mark_runtime     !< Combine the markers into the flags of a runtime regrid (issue #74).
       procedure, pass(self) :: check_regridded_state !< Stop on an inadmissible state after a regrid (issue #74).
       procedure, pass(self) :: is_regrid_step   !< Whether the step just closed is a runtime regrid step (issue #74).
@@ -195,6 +196,11 @@ contains
             ! runtime regrids only (mark_runtime): the estimator also reads the ghosts of the physical faces, which the
             ! host cannot fill here (the boundary conditions are the backends')
             cycle
+         case(AMR_JEANS)
+            ! cell-local (no ghosts): it refines the initial grid too, never derefines it
+            call self%mark_by_jeans(jeans_cells=amr_marker%jeans_cells,                   &
+                                    jeans_cells_derefine=amr_marker%jeans_cells_derefine, &
+                                    delta_type=amr_marker%delta_type, refine_only=.true.)
          case default
             call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
          endselect
@@ -429,6 +435,54 @@ contains
    endassociate
    endsubroutine mark_by_lohner
 
+   subroutine mark_by_jeans(self, jeans_cells, jeans_cells_derefine, delta_type, refine_only)
+   !< Mark blocks by the resolution of the local Jeans length (issue #91; Truelove et al. 1997, ApJ 489, L179).
+   !<
+   !< On a cell, `lambda_J = sqrt(pi c_s^2 / (G rho))` with the thermal sound speed `c_s^2 = gamma p / rho` (magnetic
+   !< support is not counted, so an MHD run refines at least as early as the hydrodynamic criterion asks). A block takes
+   !< the smallest `lambda_J / h` over its interior cells, `h` its spacing by `delta_type`: refined below `jeans_cells`
+   !< (Truelove: at least 4), derefined above `jeans_cells_derefine`, untouched between (the hysteresis band of Federrath
+   !< et al. 2010). Cell-local: it reads no ghost cell. `refine_only` (the initial AMR) never asks to derefine.
+   class(flume_common_object), intent(inout)        :: self                 !< The equation.
+   real(R8P),                  intent(in)           :: jeans_cells          !< Refine below this many cells per lambda_J.
+   real(R8P),                  intent(in)           :: jeans_cells_derefine !< Derefine above this many cells per lambda_J.
+   character(*),               intent(in)           :: delta_type           !< Delta criterion of the block spacing.
+   logical,                    intent(in), optional :: refine_only          !< Never ask to derefine.
+   real(R8P), parameter                             :: PI=acos(-1._R8P)     !< Pi.
+   logical                                          :: refine_only_         !< Never ask to derefine, local variable.
+   real(R8P)                                        :: r_min                !< Smallest lambda_J^2 over a block's cells.
+   real(R8P)                                        :: h                    !< Block spacing.
+   real(R8P)                                        :: cells                !< Smallest cells per Jeans length of a block.
+   integer(I4P)                                     :: b, i, j, k           !< Counters.
+
+   refine_only_ = .false. ; if (present(refine_only)) refine_only_ = refine_only
+   call self%compute_q_aux_host
+   ! assigned on the component, not through the associate name: at the initial AMR the array is not sized yet, and only
+   ! an allocatable variable is reallocated by the assignment
+   self%adam%field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
+   associate(refinements_needed=>self%adam%field%refinements_needed, gamma=>self%physics%gamma, &
+             g=>self%physics%gravity%grav_const)
+   do b=1, self%blocks_number
+      ! smallest lambda_J^2 = pi gamma p / (G rho^2) over the interior cells
+      r_min = huge(1._R8P)
+      do k=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               r_min = min(r_min, PI * gamma * self%q_aux(IA_P,i,j,k,b) / (g * self%q_aux(IA_R,i,j,k,b)**2))
+            enddo
+         enddo
+      enddo
+      h = self%block_spacing(b=b, delta_type=delta_type)
+      cells = sqrt(max(r_min, 0._R8P)) / h
+      if (cells < jeans_cells) then
+         refinements_needed(b) = TO_BE_REFINED
+      elseif (cells > jeans_cells_derefine .and. .not.refine_only_) then
+         refinements_needed(b) = TO_BE_DEREFINED
+      endif
+   enddo
+   endassociate
+   endsubroutine mark_by_jeans
+
    subroutine mark_runtime(self)
    !< Combine the markers into the flags of a runtime regrid (issue #74, D-M5-8).
    !<
@@ -487,6 +541,9 @@ contains
          call self%mark_by_lohner(field=amr_marker%field, ivar=amr_marker%ivar, refine_tol=amr_marker%refine_tol, &
                                   derefine_tol=amr_marker%derefine_tol, epsilon=amr_marker%epsilon,             &
                                   floor=amr_marker%floor, buffer=amr_marker%buffer)
+      case(AMR_JEANS)
+         call self%mark_by_jeans(jeans_cells=amr_marker%jeans_cells, jeans_cells_derefine=amr_marker%jeans_cells_derefine, &
+                                 delta_type=amr_marker%delta_type)
       case default
          call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
       endselect
@@ -1821,6 +1878,9 @@ contains
          call mpih%error_stop(msg=': [amr_marker_'//trim(str(i_marker, .true.))//'].(buffer)='//trim(str(m%buffer, .true.))//&
                                   ' exceeds [grid].(ngc) - 1 = '//trim(str(self%adam%grid%ngc - 1_I4P, .true.))//         &
                                   ' (the estimator reads one cell beyond the buffer)')
+      if (m%mode == AMR_JEANS .and. .not.self%physics%gravity%self_gravity) &
+         call mpih%error_stop(msg=': [amr_marker_'//trim(str(i_marker, .true.))//'] is a Jeans marker (mode 5): it '// &
+                                  'needs [gravity].(self_gravity) = .true. (the Jeans length depends on G)')
       endassociate
    enddo
    if (self%amr%frequency == 0_I4P) return

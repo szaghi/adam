@@ -388,6 +388,14 @@ vanishes in quiet regions it filters nothing, and round-off noise reads $E \appr
 $|\mathbf{B}| \sim 10^{-6}$ outside a field loop refined the whole box). The absolute `floor` $\delta$ (default 0, the
 FLASH/PLUTO form) makes the variations well below it noise. A block takes the largest $E$ over its cells and `buffer` ghost layers; it is refined
 above `refine_tol`, coarsened below `derefine_tol`, kept between.
+The **Jeans marker** (mode 5, [#91](https://github.com/szaghi/adam/issues/91)) refines where a self-gravitating cell
+would be under-resolved: on every cell the Jeans length $\lambda_J = \sqrt{\pi c_s^2/(G\rho)}$, with the thermal
+sound speed $c_s^2 = \gamma p/\rho$ (magnetic support not counted, so MHD refines at least as early), is compared with
+the block spacing $h$. A block is refined where some cell has $\lambda_J/h$ below `jeans_cells` (default 8; Truelove
+et al. 1997 ask for at least 4, against artificial fragmentation), coarsened where every cell is above
+`jeans_cells_derefine` (default twice that, the hysteresis band of Federrath et al. 2010), kept between. It reads no
+ghost cell, so it also shapes the initial grid: a star refined before its collapse is never prolonged mid-collapse
+([SV-16](./verification/self-gravity/polytrope)). It needs self-gravity.
 
 **Keep shocks off the 2:1 seams.** A captured shock that crosses a 2:1 seam into finer cells leaves a defect behind
 it (about 2 % of the jump in density, with an entropy defect of the same size) that does not shrink with the resolution and that no
@@ -459,6 +467,9 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`,
   constrained transport for ideal magnetohydrodynamic equations, *SIAM J. Sci. Comput.* 37, A1825–A1845,
   doi:10.1137/140971208.
 - Einfeldt B. et al. (1991), On Godunov-type methods near low densities, *J. Comput. Phys.* 92, 273–295.
+- Federrath C., Banerjee R., Clark P. C., Klessen R. S. (2010), Modeling collapse and accretion in turbulent gas
+  clouds: implementation and comparison of sink particles in AMR and SPH, *ApJ* 713, 269–290,
+  doi:10.1088/0004-637X/713/1/269.
 - Don W. S., Li R., Wang B.-S., Wang Y. H. (2022), A novel and robust scale-invariant WENO scheme for hyperbolic
   conservation laws, *J. Comput. Phys.* 448, 110724.
 - Jiang G.-S., Shu C.-W. (1996), Efficient implementation of weighted ENO schemes, *J. Comput. Phys.* 126, 202–228.
@@ -470,6 +481,9 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`,
   *J. Comput. Phys.* 83, 32–78.
 - Toro E. F., Spruce M., Speares W. (1994), Restoration of the contact surface in the HLL-Riemann solver,
   *Shock Waves* 4, 25–34.
+- Truelove J. K., Klein R. I., McKee C. F., Holliman J. H. II, Howell L. H., Greenough J. A. (1997), The Jeans
+  condition: a new constraint on spatial resolution in simulations of isothermal self-gravitational
+  hydrodynamics, *ApJ* 489, L179–L183, doi:10.1086/310975.
 - Tóth G., Roe P. L. (2002), Divergence- and curl-preserving prolongation and restriction formulas,
   *J. Comput. Phys.* 180, 736–750.
 - van Leer B. (1977), Towards the ultimate conservative difference scheme. IV. A new approach to numerical

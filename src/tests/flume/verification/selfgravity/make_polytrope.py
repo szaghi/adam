@@ -21,7 +21,7 @@ The mean density of the star is 3 rho_c / pi^2, so its free-fall time is t_ff = 
 Usage:
     make_polytrope.py <out.ini> <case> [--cells N] [--levels L] [--cfl C] [--time-max T] [--it-save N]
                       [--box] [--regrid N] [--boundary-box] [--reflux-cadence step|stage]
-                      [--prolongation linear|conservative|conservative-state]
+                      [--prolongation linear|conservative|conservative-state] [--jeans N]
 
 `--cells` sets the cells per block side (default 8), `--levels` the uniform levels (default 2): the grid is
 N 2^L cells per side (32^3 by default). `--radius` sets the star's radius a (default 1/2; K = 2 G a^2 / pi follows).
@@ -34,7 +34,9 @@ estimator's noise floor (without it the estimator marks the atmosphere's kink at
 its hydrostatic profile, and refines boundary blocks); `--boundary-box` adds the box [1/2, 1]^3, which
 touches the domain boundary, to the regrid's markers (not at the start): the first regrid refines a boundary block,
 which must stop the run (D-87-4). `--prolongation` writes `[amr] regrid_prolongation` (absent: FLUME's default,
-`conservative`); `conservative-state` keeps the runtime-AMR collapse admissible (issue #88).
+`conservative`); `conservative-state` keeps the runtime-AMR collapse admissible (issue #88). `--jeans N` adds a Jeans
+marker (mode 5, issue #91): blocks with fewer than N cells per Jeans length are refined, at the start and at the
+regrids, one level more.
 """
 
 from __future__ import annotations
@@ -55,7 +57,8 @@ BOX = 0.5  # the refined box of --box: [-BOX, BOX]^3, block-aligned from level 2
 
 def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | None, it_save: int,
              atmosphere: float, limiter: bool, box: bool = False, regrid: int = 0, boundary_box: bool = False,
-             reflux_cadence: str | None = None, radius: float = RADIUS, prolongation: str | None = None) -> str:
+             reflux_cadence: str | None = None, radius: float = RADIUS, prolongation: str | None = None,
+             jeans: float = 0.0) -> str:
     """Return the INI of a case."""
     k = 2.0 * G * radius**2 / math.pi
     t_end = time_max if time_max is not None else {"star": 4.0, "starc": 1.5}[case]
@@ -75,6 +78,8 @@ def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | N
                         "buffer = 2"])
     if boundary_box:
         markers.append(primitive_box(0.5, 1.0))
+    if jeans > 0.0:
+        markers.append(["mode = 5", "delta_type = max", "delta_fine = 0.0", "delta_coarse = 0.0", f"jeans_cells = {jeans!r}"])
     amr = ["[amr]", f"max_level = {levels + 1 if markers else levels}", "ratio = 8", f"iu_ref_levels = {levels}",
            "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", f"frequency = {regrid}", "iters = 1",
            f"markers_number = {len(markers)}"]
@@ -109,7 +114,7 @@ def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | N
     lines += ["[time]", "it_max = -1", f"time_max = {t_end!r}", f"CFL = {cfl!r}",
               "[diagnostics]", "conservation_history_save = 1",
               "[gravity]", "self_gravity = .true.", f"G = {G!r}", "poisson_bc = isolated",
-              "[initial_conditions]", "type = polytrope", f"amr_iterations = {1 if box else 0}",
+              "[initial_conditions]", "type = polytrope", f"amr_iterations = {1 if box or jeans > 0.0 else 0}",
               f"star_radius = {radius!r}",
               f"star_density = {RHO_C!r}", f"star_pressure_factor = {factor!r}",
               "[initial_conditions_region_1]", f"r = {atmosphere * RHO_C!r}", "u = 0.0", "v = 0.0", "w = 0.0",
@@ -138,12 +143,13 @@ def main() -> int:
                         help="star radius (default 1/2); with --box keep it below 1/2, the 2:1 seam off the surface")
     parser.add_argument("--prolongation", choices=("linear", "conservative", "conservative-state"), default=None,
                         help="[amr] regrid_prolongation (default: absent, FLUME's conservative; issue #88)")
+    parser.add_argument("--jeans", type=float, default=0.0, help="a Jeans marker, N cells per Jeans length (issue #91)")
     args = parser.parse_args()
     if args.boundary_box and not args.regrid:
         parser.error("--boundary-box needs --regrid (the marker acts at the regrids)")
     args.out.write_text(case_ini(args.case, args.cells, args.levels, args.cfl, args.time_max, args.it_save,
                                  args.atmosphere, args.limiter, args.box, args.regrid, args.boundary_box,
-                                 args.reflux_cadence, args.radius, args.prolongation))
+                                 args.reflux_cadence, args.radius, args.prolongation, args.jeans))
     return 0
 
 
