@@ -7,6 +7,12 @@ Asserted: every field of the base run (r, ru, rv, rw, rE, and the entropy rs of 
 scalar run, the scalars do not act on the flow; the integral of each scalar in use is constant within --max-drift
 (relative, the conservation history); the scalar slots beyond N are identically zero. Reported: the range of each
 specific value s_k = (rho s_k) / rho.
+
+    ps_oracle.py agree <cpu base> <fnl base> <cpu scalars> <fnl scalars>
+
+CPU and FNL agree (P2): per field, the FNL-CPU difference of the scalar runs relative to the field's largest magnitude
+is at most AGREE_FACTOR times the base pair's (the device arithmetic on the same case), or AGREE_FLOOR; the scalars,
+which the base runs lack, against the largest base gap.
 """
 
 from __future__ import annotations
@@ -20,6 +26,8 @@ import h5py
 import numpy as np
 
 NS_MAX = 4
+AGREE_FACTOR = 2.0
+AGREE_FLOOR = 1.0e-10
 
 
 def last_blocks(work: Path) -> dict[tuple[float, ...], dict[str, np.ndarray]]:
@@ -43,8 +51,37 @@ def history(work: Path) -> dict[str, np.ndarray]:
     return {n: data[:, i] for i, n in enumerate(names)}
 
 
+def agree(works: list[Path]) -> int:
+    """CPU against FNL, the scalar runs against the base pair."""
+    cb, fb, cs, fs = (last_blocks(w) for w in works)
+
+    def gaps(a: dict, b: dict, names: list[str]) -> dict[str, float]:
+        out = {}
+        for v in names:
+            d = max(float(np.abs(a[k][v] - b[k][v]).max()) for k in a)
+            m = max(float(np.abs(a[k][v]).max()) for k in a)
+            out[v] = d / m if m > 0.0 else d
+        return out
+
+    first = next(iter(cb.values()))
+    flow = [v for v in ("r", "ru", "rv", "rw", "rE", "rs") if v in first]
+    scal = [v for v in (f"rs{k}" for k in range(1, NS_MAX + 1)) if v in next(iter(cs.values()))]
+    base = gaps(cb, fb, flow)
+    run = gaps(cs, fs, flow + scal)
+    ok = True
+    for v, gap in run.items():
+        ref = base.get(v, max(base.values()))
+        bound = max(AGREE_FACTOR * ref, AGREE_FLOOR)
+        ok &= gap <= bound
+        print(f"   {v}: scalars run {gap:.3e}, base {ref:.3e}{'' if v in base else ' (largest)'}, bound {bound:.3e}")
+    print(f"PS agree: {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Run the checks."""
+    if len(sys.argv) > 1 and sys.argv[1] == "agree":
+        return agree([Path(w) for w in sys.argv[2:6]])
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("base", type=Path)
     ap.add_argument("scalars_run", type=Path)

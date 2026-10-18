@@ -1,0 +1,309 @@
+!< ADAM, FLUME FNL device kernels of the Euler model with dual energy and scalars.
+
+#include "fundal.H"
+
+module adam_flume_fnl_euler_de_ps_kernels
+!< ADAM, FLUME FNL device kernels of the Euler model with dual energy and scalars.
+!<
+!< The model-agnostic kernel bodies (`adam_flume_fnl_{face,aux}_kernels_agnostic.INC`) instantiated on the Euler physics: the
+!< private arrays are sized by the Euler constants `NV_K = NV_EULER_DE_PS`, `NV_AUX_K = NV_AUX_DE_PS` (issue #41, section 4), plus
+!< the Euler kernels whose body depends on the variables (conservation integrals, signal speed). Same kernel rules as
+!< `adam_flume_fnl_kernels` (issue #35, D-11/D-12).
+
+! ADAM FNL classes, libraries
+use :: adam_fnl_weno_kernels,    only : weno_reconstruct_upwind_dev
+! FLUME modules
+use :: adam_flume_dissipation_library, only : dissipative_diffusivity
+use :: adam_flume_euler_de_ps_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &
+                                        compute_riemann_llf, conservative_to_auxiliary
+use :: adam_flume_parameters,    only : IA_A, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, &
+                                        IQ_S,                   &
+                                        NV_AUX_K=>NV_AUX_DE_PS,                                                                   &
+                                        NV_K=>NV_EULER_DE_PS,                         &
+                                        POSITIVITY_LIMITER_KAPPA, S_MAX
+! third party modules
+use :: penf,                     only : I4P, I8P, R8P
+
+implicit none
+private
+public :: blend_inadmissible_ghosts_dev
+public :: blend_positivity_fluxes_dev
+public :: compute_conservation_dev
+public :: sync_dual_energy_dev
+public :: add_gravity_edge_correction_dev
+public :: compute_face_fluxes_dev
+public :: compute_lambda_max_dev
+public :: compute_lambda_max_dissipative_dev
+public :: compute_backbone_fluxes_host
+public :: compute_positivity_factors_dev
+public :: compute_seam_positivity_factors_host
+public :: compute_q_aux_dev
+public :: count_nonfinite_dev
+
+contains
+   ! public procedures
+#include "adam_flume_fnl_face_kernels_agnostic.INC"
+
+#include "adam_flume_fnl_aux_kernels_agnostic.INC"
+
+#include "adam_flume_fnl_positivity_kernels_agnostic.INC"
+
+#include "adam_flume_fnl_ghost_kernels_agnostic.INC"
+
+   subroutine compute_conservation_dev(ni, nj, nk, ngc, blocks_number, dxyz_gpu, q_gpu, integrals)
+   !< Compute the volume integrals of the conservative variables (interior cells). The cell volume includes the null
+   !< directions: the tree splits them too, so a refined block's cells are smaller along them (issue #37).
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: integrals(NV_K)                   !< Volume integrals.
+   real(R8P)                 :: volume                            !< Cell volume.
+   real(R8P)                 :: s1, s2, s3, s4, s5, s6, s7, s8, s9, s10 !< Reduction accumulators.
+   integer(I4P)              :: b, i, j, k                        !< Counters.
+
+   s1 = 0._R8P ; s2 = 0._R8P ; s3 = 0._R8P ; s4 = 0._R8P ; s5 = 0._R8P
+   s6 = 0._R8P ; s7 = 0._R8P ; s8 = 0._R8P ; s9 = 0._R8P ; s10 = 0._R8P
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number) private(volume)                   &
+   !$acc& reduction(+:s1,s2,s3,s4,s5,s6,s7,s8,s9,s10)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number) private(volume) &
+   !$omp& reduction(+:s1,s2,s3,s4,s5,s6,s7,s8,s9,s10)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      volume = dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
+      s1 = s1 + q_gpu(b,i,j,k,1) * volume
+      s2 = s2 + q_gpu(b,i,j,k,2) * volume
+      s3 = s3 + q_gpu(b,i,j,k,3) * volume
+      s4 = s4 + q_gpu(b,i,j,k,4) * volume
+      s5 = s5 + q_gpu(b,i,j,k,5) * volume
+      s6 = s6 + q_gpu(b,i,j,k,6) * volume
+      s7 = s7 + q_gpu(b,i,j,k,7) * volume
+      s8 = s8 + q_gpu(b,i,j,k,8) * volume
+      s9 = s9 + q_gpu(b,i,j,k,9) * volume
+      s10 = s10 + q_gpu(b,i,j,k,10) * volume
+   enddo
+   enddo
+   enddo
+   enddo
+   integrals = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10]
+   endsubroutine compute_conservation_dev
+
+   subroutine sync_dual_energy_dev(ni, nj, nk, ngc, blocks_number, gamma, eta, dxyz_gpu, q_gpu, sums)
+   !< Synchronise the total energy and the advected entropy of the committed state (issue #91, the device twin of the CPU
+   !< `sync_dual_energy`): in a cold cell (`e < eta E`) the entropy is the floor of the internal energy,
+   !< `e = max(e, rho s rho^(gamma-1) / (gamma - 1))`, `E` rebuilt from it; then everywhere `rho s` follows `e`. `sums`
+   !< returns the energy added times the cell volume and the number of lifted cells.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)    :: gamma                             !< Specific heats ratio.
+   real(R8P),    intent(in)    :: eta                               !< Dual-energy switch.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out)   :: sums(2)                           !< Energy added times volume, lifted cells number.
+   real(R8P)                   :: ke, e, p, e_new                   !< Kinetic, internal, entropy pressure, new total.
+   real(R8P)                   :: s1, s2                            !< Reduction accumulators.
+   integer(I4P)                :: b, i, j, k                        !< Counters.
+
+   s1 = 0._R8P ; s2 = 0._R8P
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,eta) private(ke,e,p,e_new)    &
+   !$acc& reduction(+:s1,s2)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,eta) private(ke,e,p,e_new) &
+   !$omp& reduction(+:s1,s2)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      ke = 0.5_R8P * (q_gpu(b,i,j,k,IQ_RU)**2 + q_gpu(b,i,j,k,IQ_RV)**2 + q_gpu(b,i,j,k,IQ_RW)**2) / q_gpu(b,i,j,k,IQ_R)
+      e = q_gpu(b,i,j,k,IQ_RE) - ke
+      if (e < eta * q_gpu(b,i,j,k,IQ_RE) .and. q_gpu(b,i,j,k,IQ_S) > 0._R8P) then
+         p = q_gpu(b,i,j,k,IQ_S) * q_gpu(b,i,j,k,IQ_R)**(gamma - 1._R8P)
+         if (e < p / (gamma - 1._R8P)) then ! below the adiabat: drained, lifted to it
+            e_new = ke + p / (gamma - 1._R8P)
+            s1 = s1 + (e_new - q_gpu(b,i,j,k,IQ_RE)) * dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
+            s2 = s2 + 1._R8P
+            q_gpu(b,i,j,k,IQ_RE) = e_new
+            e = p / (gamma - 1._R8P)
+         endif
+      endif
+      q_gpu(b,i,j,k,IQ_S) = (gamma - 1._R8P) * e * q_gpu(b,i,j,k,IQ_R)**(1._R8P - gamma)
+   enddo
+   enddo
+   enddo
+   enddo
+   sums = [s1, s2]
+   endsubroutine sync_dual_energy_dev
+
+   subroutine compute_lambda_max_dev(ni, nj, nk, ngc, blocks_number, gamma, R, dxyz_gpu, is_null, q_gpu, lambda_max)
+   !< Compute `max(sum_d (|u_d| + a) / dx_d)` over the interior cells (null directions excluded).
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)  :: gamma                             !< Specific heats ratio.
+   real(R8P),    intent(in)  :: R                                 !< Gas constant.
+   real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: lambda_max                        !< Maximum of sum_d (|u_d| + a) / dx_d.
+   real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
+   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
+   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
+   real(R8P)                 :: lambda                            !< Cell value.
+   integer(I4P)              :: b, i, j, k, v                     !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   lambda_max = 0._R8P
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_,lambda) &
+   !$acc& reduction(max:lambda_max)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_,lambda) &
+   !$omp& reduction(max:lambda_max)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      !$acc loop seq
+      do v=1, NV_K
+         q_(v) = q_gpu(b,i,j,k,v)
+      enddo
+      call conservative_to_auxiliary(gamma=gamma, R=R, q=q_, qa=qa_)
+      lambda = wx * (abs(qa_(IA_U)) + qa_(IA_A)) / dxyz_gpu(b,1) + &
+               wy * (abs(qa_(IA_V)) + qa_(IA_A)) / dxyz_gpu(b,2) + &
+               wz * (abs(qa_(IA_W)) + qa_(IA_A)) / dxyz_gpu(b,3)
+      lambda_max = max(lambda_max, lambda)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_lambda_max_dev
+
+   subroutine compute_lambda_max_dissipative_dev(ni, nj, nk, ngc, blocks_number, gamma, R, cp, mu0, k0, eta, t_wall, &
+                                                 tref, omega_mu, omega_k, dxyz_gpu, is_null, q_gpu, lambda_max,     &
+                                                 lambda_hyp, lambda_dif, re_cell_min)
+   !< Device twin of the CPU `compute_lambda_max_dissipative` (issue #65, D-M4-3): the maximum of the hyperbolic plus
+   !< diffusive cell sum, the maxima of each part and the minimum cell Reynolds number.
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)  :: gamma, R, cp                      !< Specific heats ratio, gas constant, cp.
+   real(R8P),    intent(in)  :: mu0, k0, eta                      !< Dissipative coefficients.
+   real(R8P),    intent(in)  :: t_wall                            !< Hottest isothermal wall temperature, 0 if none.
+   real(R8P),    intent(in)  :: tref, omega_mu, omega_k           !< Temperature laws.
+   real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: lambda_max                        !< Maximum of the sum.
+   real(R8P),    intent(out) :: lambda_hyp                        !< Maximum of the hyperbolic part.
+   real(R8P),    intent(out) :: lambda_dif                        !< Maximum of the diffusive part.
+   real(R8P),    intent(out) :: re_cell_min                       !< Minimum cell Reynolds number.
+   real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
+   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
+   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
+   real(R8P)                 :: lh, ld                            !< Private hyperbolic and diffusive parts.
+   integer(I4P)              :: b, i, j, k, v                     !< Counters.
+
+   wx = merge(0._R8P, 1._R8P, is_null(1))
+   wy = merge(0._R8P, 1._R8P, is_null(2))
+   wz = merge(0._R8P, 1._R8P, is_null(3))
+   lambda_max = 0._R8P ; lambda_hyp = 0._R8P ; lambda_dif = 0._R8P ; re_cell_min = huge(1._R8P)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,omega_mu,omega_k,wx,wy,wz) &
+   !$acc& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,omega_mu,omega_k,wx,wy,wz) &
+   !$omp& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      !$acc loop seq
+      do v=1, NV_K
+         q_(v) = q_gpu(b,i,j,k,v)
+      enddo
+      call conservative_to_auxiliary(gamma=gamma, R=R, q=q_, qa=qa_)
+      lh = wx * (abs(qa_(IA_U)) + qa_(IA_A)) / dxyz_gpu(b,1) + &
+           wy * (abs(qa_(IA_V)) + qa_(IA_A)) / dxyz_gpu(b,2) + &
+           wz * (abs(qa_(IA_W)) + qa_(IA_A)) / dxyz_gpu(b,3)
+      ld = 2._R8P * dissipative_diffusivity(rho=qa_(IA_R), T=qa_(IA_T), t_wall=t_wall, gamma=gamma, cp=cp, mu0=mu0, &
+                                            k0=k0, eta=eta, &
+                                            tref=tref, omega_mu=omega_mu, omega_k=omega_k) *                      &
+           (wx / dxyz_gpu(b,1)**2 + wy / dxyz_gpu(b,2)**2 + wz / dxyz_gpu(b,3)**2)
+      lambda_max = max(lambda_max, lh + ld)
+      lambda_hyp = max(lambda_hyp, lh)
+      lambda_dif = max(lambda_dif, ld)
+      if (ld > 0._R8P) re_cell_min = min(re_cell_min, 2._R8P * lh / ld)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_lambda_max_dissipative_dev
+
+   ! private procedures
+   pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er, mu)
+   !< Split adapter of the shared face kernel (issue #41, M2-P3): the Euler split, `ch` unused.
+   real(R8P),    intent(in)  :: gamma                          !< Specific heats ratio.
+   real(R8P),    intent(in)  :: ch                             !< GLM cleaning speed.
+   integer(I4P), intent(in)  :: d                              !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)  :: S                              !< WENO stencil half-width, S <= S_MAX.
+   logical,      intent(in)  :: is_characteristic              !< Characteristic (or conservative) variables.
+   real(R8P),    intent(in)  :: qs(NV_K,1-S_MAX:S_MAX)         !< Stencil conservative variables.
+   real(R8P),    intent(in)  :: qas(NV_AUX_K,1-S_MAX:S_MAX)    !< Stencil auxiliary variables.
+   real(R8P),    intent(out) :: fsplit(2,1-S_MAX:S_MAX-1,NV_K) !< Split fields in the WENO upwind layout.
+   real(R8P),    intent(out) :: er(NV_K,NV_K)                  !< Right eigenvectors.
+   real(R8P),    intent(out) :: mu(NV_K)                       !< Magnitude of each field (WENO descaler).
+   !$acc routine seq
+   !$omp declare target
+
+   call compute_face_split_fluxes(gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
+                                  fsplit=fsplit, er=er, mu=mu)
+   endsubroutine face_split_fluxes
+
+   pure subroutine backbone_face_flux(gamma, ch, d, qL, qR, f)
+   !< Backbone adapter of the positivity limiter: the Rusanov flux, `ch` unused.
+   real(R8P),    intent(in)  :: gamma    !< Specific heats ratio.
+   real(R8P),    intent(in)  :: ch       !< GLM cleaning speed.
+   integer(I4P), intent(in)  :: d        !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_K) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_K) !< Right state.
+   real(R8P),    intent(out) :: f(NV_K)  !< Flux.
+   !$acc routine seq
+   !$omp declare target
+
+   call compute_riemann_llf(gamma=gamma, d=d, qL=qL, qR=qR, f=f)
+   endsubroutine backbone_face_flux
+
+   pure function internal_energy(q) result(e)
+   !< Internal-energy adapter of the positivity limiter: `E` minus the kinetic energy, per unit volume.
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: e       !< Internal energy per unit volume.
+   !$acc routine seq
+   !$omp declare target
+
+   e = q(IQ_RE) - 0.5_R8P * (q(IQ_RU)**2 + q(IQ_RV)**2 + q(IQ_RW)**2) / q(IQ_R)
+   endfunction internal_energy
+
+   pure subroutine cell_sources(hs, damping, ds, w, qsx, qsy, qsz, qac, s_lo, s_hi)
+   !< Sources adapter of the positivity limiter: none (Euler).
+   integer(I4P), intent(in)  :: hs                     !< Half stencil of the high-order sources.
+   real(R8P),    intent(in)  :: damping                !< GLM damping rate.
+   real(R8P),    intent(in)  :: ds(3)                  !< Block space steps.
+   real(R8P),    intent(in)  :: w(3)                   !< Direction weights: 1 active, 0 null.
+   real(R8P),    intent(in)  :: qsx(NV_K,-S_MAX:S_MAX) !< Stencil along x.
+   real(R8P),    intent(in)  :: qsy(NV_K,-S_MAX:S_MAX) !< Stencil along y.
+   real(R8P),    intent(in)  :: qsz(NV_K,-S_MAX:S_MAX) !< Stencil along z.
+   real(R8P),    intent(in)  :: qac(NV_AUX_K)          !< Cell auxiliary variables.
+   real(R8P),    intent(out) :: s_lo(NV_K)             !< Backbone sources.
+   real(R8P),    intent(out) :: s_hi(NV_K)             !< High-order sources.
+   !$acc routine seq
+   !$omp declare target
+
+   s_lo = 0._R8P
+   s_hi = 0._R8P
+   endsubroutine cell_sources
+endmodule adam_flume_fnl_euler_de_ps_kernels

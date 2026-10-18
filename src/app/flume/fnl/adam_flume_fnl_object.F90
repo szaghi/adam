@@ -36,7 +36,8 @@ use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sy
                                               REFLUX_CADENCE_STAGE,                                                     &
                                               seam_weno5_sensor,                                                        &
                                               seam_fine_to_coarse, seam_skin_cell, seam_skin_index,                    &
-                                              MODEL_EULER, MODEL_EULER_DE, is_hydrodynamic, MODEL_MHD, MODEL_MHD_EGLM, &
+                                              MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS,           &
+                                              is_hydrodynamic, has_entropy, MODEL_MHD, MODEL_MHD_EGLM,                &
                                               MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,                                &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,            &
                                               RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,              &
@@ -50,6 +51,24 @@ use :: adam_flume_fnl_euler_hllc_kernels, only : &
 use :: adam_flume_fnl_euler_llf_kernels,  only : &
                                                    add_gravity_edge_correction_euler_llf_dev=>add_gravity_edge_correction_dev, &
                                                    compute_riemann_face_fluxes_euler_llf_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_euler_ps_hll_kernels,  only : &
+                                                   add_gravity_edge_correction_euler_ps_hll_dev=>add_gravity_edge_correction_dev, &
+                                                   compute_riemann_face_fluxes_euler_ps_hll_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_euler_ps_hllc_kernels, only : &
+                                                   add_gravity_edge_correction_euler_ps_hllc_dev=>add_gravity_edge_correction_dev, &
+                                                   compute_riemann_face_fluxes_euler_ps_hllc_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_euler_ps_llf_kernels,  only : &
+                                                   add_gravity_edge_correction_euler_ps_llf_dev=>add_gravity_edge_correction_dev, &
+                                                   compute_riemann_face_fluxes_euler_ps_llf_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_euler_de_ps_hll_kernels,  only : &
+      add_gravity_edge_correction_euler_de_ps_hll_dev=>add_gravity_edge_correction_dev, &
+      compute_riemann_face_fluxes_euler_de_ps_hll_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_euler_de_ps_hllc_kernels, only : &
+      add_gravity_edge_correction_euler_de_ps_hllc_dev=>add_gravity_edge_correction_dev, &
+      compute_riemann_face_fluxes_euler_de_ps_hllc_dev=>compute_riemann_face_fluxes_dev
+use :: adam_flume_fnl_euler_de_ps_llf_kernels,  only : &
+      add_gravity_edge_correction_euler_de_ps_llf_dev=>add_gravity_edge_correction_dev, &
+      compute_riemann_face_fluxes_euler_de_ps_llf_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_euler_de_hll_kernels,  only : &
                                                    add_gravity_edge_correction_euler_de_hll_dev=>add_gravity_edge_correction_dev, &
                                                    compute_riemann_face_fluxes_euler_de_hll_dev=>compute_riemann_face_fluxes_dev
@@ -102,6 +121,34 @@ use :: adam_flume_fnl_euler_kernels,   only : blend_inadmissible_ghosts_euler_de
                                                  compute_lambda_max_dissipative_dev,                                   &
                                               compute_q_aux_euler_dev=>compute_q_aux_dev,                              &
                                               count_nonfinite_euler_dev=>count_nonfinite_dev
+use :: adam_flume_fnl_euler_ps_kernels, only : blend_inadmissible_ghosts_euler_ps_dev=>blend_inadmissible_ghosts_dev,      &
+                                              blend_positivity_fluxes_euler_ps_dev=>blend_positivity_fluxes_dev,          &
+                                              compute_backbone_fluxes_euler_ps_host=>compute_backbone_fluxes_host,        &
+                                              compute_seam_positivity_factors_euler_ps_host=>                             &
+                                                 compute_seam_positivity_factors_host,                                &
+                                              compute_conservation_euler_ps_dev=>compute_conservation_dev,                &
+                                              compute_positivity_factors_euler_ps_dev=>compute_positivity_factors_dev,    &
+                                              compute_face_fluxes_euler_ps_dev=>compute_face_fluxes_dev,                  &
+                                              add_gravity_edge_correction_euler_ps_dev=>add_gravity_edge_correction_dev,  &
+                                              compute_lambda_max_euler_ps_dev=>compute_lambda_max_dev,                    &
+                                              compute_lambda_max_dissipative_euler_ps_dev=>                               &
+                                                 compute_lambda_max_dissipative_dev,                                   &
+                                              compute_q_aux_euler_ps_dev=>compute_q_aux_dev,                              &
+                                              count_nonfinite_euler_ps_dev=>count_nonfinite_dev
+use :: adam_flume_fnl_euler_de_ps_kernels, only : blend_inadmissible_ghosts_euler_de_ps_dev=>blend_inadmissible_ghosts_dev,      &
+                                              blend_positivity_fluxes_euler_de_ps_dev=>blend_positivity_fluxes_dev,          &
+                                              compute_backbone_fluxes_euler_de_ps_host=>compute_backbone_fluxes_host,        &
+                                              compute_seam_positivity_factors_euler_de_ps_host=>                             &
+                                                 compute_seam_positivity_factors_host,                                &
+                                              compute_conservation_euler_de_ps_dev=>compute_conservation_dev,                &
+                                              compute_positivity_factors_euler_de_ps_dev=>compute_positivity_factors_dev,    &
+                                              compute_face_fluxes_euler_de_ps_dev=>compute_face_fluxes_dev,                  &
+                                              add_gravity_edge_correction_euler_de_ps_dev=>add_gravity_edge_correction_dev,  &
+                                              compute_lambda_max_euler_de_ps_dev=>compute_lambda_max_dev,                    &
+                                              compute_lambda_max_dissipative_euler_de_ps_dev=>                               &
+                                                 compute_lambda_max_dissipative_dev,                                   &
+                                              compute_q_aux_euler_de_ps_dev=>compute_q_aux_dev,                              &
+                                              count_nonfinite_euler_de_ps_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_euler_de_kernels, only : blend_inadmissible_ghosts_euler_de_dev=>blend_inadmissible_ghosts_dev,      &
                                               blend_positivity_fluxes_euler_de_dev=>blend_positivity_fluxes_dev,          &
                                               compute_backbone_fluxes_euler_de_host=>compute_backbone_fluxes_host,        &
@@ -553,6 +600,10 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER)
       return
+   case(MODEL_EULER_PS)
+      return
+   case(MODEL_EULER_DE_PS)
+      return
    case(MODEL_EULER_DE)
       return
    case(MODEL_MHD)
@@ -648,6 +699,12 @@ contains
    case(MODEL_EULER)
       call count_nonfinite_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                      q_gpu=self%q_gpu, n=n)
+   case(MODEL_EULER_PS)
+      call count_nonfinite_euler_ps_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     q_gpu=self%q_gpu, n=n)
+   case(MODEL_EULER_DE_PS)
+      call count_nonfinite_euler_de_ps_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     q_gpu=self%q_gpu, n=n)
    case(MODEL_EULER_DE)
       call count_nonfinite_euler_de_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                      q_gpu=self%q_gpu, n=n)
@@ -677,7 +734,7 @@ contains
    real(R8P)                              :: speed_max !< Fastest wave speed of this rank.
 
    select case(self%physics%model)
-   case(MODEL_EULER, MODEL_EULER_DE, MODEL_MHD)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_MHD)
       return
    case(MODEL_MHD_GLM)
       call compute_speed_max_mhd_glm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
@@ -707,6 +764,14 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER)
       call compute_conservation_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                   &
+                                          blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                          q_gpu=self%q_gpu, integrals=integrals)
+   case(MODEL_EULER_PS)
+      call compute_conservation_euler_ps_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                   &
+                                          blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                          q_gpu=self%q_gpu, integrals=integrals)
+   case(MODEL_EULER_DE_PS)
+      call compute_conservation_euler_de_ps_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                   &
                                           blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
                                           q_gpu=self%q_gpu, integrals=integrals)
    case(MODEL_EULER_DE)
@@ -870,6 +935,12 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER)
       call compute_q_aux_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                   gamma=self%physics%gamma, R=self%physics%R, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
+   case(MODEL_EULER_PS)
+      call compute_q_aux_euler_ps_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                   gamma=self%physics%gamma, R=self%physics%R, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
+   case(MODEL_EULER_DE_PS)
+      call compute_q_aux_euler_de_ps_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                    gamma=self%physics%gamma, R=self%physics%R, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
    case(MODEL_EULER_DE)
       call compute_q_aux_euler_de_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
@@ -1115,9 +1186,6 @@ contains
    endif
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
-   if (self%physics%passive_scalars > 0_I4P) &
-      call mpih_fnl%error_stop(msg=': [physics].(passive_scalars) runs on the CPU backend only, for now (issue #92: the '// &
-                                   'FNL kernels are phase P2)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')
@@ -1212,6 +1280,20 @@ contains
                                                 q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
                                                 fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, gc_gpu=self%gcor_gpu,  &
                                                 lam_gpu=self%lam_gpu, bad=counts(1), nonfinite=counts(5))
+   case(MODEL_EULER_PS)
+      call compute_positivity_factors_euler_ps_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,    &
+                                                damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi_gpu=self%phi_grav_gpu, &
+                                                dxyz_gpu=dxyz_gpu, is_null=is_null,                                   &
+                                                q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
+                                                fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, gc_gpu=self%gcor_gpu,  &
+                                                lam_gpu=self%lam_gpu, bad=counts(1), nonfinite=counts(5))
+   case(MODEL_EULER_DE_PS)
+      call compute_positivity_factors_euler_de_ps_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,    &
+                                                damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi_gpu=self%phi_grav_gpu, &
+                                                dxyz_gpu=dxyz_gpu, is_null=is_null,                                   &
+                                                q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
+                                                fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, gc_gpu=self%gcor_gpu,  &
+                                                lam_gpu=self%lam_gpu, bad=counts(1), nonfinite=counts(5))
    case(MODEL_EULER_DE)
       call compute_positivity_factors_euler_de_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,    &
                                                 damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi_gpu=self%phi_grav_gpu, &
@@ -1259,6 +1341,36 @@ contains
                                                    lam_gpu=self%lam_gpu, fl_gpu=self%fly_f_gpu, limited=counts(1+d))
          case(3)
             call blend_positivity_fluxes_euler_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flz_f_gpu, limited=counts(1+d))
+         endselect
+      case(MODEL_EULER_PS)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_euler_ps_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flx_f_gpu, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_euler_ps_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%fly_f_gpu, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_euler_ps_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flz_f_gpu, limited=counts(1+d))
+         endselect
+      case(MODEL_EULER_DE_PS)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_euler_de_ps_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flx_f_gpu, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_euler_de_ps_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%fly_f_gpu, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_euler_de_ps_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
                                                    ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
                                                    lam_gpu=self%lam_gpu, fl_gpu=self%flz_f_gpu, limited=counts(1+d))
          endselect
@@ -1427,6 +1539,12 @@ contains
          case(MODEL_EULER)
             call compute_backbone_fluxes_euler_host(n=1, d=fface(1,m), gamma=self%physics%gamma,              &
                                                     ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
+         case(MODEL_EULER_PS)
+            call compute_backbone_fluxes_euler_ps_host(n=1, d=fface(1,m), gamma=self%physics%gamma,              &
+                                                    ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
+         case(MODEL_EULER_DE_PS)
+            call compute_backbone_fluxes_euler_de_ps_host(n=1, d=fface(1,m), gamma=self%physics%gamma,              &
+                                                    ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
          case(MODEL_EULER_DE)
             call compute_backbone_fluxes_euler_de_host(n=1, d=fface(1,m), gamma=self%physics%gamma,              &
                                                     ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
@@ -1540,6 +1658,20 @@ contains
       select case(self%physics%model)
       case(MODEL_EULER)
          call compute_seam_positivity_factors_euler_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
+                                                         has_phi=has_phi, ps=ps,                                 &
+                                                         ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
+                                                         fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
+                                                         ohi=ohi, gcs=gcs(1,:), lam=lam(1,:), lsrc=lam(2,:), &
+                                                         dbad=db, dnonfinite=dn)
+      case(MODEL_EULER_PS)
+         call compute_seam_positivity_factors_euler_ps_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
+                                                         has_phi=has_phi, ps=ps,                                 &
+                                                         ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
+                                                         fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
+                                                         ohi=ohi, gcs=gcs(1,:), lam=lam(1,:), lsrc=lam(2,:), &
+                                                         dbad=db, dnonfinite=dn)
+      case(MODEL_EULER_DE_PS)
+         call compute_seam_positivity_factors_euler_de_ps_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
                                                          has_phi=has_phi, ps=ps,                                 &
                                                          ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
                                                          fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
@@ -1784,6 +1916,12 @@ contains
    case(MODEL_EULER)
       call blend_inadmissible_ghosts_euler_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
                                                q_gpu=q_gpu, blended=blended)
+   case(MODEL_EULER_PS)
+      call blend_inadmissible_ghosts_euler_ps_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
+                                               q_gpu=q_gpu, blended=blended)
+   case(MODEL_EULER_DE_PS)
+      call blend_inadmissible_ghosts_euler_de_ps_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
+                                               q_gpu=q_gpu, blended=blended)
    case(MODEL_EULER_DE)
       call blend_inadmissible_ghosts_euler_de_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
                                                q_gpu=q_gpu, blended=blended)
@@ -1961,6 +2099,10 @@ contains
       select case(self%physics%model)
       case(MODEL_EULER)
          lambda_dissipative => compute_lambda_max_dissipative_euler_dev
+      case(MODEL_EULER_PS)
+         lambda_dissipative => compute_lambda_max_dissipative_euler_ps_dev
+      case(MODEL_EULER_DE_PS)
+         lambda_dissipative => compute_lambda_max_dissipative_euler_de_ps_dev
       case(MODEL_EULER_DE)
          lambda_dissipative => compute_lambda_max_dissipative_euler_de_dev
       case(MODEL_MHD)
@@ -1989,6 +2131,16 @@ contains
       select case(self%physics%model)
       case(MODEL_EULER)
          call compute_lambda_max_euler_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                           blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                           dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
+                                           q_gpu=self%q_gpu, lambda_max=lambda_max)
+      case(MODEL_EULER_PS)
+         call compute_lambda_max_euler_ps_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                           blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                           dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
+                                           q_gpu=self%q_gpu, lambda_max=lambda_max)
+      case(MODEL_EULER_DE_PS)
+         call compute_lambda_max_euler_de_ps_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
                                            blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                            dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz,           &
                                            q_gpu=self%q_gpu, lambda_max=lambda_max)
@@ -2291,7 +2443,7 @@ contains
    logical,                 intent(in),    optional         :: do_amr            !< Unused: the forest regrids (regrid_forest).
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
-   if (self%physics%model == MODEL_EULER_DE) call self%sync_dual_energy
+   if (has_entropy(self%physics%model)) call self%sync_dual_energy
    call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
@@ -2510,6 +2662,18 @@ contains
          case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_euler_hll_dev
          case(RIEMANN_SOLVER_HLLC) ; edge_riemann => add_gravity_edge_correction_euler_hllc_dev
          endselect
+      case(MODEL_EULER_PS)
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_euler_ps_llf_dev
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_euler_ps_hll_dev
+         case(RIEMANN_SOLVER_HLLC) ; edge_riemann => add_gravity_edge_correction_euler_ps_hllc_dev
+         endselect
+      case(MODEL_EULER_DE_PS)
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_euler_de_ps_llf_dev
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_euler_de_ps_hll_dev
+         case(RIEMANN_SOLVER_HLLC) ; edge_riemann => add_gravity_edge_correction_euler_de_ps_hllc_dev
+         endselect
       case(MODEL_EULER_DE)
          select case(self%numerics%riemann_solver)
          case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_euler_de_llf_dev
@@ -2548,6 +2712,8 @@ contains
    else
       select case(self%physics%model)
       case(MODEL_EULER)    ; edge_split => add_gravity_edge_correction_euler_dev
+      case(MODEL_EULER_PS)    ; edge_split => add_gravity_edge_correction_euler_ps_dev
+      case(MODEL_EULER_DE_PS)    ; edge_split => add_gravity_edge_correction_euler_de_ps_dev
       case(MODEL_EULER_DE)    ; edge_split => add_gravity_edge_correction_euler_de_dev
       case(MODEL_MHD)      ; edge_split => add_gravity_edge_correction_mhd_dev
       case(MODEL_MHD_GLM)  ; edge_split => add_gravity_edge_correction_mhd_glm_dev
@@ -2621,6 +2787,44 @@ contains
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
       if (.not.is_null(3)) call compute_face_fluxes_euler_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
+                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
+                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
+                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
+                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+   case(MODEL_EULER_PS)
+      if (.not.is_null(1)) call compute_face_fluxes_euler_ps_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
+                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
+                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
+                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
+      if (.not.is_null(2)) call compute_face_fluxes_euler_ps_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
+                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
+                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
+                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
+      if (.not.is_null(3)) call compute_face_fluxes_euler_ps_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
+                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
+                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
+                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
+                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+   case(MODEL_EULER_DE_PS)
+      if (.not.is_null(1)) call compute_face_fluxes_euler_de_ps_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
+                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
+                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
+                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
+      if (.not.is_null(2)) call compute_face_fluxes_euler_de_ps_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
+                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
+                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
+                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
+      if (.not.is_null(3)) call compute_face_fluxes_euler_de_ps_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
                                                               weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
@@ -2824,6 +3028,24 @@ contains
          face_fluxes => compute_riemann_face_fluxes_euler_de_hll_dev
       case(RIEMANN_SOLVER_HLLC)
          face_fluxes => compute_riemann_face_fluxes_euler_de_hllc_dev
+      endselect
+   elseif (self%physics%model == MODEL_EULER_PS) then
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_euler_ps_llf_dev
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_euler_ps_hll_dev
+      case(RIEMANN_SOLVER_HLLC)
+         face_fluxes => compute_riemann_face_fluxes_euler_ps_hllc_dev
+      endselect
+   elseif (self%physics%model == MODEL_EULER_DE_PS) then
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_euler_de_ps_llf_dev
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_euler_de_ps_hll_dev
+      case(RIEMANN_SOLVER_HLLC)
+         face_fluxes => compute_riemann_face_fluxes_euler_de_ps_hllc_dev
       endselect
    elseif (self%physics%model == MODEL_MHD) then
       select case(self%numerics%riemann_solver)

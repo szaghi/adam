@@ -6,10 +6,11 @@
 #   ps1  Sod (sod-x) with two scalars, 1 left and 0 right, on euler and on euler-de, each against the same run without
 #        scalars (make_ps.py): the flow fields (and the entropy of euler-de) bitwise equal, each scalar integral
 #        constant to round-off (1e-13), the two unused slots identically zero; the range of s_k reported;
-#   ps2  the contract: passive_scalars = 5 (above NS_MAX) and passive_scalars with mhd-ideal refused.
-# On FNL only ps2's refusal of the scalar models is checked until #92 P2.
+#   ps2  the contract: passive_scalars = 5 (above NS_MAX) and passive_scalars with mhd-ideal refused;
+#   ps3  (P2) CPU and FNL agree on the ps1 runs (run ps1 with each first): per field, the FNL-CPU difference of the
+#        scalar runs at most twice that of the runs without scalars, the rule of AV av8.
 #
-# Usage: ./check.sh [--legs LIST]   (legs ps1 ps2, all; default all)
+# Usage: ./check.sh [--legs LIST]   (legs ps1 ps2 ps3, all; default ps1 ps2)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu); the caller owns the matching environment.
 set -euo pipefail
@@ -20,7 +21,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "ps1 ps2"
+legs_declare "ps1 ps2 ps3" "ps1 ps2"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -31,7 +32,6 @@ legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2 ; exit 2 ; fi
 EXE="$(realpath "$EXE")"
 TAG="$(basename "$EXE")"
-FNL=0 ; [[ $TAG == *fnl* ]] && FNL=1
 FAILED=0
 
 run() { # run <work dir>: run the input of the work dir; 0 on success
@@ -57,7 +57,6 @@ echo ">> PS: passive scalars ($TAG)"
 for leg in $LEGS; do
    case $leg in
       ps1)
-         if [[ $FNL -eq 1 ]]; then echo "-- ps1: CPU only until #92 P2 (skipped)" ; continue ; fi
          for model in euler euler-de; do
             echo "-- ps1: Sod, $model, two scalars against none"
             make_case "ps1-$model-base" --model "$model" --scalars 0 ; base="$W"
@@ -69,18 +68,23 @@ for leg in $LEGS; do
             fi
          done ;;
       ps2)
-         if [[ $FNL -eq 1 ]]; then
-            echo "-- ps2: passive scalars on FNL"
-            make_case ps2-fnl --scalars 1
-            expect_refused "$W" "passive_scalars\) runs on the CPU backend only"
-         else
-            echo "-- ps2: passive_scalars = 5"
-            make_case ps2-five --scalars 5
-            expect_refused "$W" "passive_scalars\) must lie in 0\.\.4"
-            echo "-- ps2: passive_scalars with mhd-ideal"
-            make_case ps2-mhd --model mhd-ideal --scalars 1
-            expect_refused "$W" "passive_scalars\) needs a hydrodynamic physical_model"
-         fi ;;
+         echo "-- ps2: passive_scalars = 5"
+         make_case ps2-five --scalars 5
+         expect_refused "$W" "passive_scalars\) must lie in 0\.\.4"
+         echo "-- ps2: passive_scalars with mhd-ideal"
+         make_case ps2-mhd --model mhd-ideal --scalars 1
+         expect_refused "$W" "passive_scalars\) needs a hydrodynamic physical_model" ;;
+      ps3)
+         for model in euler euler-de; do
+            echo "-- ps3: CPU and FNL agree, $model"
+            w=() ; for kind in base ps; do for b in cpu fnl; do w+=("$CASE_DIR/work-adam_flume_$b-ps1-$model-$kind") ; done ; done
+            missing=0 ; for d in "${w[@]}"; do [[ -f "$d/log.txt" ]] || missing=1 ; done
+            if [[ $missing -eq 1 ]]; then
+               echo "   missing a ps1 run: run ps1 with both executables first" ; FAILED=1
+            else
+               "$VENV_PY" "$CASE_DIR/ps_oracle.py" agree "${w[@]}" || FAILED=1
+            fi
+         done ;;
    esac
 done
 if [[ $FAILED -ne 0 ]]; then echo "PS FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi
