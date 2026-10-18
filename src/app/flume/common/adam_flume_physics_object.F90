@@ -8,6 +8,9 @@ module adam_flume_physics_object
 !< `MODEL_MHD` (`nv = 8`), `glm` gives `MODEL_MHD_GLM` (`nv = 9`), `eglm` gives `MODEL_MHD_EGLM` (`nv = 9`).
 !< `euler-de` (issue #91) is the Euler model with dual energy: `nv = 6`, the sixth variable the advected entropy
 !< `rho s`, `s = p / rho^gamma`; `[physics].(dual_energy_eta)` (optional, default `DUAL_ENERGY_ETA`) is its switch.
+!< `[physics].(passive_scalars) = N` (issue #92, optional, 0 by default, 0 <= N <= NS_MAX, the hydrodynamic models only)
+!< selects the scalar variant of `euler` or `euler-de`: `NS_MAX` more slots at the end of the state (`nv = 9` or `10`),
+!< the first `N` carrying `rho s_k`, the others zero.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,         only : mpih
@@ -17,10 +20,12 @@ use :: adam_flume_mhd_library,   only : mhd_primitive_to_conservative
 use :: adam_flume_dissipation_object, only : flume_dissipation_object
 use :: adam_flume_gravity_object, only : flume_gravity_object
 use :: adam_flume_mhd_object,    only : flume_mhd_object
-use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, IQ_PSI, IQ_S, MODEL_EULER, MODEL_EULER_DE, MODEL_MHD,          &
-                                        MODEL_MHD_EGLM, MODEL_MHD_GLM, NV_AUX, NV_AUX_DE, NV_AUX_MHD, NV_EULER,          &
-                                        NV_EULER_DE, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM, PHYSICAL_MODEL_EULER,              &
-                                        PHYSICAL_MODEL_EULER_DE, PHYSICAL_MODEL_MHD_IDEAL, strip_control
+use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, has_entropy, IQ_PSI, IQ_S, MODEL_EULER, MODEL_EULER_DE,         &
+                                        MODEL_EULER_DE_PS, MODEL_EULER_PS, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,     &
+                                        NS_MAX, NV_AUX, NV_AUX_DE, NV_AUX_DE_PS, NV_AUX_MHD, NV_AUX_PS, NV_EULER,        &
+                                        NV_EULER_DE, NV_EULER_DE_PS, NV_EULER_PS, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM,       &
+                                        PHYSICAL_MODEL_EULER, PHYSICAL_MODEL_EULER_DE, PHYSICAL_MODEL_MHD_IDEAL,          &
+                                        strip_control
 ! third party modules
 use :: finer,                    only : file_ini
 use :: penf,                     only : I4P, R8P, str
@@ -44,6 +49,9 @@ type :: flume_physics_object
    integer(I4P)              :: nv_aux=0_I4P   !< Auxiliary variables number.
    integer(I4P)              :: nv_mhd=0_I4P   !< Last slot of the MHD state: NV_EULER (hydrodynamic models) or nv (MHD).
    real(R8P)                 :: dual_energy_eta=DUAL_ENERGY_ETA !< Dual-energy switch (euler-de, issue #91).
+   integer(I4P)              :: passive_scalars=0_I4P !< Passive scalars in use, 0..NS_MAX (issue #92).
+   integer(I4P)              :: iq_scalar1=0_I4P      !< Slot of the first passive scalar (0 without the scalar slots).
+   integer(I4P)              :: nv_entropy=0_I4P      !< Last entropy slot: IQ_S with dual energy, else nv_mhd.
    type(flume_mhd_object)    :: mhd            !< MHD configs (`[mhd]`, loaded with mhd-ideal only).
    type(flume_dissipation_object) :: dissipation !< Dissipative coefficients (`[physics]`, issue #65).
    type(flume_gravity_object) :: gravity !< External gravity (`[gravity]`, issue #73).
@@ -67,8 +75,11 @@ contains
    desc = desc//mpih%myrankstr//'  cp, cv:         '//trim(str(self%cp))//', '//trim(str(self%cv))//NL
    desc = desc//mpih%myrankstr//'  gamma, R:       '//trim(str(self%gamma))//', '//trim(str(self%R))//NL
    desc = desc//mpih%myrankstr//'  nv, nv_aux:     '//trim(str(self%nv))//', '//trim(str(self%nv_aux))//NL
-   if (self%model == MODEL_EULER_DE) &
+   if (has_entropy(self%model)) &
       desc = desc//mpih%myrankstr//'  dual energy:    eta '//trim(str(self%dual_energy_eta))//NL
+   if (self%passive_scalars > 0_I4P) &
+      desc = desc//mpih%myrankstr//'  passive scalars: '//trim(str(self%passive_scalars, .true.))//' of '// &
+                   trim(str(NS_MAX, .true.))//' slots, from slot '//trim(str(self%iq_scalar1, .true.))//NL
    desc = desc//self%dissipation%description()//NL
    desc = desc//self%gravity%description()
    endfunction description
@@ -85,10 +96,20 @@ contains
       self%model  = MODEL_EULER
       self%nv     = NV_EULER
       self%nv_aux = NV_AUX
+      if (self%passive_scalars > 0_I4P) then
+         self%model  = MODEL_EULER_PS
+         self%nv     = NV_EULER_PS
+         self%nv_aux = NV_AUX_PS
+      endif
    case(PHYSICAL_MODEL_EULER_DE)
       self%model  = MODEL_EULER_DE
       self%nv     = NV_EULER_DE
       self%nv_aux = NV_AUX_DE
+      if (self%passive_scalars > 0_I4P) then
+         self%model  = MODEL_EULER_DE_PS
+         self%nv     = NV_EULER_DE_PS
+         self%nv_aux = NV_AUX_DE_PS
+      endif
    case(PHYSICAL_MODEL_MHD_IDEAL)
       call self%mhd%initialize(file_parameters=file_parameters)
       if (self%mhd%has_eglm) then
@@ -104,6 +125,8 @@ contains
       self%nv_aux = NV_AUX_MHD
    endselect
    self%nv_mhd = merge(self%nv, NV_EULER, self%physical_model == PHYSICAL_MODEL_MHD_IDEAL)
+   self%iq_scalar1 = 0_I4P ; if (self%passive_scalars > 0_I4P) self%iq_scalar1 = self%nv - NS_MAX + 1_I4P
+   self%nv_entropy = merge(IQ_S, self%nv_mhd, has_entropy(self%model))
    call self%dissipation%load_from_file(file_parameters=file_parameters, model=self%model, cp=self%cp)
    call self%gravity%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
@@ -127,6 +150,17 @@ contains
                                '"; expected one of '//PHYSICAL_MODEL_EULER//', '//PHYSICAL_MODEL_EULER_DE//', '// &
                                PHYSICAL_MODEL_MHD_IDEAL)
    endselect
+   ! passive scalars (issue #92): optional, 0 by default, the hydrodynamic models only
+   self%passive_scalars = 0_I4P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='passive_scalars', val=self%passive_scalars, &
+                            error=error)
+   if (error > 0) self%passive_scalars = 0_I4P
+   if (self%passive_scalars < 0_I4P .or. self%passive_scalars > NS_MAX) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(passive_scalars) must lie in 0..'//trim(str(NS_MAX, .true.))// &
+                               ', got '//trim(str(self%passive_scalars, .true.)))
+   if (self%passive_scalars > 0_I4P .and. self%physical_model == PHYSICAL_MODEL_MHD_IDEAL) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(passive_scalars) needs a hydrodynamic physical_model (euler, '// &
+                               'euler-de)')
    ! the dual-energy switch (issue #91): optional, read only for euler-de
    self%dual_energy_eta = DUAL_ENERGY_ETA
    if (self%physical_model == PHYSICAL_MODEL_EULER_DE) then
@@ -188,6 +222,13 @@ contains
    case(MODEL_EULER_DE)
       call primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q(1:NV_EULER))
       q(IQ_S) = prim(5) * prim(1)**(1._R8P - gamma)
+   case(MODEL_EULER_PS) ! the scalars are the caller's (the IC regions, the inflow states): zero here
+      call primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q(1:NV_EULER))
+      q(NV_EULER+1:) = 0._R8P
+   case(MODEL_EULER_DE_PS)
+      call primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q(1:NV_EULER))
+      q(IQ_S) = prim(5) * prim(1)**(1._R8P - gamma)
+      q(IQ_S+1:) = 0._R8P
    case(MODEL_MHD)
       call mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
                                          bx=prim(6), by=prim(7), bz=prim(8), q=q)

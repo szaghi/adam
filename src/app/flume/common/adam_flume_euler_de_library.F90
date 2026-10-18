@@ -25,7 +25,8 @@ module adam_flume_euler_de_library
 
 ! FLUME modules
 use :: adam_flume_parameters, only : IA_A, IA_H, IA_P, IA_R, IA_S, IA_T, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
-                                     IQ_RW, NV_AUX_K=>NV_AUX_DE, NV_AUX_BASE=>NV_AUX, NV_BASE=>NV_EULER, NV_K=>NV_EULER_DE, S_MAX
+                                     IQ_RW, NV_AUX_K=>NV_AUX_DE, NV_AUX_BASE=>NV_AUX, NV_BASE=>NV_EULER, NV_K=>NV_EULER_DE, &
+                                     NV_POSITIVE=>NV_EULER_DE, S_MAX
 ! third party modules
 use :: penf,                  only : I4P, R8P
 

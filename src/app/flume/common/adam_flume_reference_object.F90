@@ -331,6 +331,8 @@ contains
          kind = KIND_SCALED ; dim = DIM_FIELD
       case('emin_x', 'emin_y', 'emin_z', 'emax_x', 'emax_y', 'emax_z')
          kind = KIND_SCALED ; dim = DIM_LENGTH
+      case('s1', 's2', 's3', 's4') ! passive scalars, specific values (mass fractions), issue #92
+         kind = KIND_NONE
       endselect
       return
    endif
@@ -377,7 +379,7 @@ contains
    case('physics')
       select case(option_name)
       case('physical_model', 'gamma', 'reynolds', 'prandtl', 'magnetic_reynolds', 'viscosity_law', 'viscosity_exponent', &
-           'dual_energy_eta')
+           'dual_energy_eta', 'passive_scalars')
          kind = KIND_NONE
       case('lundquist')
          ! S = L v_A / eta is the magnetic Reynolds number in the units of the Alfvenic preset only
@@ -447,6 +449,8 @@ contains
          kind = KIND_SCALED ; dim = DIM_PRESSURE
       case('bx', 'by', 'bz')
          kind = KIND_SCALED ; dim = DIM_FIELD
+      case('s1', 's2', 's3', 's4') ! passive scalars of an inflow, specific values, issue #92
+         kind = KIND_NONE
       endselect
    case('time')
       select case(option_name)

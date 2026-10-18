@@ -40,12 +40,19 @@ public :: NV_MHD_EGLM
 public :: NV_AUX_MHD
 public :: NV_EULER_DE
 public :: NV_AUX_DE
+public :: NS_MAX
+public :: NV_EULER_PS
+public :: NV_AUX_PS
+public :: NV_EULER_DE_PS
+public :: NV_AUX_DE_PS
 public :: S_MAX
 public :: MODEL_EULER
 public :: MODEL_MHD
 public :: MODEL_MHD_GLM
 public :: MODEL_MHD_EGLM
 public :: MODEL_EULER_DE
+public :: MODEL_EULER_PS
+public :: MODEL_EULER_DE_PS
 public :: PHYSICAL_MODEL_EULER
 public :: PHYSICAL_MODEL_MHD_IDEAL
 public :: PHYSICAL_MODEL_EULER_DE
@@ -80,6 +87,7 @@ public :: REFLUX_CADENCE_STEP
 public :: REFLUX_CADENCE_STAGE
 public :: strip_control
 public :: is_hydrodynamic
+public :: has_entropy
 
 ! conservative variables
 integer(I4P), parameter :: IQ_R   = 1_I4P !< Density.
@@ -114,6 +122,11 @@ integer(I4P), parameter :: NV_MHD_EGLM = 9_I4P !< Conservative variables number,
 integer(I4P), parameter :: NV_AUX_MHD = 11_I4P !< Auxiliary variables number, MHD (both variants).
 integer(I4P), parameter :: NV_EULER_DE = 6_I4P !< Conservative variables number, Euler with dual energy (#91).
 integer(I4P), parameter :: NV_AUX_DE   = 9_I4P !< Auxiliary variables number, Euler with dual energy (#91).
+integer(I4P), parameter :: NS_MAX         = 4_I4P  !< Passive scalars capacity of the scalar models (#92, D-M10-1).
+integer(I4P), parameter :: NV_EULER_PS    = 9_I4P  !< Conservative variables number, Euler + NS_MAX scalars (#92).
+integer(I4P), parameter :: NV_AUX_PS      = 12_I4P !< Auxiliary variables number, Euler + NS_MAX scalars (#92).
+integer(I4P), parameter :: NV_EULER_DE_PS = 10_I4P !< Conservative variables number, euler-de + NS_MAX scalars (#92).
+integer(I4P), parameter :: NV_AUX_DE_PS   = 13_I4P !< Auxiliary variables number, euler-de + NS_MAX scalars (#92).
 integer(I4P), parameter :: S_MAX      = 5_I4P  !< Maximum WENO stencil half-width (weno-u-9).
 ! physical models: the id the host controllers dispatch on, never inside a kernel (issue #41, section 4)
 integer(I4P), parameter :: MODEL_EULER   = 1_I4P !< Compressible Euler (nv = 5).
@@ -121,6 +134,8 @@ integer(I4P), parameter :: MODEL_MHD     = 2_I4P !< Ideal compressible MHD witho
 integer(I4P), parameter :: MODEL_MHD_GLM = 3_I4P !< Ideal compressible MHD with GLM divergence cleaning (nv = 9).
 integer(I4P), parameter :: MODEL_MHD_EGLM = 4_I4P !< Ideal compressible MHD with EGLM divergence cleaning (nv = 9).
 integer(I4P), parameter :: MODEL_EULER_DE = 5_I4P !< Compressible Euler with dual energy, advected entropy (nv = 6, #91).
+integer(I4P), parameter :: MODEL_EULER_PS = 6_I4P !< Euler with NS_MAX passive scalar slots (nv = 9, #92).
+integer(I4P), parameter :: MODEL_EULER_DE_PS = 7_I4P !< euler-de with NS_MAX passive scalar slots (nv = 10, #92).
 ! accepted option values
 character(len=5),  parameter :: PHYSICAL_MODEL_EULER="euler"          !< [physics].(physical_model): compressible Euler.
 character(len=9),  parameter :: PHYSICAL_MODEL_MHD_IDEAL="mhd-ideal"  !< [physics].(physical_model): ideal MHD.
@@ -190,6 +205,14 @@ contains
    integer(I4P), intent(in) :: model !< Physical model id.
    logical                  :: yes   !< Hydrodynamic model.
 
-   yes = model == MODEL_EULER .or. model == MODEL_EULER_DE
+   yes = model == MODEL_EULER .or. model == MODEL_EULER_DE .or. model == MODEL_EULER_PS .or. model == MODEL_EULER_DE_PS
    endfunction is_hydrodynamic
+
+   elemental function has_entropy(model) result(yes)
+   !< Return true for the dual-energy models, whose slot IQ_S is the advected entropy (issue #91; with scalars, #92).
+   integer(I4P), intent(in) :: model !< Physical model id.
+   logical                  :: yes   !< Dual-energy model.
+
+   yes = model == MODEL_EULER_DE .or. model == MODEL_EULER_DE_PS
+   endfunction has_entropy
 endmodule adam_flume_parameters

@@ -36,8 +36,9 @@ use :: adam_parameters,           only : BC_PERIODIC, BC_SEAM, FEC_TO_DELTA
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_parameters,     only : IQ_BX, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RW, MODEL_EULER, MODEL_EULER_DE, MODEL_MHD, &
-                                        MODEL_MHD_EGLM, MODEL_MHD_GLM, strip_control
+use :: adam_flume_parameters,     only : IQ_BX, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RW, MODEL_EULER, MODEL_EULER_DE, &
+                                        MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, &
+                                        strip_control
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 ! third party modules
 use :: finer,                     only : file_ini
@@ -127,6 +128,7 @@ contains
    type(flume_physics_object), intent(in)    :: physics         !< Physics (for the inflow state conversion).
    character(999)                            :: buff            !< Option value buffer.
    character(:), allocatable                 :: bc_str          !< BC type string.
+   real(R8P)                                 :: sk              !< Specific value of a passive scalar (issue #92).
    real(R8P)                                 :: prim(8)         !< Inflow primitive state (first nprim used).
    integer(I4P)                              :: nprim           !< Primitive keys number: 5 (Euler) or 8 (MHD).
    integer(I4P)                              :: error           !< Error status.
@@ -140,7 +142,7 @@ contains
    ! reflecting wall, D-12) also negates the wall-normal magnetic field, psi stays even
    self%wall_sign = 1._R8P
    select case(physics%model)
-   case(MODEL_EULER, MODEL_EULER_DE)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS)
       nprim = 5_I4P
       do d=1, 3
          self%wall_sign(IQ_RU+d-1,d) = -1._R8P
@@ -172,6 +174,13 @@ contains
                call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))//')')
          enddo
          call primitive_state_to_conservative(model=physics%model, gamma=physics%gamma, prim=prim, q=self%q_inflow(:,f))
+         ! passive scalars (issue #92): the specific values s1 .. sN of the inflow, optional, 0 when absent
+         do k=1, physics%passive_scalars
+            call file_parameters%get(section_name=SECTION_NAME(f), option_name='s'//trim(str(k, .true.)), val=sk, &
+                                     error=error)
+            if (error > 0) sk = 0._R8P
+            self%q_inflow(physics%iq_scalar1+k-1,f) = prim(1) * sk
+         enddo
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID
       case(BC_WALL_NOSLIP_STR, BC_WALL_ISOTHERMAL_STR)
@@ -270,8 +279,8 @@ contains
       kref = merge(2_I4P * nk + 1_I4P - k, nk, mirror)
    endselect
    endsubroutine realm_edge_donor
-   pure subroutine wall_noslip_ghost(nv, nv_mhd, d, gamma, R, psi_energy, isothermal, wall_velocity, wall_temperature, q, &
-                                     qg)
+   pure subroutine wall_noslip_ghost(nv, nv_mhd, nv_entropy, d, gamma, R, psi_energy, isothermal, wall_velocity,        &
+                                     wall_temperature, q, qg)
    !< Ghost state of a no-slip wall (normal axis `d`) from its mirrored interior state `q`: the velocity reflected about
    !< the wall velocity, `u_g = 2 u_w - u`; the pressure mirrored; the temperature mirrored (adiabatic) or set to the
    !< geometric mirror `T_w^2 / T` (isothermal, the density then `p / (R T_g)`, positive for any positive T); the normal
@@ -279,9 +288,11 @@ contains
    !<
    !< Model-agnostic: the field components are `IQ_BX..min(IQ_BZ, nv_mhd)` (none for Euler) and psi the slots beyond them
    !< up to `nv_mhd`; `psi_energy` (1 with EGLM, 0 otherwise) says whether the total energy holds `psi^2 / 2`. The slots
-   !< beyond `nv_mhd` are the advected entropy (Euler with dual energy, issue #91): the ghost's own, `p rho_g^(1-gamma)`.
+   !< beyond `nv_mhd` up to `nv_entropy` are the advected entropy (Euler with dual energy, issue #91): the ghost's own,
+   !< `p rho_g^(1-gamma)`; those beyond `nv_entropy` are passive scalars (issue #92), their specific value mirrored.
    integer(I4P), intent(in)  :: nv                  !< Conservative variables number.
    integer(I4P), intent(in)  :: nv_mhd              !< Last slot of the MHD state: 5 (hydrodynamic models) or nv (MHD).
+   integer(I4P), intent(in)  :: nv_entropy          !< Last entropy slot: 6 (dual energy) or nv_mhd.
    integer(I4P), intent(in)  :: d                   !< Wall-normal axis.
    real(R8P),    intent(in)  :: gamma               !< Specific heats ratio.
    real(R8P),    intent(in)  :: R                   !< Gas constant.
@@ -317,12 +328,15 @@ contains
    qg(IQ_R) = rho_g
    qg(IQ_RU:IQ_RW) = rho_g * ug
    qg(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * rho_g * dot_product(ug, ug) + e_mag
-   do v=nv_mhd + 1_I4P, nv ! the advected entropy of the ghost state
+   do v=nv_mhd + 1_I4P, nv_entropy ! the advected entropy of the ghost state
       qg(v) = p * rho_g**(1._R8P - gamma)
+   enddo
+   do v=nv_entropy + 1_I4P, nv ! passive scalars: the specific value mirrored
+      qg(v) = rho_g * q(v) / q(IQ_R)
    enddo
    endsubroutine wall_noslip_ghost
 
-   pure subroutine hydrostatic_ghost(nv, nv_mhd, gamma, psi_energy, gs, wall_sign, qm, q1, qg)
+   pure subroutine hydrostatic_ghost(nv, nv_mhd, nv_entropy, gamma, psi_energy, gs, wall_sign, qm, q1, qg)
    !< Ghost state of a hydrostatic boundary (issue #73, M7-G0): the density and the pressure of the isothermal
    !< hydrostatic equilibrium continued from the first interior cell `q1`, `rho_g = rho_1 exp(gs / T_1)`,
    !< `p_g = rho_g T_1`, `T_1 = p_1 / rho_1`, `gs = g_d s` (the gravity along the normal times the signed distance from
@@ -330,9 +344,11 @@ contains
    !< and psi unchanged (even).
    !<
    !< Model-agnostic as `wall_noslip_ghost`: the field components are `IQ_BX..min(IQ_BZ, nv_mhd)`, psi the slots beyond
-   !< up to `nv_mhd`, and the advected entropy past `nv_mhd` (issue #91) the ghost's own.
+   !< up to `nv_mhd`, the advected entropy past `nv_mhd` up to `nv_entropy` (issue #91) the ghost's own, the passive
+   !< scalars beyond (issue #92) the mirrored cell's specific value.
    integer(I4P), intent(in)  :: nv            !< Conservative variables number.
    integer(I4P), intent(in)  :: nv_mhd        !< Last slot of the MHD state: 5 (hydrodynamic models) or nv (MHD).
+   integer(I4P), intent(in)  :: nv_entropy    !< Last entropy slot: 6 (dual energy) or nv_mhd.
    real(R8P),    intent(in)  :: gamma         !< Specific heats ratio.
    real(R8P),    intent(in)  :: psi_energy    !< 1 if the total energy holds psi^2 / 2 (EGLM), else 0.
    real(R8P),    intent(in)  :: gs            !< Gravity along the normal times the distance from `q1` to the ghost.
@@ -365,8 +381,11 @@ contains
    qg(IQ_R) = q1(IQ_R) * exp(gs / t1)
    qg(IQ_RU:IQ_RW) = qg(IQ_R) * ug
    qg(IQ_RE) = qg(IQ_R) * t1 / (gamma - 1._R8P) + 0.5_R8P * qg(IQ_R) * dot_product(ug, ug) + eg
-   do v=nv_mhd + 1_I4P, nv ! the advected entropy of the ghost state, p_g = rho_g t1
+   do v=nv_mhd + 1_I4P, nv_entropy ! the advected entropy of the ghost state, p_g = rho_g t1
       qg(v) = qg(IQ_R) * t1 * qg(IQ_R)**(1._R8P - gamma)
+   enddo
+   do v=nv_entropy + 1_I4P, nv ! passive scalars: the mirrored cell's specific value
+      qg(v) = qg(IQ_R) * qm(v) / qm(IQ_R)
    enddo
    endsubroutine hydrostatic_ghost
 endmodule adam_flume_bc_object

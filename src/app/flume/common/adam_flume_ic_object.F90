@@ -117,7 +117,8 @@ use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library,  only : primitive_to_conservative
 use :: adam_flume_mhd_library,    only : mhd_conservative_to_auxiliary, mhd_eigenvectors, mhd_primitive_to_conservative
-use :: adam_flume_parameters,     only : is_hydrodynamic, IQ_BX, IQ_BY, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S, MODEL_EULER, &
+use :: adam_flume_parameters,     only : has_entropy, is_hydrodynamic, IQ_BX, IQ_BY, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S, &
+                                        MODEL_EULER, MODEL_EULER_PS, MODEL_EULER_DE_PS, NS_MAX, &
                                         MODEL_EULER_DE, MODEL_MHD, &
                                         MODEL_MHD_EGLM, MODEL_MHD_GLM, &
                                         NV_AUX_MHD, &
@@ -211,6 +212,9 @@ type :: flume_ic_object
    integer(I4P)              :: model=0_I4P          !< Physical model id.
    integer(I4P)              :: nprim=0_I4P          !< Primitive keys number of a region: 5 (Euler) or 8 (MHD).
    real(R8P),    allocatable :: q_region(:,:)        !< Conservative state of each region [nv, regions_number].
+   real(R8P),    allocatable :: scalars(:,:)         !< Passive scalars of each region [NS_MAX, regions_number] (#92).
+   integer(I4P)              :: passive_scalars=0_I4P !< Passive scalars in use (issue #92).
+   integer(I4P)              :: iq_scalar1=0_I4P     !< Slot of the first passive scalar.
    real(R8P),    allocatable :: emin(:,:)            !< Minimum corner of each region [3, regions_number].
    real(R8P),    allocatable :: emax(:,:)            !< Maximum corner of each region [3, regions_number].
    real(R8P)                 :: gamma=0._R8P         !< Specific heats ratio.
@@ -347,7 +351,7 @@ contains
    self%cp    = physics%cp
    self%model = physics%model
    select case(self%model)
-   case(MODEL_EULER, MODEL_EULER_DE)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS)
       self%nprim = 5_I4P
    case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
       self%nprim = 8_I4P
@@ -695,8 +699,13 @@ contains
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
+   if (allocated(self%scalars)) deallocate(self%scalars)
    if (allocated(self%emin)) deallocate(self%emin)
    if (allocated(self%emax)) deallocate(self%emax)
+   self%passive_scalars = physics%passive_scalars
+   self%iq_scalar1 = physics%iq_scalar1
+   allocate(self%scalars(NS_MAX,self%regions_number))
+   self%scalars = 0._R8P
    allocate(self%q_region(physics%nv,self%regions_number), self%emin(3,self%regions_number), &
             self%emax(3,self%regions_number))
    self%emin = -huge(1._R8P)
@@ -709,6 +718,12 @@ contains
       enddo
       if (self%ic_type == IC_ROTATED_RIEMANN_STR) call rotate_to_global(normal=self%rotated(1:2), nprim=self%nprim, prim=prim)
       call primitive_state_to_conservative(model=self%model, gamma=physics%gamma, prim=prim, q=self%q_region(:,r))
+      ! passive scalars (issue #92): the specific values s1 .. sN, optional, 0 when absent
+      do k=1, self%passive_scalars
+         call file_parameters%get(section_name=sname, option_name='s'//trim(str(k, .true.)), val=self%scalars(k,r), &
+                                  error=error)
+         if (error > 0) self%scalars(k,r) = 0._R8P
+      enddo
       if (r == 1_I4P) self%prim_1 = prim
       if (r == 2_I4P) self%prim_2 = prim
       if (r == 1_I4P .and. self%ic_type == IC_MHD_LINEAR_WAVE_STR) &
@@ -1160,7 +1175,7 @@ contains
    endselect
    ! dual energy (issue #91): the advected entropy of every interior cell from the state just set, rho s = p rho^(1-gamma),
    ! whatever the path that set it (a region state, a closed-form solution built on the Euler variables)
-   if (self%model == MODEL_EULER_DE) then
+   if (has_entropy(self%model)) then
       do b=1, field%blocks_number
          do k=1, field%nk
             do j=1, field%nj
@@ -1168,6 +1183,26 @@ contains
                   q(IQ_S,i,j,k,b) = (self%gamma - 1._R8P) * (q(IQ_RE,i,j,k,b) - 0.5_R8P * (q(IQ_RU,i,j,k,b)**2 + &
                                     q(IQ_RV,i,j,k,b)**2 + q(IQ_RW,i,j,k,b)**2) / q(IQ_R,i,j,k,b)) * &
                                     q(IQ_R,i,j,k,b)**(1._R8P - self%gamma)
+               enddo
+            enddo
+         enddo
+      enddo
+   endif
+   ! passive scalars (issue #92): rho s_k of every interior cell from the specific values of the first region whose box
+   ! holds the cell centre (the riemann-problem rule; a region without a box holds every cell: region 1 for the
+   ! closed-form solutions); the unused scalar slots stay zero
+   if (self%passive_scalars > 0_I4P) then
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  do r=1, self%regions_number
+                     if (all(center > self%emin(:,r)) .and. all(center <= self%emax(:,r))) exit
+                  enddo
+                  r = min(r, self%regions_number)
+                  q(self%iq_scalar1:self%iq_scalar1+self%passive_scalars-1,i,j,k,b) = &
+                     q(IQ_R,i,j,k,b) * self%scalars(1:self%passive_scalars,r)
                enddo
             enddo
          enddo

@@ -816,7 +816,8 @@ contains
    enddo
    endsubroutine scatter_seam_cells_dev
 
-   subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, nv_mhd, crown, pass, face_kind, gamma, R, psi_energy, &
+   subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, nv_mhd, nv_entropy, crown, pass, face_kind, gamma, R,    &
+                                          psi_energy, &
                                           wall_velocity, wall_temperature, g, has_phi, phi_gpu,             &
                                           local_map_bc_crown_gpu, row_first, row_last, bc_rows_gpu,         &
                                           q_inflow_gpu, wall_sign_gpu, dxyz_gpu, q_gpu)
@@ -831,6 +832,7 @@ contains
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)    :: nv                                !< Conservative variables number.
    integer(I4P), intent(in)    :: nv_mhd                            !< Last slot of the MHD state (5 hydrodynamic, nv MHD).
+   integer(I4P), intent(in)    :: nv_entropy                        !< Last entropy slot (6 with dual energy, else nv_mhd).
    integer(I4P), intent(in)    :: crown                             !< Crown counter.
    integer(I4P), intent(in)    :: row_first, row_last               !< The rows of `pass` in `bc_rows_gpu(:,crown)`.
    integer(I4P), intent(in)    :: bc_rows_gpu(:,:)                  !< Crown map rows grouped by pass, per crown.
@@ -865,10 +867,12 @@ contains
    ! runs at 255 registers, 2 thread blocks per SM). The pass test below is kept: it is true for every listed row.
    !$acc parallel loop independent gang vector &
    !$acc& DEVICEVAR(local_map_bc_crown_gpu,bc_rows_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
-   !$acc& firstprivate(ni,nj,nk,nv,nv_mhd,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g,has_phi) &
+   !$acc& firstprivate(ni,nj,nk,nv,nv_mhd,nv_entropy,crown,pass,face_kind,gamma,R,psi_energy) &
+   !$acc& firstprivate(wall_velocity,wall_temperature,g,has_phi) &
    !$acc& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
    !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,bc_rows_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
-   !$omp& firstprivate(ni,nj,nk,nv,nv_mhd,crown,pass,face_kind,gamma,R,psi_energy,wall_velocity,wall_temperature,g,has_phi) &
+   !$omp& firstprivate(ni,nj,nk,nv,nv_mhd,nv_entropy,crown,pass,face_kind,gamma,R,psi_energy) &
+   !$omp& firstprivate(wall_velocity,wall_temperature,g,has_phi) &
    !$omp& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
    do row=row_first, row_last
       c = bc_rows_gpu(row,crown)
@@ -939,7 +943,8 @@ contains
             do v=1, nv
                qd(v) = q_gpu(b,iref,jref,kref,v)
             enddo
-            call wall_noslip_ghost(nv=nv, nv_mhd=nv_mhd, d=(face+1)/2, gamma=gamma, R=R, psi_energy=psi_energy,                   &
+            call wall_noslip_ghost(nv=nv, nv_mhd=nv_mhd, nv_entropy=nv_entropy, d=(face+1)/2, gamma=gamma, R=R,      &
+                                   psi_energy=psi_energy,                                                     &
                                    isothermal=bc_type == BC_WALL_ISOTHERMAL, wall_velocity=wall_velocity(:,face), &
                                    wall_temperature=wall_temperature(face), q=qd(1:nv), qg=qw(1:nv))
             !$acc loop seq
@@ -961,7 +966,8 @@ contains
             gs = g((face+1)/2) * real(dd((face+1)/2), R8P) * dxyz_gpu(b,(face+1)/2)
             ! with a cell potential (issue #81) its drop, exact whatever the potential: g . s = -(Phi_ghost - Phi_1)
             if (has_phi) gs = gs - (phi_gpu(b,i,j,k,1) - phi_gpu(b,i1,j1,k1,1))
-            call hydrostatic_ghost(nv=nv, nv_mhd=nv_mhd, gamma=gamma, psi_energy=psi_energy, gs=gs,                             &
+            call hydrostatic_ghost(nv=nv, nv_mhd=nv_mhd, nv_entropy=nv_entropy, gamma=gamma, psi_energy=psi_energy, &
+                                   gs=gs,                                                                      &
                                    wall_sign=ws(1:nv), qm=qd(1:nv), q1=q1(1:nv), qg=qw(1:nv))
             !$acc loop seq
             do v=1, nv

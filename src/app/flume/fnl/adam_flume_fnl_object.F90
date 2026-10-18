@@ -1115,6 +1115,9 @@ contains
    endif
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+   if (self%physics%passive_scalars > 0_I4P) &
+      call mpih_fnl%error_stop(msg=': [physics].(passive_scalars) runs on the CPU backend only, for now (issue #92: the '// &
+                                   'FNL kernels are phase P2)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')
@@ -1705,7 +1708,8 @@ contains
       do crown=1, self%ngc
          if (self%bc_pass_range(2,pass,crown) < self%bc_pass_range(1,pass,crown)) cycle ! no row of this pass
          call set_boundary_conditions_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv,               &
-                                          nv_mhd=self%physics%nv_mhd, crown=crown,                                 &
+                                          nv_mhd=self%physics%nv_mhd, nv_entropy=self%physics%nv_entropy,          &
+                                          crown=crown,                                                             &
                                           pass=pass, face_kind=face_kind, gamma=self%physics%gamma,                &
                                           R=self%physics%R, psi_energy=psi_energy,                                 &
                                           wall_velocity=self%bc%wall_velocity,                                     &

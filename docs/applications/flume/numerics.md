@@ -244,6 +244,18 @@ remove a cold shock's heat ([DE](./verification/euler/dual-energy)). The runtime
 [#88](https://github.com/szaghi/adam/issues/88) reaches its end with it ([SV-17](./verification/self-gravity/polytrope)). CPU and FNL run the same
 rule (`sync_dual_energy`, `sync_dual_energy_dev`).
 
+## Passive scalars
+
+`[physics] passive_scalars = N` ([#92](https://github.com/szaghi/adam/issues/92), $0 < N \le 4$) selects the scalar
+variant of `euler` or `euler-de`: four more conserved variables $\rho s_k$, advected with the flow,
+$\partial_t(\rho s_k) + \nabla\cdot(\rho s_k\,\mathbf u) = 0$, by the machinery of the dual-energy entropy (each a
+characteristic field of eigenvalue $u_n$, carried by the acoustic and entropy waves, its specific value averaged like
+the velocity), refluxed and prolonged like the other variables. They do not act on the flow: the flow fields of a run
+with scalars are bitwise those of the same run without them. The capacity is fixed (D-M10-1): the kernels are compiled
+for four slots, the first $N$ used and the others zero, so a scalar run pays the projection of the wider state. A scalar
+may vanish (a face state needs it non-negative, the entropy positive); WENO keeps it bounded only to its own accuracy:
+across a Sod contact a mass fraction moving from 1 to 0 over- and undershoots by $5\cdot10^{-4}$.
+
 ## Dissipative fluxes (Navier–Stokes)
 
 With a viscosity or a conductivity in `[physics]` ([input](./input#dissipative-terms-issue-65-m4)), Euler becomes the

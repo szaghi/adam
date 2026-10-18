@@ -4,7 +4,8 @@
 !< The including module renames NV_K, NV_AUX_K (its widths) and NV_BASE = NV_EULER, NV_AUX_BASE = NV_AUX (the Euler
 !< widths): the components NV_BASE+1 ... NV_K are advected scalars, `rho s` carried by the velocity, their specific
 !< values in the auxiliary slots IA_S ... (NV_AUX_BASE+1 ... NV_AUX_K). With NV_K = NV_BASE every scalar loop is
-!< empty, and the Euler module is the pure Euler physics.
+!< empty, and the Euler module is the pure Euler physics. NV_POSITIVE is the last slot that must stay positive (the
+!< entropy); the slots beyond it are passive scalars, which may vanish (issue #92).
    ! public procedures
    pure subroutine compute_eigenvalues(d, qa, lambda)
    !< Compute the eigenvalues of the flux Jacobian in direction `d`: `(u_n - a, u_n, u_n, u_n, u_n + a)`.
@@ -308,14 +309,14 @@
    ! positive density and pressure (false for NaN too); no internal procedure: device routine
    ok = qL(IQ_R) > 0._R8P
    if (ok) ok = qL(IQ_RE) - 0.5_R8P * (qL(IQ_RU)**2 + qL(IQ_RV)**2 + qL(IQ_RW)**2) / qL(IQ_R) > 0._R8P
-   do v=NV_BASE+1, NV_K ! advected scalars (the entropy) positive
-      if (ok) ok = qL(v) > 0._R8P
+   do v=NV_BASE+1, NV_K ! advected scalars: the entropy positive, a passive scalar non-negative (issue #92, D-M10-2)
+      if (ok) ok = qL(v) > 0._R8P .or. (v > NV_POSITIVE .and. qL(v) >= 0._R8P)
    enddo
    if (.not.ok) qL = q0
    ok = qR(IQ_R) > 0._R8P
    if (ok) ok = qR(IQ_RE) - 0.5_R8P * (qR(IQ_RU)**2 + qR(IQ_RV)**2 + qR(IQ_RW)**2) / qR(IQ_R) > 0._R8P
    do v=NV_BASE+1, NV_K
-      if (ok) ok = qR(v) > 0._R8P
+      if (ok) ok = qR(v) > 0._R8P .or. (v > NV_POSITIVE .and. qR(v) >= 0._R8P)
    enddo
    if (.not.ok) qR = q1
    endsubroutine compute_face_states

@@ -489,6 +489,7 @@ verification DC can check every converted value exactly.
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
 | `physical_model` | string | yes | `euler` (nv = 5), `euler-de` (nv = 6) or `mhd-ideal` (nv = 8, or 9 with GLM or EGLM). Other → fatal. | Equation set. `euler-de` is Euler with dual energy, the advected entropy `rs` ([#91](https://github.com/szaghi/adam/issues/91), [numerics](./numerics#dual-energy); CPU and FNL). `mhd-ideal` also loads `[mhd]`. |
+| `passive_scalars` | int | no (`euler`, `euler-de`) | `0..4`, default 0; above 4 or with `mhd-ideal` → fatal | Passive scalars ([#92](https://github.com/szaghi/adam/issues/92), [numerics](./numerics#passive-scalars)): `N > 0` selects the scalar variant of the model, 4 more conserved variables `rs1`..`rs4` (`nv` 9, or 10 with `euler-de`), the first `N` set by the `s1`..`sN` keys of the initial-condition regions and of the inflows, the others zero. CPU only until #92 P2 (fatal on FNL). |
 | `dual_energy_eta` | real | no (`euler-de`) | `(0, 1)`, default 0.05; otherwise fatal | Dual-energy switch: a cell whose internal energy is below `dual_energy_eta` times its total energy takes the entropy as the floor of its internal energy. |
 | `gamma` | real | cond. | `> 1`; with `cp` or `cv` → fatal | Specific heats ratio; the gas constant is 1 (code units). |
 | `cp` | real | cond. | `cp > cv > 0`, otherwise fatal; required without `gamma` | Specific heat at constant pressure. |
@@ -659,6 +660,7 @@ All six sections are required, even along null directions.
 | `type` | string | yes (every face) | `extrapolation`, `inflow`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
 | `r`, `u`, `v`, `w`, `p` | real | `type = inflow` | no range check | Prescribed primitive inflow state. |
 | `bx`, `by`, `bz` | real | `type = inflow` **and** `mhd-ideal` | no range check | Prescribed inflow magnetic field. `psi` is set to 0. |
+| `s1` .. `sN` | real | no (`type = inflow` with `passive_scalars = N`) | default 0, no range check | Specific values (mass fractions) of the passive scalars of the inflow. |
 | `wall_u`, `wall_v`, `wall_w` | real | no (default 0) with `wall-noslip`, `wall-isothermal` | the component normal to the face must be 0 (fatal) | Velocity of the wall (tangential): a moving lid, a Couette wall. |
 | `wall_temperature` | real | `type = wall-isothermal` | `> 0`, otherwise fatal | Wall temperature, $T = p/(\rho R)$ in code units. |
 
@@ -728,6 +730,7 @@ N runs over the regions the selected type reads (see the table above).
 |-----|------|------|---------|
 | `r`, `u`, `v`, `w`, `p` | real | yes | Primitive state (density, velocity, pressure). No positivity check. |
 | `bx`, `by`, `bz` | real | `mhd-ideal` | Magnetic field. `psi` starts at 0. |
+| `s1` .. `sN` | real | no (`passive_scalars = N`) | Specific values (mass fractions) of the passive scalars, default 0. Each cell takes those of the first region whose box holds its centre; the closed-form types (vortex, Shu–Osher, ...) take region 1's everywhere. |
 | `emin_x`, `emin_y`, `emin_z`, `emax_x`, `emax_y`, `emax_z` | real | `type = riemann-problem` only | Region box. A cell belongs to it iff `emin < centre <= emax` on every axis. |
 
 ---
