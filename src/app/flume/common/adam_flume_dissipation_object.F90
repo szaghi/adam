@@ -26,7 +26,7 @@ module adam_flume_dissipation_object
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
-use :: adam_flume_parameters, only : MODEL_EULER, strip_control
+use :: adam_flume_parameters, only : is_hydrodynamic, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
@@ -118,7 +118,7 @@ contains
    endif
    ! Ohmic resistivity: resistivity, magnetic_reynolds or lundquist (MHD only)
    call pair(coefficient='resistivity', numbers=['magnetic_reynolds', 'lundquist        '], val=self%eta)
-   if (self%eta > 0._R8P .and. model == MODEL_EULER) &
+   if (self%eta > 0._R8P .and. is_hydrodynamic(model)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] resistivity (resistivity, magnetic_reynolds, lundquist) '// &
                                'needs [physics].(physical_model)=mhd-ideal')
    ! viscosity law

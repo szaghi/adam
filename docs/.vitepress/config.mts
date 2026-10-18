@@ -176,6 +176,7 @@ export default withMermaid({
                         { text: 'Conservation across AMR seams', link: '/applications/flume/verification/euler/amr-conservation' },
                         { text: 'Multi-realm runs', link: '/applications/flume/verification/euler/multi-realm' },
                         { text: 'Forward-facing step: a three-realm forest on quadtrees', link: '/applications/flume/verification/euler/forward-facing-step' },
+                        { text: 'Dual energy: the advected entropy of euler-de', link: '/applications/flume/verification/euler/dual-energy' },
                       ],
                     },
                     {

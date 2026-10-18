@@ -26,12 +26,14 @@ use :: adam_mpih_global,              only : mpih
 use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, flume_bc_object
 use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
+use :: adam_flume_euler_de_library,   only : conservative_to_auxiliary_de=>conservative_to_auxiliary
 use :: adam_flume_gravity_object,     only : POISSON_SOLVER_AUTO, POISSON_SOLVER_FFT
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
-use :: adam_flume_parameters,         only : GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IA_R, IQ_BX, IQ_BY, IQ_BZ, IQ_R, &
-                                             IQ_RE, IQ_RU, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,            &
+use :: adam_flume_parameters,         only : is_hydrodynamic, GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, IA_R, IA_S, &
+                                             IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_S, MODEL_EULER, MODEL_EULER_DE, &
+                                             MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,            &
                                              IQ_PSI, POSITIVITY_LIMITER_CELL, POSITIVITY_LIMITER_KAPPA,               &
                                              RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,                                     &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
@@ -921,7 +923,7 @@ contains
    if (verbose_) call mpih%print_message('flume_common_object%initialize fields_number: '//trim(str(fields_number_)))
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
                                      fields_number=fields_number_, verbose=verbose_)
-   if (self%physics%model /= MODEL_EULER .and. self%ib%solids_number > 0_I4P) &
+   if (.not.is_hydrodynamic(self%physics%model) .and. self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': immersed solids are not supported with [physics].(physical_model) = '// &
                                self%physics%physical_model)
    call self%bc%initialize(file_parameters=file_parameters, physics=self%physics)
@@ -971,7 +973,7 @@ contains
    integer(I4P)                           :: n, v     !< Names number, counter.
 
    n = size(self%q_name) + size(self%dq_name) + size(self%q_aux_name)
-   if (self%physics%model /= MODEL_EULER) n = n + size(MHD_DERIVED_NAME)
+   if (.not.is_hydrodynamic(self%physics%model)) n = n + size(MHD_DERIVED_NAME)
    allocate(names(n))
    n = 0
    do v=1, size(self%q_name)
@@ -983,7 +985,7 @@ contains
    do v=1, size(self%q_aux_name)
       n = n + 1 ; names(n) = self%q_aux_name(v)
    enddo
-   if (self%physics%model /= MODEL_EULER) then
+   if (.not.is_hydrodynamic(self%physics%model)) then
       do v=1, size(MHD_DERIVED_NAME)
          n = n + 1 ; names(n) = trim(MHD_DERIVED_NAME(v))
       enddo
@@ -1002,7 +1004,7 @@ contains
 
    freeze = 0_I4P
    select case(self%physics%model)
-   case(MODEL_EULER)
+   case(MODEL_EULER, MODEL_EULER_DE)
       do d=1, 3
          if (self%adam%grid%null_xyz(d)) freeze(d) = IQ_RU + d - 1
       enddo
@@ -1218,7 +1220,7 @@ contains
    nijk = [ijk(2,1)-ijk(1,1)+1, ijk(2,2)-ijk(1,2)+1, ijk(2,3)-ijk(1,3)+1]
    endassociate
    if (self%save_auxiliary_fields) call self%compute_q_aux_host
-   with_derived = self%save_auxiliary_fields .and. self%physics%model /= MODEL_EULER
+   with_derived = self%save_auxiliary_fields .and. .not.is_hydrodynamic(self%physics%model)
    if (with_derived) then
       allocate(derived(4,1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc))
       do v=1, 4
@@ -1654,6 +1656,17 @@ contains
             enddo
          enddo
       enddo
+   case(MODEL_EULER_DE)
+      do b=1, self%blocks_number
+         do k=1-self%ngc, self%nk+self%ngc
+            do j=1-self%ngc, self%nj+self%ngc
+               do i=1-self%ngc, self%ni+self%ngc
+                  call conservative_to_auxiliary_de(gamma=self%physics%gamma, R=self%physics%R, q=self%q(:,i,j,k,b), &
+                                                    qa=self%q_aux(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
    case(MODEL_MHD, MODEL_MHD_GLM)
       do b=1, self%blocks_number
          do k=1-self%ngc, self%nk+self%ngc
@@ -1940,7 +1953,7 @@ contains
 
    if (self%numerics%scheme_space /= SCHEME_SPACE_WENO_RIEMANN) return
    select case(self%physics%model)
-   case(MODEL_EULER)
+   case(MODEL_EULER, MODEL_EULER_DE)
       ok = any(self%numerics%riemann_solver == [character(4) :: RIEMANN_SOLVER_LLF, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC])
    case default
       ok = any(self%numerics%riemann_solver == [character(4) :: RIEMANN_SOLVER_LLF, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLD])
@@ -1970,6 +1983,9 @@ contains
    self%q_aux_name(7) = 'H'
    self%q_aux_name(8) = 'a'
    select case(self%physics%model)
+   case(MODEL_EULER_DE) ! the advected entropy rho s and its specific value s = p / rho^gamma (issue #91)
+      self%q_name(IQ_S) = 'rs'
+      self%q_aux_name(IA_S) = 's'
    case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
       self%q_name(6) = 'bx'
       self%q_name(7) = 'by'

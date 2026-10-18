@@ -227,6 +227,23 @@ The coarse states, the fine means and the factors travel over the ranks in seam 
 per stage); on the GPU the seam cells are gathered to the host, which recomputes their factors and returns them with
 the seam face fluxes.
 
+## Dual energy
+
+`physical_model = euler-de` ([#91](https://github.com/szaghi/adam/issues/91)) adds the advected entropy $\rho s$,
+$s = p/\rho^\gamma$, to the Euler state ($nv = 6$): $\partial_t(\rho s) + \nabla\cdot(\rho s\,\mathbf u) = 0$, a pure
+conservation law carried by the same flux machinery (the sixth characteristic field, eigenvalue $u_n$, rides the
+acoustic and entropy waves of the Euler system), refluxed and prolonged like the other variables, with no gravity source.
+Once per step, after the reflux and any regrid, `sync_dual_energy` compares each cell's internal energy
+$e = E - |\rho\mathbf u|^2/(2\rho)$ with $\eta E$, $\eta$ = `[physics] dual_energy_eta` (default 0.05; the
+cell-local test of Bryan et al. 2014). In a cold cell, $e < \eta E$, the entropy is a floor: $e = \max(e, e_s)$,
+$e_s = \rho s\,\rho^{\gamma-1}/(\gamma-1)$, and $E$ is rebuilt from it. Then everywhere $\rho s$ follows $e$. A cell
+below its adiabat was drained by the truncation error of the total-energy scheme in a cold supersonic flow and is lifted
+back; a cell above it was heated by a shock, which the advected entropy does not see, and keeps its energy. The floor
+only adds energy (logged per step); a reset of the energy from the entropy, as in Cholla (Villasenor et al. 2021), would
+remove a cold shock's heat ([DE](./verification/euler/dual-energy)). The runtime-AMR collapse of
+[#88](https://github.com/szaghi/adam/issues/88) reaches its end with it ([SV-17](./verification/self-gravity/polytrope)).
+CPU only until #91 P3.
+
 ## Dissipative fluxes (Navier–Stokes)
 
 With a viscosity or a conductivity in `[physics]` ([input](./input#dissipative-terms-issue-65-m4)), Euler becomes the
@@ -461,6 +478,8 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`,
   AIAA paper 89-0366.
 - Batten P. et al. (1997), On the choice of wavespeeds for the HLLC Riemann solver, *SIAM J. Sci. Comput.* 18, 1553–1570.
 - Berger M. J., Colella P. (1989), Local adaptive mesh refinement for shock hydrodynamics, *J. Comput. Phys.* 82, 64–84.
+- Bryan G. L. et al. (2014), ENZO: an adaptive mesh refinement code for astrophysics, *ApJS* 211, 19,
+  doi:10.1088/0067-0049/211/2/19.
 - Chen Y., Tóth G., Gombosi T. I. (2016), A fifth-order finite difference scheme for hyperbolic equations on
   block-adaptive curvilinear grids, *J. Comput. Phys.* 305, 604–621.
 - Christlieb A. J., Liu Y., Tang Q., Xu Z. (2015), Positivity-preserving finite difference weighted ENO schemes with
@@ -486,6 +505,8 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`,
   hydrodynamics, *ApJ* 489, L179–L183, doi:10.1086/310975.
 - Tóth G., Roe P. L. (2002), Divergence- and curl-preserving prolongation and restriction formulas,
   *J. Comput. Phys.* 180, 736–750.
+- Villasenor B., Robertson B., Madau P., Schneider E. (2021), Effects of photoionization and photoheating on
+  Lyman-α forest properties from Cholla cosmological simulations, *ApJ* 912, 138, doi:10.3847/1538-4357/abed5a.
 - van Leer B. (1977), Towards the ultimate conservative difference scheme. IV. A new approach to numerical
   convection, *J. Comput. Phys.* 23, 276–299.
 - Wu K. (2018), doi:10.1137/18M1168017; Wu K., Shu C.-W. (2018), doi:10.1137/18M1168042: positivity of the first-order

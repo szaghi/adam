@@ -6,6 +6,8 @@ module adam_flume_physics_object
 !< of the common object are built from the same predicate, so allocation and names cannot disagree. For
 !< `mhd-ideal` the predicate is `(physical_model, [mhd].(divergence_control))` (issue #41, D-4): `none` gives
 !< `MODEL_MHD` (`nv = 8`), `glm` gives `MODEL_MHD_GLM` (`nv = 9`), `eglm` gives `MODEL_MHD_EGLM` (`nv = 9`).
+!< `euler-de` (issue #91) is the Euler model with dual energy: `nv = 6`, the sixth variable the advected entropy
+!< `rho s`, `s = p / rho^gamma`; `[physics].(dual_energy_eta)` (optional, default `DUAL_ENERGY_ETA`) is its switch.
 
 ! ADAM singleton objects
 use :: adam_mpih_global,         only : mpih
@@ -15,9 +17,10 @@ use :: adam_flume_mhd_library,   only : mhd_primitive_to_conservative
 use :: adam_flume_dissipation_object, only : flume_dissipation_object
 use :: adam_flume_gravity_object, only : flume_gravity_object
 use :: adam_flume_mhd_object,    only : flume_mhd_object
-use :: adam_flume_parameters,    only : IQ_PSI, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, NV_AUX, NV_AUX_MHD, &
-                                        NV_EULER, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM, PHYSICAL_MODEL_EULER,                 &
-                                        PHYSICAL_MODEL_MHD_IDEAL, strip_control
+use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, IQ_PSI, IQ_S, MODEL_EULER, MODEL_EULER_DE, MODEL_MHD,          &
+                                        MODEL_MHD_EGLM, MODEL_MHD_GLM, NV_AUX, NV_AUX_DE, NV_AUX_MHD, NV_EULER,          &
+                                        NV_EULER_DE, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM, PHYSICAL_MODEL_EULER,              &
+                                        PHYSICAL_MODEL_EULER_DE, PHYSICAL_MODEL_MHD_IDEAL, strip_control
 ! third party modules
 use :: finer,                    only : file_ini
 use :: penf,                     only : I4P, R8P, str
@@ -39,6 +42,8 @@ type :: flume_physics_object
    real(R8P)                 :: R=0._R8P       !< Gas constant, cp-cv.
    integer(I4P)              :: nv=0_I4P       !< Conservative variables number.
    integer(I4P)              :: nv_aux=0_I4P   !< Auxiliary variables number.
+   integer(I4P)              :: nv_mhd=0_I4P   !< Last slot of the MHD state: NV_EULER (hydrodynamic models) or nv (MHD).
+   real(R8P)                 :: dual_energy_eta=DUAL_ENERGY_ETA !< Dual-energy switch (euler-de, issue #91).
    type(flume_mhd_object)    :: mhd            !< MHD configs (`[mhd]`, loaded with mhd-ideal only).
    type(flume_dissipation_object) :: dissipation !< Dissipative coefficients (`[physics]`, issue #65).
    type(flume_gravity_object) :: gravity !< External gravity (`[gravity]`, issue #73).
@@ -62,6 +67,8 @@ contains
    desc = desc//mpih%myrankstr//'  cp, cv:         '//trim(str(self%cp))//', '//trim(str(self%cv))//NL
    desc = desc//mpih%myrankstr//'  gamma, R:       '//trim(str(self%gamma))//', '//trim(str(self%R))//NL
    desc = desc//mpih%myrankstr//'  nv, nv_aux:     '//trim(str(self%nv))//', '//trim(str(self%nv_aux))//NL
+   if (self%model == MODEL_EULER_DE) &
+      desc = desc//mpih%myrankstr//'  dual energy:    eta '//trim(str(self%dual_energy_eta))//NL
    desc = desc//self%dissipation%description()//NL
    desc = desc//self%gravity%description()
    endfunction description
@@ -78,6 +85,10 @@ contains
       self%model  = MODEL_EULER
       self%nv     = NV_EULER
       self%nv_aux = NV_AUX
+   case(PHYSICAL_MODEL_EULER_DE)
+      self%model  = MODEL_EULER_DE
+      self%nv     = NV_EULER_DE
+      self%nv_aux = NV_AUX_DE
    case(PHYSICAL_MODEL_MHD_IDEAL)
       call self%mhd%initialize(file_parameters=file_parameters)
       if (self%mhd%has_eglm) then
@@ -92,6 +103,7 @@ contains
       endif
       self%nv_aux = NV_AUX_MHD
    endselect
+   self%nv_mhd = merge(self%nv, NV_EULER, self%physical_model == PHYSICAL_MODEL_MHD_IDEAL)
    call self%dissipation%load_from_file(file_parameters=file_parameters, model=self%model, cp=self%cp)
    call self%gravity%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
@@ -109,11 +121,22 @@ contains
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(physical_model)')
    self%physical_model = trim(adjustl(strip_control(buff)))
    select case(self%physical_model)
-   case(PHYSICAL_MODEL_EULER, PHYSICAL_MODEL_MHD_IDEAL)
+   case(PHYSICAL_MODEL_EULER, PHYSICAL_MODEL_EULER_DE, PHYSICAL_MODEL_MHD_IDEAL)
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(physical_model) "'//self%physical_model// &
-                               '"; expected one of '//PHYSICAL_MODEL_EULER//', '//PHYSICAL_MODEL_MHD_IDEAL)
+                               '"; expected one of '//PHYSICAL_MODEL_EULER//', '//PHYSICAL_MODEL_EULER_DE//', '// &
+                               PHYSICAL_MODEL_MHD_IDEAL)
    endselect
+   ! the dual-energy switch (issue #91): optional, read only for euler-de
+   self%dual_energy_eta = DUAL_ENERGY_ETA
+   if (self%physical_model == PHYSICAL_MODEL_EULER_DE) then
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='dual_energy_eta', val=self%dual_energy_eta, &
+                               error=error)
+      if (error > 0) self%dual_energy_eta = DUAL_ENERGY_ETA
+      if (.not.(self%dual_energy_eta > 0._R8P .and. self%dual_energy_eta < 1._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(dual_energy_eta) must lie in (0, 1), got '// &
+                                  trim(str(self%dual_energy_eta)))
+   endif
    ! the gas: cp and cv, or gamma alone (R = 1, the code-unit gas constant of issue #49, ND-2); giving both is fatal
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gamma', val=self%gamma, error=error)
    if (error <= 0) then
@@ -150,7 +173,8 @@ contains
 
    ! public procedures
    pure subroutine primitive_state_to_conservative(model, gamma, prim, q)
-   !< Convert one primitive state (`r, u, v, w, p` [, `bx, by, bz`]) to the conservative variables of the model.
+   !< Convert one primitive state (`r, u, v, w, p` [, `bx, by, bz`]) to the conservative variables of the model; with
+   !< dual energy the advected entropy is `rho s = p rho^(1-gamma)` (issue #91).
    !<
    !< Initialisation only (IC regions, BC inflow states): the model branch is outside every kernel and hot loop.
    integer(I4P), intent(in)  :: model   !< Physical model id.
@@ -161,6 +185,9 @@ contains
    select case(model)
    case(MODEL_EULER)
       call primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q)
+   case(MODEL_EULER_DE)
+      call primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q(1:NV_EULER))
+      q(IQ_S) = prim(5) * prim(1)**(1._R8P - gamma)
    case(MODEL_MHD)
       call mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
                                          bx=prim(6), by=prim(7), bz=prim(8), q=q)

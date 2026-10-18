@@ -117,7 +117,9 @@ use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library,  only : primitive_to_conservative
 use :: adam_flume_mhd_library,    only : mhd_conservative_to_auxiliary, mhd_eigenvectors, mhd_primitive_to_conservative
-use :: adam_flume_parameters,     only : IQ_BX, IQ_BY, IQ_RU, IQ_RV, MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,  &
+use :: adam_flume_parameters,     only : is_hydrodynamic, IQ_BX, IQ_BY, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S, MODEL_EULER, &
+                                        MODEL_EULER_DE, MODEL_MHD, &
+                                        MODEL_MHD_EGLM, MODEL_MHD_GLM, &
                                         NV_AUX_MHD, &
                                         NV_EULER, NV_MHD, &
                                         strip_control
@@ -345,7 +347,7 @@ contains
    self%cp    = physics%cp
    self%model = physics%model
    select case(self%model)
-   case(MODEL_EULER)
+   case(MODEL_EULER, MODEL_EULER_DE)
       self%nprim = 5_I4P
    case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
       self%nprim = 8_I4P
@@ -367,9 +369,9 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='s', val=self%s, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(s)')
    case(IC_ISENTROPIC_VORTEX_STR)
-      if (self%model /= MODEL_EULER) &
+      if (.not.is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_ISENTROPIC_VORTEX_STR//' requires '// &
-                                  '[physics].(physical_model) = euler')
+                                  '[physics].(physical_model) = euler or euler-de')
       self%regions_number = 1_I4P
       do k=1, 4
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(VORTEX_KEY(k)), val=self%vortex(k), &
@@ -513,9 +515,9 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs interface_1 < interface_2, interface_2_width >= 0 '// &
                                   'and interface_2 + interface_2_width < interface_1 + period')
    case(IC_SHU_OSHER_STR)
-      if (self%model /= MODEL_EULER) &
+      if (.not.is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_SHU_OSHER_STR//' requires '// &
-                                  '[physics].(physical_model) = euler')
+                                  '[physics].(physical_model) = euler or euler-de')
       self%regions_number = 2_I4P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='axis', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(axis)')
@@ -549,9 +551,9 @@ contains
          if (self%degree < 1_I4P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(degree) must be >= 1')
       endif
    case(IC_BECKER_STR)
-      if (self%model /= MODEL_EULER) &
+      if (.not.is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_BECKER_STR//' requires '// &
-                                  '[physics].(physical_model) = euler')
+                                  '[physics].(physical_model) = euler or euler-de')
       if (.not.(physics%dissipation%mu > 0._R8P) .or. physics%dissipation%viscosity_law /= 'constant' .or. &
           abs(physics%dissipation%k - physics%dissipation%mu * physics%cp / 0.75_R8P) >                   &
           1.e-12_R8P * physics%dissipation%k)                                                             &
@@ -566,9 +568,9 @@ contains
       if (.not.(self%becker(1) > 1._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(mach) must exceed 1')
       self%becker_mu = physics%dissipation%mu
    case(IC_COUETTE_STR)
-      if (self%model /= MODEL_EULER) &
+      if (.not.is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_COUETTE_STR//' requires '// &
-                                  '[physics].(physical_model) = euler')
+                                  '[physics].(physical_model) = euler or euler-de')
       if (.not.(physics%dissipation%mu > 0._R8P .and. physics%dissipation%k > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_COUETTE_STR//' needs a viscosity and a '// &
                                   'conductivity in [physics]')
@@ -597,7 +599,7 @@ contains
                                      '[gravity].(self_gravity) = .true.')
          self%four_pi_g = physics%gravity%four_pi_g
       case(SINE_MODE_MAGNETIC)
-         if (self%model == MODEL_EULER) &
+         if (is_hydrodynamic(self%model)) &
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave_mode)='//SINE_MODE_MAGNETIC//' requires '// &
                                      '[physics].(physical_model) = mhd-ideal')
       case default
@@ -656,9 +658,9 @@ contains
       if (.not.physics%gravity%self_gravity) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_POLYTROPE_STR//' needs '// &
                                   '[gravity].(self_gravity) = .true.')
-      if (self%model /= MODEL_EULER) &
+      if (.not.is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_POLYTROPE_STR//' is an Euler state '// &
-                                  '([physics].(physical_model) = euler)')
+                                  '([physics].(physical_model) = euler or euler-de)')
       self%regions_number = 1_I4P
       self%star = [0._R8P, 0._R8P, 0._R8P, 0._R8P, 0._R8P, 1._R8P]
       do k=1, 6
@@ -1156,6 +1158,21 @@ contains
          enddo
       enddo
    endselect
+   ! dual energy (issue #91): the advected entropy of every interior cell from the state just set, rho s = p rho^(1-gamma),
+   ! whatever the path that set it (a region state, a closed-form solution built on the Euler variables)
+   if (self%model == MODEL_EULER_DE) then
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  q(IQ_S,i,j,k,b) = (self%gamma - 1._R8P) * (q(IQ_RE,i,j,k,b) - 0.5_R8P * (q(IQ_RU,i,j,k,b)**2 + &
+                                    q(IQ_RV,i,j,k,b)**2 + q(IQ_RW,i,j,k,b)**2) / q(IQ_R,i,j,k,b)) * &
+                                    q(IQ_R,i,j,k,b)**(1._R8P - self%gamma)
+               enddo
+            enddo
+         enddo
+      enddo
+   endif
    endsubroutine set_initial_conditions
 
    ! private procedures

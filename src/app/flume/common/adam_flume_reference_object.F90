@@ -376,7 +376,8 @@ contains
       kind = KIND_NONE ! dimensionless sections (every option a count, a flag, a name or a dimensionless number)
    case('physics')
       select case(option_name)
-      case('physical_model', 'gamma', 'reynolds', 'prandtl', 'magnetic_reynolds', 'viscosity_law', 'viscosity_exponent')
+      case('physical_model', 'gamma', 'reynolds', 'prandtl', 'magnetic_reynolds', 'viscosity_law', 'viscosity_exponent', &
+           'dual_energy_eta')
          kind = KIND_NONE
       case('lundquist')
          ! S = L v_A / eta is the magnetic Reynolds number in the units of the Alfvenic preset only

@@ -18,7 +18,7 @@ use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22,
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
-use :: adam_flume_parameters,          only : IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RW
+use :: adam_flume_parameters,          only : IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, ib_cut_spacing,             &
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
                                               reflux_positivity_theta,                                                 &
@@ -26,7 +26,7 @@ use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sy
                                               BC_INFLOW, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP,          &
                                               realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
                                               BC_HYDROSTATIC, hydrostatic_ghost,                                        &
-                                              MODEL_EULER,                                                              &
+                                              MODEL_EULER, MODEL_EULER_DE, is_hydrodynamic,                             &
                                               MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,        &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,                                 &
                                               RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
@@ -39,6 +39,12 @@ use :: adam_flume_cpu_euler_hllc_kernels, only : add_gravity_edge_correction_eul
                                                  compute_riemann_face_fluxes_euler_hllc=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_euler_llf_kernels,  only : add_gravity_edge_correction_euler_llf=>add_gravity_edge_correction, &
                                                  compute_riemann_face_fluxes_euler_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_de_hll_kernels,  only : add_gravity_edge_correction_euler_de_hll=>add_gravity_edge_correction, &
+                                                 compute_riemann_face_fluxes_euler_de_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_de_hllc_kernels, only : add_gravity_edge_correction_euler_de_hllc=>add_gravity_edge_correction, &
+                                                 compute_riemann_face_fluxes_euler_de_hllc=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_de_llf_kernels,  only : add_gravity_edge_correction_euler_de_llf=>add_gravity_edge_correction, &
+                                                 compute_riemann_face_fluxes_euler_de_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_hll_kernels,          only : add_gravity_edge_correction_mhd_hll=>add_gravity_edge_correction, &
                                                        compute_riemann_face_fluxes_mhd_hll=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_hlld_kernels,         only : add_gravity_edge_correction_mhd_hlld=>add_gravity_edge_correction, &
@@ -70,6 +76,17 @@ use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>b
                                               compute_lambda_max_dissipative_euler=>compute_lambda_max_dissipative,  &
                                               compute_q_aux_euler=>compute_q_aux,                                    &
                                               count_nonfinite_euler=>count_nonfinite
+use :: adam_flume_cpu_euler_de_kernels, only : blend_inadmissible_ghosts_euler_de=>blend_inadmissible_ghosts,            &
+                                              blend_positivity_fluxes_euler_de=>blend_positivity_fluxes,                &
+                                              compute_backbone_fluxes_euler_de=>compute_backbone_fluxes,                &
+                                              compute_seam_positivity_factors_euler_de=>compute_seam_positivity_factors,&
+                                              compute_face_fluxes_euler_de=>compute_face_fluxes,                        &
+                                              add_gravity_edge_correction_euler_de=>add_gravity_edge_correction,        &
+                                              compute_positivity_factors_euler_de=>compute_positivity_factors,          &
+                                              compute_lambda_max_euler_de=>compute_lambda_max,                          &
+                                              compute_lambda_max_dissipative_euler_de=>compute_lambda_max_dissipative,  &
+                                              compute_q_aux_euler_de=>compute_q_aux,                                    &
+                                              count_nonfinite_euler_de=>count_nonfinite
 use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,                                   &
                                               blend_inadmissible_ghosts_mhd=>blend_inadmissible_ghosts,            &
                                               blend_positivity_fluxes_mhd=>blend_positivity_fluxes,                &
@@ -160,6 +177,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_gravity_correction !< Compute the fourth-order gravity energy correction.
       procedure, pass(self) :: refresh_equilibrium_residual !< Recompute the equilibrium residual if stale.
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
+      procedure, pass(self) :: sync_dual_energy        !< Synchronise the total energy and the entropy (issue #91).
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
       procedure, pass(self) :: limit_positivity        !< Apply the positivity limiter to the stage face fluxes.
       procedure, pass(self) :: seam_sync_blend         !< Set the seam face fluxes with the seam factors (issue #50).
@@ -405,6 +423,8 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER)
       return
+   case(MODEL_EULER_DE)
+      return
    case(MODEL_MHD)
       call apply_floors_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number,    &
                                 gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
@@ -477,7 +497,7 @@ contains
    real(R8P)                              :: speed_max !< Fastest wave speed of this rank.
 
    select case(self%physics%model)
-   case(MODEL_EULER, MODEL_MHD)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_MHD)
       return
    case(MODEL_MHD_GLM)
       call compute_speed_max_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
@@ -502,6 +522,9 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER)
       call count_nonfinite_euler(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                 q=self%q, n=n)
+   case(MODEL_EULER_DE)
+      call count_nonfinite_euler_de(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                  q=self%q, n=n)
    case(MODEL_MHD)
       call count_nonfinite_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
@@ -585,7 +608,7 @@ contains
    class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms.
    real(R8P)                                                :: norms(8) !< Norms of this rank (4-8: D_flux, #68 A2).
 
-   if (self%physics%model == MODEL_EULER) return
+   if (self%physics%model == MODEL_EULER .or. self%physics%model == MODEL_EULER_DE) return
    if (.not.self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) return
    call self%update_ghost(q=self%q)
    if (present(realm)) call seam_fill_all(self=self, realm=realm) ! local and cross-rank seam rows (issue #40)
@@ -719,6 +742,9 @@ contains
    case(MODEL_EULER)
       call compute_q_aux_euler(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
+   case(MODEL_EULER_DE)
+      call compute_q_aux_euler_de(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                               gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
    case(MODEL_MHD)
       call compute_q_aux_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                              gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
@@ -834,6 +860,12 @@ contains
                                             dxyz=dxyz, is_null=is_null, q=q,                                           &
                                             q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,          &
                                             gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
+   case(MODEL_EULER_DE)
+      call compute_positivity_factors_euler_de(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,         &
+                                            damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi=self%phi_grav,     &
+                                            dxyz=dxyz, is_null=is_null, q=q,                                           &
+                                            q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,          &
+                                            gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD)
       call compute_positivity_factors_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,           &
                                           damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi=self%phi_grav,       &
@@ -870,6 +902,21 @@ contains
                                                fl=self%fly_f, limited=counts(1+d))
          case(3)
             call blend_positivity_fluxes_euler(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%flz_f, limited=counts(1+d))
+         endselect
+      case(MODEL_EULER_DE)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_euler_de(d=d, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%flx_f, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_euler_de(d=d, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%fly_f, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_euler_de(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
                                                blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
                                                fl=self%flz_f, limited=counts(1+d))
          endselect
@@ -990,6 +1037,9 @@ contains
          case(MODEL_EULER)
             call compute_backbone_fluxes_euler(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
                                                qL=qL, qR=qR, flo=fl)
+         case(MODEL_EULER_DE)
+            call compute_backbone_fluxes_euler_de(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
+                                               qL=qL, qR=qR, flo=fl)
          case(MODEL_MHD)
             call compute_backbone_fluxes_mhd(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
                                              qL=qL, qR=qR, flo=fl)
@@ -1086,6 +1136,12 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER)
       call compute_seam_positivity_factors_euler(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g,        &
+                                                 has_phi=has_phi, phi=self%phi_grav, dxyz=dxyz,                              &
+                                                 is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
+                                                 flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
+                                                 olo=olo, ohi=ohi, lam=self%lam, dbad=db, dnonfinite=dn)
+   case(MODEL_EULER_DE)
+      call compute_seam_positivity_factors_euler_de(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g,        &
                                                  has_phi=has_phi, phi=self%phi_grav, dxyz=dxyz,                              &
                                                  is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
                                                  flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
@@ -1322,7 +1378,8 @@ contains
                case(BC_WALL_INVISCID)
                   q(:,i,j,k,b) = self%bc%wall_sign(:,(face+1)/2) * q(:,iref,jref,kref,b)
                case(BC_WALL_NOSLIP, BC_WALL_ISOTHERMAL)
-                  call wall_noslip_ghost(nv=self%nv, d=(face+1)/2, gamma=self%physics%gamma, R=self%physics%R,           &
+                  call wall_noslip_ghost(nv=self%nv, nv_mhd=self%physics%nv_mhd, d=(face+1)/2, gamma=self%physics%gamma, &
+                                         R=self%physics%R,           &
                                          psi_energy=psi_energy, isothermal=face_kind(face) == BC_WALL_ISOTHERMAL,        &
                                          wall_velocity=self%bc%wall_velocity(:,face),                                   &
                                          wall_temperature=self%bc%wall_temperature(face), q=q(:,iref,jref,kref,b),      &
@@ -1354,7 +1411,8 @@ contains
             case(BC_WALL_NOSLIP, BC_WALL_ISOTHERMAL)
                call compute_face_mirror_indexes(face=face, ni=ni, nj=nj, nk=nk, i_gc=i, j_gc=j, k_gc=k,                     &
                                                 idelta=idelta, jdelta=jdelta, kdelta=kdelta, i_d=iref, j_d=jref, k_d=kref)
-               call wall_noslip_ghost(nv=self%nv, d=(face+1)/2, gamma=self%physics%gamma, R=self%physics%R,                &
+               call wall_noslip_ghost(nv=self%nv, nv_mhd=self%physics%nv_mhd, d=(face+1)/2, gamma=self%physics%gamma, &
+                                         R=self%physics%R,                &
                                       psi_energy=psi_energy, isothermal=bc_type == BC_WALL_ISOTHERMAL,                     &
                                       wall_velocity=self%bc%wall_velocity(:,face),                                        &
                                       wall_temperature=self%bc%wall_temperature(face), q=q(:,iref,jref,kref,b),           &
@@ -1388,7 +1446,8 @@ contains
       gs = self%physics%gravity%g_uniform(d) * real(dd(d), R8P) * self%adam%field%dxyz(d,b)
       ! with a cell potential (issue #81) its drop, exact whatever the potential: g . s = -(Phi_ghost - Phi_1)
       if (self%physics%gravity%has_potential) gs = gs - (self%phi_grav(i,j,k,b) - self%phi_grav(i1,j1,k1,b))
-      call hydrostatic_ghost(nv=self%nv, gamma=self%physics%gamma, psi_energy=psi_energy, gs=gs,                    &
+      call hydrostatic_ghost(nv=self%nv, nv_mhd=self%physics%nv_mhd, gamma=self%physics%gamma, psi_energy=psi_energy, &
+                             gs=gs,                    &
                              wall_sign=self%bc%wall_sign(:,d), qm=q(:,iref,jref,kref,b), q1=q(:,i1,j1,k1,b),           &
                              qg=q(:,i,j,k,b))
       endsubroutine hydrostatic_ghost_cell
@@ -1423,6 +1482,9 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER)
       call blend_inadmissible_ghosts_euler(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                           blended=blended)
+   case(MODEL_EULER_DE)
+      call blend_inadmissible_ghosts_euler_de(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
                                            blended=blended)
    case(MODEL_MHD)
       call blend_inadmissible_ghosts_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
@@ -1496,7 +1558,7 @@ contains
    ! with the positivity limiter (issue #88) a cell receives the largest fraction of its correction that keeps its
    ! density and internal energy above the limiter's relative floor; exactly the full correction whenever admissible
    limit = self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL
-   mag_w = merge(0._R8P, 1._R8P, self%physics%model == MODEL_EULER)
+   mag_w = merge(0._R8P, 1._R8P, self%physics%model == MODEL_EULER .or. self%physics%model == MODEL_EULER_DE)
    psi_w = merge(1._R8P, 0._R8P, self%physics%model == MODEL_MHD_EGLM)
    nclip = 0_I4P
    do f=1, flux_register%nfaces
@@ -1588,6 +1650,8 @@ contains
       select case(self%physics%model)
       case(MODEL_EULER)
          lambda_dissipative => compute_lambda_max_dissipative_euler
+      case(MODEL_EULER_DE)
+         lambda_dissipative => compute_lambda_max_dissipative_euler_de
       case(MODEL_MHD)
          lambda_dissipative => compute_lambda_max_dissipative_mhd
       case(MODEL_MHD_GLM)
@@ -1614,6 +1678,11 @@ contains
       select case(self%physics%model)
       case(MODEL_EULER)
          call compute_lambda_max_euler(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
+                                       blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                       dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
+                                       lambda_max=lambda_max)
+      case(MODEL_EULER_DE)
+         call compute_lambda_max_euler_de(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
                                        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                        dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
                                        lambda_max=lambda_max)
@@ -1837,7 +1906,7 @@ contains
    call self%compute_q_aux(q=self%q)
    call self%check_glm_ch
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
-                                   is_restart=self%io%restart, with_divb=self%physics%model /= MODEL_EULER, &
+                                   is_restart=self%io%restart, with_divb=.not.is_hydrodynamic(self%physics%model), &
                                    with_self_gravity=self%physics%gravity%self_gravity)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
@@ -1883,11 +1952,62 @@ contains
    logical,                 intent(in),    optional         :: do_amr            !< Unused: the forest regrids (regrid_forest).
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
+   if (self%physics%model == MODEL_EULER_DE) call self%sync_dual_energy
    call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
    call self%save_simulation_data(realm=realm)
    endsubroutine post_step_forest
+
+   subroutine sync_dual_energy(self)
+   !< Synchronise the total energy and the advected entropy of the committed state, once per step (issue #91, D-M9-1).
+   !<
+   !< On every interior cell, with `e = E - |rho u|^2 / (2 rho)`: where `e < eta E` (`eta = [physics].(dual_energy_eta)`,
+   !< the pressure-selection test of Bryan et al. 2014, eq. 43, cell-local) the internal energy is a small difference of
+   !< large numbers, and the entropy is its floor: `e = max(e, e_s)`, `e_s = rho s rho^(gamma-1) / (gamma - 1)`, `E`
+   !< rebuilt from it. Numerical dissipation only raises the entropy, so a cell below its adiabat (`e < e_s`) was drained
+   !< by the truncation error of the total-energy scheme and is lifted back; a cell above it was heated (a shock, which
+   !< the advected entropy does not see) and keeps its energy (a plain reset to `e_s` removed the heat of the cold Noh
+   !< shock and blew it up). A non-positive `rho s` is never used. Then everywhere the entropy follows the energy,
+   !< `rho s = (gamma - 1) e rho^(1-gamma)`. The floor only adds energy: the change and the number of lifted cells are
+   !< summed over the ranks and logged when nonzero.
+   class(flume_cpu_object), intent(inout) :: self      !< The equation.
+   real(R8P)                              :: ke, e, p  !< Kinetic and internal energy, pressure of one cell.
+   real(R8P)                              :: e_new     !< Total energy from the entropy.
+   real(R8P)                              :: sums(2)   !< Total energy change times volume, lifted cells number.
+   integer(I4P)                           :: b, i, j, k !< Counters.
+
+   sums = 0._R8P
+   associate(q=>self%q, gamma=>self%physics%gamma, eta=>self%physics%dual_energy_eta, dxyz=>self%adam%field%dxyz)
+   !$omp parallel do collapse(4) default(firstprivate) shared(q, dxyz) reduction(+:sums)
+   do b=1, self%blocks_number
+      do k=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               ke = 0.5_R8P * (q(IQ_RU,i,j,k,b)**2 + q(IQ_RV,i,j,k,b)**2 + q(IQ_RW,i,j,k,b)**2) / q(IQ_R,i,j,k,b)
+               e = q(IQ_RE,i,j,k,b) - ke
+               if (e < eta * q(IQ_RE,i,j,k,b) .and. q(IQ_S,i,j,k,b) > 0._R8P) then
+                  p = q(IQ_S,i,j,k,b) * q(IQ_R,i,j,k,b)**(gamma - 1._R8P)
+                  if (e < p / (gamma - 1._R8P)) then ! below the adiabat: drained, lifted to it
+                     e_new = ke + p / (gamma - 1._R8P)
+                     sums(1) = sums(1) + (e_new - q(IQ_RE,i,j,k,b)) * product(dxyz(:,b))
+                     sums(2) = sums(2) + 1._R8P
+                     q(IQ_RE,i,j,k,b) = e_new
+                     e = p / (gamma - 1._R8P)
+                  endif
+               endif
+               q(IQ_S,i,j,k,b) = (gamma - 1._R8P) * e * q(IQ_R,i,j,k,b)**(1._R8P - gamma)
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endassociate
+   call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 2, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (sums(2) > 0._R8P .and. mpih%myrank == 0) &
+      print '(A)', 'dual energy: '//trim(str(nint(sums(2), I8P)))//' cold cells lifted to their adiabat at step '// &
+                   trim(str(self%time%it))//', total energy raised by '//trim(str(sums(1)))
+   endsubroutine sync_dual_energy
 
    subroutine regrid_forest(self, regridded)
    !< Regrid the realm on the cadence of `[amr] frequency` (issue #74, M5-P2); the forest calls it after every step,
@@ -2327,6 +2447,12 @@ contains
          case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_euler_hll
          case(RIEMANN_SOLVER_HLLC) ; edge_riemann => add_gravity_edge_correction_euler_hllc
          endselect
+      case(MODEL_EULER_DE)
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_euler_de_llf
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_euler_de_hll
+         case(RIEMANN_SOLVER_HLLC) ; edge_riemann => add_gravity_edge_correction_euler_de_hllc
+         endselect
       case(MODEL_MHD)
          select case(self%numerics%riemann_solver)
          case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_mhd_llf
@@ -2357,6 +2483,7 @@ contains
    else
       select case(self%physics%model)
       case(MODEL_EULER)    ; edge_split => add_gravity_edge_correction_euler
+      case(MODEL_EULER_DE)    ; edge_split => add_gravity_edge_correction_euler_de
       case(MODEL_MHD)      ; edge_split => add_gravity_edge_correction_mhd
       case(MODEL_MHD_GLM)  ; edge_split => add_gravity_edge_correction_mhd_glm
       case(MODEL_MHD_EGLM) ; edge_split => add_gravity_edge_correction_mhd_eglm
@@ -2446,6 +2573,19 @@ contains
                                                           ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                           weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
       if (.not.is_null(3)) call compute_face_fluxes_euler(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                          nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                          ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                          weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   case(MODEL_EULER_DE)
+      if (.not.is_null(1)) call compute_face_fluxes_euler_de(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                          nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                          ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                          weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_face_fluxes_euler_de(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                          nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                          ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                          weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_face_fluxes_euler_de(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
                                                           nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
                                                           ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                           weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
@@ -2586,6 +2726,15 @@ contains
          face_fluxes => compute_riemann_face_fluxes_euler_hll
       case(RIEMANN_SOLVER_HLLC)
          face_fluxes => compute_riemann_face_fluxes_euler_hllc
+      endselect
+   elseif (self%physics%model == MODEL_EULER_DE) then
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_euler_de_llf
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_euler_de_hll
+      case(RIEMANN_SOLVER_HLLC)
+         face_fluxes => compute_riemann_face_fluxes_euler_de_hllc
       endselect
    elseif (self%physics%model == MODEL_MHD) then
       select case(self%numerics%riemann_solver)

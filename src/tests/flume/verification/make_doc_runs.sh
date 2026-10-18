@@ -47,7 +47,8 @@
 #   collapse-regrid sv15-{conservative-state,conservative}: the runtime-AMR collapse of selfgravity/star.sh SV-15
 #           (#88); sv16-{jeans,control}: SV-16, the smaller star with and without the Jeans marker (#91); a
 #           checkpoint every 2 steps, with the FFT executable (JEANS_EXE); the conservative and control runs go
-#           non-finite by design and are kept (4 runs, about 5 min)
+#           non-finite by design and are kept; sv17-de: SV-17, the SV-15 star with euler-de (#91 P2) (5 runs, 6 min)
+#   dualenergy noh-{euler,euler-de}: the cold planar Noh shock of dualenergy/check.sh de2 (#91 P2) (2 runs, 1 min)
 #   multirealm sod-x, sod-2realm, sod-amr, sod-amr-refined: the Sod unions of multirealm/check.sh legs 1 and 4 and
 #           their single-realm twins (4 runs, about 4 min)
 #   seams   the Sod shock crossing a static 2:1 face at x = 0.75 (amr-shock/make_amr_shock.py, #68; issue #85 R2b):
@@ -68,7 +69,8 @@
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
 #        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
 #        isolated: --only selfgravity-isolated selfgravity-star selfgravity-star-amr;
-#        collapse-regrid: --only selfgravity-star-regrid; amr: --only selfgravity-amr selfgravity-amr-jeans
+#        collapse-regrid: --only selfgravity-star-regrid; dualenergy: --only dual-energy;
+#        amr: --only selfgravity-amr selfgravity-amr-jeans
 #        selfgravity-amr-regrid selfgravity-amr-isolated)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
@@ -86,17 +88,17 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
            "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, seams, blast77, divb," \
-           "rj2a-shock, collapse-regrid)" >&2
+           "rj2a-shock, collapse-regrid, dualenergy)" >&2
       exit 2
    fi
 done
@@ -318,6 +320,21 @@ for g in $GROUPS_; do
             else
                echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
             fi
+         done
+         # SV-17 (issue #91, P2): the SV-15 star with dual energy
+         fresh sv17-de
+         python3 -I "$VERIF_DIR/selfgravity/make_polytrope.py" "$W/input.ini" starc --radius 0.3 --reflux-cadence stage \
+            --regrid 5 --it-save 2 --physical-model euler-de
+         if (cd "$W" && mpirun -np "$NP" "${JEANS_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}" input.ini > log.txt 2>&1); then
+            echo "   $(basename "$W"): done"
+         else
+            echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+         fi ;;
+      dualenergy)
+         for model in euler euler-de; do
+            fresh "noh-$model"
+            python3 -I "$VERIF_DIR/dualenergy/make_de.py" "$W/input.ini" noh --model "$model"
+            run input.ini
          done ;;
       amr)
          fresh sv9-poisson

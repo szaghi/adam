@@ -22,6 +22,7 @@ Usage:
     make_polytrope.py <out.ini> <case> [--cells N] [--levels L] [--cfl C] [--time-max T] [--it-save N]
                       [--box] [--regrid N] [--boundary-box] [--reflux-cadence step|stage]
                       [--prolongation linear|conservative|conservative-state] [--jeans N]
+                      [--physical-model euler|euler-de] [--dual-energy-eta ETA]
 
 `--cells` sets the cells per block side (default 8), `--levels` the uniform levels (default 2): the grid is
 N 2^L cells per side (32^3 by default). `--radius` sets the star's radius a (default 1/2; K = 2 G a^2 / pi follows).
@@ -36,7 +37,8 @@ touches the domain boundary, to the regrid's markers (not at the start): the fir
 which must stop the run (D-87-4). `--prolongation` writes `[amr] regrid_prolongation` (absent: FLUME's default,
 `conservative`); `conservative-state` keeps the runtime-AMR collapse admissible (issue #88). `--jeans N` adds a Jeans
 marker (mode 5, issue #91): blocks with fewer than N cells per Jeans length are refined, at the start and at the
-regrids, one level more.
+regrids, one level more. `--physical-model euler-de` runs the dual-energy model (issue #91, P2), `--dual-energy-eta`
+its switch (default: the key absent, FLUME's default).
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ BOX = 0.5  # the refined box of --box: [-BOX, BOX]^3, block-aligned from level 2
 def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | None, it_save: int,
              atmosphere: float, limiter: bool, box: bool = False, regrid: int = 0, boundary_box: bool = False,
              reflux_cadence: str | None = None, radius: float = RADIUS, prolongation: str | None = None,
-             jeans: float = 0.0) -> str:
+             jeans: float = 0.0, physical_model: str = "euler", dual_energy_eta: float | None = None) -> str:
     """Return the INI of a case."""
     k = 2.0 * G * radius**2 / math.pi
     t_end = time_max if time_max is not None else {"star": 4.0, "starc": 1.5}[case]
@@ -104,7 +106,8 @@ def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | N
         "iterations_fine = 3", "iterations = 10", "tolerance = 1.e-20",
         "[fdv]", "fdv_scheme = fd", "fdv_order = 2", "[solids]", "number = 0", "n_eikonal = 0",
         "[slices]", "slices_number = 0",
-        "[physics]", "physical_model = euler", f"gamma = {GAMMA!r}",
+        "[physics]", f"physical_model = {physical_model}", f"gamma = {GAMMA!r}",
+        *([f"dual_energy_eta = {dual_energy_eta!r}"] if dual_energy_eta is not None else []),
         "[numerics]", "scheme_space = weno", "reconstruction_variables = characteristic", "reflux = .true.",
         f"positivity_limiter = {'cell' if limiter else 'none'}",
         *([f"reflux_cadence = {reflux_cadence}"] if reflux_cadence else []),
@@ -144,12 +147,15 @@ def main() -> int:
     parser.add_argument("--prolongation", choices=("linear", "conservative", "conservative-state"), default=None,
                         help="[amr] regrid_prolongation (default: absent, FLUME's conservative; issue #88)")
     parser.add_argument("--jeans", type=float, default=0.0, help="a Jeans marker, N cells per Jeans length (issue #91)")
+    parser.add_argument("--physical-model", choices=("euler", "euler-de"), default="euler")
+    parser.add_argument("--dual-energy-eta", type=float, default=None, help="[physics].(dual_energy_eta) (issue #91)")
     args = parser.parse_args()
     if args.boundary_box and not args.regrid:
         parser.error("--boundary-box needs --regrid (the marker acts at the regrids)")
     args.out.write_text(case_ini(args.case, args.cells, args.levels, args.cfl, args.time_max, args.it_save,
                                  args.atmosphere, args.limiter, args.box, args.regrid, args.boundary_box,
-                                 args.reflux_cadence, args.radius, args.prolongation, args.jeans))
+                                 args.reflux_cadence, args.radius, args.prolongation, args.jeans,
+                                 args.physical_model, args.dual_energy_eta))
     return 0
 
 

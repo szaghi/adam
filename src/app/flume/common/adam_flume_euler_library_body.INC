@@ -1,0 +1,606 @@
+!< ADAM, FLUME pointwise Euler physics, the body shared by adam_flume_euler_library (NV_K = NV_EULER) and
+!< adam_flume_euler_de_library (NV_K = NV_EULER_DE, the advected entropy of issue #91).
+!<
+!< The including module renames NV_K, NV_AUX_K (its widths) and NV_BASE = NV_EULER, NV_AUX_BASE = NV_AUX (the Euler
+!< widths): the components NV_BASE+1 ... NV_K are advected scalars, `rho s` carried by the velocity, their specific
+!< values in the auxiliary slots IA_S ... (NV_AUX_BASE+1 ... NV_AUX_K). With NV_K = NV_BASE every scalar loop is
+!< empty, and the Euler module is the pure Euler physics.
+   ! public procedures
+   pure subroutine compute_eigenvalues(d, qa, lambda)
+   !< Compute the eigenvalues of the flux Jacobian in direction `d`: `(u_n - a, u_n, u_n, u_n, u_n + a)`.
+   integer(I4P), intent(in)  :: d                !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qa(NV_AUX_K)       !< Auxiliary variables.
+   real(R8P),    intent(out) :: lambda(NV_K) !< Eigenvalues.
+   real(R8P)                 :: un               !< Normal velocity.
+   integer(I4P)              :: v                !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   un = qa(IA_U+d-1)
+   lambda(1) = un - qa(IA_A)
+   lambda(2) = un
+   lambda(3) = un
+   lambda(4) = un
+   lambda(5) = un + qa(IA_A)
+   do v=NV_BASE+1, NV_K ! advected scalars
+      lambda(v) = un
+   enddo
+   endsubroutine compute_eigenvalues
+
+   pure subroutine compute_eigenvectors(gamma, d, qa, el, er)
+   !< Compute the left (rows) and right (columns) eigenvectors of the flux Jacobian in direction `d` at state `qa`.
+   real(R8P),    intent(in)  :: gamma                  !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d                      !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qa(NV_AUX_K)             !< Auxiliary variables (e.g. a Roe average).
+   real(R8P),    intent(out) :: el(NV_K,NV_K)  !< Left eigenvectors, el(k,:) = l_k.
+   real(R8P),    intent(out) :: er(NV_K,NV_K)  !< Right eigenvectors, er(:,k) = r_k.
+   real(R8P)                 :: u(3)                   !< Velocity.
+   real(R8P)                 :: a, H                   !< Speed of sound, total specific enthalpy.
+   real(R8P)                 :: b1, b2                 !< Eigenvectors coefficients.
+   integer(I4P)              :: d1, d2                 !< Tangential directions.
+   integer(I4P)              :: c, v                   !< Counters.
+   real(R8P)                 :: sc                     !< Specific advected scalar.
+   !$acc routine seq
+   !$omp declare target
+
+   d1 = mod(d, 3) + 1
+   d2 = mod(d + 1, 3) + 1
+   u  = [qa(IA_U), qa(IA_V), qa(IA_W)]
+   a  = qa(IA_A)
+   H  = qa(IA_H)
+   b2 = (gamma - 1._R8P) / (a * a)
+   b1 = 0.5_R8P * b2 * (u(1)**2 + u(2)**2 + u(3)**2)
+   er = 0._R8P
+   el = 0._R8P
+   ! right eigenvectors (columns)
+   er(1,1) = 1._R8P
+   er(1,2) = 1._R8P
+   er(1,5) = 1._R8P
+   do c=1, 3
+      er(1+c,1) = u(c)
+      er(1+c,2) = u(c)
+      er(1+c,5) = u(c)
+   enddo
+   er(1+d,1)  = u(d) - a
+   er(1+d,5)  = u(d) + a
+   er(1+d1,3) = 1._R8P
+   er(1+d2,4) = 1._R8P
+   er(5,1)    = H - a * u(d)
+   er(5,2)    = 0.5_R8P * (u(1)**2 + u(2)**2 + u(3)**2)
+   er(5,3)    = u(d1)
+   er(5,4)    = u(d2)
+   er(5,5)    = H + a * u(d)
+   ! left eigenvectors (rows)
+   el(1,1) = 0.5_R8P * (b1 + u(d) / a)
+   el(2,1) = 1._R8P - b1
+   el(3,1) = -u(d1)
+   el(4,1) = -u(d2)
+   el(5,1) = 0.5_R8P * (b1 - u(d) / a)
+   do c=1, 3
+      el(1,1+c) = -0.5_R8P * b2 * u(c)
+      el(2,1+c) = b2 * u(c)
+      el(5,1+c) = -0.5_R8P * b2 * u(c)
+   enddo
+   el(1,1+d)  = el(1,1+d) - 0.5_R8P / a
+   el(5,1+d)  = el(5,1+d) + 0.5_R8P / a
+   el(3,1+d1) = 1._R8P
+   el(4,1+d2) = 1._R8P
+   el(1,5)    = 0.5_R8P * b2
+   el(2,5)    = -b2
+   el(5,5)    = 0.5_R8P * b2
+   do v=NV_BASE+1, NV_K ! advected scalars: s rides the acoustic and entropy waves, its own wave is e_v
+      sc = qa(IA_S+v-NV_BASE-1)
+      er(v,1) = sc
+      er(v,2) = sc
+      er(v,5) = sc
+      er(v,v) = 1._R8P
+      el(v,1) = -sc
+      el(v,v) = 1._R8P
+   enddo
+   endsubroutine compute_eigenvectors
+
+   pure subroutine compute_face_flux_back_projection(is_characteristic, er, vr, flux)
+   !< Return the face flux in conservative variables from the reconstructed split fields, `F = R (f+ + f-)`.
+   logical,   intent(in)  :: is_characteristic     !< Reconstruction variables: characteristic or conservative.
+   real(R8P), intent(in)  :: er(NV_K,NV_K) !< Right eigenvectors, er(:,k) = r_k (unused if conservative).
+   real(R8P), intent(in)  :: vr(2,NV_K)        !< Reconstructed split fields at the face.
+   real(R8P), intent(out) :: flux(NV_K)        !< Face flux.
+   integer(I4P)           :: k, v                  !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   if (is_characteristic) then
+      do v=1, NV_K
+         flux(v) = 0._R8P
+         do k=1, NV_K
+            flux(v) = flux(v) + er(v,k) * (vr(1,k) + vr(2,k))
+         enddo
+      enddo
+   else
+      do v=1, NV_K
+         flux(v) = vr(1,v) + vr(2,v)
+      enddo
+   endif
+   endsubroutine compute_face_flux_back_projection
+
+   pure subroutine compute_face_interpolation_fields(gamma, d, S, is_characteristic, qs, qas, fint, er, mu)
+   !< Return the fields of the stencil of face `i+1/2` to be WENO-interpolated to the face (scheme `weno-riemann`).
+   !<
+   !< The stencil holds cells `m = 1-S ... S` relative to cell `i` (cell `i+1` is `m = 1`). Characteristic variant: the
+   !< conservative states projected on the left eigenvectors of the Roe average of cells 0 and 1, `w = L q`; primitive
+   !< variant: `(rho, u, v, w, p)`. Stored in the layout of the WENO upwind primitive: `fint(2,m,k)` = field `k` of cell
+   !< `m` for `m = 1-S ... S-1` (interpolated toward the left state), `fint(1,m,k)` = field `k` of cell `m+1` (toward the
+   !< right state). `er` returns the right eigenvectors for `compute_face_states`. `mu` returns the magnitude of each field,
+   !< the stencil mean of the absolute projection `sum_v |l_kv| qm_v` (`qm` the reference magnitudes of
+   !< `compute_state_magnitudes`; `|w_k|` for the primitive fields), floored at `tiny`: the descaler of the
+   !< scale-invariant WENO weights (issue #49). It scales exactly like the field and, unlike the field, does not vanish
+   !< where the projection on the local state does.
+   real(R8P),    intent(in)  :: gamma                              !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d                                  !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)  :: S                                  !< WENO stencil half-width, S <= S_MAX.
+   logical,      intent(in)  :: is_characteristic                  !< Characteristic (or primitive) variables.
+   real(R8P),    intent(in)  :: qs(NV_K,1-S_MAX:S_MAX)         !< Stencil conservative variables.
+   real(R8P),    intent(in)  :: qas(NV_AUX_K,1-S_MAX:S_MAX)          !< Stencil auxiliary variables.
+   real(R8P),    intent(out) :: fint(2,1-S_MAX:S_MAX-1,NV_K)   !< Fields in the WENO upwind layout.
+   real(R8P),    intent(out) :: er(NV_K,NV_K)              !< Right eigenvectors (unused if primitive).
+   real(R8P),    intent(out) :: mu(NV_K)                       !< Magnitude of each field (WENO descaler).
+   real(R8P)                 :: el(NV_K,NV_K)              !< Left eigenvectors.
+   real(R8P)                 :: roe(NV_AUX_K)                        !< Roe average of cells 0 and 1.
+   real(R8P)                 :: w(NV_K)                        !< Fields of one cell.
+   real(R8P)                 :: qm(NV_K)                       !< Reference magnitudes of one cell (descaler).
+   integer(I4P)              :: k, m, v                            !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   if (is_characteristic) then
+      call compute_roe_average(gamma=gamma, qaL=qas(:,0), qaR=qas(:,1), roe=roe)
+      call compute_eigenvectors(gamma=gamma, d=d, qa=roe, el=el, er=er)
+   else
+      er = 0._R8P
+   endif
+   mu = 0._R8P
+   do m=1-S, S
+      if (is_characteristic) then
+         call compute_state_magnitudes(q=qs(:,m), qa=qas(:,m), qm=qm)
+         do k=1, NV_K
+            w(k) = 0._R8P
+            do v=1, NV_K
+               w(k) = w(k) + el(k,v) * qs(v,m)
+               mu(k) = mu(k) + abs(el(k,v)) * qm(v)
+            enddo
+         enddo
+      else
+         w(1) = qas(IA_R,m)
+         w(2) = qas(IA_U,m)
+         w(3) = qas(IA_V,m)
+         w(4) = qas(IA_W,m)
+         w(5) = qas(IA_P,m)
+         do v=NV_BASE+1, NV_K ! advected scalars: the specific value
+            w(v) = qas(IA_S+v-NV_BASE-1,m)
+         enddo
+      endif
+      do k=1, NV_K
+         if (m < S)     fint(2,m,k)   = w(k)
+         if (m > 1 - S) fint(1,m-1,k) = w(k)
+         if (.not.is_characteristic) mu(k) = mu(k) + abs(w(k))
+      enddo
+   enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
+   endsubroutine compute_face_interpolation_fields
+
+   pure subroutine compute_face_split_fluxes(gamma, d, S, is_characteristic, qs, qas, fsplit, er, mu)
+   !< Project and Lax-Friedrichs-split the stencil of face `i+1/2`, ready for the WENO upwind reconstruction.
+   !<
+   !< The stencil holds cells `m = 1-S ... S` relative to cell `i` (cell `i+1` is `m = 1`). Characteristic variant:
+   !< Roe eigenvectors of cells 0 and 1, per-wave speeds `alpha_k = max_m |lambda_k(m)|`, `w = L q`, `g = L f_d(q)`;
+   !< conservative variant: no projection, one speed `alpha = max_m (|u_n| + a)`. Split `f+ = (g + alpha w) / 2`,
+   !< `f- = g - f+`, stored in the layout of the WENO upwind primitive: `fsplit(2,m,k)` = f+ of cell `m` for
+   !< `m = 1-S ... S-1`, `fsplit(1,m,k)` = f- of cell `m+1`. `er` returns the right eigenvectors for the back-projection.
+   !< `mu` returns the magnitude of each split field, the stencil mean of `sum_v |l_kv| (|f_v| + alpha_max qm_v) / 2`,
+   !< `alpha_max` the largest of the speeds `alpha_k` and `qm_v >= |q_v|` the reference magnitudes of
+   !< `compute_state_magnitudes`: an upper bound of `|f+-|` cell by cell, floored at `tiny`, the descaler of the
+   !< scale-invariant WENO weights (issue #49). It is exact under power-of-two scaling and never zero on a physical state,
+   !< even for a field that vanishes identically or travels at zero speed, so round-off is never weighted as data.
+   real(R8P),    intent(in)  :: gamma                                !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d                                    !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)  :: S                                    !< WENO stencil half-width, S <= S_MAX.
+   logical,      intent(in)  :: is_characteristic                    !< Characteristic (or conservative) variables.
+   real(R8P),    intent(in)  :: qs(NV_K,1-S_MAX:S_MAX)           !< Stencil conservative variables.
+   real(R8P),    intent(in)  :: qas(NV_AUX_K,1-S_MAX:S_MAX)            !< Stencil auxiliary variables.
+   real(R8P),    intent(out) :: fsplit(2,1-S_MAX:S_MAX-1,NV_K)   !< Split fields in the WENO upwind layout.
+   real(R8P),    intent(out) :: er(NV_K,NV_K)                !< Right eigenvectors (identity if conservative).
+   real(R8P),    intent(out) :: mu(NV_K)                         !< Magnitude of each field (WENO descaler).
+   real(R8P)                 :: el(NV_K,NV_K)                !< Left eigenvectors (identity if conservative).
+   real(R8P)                 :: roe(NV_AUX_K)                          !< Roe average of cells 0 and 1.
+   real(R8P)                 :: lambda(NV_K)                     !< Eigenvalues of one cell.
+   real(R8P)                 :: alpha(NV_K)                      !< Lax-Friedrichs speeds.
+   real(R8P)                 :: f(NV_K)                          !< Physical flux of one cell.
+   real(R8P)                 :: w, g, fp                             !< Projected state, projected flux, split flux.
+   real(R8P)                 :: a                                    !< Absolute projection of one cell (descaler).
+   real(R8P)                 :: qm(NV_K)                         !< Reference magnitudes of one cell (descaler).
+   real(R8P)                 :: amax                                 !< Largest speed of the stencil (descaler).
+   integer(I4P)              :: k, m, v                              !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   if (is_characteristic) then
+      call compute_roe_average(gamma=gamma, qaL=qas(:,0), qaR=qas(:,1), roe=roe)
+      call compute_eigenvectors(gamma=gamma, d=d, qa=roe, el=el, er=er)
+      alpha = 0._R8P
+      do m=1-S, S
+         call compute_eigenvalues(d=d, qa=qas(:,m), lambda=lambda)
+         do k=1, NV_K
+            alpha(k) = max(alpha(k), abs(lambda(k)))
+         enddo
+      enddo
+   else
+      el = 0._R8P
+      er = 0._R8P
+      do k=1, NV_K
+         el(k,k) = 1._R8P
+         er(k,k) = 1._R8P
+      enddo
+      alpha = 0._R8P
+      do m=1-S, S
+         alpha(1) = max(alpha(1), abs(qas(IA_U+d-1,m)) + qas(IA_A,m))
+      enddo
+      alpha = alpha(1)
+   endif
+   amax = maxval(alpha)
+   mu = 0._R8P
+   do m=1-S, S
+      call compute_flux(d=d, q=qs(:,m), qa=qas(:,m), f=f)
+      call compute_state_magnitudes(q=qs(:,m), qa=qas(:,m), qm=qm)
+      do k=1, NV_K
+         w = 0._R8P
+         g = 0._R8P
+         a = 0._R8P
+         do v=1, NV_K
+            w = w + el(k,v) * qs(v,m)
+            g = g + el(k,v) * f(v)
+            a = a + abs(el(k,v)) * (abs(f(v)) + amax * qm(v))
+         enddo
+         fp = 0.5_R8P * (g + alpha(k) * w)
+         if (m < S)     fsplit(2,m,k)   = fp
+         if (m > 1 - S) fsplit(1,m-1,k) = g - fp
+         mu(k) = mu(k) + 0.5_R8P * a
+      enddo
+   enddo
+   mu = max(mu / real(2*S, R8P), tiny(1._R8P))
+   endsubroutine compute_face_split_fluxes
+
+   pure subroutine compute_face_states(gamma, is_characteristic, er, vr, q0, q1, qL, qR)
+   !< Return the conservative left and right states of face `i+1/2` from the WENO-interpolated fields.
+   !<
+   !< `vr(2,k)` is field `k` interpolated from the left (left state), `vr(1,k)` from the right (right state), as returned
+   !< by the WENO primitive on the layout of `compute_face_interpolation_fields`. A state with non-positive density or
+   !< pressure is replaced by the state of its cell (`q0` left, `q1` right): the face falls back to first order.
+   real(R8P), intent(in)  :: gamma                 !< Specific heats ratio.
+   logical,   intent(in)  :: is_characteristic     !< Characteristic (or primitive) variables.
+   real(R8P), intent(in)  :: er(NV_K,NV_K) !< Right eigenvectors (unused if primitive).
+   real(R8P), intent(in)  :: vr(2,NV_K)        !< Interpolated fields.
+   real(R8P), intent(in)  :: q0(NV_K)          !< Conservative variables of cell 0 (left of the face).
+   real(R8P), intent(in)  :: q1(NV_K)          !< Conservative variables of cell 1 (right of the face).
+   real(R8P), intent(out) :: qL(NV_K)          !< Left state.
+   real(R8P), intent(out) :: qR(NV_K)          !< Right state.
+   integer(I4P)           :: k, v                  !< Counters.
+   logical                :: ok                    !< Admissibility of a state.
+   !$acc routine seq
+   !$omp declare target
+
+   if (is_characteristic) then
+      do v=1, NV_K
+         qL(v) = 0._R8P
+         qR(v) = 0._R8P
+         do k=1, NV_K
+            qL(v) = qL(v) + er(v,k) * vr(2,k)
+            qR(v) = qR(v) + er(v,k) * vr(1,k)
+         enddo
+      enddo
+   else
+      call primitive_to_conservative(gamma=gamma, r=vr(2,1), u=vr(2,2), v=vr(2,3), w=vr(2,4), p=vr(2,5), q=qL)
+      call primitive_to_conservative(gamma=gamma, r=vr(1,1), u=vr(1,2), v=vr(1,3), w=vr(1,4), p=vr(1,5), q=qR)
+      do v=NV_BASE+1, NV_K ! advected scalars
+         qL(v) = vr(2,1) * vr(2,v)
+         qR(v) = vr(1,1) * vr(1,v)
+      enddo
+   endif
+   ! positive density and pressure (false for NaN too); no internal procedure: device routine
+   ok = qL(IQ_R) > 0._R8P
+   if (ok) ok = qL(IQ_RE) - 0.5_R8P * (qL(IQ_RU)**2 + qL(IQ_RV)**2 + qL(IQ_RW)**2) / qL(IQ_R) > 0._R8P
+   do v=NV_BASE+1, NV_K ! advected scalars (the entropy) positive
+      if (ok) ok = qL(v) > 0._R8P
+   enddo
+   if (.not.ok) qL = q0
+   ok = qR(IQ_R) > 0._R8P
+   if (ok) ok = qR(IQ_RE) - 0.5_R8P * (qR(IQ_RU)**2 + qR(IQ_RV)**2 + qR(IQ_RW)**2) / qR(IQ_R) > 0._R8P
+   do v=NV_BASE+1, NV_K
+      if (ok) ok = qR(v) > 0._R8P
+   enddo
+   if (.not.ok) qR = q1
+   endsubroutine compute_face_states
+
+   pure subroutine compute_flux(d, q, qa, f)
+   !< Compute the physical flux in direction `d`: `rho u_d (1, u, v, w, H) + p (0, e_d, 0)`.
+   integer(I4P), intent(in)  :: d           !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: q(NV_K) !< Conservative variables.
+   real(R8P),    intent(in)  :: qa(NV_AUX_K)  !< Auxiliary variables.
+   real(R8P),    intent(out) :: f(NV_K) !< Physical flux.
+   real(R8P)                 :: un          !< Normal velocity.
+   integer(I4P)              :: v           !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   un = qa(IA_U+d-1)
+   f(IQ_R)  = q(IQ_R)  * un
+   f(IQ_RU) = q(IQ_RU) * un
+   f(IQ_RV) = q(IQ_RV) * un
+   f(IQ_RW) = q(IQ_RW) * un
+   f(IQ_RU+d-1) = f(IQ_RU+d-1) + qa(IA_P)
+   f(IQ_RE) = (q(IQ_RE) + qa(IA_P)) * un
+   do v=NV_BASE+1, NV_K ! advected scalars
+      f(v) = q(v) * un
+   enddo
+   endsubroutine compute_flux
+
+   pure subroutine compute_roe_average(gamma, qaL, qaR, roe)
+   !< Compute the Roe average of two states: `sqrt(rho)`-weighted velocity and total enthalpy.
+   !<
+   !< The average holds density, velocity, total enthalpy, speed of sound and the matching pressure
+   !< `p = rho a^2 / gamma`; temperature is not defined for the Roe state and is set to zero.
+   real(R8P), intent(in)  :: gamma       !< Specific heats ratio.
+   real(R8P), intent(in)  :: qaL(NV_AUX_K) !< Left state auxiliary variables.
+   real(R8P), intent(in)  :: qaR(NV_AUX_K) !< Right state auxiliary variables.
+   real(R8P), intent(out) :: roe(NV_AUX_K) !< Roe average.
+   real(R8P)              :: wL, wR      !< Square roots of the densities.
+   real(R8P)              :: cL, cR      !< Normalized weights.
+   integer(I4P)           :: v           !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   wL = sqrt(qaL(IA_R))
+   wR = sqrt(qaR(IA_R))
+   cL = wL / (wL + wR)
+   cR = wR / (wL + wR)
+   roe(IA_R) = wL * wR
+   roe(IA_U) = cL * qaL(IA_U) + cR * qaR(IA_U)
+   roe(IA_V) = cL * qaL(IA_V) + cR * qaR(IA_V)
+   roe(IA_W) = cL * qaL(IA_W) + cR * qaR(IA_W)
+   roe(IA_H) = cL * qaL(IA_H) + cR * qaR(IA_H)
+   roe(IA_A) = sqrt((gamma - 1._R8P) * (roe(IA_H) - 0.5_R8P * (roe(IA_U)**2 + roe(IA_V)**2 + roe(IA_W)**2)))
+   roe(IA_P) = roe(IA_R) * roe(IA_A)**2 / gamma
+   roe(IA_T) = 0._R8P
+   do v=NV_AUX_BASE+1, NV_AUX_K ! advected scalars, sqrt(rho)-weighted like the velocity
+      roe(v) = cL * qaL(v) + cR * qaR(v)
+   enddo
+   endsubroutine compute_roe_average
+
+   pure subroutine compute_riemann_hll(gamma, d, qL, qR, f)
+   !< Compute the HLL flux of two states in direction `d` (Harten, Lax & van Leer 1983) with the Einfeldt speeds
+   !< `S_L = min(u_nL - a_L, u~_n - a~)`, `S_R = max(u_nR + a_R, u~_n + a~)` (Roe averages, Einfeldt et al. 1991):
+   !< `F = f(qL)` if `S_L >= 0`, `f(qR)` if `S_R <= 0`, else `(S_R f(qL) - S_L f(qR) + S_L S_R (qR - qL)) / (S_R - S_L)`.
+   real(R8P),    intent(in)  :: gamma        !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_K) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_K) !< Right state.
+   real(R8P),    intent(out) :: f(NV_K)  !< Flux.
+   real(R8P)                 :: qaL(NV_AUX_K)  !< Left auxiliary variables.
+   real(R8P)                 :: qaR(NV_AUX_K)  !< Right auxiliary variables.
+   real(R8P)                 :: fL(NV_K) !< Left physical flux.
+   real(R8P)                 :: fR(NV_K) !< Right physical flux.
+   real(R8P)                 :: sL, sR       !< Left and right wave speeds.
+   integer(I4P)              :: v            !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   ! the gas constant only sets the temperature, which the flux does not use
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qL, qa=qaL)
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qR, qa=qaR)
+   call compute_flux(d=d, q=qL, qa=qaL, f=fL)
+   call compute_flux(d=d, q=qR, qa=qaR, f=fR)
+   call compute_einfeldt_speeds(gamma=gamma, d=d, qaL=qaL, qaR=qaR, sL=sL, sR=sR)
+   if (sL >= 0._R8P) then
+      f = fL
+   elseif (sR <= 0._R8P) then
+      f = fR
+   else
+      do v=1, NV_K
+         f(v) = (sR * fL(v) - sL * fR(v) + sL * sR * (qR(v) - qL(v))) / (sR - sL)
+      enddo
+   endif
+   endsubroutine compute_riemann_hll
+
+   pure subroutine compute_riemann_hllc(gamma, d, qL, qR, f)
+   !< Compute the HLLC flux of two states in direction `d` (Toro, Spruce & Speares 1994) with the Einfeldt outer speeds
+   !< `S_L`, `S_R` of `compute_riemann_hll` and the contact speed of Batten et al. (1997)
+   !< `S_M = (p_R - p_L + rho_L u_nL (S_L - u_nL) - rho_R u_nR (S_R - u_nR)) / (rho_L (S_L - u_nL) - rho_R (S_R - u_nR))`;
+   !< star state `q*_K = c_K (1, u with u_n replaced by S_M, E_K/rho_K + (S_M - u_nK)(S_M + p_K/(rho_K (S_K - u_nK))))`,
+   !< `c_K = rho_K (S_K - u_nK) / (S_K - S_M)`; `F = f(qL)`, `f(qL) + S_L (q*_L - qL)`, `f(qR) + S_R (q*_R - qR)` or
+   !< `f(qR)` by the sign of `S_L`, `S_M`, `S_R`.
+   real(R8P),    intent(in)  :: gamma        !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_K) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_K) !< Right state.
+   real(R8P),    intent(out) :: f(NV_K)  !< Flux.
+   real(R8P)                 :: qaL(NV_AUX_K)  !< Left auxiliary variables.
+   real(R8P)                 :: qaR(NV_AUX_K)  !< Right auxiliary variables.
+   real(R8P)                 :: fL(NV_K) !< Left physical flux.
+   real(R8P)                 :: fR(NV_K) !< Right physical flux.
+   real(R8P)                 :: sL, sR, sM   !< Left, right and contact wave speeds.
+   real(R8P)                 :: unL, unR     !< Normal velocities.
+   integer(I4P)              :: v            !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   ! the gas constant only sets the temperature, which the flux does not use
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qL, qa=qaL)
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qR, qa=qaR)
+   call compute_flux(d=d, q=qL, qa=qaL, f=fL)
+   call compute_flux(d=d, q=qR, qa=qaR, f=fR)
+   call compute_einfeldt_speeds(gamma=gamma, d=d, qaL=qaL, qaR=qaR, sL=sL, sR=sR)
+   unL = qaL(IA_U+d-1)
+   unR = qaR(IA_U+d-1)
+   sM = (qaR(IA_P) - qaL(IA_P) + qL(IQ_R) * unL * (sL - unL) - qR(IQ_R) * unR * (sR - unR)) / &
+        (qL(IQ_R) * (sL - unL) - qR(IQ_R) * (sR - unR))
+   if (sL >= 0._R8P) then
+      f = fL
+   elseif (sM >= 0._R8P) then
+      call compute_hllc_star_flux(d=d, s=sL, sM=sM, q=qL, qa=qaL, fK=fL, f=f)
+   elseif (sR > 0._R8P) then
+      call compute_hllc_star_flux(d=d, s=sR, sM=sM, q=qR, qa=qaR, fK=fR, f=f)
+   else
+      f = fR
+   endif
+   endsubroutine compute_riemann_hllc
+
+   pure subroutine compute_riemann_llf(gamma, d, qL, qR, f)
+   !< Compute the local Lax-Friedrichs (Rusanov) flux of two states in direction `d`,
+   !< `F = (f(qL) + f(qR)) / 2 - alpha (qR - qL) / 2`, `alpha = max(|u_n| + a)` of the two states.
+   real(R8P),    intent(in)  :: gamma        !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_K) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_K) !< Right state.
+   real(R8P),    intent(out) :: f(NV_K)  !< Flux.
+   real(R8P)                 :: qaL(NV_AUX_K)  !< Left auxiliary variables.
+   real(R8P)                 :: qaR(NV_AUX_K)  !< Right auxiliary variables.
+   real(R8P)                 :: fL(NV_K) !< Left physical flux.
+   real(R8P)                 :: fR(NV_K) !< Right physical flux.
+   real(R8P)                 :: alpha        !< Lax-Friedrichs speed.
+   integer(I4P)              :: v            !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   ! the gas constant only sets the temperature, which the flux does not use
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qL, qa=qaL)
+   call conservative_to_auxiliary(gamma=gamma, R=1._R8P, q=qR, qa=qaR)
+   call compute_flux(d=d, q=qL, qa=qaL, f=fL)
+   call compute_flux(d=d, q=qR, qa=qaR, f=fR)
+   alpha = max(abs(qaL(IA_U+d-1)) + qaL(IA_A), abs(qaR(IA_U+d-1)) + qaR(IA_A))
+   do v=1, NV_K
+      f(v) = 0.5_R8P * (fL(v) + fR(v)) - 0.5_R8P * alpha * (qR(v) - qL(v))
+   enddo
+   endsubroutine compute_riemann_llf
+
+   pure subroutine conservative_to_auxiliary(gamma, R, q, qa)
+   !< Compute the auxiliary (primitive and derived) variables of a cell from its conservative variables.
+   real(R8P), intent(in)  :: gamma       !< Specific heats ratio.
+   real(R8P), intent(in)  :: R           !< Gas constant.
+   real(R8P), intent(in)  :: q(NV_K) !< Conservative variables.
+   real(R8P), intent(out) :: qa(NV_AUX_K)  !< Auxiliary variables.
+   integer(I4P)           :: v           !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   qa(IA_R) = q(IQ_R)
+   qa(IA_U) = q(IQ_RU) / q(IQ_R)
+   qa(IA_V) = q(IQ_RV) / q(IQ_R)
+   qa(IA_W) = q(IQ_RW) / q(IQ_R)
+   qa(IA_P) = (gamma - 1._R8P) * (q(IQ_RE) - 0.5_R8P * q(IQ_R) * (qa(IA_U)**2 + qa(IA_V)**2 + qa(IA_W)**2))
+   qa(IA_T) = qa(IA_P) / (q(IQ_R) * R)
+   qa(IA_H) = (q(IQ_RE) + qa(IA_P)) / q(IQ_R)
+   qa(IA_A) = sqrt(gamma * qa(IA_P) / q(IQ_R))
+   do v=NV_BASE+1, NV_K ! advected scalars, specific
+      qa(IA_S+v-NV_BASE-1) = q(v) / q(IQ_R)
+   enddo
+   endsubroutine conservative_to_auxiliary
+
+   pure subroutine primitive_to_conservative(gamma, r, u, v, w, p, q)
+   !< Compute the conservative variables of a cell from its primitive variables (the advected scalars, if any, are the
+   !< caller's: they have no primitive argument here).
+   real(R8P), intent(in)  :: gamma       !< Specific heats ratio.
+   real(R8P), intent(in)  :: r           !< Density.
+   real(R8P), intent(in)  :: u, v, w     !< Velocity components.
+   real(R8P), intent(in)  :: p           !< Pressure.
+   real(R8P), intent(out) :: q(NV_K) !< Conservative variables.
+   !$acc routine seq
+   !$omp declare target
+
+   q(IQ_R)  = r
+   q(IQ_RU) = r * u
+   q(IQ_RV) = r * v
+   q(IQ_RW) = r * w
+   q(IQ_RE) = p / (gamma - 1._R8P) + 0.5_R8P * r * (u**2 + v**2 + w**2)
+   endsubroutine primitive_to_conservative
+
+   ! private procedures
+   pure subroutine compute_einfeldt_speeds(gamma, d, qaL, qaR, sL, sR)
+   !< Compute the Einfeldt outer wave speeds of two states in direction `d`:
+   !< `S_L = min(u_nL - a_L, u~_n - a~)`, `S_R = max(u_nR + a_R, u~_n + a~)`, `~` the Roe average.
+   real(R8P),    intent(in)  :: gamma       !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d           !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qaL(NV_AUX_K) !< Left auxiliary variables.
+   real(R8P),    intent(in)  :: qaR(NV_AUX_K) !< Right auxiliary variables.
+   real(R8P),    intent(out) :: sL, sR      !< Left and right wave speeds.
+   real(R8P)                 :: roe(NV_AUX_K) !< Roe average.
+   !$acc routine seq
+   !$omp declare target
+
+   call compute_roe_average(gamma=gamma, qaL=qaL, qaR=qaR, roe=roe)
+   sL = min(qaL(IA_U+d-1) - qaL(IA_A), roe(IA_U+d-1) - roe(IA_A))
+   sR = max(qaR(IA_U+d-1) + qaR(IA_A), roe(IA_U+d-1) + roe(IA_A))
+   endsubroutine compute_einfeldt_speeds
+
+   pure subroutine compute_hllc_star_flux(d, s, sM, q, qa, fK, f)
+   !< Compute the HLLC star-region flux `f_K + S_K (q*_K - q_K)` of the side `K` with outer speed `s = S_K`.
+   integer(I4P), intent(in)  :: d            !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: s            !< Outer wave speed of the side.
+   real(R8P),    intent(in)  :: sM           !< Contact wave speed.
+   real(R8P),    intent(in)  :: q(NV_K)  !< Conservative variables of the side.
+   real(R8P),    intent(in)  :: qa(NV_AUX_K)   !< Auxiliary variables of the side.
+   real(R8P),    intent(in)  :: fK(NV_K) !< Physical flux of the side.
+   real(R8P),    intent(out) :: f(NV_K)  !< Star-region flux.
+   real(R8P)                 :: qs(NV_K) !< Star state.
+   real(R8P)                 :: un           !< Normal velocity.
+   real(R8P)                 :: c            !< Star density.
+   integer(I4P)              :: v            !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   un = qa(IA_U+d-1)
+   c = q(IQ_R) * (s - un) / (s - sM)
+   qs(IQ_R)  = c
+   qs(IQ_RU) = c * qa(IA_U)
+   qs(IQ_RV) = c * qa(IA_V)
+   qs(IQ_RW) = c * qa(IA_W)
+   qs(IQ_RU+d-1) = c * sM
+   qs(IQ_RE) = c * (q(IQ_RE) / q(IQ_R) + (sM - un) * (sM + qa(IA_P) / (q(IQ_R) * (s - un))))
+   do v=NV_BASE+1, NV_K ! advected scalars, the specific value carried across the contact
+      qs(v) = c * q(v) / q(IQ_R)
+   enddo
+   do v=1, NV_K
+      f(v) = fK(v) + s * (qs(v) - q(v))
+   enddo
+   endsubroutine compute_hllc_star_flux
+
+   pure subroutine compute_state_magnitudes(q, qa, qm)
+   !< Return the reference magnitude of each conservative variable of a cell, the scale entering the WENO descaler `mu`
+   !< in place of `|q_v|`: `|rho|`, `|E|` and, for every momentum component, `|rho u|_1 + sqrt(rho p)`.
+   !<
+   !< Why: a characteristic row that touches only components vanishing identically (the shear field of the out-of-plane
+   !< momentum of a 2-D flow) would otherwise get a descaler of round-off size, and the scale-invariant weights would
+   !< treat round-off as data: full nonlinear weights on noise, which nothing damps (issue #49, MV-7). The magnitude of
+   !< the whole vector plus `sqrt(rho p)` never vanishes and scales exactly like a momentum component under power-of-two
+   !< scaling (`rho p` scales by a power of four); the three terms are summed in increasing order, so rotations of the
+   !< problem are bitwise invariant.
+   real(R8P), intent(in)  :: q(NV_K)  !< Conservative variables.
+   real(R8P), intent(in)  :: qa(NV_AUX_K)   !< Auxiliary variables.
+   real(R8P), intent(out) :: qm(NV_K) !< Reference magnitudes.
+   real(R8P)              :: a, b, c      !< Absolute momentum components.
+   real(R8P)              :: pm           !< Momentum magnitude.
+   integer(I4P)           :: v            !< Counter.
+   !$acc routine seq
+   !$omp declare target
+
+   a = abs(q(IQ_RU))
+   b = abs(q(IQ_RV))
+   c = abs(q(IQ_RW))
+   pm = ((min(a, b, c) + max(min(a, b), min(max(a, b), c))) + max(a, b, c)) + sqrt(abs(qa(IA_R) * qa(IA_P)))
+   qm(IQ_R)  = abs(q(IQ_R))
+   qm(IQ_RU) = pm
+   qm(IQ_RV) = pm
+   qm(IQ_RW) = pm
+   qm(IQ_RE) = abs(q(IQ_RE))
+   do v=NV_BASE+1, NV_K ! advected scalars
+      qm(v) = abs(q(v))
+   enddo
+   endsubroutine compute_state_magnitudes

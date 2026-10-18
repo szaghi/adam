@@ -938,7 +938,7 @@ contains
             do v=1, nv
                qd(v) = q_gpu(b,iref,jref,kref,v)
             enddo
-            call wall_noslip_ghost(nv=nv, d=(face+1)/2, gamma=gamma, R=R, psi_energy=psi_energy,                   &
+            call wall_noslip_ghost(nv=nv, nv_mhd=nv, d=(face+1)/2, gamma=gamma, R=R, psi_energy=psi_energy,                   &
                                    isothermal=bc_type == BC_WALL_ISOTHERMAL, wall_velocity=wall_velocity(:,face), &
                                    wall_temperature=wall_temperature(face), q=qd(1:nv), qg=qw(1:nv))
             !$acc loop seq
@@ -960,7 +960,7 @@ contains
             gs = g((face+1)/2) * real(dd((face+1)/2), R8P) * dxyz_gpu(b,(face+1)/2)
             ! with a cell potential (issue #81) its drop, exact whatever the potential: g . s = -(Phi_ghost - Phi_1)
             if (has_phi) gs = gs - (phi_gpu(b,i,j,k,1) - phi_gpu(b,i1,j1,k1,1))
-            call hydrostatic_ghost(nv=nv, gamma=gamma, psi_energy=psi_energy, gs=gs,                             &
+            call hydrostatic_ghost(nv=nv, nv_mhd=nv, gamma=gamma, psi_energy=psi_energy, gs=gs,                             &
                                    wall_sign=ws(1:nv), qm=qd(1:nv), q1=q1(1:nv), qg=qw(1:nv))
             !$acc loop seq
             do v=1, nv

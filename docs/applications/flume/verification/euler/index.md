@@ -20,6 +20,7 @@ golden; the goldens of the regression suite are listed in each page's header.
 | [Conservation across AMR seams](./amr-conservation) | V3, RV-4 | the reflux at 2:1 faces: the volume integrals constant to round-off |
 | [Multi-realm runs](./multi-realm) | multirealm legs 1–6 | mirror, misaligned and 2:1 inter-realm seams, across ranks: bitwise equal to one realm |
 | [Forward-facing step](./forward-facing-step) | EV-step | a three-realm forest on quadtrees against octrees; the Woodward–Colella step at $t = 4$ |
+| [Dual energy: the advected entropy of euler-de](./dual-energy) | DE | `euler-de` changes nothing where no cell is cold (Sod bitwise) and keeps a cold Noh shock heated |
 
 The figures are drawn by `src/tests/flume/verification/make_doc_figures.py` from the work directories that the
 `check.sh` scripts leave behind (the step's with `--keep`):

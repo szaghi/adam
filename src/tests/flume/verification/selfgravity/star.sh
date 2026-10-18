@@ -43,7 +43,12 @@
 # t = 1.5 with the default prolongation, mass and momentum at round-off (asserted). Without the Jeans marker the same
 # star is refined only by the step-5 regrid, mid-collapse, and goes non-finite (reported).
 #
-# Usage: ./star.sh [--np N] [--legs LIST] [--keep]   LIST: sv7, sv8, sv14, sv15, sv16 or all (default all)
+# SV-17 (issue #91, P2): dual energy. The SV-15 collapse (radius SV14_RADIUS, a regrid every 5 steps, the default
+# prolongation, no Jeans marker) with `physical_model = euler-de` at its default switch: the run reaches t = 1.5, mass and
+# momentum at round-off (asserted); the energy the entropy floor added (the cold cells lifted to their adiabat) is
+# reported. The same run with euler is SV-15's control, non-finite at step 64.
+#
+# Usage: ./star.sh [--np N] [--legs LIST] [--keep]   LIST: sv7, sv8, sv14, sv15, sv16, sv17 or all (default all)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft, mode flume-cpu-gnu-fft; FNL:
 # exe/adam_flume_fnl_fft, mode flume-fnl-nvf-fft). The caller owns the matching environment (FNL: nvhpc mpirun on PATH
@@ -56,7 +61,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 NP=2
 source "$VERIF_DIR/legs.sh"
-legs_declare "sv7 sv8 sv14 sv15 sv16"
+legs_declare "sv7 sv8 sv14 sv15 sv16 sv17"
 KEEP=0
 SV7_TIME=2.0
 MIN_REDUCTION=1.5
@@ -202,10 +207,17 @@ print(sum(sum(1 for k in h5py.File(f, "r") if k.endswith("-origin"))
             echo "   without the Jeans marker: stops, $(grep -a -m1 -o 'non-finite.*at step +[0-9]*' "$W/log.txt" || true)" \
                  "(reported)"
          fi ;;
+      sv17)
+         echo ">> SV-17: the runtime-AMR collapse with dual energy (issue #91)"
+         if run sv17-de starc --radius "$SV14_RADIUS" --reflux-cadence stage --regrid 5 --physical-model euler-de; then
+            echo "   euler-de: reaches t = 1.5; steps with lifted cells: $(grep -ac 'lifted to their adiabat' "$W/log.txt" || true)," \
+                 "energy added: $(grep -a 'lifted to their adiabat' "$W/log.txt" | awk '{s += $NF} END {print s + 0}') (reported)"
+            "$VENV_PY" "$VERIF_DIR/conservation/conservation_oracle.py" --conserved "$W" --exclude rE W E_plus_W rs || FAILED=1
+         fi ;;
    esac
 done
 if [[ $KEEP -eq 0 && $FAILED -eq 0 ]]; then rm -rf "${WORKS[@]}" ; fi
 if [[ $FAILED -ne 0 ]]; then
-   echo "SV-7, SV-8, SV-14, SV-15, SV-16 ($LEGS) FAILED ($TAG)" ; exit 1
+   echo "SV-7, SV-8, SV-14 to SV-17 ($LEGS) FAILED ($TAG)" ; exit 1
 fi
-echo "SV-7, SV-8, SV-14, SV-15, SV-16 ($LEGS) PASSED ($TAG)"
+echo "SV-7, SV-8, SV-14 to SV-17 ($LEGS) PASSED ($TAG)"

@@ -1721,8 +1721,9 @@ def fig_selfgravity_star_regrid(out: Path, runs: Path) -> None:
     on the density (Loehner), per-stage reflux, no limiter (CPU, 2 ranks), with the default prolongation
     (`conservative`, each variable limited by its own slope) and with `conservative-state` (one limit for the whole
     state). Left: the smallest specific internal energy e / rho over the leaves, per checkpoint, the regrids that
-    refine blocks dotted. Right: the drift of the mass and of E + W. Bottom row, SV-16 (issue #91): the smaller star
-    (radius 0.22) with and without a Jeans marker (8 cells per Jeans length), the same two measures."""
+    refine blocks dotted. Right: the drift of the mass and of E + W. Middle row, SV-16 (issue #91): the smaller star
+    (radius 0.22) with and without a Jeans marker (8 cells per Jeans length), the same two measures. Bottom row, SV-17
+    (issue #91, P2): the SV-15 star with `euler` (the default prolongation) and with `euler-de`."""
     sys.path.insert(0, str(HERE / "selfgravity"))
     import jeans_oracle  # noqa: PLC0415
 
@@ -1748,11 +1749,13 @@ def fig_selfgravity_star_regrid(out: Path, runs: Path) -> None:
                                                      (work / "log.txt").read_text(errors="replace"))]
         return [float(h["time"][np.searchsorted(h["it"], n)]) for n in steps if n <= h["it"][-1]]
 
-    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    fig, axs = plt.subplots(3, 2, figsize=(12.5, 13.0), constrained_layout=True)
     rows = [(0, "SV-15, radius 0.3", [("sv15-conservative", "conservative (the default)", "tab:red"),
                                       ("sv15-conservative-state", "conservative-state", "tab:blue")]),
             (1, "SV-16, radius 0.22", [("sv16-control", "Loehner marker only", "tab:red"),
-                                       ("sv16-jeans", "Loehner and Jeans markers", "tab:green")])]
+                                       ("sv16-jeans", "Loehner and Jeans markers", "tab:green")]),
+            (2, "SV-17, radius 0.3", [("sv15-conservative", "euler", "tab:red"),
+                                      ("sv17-de", "euler-de (dual energy)", "tab:purple")])]
     for row, title, cases in rows:
         for name, label, color in cases:
             work = runs / name
@@ -1775,9 +1778,39 @@ def fig_selfgravity_star_regrid(out: Path, runs: Path) -> None:
         axs[row, 1].set_ylabel("relative drift")
         axs[row, 1].legend(fontsize=7)
         axs[row, 1].set_title(f"{title}: mass at round-off; E + W at the time integration's error", fontsize=10)
-    fig.suptitle("SV-15 and SV-16: the runtime-AMR collapse of the n = 1 polytrope, a regrid every 5 steps "
+    fig.suptitle("SV-15 to SV-17: the runtime-AMR collapse of the n = 1 polytrope, a regrid every 5 steps "
                  "(CPU, 2 ranks)")
     fig.savefig(out / "selfgravity-star-regrid.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_dual_energy(out: Path, runs: Path) -> None:
+    """DE (issue #91, P2): the cold planar Noh shock, two streams rho = 1, u = +-1, p = 1e-6 (Mach 845, gamma = 1.4)
+    colliding at x = 0.5, at t = 0.6, with `euler` and `euler-de` (the dual-energy floor at its default switch), 50
+    cells (CPU, 2 ranks). Left: the density, the exact solution dashed (6 behind the shocks at 0.5 +- 0.12). Right: the
+    pressure, log scale (1.2 behind the shocks, 1e-6 in the cold streams): the floor keeps the shock's heat."""
+    sys.path.insert(0, str(HERE / "dualenergy"))
+    import de_oracle  # noqa: PLC0415
+
+    fig, axs = plt.subplots(1, 2, figsize=(12.5, 4.6), constrained_layout=True)
+    xe = np.linspace(0.0, 1.0, 2001)
+    shocked = np.abs(xe - 0.5) < 0.12
+    axs[0].plot(xe, np.where(shocked, 6.0, 1.0), "--", color="0.5", lw=1.0, label="exact")
+    axs[1].semilogy(xe, np.where(shocked, 1.2, 1.0e-6), "--", color="0.5", lw=1.0, label="exact")
+    for name, label, style in (("noh-euler", "euler", "o-"), ("noh-euler-de", "euler-de", "x--")):
+        x, f, gamma = de_oracle.last_line(runs / name)
+        axs[0].plot(x, f["r"], style, ms=3, lw=0.8, label=label)
+        axs[1].semilogy(x, de_oracle.pressure(f, gamma), style, ms=3, lw=0.8, label=label)
+    axs[0].set_xlabel("x")
+    axs[0].set_ylabel("density")
+    axs[0].legend(fontsize=8)
+    axs[0].set_title("density at t = 0.6", fontsize=10)
+    axs[1].set_xlabel("x")
+    axs[1].set_ylabel("pressure")
+    axs[1].legend(fontsize=8)
+    axs[1].set_title("pressure: the shock heats both, the cold streams stay at 1e-6", fontsize=10)
+    fig.suptitle("DE: the cold planar Noh shock (Mach 845) with and without dual energy (CPU, 2 ranks)")
+    fig.savefig(out / "dual-energy-noh.png", dpi=DPI)
     plt.close(fig)
 
 
@@ -3017,6 +3050,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-amr-isolated": fig_selfgravity_amr_isolated,
            "selfgravity-star-amr": fig_selfgravity_star_amr,
            "selfgravity-star-regrid": fig_selfgravity_star_regrid,
+           "dual-energy": fig_dual_energy,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
            "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,

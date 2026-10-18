@@ -36,7 +36,7 @@ use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sy
                                               REFLUX_CADENCE_STAGE,                                                     &
                                               seam_weno5_sensor,                                                        &
                                               seam_fine_to_coarse, seam_skin_cell, seam_skin_index,                    &
-                                              MODEL_EULER, MODEL_MHD, MODEL_MHD_EGLM,                                  &
+                                              MODEL_EULER, MODEL_EULER_DE, is_hydrodynamic, MODEL_MHD, MODEL_MHD_EGLM, &
                                               MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,                                &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,            &
                                               RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,              &
@@ -1078,6 +1078,9 @@ contains
    endif
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+   if (self%physics%model == MODEL_EULER_DE) &
+      call mpih_fnl%error_stop(msg=': [physics].(physical_model) = euler-de runs on the CPU backend only, for now (issue '// &
+                                   '#91: the FNL kernels are phase P3)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')
@@ -2161,7 +2164,7 @@ contains
    call self%compute_q_aux(q_gpu=self%q_gpu)
    call self%check_glm_ch
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
-                                   is_restart=self%io%restart, with_divb=self%physics%model /= MODEL_EULER, &
+                                   is_restart=self%io%restart, with_divb=.not.is_hydrodynamic(self%physics%model), &
                                    with_self_gravity=self%physics%gravity%self_gravity)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then

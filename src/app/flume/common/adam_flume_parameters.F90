@@ -19,6 +19,7 @@ public :: IQ_BX
 public :: IQ_BY
 public :: IQ_BZ
 public :: IQ_PSI
+public :: IQ_S
 public :: IA_R
 public :: IA_U
 public :: IA_V
@@ -30,19 +31,25 @@ public :: IA_A
 public :: IA_BX
 public :: IA_BY
 public :: IA_BZ
+public :: IA_S
 public :: NV_EULER
 public :: NV_AUX
 public :: NV_MHD
 public :: NV_MHD_GLM
 public :: NV_MHD_EGLM
 public :: NV_AUX_MHD
+public :: NV_EULER_DE
+public :: NV_AUX_DE
 public :: S_MAX
 public :: MODEL_EULER
 public :: MODEL_MHD
 public :: MODEL_MHD_GLM
 public :: MODEL_MHD_EGLM
+public :: MODEL_EULER_DE
 public :: PHYSICAL_MODEL_EULER
 public :: PHYSICAL_MODEL_MHD_IDEAL
+public :: PHYSICAL_MODEL_EULER_DE
+public :: DUAL_ENERGY_ETA
 public :: DIVERGENCE_CONTROL_GLM
 public :: DIVERGENCE_CONTROL_EGLM
 public :: DIVERGENCE_CONTROL_NONE
@@ -72,6 +79,7 @@ public :: REFLUX_POLICY_TROUBLED
 public :: REFLUX_CADENCE_STEP
 public :: REFLUX_CADENCE_STAGE
 public :: strip_control
+public :: is_hydrodynamic
 
 ! conservative variables
 integer(I4P), parameter :: IQ_R   = 1_I4P !< Density.
@@ -83,6 +91,7 @@ integer(I4P), parameter :: IQ_BX  = 6_I4P !< Magnetic field, x component (MHD).
 integer(I4P), parameter :: IQ_BY  = 7_I4P !< Magnetic field, y component (MHD).
 integer(I4P), parameter :: IQ_BZ  = 8_I4P !< Magnetic field, z component (MHD).
 integer(I4P), parameter :: IQ_PSI = 9_I4P !< GLM divergence-cleaning scalar (MHD with GLM or EGLM).
+integer(I4P), parameter :: IQ_S   = 6_I4P !< Advected entropy rho s, s = p / rho^gamma (Euler with dual energy, #91).
 ! auxiliary (primitive and derived) variables
 integer(I4P), parameter :: IA_R  = 1_I4P  !< Density.
 integer(I4P), parameter :: IA_U  = 2_I4P  !< Velocity, x component.
@@ -95,6 +104,7 @@ integer(I4P), parameter :: IA_A  = 8_I4P  !< Speed of sound.
 integer(I4P), parameter :: IA_BX = 9_I4P  !< Magnetic field, x component (MHD).
 integer(I4P), parameter :: IA_BY = 10_I4P !< Magnetic field, y component (MHD).
 integer(I4P), parameter :: IA_BZ = 11_I4P !< Magnetic field, z component (MHD).
+integer(I4P), parameter :: IA_S  = 9_I4P  !< Specific entropy s = p / rho^gamma (Euler with dual energy, #91).
 ! dimensions
 integer(I4P), parameter :: NV_EULER   = 5_I4P  !< Conservative variables number, Euler model.
 integer(I4P), parameter :: NV_AUX     = 8_I4P  !< Auxiliary variables number, Euler model.
@@ -102,15 +112,25 @@ integer(I4P), parameter :: NV_MHD     = 8_I4P  !< Conservative variables number,
 integer(I4P), parameter :: NV_MHD_GLM = 9_I4P  !< Conservative variables number, MHD with GLM divergence cleaning.
 integer(I4P), parameter :: NV_MHD_EGLM = 9_I4P !< Conservative variables number, MHD with EGLM divergence cleaning.
 integer(I4P), parameter :: NV_AUX_MHD = 11_I4P !< Auxiliary variables number, MHD (both variants).
+integer(I4P), parameter :: NV_EULER_DE = 6_I4P !< Conservative variables number, Euler with dual energy (#91).
+integer(I4P), parameter :: NV_AUX_DE   = 9_I4P !< Auxiliary variables number, Euler with dual energy (#91).
 integer(I4P), parameter :: S_MAX      = 5_I4P  !< Maximum WENO stencil half-width (weno-u-9).
 ! physical models: the id the host controllers dispatch on, never inside a kernel (issue #41, section 4)
 integer(I4P), parameter :: MODEL_EULER   = 1_I4P !< Compressible Euler (nv = 5).
 integer(I4P), parameter :: MODEL_MHD     = 2_I4P !< Ideal compressible MHD without divergence control (nv = 8).
 integer(I4P), parameter :: MODEL_MHD_GLM = 3_I4P !< Ideal compressible MHD with GLM divergence cleaning (nv = 9).
 integer(I4P), parameter :: MODEL_MHD_EGLM = 4_I4P !< Ideal compressible MHD with EGLM divergence cleaning (nv = 9).
+integer(I4P), parameter :: MODEL_EULER_DE = 5_I4P !< Compressible Euler with dual energy, advected entropy (nv = 6, #91).
 ! accepted option values
 character(len=5),  parameter :: PHYSICAL_MODEL_EULER="euler"          !< [physics].(physical_model): compressible Euler.
 character(len=9),  parameter :: PHYSICAL_MODEL_MHD_IDEAL="mhd-ideal"  !< [physics].(physical_model): ideal MHD.
+character(len=8),  parameter :: PHYSICAL_MODEL_EULER_DE="euler-de"    !< [physics].(physical_model): compressible
+                                                                      !< Euler with dual energy (issue #91).
+real(R8P),         parameter :: DUAL_ENERGY_ETA=5.e-2_R8P             !< Default [physics].(dual_energy_eta): in a cell
+                                                                      !< whose internal energy is below eta times its E
+                                                                      !< the entropy is a floor of the internal energy
+                                                                      !< (#91 D-M9-1, D-M9-3: Enzo's 1e-3 never acts in
+                                                                      !< the #88 collapse, 0.05 does; Cholla 0.035).
 character(len=3),  parameter :: DIVERGENCE_CONTROL_GLM="glm"          !< [mhd].(divergence_control): GLM cleaning.
 character(len=4),  parameter :: DIVERGENCE_CONTROL_EGLM="eglm"        !< [mhd].(divergence_control): EGLM cleaning.
 character(len=4),  parameter :: DIVERGENCE_CONTROL_NONE="none"        !< [mhd].(divergence_control): none.
@@ -163,4 +183,13 @@ contains
       if (iachar(stripped(c:c)) < 32) stripped(c:c) = ' '
    enddo
    endfunction strip_control
+
+   elemental function is_hydrodynamic(model) result(yes)
+   !< Return true for the hydrodynamic models (Euler, Euler with dual energy, issue #91), false for the MHD ones: the
+   !< predicate behind every "no magnetic field" branch of the host controllers.
+   integer(I4P), intent(in) :: model !< Physical model id.
+   logical                  :: yes   !< Hydrodynamic model.
+
+   yes = model == MODEL_EULER .or. model == MODEL_EULER_DE
+   endfunction is_hydrodynamic
 endmodule adam_flume_parameters
