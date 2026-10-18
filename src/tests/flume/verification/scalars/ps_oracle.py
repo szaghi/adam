@@ -13,6 +13,12 @@ specific value s_k = (rho s_k) / rho.
 CPU and FNL agree (P2): per field, the FNL-CPU difference of the scalar runs relative to the field's largest magnitude
 is at most AGREE_FACTOR times the base pair's (the device arithmetic on the same case), or AGREE_FLOOR; the scalars,
 which the base runs lack, against the largest base gap.
+
+    ps_oracle.py uniform <work> --scalars N [--max-drift TOL] [--max-dev DEV]
+
+A uniform specific value s_k = 1 (P3): its characteristic field rho s - s rho vanishes identically, so the scalar flux
+is s times the mass flux and s_k must stay 1 within --max-dev on every interior cell, through every regrid and reflux;
+its integral constant within --max-drift.
 """
 
 from __future__ import annotations
@@ -78,10 +84,35 @@ def agree(works: list[Path]) -> int:
     return 0 if ok else 1
 
 
+def uniform(argv: list[str]) -> int:
+    """A uniform specific value stays uniform."""
+    ap = argparse.ArgumentParser(prog="ps_oracle.py uniform")
+    ap.add_argument("work", type=Path)
+    ap.add_argument("--scalars", type=int, required=True)
+    ap.add_argument("--max-drift", type=float, default=1.0e-13)
+    ap.add_argument("--max-dev", type=float, default=1.0e-12)
+    a = ap.parse_args(argv)
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
+    ini.read(a.work / "input.ini")
+    g = int(ini["grid"]["ngc"])
+    run, h = last_blocks(a.work), history(a.work)
+    ok = True
+    for k in range(1, a.scalars + 1):
+        dev = max(float(np.abs((b[f"rs{k}"] / b["r"])[g:-g, g:-g, g:-g] - 1.0).max()) for b in run.values())
+        col = h[f"int_rs{k}"]
+        drift = float(np.max(np.abs(col - col[0])) / abs(col[0]))
+        ok &= dev <= a.max_dev and drift <= a.max_drift
+        print(f"   s{k}: max |s - 1| {dev:.2e} (bound {a.max_dev:g}); integral drift {drift:.2e} (bound {a.max_drift:g})")
+    print(f"PS uniform: {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Run the checks."""
     if len(sys.argv) > 1 and sys.argv[1] == "agree":
         return agree([Path(w) for w in sys.argv[2:6]])
+    if len(sys.argv) > 1 and sys.argv[1] == "uniform":
+        return uniform(sys.argv[2:])
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("base", type=Path)
     ap.add_argument("scalars_run", type=Path)

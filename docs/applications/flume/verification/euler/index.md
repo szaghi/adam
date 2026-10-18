@@ -21,6 +21,7 @@ golden; the goldens of the regression suite are listed in each page's header.
 | [Multi-realm runs](./multi-realm) | multirealm legs 1–6 | mirror, misaligned and 2:1 inter-realm seams, across ranks: bitwise equal to one realm |
 | [Forward-facing step](./forward-facing-step) | EV-step | a three-realm forest on quadtrees against octrees; the Woodward–Colella step at $t = 4$ |
 | [Dual energy: the advected entropy of euler-de](./dual-energy) | DE | `euler-de` changes nothing where no cell is cold (Sod bitwise) and keeps a cold Noh shock heated |
+| [Passive scalars](./passive-scalars) | PS | up to four scalars that do not act on the flow, are conserved, and stay uniform through runtime AMR |
 
 The figures are drawn by `src/tests/flume/verification/make_doc_figures.py` from the work directories that the
 `check.sh` scripts leave behind (the step's with `--keep`):

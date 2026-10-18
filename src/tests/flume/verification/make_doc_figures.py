@@ -1814,6 +1814,74 @@ def fig_dual_energy(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_passive_scalars(out: Path, runs: Path) -> None:
+    """PS (issue #92): passive scalars (CPU, 2 ranks). Left: Sod with two scalars, s = 1 left of the diaphragm and 0
+    right of it, at t = 0.2, 50 cells: the scalar rides the contact (exact at x = 0.6855, dashed), the density for
+    reference. Right: the regridded vortex (6 regrids) with a uniform scalar s1 = 1: the largest |s1 - 1| over the
+    cells per checkpoint and the drift of its integral, both round-off; the regrids that change the grid dotted."""
+    sys.path.insert(0, str(HERE / "dualenergy"))
+    import de_oracle  # noqa: PLC0415
+
+    fig, axs = plt.subplots(1, 2, figsize=(12.5, 4.6), constrained_layout=True)
+    work = runs / "ps-sod"
+    x, f, _ = de_oracle.last_line(work)
+    ngc = int(_ini(work)["grid"]["ngc"])
+    files = sorted(work.glob("*-proc*.h5"))
+    last = max(int(p.name.split("-")[-2]) for p in files)
+    cells = {}
+    for path in (p for p in files if int(p.name.split("-")[-2]) == last):
+        with h5py.File(path, "r") as h5:
+            for blk in {k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}:
+                o, d = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                q = (h5[f"{blk}-rs1"][()] / h5[f"{blk}-r"][()])[ngc:-ngc, ngc:-ngc, ngc:-ngc][0, 0, :]
+                for i, v in enumerate(q):
+                    cells[round(float(o[0] + (i + ngc + 0.5) * d[0]), 10)] = float(v)
+    s1 = np.array([cells[c] for c in x])
+    axs[0].plot(x, s1, "o-", ms=3, lw=0.8, label="s1 (mass fraction)")
+    axs[0].plot([0.0, 0.6855, 0.6855, 1.0], [1.0, 1.0, 0.0, 0.0], "--", color="0.5", lw=1.0, label="exact s1")
+    axs[0].plot(x, f["r"], "-", color="0.75", lw=1.0, label="density")
+    axs[0].set_xlabel("x")
+    axs[0].set_title(f"Sod at t = 0.2: the scalar rides the contact (range [{s1.min():.1e}, {s1.max():.4f}])", fontsize=10)
+    axs[0].legend(fontsize=8)
+    work = runs / "ps-vortex"
+    ngc = int(_ini(work)["grid"]["ngc"])
+    steps, devs = [], []
+    files = sorted(work.glob("*-proc*.h5"))
+    for it in sorted({int(p.name.split("-")[-2]) for p in files}):
+        dev = 0.0
+        for path in (p for p in files if int(p.name.split("-")[-2]) == it):
+            with h5py.File(path, "r") as h5:
+                for blk in {k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}:
+                    q = (h5[f"{blk}-rs1"][()] / h5[f"{blk}-r"][()])[ngc:-ngc, ngc:-ngc, ngc:-ngc]
+                    dev = max(dev, float(np.abs(q - 1.0).max()))
+        steps.append(it)
+        devs.append(max(dev, FLOOR))
+    lines = next(work.glob("*-conservation_history.dat")).read_text().splitlines()
+    names = [n.strip('"') for n in lines[0].split("=", 1)[1].split()]
+    data = np.array([[float(v) for v in r.split()] for r in lines[1:] if r.strip()])
+    col = data[:, names.index("int_rs1")]
+    axs[1].semilogy(steps, devs, "o-", ms=3, label="max |s1 - 1| over the cells")
+    axs[1].semilogy(data[1:, 0], np.maximum(np.abs(col[1:] / col[0] - 1.0), FLOOR), "-", lw=0.8,
+                    label="relative drift of the s1 integral")
+    log = (work / "log.txt").read_text(errors="replace")
+    for m in re.finditer(r"flume: regrid at step (\d+): .* ([1-9]\d*) refined", log):
+        axs[1].axvline(int(m.group(1)), color="0.6", ls=":", lw=0.8)
+    axs[1].set_xlabel("step")
+    axs[1].set_ylim(FLOOR, 1.0e-10)
+    axs[1].legend(fontsize=8)
+    axs[1].set_title("the regridded vortex, s1 = 1: round-off through every regrid (dotted)", fontsize=10)
+    fig.suptitle("PS: passive scalars (CPU, 2 ranks)")
+    fig.savefig(out / "passive-scalars.png", dpi=DPI)
+    plt.close(fig)
+
+
+def _ini(work: Path) -> configparser.ConfigParser:
+    """Read the input.ini of a run."""
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
+    ini.read(work / "input.ini")
+    return ini
+
+
 def fig_selfgravity_jeans(out: Path, runs: Path) -> None:
     """SV-3 and SV-4 (issue #81, M8-P3): the Jeans modes of selfgravity/make_jeans.py (rho_0 = 1, c = 1,
     k = 2 pi (1, 1), periodic, CPU, 2 ranks). Top left: SV-3, the L1 error of the stable wave (lambda = lambda_J / 2)
@@ -3051,6 +3119,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-star-amr": fig_selfgravity_star_amr,
            "selfgravity-star-regrid": fig_selfgravity_star_regrid,
            "dual-energy": fig_dual_energy,
+           "passive-scalars": fig_passive_scalars,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
            "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,

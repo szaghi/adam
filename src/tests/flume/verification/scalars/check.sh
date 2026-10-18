@@ -8,9 +8,12 @@
 #        constant to round-off (1e-13), the two unused slots identically zero; the range of s_k reported;
 #   ps2  the contract: passive_scalars = 5 (above NS_MAX) and passive_scalars with mhd-ideal refused;
 #   ps3  (P2) CPU and FNL agree on the ps1 runs (run ps1 with each first): per field, the FNL-CPU difference of the
-#        scalar runs at most twice that of the runs without scalars, the rule of AV av8.
+#        scalar runs at most twice that of the runs without scalars, the rule of AV av8;
+#   ps4  (P3) a uniform scalar through runtime AMR: the vortex-regrid input (6 regrids, reflux) with s1 = 1 everywhere;
+#        the scalar's characteristic field vanishes, so s1 must stay 1 within 1e-12 on every cell and its integral
+#        constant within 1e-13, through every regrid and reflux.
 #
-# Usage: ./check.sh [--legs LIST]   (legs ps1 ps2 ps3, all; default ps1 ps2)
+# Usage: ./check.sh [--legs LIST]   (legs ps1 ps2 ps3 ps4, all; default ps1 ps2 ps4)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu); the caller owns the matching environment.
 set -euo pipefail
@@ -21,7 +24,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "ps1 ps2 ps3" "ps1 ps2"
+legs_declare "ps1 ps2 ps3 ps4" "ps1 ps2 ps4"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -85,6 +88,14 @@ for leg in $LEGS; do
                "$VENV_PY" "$CASE_DIR/ps_oracle.py" agree "${w[@]}" || FAILED=1
             fi
          done ;;
+      ps4)
+         echo "-- ps4: the regridded vortex with a uniform scalar"
+         make_case ps4-vortex --case vortex --scalars 1
+         if run "$W"; then
+            "$VENV_PY" "$CASE_DIR/ps_oracle.py" uniform "$W" --scalars 1 || FAILED=1
+         else
+            echo "   the run failed: see $W/log.txt  FAIL" ; FAILED=1
+         fi ;;
    esac
 done
 if [[ $FAILED -ne 0 ]]; then echo "PS FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi
