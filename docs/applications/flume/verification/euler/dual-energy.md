@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| DE (de1 to de4) | Euler | M9 ([#91](https://github.com/szaghi/adam/issues/91)), P2, P3 | CPU, FNL | yes | — |
+| DE (de1 to de4) | Euler | M9 ([#91](https://github.com/szaghi/adam/issues/91)), P2, P3, P4 | CPU, FNL | yes | `noh-de` |
 
 ## Case and scope
 

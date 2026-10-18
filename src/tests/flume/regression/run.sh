@@ -77,6 +77,9 @@
 #   selfgravity-star         self-gravity, isolated boundaries: the n = 1 polytrope in a closed box, 16^3, 20 steps (#81)
 #   selfgravity-star-amr     isolated self-gravity on AMR (the multigrid's James step): the collapsing polytrope of radius
 #                            0.3, the box [-1/2,1/2]^3 refined over 32^3, per-stage reflux, 20 steps (#87)
+#   noh-de                   dual energy: the cold planar Noh shock (Mach 845) with physical_model = euler-de, 50 cells,
+#                            t = 0.6: the advected entropy and its floor, which acts every step (#91, P4); per-backend
+#                            goldens
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 
