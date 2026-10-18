@@ -256,6 +256,35 @@ for four slots, the first $N$ used and the others zero, so a scalar run pays the
 may vanish (a face state needs it non-negative, the entropy positive); WENO keeps it bounded only to its own accuracy:
 across a Sod contact a mass fraction moving from 1 to 0 over- and undershoots by $5\cdot10^{-4}$.
 
+## Radiative cooling
+
+`[cooling]` ([#93](https://github.com/szaghi/adam/issues/93), M11) adds optically thin cooling,
+$\partial_t(\rho e) = -n^2\Lambda(T)$, $n = \rho/m$, $T = p/(\rho R)$, to the hydrodynamic models. It is operator
+split (D-M11-1): once per step, after the dual-energy sync, `apply_cooling` cools every cell isochorically over the step
+just advanced, at fixed $\rho$ and $\rho\mathbf u$, and lowers $E$ by the energy it removes. The coupling with the
+dynamics is first order in $\Delta t$ (Lie splitting); the cooling itself is exact.
+
+$\Lambda$ is the piecewise power law through the nodes $(T_k, \Lambda_k)$, so Townsend's exact integration (Townsend
+2009) applies. Isochorically $dT/dt = -(\gamma - 1)\rho\Lambda(T)/(m^2 R)$; with the temporal evolution function
+$Y(T) = (\Lambda_N/T_N)\int_T^{T_N} dT'/\Lambda(T')$, closed form on each segment, $dY/dt$ is the constant
+$(\gamma - 1)\rho\Lambda_N/(m^2 R T_N)$. One step adds $\Delta t$ times it to $Y(T)$ and inverts $Y$ on the segment
+that holds the result: exact and unconditionally stable for any $\Delta t/t_\mathrm{cool}$, with no cooling limit on
+the step. The floor is exact: a cell whose $Y$ passes $Y(T_1)$ stops at $T_1$, and below $T_1$ nothing cools (D-M11-2:
+cooling only, no heating). Near a segment exponent $\alpha_k = 1$ both the closed form and its inverse are
+$(1 - x^\varepsilon)/\varepsilon$ with $\varepsilon$ small; they are evaluated through `expm1` and `log1p` (written as
+series below $10^{-2}$), so every exponent keeps full precision. A cell that does not cool keeps its bits.
+
+With `euler-de` the cooled cells take the entropy of their cooled energy, $\rho s = (\gamma - 1)e\rho^{1-\gamma}$,
+computed from the internal energy that the stored $E$ holds: radiation lowers the entropy for real, and an entropy left
+on the old adiabat would let the next dual-energy floor lift a cold cooled cell back to it and undo the cooling. Every
+cell then leaves the step with its entropy consistent with its energy, as the sync leaves it.
+
+`[cooling] dt_factor` (default off) limits the step to `dt_factor` times the shortest cooling time
+$t_\mathrm{cool} = \rho e/(n^2\Lambda)$, for runs that need the coupling resolved. The radiated energy is summed over
+the ranks; the conservation history adds it back to $E$ (`E_plus_radiated`, constant to round-off). On a uniform box the
+temperature follows the ODE solution to $2\cdot10^{-14}$ relative, at the CFL step as with the limiter
+([CO](https://github.com/szaghi/adam/issues/93), `verification/cooling/check.sh`).
+
 ## Dissipative fluxes (Navier–Stokes)
 
 With a viscosity or a conductivity in `[physics]` ([input](./input#dissipative-terms-issue-65-m4)), Euler becomes the
@@ -512,6 +541,8 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`,
   *J. Comput. Phys.* 83, 32–78.
 - Toro E. F., Spruce M., Speares W. (1994), Restoration of the contact surface in the HLL-Riemann solver,
   *Shock Waves* 4, 25–34.
+- Townsend R. H. D. (2009), An exact integration scheme for radiative cooling in hydrodynamical simulations, *ApJS*
+  181, 391–397, doi:10.1088/0067-0049/181/2/391.
 - Truelove J. K., Klein R. I., McKee C. F., Holliman J. H. II, Howell L. H., Greenough J. A. (1997), The Jeans
   condition: a new constraint on spatial resolution in simulations of isothermal self-gravitational
   hydrodynamics, *ApJ* 489, L179–L183, doi:10.1086/310975.

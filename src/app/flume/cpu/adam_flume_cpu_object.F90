@@ -76,6 +76,7 @@ use :: adam_flume_cpu_mhd_eglm_hlld_kernels,    only : add_gravity_edge_correcti
                                                        compute_riemann_face_fluxes_mhd_eglm_hlld=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_eglm_llf_kernels,     only : add_gravity_edge_correction_mhd_eglm_llf=>add_gravity_edge_correction, &
                                                        compute_riemann_face_fluxes_mhd_eglm_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cooling_library,          only : cooled_internal_energy, cooling_function
 use :: adam_flume_cpu_dissipation_kernels, only : add_dissipative_fluxes_o2, add_dissipative_fluxes_o4, &
                                               add_resistive_fluxes_o2, add_resistive_fluxes_o4
 use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>blend_inadmissible_ghosts,            &
@@ -213,6 +214,8 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: refresh_equilibrium_residual !< Recompute the equilibrium residual if stale.
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: sync_dual_energy        !< Synchronise the total energy and the entropy (issue #91).
+      procedure, pass(self) :: apply_cooling           !< Radiative cooling of the committed state (issue #93).
+      procedure, pass(self) :: cooling_time_min        !< Shortest cooling time of the committed state (issue #93).
       procedure, pass(self) :: initialize_flume        !< Initialize the CPU backend.
       procedure, pass(self) :: limit_positivity        !< Apply the positivity limiter to the stage face fluxes.
       procedure, pass(self) :: seam_sync_blend         !< Set the seam face fluxes with the seam factors (issue #50).
@@ -641,6 +644,8 @@ contains
       w = 0.5_R8P * w
       row = [row, w * factors(IQ_RE), (integrals(IQ_RE) + w) * factors(IQ_RE)]
    endif
+   if (self%physics%cooling%is_active) row = [row, self%physics%cooling%radiated * factors(IQ_RE), &
+                                              (integrals(IQ_RE) + self%physics%cooling%radiated) * factors(IQ_RE)]
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
                                                integrals=row)
    endsubroutine compute_conservation
@@ -1842,6 +1847,8 @@ contains
    endif
    dt_local = huge(1._R8P)
    if (lambda_max > 0._R8P) dt_local = self%time%CFL / lambda_max
+   if (self%physics%cooling%is_active .and. self%physics%cooling%dt_factor > 0._R8P) &
+      dt_local = min(dt_local, self%physics%cooling%dt_factor * self%cooling_time_min())
    endsubroutine compute_local_dt_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -2041,7 +2048,8 @@ contains
    call self%check_glm_ch
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
                                    is_restart=self%io%restart, with_divb=.not.is_hydrodynamic(self%physics%model), &
-                                   with_self_gravity=self%physics%gravity%self_gravity)
+                                   with_self_gravity=self%physics%gravity%self_gravity,                            &
+                                   with_cooling=self%physics%cooling%is_active)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
       call self%compute_divb_history
@@ -2087,6 +2095,7 @@ contains
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
    if (has_entropy(self%physics%model)) call self%sync_dual_energy
+   if (self%physics%cooling%is_active) call self%apply_cooling(dt=self%time%dt) ! the forest passes no dt (0)
    call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
@@ -2142,6 +2151,104 @@ contains
       print '(A)', 'dual energy: '//trim(str(nint(sums(2), I8P)))//' cold cells lifted to their adiabat at step '// &
                    trim(str(self%time%it))//', total energy raised by '//trim(str(sums(1)))
    endsubroutine sync_dual_energy
+
+   subroutine apply_cooling(self, dt)
+   !< Cool the committed state over the step just advanced, once per step (issue #93, D-M11-1: operator split).
+   !<
+   !< On every interior cell the internal energy `e = E - |rho u|^2 / (2 rho)` is cooled isochorically by Townsend's
+   !< exact integration over `dt` (`cooled_internal_energy`) and `E` drops by the same amount; density and momentum are
+   !< untouched. With the advected entropy (euler-de) the cooled cells take `rho s = (gamma - 1) e rho^(1-gamma)`:
+   !< radiation lowers the entropy for real, and an entropy left on the old adiabat would let the next dual-energy
+   !< floor lift a cold cooled cell back to it. The call follows `sync_dual_energy`, so every cell leaves the step with
+   !< its entropy consistent with its energy, as the sync itself leaves it. The radiated energy is summed over the
+   !< ranks into `cooling%radiated` (the conservation history adds it back to `E`).
+   class(flume_cpu_object), intent(inout) :: self      !< The equation.
+   real(R8P),               intent(in)    :: dt        !< Time step just advanced.
+   real(R8P)                              :: ke, e     !< Kinetic and internal energy of one cell.
+   real(R8P)                              :: e_new     !< Internal energy after the cooling.
+   real(R8P)                              :: radiated  !< Energy radiated by this rank over the step.
+   integer(I4P)                           :: b, i, j, k !< Counters.
+
+   radiated = 0._R8P
+   associate(q=>self%q, gamma=>self%physics%gamma, R=>self%physics%R, c=>self%physics%cooling, &
+             dxyz=>self%adam%field%dxyz)
+   if (has_entropy(self%physics%model)) then
+      !$omp parallel do collapse(4) default(shared) private(b, i, j, k, ke, e, e_new) reduction(+:radiated)
+      do b=1, self%blocks_number
+         do k=1, self%nk
+            do j=1, self%nj
+               do i=1, self%ni
+                  ke = 0.5_R8P * (q(IQ_RU,i,j,k,b)**2 + q(IQ_RV,i,j,k,b)**2 + q(IQ_RW,i,j,k,b)**2) / q(IQ_R,i,j,k,b)
+                  e = q(IQ_RE,i,j,k,b) - ke
+                  e_new = cooled_internal_energy(n_nodes=c%n_nodes, t_nodes=c%t_nodes, l_nodes=c%l_nodes,      &
+                                                 alpha=c%alpha, y_nodes=c%y_nodes, gamma=gamma, R=R,            &
+                                                 dy_rate=c%dy_rate, dt=dt, rho=q(IQ_R,i,j,k,b), e=e)
+                  if (e_new < e) then
+                     radiated = radiated + (e - e_new) * product(dxyz(:,b))
+                     q(IQ_RE,i,j,k,b) = ke + e_new
+                     ! the entropy of the internal energy the stored E holds, (ke + e_new) - ke, as the next sync reads
+                     ! it: from e_new itself, one ulp of rounding in E would leave the cell below its adiabat
+                     e_new = q(IQ_RE,i,j,k,b) - ke
+                     q(IQ_S,i,j,k,b) = (gamma - 1._R8P) * e_new * q(IQ_R,i,j,k,b)**(1._R8P - gamma)
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   else
+      !$omp parallel do collapse(4) default(shared) private(b, i, j, k, ke, e, e_new) reduction(+:radiated)
+      do b=1, self%blocks_number
+         do k=1, self%nk
+            do j=1, self%nj
+               do i=1, self%ni
+                  ke = 0.5_R8P * (q(IQ_RU,i,j,k,b)**2 + q(IQ_RV,i,j,k,b)**2 + q(IQ_RW,i,j,k,b)**2) / q(IQ_R,i,j,k,b)
+                  e = q(IQ_RE,i,j,k,b) - ke
+                  e_new = cooled_internal_energy(n_nodes=c%n_nodes, t_nodes=c%t_nodes, l_nodes=c%l_nodes,      &
+                                                 alpha=c%alpha, y_nodes=c%y_nodes, gamma=gamma, R=R,            &
+                                                 dy_rate=c%dy_rate, dt=dt, rho=q(IQ_R,i,j,k,b), e=e)
+                  if (e_new < e) then
+                     radiated = radiated + (e - e_new) * product(dxyz(:,b))
+                     q(IQ_RE,i,j,k,b) = ke + e_new
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   endif
+   endassociate
+   call MPI_ALLREDUCE(MPI_IN_PLACE, radiated, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   self%physics%cooling%radiated = self%physics%cooling%radiated + radiated
+   endsubroutine apply_cooling
+
+   function cooling_time_min(self) result(t_cool)
+   !< Return the shortest cooling time of the committed state on this rank, `t_cool = rho e / (n^2 Lambda(T))`
+   !< (`huge` where nothing cools), for the `[cooling].(dt_factor)` limiter (issue #93).
+   class(flume_cpu_object), intent(in) :: self       !< The equation.
+   real(R8P)                           :: t_cool     !< Shortest cooling time.
+   real(R8P)                           :: e, lambda  !< Internal energy and cooling function of one cell.
+   integer(I4P)                        :: b, i, j, k !< Counters.
+
+   t_cool = huge(1._R8P)
+   associate(q=>self%q, gamma=>self%physics%gamma, R=>self%physics%R, c=>self%physics%cooling)
+   !$omp parallel do collapse(4) default(shared) private(b, i, j, k, e, lambda) reduction(min:t_cool)
+   do b=1, self%blocks_number
+      do k=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               e = q(IQ_RE,i,j,k,b) - 0.5_R8P * (q(IQ_RU,i,j,k,b)**2 + q(IQ_RV,i,j,k,b)**2 + q(IQ_RW,i,j,k,b)**2) / &
+                   q(IQ_R,i,j,k,b)
+               lambda = cooling_function(n_nodes=c%n_nodes, t_nodes=c%t_nodes, l_nodes=c%l_nodes, alpha=c%alpha, &
+                                         temperature=(gamma - 1._R8P) * e / (q(IQ_R,i,j,k,b) * R))
+               if (lambda > 0._R8P) t_cool = min(t_cool, e * c%particle_mass**2 / (q(IQ_R,i,j,k,b)**2 * lambda))
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endassociate
+   endfunction cooling_time_min
 
    subroutine regrid_forest(self, regridded)
    !< Regrid the realm on the cadence of `[amr] frequency` (issue #74, M5-P2); the forest calls it after every step,

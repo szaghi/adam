@@ -17,6 +17,7 @@ use :: adam_mpih_global,         only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library, only : primitive_to_conservative
 use :: adam_flume_mhd_library,   only : mhd_primitive_to_conservative
+use :: adam_flume_cooling_object, only : flume_cooling_object
 use :: adam_flume_dissipation_object, only : flume_dissipation_object
 use :: adam_flume_gravity_object, only : flume_gravity_object
 use :: adam_flume_mhd_object,    only : flume_mhd_object
@@ -55,6 +56,7 @@ type :: flume_physics_object
    type(flume_mhd_object)    :: mhd            !< MHD configs (`[mhd]`, loaded with mhd-ideal only).
    type(flume_dissipation_object) :: dissipation !< Dissipative coefficients (`[physics]`, issue #65).
    type(flume_gravity_object) :: gravity !< External gravity (`[gravity]`, issue #73).
+   type(flume_cooling_object) :: cooling !< Radiative cooling (`[cooling]`, issue #93).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -81,7 +83,8 @@ contains
       desc = desc//mpih%myrankstr//'  passive scalars: '//trim(str(self%passive_scalars, .true.))//' of '// &
                    trim(str(NS_MAX, .true.))//' slots, from slot '//trim(str(self%iq_scalar1, .true.))//NL
    desc = desc//self%dissipation%description()//NL
-   desc = desc//self%gravity%description()
+   desc = desc//self%gravity%description()//NL
+   desc = desc//self%cooling%description()
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -129,6 +132,7 @@ contains
    self%nv_entropy = merge(IQ_S, self%nv_mhd, has_entropy(self%model))
    call self%dissipation%load_from_file(file_parameters=file_parameters, model=self%model, cp=self%cp)
    call self%gravity%load_from_file(file_parameters=file_parameters)
+   call self%cooling%load_from_file(file_parameters=file_parameters, model=self%model, gamma=self%gamma, R=self%R)
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize finish'
    endsubroutine initialize

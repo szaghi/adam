@@ -12,6 +12,7 @@ module adam_flume_diagnostics_object
 !< they come, nothing is accumulated in memory. The values are computed (and MPI-reduced) by the backends; only rank 0
 !< writes. With self-gravity (issue #81) the conservation history gains two columns: the gravitational energy
 !< `W = 1/2 sum rho Phi dV` (Phi solved from the committed state) and `E + W`, the energy the scheme conserves.
+!< With radiative cooling (issue #93) two more follow: the energy radiated since the start of the run and `E` plus it.
 
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
@@ -106,7 +107,7 @@ contains
    if (error > 0) self%divb_flux = .false.
    endsubroutine load_from_file
 
-   subroutine open_file(self, output_basename, q_name, is_restart, with_divb, with_self_gravity)
+   subroutine open_file(self, output_basename, q_name, is_restart, with_divb, with_self_gravity, with_cooling)
    !< Open the history files and write their headers (append, without header, on restart).
    class(flume_diagnostics_object), intent(inout)        :: self              !< Diagnostics.
    character(*),                    intent(in)           :: output_basename   !< Output files base name.
@@ -114,6 +115,7 @@ contains
    logical,                         intent(in)           :: is_restart        !< Restarted run flag.
    logical,                         intent(in)           :: with_divb         !< Open the div(B) history too (MHD).
    logical,                         intent(in), optional :: with_self_gravity !< Add the W and E + W columns.
+   logical,                         intent(in), optional :: with_cooling      !< Add the radiated and E + radiated columns.
    character(:), allocatable                      :: header          !< File header.
    integer(I4P)                                   :: v               !< Counter.
 
@@ -141,6 +143,9 @@ contains
       enddo
       if (present(with_self_gravity)) then
          if (with_self_gravity) header = header//' "W" "E_plus_W"'
+      endif
+      if (present(with_cooling)) then
+         if (with_cooling) header = header//' "radiated" "E_plus_radiated"' ! issue #93
       endif
       write(self%conservation_unit, '(A)') header
    endif

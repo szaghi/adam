@@ -63,6 +63,8 @@ integer(I4P), parameter :: DIM_VISCOSITY(3)=[1_I4P, 1_I4P, 2_I4P]         !< Dyn
 integer(I4P), parameter :: DIM_DIFFUSIVITY(3)=[1_I4P, 1_I4P, 0_I4P]       !< Diffusivity, u0 L0 (resistivity).
 integer(I4P), parameter :: DIM_ACCELERATION(3)=[-1_I4P, 2_I4P, 0_I4P]     !< Acceleration, u0^2 / L0 (gravity).
 integer(I4P), parameter :: DIM_GRAV_CONST(3)=[-2_I4P, 2_I4P, -2_I4P]      !< Gravitational constant, u0^2/(rho0 L0^2).
+integer(I4P), parameter :: DIM_MASS(3)=[3_I4P, 0_I4P, 2_I4P]             !< Mass, rho0 L0^3 (a particle mass, issue #93).
+integer(I4P), parameter :: DIM_COOLING(3)=[5_I4P, 3_I4P, 2_I4P]          !< Cooling function, L0^5 u0^3 rho0 (issue #93).
 ! option kinds
 integer(I4P), parameter :: KIND_NONE=0_I4P    !< Not converted.
 integer(I4P), parameter :: KIND_SCALED=1_I4P  !< Divided by the reference of its dimension.
@@ -410,6 +412,19 @@ contains
       case('G')
          kind = KIND_SCALED ; dim = DIM_GRAV_CONST
       endselect
+   case('cooling')
+      ! issue #93: n^2 Lambda is an energy density per time, n = rho / particle_mass a number density; the node lists
+      ! convert value by value
+      select case(option_name)
+      case('dt_factor')
+         kind = KIND_NONE
+      case('temperatures')
+         kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
+      case('lambdas')
+         kind = KIND_SCALED ; dim = DIM_COOLING
+      case('particle_mass')
+         kind = KIND_SCALED ; dim = DIM_MASS
+      endselect
    case('mhd')
       select case(option_name)
       case('divergence_control', 'glm_alpha', 'glm_ch_check', 'divb_error')
@@ -606,6 +621,9 @@ contains
    integer(I4P)                                 :: dim(3)          !< Option dimension.
    real(R8P)                                    :: val             !< Option value.
    real(R8P)                                    :: converted       !< Option value in code units.
+   real(R8P), allocatable                       :: vals(:)         !< Option values (a list, issue #93).
+   character(:), allocatable                    :: converted_str   !< Option values in code units.
+   integer(I4P)                                 :: nvals, iv       !< Option values number, counter.
    integer(I4P)                                 :: s, o, n, ios    !< Counters, I/O status.
    logical                                      :: has_gas         !< True if `cp` or `cv` are given.
 
@@ -640,19 +658,27 @@ contains
          case(KIND_SCALED, KIND_TEMPERATURE, KIND_CONDUCTIVITY)
             if (sname == 'mhd' .and. trim(names(o)) == 'glm_damping_length' .and. &
                 trim(adjustl(strip_control(opt_values(o)))) == 'min-cell') cycle
-            read(opt_values(o), *, iostat=ios) val
+            ! a list (the cooling nodes, issue #93) converts value by value, each with the rule of a single value
+            nvals = file_parameters%count_values(section_name=sname, option_name=trim(names(o)))
+            if (allocated(vals)) deallocate(vals)
+            allocate(vals(max(nvals, 1_I4P)))
+            read(opt_values(o), *, iostat=ios) vals
             if (ios /= 0) call mpih%error_stop(msg=': ['//sname//'].('//trim(names(o))//') "'//trim(opt_values(o))// &
-                                                   '" is not a number')
-            ! the temperature unit is u0^2 / R and the conductivity carries 1 / R (issue #65): the reference first
-            ! (a power of two in the verifications, exact), then R, so a single rounding
-            converted = val / self%scale(dim)
-            if (kind == KIND_TEMPERATURE) converted = converted * self%gas_constant
-            if (kind == KIND_CONDUCTIVITY) converted = converted / self%gas_constant
-            call file_parameters%add(section_name=sname, option_name=trim(names(o)), &
-                                     val=trim(format_value(converted)))
+                                                   '" is not a number (or a list of numbers)')
+            converted_str = ''
+            do iv=1, size(vals, dim=1)
+               val = vals(iv)
+               ! the temperature unit is u0^2 / R and the conductivity carries 1 / R (issue #65): the reference first
+               ! (a power of two in the verifications, exact), then R, so a single rounding
+               converted = val / self%scale(dim)
+               if (kind == KIND_TEMPERATURE) converted = converted * self%gas_constant
+               if (kind == KIND_CONDUCTIVITY) converted = converted / self%gas_constant
+               converted_str = converted_str//' '//trim(format_value(converted))
+               if (mpih%myrank == 0_I4P) print '(A)', mpih%myrankstr//'  ['//sname//'] '//trim(names(o))//': '// &
+                                                     trim(format_value(val))//' -> '//trim(format_value(converted))
+            enddo
+            call file_parameters%add(section_name=sname, option_name=trim(names(o)), val=trim(adjustl(converted_str)))
             self%converted = self%converted + 1_I4P
-            if (mpih%myrank == 0_I4P) print '(A)', mpih%myrankstr//'  ['//sname//'] '//trim(names(o))//': '// &
-                                                  trim(format_value(val))//' -> '//trim(format_value(converted))
          endselect
       enddo
       deallocate(names, opt_values)

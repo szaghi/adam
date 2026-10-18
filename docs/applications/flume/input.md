@@ -476,6 +476,10 @@ replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 | `[gravity]` `g_x`, `g_y`, `g_z` | $u_0^2 / L_0$ |
 | `[gravity]` `G` | $u_0^2 / (\rho_0 L_0^2)$ |
 | `[gravity]` `froude`, `G_star`; `[initial_conditions]` `polytropic_gamma` | — (dimensionless) |
+| `[cooling]` `temperatures` (each value) | $u_0^2 / R$ |
+| `[cooling]` `lambdas` (each value) | $L_0^5 u_0^3 \rho_0$ |
+| `[cooling]` `particle_mass` | $\rho_0 L_0^3$ |
+| `[cooling]` `dt_factor` | — (dimensionless) |
 
 The conversion divides by the power-of-two reference first and applies $R$ last, a single rounding, so the
 verification DC can check every converted value exactly.
@@ -632,6 +636,29 @@ With `self_gravity` ([models](./models#self-gravity)):
   against $10^{-9}$ without it (the SV-7 and SV-8 cases use a $10^{-2}$ atmosphere, which runs without it);
 - **build:** `flume-cpu-gnu-fft` (FFTW 3, executable `adam_flume_cpu_fft`) or `flume-fnl-nvf-fft` (cuFFT,
   `adam_flume_fnl_fft`); the default modes refuse `self_gravity` at the first solve.
+
+## [cooling] (optional: optically thin radiative cooling)
+
+The section switches on radiative cooling ([#93](https://github.com/szaghi/adam/issues/93), M11):
+$\partial_t(\rho e) = -n^2\Lambda(T)$ at fixed density and momentum, with $n = \rho/m$ and $T = p/(\rho R)$. It is
+applied once per step, after the step, by Townsend's exact integration ([numerics](./numerics#radiative-cooling)).
+Without the section nothing changes. The hydrodynamic models only (`euler`, `euler-de`, with or without passive
+scalars): with `mhd-ideal` it is fatal. CPU backend only for now (the FNL kernel is phase P2 of #93: fatal on FNL).
+
+| Key | Type | Req. | Accepted / invalid | Meaning |
+|-----|------|------|--------------------|---------|
+| `temperatures` | list of reals | yes | at least 2 values, all `> 0`, strictly increasing; otherwise fatal | The nodes $T_1 < \dots < T_N$ of the cooling function. $T_1$ is the floor: below it nothing cools, and a cooling cell stops exactly at it. |
+| `lambdas` | list of reals | yes | as many values as `temperatures`, all `> 0`; otherwise fatal | $\Lambda_k$ at the nodes. $\Lambda$ is the piecewise power law through them, $\Lambda_k (T/T_k)^{\alpha_k}$ on $[T_k, T_{k+1}]$; above $T_N$ the last segment continues. |
+| `particle_mass` | real | yes | `> 0`, otherwise fatal | The mass $m$ per particle of $n = \rho/m$ (for $n_\mathrm{H}$: $m_\mathrm{H}/X$). |
+| `dt_factor` | real | no (0) | `>= 0`, otherwise fatal | `0`: off. Otherwise the step is also limited to `dt_factor` times the shortest cooling time $t_\mathrm{cool} = \rho e/(n^2\Lambda)$, for runs that need the coupling of cooling and dynamics resolved (the cooling itself is exact for any step). |
+
+The values are in the units of the rest of the input: $T$ uses the gas constant of `[physics]` ($c_p - c_v$, or 1 with
+`gamma`), so a table in kelvin needs `cp`, `cv` in J/(kg K) and $\Lambda$, $m$ in the same unit system (with
+$\Lambda$ in erg cm³ s⁻¹ and SI elsewhere, multiply $\Lambda$ by $10^{-13}$). The `[reference]` layer converts the
+three keys (above). The conservation history gains two columns: `radiated`, the energy radiated since the start of the
+run (of this run segment: it restarts from 0 on a restart), and `E_plus_radiated`, which the scheme conserves.
+
+---
 
 ## [numerics]
 

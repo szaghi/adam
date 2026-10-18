@@ -112,6 +112,9 @@ FULL_KEYS = {
                                     "save_auxiliary_fields")},
            "seam_divB_tol": FIELD_PER_LENGTH},
     "time": {"it_max": NONE, "CFL": NONE, "time_max": TIME},
+    # issue #93: n^2 Lambda is an energy density per time with n = rho / particle_mass; the node lists scale value by
+    # value
+    "cooling": {"temperatures": VELOCITY2, "lambdas": (5, 3, 1), "particle_mass": (3, 0, 1), "dt_factor": NONE},
     "grid": {**{key: NONE for key in ("ni", "nj", "nk", "ngc", "null_x", "null_y", "null_z")}, **GRID_KEYS},
 }
 BC_SECTIONS = tuple(f"bc_{x}_{e}" for x in "xyz" for e in ("min", "max"))
@@ -154,7 +157,7 @@ def rescale_ini(args: argparse.Namespace) -> configparser.ConfigParser | None:
             text = ini[section][key].split(";")[0].strip()
             if section == "mhd" and key == "glm_damping_length" and text == "min-cell":
                 continue
-            ini[section][key] = repr(float(text) * factor(dim, j, k, m))
+            ini[section][key] = " ".join(repr(float(t) * factor(dim, j, k, m)) for t in text.split())
     return ini
 
 
@@ -246,7 +249,7 @@ def physical(args: argparse.Namespace) -> int:
             if dim == NONE or (section == "mhd" and key == "glm_damping_length" and text == "min-cell"):
                 continue
             scale = args.length ** dim[0] * args.velocity ** dim[1] * args.density ** dim[2]
-            ini[section][key] = repr(float(text) * scale)
+            ini[section][key] = " ".join(repr(float(t) * scale) for t in text.split())
     if args.reference:
         ini["reference"] = {"density": repr(args.density), "length": repr(args.length), "velocity": repr(args.velocity)}
     if args.weights is not None:

@@ -1186,6 +1186,9 @@ contains
    endif
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+   if (self%physics%cooling%is_active) &
+      call mpih_fnl%error_stop(msg=': [cooling] runs on the CPU backend only, for now (issue #93: the FNL kernel is '// &
+                                   'phase P2)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')
