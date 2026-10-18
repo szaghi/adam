@@ -241,8 +241,8 @@ below its adiabat was drained by the truncation error of the total-energy scheme
 back; a cell above it was heated by a shock, which the advected entropy does not see, and keeps its energy. The floor
 only adds energy (logged per step); a reset of the energy from the entropy, as in Cholla (Villasenor et al. 2021), would
 remove a cold shock's heat ([DE](./verification/euler/dual-energy)). The runtime-AMR collapse of
-[#88](https://github.com/szaghi/adam/issues/88) reaches its end with it ([SV-17](./verification/self-gravity/polytrope)).
-CPU only until #91 P3.
+[#88](https://github.com/szaghi/adam/issues/88) reaches its end with it ([SV-17](./verification/self-gravity/polytrope)). CPU and FNL run the same
+rule (`sync_dual_energy`, `sync_dual_energy_dev`).
 
 ## Dissipative fluxes (Navier–Stokes)
 

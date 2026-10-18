@@ -9,11 +9,13 @@
 #   de2  the cold planar Noh shock (make_de.py noh, Mach 845, t = 0.6): every cell starts cold, the floor must not
 #        remove the shock's heat: the post-shock pressure of both models within 2 % of the exact 1.2, the cold streams ahead at
 #        p = 1e-6 within 1e-3, the two densities within 2e-2;
-#   de3  the contract: [physics].(dual_energy_eta) outside (0, 1) is refused; on FNL euler-de itself is refused (the
-#        FNL kernels are P3).
+#   de3  the contract: [physics].(dual_energy_eta) outside (0, 1) is refused;
+#   de4  (P3) CPU and FNL agree: the de2 runs of both backends (run de2 with each first); per field the euler-de
+#        difference, relative to the field's largest magnitude, at most twice the euler pair's (the device arithmetic on
+#        the same Mach 845 shock, 1e-9) or 1e-10, the rule of AV av8.
 # The runtime-AMR collapse of #88 with euler-de is selfgravity/star.sh SV-17.
 #
-# Usage: ./check.sh [--legs LIST]   (legs de1 de2 de3, all; default all)
+# Usage: ./check.sh [--legs LIST]   (legs de1 de2 de3 de4, all; default de1 to de3)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu); the caller owns the matching environment.
 set -euo pipefail
@@ -24,7 +26,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "de1 de2 de3"
+legs_declare "de1 de2 de3 de4" "de1 de2 de3"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -35,7 +37,6 @@ legs_resolve check.sh
 if [[ ! -x "$EXE" ]]; then echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2 ; exit 2 ; fi
 EXE="$(realpath "$EXE")"
 TAG="$(basename "$EXE")"
-FNL=0 ; [[ $TAG == *fnl* ]] && FNL=1
 FAILED=0
 
 run() { # run <work dir>: run the input of the work dir; 0 on success
@@ -59,7 +60,6 @@ expect_refused() { # expect_refused <work dir> <message regex>
 
 echo ">> DE: dual energy ($TAG)"
 for leg in $LEGS; do
-   if [[ $FNL -eq 1 && $leg != de3 ]]; then echo "-- $leg: CPU only until #91 P3 (skipped)" ; continue ; fi
    case $leg in
       de1|de2)
          case_=sod ; [[ $leg == de2 ]] && case_=noh
@@ -71,16 +71,19 @@ for leg in $LEGS; do
          done
          if [[ ${#dirs[@]} -eq 2 ]]; then "$VENV_PY" "$CASE_DIR/de_oracle.py" "$case_" "${dirs[@]}" || FAILED=1 ; fi ;;
       de3)
-         if [[ $FNL -eq 1 ]]; then
-            echo "-- de3: euler-de on FNL"
-            make_run de3 sod euler-de
-            expect_refused "$W" "euler-de runs on the CPU backend only"
+         for eta in 0.0 1.0; do
+            echo "-- de3: dual_energy_eta = $eta"
+            make_run "de3-$eta" sod euler-de --eta "$eta"
+            expect_refused "$W" "dual_energy_eta\) must lie in \(0, 1\)"
+         done ;;
+      de4)
+         echo "-- de4: CPU and FNL agree on the de2 runs"
+         w=() ; for m in euler euler-de; do for b in cpu fnl; do w+=("$CASE_DIR/work-adam_flume_$b-de2-$m") ; done ; done
+         missing=0 ; for d in "${w[@]}"; do [[ -f "$d/log.txt" ]] || missing=1 ; done
+         if [[ $missing -eq 1 ]]; then
+            echo "   missing a de2 run: run de2 with both executables first" ; FAILED=1
          else
-            for eta in 0.0 1.0; do
-               echo "-- de3: dual_energy_eta = $eta"
-               make_run "de3-$eta" sod euler-de --eta "$eta"
-               expect_refused "$W" "dual_energy_eta\) must lie in \(0, 1\)"
-            done
+            "$VENV_PY" "$CASE_DIR/de_oracle.py" agree "${w[@]}" || FAILED=1
          fi ;;
    esac
 done

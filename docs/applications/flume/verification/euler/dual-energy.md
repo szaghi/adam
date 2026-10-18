@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| DE (de1, de2, de3) | Euler | M9 ([#91](https://github.com/szaghi/adam/issues/91)), P2 | CPU (FNL refuses `euler-de` until P3) | yes | — |
+| DE (de1 to de4) | Euler | M9 ([#91](https://github.com/szaghi/adam/issues/91)), P2, P3 | CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -18,7 +18,9 @@ What the case catches:
   of `euler` bitwise;
 - **a floor that removes shock heat:** the entropy does not see a shock, so a scheme that resets the energy of a cold
   shocked cell from it loses the shock (the first form of D-M9-1 did, on this very case);
-- **a silent input:** a switch outside $(0, 1)$, or `euler-de` on a backend without its kernels.
+- **a silent input:** a switch outside $(0, 1)$;
+- **a backend that disagrees:** the FNL kernels (`adam_flume_fnl_euler_de_kernels`, `sync_dual_energy_dev`) against
+  the CPU ones on the same run.
 
 ## Models and numerics
 
@@ -26,7 +28,7 @@ What the case catches:
 |---|---|---|
 | Model | `euler-de`: the Euler equations plus $\partial_t(\rho s) + \nabla\cdot(\rho s\,\mathbf u) = 0$, `nv = 6` | [models](../../numerics#dual-energy); `adam_flume_euler_de_library`, `adam_flume_euler_library_body.INC` |
 | Space, time | as [Sod](./sod) (V1): WENO5 characteristic flux splitting, SSP-33, CFL 0.5; the entropy is the sixth characteristic field (eigenvalue $u_n$) | `adam_flume_cpu_euler_de_kernels.F90` |
-| Synchronisation | once per step: in a cold cell ($e < \eta E$, $\eta$ = `[physics] dual_energy_eta`, default 0.05) $e = \max(e, e_s)$, $e_s = \rho s\,\rho^{\gamma-1}/(\gamma-1)$; then everywhere $\rho s = (\gamma-1)\,e\,\rho^{1-\gamma}$ | `sync_dual_energy`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
+| Synchronisation | once per step: in a cold cell ($e < \eta E$, $\eta$ = `[physics] dual_energy_eta`, default 0.05) $e = \max(e, e_s)$, $e_s = \rho s\,\rho^{\gamma-1}/(\gamma-1)$; then everywhere $\rho s = (\gamma-1)\,e\,\rho^{1-\gamma}$ | `sync_dual_energy`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90); FNL: `sync_dual_energy_dev`, [`adam_flume_fnl_euler_de_kernels.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_euler_de_kernels.F90) |
 
 ## Initial and boundary conditions
 
@@ -34,20 +36,22 @@ What the case catches:
 |---|---|
 | de1 | the `sod-x` regression input ([Sod](./sod)), 50 cells on $[0, 1]$, $t = 0.2$, with `euler` and with `euler-de` |
 | de2 | the planar Noh problem in a cold gas: $\rho = 1$, $u = \pm 1$, $p = 10^{-6}$ (Mach 845, $\gamma = 1.4$) colliding at $x = 0.5$, the `sod-x` grid and numerics, `extrapolation` boundaries, $t = 0.6$. Exact: shocks moving out at $(\gamma-1)/2 = 0.2$, behind them $\rho = (\gamma+1)/(\gamma-1) = 6$ and $p = \rho_0 u_0 (u_0 + 0.2) = 1.2$ |
-| de3 | the de1 input with `dual_energy_eta` = 0 and 1; on FNL, `euler-de` itself |
+| de3 | the de1 input with `dual_energy_eta` = 0 and 1 |
+| de4 | the de2 `euler-de` runs of CPU and FNL |
 
 ## Input files
 
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/dualenergy/make_de.py` | `sod` and `noh` write the inputs (`--model`, `--eta`) |
-| `src/tests/flume/verification/dualenergy/check.sh` | runs the legs (`--legs de1,de2,de3`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/dualenergy/check.sh` | runs the legs (`--legs de1,de2,de3,de4`, default all but de4; `FLUME_EXE` selects the backend; de4 compares the work directories of both) |
 | `src/tests/flume/verification/dualenergy/de_oracle.py` | the bitwise comparison (de1) and the Noh bounds (de2) |
 | `make_doc_runs.sh <runs> dualenergy`, `make_doc_figures.py --only dual-energy` | the figure (2 runs, a minute) |
 
 ```bash
 cd src/tests/flume/verification/dualenergy && ./check.sh                              # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs de3                # FNL: the refusal
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh                         # FNL
+./check.sh --legs de4                                                                 # CPU against FNL
 ```
 
 ## Results
@@ -61,12 +65,12 @@ advected entropy diffused across the foot.*
 
 | Leg | Asserted | Bound | CPU | FNL |
 |---|---|---|---|---|
-| de1 | `r`, `ru`, `rv`, `rw`, `rE` of `euler-de` against `euler` | bitwise | bitwise equal | — |
-| de2 | post-shock pressure (median within 0.08 of the centre), `euler` / `euler-de` | 2 % of 1.2 | $1.0\cdot10^{-4}$ / $1.2\cdot10^{-4}$ | — |
-| de2 | cold-stream pressure (beyond 0.2 of the centre), largest relative error, `euler` / `euler-de` | $10^{-3}$ | $1.3\cdot10^{-8}$ / $2.6\cdot10^{-5}$ | — |
-| de2 | largest density difference of the two models | $2\cdot10^{-2}$ | $6.9\cdot10^{-3}$ | — |
-| de3 | `dual_energy_eta` = 0, 1 | refused | refused | — |
-| de3 | `euler-de` on FNL | refused | — | refused |
+| de1 | `r`, `ru`, `rv`, `rw`, `rE` of `euler-de` against `euler` | bitwise | bitwise equal | bitwise equal |
+| de2 | post-shock pressure (median within 0.08 of the centre), `euler` / `euler-de` | 2 % of 1.2 | $1.0\cdot10^{-4}$ / $1.2\cdot10^{-4}$ | $1.0\cdot10^{-4}$ / $1.2\cdot10^{-4}$ |
+| de2 | cold-stream pressure (beyond 0.2 of the centre), largest relative error, `euler` / `euler-de` | $10^{-3}$ | $1.3\cdot10^{-8}$ / $2.6\cdot10^{-5}$ | $1.2\cdot10^{-8}$ / $2.6\cdot10^{-5}$ |
+| de2 | largest density difference of the two models | $2\cdot10^{-2}$ | $6.9\cdot10^{-3}$ | $6.9\cdot10^{-3}$ |
+| de3 | `dual_energy_eta` = 0, 1 | refused | refused | refused |
+| de4 | per field, FNL against CPU relative to its largest magnitude, `euler-de` against the `euler` pair (`rs` against their largest) | $\le 2\times$ the `euler` pair's, or $10^{-10}$ | `ru` $1.5\cdot10^{-9}$ (`euler` $1.0\cdot10^{-9}$), `rs` $5.2\cdot10^{-10}$, the rest $\le 6.1\cdot10^{-10}$ | (the same comparison) |
 
 Related cases: [Sod](./sod) is the warm baseline of de1; the collapse dual energy rescues is
 [SV-17](../self-gravity/polytrope).
@@ -83,6 +87,9 @@ Related cases: [Sod](./sod) is the warm baseline of de1; the collapse dual energ
 - **The price is a little preheating at a cold shock's foot.** The advected entropy diffuses forward across the foot,
   so the floor lifts the one or two cold cells there, to $10^{-5}$ in a $10^{-6}$ stream ahead of a 1.2 shock. A switch
   at Enzo's $10^{-3}$ would lift the same cells (their $e/E$ is below it as well): it is the floor, not the switch.
+- **The FNL port runs the same rule.** On a Mach 845 shock the two backends already differ by $10^{-9}$ with `euler`
+  (the device arithmetic); `euler-de` differs by at most 1.5 times that, and its entropy by half of it (de4, the
+  relative-to-baseline rule of [AV](../runtime-amr/accuracy) av8: an absolute $10^{-10}$ bound fails `euler` itself).
 - **The switch is 0.05, not Enzo's $10^{-3}$** (D-M9-3, revised): in the #88 collapse the coldest cells sit at
   $e/E \approx 10^{-2}$ two steps before they go negative, so $10^{-3}$ never acts; 0.05 (Cholla uses 0.035) rescues the
   collapse ([SV-17](../self-gravity/polytrope)).

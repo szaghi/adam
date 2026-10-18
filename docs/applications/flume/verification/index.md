@@ -50,7 +50,7 @@ round trip): a setup table documents it better than a plot of a difference that 
 | [Conservation across AMR seams](./euler/amr-conservation) | V3, RV-4 | M1 ([#35](https://github.com/szaghi/adam/issues/35)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU, FNL | yes |
 | [Multi-realm runs](./euler/multi-realm) | multirealm legs 1–6 | M2 entry ([#37](https://github.com/szaghi/adam/issues/37)); [#40](https://github.com/szaghi/adam/issues/40), [#51](https://github.com/szaghi/adam/issues/51), [#52](https://github.com/szaghi/adam/issues/52), [#54](https://github.com/szaghi/adam/issues/54); M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | yes |
 | [Forward-facing step: a three-realm forest on quadtrees](./euler/forward-facing-step) | EV-step | — ([#46](https://github.com/szaghi/adam/issues/46), quadtree AMR; [#66](https://github.com/szaghi/adam/issues/66)) | CPU, FNL (`trees` leg); CPU only (`full` leg) | yes |
-| [Dual energy: the advected entropy of euler-de](./euler/dual-energy) | DE | M9 ([#91](https://github.com/szaghi/adam/issues/91)) | CPU | yes |
+| [Dual energy: the advected entropy of euler-de](./euler/dual-energy) | DE | M9 ([#91](https://github.com/szaghi/adam/issues/91)) | CPU, FNL | yes |
 
 ## [Ideal MHD](./mhd/)
 

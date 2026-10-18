@@ -488,7 +488,7 @@ verification DC can check every converted value exactly.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `physical_model` | string | yes | `euler` (nv = 5), `euler-de` (nv = 6) or `mhd-ideal` (nv = 8, or 9 with GLM or EGLM). Other → fatal. | Equation set. `euler-de` is Euler with dual energy, the advected entropy `rs` ([#91](https://github.com/szaghi/adam/issues/91), [numerics](./numerics#dual-energy); CPU only until #91 P3, fatal on FNL). `mhd-ideal` also loads `[mhd]`. |
+| `physical_model` | string | yes | `euler` (nv = 5), `euler-de` (nv = 6) or `mhd-ideal` (nv = 8, or 9 with GLM or EGLM). Other → fatal. | Equation set. `euler-de` is Euler with dual energy, the advected entropy `rs` ([#91](https://github.com/szaghi/adam/issues/91), [numerics](./numerics#dual-energy); CPU and FNL). `mhd-ideal` also loads `[mhd]`. |
 | `dual_energy_eta` | real | no (`euler-de`) | `(0, 1)`, default 0.05; otherwise fatal | Dual-energy switch: a cell whose internal energy is below `dual_energy_eta` times its total energy takes the entropy as the floor of its internal energy. |
 | `gamma` | real | cond. | `> 1`; with `cp` or `cv` → fatal | Specific heats ratio; the gas constant is 1 (code units). |
 | `cp` | real | cond. | `cp > cv > 0`, otherwise fatal; required without `gamma` | Specific heat at constant pressure. |

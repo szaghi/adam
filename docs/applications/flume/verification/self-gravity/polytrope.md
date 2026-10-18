@@ -141,9 +141,9 @@ total energy, and the run reaches $t = 1.5$ with the default prolongation.*
 | SV-15 | `conservative`, the default | reported | non-finite at step 64 | non-finite at step 65 |
 | SV-16 | Jeans marker: the initial grid refined (blocks at step 0 above the 64 of the base); reaches $t = 1.5$ | completes | 120 blocks at step 0; $t = 1.5$ | 120 blocks at step 0; $t = 1.5$ |
 | SV-16 | Jeans marker: mass and momentum drifts | $10^{-13}$ | mass $2.1\cdot10^{-16}$, momentum $1.7\cdot10^{-18}$ | mass $2.1\cdot10^{-16}$, momentum $3.3\cdot10^{-18}$ |
-| SV-17 | `euler-de`: reaches $t = 1.5$ | completes | $t = 1.5$ | — |
-| SV-17 | `euler-de`: mass and momentum drifts | $10^{-13}$ | mass $1.2\cdot10^{-16}$, momentum $4.8\cdot10^{-19}$ | — |
-| SV-17 | the energy the entropy floor added | reported | $4.1\cdot10^{-7}$ in 6 steps | — |
+| SV-17 | `euler-de`: reaches $t = 1.5$ | completes | $t = 1.5$ | $t = 1.5$ |
+| SV-17 | `euler-de`: mass and momentum drifts | $10^{-13}$ | mass $1.2\cdot10^{-16}$, momentum $4.8\cdot10^{-19}$ | mass $1.2\cdot10^{-16}$, momentum $9.6\cdot10^{-19}$ |
+| SV-17 | the energy the entropy floor added | reported | $4.1\cdot10^{-7}$ in 6 steps | $4.1\cdot10^{-7}$ in 6 steps |
 | SV-16 | without the Jeans marker | reported | non-finite at step 27 | non-finite at step 33 |
 
 Related cases: the periodic analogue of the collapse is [SV-4](./jeans); the solver is [SV-6](./isolated-solver), on
