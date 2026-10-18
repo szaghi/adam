@@ -8,7 +8,7 @@ module adam_flume_cooling_object
 !<
 !< | key | value |
 !< |---|---|
-!< | `temperatures` | the node temperatures `T_1 < ... < T_N`, `N >= 2`, all > 0 (a list) |
+!< | `temperatures` | the node temperatures `T_1 < ... < T_N`, `2 <= N <= COOLING_NODES_MAX` (64), all > 0 (a list) |
 !< | `lambdas` | `Lambda_k > 0` at the nodes (a list, as many as the temperatures) |
 !< | `particle_mass` | `m > 0`, the mass per particle of `n` (for `n_H`: `m_H / X`) |
 !< | `dt_factor` | optional, default 0 (off): also `dt <= dt_factor * min t_cool`, `t_cool = rho e / (n^2 Lambda)` |
@@ -27,7 +27,7 @@ module adam_flume_cooling_object
 use :: adam_mpih_global,           only : mpih
 ! FLUME modules
 use :: adam_flume_cooling_library, only : cooling_segment_y
-use :: adam_flume_parameters,      only : is_hydrodynamic
+use :: adam_flume_parameters,      only : COOLING_NODES_MAX, is_hydrodynamic
 ! third party modules
 use :: finer,                      only : file_ini
 use :: penf,                       only : I4P, R8P, str
@@ -97,6 +97,9 @@ contains
    if (self%n_nodes < 2_I4P) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(temperatures) needs at least 2 nodes, got '// &
                                trim(str(self%n_nodes, .true.)))
+   if (self%n_nodes > COOLING_NODES_MAX) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(temperatures) has '//trim(str(self%n_nodes, .true.))// &
+                               ' nodes, at most '//trim(str(COOLING_NODES_MAX, .true.))//' are accepted')
    if (n_lambdas /= self%n_nodes) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(lambdas) has '//trim(str(n_lambdas, .true.))// &
                                ' values, (temperatures) '//trim(str(self%n_nodes, .true.)))

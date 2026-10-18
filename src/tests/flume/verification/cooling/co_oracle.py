@@ -8,6 +8,8 @@
                                              within dt_factor t_cool and the limit reached
     co_oracle.py entropy <work>              (euler-de) the entropy of every row on the adiabat of its energy, to TOL_S
     co_oracle.py same <work a> <work b>      the density, momentum and energy columns of two runs bitwise equal
+    co_oracle.py agree <cpu work> <fnl work> CPU and FNL agree: the same steps, every row's time, temperature and
+                                             radiated energy within TOL_AGREE relative
 
 The box is uniform (make_co.py), so the volume integrals of the history are the state times the volume and every
 row is one state. The ODE is dT/dt = -(gamma - 1) rho Lambda(T) / (m^2 R): its solution is written as the time to cool
@@ -29,6 +31,7 @@ TOL_T = 1.0e-12
 TOL_FLOOR = 1.0e-14
 TOL_E = 1.0e-13
 TOL_S = 1.0e-13
+TOL_AGREE = 1.0e-12
 GAUSS_POINTS = 40
 
 
@@ -172,10 +175,26 @@ def same(work_a: Path, work_b: Path) -> bool:
     return ok
 
 
+def agree(work_cpu: Path, work_fnl: Path) -> bool:
+    """Check that the CPU and FNL histories agree row by row."""
+    a, b = Case(work_cpu), Case(work_fnl)
+    if a.time.size != b.time.size:
+        print(f"   rows: CPU {a.time.size}, FNL {b.time.size}  FAIL")
+        return False
+    ok = True
+    for name, x, y in (("time", a.time[1:], b.time[1:]), ("T", a.temperature, b.temperature),
+                       ("radiated", a.col["radiated"][1:], b.col["radiated"][1:])):
+        gap = float(np.abs(x - y).max() / np.abs(x).max())
+        status = "PASS" if gap <= TOL_AGREE else "FAIL"
+        ok &= status == "PASS"
+        print(f"   {name}: max relative gap {gap:.2e} over {a.time.size} rows (bound {TOL_AGREE:.0e})  {status}")
+    return ok
+
+
 def main() -> int:
     """Run the requested check."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=("exact", "entropy", "same"))
+    ap.add_argument("mode", choices=("exact", "entropy", "same", "agree"))
     ap.add_argument("works", type=Path, nargs="+")
     ap.add_argument("--floor", action="store_true", help="exact: also check the floor")
     a = ap.parse_args()
@@ -183,8 +202,10 @@ def main() -> int:
         ok = exact(a.works[0], a.floor)
     elif a.mode == "entropy":
         ok = entropy(a.works[0])
-    else:
+    elif a.mode == "same":
         ok = same(a.works[0], a.works[1])
+    else:
+        ok = agree(a.works[0], a.works[1])
     print(f"CO {a.mode}: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

@@ -20,13 +20,17 @@ use :: adam_flume_common_library, only : reflux_positivity_theta,               
                                          ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
                                          BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, realm_edge_donor, realm_edge_face,           &
                                          wall_noslip_ghost, BC_HYDROSTATIC, hydrostatic_ghost
-use :: adam_flume_parameters,     only : IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
+use :: adam_flume_cooling_library, only : cooled_internal_energy, cooling_function
+use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S
 ! third party modules
 use :: penf,                      only : I4P, I8P, R8P
 
 implicit none
 private
+public :: apply_cooling_dev
+public :: apply_cooling_entropy_dev
 public :: apply_reflux_face_dev
+public :: compute_cooling_time_min_dev
 public :: compute_flux_difference_dev
 public :: add_gravity_sources_dev
 public :: add_potential_sources_dev
@@ -978,4 +982,148 @@ contains
       endif
    enddo
    endsubroutine set_boundary_conditions_dev
+
+   subroutine apply_cooling_dev(ni, nj, nk, ngc, blocks_number, n_nodes, t_nodes, l_nodes, alpha, y_nodes, gamma, R, &
+                                dy_rate, dt, dxyz_gpu, q_gpu, radiated)
+   !< Cool the committed state over `dt` (issue #93, the device twin of the CPU `apply_cooling`, hydrodynamic models
+   !< without the entropy): every interior cell cooled isochorically by Townsend's exact integration
+   !< (`cooled_internal_energy`), `E` lowered by the energy removed; `radiated` returns that energy times the volume.
+   !< The tables have the fixed size `COOLING_NODES_MAX`, the first `n_nodes` used: constant-shape arrays reach the
+   !< device as `firstprivate` (variable-shape ones did not: a corrupted table and an invalid host-to-device copy).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   integer(I4P), intent(in)    :: n_nodes                           !< Cooling table nodes number.
+   real(R8P),    intent(in)    :: t_nodes(COOLING_NODES_MAX)                  !< Node temperatures.
+   real(R8P),    intent(in)    :: l_nodes(COOLING_NODES_MAX)                  !< Node values of Lambda.
+   real(R8P),    intent(in)    :: alpha(COOLING_NODES_MAX)                    !< Segment exponents.
+   real(R8P),    intent(in)    :: y_nodes(COOLING_NODES_MAX)                  !< Evolution function at the nodes.
+   real(R8P),    intent(in)    :: gamma                             !< Specific heats ratio.
+   real(R8P),    intent(in)    :: R                                 !< Gas constant.
+   real(R8P),    intent(in)    :: dy_rate                           !< (gamma - 1) Lambda_N / (m^2 R T_N).
+   real(R8P),    intent(in)    :: dt                                !< Time step.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out)   :: radiated                          !< Energy radiated times volume.
+   real(R8P)                   :: ke, e, e_new                      !< Kinetic, internal and cooled internal energy.
+   real(R8P)                   :: s1                                !< Reduction accumulator.
+   integer(I4P)                :: b, i, j, k                        !< Counters.
+
+   s1 = 0._R8P
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu)                                 &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,y_nodes,gamma,R,dy_rate,dt)             &
+   !$acc& private(ke,e,e_new) reduction(+:s1)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu)                                                                &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,y_nodes,gamma,R,dy_rate,dt)             &
+   !$omp& private(ke,e,e_new) reduction(+:s1)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      ke = 0.5_R8P * (q_gpu(b,i,j,k,IQ_RU)**2 + q_gpu(b,i,j,k,IQ_RV)**2 + q_gpu(b,i,j,k,IQ_RW)**2) / q_gpu(b,i,j,k,IQ_R)
+      e = q_gpu(b,i,j,k,IQ_RE) - ke
+      e_new = cooled_internal_energy(n_nodes=n_nodes, t_nodes=t_nodes, l_nodes=l_nodes, alpha=alpha, y_nodes=y_nodes, &
+                                     gamma=gamma, R=R, dy_rate=dy_rate, dt=dt, rho=q_gpu(b,i,j,k,IQ_R), e=e)
+      if (e_new < e) then
+         s1 = s1 + (e - e_new) * dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
+         q_gpu(b,i,j,k,IQ_RE) = ke + e_new
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   radiated = s1
+   endsubroutine apply_cooling_dev
+
+   subroutine apply_cooling_entropy_dev(ni, nj, nk, ngc, blocks_number, n_nodes, t_nodes, l_nodes, alpha, y_nodes, gamma, &
+                                        R, dy_rate, dt, dxyz_gpu, q_gpu, radiated)
+   !< `apply_cooling_dev` for the models with the advected entropy (euler-de, issue #93): a cooled cell also takes
+   !< `rho s = (gamma - 1) e rho^(1-gamma)` of the internal energy its stored `E` holds, `(ke + e_new) - ke`, as the CPU
+   !< `apply_cooling` (the next dual-energy sync then sees it on its adiabat).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   integer(I4P), intent(in)    :: n_nodes                           !< Cooling table nodes number.
+   real(R8P),    intent(in)    :: t_nodes(COOLING_NODES_MAX)                  !< Node temperatures.
+   real(R8P),    intent(in)    :: l_nodes(COOLING_NODES_MAX)                  !< Node values of Lambda.
+   real(R8P),    intent(in)    :: alpha(COOLING_NODES_MAX)                    !< Segment exponents.
+   real(R8P),    intent(in)    :: y_nodes(COOLING_NODES_MAX)                  !< Evolution function at the nodes.
+   real(R8P),    intent(in)    :: gamma                             !< Specific heats ratio.
+   real(R8P),    intent(in)    :: R                                 !< Gas constant.
+   real(R8P),    intent(in)    :: dy_rate                           !< (gamma - 1) Lambda_N / (m^2 R T_N).
+   real(R8P),    intent(in)    :: dt                                !< Time step.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
+   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out)   :: radiated                          !< Energy radiated times volume.
+   real(R8P)                   :: ke, e, e_new                      !< Kinetic, internal and cooled internal energy.
+   real(R8P)                   :: s1                                !< Reduction accumulator.
+   integer(I4P)                :: b, i, j, k                        !< Counters.
+
+   s1 = 0._R8P
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu)                                 &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,y_nodes,gamma,R,dy_rate,dt)             &
+   !$acc& private(ke,e,e_new) reduction(+:s1)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu)                                                                &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,y_nodes,gamma,R,dy_rate,dt)             &
+   !$omp& private(ke,e,e_new) reduction(+:s1)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      ke = 0.5_R8P * (q_gpu(b,i,j,k,IQ_RU)**2 + q_gpu(b,i,j,k,IQ_RV)**2 + q_gpu(b,i,j,k,IQ_RW)**2) / q_gpu(b,i,j,k,IQ_R)
+      e = q_gpu(b,i,j,k,IQ_RE) - ke
+      e_new = cooled_internal_energy(n_nodes=n_nodes, t_nodes=t_nodes, l_nodes=l_nodes, alpha=alpha, y_nodes=y_nodes, &
+                                     gamma=gamma, R=R, dy_rate=dy_rate, dt=dt, rho=q_gpu(b,i,j,k,IQ_R), e=e)
+      if (e_new < e) then
+         s1 = s1 + (e - e_new) * dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
+         q_gpu(b,i,j,k,IQ_RE) = ke + e_new
+         e_new = q_gpu(b,i,j,k,IQ_RE) - ke
+         q_gpu(b,i,j,k,IQ_S) = (gamma - 1._R8P) * e_new * q_gpu(b,i,j,k,IQ_R)**(1._R8P - gamma)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   radiated = s1
+   endsubroutine apply_cooling_entropy_dev
+
+   subroutine compute_cooling_time_min_dev(ni, nj, nk, ngc, blocks_number, n_nodes, t_nodes, l_nodes, alpha, gamma, R, &
+                                           particle_mass, q_gpu, t_cool)
+   !< Return the shortest cooling time of the committed state, `rho e / (n^2 Lambda(T))` (`huge` where nothing cools),
+   !< for the `[cooling].(dt_factor)` limiter (issue #93, the device twin of the CPU `cooling_time_min`).
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   integer(I4P), intent(in)  :: n_nodes                           !< Cooling table nodes number.
+   real(R8P),    intent(in)  :: t_nodes(COOLING_NODES_MAX)                  !< Node temperatures.
+   real(R8P),    intent(in)  :: l_nodes(COOLING_NODES_MAX)                  !< Node values of Lambda.
+   real(R8P),    intent(in)  :: alpha(COOLING_NODES_MAX)                    !< Segment exponents.
+   real(R8P),    intent(in)  :: gamma                             !< Specific heats ratio.
+   real(R8P),    intent(in)  :: R                                 !< Gas constant.
+   real(R8P),    intent(in)  :: particle_mass                     !< Mass per particle.
+   real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: t_cool                            !< Shortest cooling time.
+   real(R8P)                 :: e, lambda                         !< Internal energy and cooling function of one cell.
+   real(R8P)                 :: tc                                !< Reduction accumulator.
+   integer(I4P)              :: b, i, j, k                        !< Counters.
+
+   tc = huge(1._R8P)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu)                                          &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,gamma,R,particle_mass)                   &
+   !$acc& private(e,lambda) reduction(min:tc)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu)                                                                         &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,gamma,R,particle_mass)                   &
+   !$omp& private(e,lambda) reduction(min:tc)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      e = q_gpu(b,i,j,k,IQ_RE) - 0.5_R8P * (q_gpu(b,i,j,k,IQ_RU)**2 + q_gpu(b,i,j,k,IQ_RV)**2 + q_gpu(b,i,j,k,IQ_RW)**2) / &
+          q_gpu(b,i,j,k,IQ_R)
+      lambda = cooling_function(n_nodes=n_nodes, t_nodes=t_nodes, l_nodes=l_nodes, alpha=alpha, &
+                                temperature=(gamma - 1._R8P) * e / (q_gpu(b,i,j,k,IQ_R) * R))
+      if (lambda > 0._R8P) tc = min(tc, e * particle_mass**2 / (q_gpu(b,i,j,k,IQ_R)**2 * lambda))
+   enddo
+   enddo
+   enddo
+   enddo
+   t_cool = tc
+   endsubroutine compute_cooling_time_min_dev
 endmodule adam_flume_fnl_kernels

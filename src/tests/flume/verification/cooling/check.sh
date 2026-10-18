@@ -11,17 +11,20 @@
 #        last node, then all three segments), and with the cooling limiter (dt_factor 0.01: every step within 0.01
 #        t_cool, and the limit reached) from T = 1 to t = 2;
 #   co2  the floor: to t = 3, T = T_1 exactly from the step that crosses the ODE's floor time on, E bitwise constant;
-#   co3  the contract: [cooling] with mhd-ideal, non-increasing temperatures, lambdas of another length, no
-#        particle_mass and a negative dt_factor are refused;
+#   co3  the contract: [cooling] with mhd-ideal, non-increasing temperatures, lambdas of another length, more than 64
+#        nodes, no particle_mass and a negative dt_factor are refused;
 #   co4  the dual energy: the box moving at u = 10 (e = 0.03 E, below the dual-energy switch 0.05) with euler-de, to
 #        t = 1.5: the temperature against the ODE, the entropy on the adiabat of the cooled energy every step (1e-13),
 #        no energy added by the entropy floor (it may report lifts of round-off size, rho s -> p -> e not being an
 #        exact round trip, each raising E by 0), and the flow history bitwise that of the same box with euler;
 #   co5  the [reference] layer: the co1 limited box to t = 1 written in the units L0 = 2, u0 = 2, rho0 = 4
 #        (scaling.py dimensionalize: the temperatures times u0^2, Lambda times L0^5 u0^3 rho0, the particle mass times
-#        rho0 L0^3, the node lists value by value) runs bitwise as the code-units box (powers of two convert exactly).
+#        rho0 L0^3, the node lists value by value) runs bitwise as the code-units box (powers of two convert exactly);
+#   co6  (P2) CPU and FNL agree on the co1 CFL and co4 euler-de runs (run co1 and co4 with each first): the same steps,
+#        every row's time, temperature and radiated energy within 1e-12 relative (a uniform box: the runs without
+#        cooling agree bitwise, so the AV av8 floor, 1e-10, is tightened to the oracle's 1e-12).
 #
-# Usage: ./check.sh [--legs LIST]   (legs co1 co2 co3 co4 co5, all; default all)
+# Usage: ./check.sh [--legs LIST]   (legs co1 co2 co3 co4 co5 co6, all; default co1 to co5)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu); the caller owns the matching environment.
 set -euo pipefail
@@ -32,7 +35,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "co1 co2 co3 co4 co5" "co1 co2 co3 co4 co5"
+legs_declare "co1 co2 co3 co4 co5 co6" "co1 co2 co3 co4 co5"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -96,6 +99,10 @@ for leg in $LEGS; do
          echo "-- co3: lambdas of another length"
          make_case co3-length --lambdas "0.2 1.0 0.5"
          expect_refused "$W" "\(lambdas\) has 3 values, \(temperatures\) 4"
+         echo "-- co3: more than 64 nodes"
+         nodes=$(python3 -c "print(' '.join(repr(0.1 * 1.05**k) for k in range(65)))")
+         make_case co3-nodes --temperatures "$nodes" --lambdas "$nodes"
+         expect_refused "$W" "\(temperatures\) has 65 nodes, at most 64 are accepted"
          echo "-- co3: no particle_mass"
          make_case co3-mass --particle-mass none
          expect_refused "$W" "failed to load \[cooling\]\.\(particle_mass\)"
@@ -130,6 +137,16 @@ for leg in $LEGS; do
          else
             echo "   a run failed: see $base/log.txt, $ref/log.txt  FAIL" ; FAILED=1
          fi ;;
+      co6)
+         for case_ in co1-cfl co4-euler-de; do
+            echo "-- co6: CPU and FNL agree, $case_"
+            cpu="$CASE_DIR/work-adam_flume_cpu-$case_" ; fnl="$CASE_DIR/work-adam_flume_fnl-$case_"
+            if [[ -f "$cpu/log.txt" && -f "$fnl/log.txt" ]]; then
+               "$VENV_PY" "$CASE_DIR/co_oracle.py" agree "$cpu" "$fnl" || FAILED=1
+            else
+               echo "   missing a run: run co1 and co4 with both executables first" ; FAILED=1
+            fi
+         done ;;
    esac
 done
 if [[ $FAILED -ne 0 ]]; then echo "CO FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi

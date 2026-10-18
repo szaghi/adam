@@ -14,7 +14,8 @@ module adam_flume_fnl_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object, SEAM_KIND_INTRA_REALM_AMR
-use :: adam_flume_parameters,     only : IQ_BX, IQ_PSI, IQ_R, IQ_RE
+use :: adam_flume_cooling_object, only : flume_cooling_object
+use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_BX, IQ_PSI, IQ_R, IQ_RE
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object
@@ -209,7 +210,9 @@ use :: adam_flume_fnl_mhd_glm_kernels, only : add_glm_damping_dev, apply_floors_
                                               compute_q_aux_mhd_glm_dev=>compute_q_aux_dev,                           &
                                               compute_speed_max_mhd_glm_dev=>compute_speed_max_dev,                   &
                                               count_nonfinite_mhd_glm_dev=>count_nonfinite_dev
-use :: adam_flume_fnl_kernels,         only : apply_reflux_face_dev, compute_dflux_norms_dev, copy_state_dev,          &
+use :: adam_flume_fnl_kernels,         only : apply_cooling_dev, apply_cooling_entropy_dev,                            &
+                                              compute_cooling_time_min_dev,                                            &
+                                              apply_reflux_face_dev, compute_dflux_norms_dev, copy_state_dev,          &
                                               compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
                                               add_gravity_sources_dev, add_potential_sources_dev,                      &
                                               add_gravity_limited_correction_dev,                                      &
@@ -292,6 +295,8 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: refresh_equilibrium_residual !< Recompute the equilibrium residual if stale.
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: sync_dual_energy        !< Synchronise the total energy and the entropy (issue #91).
+      procedure, pass(self) :: apply_cooling           !< Radiative cooling of the committed state (issue #93).
+      procedure, pass(self) :: cooling_time_min        !< Shortest cooling time of the committed state (issue #93).
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
@@ -801,6 +806,8 @@ contains
       w = 0.5_R8P * w
       row = [row, w * factors(IQ_RE), (integrals(IQ_RE) + w) * factors(IQ_RE)]
    endif
+   if (self%physics%cooling%is_active) row = [row, self%physics%cooling%radiated * factors(IQ_RE), &
+                                              (integrals(IQ_RE) + self%physics%cooling%radiated) * factors(IQ_RE)]
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
                                                integrals=row)
    endsubroutine compute_conservation
@@ -1186,9 +1193,6 @@ contains
    endif
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
-   if (self%physics%cooling%is_active) &
-      call mpih_fnl%error_stop(msg=': [cooling] runs on the CPU backend only, for now (issue #93: the FNL kernel is '// &
-                                   'phase P2)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')
@@ -2174,6 +2178,8 @@ contains
    endif
    dt_local = huge(1._R8P)
    if (lambda_max > 0._R8P) dt_local = self%time%CFL / lambda_max
+   if (self%physics%cooling%is_active .and. self%physics%cooling%dt_factor > 0._R8P) &
+      dt_local = min(dt_local, self%physics%cooling%dt_factor * self%cooling_time_min())
    endsubroutine compute_local_dt_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -2401,7 +2407,8 @@ contains
    call self%check_glm_ch
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
                                    is_restart=self%io%restart, with_divb=.not.is_hydrodynamic(self%physics%model), &
-                                   with_self_gravity=self%physics%gravity%self_gravity)
+                                   with_self_gravity=self%physics%gravity%self_gravity,                            &
+                                   with_cooling=self%physics%cooling%is_active)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
       call self%compute_divb_history
@@ -2447,6 +2454,7 @@ contains
    class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
    if (has_entropy(self%physics%model)) call self%sync_dual_energy
+   if (self%physics%cooling%is_active) call self%apply_cooling(dt=self%time%dt) ! the forest passes no dt (0)
    call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
@@ -2468,6 +2476,63 @@ contains
       print '(A)', 'dual energy: '//trim(str(nint(sums(2), I8P)))//' cold cells lifted to their adiabat at step '// &
                    trim(str(self%time%it))//', total energy raised by '//trim(str(sums(1)))
    endsubroutine sync_dual_energy
+
+   subroutine apply_cooling(self, dt)
+   !< Cool the committed device state over the step just advanced, once per step (issue #93): the device twin of the CPU
+   !< `apply_cooling` (`apply_cooling_dev`, or `apply_cooling_entropy_dev` with the advected entropy, the same rule and
+   !< the same library arithmetic); the radiated energy summed over the ranks into `cooling%radiated`.
+   class(flume_fnl_object), intent(inout) :: self     !< The equation.
+   real(R8P),               intent(in)    :: dt       !< Time step just advanced.
+   real(R8P)                              :: radiated !< Energy radiated by this rank over the step.
+   real(R8P)                              :: tables(COOLING_NODES_MAX,4) !< Node T, Lambda, alpha, Y, fixed size.
+
+   call cooling_tables(cooling=self%physics%cooling, tables=tables)
+   associate(c=>self%physics%cooling)
+   if (has_entropy(self%physics%model)) then
+      call apply_cooling_entropy_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     n_nodes=c%n_nodes, t_nodes=tables(:,1), l_nodes=tables(:,2),                    &
+                                     alpha=tables(:,3), y_nodes=tables(:,4), gamma=self%physics%gamma, R=self%physics%R, &
+                                     dy_rate=c%dy_rate, dt=dt, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu,   &
+                                     radiated=radiated)
+   else
+      call apply_cooling_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number,     &
+                             n_nodes=c%n_nodes, t_nodes=tables(:,1), l_nodes=tables(:,2), alpha=tables(:,3),         &
+                             y_nodes=tables(:,4), gamma=self%physics%gamma, R=self%physics%R, dy_rate=c%dy_rate,     &
+                             dt=dt, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu, radiated=radiated)
+   endif
+   endassociate
+   call MPI_ALLREDUCE(MPI_IN_PLACE, radiated, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   self%physics%cooling%radiated = self%physics%cooling%radiated + radiated
+   endsubroutine apply_cooling
+
+   function cooling_time_min(self) result(t_cool)
+   !< Return the shortest cooling time of the committed device state on this rank (`compute_cooling_time_min_dev`), for
+   !< the `[cooling].(dt_factor)` limiter (issue #93).
+   class(flume_fnl_object), intent(in) :: self   !< The equation.
+   real(R8P)                           :: t_cool !< Shortest cooling time.
+   real(R8P)                           :: tables(COOLING_NODES_MAX,4) !< Node T, Lambda, alpha, Y, fixed size.
+
+   call cooling_tables(cooling=self%physics%cooling, tables=tables)
+   associate(c=>self%physics%cooling)
+   call compute_cooling_time_min_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     n_nodes=c%n_nodes, t_nodes=tables(:,1), l_nodes=tables(:,2), alpha=tables(:,3), &
+                                     gamma=self%physics%gamma, R=self%physics%R, particle_mass=c%particle_mass,      &
+                                     q_gpu=self%q_gpu, t_cool=t_cool)
+   endassociate
+   endfunction cooling_time_min
+
+   pure subroutine cooling_tables(cooling, tables)
+   !< Return the cooling tables padded to the fixed size of the device kernels (`COOLING_NODES_MAX`, issue #93): node
+   !< temperatures, Lambda, exponents and evolution function in the columns, zero beyond the `n_nodes` used.
+   type(flume_cooling_object), intent(in)  :: cooling                     !< Cooling.
+   real(R8P),                  intent(out) :: tables(COOLING_NODES_MAX,4) !< Padded tables.
+
+   tables = 0._R8P
+   tables(1:cooling%n_nodes,1) = cooling%t_nodes
+   tables(1:cooling%n_nodes,2) = cooling%l_nodes
+   tables(1:cooling%n_nodes,3) = cooling%alpha
+   tables(1:cooling%n_nodes,4) = cooling%y_nodes
+   endsubroutine cooling_tables
 
    subroutine regrid_forest(self, regridded)
    !< Regrid the realm on the cadence of `[amr] frequency` (issue #74, M5-P3); the forest calls it after every step,

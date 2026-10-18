@@ -41,6 +41,7 @@ public :: NV_AUX_MHD
 public :: NV_EULER_DE
 public :: NV_AUX_DE
 public :: NS_MAX
+public :: COOLING_NODES_MAX
 public :: NV_EULER_PS
 public :: NV_AUX_PS
 public :: NV_EULER_DE_PS
@@ -123,6 +124,8 @@ integer(I4P), parameter :: NV_AUX_MHD = 11_I4P !< Auxiliary variables number, MH
 integer(I4P), parameter :: NV_EULER_DE = 6_I4P !< Conservative variables number, Euler with dual energy (#91).
 integer(I4P), parameter :: NV_AUX_DE   = 9_I4P !< Auxiliary variables number, Euler with dual energy (#91).
 integer(I4P), parameter :: NS_MAX         = 4_I4P  !< Passive scalars capacity of the scalar models (#92, D-M10-1).
+integer(I4P), parameter :: COOLING_NODES_MAX = 64_I4P !< Cooling table capacity: the device kernels take fixed-size
+                                                     !< tables (constant-shape firstprivate arrays, #93).
 integer(I4P), parameter :: NV_EULER_PS    = 9_I4P  !< Conservative variables number, Euler + NS_MAX scalars (#92).
 integer(I4P), parameter :: NV_AUX_PS      = 12_I4P !< Auxiliary variables number, Euler + NS_MAX scalars (#92).
 integer(I4P), parameter :: NV_EULER_DE_PS = 10_I4P !< Conservative variables number, euler-de + NS_MAX scalars (#92).

@@ -643,11 +643,11 @@ The section switches on radiative cooling ([#93](https://github.com/szaghi/adam/
 $\partial_t(\rho e) = -n^2\Lambda(T)$ at fixed density and momentum, with $n = \rho/m$ and $T = p/(\rho R)$. It is
 applied once per step, after the step, by Townsend's exact integration ([numerics](./numerics#radiative-cooling)).
 Without the section nothing changes. The hydrodynamic models only (`euler`, `euler-de`, with or without passive
-scalars): with `mhd-ideal` it is fatal. CPU backend only for now (the FNL kernel is phase P2 of #93: fatal on FNL).
+scalars): with `mhd-ideal` it is fatal. CPU and FNL run the same rule and the same arithmetic.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `temperatures` | list of reals | yes | at least 2 values, all `> 0`, strictly increasing; otherwise fatal | The nodes $T_1 < \dots < T_N$ of the cooling function. $T_1$ is the floor: below it nothing cools, and a cooling cell stops exactly at it. |
+| `temperatures` | list of reals | yes | 2 to 64 values (`COOLING_NODES_MAX`: the device kernels take fixed-size tables), all `> 0`, strictly increasing; otherwise fatal | The nodes $T_1 < \dots < T_N$ of the cooling function. $T_1$ is the floor: below it nothing cools, and a cooling cell stops exactly at it. |
 | `lambdas` | list of reals | yes | as many values as `temperatures`, all `> 0`; otherwise fatal | $\Lambda_k$ at the nodes. $\Lambda$ is the piecewise power law through them, $\Lambda_k (T/T_k)^{\alpha_k}$ on $[T_k, T_{k+1}]$; above $T_N$ the last segment continues. |
 | `particle_mass` | real | yes | `> 0`, otherwise fatal | The mass $m$ per particle of $n = \rho/m$ (for $n_\mathrm{H}$: $m_\mathrm{H}/X$). |
 | `dt_factor` | real | no (0) | `>= 0`, otherwise fatal | `0`: off. Otherwise the step is also limited to `dt_factor` times the shortest cooling time $t_\mathrm{cool} = \rho e/(n^2\Lambda)$, for runs that need the coupling of cooling and dynamics resolved (the cooling itself is exact for any step). |
