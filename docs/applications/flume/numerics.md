@@ -283,7 +283,7 @@ cell then leaves the step with its entropy consistent with its energy, as the sy
 $t_\mathrm{cool} = \rho e/(n^2\Lambda)$, for runs that need the coupling resolved. The radiated energy is summed over
 the ranks; the conservation history adds it back to $E$ (`E_plus_radiated`, constant to round-off). On a uniform box the
 temperature follows the ODE solution to $4\cdot10^{-14}$ relative, at the CFL step as with the limiter, on CPU and FNL
-alike ([CO](https://github.com/szaghi/adam/issues/93), `verification/cooling/check.sh`). The FNL backend runs the same
+alike ([CO](./verification/euler/radiative-cooling)). The FNL backend runs the same
 library arithmetic in its device kernels (`apply_cooling_dev`, `apply_cooling_entropy_dev`), the tables at the fixed
 size of 64 nodes.
 

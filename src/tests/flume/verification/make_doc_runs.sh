@@ -51,6 +51,8 @@
 #   dualenergy noh-{euler,euler-de}: the cold planar Noh shock of dualenergy/check.sh de2 (#91 P2) (2 runs, 1 min)
 #   scalars ps-sod (Sod with two scalars, scalars/check.sh ps1) and ps-vortex (the regridded vortex with a uniform
 #           scalar, ps4, a checkpoint every 5 steps) (#92 P3) (2 runs, 2 min)
+#   cooling co-box (the uniform box of cooling/check.sh co1 from T = 5), co-limited (co1 with dt_factor 0.01) and
+#           co-shock (the radiative shock of co7) (#93 P3) (3 runs, 2 min)
 #   multirealm sod-x, sod-2realm, sod-amr, sod-amr-refined: the Sod unions of multirealm/check.sh legs 1 and 4 and
 #           their single-realm twins (4 runs, about 4 min)
 #   seams   the Sod shock crossing a static 2:1 face at x = 0.75 (amr-shock/make_amr_shock.py, #68; issue #85 R2b):
@@ -72,6 +74,7 @@
 #        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
 #        isolated: --only selfgravity-isolated selfgravity-star selfgravity-star-amr;
 #        collapse-regrid: --only selfgravity-star-regrid; dualenergy: --only dual-energy; scalars: --only passive-scalars;
+#        cooling: --only radiative-cooling;
 #        amr: --only selfgravity-amr selfgravity-amr-jeans
 #        selfgravity-amr-regrid selfgravity-amr-isolated)
 #
@@ -90,17 +93,17 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars] [cooling]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
            "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, seams, blast77, divb," \
-           "rj2a-shock, collapse-regrid, dualenergy, scalars)" >&2
+           "rj2a-shock, collapse-regrid, dualenergy, scalars, cooling)" >&2
       exit 2
    fi
 done
@@ -339,6 +342,16 @@ for g in $GROUPS_; do
          fresh ps-vortex
          python3 -I "$VERIF_DIR/scalars/make_ps.py" "$W/input.ini" --case vortex --scalars 1
          sed -i -E 's/^(\s*it_save\s*=).*/\1 5/' "$W/input.ini"
+         run input.ini ;;
+      cooling)
+         fresh co-box
+         python3 -I "$VERIF_DIR/cooling/make_co.py" "$W/input.ini" --p 5.0 --time-max 6.5
+         run input.ini
+         fresh co-limited
+         python3 -I "$VERIF_DIR/cooling/make_co.py" "$W/input.ini" --time-max 2.0 --dt-factor 0.01
+         run input.ini
+         fresh co-shock
+         python3 -I "$VERIF_DIR/cooling/make_co.py" "$W/input.ini" --case shock
          run input.ini ;;
       dualenergy)
          for model in euler euler-de; do

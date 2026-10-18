@@ -10,12 +10,28 @@
     co_oracle.py same <work a> <work b>      the density, momentum and energy columns of two runs bitwise equal
     co_oracle.py agree <cpu work> <fnl work> CPU and FNL agree: the same steps, every row's time, temperature and
                                              radiated energy within TOL_AGREE relative
+    co_oracle.py shock <work>                the radiative shock (make_co.py --case shock) against its steady structure:
+                                             the shock speed, the cooling-layer profile and thickness, the dense layer
 
 The box is uniform (make_co.py), so the volume integrals of the history are the state times the volume and every
 row is one state. The ODE is dT/dt = -(gamma - 1) rho Lambda(T) / (m^2 R): its solution is written as the time to cool
 from T_0 to T, t(T) = m^2 R / ((gamma - 1) rho) int_T^T_0 dT' / Lambda(T'), by Gauss-Legendre quadrature in ln T on
 each piece of the table (an integrand smooth on the piece: the result does not use Townsend's closed form), and
 inverted by bisection.
+
+The radiative shock: two streams rho_0, -+u_0 at the floor temperature T_1 collide; the shocked gas cools back to T_1
+and piles up at rest. Taken whole, shock plus cooling layer is an isothermal jump at T_1, so in the frame of the
+structure (speed V_s outward) mass and momentum give V_s (u_0 + V_s) = R T_1 and the dense layer rho_d = rho_0 (u_0 +
+V_s) / V_s, with no energy equation. The cooling layer is steady in that frame: rho w = m, p + rho w^2 = P, and the
+total enthalpy flux falls at the cooling rate, m dH/dxi = -n^2 Lambda(T), H = gamma R T / (gamma - 1) + w^2 / 2, from
+the Rankine-Hugoniot state behind the shock (xi = 0) to T_1, where w reaches V_s (the dense layer). The profile rho(xi)
+is integrated in ln T on a fine grid. Checked on the run: the outward speed of the shock (rho crossing the mean of
+rho_0 and the post-shock density), fitted over the checkpoints from t = SHOCK_T_FIT, against V_s; the density of the
+layer against the ODE profile aligned at the shock (TOL_PROFILE, L1 relative), and the point where rho = SHOCK_RHO_MARK
+against the ODE's (one cell); the median density and temperature of the outer half of the dense layer (the gas cooled
+last: the centre keeps the start-up transient of the collision) against rho_d and T_1. The planar radiative shock
+is overstable for small cooling exponents (Chevalier & Imamura 1982): the case uses alpha = 1.5, where the structure
+settles after t ~ 1 (at alpha = 0.5 it still oscillates at t = 1.5, the speed 17 % off).
 """
 
 from __future__ import annotations
@@ -25,6 +41,7 @@ import configparser
 import sys
 from pathlib import Path
 
+import h5py
 import numpy as np
 
 TOL_T = 1.0e-12
@@ -32,6 +49,11 @@ TOL_FLOOR = 1.0e-14
 TOL_E = 1.0e-13
 TOL_S = 1.0e-13
 TOL_AGREE = 1.0e-12
+TOL_SPEED = 1.0e-2
+TOL_DENSE = 2.0e-2
+TOL_PROFILE = 5.0e-2
+SHOCK_T_FIT = 1.5
+SHOCK_RHO_MARK = 6.0
 GAUSS_POINTS = 40
 
 
@@ -191,10 +213,105 @@ def agree(work_cpu: Path, work_fnl: Path) -> bool:
     return ok
 
 
+def checkpoint_line(work: Path, it: int, ngc: int) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Return the cell centres along x and r, ru, rE along x of a checkpoint (the first cell in y and z)."""
+    cells: dict[float, list[float]] = {}
+    for path in sorted(work.glob(f"*-{it:09d}-proc*.h5")):
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                origin, dxyz = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                q = [h5[f"{blk}-{v}"][()][ngc:-ngc, ngc:-ngc, ngc:-ngc][0, 0, :] for v in ("r", "ru", "rE")]
+                for i in range(q[0].size):
+                    cells[round(float(origin[0] + (i + ngc + 0.5) * dxyz[0]), 10)] = [float(a[i]) for a in q]
+    x = np.array(sorted(cells))
+    return x, {v: np.array([cells[c][k] for c in x]) for k, v in enumerate(("r", "ru", "rE"))}
+
+
+def shock(work: Path) -> bool:
+    """Check the radiative shock against its steady structure."""
+    c = Case(work)
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
+    ini.read(work / "input.ini")
+    ngc = int(ini["grid"]["ngc"])
+    reg = ini["initial_conditions_region_1"]
+    rho0, u0, p0 = float(reg["r"]), float(reg["u"]), float(reg["p"])
+    g, gas, t1 = c.gamma, c.R, float(c.t_nodes[0])
+    vs = (-u0 + np.sqrt(u0**2 + 4.0 * gas * t1)) / 2.0
+    w0 = u0 + vs
+    m, pm = rho0 * w0, rho0 * w0**2 + p0
+    rho_d = m / vs
+    mach2 = w0**2 / (g * p0 / rho0)
+    rho1 = rho0 * (g + 1.0) * mach2 / ((g - 1.0) * mach2 + 2.0)
+    p1 = p0 * (2.0 * g * mach2 - (g - 1.0)) / (g + 1.0)
+    # the steady cooling layer, integrated in ln T from the post-shock temperature to the floor
+    temps = np.geomspace(p1 / (rho1 * gas), t1 * (1.0 + 1.0e-12), 200001)
+    # the subsonic branch of p + rho w^2 = P: w = m / rho1 behind the shock, V_s at the floor
+    w = (pm / m - np.sqrt((pm / m) ** 2 - 4.0 * gas * temps)) / 2.0
+    h = g / (g - 1.0) * gas * temps + 0.5 * w**2
+    mid = np.sqrt(temps[1:] * temps[:-1])
+    rho_mid = m / ((pm / m - np.sqrt((pm / m) ** 2 - 4.0 * gas * mid)) / 2.0)
+    xi = np.concatenate([[0.0], np.cumsum(-m * np.diff(h) / ((rho_mid / c.m) ** 2 * c.lam(mid)))])
+    rho_ode = m / w
+    print(f"   theory: V_s {vs:.6f}, dense layer rho {rho_d:.4f}, post-shock rho {rho1:.4f}, "
+          f"cooling layer {xi[-1]:.4f}")
+    its = sorted(int(f.name.split("-")[-2]) for f in work.glob("*-proc000000.h5"))
+    time_of = dict(zip(c.col["it"].astype(int), c.time, strict=True))  # the checkpoints' times, from the history
+
+    def front(x: np.ndarray, r: np.ndarray) -> float:
+        """Return the shock position on the left half, where rho crosses the mean of rho_0 and rho1."""
+        xl, rl = x[x < 0.5], r[x < 0.5]
+        thr = 0.5 * (rho0 + rho1)
+        i = int(np.argmax(rl > thr))
+        return float(xl[i - 1] + (thr - rl[i - 1]) * (xl[i] - xl[i - 1]) / (rl[i] - rl[i - 1]))
+
+    ok = True
+    times, dist = [], []
+    for it in its:
+        if it == 0 or time_of[it] < SHOCK_T_FIT:
+            continue
+        x, q = checkpoint_line(work, it, ngc)
+        times.append(time_of[it])
+        dist.append(0.5 - front(x, q["r"]))
+    speed = float(np.polyfit(times, dist, 1)[0])
+    err = abs(speed - vs) / vs
+    status = "PASS" if err <= TOL_SPEED and len(times) >= 3 else "FAIL"
+    ok &= status == "PASS"
+    print(f"   shock speed {speed:.6f} over {len(times)} checkpoints from t = {times[0]:.3f} to {times[-1]:.3f}: "
+          f"{err:.1e} relative (bound {TOL_SPEED:.0e})  {status}")
+    x, q = checkpoint_line(work, its[-1], ngc)
+    r = q["r"]
+    temp = (g - 1.0) * (q["rE"] - 0.5 * q["ru"] ** 2 / r) / (r * gas)
+    xs = front(x, r)
+    dx = float(x[1] - x[0])
+    layer = (x > xs) & (x - xs < xi[-1])
+    expected = np.interp(x[layer] - xs, xi, rho_ode)
+    l1 = float(np.sum(np.abs(r[layer] - expected)) / np.sum(expected))
+    status = "PASS" if l1 <= TOL_PROFILE else "FAIL"
+    ok &= status == "PASS"
+    print(f"   cooling layer: {layer.sum()} cells, density against the ODE {l1:.2e} L1 relative (bound "
+          f"{TOL_PROFILE:.0e})  {status}")
+    xl, rl = x[(x > xs) & (x < 0.5)], r[(x > xs) & (x < 0.5)]
+    i = int(np.argmax(rl > SHOCK_RHO_MARK))
+    mark = float(xl[i - 1] + (SHOCK_RHO_MARK - rl[i - 1]) * (xl[i] - xl[i - 1]) / (rl[i] - rl[i - 1])) - xs
+    mark_ode = float(np.interp(SHOCK_RHO_MARK, rho_ode, xi))
+    status = "PASS" if abs(mark - mark_ode) <= dx else "FAIL"
+    ok &= status == "PASS"
+    print(f"   rho = {SHOCK_RHO_MARK} at {mark:.5f} behind the shock, ODE {mark_ode:.5f}: "
+          f"{abs(mark - mark_ode) / dx:.2f} cells (bound 1)  {status}")
+    start = xs + xi[-1]
+    dense = (x > start) & (x < start + 0.5 * (0.5 - start))
+    rho_med, t_med = float(np.median(r[dense])), float(np.median(temp[dense]))
+    status = "PASS" if abs(rho_med / rho_d - 1.0) <= TOL_DENSE and abs(t_med / t1 - 1.0) <= TOL_DENSE else "FAIL"
+    ok &= status == "PASS"
+    print(f"   dense layer (outer half, {dense.sum()} cells): rho {rho_med:.4f} ({rho_med / rho_d - 1.0:+.1e}), "
+          f"T {t_med:.5f} ({t_med / t1 - 1.0:+.1e}) (bound {TOL_DENSE:.0e})  {status}")
+    return ok
+
+
 def main() -> int:
     """Run the requested check."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=("exact", "entropy", "same", "agree"))
+    ap.add_argument("mode", choices=("exact", "entropy", "same", "agree", "shock"))
     ap.add_argument("works", type=Path, nargs="+")
     ap.add_argument("--floor", action="store_true", help="exact: also check the floor")
     a = ap.parse_args()
@@ -204,8 +321,10 @@ def main() -> int:
         ok = entropy(a.works[0])
     elif a.mode == "same":
         ok = same(a.works[0], a.works[1])
-    else:
+    elif a.mode == "agree":
         ok = agree(a.works[0], a.works[1])
+    else:
+        ok = shock(a.works[0])
     print(f"CO {a.mode}: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

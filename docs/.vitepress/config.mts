@@ -178,6 +178,7 @@ export default withMermaid({
                         { text: 'Forward-facing step: a three-realm forest on quadtrees', link: '/applications/flume/verification/euler/forward-facing-step' },
                         { text: 'Dual energy: the advected entropy of euler-de', link: '/applications/flume/verification/euler/dual-energy' },
                         { text: 'Passive scalars', link: '/applications/flume/verification/euler/passive-scalars' },
+                        { text: 'Radiative cooling', link: '/applications/flume/verification/euler/radiative-cooling' },
                       ],
                     },
                     {

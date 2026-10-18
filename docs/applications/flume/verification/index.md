@@ -52,6 +52,7 @@ round trip): a setup table documents it better than a plot of a difference that 
 | [Forward-facing step: a three-realm forest on quadtrees](./euler/forward-facing-step) | EV-step | — ([#46](https://github.com/szaghi/adam/issues/46), quadtree AMR; [#66](https://github.com/szaghi/adam/issues/66)) | CPU, FNL (`trees` leg); CPU only (`full` leg) | yes |
 | [Dual energy: the advected entropy of euler-de](./euler/dual-energy) | DE | M9 ([#91](https://github.com/szaghi/adam/issues/91)) | CPU, FNL | yes |
 | [Passive scalars](./euler/passive-scalars) | PS | M10 ([#92](https://github.com/szaghi/adam/issues/92)) | CPU, FNL | yes |
+| [Radiative cooling](./euler/radiative-cooling) | CO | M11 ([#93](https://github.com/szaghi/adam/issues/93)) | CPU, FNL | yes |
 
 ## [Ideal MHD](./mhd/)
 

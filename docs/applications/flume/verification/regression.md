@@ -76,6 +76,7 @@ REGRESSION_CASES="sod-x rotor" src/tests/flume/regression/run.sh cpu --no-build
 | `selfgravity-star` | [the n = 1 polytrope](./self-gravity/polytrope), isolated boundaries, $16^3$ | [#81](https://github.com/szaghi/adam/issues/81) |
 | `selfgravity-star-amr` | [the n = 1 polytrope on AMR](./self-gravity/polytrope) (SV-14): isolated boundaries by the multigrid's James step, the star of radius 0.3 collapsing, the box refined over $32^3$, per-stage reflux, 20 steps | [#87](https://github.com/szaghi/adam/issues/87) |
 | `sod-ps` | [passive scalars](./euler/passive-scalars) (PS ps1): the `sod-x` shock tube with two scalars, 1 left and 0 right of the diaphragm | [#92](https://github.com/szaghi/adam/issues/92) |
+| `radiative-shock` | [radiative cooling](./euler/radiative-cooling) (CO co7): two streams at the cooling floor $T = 0.1$ collide, 100 cells to $t = 1$, $\Lambda = 0.18\,(T/0.1)^{1.5}$: the shock heating, the cooling layer, the dense layer | [#93](https://github.com/szaghi/adam/issues/93) |
 | `noh-de` | [dual energy](./euler/dual-energy) (DE de2): the cold planar Noh shock, Mach 845, with `physical_model = euler-de`, 50 cells, $t = 0.6$; every cell starts cold, so the entropy floor acts every step | [#91](https://github.com/szaghi/adam/issues/91) |
 
 The self-gravity goldens agree across the backends to $9\cdot10^{-14}$ relative in the volume integrals and $E + W$,

@@ -1875,6 +1875,106 @@ def fig_passive_scalars(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_radiative_cooling(out: Path, runs: Path) -> None:
+    """CO (issue #93): radiative cooling (CPU, 2 ranks). Top left: the uniform box from T = 5 (cooling/check.sh co1),
+    the temperature of every step against the isochoric ODE (Gauss-Legendre quadrature, co_oracle.py), the table's
+    nodes dotted. Top right: the relative error of the CFL-step run and of the dt_factor 0.01 run, round-off. Bottom
+    left: the radiative shock (co7) at t = 3, density and temperature against the steady cooling layer of the ODE
+    aligned at the shock, the dense layer rho_d and the floor T_1 dashed. Bottom right: the distance of the shock from
+    the centre against time, the line of slope V_s (the isothermal jump at T_1) through the last point."""
+    sys.path.insert(0, str(HERE / "cooling"))
+    import co_oracle  # noqa: PLC0415
+
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    box = co_oracle.Case(runs / "co-box")
+    t0, rho = float(box.temperature[0]), float(box.r[0])
+    t_floor = box.cooling_time_to(t0, rho, float(box.t_nodes[0]))
+    grid = np.linspace(0.0, min(float(box.time[-1]), t_floor), 300)
+    axs[0, 0].plot(grid, [box.temperature_at(t0, rho, float(t)) for t in grid], "-", color="0.5", lw=2.0,
+                   label="ODE (quadrature)")
+    every = max(1, box.time.size // 60)
+    axs[0, 0].plot(box.time[::every], box.temperature[::every], "o", ms=3, label="run (every %d steps)" % every)
+    for tn in box.t_nodes:
+        axs[0, 0].axhline(tn, color="0.7", ls=":", lw=0.8)
+    axs[0, 0].set_yscale("log")
+    axs[0, 0].set_xlabel("t")
+    axs[0, 0].set_ylabel("T")
+    axs[0, 0].set_title("the uniform box from T = 5: through the extension and the three segments", fontsize=10)
+    axs[0, 0].legend(fontsize=8)
+    for name, label in (("co-box", "CFL step, from T = 5"), ("co-limited", "dt_factor 0.01, from T = 1")):
+        c = co_oracle.Case(runs / name)
+        t0, rho = float(c.temperature[0]), float(c.r[0])
+        before = c.time < c.cooling_time_to(t0, rho, float(c.t_nodes[0])) * (1.0 - 1.0e-9)
+        oracle = np.array([c.temperature_at(t0, rho, float(t)) for t in c.time[before]])
+        axs[0, 1].semilogy(c.time[before], np.maximum(np.abs(c.temperature[before] / oracle - 1.0), FLOOR), "-",
+                           lw=0.8, label=label)
+    axs[0, 1].axhline(co_oracle.TOL_T, color="tab:red", ls="--", lw=0.8, label="bound")
+    axs[0, 1].set_xlabel("t")
+    axs[0, 1].set_ylabel("|T / T_ODE - 1|")
+    axs[0, 1].set_ylim(FLOOR, 1.0e-10)
+    axs[0, 1].set_title("Townsend's exact integration: round-off at any step", fontsize=10)
+    axs[0, 1].legend(fontsize=8)
+    work = runs / "co-shock"
+    c = co_oracle.Case(work)
+    ini = _ini(work)
+    ngc = int(ini["grid"]["ngc"])
+    reg = ini["initial_conditions_region_1"]
+    rho0, u0, p0 = float(reg["r"]), float(reg["u"]), float(reg["p"])
+    g, gas, t1 = c.gamma, c.R, float(c.t_nodes[0])
+    vs = (-u0 + np.sqrt(u0**2 + 4.0 * gas * t1)) / 2.0
+    m, pm = rho0 * (u0 + vs), rho0 * (u0 + vs) ** 2 + p0
+    mach2 = (u0 + vs) ** 2 / (g * p0 / rho0)
+    rho1 = rho0 * (g + 1.0) * mach2 / ((g - 1.0) * mach2 + 2.0)
+    p1 = p0 * (2.0 * g * mach2 - (g - 1.0)) / (g + 1.0)
+    temps = np.geomspace(p1 / (rho1 * gas), t1 * (1.0 + 1.0e-12), 200001)
+    w = (pm / m - np.sqrt((pm / m) ** 2 - 4.0 * gas * temps)) / 2.0
+    mid = np.sqrt(temps[1:] * temps[:-1])
+    rho_mid = m / ((pm / m - np.sqrt((pm / m) ** 2 - 4.0 * gas * mid)) / 2.0)
+    h = g / (g - 1.0) * gas * temps + 0.5 * w**2
+    xi = np.concatenate([[0.0], np.cumsum(-m * np.diff(h) / ((rho_mid / c.m) ** 2 * c.lam(mid)))])
+    its = sorted(int(f.name.split("-")[-2]) for f in work.glob("*-proc000000.h5"))
+    time_of = dict(zip(c.col["it"].astype(int), c.time, strict=True))
+
+    def front(x: np.ndarray, r: np.ndarray) -> float:
+        xl, rl = x[x < 0.5], r[x < 0.5]
+        thr = 0.5 * (rho0 + rho1)
+        i = int(np.argmax(rl > thr))
+        return float(xl[i - 1] + (thr - rl[i - 1]) * (xl[i] - xl[i - 1]) / (rl[i] - rl[i - 1]))
+
+    x, q = co_oracle.checkpoint_line(work, its[-1], ngc)
+    temp = (g - 1.0) * (q["rE"] - 0.5 * q["ru"] ** 2 / q["r"]) / (q["r"] * gas)
+    xs = front(x, q["r"])
+    ax = axs[1, 0]
+    ax.plot(x, q["r"], "o", ms=3, label="density")
+    ax.plot(xs + xi, m / w, "-", color="0.4", lw=1.2, label="ODE cooling layer")
+    ax.axhline(m / vs, color="0.6", ls="--", lw=0.8, label=f"rho_d = {m / vs:.2f}")
+    ax.set_xlim(xs - 0.05, 0.52)
+    ax.set_xlabel("x")
+    ax.set_ylabel("rho")
+    ax2 = ax.twinx()
+    ax2.plot(x, temp, "s", ms=2, color="tab:red", label="temperature")
+    ax2.plot(xs + xi, temps, "-", color="tab:red", lw=0.8, alpha=0.6)
+    ax2.axhline(t1, color="tab:red", ls="--", lw=0.6)
+    ax2.set_ylabel("T", color="tab:red")
+    ax.legend(fontsize=8, loc="center right")
+    ax.set_title(f"the radiative shock at t = {time_of[its[-1]]:.1f}: the layer of 20 cells, the dense layer", fontsize=10)
+    times, dist = [], []
+    for it in its[1:]:
+        xx, qq = co_oracle.checkpoint_line(work, it, ngc)
+        times.append(time_of[it])
+        dist.append(0.5 - front(xx, qq["r"]))
+    times, dist = np.array(times), np.array(dist)
+    axs[1, 1].plot(times, dist, "o", ms=4, label="shock distance from the centre")
+    axs[1, 1].plot(times, dist[-1] + vs * (times - times[-1]), "--", color="0.5", label=f"slope V_s = {vs:.4f}")
+    axs[1, 1].axvline(co_oracle.SHOCK_T_FIT, color="0.7", ls=":", lw=0.8)
+    axs[1, 1].set_xlabel("t")
+    axs[1, 1].legend(fontsize=8)
+    axs[1, 1].set_title("the structure settles after t ~ 1 and moves at V_s (fit from the dotted line)", fontsize=10)
+    fig.suptitle("CO: optically thin radiative cooling (CPU, 2 ranks)")
+    fig.savefig(out / "radiative-cooling.png", dpi=DPI)
+    plt.close(fig)
+
+
 def _ini(work: Path) -> configparser.ConfigParser:
     """Read the input.ini of a run."""
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
@@ -3120,6 +3220,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-star-regrid": fig_selfgravity_star_regrid,
            "dual-energy": fig_dual_energy,
            "passive-scalars": fig_passive_scalars,
+           "radiative-cooling": fig_radiative_cooling,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
            "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,

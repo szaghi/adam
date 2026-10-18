@@ -79,6 +79,8 @@
 #                            0.3, the box [-1/2,1/2]^3 refined over 32^3, per-stage reflux, 20 steps (#87)
 #   sod-ps                   passive scalars: sod-x with passive_scalars = 2, s1 = s2 = 1 left and 0 right (#92, P3);
 #                            per-backend goldens
+#   radiative-shock          radiative cooling: two streams at the cooling floor collide, 100 cells to t = 1, Lambda =
+#                            0.18 (T / 0.1)^1.5 (#93, P3); per-backend goldens
 #   noh-de                   dual energy: the cold planar Noh shock (Mach 845) with physical_model = euler-de, 50 cells,
 #                            t = 0.6: the advected entropy and its floor, which acts every step (#91, P4); per-backend
 #                            goldens

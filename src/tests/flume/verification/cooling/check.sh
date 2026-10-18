@@ -22,9 +22,14 @@
 #        rho0 L0^3, the node lists value by value) runs bitwise as the code-units box (powers of two convert exactly);
 #   co6  (P2) CPU and FNL agree on the co1 CFL and co4 euler-de runs (run co1 and co4 with each first): the same steps,
 #        every row's time, temperature and radiated energy within 1e-12 relative (a uniform box: the runs without
-#        cooling agree bitwise, so the AV av8 floor, 1e-10, is tightened to the oracle's 1e-12).
+#        cooling agree bitwise, so the AV av8 floor, 1e-10, is tightened to the oracle's 1e-12);
+#   co7  (P3) the radiative shock (make_co.py --case shock): two streams rho = 1, u = -+1 at the floor T_1 = 0.1 collide
+#        at x = 0.5 on 400 cells, Lambda = 0.18 (T / T_1)^1.5, to t = 3; against its steady structure (co_oracle.py
+#        shock): the shock speed V_s = 0.0916 of the isothermal jump at T_1 within 1 %, the cooling layer's density
+#        against the steady ODE within 5 % (L1) and its rho = 6 point within one cell, the dense layer rho_d = 11.92 and
+#        T_1 within 2 %.
 #
-# Usage: ./check.sh [--legs LIST]   (legs co1 co2 co3 co4 co5 co6, all; default co1 to co5)
+# Usage: ./check.sh [--legs LIST]   (legs co1 co2 co3 co4 co5 co6 co7, all; default all but co6)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu); the caller owns the matching environment.
 set -euo pipefail
@@ -35,7 +40,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "co1 co2 co3 co4 co5 co6" "co1 co2 co3 co4 co5"
+legs_declare "co1 co2 co3 co4 co5 co6 co7" "co1 co2 co3 co4 co5 co7"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -147,6 +152,10 @@ for leg in $LEGS; do
                echo "   missing a run: run co1 and co4 with both executables first" ; FAILED=1
             fi
          done ;;
+      co7)
+         echo "-- co7: the radiative shock"
+         make_case co7-shock --case shock
+         run_oracle "$W" shock "$W" ;;
    esac
 done
 if [[ $FAILED -ne 0 ]]; then echo "CO FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi

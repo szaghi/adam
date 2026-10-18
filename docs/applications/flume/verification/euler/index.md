@@ -22,6 +22,7 @@ golden; the goldens of the regression suite are listed in each page's header.
 | [Forward-facing step](./forward-facing-step) | EV-step | a three-realm forest on quadtrees against octrees; the Woodward–Colella step at $t = 4$ |
 | [Dual energy: the advected entropy of euler-de](./dual-energy) | DE | `euler-de` changes nothing where no cell is cold (Sod bitwise) and keeps a cold Noh shock heated |
 | [Passive scalars](./passive-scalars) | PS | up to four scalars that do not act on the flow, are conserved, and stay uniform through runtime AMR |
+| [Radiative cooling](./radiative-cooling) | CO | optically thin cooling by Townsend's exact integration: the isochoric ODE to round-off, the floor, a radiative shock against its steady structure |
 
 The figures are drawn by `src/tests/flume/verification/make_doc_figures.py` from the work directories that the
 `check.sh` scripts leave behind (the step's with `--keep`):
