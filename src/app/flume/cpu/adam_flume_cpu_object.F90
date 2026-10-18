@@ -2113,7 +2113,7 @@ contains
 
    sums = 0._R8P
    associate(q=>self%q, gamma=>self%physics%gamma, eta=>self%physics%dual_energy_eta, dxyz=>self%adam%field%dxyz)
-   !$omp parallel do collapse(4) default(firstprivate) shared(q, dxyz) reduction(+:sums)
+   !$omp parallel do collapse(4) default(shared) private(b, i, j, k, ke, e, p, e_new) reduction(+:sums)
    do b=1, self%blocks_number
       do k=1, self%nk
          do j=1, self%nj
