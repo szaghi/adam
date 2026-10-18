@@ -3,7 +3,7 @@ module adam_amr_object
 !< ADAM, AMR markers class definition, CPU backend.
 
 ! ADAM classes, libraries, parameters
-use :: adam_parameters, only : AMR_PROLONGATION_LINEAR, AMR_PROLONGATION_CONSERVATIVE
+use :: adam_parameters, only : AMR_PROLONGATION_LINEAR, AMR_PROLONGATION_CONSERVATIVE, AMR_PROLONGATION_CONSERVATIVE_STATE
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
@@ -145,9 +145,10 @@ contains
       select case(trim(adjustl(buff_c)))
       case('linear')       ; self%regrid_prolongation = AMR_PROLONGATION_LINEAR
       case('conservative') ; self%regrid_prolongation = AMR_PROLONGATION_CONSERVATIVE
+      case('conservative-state') ; self%regrid_prolongation = AMR_PROLONGATION_CONSERVATIVE_STATE
       case default
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(regrid_prolongation) "'//trim(adjustl(buff_c))//&
-                                  '" (expected: linear | conservative)')
+                                  '" (expected: linear | conservative | conservative-state)')
       endselect
    endif
 
@@ -254,6 +255,7 @@ contains
    select case(prolongation)
    case(AMR_PROLONGATION_LINEAR)       ; name = 'linear'
    case(AMR_PROLONGATION_CONSERVATIVE) ; name = 'conservative'
+   case(AMR_PROLONGATION_CONSERVATIVE_STATE) ; name = 'conservative-state'
    case default                        ; name = 'unknown'
    endselect
    endfunction prolongation_name

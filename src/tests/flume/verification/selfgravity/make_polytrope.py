@@ -21,6 +21,7 @@ The mean density of the star is 3 rho_c / pi^2, so its free-fall time is t_ff = 
 Usage:
     make_polytrope.py <out.ini> <case> [--cells N] [--levels L] [--cfl C] [--time-max T] [--it-save N]
                       [--box] [--regrid N] [--boundary-box] [--reflux-cadence step|stage]
+                      [--prolongation linear|conservative|conservative-state]
 
 `--cells` sets the cells per block side (default 8), `--levels` the uniform levels (default 2): the grid is
 N 2^L cells per side (32^3 by default). `--radius` sets the star's radius a (default 1/2; K = 2 G a^2 / pi follows).
@@ -32,7 +33,8 @@ refining one level more (the star's surface), at most `levels + 1`, with the atm
 estimator's noise floor (without it the estimator marks the atmosphere's kink at the walls, whose mirror ghosts fold
 its hydrostatic profile, and refines boundary blocks); `--boundary-box` adds the box [1/2, 1]^3, which
 touches the domain boundary, to the regrid's markers (not at the start): the first regrid refines a boundary block,
-which must stop the run (D-87-4).
+which must stop the run (D-87-4). `--prolongation` writes `[amr] regrid_prolongation` (absent: FLUME's default,
+`conservative`); `conservative-state` keeps the runtime-AMR collapse admissible (issue #88).
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ BOX = 0.5  # the refined box of --box: [-BOX, BOX]^3, block-aligned from level 2
 
 def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | None, it_save: int,
              atmosphere: float, limiter: bool, box: bool = False, regrid: int = 0, boundary_box: bool = False,
-             reflux_cadence: str | None = None, radius: float = RADIUS) -> str:
+             reflux_cadence: str | None = None, radius: float = RADIUS, prolongation: str | None = None) -> str:
     """Return the INI of a case."""
     k = 2.0 * G * radius**2 / math.pi
     t_end = time_max if time_max is not None else {"star": 4.0, "starc": 1.5}[case]
@@ -76,6 +78,8 @@ def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | N
     amr = ["[amr]", f"max_level = {levels + 1 if markers else levels}", "ratio = 8", f"iu_ref_levels = {levels}",
            "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", f"frequency = {regrid}", "iters = 1",
            f"markers_number = {len(markers)}"]
+    if prolongation is not None:
+        amr.append(f"regrid_prolongation = {prolongation}")
     for m, marker in enumerate(markers, start=1):
         amr += [f"[amr_marker_{m}]", *marker]
     lines = [
@@ -132,12 +136,14 @@ def main() -> int:
     parser.add_argument("--reflux-cadence", choices=("step", "stage"), default=None)
     parser.add_argument("--radius", type=float, default=RADIUS,
                         help="star radius (default 1/2); with --box keep it below 1/2, the 2:1 seam off the surface")
+    parser.add_argument("--prolongation", choices=("linear", "conservative", "conservative-state"), default=None,
+                        help="[amr] regrid_prolongation (default: absent, FLUME's conservative; issue #88)")
     args = parser.parse_args()
     if args.boundary_box and not args.regrid:
         parser.error("--boundary-box needs --regrid (the marker acts at the regrids)")
     args.out.write_text(case_ini(args.case, args.cells, args.levels, args.cfl, args.time_max, args.it_save,
                                  args.atmosphere, args.limiter, args.box, args.regrid, args.boundary_box,
-                                 args.reflux_cadence, args.radius))
+                                 args.reflux_cadence, args.radius, args.prolongation))
     return 0
 
 

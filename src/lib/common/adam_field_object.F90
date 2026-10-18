@@ -164,6 +164,7 @@ type :: field_object
       procedure, pass(self), private :: refine2D           !< Refine blocks, 2D.
       procedure, pass(self), private :: refine3D           !< Refine blocks, 3D.
       procedure, pass(self), private :: refine_conservative !< Refine blocks, conservative limited prolongation.
+      procedure, pass(self), private :: refine_conservative_state !< Refine blocks, conservative, limited per state.
       procedure, pass(self), private :: update_coordinates !< Update coordinates using the updated data in maps.
 endtype field_object
 
@@ -173,8 +174,10 @@ contains
    !< Adapt field accordingly to refine/derefine necessity.
    !<
    !< `prolongation` selects how a refined block's children are filled: `AMR_PROLONGATION_LINEAR` (default, tensor
-   !< linear interpolation, not conservative) or `AMR_PROLONGATION_CONSERVATIVE` (limited linear slopes whose children
-   !< average to the parent, issue #74 D-M5-2). Derefinement is the mean of the children in both cases.
+   !< linear interpolation, not conservative), `AMR_PROLONGATION_CONSERVATIVE` (limited linear slopes whose children
+   !< average to the parent, issue #74 D-M5-2) or `AMR_PROLONGATION_CONSERVATIVE_STATE` (the linear interpolation with
+   !< its mean removed and one range limit for the whole state, issue #88). Derefinement is the mean of the children in
+   !< every case.
    class(field_object),           intent(inout)        :: self         !< The field.
    type(grid_object),             intent(in)           :: grid         !< Grid (sibling realm component, threaded in).
    type(refinement_plan_object),  intent(in)           :: plan         !< Refinement plan produced by tree%adapt.
@@ -189,9 +192,14 @@ contains
    prolongation_ = AMR_PROLONGATION_LINEAR ; if (present(prolongation)) prolongation_ = prolongation
    select case(prolongation_)
    case(AMR_PROLONGATION_LINEAR)
-   case(AMR_PROLONGATION_CONSERVATIVE)
-      call self%refine_conservative(grid=grid, ratio=plan%ratio, block_to_refine=plan%block_to_refine, &
-                                    block_refined=plan%block_refined, q=q)
+   case(AMR_PROLONGATION_CONSERVATIVE, AMR_PROLONGATION_CONSERVATIVE_STATE)
+      if (prolongation_ == AMR_PROLONGATION_CONSERVATIVE) then
+         call self%refine_conservative(grid=grid, ratio=plan%ratio, block_to_refine=plan%block_to_refine, &
+                                       block_refined=plan%block_refined, q=q)
+      else
+         call self%refine_conservative_state(grid=grid, ratio=plan%ratio, block_to_refine=plan%block_to_refine, &
+                                             block_refined=plan%block_refined, q=q)
+      endif
       select case(plan%ratio)
       case(2_I4P)
          call self%derefine1D(grid=grid, ratio=plan%ratio, block_to_derefine=plan%block_to_derefine, &
@@ -1876,6 +1884,166 @@ contains
    endif
    endassociate
    endsubroutine refine_conservative
+
+   subroutine refine_conservative_state(self, grid, ratio, block_to_refine, block_refined, q)
+   !< Refine blocks by a conservative linear prolongation limited for the whole state (issue #88).
+   !<
+   !< Each parent cell is split along the refined axes (ratio 2: i; 4: i, j; 8: i, j, k) into children set to
+   !< `q + theta * (L_c - <L>)`. `L_c - q` is the tensor-linear interpolation at the child's centre of the differences
+   !< from the parent (weights 3/4 and 1/4 per refined axis, from the parent and its neighbours on the child's side), and
+   !< `<L>` the mean of `L_c` over the children: the offsets cancel, so the children's mean is the parent, the mean
+   !< restriction of `derefine*D` undoes this prolongation, and the discrete integral sum(q dV) is unchanged, to round-off.
+   !< `theta` in [0, 1], one for all the variables of the parent cell, keeps every child within the range of the parent
+   !< and its 3^d neighbours, variable by variable, so a variable positive there stays positive. Linear data are
+   !< reproduced exactly (`L_c` is exact and `<L> = q`, so `theta = 1`).
+   !<
+   !< Why one scaling for the whole state: `L_c` mixes the coarse states with positive weights, the same for every
+   !< variable, and one `theta` scales the result. `refine_conservative` limits each variable by its own slope: after a
+   !< regrid of an under-resolved collapsing star its coldest cells keep cooling, a supersonic infall develops and the
+   !< collapse drains one to e < 0 (issue #88); with this form they recover and the run ends. The price is accuracy on
+   !< smooth flow: an extremum of any one variable in the neighbourhood (a vortex core) scales the offsets of every
+   !< variable down, so the tracked vortex of the FLUME verification (AV, av2) misses its bound; hence an option, not
+   !< the default. The mean over the children is summed pairwise along the axes, so a mirror-symmetric field gives
+   !< mirror-symmetric children.
+   !< Like the linear prolongation, it reads the parent's first ghost layer (edges and corners included), which the
+   !< caller must have refreshed.
+   !<
+   !< Note: blocks number is not updated: mpi redistribute does it.
+   class(field_object),       intent(inout) :: self                 !< The field.
+   type(grid_object),         intent(in)    :: grid                 !< Grid (sibling realm component, threaded in).
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio, 2, 4 or 8.
+   integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of blocks to be refined.
+   integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
+   real(R8P),                 intent(inout) :: q(1:,          &
+                                                 1-grid%ngc:, &
+                                                 1-grid%ngc:, &
+                                                 1-grid%ngc:, &
+                                                 1:)            !< Field cell centered variables.
+   real(R8P), parameter                     :: W(0:1) = [0.75_R8P, 0.25_R8P] !< Linear weights, own and next cell.
+   real(R8P)                                :: offset(size(q, dim=1),8) !< Child offsets from the parent.
+   real(R8P)                                :: mean(size(q, dim=1))     !< Mean of the linear offsets.
+   real(R8P)                                :: q_min(size(q, dim=1))    !< Minimum over the parent and its neighbours.
+   real(R8P)                                :: q_max(size(q, dim=1))    !< Maximum over the parent and its neighbours.
+   real(R8P)                                :: theta                    !< Range scaling of the offsets, in [0, 1].
+   real(R8P)                                :: wt                       !< Weight of a coarse cell.
+   integer(I4P)                             :: nd                   !< Number of refined axes.
+   integer(I4P)                             :: nc                   !< Children per parent cell.
+   integer(I4P)                             :: n(3)                 !< Cells per axis.
+   integer(I4P)                             :: lo(3), hi(3)         !< Parent cells covered by a child.
+   integer(I4P)                             :: s_hi(3)              !< Highest sub-cell per axis, 1 refined, 0 not.
+   integer(I4P)                             :: c(3), cc(3), sg(3)   !< Parent cell, a coarse cell, child side per axis.
+   integer(I4P)                             :: f(3)                 !< First child cell of the parent cell.
+   integer(I4P)                             :: b, ib, ic, ic_local  !< Counters.
+   integer(I4P)                             :: i, j, k, d, ch, v    !< Counters.
+   integer(I4P)                             :: si, sj, sk           !< Sub-cell counters.
+   integer(I4P)                             :: a1, a2, a3           !< Coarse cell counters, 0 own, 1 next.
+   integer(I4P)                             :: ii, jj, kk           !< Neighbourhood counters.
+
+   nd = 1_I4P ; if (ratio == 4_I4P) nd = 2_I4P ; if (ratio == 8_I4P) nd = 3_I4P
+   nc = 2_I4P**nd
+   n = [grid%ni, grid%nj, grid%nk]
+   s_hi = 0_I4P ; s_hi(1:nd) = 1_I4P
+   associate(q_work=>self%q_work)
+   if (allocated(block_to_refine)) then
+      do b=1, size(block_to_refine, dim=2)
+         if (mpih%myrank /= block_to_refine(2,b)) cycle
+         ib = block_to_refine(1,b)
+
+         q_work(:,:,:,:,ib) = q(:,:,:,:,ib)
+
+         do ic_local=1, ratio
+            ic = block_refined(2,(b-1)*ratio+ic_local)
+            self%code(ic) = block_refined(1,(b-1)*ratio+ic_local)
+            lo = 1_I4P ; hi = n
+            do d=1, nd
+               lo(d) = 1 + n(d) / 2 * mod((ic_local - 1) / 2**(d - 1), 2)
+               hi(d) = lo(d) - 1 + n(d) / 2
+            enddo
+            do k=lo(3), hi(3)
+               do j=lo(2), hi(2)
+                  do i=lo(1), hi(1)
+                     c = [i, j, k]
+                     ! linear offsets of the children
+                     ch = 0_I4P
+                     do sk=0, s_hi(3)
+                        do sj=0, s_hi(2)
+                           do si=0, s_hi(1)
+                              ch = ch + 1_I4P
+                              sg = [2*si - 1, 2*sj - 1, 2*sk - 1] * s_hi
+                              offset(:,ch) = 0._R8P
+                              do a3=0, s_hi(3)
+                                 do a2=0, s_hi(2)
+                                    do a1=0, s_hi(1)
+                                       if (a1 + a2 + a3 == 0) cycle
+                                       wt = 1._R8P
+                                       if (s_hi(1) == 1_I4P) wt = wt * W(a1)
+                                       if (s_hi(2) == 1_I4P) wt = wt * W(a2)
+                                       if (s_hi(3) == 1_I4P) wt = wt * W(a3)
+                                       cc = c + [a1, a2, a3] * sg
+                                       offset(:,ch) = offset(:,ch) + wt * (q_work(:,cc(1),cc(2),cc(3),ib) - &
+                                                                           q_work(:,i,j,k,ib))
+                                    enddo
+                                 enddo
+                              enddo
+                           enddo
+                        enddo
+                     enddo
+                     ! their mean, summed pairwise along the axes, removed
+                     select case(nd)
+                     case(1)
+                        mean = 0.5_R8P * (offset(:,1) + offset(:,2))
+                     case(2)
+                        mean = 0.25_R8P * ((offset(:,1) + offset(:,2)) + (offset(:,3) + offset(:,4)))
+                     case(3)
+                        mean = 0.125_R8P * (((offset(:,1) + offset(:,2)) + (offset(:,3) + offset(:,4))) + &
+                                            ((offset(:,5) + offset(:,6)) + (offset(:,7) + offset(:,8))))
+                     endselect
+                     do ch=1, nc
+                        offset(:,ch) = offset(:,ch) - mean
+                     enddo
+                     ! one scaling for all the variables: every child in the range of the 3^d neighbourhood
+                     q_min = q_work(:,i,j,k,ib)
+                     q_max = q_min
+                     do kk=k-s_hi(3), k+s_hi(3)
+                        do jj=j-s_hi(2), j+s_hi(2)
+                           do ii=i-s_hi(1), i+s_hi(1)
+                              q_min = min(q_min, q_work(:,ii,jj,kk,ib))
+                              q_max = max(q_max, q_work(:,ii,jj,kk,ib))
+                           enddo
+                        enddo
+                     enddo
+                     theta = 1._R8P
+                     do ch=1, nc
+                        do v=1, size(q, dim=1)
+                           if (offset(v,ch) > 0._R8P) then
+                              theta = min(theta, (q_max(v) - q_work(v,i,j,k,ib)) / offset(v,ch))
+                           elseif (offset(v,ch) < 0._R8P) then
+                              theta = min(theta, (q_min(v) - q_work(v,i,j,k,ib)) / offset(v,ch))
+                           endif
+                        enddo
+                     enddo
+                     theta = max(theta, 0._R8P)
+                     f = c
+                     do d=1, nd
+                        f(d) = mod(c(d) - 1, n(d) / 2) * 2 + 1
+                     enddo
+                     ch = 0_I4P
+                     do sk=0, s_hi(3)
+                        do sj=0, s_hi(2)
+                           do si=0, s_hi(1)
+                              ch = ch + 1_I4P
+                              q(:,f(1)+si,f(2)+sj,f(3)+sk,ic) = q_work(:,i,j,k,ib) + theta * offset(:,ch)
+                           enddo
+                        enddo
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   endif
+   endassociate
+   endsubroutine refine_conservative_state
 
    subroutine update_coordinates(self, maps, tree)
    !< Update coordinates using the updated data in maps (that in turn is updated by tree).

@@ -5,12 +5,12 @@
 # and boundary maps, the device copies, the grid-dependent state) must follow, and a regrid must not change the
 # conserved integrals. The legs grow with the phases of #74:
 #   rg0  (P0, P1) the library regrid round trip, tests/amr/test_amr_regrid_roundtrip on 1, 2 and 3 ranks: refine a
-#        block, derefine it back, with the linear and the conservative prolongation; the leaves and the blocks summed
-#        over the ranks consistent;
+#        block, derefine it back, with the linear and the two conservative prolongations; the leaves and the blocks
+#        summed over the ranks consistent;
 #   rg1  (P0, P2) the [amr] frequency contract on the sod-x regression input: 0 runs (no runtime regridding), a
 #        negative value is fatal, n > 0 without markers is fatal (nothing would mark a block), each with its message;
 #   rg2  (P1) the [amr] regrid_prolongation contract on sod-x: absent resolves to conservative (the FLUME default),
-#        linear and conservative are taken as given, any other value is refused;
+#        linear, conservative and conservative-state (#88) are taken as given, any other value is refused;
 #   rg3  (P2) conservation through regrids: the isentropic vortex travelling across a periodic quadtree, a Loehner
 #        marker on the density, a regrid every 5 steps, reflux on (make_regrid.py vortex). The grid must refine and
 #        derefine during the run, and with the conservative prolongation every volume integral must stay constant to
@@ -116,7 +116,7 @@ for leg in $LEGS; do
          done ;;
       rg2)
          base="$REPO_ROOT/src/tests/flume/regression/sod-x/input.ini"
-         for p in absent linear conservative bogus; do
+         for p in absent linear conservative conservative-state bogus; do
             echo "-- rg2: [amr] regrid_prolongation = $p"
             work="$CASE_DIR/work-$TAG-prolongation-$p" ; rm -rf "$work" ; mkdir -p "$work"
             if [[ "$p" == absent ]]; then

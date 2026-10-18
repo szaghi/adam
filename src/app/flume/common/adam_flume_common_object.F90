@@ -1805,7 +1805,8 @@ contains
    !< marker reading more ghost layers than the stencil has (`buffer <= ngc - 1`) and an STL geometry marker.
    !<
    !< `[amr] regrid_prolongation` defaults to `conservative` in FLUME (owner decision D-M5-2): a regrid then keeps the
-   !< conserved integrals; the library default, `linear`, is kept only when the input asks for it.
+   !< conserved integrals; the library default, `linear`, is kept only when the input asks for it, and so is
+   !< `conservative-state` (one limit for the whole state, for collapsing self-gravitating flows, issue #88).
    class(flume_common_object), intent(inout) :: self     !< The equation.
    integer(I4P)                              :: i_marker !< Counter.
 

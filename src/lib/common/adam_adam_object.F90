@@ -88,7 +88,7 @@ contains
    !< Note: only if the AMR is UNIFORM and GLOBALLY made by tree, i.e. using mark_all_nodes, the mpi_redistribute can be avoided,
    !< otherwise mpi_gather_refinement_nedeed is not safe (having wrong nodes number counters).
    !< Note: `prolongation` selects how refined blocks are filled (`field_object%adapt`): AMR_PROLONGATION_LINEAR
-   !< (default) or AMR_PROLONGATION_CONSERVATIVE (issue #74).
+   !< (default), AMR_PROLONGATION_CONSERVATIVE (issue #74) or AMR_PROLONGATION_CONSERVATIVE_STATE (issue #88).
    class(adam_object), intent(inout)         :: self                 !< ADAM.
    real(R8P),          intent(inout)         :: q(1:,              &
                                                   1-self%grid%ngc:,&

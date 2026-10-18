@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| SV-7, SV-8, SV-14 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4; [#87](https://github.com/szaghi/adam/issues/87), P3, P4 | CPU, FNL | yes | `selfgravity-star`, `selfgravity-star-amr` |
+| SV-7, SV-8, SV-14, SV-15 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4; [#87](https://github.com/szaghi/adam/issues/87), P3, P4; [#88](https://github.com/szaghi/adam/issues/88) | CPU, FNL | yes | `selfgravity-star`, `selfgravity-star-amr` |
 
 ## Case and scope
 
@@ -50,6 +50,7 @@ What the case catches:
 | SV-14, equilibrium | as SV-7 (atmosphere $10^{-4}\rho_c$, limiter `cell`, to $t = 2$), on the AMR grid and on the uniform $32^3$ grid |
 | SV-14, collapse | as SV-8 (atmosphere $10^{-2}\rho_c$, no limiter, to $t = 1.5$, CFL 0.4, 0.2, 0.1) on the AMR grid with `reflux_cadence = stage` |
 | SV-14, refusal | `starc --regrid 2 --boundary-box`: a runtime marker on $[1/2, 1]^3$, at the boundary; the first regrid refines a boundary block |
+| SV-15, runtime-AMR collapse | `starc --radius 0.3 --reflux-cadence stage --regrid 5`: the SV-14 star on the uniform $32^3$ base (4.8 cells per radius), atmosphere $10^{-2}\rho_c$, no limiter, to $t = 1.5$; a regrid every 5 steps by a Löhner marker on the density (one level more, the atmosphere's density as its floor), the first one refining the 8 inner blocks; `regrid_prolongation = conservative-state`, and the default `conservative` reported |
 | Regression `selfgravity-star` | `star --levels 1`: $16^3$ (2×2×2 blocks of $8^3$), atmosphere $10^{-2}\rho_c$, no limiter, 20 steps |
 | Regression `selfgravity-star-amr` | `starc --radius 0.3 --box --reflux-cadence stage`: SV-14's collapse, 120 blocks of $8^3$, 20 steps |
 
@@ -58,14 +59,15 @@ What the case catches:
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/selfgravity/make_polytrope.py` | writes `star` and `starc` (`--cells`, `--levels`, `--cfl`, `--time-max`, `--it-save`, `--atmosphere`, `--limiter`; on AMR `--radius`, `--box`, `--regrid`, `--boundary-box`, `--reflux-cadence`) |
-| `src/tests/flume/verification/selfgravity/star.sh` | runs the legs `sv7`, `sv8`, `sv14` (`--np N`, `--legs LIST`, `--keep`; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/selfgravity/star.sh` | runs the legs `sv7`, `sv8`, `sv14`, `sv15` (`--np N`, `--legs LIST`, `--keep`; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/selfgravity/star_oracle.py` | `convergence` (SV-7): the drifts on two grids and their reduction |
 | `src/tests/flume/verification/selfgravity/jeans_oracle.py` | `conservation` (SV-8): $E + W$ against $\Delta t$, the momentum |
 | `src/tests/flume/regression/selfgravity-star/input.ini` | the frozen equilibrium at $16^3$, 20 steps |
 | `src/tests/flume/regression/selfgravity-star-amr/input.ini` | the frozen SV-14 collapse on AMR, 20 steps ([#87](https://github.com/szaghi/adam/issues/87) P4) |
 | `src/tests/flume/verification/make_doc_runs.sh`, group `isolated` | `sv7-l{2,3}`, `sv8-collapse-{0.4,0.2,0.1}` (a checkpoint every 10 steps); needs `exe/adam_flume_cpu_fft` and `exe/test_poisson_fft` |
 | `src/tests/flume/verification/make_doc_runs.sh`, group `isolated` | also `sv14-{uniform,box}`, `sv14-collapse-{0.4,0.2,0.1}` |
-| `src/tests/flume/verification/make_doc_figures.py`, `fig_selfgravity_star`, `fig_selfgravity_star_amr` | draws the figures (`--only selfgravity-star selfgravity-star-amr`) |
+| `src/tests/flume/verification/make_doc_runs.sh`, group `collapse-regrid` | `sv15-{conservative-state,conservative}`, a checkpoint every 2 steps (the `conservative` run stops by design) |
+| `src/tests/flume/verification/make_doc_figures.py`, `fig_selfgravity_star`, `fig_selfgravity_star_amr`, `fig_selfgravity_star_regrid` | draws the figures (`--only selfgravity-star selfgravity-star-amr selfgravity-star-regrid`) |
 
 ```bash
 cd src/tests/flume/verification/selfgravity && ./star.sh                   # CPU (exe/adam_flume_cpu_fft)
@@ -112,6 +114,24 @@ in the atmosphere.*
 | SV-14 | the largest $\lvert\int\rho\mathbf u\rvert$; mass drift | $10^{-14}$; $10^{-14}$ | $2.2\cdot10^{-19}$; $2.4\cdot10^{-16}$ | $4.3\cdot10^{-19}$; $2.4\cdot10^{-16}$ |
 | SV-14 | a regrid that refines a boundary block | refused, exit 1 | refused | refused |
 
+**SV-15, the runtime-AMR collapse** ([#88](https://github.com/szaghi/adam/issues/88)):
+
+![SV-15: the coldest cell of the runtime-AMR collapse with the two conservative prolongations; the drift of the mass and of E + W](/flume/selfgravity-star-regrid.png)
+
+*The SV-14 star collapsing on the uniform $32^3$ base, a regrid every 5 steps. Left: the regrid at step 5 refines the
+8 inner blocks and lowers the smallest $e/\rho$ from $7.0\cdot10^{-3}$ to $5.0\cdot10^{-3}$ with either prolongation.
+With the default `conservative` the coldest cells then keep cooling while an infall reaches Mach 10: $3.5\cdot10^{-4}$
+by step 62, non-finite at step 64 ($t = 0.70$). With `conservative-state` the smallest $e/\rho$ never falls below
+$5.07\cdot10^{-3}$, the Mach number stays below 1.8 and the run reaches $t = 1.5$. Right: the mass at round-off in both;
+$E + W$ jumps at the regrid (the potential is solved on the new grid), by $1.5\cdot10^{-3}$ with `conservative` and
+$3.5\cdot10^{-5}$ with `conservative-state`, and drifts at the time integration's error between regrids.*
+
+| Leg | Asserted | Bound | CPU | FNL |
+|---|---|---|---|---|
+| SV-15 | `conservative-state`: reaches $t = 1.5$, with a regrid that changes the grid | completes | $t = 1.5$, 1 regrid changes the grid | $t = 1.5$, 1 regrid changes the grid |
+| SV-15 | `conservative-state`: mass and momentum drifts | $10^{-13}$ | mass $1.2\cdot10^{-16}$, momentum $3.8\cdot10^{-18}$ | mass $1.2\cdot10^{-16}$, momentum $7.6\cdot10^{-18}$ |
+| SV-15 | `conservative`, the default | reported | non-finite at step 64 | non-finite at step 65 |
+
 Related cases: the periodic analogue of the collapse is [SV-4](./jeans); the solver is [SV-6](./isolated-solver), on
 AMR [SV-13](./multigrid-amr);
 the limiter's gravity energy correction comes from [the force](../gravity/force) (M7-G1).
@@ -146,8 +166,13 @@ the limiter's gravity energy correction comes from [the force](../gravity/force)
   reaches $t = 2$ ([#88](https://github.com/szaghi/adam/issues/88)). Production codes keep coarse–fine boundaries out
   of dense gas for the same reason (Castro refines everything far below the stellar density, Katz et al. 2016;
   Berger and Colella 1989 on the spurious waves of a resolution jump at a steep gradient).
-- **No runtime-AMR star with a changing grid.** One level above the $32^3$ base can only refine the 8 inner blocks
-  (0.5 wide), two levels carry the 2:1 balance to the boundary blocks (refused, D-87-4), and 4-cell blocks are below
-  $2\,n_{gc}$; the regrid path is covered by the refusal and, periodic, by [SV-11](./runtime-amr). A coarse star
-  prolonged at its first regrid also drained one cell's internal energy to negative in the collapse
-  ([#88](https://github.com/szaghi/adam/issues/88)).
+- **A runtime-AMR star changes its grid once, and needs `conservative-state`** (SV-15). One level above the $32^3$
+  base can only refine the 8 inner blocks (0.5 wide), two levels carry the 2:1 balance to the boundary blocks
+  (refused, D-87-4), and 4-cell blocks are below $2\,n_{gc}$: the collapse's first regrid refines the 8 inner blocks
+  and later regrids keep that grid. With the default prolongation the collapse then drains a cell's internal energy
+  to negative; `conservative-state`, one range limit for the whole state, runs it to the end
+  ([#88](https://github.com/szaghi/adam/issues/88)). In a sweep on WSL (CPU) it also ran the star of radius 0.25
+  regridded every 5 steps and of radius 0.3 every 8, on which the default goes non-finite (steps 53 and 48), and of
+  radius 0.3 every 3, which the default survives; it fails on the radius-0.22 star regridded every 5 steps and the
+  radius-0.25 star every 8 (3.5 and 4.0 cells per radius on the base), which the non-conservative `linear`
+  prolongation runs to the end.

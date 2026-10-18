@@ -34,6 +34,39 @@ restriction undoes the prolongation exactly and $\sum q\,\Delta V$ does not chan
 its own, not the sum over the axes a corner child takes; $\phi$ closes that gap. Linear data keep $\phi = 1$ and are
 reproduced exactly.
 
+### The conservative-state prolongation
+
+The opt-in `conservative-state` ([#88](https://github.com/szaghi/adam/issues/88)) sets the $2^d$ children of a parent
+cell $c$ to
+
+$$
+q_k = q_c + \theta\,\big(\delta_k - \langle\delta\rangle\big), \qquad
+\delta_k = \sum_{\mathbf a \ne \mathbf 0} w_{\mathbf a}\,\big(q_{c + \mathbf a \odot \boldsymbol\sigma_k} - q_c\big),
+\qquad w_{\mathbf a} = \prod_{\text{refined axes}} \big(\tfrac34, \tfrac14\big)_{a_i},
+$$
+
+with $\boldsymbol\sigma_k$ the side of child $k$ per axis ($\pm 1$), $\mathbf a \in \{0, 1\}^d$ and
+$\langle\delta\rangle$ the mean of the $\delta_k$ over the children. $q_c + \delta_k$ is the `linear` prolongation, a
+mixture of whole coarse states with the same weights for every variable; removing the mean makes the children
+average to the parent. $\theta \in [0, 1]$, one factor for every variable of the cell, is the largest that keeps every
+child in the range of the parent and its $3^d$ neighbours. Linear data have $\langle\delta\rangle = 0$ and keep
+$\theta = 1$.
+
+Why it exists: in the runtime-AMR collapse of an under-resolved star (SV-15, the case of #88), the `conservative`
+children, each variable limited by its own slope, are not mixtures of whole states. The first regrid (step 5) lowers
+the smallest $e/\rho$ from $7.0\cdot10^{-3}$ to $5.0\cdot10^{-3}$ with either prolongation ($5.1\cdot10^{-3}$ with
+`conservative-state`); what follows differs. With `conservative` the coldest cells keep cooling while an infall
+reaches Mach 10, $e/\rho$ falls to $3.5\cdot10^{-4}$ by step 62 and the run goes non-finite at step 64; with
+`conservative-state` the smallest $e/\rho$ never falls below $5.07\cdot10^{-3}$, the Mach number stays below 1.8, and the
+run reaches $t = 1.5$ ([SV-15](../self-gravity/polytrope)). A bound on the
+children's specific internal energy or on their entropy, minmod slopes, and the same construction with one $\theta$
+per variable each failed a case of the sweep over the star's radius and regrid cadence that the single $\theta$ runs
+to the end (#88).
+The single $\theta$ is also its price: an extremum of any one variable in the neighbourhood (a vortex core) flattens the
+children of every variable, and with it the tracked vortex of [AV](./accuracy) (av2) gives an L1 error 1.68 times the
+uniform fine run's, above the bound 1.5 (1.23 with `conservative`). Hence an option for collapsing flows, not the
+default.
+
 ## Models and numerics
 
 | Item | Choice | Code |
@@ -41,6 +74,7 @@ reproduced exactly.
 | Regrid step | tree adapted with 2:1 balance, interior data prolonged or restricted, blocks redistributed, maps rebuilt | `amr_update`, `check_blocks_number`, [`adam_adam_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_adam_object.F90); `adapt`, [`adam_field_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_field_object.F90) |
 | `linear` prolongation | tensor linear (weights 1/4, 3/4); the library default | `refine2D`, `refine3D`, [`adam_field_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_field_object.F90) |
 | `conservative` prolongation | limited MC slopes with the Barth–Jespersen factor $\phi$ (#74 D-M5-2); the FLUME default | `refine_conservative`, [`adam_field_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_field_object.F90) |
+| `conservative-state` prolongation | the tensor linear interpolation, its children's mean moved onto the parent, one range factor $\theta$ for the whole state (#88); opt-in | `refine_conservative_state`, [`adam_field_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_field_object.F90) |
 | Restriction | the mean of the children | `derefine2D`, `derefine3D`, [`adam_field_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_field_object.F90) |
 | `[amr] regrid_prolongation` | read by the library; FLUME resolves an absent key to `conservative` and logs it | `load_from_file`, `prolongation_name`, [`adam_amr_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_amr_object.F90); `check_runtime_amr`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
 | `[amr] frequency` | 0: the AMR of the initial condition only; $n > 0$: a regrid every $n$ steps, which needs markers | `check_runtime_amr`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90); [input](../../input#setting-up-runtime-amr) |
@@ -54,7 +88,7 @@ The regrid algorithms are described in [numerics](../../numerics#adaptive-mesh-r
 | rg0 | `tests/amr/test_amr_regrid_roundtrip` on 1, 2 and 3 ranks. Domain $[0, 1]^3$; a realm refined uniformly to level 1: octree (`ratio = 8`, $8^3$ cells per block, 8 blocks) and quadtree (`ratio = 4`, $8 \times 8 \times 1$ cells, $z$ null, 4 blocks), `ngc = 3`. The field is set in every cell, ghosts included (a perfect ghost fill, so the transfers are tested alone). The block at the origin is refined, then its children derefined, with each prolongation |
 | rg0 fields | linear $f = 1 + 0.3x + 0.7y + 0.5z$; quadratic, $f + 2x^2 + 1.5y^2 + xy$; a steep front from 1 to 0.01, $0.505 + 0.495\tanh((c - s)/0.03)$, a tanh half a coarse cell wide across $s = x+y+z = c = 0.45$ on the octree, $s = x+y = c = 0.3$ on the quadtree |
 | rg1 | the regression `sod-x` input ([Sod](../euler/sod)) to $t = 0.002$, 2 ranks, with `[amr] frequency` = 0, −1, 5 (and no markers) |
-| rg2 | the same input with `[amr] regrid_prolongation` absent, `linear`, `conservative`, `bogus` |
+| rg2 | the same input with `[amr] regrid_prolongation` absent, `linear`, `conservative`, `conservative-state`, `bogus` |
 
 ## Input files
 
@@ -79,7 +113,8 @@ rg0 asserts:
 - with `conservative`, the round trip returns the initial state and $\sum q\,\Delta V$ is unchanged after the refine
   and after the round trip, on every field, to round-off ($10^{-13}$ of the field scale); the front stays in
   $(0.01, 1)$;
-- with `linear`, the quadratic field drifts (the negative control).
+- with `linear`, the quadratic field drifts (the negative control);
+- `conservative-state` passes the same assertions as `conservative`.
 
 Every leg passes on 1, 2 and 3 ranks, with the same numbers (CPU):
 
@@ -99,7 +134,7 @@ after refine then derefine.
 | rg1 | `frequency = -1` | fatal: "must be 0 (no runtime regridding) or positive" | pass | pass |
 | rg1 | `frequency = 5`, no markers | fatal: "nothing would mark a block" | pass | pass |
 | rg2 | `regrid_prolongation` absent | runs, resolved to `conservative` | pass | pass |
-| rg2 | `linear`, `conservative` | runs, taken as given | pass | pass |
+| rg2 | `linear`, `conservative`, `conservative-state` | runs, taken as given | pass | pass |
 | rg2 | `bogus` | fatal: `unknown [amr].(regrid_prolongation) "bogus"` | pass | pass |
 
 The FNL column of rg1 and rg2 is read from the logs of the `work-adam_flume_fnl-*` directories of `regrid/check.sh`.
@@ -113,3 +148,6 @@ static AMR is [Euler AMR conservation](../euler/amr-conservation).
   the conservative one's by $1.1\cdot10^{-4}$) but changes the integral at every refine.
 - The bound scaling is load-bearing: with $\phi = 1$ forced (a mutation run), an octree child of the front reaches
   $-0.094$, below zero, and the leg fails; on the quadtree the MC limit alone suffices for this front.
+- `conservative-state` gives the same integrals and round trips as `conservative` to round-off; its quadratic children
+  miss by $8.5\cdot10^{-5}$ of the scale, against $1.1\cdot10^{-4}$. Its range factor is load-bearing on both trees:
+  with $\theta = 1$ forced, a child of the front reaches $-0.069$ on the octree and $-0.055$ on the quadtree.

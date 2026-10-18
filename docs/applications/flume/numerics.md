@@ -406,7 +406,15 @@ child within the parent's and its face neighbours' range (Barth & Jespersen 1989
 so a regrid changes no conserved integral and a refine followed by a derefine returns the state exactly; a positive
 variable stays positive; linear data are reproduced. The library's `linear` prolongation (tensor interpolation, weights
 1/4 and 3/4) is second order too but not conservative ([RG](./verification/runtime-amr/regrid-round-trip)).
-Both read the parent's first ghost layer.
+The opt-in `conservative-state` ([#88](https://github.com/szaghi/adam/issues/88)) keeps the children's mean on the
+parent but builds them from that tensor interpolation, which mixes whole coarse states with the same weights for every
+variable, and scales their offsets by one factor $\theta \le 1$ for the whole state, the largest that keeps every
+variable of every child within the range of the parent and its $3^d$ neighbours. It is for collapsing self-gravitating
+flows: after a regrid of the runtime-AMR collapse of an under-resolved star, with the default's children (limited
+variable by variable) the coldest cells keep cooling, a supersonic infall develops and the collapse drains one to a
+negative pressure, while with `conservative-state` they recover and the run ends ([SV-15](./verification/self-gravity/polytrope)). It is not the default because it costs accuracy on smooth
+flow: an extremum of any one variable flattens the children of every variable, and the tracked vortex of AV misses its
+bound with it (L1 1.68 times the uniform fine run's, the bound 1.5). All three read the parent's first ghost layer.
 
 ## Immersed boundary (Euler)
 

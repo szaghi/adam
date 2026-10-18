@@ -14,7 +14,7 @@ program test_amr_regrid_roundtrip
 !< of width 0.03, half a coarse cell, across the diagonal plane x + y + z = 0.45 on the octree, the line x + y = 0.3 on
 !< the quadtree, through the refined block). On the octree front the monotonized-central slopes alone would put corner
 !< children up to 0.10 outside the data, so below zero: the bound scaling of the conservative prolongation is what
-!< keeps it positive. For both prolongations (`[amr] regrid_prolongation`):
+!< keeps it positive. For each prolongation (`[amr] regrid_prolongation`):
 !<
 !< - `linear` (tensor linear, 1/4 and 3/4; the library default): a linear `f` exact after the refine and the round
 !<   trip (asserted); not conservative, so on the quadratic `f` the integral drifts and the round trip does not
@@ -23,6 +23,8 @@ program test_amr_regrid_roundtrip
 !<   (asserted); for every field the round trip returns the initial state and the integral is unchanged after the
 !<   refine and after the round trip, to round-off (asserted); on the front every child stays in (0.01, 1), the range of
 !<   the data, so a positive variable stays positive (asserted);
+!< - `conservative-state` (the linear interpolation with its children's mean moved onto the parent and one range limit
+!<   for the whole state, #88): the same assertions as `conservative`;
 !< - bookkeeping: after the refine the tree has 2^d - 1 more leaves (8 octree, 4 quadtree), after the derefine the
 !<   original count, and the blocks summed over the ranks equal the leaves (asserted), on any number of ranks (the
 !<   redistribution moves blocks between them, so the integral checks cover it).
@@ -32,8 +34,8 @@ program test_amr_regrid_roundtrip
 !< Usage: `mpirun -np N exe/test_amr_regrid_roundtrip`.
 
 use :: adam_common_library, only : realm_object
-use :: adam_parameters,     only : AMR_PROLONGATION_CONSERVATIVE, AMR_PROLONGATION_LINEAR, TO_BE_DEREFINED, TO_BE_REFINED, &
-                                   TO_NOT_TOUCH
+use :: adam_parameters,     only : AMR_PROLONGATION_CONSERVATIVE, AMR_PROLONGATION_CONSERVATIVE_STATE, &
+                                   AMR_PROLONGATION_LINEAR, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_mpih_global,    only : mpih
 use :: mpi
 use :: penf,                only : I4P, R8P, str
@@ -66,6 +68,10 @@ do fk=F_LINEAR, F_FRONT
                             prolongation=AMR_PROLONGATION_LINEAR)
    call check_configuration(label='quadtree, conservative, ', ratio=4_I4P, nk_=1_I4P, kind_=fk, &
                             prolongation=AMR_PROLONGATION_CONSERVATIVE)
+   call check_configuration(label='octree,   cons-state,   ', ratio=8_I4P, nk_=8_I4P, kind_=fk, &
+                            prolongation=AMR_PROLONGATION_CONSERVATIVE_STATE)
+   call check_configuration(label='quadtree, cons-state,   ', ratio=4_I4P, nk_=1_I4P, kind_=fk, &
+                            prolongation=AMR_PROLONGATION_CONSERVATIVE_STATE)
 enddo
 if (mpih%myrank == 0) then
    if (test_passed) then
@@ -99,7 +105,7 @@ contains
 
    nk = nk_ ; field_kind = kind_
    nd = merge(3_I4P, 2_I4P, ratio == 8_I4P)
-   conservative = prolongation == AMR_PROLONGATION_CONSERVATIVE
+   conservative = prolongation == AMR_PROLONGATION_CONSERVATIVE .or. prolongation == AMR_PROLONGATION_CONSERVATIVE_STATE
    if (allocated(realm)) deallocate(realm)
    if (allocated(q)) deallocate(q)
    allocate(realm)

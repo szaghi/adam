@@ -1716,6 +1716,67 @@ def fig_selfgravity_star_amr(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_selfgravity_star_regrid(out: Path, runs: Path) -> None:
+    """SV-15 (issue #88): the runtime-AMR collapse of the star of radius 0.3 on the 32^3 base, a regrid every 5 steps
+    on the density (Loehner), per-stage reflux, no limiter (CPU, 2 ranks), with the default prolongation
+    (`conservative`, each variable limited by its own slope) and with `conservative-state` (one limit for the whole
+    state). Left: the smallest specific internal energy e / rho over the leaves, per checkpoint, the regrids that
+    refine blocks dotted. Right: the drift of the mass and of E + W."""
+    sys.path.insert(0, str(HERE / "selfgravity"))
+    import jeans_oracle  # noqa: PLC0415
+
+    def emin(work: Path) -> tuple[np.ndarray, np.ndarray]:
+        ini = jeans_oracle.read_ini(work)
+        ngc = int(ini["grid"]["ngc"])
+        ts, es = [], []
+        for _, (t, paths) in sorted(jeans_oracle.checkpoints(work).items()):
+            e = math.inf
+            for path in paths:
+                with h5py.File(path, "r") as h5:
+                    for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                        q = {v: h5[f"{blk}-{v}"][()][ngc:-ngc, ngc:-ngc, ngc:-ngc] for v in ("r", "ru", "rv", "rw", "rE")}
+                        ie = q["rE"] - 0.5 * (q["ru"] ** 2 + q["rv"] ** 2 + q["rw"] ** 2) / q["r"]
+                        e = min(e, float(np.nanmin(ie / q["r"])))
+            ts.append(t)
+            es.append(e)
+        return np.array(ts), np.array(es)
+
+    def regrid_times(work: Path) -> list[float]:
+        h = jeans_oracle.history(work)
+        steps = [int(m.group(1)) for m in re.finditer(r"flume: regrid at step (\d+): .* ([1-9]\d*) refined",
+                                                     (work / "log.txt").read_text(errors="replace"))]
+        return [float(h["time"][np.searchsorted(h["it"], n)]) for n in steps if n <= h["it"][-1]]
+
+    fig, axs = plt.subplots(1, 2, figsize=(12.5, 4.6), constrained_layout=True)
+    cases = [("sv15-conservative", "conservative (the default)", "tab:red"),
+             ("sv15-conservative-state", "conservative-state", "tab:blue")]
+    for name, label, color in cases:
+        work = runs / name
+        t, e = emin(work)
+        axs[0].plot(t, e, "-", color=color, label=label)
+        for tr in regrid_times(work):
+            axs[0].axvline(tr, color=color, ls=":", lw=0.8)
+        h = jeans_oracle.history(work)
+        axs[1].semilogy(h["time"][1:], np.maximum(np.abs(h["int_r"][1:] / h["int_r"][0] - 1.0), FLOOR), "-",
+                        color=color, label=f"mass, {label}")
+        ew0 = h["E_plus_W"][0]
+        axs[1].semilogy(h["time"][1:], np.maximum(np.abs(h["E_plus_W"][1:] - ew0) / abs(ew0), FLOOR), "--",
+                        color=color, label=f"E + W, {label}")
+    axs[0].axhline(0.0, color="0.6", lw=0.6)
+    axs[0].set_xlabel("t")
+    axs[0].set_ylabel("min e / rho over the leaves")
+    axs[0].legend(fontsize=8)
+    axs[0].set_title("the coldest cell; dotted: the regrids that refine blocks", fontsize=10)
+    axs[1].set_xlabel("t")
+    axs[1].set_ylabel("relative drift")
+    axs[1].legend(fontsize=8)
+    axs[1].set_title("mass at round-off; E + W at the time integration's error", fontsize=10)
+    fig.suptitle("SV-15: the runtime-AMR collapse of the n = 1 polytrope (radius 0.3), a regrid every 5 steps "
+                 "(CPU, 2 ranks)")
+    fig.savefig(out / "selfgravity-star-regrid.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_selfgravity_jeans(out: Path, runs: Path) -> None:
     """SV-3 and SV-4 (issue #81, M8-P3): the Jeans modes of selfgravity/make_jeans.py (rho_0 = 1, c = 1,
     k = 2 pi (1, 1), periodic, CPU, 2 ranks). Top left: SV-3, the L1 error of the stable wave (lambda = lambda_J / 2)
@@ -2951,6 +3012,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-amr-regrid": fig_selfgravity_amr_regrid,
            "selfgravity-amr-isolated": fig_selfgravity_amr_isolated,
            "selfgravity-star-amr": fig_selfgravity_star_amr,
+           "selfgravity-star-regrid": fig_selfgravity_star_regrid,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
            "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,

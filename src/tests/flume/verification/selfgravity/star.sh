@@ -29,7 +29,14 @@
 #     ever refine the 8 inner blocks (0.5 wide), two levels carry the 2:1 balance to the boundary blocks (refused),
 #     and 4-cell blocks are below 2 ngc.
 #
-# Usage: ./star.sh [--np N] [--legs LIST] [--keep]   LIST: sv7, sv8, sv14 or all (default all)
+# SV-15 (issue #88): the runtime-AMR collapse. Without --box the star of radius SV14_RADIUS sits on the 32^3 base and a
+# regrid every 5 steps refines its surface (the Loehner marker; the 8 inner blocks, off the domain boundary): the grid
+# changes at the first regrid. With `regrid_prolongation = conservative-state` the collapse reaches t = 1.5, a regrid
+# changes the grid, and the mass and the momentum stay at round-off (asserted). The same run with FLUME's default
+# prolongation, `conservative`, is reported: after the regrid its coldest cells (children limited variable by
+# variable) keep cooling and the collapse drains one to a negative internal energy (non-finite at step 64).
+#
+# Usage: ./star.sh [--np N] [--legs LIST] [--keep]   LIST: sv7, sv8, sv14, sv15 or all (default all)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft, mode flume-cpu-gnu-fft; FNL:
 # exe/adam_flume_fnl_fft, mode flume-fnl-nvf-fft). The caller owns the matching environment (FNL: nvhpc mpirun on PATH
@@ -42,7 +49,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 NP=2
 source "$VERIF_DIR/legs.sh"
-legs_declare "sv7 sv8 sv14"
+legs_declare "sv7 sv8 sv14 sv15"
 KEEP=0
 SV7_TIME=2.0
 MIN_REDUCTION=1.5
@@ -143,10 +150,31 @@ for leg in $LEGS; do
                --min-order "$MIN_DRIFT_ORDER" --tol-mass "$TOL_MASS" --label "Polytrope AMR" || FAILED=1
          fi
          refuse sv14-boundary 'touches the domain boundary' starc --regrid 2 --boundary-box --time-max 0.2 ;;
+      sv15)
+         echo ">> SV-15: the runtime-AMR collapse, a regrid every 5 steps (issue #88)"
+         if run sv15-state starc --radius "$SV14_RADIUS" --reflux-cadence stage --regrid 5 \
+               --prolongation conservative-state; then
+            n=$(grep -a "flume: regrid at" "$W/log.txt" | grep -ac " [1-9][0-9]* refined\| [1-9][0-9]* coarsened" || true)
+            if [[ $n -gt 0 ]]; then
+               echo "   conservative-state: reaches t = 1.5; regrids that change the grid: $n  PASS"
+            else
+               echo "   conservative-state: no regrid changed the grid  FAIL" ; FAILED=1
+            fi
+            "$VENV_PY" "$VERIF_DIR/conservation/conservation_oracle.py" --conserved "$W" --exclude rE W E_plus_W || FAILED=1
+         fi
+         W="$CASE_DIR/work-$TAG-sv15-conservative" ; rm -rf "$W" ; mkdir -p "$W" ; WORKS+=("$W")
+         python3 -I "$CASE_DIR/make_polytrope.py" "$W/input.ini" starc --radius "$SV14_RADIUS" --reflux-cadence stage \
+            --regrid 5
+         if (cd "$W" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
+            echo "   conservative (the default): reaches t = 1.5 (reported)"
+         else
+            echo "   conservative (the default): stops, $(grep -a -m1 -o 'non-finite.*at step +[0-9]*' "$W/log.txt" || true)" \
+                 "(reported, #88)"
+         fi ;;
    esac
 done
 if [[ $KEEP -eq 0 && $FAILED -eq 0 ]]; then rm -rf "${WORKS[@]}" ; fi
 if [[ $FAILED -ne 0 ]]; then
-   echo "SV-7, SV-8, SV-14 ($LEGS) FAILED ($TAG)" ; exit 1
+   echo "SV-7, SV-8, SV-14, SV-15 ($LEGS) FAILED ($TAG)" ; exit 1
 fi
-echo "SV-7, SV-8, SV-14 ($LEGS) PASSED ($TAG)"
+echo "SV-7, SV-8, SV-14, SV-15 ($LEGS) PASSED ($TAG)"
