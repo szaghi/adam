@@ -573,6 +573,7 @@ contains
       refine   = refine   .or.  field%refinements_needed(1:self%blocks_number) == TO_BE_REFINED
       derefine = derefine .and. field%refinements_needed(1:self%blocks_number) == TO_BE_DEREFINED
    enddo
+   if (self%sinks%is_active) call sink_region(refine=refine, derefine=derefine) ! issue #94
    do b=1, self%blocks_number
       if (refine(b)) then
          field%refinements_needed(b) = TO_BE_REFINED
@@ -583,6 +584,38 @@ contains
       endif
    enddo
    endassociate
+   contains
+      subroutine sink_region(refine, derefine)
+      !< Keep the neighbourhood of every sink on the finest level (issue #94): a block within `r_acc + (frequency / 2 +
+      !< 2)` cells of the finest level of a sink (its accretion radius, the half cell a sink may move per step until the
+      !< next regrid, and its CIC stencil) is refined below the finest level and never derefined, whatever the other
+      !< markers vote. The list is replicated: every rank marks its own blocks.
+      logical, intent(inout) :: refine(:)   !< Some marker asks to refine the block.
+      logical, intent(inout) :: derefine(:) !< Every marker agrees to derefine the block.
+      real(R8P)              :: h, reach, gap(3), lo(3), hi(3) !< Finest spacing, reach, distance to the block box.
+      integer(I4P)           :: bb, sk, d, lmax !< Counters, finest level.
+      integer(I4P)           :: ncell(3)       !< Cells per block per direction.
+
+      lmax = self%adam%tree%max_level
+      ncell = [self%ni, self%nj, self%nk]
+      h = huge(1._R8P)
+      do d=1, 3
+         if (self%adam%grid%null_xyz(d)) cycle
+         h = min(h, self%adam%grid%block_dxyz(d,lmax) / real(ncell(d), R8P))
+      enddo
+      reach = (self%sinks%r_acc_cells + 0.5_R8P * real(max(self%amr%frequency, 1_I4P), R8P) + 2._R8P) * h
+      do bb=1, self%blocks_number
+         lo = self%adam%field%emin(:,bb) ; hi = self%adam%field%emax(:,bb)
+         do sk=1, self%sinks%n
+            ! the separation from the block box (0 inside), the minimum image along periodic directions
+            gap = sink_separation(grid=self%adam%grid, a=0.5_R8P * (lo + hi), b=self%sinks%x(:,sk))
+            gap = max(abs(gap) - 0.5_R8P * (hi - lo), 0._R8P)
+            if (sqrt(sum(gap**2)) > reach) cycle
+            derefine(bb) = .false.
+            if (self%adam%tree%level(self%adam%field%code(bb)) < lmax) refine(bb) = .true.
+         enddo
+      enddo
+      endsubroutine sink_region
    endsubroutine mark_runtime
 
    subroutine check_regridded_state(self)
@@ -1651,13 +1684,20 @@ contains
 
    function sink_accretion_radius(self, point) result(r_acc)
    !< Return the accretion radius at a point: `accretion_radius_cells` cells of the level of the block that holds it (the
-   !< smallest active spacing), the same on every rank (issue #94).
+   !< smallest active spacing), the same on every rank (issue #94). With runtime regridding (`[amr] frequency > 0`) it is
+   !< in cells of the finest level allowed (`[amr] max_level`), fixed for the run (Federrath et al. 2010, section 2.1):
+   !< the sinks form there only (`create_sinks`) and their neighbourhood stays there (`mark_runtime`).
    class(flume_common_object), intent(inout) :: self     !< The equation.
    real(R8P),                  intent(in)    :: point(3) !< Point.
    real(R8P)                                 :: r_acc    !< Accretion radius.
    real(R8P)                                 :: pts(3,8), w(8), h(3) !< CIC stencil (its spacing only).
    integer(I4P)                              :: npt      !< Stencil size.
 
+   if (self%amr%frequency > 0_I4P) then
+      h = self%adam%grid%block_dxyz(:,self%adam%tree%max_level) / real([self%ni, self%nj, self%nk], R8P)
+      r_acc = self%sinks%r_acc_cells * minval(h, mask=.not.self%adam%grid%null_xyz)
+      return
+   endif
    call self%sink_stencil(point=point, npt=npt, pts=pts, w=w, h=h)
    r_acc = self%sinks%r_acc_cells * minval(h, mask=.not.self%adam%grid%null_xyz)
    endfunction sink_accretion_radius
@@ -1825,10 +1865,11 @@ contains
 
    subroutine create_sinks(self)
    !< Form sinks from the committed host state (issue #94, D-M12-3; Federrath et al. 2010, section 2.2), on cells of the
-   !< finest level present: the density above the threshold of the accretion radius, no sink within that radius, and on
-   !< the control volume (the cells within the radius, read through the ghost cells: `accretion_radius_cells <= ngc`) a
-   !< minimum of the potential at the cell (ties allowed), a flow converging along every principal axis (the symmetric velocity
-   !< gradient negative definite, Sylvester's criterion), Jeans instability (`|E_grav| > 2 E_th`) and boundedness
+   !< finest level present (with runtime regridding, of the finest level allowed): the density above the threshold of
+   !< the accretion radius, no sink within that radius, and on the control volume (the cells within the radius, read
+   !< through the ghost cells: `accretion_radius_cells <= ngc`) a minimum of the potential at the cell (ties allowed), a
+   !< flow converging along every principal axis (the symmetric velocity gradient negative definite, Sylvester's
+   !< criterion), Jeans instability (`|E_grav| > 2 E_th`) and boundedness
    !< (`E_grav + E_th + E_kin < 0`, the kinetic energy relative to the centre of mass), `E_grav` summed over the pairs of
    !< cells. The candidates of every rank are gathered and taken deepest potential first, one per accretion radius, so
    !< every rank forms the same sinks; a new sink has no mass and takes the gas above the threshold at its first
@@ -1851,6 +1892,9 @@ contains
       lmax = max(lmax, self%adam%tree%level(code=self%adam%field%code(b)))
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, lmax, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD, ierr)
+   ! runtime regridding: only on the finest level allowed (a sink formed on a coarser level would have its neighbourhood
+   ! refined at the next regrid: the infall onto it prolongated, its accretion radius halved)
+   if (self%amr%frequency > 0_I4P) lmax = self%adam%tree%max_level
    ! no reallocation on assignment in this procedure: under nvfortran it intermittently failed to grow the candidate
    ! list (a run after another found every candidate and formed no sink); the list has room for every interior cell
    allocate(cand(4, self%ni * self%nj * self%nk * max(self%adam%field%blocks_number, 1_I4P)))

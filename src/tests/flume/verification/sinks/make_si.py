@@ -3,10 +3,11 @@
 
     make_si.py <out.ini> [--case rest|binary] [--cells N] [--rho R] [--p P] [--time-max T] [--it-max N]
                          [--x "x1 ..."] [--y ...] [--z ...] [--u ...] [--v ...] [--w ...] [--mass "m1 ..."]
-                         [--restart-save N] [--restart] [--no-sinks-section] [--no-gravity]
+                         [--restart-save N] [--restart] [--no-sinks-section] [--no-gravity] [--base-levels L]
+                         [--amr LEVELS]
                          [--model euler|euler-de|mhd-ideal]
 
-The box: [-1, 1]^3, N^3 cells (default 32: blocks of N/2 cells, one uniform refinement), isolated self-gravity
+The box: [-1, 1]^3, N^3 cells (default 32: blocks of N/2^L cells, L = 1 uniform refinements), isolated self-gravity
 (G = 1, the James step), inviscid walls, gamma = 2, the positivity limiter, a uniform background rho = R, p = P at
 rest, a conservation and a sinks history row every step. Cases:
     rest    one sink of mass 1 at rest at (0.15, -0.1, 0.05), off every symmetry plane, in a background rho = 1e-3, the
@@ -21,6 +22,13 @@ rest, a conservation and a sinks history row every step. Cases:
     stable   (P2) a static periodic box, gamma = 1.4, rho = 1, p = 0.0185 (1.2 rho_thr at 2.5 cells), creation on: above
              the threshold but Jeans-stable (|E_grav| / 2 E_th = 0.66 on a control volume), no sink may form
     merge    (P2) two sinks of mass 1 at -+0.04 (1.28 cells apart) approaching at -+0.1: bound, converging, they merge
+    shu      (P4) the overdense singular isothermal sphere at rest of Federrath et al. (2010, section 3.4),
+             rho = A a^2 / (4 pi G r^2), A = --overdensity (29.3), a = 0.5 (region 1: rho 1, p 0.25), gamma = 1.001
+             (isothermal within 1 % over the run's density range), a seed sink of mass 1e-6 at the centre (a cell
+             corner), t = 0.25 (a shell of radius r reaches the centre at about (pi / 2) r / (a sqrt(2 A)): r = 0.6 at
+             t = 0.25, before the walls' rarefaction): Shu's A-family accretes at m_0(A) a^3 / G
+--amr LEVELS (P4) adds runtime AMR: LEVELS levels over the base one, a Jeans marker (8 cells per Jeans length), a regrid
+every 4 steps (the sinks keep their neighbourhood on the finest level), the conservative-state prolongation (issue #88).
 The sink keys override the case's sinks; --no-sinks-section leaves the section out (the reference runs).
 """
 
@@ -48,6 +56,9 @@ CASES = {
     # P2: two approaching sinks 1.28 cells apart: bound and converging, they merge
     "merge": {"rho": 1.0e-6, "p": 1.0e-6, "time_max": 100.0, "x": "-0.04 0.04", "y": "0.0 0.0", "z": "0.0 0.0",
               "u": "0.1 -0.1", "v": "0.0 0.0", "w": "0.0 0.0", "mass": "1.0 1.0"},
+    # P4: the singular isothermal sphere (only p / rho of region 1 is used: a^2 = 0.25) with a seed sink at the centre
+    "shu": {"rho": 1.0, "p": 0.25, "time_max": 0.25, "x": "0.0", "y": "0.0", "z": "0.0", "u": "0.0", "v": "0.0",
+            "w": "0.0", "mass": "1.0e-6"},
 }
 
 
@@ -59,7 +70,9 @@ def case_ini(a: argparse.Namespace) -> str:
     s = re.sub(r"(?m)^restart_save\s*=.*$", f"restart_save = {a.restart_save}", s)
     s = re.sub(r"(?m)^restart\s*=.*$", f"restart = {'.true.' if a.restart else '.false.'}", s)
     for key in ("ni", "nj", "nk"):
-        s = re.sub(rf"(?m)^{key}\s*=.*$", f"{key} = {a.cells // 2}", s)
+        s = re.sub(rf"(?m)^{key}\s*=.*$", f"{key} = {a.cells // 2**a.base_levels}", s)
+    s = re.sub(r"(?m)^iu_ref_levels\s*=.*$", f"iu_ref_levels = {a.base_levels}", s)
+    s = re.sub(r"(?m)^max_level\s*=.*$", f"max_level = {a.base_levels + a.amr}", s)
     s = re.sub(r"(?m)^physical_model\s*=.*$", f"physical_model = {a.model}", s)
     s = re.sub(r"(?m)^it_max\s*=.*$", f"it_max = {a.it_max}", s)
     # the gas falls into the sinks' wells: the positivity limiter keeps a near-vacuum background admissible
@@ -70,9 +83,18 @@ def case_ini(a: argparse.Namespace) -> str:
         s = re.sub(r"(?m)^poisson_bc\s*=.*$", "poisson_bc = periodic", s)
     if a.case == "stable":
         s = re.sub(r"(?m)^gamma\s*=.*$", "gamma = 1.4", s)
+    if a.case == "shu":
+        s = re.sub(r"(?m)^gamma\s*=.*$", "gamma = 1.001", s)
     if a.case == "collapse":  # the polytrope stays, at a tenth of its equilibrium pressure
         s = re.sub(r"(?m)^star_pressure_factor\s*=.*$", "star_pressure_factor = 0.1", s)
-    if a.case != "collapse":  # the uniform background in place of the polytrope: one region over the whole domain
+    if a.case == "shu":  # the singular isothermal sphere in place of the polytrope
+        i = s.index("[initial_conditions]")
+        s = s[:i] + (
+            "[initial_conditions]\ntype = singular-isothermal-sphere\nregions_number = 1\namr_iterations = 0\n"
+            f"sis_overdensity = {a.overdensity!r}\n\n"
+            f"[initial_conditions_region_1]\nr = {a.rho!r}\nu = 0.0\nv = 0.0\nw = 0.0\np = {a.p!r}\n"
+        )
+    elif a.case != "collapse":  # the uniform background in place of the polytrope: one region over the whole domain
         i = s.index("[initial_conditions]")
         s = s[:i] + (
             "[initial_conditions]\ntype = riemann-problem\nregions_number = 1\namr_iterations = 0\n\n"
@@ -83,6 +105,12 @@ def case_ini(a: argparse.Namespace) -> str:
         s += "bx = 0.0\nby = 0.0\nbz = 0.0\n"  # the region needs the field (the refusal comes later, at [sinks])
         s += "\n[mhd]\ndivergence_control = none\ndivb_tol = 0.0\ndivb_error = .false.\n"
         s += "rho_floor = 0.0\np_floor = 0.0\n"
+    if a.amr > 0:  # runtime AMR: a Jeans marker, a regrid every 4 steps (P4)
+        s = re.sub(r"(?m)^frequency\s*=.*$", "frequency = 4", s)
+        # the collapse needs the whole-state limit: conservative drains a cell at the first regrid (issue #88)
+        s = re.sub(r"(?m)^markers_number\s*=.*$", "markers_number = 1\nregrid_prolongation = conservative-state", s)
+        s += ("\n[amr_marker_1]\nmode = 5\ndelta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0\n"
+              "jeans_cells = 8.0\n")
     if a.no_gravity:  # the contract leg: sinks without self-gravity
         i = s.index("[gravity]")
         j = s.index("[initial_conditions]")
@@ -112,6 +140,9 @@ def main() -> int:
     ap.add_argument("--no-sinks-section", action="store_true")
     ap.add_argument("--no-gravity", action="store_true", help="leave the [gravity] section out (the contract leg)")
     ap.add_argument("--creation", action="store_true", help="[sinks] creation = .true. (default for collapse, stable)")
+    ap.add_argument("--base-levels", type=int, default=1, help="uniform refinements of the base grid")
+    ap.add_argument("--amr", type=int, default=0, help="runtime AMR: levels over the base one, a Jeans marker")
+    ap.add_argument("--overdensity", type=float, default=29.3, help="shu: the overdensity A (2: hydrostatic)")
     for key in ("x", "y", "z", "u", "v", "w", "mass"):
         ap.add_argument(f"--{key}", default=None)
     a = ap.parse_args()

@@ -109,6 +109,12 @@ module adam_flume_ic_object
 !<   isothermal at `T = p_1 / rho_1` and hydrostatic in the star's field, `rho = rho_1 exp(G M / T (1/r - 1/a))`,
 !<   `p = rho T`, `M = 4 rho_c a^3 / pi` (a uniform atmosphere would fall onto the star and thin at its surface, which
 !<   only the positivity limiter survives); region 1's velocity. Density and pressure are continuous at the surface.
+!< * `singular-isothermal-sphere` (issue #94, M12-P4, SI si11; Euler, `[gravity].(self_gravity)` required): the singular
+!<   isothermal sphere at rest centred at (`sis_x0`, `sis_y0`, `sis_z0`) (default the origin), `rho = A a^2 / (4 pi G r^2)`
+!<   (the cell mean), `p = rho a^2`, `a^2 = p_1 / rho_1` (region 1's temperature: only the ratio is used), region 1's
+!<   velocity, `A = sis_overdensity` (default 2, > 0): A = 2 is the hydrostatic sphere of Shu (1977), whose inside-out
+!<   collapse accretes at `0.975 a^3 / G`; A > 2 collapses everywhere at `m_0(A) a^3 / G` (Shu's A-family; A = 29.3 is
+!<   the run of Federrath et al. 2010, section 3.4). Fatal at a cell centre on the centre (place it on a cell corner).
 
 ! ADAM classes, libraries, parameters
 use :: adam_field_object,         only : field_object
@@ -177,6 +183,9 @@ character(len=21), parameter :: IC_ISOTHERMAL_ATM_STR="isothermal-atmosphere" !<
 character(len=21), parameter :: IC_POLYTROPIC_ATM_STR="polytropic-atmosphere" !< Polytropic atmosphere (issue #73).
 character(len=15), parameter :: IC_RAYLEIGH_TAYLOR_STR="rayleigh-taylor" !< Two isothermal layers, heavy over light (#73).
 character(len=9),  parameter :: IC_POLYTROPE_STR="polytrope"             !< n = 1 polytrope star, self-gravity (#81).
+character(len=26), parameter :: IC_SIS_STR="singular-isothermal-sphere" !< Singular isothermal sphere, self-gravity (#94).
+character(len=15), parameter :: SIS_KEY(4)=['sis_x0         ', 'sis_y0         ', 'sis_z0         ', &
+                                            'sis_overdensity'] !< Singular isothermal sphere keys.
 character(len=20), parameter :: STAR_KEY(6)=['star_radius         ', 'star_density        ', &
                                              'star_x0             ', 'star_y0             ', &
                                              'star_z0             ', 'star_pressure_factor'] !< Polytrope keys.
@@ -256,6 +265,7 @@ type :: flume_ic_object
    real(R8P)                 :: star(6)=0._R8P       !< Polytrope: radius, central density, centre, pressure factor.
    real(R8P)                 :: star_k=0._R8P        !< Polytrope: K of p = K rho^2 in equilibrium, 2 G a^2 / pi.
    real(R8P)                 :: star_gm=0._R8P       !< Polytrope: G M of the star, 4 G rho_c a^3 / pi.
+   real(R8P)                 :: sis(5)=0._R8P        !< Singular isothermal sphere: centre, overdensity A, G.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -320,6 +330,8 @@ contains
    if (self%ic_type == IC_POLYTROPE_STR) &
    desc = desc//NL//mpih%myrankstr//'  polytrope:      radius, central density, centre, pressure factor '// &
                                     trim(str(self%star))//', K '//trim(str(self%star_k))
+   if (self%ic_type == IC_SIS_STR) &
+   desc = desc//NL//mpih%myrankstr//'  singular isothermal sphere: centre, overdensity, G '//trim(str(self%sis))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -680,6 +692,22 @@ contains
                                   'must be positive')
       self%star_k = 2._R8P * physics%gravity%grav_const * self%star(1)**2 / PI
       self%star_gm = 4._R8P * physics%gravity%grav_const * self%star(2) * self%star(1)**3 / PI
+   case(IC_SIS_STR)
+      if (.not.physics%gravity%self_gravity) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_SIS_STR//' needs '// &
+                                  '[gravity].(self_gravity) = .true.')
+      if (.not.is_hydrodynamic(self%model)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_SIS_STR//' is an Euler state '// &
+                                  '([physics].(physical_model) = euler or euler-de)')
+      self%regions_number = 1_I4P
+      do k=1, 4
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(SIS_KEY(k)), val=self%sis(k), &
+                                  error=error)
+         if (error > 0) self%sis(k) = merge(2._R8P, 0._R8P, k == 4)
+      enddo
+      if (.not.(self%sis(4) > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(sis_overdensity) must be positive')
+      self%sis(5) = physics%gravity%grav_const
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -695,7 +723,8 @@ contains
                                IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
                                IC_SINE_WAVE_STR//', '// &
                                IC_COUETTE_STR//', '//IC_BECKER_STR//', '//IC_ISOTHERMAL_ATM_STR//', '// &
-                               IC_POLYTROPIC_ATM_STR//', '//IC_RAYLEIGH_TAYLOR_STR//', '//IC_POLYTROPE_STR)
+                               IC_POLYTROPIC_ATM_STR//', '//IC_RAYLEIGH_TAYLOR_STR//', '//IC_POLYTROPE_STR//', '// &
+                               IC_SIS_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -870,6 +899,28 @@ contains
                                                     (PI / (self%star(1) * s_) - 1._R8P / self%star(1)))
                      prim(5) = prim(1) * self%prim_1(5) / self%prim_1(1)
                   endif
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_SIS_STR)
+      ! the singular isothermal sphere (issue #94, M12-P4): rho = A a^2 / (4 pi G r^2), p = rho a^2, a^2 = p_1 / rho_1
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  if (.not.(norm2(center - self%sis(1:3)) > 0._R8P)) &
+                     call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_SIS_STR//': a cell centre on '// &
+                                              'the centre of the sphere (place it on a cell corner)')
+                  ! the cell mean of 1 / r^2, not its centre value: a sampled 1 / r^2 misses the mass of the singular
+                  ! core (2 % of the 32^3 box), the gravity falls short of the pressure and the sphere expands
+                  s_ = inverse_square_mean(lo=center - 0.5_R8P * field%dxyz(:,b), hi=center + 0.5_R8P * field%dxyz(:,b), &
+                                           c=self%sis(1:3))
+                  prim = self%prim_1
+                  prim(1) = self%sis(4) * self%prim_1(5) / self%prim_1(1) / (4._R8P * PI * self%sis(5)) * s_
+                  prim(5) = prim(1) * self%prim_1(5) / self%prim_1(1)
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
@@ -1386,6 +1437,42 @@ contains
       prim(5) = self%prim_1(5) * s_**(self%polytropic_gamma / (self%polytropic_gamma - 1._R8P))
    endif
    endsubroutine atmosphere_state
+
+   pure function inverse_square_mean(lo, hi, c) result(mean)
+   !< Mean of `1 / |x - c|^2` over the box `[lo, hi]` (issue #94, the singular isothermal sphere): by the divergence
+   !< theorem, `div((x - c) / |x - c|^2) = 1 / |x - c|^2` in 3D, the volume integral is the flux of `(x - c) / |x - c|^2`
+   !< through the six faces, `int d / (d^2 + u^2 + v^2) du dv` on a face at distance `d` from `c`: smooth unless the face
+   !< passes through `c`, where it vanishes (`d = 0`). 8 x 8 Gauss-Legendre points per face.
+   real(R8P), intent(in) :: lo(3), hi(3) !< Box corners.
+   real(R8P), intent(in) :: c(3)         !< Singular point.
+   real(R8P)             :: mean         !< Mean of 1 / r^2 over the box.
+   real(R8P), parameter  :: GX(8)=[-0.9602898564975363_R8P, -0.7966664774136267_R8P, -0.5255324099163290_R8P, &
+                                   -0.1834346424956498_R8P,  0.1834346424956498_R8P,  0.5255324099163290_R8P, &
+                                    0.7966664774136267_R8P,  0.9602898564975363_R8P] !< Gauss-Legendre nodes on [-1, 1].
+   real(R8P), parameter  :: GW(8)=[ 0.1012285362903763_R8P,  0.2223810344533745_R8P,  0.3137066458778873_R8P, &
+                                    0.3626837833783620_R8P,  0.3626837833783620_R8P,  0.3137066458778873_R8P, &
+                                    0.2223810344533745_R8P,  0.1012285362903763_R8P] !< Gauss-Legendre weights.
+   real(R8P)             :: d, u, v      !< Signed face distance, face coordinates.
+   integer(I4P)          :: n, t1, t2, side, p, q !< Normal axis, tangential axes, face side, nodes.
+
+   mean = 0._R8P
+   do n=1, 3
+      t1 = mod(n, 3) + 1
+      t2 = mod(n + 1, 3) + 1
+      do side=1, 2
+         d = merge(hi(n) - c(n), c(n) - lo(n), side == 2) ! (x - c) . n_out on the face
+         if (d == 0._R8P) cycle
+         do q=1, 8
+            v = 0.5_R8P * (lo(t2) + hi(t2)) + 0.5_R8P * (hi(t2) - lo(t2)) * GX(q) - c(t2)
+            do p=1, 8
+               u = 0.5_R8P * (lo(t1) + hi(t1)) + 0.5_R8P * (hi(t1) - lo(t1)) * GX(p) - c(t1)
+               mean = mean + GW(p) * GW(q) * 0.25_R8P * (hi(t1) - lo(t1)) * (hi(t2) - lo(t2)) * d / (d**2 + u**2 + v**2)
+            enddo
+         enddo
+      enddo
+   enddo
+   mean = mean / product(hi - lo)
+   endfunction inverse_square_mean
 
    pure subroutine rotate_to_global(normal, nprim, prim)
    !< Rotate the velocity and (MHD) the field of a primitive state from the frame of `normal` (normal, tangential, z) to

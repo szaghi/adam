@@ -78,6 +78,7 @@ REGRESSION_CASES="sod-x rotor" src/tests/flume/regression/run.sh cpu --no-build
 | `sod-ps` | [passive scalars](./euler/passive-scalars) (PS ps1): the `sod-x` shock tube with two scalars, 1 left and 0 right of the diaphragm | [#92](https://github.com/szaghi/adam/issues/92) |
 | `radiative-shock` | [radiative cooling](./euler/radiative-cooling) (CO co7): two streams at the cooling floor $T = 0.1$ collide, 100 cells to $t = 1$, $\Lambda = 0.18\,(T/0.1)^{1.5}$: the shock heating, the cooling layer, the dense layer | [#93](https://github.com/szaghi/adam/issues/93) |
 | `noh-de` | [dual energy](./euler/dual-energy) (DE de2): the cold planar Noh shock, Mach 845, with `physical_model = euler-de`, 50 cells, $t = 0.6$; every cell starts cold, so the entropy floor acts every step | [#91](https://github.com/szaghi/adam/issues/91) |
+| `sinks-shu` | [sink particles](./self-gravity/sink-particles) (SI si11): the overdense singular isothermal sphere ($A = 29.3$, $\gamma = 1.001$) with a seed sink at the centre, $16^3$, 30 steps: the deposit into the Poisson source, the CIC gather, threshold accretion, the kick-drift-kick, the sink columns of the history | [#94](https://github.com/szaghi/adam/issues/94) |
 
 The self-gravity goldens agree across the backends to $9\cdot10^{-14}$ relative in the volume integrals and $E + W$,
 and to $1.8\cdot10^{-18}$ absolute in the momentum, which is round-off.

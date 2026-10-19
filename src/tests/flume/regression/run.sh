@@ -84,6 +84,9 @@
 #   noh-de                   dual energy: the cold planar Noh shock (Mach 845) with physical_model = euler-de, 50 cells,
 #                            t = 0.6: the advected entropy and its floor, which acts every step (#91, P4); per-backend
 #                            goldens
+#   sinks-shu                sink particles: the overdense singular isothermal sphere with a seed sink, 16^3, 30 steps:
+#                            the deposit, the gather, threshold accretion, the kick-drift-kick (#94, P4); per-backend
+#                            goldens
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 

@@ -18,6 +18,9 @@ module adam_flume_sinks_object
 !< | `merging` | optional, default `.true.`: two bound, converging sinks within an accretion radius merge |
 !< | `accretion_radius_cells` | optional, default 2.5: the accretion radius in cells of the sink's level, in [1, ngc] |
 !<
+!< With runtime regridding (`[amr] frequency > 0`) the sinks live on the finest level allowed: they form there only, the
+!< accretion radius is in its cells and their neighbourhood is kept there at every regrid (D-M12-5).
+!<
 !< The threshold density is that of a Jeans length of two accretion radii, `rho_thr = pi c_s^2 / (4 G r_acc^2)`, with
 !< the cell's own `c_s^2 = gamma p / rho` (the Jeans length of the M9 marker; issue #94, D-M12-3, D-M12-4).
 !<

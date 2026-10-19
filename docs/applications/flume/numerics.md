@@ -311,7 +311,7 @@ the acceleration limit of Federrath et al. 2010: a cold dense medium has a CFL s
 and the self-gravity source is not limited by the CFL condition).
 
 **Creation (D-M12-3).** Once per step, on the committed state (its ghost cells and its potential refreshed), a cell of
-the finest level present forms a sink when its density exceeds $\rho_\mathrm{thr} = \pi c_s^2/(4 G r_\mathrm{acc}^2)$
+the finest level present (with runtime regridding, of the finest level allowed) forms a sink when its density exceeds $\rho_\mathrm{thr} = \pi c_s^2/(4 G r_\mathrm{acc}^2)$
 ($c_s^2 = \gamma p/\rho$ of the cell, a Jeans length of $2 r_\mathrm{acc}$, $r_\mathrm{acc}$ = `accretion_radius_cells`
 cells), no sink lies within $r_\mathrm{acc}$, and its control volume (the cells within $r_\mathrm{acc}$, read through
 the ghost cells) passes the checks of Federrath et al. (2010): the cell is a minimum of the potential (ties allowed:
@@ -342,6 +342,17 @@ follow-up). The sink histories of the two backends agree to round-off.
 **Mergers.** Two sinks within an accretion radius that are bound and converging ($\tfrac12\mu|\Delta v|^2 - Gm_1m_2/d
 < 0$, $\Delta v\cdot\Delta x < 0$) merge at their centre of mass, with their mass, momentum and mass-weighted
 acceleration (the pair's mutual pull cancels in it).
+
+**Runtime AMR (D-M12-5).** With runtime regridding (`[amr] frequency > 0`) the sinks live on the finest level allowed
+(`[amr] max_level`), as in Federrath et al. (2010): they form only there, $r_\mathrm{acc}$ is in cells of that level for
+the whole run, and at every regrid a block within $r_\mathrm{acc} + \tfrac12\,$`frequency`$ + 2$ cells of a sink (its
+accretion radius, the half cell a sink may move per step until the next regrid, its CIC stencil) is refined towards that
+level and never derefined, whatever the other markers vote. A sink formed on a coarser level would have its
+neighbourhood refined at the next regrid: the infall onto it prolongated (supersonic, cold: the children lost their
+pressure on the SI collapse) and its threshold quadrupled from one step to the next. A collapse on runtime AMR needs
+`regrid_prolongation = conservative-state` ([#88](https://github.com/szaghi/adam/issues/88)). A sink at rest on a composite
+grid that is not symmetric about it feels its own potential through the 2:1 seams: a constant truncation force, $3\cdot10^{-2}$
+finest cells over $t = 0.5$ on the SI si10 box, against $1.4\cdot10^{-4}$ on the uniform si1 box.
 
 ## Dissipative fluxes (Navier–Stokes)
 

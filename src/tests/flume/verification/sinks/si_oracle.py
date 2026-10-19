@@ -19,6 +19,16 @@
     si_oracle.py agree <cpu> <fnl>      (P3) CPU and FNL agree: the same steps and sinks, every sink's mass, position
                                         (in cells) and velocity (over the largest speed) within TOL_AGREE;
                                         --mass-only: the masses and the final distance from the centre
+    si_oracle.py shu <work>             (P4) the overdense singular isothermal sphere: the sink's accretion rate (a
+                                        linear fit of its mass over the last 60 % of the run) within TOL_SHU of Shu's
+                                        m_0(A) a^3 / G (the similarity ODEs of Shu 1977 integrated here), gas plus
+                                        sink mass within TOL_MASS
+    si_oracle.py amr <work>             (P4) runtime AMR: on the last output every block within r_acc + 2 cells of the
+                                        finest level of a sink is on that level (the sinks' neighbourhood, D-M12-5),
+                                        --sinks N sinks at the end, gas plus sink mass within TOL_MASS, and the sinks'
+                                        displacement within TOL_REST_AMR cells (--rest); --exclusive: every block whose
+                                        parent lies beyond the reach of mark_runtime (r_acc + frequency / 2 + 2 cells)
+                                        plus a cell is coarser (no other marker refines; regrids act on families)
 
 The histories are those of the run: `<base>-conservation_history.dat` (the gas integrals, W, E + W, and the sinks'
 mass, momentum and kinetic energy) and `<base>-sinks_history.dat` (one row per sink per step: it time id m x y z u v w).
@@ -48,6 +58,10 @@ TOL_COM = 1.0e-10
 TOL_MASS = 1.0e-13
 TOL_ACCRETE_MOMENTUM = 5.0e-2
 TOL_AGREE = 1.0e-8
+TOL_SHU = 6.0e-2  # 4.1 % at 32^3 (A = 29.3); Federrath et al. 2010 report about 3 %
+# a sink at rest on an asymmetric composite grid feels its own potential through the 2:1 seams: a constant truncation
+# force (7.9e-5 cells over the 40 steps of si10, 3e-2 over t = 0.5), not round-off
+TOL_REST_AMR = 1.0e-3
 
 
 def read_history(path: Path) -> dict[str, np.ndarray]:
@@ -70,6 +84,140 @@ def cell_size(work: Path) -> float:
     g = ini["grid"]
     blocks = 2 ** int(ini["amr"]["iu_ref_levels"])
     return (float(g["emax_x"]) - float(g["emin_x"])) / (int(g["ni"]) * blocks)
+
+
+def shu_m0(overdensity: float, n: int = 5000) -> float:
+    """Return m_0(A) of Shu's (1977) A-family, the central mass M = m_0 a^3 t / G: his eqs. (11)-(12) in
+    s = ln x (x = r / (a t)) by RK4 from x = 1e3 (the series alpha = A / x^2 - A (A - 4) / (2 x^4), v = -(A - 2) / x -
+    (1 - A / 6) (A - 2) / x^3) to x = 1e-4, m = x^2 alpha (x - v) there. For A > 2 the solution never meets the
+    critical line x - v = 1 (A -> 2+ gives 0.9757, Shu's 0.975; A = 29.3 gives 138.94, below the pressureless
+    (2 sqrt 2 / pi) A^1.5 = 142.8)."""
+
+    def rhs(s_: float, y: np.ndarray) -> np.ndarray:
+        x = np.exp(s_)
+        al, v = y
+        w = x - v
+        den = w * w - 1.0
+        return x * np.array([al * (al - 2.0 / x * w) * w / den, (al * w - 2.0 / x) * w / den])
+
+    a, x0, x1 = overdensity, 1.0e3, 1.0e-4
+    y = np.array([a / x0**2 - a * (a - 4.0) / (2.0 * x0**4), -(a - 2.0) / x0 - (1.0 - a / 6.0) * (a - 2.0) / x0**3])
+    grid = np.linspace(np.log(x0), np.log(x1), n)
+    for s0, s1 in zip(grid[:-1], grid[1:], strict=True):
+        hs = s1 - s0
+        k1 = rhs(s0, y)
+        k2 = rhs(s0 + hs / 2, y + hs / 2 * k1)
+        k3 = rhs(s0 + hs / 2, y + hs / 2 * k2)
+        k4 = rhs(s1, y + hs * k3)
+        y = y + hs / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+    return x1 * x1 * y[0] * (x1 - y[1])
+
+
+def shu(work: Path) -> bool:
+    """Check the accretion rate of the overdense singular isothermal sphere against Shu's A-family."""
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
+    ini.read(work / "input.ini")
+    overdensity = float(ini["initial_conditions"].get("sis_overdensity", "2.0"))
+    a2 = float(ini["initial_conditions_region_1"]["p"]) / float(ini["initial_conditions_region_1"]["r"])
+    grav = float(ini["gravity"]["G"])
+    m0 = shu_m0(overdensity)
+    col = read_history(next(work.glob("*-sinks_history.dat")))
+    t, m = col["time"], col["m"]
+    window = t >= 0.4 * t[-1]
+    rate = float(np.polyfit(t[window], m[window], 1)[0]) / (m0 * a2**1.5 / grav)
+    ok = abs(rate - 1.0) <= TOL_SHU
+    span = f"[{t[window][0]:.3f}, {t[-1]:.3f}]"
+    print(f"   A = {overdensity:g}: m_0 = {m0:.4f}; the rate over t in {span} is {rate:.4f} of m_0 a^3 / G (bound "
+          f"{TOL_SHU:.0e})  {'PASS' if ok else 'FAIL'}")
+    mass, _ = total_mass(work)
+    drift = float(np.max(np.abs(mass / mass[0] - 1.0)))
+    status = "PASS" if drift <= TOL_MASS else "FAIL"
+    ok &= status == "PASS"
+    print(f"   gas + sink mass: drift {drift:.2e} (bound {TOL_MASS:.0e})  {status}")
+    return ok
+
+
+def finest_cell_size(work: Path) -> float:
+    """Return the cell spacing of the finest level allowed."""
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
+    ini.read(work / "input.ini")
+    g = ini["grid"]
+    return (float(g["emax_x"]) - float(g["emin_x"])) / (int(g["ni"]) * 2 ** int(ini["amr"]["max_level"]))
+
+
+def last_blocks(work: Path) -> tuple[int, np.ndarray, np.ndarray]:
+    """Return the step of the last output and its blocks' interior boxes (lower, upper corners, one row per block)."""
+    import h5py  # only this check reads the fields
+
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
+    ini.read(work / "input.ini")
+    g = ini["grid"]
+    cells = np.array([int(g[k]) for k in ("ni", "nj", "nk")], dtype=float)
+    ngc = int(g["ngc"])
+    files = sorted(work.glob("*-proc*.h5"))
+    step = max(int(f.name.rsplit("-proc", 1)[0].rsplit("-", 1)[1]) for f in files)
+    lo, hi = [], []
+    for f in files:
+        if int(f.name.rsplit("-proc", 1)[0].rsplit("-", 1)[1]) != step:
+            continue
+        with h5py.File(f, "r") as h:
+            for key in (k for k in h if k.endswith("-origin")):
+                # the geometry is stored (z, y, x), with the ghost cells
+                dx = np.asarray(h[key.replace("-origin", "-dxdydz")][()], dtype=float)[::-1]
+                lo.append(np.asarray(h[key][()], dtype=float)[::-1] + ngc * dx)
+                hi.append(lo[-1] + cells * dx)
+    return step, np.array(lo), np.array(hi)
+
+
+def amr(work: Path, sinks_expected: int, exclusive: bool, at_rest: bool) -> bool:
+    """Check the sinks' neighbourhood on the finest level after the runtime regrids."""
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
+    ini.read(work / "input.ini")
+    r_acc = float(ini["sinks"].get("accretion_radius_cells", "2.5"))
+    frequency = int(ini["amr"]["frequency"])
+    h = finest_cell_size(work)
+    sinks = final_sinks(work)
+    ok = len(sinks) == sinks_expected
+    print(f"   sinks at the end: {len(sinks)} (expected {sinks_expected})  {'PASS' if ok else 'FAIL'}")
+    step, lo, hi = last_blocks(work)
+    fine = np.isclose(hi[:, 0] - lo[:, 0], int(ini["grid"]["ni"]) * h, rtol=1.0e-12)  # a block of the finest level
+    # the parent of each block (a regrid refines and derefines whole families): its box, twice the block's, aligned
+    emin = np.array([float(ini["grid"][k]) for k in ("emin_x", "emin_y", "emin_z")])
+    size = 2.0 * (hi - lo)
+    lo_p = emin + np.floor((lo - emin) / size + 1.0e-9) * size
+    reach = (r_acc + 0.5 * frequency + 3.0) * h
+    near = np.zeros(lo.shape[0], dtype=bool)
+    far, far_p = np.ones(lo.shape[0], dtype=bool), np.ones(lo.shape[0], dtype=bool)
+    for s in sinks.values():
+        x = np.array([s["x"], s["y"], s["z"]])
+        gap = np.sqrt(np.sum(np.maximum(np.maximum(lo - x, x - hi), 0.0) ** 2, axis=1))  # 0 inside the box
+        near |= gap <= (r_acc + 2.0) * h
+        far &= gap > reach
+        gap = np.sqrt(np.sum(np.maximum(np.maximum(lo_p - x, x - lo_p - size), 0.0) ** 2, axis=1))
+        far_p &= gap > reach
+    status = "PASS" if near.any() and fine[near].all() else "FAIL"
+    ok &= status == "PASS"
+    print(f"   step {step}: {lo.shape[0]} blocks, {int(fine.sum())} on the finest level; within {r_acc + 2.0:g} cells "
+          f"of a sink {int(near.sum())}, on it {int(fine[near].sum())}  {status}")
+    if exclusive:  # a finest block's family was refined within the reach; coarser blocks beyond it stayed coarse
+        status = "PASS" if not (fine & far_p).any() and (~fine & far).any() else "FAIL"
+        ok &= status == "PASS"
+        n_fine, n_coarse = int((fine & far_p).sum()), int((~fine & far).sum())
+        print(f"   beyond {reach / h:g} cells: finest blocks with the parent there {n_fine} (expected none: no other "
+              f"marker refines), coarser blocks there {n_coarse} (expected some)  {status}")
+    if at_rest:
+        col = read_history(next(work.glob("*-sinks_history.dat")))
+        d = max(float(np.max(np.abs(col[k] - col[k][0]))) for k in ("x", "y", "z")) / h
+        status = "PASS" if d <= TOL_REST_AMR else "FAIL"
+        ok &= status == "PASS"
+        print(f"   sink displacement {d:.2e} finest cells over t = {col['time'][-1]:.3f} (bound {TOL_REST_AMR:.0e}: "
+              f"the 2:1 seams around it)  {status}")
+    mass, _ = total_mass(work)
+    drift = float(np.max(np.abs(mass / mass[0] - 1.0)))
+    status = "PASS" if drift <= TOL_MASS else "FAIL"
+    ok &= status == "PASS"
+    print(f"   gas + sink mass across the regrids: drift {drift:.2e} (bound {TOL_MASS:.0e})  {status}")
+    return ok
 
 
 def rest(work: Path) -> bool:
@@ -275,9 +423,13 @@ def agree(work_cpu: Path, work_fnl: Path, mass_only: bool = False) -> bool:
 def main() -> int:
     """Run the requested check."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=("rest", "binary", "same", "accrete", "collapse", "none", "merge", "agree"))
+    ap.add_argument("mode", choices=("rest", "binary", "same", "accrete", "collapse", "none", "merge", "agree", "amr",
+                                     "shu"))
     ap.add_argument("works", type=Path, nargs="+")
     ap.add_argument("--mass-only", action="store_true", help="agree: masses and the final radius only")
+    ap.add_argument("--sinks", type=int, default=1, help="amr: the sinks expected at the end")
+    ap.add_argument("--exclusive", action="store_true", help="amr: no block beyond the sinks' reach is refined")
+    ap.add_argument("--rest", action="store_true", help="amr: the sinks stay put")
     a = ap.parse_args()
     if a.mode == "rest":
         ok = rest(a.works[0])
@@ -287,8 +439,10 @@ def main() -> int:
         ok = same(a.works[0], a.works[1])
     elif a.mode == "agree":
         ok = agree(a.works[0], a.works[1], a.mass_only)
+    elif a.mode == "amr":
+        ok = amr(a.works[0], a.sinks, a.exclusive, a.rest)
     else:
-        ok = {"accrete": accrete, "collapse": collapse, "none": none, "merge": merge}[a.mode](a.works[0])
+        ok = {"accrete": accrete, "collapse": collapse, "none": none, "merge": merge, "shu": shu}[a.mode](a.works[0])
     print(f"SI {a.mode}: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

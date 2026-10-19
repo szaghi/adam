@@ -1875,6 +1875,86 @@ def fig_passive_scalars(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_sink_particles(out: Path, runs: Path) -> None:
+    """SI (issue #94): sink particles (CPU, 2 ranks). Top left: the equal-mass circular binary (sinks/check.sh si2), the
+    two sinks over one orbit against the Kepler circle. Top right: its separation and orbital energy against their
+    initial values over the orbit. Bottom left: the overdense singular isothermal sphere (si11, A = 29.3) at 32^3 and
+    64^3, the sink's accretion rate (the slope of its mass over 5 rows) over Shu's m_0(A) a^3 / G (the similarity ODEs,
+    si_oracle.py). Bottom right: the si10 collapse on runtime AMR, the density on the cell layer above z = 0 with the
+    block outlines and the sink."""
+    sys.path.insert(0, str(HERE / "sinks"))
+    import si_oracle  # noqa: PLC0415
+
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 10.0), constrained_layout=True)
+    sinks = si_oracle.sinks_by_id(runs / "si-binary")
+    ax = axs[0, 0]
+    for k, (sid, s) in enumerate(sorted(sinks.items())):
+        ax.plot(s["x"], s["y"], "-", color=f"C{k}", lw=1.2, label=f"sink {sid}")
+    th = np.linspace(0.0, 2.0 * np.pi, 200)
+    ax.plot(0.25 * np.cos(th), 0.25 * np.sin(th), "--", color="0.5", lw=0.8, label="Kepler circle, d = 0.5")
+    ax.set_aspect("equal")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.legend(fontsize=8)
+    ax.set_title("the circular binary, one orbit (separation 8 cells)", fontsize=10)
+    s1, s2 = sinks[1], sinks[2]
+    d = np.sqrt((s1["x"] - s2["x"]) ** 2 + (s1["y"] - s2["y"]) ** 2 + (s1["z"] - s2["z"]) ** 2)
+    mu = s1["m"] * s2["m"] / (s1["m"] + s2["m"])
+    dv2 = (s1["u"] - s2["u"]) ** 2 + (s1["v"] - s2["v"]) ** 2 + (s1["w"] - s2["w"]) ** 2
+    e = 0.5 * mu * dv2 - s1["m"] * s2["m"] / d  # G = 1
+    period = 2.0 * np.pi * 0.25
+    ax = axs[0, 1]
+    ax.plot(s1["time"] / period, d / d[0] - 1.0, "-", label="separation / initial - 1")
+    ax.plot(s1["time"] / period, e / e[0] - 1.0, "-", label="orbital energy / initial - 1")
+    ax.axhline(0.0, color="0.7", lw=0.8)
+    ax.set_xlabel("t / P (Kepler)")
+    ax.legend(fontsize=8)
+    dsep, de = float(np.max(np.abs(d / d[0] - 1.0))), float(np.max(np.abs(e / e[0] - 1.0)))
+    ax.set_title(f"the mesh force (softened at about two cells): separation {100 * dsep:.1f} %, energy "
+                 f"{100 * de:.2f} %", fontsize=10)
+    ax = axs[1, 0]
+    for k, cells in enumerate((32, 64)):
+        work = runs / f"si-shu-{cells}"
+        ini = read_ini(work / "input.ini")
+        a3 = (float(ini["initial_conditions_region_1"]["p"]) / float(ini["initial_conditions_region_1"]["r"])) ** 1.5
+        overdensity = float(ini["initial_conditions"]["sis_overdensity"])
+        rate = si_oracle.shu_m0(overdensity) * a3 / float(ini["gravity"]["G"])
+        col = si_oracle.read_history(next(work.glob("*-sinks_history.dat")))
+        t, m = col["time"], col["m"]
+        tm = 0.5 * (t[5:] + t[:-5])
+        ax.plot(tm, (m[5:] - m[:-5]) / (t[5:] - t[:-5]) / rate, "-", color=f"C{k}", label=f"{cells}^3")
+        window = t >= 0.4 * t[-1]
+        fit = float(np.polyfit(t[window], m[window], 1)[0]) / rate
+        ax.plot(t[window], np.full(window.sum(), fit), ":", color=f"C{k}", label=f"{cells}^3 fit: {fit:.3f}")
+    ax.axhline(1.0, color="0.5", ls="--", lw=0.8, label="Shu (1977), m_0(29.3) = 138.9")
+    ax.set_ylim(0.0, 2.0)
+    ax.set_xlabel("t")
+    ax.set_ylabel("dM / dt over m_0 a^3 / G")
+    ax.legend(fontsize=8)
+    ax.set_title("the overdense isothermal sphere (A = 29.3, F10): the accretion rate", fontsize=10)
+    ax = axs[1, 1]
+    work = runs / "si-collapse-amr"
+    ngc = int(read_ini(work / "input.ini")["grid"]["ngc"])
+    layer = []
+    for blk in blocks(work, ngc, ("r",)):
+        hi_z = blk["lo"][2] + blk["f"]["r"].shape[2] * blk["d"][2]
+        if blk["lo"][2] <= 1.0e-12 < hi_z:  # the blocks holding the layer just above z = 0, its first plane
+            k = int((1.0e-12 - blk["lo"][2]) / blk["d"][2])
+            layer.append({"lo": blk["lo"], "d": blk["d"], "f": {"r": blk["f"]["r"][:, :, k : k + 1]}})
+    im = field_map(ax, layer, lambda b: np.log10(b["f"]["r"][:, :, 0]), cmap="magma", outline=True)
+    fig.colorbar(im, ax=ax, label="log10 rho")
+    last = si_oracle.final_sinks(work)
+    for s in last.values():
+        ax.plot(s["x"], s["y"], "+", color="c", ms=12, mew=2)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    t_end = next(iter(last.values()))["time"] if last else float("nan")
+    ax.set_title(f"the collapse on runtime AMR at t = {t_end:.2f}: the sink (+) on the finest level", fontsize=10)
+    fig.suptitle("SI: sink particles (CPU, 2 ranks)")
+    fig.savefig(out / "sink-particles.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_radiative_cooling(out: Path, runs: Path) -> None:
     """CO (issue #93): radiative cooling (CPU, 2 ranks). Top left: the uniform box from T = 5 (cooling/check.sh co1),
     the temperature of every step against the isochoric ODE (Gauss-Legendre quadrature, co_oracle.py), the table's
@@ -3221,6 +3301,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "dual-energy": fig_dual_energy,
            "passive-scalars": fig_passive_scalars,
            "radiative-cooling": fig_radiative_cooling,
+           "sink-particles": fig_sink_particles,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
            "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,

@@ -16,6 +16,7 @@ accepted values.
 | `orszag-tang` | ✗ | ✓ | ✓ | 0 |
 | `linear` (verification) | ✓ | ✓ | ✓ | 1 |
 | `polytrope` (self-gravity) | ✓ | ✗ | ✗ | 1 (the atmosphere) |
+| `singular-isothermal-sphere` (self-gravity) | ✓ | ✗ | ✗ | 1 (the temperature) |
 
 "MHD" in the error messages means `[physics] physical_model = mhd-ideal`. `glm` versus `none` is chosen separately by
 `[mhd] divergence_control`.
@@ -905,4 +906,33 @@ u = 0.0
 v = 0.0
 w = 0.0
 p = 1.5915494309189535e-05
+```
+
+## `singular-isothermal-sphere`: Shu's isothermal sphere (self-gravity)
+
+The singular isothermal sphere at rest ([#94](https://github.com/szaghi/adam/issues/94), M12-P4; Euler, `[gravity]
+self_gravity` required), $\rho = A a^2/(4\pi G r^2)$, $p = \rho a^2$, with the isothermal sound speed
+$a^2 = p_1/\rho_1$ of region 1 (only the ratio is used) and region 1's velocity. $A = 2$ is the hydrostatic sphere of
+Shu (1977), whose inside-out collapse accretes at $0.975\,a^3/G$; $A > 2$ collapses everywhere, at $m_0(A)\,a^3/G$
+(Shu's A-family; $A = 29.3$ is the run of Federrath et al. 2010). Every cell holds the mean of $1/r^2$ over it (the flux
+of $\mathbf x/r^2$ through its faces): sampled at the centres, $1/r^2$ would miss the mass of the unresolved core and
+the hydrostatic sphere would expand. Keys: `sis_overdensity` $A$ (default 2, $> 0$), `sis_x0`, `sis_y0`, `sis_z0`
+(the centre, default 0). A cell centre on the centre is fatal: place it on a cell corner. The gas stays isothermal
+with $\gamma$ close to 1 (`gamma = 1.001`, [SI si11](./verification/self-gravity/sink-particles)).
+
+```ini
+[physics]
+gamma = 1.001
+
+[initial_conditions]
+type            = singular-isothermal-sphere
+amr_iterations  = 0
+sis_overdensity = 29.3
+
+[initial_conditions_region_1]
+r = 1.0
+u = 0.0
+v = 0.0
+w = 0.0
+p = 0.25
 ```

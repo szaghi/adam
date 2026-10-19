@@ -40,6 +40,7 @@ The figures are regenerated with `make_doc_runs.sh <dir> <group>` and `make_doc_
 | `jeans` | `exe/adam_flume_cpu_fft` (mode `flume-cpu-gnu-fft`) | `selfgravity-jeans` |
 | `isolated` | `exe/test_poisson_fft`, `exe/adam_flume_cpu_fft` | `selfgravity-isolated selfgravity-star` |
 | `amr` | `exe/test_poisson_mg` (mode `test-poisson-mg-gnu`), `exe/adam_flume_cpu_fft` | `selfgravity-amr selfgravity-amr-jeans selfgravity-amr-regrid` |
+| `sinks` | `exe/adam_flume_cpu_fft` | `sink-particles` |
 
 | Case | ID | What it verifies |
 |---|---|---|
@@ -51,3 +52,4 @@ The figures are regenerated with `make_doc_runs.sh <dir> <group>` and `make_doc_
 | [The multigrid solver on AMR grids](./multigrid-amr) | SV-9, SV-12, SV-13 | the mimetic 2:1 coupling (symmetric and consistent), the FCG solver, Dirichlet faces, isolated boundaries by the symmetric James step |
 | [Jeans modes on a static AMR grid](./amr-jeans) | SV-10 | the multigrid coupling, the seam gravity work, the per-stage reflux |
 | [Self-gravity under runtime AMR](./runtime-amr) | SV-11 | the solver and $\Phi$ follow every regrid; $E + W$ exact between regrids |
+| [Sink particles](./sink-particles) | SI | point masses through the Poisson source: rest, Kepler binary, creation, accretion at Shu's rate, mergers, runtime AMR ([#94](https://github.com/szaghi/adam/issues/94)) |

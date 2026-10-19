@@ -26,12 +26,22 @@
 #        potential minimum, but Jeans-stable (|E_grav| / 2 E_th = 0.66): no sink;
 #   si8  (P2) merger: two sinks of mass 1, 1.28 cells apart, approaching: one sink of mass 2, its momentum the sum
 #        (zero) within 1e-10;
-#   si9  (P3) CPU and FNL agree on the si2, si5, si6 and si8 runs (run them with both executables first): the same steps
-#        and sinks, masses within 1e-8 of the largest, positions within 1e-8 cells, velocities within 1e-8 of the
-#        largest speed; si6 (a sink formed at a symmetric centre: which of the 8 tied cells wins is round-off) the masses
-#        and the final distance from the centre (1e-2 cells).
+#   si9  (P3) CPU and FNL agree on the si2, si5, si6, si8, si10 and si11 runs (run them with both executables first):
+#        the same steps and sinks, masses within 1e-8 of the largest, positions within 1e-8 cells, velocities within
+#        1e-8 of the largest speed; si6 and the si10 collapse (a sink formed at a symmetric centre: which of the 8 tied
+#        cells wins is round-off) and si11 (the sink at the centre: its velocity is round-off, 1e-11) the masses and the
+#        final distance from the centre (1e-2 cells);
+#   si10 (P4) runtime AMR (a Jeans marker, a regrid every 4 steps): the si1 sink on a 4^3-block base of 8 cells with one
+#        level above it, 40 steps: the blocks within r_acc + 2 cells of the sink on the finest level, no other block
+#        refined (the Jeans marker never fires in that background), the sink within 1e-3 cells, the mass conserved
+#        within 1e-13 across the regrids; the si6 collapse at 16^3 with two levels above the base: one sink, formed on
+#        the finest level (the only one it may form on with runtime regridding), at the centre, its neighbourhood on
+#        that level, the mass within 1e-13;
+#   si11 (P4) the overdense singular isothermal sphere of Federrath et al. (2010, section 3.4; A = 29.3, gamma = 1.001,
+#        a seed sink at the centre, t = 0.25): the accretion rate over the last 60 % of the run within 6 % of Shu's
+#        (1977) m_0(A) a^3 / G (4.1 % at 32^3; F10 about 3 %), the mass within 1e-13.
 #
-# Usage: ./check.sh [--legs LIST]   (legs si1 to si9, all; default si1 to si8)
+# Usage: ./check.sh [--legs LIST]   (legs si1 to si11, all; default every leg but si9)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft: self-gravity needs the FFT build); the
 # caller owns the matching environment.
@@ -43,7 +53,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "si1 si2 si3 si4 si5 si6 si7 si8 si9" "si1 si2 si3 si4 si5 si6 si7 si8"
+legs_declare "si1 si2 si3 si4 si5 si6 si7 si8 si9 si10 si11" "si1 si2 si3 si4 si5 si6 si7 si8 si10 si11"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -142,16 +152,30 @@ for leg in $LEGS; do
          make_case si8-merge --case merge --it-max 5
          run_oracle "$W" merge "$W" ;;
       si9)
-         for case_ in si2-binary si5-accrete si6-collapse si8-merge; do
+         for case_ in si2-binary si5-accrete si6-collapse si8-merge si10-rest-amr si10-collapse-amr si11-shu; do
             echo "-- si9: CPU and FNL agree, $case_"
             cpu="$CASE_DIR/work-adam_flume_cpu_fft-$case_" ; fnl="$CASE_DIR/work-adam_flume_fnl_fft-$case_"
             if [[ -f "$cpu/log.txt" && -f "$fnl/log.txt" ]]; then
-               only="" ; [[ $case_ == si6-collapse ]] && only="--mass-only" # the centre's tie is round-off
+               # a sink at a symmetric centre: a tie whose winner is round-off (si6, si10), or a velocity that is
+               # round-off (si11, 1e-11): the masses and the final distance from the centre
+               only="" ; [[ $case_ =~ ^(si6-collapse|si10-collapse-amr|si11-shu)$ ]] && only="--mass-only"
                "$VENV_PY" "$CASE_DIR/si_oracle.py" agree "$cpu" "$fnl" $only || FAILED=1
             else
                echo "   missing a run: run $case_ with both executables first" ; FAILED=1
             fi
          done ;;
+      si10)
+         echo "-- si10: a sink at rest keeps its neighbourhood on the finest level across the regrids"
+         make_case si10-rest-amr --case rest --cells 32 --base-levels 2 --amr 1 --it-max 40 --time-max 100.0
+         run_oracle "$W" amr "$W" --exclusive --rest
+         echo "-- si10: the collapse on runtime AMR forms one sink on the finest level"
+         make_case si10-collapse-amr --case collapse --cells 16 --amr 2
+         run_oracle "$W" amr "$W"
+         "$VENV_PY" "$CASE_DIR/si_oracle.py" collapse "$W" || FAILED=1 ;;
+      si11)
+         echo "-- si11: the overdense singular isothermal sphere accretes at Shu's rate"
+         make_case si11-shu --case shu
+         run_oracle "$W" shu "$W" ;;
    esac
 done
 if [[ $FAILED -ne 0 ]]; then echo "SI FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi

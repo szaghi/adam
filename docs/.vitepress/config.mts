@@ -294,6 +294,7 @@ export default withMermaid({
                         { text: 'The multigrid Poisson solver on AMR grids', link: '/applications/flume/verification/self-gravity/multigrid-amr' },
                         { text: 'Jeans modes on a static AMR grid', link: '/applications/flume/verification/self-gravity/amr-jeans' },
                         { text: 'Self-gravity under runtime AMR', link: '/applications/flume/verification/self-gravity/runtime-amr' },
+                        { text: 'Sink particles', link: '/applications/flume/verification/self-gravity/sink-particles' },
                       ],
                     },
                     { text: 'Unit tests', link: '/applications/flume/verification/unit-tests' },
