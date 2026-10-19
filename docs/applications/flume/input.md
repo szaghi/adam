@@ -480,6 +480,9 @@ replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 | `[cooling]` `lambdas` (each value) | $L_0^5 u_0^3 \rho_0$ |
 | `[cooling]` `particle_mass` | $\rho_0 L_0^3$ |
 | `[cooling]` `dt_factor` | — (dimensionless) |
+| `[sinks]` `x`, `y`, `z` (each value) | $L_0$ |
+| `[sinks]` `u`, `v`, `w` (each value) | $u_0$ |
+| `[sinks]` `mass` (each value) | $\rho_0 L_0^3$ |
 
 The conversion divides by the power-of-two reference first and applies $R$ last, a single rounding, so the
 verification DC can check every converted value exactly.
@@ -657,6 +660,26 @@ The values are in the units of the rest of the input: $T$ uses the gas constant 
 $\Lambda$ in erg cm³ s⁻¹ and SI elsewhere, multiply $\Lambda$ by $10^{-13}$). The `[reference]` layer converts the
 three keys (above). The conservation history gains two columns: `radiated`, the energy radiated since the start of the
 run (of this run segment: it restarts from 0 on a restart), and `E_plus_radiated`, which the scheme conserves.
+
+---
+
+## [sinks] (optional: sink particles)
+
+The section switches on sink particles ([#94](https://github.com/szaghi/adam/issues/94), M12): point masses that act on
+the gas through the self-gravity solve only ([numerics](./numerics#sink-particles)). It needs `[gravity] self_gravity =
+.true.` and a hydrodynamic model (`euler`, `euler-de`, with or without passive scalars); otherwise it is fatal. CPU
+backend only for now (FNL is phase P3 of #94: fatal on FNL). The keys list the initial sinks, one value each; their
+number is that of `mass` (none: the section with no initial sink).
+
+| Key | Type | Req. | Accepted / invalid | Meaning |
+|-----|------|------|--------------------|---------|
+| `mass` | list of reals | no (no sink) | all `> 0`; otherwise fatal | The sinks' masses. |
+| `x`, `y`, `z` | lists of reals | with `mass` | as many values as `mass`, inside the domain; otherwise fatal | The positions. |
+| `u`, `v`, `w` | lists of reals | no (0) | as many values as `mass`; otherwise fatal | The velocities. |
+
+The conservation history gains `M_sinks`, `Px_sinks`, `Py_sinks`, `Pz_sinks` and `K_sinks` (`W` then includes the
+sinks' mass), and `<output_basename>-sinks_history.dat` gets one row per sink per save (`it time id m x y z u v w`).
+Restart files carry `<restart_basename>.sinks`. A sink that leaves a closed domain is fatal.
 
 ---
 

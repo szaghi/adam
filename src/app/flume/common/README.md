@@ -17,6 +17,7 @@ The pointwise libraries (`*_library.F90`) are `pure`, take explicit-size argumen
 | `adam_flume_dissipation_object.F90` | `[physics]` dissipative coefficients (issue #65): viscosity, conductivity, resistivity, each as a coefficient or its number, and the power-law viscosity |
 | `adam_flume_cooling_object.F90` | `[cooling]` radiative cooling (issue #93): the node table, the particle mass, the time-step limiter, the precomputed exponents and evolution function, the radiated energy |
 | `adam_flume_cooling_library.F90` | Townsend's exact integration shared by both backends: the cooling function, the evolution function and its inverse, the cooled internal energy of a cell |
+| `adam_flume_sinks_object.F90` | `[sinks]` sink particles (issue #94): the replicated list (masses, positions, velocities, accelerations), the restart file and the sinks history; the deposit and the gather live in the common object |
 | `adam_flume_dissipation_library.F90` | Pointwise dissipative physics shared by both backends: the viscous and heat-conduction flux of a direction, the Ohmic flux (MHD), the diffusivity of the time-step limit |
 | `adam_flume_mhd_object.F90` | `[mhd]`: divergence control (`glm`, `none`), GLM speed, damping and check, div(B) monitor, positivity floors |
 | `adam_flume_numerics_object.F90` | `[numerics]`: `scheme_space` (`weno`, `weno-riemann`), `reconstruction_variables`, Riemann solver, flux correction and sensor, `reflux`, `positivity_limiter`, `dissipative_order` |

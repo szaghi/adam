@@ -287,6 +287,27 @@ alike ([CO](./verification/euler/radiative-cooling)). The FNL backend runs the s
 library arithmetic in its device kernels (`apply_cooling_dev`, `apply_cooling_entropy_dev`), the tables at the fixed
 size of 64 nodes.
 
+## Sink particles
+
+`[sinks]` ([#94](https://github.com/szaghi/adam/issues/94), M12) adds point masses that act through self-gravity only.
+The list is replicated (D-M12-1): every rank holds every sink and updates it identically from MPI-reduced sums, so no
+sink is owned and none migrates; the replicated tree locates any sink's block on any rank.
+
+**Gravity (D-M12-2).** Each sink's mass is spread over its cloud-in-cell stencil (the 8 cell centres of the level of
+its block around it) and added to the density the Poisson solver sees, through the packed path of both solvers: the
+periodic and isolated boundaries (the James step) and the AMR composite operator apply to the sinks as to the gas, and
+`W` $= \tfrac12\sum\rho_\mathrm{tot}\Phi\,dV$ includes them. A sink feels the centred difference of $\Phi$ at those
+cells, interpolated with the same weights: the deposit-interpolation pair of Hockney & Eastwood (1988), free of
+self-force on a uniform grid. The gas feels $\Phi$ through its face gradients (the potential path of self-gravity), so
+gas and sinks exchange momentum equal and opposite to truncation ($4\cdot10^{-5}$ relative on the SI si1 box). Through
+the mesh the sink gravity is softened at about two cells.
+
+**Time stepping.** The gas step runs with the sinks at their positions $x^n$ in the Poisson source; then, once per step
+on the committed state, kick-drift-kick: $v \mathrel{+}= \tfrac{\Delta t}2 a$, $x \mathrel{+}= \Delta t\,v$, the
+potential re-solved, $a$ gathered at the new positions, $v \mathrel{+}= \tfrac{\Delta t}2 a$. Second order for the sinks,
+first order in their coupling with the gas. A sink moves at most half a cell of its level per step (a time step
+limit).
+
 ## Dissipative fluxes (Navier–Stokes)
 
 With a viscosity or a conductivity in `[physics]` ([input](./input#dissipative-terms-issue-65-m4)), Euler becomes the
@@ -534,6 +555,7 @@ history `<basename>-divb_history.dat` (`it time max_divb l1_divb seam_max_divb`,
   doi:10.1088/0004-637X/713/1/269.
 - Don W. S., Li R., Wang B.-S., Wang Y. H. (2022), A novel and robust scale-invariant WENO scheme for hyperbolic
   conservation laws, *J. Comput. Phys.* 448, 110724.
+- Hockney R. W., Eastwood J. W. (1988), *Computer Simulation Using Particles*, Adam Hilger, Bristol.
 - Jiang G.-S., Shu C.-W. (1996), Efficient implementation of weighted ENO schemes, *J. Comput. Phys.* 126, 202–228.
 - Becker R. (1922), Stoßwelle und Detonation, *Z. Phys.* 8, 321–362.
 - Löhner R. (1987), An adaptive finite element scheme for transient problems in CFD, *Comput. Methods Appl. Mech.

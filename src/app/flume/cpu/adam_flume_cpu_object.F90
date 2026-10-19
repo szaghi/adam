@@ -646,6 +646,16 @@ contains
    endif
    if (self%physics%cooling%is_active) row = [row, self%physics%cooling%radiated * factors(IQ_RE), &
                                               (integrals(IQ_RE) + self%physics%cooling%radiated) * factors(IQ_RE)]
+   if (self%sinks%is_active) then ! issue #94: the sinks' mass, momentum and kinetic energy (W above includes them)
+      block
+         real(R8P) :: sm, sp(3), sk
+         call self%sinks%totals(mass=sm, momentum=sp, kinetic=sk)
+         row = [row, sm * factors(IQ_R), sp * factors(IQ_RU), sk * factors(IQ_RE)] ! factors: per volume times L0^3
+      endblock
+      call self%sinks%save_history(it=self%time%it, time=self%time%time*self%units%time_output(),                   &
+                                   length=self%units%length_output(), velocity=self%units%variable_output('u'),    &
+                                   mass=factors(IQ_R))
+   endif
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
                                                integrals=row)
    endsubroutine compute_conservation
@@ -1849,6 +1859,7 @@ contains
    if (lambda_max > 0._R8P) dt_local = self%time%CFL / lambda_max
    if (self%physics%cooling%is_active .and. self%physics%cooling%dt_factor > 0._R8P) &
       dt_local = min(dt_local, self%physics%cooling%dt_factor * self%cooling_time_min())
+   if (self%sinks%is_active) dt_local = min(dt_local, self%sinks%dt_limit) ! half a cell per step (issue #94)
    endsubroutine compute_local_dt_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -2042,6 +2053,10 @@ contains
       self%time%it   = 0_I4P
    endif
    if (self%physics%gravity%self_gravity) call self%solve_potential(q=self%q) ! the final initial state (issue #81)
+   if (self%sinks%is_active) then ! the sinks' first kick needs their acceleration (issue #94)
+      call self%compute_sink_accelerations
+      self%sinks%dt_limit = self%sinks_dt_limit()
+   endif
    call self%set_glm_damping
    call self%update_ghost(q=self%q)
    call self%compute_q_aux(q=self%q)
@@ -2049,7 +2064,9 @@ contains
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
                                    is_restart=self%io%restart, with_divb=.not.is_hydrodynamic(self%physics%model), &
                                    with_self_gravity=self%physics%gravity%self_gravity,                            &
-                                   with_cooling=self%physics%cooling%is_active)
+                                   with_cooling=self%physics%cooling%is_active,                                    &
+                                   with_sinks=self%sinks%is_active)
+   call self%sinks%open_history(output_basename=self%io%output_basename, is_restart=self%io%restart)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
       call self%compute_divb_history
@@ -2096,6 +2113,15 @@ contains
 
    if (has_entropy(self%physics%model)) call self%sync_dual_energy
    if (self%physics%cooling%is_active) call self%apply_cooling(dt=self%time%dt) ! the forest passes no dt (0)
+   if (self%sinks%is_active) then
+      ! sinks (issue #94): kick-drift-kick on the committed state, the potential re-solved at the new positions
+      call self%kick_sinks(dt=self%time%dt)
+      call self%drift_sinks(dt=self%time%dt)
+      call self%solve_potential(q=self%q)
+      call self%compute_sink_accelerations
+      call self%kick_sinks(dt=self%time%dt)
+      self%sinks%dt_limit = self%sinks_dt_limit()
+   endif
    call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
@@ -2285,6 +2311,7 @@ contains
       coarsened = coarsened + int(size(self%adam%tree%node_to_derefine, dim=1), I4P) / self%adam%tree%ratio
       call self%compute_phi
       call self%set_potential ! the potential of the new grid (issue #81)
+      call self%compute_sink_accelerations ! the gravity of the new grid at the sinks (issue #94)
    enddo
    regridded = sweeps > 0_I4P
    if (.not.regridded) return

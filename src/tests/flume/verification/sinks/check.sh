@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# FLUME verification SI: sink particles, `[sinks]` (issue #94).
+#
+# Why: sinks are a replicated list of point masses coupled to the gas through the self-gravity solve only (their mass
+# CIC-deposited into the Poisson source, the mesh gravity CIC-interpolated back, D-M12-2), advanced by kick-drift-kick
+# once per step. make_si.py writes the box ([-1, 1]^3, 32^3, gamma = 2, G = 1), si_oracle.py checks it. The legs:
+#   si1  a sink at rest in a uniform periodic background (rho = 1e-3, the sink off every symmetry plane, t = 0.5): it
+#        stays put within 1e-3 cells, and gas plus sink momentum is conserved within 1e-3 of the momentum they exchange
+#        (the gas feels face gradients of the potential, the sink centred ones: equal and opposite to truncation);
+#   si2  the equal-mass circular binary (masses 1, separation 0.5 = 8 cells, isolated, near-vacuum background, one
+#        orbit): the separation within 3 %, the period against Kepler's at the mean separation within 2 %, the
+#        orbital energy and the angular momentum within 1 %, the centre of mass within 1e-10 (the mesh force is
+#        softened at about two cells: not round-off);
+#   si3  the contract: [sinks] without self-gravity, with mhd-ideal, lists of different lengths, a non-positive mass
+#        and a sink outside the domain are refused;
+#   si4  restart: the si1 box 20 steps in one run, and 10 + 10 across a restart (<restart_basename>.sinks): the
+#        conservation and sinks histories bitwise equal.
+#
+# Usage: ./check.sh [--legs LIST]   (legs si1 si2 si3 si4, all; default all)
+#
+# FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft: self-gravity needs the FFT build); the
+# caller owns the matching environment.
+set -euo pipefail
+
+CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
+EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
+VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
+source "$VERIF_DIR/legs.sh"
+legs_declare "si1 si2 si3 si4" "si1 si2 si3 si4"
+while [[ $# -gt 0 ]]; do
+   case "$1" in
+      --legs) legs_select "$2" ; shift 2 ;;
+      *)      echo "check.sh: unknown argument '$1' (accepted: --legs LIST)" >&2 ; exit 2 ;;
+   esac
+done
+legs_resolve check.sh
+if [[ ! -x "$EXE" ]]; then echo "check.sh: executable '$EXE' not found (build it or set FLUME_EXE)" >&2 ; exit 2 ; fi
+EXE="$(realpath "$EXE")"
+TAG="$(basename "$EXE")"
+FAILED=0
+
+run() { # run <work dir>: run the input of the work dir; 0 on success
+   (cd "$1" && mpirun -np 2 "$EXE" input.ini < /dev/null > log.txt 2>&1)
+}
+make_case() { # make_case <name> [make_si.py options]: write one case, its dir in W
+   local name=$1 ; shift
+   W="$CASE_DIR/work-$TAG-$name"
+   rm -rf "$W" ; mkdir -p "$W"
+   python3 -I "$CASE_DIR/make_si.py" "$W/input.ini" "$@"
+}
+run_oracle() { # run_oracle <work dir> <si_oracle.py arguments>: run the case, then the oracle
+   local w=$1 ; shift
+   if run "$w"; then
+      "$VENV_PY" "$CASE_DIR/si_oracle.py" "$@" || FAILED=1
+   else
+      echo "   the run failed: see $w/log.txt  FAIL" ; FAILED=1
+   fi
+}
+expect_refused() { # expect_refused <work dir> <message regex>
+   if run "$1"; then
+      echo "   accepted, expected a refusal: see $1/log.txt  FAIL" ; FAILED=1
+   elif grep -aqE "$2" "$1/log.txt"; then
+      echo "   refused as expected"
+   else
+      echo "   failed without the expected message ($2): see $1/log.txt  FAIL" ; FAILED=1
+   fi
+}
+
+echo ">> SI: sink particles ($TAG)"
+for leg in $LEGS; do
+   case $leg in
+      si1)
+         echo "-- si1: a sink at rest in a uniform periodic background"
+         make_case si1-rest --case rest
+         run_oracle "$W" rest "$W" ;;
+      si2)
+         echo "-- si2: the circular binary, one orbit"
+         make_case si2-binary --case binary --time-max 1.5708
+         run_oracle "$W" binary "$W" ;;
+      si3)
+         echo "-- si3: [sinks] without self-gravity"
+         make_case si3-gravity --case rest --no-gravity
+         expect_refused "$W" "\[sinks\] needs \[gravity\]\.\(self_gravity\)"
+         echo "-- si3: [sinks] with mhd-ideal"
+         make_case si3-mhd --case rest --model mhd-ideal
+         expect_refused "$W" "\[sinks\] needs a hydrodynamic physical_model"
+         echo "-- si3: lists of different lengths"
+         make_case si3-length --case binary --x "0.1"
+         expect_refused "$W" "\[sinks\]\.\(x\) has 1 values, \(mass\) 2"
+         echo "-- si3: a non-positive mass"
+         make_case si3-mass --case rest --mass "-1.0"
+         expect_refused "$W" "\[sinks\]\.\(mass\) must all be > 0"
+         echo "-- si3: a sink outside the domain"
+         make_case si3-outside --case rest --x "1.5"
+         expect_refused "$W" "lies outside the domain" ;;
+      si4)
+         echo "-- si4: restart, 20 steps against 10 + 10"
+         make_case si4-A --case rest --it-max 20 --time-max 100.0 ; a="$W"
+         make_case si4-B --case rest --it-max 10 --time-max 100.0 --restart-save 10 ; b="$W"
+         if run "$a" && run "$b"; then
+            python3 -I "$CASE_DIR/make_si.py" "$b/input.ini" --case rest --it-max 20 --time-max 100.0 --restart
+            mv "$b/log.txt" "$b/log-first.txt"
+            if run "$b"; then
+               "$VENV_PY" "$CASE_DIR/si_oracle.py" same "$a" "$b" || FAILED=1
+            else
+               echo "   the restarted run failed: see $b/log.txt  FAIL" ; FAILED=1
+            fi
+         else
+            echo "   a run failed: see $a/log.txt, $b/log.txt  FAIL" ; FAILED=1
+         fi ;;
+   esac
+done
+if [[ $FAILED -ne 0 ]]; then echo "SI FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi
+echo "SI PASSED ($TAG, legs: $LEGS)"

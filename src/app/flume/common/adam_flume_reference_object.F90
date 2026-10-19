@@ -412,6 +412,16 @@ contains
       case('G')
          kind = KIND_SCALED ; dim = DIM_GRAV_CONST
       endselect
+   case('sinks')
+      ! issue #94: the initial sinks, lists of one value each
+      select case(option_name)
+      case('x', 'y', 'z')
+         kind = KIND_SCALED ; dim = DIM_LENGTH
+      case('u', 'v', 'w')
+         kind = KIND_SCALED ; dim = DIM_VELOCITY
+      case('mass')
+         kind = KIND_SCALED ; dim = DIM_MASS
+      endselect
    case('cooling')
       ! issue #93: n^2 Lambda is an energy density per time, n = rho / particle_mass a number density; the node lists
       ! convert value by value

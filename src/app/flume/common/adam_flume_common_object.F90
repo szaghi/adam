@@ -19,6 +19,7 @@ use :: adam_parameters,               only : AMR_PROLONGATION_CONSERVATIVE, TO_B
 use :: adam_poisson_fft_object,       only : poisson_fft_object
 use :: adam_poisson_mg_object,        only : poisson_mg_object
 use :: adam_realm_object,             only : realm_object
+use :: adam_tree_node_object,         only : tree_node_object
 use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
 use :: adam_mpih_global,              only : mpih
@@ -44,6 +45,7 @@ use :: adam_flume_parameters,         only : is_hydrodynamic, GLM_CH_CHECK_ERROR
 use :: adam_weno_object,              only : WENO_WEIGHTS_SI
 use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_reference_object,   only : flume_reference_object
+use :: adam_flume_sinks_object,       only : flume_sinks_object
 use :: adam_flume_time_object,        only : flume_time_object
 ! third party modules
 use :: finer,                         only : file_ini
@@ -92,6 +94,7 @@ type, extends(realm_object) :: flume_common_object
    type(flume_numerics_object)    :: numerics            !< Numerics.
    type(flume_physics_object)     :: physics             !< Physics.
    type(flume_reference_object)   :: units               !< Reference layer (dimensional input, issue #49).
+   type(flume_sinks_object)       :: sinks               !< Sink particles (issue #94).
    type(flume_time_object)        :: time                !< Time handler.
    contains
       ! AMR methods
@@ -135,6 +138,12 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: set_potential         !< Set the gravitational potential of the current grid.
       procedure, pass(self) :: solve_potential       !< Solve the self-gravity potential of a host state.
       procedure, pass(self) :: solve_potential_packed !< Solve the self-gravity potential of a packed density.
+      procedure, pass(self) :: compute_sink_accelerations !< Mesh gravity at the sinks (issue #94).
+      procedure, pass(self) :: deposit_sinks         !< Add the sinks' CIC mass to a packed density (issue #94).
+      procedure, pass(self) :: drift_sinks           !< Drift the sinks by a step (issue #94).
+      procedure, pass(self) :: kick_sinks            !< Kick the sinks by half a step (issue #94).
+      procedure, pass(self) :: sink_stencil          !< CIC stencil of a point: target points and weights (issue #94).
+      procedure, pass(self) :: sinks_dt_limit        !< Time step limit of the sinks (issue #94).
       ! forest methods
       procedure, pass(self) :: coupling_descriptor_forest !< Return the realm coupling descriptor.
       ! private methods
@@ -943,6 +952,10 @@ contains
    call self%check_positivity_limiter
    call self%check_dissipation
    call self%check_gravity
+   call self%sinks%load_from_file(file_parameters=file_parameters, model=self%physics%model,                        &
+                                  self_gravity=self%physics%gravity%self_gravity,                                   &
+                                  domain_emin=self%adam%grid%domain_emin, domain_emax=self%adam%grid%domain_emax)
+   if (self%sinks%is_active) print '(A)', self%sinks%description()
    call self%check_runtime_amr
    call self%check_divb_flux
    call self%check_ngc_number
@@ -1169,6 +1182,7 @@ contains
 
    call self%units%check_restart(basename=self%io%restart_basename)
    call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
+   if (self%sinks%is_active) call self%sinks%load_restart(basename=self%io%restart_basename)
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
 
@@ -1181,6 +1195,7 @@ contains
                            trim(str(self%time%time, .true.)))
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
    call self%units%save_restart(basename=self%io%restart_basename)
+   if (self%sinks%is_active) call self%sinks%save_restart(basename=self%io%restart_basename)
    call self%save_xh5f(output_basename=self%io%restart_basename)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
@@ -1366,6 +1381,30 @@ contains
    real(R8P)                                         :: t0     !< Wall clock at the start.
 
    t0 = MPI_WTIME()
+   if (self%sinks%is_active) then
+      if (self%sinks%n > 0_I4P) then
+         ! sinks (issue #94, D-M12-2): the solver sees the gas density plus the sinks' CIC mass, through the packed path
+         block
+            real(R8P), allocatable :: buf(:) !< Packed density.
+            integer(I4P)           :: b, i, j, k, c !< Counters.
+            allocate(buf(self%ni*self%nj*self%nk*self%adam%field%blocks_number))
+            c = 0_I4P
+            do b=1, self%adam%field%blocks_number
+               do k=1, self%nk
+                  do j=1, self%nj
+                     do i=1, self%ni
+                        c = c + 1_I4P
+                        buf(c) = q(IQ_R,i,j,k,b)
+                     enddo
+                  enddo
+               enddo
+            enddo
+            call self%solve_potential_packed(buf=buf, energy=energy)
+         endblock
+         self%poisson_wall = MPI_WTIME() - t0
+         return
+      endif
+   endif
    if (allocated(self%poisson_mg)) then
       call self%poisson_mg%solve(field=self%adam%field, q=q, iv=IQ_R, factor=self%physics%gravity%four_pi_g, &
                                  phi=self%phi_grav, energy=energy)
@@ -1384,7 +1423,24 @@ contains
    class(flume_common_object), intent(inout)         :: self   !< The equation.
    real(R8P),                  intent(in)            :: buf(1:) !< Packed density.
    real(R8P),                  intent(out), optional :: energy !< sum_cells rho Phi dV.
+   real(R8P), allocatable                            :: buf_sinks(:) !< Packed density with the sinks' mass.
 
+   if (self%sinks%is_active) then
+      if (self%sinks%n > 0_I4P) then
+         ! the sinks' CIC mass joins the source (issue #94): the energy is then that of gas and sinks together
+         buf_sinks = buf
+         call self%deposit_sinks(buf=buf_sinks)
+         if (allocated(self%poisson_mg)) then
+            call self%poisson_mg%solve_packed(field=self%adam%field, buf=buf_sinks, factor=self%physics%gravity%four_pi_g, &
+                                              phi=self%phi_grav, energy=energy)
+         else
+            call self%poisson%solve_packed(field=self%adam%field, buf=buf_sinks, factor=self%physics%gravity%four_pi_g, &
+                                           phi=self%phi_grav, energy=energy)
+            if (present(energy)) energy = energy * product(self%poisson%dxyz) ! uniform grid: one cell volume
+         endif
+         return
+      endif
+   endif
    if (allocated(self%poisson_mg)) then
       call self%poisson_mg%solve_packed(field=self%adam%field, buf=buf, factor=self%physics%gravity%four_pi_g, &
                                         phi=self%phi_grav, energy=energy)
@@ -1394,6 +1450,211 @@ contains
       if (present(energy)) energy = energy * product(self%poisson%dxyz) ! uniform grid: one cell volume
    endif
    endsubroutine solve_potential_packed
+
+   subroutine sink_stencil(self, point, npt, pts, w, h)
+   !< Return the CIC stencil of a point (issue #94): up to 8 target points (cell centres of the level of the block that
+   !< holds the point) and their weights, and the cell spacing there. Computed from the replicated tree, so every rank
+   !< obtains the same stencil; a null direction takes the point itself with weight 1, a periodic one wraps, a closed one
+   !< clamps the targets to the first interior centre (the weight stays in the domain: the deposit conserves mass).
+   class(flume_common_object), intent(inout) :: self      !< The equation.
+   real(R8P),                  intent(in)    :: point(3)  !< Point.
+   integer(I4P),               intent(out)   :: npt       !< Target points number.
+   real(R8P),                  intent(out)   :: pts(3,8)  !< Target points.
+   real(R8P),                  intent(out)   :: w(8)      !< Weights.
+   real(R8P),                  intent(out)   :: h(3)      !< Cell spacing at the point.
+   real(R8P)                                 :: c(3,2)    !< Target abscissae per direction.
+   real(R8P)                                 :: wd(3,2)   !< Weights per direction.
+   integer(I4P)                              :: nd(3)     !< Targets per direction.
+   real(R8P)                                 :: sd, f, extent !< Index coordinate, fraction, domain extent.
+   integer(I4P)                              :: l, d, i, j, k !< Level, counters.
+
+   associate(grid=>self%adam%grid)
+   l = self%adam%tree%level(code=self%adam%tree%get_closest_block(grid=grid, point=point))
+   h = grid%block_dxyz(:,l) / real([self%ni, self%nj, self%nk], R8P)
+   do d=1, 3
+      if (grid%null_xyz(d)) then
+         nd(d) = 1_I4P ; c(d,1) = point(d) ; wd(d,1) = 1._R8P
+         cycle
+      endif
+      nd(d) = 2_I4P
+      sd = (point(d) - grid%domain_emin(d)) / h(d) - 0.5_R8P
+      f = sd - real(floor(sd), R8P)
+      c(d,1) = grid%domain_emin(d) + (real(floor(sd), R8P) + 0.5_R8P) * h(d)
+      c(d,2) = c(d,1) + h(d)
+      wd(d,:) = [1._R8P - f, f]
+      extent = grid%domain_emax(d) - grid%domain_emin(d)
+      do i=1, 2
+         if (grid%is_ijk_periodic(d)) then
+            if (c(d,i) < grid%domain_emin(d)) c(d,i) = c(d,i) + extent
+            if (c(d,i) > grid%domain_emax(d)) c(d,i) = c(d,i) - extent
+         else
+            c(d,i) = min(max(c(d,i), grid%domain_emin(d) + 0.5_R8P * h(d)), grid%domain_emax(d) - 0.5_R8P * h(d))
+         endif
+      enddo
+   enddo
+   endassociate
+   npt = 0_I4P
+   do k=1, nd(3)
+      do j=1, nd(2)
+         do i=1, nd(1)
+            npt = npt + 1_I4P
+            pts(:,npt) = [c(1,i), c(2,j), c(3,k)]
+            w(npt) = wd(1,i) * wd(2,j) * wd(3,k)
+         enddo
+      enddo
+   enddo
+   endsubroutine sink_stencil
+
+   subroutine deposit_sinks(self, buf)
+   !< Add the sinks' mass to a packed density of the local blocks (issue #94, D-M12-2): each sink spreads its mass over
+   !< its CIC stencil; the rank that owns a target cell adds `m w / dV` there (a null direction spreads it evenly over its
+   !< cells). Every rank walks every sink and keeps its own targets, so the total deposited mass is the sinks' mass.
+   class(flume_common_object), intent(inout) :: self      !< The equation.
+   real(R8P),                  intent(inout) :: buf(1:)   !< Packed density, block-major, `i` fastest.
+   type(tree_node_object), pointer           :: node      !< Node of a target.
+   real(R8P)                                 :: pts(3,8), w(8), h(3) !< CIC stencil.
+   integer(I4P)                              :: lo(3), hi(3) !< Index range of a target in its block.
+   real(R8P)                                 :: dm        !< Density added per cell.
+   integer(I4P)                              :: s, p, b, i, j, k, npt !< Counters.
+
+   do s=1, self%sinks%n
+      call self%sink_stencil(point=self%sinks%x(:,s), npt=npt, pts=pts, w=w, h=h)
+      do p=1, npt
+         node => self%adam%tree%node(code=self%adam%tree%get_closest_block(grid=self%adam%grid, point=pts(:,p)))
+         if (node%myrank /= mpih%myrank) cycle
+         b = int(node%block_index, I4P)
+         call target_range(b=b, point=pts(:,p), lo=lo, hi=hi)
+         dm = self%sinks%m(s) * w(p) / (product(self%adam%field%dxyz(:,b)) * real(product(hi - lo + 1), R8P))
+         do k=lo(3), hi(3)
+            do j=lo(2), hi(2)
+               do i=lo(1), hi(1)
+                  buf((((b - 1) * self%nk + (k - 1)) * self%nj + (j - 1)) * self%ni + i) = &
+                     buf((((b - 1) * self%nk + (k - 1)) * self%nj + (j - 1)) * self%ni + i) + dm
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   contains
+      subroutine target_range(b, point, lo, hi)
+      !< Return the cell of a target point in block `b`; a null direction spans all its cells.
+      integer(I4P), intent(in)  :: b               !< Local block.
+      real(R8P),    intent(in)  :: point(3)        !< Target point.
+      integer(I4P), intent(out) :: lo(3), hi(3)    !< Index range.
+      integer(I4P)              :: n(3), d         !< Cells per direction, counter.
+
+      n = [self%ni, self%nj, self%nk]
+      do d=1, 3
+         if (self%adam%grid%null_xyz(d)) then
+            lo(d) = 1_I4P ; hi(d) = n(d)
+         else
+            lo(d) = min(max(ceiling((point(d) - self%adam%field%emin(d,b)) / self%adam%field%dxyz(d,b), I4P), 1_I4P), n(d))
+            hi(d) = lo(d)
+         endif
+      enddo
+      endsubroutine target_range
+   endsubroutine deposit_sinks
+
+   subroutine compute_sink_accelerations(self)
+   !< Compute the mesh gravity at every sink (issue #94): the centred difference of the host potential `phi_grav` at
+   !< the cells of the sink's CIC stencil, interpolated with the deposit's weights (the same CIC pair, Hockney &
+   !< Eastwood: no self-force on a uniform grid); each rank sums its own cells, an MPI reduction completes the list.
+   class(flume_common_object), intent(inout) :: self      !< The equation.
+   type(tree_node_object), pointer           :: node      !< Node of a target.
+   real(R8P)                                 :: pts(3,8), w(8), h(3) !< CIC stencil.
+   real(R8P)                                 :: g(3)      !< Cell gravity.
+   integer(I4P)                              :: lo(3), hi(3), n(3) !< Index range of a target, cells per direction.
+   integer(I4P)                              :: s, p, b, i, j, k, d, npt !< Counters.
+
+   if (.not.self%sinks%is_active .or. self%sinks%n == 0_I4P) return
+   self%sinks%a = 0._R8P
+   n = [self%ni, self%nj, self%nk]
+   do s=1, self%sinks%n
+      call self%sink_stencil(point=self%sinks%x(:,s), npt=npt, pts=pts, w=w, h=h)
+      do p=1, npt
+         node => self%adam%tree%node(code=self%adam%tree%get_closest_block(grid=self%adam%grid, point=pts(:,p)))
+         if (node%myrank /= mpih%myrank) cycle
+         b = int(node%block_index, I4P)
+         do d=1, 3
+            if (self%adam%grid%null_xyz(d)) then
+               lo(d) = 1_I4P ; hi(d) = n(d)
+            else
+               lo(d) = min(max(ceiling((pts(d,p) - self%adam%field%emin(d,b)) / self%adam%field%dxyz(d,b), I4P), &
+                               1_I4P), n(d))
+               hi(d) = lo(d)
+            endif
+         enddo
+         do k=lo(3), hi(3)
+            do j=lo(2), hi(2)
+               do i=lo(1), hi(1)
+                  g = 0._R8P
+                  associate(phi=>self%phi_grav, dx=>self%adam%field%dxyz(:,b), is_null=>self%adam%grid%null_xyz)
+                  if (.not.is_null(1)) g(1) = -(phi(i+1,j,k,b) - phi(i-1,j,k,b)) / (2._R8P * dx(1))
+                  if (.not.is_null(2)) g(2) = -(phi(i,j+1,k,b) - phi(i,j-1,k,b)) / (2._R8P * dx(2))
+                  if (.not.is_null(3)) g(3) = -(phi(i,j,k+1,b) - phi(i,j,k-1,b)) / (2._R8P * dx(3))
+                  endassociate
+                  self%sinks%a(:,s) = self%sinks%a(:,s) + w(p) * g / real(product(hi - lo + 1), R8P)
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%sinks%a, 3 * self%sinks%n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   endsubroutine compute_sink_accelerations
+
+   subroutine kick_sinks(self, dt)
+   !< Kick the sinks by half a step with their current acceleration, `v += dt/2 a` (issue #94, KDK).
+   class(flume_common_object), intent(inout) :: self !< The equation.
+   real(R8P),                  intent(in)    :: dt   !< Time step.
+
+   if (.not.self%sinks%is_active .or. self%sinks%n == 0_I4P) return
+   self%sinks%v = self%sinks%v + 0.5_R8P * dt * self%sinks%a
+   endsubroutine kick_sinks
+
+   subroutine drift_sinks(self, dt)
+   !< Drift the sinks by a step, `x += dt v` (issue #94, KDK): a periodic direction wraps, a sink that leaves a closed
+   !< domain is fatal (no outflow for sinks).
+   class(flume_common_object), intent(inout) :: self   !< The equation.
+   real(R8P),                  intent(in)    :: dt     !< Time step.
+   real(R8P)                                 :: extent !< Domain extent.
+   integer(I4P)                              :: s, d   !< Counters.
+
+   if (.not.self%sinks%is_active .or. self%sinks%n == 0_I4P) return
+   associate(grid=>self%adam%grid)
+   do s=1, self%sinks%n
+      do d=1, 3
+         if (grid%null_xyz(d)) cycle
+         self%sinks%x(d,s) = self%sinks%x(d,s) + dt * self%sinks%v(d,s)
+         extent = grid%domain_emax(d) - grid%domain_emin(d)
+         if (grid%is_ijk_periodic(d)) then
+            if (self%sinks%x(d,s) < grid%domain_emin(d)) self%sinks%x(d,s) = self%sinks%x(d,s) + extent
+            if (self%sinks%x(d,s) >= grid%domain_emax(d)) self%sinks%x(d,s) = self%sinks%x(d,s) - extent
+         elseif (self%sinks%x(d,s) < grid%domain_emin(d) .or. self%sinks%x(d,s) > grid%domain_emax(d)) then
+            call mpih%error_stop(msg=': sink '//trim(str(s, .true.))//' left the domain at step '// &
+                                     trim(str(self%time%it, .true.))//' (no outflow for sinks, issue #94)')
+         endif
+      enddo
+   enddo
+   endassociate
+   endsubroutine drift_sinks
+
+   function sinks_dt_limit(self) result(dt)
+   !< Return the time step limit of the sinks (issue #94): a sink moves at most half a cell of its level per step
+   !< (`huge` without moving sinks). The list is replicated: every rank returns the same limit.
+   class(flume_common_object), intent(inout) :: self !< The equation.
+   real(R8P)                                 :: dt   !< Time step limit.
+   real(R8P)                                 :: pts(3,8), w(8), h(3), speed !< CIC stencil, sink speed.
+   integer(I4P)                              :: s, npt !< Counter, stencil size.
+
+   dt = huge(1._R8P)
+   if (.not.self%sinks%is_active) return
+   do s=1, self%sinks%n
+      speed = sqrt(sum(self%sinks%v(:,s)**2))
+      if (.not.(speed > 0._R8P)) cycle
+      call self%sink_stencil(point=self%sinks%x(:,s), npt=npt, pts=pts, w=w, h=h)
+      dt = min(dt, 0.5_R8P * minval(h, mask=.not.self%adam%grid%null_xyz) / speed)
+   enddo
+   endfunction sinks_dt_limit
 
    subroutine set_glm_damping(self)
    !< Set the GLM damping once the grid exists (issue #41, section 3.5): the minimum cell spacing of the realm over the
