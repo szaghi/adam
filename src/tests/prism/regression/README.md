@@ -121,6 +121,14 @@ device-path a plain field case does not:
   footgun unreachable, but a `width` wider than a block still silently saturates
   the layer to the whole block — keep `width` well under the block extent so the
   case exercises a genuine partial layer.
+- **`rmf-fwl-amr`**, **`rmf-pml-amr`** — `rmf-fwl` with an init-time box marker
+  (`amr_iterations = 1`) that refines the x-minus slab of blocks to level 3, with
+  the fWLayer on the six faces (`rmf-fwl-amr`) or a CFS PML instead
+  (`rmf-pml-amr`). They anchor the rebuild of the per-block face data — layer
+  ranges, PML support and its RK storage, PEC faces — on every change of the
+  block set (`prism_common_object%initialize_block_face_data`, issue #95 P5.1):
+  before it, both objects stayed on the pre-AMR blocks, 48 of the 96 face blocks
+  per rank, and the initial condition was built with the stale layer. 5 steps.
 
 ## Running the harness
 

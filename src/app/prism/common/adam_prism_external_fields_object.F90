@@ -156,7 +156,8 @@ contains
       self%displacement_from_rmf = 1._R8P
    endif
    if (allocated(self%pec_faces)) deallocate(self%pec_faces)
-   allocate(self%pec_faces(6,field%blocks_number))
+   allocate(self%pec_faces(6,field%nb))
+   self%pec_faces = 0_I4P
    do b=1, field%blocks_number
       call physical_pec_faces(field=field, grid=grid, b=b, pec_faces=faces)
       self%pec_faces(:,b) = merge(1_I4P, 0_I4P, faces)

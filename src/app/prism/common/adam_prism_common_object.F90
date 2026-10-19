@@ -99,6 +99,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
       procedure, pass(self) :: compute_fields_number    !< Compute the block-sized fields allocated per block.
       procedure, pass(self) :: initialize               !< Initialize the equation common data.
+      procedure, pass(self) :: initialize_block_face_data !< (Re)build the per-block face data on the current grid.
       procedure, pass(self) :: fold_deposited_ghosts !< Fold PIC deposits spilled into ghosts, locally and across ranks.
       procedure, pass(self) :: initialize_pic_time_zero !< Host-side PIC particle injection plus charge/current deposition at t=0.
       procedure, pass(self) :: verify_no_pic_deposition_on_coils !< Guard against PIC deposition on coil cells.
@@ -145,6 +146,7 @@ contains
    class(prism_common_object), intent(inout) :: self                !< The equation.
    logical                                   :: is_grid_changed     !< Flag to check grid changes for each marker.
    logical                                   :: is_grid_changed_all !< Flag to check grid changes for each iter.
+   logical                                   :: is_grid_changed_any !< Flag to check grid changes over all iters.
    integer(I4P)                              :: i, i_marker         !< Counter.
    type(amr_marker_object)                   :: amr_marker          !< Current amr marker.
 
@@ -152,6 +154,7 @@ contains
       call mpih%error_stop(msg=': runtime AMR regrid is not supported on this backend — device/topology resync '// &
                                'past initialization is not implemented (issue #22 GA6); AMR is init-time only here')
    endif
+   is_grid_changed_any = .false.
    amr: do i=1, self%amr%iters
       is_grid_changed_all = .false.
       do i_marker=1, self%amr%markers_number
@@ -174,6 +177,7 @@ contains
          call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
+      is_grid_changed_any = is_grid_changed_any.or.is_grid_changed_all
       if (.not.is_grid_changed_all) then
           call mpih%print_message('AMR Grid stabilized after : '//trim(str(i))//' AMR iterations')
           exit amr
@@ -181,6 +185,8 @@ contains
           call mpih%print_message('AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations')
       endif
    enddo amr
+   ! the layers, the PML and the PEC faces are indexed by local block: rebuild them on the new grid (issue #95, P5.1)
+   if (is_grid_changed_any) call self%initialize_block_face_data
    endsubroutine amr_update
 
    subroutine mark_by_geometry(self, box_emin, box_emax, target_level, do_init)
@@ -389,8 +395,6 @@ contains
    call self%time%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%ic%initialize(file_parameters=file_parameters)
    call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, physics=self%physics, file_parameters=file_parameters)
-   call self%external_fields%initialize(file_parameters=file_parameters, field=self%adam%field, &
-                                        grid=self%adam%grid, physics=self%physics)
    call self%grms%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, verbose=verbose_)
    call self%magnetic_field_at_center_domain%initialize(file_parameters=file_parameters, &
                                                         output_basename=self%io%output_basename, verbose=verbose_)
@@ -410,11 +414,7 @@ contains
                                do_blocks_reorder=.false., q=self%q)
    endif
    if (is_pic_model(self%physics%physical_model)) call self%pic%set_gaussian_support_cells(field=self%adam%field)
-   call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, &
-                  tree=self%adam%tree, file_parameters=file_parameters, physics=self%physics)
-   call self%pml%initialize(field=self%adam%field, grid=self%adam%grid, tree=self%adam%tree, &
-                            file_parameters=file_parameters, physics=self%physics)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize(rk=self%rk, pml=self%pml)
+   call self%initialize_block_face_data
    call io_initialize
    endassociate
    if (verbose_) call mpih%print_message('prism_common_object%initialize finish')
@@ -505,6 +505,24 @@ contains
       endassociate
       endsubroutine io_initialize
    endsubroutine initialize
+
+   subroutine initialize_block_face_data(self)
+   !< (Re)build the per-block face data on the current grid: the PEC faces of the external fields, the fWLayer ranges and
+   !< the PML support with its RK storage. All are indexed by local block, so they must follow every change of the block
+   !< set: the uniform refinement in initialize, each init-time amr_update, a restart (issue #95, P5.1). Every initializer
+   !< called here resets its object first; the PML auxiliary state restarts from zero, as at any initialization.
+   class(prism_common_object), intent(inout) :: self !< The equation.
+
+   associate(file_parameters=>self%io%file_parameters)
+   call self%external_fields%initialize(file_parameters=file_parameters, field=self%adam%field, &
+                                        grid=self%adam%grid, physics=self%physics)
+   call self%fWLayer%initialize(field=self%adam%field, grid=self%adam%grid, &
+                  tree=self%adam%tree, file_parameters=file_parameters, physics=self%physics)
+   call self%pml%initialize(field=self%adam%field, grid=self%adam%grid, tree=self%adam%tree, &
+                            file_parameters=file_parameters, physics=self%physics)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize(rk=self%rk, pml=self%pml)
+   endassociate
+   endsubroutine initialize_block_face_data
 
    subroutine initialize_pic_time_zero(self)
    !< Initialize PIC particles and deposit host-side charge/current sources at t=0.
@@ -985,6 +1003,8 @@ contains
    call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
    call load_pic_restart_files(self=self)
    call self%adam%make_comm_local_maps_ghost_bc
+   ! the restart replaces the blocks: rebuild the per-block face data on them (issue #95, P5.1)
+   call self%initialize_block_face_data
    endsubroutine load_restart_files
 
    subroutine load_pic_restart_files(self)

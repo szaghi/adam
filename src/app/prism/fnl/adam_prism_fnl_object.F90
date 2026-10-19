@@ -104,10 +104,12 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: initialize_charge_conservation_diagnostic !< Initialize PIC charge-continuity diagnostic.
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu     !< Allocate GPU data.
+      procedure, pass(self) :: amr_update       !< Override: the common AMR update, then the device PML twins.
       procedure, pass(self) :: copy_cpu_gpu     !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_gpu_cpu     !< Copy data from GPU to CPU.
       procedure, pass(self) :: destroy          !< Free device data owned by this realm.
       procedure, pass(self) :: initialize_prism !< Initialize PRISM equation.
+      procedure, pass(self) :: initialize_pml_fnl !< (Re)build the device PML twins from the host PML.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
       procedure, pass(self) :: save_residuals       !< Save residuals history.
@@ -546,9 +548,7 @@ contains
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
-   call self%pml_fnl%initialize(pml=self%pml, grid=self%adam%grid, field=self%adam%field)
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%initialize(rk=self%rk, pml_fnl=self%pml_fnl)
+   call self%initialize_pml_fnl
    call self%allocate_gpu
    if (allocated(self%buf_6D_R8P)) then
       call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid, &
@@ -749,6 +749,26 @@ contains
       endsubroutine check_pml_configuration
    endsubroutine initialize_prism
 
+   subroutine initialize_pml_fnl(self)
+   !< (Re)build the device PML twins (compact face storage and its RK stages) from the host PML: at initialization and
+   !< whenever the host PML is rebuilt on a new block set (issue #95, P5.1). Both initializers destroy their device
+   !< state first.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%pml_fnl%initialize(pml=self%pml, grid=self%adam%grid, field=self%adam%field)
+   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
+      call self%rk_pml_fnl%initialize(rk=self%rk, pml_fnl=self%pml_fnl)
+   endsubroutine initialize_pml_fnl
+
+   subroutine amr_update(self)
+   !< Do AMR update: the common host update (which rebuilds the per-block face data on a changed grid), then the device
+   !< PML twins from the rebuilt host PML (issue #95, P5.1). The device fields and maps follow in initialize_forest.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%prism_common_object%amr_update
+   call self%initialize_pml_fnl
+   endsubroutine amr_update
+
    ! IO methods
    subroutine load_restart_files(self, t, time)
    !< Save restart files.
@@ -757,6 +777,7 @@ contains
    real(R8P),               intent(out)   :: time !< Time.
 
    call self%prism_common_object%load_restart_files(t=t, time=time)
+   call self%initialize_pml_fnl ! the common load rebuilt the host PML on the restart blocks (issue #95, P5.1)
    if (is_pic_model(self%physics%physical_model)) call self%sync_particle_number
    call self%copy_cpu_gpu
    endsubroutine load_restart_files
@@ -5702,7 +5723,7 @@ contains
       call self%adam%make_comm_local_maps_ghost_bc
       ! Device topology resync (issue #22 F0/GA2): amr_update rebuilt the host tree/field/maps and
       ! make_comm_local_maps_ghost_bc above rebuilt the ghost maps AFTER the last set_initial_conditions'
-      ! copy_cpu_gpu push — re-push everything (q, coils, fWL, field coords/dxyz AND the maps) so the
+      ! copy_cpu_gpu push — re-push everything (q, coils, field coords/dxyz AND the maps) so the
       ! device sees the final refined topology. Idempotent (dev_assign_to_device reallocates dst).
       ! Verbose: this is the copy that establishes the FINAL device topology — the printed map row
       ! counts (incl. seam flag-4 rows, issue #22 F3) are the record of what the kernels will consume.

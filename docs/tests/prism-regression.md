@@ -65,6 +65,8 @@ All cases share `physical_model = EM`, `nv = 9`, `fdv_order = 6`, `ngc = 3`, `co
 | `rmf-2realm-asymK`     | inter | α | fd | the asymmetric-K validation: realm_1 SSP-33 (K=3) ∥ realm_2 SSP-54 (K=5), the α K-equality-guard removal ([#16](https://github.com/szaghi/adam/issues/16)) |
 | `rmf-2realm-stagesync` | inter | β | fd | the load-bearing β oracle — digest must match the single-realm `rmf` golden bit-for-bit ([#18](https://github.com/szaghi/adam/issues/18)) |
 | `rmf-fwl`              | single | — | fd | the only fWLayer case (six faces) + 4 coils — guards the FNL fWLayer host→device transfer fix ([#31](https://github.com/szaghi/adam/issues/31)); **FNL-goldened, CPU golden pending CI** |
+| `rmf-fwl-amr`          | single | — | fd | `rmf-fwl` with an init-time box marker refining the x-minus slab to level 3: the fWLayer ranges rebuilt on the refined blocks ([#95](https://github.com/szaghi/adam/issues/95) P5.1) |
+| `rmf-pml-amr`          | single | — | fd | the same grid with a CFS PML instead of the layer: the PML support and its RK storage rebuilt on the refined blocks ([#95](https://github.com/szaghi/adam/issues/95) P5.1) |
 
 ### Inter-realm 1:1 seam anchor
 
