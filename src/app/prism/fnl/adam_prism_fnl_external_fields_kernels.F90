@@ -149,10 +149,10 @@ contains
       !$omp& DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu) &
       !$omp& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude,displacement_scale) &
       !$omp& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
-      do b = 1, blocks_number
       do k = 1 - ngc, nk + ngc
       do j = 1 - ngc, nj + ngc
       do i = 1 - ngc, ni + ngc
+      do b = 1, blocks_number
          cell_coord = [x_cell_gpu(b,i), y_cell_gpu(b,j), z_cell_gpu(b,k)]
          x = cell_coord(ef_alpha)
          y = cell_coord(ef_beta)
@@ -244,10 +244,10 @@ contains
       !$omp& DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu) &
       !$omp& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude,displacement_scale) &
       !$omp& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
-      do b = 1, blocks_number
       do k = 1 - ngc, nk + ngc
       do j = 1 - ngc, nj + ngc
       do i = 1 - ngc, ni + ngc
+      do b = 1, blocks_number
          cell_coord = [x_cell_gpu(b,i), y_cell_gpu(b,j), z_cell_gpu(b,k)]
          x = cell_coord(ef_alpha)
          y = cell_coord(ef_beta)
@@ -315,10 +315,10 @@ contains
       !$omp OMPLOOP collapse(4) &
       !$omp& DEVICEPTR(q_gpu) &
       !$omp& firstprivate(ni,nj,nk,blocks_number,axis,Uniform_D_amplitude,Uniform_B_amplitude)
-      do b = 1, blocks_number
       do k = 1 - ngc, nk + ngc
       do j = 1 - ngc, nj + ngc
       do i = 1 - ngc, ni + ngc
+      do b = 1, blocks_number
          q_gpu(b,i,j,k,axis  ) = q_gpu(b,i,j,k,axis  ) + Uniform_D_amplitude
          q_gpu(b,i,j,k,axis+3) = q_gpu(b,i,j,k,axis+3) + Uniform_B_amplitude
       enddo
@@ -375,10 +375,10 @@ contains
       !$omp OMPLOOP collapse(4) &
       !$omp& DEVICEPTR(q_gpu) &
       !$omp& firstprivate(ni,nj,nk,blocks_number,axis,Uniform_D_amplitude,Uniform_B_amplitude)
-      do b = 1, blocks_number
       do k = 1 - ngc, nk + ngc
       do j = 1 - ngc, nj + ngc
       do i = 1 - ngc, ni + ngc
+      do b = 1, blocks_number
          q_gpu(b,i,j,k,axis  ) = q_gpu(b,i,j,k,axis  ) - Uniform_D_amplitude
          q_gpu(b,i,j,k,axis+3) = q_gpu(b,i,j,k,axis+3) - Uniform_B_amplitude
       enddo
