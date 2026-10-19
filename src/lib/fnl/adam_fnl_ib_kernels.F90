@@ -37,7 +37,7 @@ contains
    integer(I4P)                :: i, j, k, b, v                       !< Counter.
    real(R8P)                   :: n_phi_x, n_phi_y, n_phi_z, n_phi    !< Metrics.
 
-   !$acc parallel loop independent DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, phi_gpu, q_gpu, dq_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, phi_gpu, q_gpu, dq_gpu)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dx_gpu, dy_gpu, dz_gpu, phi_gpu, q_gpu, dq_gpu)
    do k=1, nk
       do j=1, nj
@@ -169,7 +169,7 @@ contains
    real(R8P),    intent(inout) :: q_gpu(  1:,1-ngc:,1-ngc:,1-ngc:,1:) !< State variables.
    integer(I4P)                :: i, j, k, b, v                       !< Counter.
 
-   !$acc parallel loop independent DEVICEVAR(phi_gpu, dq_gpu, q_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(phi_gpu, dq_gpu, q_gpu)
    !$omp OMPLOOP collapse(4) DEVICEPTR(phi_gpu, dq_gpu, q_gpu)
    do k=1, nk
       do j=1, nj
@@ -208,7 +208,7 @@ contains
    real(R8P)                   :: n_phi_mod, un_mod                   !< Distance abs normal and normal velocity.
 
    if     (bcs_type == BCS_VISCOUS) then
-      !$acc parallel loop independent DEVICEVAR(phi_gpu, q_gpu)
+      !$acc parallel loop independent collapse(4) DEVICEVAR(phi_gpu, q_gpu)
       !$omp OMPLOOP collapse(4) DEVICEPTR(phi_gpu, q_gpu)
       do k=1, nk
          do j=1, nj
@@ -224,7 +224,7 @@ contains
          enddo
       enddo
    elseif (bcs_type == BCS_EULER  ) then
-      !$acc parallel loop independent DEVICEVAR(phi_gpu, q_gpu)
+      !$acc parallel loop independent collapse(4) DEVICEVAR(phi_gpu, q_gpu)
       !$omp OMPLOOP collapse(4) DEVICEPTR(phi_gpu, q_gpu)
       do k=1, nk
          do j=1, nj

@@ -209,7 +209,7 @@ contains
 
    do v=1, nv
       norm_gpu = 0._R8P
-      !$acc parallel loop independent DEVICEVAR(dq_gpu) reduction(+:norm_gpu)
+      !$acc parallel loop independent collapse(4) DEVICEVAR(dq_gpu) reduction(+:norm_gpu)
       !$omp OMPLOOP collapse(4) DEVICEPTR(dq_gpu) reduction(+:norm_gpu)
       do k=1, nk
          do j=1, nj
