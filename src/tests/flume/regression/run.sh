@@ -27,6 +27,8 @@
 # src/tests/flume/verification and assert the physics, this suite only detects changes):
 #   sod-x, sod-y, sod-z      V1 Sod shock tube along each direction, WENO-5 characteristic, SSP-33, fast path
 #   vortex-periodic          V2 isentropic vortex, periodic quadtree, SSP-54, 100 steps
+#   vortex-rk3               vortex-periodic on the low-storage runge-kutta-3 at CFL 0.8, the only low-storage case
+#                            (#95, P4); the digest rejects the same run on SSP-54
 #   amr-periodic-reflux      V3 init-time AMR, 2:1 faces on every side of the refined octant, reflux, staged path
 #   amr-periodic-reflux-stage  amr-periodic-reflux with reflux_cadence = stage, the per-stage reflux (issue #81, P5c)
 #   shock-cylinder-ib        V6 Mach 2 shock over a cylinder, immersed boundary, solid AMR marker, 120 steps

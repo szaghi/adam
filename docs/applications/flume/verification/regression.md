@@ -47,6 +47,7 @@ REGRESSION_CASES="sod-x rotor" src/tests/flume/regression/run.sh cpu --no-build
 | `sod-x`, `sod-y`, `sod-z` | [Sod shock tube](./euler/sod), along each axis | [#35](https://github.com/szaghi/adam/issues/35) |
 | `sod-hllc` | [Sod](./euler/sod) on `weno-riemann`, HLLC | [#47](https://github.com/szaghi/adam/issues/47) |
 | `vortex-periodic` | [isentropic vortex](./euler/isentropic-vortex), 100 steps | [#35](https://github.com/szaghi/adam/issues/35) |
+| `vortex-rk3` | `vortex-periodic` on the low-storage `runge-kutta-3` at CFL 0.8, final state digested: the only case on the low-storage stage update (every other case runs an SSP scheme, and a low-storage scheme is refused on AMR seams and multi-realm runs). At CFL 0.1 the two schemes agree to $10^{-7}$, inside the digest tolerances; at 0.8 the digest rejects the SSP-54 run | [#95](https://github.com/szaghi/adam/issues/95) |
 | `amr-periodic-reflux` | [conservation across AMR seams](./euler/amr-conservation): init-time AMR, reflux | [#35](https://github.com/szaghi/adam/issues/35) |
 | `amr-periodic-reflux-stage` | the same with `reflux_cadence = stage` | [#81](https://github.com/szaghi/adam/issues/81) |
 | `shock-cylinder-ib` | [shock over a cylinder](./euler/shock-cylinder), immersed boundary, 120 steps | [#35](https://github.com/szaghi/adam/issues/35) |
