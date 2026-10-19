@@ -87,6 +87,55 @@ obj_dir  = ./obj/nvf/debug/
 cflags   = -cpp -c -acc -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -Mchkptr -Mchkstk -Ktrap=fp -g -O0
 lflags   =         -acc -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -Mchkptr -Mchkstk -Ktrap=fp -g -O0
 
+# OpenMP target offload, Intel GPUs (ifx / oneAPI).
+#
+# Same DEV_OMP source path as the AMD modes, but WITHOUT -DDEV_HIP: the HIP
+# runtime queries FUNDAL uses for device memory and properties do not exist on
+# the Intel stack, and fundal_dev_handling.F90 guards them on DEV_HIP precisely
+# for this case (they return zeros instead). ifx is required, not ifort: the
+# classic compiler has no OpenMP GPU offload.
+#
+# UNTESTED on this cluster -- no Intel compiler and no Intel GPU here. The flags
+# follow the oneAPI documented form; expect to adjust -fopenmp-targets for a
+# specific device (e.g. spir64_gen with -Xs "-device pvc" for AOT).
+[template-omp-intel]
+template = template-base
+mod_dir  = ./mod/intel/omp/
+obj_dir  = ./obj/intel/omp/
+compiler = intel
+cflags   = -cpp -c -O2 -fiopenmp -fopenmp-targets=spir64
+lflags   =         -O2 -fiopenmp -fopenmp-targets=spir64 -Wl,-rpath,$HDF5_PREFIX/lib
+
+[template-omp-intel-debug]
+template = template-omp-intel
+mod_dir  = ./mod/intel/omp/debug/
+obj_dir  = ./obj/intel/omp/debug/
+cflags   = -cpp -c -g -O0 -check all -traceback -fiopenmp -fopenmp-targets=spir64
+lflags   =         -g -O0 -check all -traceback -fiopenmp -fopenmp-targets=spir64 -Wl,-rpath,$HDF5_PREFIX/lib
+
+# CUDA Fortran (`!$cuf kernel do(N)` + `device` attribute arrays), NVIDIA GPUs.
+#
+# A `template-nvf-cuda` already exists, but it lives inside fobos.d/ascot.fobos,
+# which the root fobos includes OPTIONALLY (`?fobos.d/ascot.fobos`) -- so any mode
+# outside ascot that referenced it would fail to resolve whenever that file is
+# absent. It also hardcodes `-gpu=cc89`. This one lives in the unconditionally
+# included templates file and takes the compute capability from $NVF_CC, like
+# template-nvf does.
+[template-nvf-cuf]
+template = template-base
+mod_dir  = ./mod/nvf/cuf/
+obj_dir  = ./obj/nvf/cuf/
+compiler = nvfortran
+cflags   = -cpp -c -cuda -gpu=$NVF_CC -fast -Minfo=all
+lflags   =         -cuda -gpu=$NVF_CC -fast -Minfo=all
+
+[template-nvf-cuf-debug]
+template = template-nvf-cuf
+mod_dir  = ./mod/nvf/cuf/debug/
+obj_dir  = ./obj/nvf/cuf/debug/
+cflags   = -cpp -c -cuda -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -g -O0
+lflags   =         -cuda -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -g -O0
+
 [template-amd]
 template = template-base
 mod_dir  = ./mod/amd/
