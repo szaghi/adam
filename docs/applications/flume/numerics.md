@@ -333,6 +333,12 @@ energy). The sink gains the mass and the momentum and moves to the centre of mas
 momentum are conserved exactly by the accretion; the gravity exchange is not, near a point mass the gas's face
 gradients and the sink's CIC gather differ by about 1 % ([#94](https://github.com/szaghi/adam/issues/94), leg si5).
 
+**Backends.** CPU and FNL run the same arithmetic: the deposit, the gather and the kick-drift-kick are host work on
+both (FNL solves the Poisson equation on the host); accretion runs on the cells within the radii, which FNL gathers from
+the device and scatters back (a handful of cells per sink); creation reads the whole committed state, which FNL copies
+to the host every step when `creation` is on (correct, not scalable: a device screening of the candidates is a
+follow-up). The sink histories of the two backends agree to round-off.
+
 **Mergers.** Two sinks within an accretion radius that are bound and converging ($\tfrac12\mu|\Delta v|^2 - Gm_1m_2/d
 < 0$, $\Delta v\cdot\Delta x < 0$) merge at their centre of mass, with their mass, momentum and mass-weighted
 acceleration (the pair's mutual pull cancels in it).

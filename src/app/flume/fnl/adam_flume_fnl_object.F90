@@ -15,7 +15,7 @@ module adam_flume_fnl_object
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_flume_cooling_object, only : flume_cooling_object
-use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_BX, IQ_PSI, IQ_R, IQ_RE
+use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_BX, IQ_PSI, IQ_R, IQ_RE, IQ_RU
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object
@@ -297,6 +297,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: sync_dual_energy        !< Synchronise the total energy and the entropy (issue #91).
       procedure, pass(self) :: apply_cooling           !< Radiative cooling of the committed state (issue #93).
       procedure, pass(self) :: cooling_time_min        !< Shortest cooling time of the committed state (issue #93).
+      procedure, pass(self) :: accrete_sinks_gpu       !< Threshold accretion of the committed device state (issue #94).
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
@@ -808,6 +809,16 @@ contains
    endif
    if (self%physics%cooling%is_active) row = [row, self%physics%cooling%radiated * factors(IQ_RE), &
                                               (integrals(IQ_RE) + self%physics%cooling%radiated) * factors(IQ_RE)]
+   if (self%sinks%is_active) then ! issue #94: the sinks' mass, momentum and kinetic energy (W above includes them)
+      block
+         real(R8P) :: sm, sp(3), sk
+         call self%sinks%totals(mass=sm, momentum=sp, kinetic=sk)
+         row = [row, sm * factors(IQ_R), sp * factors(IQ_RU), sk * factors(IQ_RE)] ! factors: per volume times L0^3
+      endblock
+      call self%sinks%save_history(it=self%time%it, time=self%time%time*self%units%time_output(),                   &
+                                   length=self%units%length_output(), velocity=self%units%variable_output('u'),    &
+                                   mass=factors(IQ_R))
+   endif
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
                                                integrals=row)
    endsubroutine compute_conservation
@@ -1193,8 +1204,6 @@ contains
    endif
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
-   if (self%sinks%is_active) &
-      call mpih_fnl%error_stop(msg=': [sinks] runs on the CPU backend only, for now (issue #94: the FNL side is phase P3)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')
@@ -2182,6 +2191,7 @@ contains
    if (lambda_max > 0._R8P) dt_local = self%time%CFL / lambda_max
    if (self%physics%cooling%is_active .and. self%physics%cooling%dt_factor > 0._R8P) &
       dt_local = min(dt_local, self%physics%cooling%dt_factor * self%cooling_time_min())
+   if (self%sinks%is_active) dt_local = min(dt_local, self%sinks%dt_limit) ! issue #94
    endsubroutine compute_local_dt_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -2404,13 +2414,19 @@ contains
    call self%copy_cpu_gpu(verbose=.true.)
    call self%copy_phi_gpu
    call self%refresh_potential ! the hydrostatic boundary conditions read it (issue #81)
+   if (self%sinks%is_active) then ! the sinks' first kick needs their acceleration (issue #94)
+      call self%compute_sink_accelerations
+      self%sinks%dt_limit = self%sinks_dt_limit()
+   endif
    call self%update_ghost(q_gpu=self%q_gpu)
    call self%compute_q_aux(q_gpu=self%q_gpu)
    call self%check_glm_ch
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
                                    is_restart=self%io%restart, with_divb=.not.is_hydrodynamic(self%physics%model), &
                                    with_self_gravity=self%physics%gravity%self_gravity,                            &
-                                   with_cooling=self%physics%cooling%is_active)
+                                   with_cooling=self%physics%cooling%is_active,                                    &
+                                   with_sinks=self%sinks%is_active)
+   call self%sinks%open_history(output_basename=self%io%output_basename, is_restart=self%io%restart)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
       call self%compute_divb_history
@@ -2457,6 +2473,25 @@ contains
 
    if (has_entropy(self%physics%model)) call self%sync_dual_energy
    if (self%physics%cooling%is_active) call self%apply_cooling(dt=self%time%dt) ! the forest passes no dt (0)
+   if (self%sinks%is_active) then
+      ! sinks (issue #94): creation on a host copy of the committed state (its ghost cells refreshed on the device, the
+      ! potential re-solved; the host checks of the CPU backend), accretion on the device cells within the radii,
+      ! mergers, then kick-drift-kick, the potential re-solved at the new positions
+      if (self%sinks%creation) then
+         call self%update_ghost(q_gpu=self%q_gpu)
+         call self%copy_gpu_cpu
+         call self%solve_potential_gpu(q_gpu=self%q_gpu)
+         call self%create_sinks
+      endif
+      if (self%sinks%accretion .or. self%sinks%creation) call self%accrete_sinks_gpu
+      call self%merge_sinks
+      call self%kick_sinks(dt=self%time%dt)
+      call self%drift_sinks(dt=self%time%dt)
+      call self%solve_potential_gpu(q_gpu=self%q_gpu)
+      call self%compute_sink_accelerations
+      call self%kick_sinks(dt=self%time%dt)
+      self%sinks%dt_limit = self%sinks_dt_limit()
+   endif
    call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
@@ -2506,6 +2541,22 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, radiated, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    self%physics%cooling%radiated = self%physics%cooling%radiated + radiated
    endsubroutine apply_cooling
+
+   subroutine accrete_sinks_gpu(self)
+   !< Threshold accretion of the committed device state (issue #94): the cells within an accretion radius of a sink are
+   !< gathered from the device, accreted on the host by `accrete_cells` (the arithmetic of the CPU backend) and scattered
+   !< back; a handful of cells per sink cross the bus.
+   class(flume_fnl_object), intent(inout) :: self        !< The equation.
+   integer(I4P), allocatable              :: cells(:,:)  !< Cells (i, j, k, b) [4, n].
+   real(R8P), allocatable                 :: values(:,:) !< Their conservative variables [nv, n].
+
+   if (.not.self%sinks%is_active .or. self%sinks%n == 0_I4P) return
+   call self%sink_accretion_cells(cells=cells)
+   allocate(values(self%nv, size(cells, dim=2)))
+   call seam_gather_cells(cells=cells, nv=self%nv, ngc=self%ngc, a_gpu=self%q_gpu, out=values)
+   call self%accrete_cells(cells=cells, values=values)
+   call seam_scatter_cells(cells=cells, nv=self%nv, ngc=self%ngc, in=values, a_gpu=self%q_gpu)
+   endsubroutine accrete_sinks_gpu
 
    function cooling_time_min(self) result(t_cool)
    !< Return the shortest cooling time of the committed device state on this rank (`compute_cooling_time_min_dev`), for
@@ -2581,6 +2632,7 @@ contains
       call self%copy_cpu_gpu(bounded=.true.)
       call self%copy_phi_gpu(bounded=.true.)
       call self%refresh_potential ! the potential of the new grid (issue #81)
+      call self%compute_sink_accelerations ! the gravity of the new grid at the sinks (issue #94)
    enddo
    regridded = sweeps > 0_I4P
    if (.not.regridded) return

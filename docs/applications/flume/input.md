@@ -668,7 +668,8 @@ run (of this run segment: it restarts from 0 on a restart), and `E_plus_radiated
 The section switches on sink particles ([#94](https://github.com/szaghi/adam/issues/94), M12): point masses that act on
 the gas through the self-gravity solve only ([numerics](./numerics#sink-particles)). It needs `[gravity] self_gravity =
 .true.` and a hydrodynamic model (`euler`, `euler-de`, with or without passive scalars); otherwise it is fatal. CPU
-backend only for now (FNL is phase P3 of #94: fatal on FNL). The keys list the initial sinks, one value each; their
+and FNL (on FNL, creation copies the state to the host every step: its checks run on the host). The keys list the
+initial sinks, one value each; their
 number is that of `mass` (none: the section with no initial sink).
 
 | Key | Type | Req. | Accepted / invalid | Meaning |

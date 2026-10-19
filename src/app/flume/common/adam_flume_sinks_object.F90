@@ -73,33 +73,44 @@ endtype flume_sinks_object
 contains
    ! public methods
    subroutine append(self, m, x, v)
-   !< Append a sink (every rank, identically: the list is replicated); it is new until its first accretion.
+   !< Append a sink (every rank, identically: the list is replicated); it is new until its first accretion. The arrays
+   !< grow by explicit allocation (no reallocation on assignment: under nvfortran it intermittently failed to grow an
+   !< array in the sink code, issue #94).
    class(flume_sinks_object), intent(inout) :: self !< Sinks.
    real(R8P),                 intent(in)    :: m    !< Mass.
    real(R8P),                 intent(in)    :: x(3) !< Position.
    real(R8P),                 intent(in)    :: v(3) !< Velocity.
+   real(R8P), allocatable                   :: m_(:), x_(:,:), v_(:,:), a_(:,:) !< Grown arrays.
+   logical, allocatable                     :: is_new_(:) !< Grown flags.
 
-   self%m = [self%m, m]
-   self%x = reshape([self%x, x], [3, self%n + 1_I4P])
-   self%v = reshape([self%v, v], [3, self%n + 1_I4P])
-   self%a = reshape([self%a, [0._R8P, 0._R8P, 0._R8P]], [3, self%n + 1_I4P])
-   self%is_new = [self%is_new, .true.]
+   allocate(m_(self%n + 1), x_(3,self%n + 1), v_(3,self%n + 1), a_(3,self%n + 1), is_new_(self%n + 1))
+   m_(1:self%n) = self%m(1:self%n) ; x_(:,1:self%n) = self%x(:,1:self%n) ; v_(:,1:self%n) = self%v(:,1:self%n)
+   a_(:,1:self%n) = self%a(:,1:self%n) ; is_new_(1:self%n) = self%is_new(1:self%n)
+   m_(self%n + 1) = m ; x_(:,self%n + 1) = x ; v_(:,self%n + 1) = v ; a_(:,self%n + 1) = 0._R8P
+   is_new_(self%n + 1) = .true.
+   call move_alloc(m_, self%m) ; call move_alloc(x_, self%x) ; call move_alloc(v_, self%v)
+   call move_alloc(a_, self%a) ; call move_alloc(is_new_, self%is_new)
    self%n = self%n + 1_I4P
    endsubroutine append
 
    subroutine remove(self, s)
-   !< Remove sink `s` (every rank, identically).
+   !< Remove sink `s` (every rank, identically), by explicit allocation (see `append`).
    class(flume_sinks_object), intent(inout) :: self !< Sinks.
    integer(I4P),              intent(in)    :: s    !< Sink to remove.
-   logical                                  :: keep(self%n) !< Kept sinks.
+   real(R8P), allocatable                   :: m_(:), x_(:,:), v_(:,:), a_(:,:) !< Shrunk arrays.
+   logical, allocatable                     :: is_new_(:) !< Shrunk flags.
+   integer(I4P)                             :: k, n !< Counters.
 
-   keep = .true.
-   keep(s) = .false.
-   self%m = pack(self%m, keep)
-   self%x = reshape(pack(self%x, spread(keep, 1, 3)), [3, self%n - 1_I4P])
-   self%v = reshape(pack(self%v, spread(keep, 1, 3)), [3, self%n - 1_I4P])
-   self%a = reshape(pack(self%a, spread(keep, 1, 3)), [3, self%n - 1_I4P])
-   self%is_new = pack(self%is_new, keep)
+   allocate(m_(self%n - 1), x_(3,self%n - 1), v_(3,self%n - 1), a_(3,self%n - 1), is_new_(self%n - 1))
+   n = 0_I4P
+   do k=1, self%n
+      if (k == s) cycle
+      n = n + 1_I4P
+      m_(n) = self%m(k) ; x_(:,n) = self%x(:,k) ; v_(:,n) = self%v(:,k) ; a_(:,n) = self%a(:,k)
+      is_new_(n) = self%is_new(k)
+   enddo
+   call move_alloc(m_, self%m) ; call move_alloc(x_, self%x) ; call move_alloc(v_, self%v)
+   call move_alloc(a_, self%a) ; call move_alloc(is_new_, self%is_new)
    self%n = self%n - 1_I4P
    endsubroutine remove
 

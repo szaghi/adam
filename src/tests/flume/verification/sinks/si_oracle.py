@@ -10,12 +10,15 @@
                                         TOL_ENERGY, the angular momentum within TOL_ANGULAR, the centre of mass within
                                         TOL_COM
     si_oracle.py same <work a> <work b> two runs bitwise equal: the conservation and sinks histories (the restart leg)
-    si_oracle.py accrete <work>         (P2) accretion: gas plus sink mass conserved within TOL_MASS, the sink has grown,
+    si_oracle.py accrete <work>         (P2) accretion: gas plus sink mass conserved within TOL_MASS, the sink grown,
                                         gas plus sink momentum within TOL_ACCRETE_MOMENTUM of the momentum exchanged
     si_oracle.py collapse <work>        (P2) the collapsing polytrope formed exactly one sink, within a cell of the
                                         centre, and gas plus sink mass is conserved within TOL_MASS
     si_oracle.py none <work>            (P2) no sink formed (the Jeans-stable box above the threshold)
     si_oracle.py merge <work>           (P2) the two sinks merged: one left, with their total mass and momentum
+    si_oracle.py agree <cpu> <fnl>      (P3) CPU and FNL agree: the same steps and sinks, every sink's mass, position
+                                        (in cells) and velocity (over the largest speed) within TOL_AGREE;
+                                        --mass-only: the masses and the final distance from the centre
 
 The histories are those of the run: `<base>-conservation_history.dat` (the gas integrals, W, E + W, and the sinks'
 mass, momentum and kinetic energy) and `<base>-sinks_history.dat` (one row per sink per step: it time id m x y z u v w).
@@ -44,6 +47,7 @@ TOL_ANGULAR = 1.0e-2
 TOL_COM = 1.0e-10
 TOL_MASS = 1.0e-13
 TOL_ACCRETE_MOMENTUM = 5.0e-2
+TOL_AGREE = 1.0e-8
 
 
 def read_history(path: Path) -> dict[str, np.ndarray]:
@@ -164,7 +168,8 @@ def accrete(work: Path) -> bool:
     grown = c["M_sinks"][-1] - c["M_sinks"][0]
     status = "PASS" if grown > 0.0 else "FAIL"
     ok &= status == "PASS"
-    print(f"   accreted {grown:.4e} over {c['it'].size - 1} steps ({grown / c['M_sinks'][0] * 100:.1f} % of the sink)  {status}")
+    share = grown / c["M_sinks"][0] * 100
+    print(f"   accreted {grown:.4e} over {c['it'].size - 1} steps ({share:.1f} % of the sink)  {status}")
     gas = np.stack([c["int_ru"], c["int_rv"], c["int_rw"]], axis=1)
     total = gas + np.stack([c["Px_sinks"], c["Py_sinks"], c["Pz_sinks"]], axis=1)
     exchanged, mismatch = float(np.max(np.abs(gas))), float(np.max(np.abs(total)))
@@ -225,7 +230,8 @@ def merge(work: Path) -> bool:
     p0 = np.array([float(np.sum(col["m"][first] * col[k][first])) for k in ("u", "v", "w")])
     sinks = final_sinks(work)
     ok = len(sinks) == 1
-    print(f"   sinks: {int(first.sum())} at the start, {len(sinks)} at the end (expected 1)  {'PASS' if ok else 'FAIL'}")
+    verdict = "PASS" if ok else "FAIL"
+    print(f"   sinks: {int(first.sum())} at the start, {len(sinks)} at the end (expected 1)  {verdict}")
     if ok:
         s = next(iter(sinks.values()))
         dm = abs(s["m"] / m0 - 1.0)
@@ -236,11 +242,42 @@ def merge(work: Path) -> bool:
     return ok
 
 
+def agree(work_cpu: Path, work_fnl: Path, mass_only: bool = False) -> bool:
+    """Check that the CPU and FNL sinks histories agree row by row, on physical scales: the positions against the cell
+    size, the velocities against the largest speed, the masses against the largest mass (a column of round-off, e.g.
+    z in a planar orbit, would make a relative gap meaningless). With mass_only (a sink formed at a symmetric centre:
+    the cell that wins the tie is round-off), the masses and the final distance from the centre only."""
+    a = read_history(next(work_cpu.glob("*-sinks_history.dat")))
+    b = read_history(next(work_fnl.glob("*-sinks_history.dat")))
+    if a["it"].size != b["it"].size or not (a["id"] == b["id"]).all() or not (a["it"] == b["it"]).all():
+        print(f"   rows: CPU {a['it'].size}, FNL {b['it'].size} (the same steps and sinks expected)  FAIL")
+        return False
+    h = cell_size(work_cpu)
+    gaps = {"time": float(np.max(np.abs(a["time"] - b["time"]))) / max(float(np.max(np.abs(a["time"]))), 1.0e-300),
+            "m": float(np.max(np.abs(a["m"] - b["m"]))) / float(np.max(np.abs(a["m"])))}
+    if mass_only:
+        last = a["it"] == a["it"][-1]
+        ra = np.sqrt(a["x"][last] ** 2 + a["y"][last] ** 2 + a["z"][last] ** 2)
+        rb = np.sqrt(b["x"][last] ** 2 + b["y"][last] ** 2 + b["z"][last] ** 2)
+        gaps["r_final"] = float(np.max(np.abs(ra - rb))) / h
+    else:
+        gaps["x"] = max(float(np.max(np.abs(a[k] - b[k]))) for k in ("x", "y", "z")) / h
+        vmax = max(float(np.max(np.abs(a[k]))) for k in ("u", "v", "w"))
+        gaps["v"] = max(float(np.max(np.abs(a[k] - b[k]))) for k in ("u", "v", "w")) / max(vmax, 1.0e-300)
+    ok = all(g <= TOL_AGREE for k, g in gaps.items() if k != "r_final") and gaps.get("r_final", 0.0) <= 1.0e-2
+    verdict = "PASS" if ok else "FAIL"
+    text = ", ".join(f"{k} {g:.1e}" for k, g in gaps.items())
+    print(f"   {a['it'].size} rows, gaps (positions in cells, velocities over the largest speed, masses over the "
+          f"largest): {text} (bound {TOL_AGREE:.0e}; r_final 1e-2 cells)  {verdict}")
+    return ok
+
+
 def main() -> int:
     """Run the requested check."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=("rest", "binary", "same", "accrete", "collapse", "none", "merge"))
+    ap.add_argument("mode", choices=("rest", "binary", "same", "accrete", "collapse", "none", "merge", "agree"))
     ap.add_argument("works", type=Path, nargs="+")
+    ap.add_argument("--mass-only", action="store_true", help="agree: masses and the final radius only")
     a = ap.parse_args()
     if a.mode == "rest":
         ok = rest(a.works[0])
@@ -248,6 +285,8 @@ def main() -> int:
         ok = binary(a.works[0])
     elif a.mode == "same":
         ok = same(a.works[0], a.works[1])
+    elif a.mode == "agree":
+        ok = agree(a.works[0], a.works[1], a.mass_only)
     else:
         ok = {"accrete": accrete, "collapse": collapse, "none": none, "merge": merge}[a.mode](a.works[0])
     print(f"SI {a.mode}: {'PASS' if ok else 'FAIL'}")

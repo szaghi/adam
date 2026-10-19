@@ -147,7 +147,9 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: kick_sinks            !< Kick the sinks by half a step (issue #94).
       procedure, pass(self) :: sink_stencil          !< CIC stencil of a point: target points and weights (issue #94).
       procedure, pass(self) :: sinks_dt_limit        !< Time step limit of the sinks (issue #94).
-      procedure, pass(self) :: accrete_sinks         !< Threshold accretion of the committed state (issue #94).
+      procedure, pass(self) :: accrete_sinks         !< Threshold accretion of the committed host state (issue #94).
+      procedure, pass(self) :: accrete_cells         !< Threshold accretion on gathered cells (issue #94).
+      procedure, pass(self) :: sink_accretion_cells  !< The cells within an accretion radius (issue #94).
       procedure, pass(self) :: create_sinks          !< Sink creation, Federrath et al. 2010 (issue #94).
       procedure, pass(self) :: merge_sinks           !< Merge bound, converging sinks (issue #94).
       procedure, pass(self) :: sink_accretion_radius !< Accretion radius of a point (issue #94).
@@ -1436,7 +1438,8 @@ contains
    if (self%sinks%is_active) then
       if (self%sinks%n > 0_I4P) then
          ! the sinks' CIC mass joins the source (issue #94): the energy is then that of gas and sinks together
-         buf_sinks = buf
+         allocate(buf_sinks(size(buf))) ! explicit: no reallocation on assignment (see create_sinks)
+         buf_sinks(:) = buf(:)
          call self%deposit_sinks(buf=buf_sinks)
          if (allocated(self%poisson_mg)) then
             call self%poisson_mg%solve_packed(field=self%adam%field, buf=buf_sinks, factor=self%physics%gravity%four_pi_g, &
@@ -1680,74 +1683,130 @@ contains
    endfunction sink_separation
 
    subroutine accrete_sinks(self)
-   !< Threshold accretion of the committed host state (issue #94, D-M12-4; Federrath et al. 2010, section 2.3). A cell
-   !< within the accretion radius of a sink gives up the mass above `rho_thr = pi c_s^2 / (4 G r_acc^2)` (`c_s^2 = gamma p
-   !< / rho` of the cell) if that gas is bound to the sink and falls in (`0.5 |u - v_s|^2 - G m_s / r < 0`, `(u - v_s) .
-   !< (x - x_s) < 0`); the cell that holds the sink, and every cell of a sink formed this step, are accreted without the
-   !< checks. A cell within several radii gives its gas to the most bound sink. The cell keeps its specific values: every
+   !< Threshold accretion of the committed host state (issue #94, D-M12-4): the cells within an accretion radius of a
+   !< sink (`sink_accretion_cells`) are gathered from `q`, accreted (`accrete_cells`) and written back. The FNL backend
+   !< does the same with its device state (`accrete_sinks_gpu`), so both run the same arithmetic.
+   class(flume_common_object), intent(inout) :: self      !< The equation.
+   integer(I4P), allocatable                 :: cells(:,:) !< Cells (i, j, k, b) [4, n].
+   real(R8P), allocatable                    :: values(:,:) !< Their conservative variables [nv, n].
+   integer(I4P)                              :: c          !< Counter.
+
+   if (.not.self%sinks%is_active .or. self%sinks%n == 0_I4P) return
+   call self%sink_accretion_cells(cells=cells)
+   allocate(values(self%physics%nv, size(cells, dim=2)))
+   do c=1, size(cells, dim=2)
+      values(:,c) = self%q(:,cells(1,c),cells(2,c),cells(3,c),cells(4,c))
+   enddo
+   call self%accrete_cells(cells=cells, values=values)
+   do c=1, size(cells, dim=2)
+      self%q(:,cells(1,c),cells(2,c),cells(3,c),cells(4,c)) = values(:,c)
+   enddo
+   endsubroutine accrete_sinks
+
+   subroutine sink_accretion_cells(self, cells)
+   !< Return the interior cells of this rank within an accretion radius of some sink, blocks then `k`, `j`, `i` (issue
+   !< #94): the cells `accrete_cells` reads.
+   class(flume_common_object), intent(inout) :: self       !< The equation.
+   integer(I4P), allocatable, intent(out)    :: cells(:,:) !< Cells (i, j, k, b) [4, n].
+   real(R8P), allocatable                    :: r_acc(:)   !< Accretion radius of each sink.
+   real(R8P)                                 :: xc(3)      !< Cell centre.
+   integer(I4P)                              :: b, i, j, k, sk, n, nc !< Counters, cells counted.
+   logical                                   :: near       !< Within a radius.
+
+   allocate(r_acc(self%sinks%n))
+   do sk=1, self%sinks%n
+      r_acc(sk) = self%sink_accretion_radius(point=self%sinks%x(:,sk))
+   enddo
+   associate(field=>self%adam%field)
+   do n=0, 1 ! count, then fill
+      if (n == 1) allocate(cells(4, nc))
+      nc = 0_I4P
+      do b=1, field%blocks_number
+         do k=1, self%nk
+            do j=1, self%nj
+               do i=1, self%ni
+                  xc = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  near = .false.
+                  do sk=1, self%sinks%n
+                     if (sqrt(sum(sink_separation(grid=self%adam%grid, a=self%sinks%x(:,sk), b=xc)**2)) <= r_acc(sk)) &
+                        near = .true.
+                  enddo
+                  if (.not.near) cycle
+                  nc = nc + 1_I4P
+                  if (n == 1) cells(:,nc) = [i, j, k, b]
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine sink_accretion_cells
+
+   subroutine accrete_cells(self, cells, values)
+   !< Threshold accretion on gathered cells (issue #94, D-M12-4; Federrath et al. 2010, section 2.3). A cell within the
+   !< accretion radius of a sink gives up the mass above `rho_thr = pi c_s^2 / (4 G r_acc^2)` (`c_s^2 = gamma p / rho` of
+   !< the cell) if that gas is bound to the sink and falls in (`0.5 |u - v_s|^2 - G m_s / r < 0`, `(u - v_s) . (x - x_s)
+   !< < 0`); the cell that holds the sink, and every cell of a sink formed this step, are accreted without the checks. A
+   !< cell within several radii gives its gas to the most bound sink. The cell keeps its specific values: every
    !< conservative variable is scaled by `rho_thr / rho` (velocity, specific energy and passive scalars unchanged), the
    !< dual-energy entropy rebuilt from the scaled energy. Each sink gains the mass and the momentum given up and moves to
    !< the centre of mass, from MPI-reduced sums: mass and momentum are conserved exactly. A sink formed this step that
    !< accreted nothing is removed.
-   class(flume_common_object), intent(inout) :: self      !< The equation.
-   real(R8P), allocatable                    :: r_acc(:)  !< Accretion radius of each sink.
-   real(R8P), allocatable                    :: sums(:,:) !< Per sink: mass, momentum (3), mass times displacement (3).
+   class(flume_common_object), intent(inout) :: self         !< The equation.
+   integer(I4P),               intent(in)    :: cells(1:,1:) !< Cells (i, j, k, b) [4, n].
+   real(R8P),                  intent(inout) :: values(1:,1:) !< Their conservative variables [nv, n].
+   real(R8P), allocatable                    :: r_acc(:)     !< Accretion radius of each sink.
+   real(R8P), allocatable                    :: sums(:,:)    !< Per sink: mass, momentum (3), mass times displacement (3).
    real(R8P)                                 :: xc(3), dx(3), dv(3), u(3) !< Cell centre, separation, relative velocity.
    real(R8P)                                 :: rho, e, cs2, rho_thr, r, eb, eb_best, dm, f, dvol !< Cell quantities.
-   real(R8P)                                 :: thr_best  !< Threshold of the chosen sink.
+   real(R8P)                                 :: thr_best     !< Threshold of the chosen sink.
    real(R8P), parameter                      :: PI=acos(-1._R8P) !< Pi.
-   integer(I4P)                              :: b, i, j, k, sk, best !< Counters, chosen sink.
-   logical                                   :: holds     !< The cell holds the sink.
+   integer(I4P)                              :: b, i, j, k, c, sk, best !< Counters, chosen sink.
+   logical                                   :: holds        !< The cell holds the sink.
 
-   if (.not.self%sinks%is_active .or. self%sinks%n == 0_I4P) return
    allocate(r_acc(self%sinks%n), sums(7,self%sinks%n))
    do sk=1, self%sinks%n
       r_acc(sk) = self%sink_accretion_radius(point=self%sinks%x(:,sk))
    enddo
    sums = 0._R8P
-   associate(q=>self%q, gamma=>self%physics%gamma, grav=>self%physics%gravity%grav_const, field=>self%adam%field)
-   do b=1, field%blocks_number
+   associate(gamma=>self%physics%gamma, grav=>self%physics%gravity%grav_const, field=>self%adam%field)
+   do c=1, size(cells, dim=2)
+      i = cells(1,c) ; j = cells(2,c) ; k = cells(3,c) ; b = cells(4,c)
       dvol = product(field%dxyz(:,b))
-      do k=1, self%nk
-         do j=1, self%nj
-            do i=1, self%ni
-               xc = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
-               rho = q(IQ_R,i,j,k,b)
-               u = q(IQ_RU:IQ_RW,i,j,k,b) / rho
-               e = q(IQ_RE,i,j,k,b) - 0.5_R8P * rho * sum(u**2)
-               cs2 = gamma * (gamma - 1._R8P) * e / rho
-               best = 0_I4P ; eb_best = huge(1._R8P) ; thr_best = 0._R8P
-               do sk=1, self%sinks%n
-                  dx = sink_separation(grid=self%adam%grid, a=self%sinks%x(:,sk), b=xc)
-                  r = sqrt(sum(dx**2))
-                  if (r > r_acc(sk)) cycle
-                  rho_thr = PI * cs2 / (4._R8P * grav * r_acc(sk)**2)
-                  if (.not.(rho > rho_thr)) cycle
-                  dv = u - self%sinks%v(:,sk)
-                  holds = all(abs(dx) <= 0.5_R8P * field%dxyz(:,b) .or. self%adam%grid%null_xyz)
-                  if (self%sinks%is_new(sk) .or. holds) then
-                     eb = -huge(1._R8P) ! unchecked: it takes the cell
-                  else
-                     eb = 0.5_R8P * sum(dv**2) - grav * self%sinks%m(sk) / r
-                     if (.not.(eb < 0._R8P .and. sum(dv * dx) < 0._R8P)) cycle
-                  endif
-                  if (eb < eb_best) then
-                     best = sk ; eb_best = eb ; thr_best = rho_thr
-                  endif
-               enddo
-               if (best == 0_I4P) cycle
-               dx = sink_separation(grid=self%adam%grid, a=self%sinks%x(:,best), b=xc)
-               dm = (rho - thr_best) * dvol
-               sums(1,best) = sums(1,best) + dm
-               sums(2:4,best) = sums(2:4,best) + dm * u
-               sums(5:7,best) = sums(5:7,best) + dm * dx
-               f = thr_best / rho
-               q(:,i,j,k,b) = f * q(:,i,j,k,b)
-               if (has_entropy(self%physics%model)) &
-                  q(IQ_S,i,j,k,b) = (gamma - 1._R8P) * (f * e) * q(IQ_R,i,j,k,b)**(1._R8P - gamma)
-            enddo
-         enddo
+      xc = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+      rho = values(IQ_R,c)
+      u = values(IQ_RU:IQ_RW,c) / rho
+      e = values(IQ_RE,c) - 0.5_R8P * rho * sum(u**2)
+      cs2 = gamma * (gamma - 1._R8P) * e / rho
+      best = 0_I4P ; eb_best = huge(1._R8P) ; thr_best = 0._R8P
+      do sk=1, self%sinks%n
+         dx = sink_separation(grid=self%adam%grid, a=self%sinks%x(:,sk), b=xc)
+         r = sqrt(sum(dx**2))
+         if (r > r_acc(sk)) cycle
+         rho_thr = PI * cs2 / (4._R8P * grav * r_acc(sk)**2)
+         if (.not.(rho > rho_thr)) cycle
+         dv = u - self%sinks%v(:,sk)
+         holds = all(abs(dx) <= 0.5_R8P * field%dxyz(:,b) .or. self%adam%grid%null_xyz)
+         if (self%sinks%is_new(sk) .or. holds) then
+            eb = -huge(1._R8P) ! unchecked: it takes the cell
+         else
+            eb = 0.5_R8P * sum(dv**2) - grav * self%sinks%m(sk) / r
+            if (.not.(eb < 0._R8P .and. sum(dv * dx) < 0._R8P)) cycle
+         endif
+         if (eb < eb_best) then
+            best = sk ; eb_best = eb ; thr_best = rho_thr
+         endif
       enddo
+      if (best == 0_I4P) cycle
+      dx = sink_separation(grid=self%adam%grid, a=self%sinks%x(:,best), b=xc)
+      dm = (rho - thr_best) * dvol
+      sums(1,best) = sums(1,best) + dm
+      sums(2:4,best) = sums(2:4,best) + dm * u
+      sums(5:7,best) = sums(5:7,best) + dm * dx
+      f = thr_best / rho
+      values(:,c) = f * values(:,c)
+      if (has_entropy(self%physics%model)) &
+         values(IQ_S,c) = (gamma - 1._R8P) * (f * e) * values(IQ_R,c)**(1._R8P - gamma)
    enddo
    endassociate
    call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 7 * self%sinks%n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
@@ -1762,7 +1821,7 @@ contains
          call self%sinks%remove(s=sk)
       endif
    enddo
-   endsubroutine accrete_sinks
+   endsubroutine accrete_cells
 
    subroutine create_sinks(self)
    !< Form sinks from the committed host state (issue #94, D-M12-3; Federrath et al. 2010, section 2.2), on cells of the
@@ -1776,6 +1835,8 @@ contains
    !< accretion (`accrete_sinks`, unchecked). The host ghost cells of `q` and the potential must be current.
    class(flume_common_object), intent(inout) :: self       !< The equation.
    real(R8P), allocatable                    :: cand(:,:)  !< Candidates of this rank: centre (3), potential.
+   integer(I4P)                              :: ncand      !< Candidates of this rank.
+   logical, allocatable                      :: taken(:)   !< Candidates of every rank already examined.
    real(R8P), allocatable                    :: all_cand(:,:) !< Candidates of every rank.
    integer(I4P), allocatable                 :: counts(:), displs(:) !< MPI gather layout.
    real(R8P)                                 :: xc(3), u(3), rho, e, cs2, rho_thr, r_acc, h(3) !< Cell quantities.
@@ -1790,7 +1851,10 @@ contains
       lmax = max(lmax, self%adam%tree%level(code=self%adam%field%code(b)))
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, lmax, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD, ierr)
-   allocate(cand(4,0))
+   ! no reallocation on assignment in this procedure: under nvfortran it intermittently failed to grow the candidate
+   ! list (a run after another found every candidate and formed no sink); the list has room for every interior cell
+   allocate(cand(4, self%ni * self%nj * self%nk * max(self%adam%field%blocks_number, 1_I4P)))
+   ncand = 0_I4P
    associate(q=>self%q, gamma=>self%physics%gamma, grav=>self%physics%gravity%grav_const, field=>self%adam%field, &
              phi=>self%phi_grav, is_null=>self%adam%grid%null_xyz)
    do b=1, field%blocks_number
@@ -1816,7 +1880,8 @@ contains
                call velocity_gradient(b=b, i=i, j=j, k=k, grad=grad)
                if (.not.negative_definite(0.5_R8P * (grad + transpose(grad)))) cycle
                if (.not.collapsing(b=b, i=i, j=j, k=k, r_acc=r_acc)) cycle
-               cand = reshape([cand, xc, phi(i,j,k,b)], [4, size(cand, dim=2) + 1])
+               ncand = ncand + 1_I4P
+               cand(:,ncand) = [xc, phi(i,j,k,b)]
             enddo
          enddo
       enddo
@@ -1824,7 +1889,7 @@ contains
    endassociate
    ! every rank's candidates, then the same selection everywhere: deepest potential first, one per accretion radius
    allocate(counts(mpih%procs_number), displs(mpih%procs_number))
-   nc = 4_I4P * size(cand, dim=2)
+   nc = 4_I4P * ncand
    call MPI_ALLGATHER(nc, 1, MPI_INTEGER, counts, 1, MPI_INTEGER, MPI_COMM_WORLD, ierr)
    displs(1) = 0_I4P
    do c=2, mpih%procs_number
@@ -1833,8 +1898,11 @@ contains
    allocate(all_cand(4, sum(counts) / 4_I4P))
    call MPI_ALLGATHERV(cand, nc, MPI_REAL8, all_cand, counts, displs, MPI_REAL8, MPI_COMM_WORLD, ierr)
    n_new = 0_I4P
-   do while (size(all_cand, dim=2) > 0)
-      c = minloc(all_cand(4,:), dim=1)
+   allocate(taken(size(all_cand, dim=2)))
+   taken = .false.
+   do while (.not.all(taken))
+      c = minloc(all_cand(4,:), mask=.not.taken, dim=1)
+      taken(c) = .true.
       xc = all_cand(1:3,c)
       r_acc = self%sink_accretion_radius(point=xc)
       ok = .true.
@@ -1845,14 +1913,13 @@ contains
          call self%sinks%append(m=0._R8P, x=xc, v=[0._R8P, 0._R8P, 0._R8P])
          n_new = n_new + 1_I4P
       endif
-      all_cand = reshape(pack(all_cand, spread([(c /= sk, sk=1, size(all_cand, dim=2))], 1, 4)), &
-                         [4, size(all_cand, dim=2) - 1])
    enddo
    self%sinks%formed = self%sinks%formed + n_new
    if (n_new > 0_I4P .and. mpih%myrank == 0) &
       print '(A)', 'sinks: '//trim(str(n_new, .true.))//' formed at step '//trim(str(self%time%it, .true.))// &
                    ', '//trim(str(self%sinks%n, .true.))//' in all'
    contains
+
       function potential_minimum(b, i, j, k, r_acc) result(is_min)
       !< Return true if the cell's potential is not above that of any other cell of its control volume (a tie, e.g. the
       !< 8 cells around a symmetric centre, passes on every tied cell: the selection keeps one per accretion radius).
@@ -1921,12 +1988,14 @@ contains
       integer(I4P), intent(in) :: b, i, j, k !< Cell.
       real(R8P),    intent(in) :: r_acc      !< Accretion radius.
       logical                  :: is_collapsing !< Jeans-unstable and bound.
-      real(R8P), allocatable   :: mc(:), xcv(:,:), ucv(:,:) !< Masses, centres, velocities of the cells.
+      real(R8P), allocatable   :: mc(:), xcv(:,:), ucv(:,:) !< Masses, centres, velocities of the cells (room for
+                                                            !< the whole (2 ngc + 1)^3 box: no reallocation, see above).
       real(R8P)                :: eth, ekin, egrav, mtot, ucm(3), dvol !< Energies, mass, centre-of-mass velocity.
       integer(I4P)             :: o(3), m(3), di, dj, dk, a1, a2, nn !< Offsets, counters.
 
       m = merge(0_I4P, self%ngc, self%adam%grid%null_xyz)
-      allocate(mc(0), xcv(3,0), ucv(3,0))
+      allocate(mc(product(2_I4P * m + 1_I4P)), xcv(3,product(2_I4P * m + 1_I4P)), ucv(3,product(2_I4P * m + 1_I4P)))
+      nn = 0_I4P
       eth = 0._R8P
       dvol = product(self%adam%field%dxyz(:,b))
       associate(q=>self%q, field=>self%adam%field)
@@ -1935,19 +2004,19 @@ contains
             do di=-m(1), m(1)
                o = [di, dj, dk]
                if (sqrt(sum((real(o, R8P) * field%dxyz(:,b))**2)) > r_acc) cycle
-               mc = [mc, q(IQ_R,i+di,j+dj,k+dk,b) * dvol]
-               xcv = reshape([xcv, real(o, R8P) * field%dxyz(:,b)], [3, size(mc)])
-               ucv = reshape([ucv, q(IQ_RU:IQ_RW,i+di,j+dj,k+dk,b) / q(IQ_R,i+di,j+dj,k+dk,b)], [3, size(mc)])
+               nn = nn + 1_I4P
+               mc(nn) = q(IQ_R,i+di,j+dj,k+dk,b) * dvol
+               xcv(:,nn) = real(o, R8P) * field%dxyz(:,b)
+               ucv(:,nn) = q(IQ_RU:IQ_RW,i+di,j+dj,k+dk,b) / q(IQ_R,i+di,j+dj,k+dk,b)
                eth = eth + (q(IQ_RE,i+di,j+dj,k+dk,b) - 0.5_R8P * sum(q(IQ_RU:IQ_RW,i+di,j+dj,k+dk,b)**2) / &
                             q(IQ_R,i+di,j+dj,k+dk,b)) * dvol
             enddo
          enddo
       enddo
       endassociate
-      nn = size(mc)
-      mtot = sum(mc)
+      mtot = sum(mc(1:nn))
       do a1=1, 3
-         ucm(a1) = sum(mc * ucv(a1,:)) / mtot
+         ucm(a1) = sum(mc(1:nn) * ucv(a1,1:nn)) / mtot
       enddo
       ekin = 0._R8P
       do a1=1, nn

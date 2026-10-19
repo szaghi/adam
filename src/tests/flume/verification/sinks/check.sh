@@ -25,9 +25,13 @@
 #   si7  (P2) no creation: a static periodic gamma = 1.4 box at 1.2 rho_thr, 20 steps: above the threshold, every cell a
 #        potential minimum, but Jeans-stable (|E_grav| / 2 E_th = 0.66): no sink;
 #   si8  (P2) merger: two sinks of mass 1, 1.28 cells apart, approaching: one sink of mass 2, its momentum the sum
-#        (zero) within 1e-10.
+#        (zero) within 1e-10;
+#   si9  (P3) CPU and FNL agree on the si2, si5, si6 and si8 runs (run them with both executables first): the same steps
+#        and sinks, masses within 1e-8 of the largest, positions within 1e-8 cells, velocities within 1e-8 of the
+#        largest speed; si6 (a sink formed at a symmetric centre: which of the 8 tied cells wins is round-off) the masses
+#        and the final distance from the centre (1e-2 cells).
 #
-# Usage: ./check.sh [--legs LIST]   (legs si1 to si8, all; default all)
+# Usage: ./check.sh [--legs LIST]   (legs si1 to si9, all; default si1 to si8)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft: self-gravity needs the FFT build); the
 # caller owns the matching environment.
@@ -39,7 +43,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "si1 si2 si3 si4 si5 si6 si7 si8" "si1 si2 si3 si4 si5 si6 si7 si8"
+legs_declare "si1 si2 si3 si4 si5 si6 si7 si8 si9" "si1 si2 si3 si4 si5 si6 si7 si8"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -137,6 +141,17 @@ for leg in $LEGS; do
          echo "-- si8: two bound, converging sinks merge"
          make_case si8-merge --case merge --it-max 5
          run_oracle "$W" merge "$W" ;;
+      si9)
+         for case_ in si2-binary si5-accrete si6-collapse si8-merge; do
+            echo "-- si9: CPU and FNL agree, $case_"
+            cpu="$CASE_DIR/work-adam_flume_cpu_fft-$case_" ; fnl="$CASE_DIR/work-adam_flume_fnl_fft-$case_"
+            if [[ -f "$cpu/log.txt" && -f "$fnl/log.txt" ]]; then
+               only="" ; [[ $case_ == si6-collapse ]] && only="--mass-only" # the centre's tie is round-off
+               "$VENV_PY" "$CASE_DIR/si_oracle.py" agree "$cpu" "$fnl" $only || FAILED=1
+            else
+               echo "   missing a run: run $case_ with both executables first" ; FAILED=1
+            fi
+         done ;;
    esac
 done
 if [[ $FAILED -ne 0 ]]; then echo "SI FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi
