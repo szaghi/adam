@@ -6659,10 +6659,10 @@ contains
       !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,acc_gpu)                               &
       !$omp& firstprivate(nv,s1) private(cell_volume,residual,gauss_error,divD,dxyz_b)          &
       !$omp& reduction(+:qdep,rsum,rabs,r2,gabs,g2,volsum) reduction(max:rmax,gmax)
-      do b=1,blocks_number
       do k=1,nk
       do j=1,nj
       do i=1,ni
+      do b=1,blocks_number
          dxyz_b(1) = dxyz_gpu(b,1) ; dxyz_b(2) = dxyz_gpu(b,2) ; dxyz_b(3) = dxyz_gpu(b,3)
          cell_volume = dxyz_b(1) * dxyz_b(2) * dxyz_b(3)
          divD = 0._R8P
@@ -6768,10 +6768,10 @@ contains
       !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(ni,nj,nk,blocks_number,ivar,const) reduction(+: energy)
       !$omp OMPLOOP collapse(4) &
       !$omp& DEVICEPTR(q_gpu,dxyz_gpu) firstprivate(ni,nj,nk,blocks_number,ivar,const) reduction(+: energy)
-      do b=1, blocks_number
       do k=1, nk
       do j=1, nj
       do i=1, ni
+      do b=1, blocks_number
          energy = energy + 0.5_R8P * (q_gpu(b,i,j,k,ivar  )*q_gpu(b,i,j,k,ivar  ) + &
                                       q_gpu(b,i,j,k,ivar+1)*q_gpu(b,i,j,k,ivar+1) + &
                                       q_gpu(b,i,j,k,ivar+2)*q_gpu(b,i,j,k,ivar+2))/const*(dxyz_gpu(b,1)*dxyz_gpu(b,2)*dxyz_gpu(b,3))
@@ -6795,10 +6795,10 @@ contains
       !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(ni,nj,nk,blocks_number,ivar) reduction(+: coil_power)
       !$omp OMPLOOP collapse(4) &
       !$omp& DEVICEPTR(q_gpu,dxyz_gpu) firstprivate(ni,nj,nk,blocks_number,ivar) reduction(+: coil_power)
-      do b=1, blocks_number
       do k=1, nk
       do j=1, nj
       do i=1, ni
+      do b=1, blocks_number
          coil_power = coil_power-(q_gpu(b,i,j,k,VAR_DX  )*q_gpu(b,i,j,k,ivar  ) + &
                                   q_gpu(b,i,j,k,VAR_DX+1)*q_gpu(b,i,j,k,ivar+1) + &
                                   q_gpu(b,i,j,k,VAR_DX+2)*q_gpu(b,i,j,k,ivar+2))/EPS0*(dxyz_gpu(b,1)*dxyz_gpu(b,2)*dxyz_gpu(b,3))
@@ -6828,9 +6828,9 @@ contains
       !$omp OMPLOOP collapse(3) &
       !$omp& DEVICEPTR(q_gpu,dxyz_gpu) firstprivate(ni,nj,nk,blocks_number,s) &
       !$omp& private(v,m,cpb,q_boundary,q_buff) reduction(+: poynting_flux)
-      do b=1, blocks_number
       do k=1, nk
       do j=1, nj
+      do b=1, blocks_number
          do v=1, 6
             do m = 1-s, s
                q_buff(m) = q_gpu(b, m, j, k, v)
@@ -6847,9 +6847,9 @@ contains
       !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
       !$omp OMPLOOP collapse(3) &
       !$omp& DEVICEPTR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
-      do b=1, blocks_number
       do k=1, nk
       do j=1, nj
+      do b=1, blocks_number
          do v=1, 6
             do m = 1-s, s
                q_buff(m) = q_gpu(b, ni+m, j, k, v)
@@ -6866,9 +6866,9 @@ contains
       !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
       !$omp OMPLOOP collapse(3) &
       !$omp& DEVICEPTR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
-      do b=1, blocks_number
       do k=1, nk
       do i=1, ni
+      do b=1, blocks_number
          do v=1, 6
             do m = 1-s, s
                q_buff(m) = q_gpu(b, i, m, k, v)
@@ -6885,9 +6885,9 @@ contains
       !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
       !$omp OMPLOOP collapse(3) &
       !$omp& DEVICEPTR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
-      do b=1, blocks_number
       do k=1, nk
       do i=1, ni
+      do b=1, blocks_number
          do v=1, 6
             do m = 1-s, s
                q_buff(m) = q_gpu(b, i, nj+m, k, v)
@@ -6904,9 +6904,9 @@ contains
       !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
       !$omp OMPLOOP collapse(3) &
       !$omp& DEVICEPTR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
-      do b=1, blocks_number
       do j=1, nj
       do i=1, ni
+      do b=1, blocks_number
          do v=1, 6
             do m = 1-s, s
                q_buff(m) = q_gpu(b, i, j, m, v)
@@ -6923,9 +6923,9 @@ contains
       !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
       !$omp OMPLOOP collapse(3) &
       !$omp& DEVICEPTR(q_gpu,dxyz_gpu) firstprivate(s) private(cpb,q_boundary,q_buff) reduction(+: poynting_flux)
-      do b=1, blocks_number
       do j=1, nj
       do i=1, ni
+      do b=1, blocks_number
          do v=1, 6
             do m = 1-s, s
                q_buff(m) = q_gpu(b, i, j, nk+m, v)
@@ -7215,10 +7215,10 @@ contains
       !$omp& private(absdiff,axial_distance,b_amp,b_minus,b_plus,dBdx,dBdy,dBdz,grad2,radial2_local,s) &
       !$omp& reduction(+: weighted_sum_domain, measure_domain, cells_count_domain, weighted_absdiff_domain) &
       !$omp& reduction(+: weighted_sum_3db, weighted_absdiff_3db, measure_3db, cells_count_3db)
-      do b = 1, blocks_number
       do k = 1, nk
       do j = 1, nj
       do i = 1, ni
+      do b = 1, blocks_number
          if (i < lo_i(b) .or. i > hi_i(b) .or. j < lo_j(b) .or. j > hi_j(b) .or. k < lo_k(b) .or. k > hi_k(b)) cycle
          if (use_cylinder) then
             axial_distance = (x_cell_gpu(b,i) - center_x) * axis_x + (y_cell_gpu(b,j) - center_y) * axis_y + &
@@ -7362,10 +7362,10 @@ contains
       !$omp OMPLOOP collapse(4) DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,dxyz_gpu,q_gpu)        &
       !$omp& firstprivate(ni,nj,nk,blocks_number,center_x,center_y,center_z)                      &
       !$omp& private(wx,wy,wz,weight) reduction(+:weighted_bx,weighted_by,weighted_bz,weight_sum)
-      do b = 1, blocks_number
-         do k = 1, nk
-            do j = 1, nj
-               do i = 1, ni
+      do k = 1, nk
+         do j = 1, nj
+            do i = 1, ni
+               do b = 1, blocks_number
                   wx = max(0.0_R8P, 1.0_R8P - abs(x_cell_gpu(b,i) - center_x) / dxyz_gpu(b,1))
                   wy = max(0.0_R8P, 1.0_R8P - abs(y_cell_gpu(b,j) - center_y) / dxyz_gpu(b,2))
                   wz = max(0.0_R8P, 1.0_R8P - abs(z_cell_gpu(b,k) - center_z) / dxyz_gpu(b,3))
