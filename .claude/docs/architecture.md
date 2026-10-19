@@ -157,7 +157,7 @@ end type
 
 ### `forest_object` (`src/lib/common/adam_forest_object.F90`)
 
-Added in issue #10 Step 6 Phase C (commits `2d74fb6d` + `a294681a`); extended through PRDs [#13](https://github.com/szaghi/adam/issues/13) (interface machinery A), [#16](https://github.com/szaghi/adam/issues/16) (α end-of-step barrier + asymmetric K), and [#18](https://github.com/szaghi/adam/issues/18) (β stage-coincident seam coupling). **Behavior-only orchestrator**: owns no derived-type state, receives the realm array as `class(realm_object), intent(inout) :: realm(:)` and orchestrates inter-realm operations via the `_forest`-suffixed TBPs above.
+Added in issue #10 Step 6 Phase C (commits `2d74fb6d` + `a294681a`); extended through PRDs [#13](https://github.com/szaghi/adam/issues/13) (interface machinery A), [#16](https://github.com/szaghi/adam/issues/16) (α end-of-step barrier + asymmetric K), and [#18](https://github.com/szaghi/adam/issues/18) (β stage-coincident seam coupling). **Behavior-only orchestrator**: owns no derived-type state, receives an array of pointers to the realms, `type(realm_pointer), intent(inout) :: realm(:)` (element `is` is `realm(is)%ptr`), and orchestrates inter-realm operations via the `_forest`-suffixed TBPs above.
 
 ```fortran
 type :: forest_object
@@ -201,21 +201,32 @@ Each inter-realm seam carries a `coupling_cadence` (cached in `realm(is)%adam%ma
 Driver pattern (manifest path, e.g. `src/app/prism/cpu/adam_prism_cpu.F90`):
 
 ```fortran
-type(prism_cpu_object), allocatable :: realm(:)
-type(forest_object)                  :: forest
-type(forest_manifest_t)              :: manifest
+type(prism_cpu_object), allocatable, target :: realm(:)
+type(realm_pointer),    allocatable         :: realm_pointers(:)
+type(forest_object)                         :: forest
+type(forest_manifest_t)                     :: manifest
 
 if (is_forest_manifest(input_file_name)) then
    call read_forest_manifest(filename=input_file_name, manifest=manifest)
    allocate(realm(manifest%realms_number))
-   call forest%simulate_from_manifest(realm=realm, manifest=manifest)
+   call point_realms
+   call forest%simulate_from_manifest(realm=realm_pointers, manifest=manifest)
 else
    allocate(realm(1))                                    ! N=1 fast path
-   call forest%simulate(realm=realm, filename=input_file_name)
+   call point_realms
+   call forest%simulate(realm=realm_pointers, filename=input_file_name)
 endif
+contains
+   subroutine point_realms
+   integer :: i
+   allocate(realm_pointers(size(realm)))
+   do i = 1, size(realm)
+      realm_pointers(i)%ptr => realm(i)                  ! monomorphic indexing: always the right element
+   enddo
+   endsubroutine point_realms
 ```
 
-**nvfortran 26.1 polymorphic-array workaround** (commit `0062a237`): the polymorphic-array TBP dispatch site `realm(is)%end_stage_forest(...)` segfaults inside libnvf's `pgf90_copy_f90_argl_i8` while marshalling the explicit-bound `q_gpu(1:, 1-self%ngc:, ...)` actual passed deep in the body to `compute_residuals_dev`. The fix is a one-line `associate(r => realm(is))` wrapper at the call site — binds the array element to a polymorphic scalar before the TBP fires, letting nvfortran resolve the element's concrete-type stride correctly. Pre-emptively applied at every polymorphic-array TBP dispatch site in `evolve_one_step` (Phase 1 `begin_stage_forest`, Phase 2 `fill_seam_from_peer_forest`, Phase 3 `end_stage_forest`, Phase 4 `close_step_forest`, Phase 5 `fill_seam_from_peer_forest`). gfortran does not exhibit the issue; CPU builds are unaffected.
+**Why pointers, not a polymorphic array** ([#96](https://github.com/szaghi/adam/issues/96)): nvfortran 25.11 and 26.9 can index a `class(realm_object) :: realm(:)` dummy with the declared type's stride (`storage_size(realm_object)`) instead of the dynamic one, so `realm(is)%foo(...)` runs on an address inside realm 1; which sites break depends on the optimizer and on type sizes (a dependency update moved it from `begin_stage_forest` to `stages_per_step_forest`), and component reads were hit too. The `associate` wrappers of `0062a237` patched sites one at a time; since #96 the forest never indexes a polymorphic array: the driver indexes its own monomorphic array to build the pointers, and the FNL forest objects contain no `pgf90_poly_element_addr` call. gfortran was never affected.
 
 Tracked through:
 

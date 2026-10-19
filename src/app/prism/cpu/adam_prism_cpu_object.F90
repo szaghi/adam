@@ -1685,7 +1685,7 @@ contains
    integer(I4P),            intent(in)                      :: k        !< Stage index (1..K_total).
    integer(I4P),            intent(in)                      :: K_total  !< Forest-wide stage count for this step.
    real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
+   type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    self%stage_active = k
    if (self%ib%solids_number>0) then
@@ -1701,7 +1701,7 @@ contains
    integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
    integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count for this step.
    real(R8P),                   intent(in)                      :: dt            !< Timestep size from the forest.
-   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms (FNL parity only).
+   type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Sibling realms (FNL parity only).
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
    if (present(realm)) continue
@@ -1981,7 +1981,7 @@ contains
    logical,                 intent(in),    optional         :: do_save_residuals !< Save residuals output this step.
    logical,                 intent(in),    optional         :: do_save_restart   !< Save restart dump this step.
    logical,                 intent(in),    optional         :: do_amr            !< Run AMR update this step.
-   class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
+   type(realm_pointer),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
    real(R8P) :: current_residual !< Maximum current linear-solve residual.
    real(R8P)                                                :: max_div_D         !< Maximum of divergence of D field.
    real(R8P)                                                :: max_div_B         !< Maximum of divergence of B

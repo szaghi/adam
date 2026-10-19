@@ -66,6 +66,7 @@ use :: stringifor
 implicit none
 private
 public :: realm_object
+public :: realm_pointer
 
 type :: realm_object
    !< Realm system class definition, common data to all backends and applications.
@@ -204,6 +205,16 @@ type :: realm_object
       procedure, pass(self), private :: compute_laplacian_fd             !< Compute laplacian of scalar field, finite difference.
       procedure, pass(self), private :: compute_laplacian_fv             !< Compute laplacian of scalar field, finite volume.
 endtype realm_object
+
+type :: realm_pointer
+   !< A pointer to one realm of the forest. The forest and every routine that receives the sibling realms take an array of
+   !< these, `type(realm_pointer) :: realm(:)`, never a polymorphic array `class(realm_object) :: realm(:)`: indexing a
+   !< polymorphic array dummy is miscompiled by nvfortran 25.11 and 26.9, which may address element `is` with the stride of
+   !< the declared type instead of the dynamic one (issue #96, first worked around in 0062a237). The driver points each
+   !< element at an element of its own monomorphic array (`type(prism_fnl_object), target :: realm(:)`), whose indexing
+   !< is plain fixed-stride arithmetic.
+   class(realm_object), pointer :: ptr => null() !< The realm.
+endtype realm_pointer
 
 interface
    subroutine compute_block_total_variation_interface(self, hs, dxyz, ivar, q, tot_var_field, total_variation)
@@ -609,7 +620,7 @@ contains
    integer(I4P),        intent(in)                      :: k        !< Stage index (1..K_total).
    integer(I4P),        intent(in)                      :: K_total  !< Forest-wide stage count for this step.
    real(R8P),           intent(in)                      :: dt       !< Timestep size from the forest.
-   class(realm_object), intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
+   type(realm_pointer), intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    call mpih%error_stop(msg='realm_object%begin_stage_forest: not overridden by app extension')
    endsubroutine begin_stage_forest
@@ -638,7 +649,7 @@ contains
    integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
    integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count for this step.
    real(R8P),                   intent(in)                      :: dt            !< Timestep size from the forest.
-   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms (parity only).
+   type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Sibling realms (parity only).
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
    call mpih%error_stop(msg='realm_object%end_stage_forest: not overridden by app extension')
@@ -689,7 +700,7 @@ contains
    logical,             intent(in),    optional         :: do_save_residuals !< Save residuals output this step.
    logical,             intent(in),    optional         :: do_save_restart   !< Save restart dump this step.
    logical,             intent(in),    optional         :: do_amr            !< Run AMR update this step.
-   class(realm_object), intent(inout), optional, target :: realm(:)          !< Sibling realms for inter-realm halo refresh.
+   type(realm_pointer), intent(inout), optional, target :: realm(:)          !< Sibling realms for inter-realm halo refresh.
 
    call mpih%error_stop(msg='realm_object%post_step_forest: not overridden by app extension')
    endsubroutine post_step_forest

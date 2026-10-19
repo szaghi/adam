@@ -25,7 +25,7 @@ module adam_seam_exchange
 !< collective, but a rank that skipped a pair it has rows for would leave its partners waiting.
 use :: adam_field_object, only : interp_seam_ghost, restrict_seam_high_order
 use :: adam_mpih_global,  only : mpih
-use :: adam_realm_object, only : realm_object
+use :: adam_realm_object, only : realm_object, realm_pointer
 use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION
 use :: mpi
 use :: penf
@@ -64,7 +64,7 @@ contains
    !< Fill the seam ghosts of `self` (the forest realm `self%realm_index`) from its peer slot `p`: local rows, then
    !< cross-rank rows. Only `self` is written; `realm(:)` (which contains `self`) is read for the peer.
    class(realm_object), intent(inout), target :: self   !< Realm owning the ghosts.
-   class(realm_object), intent(in),    target :: realm(:) !< Forest realms.
+   type(realm_pointer), intent(in),    target :: realm(:) !< Forest realms.
    integer(I4P),        intent(in)            :: p      !< Peer slot of `self`.
    type(seam_post_object)                     :: post   !< The posted exchange of the pair.
    real(R8P)                                  :: t0     !< Wait start (MPI_Wtime).
@@ -84,7 +84,7 @@ contains
    !< has its own tag. Batching moves every pack before every unpack: the packs read real (interior) cells only, never
    !< a seam ghost, so the values sent are the ones the pair-by-pair exchange sends. `wtime` (timing only) accumulates
    !< the wait at a barrier put before the posts (the partners' arrival skew, load imbalance) and the single wait.
-   class(realm_object), intent(inout), target :: realm(:) !< Forest realms.
+   type(realm_pointer), intent(inout), target :: realm(:) !< Forest realms.
    integer(I4P),        intent(in)            :: cadence  !< Seam cadence of the pairs to fill.
    real(R8P),           intent(inout)         :: wtime(2) !< Timing: imbalance before the posts, wait.
    type(seam_post_object), allocatable        :: post(:)  !< The posted exchanges, in pair order.
@@ -97,11 +97,11 @@ contains
 
    n = 0_I4P
    do is=1_I4P, int(size(realm), I4P)
-      if (.not.allocated(realm(is)%adam%maps%seam_local_peer_realm)) cycle
-      n = n + count(realm(is)%adam%maps%seam_local_cadence == cadence)
+      if (.not.allocated(realm(is)%ptr%adam%maps%seam_local_peer_realm)) cycle
+      n = n + count(realm(is)%ptr%adam%maps%seam_local_cadence == cadence)
    enddo
    if (n == 0_I4P) return
-   timing = realm(1)%adam%maps%seam_timing
+   timing = realm(1)%ptr%adam%maps%seam_timing
    if (timing) then
       t0 = MPI_Wtime()
       call MPI_BARRIER(MPI_COMM_WORLD, mpih%error)
@@ -109,11 +109,11 @@ contains
    endif
    allocate(post(n)) ; k = 0_I4P
    do is=1_I4P, int(size(realm), I4P)
-      if (.not.allocated(realm(is)%adam%maps%seam_local_peer_realm)) cycle
-      do p=1_I4P, int(size(realm(is)%adam%maps%seam_local_peer_realm), I4P)
-         if (realm(is)%adam%maps%seam_local_cadence(p) /= cadence) cycle
+      if (.not.allocated(realm(is)%ptr%adam%maps%seam_local_peer_realm)) cycle
+      do p=1_I4P, int(size(realm(is)%ptr%adam%maps%seam_local_peer_realm), I4P)
+         if (realm(is)%ptr%adam%maps%seam_local_cadence(p) /= cadence) cycle
          k = k + 1_I4P
-         associate(r=>realm(is)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
+         associate(r=>realm(is)%ptr)
             call seam_fill_post(self=r, realm=realm, p=p, post=post(k))
          endassociate
       enddo
@@ -130,7 +130,7 @@ contains
    if (timing) wtime(2) = wtime(2) + (MPI_Wtime() - t0)
    do k=1_I4P, n
       if (.not.post(k)%active) cycle
-      associate(r=>realm(post(k)%is)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
+      associate(r=>realm(post(k)%is)%ptr)
          call seam_fill_complete(self=r, post=post(k))
       endassociate
    enddo
@@ -141,7 +141,7 @@ contains
    !< rows `self`'s ghosts receive from the cells this rank owns, the receives and the sends (one message per partner
    !< rank, tagged by the pair) and the message to self. `seam_fill_complete` unpacks once the requests are complete.
    class(realm_object),    intent(inout), target :: self                       !< Realm owning the ghosts.
-   class(realm_object),    intent(in),    target :: realm(:)                   !< Forest realms.
+   type(realm_pointer),    intent(in),    target :: realm(:)                   !< Forest realms.
    integer(I4P),           intent(in)            :: p                          !< Peer slot of `self`.
    type(seam_post_object), intent(out)           :: post                       !< The posted exchange.
    integer(I4P)                                  :: is                         !< Forest index of `self`.
@@ -164,13 +164,13 @@ contains
    if (post%timing) tw(0) = MPI_Wtime()
    ! local rows: the receiver's own copy kernel
    if (self%adam%maps%seam_local_peer_row_count(p) > 0_I4P) &
-      call self%fill_seam_from_peer_forest(peer=realm(ip), p_idx=p)
+      call self%fill_seam_from_peer_forest(peer=realm(ip)%ptr, p_idx=p)
    if (post%timing) tw(1) = MPI_Wtime()
    ! cross-rank rows
-   q = seam_peer_slot(realm(ip), is)
+   q = seam_peer_slot(realm(ip)%ptr, is)
    post%n_recv = 0_I4P ; n_send = 0_I4P
    if (allocated(self%adam%maps%seam_mpi_recv_row_count)) post%n_recv = self%adam%maps%seam_mpi_recv_row_count(p)
-   if (allocated(realm(ip)%adam%maps%seam_mpi_send_row_count)) n_send = realm(ip)%adam%maps%seam_mpi_send_row_count(q)
+   if (allocated(realm(ip)%ptr%adam%maps%seam_mpi_send_row_count)) n_send = realm(ip)%ptr%adam%maps%seam_mpi_send_row_count(q)
    if (post%n_recv + n_send == 0_I4P) then
       if (post%timing) self%adam%maps%seam_wtime(1) = self%adam%maps%seam_wtime(1) + (tw(1) - tw(0))
       return
@@ -187,7 +187,7 @@ contains
    allocate(post%recv_buf(nv * post%n_recv), post%send_buf(nv * n_send))
    if (post%timing) tw(2) = MPI_Wtime()
    if (n_send > 0_I4P) then
-      associate(r_ip=>realm(ip)) ! nvfortran 26.1 polymorphic array element dispatch workaround (0062a237)
+      associate(r_ip=>realm(ip)%ptr)
          call r_ip%pack_seam_cells_forest(p_idx=q, buf=post%send_buf)
       endassociate
    endif
@@ -215,8 +215,8 @@ contains
       endassociate
    endif
    if (n_send > 0_I4P) then
-      associate(rows=>realm(ip)%adam%maps%seam_mpi_send_cell)
-      s0 = realm(ip)%adam%maps%seam_mpi_send_row_start(q)
+      associate(rows=>realm(ip)%ptr%adam%maps%seam_mpi_send_cell)
+      s0 = realm(ip)%ptr%adam%maps%seam_mpi_send_row_start(q)
       r = 1_I4P
       do while (r <= n_send)
          rank = rows(s0 + r - 1_I4P, 1) ; r_end = r
@@ -265,7 +265,7 @@ contains
    subroutine seam_fill_all(self, realm)
    !< Fill the seam ghosts of `self` from every peer slot, whatever the cadence (diagnostics on the committed state).
    class(realm_object), intent(inout), target :: self     !< Realm owning the ghosts.
-   class(realm_object), intent(in),    target :: realm(:) !< Forest realms.
+   type(realm_pointer), intent(in),    target :: realm(:) !< Forest realms.
    integer(I4P)                               :: p        !< Peer slot.
 
    if (.not.allocated(self%adam%maps%seam_local_peer_realm)) return

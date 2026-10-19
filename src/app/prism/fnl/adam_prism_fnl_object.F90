@@ -5939,7 +5939,7 @@ contains
    integer(I4P),            intent(in)                      :: k        !< Stage index (1..K_total).
    integer(I4P),            intent(in)                      :: K_total  !< Forest-wide stage count for this step.
    real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
+   type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    self%stage_active = k
    if (self%ib%solids_number>0) then
@@ -5971,7 +5971,7 @@ contains
    integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
    integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count for this step.
    real(R8P),                   intent(in)                      :: dt            !< Timestep size from the forest.
-   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms (FNL parity only; unused).
+   type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Sibling realms (FNL parity only; unused).
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
    if (present(realm)) continue
@@ -6322,7 +6322,7 @@ contains
    logical,                 intent(in),    optional         :: do_save_residuals !< Save residuals output this step.
    logical,                 intent(in),    optional         :: do_save_restart   !< Save restart dump this step.
    logical,                 intent(in),    optional         :: do_amr            !< Run AMR update this step.
-   class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms for inter-realm halo refresh.
+   type(realm_pointer),     intent(inout), optional, target :: realm(:)          !< Sibling realms for inter-realm halo refresh.
    real(R8P)                                                :: current_residual  !< Max conserving-current solver residual.
 
    if (self%io%save_memory_status) then

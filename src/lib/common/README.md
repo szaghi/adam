@@ -469,7 +469,7 @@ The **forest** machinery coordinates more than one independent simulation domain
 | `is_done_forest(done)`                       | Report whether the simulation has reached its termination predicate. |
 | `post_step_forest(dt, t, it, realm)`         | Per-step diagnostics / IO block (savers, residual prints). |
 
-Each `_forest` TBP is `pass(self)`-dispatched. The forest receives `class(realm_object), intent(inout) :: realm(:)` as a parameter and never owns realm state; the realm array is allocated by the driver as a concrete app type (e.g. `type(prism_cpu_object), allocatable :: realm(:)`).
+Each `_forest` TBP is `pass(self)`-dispatched. The forest receives `type(realm_pointer), intent(inout) :: realm(:)` as a parameter and never owns realm state: the driver allocates the realms as a concrete app type (e.g. `type(prism_cpu_object), allocatable, target :: realm(:)`) and points one `realm_pointer` at each, so element `is` is `realm(is)%ptr`. The forest never takes a polymorphic array `class(realm_object) :: realm(:)`: nvfortran (25.11, 26.9) can address its elements with the declared type's stride and dispatch on the wrong realm ([#96](https://github.com/szaghi/adam/issues/96)).
 
 The N=1 fast path bypasses every per-stage TBP. Single-realm apps that do not participate in multi-realm forests may leave them at the default error_stop.
 

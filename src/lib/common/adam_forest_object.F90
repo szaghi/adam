@@ -5,9 +5,12 @@ module adam_forest_object
 !< The **forest** tends an array of realms ([[realm_object]] extensions, e.g.
 !< `prism_cpu_object`, `prism_fnl_object`). It is a **behavior-only** class:
 !< it owns no derived-type state. Each realm lives in the program driver as a
-!< concrete monomorphic array (`type(prism_cpu_object) :: realm(N)`); the
-!< forest receives the array as `class(realm_object), intent(inout) :: realm(:)`
-!< and orchestrates inter-realm operations:
+!< concrete monomorphic array (`type(prism_cpu_object), target :: realm(N)`);
+!< the driver points an array of [[realm_pointer]] at its elements and the
+!< forest receives that, `type(realm_pointer), intent(inout) :: realm(:)`
+!< (element `is` is `realm(is)%ptr`). It never receives a polymorphic array
+!< `class(realm_object) :: realm(:)`: nvfortran miscompiles the indexing of
+!< one (issue #96). The forest orchestrates inter-realm operations:
 !<
 !<   * sequence per-realm initialize / finalize calls
 !<   * reduce per-realm dt to a global dt (min reduction)
@@ -29,7 +32,7 @@ module adam_forest_object
 !< cycle) and `src/lib/common/README.md` → "Forest orchestration" for the
 !< library-developer contract surface.
 
-use :: adam_realm_object,         only : realm_object
+use :: adam_realm_object,         only : realm_object, realm_pointer
 use :: adam_maps_object,          only : inter_realm_neighbor_t,                                                  &
                                          FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
                                          CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT,                          &
@@ -102,7 +105,7 @@ contains
    subroutine initialize(self, realm, filename)
    !< Initialize the forest and every realm it tends.
    class(forest_object), intent(inout) :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to initialize.
+   type(realm_pointer),  intent(inout) :: realm(:) !< The realms to initialize.
    character(*),         intent(in)    :: filename !< Input parameters file name (shared across realms for v1).
    integer(I4P)                        :: is       !< Realm index.
 
@@ -114,8 +117,8 @@ contains
       ! realm initialize; downstream forest TBPs (apply_reflux_to_stage_forest,
       ! diagnostic prefixes) read self%realm_index instead of having `is`
       ! plumbed through every dispatch.
-      realm(is)%realm_index = is
-      call realm(is)%initialize_forest(filename=filename, realms_number=self%n)
+      realm(is)%ptr%realm_index = is
+      call realm(is)%ptr%initialize_forest(filename=filename, realms_number=self%n)
    enddo
    call check_runtime_amr(realm=realm)
    ! Register intra-realm AMR coarse-fine faces. In the manifest-less (N=1) path
@@ -132,10 +135,11 @@ contains
    !< Like `initialize` but each realm receives its OWN INI path (`manifest%realm_ini(is)`) instead of a shared filename. After all
    !< realms are initialized, translates the manifest's face-pair list into per-realm `maps%inter_realm_neighbors` entries.
    !<
-   !< The driver MUST allocate `realm(size = manifest%realms_number)` with the concrete app type before calling this — the forest
-   !< does not !< allocate the realm array (it cannot, since realm_object is abstract and each app has its own extension).
+   !< The driver MUST allocate `manifest%realms_number` realms of the concrete app type and point `realm(:)` at them before
+   !< calling this — the forest does not allocate the realms (it cannot, since realm_object is abstract and each app has its
+   !< own extension).
    class(forest_object),     intent(inout) :: self     !< The forest.
-   class(realm_object),      intent(inout) :: realm(:) !< The realms to initialize.
+   type(realm_pointer),      intent(inout) :: realm(:) !< The realms to initialize.
    type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest (per-realm INI paths + topology).
    integer(I4P)                            :: is       !< Realm index.
 
@@ -147,8 +151,8 @@ contains
       ! realm initialize; downstream forest TBPs (apply_reflux_to_stage_forest,
       ! diagnostic prefixes) read self%realm_index instead of having `is`
       ! plumbed through every dispatch.
-      realm(is)%realm_index = is
-      call realm(is)%initialize_forest(filename=trim(manifest%realm_ini(is)), realms_number=self%n)
+      realm(is)%ptr%realm_index = is
+      call realm(is)%ptr%initialize_forest(filename=trim(manifest%realm_ini(is)), realms_number=self%n)
    enddo
    call check_runtime_amr(realm=realm)
    call self%populate_inter_realm_topology(realm, manifest)
@@ -161,11 +165,11 @@ contains
    !< Iterates `realm(is)%finalize_forest` in increasing index order; each realm closes its IO files, releases its
    !< resources, and finalizes its MPI handler.
    class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to shut down.
+   type(realm_pointer),  intent(inout) :: realm(:) !< The realms to shut down.
    integer(I4P)                        :: is       !< Realm index.
 
    do is = 1, int(size(realm), I4P)
-      call realm(is)%finalize_forest
+      call realm(is)%ptr%finalize_forest
    enddo
    ! End-of-run marker. Every realm has run finalize_forest above, so all
    ! checkpoints and residual/history files are flushed to disk. Emit a stable
@@ -178,7 +182,7 @@ contains
    ! MPI_FINALIZE is process-global: run it ONCE here, after every realm has done its
    ! MPI-using teardown above — not per realm inside finalize_forest, which would tear
    ! MPI down while later realms still need it.
-   if (size(realm) >= 1) call realm(1)%finalize_mpi_forest
+   if (size(realm) >= 1) call realm(1)%ptr%finalize_mpi_forest
    endsubroutine finalize
 
    ! orchestrating methods
@@ -189,7 +193,7 @@ contains
    !< (intra-process) and then across all MPI ranks (`MPI_ALLREDUCE` on `MPI_COMM_WORLD`). Returns
    !< the bit-identical global min every rank should advance by.
    class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to query.
+   type(realm_pointer),  intent(inout) :: realm(:) !< The realms to query.
    real(R8P),            intent(out)   :: dt       !< Global stability-limited dt.
    real(R8P)                           :: dt_local !< Per-realm local dt.
    integer(I4P)                        :: is       !< Realm index.
@@ -199,7 +203,7 @@ contains
    do is = 1, int(size(realm), I4P)
       ! For N>1 each realm needs its singleton shims pointing at its own
       ! components before compute_local_dt_forest reads through them.
-      call realm(is)%compute_local_dt_forest(dt_local=dt_local)
+      call realm(is)%ptr%compute_local_dt_forest(dt_local=dt_local)
       dt = min(dt, dt_local)
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, ierr)
@@ -283,7 +287,7 @@ contains
    !< (dense-output peer reads) are deferred. β with asymmetric K would
    !< require γ-class interpolation; not in scope.
    class(forest_object), intent(inout)         :: self        !< The forest.
-   class(realm_object),  intent(inout), target :: realm(:)    !< The realms to advance.
+   type(realm_pointer),  intent(inout), target :: realm(:)    !< The realms to advance.
    real(R8P)                                   :: dt          !< Global timestep size.
    integer(I4P)                                :: is, p, k    !< Realm, peer, stage indices.
    integer(I4P), allocatable                   :: K_realm(:)  !< Per-realm stage counts (1..size(realm)).
@@ -299,17 +303,17 @@ contains
    ! (apply_reflux_corrections). The `flux_register%nfaces > 0` test keeps every
    ! existing non-AMR single-realm case on the bit-identical fast path. #13 §7.5 M3.
    if (int(size(realm), I4P) == 1_I4P .and. self%flux_register%nfaces == 0_I4P) then
-      call realm(1)%advance_one_step_forest(dt=dt)
+      call realm(1)%ptr%advance_one_step_forest(dt=dt)
    else
       do is = 1_I4P, int(size(realm), I4P)
-         call realm(is)%open_step_forest(dt=dt)
+         call realm(is)%ptr%open_step_forest(dt=dt)
       enddo
       ! Query each realm's stage count ONCE and cache it in K_realm(:); the
       ! per-stage gates below test against this cache, not against repeated
       ! TBP dispatches.
       allocate(K_realm(size(realm)))
       do is = 1_I4P, int(size(realm), I4P)
-         K_realm(is) = realm(is)%stages_per_step_forest()
+         K_realm(is) = realm(is)%ptr%stages_per_step_forest()
       enddo
       K_max = maxval(K_realm)
       ! α: no K-equality guard. Asymmetric K is a first-class mode; the
@@ -318,7 +322,7 @@ contains
          ! Phase 1 — open stage k on each participating realm; each realm sets stage_active=k.
          do is = 1_I4P, int(size(realm), I4P)
             if (k > K_realm(is)) cycle
-            call realm(is)%begin_stage_forest(k=k, K_total=K_max, dt=dt)
+            call realm(is)%ptr%begin_stage_forest(k=k, K_total=K_max, dt=dt)
          enddo
 
          ! Phase 2 — per-seam mid-step inter-realm seam fill (β).
@@ -339,10 +343,6 @@ contains
          ! peer ghosts continue to hold the previous end-of-step exchange
          ! (Berger-Oliger 1984 / AMReX FillCoarsePatch).
          !
-         ! `associate` wrapper: nvfortran 26.1 workaround for the polymorphic
-         ! array element dispatch bug (same fix shape as Phase 3 below;
-         ! commit 0062a237). Pre-emptive: this is a new dispatch site that
-         ! the workaround should cover from the start.
          ! The slots come from the manifest (the same on every rank, whatever rows a rank holds): `seam_fill_batch`
          ! moves the local and the cross-rank rows (issue #40) of every (realm, slot) pair of the cadence, posted in the
          ! same order on every rank and completed by one wait (issue #53, F3).
@@ -351,22 +351,7 @@ contains
          ! Phase 3 — residuals (with flux_register) + assign on each participating realm.
          do is = 1_I4P, int(size(realm), I4P)
             if (k > K_realm(is)) cycle
-            ! NVFORTRAN 26.1 WORKAROUND: dispatching the polymorphic array
-            ! element `realm(is)%end_stage_forest(...)` directly segfaults
-            ! inside libnvf's `pgf90_copy_f90_argl_i8` when marshalling the
-            ! explicit-bound `q_gpu(1:, 1-self%ngc:, ...)` actual passed to
-            ! `compute_residuals_dev` deep in the body (rmf-2realm/fnl
-            ! reproducer; line 1895 of adam_prism_fnl_object.F90). Binding
-            ! `realm(is)` to a polymorphic scalar via `associate` before
-            ! dispatch lets the marshaller resolve the element's concrete-
-            ! type stride correctly. Other dispatch sites in this routine
-            ! happen not to trigger the bug because their bodies do not
-            ! reach an equally complex arg-marshalling path; if a future
-            ! refactor exposes them, apply the same wrapper. CPU build is
-            ! unaffected (gfortran does not exhibit the issue).
-            associate(r => realm(is))
-               call r%end_stage_forest(k=k, K_total=K_max, dt=dt, flux_register=self%flux_register)
-            end associate
+            call realm(is)%ptr%end_stage_forest(k=k, K_total=K_max, dt=dt, flux_register=self%flux_register)
          enddo
 
       enddo
@@ -381,7 +366,7 @@ contains
       call self%flux_register%reduce_fine_sums
       if (self%timing) self%wtime(3) = self%wtime(3) + MPI_Wtime()
       do is = 1_I4P, int(size(realm), I4P)
-         call realm(is)%close_step_forest(dt=dt)
+         call realm(is)%ptr%close_step_forest(dt=dt)
       enddo
       ! α.r1 reflux: applied AFTER close_step_forest's update_q has committed the
       ! step's q. The realm-side body writes the end-of-step Berger-Colella
@@ -409,9 +394,6 @@ contains
       ! (`CADENCE_STAGE_COINCIDENT`) were already filled at every substage
       ! in Phase 2 inside the K loop; firing again here would double-write
       ! and waste work.
-      !
-      ! `associate` wrapper: same nvfortran 26.1 workaround as Phase 2 and
-      ! Phase 3 (commit 0062a237). Pre-emptive coverage.
       call seam_fill_batch(realm=realm, cadence=CADENCE_END_OF_STEP, wtime=self%wtime(6:7))
 
       deallocate(K_realm)
@@ -426,7 +408,7 @@ contains
    !< long as ANY realm wants to — matching the legacy single-realm semantics for v1 (with one realm the global predicate
    !< equals that realm's local one).
    class(forest_object), intent(in)    :: self       !< The forest.
-   class(realm_object),  intent(inout) :: realm(:)   !< The realms to query.
+   type(realm_pointer),  intent(inout) :: realm(:)   !< The realms to query.
    logical,              intent(out)   :: done       !< Forest-global termination predicate.
    logical                             :: done_local !< Per-realm local predicate.
    integer(I4P)                        :: is         !< Realm index.
@@ -434,7 +416,7 @@ contains
 
    done = .true.
    do is = 1, int(size(realm), I4P)
-      call realm(is)%is_done_forest(done=done_local)
+      call realm(is)%ptr%is_done_forest(done=done_local)
       done = done .and. done_local
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, done, 1, MPI_LOGICAL, MPI_LAND, MPI_COMM_WORLD, ierr)
@@ -443,11 +425,11 @@ contains
    subroutine post_step(self, realm)
    !< Run every realm's post-step diagnostics / IO / AMR block.
    class(forest_object), intent(in)    :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to query.
+   type(realm_pointer),  intent(inout) :: realm(:) !< The realms to query.
    integer(I4P)                        :: is       !< Realm index.
 
    do is = 1, int(size(realm), I4P)
-      call realm(is)%post_step_forest(dt=0._R8P, t=0._R8P, it=0_I4P, realm=realm)
+      call realm(is)%ptr%post_step_forest(dt=0._R8P, t=0._R8P, it=0_I4P, realm=realm)
    enddo
    endsubroutine post_step
 
@@ -464,7 +446,7 @@ contains
    !< or register face needs rebuilding. The fused fast path is chosen per step from `flux_register%nfaces`, so a run
    !< that gains or loses 2:1 faces switches path with the rebuilt register.
    class(forest_object), intent(inout) :: self          !< The forest.
-   class(realm_object),  intent(inout) :: realm(:)      !< The realms.
+   type(realm_pointer),  intent(inout) :: realm(:)      !< The realms.
    logical                             :: regridded     !< One realm's tree changed.
    logical                             :: any_regridded !< Some realm's tree changed, on any rank.
    integer(I4P)                        :: is            !< Realm index.
@@ -472,7 +454,7 @@ contains
 
    any_regridded = .false.
    do is = 1, int(size(realm), I4P)
-      call realm(is)%regrid_forest(regridded=regridded)
+      call realm(is)%ptr%regrid_forest(regridded=regridded)
       any_regridded = any_regridded .or. regridded
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, any_regridded, 1, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, ierr)
@@ -489,7 +471,7 @@ contains
    !< → is_done} → finalize. Each step invokes the orchestrator-contract TBPs on every realm; the per-realm body decides what
    !< app-specific work to do internally.
    class(forest_object), intent(inout) :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms to evolve.
+   type(realm_pointer),  intent(inout) :: realm(:) !< The realms to evolve.
    character(*),         intent(in)    :: filename !< Input parameters file name.
    logical                             :: done     !< Forest-global termination predicate.
 
@@ -519,7 +501,7 @@ contains
    !< Like `simulate` but uses `initialize_from_manifest` to populate each realm from its own INI file, and (via that
    !< initialize) wires the inter-realm topology from the manifest. The time-loop body is identical to `simulate`.
    class(forest_object),     intent(inout) :: self     !< The forest.
-   class(realm_object),      intent(inout) :: realm(:) !< The realms to evolve.
+   type(realm_pointer),      intent(inout) :: realm(:) !< The realms to evolve.
    type(forest_manifest_t),  intent(in)    :: manifest !< Parsed manifest.
    logical                                 :: done     !< Forest-global termination predicate.
 
@@ -548,7 +530,7 @@ contains
    !< Arm the timing report when the environment sets ADAM_SEAM_TIMING=1 (issue #53): the forest times its loop, steps
    !< and reflux, every realm the phases of the seam fills of its ghosts. Off by default, the output unchanged.
    class(forest_object), intent(inout) :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< The realms.
+   type(realm_pointer),  intent(inout) :: realm(:) !< The realms.
    character(len=8)                    :: val      !< Environment value.
    integer                             :: stat     !< Environment query status.
    integer(I4P)                        :: is       !< Realm index.
@@ -556,7 +538,7 @@ contains
    call get_environment_variable('ADAM_SEAM_TIMING', value=val, status=stat)
    self%timing = (stat == 0 .and. trim(val) == '1')
    do is = 1_I4P, int(size(realm), I4P)
-      realm(is)%adam%maps%seam_timing = self%timing
+      realm(is)%ptr%adam%maps%seam_timing = self%timing
    enddo
    endsubroutine start_timing
 
@@ -564,7 +546,7 @@ contains
    !< Print the timing report (issue #53): the maximum over the ranks of the forest timers and, per realm, of the seam
    !< fill phases (local copy, buffers, pack, MPI, unpack) and of their sum; fills and rows summed over the ranks.
    class(forest_object), intent(in) :: self     !< The forest.
-   class(realm_object),  intent(in) :: realm(:) !< The realms.
+   type(realm_pointer),  intent(in) :: realm(:) !< The realms.
    real(R8P)                        :: w(7)     !< Timers reduced over the ranks.
    integer(I8P)                     :: c(3)     !< Counters reduced over the ranks.
    integer(I4P)                     :: is       !< Realm index.
@@ -579,9 +561,7 @@ contains
                                       '; ', self%flux_register%nfaces, ' register faces'
    if (mpih%myrank == 0) call mpih%print_message(trim(line))
    do is = 1_I4P, int(size(realm), I4P)
-      ! nvfortran 26.1: an array constructor of components of a class(realm_object) array element reads garbage; bind
-      ! the element first (0062a237).
-      associate(r => realm(is))
+      associate(r => realm(is)%ptr)
          w(1:5) = r%adam%maps%seam_wtime
          c = [r%adam%maps%seam_fills, r%adam%maps%seam_rows]
       endassociate
@@ -601,12 +581,12 @@ contains
    !< The inter-realm topology (seam rows, BC_SEAM crown overrides, inter-realm register faces) is built once, at
    !< initialisation; a realm that regrids would leave it describing the old grid, silently. Until it is rebuilt per
    !< regrid, a realm that regrids must be the only one.
-   class(realm_object), intent(in) :: realm(:) !< Initialized realms.
+   type(realm_pointer), intent(in) :: realm(:) !< Initialized realms.
    integer(I4P)                    :: is       !< Realm index.
 
    if (size(realm) < 2) return
    do is = 1, int(size(realm), I4P)
-      if (realm(is)%runtime_amr_forest()) call mpih%error_stop(msg='forest_object: realm '//trim(str(is, .true.))// &
+      if (realm(is)%ptr%runtime_amr_forest()) call mpih%error_stop(msg='forest_object: realm '//trim(str(is, .true.))// &
          ' regrids during the run ([amr] frequency > 0), which is supported on a single-realm forest only (issue #74):'//&
          ' the inter-realm seams are built once; set frequency = 0 or run one realm')
    enddo
@@ -625,7 +605,7 @@ contains
    !<
    !< Runs once at `initialize_from_manifest` time, after every realm's
    !< `initialize_forest` has populated `numerics`, `rk`, `physics`.
-   class(realm_object),     intent(inout) :: realm(:) !< The initialized realms.
+   type(realm_pointer),     intent(inout) :: realm(:) !< The initialized realms.
    type(forest_manifest_t), intent(in)    :: manifest !< Parsed manifest.
    integer(I4P)                           :: f        !< Face-pair index.
    integer(I4P)                           :: ra, rb   !< Endpoint realm indices.
@@ -637,10 +617,10 @@ contains
       if (manifest%face_pairs(f)%coupling_cadence /= CADENCE_STAGE_COINCIDENT) cycle
       ra = manifest%face_pairs(f)%realm_a
       rb = manifest%face_pairs(f)%realm_b
-      call realm(ra)%coupling_descriptor_forest(scheme_time=st_a, rk_scheme=rk_a, nv=nv_a)
-      call realm(rb)%coupling_descriptor_forest(scheme_time=st_b, rk_scheme=rk_b, nv=nv_b)
-      k_a = realm(ra)%stages_per_step_forest()
-      k_b = realm(rb)%stages_per_step_forest()
+      call realm(ra)%ptr%coupling_descriptor_forest(scheme_time=st_a, rk_scheme=rk_a, nv=nv_a)
+      call realm(rb)%ptr%coupling_descriptor_forest(scheme_time=st_b, rk_scheme=rk_b, nv=nv_b)
+      k_a = realm(ra)%ptr%stages_per_step_forest()
+      k_b = realm(rb)%ptr%stages_per_step_forest()
       if (nv_a < 0_I4P .or. nv_b < 0_I4P) &
          call mpih%error_stop(msg='forest_object%check_beta_admissibility: face_pair '//trim(str(f, .true.))// &
             ' has stage_coincident cadence but realm '//trim(str(ra, .true.))//' or '//                       &
@@ -678,7 +658,7 @@ contains
    !< and avoids encoding block layouts that depend on AMR / decomposition
    !< state not known at INI parse time.
    class(forest_object),     intent(inout) :: self                !< The forest.
-   class(realm_object),      intent(inout) :: realm(:)            !< Initialized realms whose adam%maps gets populated.
+   type(realm_pointer),      intent(inout) :: realm(:)            !< Initialized realms whose adam%maps gets populated.
    type(forest_manifest_t),  intent(in)    :: manifest            !< Parsed manifest.
    integer(I4P), allocatable               :: per_realm_count(:)  !< How many neighbour entries each realm gets.
    integer(I4P), allocatable               :: per_realm_cursor(:) !< Write cursor per realm.
@@ -708,8 +688,8 @@ contains
    ! Validate every coupling against the realm geometry before any seam data is built (issue #52).
    call check_couplings(realm=realm, manifest=manifest)
    do is = 1_I4P, self%n
-      if (allocated(realm(is)%adam%maps%inter_realm_neighbors)) deallocate(realm(is)%adam%maps%inter_realm_neighbors)
-      if (per_realm_count(is) > 0_I4P) allocate(realm(is)%adam%maps%inter_realm_neighbors(per_realm_count(is)))
+      if (allocated(realm(is)%ptr%adam%maps%inter_realm_neighbors)) deallocate(realm(is)%ptr%adam%maps%inter_realm_neighbors)
+      if (per_realm_count(is) > 0_I4P) allocate(realm(is)%ptr%adam%maps%inter_realm_neighbors(per_realm_count(is)))
    enddo
    ! Pass 2: write entries into each realm's array.
    allocate(per_realm_cursor(self%n))
@@ -718,12 +698,12 @@ contains
       pair = manifest%face_pairs(f)
       ! entry on realm_a's array: my=a, peer=b
       per_realm_cursor(pair%realm_a) = per_realm_cursor(pair%realm_a) + 1_I4P
-      call set_neighbor(slot=realm(pair%realm_a)%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_a)), &
+      call set_neighbor(slot=realm(pair%realm_a)%ptr%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_a)), &
                         my_realm=pair%realm_a,my_face=pair%face_a,peer_realm=pair%realm_b,peer_face=pair%face_b,  &
                         coupling=pair%coupling)
       ! entry on realm_b's array: my=b, peer=a
       per_realm_cursor(pair%realm_b) = per_realm_cursor(pair%realm_b) + 1_I4P
-      call set_neighbor(slot=realm(pair%realm_b)%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_b)), &
+      call set_neighbor(slot=realm(pair%realm_b)%ptr%adam%maps%inter_realm_neighbors(per_realm_cursor(pair%realm_b)), &
                         my_realm=pair%realm_b,my_face=pair%face_b,peer_realm=pair%realm_a,peer_face=pair%face_a,  &
                         coupling=pair%coupling)
    enddo
@@ -781,7 +761,7 @@ contains
    block
       integer(I4P) :: is_tb
       do is_tb = 1_I4P, int(size(realm), I4P)
-         call realm(is_tb)%after_topology_build_forest
+         call realm(is_tb)%ptr%after_topology_build_forest
       enddo
    endblock
    contains
@@ -807,7 +787,7 @@ contains
       !< Count the inter-realm seam register faces: one per (face-pair, leaf of the coarse side on its seam face; realm_a
       !< for a mirror seam), every leaf of the replicated tree whatever rank owns it (the same count on every rank), the
       !< pass 1 of `register_inter_realm_seams`.
-      class(realm_object),     intent(inout) :: realm(:)     !< Initialized realms.
+      type(realm_pointer),     intent(inout) :: realm(:)     !< Initialized realms.
       type(forest_manifest_t), intent(in)    :: manifest     !< Parsed manifest.
       integer(I4P)                           :: nfaces       !< Inter-realm seam faces.
       integer(I4P)                           :: f            !< Face-pair counter.
@@ -824,8 +804,8 @@ contains
          call seam_sides(realm, manifest%face_pairs(f), rc, fc, rf, ff, refined)
          call face_axis_sign(fc, axis, sgn)
          iter%b = 1_I4P ; iter%p => null()
-         do while (realm(rc)%adam%tree%loop(iter, node_ptr=node_ptr))
-            if (leaf_on_realm_face(realm(rc), node_ptr%code, axis, sgn)) nfaces = nfaces + 1_I4P
+         do while (realm(rc)%ptr%adam%tree%loop(iter, node_ptr=node_ptr))
+            if (leaf_on_realm_face(realm(rc)%ptr, node_ptr%code, axis, sgn)) nfaces = nfaces + 1_I4P
          enddo
       enddo
       endfunction count_inter_realm_seam_faces
@@ -853,7 +833,7 @@ contains
       !< The signed lookup `inter_realm_face_register_index(block, bc_fec)` (+cursor on the coarse block, -cursor on the
       !< fine blocks) and the quadrant table are written only for the blocks this rank owns: `block_index` is an owner-local
       !< slot (issue #28 D1).
-      class(realm_object),        intent(inout) :: realm(:)       !< Initialized realms.
+      type(realm_pointer),        intent(inout) :: realm(:)       !< Initialized realms.
       type(forest_manifest_t),    intent(in)    :: manifest       !< Parsed manifest.
       type(flux_register_object), intent(inout) :: flux_register  !< Berger-Colella reflux accumulator owned by the forest.
       integer(I4P), optional,     intent(in)    :: first_cursor   !< Append after this cursor to a register (and index)
@@ -914,12 +894,12 @@ contains
          if (present(first_cursor)) exit
          block
             integer(I4P) :: nb_realm
-            nb_realm = int(realm(is)%adam%field%blocks_number, I4P)
-            if (allocated(realm(is)%adam%maps%inter_realm_face_register_index)) &
-               deallocate(realm(is)%adam%maps%inter_realm_face_register_index)
+            nb_realm = int(realm(is)%ptr%adam%field%blocks_number, I4P)
+            if (allocated(realm(is)%ptr%adam%maps%inter_realm_face_register_index)) &
+               deallocate(realm(is)%ptr%adam%maps%inter_realm_face_register_index)
             if (nb_realm > 0_I4P) then
-               allocate(realm(is)%adam%maps%inter_realm_face_register_index(1:nb_realm, 1:6))
-               realm(is)%adam%maps%inter_realm_face_register_index = 0_I4P
+               allocate(realm(is)%ptr%adam%maps%inter_realm_face_register_index(1:nb_realm, 1:6))
+               realm(is)%ptr%adam%maps%inter_realm_face_register_index = 0_I4P
             endif
          endblock
       enddo
@@ -938,15 +918,15 @@ contains
          t1 = merge(2_I4P, 1_I4P, c_axis == 1_I4P)
          t2 = merge(2_I4P, 3_I4P, c_axis == 3_I4P)
          tt = [t1, t2]
-         nface_cells = tangential_cell_count(realm(rc), c_axis)
-         reg_inner = realm(rc)%adam%grid%ni
-         if (t1 == 2_I4P) reg_inner = realm(rc)%adam%grid%nj
+         nface_cells = tangential_cell_count(realm(rc)%ptr, c_axis)
+         reg_inner = realm(rc)%ptr%adam%grid%ni
+         if (t1 == 2_I4P) reg_inner = realm(rc)%ptr%adam%grid%nj
          bc_fec_c = face_code_to_bc_fec(fc)
          bc_fec_f = face_code_to_bc_fec(ff)
-         if (.not. refined) call realm_face_leaves(realm(rf), ff, codes_b)
+         if (.not. refined) call realm_face_leaves(realm(rf)%ptr, ff, codes_b)
          iter%b = 1_I4P ; iter%p => null()
-         do while (realm(rc)%adam%tree%loop(iter, node_ptr=node_c))
-            if (.not. leaf_on_realm_face(realm(rc), node_c%code, c_axis, c_sign)) cycle
+         do while (realm(rc)%ptr%adam%tree%loop(iter, node_ptr=node_c))
+            if (.not. leaf_on_realm_face(realm(rc)%ptr, node_c%code, c_axis, c_sign)) cycle
             cursor = cursor + 1_I4P
             ! `fine_block` deliberately omitted: nothing reads it, and passing an empty array literal
             ! `[integer(I4P) ::]` poisons the descriptor copy on nvfortran 26.x.
@@ -959,17 +939,17 @@ contains
                                              coarse_face=fc,                                                         &
                                              fine_realm=rf,                                                          &
                                              nface_cells=nface_cells,                                                &
-                                             nv=int(realm(rc)%adam%field%nv, I4P),                                   &
-                                             n_stages=realm(rc)%stages_per_step_forest())
+                                             nv=int(realm(rc)%ptr%adam%field%nv, I4P),                                   &
+                                             n_stages=realm(rc)%ptr%stages_per_step_forest())
             if (node_c%myrank == mpih%myrank .and. bc_fec_c > 0_I4P .and. bc_fec_c <= 6_I4P) &
-               realm(rc)%adam%maps%inter_realm_face_register_index(int(node_c%block_index, I4P), bc_fec_c) = +cursor
-            call leaf_metrics(realm(rc), node_c%code, emin_c, d_c, emax_c)
+               realm(rc)%ptr%adam%maps%inter_realm_face_register_index(int(node_c%block_index, I4P), bc_fec_c) = +cursor
+            call leaf_metrics(realm(rc)%ptr, node_c%code, emin_c, d_c, emax_c)
             if (.not. refined) then
                ! mirror (issue #51): every realm_b seam leaf overlapping this register face, whether or not the blocks
                ! line up; the overlaps must be cell-aligned and cover the face exactly
                covered = 0_I4P
                do m = 1_I4P, int(size(codes_b), I4P)
-                  call leaf_metrics(realm(rf), codes_b(m), emin_f, d_f, emax_f)
+                  call leaf_metrics(realm(rf)%ptr, codes_b(m), emin_f, d_f, emax_f)
                   lo = max(emin_c(tt), emin_f(tt))
                   hi = min(emax_c(tt), emax_f(tt))
                   if (any(hi - lo < 0.5_R8P * d_c(tt))) cycle
@@ -982,11 +962,11 @@ contains
                         trim(str(rc, .true.))//' and realm '//trim(str(rf, .true.))//' do not line up across the seam '// &
                         '(face_pair '//trim(str(f, .true.))//')')
                   covered = covered + o(5) * o(6)
-                  node_f => realm(rf)%adam%tree%node(code=codes_b(m))
+                  node_f => realm(rf)%ptr%adam%tree%node(code=codes_b(m))
                   if (node_f%myrank /= mpih%myrank .or. bc_fec_f < 1_I4P .or. bc_fec_f > 6_I4P) cycle
                   call push_row(ovl(rf), [int(node_f%block_index, I4P), bc_fec_f, cursor, o, reg_inner])
-                  if (allocated(realm(rf)%adam%maps%inter_realm_face_register_index))                                    &
-                     realm(rf)%adam%maps%inter_realm_face_register_index(int(node_f%block_index, I4P), bc_fec_f) = -cursor
+                  if (allocated(realm(rf)%ptr%adam%maps%inter_realm_face_register_index))                                    &
+                     realm(rf)%ptr%adam%maps%inter_realm_face_register_index(int(node_f%block_index, I4P), bc_fec_f) = -cursor
                enddo
                if (covered /= nface_cells)                                                                             &
                   call mpih%error_stop(msg='forest_object%populate_inter_realm_topology: the seam block '//              &
@@ -1004,26 +984,26 @@ contains
                   xq(t2) = emin_c(t2) + (real(qj, R8P) + 0.5_R8P) * 0.5_R8P * (emax_c(t2) - emin_c(t2))
                   xq(c_axis) = merge(emax_c(c_axis) + 0.25_R8P * d_c(c_axis), emin_c(c_axis) - 0.25_R8P * d_c(c_axis), &
                                      c_sign > 0_I4P)
-                  code_f = realm(rf)%adam%tree%get_closest_block(grid=realm(rf)%adam%grid, point=xq)
-                  node_f => realm(rf)%adam%tree%node(code=code_f)
+                  code_f = realm(rf)%ptr%adam%tree%get_closest_block(grid=realm(rf)%ptr%adam%grid, point=xq)
+                  node_f => realm(rf)%ptr%adam%tree%node(code=code_f)
                   if (node_f%myrank /= mpih%myrank .or. bc_fec_f < 1_I4P .or. bc_fec_f > 6_I4P) cycle
-                  if (allocated(realm(rf)%adam%maps%inter_realm_face_register_index))                                    &
-                     realm(rf)%adam%maps%inter_realm_face_register_index(int(node_f%block_index, I4P), bc_fec_f) = -cursor
+                  if (allocated(realm(rf)%ptr%adam%maps%inter_realm_face_register_index))                                    &
+                     realm(rf)%ptr%adam%maps%inter_realm_face_register_index(int(node_f%block_index, I4P), bc_fec_f) = -cursor
                   ! the fine block's 2:1 quadrant within the coarse skin (inner, outer offsets), as for intra-realm faces
-                  if (allocated(realm(rf)%adam%maps%amr_seam_quadrant))                                                  &
-                     realm(rf)%adam%maps%amr_seam_quadrant(1:2, int(node_f%block_index, I4P), bc_fec_f) = [qi, qj]
+                  if (allocated(realm(rf)%ptr%adam%maps%amr_seam_quadrant))                                                  &
+                     realm(rf)%ptr%adam%maps%amr_seam_quadrant(1:2, int(node_f%block_index, I4P), bc_fec_f) = [qi, qj]
                enddo
             enddo
          enddo
       enddo
       ! group the overlap rows of each realm by (block, fec), keeping their order (issue #51)
       do ir = 1_I4P, int(size(realm), I4P)
-         associate(mp => realm(ir)%adam%maps)
+         associate(mp => realm(ir)%ptr%adam%maps)
          if (allocated(mp%seam_overlap))       deallocate(mp%seam_overlap)
          if (allocated(mp%seam_overlap_start)) deallocate(mp%seam_overlap_start)
          if (allocated(mp%seam_overlap_count)) deallocate(mp%seam_overlap_count)
          allocate(mp%seam_overlap(8, ovl(ir)%n))
-         allocate(mp%seam_overlap_start(max(1_I4P, int(realm(ir)%adam%field%blocks_number, I4P)), 6))
+         allocate(mp%seam_overlap_start(max(1_I4P, int(realm(ir)%ptr%adam%field%blocks_number, I4P)), 6))
          allocate(mp%seam_overlap_count, mold=mp%seam_overlap_start)
          mp%seam_overlap_count = 0_I4P
          do r = 1_I4P, ovl(ir)%n
@@ -1134,7 +1114,7 @@ contains
       !< but it future-proofs the contract: any future BC kind that
       !< writes edge/corner cells will respect the seam override
       !< automatically.
-      class(realm_object),     intent(inout) :: realm(:)
+      type(realm_pointer),     intent(inout) :: realm(:)
       type(forest_manifest_t), intent(in)    :: manifest
       integer(I4P)                           :: f
       type(forest_face_pair_t)               :: pair
@@ -1151,7 +1131,7 @@ contains
       !< Helper for `override_seam_bc_in_crown`: walk one realm's BC
       !< crown and rewrite bc_type → BC_SEAM for the entries lying on
       !< the (my_face) seam.
-      class(realm_object), intent(inout) :: realm(:)
+      type(realm_pointer), intent(inout) :: realm(:)
       integer(I4P),        intent(in)    :: my_realm_idx, my_face
       integer(I4P)                       :: axis, sgn, bc_fec_seam
       integer(I4P)                       :: ngc, c, crown
@@ -1160,10 +1140,10 @@ contains
       call face_axis_sign(my_face, axis, sgn)
       bc_fec_seam = face_code_to_bc_fec(my_face)
       if (bc_fec_seam == 0_I4P) return  ! malformed face code; defensive.
-      realm(my_realm_idx)%adam%maps%seam_face(bc_fec_seam) = .true.
-      if (.not. allocated(realm(my_realm_idx)%adam%maps%local_map_bc_crown)) return
-      ngc = realm(my_realm_idx)%adam%grid%ngc
-      associate(crown_map => realm(my_realm_idx)%adam%maps%local_map_bc_crown)
+      realm(my_realm_idx)%ptr%adam%maps%seam_face(bc_fec_seam) = .true.
+      if (.not. allocated(realm(my_realm_idx)%ptr%adam%maps%local_map_bc_crown)) return
+      ngc = realm(my_realm_idx)%ptr%adam%grid%ngc
+      associate(crown_map => realm(my_realm_idx)%ptr%adam%maps%local_map_bc_crown)
       do crown = 1_I4P, ngc
          do c = 1_I4P, int(size(crown_map, dim=1), I4P)
             b_i8 = crown_map(c, 1, crown)
@@ -1171,7 +1151,7 @@ contains
             fec_i8 = crown_map(c, 9, crown)
             if (FEC_1_6_ARRAY(int(fec_i8, I4P)) /= bc_fec_seam) cycle
             ! Geometric test: is this block on the realm's seam-face boundary?
-            if (.not. block_face_on_realm_boundary(realm(my_realm_idx), int(b_i8, I4P), axis, sgn)) cycle
+            if (.not. block_face_on_realm_boundary(realm(my_realm_idx)%ptr, int(b_i8, I4P), axis, sgn)) cycle
             ! Override the bc_type column (8).
             crown_map(c, 8, crown) = int(BC_SEAM, I8P)
          enddo
@@ -1217,7 +1197,7 @@ contains
    !<     counts along the seam, the same `[amr] seam_ghost_fill`, and nested blocks: every fine seam leaf covers one 2:1
    !<     quadrant of the face of one coarse seam leaf, and even block cell counts in the fine realm;
    !<   * `periodic`, `interpolate`: schema-reserved, refused (before issue #52 they were accepted and run as `mirror`).
-   class(realm_object),     intent(inout) :: realm(:)       !< Forest realms.
+   type(realm_pointer),     intent(inout) :: realm(:)       !< Forest realms.
    type(forest_manifest_t), intent(in)    :: manifest       !< Parsed manifest.
    integer(I4P)                           :: f              !< Face-pair counter.
    real(R8P)                              :: d_a(3), d_b(3) !< Seam cell sizes of the two sides.
@@ -1239,8 +1219,8 @@ contains
          call mpih%error_stop(msg=pfx//'only coupling = mirror or refined is implemented (periodic and interpolate '// &
                               'are reserved)')
       endselect
-      d_a = seam_cell_size(realm(pair%realm_a), pair%face_a, pfx//'realm '//trim(str(pair%realm_a, .true.)))
-      d_b = seam_cell_size(realm(pair%realm_b), pair%face_b, pfx//'realm '//trim(str(pair%realm_b, .true.)))
+      d_a = seam_cell_size(realm(pair%realm_a)%ptr, pair%face_a, pfx//'realm '//trim(str(pair%realm_a, .true.)))
+      d_b = seam_cell_size(realm(pair%realm_b)%ptr, pair%face_b, pfx//'realm '//trim(str(pair%realm_b, .true.)))
       if (pair%coupling == COUPLING_MIRROR) then
          if (any(abs(d_a - d_b) > 1.0e-6_R8P * d_a)) &
             call mpih%error_stop(msg=pfx//'coupling = mirror joins cells of the same size, the seam cells differ ('// &
@@ -1260,9 +1240,7 @@ contains
       ! the coarse face skin and the four fine skins under it must index the same cells: equal block cell counts along
       ! the two tangential axes (the normal count is free, the realms may have different extents across the seam)
       call face_axis_sign(face_f, axis, sgn)
-      ! `associate` on the polymorphic array elements: nvfortran 26.1 reads their components with a wrong element stride
-      ! (measured: realm(2)%adam%grid%nj = 0, nk = 3394; the same defect as the TBP dispatch workaround 0062a237)
-      associate(r_c => realm(ic), r_f => realm(jf))
+      associate(r_c => realm(ic)%ptr, r_f => realm(jf)%ptr)
       ntan_c = [r_c%adam%grid%ni, r_c%adam%grid%nj, r_c%adam%grid%nk]
       ntan_f = [r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk]
       ntan_c(axis) = 0_I4P ; ntan_f(axis) = 0_I4P
@@ -1286,7 +1264,7 @@ contains
       if (any(mod([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk], 2_I4P) /= 0_I4P))                        &
          call mpih%error_stop(msg=pfx//'coupling = refined needs even block cell counts (ni, nj, nk) in the fine realm')
       endassociate
-      call check_nested(coarse=realm(ic), fine=realm(jf), face_f=face_f, pfx=pfx)
+      call check_nested(coarse=realm(ic)%ptr, fine=realm(jf)%ptr, face_f=face_f, pfx=pfx)
       call mpih%print_message('forest: face_pair '//trim(str(f, .true.))//' is a 2:1 seam, realm '//               &
                               trim(str(ic, .true.))//' coarse, realm '//trim(str(jf, .true.))//' fine (issue #52)')
       endassociate
@@ -1296,7 +1274,7 @@ contains
    subroutine seam_sides(realm, pair, rc, fc, rf, ff, refined)
    !< The coarse and fine sides of a face pair: for a `refined` seam the realm with the larger seam cells is the coarse
    !< side (issue #52), for a `mirror` seam realm_a by convention.
-   class(realm_object),      intent(in)  :: realm(:)       !< Forest realms.
+   type(realm_pointer),      intent(in)  :: realm(:)       !< Forest realms.
    type(forest_face_pair_t), intent(in)  :: pair           !< Face pair.
    integer(I4P),             intent(out) :: rc, fc         !< Coarse-side realm and face.
    integer(I4P),             intent(out) :: rf, ff         !< Fine-side realm and face.
@@ -1306,8 +1284,8 @@ contains
    refined = pair%coupling == COUPLING_REFINED
    rc = pair%realm_a ; fc = pair%face_a ; rf = pair%realm_b ; ff = pair%face_b
    if (.not. refined) return
-   d_a = seam_cell_size(realm(pair%realm_a), pair%face_a, 'forest_object%seam_sides: realm_a')
-   d_b = seam_cell_size(realm(pair%realm_b), pair%face_b, 'forest_object%seam_sides: realm_b')
+   d_a = seam_cell_size(realm(pair%realm_a)%ptr, pair%face_a, 'forest_object%seam_sides: realm_a')
+   d_b = seam_cell_size(realm(pair%realm_b)%ptr, pair%face_b, 'forest_object%seam_sides: realm_b')
    if (d_b(1) > d_a(1)) then
       rc = pair%realm_b ; fc = pair%face_b ; rf = pair%realm_a ; ff = pair%face_a
    endif
@@ -1406,7 +1384,7 @@ contains
    !<
    !< Since the order is shared, the rows rank A sends to rank B for a seam are, in order, the rows B receives from A.
    !< The peer cell centre must coincide with the ghost centre: mirror seams join cells of the same size.
-   class(realm_object),     intent(inout) :: realm(:) !< Forest realms.
+   type(realm_pointer),     intent(inout) :: realm(:) !< Forest realms.
    type(forest_manifest_t), intent(in)    :: manifest !< Parsed manifest.
    type(seam_rows_t), allocatable         :: local(:) !< Local rows, per ghost realm.
    type(seam_rows_t), allocatable         :: recv(:)  !< Receive rows, per ghost realm.
@@ -1425,13 +1403,13 @@ contains
       enddo
    endif
    do is=1_I4P, int(size(realm), I4P)
-      call store_seam_rows(realm=realm(is), is=is, manifest=manifest, local=local(is), recv=recv(is), send=send(is))
+      call store_seam_rows(realm=realm(is)%ptr, is=is, manifest=manifest, local=local(is), recv=recv(is), send=send(is))
    enddo
    endsubroutine build_seam_rows
 
    subroutine enumerate_seam_side(realm, is, ip, face, local, recv, send)
    !< Enumerate the seam ghosts of realm `is` on `face`, whose peer is realm `ip`; append this rank's rows.
-   class(realm_object), intent(inout) :: realm(:)                   !< Forest realms.
+   type(realm_pointer), intent(inout) :: realm(:)                   !< Forest realms.
    integer(I4P),        intent(in)    :: is                         !< Realm owning the ghosts.
    integer(I4P),        intent(in)    :: ip                         !< Realm owning the cells.
    integer(I4P),        intent(in)    :: face                       !< Seam face of realm `is` (FACE_* code).
@@ -1461,16 +1439,16 @@ contains
    logical                            :: ok                         !< Cell match.
 
    call face_axis_sign(face, axis, sgn)
-   call ghost_slab_extents(realm(is), axis, sgn, imin, imax, jmin, jmax, kmin, kmax)
+   call ghost_slab_extents(realm(is)%ptr, axis, sgn, imin, imax, jmin, jmax, kmin, kmax)
    iter%b = 1_I4P ; iter%p => null()
-   do while (realm(is)%adam%tree%loop(iter, node_ptr=node_g))
-      call leaf_metrics(realm(is), node_g%code, emin_g, d_g, emax_g)
+   do while (realm(is)%ptr%adam%tree%loop(iter, node_ptr=node_g))
+      call leaf_metrics(realm(is)%ptr, node_g%code, emin_g, d_g, emax_g)
       if (sgn > 0_I4P) then
-         tol = max(abs(realm(is)%adam%grid%domain_emax(axis)), 1._R8P) * 1.0e-10_R8P
-         if (abs(emax_g(axis) - realm(is)%adam%grid%domain_emax(axis)) > tol) cycle
+         tol = max(abs(realm(is)%ptr%adam%grid%domain_emax(axis)), 1._R8P) * 1.0e-10_R8P
+         if (abs(emax_g(axis) - realm(is)%ptr%adam%grid%domain_emax(axis)) > tol) cycle
       else
-         tol = max(abs(realm(is)%adam%grid%domain_emin(axis)), 1._R8P) * 1.0e-10_R8P
-         if (abs(emin_g(axis) - realm(is)%adam%grid%domain_emin(axis)) > tol) cycle
+         tol = max(abs(realm(is)%ptr%adam%grid%domain_emin(axis)), 1._R8P) * 1.0e-10_R8P
+         if (abs(emin_g(axis) - realm(is)%ptr%adam%grid%domain_emin(axis)) > tol) cycle
       endif
       rank_g = node_g%myrank
       b_g    = int(node_g%block_index, I4P)
@@ -1478,13 +1456,11 @@ contains
          do j=jmin, jmax
             do i=imin, imax
                xg = emin_g + ([real(i, R8P), real(j, R8P), real(k, R8P)] - 0.5_R8P) * d_g
-               call wrap_periodic_tangential(realm(is), realm(ip), axis, xg)
-               if (.not.inside_domain(realm(ip), xg, 0.25_R8P * d_g)) cycle ! a corner at a physical boundary
-               code_c = realm(ip)%adam%tree%get_closest_block(grid=realm(ip)%adam%grid, point=xg)
-               call leaf_metrics(realm(ip), code_c, emin_c, d_c)
-               ! `associate` on the polymorphic array element: nvfortran 26.1 builds this array constructor from a wrong
-               ! element stride (garbage counts, every mirror ghost rejected on FNL; the 0062a237 defect)
-               associate(r_p => realm(ip))
+               call wrap_periodic_tangential(realm(is)%ptr, realm(ip)%ptr, axis, xg)
+               if (.not.inside_domain(realm(ip)%ptr, xg, 0.25_R8P * d_g)) cycle ! a corner at a physical boundary
+               code_c = realm(ip)%ptr%adam%tree%get_closest_block(grid=realm(ip)%ptr%adam%grid, point=xg)
+               call leaf_metrics(realm(ip)%ptr, code_c, emin_c, d_c)
+               associate(r_p => realm(ip)%ptr)
                   n_c = [r_p%adam%grid%ni, r_p%adam%grid%nj, r_p%adam%grid%nk]
                endassociate
                meta = 0_I4P
@@ -1517,18 +1493,18 @@ contains
                   ! base (lowest) one; nested blocks with even cell counts keep the eight in one fine block
                   kind = SEAM_ROW_RESTRICT
                   xc = xg - 0.5_R8P * d_c
-                  code_c = realm(ip)%adam%tree%get_closest_block(grid=realm(ip)%adam%grid, point=xc)
-                  call leaf_metrics(realm(ip), code_c, emin_c, d_c)
+                  code_c = realm(ip)%ptr%adam%tree%get_closest_block(grid=realm(ip)%ptr%adam%grid, point=xc)
+                  call leaf_metrics(realm(ip)%ptr, code_c, emin_c, d_c)
                   ijk_c = nint((xc - emin_c) / d_c + 0.5_R8P, I4P)
                   ok = all(ijk_c >= 1_I4P) .and. all(ijk_c + 1_I4P <= n_c) .and. &
                        all(abs(emin_c + (real(ijk_c, R8P) - 0.5_R8P) * d_c - xc) <= 1.0e-6_R8P * d_c)
                   ! the 6-point restrictions (#68 C2, C3): the fine owner's codes and regime, the footprint inside its
                   ! block; the fine pair is inside it (checked above), so no row falls back to the mean (meta 0)
-                  if (ok .and. realm(ip)%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN) then
+                  if (ok .and. realm(ip)%ptr%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN) then
                      do d = 1_I4P, 3_I4P
                         sub(d) = seam_restriction_code(first=ijk_c(d), n_cells=n_c(d), ratio=2_I4P)
                      enddo
-                     meta = seam_restriction_meta_pack(code=sub, regime=realm(ip)%adam%maps%seam_restriction)
+                     meta = seam_restriction_meta_pack(code=sub, regime=realm(ip)%ptr%adam%maps%seam_restriction)
                   endif
                else
                   ok = .false.
@@ -1540,7 +1516,7 @@ contains
                   trim(str(d_g(1)))//' '//trim(str(d_g(2)))//' '//trim(str(d_g(3)))//', peer cell size '//        &
                   trim(str(d_c(1)))//' '//trim(str(d_c(2)))//' '//trim(str(d_c(3)))//', peer cell '//             &
                   trim(str(ijk_c(1)))//' '//trim(str(ijk_c(2)))//' '//trim(str(ijk_c(3))))
-               node_c => realm(ip)%adam%tree%node(code=code_c)
+               node_c => realm(ip)%ptr%adam%tree%node(code=code_c)
                rank_c = node_c%myrank
                b_c    = int(node_c%block_index, I4P)
                if (kind == SEAM_ROW_COPY .and. rank_g == mpih%myrank .and. rank_c == mpih%myrank) then
@@ -1883,7 +1859,7 @@ contains
    !< the same cursors, which is what the register's cross-rank reduction of
    !< the fine sums relies on.
    class(forest_object), intent(inout)         :: self           !< The forest.
-   class(realm_object),  intent(inout)         :: realm(:)       !< Initialized realms whose trees are walked.
+   type(realm_pointer),  intent(inout)         :: realm(:)       !< Initialized realms whose trees are walked.
    integer(I4P),         intent(in),  optional :: extra_faces    !< Register slots reserved for inter-realm faces.
    integer(I4P),         intent(out), optional :: nfaces_intra   !< Intra-realm AMR faces registered (cursors 1..n).
    integer(I4P)                                :: is             !< Realm index.
@@ -1903,7 +1879,7 @@ contains
    nfaces_total = 0_I4P
    do is = 1_I4P, int(size(realm), I4P)
       iter%b = 1_I4P ; iter%p => null()
-      do while (realm(is)%adam%tree%loop(iter, node_ptr=node_ptr))
+      do while (realm(is)%ptr%adam%tree%loop(iter, node_ptr=node_ptr))
          do fec = 1_I4P, 6_I4P
             if (.not. allocated(node_ptr%neighbor(fec)%codes)) cycle
             if (node_ptr%neighbor(fec)%ntype == NODE_MORE_REFINED) nfaces_total = nfaces_total + 1_I4P
@@ -1929,16 +1905,16 @@ contains
    do is = 1_I4P, int(size(realm), I4P)
       block
          integer(I4P) :: nb_realm
-         nb_realm = int(realm(is)%adam%field%blocks_number, I4P)
-         if (allocated(realm(is)%adam%maps%inter_realm_face_register_index)) &
-            deallocate(realm(is)%adam%maps%inter_realm_face_register_index)
-         if (allocated(realm(is)%adam%maps%amr_seam_quadrant)) &
-            deallocate(realm(is)%adam%maps%amr_seam_quadrant)
+         nb_realm = int(realm(is)%ptr%adam%field%blocks_number, I4P)
+         if (allocated(realm(is)%ptr%adam%maps%inter_realm_face_register_index)) &
+            deallocate(realm(is)%ptr%adam%maps%inter_realm_face_register_index)
+         if (allocated(realm(is)%ptr%adam%maps%amr_seam_quadrant)) &
+            deallocate(realm(is)%ptr%adam%maps%amr_seam_quadrant)
          if (nb_realm > 0_I4P) then
-            allocate(realm(is)%adam%maps%inter_realm_face_register_index(1:nb_realm, 1:6))
-            realm(is)%adam%maps%inter_realm_face_register_index = 0_I4P
-            allocate(realm(is)%adam%maps%amr_seam_quadrant(1:2, 1:nb_realm, 1:6))
-            realm(is)%adam%maps%amr_seam_quadrant = 0_I4P
+            allocate(realm(is)%ptr%adam%maps%inter_realm_face_register_index(1:nb_realm, 1:6))
+            realm(is)%ptr%adam%maps%inter_realm_face_register_index = 0_I4P
+            allocate(realm(is)%ptr%adam%maps%amr_seam_quadrant(1:2, 1:nb_realm, 1:6))
+            realm(is)%ptr%adam%maps%amr_seam_quadrant = 0_I4P
          endif
       endblock
    enddo
@@ -1948,20 +1924,20 @@ contains
    cursor = 0_I4P
    do is = 1_I4P, int(size(realm), I4P)
       iter%b = 1_I4P ; iter%p => null()
-      do while (realm(is)%adam%tree%loop(iter, node_ptr=node_ptr))
+      do while (realm(is)%ptr%adam%tree%loop(iter, node_ptr=node_ptr))
          do fec = 1_I4P, 6_I4P
             if (.not. allocated(node_ptr%neighbor(fec)%codes)) cycle
             if (node_ptr%neighbor(fec)%ntype /= NODE_MORE_REFINED) cycle
             cursor = cursor + 1_I4P
             ! Tree fec 1..6 are faces ±x,±y,±z in order (FEC_TO_DELTA): axis = (fec+1)/2.
             axis = (fec + 1_I4P) / 2_I4P
-            nface_cells = tangential_cells(realm(is), axis)
+            nface_cells = tangential_cells(realm(is)%ptr, axis)
             ! Resolve the fine-side block indices (the ratio/2 finer neighbors).
             n_fine = int(size(node_ptr%neighbor(fec)%codes), I4P)
             if (allocated(fine_blocks)) deallocate(fine_blocks)
             allocate(fine_blocks(1:n_fine))
             do kf = 1_I4P, n_fine
-               fine_ptr => realm(is)%adam%tree%node(code=node_ptr%neighbor(fec)%codes(kf))
+               fine_ptr => realm(is)%ptr%adam%tree%node(code=node_ptr%neighbor(fec)%codes(kf))
                fine_blocks(kf) = int(fine_ptr%block_index, I4P)
             enddo
             call self%flux_register%register_face(face_index=cursor,                            &
@@ -1973,8 +1949,8 @@ contains
                                                   fine_realm=is,                                &
                                                   fine_block=fine_blocks,                       &
                                                   nface_cells=nface_cells,                      &
-                                                  nv=int(realm(is)%adam%field%nv, I4P),         &
-                                                  n_stages=realm(is)%stages_per_step_forest())
+                                                  nv=int(realm(is)%ptr%adam%field%nv, I4P),         &
+                                                  n_stages=realm(is)%ptr%stages_per_step_forest())
             ! Signed lookup, keyed by the TREE fec (1=-x,2=+x,3=-y,4=+y,5=-z,6=+z)
             ! — the SAME numbering `accumulate_seam_fluxes_fv`'s `select case (fec)`
             ! uses to pack the face skin. (The node's `%bc_fec` field is populated
@@ -1994,11 +1970,11 @@ contains
             ! replicated (same cursor order on every rank); only the rank-local
             ! LOOKUP is ownership-filtered.
             if (node_ptr%myrank == mpih%myrank) &
-               realm(is)%adam%maps%inter_realm_face_register_index(int(node_ptr%block_index, I4P), fec) = +cursor
+               realm(is)%ptr%adam%maps%inter_realm_face_register_index(int(node_ptr%block_index, I4P), fec) = +cursor
             do kf = 1_I4P, n_fine
-               fine_ptr => realm(is)%adam%tree%node(code=node_ptr%neighbor(fec)%codes(kf))
+               fine_ptr => realm(is)%ptr%adam%tree%node(code=node_ptr%neighbor(fec)%codes(kf))
                if (fine_ptr%myrank /= mpih%myrank) cycle
-               realm(is)%adam%maps%inter_realm_face_register_index(int(fine_ptr%block_index, I4P), &
+               realm(is)%ptr%adam%maps%inter_realm_face_register_index(int(fine_ptr%block_index, I4P), &
                                                                    opposite_fec(fec)) = -cursor
                ! Issue #28 D2: precompute this fine block's 2:1 quadrant offset
                ! within the coarse face skin from the two Morton codes — pure
@@ -2007,8 +1983,8 @@ contains
                ! through an owner-local index, garbage when it is remote).
                block
                   integer(I4P) :: ioff, joff
-                  call seam_quadrant_from_codes(realm(is), node_ptr%code, fine_ptr%code, fec, ioff, joff)
-                  realm(is)%adam%maps%amr_seam_quadrant(1:2, int(fine_ptr%block_index, I4P), &
+                  call seam_quadrant_from_codes(realm(is)%ptr, node_ptr%code, fine_ptr%code, fec, ioff, joff)
+                  realm(is)%ptr%adam%maps%amr_seam_quadrant(1:2, int(fine_ptr%block_index, I4P), &
                                                         opposite_fec(fec)) = [ioff, joff]
                endblock
             enddo
@@ -2145,7 +2121,7 @@ contains
    !< Empty register fast path: when the register has no faces the per-realm
    !< calls each short-circuit on `flux_register%nfaces == 0`.
    class(forest_object), intent(in)    :: self     !< The forest (holds the flux register).
-   class(realm_object),  intent(inout) :: realm(:) !< Realms; each realm's reflux TBP fires once.
+   type(realm_pointer),  intent(inout) :: realm(:) !< Realms; each realm's reflux TBP fires once.
    real(R8P),            intent(in)    :: dt       !< Time step.
    integer(I4P)                        :: is       !< Realm index.
 
@@ -2172,7 +2148,7 @@ contains
    endblock
 
    do is = 1_I4P, int(size(realm), I4P)
-      call realm(is)%apply_reflux_to_stage_forest(stage=realm(is)%stages_per_step_forest(), dt=dt, &
+      call realm(is)%ptr%apply_reflux_to_stage_forest(stage=realm(is)%ptr%stages_per_step_forest(), dt=dt, &
                                                   flux_register=self%flux_register)
    enddo
    endsubroutine apply_reflux_corrections
@@ -2183,12 +2159,12 @@ contains
    !< evaluation's seam fluxes for a diagnostic without touching the forest's step accumulators (issue #68 A2). The
    !< register is replicated (the same faces on every rank, issue #40), and so is the copy.
    class(forest_object), intent(inout) :: self     !< The forest.
-   class(realm_object),  intent(inout) :: realm(:) !< Realms.
+   type(realm_pointer),  intent(inout) :: realm(:) !< Realms.
    integer(I4P)                        :: is       !< Realm counter.
 
    do is = 1_I4P, int(size(realm), I4P)
-      realm(is)%flux_register_copy = self%flux_register
-      call realm(is)%flux_register_copy%reset
+      realm(is)%ptr%flux_register_copy = self%flux_register
+      call realm(is)%ptr%flux_register_copy%reset
    enddo
    endsubroutine share_flux_register
 endmodule adam_forest_object

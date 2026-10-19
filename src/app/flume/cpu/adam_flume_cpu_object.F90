@@ -12,7 +12,7 @@ module adam_flume_cpu_object
 use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, FEC_TO_DELTA
-use :: adam_realm_object,         only : realm_object
+use :: adam_realm_object,         only : realm_object, realm_pointer
 use :: adam_seam_exchange,        only : seam_fill_all, pack_seam_rows, unpack_seam_rows
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
@@ -665,7 +665,7 @@ contains
    !< for Euler. The ghost cells are refreshed first and, with sibling realms, the inter-realm seam ghosts are refilled
    !< from the peers (`update_ghost` does not fill them, issue #31): the stencils of the seam-local cells read them.
    class(flume_cpu_object), intent(inout)                   :: self     !< The equation.
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms.
+   type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms.
    real(R8P)                                                :: norms(8) !< Norms of this rank (4-8: D_flux, #68 A2).
 
    if (is_hydrodynamic(self%physics%model)) return
@@ -1417,7 +1417,7 @@ contains
    subroutine save_simulation_data(self, realm)
    !< Save fields, restart, slices and conservation history, each on its own cadence (one predicate per output).
    class(flume_cpu_object), intent(inout)                   :: self      !< The equation.
-   class(realm_object),     intent(inout), optional, target :: realm(:)  !< Sibling realms.
+   type(realm_pointer),     intent(inout), optional, target :: realm(:)  !< Sibling realms.
    logical                                                  :: is_slices !< Slices save step.
 
    is_slices = self%slices%is_to_save(it=self%time%it, it_max=self%time%it_max, time=self%time%time, &
@@ -1743,7 +1743,7 @@ contains
    integer(I4P),            intent(in)                      :: k        !< Stage index (1..K_total).
    integer(I4P),            intent(in)                      :: K_total  !< Forest-wide stage count for this step.
    real(R8P),               intent(in)                      :: dt       !< Time step from the forest.
-   class(realm_object),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
+   type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    self%stage_active = k
    call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%time%dt, phi=self%ib%phi)
@@ -1868,7 +1868,7 @@ contains
    integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
    integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count.
    real(R8P),                   intent(in)                      :: dt            !< Time step from the forest.
-   class(realm_object),         intent(inout), optional, target :: realm(:)      !< Sibling realms (parity only).
+   type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Sibling realms (parity only).
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register.
 
    if (present(flux_register)) then
@@ -2109,7 +2109,7 @@ contains
    logical,                 intent(in),    optional         :: do_save_residuals !< Unused: cadence is internal.
    logical,                 intent(in),    optional         :: do_save_restart   !< Unused: cadence is internal.
    logical,                 intent(in),    optional         :: do_amr            !< Unused: the forest regrids (regrid_forest).
-   class(realm_object),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
+   type(realm_pointer),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
    if (has_entropy(self%physics%model)) call self%sync_dual_energy
    if (self%physics%cooling%is_active) call self%apply_cooling(dt=self%time%dt) ! the forest passes no dt (0)
