@@ -14,9 +14,20 @@
 #   si3  the contract: [sinks] without self-gravity, with mhd-ideal, lists of different lengths, a non-positive mass
 #        and a sink outside the domain are refused;
 #   si4  restart: the si1 box 20 steps in one run, and 10 + 10 across a restart (<restart_basename>.sinks): the
-#        conservation and sinks histories bitwise equal.
+#        conservation and sinks histories bitwise equal;
+#   si5  (P2) accretion: a sink of mass 0.1 at rest in a dense cold periodic background (rho = 1, p = 1e-3, rho_thr
+#        about 0.06), t = 0.3: gas plus sink mass conserved within 1e-13, the sink grows, gas plus sink momentum within
+#        5 % of the momentum exchanged (the gas feels face gradients, the sink the CIC gather: near a point mass they
+#        differ by about 1 %);
+#   si6  (P2) creation: the selfgravity-star polytrope at a tenth of its pressure, kept isothermal at T = 0.01 by strong
+#        cooling (M11), closed walls, to t = 0.6: exactly one sink, within a cell of the centre, mass conserved within
+#        1e-13 (adiabatic gamma = 2 never crosses the threshold: rho_thr grows with rho);
+#   si7  (P2) no creation: a static periodic gamma = 1.4 box at 1.2 rho_thr, 20 steps: above the threshold, every cell a
+#        potential minimum, but Jeans-stable (|E_grav| / 2 E_th = 0.66): no sink;
+#   si8  (P2) merger: two sinks of mass 1, 1.28 cells apart, approaching: one sink of mass 2, its momentum the sum
+#        (zero) within 1e-10.
 #
-# Usage: ./check.sh [--legs LIST]   (legs si1 si2 si3 si4, all; default all)
+# Usage: ./check.sh [--legs LIST]   (legs si1 to si8, all; default all)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu_fft: self-gravity needs the FFT build); the
 # caller owns the matching environment.
@@ -28,7 +39,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "si1 si2 si3 si4" "si1 si2 si3 si4"
+legs_declare "si1 si2 si3 si4 si5 si6 si7 si8" "si1 si2 si3 si4 si5 si6 si7 si8"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -110,6 +121,22 @@ for leg in $LEGS; do
          else
             echo "   a run failed: see $a/log.txt, $b/log.txt  FAIL" ; FAILED=1
          fi ;;
+      si5)
+         echo "-- si5: accretion from a dense cold background"
+         make_case si5-accrete --case accrete
+         run_oracle "$W" accrete "$W" ;;
+      si6)
+         echo "-- si6: the isothermal collapse forms one central sink"
+         make_case si6-collapse --case collapse
+         run_oracle "$W" collapse "$W" ;;
+      si7)
+         echo "-- si7: a Jeans-stable box above the threshold forms none"
+         make_case si7-stable --case stable --it-max 20
+         run_oracle "$W" none "$W" ;;
+      si8)
+         echo "-- si8: two bound, converging sinks merge"
+         make_case si8-merge --case merge --it-max 5
+         run_oracle "$W" merge "$W" ;;
    esac
 done
 if [[ $FAILED -ne 0 ]]; then echo "SI FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi

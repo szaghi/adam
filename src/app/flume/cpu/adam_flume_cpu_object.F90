@@ -2114,7 +2114,15 @@ contains
    if (has_entropy(self%physics%model)) call self%sync_dual_energy
    if (self%physics%cooling%is_active) call self%apply_cooling(dt=self%time%dt) ! the forest passes no dt (0)
    if (self%sinks%is_active) then
-      ! sinks (issue #94): kick-drift-kick on the committed state, the potential re-solved at the new positions
+      ! sinks (issue #94): creation (the ghost cells and the potential of the committed state), accretion, mergers,
+      ! then kick-drift-kick, the potential re-solved at the new positions
+      if (self%sinks%creation) then
+         call self%update_ghost(q=self%q)
+         call self%solve_potential(q=self%q)
+         call self%create_sinks
+      endif
+      if (self%sinks%accretion .or. self%sinks%creation) call self%accrete_sinks
+      call self%merge_sinks
       call self%kick_sinks(dt=self%time%dt)
       call self%drift_sinks(dt=self%time%dt)
       call self%solve_potential(q=self%q)

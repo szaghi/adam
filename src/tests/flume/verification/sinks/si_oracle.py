@@ -10,6 +10,12 @@
                                         TOL_ENERGY, the angular momentum within TOL_ANGULAR, the centre of mass within
                                         TOL_COM
     si_oracle.py same <work a> <work b> two runs bitwise equal: the conservation and sinks histories (the restart leg)
+    si_oracle.py accrete <work>         (P2) accretion: gas plus sink mass conserved within TOL_MASS, the sink has grown,
+                                        gas plus sink momentum within TOL_ACCRETE_MOMENTUM of the momentum exchanged
+    si_oracle.py collapse <work>        (P2) the collapsing polytrope formed exactly one sink, within a cell of the
+                                        centre, and gas plus sink mass is conserved within TOL_MASS
+    si_oracle.py none <work>            (P2) no sink formed (the Jeans-stable box above the threshold)
+    si_oracle.py merge <work>           (P2) the two sinks merged: one left, with their total mass and momentum
 
 The histories are those of the run: `<base>-conservation_history.dat` (the gas integrals, W, E + W, and the sinks'
 mass, momentum and kinetic energy) and `<base>-sinks_history.dat` (one row per sink per step: it time id m x y z u v w).
@@ -36,6 +42,8 @@ TOL_ENERGY = 1.0e-2
 TOL_PERIOD = 2.0e-2
 TOL_ANGULAR = 1.0e-2
 TOL_COM = 1.0e-10
+TOL_MASS = 1.0e-13
+TOL_ACCRETE_MOMENTUM = 5.0e-2
 
 
 def read_history(path: Path) -> dict[str, np.ndarray]:
@@ -139,18 +147,109 @@ def same(work_a: Path, work_b: Path) -> bool:
     return ok
 
 
+def total_mass(work: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Return gas plus sink mass per row, and the conservation history."""
+    c = read_history(next(work.glob("*-conservation_history.dat")))
+    return c["int_r"] + c["M_sinks"], c
+
+
+def accrete(work: Path) -> bool:
+    """Check threshold accretion."""
+    mass, c = total_mass(work)
+    ok = True
+    drift = float(np.max(np.abs(mass / mass[0] - 1.0)))
+    status = "PASS" if drift <= TOL_MASS else "FAIL"
+    ok &= status == "PASS"
+    print(f"   gas + sink mass: drift {drift:.2e} (bound {TOL_MASS:.0e})  {status}")
+    grown = c["M_sinks"][-1] - c["M_sinks"][0]
+    status = "PASS" if grown > 0.0 else "FAIL"
+    ok &= status == "PASS"
+    print(f"   accreted {grown:.4e} over {c['it'].size - 1} steps ({grown / c['M_sinks'][0] * 100:.1f} % of the sink)  {status}")
+    gas = np.stack([c["int_ru"], c["int_rv"], c["int_rw"]], axis=1)
+    total = gas + np.stack([c["Px_sinks"], c["Py_sinks"], c["Pz_sinks"]], axis=1)
+    exchanged, mismatch = float(np.max(np.abs(gas))), float(np.max(np.abs(total)))
+    status = "PASS" if mismatch <= TOL_ACCRETE_MOMENTUM * exchanged else "FAIL"
+    ok &= status == "PASS"
+    print(f"   momentum: exchanged {exchanged:.2e}, gas + sink {mismatch:.2e} ({mismatch / exchanged:.1e} of it, bound "
+          f"{TOL_ACCRETE_MOMENTUM:.0e}: the gravity of the gas, face gradients, against the sink's, CIC)  {status}")
+    return ok
+
+
+def final_sinks(work: Path) -> dict[int, dict[str, float]]:
+    """Return the sinks of the last history row."""
+    col = read_history(next(work.glob("*-sinks_history.dat")))
+    if col["it"].size == 0:
+        return {}
+    last = col["it"] == col["it"][-1]
+    return {int(i): {k: float(v[last][n]) for k, v in col.items()} for n, i in enumerate(col["id"][last])}
+
+
+def collapse(work: Path) -> bool:
+    """Check that the collapsing polytrope formed exactly one central sink."""
+    path = next(work.glob("*-sinks_history.dat"))
+    rows = len(path.read_text().splitlines()) - 1
+    sinks = final_sinks(work) if rows > 0 else {}
+    h = cell_size(work)
+    ok = len(sinks) == 1
+    print(f"   sinks at the end: {len(sinks)} (expected 1)  {'PASS' if ok else 'FAIL'}")
+    if ok:
+        s = sinks[1]
+        r = float(np.sqrt(s["x"] ** 2 + s["y"] ** 2 + s["z"] ** 2))
+        status = "PASS" if r <= h else "FAIL"
+        ok &= status == "PASS"
+        print(f"   the sink at {r / h:.2e} cells from the centre (bound 1), mass {s['m']:.4f}  {status}")
+    mass, _ = total_mass(work)
+    drift = float(np.max(np.abs(mass / mass[0] - 1.0)))
+    status = "PASS" if drift <= TOL_MASS else "FAIL"
+    ok &= status == "PASS"
+    print(f"   gas + sink mass: drift {drift:.2e} (bound {TOL_MASS:.0e})  {status}")
+    return ok
+
+
+def none(work: Path) -> bool:
+    """Check that no sink formed."""
+    path = next(work.glob("*-sinks_history.dat"))
+    rows = len(path.read_text().splitlines()) - 1
+    c = read_history(next(work.glob("*-conservation_history.dat")))
+    ok = rows == 0 and float(np.max(np.abs(c["M_sinks"]))) == 0.0
+    print(f"   sinks formed: {rows} history rows, largest sink mass {np.max(np.abs(c['M_sinks'])):.1e} over "
+          f"{c['it'].size - 1} steps (expected none)  {'PASS' if ok else 'FAIL'}")
+    return ok
+
+
+def merge(work: Path) -> bool:
+    """Check that the two sinks merged with their mass and momentum."""
+    col = read_history(next(work.glob("*-sinks_history.dat")))
+    first = col["it"] == col["it"][0]
+    m0 = float(np.sum(col["m"][first]))
+    p0 = np.array([float(np.sum(col["m"][first] * col[k][first])) for k in ("u", "v", "w")])
+    sinks = final_sinks(work)
+    ok = len(sinks) == 1
+    print(f"   sinks: {int(first.sum())} at the start, {len(sinks)} at the end (expected 1)  {'PASS' if ok else 'FAIL'}")
+    if ok:
+        s = next(iter(sinks.values()))
+        dm = abs(s["m"] / m0 - 1.0)
+        dp = float(np.max(np.abs(s["m"] * np.array([s["u"], s["v"], s["w"]]) - p0)))
+        status = "PASS" if dm <= TOL_MASS and dp <= TOL_COM else "FAIL"
+        ok &= status == "PASS"
+        print(f"   merged mass {s['m']:.6f} ({dm:.1e} from the sum), momentum {dp:.1e} from the sum  {status}")
+    return ok
+
+
 def main() -> int:
     """Run the requested check."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("mode", choices=("rest", "binary", "same"))
+    ap.add_argument("mode", choices=("rest", "binary", "same", "accrete", "collapse", "none", "merge"))
     ap.add_argument("works", type=Path, nargs="+")
     a = ap.parse_args()
     if a.mode == "rest":
         ok = rest(a.works[0])
     elif a.mode == "binary":
         ok = binary(a.works[0])
-    else:
+    elif a.mode == "same":
         ok = same(a.works[0], a.works[1])
+    else:
+        ok = {"accrete": accrete, "collapse": collapse, "none": none, "merge": merge}[a.mode](a.works[0])
     print(f"SI {a.mode}: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

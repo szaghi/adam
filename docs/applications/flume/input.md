@@ -676,6 +676,10 @@ number is that of `mass` (none: the section with no initial sink).
 | `mass` | list of reals | no (no sink) | all `> 0`; otherwise fatal | The sinks' masses. |
 | `x`, `y`, `z` | lists of reals | with `mass` | as many values as `mass`, inside the domain; otherwise fatal | The positions. |
 | `u`, `v`, `w` | lists of reals | no (0) | as many values as `mass`; otherwise fatal | The velocities. |
+| `creation` | logical | no (`.false.`) | | Sinks form where the gas passes the checks of Federrath et al. (2010) ([numerics](./numerics#sink-particles)). |
+| `accretion` | logical | no (`.true.`) | | Sinks accrete the gas above the threshold within their accretion radius. |
+| `merging` | logical | no (`.true.`) | | Two bound, converging sinks within an accretion radius merge. |
+| `accretion_radius_cells` | real | no (2.5) | in `[1, ngc]`; otherwise fatal | The accretion radius $r_\mathrm{acc}$ in cells of the sink's level. The threshold density is $\rho_\mathrm{thr} = \pi c_s^2/(4 G r_\mathrm{acc}^2)$, a Jeans length of $2 r_\mathrm{acc}$, with the cell's own $c_s^2 = \gamma p/\rho$. |
 
 The conservation history gains `M_sinks`, `Px_sinks`, `Py_sinks`, `Pz_sinks` and `K_sinks` (`W` then includes the
 sinks' mass), and `<output_basename>-sinks_history.dat` gets one row per sink per save (`it time id m x y z u v w`).

@@ -13,6 +13,13 @@ module adam_flume_sinks_object
 !< | `x`, `y`, `z` | positions, inside the domain |
 !< | `u`, `v`, `w` | velocities (optional, default 0) |
 !< | `mass` | masses, > 0 |
+!< | `creation` | optional, default `.false.`: sinks form where the gas meets the Federrath et al. (2010) checks |
+!< | `accretion` | optional, default `.true.`: the sinks accrete the gas above the threshold within their radius |
+!< | `merging` | optional, default `.true.`: two bound, converging sinks within an accretion radius merge |
+!< | `accretion_radius_cells` | optional, default 2.5: the accretion radius in cells of the sink's level, in [1, ngc] |
+!<
+!< The threshold density is that of a Jeans length of two accretion radii, `rho_thr = pi c_s^2 / (4 G r_acc^2)`, with
+!< the cell's own `c_s^2 = gamma p / rho` (the Jeans length of the M9 marker; issue #94, D-M12-3, D-M12-4).
 !<
 !< With the section, `[gravity] self_gravity` is required and the model must be hydrodynamic (fatal otherwise, issue
 !< #94: MHD sinks are a follow-up). The `[reference]` layer converts the positions (length), the velocities and the
@@ -42,10 +49,19 @@ type :: flume_sinks_object
    real(R8P), allocatable :: v(:,:)             !< Velocities [3,n].
    real(R8P), allocatable :: a(:,:)             !< Accelerations from the mesh gravity [3,n].
    real(R8P)              :: dt_limit=huge(1._R8P) !< Time step limit of the current list (refreshed after each update).
+   logical, allocatable   :: is_new(:)          !< True for a sink formed this step (its first accretion is unchecked).
+   logical                :: creation=.false.   !< Sinks form from the gas.
+   logical                :: accretion=.true.   !< Sinks accrete.
+   logical                :: merging=.true.     !< Sinks merge.
+   real(R8P)              :: r_acc_cells=2.5_R8P !< Accretion radius in cells.
+   integer(I4P)           :: formed=0_I4P       !< Sinks formed since the start of the run.
+   integer(I4P)           :: merged=0_I4P       !< Mergers since the start of the run.
    integer(I4P)           :: history_unit=0_I4P !< Sinks history unit (rank 0).
    contains
       ! public methods
+      procedure, pass(self) :: append         !< Append a sink.
       procedure, pass(self) :: description    !< Return pretty-printed object description.
+      procedure, pass(self) :: remove         !< Remove a sink.
       procedure, pass(self) :: load_from_file !< Load `[sinks]`.
       procedure, pass(self) :: load_restart   !< Load the list from `<restart_basename>.sinks`.
       procedure, pass(self) :: open_history   !< Open the sinks history (rank 0).
@@ -56,6 +72,37 @@ endtype flume_sinks_object
 
 contains
    ! public methods
+   subroutine append(self, m, x, v)
+   !< Append a sink (every rank, identically: the list is replicated); it is new until its first accretion.
+   class(flume_sinks_object), intent(inout) :: self !< Sinks.
+   real(R8P),                 intent(in)    :: m    !< Mass.
+   real(R8P),                 intent(in)    :: x(3) !< Position.
+   real(R8P),                 intent(in)    :: v(3) !< Velocity.
+
+   self%m = [self%m, m]
+   self%x = reshape([self%x, x], [3, self%n + 1_I4P])
+   self%v = reshape([self%v, v], [3, self%n + 1_I4P])
+   self%a = reshape([self%a, [0._R8P, 0._R8P, 0._R8P]], [3, self%n + 1_I4P])
+   self%is_new = [self%is_new, .true.]
+   self%n = self%n + 1_I4P
+   endsubroutine append
+
+   subroutine remove(self, s)
+   !< Remove sink `s` (every rank, identically).
+   class(flume_sinks_object), intent(inout) :: self !< Sinks.
+   integer(I4P),              intent(in)    :: s    !< Sink to remove.
+   logical                                  :: keep(self%n) !< Kept sinks.
+
+   keep = .true.
+   keep(s) = .false.
+   self%m = pack(self%m, keep)
+   self%x = reshape(pack(self%x, spread(keep, 1, 3)), [3, self%n - 1_I4P])
+   self%v = reshape(pack(self%v, spread(keep, 1, 3)), [3, self%n - 1_I4P])
+   self%a = reshape(pack(self%a, spread(keep, 1, 3)), [3, self%n - 1_I4P])
+   self%is_new = pack(self%is_new, keep)
+   self%n = self%n - 1_I4P
+   endsubroutine remove
+
    function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(flume_sinks_object), intent(in) :: self !< Sinks.
@@ -66,14 +113,17 @@ contains
       desc = mpih%myrankstr//'  sinks:           none'
       return
    endif
-   desc = mpih%myrankstr//'  sinks:           '//trim(str(self%n, .true.))//' initial'
+   desc = mpih%myrankstr//'  sinks:           '//trim(str(self%n, .true.))//' initial; creation '// &
+          merge('T', 'F', self%creation)//', accretion '//merge('T', 'F', self%accretion)//', merging '// &
+          merge('T', 'F', self%merging)// &
+          ', accretion radius '//trim(str(self%r_acc_cells))//' cells'
    do s=1, self%n
       desc = desc//new_line('a')//mpih%myrankstr//'    m '//trim(str(self%m(s)))//' x '//trim(str(self%x(:,s)))// &
              ' v '//trim(str(self%v(:,s)))
    enddo
    endfunction description
 
-   subroutine load_from_file(self, file_parameters, model, self_gravity, domain_emin, domain_emax)
+   subroutine load_from_file(self, file_parameters, model, self_gravity, domain_emin, domain_emax, ngc)
    !< Load `[sinks]` and check it.
    class(flume_sinks_object), intent(inout) :: self            !< Sinks.
    type(file_ini),            intent(in)    :: file_parameters !< Simulation parameters ini file handler.
@@ -81,6 +131,7 @@ contains
    logical,                   intent(in)    :: self_gravity    !< `[gravity] self_gravity`.
    real(R8P),                 intent(in)    :: domain_emin(3)  !< Domain minimum abscissa.
    real(R8P),                 intent(in)    :: domain_emax(3)  !< Domain maximum abscissa.
+   integer(I4P),              intent(in)    :: ngc             !< Ghost cells number (bounds the accretion radius).
    character(len=1), parameter              :: XYZ(3)=['x', 'y', 'z'] !< Position keys.
    character(len=1), parameter              :: UVW(3)=['u', 'v', 'w'] !< Velocity keys.
    integer(I4P)                             :: error           !< Error status.
@@ -98,6 +149,20 @@ contains
    self%n = file_parameters%count_values(section_name=INI_SECTION_NAME, option_name='mass')
    allocate(self%m(self%n), self%x(3,self%n), self%v(3,self%n), self%a(3,self%n))
    self%x = 0._R8P ; self%v = 0._R8P ; self%a = 0._R8P
+   allocate(self%is_new(self%n))
+   self%is_new = .false.
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='creation', val=self%creation, error=error)
+   if (error /= 0) self%creation = .false.
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='accretion', val=self%accretion, error=error)
+   if (error /= 0) self%accretion = .true.
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='merging', val=self%merging, error=error)
+   if (error /= 0) self%merging = .true.
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='accretion_radius_cells', val=self%r_acc_cells, &
+                            error=error)
+   if (error /= 0) self%r_acc_cells = 2.5_R8P
+   if (.not.(self%r_acc_cells >= 1._R8P .and. self%r_acc_cells <= real(ngc, R8P))) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(accretion_radius_cells) must lie in [1, ngc = '// &
+                               trim(str(ngc, .true.))//'], got '//trim(str(self%r_acc_cells)))
    if (self%n == 0_I4P) return
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='mass', val=self%m, error=error)
    if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(mass)')
@@ -145,9 +210,10 @@ contains
    open(newunit=unit, file=basename//'.sinks', action='read', iostat=ios)
    if (ios == 0) read(unit, *, iostat=ios) self%n
    if (ios /= 0) call mpih%error_stop(msg=': cannot read '//basename//'.sinks')
-   if (allocated(self%m)) deallocate(self%m, self%x, self%v, self%a)
-   allocate(self%m(self%n), self%x(3,self%n), self%v(3,self%n), self%a(3,self%n))
+   if (allocated(self%m)) deallocate(self%m, self%x, self%v, self%a, self%is_new)
+   allocate(self%m(self%n), self%x(3,self%n), self%v(3,self%n), self%a(3,self%n), self%is_new(self%n))
    self%a = 0._R8P
+   self%is_new = .false.
    do s=1, self%n
       read(unit, *, iostat=ios) self%m(s), self%x(:,s), self%v(:,s)
       if (ios /= 0) call mpih%error_stop(msg=': cannot read sink '//trim(str(s, .true.))//' of '//basename//'.sinks')

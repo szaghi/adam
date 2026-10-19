@@ -305,8 +305,37 @@ the mesh the sink gravity is softened at about two cells.
 **Time stepping.** The gas step runs with the sinks at their positions $x^n$ in the Poisson source; then, once per step
 on the committed state, kick-drift-kick: $v \mathrel{+}= \tfrac{\Delta t}2 a$, $x \mathrel{+}= \Delta t\,v$, the
 potential re-solved, $a$ gathered at the new positions, $v \mathrel{+}= \tfrac{\Delta t}2 a$. Second order for the sinks,
-first order in their coupling with the gas. A sink moves at most half a cell of its level per step (a time step
-limit).
+first order in their coupling with the gas. Two time step limits: a sink moves at most half a cell of its level per
+step, and gas a cell away from it, pulled by $Gm/h^2$, at most half a cell from rest ($\Delta t \le \tfrac12\sqrt{h^3/(Gm)}$,
+the acceleration limit of Federrath et al. 2010: a cold dense medium has a CFL step far longer than its fall onto a sink,
+and the self-gravity source is not limited by the CFL condition).
+
+**Creation (D-M12-3).** Once per step, on the committed state (its ghost cells and its potential refreshed), a cell of
+the finest level present forms a sink when its density exceeds $\rho_\mathrm{thr} = \pi c_s^2/(4 G r_\mathrm{acc}^2)$
+($c_s^2 = \gamma p/\rho$ of the cell, a Jeans length of $2 r_\mathrm{acc}$, $r_\mathrm{acc}$ = `accretion_radius_cells`
+cells), no sink lies within $r_\mathrm{acc}$, and its control volume (the cells within $r_\mathrm{acc}$, read through
+the ghost cells) passes the checks of Federrath et al. (2010): the cell is a minimum of the potential (ties allowed:
+the 8 cells around a symmetric centre all qualify), the flow converges along every principal axis (the symmetric
+velocity gradient negative definite), the volume is Jeans-unstable ($|E_\mathrm{grav}| > 2E_\mathrm{th}$, $E_\mathrm{grav}$
+summed over the pairs of its cells) and bound ($E_\mathrm{grav} + E_\mathrm{th} + E_\mathrm{kin} < 0$, the kinetic energy
+relative to its centre of mass). The candidates of every rank are gathered and taken deepest potential first, one per
+accretion radius, so every rank forms the same sinks. A static box above the threshold is not enough: at $\gamma = 1.4$
+a control volume at the threshold is Jeans-stable, $|E_\mathrm{grav}|/2E_\mathrm{th} \approx \pi^2\gamma(\gamma-1)/10 =
+0.55$. Gas that compresses adiabatically with $\gamma > 4/3$ never crosses the threshold ($\rho_\mathrm{thr} \propto
+c_s^2$ grows with $\rho$ at $\gamma = 2$): collapse needs cooling ([radiative cooling](#radiative-cooling)).
+
+**Accretion (D-M12-4).** A new sink has no mass; every sink then takes, once per step, the gas above the threshold from
+the cells within its radius that is bound to it and falls in ($\tfrac12|u - v_s|^2 - Gm_s/r < 0$, $(u - v_s)\cdot(x -
+x_s) < 0$), the cell that holds it and every cell of a new sink without the checks; a cell within several radii gives
+its gas to the most bound sink. The cell keeps its specific values (every conservative variable scaled by
+$\rho_\mathrm{thr}/\rho$: velocity, specific energy, passive scalars; the dual-energy entropy rebuilt from the
+energy). The sink gains the mass and the momentum and moves to the centre of mass, from MPI-reduced sums: mass and
+momentum are conserved exactly by the accretion; the gravity exchange is not, near a point mass the gas's face
+gradients and the sink's CIC gather differ by about 1 % ([#94](https://github.com/szaghi/adam/issues/94), leg si5).
+
+**Mergers.** Two sinks within an accretion radius that are bound and converging ($\tfrac12\mu|\Delta v|^2 - Gm_1m_2/d
+< 0$, $\Delta v\cdot\Delta x < 0$) merge at their centre of mass, with their mass, momentum and mass-weighted
+acceleration (the pair's mutual pull cancels in it).
 
 ## Dissipative fluxes (Navier–Stokes)
 
