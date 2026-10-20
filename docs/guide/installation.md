@@ -105,6 +105,23 @@ export MANPATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/compilers/man:$MANPATH
 export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/comm_libs/mpi/bin:$PATH
 ```
 
+### Known issues: NVHPC 26.9 with HPC-X 2.50
+
+Both were reported on Ubuntu 24.04 under WSL2 with the SDK's bundled HPC-X 2.50 (Open MPI 5) in
+[#96](https://github.com/szaghi/adam/issues/96).
+
+- **`prterun` needs `libnl-route-3`.** Without it every `mpirun` stops with
+  `libnl-route-3.so.200: cannot open shared object file`. Install it once:
+
+  ```bash
+  sudo apt-get install libnl-route-3-200
+  ```
+
+- **Debug modes die in `MPI_Init`.** The `*-fnl-nvf-debug` modes (`template-nvf-debug`) compile and link with
+  `-Ktrap=fp`, and a floating-point exception raised inside UCX's `ucp_worker_create` during `MPI_Init` traps
+  with signal 8, before any ADAM code runs. Until that changes, debug with a local copy of the mode without
+  `-Ktrap=fp`; the bounds, pointer and stack checks (`-Mbounds -Mchkptr -Mchkstk`) still work.
+
 ## Install External Dependencies
 
 ### SZIP Library

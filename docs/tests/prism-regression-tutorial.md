@@ -255,7 +255,10 @@ FNL CI job. On the WSL2 dev box:
 ```
 
 That wrapper loads `nvhpc`, exports the WSL2 MPI/UCX workarounds, then execs
-`run.sh fnl --varset local_nvf`.
+`run.sh fnl --varset local_nvf`. It needs Lmod with an `nvhpc` module: without
+Lmod it stops with `ERROR: Lmod 'module' command not available`. On a box
+without Lmod, put nvfortran and the bundled MPI on PATH yourself, export the
+variables of the table below, and call `run.sh fnl --varset local_nvf` directly.
 
 **On any other machine, do not use the wrapper** — its environment is
 WSL2-specific. Set up your own and call `run.sh` directly:
