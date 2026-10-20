@@ -256,7 +256,7 @@ for four slots, the first $N$ used and the others zero, so a scalar run pays the
 may vanish (a face state needs it non-negative, the entropy positive); WENO keeps it bounded only to its own accuracy:
 across a Sod contact a mass fraction moving from 1 to 0 over- and undershoots by $5\cdot10^{-4}$.
 
-## Isothermal equation of state
+## Isothermal and barotropic equations of state
 
 `[eos] type = isothermal` ([#100](https://github.com/szaghi/adam/issues/100), M13 P1) closes the Euler equations
 with $P = c_0^2\rho$: mass and momentum only, the sound speed $c_0$ everywhere. The state keeps the Euler layout
@@ -288,6 +288,27 @@ independently of the code, and the runs match them ([EO](./verification/euler/is
 freezes its momentum (`null_freeze`) for this model as for every Euler model: a 1-D run cannot carry a transverse
 velocity. CPU and FNL (P2) instantiate the same model-agnostic kernel bodies on the same library, so the backends run
 the same arithmetic.
+
+`[eos] type = barotropic` (P3) is a continuous piecewise polytrope, $P = K_k\rho^{\Gamma_k}$ on
+$\rho_{k-1} \le \rho < \rho_k$, $K_{k+1} = K_k\rho_k^{\Gamma_k - \Gamma_{k+1}}$, with $c^2 = dP/d\rho = \Gamma_k P/\rho$
+(D-M13-4: the speed of the Jeans relation). It is its own model, `MODEL_EULER_BARO`, on the same body as the
+isothermal gas: the body takes the EOS from four hooks of the including module (the pressure, the temperature, the
+sound speed and the speed of the Roe average), and the two libraries differ only there. The isothermal hooks are the
+closed forms; the barotropic ones read the realm's table. The kernels receive the EOS through one scalar
+(`physics%eos_arg`: $\gamma$, $c_0^2$ or the table id), so the tables live in a fixed-size registry
+(`adam_flume_eos_tables_library`): each realm registers its table at initialization, identical tables share an
+entry, and the FNL backend copies the registry to the device once.
+
+The Roe average keeps the $\sqrt\rho$-weighted velocity and takes the secant speed $\tilde c^2 = [P]/[\rho]$, the one
+for which the Roe matrix satisfies $[F] = \tilde A[U]$ for any $P(\rho)$; $P$ increases with $\rho$, so it is positive,
+also across breaks. Below a relative density jump of $10^{-6}$ the secant loses digits to cancellation (about
+$\varepsilon$ over the jump) while $c^2$ at the mean density errs by the jump squared, so there the mean is used. Where
+$\Gamma$ increases upward (a convex break) a rarefaction through the break splits into two fans with a plateau at the
+break density; where it decreases, $\rho c$ drops and the system is not genuinely nonlinear there, so Riemann
+solutions crossing it contain composite waves. The schemes (entropy-satisfying fluxes) do not depend on convexity;
+the exact solver of the verification refuses such a law, and the default table of Mathew & Federrath (2021), which
+is non-convex at its $1.4 \to 1.1$ break, is verified by self-convergence instead
+([EO barotropic](./verification/euler/barotropic-eos)).
 
 ## Radiative cooling
 

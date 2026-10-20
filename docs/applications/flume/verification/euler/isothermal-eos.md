@@ -6,7 +6,7 @@
 
 ## Case and scope
 
-`[eos] type = isothermal` closes the Euler equations with $P = c_0^2\rho$ ([numerics](../../numerics#isothermal-equation-of-state),
+`[eos] type = isothermal` closes the Euler equations with $P = c_0^2\rho$ ([numerics](../../numerics#isothermal-and-barotropic-equations-of-state),
 [input](../../input#eos-optional-equation-of-state)). The energy equation is gone, the energy slot `rE` of the state is
 inert, and the isothermal Riemann problem has an exact solution built from mass and momentum alone. Every run is
 checked against that solution, which `eos_oracle.py` constructs from the jump conditions, independently of the code

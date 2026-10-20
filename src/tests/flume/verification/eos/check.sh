@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# FLUME verification EO: the isothermal equation of state, `[eos] type = isothermal` (issue #100, M13 P1, P2).
+# FLUME verification EO: the isothermal and barotropic equations of state, `[eos] type = isothermal | barotropic`
+# (issue #100, M13 P1, P2, P3).
 #
 # Why: the isothermal gas P = c0^2 rho drops the energy equation (D-M13-1: the state keeps its layout, the energy slot
 # rE is inert, zero flux and zero source, held at 0), so its Riemann problem has an exact solution with no pressure
@@ -27,8 +28,33 @@
 #        tube, the collision, the N = 48 wave and the hllc tube, every field within 1e-10 of its scale (the floor of
 #        AV av8): the density its largest magnitude, a momentum at least max(rho) c0 (its flux carries the pressure
 #        c0^2 rho, so a 1e-6 wave's momentum has the round-off of an O(1) flux); rE exactly 0 on both.
+# The barotropic legs (P3) on the convex test table of eos_oracle.py, POLY: c0 = 1, densities 2 8, exponents
+# 1 1.4 5/3 (P continuous, c^2 = dP/drho jumping up at both breaks):
+#   eb1  the tube rho 10 | 0.5, v 0 | 0.7, 1600 cells, t = 0.15: rho* = 2.602, the left fan crossing the break 8 splits
+#        into two fans with a plateau at rho = 8; as eo1, plus that plateau (its interior cells, mean) within 1e-3;
+#   eb2  the collision (1, 3.4) | (1.5, -2.6), 400 cells, t = 0.3: rho* = 8.056, both shocks from segment 1 or 2 into
+#        segment 3 (shock speeds -0.466 and 0.612); the layer mean within 1e-3, both shocks within 1.5 cells. The frame
+#        is (1, 4) | (1.5, -2) shifted by -0.6: there the left shock moves at 0.134 relative to the grid, and that slow
+#        shock sheds the persistent post-shock noise of slowly moving shocks (Arora & Roe 1997), 4.6 % under HLL and
+#        HLLC; in this frame every shock moves at least 0.36, and the noise is 0.47 % (a solver defect would not depend
+#        on the frame);
+#   eb3  the order on the Gamma = 1.4 segment: the eo3 wave on the background rho0 = 5 (c^2 = P'(5) = 2.0198), one
+#        period, N = 12, 24, 48: the finest-pair order above 4.5;
+#   eb4  the contract of a table: decreasing densities, exponents of another count, an exponent below 1, more than 8
+#        segments, a non-positive reference_density, the gas keys, [reference] and no sound_speed are refused;
+#   eb5  the isothermal limit: the one-segment table exponents = 1 with c0 = 1.3 against the isothermal gas with
+#        c0 = 1.3 on the eo1 tube, t = 0.15: the two runs agree within 1e-10 (the eo7 rule; the barotropic path takes
+#        P, c and the Roe speed from the table, the isothermal one in closed form);
+#   eb6  the default table (Mathew & Federrath 2021, cgs, c0 = 0.2 km/s), non-convex at 3.84e-8 g cm^-3 (no exact
+#        solution: composite waves): the periodic tube rho 1e-7 | 1e-8 g cm^-3 at rest on 1 cm, t = 3e-7 s, its left
+#        fan running down through the non-convex break, N = 200, 400, 800 against N = 1600 (`si` WENO weights: the
+#        data are far from order 1); the L1 distance to the reference shrinking at an order >= 0.5, rho > 0, rE = 0,
+#        the total mass constant to 1e-13;
+#   eb7  the Riemann solvers: eb2 with weno-riemann and llf, hll, hllc (the HLL speeds use the Roe secant speed), each
+#        against the exact solution as in eb2;
+#   eb8  CPU and FNL agree (run eb1, eb2, eb3 and eb7 with each executable first), as eo7.
 #
-# Usage: ./check.sh [--legs LIST]   (legs eo1 eo2 eo3 eo4 eo5 eo6 eo7, all; default all but eo7)
+# Usage: ./check.sh [--legs LIST]   (legs eo1..eo7, eb1..eb8, all; default all but eo7 and eb8)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu); the caller owns the matching environment.
 set -euo pipefail
@@ -39,7 +65,8 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "eo1 eo2 eo3 eo4 eo5 eo6 eo7" "eo1 eo2 eo3 eo4 eo5 eo6"
+legs_declare "eo1 eo2 eo3 eo4 eo5 eo6 eo7 eb1 eb2 eb3 eb4 eb5 eb6 eb7 eb8" \
+             "eo1 eo2 eo3 eo4 eo5 eo6 eb1 eb2 eb3 eb4 eb5 eb6 eb7"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -86,17 +113,30 @@ refuse() { # refuse <name> <message regex> [make_eos.py options]: one contract c
 }
 
 ISO="with \[eos\]\.\(type\)=isothermal"
+POLY=(--eos barotropic --densities "2.0 8.0" --exponents "1.0 1.4 1.6666666666666667") # eos_oracle.py POLY
+agree() { # agree <label> <case>...: the CPU and FNL work directories of each case
+   local case_ label=$1 ; shift
+   for case_ in "$@"; do
+      echo "-- $label: CPU and FNL agree, $case_"
+      cpu="$CASE_DIR/work-adam_flume_cpu-$case_" ; fnl="$CASE_DIR/work-adam_flume_fnl-$case_"
+      if [[ -f "$cpu/log.txt" && -f "$fnl/log.txt" ]]; then
+         "$VENV_PY" "$CASE_DIR/eos_oracle.py" agree "$cpu" "$fnl" || FAILED=1
+      else
+         echo "   missing a run: run the legs of $case_ with both executables first" ; FAILED=1
+      fi
+   done
+}
 echo ">> EO: the isothermal equation of state ($TAG)"
 for leg in $LEGS; do
    case $leg in
       eo1)
          echo "-- eo1: the shock tube, WENO-5 characteristic"
          make_case eo1-tube --case tube
-         run_oracle "$W" 1 riemann "$W" --case tube ;;
+         run_oracle "$W" 1 riemann "$W" ;;
       eo2)
          echo "-- eo2: the Mach-5 collision"
          make_case eo2-collide --case collide --mach 5.0 --time-max 1.0
-         run_oracle "$W" 1 riemann "$W" --case collide --mach 5.0 ;;
+         run_oracle "$W" 1 riemann "$W" ;;
       eo3)
          works=()
          for n in 12 24 48; do
@@ -137,18 +177,73 @@ for leg in $LEGS; do
          for solver in llf hll hllc; do
             echo "-- eo6: the shock tube, weno-riemann $solver"
             make_case "eo6-$solver" --case tube --scheme weno-riemann --solver "$solver"
-            run_oracle "$W" 1 riemann "$W" --case tube
+            run_oracle "$W" 1 riemann "$W"
          done ;;
       eo7)
-         for case_ in eo1-tube eo2-collide eo3-wave-48 eo6-hllc; do
-            echo "-- eo7: CPU and FNL agree, $case_"
-            cpu="$CASE_DIR/work-adam_flume_cpu-$case_" ; fnl="$CASE_DIR/work-adam_flume_fnl-$case_"
-            if [[ -f "$cpu/log.txt" && -f "$fnl/log.txt" ]]; then
-               "$VENV_PY" "$CASE_DIR/eos_oracle.py" agree "$cpu" "$fnl" || FAILED=1
-            else
-               echo "   missing a run: run eo1, eo2, eo3 and eo6 with both executables first" ; FAILED=1
-            fi
+         agree eo7 eo1-tube eo2-collide eo3-wave-48 eo6-hllc ;;
+      eb1)
+         echo "-- eb1: the barotropic tube across the breaks"
+         make_case eb1-tube --case tube "${POLY[@]}" --left "10.0 0.0 0.0" --right "0.5 0.0 0.7" --time-max 0.15 \
+            --ni 1600
+         run_oracle "$W" 1 riemann "$W" ;;
+      eb2)
+         echo "-- eb2: the barotropic collision"
+         make_case eb2-collide --case collide "${POLY[@]}" --left "1.0 3.4" --right "1.5 -2.6" --time-max 0.3
+         run_oracle "$W" 1 riemann "$W" ;;
+      eb3)
+         period=$("$VENV_PY" -I -c 'print(repr(1.0 / (1.4 * 2.0**-0.4 * 5.0**0.4) ** 0.5))') # 1 / c(5) of POLY
+         works=()
+         for n in 12 24 48; do
+            echo "-- eb3: the acoustic wave on rho0 = 5, N = $n"
+            make_case "eb3-wave-$n" --case wave "${POLY[@]}" --rho0 5.0 --ni "$n" --cfl 0.1 \
+               --rk runge-kutta-ssp-54 --time-max "$period"
+            if run "$W" 2; then works+=("$W") ; else echo "   the run failed: see $W/log.txt  FAIL" ; FAILED=1 ; fi
+         done
+         if [[ ${#works[@]} -eq 3 ]]; then "$VENV_PY" "$CASE_DIR/eos_oracle.py" wave "${works[@]}" || FAILED=1 ; fi ;;
+      eb4)
+         eb4() { local name=$1 msg=$2 ; shift 2 ; refuse "$name" "$msg" --eos barotropic "$@" ; }
+         eb4 decreasing "\[eos\]\.\(densities\) must be strictly increasing" --densities "8.0 2.0" \
+            --exponents "1.0 1.4 1.6"
+         eb4 count "\[eos\]\.\(exponents\) has 2 values, one per segment is needed: 3" --densities "2.0 8.0" \
+            --exponents "1.0 1.4"
+         eb4 below-one "\[eos\]\.\(exponents\) must all be >= 1" --densities "2.0 8.0" --exponents "0.9 1.4 1.6"
+         eb4 segments "\[eos\] has 9 segments, at most 8 are accepted" --densities "1 2 3 4 5 6 7 8" \
+            --exponents "1 1 1 1 1 1 1 1 1"
+         eb4 reference-density "\[eos\]\.\(reference_density\) must be positive" --rho-ref -1.0
+         eb4 gas "gamma, cp, cv are not used with \[eos\]\.\(type\) = barotropic" --keep-gas
+         eb4 reference "\[reference\] is refused with \[eos\]\.\(type\)=barotropic" --set "reference:length=1.0"
+         eb4 no-speed "failed to load \[eos\]\.\(sound_speed\) \(needed by type = barotropic\)" \
+            --unset "eos:sound_speed" ;;
+      eb5)
+         echo "-- eb5: the one-segment table against the isothermal gas, c0 = 1.3"
+         make_case eb5-iso --case tube --c0 1.3 --time-max 0.15 ; iso="$W"
+         make_case eb5-baro --case tube --c0 1.3 --time-max 0.15 --eos barotropic --exponents "1.0" ; baro="$W"
+         if run "$iso" && run "$baro"; then
+            "$VENV_PY" "$CASE_DIR/eos_oracle.py" agree "$iso" "$baro" || FAILED=1
+         else
+            echo "   a run failed: see $iso/log.txt, $baro/log.txt  FAIL" ; FAILED=1
+         fi ;;
+      eb6)
+         works=()
+         for n in 200 400 800 1600; do
+            echo "-- eb6: the default table (Mathew & Federrath 2021), N = $n"
+            make_case "eb6-mf2021-$n" --case tube --eos barotropic --c0 2.0e4 --left "1.0e-7 0.0 0.0" \
+               --right "1.0e-8 0.0 0.0" --time-max 3.0e-7 --ni "$n" --level 1 --null-y \
+               --set bc_x_min:type=periodic --set bc_x_max:type=periodic --set weno:weights=si
+            if run "$W" 2; then works+=("$W") ; else echo "   the run failed: see $W/log.txt  FAIL" ; FAILED=1 ; fi
+         done
+         if [[ ${#works[@]} -eq 4 ]]; then
+            "$VENV_PY" "$CASE_DIR/eos_oracle.py" selfconv "${works[@]}" || FAILED=1
+         fi ;;
+      eb7)
+         for solver in llf hll hllc; do
+            echo "-- eb7: the barotropic collision, weno-riemann $solver"
+            make_case "eb7-$solver" --case collide "${POLY[@]}" --left "1.0 3.4" --right "1.5 -2.6" \
+               --time-max 0.3 --scheme weno-riemann --solver "$solver"
+            run_oracle "$W" 1 riemann "$W"
          done ;;
+      eb8)
+         agree eb8 eb1-tube eb2-collide eb3-wave-48 eb7-hllc ;;
    esac
 done
 if [[ $FAILED -ne 0 ]]; then echo "EO FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi

@@ -4,6 +4,8 @@
     make_eos.py <out.ini> [--case tube|collide|wave] [--ni N] [--time-max T] [--cfl C] [--c0 C0] [--mach M]
                           [--scheme weno|weno-riemann] [--recon characteristic|conservative|primitive]
                           [--solver llf|hll|hllc] [--rk SCHEME] [--keep-gas] [--null-y] [--level L]
+                          [--eos isothermal|barotropic] [--densities "D1 D2 .."] [--exponents "G1 G2 .."]
+                          [--rho-ref R] [--rho0 R0] [--left "r u v"] [--right "r u v"]
                           [--set SECTION:KEY=VALUE ...] [--unset SECTION:KEY ...]
 
 The sod-x grid with `--ni` cells along x (default 400; one block, two for the periodic wave, 2^L with `--level L`),
@@ -18,6 +20,10 @@ the other directions null, the isothermal gas `[eos] type = isothermal, sound_sp
            dense layer at rest between them, compressed by M_1^2;
   wave     a right-running acoustic wave of amplitude 1e-6 and wavelength 1 on the periodic box [0, 1] (`sine-wave`,
            `wave_mode = acoustic`), to one period t = 1 / c0 (default).
+
+`--eos barotropic` writes the piecewise polytrope `[eos] densities, exponents, reference_density` (P3; without the
+lists the code's default, the Mathew & Federrath 2021 table); `--left` / `--right` override the Riemann states
+(`r u v`, the leading ones given), `--rho0` the wave's background density.
 
 The space scheme (`--scheme`, default weno), reconstruction (`--recon`, default characteristic), Riemann solver
 (`--solver`, weno-riemann only, with the 6th-order flux correction and its WENO sensor) and Runge-Kutta scheme
@@ -64,8 +70,15 @@ def case_ini(a: argparse.Namespace) -> str:
     s = BASE.read_text()
     if not a.keep_gas:
         s = re.sub(r"(?m)^cp\s*=.*\n^cv\s*=.*\n", "", s)
-    s = set_key(s, "eos", "type", "isothermal")
+    s = set_key(s, "eos", "type", a.eos)
     s = set_key(s, "eos", "sound_speed", repr(a.c0))
+    if a.eos == "barotropic":  # without --densities/--exponents the code's default table (Mathew & Federrath 2021)
+        if a.densities is not None:
+            s = set_key(s, "eos", "densities", a.densities)
+        if a.exponents is not None:
+            s = set_key(s, "eos", "exponents", a.exponents)
+        if a.rho_ref is not None:
+            s = set_key(s, "eos", "reference_density", repr(a.rho_ref))
     # one block along x; the periodic box two (a single block cannot be its own periodic neighbour); --level L refines
     # the base block L times (2^L blocks along x: a regression case keeps both of its ranks busy)
     level = a.level if a.level is not None else (1 if a.case == "wave" else 0)
@@ -102,9 +115,14 @@ def case_ini(a: argparse.Namespace) -> str:
         s = set_key(s, "initial_conditions", "wave_amplitude", "1.0e-6")
         s = set_key(s, "initial_conditions", "wavelength", "1.0")
         s = set_key(s, "initial_conditions_region_1", "emax_x", "1.0")
-        s = set_key(s, "initial_conditions_region_2", "r", "1.0")
+        s = set_key(s, "initial_conditions_region_1", "r", repr(a.rho0))
+        s = set_key(s, "initial_conditions_region_2", "r", repr(a.rho0))
         for face in ("bc_x_min", "bc_x_max"):
             s = set_key(s, face, "type", "periodic")
+    if a.case != "wave":  # --left/--right "r u v": the Riemann states (missing values keep the case's)
+        for k, st in ((1, a.left), (2, a.right)):
+            for key, val in zip(("r", "u", "v"), (st or "").split(), strict=False):
+                s = set_key(s, f"initial_conditions_region_{k}", key, val)
     for item in a.set:
         sk, value = item.split("=", 1)
         section, key = sk.split(":", 1)
@@ -131,6 +149,13 @@ def main() -> None:
     ap.add_argument("--keep-gas", action="store_true")
     ap.add_argument("--null-y", action="store_true")
     ap.add_argument("--level", type=int, default=None)
+    ap.add_argument("--eos", choices=("isothermal", "barotropic"), default="isothermal")
+    ap.add_argument("--densities", default=None)
+    ap.add_argument("--exponents", default=None)
+    ap.add_argument("--rho-ref", type=float, default=None)
+    ap.add_argument("--rho0", type=float, default=1.0)
+    ap.add_argument("--left", default=None)
+    ap.add_argument("--right", default=None)
     ap.add_argument("--set", action="append", default=[])
     ap.add_argument("--unset", action="append", default=[])
     a = ap.parse_args()

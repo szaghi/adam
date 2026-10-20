@@ -55,7 +55,10 @@
 #           co-shock (the radiative shock of co7) (#93 P3) (3 runs, 2 min)
 #   eos     eo-tube (the isothermal shock tube of eos/check.sh eo1), eo-tube-hllc (eo6, weno-riemann hllc),
 #           eo-collide (the Mach-5 collision of eo2), eo-wave-{12,24,48} (the acoustic wave of eo3) and eo-steep (the
-#           wave of amplitude 0.3 of eo5 on 200 cells, a checkpoint every 20 steps) (#100 P1) (7 runs, 2 min)
+#           wave of amplitude 0.3 of eo5 on 200 cells, a checkpoint every 20 steps) (#100 P1) (7 runs, 2 min); and
+#           the barotropic table POLY (P3): bo-tube (eb1, 1600 cells), bo-collide-hll and bo-collide-hll-slow (eb7 hll in
+#           the shifted frame and in the slow-shock frame), bo-wave-{12,24,48} (eb3), bo-mf2021-{200,400,800,1600} (eb6)
+#           (10 more runs, 4 min)
 #   sinks   si-binary (the circular binary of sinks/check.sh si2, one orbit), si-shu-{32,64} (the overdense singular
 #           isothermal sphere of si11 at 32^3 and 64^3) and si-collapse-amr (the si10 collapse on runtime AMR, two levels
 #           above the base) (#94 P4), with the FFT executable (JEANS_EXE) (4 runs, 6 min)
@@ -80,7 +83,7 @@
 #        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
 #        isolated: --only selfgravity-isolated selfgravity-star selfgravity-star-amr;
 #        collapse-regrid: --only selfgravity-star-regrid; dualenergy: --only dual-energy; scalars: --only passive-scalars;
-#        cooling: --only radiative-cooling; sinks: --only sink-particles; eos: --only isothermal-eos;
+#        cooling: --only radiative-cooling; sinks: --only sink-particles; eos: --only isothermal-eos barotropic-eos;
 #        amr: --only selfgravity-amr selfgravity-amr-jeans
 #        selfgravity-amr-regrid selfgravity-amr-isolated)
 #
@@ -374,7 +377,23 @@ for g in $GROUPS_; do
          iso eo-tube-hllc 1 --case tube --scheme weno-riemann --solver hllc
          iso eo-collide 1 --case collide --mach 5.0 --time-max 1.0
          for n in 12 24 48; do iso "eo-wave-$n" 2 --case wave --ni "$n" --cfl 0.1 --rk runge-kutta-ssp-54 ; done
-         iso eo-steep 2 --case wave --ni 200 --set "initial_conditions:wave_amplitude=0.3" --set "IO:it_save=20" ;;
+         iso eo-steep 2 --case wave --ni 200 --set "initial_conditions:wave_amplitude=0.3" --set "IO:it_save=20"
+         poly=(--eos barotropic --densities "2.0 8.0" --exponents "1.0 1.4 1.6666666666666667")
+         iso bo-tube 1 --case tube "${poly[@]}" --left "10.0 0.0 0.0" --right "0.5 0.0 0.7" --time-max 0.15 --ni 1600
+         iso bo-collide-hll 1 --case collide "${poly[@]}" --left "1.0 3.4" --right "1.5 -2.6" --time-max 0.3 \
+            --scheme weno-riemann --solver hll
+         iso bo-collide-hll-slow 1 --case collide "${poly[@]}" --left "1.0 4.0" --right "1.5 -2.0" --time-max 0.3 \
+            --scheme weno-riemann --solver hll
+         period=$("$VENV_PY" -I -c 'print(repr(1.0 / (1.4 * 2.0**-0.4 * 5.0**0.4) ** 0.5))')
+         for n in 12 24 48; do
+            iso "bo-wave-$n" 2 --case wave "${poly[@]}" --rho0 5.0 --ni "$n" --cfl 0.1 --rk runge-kutta-ssp-54 \
+               --time-max "$period"
+         done
+         for n in 200 400 800 1600; do
+            iso "bo-mf2021-$n" 2 --case tube --eos barotropic --c0 2.0e4 --left "1.0e-7 0.0 0.0" --right "1.0e-8 0.0 0.0" \
+               --time-max 3.0e-7 --ni "$n" --level 1 --null-y --set bc_x_min:type=periodic \
+               --set bc_x_max:type=periodic --set weno:weights=si
+         done ;;
       sinks)
          sink() { # sink <case dir> <make_si arguments>: write and run one sink case with the FFT executable
             fresh "$1" ; shift

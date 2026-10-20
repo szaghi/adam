@@ -54,6 +54,7 @@ round trip): a setup table documents it better than a plot of a difference that 
 | [Passive scalars](./euler/passive-scalars) | PS | M10 ([#92](https://github.com/szaghi/adam/issues/92)) | CPU, FNL | yes |
 | [Radiative cooling](./euler/radiative-cooling) | CO | M11 ([#93](https://github.com/szaghi/adam/issues/93)) | CPU, FNL | yes |
 | [Isothermal equation of state](./euler/isothermal-eos) | EO | M13 ([#100](https://github.com/szaghi/adam/issues/100)) | CPU, FNL | yes |
+| [Barotropic equation of state](./euler/barotropic-eos) | EO (eb) | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P3 | CPU, FNL | yes |
 
 ## [Ideal MHD](./mhd/)
 

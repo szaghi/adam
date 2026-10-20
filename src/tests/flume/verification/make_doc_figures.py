@@ -2145,6 +2145,114 @@ def fig_isothermal_eos(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_barotropic_eos(out: Path, runs: Path) -> None:
+    """EO barotropic (issue #100, P3): the piecewise polytrope (CPU). Top left: the eb1 tube on the convex table POLY
+    (densities 2, 8; exponents 1, 1.4, 5/3) at t = 0.15, 1600 cells, against the exact solution (eos_oracle.py): the
+    left fan splits at the break rho = 8 into two fans with a plateau (inset). Top right: the eb7 collision under HLL in
+    two Galilean frames, each against its exact solution: the slow-shock frame (the left shock at 0.134 relative to the
+    grid) sheds post-shock noise into the layer, the frame shifted by -0.6 does not. Bottom left: the eb3 acoustic wave
+    on rho0 = 5 (the Gamma = 1.4 segment), the L1 error after one period, slope 5 dashed. Bottom right: the eb6 tube on
+    the default table (Mathew & Federrath 2021, cgs), N = 200 to 1600, its fan crossing the non-convex break 3.84e-8
+    g cm^-3 (dotted), and, inset, the L1 distance to the N = 1600 run."""
+    sys.path.insert(0, str(HERE / "eos"))
+    import eos_oracle as eo  # noqa: PLC0415
+
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    ax = axs[0, 0]
+    work = runs / "bo-tube"
+    eos, (left, right) = eo.eos_of(work), eo.states_of(work)
+    sol = eo.Solution(eos, left, right)
+    it = eo.checkpoints(work)[-1]
+    t = eo.checkpoint_time(work, it)
+    x, q = eo.checkpoint_line(work, it)
+    xs = np.linspace(0.0, 1.0, 4001)
+    exact = np.array([sol.sample((xi - 0.5) / t).rho for xi in xs])
+    ax.plot(x[::4], q["r"][::4], "o", ms=2.5, mfc="none", label="run (every 4th cell)")
+    ax.plot(xs, exact, "-", color="0.3", lw=1.0, label="exact")
+    for b in eos.breaks:
+        ax.axhline(b, color="tab:red", ls=":", lw=0.8)
+    ax.set_xlabel("x")
+    ax.set_ylabel("rho")
+    ax.legend(fontsize=8, loc="upper right")
+    ax.set_title(f"tube across the breaks (dotted), 1600 cells, t = {t:.2f}", fontsize=10)
+    inset = ax.inset_axes([0.42, 0.42, 0.3, 0.3])
+    zoom = (x > 0.26) & (x < 0.37)
+    inset.plot(x[zoom], q["r"][zoom], "o", ms=2.0, mfc="none")
+    zx = (xs > 0.26) & (xs < 0.37)
+    inset.plot(xs[zx], exact[zx], "-", color="0.3", lw=0.8)
+    inset.axhline(8.0, color="tab:red", ls=":", lw=0.8)
+    inset.set_title("the fan plateau at rho = 8", fontsize=8)
+    inset.tick_params(labelsize=7)
+    ax = axs[0, 1]
+    for name, label, color in (
+        ("bo-collide-hll-slow", "HLL, slow-shock frame", "tab:orange"),
+        ("bo-collide-hll", "HLL, frame shifted by -0.6", "tab:blue"),
+    ):
+        work = runs / name
+        left, right = eo.states_of(work)
+        sol = eo.Solution(eo.eos_of(work), left, right)
+        it = eo.checkpoints(work)[-1]
+        t = eo.checkpoint_time(work, it)
+        x, q = eo.checkpoint_line(work, it)
+        # each run against its own layer: the deviation from rho* measured from the layer's left shock
+        x0 = 0.5 + t * sol.shock_speed("left")
+        ax.plot(x - x0, q["r"] / sol.rho_star - 1.0, "-", lw=0.9, color=color, label=label)
+    ax.axhline(0.0, color="0.5", lw=0.6)
+    ax.set_xlim(-0.05, 0.35)
+    ax.set_ylim(-0.08, 0.08)
+    ax.set_xlabel("x - x_left shock")
+    ax.set_ylabel("rho / rho* - 1")
+    ax.legend(fontsize=8)
+    ax.set_title("the collision rho* = 8.056 behind the left shock: slowly moving shock noise", fontsize=10)
+    ax = axs[1, 0]
+    ns, errs = [], []
+    for n in (12, 24, 48):
+        work = runs / f"bo-wave-{n}"
+        it = eo.checkpoints(work)[-1]
+        x, q = eo.checkpoint_line(work, it)
+        rho_ex, _ = eo.linear_wave(eo.eos_of(work), 5.0, 1.0e-6, 2.0 * np.pi, x, eo.checkpoint_time(work, it))
+        ns.append(x.size)
+        errs.append(float(np.mean(np.abs(q["r"] - rho_ex))))
+    ns, errs = np.array(ns), np.array(errs)
+    ax.loglog(ns, errs, "o-", label="L1 density error")
+    ax.loglog(ns, errs[-1] * (ns / ns[-1]) ** -5.0, "--", color="0.5", label="slope 5")
+    for k in range(1, ns.size):
+        order = np.log(errs[k - 1] / errs[k]) / np.log(ns[k] / ns[k - 1])
+        ax.annotate(f"{order:.2f}", (np.sqrt(ns[k - 1] * ns[k]), np.sqrt(errs[k - 1] * errs[k])), fontsize=8)
+    ax.set_xticks(ns, [str(n) for n in ns])
+    ax.minorticks_off()
+    ax.set_xlabel("N")
+    ax.set_ylabel("L1")
+    ax.legend(fontsize=8)
+    ax.set_title("acoustic wave on rho0 = 5 (Gamma = 1.4), c^2 = P'(rho0): one period", fontsize=10)
+    ax = axs[1, 1]
+    curves = []
+    for n in (200, 400, 800, 1600):
+        work = runs / f"bo-mf2021-{n}"
+        x, q = eo.checkpoint_line(work, eo.checkpoints(work)[-1])
+        ax.semilogy(x, q["r"], "-", lw=0.9, label=f"N = {n}")
+        curves.append((n, x, q["r"]))
+    ax.axhline(3.84e-8, color="tab:red", ls=":", lw=0.8, label="non-convex break")
+    ax.set_xlabel("x [cm]")
+    ax.set_ylabel("rho [g cm^-3]")
+    ax.legend(fontsize=8, loc="lower left")
+    ax.set_title("the default table (Mathew & Federrath 2021): no exact solution", fontsize=10)
+    _, ref_x, ref_r = curves[-1]
+    pts = []
+    for n, x, r in curves[:-1]:
+        coarse = ref_r.reshape(x.size, ref_x.size // x.size).mean(axis=1)
+        pts.append((n, float(np.mean(np.abs(r - coarse)) / float(np.mean(coarse)))))
+    inset = ax.inset_axes([0.62, 0.62, 0.35, 0.33])
+    inset.loglog([p[0] for p in pts], [p[1] for p in pts], "o-")
+    inset.set_xticks([p[0] for p in pts], [str(p[0]) for p in pts])
+    inset.minorticks_off()
+    inset.set_title("L1 to N = 1600", fontsize=8)
+    inset.tick_params(labelsize=7)
+    fig.suptitle("EO: the barotropic equation of state, a piecewise polytrope P = K_k rho^G_k (CPU)")
+    fig.savefig(out / "barotropic-eos.png", dpi=DPI)
+    plt.close(fig)
+
+
 def _ini(work: Path) -> configparser.ConfigParser:
     """Read the input.ini of a run."""
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
@@ -3391,6 +3499,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "dual-energy": fig_dual_energy,
            "passive-scalars": fig_passive_scalars,
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
+           "barotropic-eos": fig_barotropic_eos,
            "sink-particles": fig_sink_particles,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,

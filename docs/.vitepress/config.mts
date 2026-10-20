@@ -188,6 +188,7 @@ export default withMermaid({
                         { text: 'Passive scalars', link: '/applications/flume/verification/euler/passive-scalars' },
                         { text: 'Radiative cooling', link: '/applications/flume/verification/euler/radiative-cooling' },
                         { text: 'Isothermal equation of state', link: '/applications/flume/verification/euler/isothermal-eos' },
+                        { text: 'Barotropic equation of state', link: '/applications/flume/verification/euler/barotropic-eos' },
                       ],
                     },
                     {

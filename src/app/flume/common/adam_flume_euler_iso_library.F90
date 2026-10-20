@@ -32,4 +32,51 @@ public :: primitive_to_conservative
 
 contains
 #include "adam_flume_euler_iso_library_body.INC"
+
+   ! EOS hooks of the body: the isothermal gas, `gamma` = c0^2
+   pure function eos_pressure(gamma, rho) result(p)
+   !< P = c0^2 rho.
+   real(R8P), intent(in) :: gamma !< c0^2.
+   real(R8P), intent(in) :: rho   !< Density.
+   real(R8P)             :: p     !< Pressure.
+   !$acc routine seq
+   !$omp declare target
+
+   p = gamma * rho
+   endfunction eos_pressure
+
+   pure function eos_temperature(gamma, R, rho) result(t)
+   !< T = P / (rho R) = c0^2 / R.
+   real(R8P), intent(in) :: gamma !< c0^2.
+   real(R8P), intent(in) :: R     !< Gas constant.
+   real(R8P), intent(in) :: rho   !< Density (unused: T is uniform).
+   real(R8P)             :: t     !< Temperature.
+   !$acc routine seq
+   !$omp declare target
+
+   t = gamma / R
+   endfunction eos_temperature
+
+   pure function eos_sound_speed(gamma, rho) result(a)
+   !< a = c0.
+   real(R8P), intent(in) :: gamma !< c0^2.
+   real(R8P), intent(in) :: rho   !< Density (unused: a is uniform).
+   real(R8P)             :: a     !< Speed of sound.
+   !$acc routine seq
+   !$omp declare target
+
+   a = sqrt(gamma)
+   endfunction eos_sound_speed
+
+   pure function eos_roe_sound_speed(gamma, rhoL, rhoR, pL, pR) result(a)
+   !< The speed of the Roe average: c0 (the secant [P] / [rho] is c0^2 exactly).
+   real(R8P), intent(in) :: gamma      !< c0^2.
+   real(R8P), intent(in) :: rhoL, rhoR !< Densities (unused).
+   real(R8P), intent(in) :: pL, pR     !< Pressures (unused).
+   real(R8P)             :: a          !< Speed of sound of the average.
+   !$acc routine seq
+   !$omp declare target
+
+   a = sqrt(gamma)
+   endfunction eos_roe_sound_speed
 endmodule adam_flume_euler_iso_library

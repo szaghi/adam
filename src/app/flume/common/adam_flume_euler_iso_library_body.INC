@@ -1,14 +1,17 @@
-!< ADAM, FLUME pointwise isothermal Euler physics, the body of adam_flume_euler_iso_library (issue #100, M13).
+!< ADAM, FLUME pointwise barotropic Euler physics, the body of adam_flume_euler_iso_library and
+!< adam_flume_euler_baro_library (issue #100, M13).
 !<
 !< The including module renames NV_K, NV_AUX_K (its widths) and NV_BASE = NV_EULER, NV_AUX_BASE = NV_AUX (the Euler
 !< widths): the components NV_BASE+1 ... NV_K are advected scalars, as in the Euler body; with NV_K = NV_BASE every
 !< scalar loop is empty. The public interface is the Euler one, routine by routine, so the model-agnostic kernel bodies
-!< call either library unchanged; the EOS parameter keeps the Euler keyword `gamma`, and HERE IT IS THE ISOTHERMAL
-!< SOUND SPEED SQUARED c0^2 (the host passes `physics%cs2`).
+!< call either library unchanged; the EOS parameter keeps the Euler keyword `gamma`, and HERE IT IS `physics%eos_arg`:
+!< the isothermal sound speed squared c0^2, or the id of a barotropic table (adam_flume_eos_tables_library).
 !<
-!< Isothermal gas, P = c0^2 rho (D-M13-1): the energy slot IQ_RE is inert. Its flux is zero, every Riemann flux forces
+!< A barotropic gas, P = P(rho) (D-M13-1): the energy slot IQ_RE is inert. Its flux is zero, every Riemann flux forces
 !< it to zero, its eigenvalue is zero and its eigenvector the unit vector, so it keeps its initial value, 0. The
-!< auxiliary pressure is c0^2 rho, the speed of sound c0, the temperature c0^2 / R, the total enthalpy undefined (0).
+!< including module provides the EOS as four pure hooks, the only places it enters: `eos_pressure(gamma, rho)`,
+!< `eos_temperature(gamma, R, rho)` (P / (rho R)), `eos_sound_speed(gamma, rho)` (sqrt(dP/drho)) and
+!< `eos_roe_sound_speed(gamma, rhoL, rhoR, pL, pR)`, the speed of the Roe average. The total enthalpy is undefined (0).
 !<
 !< Eigensystem in direction `d`: normal `n = e_d`, tangents taken cyclically `t1 = e_{mod(d,3)+1}`, `t2 =
 !< e_{mod(d+1,3)+1}`, waves in the Euler order with the inert slot in the place of the entropy wave:
@@ -19,8 +22,9 @@
 !< r4 = (0, t2, 0)            l4 = (-u.t2, t2, 0)                          lambda4 = u_n
 !< r5 = (1, u + a n, 0)       l5 = (-(u_n - a) / (2 a), n / (2 a), 0)      lambda5 = u_n + a
 !<```
-!< checked against `dF/dU` in src/tests/flume/verification/eos/eos_oracle.py (eigen). The Roe average of two isothermal
-!< states is the sqrt(rho)-weighted velocity with the same speed of sound.
+!< checked against `dF/dU` in src/tests/flume/verification/eos/eos_oracle.py (eigen). The Roe average of two
+!< barotropic states is the sqrt(rho)-weighted velocity with the speed of `eos_roe_sound_speed`: c0 for the isothermal
+!< gas, the secant sqrt([P] / [rho]) for a table (the Roe property [F] = A~ [U] needs exactly that speed).
    ! public procedures
    pure subroutine compute_eigenvalues(d, qa, lambda)
    !< Compute the eigenvalues of the flux Jacobian in direction `d`: `(u_n - a, 0, u_n, u_n, u_n + a)`.
@@ -319,9 +323,10 @@
    endsubroutine compute_flux
 
    pure subroutine compute_roe_average(gamma, qaL, qaR, roe)
-   !< Compute the Roe average of two isothermal states: the `sqrt(rho)`-weighted velocity, the density `sqrt(rho_L
-   !< rho_R)`, the speed of sound c0 and the matching pressure `c0^2 rho`; enthalpy and temperature are set to zero.
-   real(R8P), intent(in)  :: gamma         !< Isothermal sound speed squared c0^2.
+   !< Compute the Roe average of two barotropic states: the `sqrt(rho)`-weighted velocity, the density `sqrt(rho_L
+   !< rho_R)`, the speed of `eos_roe_sound_speed` and the pressure of the average density; enthalpy and temperature are
+   !< set to zero.
+   real(R8P), intent(in)  :: gamma         !< EOS parameter (eos_arg).
    real(R8P), intent(in)  :: qaL(NV_AUX_K) !< Left state auxiliary variables.
    real(R8P), intent(in)  :: qaR(NV_AUX_K) !< Right state auxiliary variables.
    real(R8P), intent(out) :: roe(NV_AUX_K) !< Roe average.
@@ -340,8 +345,8 @@
    roe(IA_V) = cL * qaL(IA_V) + cR * qaR(IA_V)
    roe(IA_W) = cL * qaL(IA_W) + cR * qaR(IA_W)
    roe(IA_H) = 0._R8P
-   roe(IA_A) = sqrt(gamma)
-   roe(IA_P) = gamma * roe(IA_R)
+   roe(IA_A) = eos_roe_sound_speed(gamma=gamma, rhoL=qaL(IA_R), rhoR=qaR(IA_R), pL=qaL(IA_P), pR=qaR(IA_P))
+   roe(IA_P) = eos_pressure(gamma=gamma, rho=roe(IA_R))
    roe(IA_T) = 0._R8P
    do v=NV_AUX_BASE+1, NV_AUX_K ! advected scalars, sqrt(rho)-weighted like the velocity
       roe(v) = cL * qaL(v) + cR * qaR(v)
@@ -435,9 +440,9 @@
    endsubroutine compute_riemann_llf
 
    pure subroutine conservative_to_auxiliary(gamma, R, q, qa)
-   !< Compute the auxiliary variables of a cell from its conservative variables: `p = c0^2 rho`, `a = c0`,
-   !< `T = c0^2 / R`, `H = 0` (no energy equation).
-   real(R8P), intent(in)  :: gamma        !< Isothermal sound speed squared c0^2.
+   !< Compute the auxiliary variables of a cell from its conservative variables: `p = P(rho)`, `a = sqrt(dP/drho)`,
+   !< `T = P / (rho R)`, `H = 0` (no energy equation).
+   real(R8P), intent(in)  :: gamma        !< EOS parameter (eos_arg).
    real(R8P), intent(in)  :: R            !< Gas constant.
    real(R8P), intent(in)  :: q(NV_K)      !< Conservative variables.
    real(R8P), intent(out) :: qa(NV_AUX_K) !< Auxiliary variables.
@@ -449,10 +454,10 @@
    qa(IA_U) = q(IQ_RU) / q(IQ_R)
    qa(IA_V) = q(IQ_RV) / q(IQ_R)
    qa(IA_W) = q(IQ_RW) / q(IQ_R)
-   qa(IA_P) = gamma * q(IQ_R)
-   qa(IA_T) = gamma / R
+   qa(IA_P) = eos_pressure(gamma=gamma, rho=q(IQ_R))
+   qa(IA_T) = eos_temperature(gamma=gamma, R=R, rho=q(IQ_R))
    qa(IA_H) = 0._R8P
-   qa(IA_A) = sqrt(gamma)
+   qa(IA_A) = eos_sound_speed(gamma=gamma, rho=q(IQ_R))
    do v=NV_BASE+1, NV_K ! advected scalars, specific
       qa(IA_S+v-NV_BASE-1) = q(v) / q(IQ_R)
    enddo

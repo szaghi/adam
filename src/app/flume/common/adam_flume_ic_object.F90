@@ -121,12 +121,13 @@ use :: adam_field_object,         only : field_object
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
+use :: adam_flume_eos_tables_library, only : barotropic_c2
 use :: adam_flume_euler_library,  only : primitive_to_conservative
 use :: adam_flume_mhd_library,    only : mhd_conservative_to_auxiliary, mhd_eigenvectors, mhd_primitive_to_conservative
-use :: adam_flume_parameters,     only : has_entropy, is_hydrodynamic, is_isothermal,                                  &
+use :: adam_flume_parameters,     only : has_entropy, is_hydrodynamic, has_inert_energy,                                  &
                                         IQ_BX, IQ_BY, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S,                          &
                                         MODEL_EULER, MODEL_EULER_PS, MODEL_EULER_DE_PS, NS_MAX, &
-                                        MODEL_EULER_DE, MODEL_EULER_ISO, MODEL_MHD, &
+                                        MODEL_EULER_DE, MODEL_EULER_ISO, MODEL_EULER_BARO, MODEL_MHD, &
                                         MODEL_MHD_EGLM, MODEL_MHD_GLM, &
                                         NV_AUX_MHD, &
                                         NV_EULER, NV_MHD, &
@@ -228,7 +229,8 @@ type :: flume_ic_object
    real(R8P),    allocatable :: emin(:,:)            !< Minimum corner of each region [3, regions_number].
    real(R8P),    allocatable :: emax(:,:)            !< Maximum corner of each region [3, regions_number].
    real(R8P)                 :: gamma=0._R8P         !< Specific heats ratio.
-   real(R8P)                 :: cs2=0._R8P           !< Isothermal sound speed squared c0^2 (issue #100; 0 otherwise).
+   real(R8P)                 :: eos_arg=0._R8P       !< EOS parameter of the barotropic models (issue #100): c0^2 or
+                                                    !< the table id (physics%eos_arg).
    real(R8P)                 :: prim_1(8)=0._R8P     !< Primitive state of region 1, the free stream (first nprim used).
    real(R8P)                 :: s=0._R8P             !< Uniform: relative amplitude of the seeded perturbation.
    real(R8P)                 :: vortex(4)=0._R8P     !< Isentropic vortex: x0, y0, radius, strength.
@@ -275,24 +277,24 @@ type :: flume_ic_object
       procedure, pass(self) :: load_from_file         !< Load config from file.
       procedure, pass(self) :: set_initial_conditions !< Set initial conditions on the blocks interior.
       procedure, pass(self) :: set_equilibrium        !< Set the hydrostatic equilibrium on the blocks interior.
-      procedure, pass(self) :: is_isothermal_safe     !< True if the IC type builds its density without gamma (#100).
+      procedure, pass(self) :: is_barotropic_safe     !< True if the IC type builds its density without gamma (#100).
       ! private methods
       procedure, pass(self), private :: atmosphere_state !< Primitive state of the atmosphere at a point.
 endtype flume_ic_object
 
 contains
    ! public methods
-   pure function is_isothermal_safe(self) result(safe)
-   !< Return true if the IC type is defined for the isothermal gas (issue #100): its density, velocity and scalars are
-   !< inputs or gamma-free formulas, and the pressure, which the isothermal gas ignores, enters nothing else. Refused:
+   pure function is_barotropic_safe(self) result(safe)
+   !< Return true if the IC type is defined for a barotropic gas (issue #100): its density, velocity and scalars are
+   !< inputs or gamma-free formulas, and the pressure, which the barotropic gas ignores, enters nothing else. Refused:
    !< the isentropic vortex (rho from the adiabat, ^(1/(gamma-1))); the gravity and dissipation ICs are refused with
    !< their modules; the MHD ICs with the model.
    class(flume_ic_object), intent(in) :: self !< Initial conditions.
-   logical                            :: safe !< IC type defined for the isothermal gas.
+   logical                            :: safe !< IC type defined for a barotropic gas.
 
    safe = any(self%ic_type == [character(15) :: IC_UNIFORM_STR, IC_RIEMANN_PROBLEM_STR, IC_ROTATED_RIEMANN_STR, &
                                                 IC_SINE_WAVE_STR, IC_LINEAR_STR, IC_POLYNOMIAL_STR, IC_SHU_OSHER_STR])
-   endfunction is_isothermal_safe
+   endfunction is_barotropic_safe
 
    function description(self) result(desc)
    !< Return a pretty-formatted object description.
@@ -374,12 +376,12 @@ contains
    integer(I4P)                              :: r, k            !< Counters.
 
    self%gamma = physics%gamma
-   self%cs2   = physics%cs2
+   self%eos_arg = physics%eos_arg
    self%R     = physics%R
    self%cp    = physics%cp
    self%model = physics%model
    select case(self%model)
-   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_EULER_ISO)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_EULER_ISO, MODEL_EULER_BARO)
       self%nprim = 5_I4P
    case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
       self%nprim = 8_I4P
@@ -759,8 +761,8 @@ contains
       sname = INI_SECTION_NAME//'_region_'//trim(str(r, .true.))
       do k=1, self%nprim
          call file_parameters%get(section_name=sname, option_name=trim(PRIM_KEY(k)), val=prim(k), error=error)
-         ! the isothermal gas has no pressure input (P = c0^2 rho, issue #100): `p` optional, ignored
-         if (error > 0 .and. k == 5_I4P .and. is_isothermal(self%model)) then
+         ! a barotropic gas has no pressure input (P = P(rho), issue #100): `p` optional, ignored
+         if (error > 0 .and. k == 5_I4P .and. has_inert_energy(self%model)) then
             prim(k) = 0._R8P
             cycle
          endif
@@ -986,9 +988,11 @@ contains
       ca = cos(self%wave_par(1) * PI / 180._R8P)
       sa = sin(self%wave_par(1) * PI / 180._R8P)
       jk = 2._R8P * PI / self%wave_par(3)
-      ! the speed of sound squared: gamma p / rho, or c0^2 for the isothermal gas, whose pressure is not an input (#100)
+      ! the speed of sound squared: gamma p / rho, or dP/drho of a barotropic gas, whose pressure is not an input (#100):
+      ! c0^2 (isothermal), the table's at the background density
       a2 = self%gamma * self%prim_1(5) / self%prim_1(1)
-      if (is_isothermal(self%model)) a2 = self%cs2
+      if (self%model == MODEL_EULER_ISO) a2 = self%eos_arg
+      if (self%model == MODEL_EULER_BARO) a2 = barotropic_c2(id=nint(self%eos_arg, I4P), rho=self%prim_1(1))
       jw2 = a2 * jk**2 - self%four_pi_g * self%prim_1(1)
       do b=1, field%blocks_number
          do k=1, field%nk

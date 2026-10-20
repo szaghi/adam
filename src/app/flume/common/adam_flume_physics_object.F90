@@ -22,7 +22,9 @@ use :: adam_flume_cooling_object, only : flume_cooling_object
 use :: adam_flume_dissipation_object, only : flume_dissipation_object
 use :: adam_flume_gravity_object, only : flume_gravity_object
 use :: adam_flume_mhd_object,    only : flume_mhd_object
-use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, EOS_IDEAL, EOS_ISOTHERMAL, MODEL_EULER_ISO,                       &
+use :: adam_flume_eos_tables_library, only : EOS_SEGMENTS_MAX, register_barotropic_table
+use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, EOS_BAROTROPIC, EOS_IDEAL, EOS_ISOTHERMAL, MODEL_EULER_BARO, &
+                                        MODEL_EULER_ISO,                                                                 &
                                         has_entropy, IQ_PSI, IQ_S, MODEL_EULER, MODEL_EULER_DE,                         &
                                         MODEL_EULER_DE_PS, MODEL_EULER_PS, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,     &
                                         NS_MAX, NV_AUX, NV_AUX_DE, NV_AUX_DE_PS, NV_AUX_MHD, NV_AUX_PS, NV_EULER,        &
@@ -48,9 +50,14 @@ type :: flume_physics_object
    real(R8P)                 :: cv=0._R8P      !< Specific heat at constant volume.
    real(R8P)                 :: gamma=0._R8P   !< Specific heats ratio, cp/cv.
    real(R8P)                 :: R=0._R8P       !< Gas constant, cp-cv.
-   character(:), allocatable :: eos            !< `[eos].(type)`: ideal (default) or isothermal (issue #100).
-   real(R8P)                 :: sound_speed=0._R8P !< `[eos].(sound_speed)`: the isothermal c0.
-   real(R8P)                 :: cs2=0._R8P     !< c0^2, the EOS parameter the isothermal kernels take as `gamma`.
+   character(:), allocatable :: eos            !< `[eos].(type)`: ideal (default), isothermal or barotropic (#100).
+   real(R8P)                 :: sound_speed=0._R8P !< `[eos].(sound_speed)`: c0, the isothermal speed sqrt(P/rho) at
+                                                   !< the reference density (the sound speed of the isothermal gas).
+   real(R8P)                 :: eos_arg=0._R8P !< The EOS parameter the kernels take as `gamma`: gamma (ideal gas),
+                                               !< c0^2 (isothermal) or the barotropic table id (as a real).
+   real(R8P)                 :: rho_ref=1._R8P !< `[eos].(reference_density)` of a barotropic table.
+   real(R8P), allocatable    :: eos_breaks(:)  !< `[eos].(densities)`: the barotropic breaks, increasing.
+   real(R8P), allocatable    :: eos_exponents(:) !< `[eos].(exponents)`: one per segment, size(eos_breaks) + 1.
    integer(I4P)              :: nv=0_I4P       !< Conservative variables number.
    integer(I4P)              :: nv_aux=0_I4P   !< Auxiliary variables number.
    integer(I4P)              :: nv_mhd=0_I4P   !< Last slot of the MHD state: NV_EULER (hydrodynamic models) or nv (MHD).
@@ -67,6 +74,8 @@ type :: flume_physics_object
       procedure, pass(self) :: description    !< Return pretty-printed object description.
       procedure, pass(self) :: initialize     !< Initialize physics.
       procedure, pass(self) :: load_from_file !< Load config from file.
+      ! private methods
+      procedure, pass(self), private :: load_barotropic !< Load and register the `[eos]` barotropic table.
 endtype flume_physics_object
 
 contains
@@ -76,11 +85,23 @@ contains
    class(flume_physics_object), intent(in) :: self             !< Physics.
    character(len=:), allocatable           :: desc             !< Description.
    character(len=1), parameter             :: NL=new_line('a') !< New line character.
+   integer(I4P)                            :: k                !< Counter.
 
    desc =       mpih%myrankstr//'Physics main data'//NL
    desc = desc//mpih%myrankstr//'  physical_model: '//self%physical_model//NL
    desc = desc//mpih%myrankstr//'  eos:            '//self%eos
    if (self%eos == EOS_ISOTHERMAL) desc = desc//', sound_speed '//trim(str(self%sound_speed))
+   if (self%eos == EOS_BAROTROPIC) then
+      desc = desc//', sound_speed '//trim(str(self%sound_speed))//', reference_density '//trim(str(self%rho_ref))// &
+             ', table '//trim(str(nint(self%eos_arg), .true.))//', exponents'
+      do k=1, size(self%eos_exponents)
+         desc = desc//' '//trim(str(self%eos_exponents(k)))
+      enddo
+      desc = desc//', densities'
+      do k=1, size(self%eos_breaks)
+         desc = desc//' '//trim(str(self%eos_breaks(k)))
+      enddo
+   endif
    desc = desc//NL
    desc = desc//mpih%myrankstr//'  cp, cv:         '//trim(str(self%cp))//', '//trim(str(self%cv))//NL
    desc = desc//mpih%myrankstr//'  gamma, R:       '//trim(str(self%gamma))//', '//trim(str(self%R))//NL
@@ -102,10 +123,11 @@ contains
 
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
-   ! issue #100, P1: the isothermal gas is an Euler model only; refused before any model loader reads its section
-   if (self%eos == EOS_ISOTHERMAL .and. (self%physical_model /= PHYSICAL_MODEL_EULER .or. self%passive_scalars > 0_I4P)) &
-      call mpih%error_stop(msg=': [eos].(type)='//EOS_ISOTHERMAL//' needs [physics].(physical_model)='// &
-                               PHYSICAL_MODEL_EULER//' without passive_scalars (issue #100, P1)')
+   ! issue #100: a barotropic gas (isothermal included) is an Euler model only; refused before any model loader reads
+   ! its section
+   if (self%eos /= EOS_IDEAL .and. (self%physical_model /= PHYSICAL_MODEL_EULER .or. self%passive_scalars > 0_I4P)) &
+      call mpih%error_stop(msg=': [eos].(type)='//self%eos//' needs [physics].(physical_model)='// &
+                               PHYSICAL_MODEL_EULER//' without passive_scalars (issue #100)')
    select case(self%physical_model)
    case(PHYSICAL_MODEL_EULER)
       self%model  = MODEL_EULER
@@ -139,14 +161,14 @@ contains
       endif
       self%nv_aux = NV_AUX_MHD
    endselect
-   if (self%eos == EOS_ISOTHERMAL) then ! issue #100, P1: the isothermal Euler model, energy slot inert (D-M13-1)
+   if (self%eos /= EOS_IDEAL) then ! issue #100: the barotropic Euler models, energy slot inert (D-M13-1)
       if (file_parameters%has_section(section_name='cooling')) &
-         call mpih%error_stop(msg=': [cooling] is refused with [eos].(type)='//EOS_ISOTHERMAL// &
-                                  ': an isothermal gas has no thermal energy to radiate (issue #100)')
+         call mpih%error_stop(msg=': [cooling] is refused with [eos].(type)='//self%eos// &
+                                  ': a barotropic gas has no thermal energy to radiate (issue #100)')
       ! the sinks' virial test and accretion use the internal energy (P4); refused by the section, before any loader
       if (file_parameters%has_section(section_name='sinks')) &
-         call mpih%error_stop(msg=': [sinks] is refused with [eos].(type)='//EOS_ISOTHERMAL//' until P4 (issue #100)')
-      self%model = MODEL_EULER_ISO
+         call mpih%error_stop(msg=': [sinks] is refused with [eos].(type)='//self%eos//' until P4 (issue #100)')
+      self%model = merge(MODEL_EULER_ISO, MODEL_EULER_BARO, self%eos == EOS_ISOTHERMAL)
    endif
    self%nv_mhd = merge(self%nv, NV_EULER, self%physical_model == PHYSICAL_MODEL_MHD_IDEAL)
    self%iq_scalar1 = 0_I4P ; if (self%passive_scalars > 0_I4P) self%iq_scalar1 = self%nv - NS_MAX + 1_I4P
@@ -154,12 +176,12 @@ contains
    call self%dissipation%load_from_file(file_parameters=file_parameters, model=self%model, cp=self%cp)
    call self%gravity%load_from_file(file_parameters=file_parameters)
    call self%cooling%load_from_file(file_parameters=file_parameters, model=self%model, gamma=self%gamma, R=self%R)
-   if (self%model == MODEL_EULER_ISO) then ! issue #100, P1: the energy sources of these terms are not defined yet
+   if (self%eos /= EOS_IDEAL) then ! issue #100: the energy sources of these terms are not defined yet
       if (self%dissipation%is_active) &
          call mpih%error_stop(msg=': dissipative terms ([physics] viscosity, conductivity, ...) are refused with '// &
-                                  '[eos].(type)='//EOS_ISOTHERMAL//' (issue #100, P1)')
+                                  '[eos].(type)='//self%eos//' (issue #100)')
       if (self%gravity%is_active) &
-         call mpih%error_stop(msg=': [gravity] is refused with [eos].(type)='//EOS_ISOTHERMAL//' until P4 (issue #100)')
+         call mpih%error_stop(msg=': [gravity] is refused with [eos].(type)='//self%eos//' until P4 (issue #100)')
    endif
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize finish'
@@ -221,15 +243,25 @@ contains
          if (has(option_name='gamma') .or. has(option_name='cp') .or. has(option_name='cv')) &
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] gamma, cp, cv are not used with [eos].(type) = '// &
                                      EOS_ISOTHERMAL//': remove them')
-         self%cs2   = self%sound_speed**2
-         self%gamma = 1._R8P ! unused by the isothermal kernels (they take cs2); the gamma-law paths are refused
-         self%R     = 1._R8P ! the temperature is then T = c0^2, in code units
+         self%eos_arg = self%sound_speed**2
+         self%gamma   = 1._R8P ! unused by the isothermal kernels (they take eos_arg); the gamma-law paths are refused
+         self%R       = 1._R8P ! the temperature is then T = c0^2, in code units
+         self%cp      = 0._R8P
+         self%cv      = 0._R8P
+         return
+      case(EOS_BAROTROPIC)
+         call self%load_barotropic(file_parameters=file_parameters)
+         if (has(option_name='gamma') .or. has(option_name='cp') .or. has(option_name='cv')) &
+            call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] gamma, cp, cv are not used with [eos].(type) = '// &
+                                     EOS_BAROTROPIC//': remove them')
+         self%gamma = 1._R8P ! unused by the barotropic kernels (they take eos_arg); the gamma-law paths are refused
+         self%R     = 1._R8P ! the temperature is then T = P / rho, in code units
          self%cp    = 0._R8P
          self%cv    = 0._R8P
          return
       case default
          call mpih%error_stop(msg=': unknown [eos].(type) "'//self%eos//'"; expected one of '//EOS_IDEAL//', '// &
-                                  EOS_ISOTHERMAL)
+                                  EOS_ISOTHERMAL//', '//EOS_BAROTROPIC)
       endselect
    endif
    ! the gas: cp and cv, or gamma alone (R = 1, the code-unit gas constant of issue #49, ND-2); giving both is fatal
@@ -242,6 +274,7 @@ contains
       self%R  = 1._R8P
       self%cv = 1._R8P / (self%gamma - 1._R8P)
       self%cp = self%gamma * self%cv
+      self%eos_arg = self%gamma
       return
    endif
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cp', val=self%cp, error=error)
@@ -253,6 +286,7 @@ contains
                                ', cv='//trim(str(self%cv)))
    self%gamma = self%cp / self%cv
    self%R     = self%cp - self%cv
+   self%eos_arg = self%gamma
    contains
       function has(option_name) result(is_present)
       !< Return true if the option is in the section.
@@ -265,6 +299,71 @@ contains
       is_present = error <= 0
       endfunction has
    endsubroutine load_from_file
+
+   ! private methods
+   subroutine load_barotropic(self, file_parameters)
+   !< Load `[eos] type = barotropic` (issue #100, P3): `sound_speed` c0 (required, > 0), `reference_density` (> 0,
+   !< default 1), and the table, `densities` (the breaks, > 0, strictly increasing) with `exponents` (one per segment,
+   !< each >= 1), at most EOS_SEGMENTS_MAX segments; without both lists the Mathew & Federrath 2021 table (MNRAS 507,
+   !< 2448, eqs. 5-7: breaks in g cm^-3, so a cgs input). The table is registered (adam_flume_eos_tables_library) and its
+   !< id becomes `eos_arg`. A break where the exponent decreases is not genuinely nonlinear (P0: composite waves, which
+   !< the exact solver of the verification refuses); it is accepted, the schemes do not depend on convexity, and
+   !< reported.
+   class(flume_physics_object), intent(inout) :: self            !< Physics.
+   type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   real(R8P), parameter :: MF2021_BREAKS(4) = [2.50e-16_R8P, 3.84e-13_R8P, 3.84e-8_R8P, 3.84e-3_R8P] !< g cm^-3.
+   real(R8P), parameter :: MF2021_EXPONENTS(5) = [1._R8P, 1.1_R8P, 1.4_R8P, 1.1_R8P, 5._R8P / 3._R8P] !< G_k.
+   integer(I4P)         :: n_breaks, n_exponents !< List sizes.
+   integer(I4P)         :: id, k                 !< Table id, counter.
+   integer(I4P)         :: error                 !< Error status.
+
+   call file_parameters%get(section_name='eos', option_name='sound_speed', val=self%sound_speed, error=error)
+   if (error > 0) call mpih%error_stop(msg=': failed to load [eos].(sound_speed) (needed by type = '// &
+                                           EOS_BAROTROPIC//')')
+   if (.not.(self%sound_speed > 0._R8P)) &
+      call mpih%error_stop(msg=': [eos].(sound_speed) must be positive, got '//trim(str(self%sound_speed)))
+   call file_parameters%get(section_name='eos', option_name='reference_density', val=self%rho_ref, error=error)
+   if (error > 0) self%rho_ref = 1._R8P
+   if (.not.(self%rho_ref > 0._R8P)) &
+      call mpih%error_stop(msg=': [eos].(reference_density) must be positive, got '//trim(str(self%rho_ref)))
+   n_breaks = file_parameters%count_values(section_name='eos', option_name='densities')
+   n_exponents = file_parameters%count_values(section_name='eos', option_name='exponents')
+   if (n_breaks == 0_I4P .and. n_exponents == 0_I4P) then
+      self%eos_breaks = MF2021_BREAKS
+      self%eos_exponents = MF2021_EXPONENTS
+   else
+      if (n_exponents /= n_breaks + 1_I4P) &
+         call mpih%error_stop(msg=': [eos].(exponents) has '//trim(str(n_exponents, .true.))//' values, one per '// &
+                                  'segment is needed: '//trim(str(n_breaks + 1_I4P, .true.))//' for '// &
+                                  trim(str(n_breaks, .true.))//' (densities)')
+      if (n_exponents > EOS_SEGMENTS_MAX) &
+         call mpih%error_stop(msg=': [eos] has '//trim(str(n_exponents, .true.))//' segments, at most '// &
+                                  trim(str(EOS_SEGMENTS_MAX, .true.))//' are accepted')
+      allocate(self%eos_breaks(n_breaks), self%eos_exponents(n_exponents))
+      if (n_breaks > 0_I4P) then
+         call file_parameters%get(section_name='eos', option_name='densities', val=self%eos_breaks, error=error)
+         if (error /= 0) call mpih%error_stop(msg=': failed to load [eos].(densities)')
+      endif
+      call file_parameters%get(section_name='eos', option_name='exponents', val=self%eos_exponents, error=error)
+      if (error /= 0) call mpih%error_stop(msg=': failed to load [eos].(exponents)')
+   endif
+   n_breaks = size(self%eos_breaks, kind=I4P)
+   if (.not.all(self%eos_breaks > 0._R8P)) call mpih%error_stop(msg=': [eos].(densities) must all be > 0')
+   if (n_breaks > 1_I4P) then
+      if (.not.all(self%eos_breaks(2:) > self%eos_breaks(:n_breaks-1))) &
+         call mpih%error_stop(msg=': [eos].(densities) must be strictly increasing')
+   endif
+   if (.not.all(self%eos_exponents >= 1._R8P)) call mpih%error_stop(msg=': [eos].(exponents) must all be >= 1')
+   do k=1, n_breaks
+      if (self%eos_exponents(k+1) < self%eos_exponents(k)) &
+         print '(A)', mpih%myrankstr//'warning: [eos] exponent decreases at the density '//trim(str(self%eos_breaks(k)))// &
+                      ': the law is not genuinely nonlinear there (composite waves; issue #100, P0)'
+   enddo
+   id = register_barotropic_table(c0=self%sound_speed, rho_ref=self%rho_ref, breaks=self%eos_breaks, &
+                                  exponents=self%eos_exponents)
+   if (id == 0_I4P) call mpih%error_stop(msg=': more distinct [eos] barotropic tables than the registry holds')
+   self%eos_arg = real(id, R8P)
+   endsubroutine load_barotropic
 
    ! public procedures
    pure subroutine primitive_state_to_conservative(model, gamma, prim, q)
@@ -290,7 +389,8 @@ contains
       call primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q(1:NV_EULER))
       q(IQ_S) = prim(5) * prim(1)**(1._R8P - gamma)
       q(IQ_S+1:) = 0._R8P
-   case(MODEL_EULER_ISO) ! issue #100: the pressure is not a state variable, prim(5) is ignored, the inert slot 0
+   case(MODEL_EULER_ISO, MODEL_EULER_BARO) ! issue #100: the pressure is not a state variable, prim(5) is ignored,
+                                           ! the inert slot 0 (the routine reads no EOS)
       call iso_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q)
    case(MODEL_MHD)
       call mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &

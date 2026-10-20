@@ -2,13 +2,15 @@
 """FLUME isothermal and barotropic equation-of-state oracle (issue #100, M13): the exact solutions P1-P4 check against.
 
     eos_oracle.py selftest                    the oracle checks itself against properties independent of its construction
-    eos_oracle.py riemann <work> [--case tube|collide] [--c0 C0] [--mach M]
-                                              a run against the exact solution: the star plateau, the shock and contact
-                                              positions, the inert energy slot, the L1 density error (reported)
+    eos_oracle.py riemann <work>              a run against the exact solution of its input (the [eos] law, regions 1
+                                              and 2): the star plateau, the shock and contact positions, the inert
+                                              energy slot, the L1 density error (reported)
     eos_oracle.py agree <cpu work> <fnl work> [--tol T]
                                               a CPU run against the FNL run of the same input (P2)
-    eos_oracle.py wave <work> ... [--c0 C0]   acoustic-wave runs, coarse to fine: the L1 error after one period, the
+    eos_oracle.py wave <work> ...             acoustic-wave runs, coarse to fine: the L1 error after one period, the
                                               observed orders, the finest above ORDER_MIN
+    eos_oracle.py selfconv <work> ... <ref>   runs coarse to fine against the finest (P3, the MF2021 table: no exact
+                                              solution): the L1 distance shrinking at an order >= 0.5, rho > 0, rE 0
     eos_oracle.py inert <work>                every checkpoint's energy slot exactly 0, the total mass constant
 
 The equation of state is barotropic, P = P(rho), so the hydro system is mass and momentum only; FLUME keeps its state
@@ -66,6 +68,7 @@ the code's schemes (entropy-satisfying LLF/HLL fluxes) do not depend on convexit
 from __future__ import annotations
 
 import argparse
+import configparser
 import math
 import sys
 from dataclasses import dataclass, field
@@ -561,6 +564,7 @@ TOL_CONTACT_CELLS = 2.0  # contact position (mid transverse-velocity crossing), 
 TOL_MASS = 1.0e-13  # total mass of a periodic box, relative drift
 ORDER_MIN = 4.5  # observed order of the finest pair of the acoustic wave (WENO-5, SSP-54 at CFL 0.1)
 EDGE_CELLS = 5  # cells kept away from every wave edge when the plateau is measured
+SELFCONV_ORDER_MIN = 0.5  # self-convergence order of a discontinuous solution with no exact form (the MF2021 table)
 TOL_AGREE = 1.0e-10  # CPU against FNL (P2): the largest difference of a field over its largest magnitude (AV av8 floor)
 
 
@@ -615,13 +619,42 @@ def crossing(x: np.ndarray, y: np.ndarray, level: float, lo: float, hi: float) -
     return math.nan
 
 
-def compare_riemann(work: Path, case: str, c0: float, mach: float) -> bool:
-    """A shock tube or a collision against the exact solution: plateau, waves, inert slot, L1."""
-    eos = isothermal(c0)
-    if case == "tube":
-        left, right = State(1.0, 0.0, 0.3), State(0.125, 0.0, -0.2)
-    else:
-        left, right = State(1.0, mach * c0), State(1.0, -mach * c0)
+def read_input(work: Path) -> configparser.ConfigParser:
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",))
+    ini.read(work / "input.ini")
+    return ini
+
+
+def eos_of(work: Path) -> Eos:
+    """The equation of state of a run, from its [eos] section: isothermal, or the barotropic table (without densities
+    and exponents, the Mathew & Federrath 2021 table, as the code's default)."""
+    sec = read_input(work)["eos"]
+    c0 = float(sec["sound_speed"])
+    if sec["type"].strip() == "isothermal":
+        return isothermal(c0)
+    breaks = tuple(float(v) for v in sec.get("densities", "").split())
+    exponents = tuple(float(v) for v in sec.get("exponents", "").split())
+    if not breaks and not exponents:
+        breaks, exponents = MF2021_BREAKS, MF2021_EXPONENTS
+    return Eos(c0=c0, breaks=breaks, exponents=exponents, rho_ref=float(sec.get("reference_density", "1.0")))
+
+
+def states_of(work: Path) -> tuple[State, State]:
+    """The left and right states of a run's Riemann problem: its regions 1 and 2 (a missing velocity is 0)."""
+    ini = read_input(work)
+
+    def state(k: int) -> State:
+        sec = ini[f"initial_conditions_region_{k}"]
+        return State(*(float(sec.get(v, "0.0")) for v in ("r", "u", "v", "w")))
+
+    return state(1), state(2)
+
+
+def compare_riemann(work: Path) -> bool:
+    """A Riemann problem run against the exact solution of its own input (EOS and states): plateau, shocks, contact
+    (when the transverse velocity jumps), inert slot, L1."""
+    eos = eos_of(work)
+    left, right = states_of(work)
     sol = Solution(eos, left, right)
     it = checkpoints(work)[-1]
     t = checkpoint_time(work, it)
@@ -664,7 +697,8 @@ def compare_riemann(work: Path, case: str, c0: float, mach: float) -> bool:
             )
             and ok
         )
-    if case == "tube":
+    contact = (left.v, left.w) != (right.v, right.w)
+    if contact:
         xc = 0.5 + t * sol.u_star
         v = q["rv"] / q["r"]
         xm = crossing(x, v, 0.5 * (left.v + right.v), xc - 0.1, xc + 0.1)
@@ -677,10 +711,30 @@ def compare_riemann(work: Path, case: str, c0: float, mach: float) -> bool:
             )
             and ok
         )
+    # a fan through a convex break splits into two fans with a plateau at the break density (P0): its interior cells
+    # (EDGE_CELLS from its ends) against the break, the table lookup at a segment boundary
+    for brk in eos.breaks:
+        at = np.flatnonzero(np.abs(rho_ex - brk) < 1.0e-6 * brk)
+        if at.size == 0:
+            continue
+        inner = at[(at >= at.min() + EDGE_CELLS) & (at <= at.max() - EDGE_CELLS)]
+        if inner.size < 3:
+            print(f"INFO [break] {work.name}: the plateau at rho = {brk} has {at.size} cells, too narrow to measure")
+            continue
+        err = float(abs(np.mean(q["r"][inner]) - brk) / brk)
+        ok = (
+            check(
+                "break",
+                err < TOL_PLATEAU,
+                f"{work.name}: the fan plateau at the break rho = {brk}: mean error {err:.1e} ({inner.size} of "
+                f"{at.size} cells)",
+            )
+            and ok
+        )
     inert = float(np.max(np.abs(q["rE"])))
     ok = check("inert", inert == 0.0, f"{work.name}: max |rE| {inert:.1e} (the energy slot is inert)") and ok
     print(f"INFO [l1] {work.name}: L1 density error {l1:.3e} relative ({x.size} cells)")
-    if case == "tube":
+    if contact:
         v_ex = np.array([sol.sample((xi - 0.5) / t).v for xi in x])
         l1v = float(np.mean(np.abs(q["rv"] / q["r"] - v_ex)))
         print(f"INFO [l1] {work.name}: L1 transverse-velocity error {l1v:.3e} (the contact)")
@@ -699,14 +753,19 @@ def sol_edges(sol: Solution) -> list[float]:
     return out
 
 
-def compare_wave(works: list[Path], c0: float, amplitude: float) -> bool:
-    """The acoustic wave after one period against its initial profile: the L1 error at each resolution, the orders."""
+def compare_wave(works: list[Path]) -> bool:
+    """The acoustic wave after one period against the linear solution of its own input (EOS, background density,
+    amplitude, wavelength: c^2 = dP/drho at the background): the L1 error at each resolution, the orders."""
     rows = []
     for work in works:
+        ini = read_input(work)
+        rho0 = float(ini["initial_conditions_region_1"]["r"])
+        amplitude = float(ini["initial_conditions"]["wave_amplitude"])
+        k = 2.0 * math.pi / float(ini["initial_conditions"]["wavelength"])
         it = checkpoints(work)[-1]
         x, q = checkpoint_line(work, it)
         t = checkpoint_time(work, it)
-        rho_ex, _ = linear_wave(isothermal(c0), 1.0, amplitude, 2.0 * math.pi, x, t)
+        rho_ex, _ = linear_wave(eos_of(work), rho0, amplitude, k, x, t)
         rows.append((x.size, float(np.mean(np.abs(q["r"] - rho_ex)))))
     ok = True
     for (n0, e0), (n1, e1) in zip(rows[:-1], rows[1:], strict=True):
@@ -715,6 +774,44 @@ def compare_wave(works: list[Path], c0: float, amplitude: float) -> bool:
     (n0, e0), (n1, e1) = rows[-2], rows[-1]
     finest = math.log(e0 / e1) / math.log(n1 / n0)
     return check("order", finest > ORDER_MIN, f"finest pair N {n0} -> {n1}: order {finest:.2f} (> {ORDER_MIN})") and ok
+
+
+def compare_selfconv(works: list[Path]) -> bool:
+    """Runs of one problem, coarse to fine, the last the reference: each coarser density against the reference averaged
+    onto its cells (L1 relative), the distance decreasing with an order of at least SELFCONV_ORDER_MIN; every run's
+    density positive, its energy slot 0 and, on a periodic box, its total mass constant (TOL_MASS)."""
+    ref = works[-1]
+    xr, qr = checkpoint_line(ref, checkpoints(ref)[-1])
+    rows, ok = [], True
+    for work in works:
+        x, q = checkpoint_line(work, checkpoints(work)[-1])
+        names, hist = history(work)
+        mass = hist[:, names.index("int_r")]
+        drift = float(np.max(np.abs(mass - mass[0])) / abs(mass[0]))
+        ok = check("positive", float(q["r"].min()) > 0.0, f"{work.name}: min rho {q['r'].min():.3e}") and ok
+        ok = (
+            check("inert", float(np.abs(q["rE"]).max()) == 0.0, f"{work.name}: max |rE| {np.abs(q['rE']).max():.1e}")
+            and ok
+        )
+        ok = check("mass", drift < TOL_MASS, f"{work.name}: total mass drift {drift:.1e}") and ok
+        if work is ref:
+            continue
+        ratio = xr.size // x.size
+        assert ratio * x.size == xr.size, (work, ref)
+        coarse = qr["r"].reshape(x.size, ratio).mean(axis=1)
+        rows.append((x.size, float(np.mean(np.abs(q["r"] - coarse)) / float(np.mean(coarse)))))
+    for (n0, e0), (n1, e1) in zip(rows[:-1], rows[1:], strict=True):
+        order = math.log(e0 / e1) / math.log(n1 / n0)
+        ok = (
+            check(
+                "selfconv",
+                order >= SELFCONV_ORDER_MIN,
+                f"N {n0} -> {n1}: L1 distance to the N = {xr.size} reference {e0:.3e} -> {e1:.3e}, order "
+                f"{order:.2f} (>= {SELFCONV_ORDER_MIN})",
+            )
+            and ok
+        )
+    return ok
 
 
 def compare_inert(work: Path) -> bool:
@@ -781,30 +878,29 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("selftest", help="check the oracle against properties independent of its construction")
-    p = sub.add_parser("riemann", help="a shock tube or collision run against the exact solution")
+    p = sub.add_parser("riemann", help="a Riemann problem run against the exact solution of its input")
     p.add_argument("work", type=Path)
-    p.add_argument("--case", choices=("tube", "collide"), default="tube")
-    p.add_argument("--c0", type=float, default=1.0)
-    p.add_argument("--mach", type=float, default=5.0)
     p = sub.add_parser("wave", help="acoustic-wave runs (coarse to fine): L1 errors and orders")
     p.add_argument("works", type=Path, nargs="+")
-    p.add_argument("--c0", type=float, default=1.0)
-    p.add_argument("--amplitude", type=float, default=1.0e-6)
     p = sub.add_parser("agree", help="a CPU run against the FNL run of the same input (P2)")
     p.add_argument("cpu", type=Path)
     p.add_argument("fnl", type=Path)
     p.add_argument("--tol", type=float, default=TOL_AGREE)
+    p = sub.add_parser("selfconv", help="runs coarse to fine against the finest (no exact solution: P3 MF2021)")
+    p.add_argument("works", type=Path, nargs="+")
     p = sub.add_parser("inert", help="the energy slot of every checkpoint and the total mass of a run")
     p.add_argument("work", type=Path)
     args = ap.parse_args()
     if args.cmd == "selftest":
         return 0 if selftest() else 1
     if args.cmd == "riemann":
-        return 0 if compare_riemann(args.work, args.case, args.c0, args.mach) else 1
+        return 0 if compare_riemann(args.work) else 1
     if args.cmd == "wave":
-        return 0 if compare_wave(args.works, args.c0, args.amplitude) else 1
+        return 0 if compare_wave(args.works) else 1
     if args.cmd == "agree":
         return 0 if compare_agree(args.cpu, args.fnl, args.tol) else 1
+    if args.cmd == "selfconv":
+        return 0 if compare_selfconv(args.works) else 1
     if args.cmd == "inert":
         return 0 if compare_inert(args.work) else 1
     return 2
