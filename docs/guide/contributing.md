@@ -15,14 +15,22 @@ is welcome. The project follows a KISS (Keep It Simple and Stupid) philosophy.
 
 ## Pull Requests
 
-1. Fork the repository on GitHub
-2. Create a topic branch from `master`:
+ADAM is developed trunk-based on `develop`: there are no long-lived feature branches.
+
+1. Fork the repository on GitHub and branch from `develop`:
    ```bash
-   git checkout -b fix/master/my_contribution master
+   git checkout -b my-change develop
    ```
-3. Test your changes with `fpm test` or `fobis build --mode tests-gnu && bash scripts/run_tests.sh`
-4. Check for unnecessary whitespace: `git diff --check`
-5. Submit a pull request with a clear commit message
+2. Run the regression suites of the applications your change can reach, as CI does:
+   ```bash
+   ./src/tests/prism/regression/run.sh cpu                         # PRISM, CPU
+   ./src/tests/flume/regression/run.sh cpu                         # FLUME, CPU
+   ./src/tests/prism/regression/run.sh fnl --varset local_nvf      # PRISM, GPU (OpenACC); CI has no GPU
+   REGRESSION_CASES="rmf rmf-amr" ./src/tests/prism/regression/run.sh cpu --no-build   # only some cases
+   ```
+   A change to a numerical result must also update the affected goldens, with the reason in the commit message.
+3. Check for unnecessary whitespace: `git diff --check`
+4. Open a pull request against `develop`, with a [Conventional Commits](#commit-style) message
 
 ## Fortran Coding Style
 
@@ -31,7 +39,7 @@ is welcome. The project follows a KISS (Keep It Simple and Stupid) philosophy.
 - Name all constants
 - `implicit none` in every module and program
 - Declare `intent` for all procedure arguments, ordered: pass arg → `inout` → `in` → `out` → optional
-- Indent with two spaces (not tabs)
+- Indent with three spaces (not tabs); keep lines within 132 columns
 - No trailing whitespace; blank lines must contain no spaces
 - Use `>, <, ==` instead of `.gt., .lt., .eq.`
 - Avoid Windows-style CRLF line endings
@@ -63,12 +71,13 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) so that `CHANGE
 | `ci:` | CI/CD pipeline | CI/CD |
 | `chore:` | Maintenance | Miscellaneous |
 
-Append `!` for breaking changes (`feat!:`, `fix!:`). Reference issues with `#123` — they are auto-linked.
+Give the part of the code as the scope, `type(scope): description`. Append `!` for breaking changes (`feat!:`,
+`fix!:`). Reference issues with `#123`; they are auto-linked.
 
 ```
-feat: add R32P kind parameter
-fix: correct byte_size for character arrays (#42)
-feat!: rename check_endian to init_endian
+fix(prism): a non-positive output cadence disables that output instead of crashing on mod(it, 0) (#97)
+perf(lib/fnl): collapse the RK, eikonal and L2-norm nests like their OpenMP twins (#95 P4)
+test(flume): the vortex-rk3 regression case, the only one on the low-storage Runge-Kutta path (#95)
 ```
 
 ---

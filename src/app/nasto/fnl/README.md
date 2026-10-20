@@ -294,10 +294,10 @@ use adam_fnl_library            ! FUNDAL SDK: dev_alloc, field_fnl_object, …
 
 ```bash
 # OpenACC — NVIDIA HPC SDK (nvfortran)
-FoBiS.py build -mode nasto-fnl-nvf-oac
+fobis build --mode nasto-fnl-nvf --varset local_nvf
 
 # Debug build
-FoBiS.py build -mode nasto-fnl-nvf-oac-debug
+fobis build --mode nasto-fnl-nvf-debug --varset local_nvf
 ```
 
 The executable `adam_nasto_fnl` is placed in `exe/`.

@@ -24,8 +24,8 @@ and GPU-aware MPI communication via the FUNDAL library.
 ## Build modes
 
 ```bash
-FoBiS.py build -mode prism-fnl-nvf-oac        # OpenACC with NVIDIA compiler
-FoBiS.py build -mode prism-fnl-nvf-oac-debug  # debug build
+fobis build --mode prism-fnl-nvf --varset local_nvf        # OpenACC with NVIDIA compiler
+fobis build --mode prism-fnl-nvf-debug --varset local_nvf  # debug build
 ```
 
 ## GPU memory layout — critical design point

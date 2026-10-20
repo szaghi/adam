@@ -179,34 +179,41 @@ end type
 All solvers share the same INI-driven configuration and build workflow:
 
 ```ini
+; excerpt of src/tests/flume/regression/sod-x/input.ini (Sod shock tube): a FLUME input lists every section
+[physics]
+physical_model = euler
+
 [numerics]
 scheme_space = weno
-fdv_order    = 5
 
 [runge_kutta]
-scheme = runge-kutta-ssp-54
+scheme = runge-kutta-ssp-33
 
 [time]
 time_max = 0.2
-CFL      = 0.4
-
-[grid]
-ni = 128 ; nj = 1 ; nk = 1 ; ngc = 3
-emin_x = 0.0 ; emax_x = 1.0
+CFL      = 0.5
 
 [initial_conditions]
-type = sod-x
+type           = riemann-problem
+regions_number = 2
+
+[initial_conditions_region_1]
+r      = 1.0
+u      = 0.0
+p      = 1.0
+emin_x = 0.0
+emax_x = 0.5
 ```
 
 ```bash
-# Navier-Stokes on GPU
-FoBiS.py build -mode nasto-nvf-cuda && mpirun -np 4 exe/adam_nasto_nvf
+# Compressible Euler / MHD on GPU (FLUME)
+fobis build --mode flume-fnl-nvf --varset local_nvf && mpirun -np 4 exe/adam_flume_fnl input.ini
 
-# Maxwell / plasma on GPU
-FoBiS.py build -mode prism-fnl-nvf-oac && mpirun -np 4 exe/adam_prism_fnl
+# Maxwell / plasma on GPU (PRISM)
+fobis build --mode prism-fnl-nvf --varset local_nvf && mpirun -np 4 exe/adam_prism_fnl
 
-# Any solver on CPU-only cluster — same source, same input file
-FoBiS.py build -mode nasto-cpu-gnu && mpirun -np 64 exe/adam_nasto_cpu
+# The same source on a CPU-only cluster
+fobis build --mode flume-cpu-gnu && mpirun -np 64 exe/adam_flume_cpu input.ini
 ```
 
 Results are written as HDF5 files, readable with ParaView or any HDF5 tool.

@@ -19,8 +19,8 @@ comprehensive set of time integration schemes.
 ## Build mode
 
 ```bash
-FoBiS.py build -mode prism-gnu        # CPU build with GNU
-FoBiS.py build -mode prism-gnu-debug  # debug build
+fobis build --mode prism-cpu-gnu        # CPU build with GNU
+fobis build --mode prism-cpu-gnu-debug  # debug build
 ```
 
 ## Type: `prism_cpu_object`

@@ -333,10 +333,10 @@ use adam_chase_time_object
 
 ```bash
 # GNU compiler (production)
-FoBiS.py build -mode chase-gnu
+fobis build --mode chase-cpu-gnu
 
 # GNU compiler (debug)
-FoBiS.py build -mode chase-gnu-debug
+fobis build --mode chase-cpu-gnu-debug
 ```
 
 The executable `adam_chase_cpu` is placed in `exe/`.

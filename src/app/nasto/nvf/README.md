@@ -296,10 +296,10 @@ qualifier so it can be called from within a `attributes(global)` kernel or a
 
 ```bash
 # NVIDIA CUDA Fortran (production)
-FoBiS.py build -mode nasto-nvf-cuda
+# no fobis mode nasto-nvf-cuda exists (NASTO is not maintained against the current library)
 
 # Debug build
-FoBiS.py build -mode nasto-nvf-cuda-debug
+# no fobis mode nasto-nvf-cuda-debug exists (NASTO is not maintained against the current library)
 ```
 
 The executable `adam_nasto_nvf` is placed in `exe/`.

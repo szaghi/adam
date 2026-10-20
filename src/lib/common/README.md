@@ -11,8 +11,8 @@ The aggregate entry point `adam_common_library` re-exports all modules below; a 
 - [AMR data structures](#amr-data-structures)
 - [Grid and field](#grid-and-field)
 - [Communication and maps](#communication-and-maps)
-- [Numerical methods — spatial](#numerical-methods--spatial)
-- [Numerical methods — temporal](#numerical-methods--temporal)
+- [Numerical methods — spatial](#numerical-methods-spatial)
+- [Numerical methods — temporal](#numerical-methods-temporal)
 - [Physics support](#physics-support)
 - [Infrastructure](#infrastructure)
 - [Forest orchestration (multi-realm)](#forest-orchestration-multi-realm)
@@ -108,7 +108,7 @@ Key methods: `initialize`, `make_comm_local_maps`, `blocks_reorder`.
 
 ---
 
-## Numerical methods — spatial
+## Numerical methods: spatial
 
 ### `adam_weno_object` — WENO reconstruction
 
@@ -150,7 +150,7 @@ Convective interface flux computation for the compressible Euler equations. All 
 
 ---
 
-## Numerical methods — temporal
+## Numerical methods: temporal
 
 ### `adam_rk_object` — explicit Runge-Kutta integration
 

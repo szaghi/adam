@@ -2,8 +2,8 @@
 title: About ADAM
 ---
 
-<img src="/adam-logo-bga.png" alt="MOSAIC logo" width="480" class="light-only">
-<img src="/adam-logo-bgai.png" alt="MOSAIC logo" width="480" class="dark-only">
+<img src="/adam-logo-bga.png" alt="ADAM logo" width="480" class="light-only">
+<img src="/adam-logo-bgai.png" alt="ADAM logo" width="480" class="dark-only">
 
 # About ADAM
 
@@ -24,9 +24,9 @@ The primary focus is on large-scale scientific computing: ADAM targets exascale 
 | Application | Description |
 |-------------|-------------|
 | [NASTO](/applications/nasto/) | Compressible 3D Navier-Stokes solver |
-| [PRISM](/applications/prism) | Maxwell equations solver for electromagnetic simulations |
-| [CHASE](/applications/chase) | Euler solver (deprecated, superseded by FLUME) |
-| [PATCH](/applications/patch) | Patch-based application |
+| [PRISM](/applications/prism/) | Maxwell equations solver for electromagnetic simulations |
+| [CHASE](/applications/chase/) | Euler solver (deprecated, superseded by FLUME) |
+| [PATCH](/applications/patch/) | Patch-based application |
 | [FLUME](/applications/flume/) | Compressible Euler solver, MHD in development |
 | [ASCOT](/applications/ascot) | Binary-to-ASCII output converter |
 
@@ -53,7 +53,7 @@ If you use ADAM in work that leads to a scientific publication, please cite the 
 > *Computers and Fluids*, 266 (2023) 106040.
 > DOI: [10.1016/j.compfluid.2023.106040](https://doi.org/10.1016/j.compfluid.2023.106040)
 
-The paper describes the ADAM framework architecture, the AMR/IB coupling strategy, the GPU parallelization approach (CUDA Fortran), and demonstrates strong scaling on a shock–sphere interaction benchmark. A preprint is available in [docs/papers/zaghi-2023-computer_fluids.pdf](../../papers/zaghi-2023-computer_fluids.pdf).
+The paper describes the ADAM framework architecture, the AMR/IB coupling strategy, the GPU parallelization approach (CUDA Fortran), and demonstrates strong scaling on a shock–sphere interaction benchmark. A preprint is available in [docs/papers/zaghi-2023-computer_fluids.pdf](../papers/zaghi-2023-computer_fluids.pdf).
 
 BibTeX entry:
 

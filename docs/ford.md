@@ -1,6 +1,11 @@
 ---
 project: ADAM
 src_dir: ../src
+exclude_dir: ../src/third_party
+             ../src/app/nasto
+             ../src/app/chase
+             ../src/app/patch
+             ../src/app/ascot
 output_dir: html/publish/
 project_github: https://github.com/szaghi/adam
 summary: Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing

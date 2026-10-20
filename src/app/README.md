@@ -132,16 +132,16 @@ src/app/nasto/
 
 ```bash
 # CPU (GNU compiler)
-FoBiS.py build -mode nasto-cpu-gnu
+fobis build --mode nasto-cpu-gnu
 
 # CUDA Fortran (NVIDIA HPC SDK)
-FoBiS.py build -mode nasto-nvf-cuda
+# no fobis mode nasto-nvf-cuda exists (NASTO is not maintained against the current library)
 
 # OpenACC (NVIDIA HPC SDK)
-FoBiS.py build -mode nasto-fnl-nvf-oac
+fobis build --mode nasto-fnl-nvf --varset local_nvf
 
 # Debug build
-FoBiS.py build -mode nasto-cpu-gnu-debug
+fobis build --mode nasto-cpu-gnu-debug
 ```
 
 ---
@@ -237,10 +237,10 @@ src/app/prism/
 
 ```bash
 # CPU (GNU compiler)
-FoBiS.py build -mode prism-gnu
+fobis build --mode prism-cpu-gnu
 
 # OpenACC (NVIDIA HPC SDK)
-FoBiS.py build -mode prism-fnl-nvf-oac
+fobis build --mode prism-fnl-nvf --varset local_nvf
 ```
 
 ---
@@ -306,7 +306,7 @@ src/app/chase/
 ### Build
 
 ```bash
-FoBiS.py build -mode chase-gnu
+fobis build --mode chase-cpu-gnu
 ```
 
 ---
@@ -362,7 +362,7 @@ src/app/patch/
 ### Build
 
 ```bash
-FoBiS.py build -mode patch-gnu
+fobis build --mode patch-cpu-gnu
 ```
 
 ---
@@ -448,5 +448,5 @@ src/app/ascot/
 ### Build
 
 ```bash
-FoBiS.py build -mode ascot-nvf-cuda
+fobis build --mode ascot-nvf-cuda --varset local_nvf
 ```

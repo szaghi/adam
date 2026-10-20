@@ -88,7 +88,7 @@ ascot -i slice.mat
 ## Building
 
 ```bash
-FoBiS.py build -mode ascot-nvf-cuda
+fobis build --mode ascot-nvf-cuda --varset local_nvf
 ```
 
 The executable is written to `exe/ascot`.

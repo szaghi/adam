@@ -15,7 +15,7 @@ hero:
       link: /guide/
     - theme: alt
       text: Applications
-      link: /applications/nasto/
+      link: /applications/
     - theme: alt
       text: View on GitHub
       link: https://github.com/szaghi/adam
@@ -74,7 +74,7 @@ If you use ADAM in work that leads to a scientific publication, please cite the 
 > *Computers and Fluids*, 266 (2023) 106040.
 > DOI: [10.1016/j.compfluid.2023.106040](https://doi.org/10.1016/j.compfluid.2023.106040)
 
-The paper describes the ADAM framework architecture, the AMR/IB coupling strategy, the GPU parallelization approach (CUDA Fortran), and demonstrates strong scaling on a shock–sphere interaction benchmark. A preprint is available in [docs/papers/zaghi-2023-computer_fluids.pdf](../papers/zaghi-2023-computer_fluids.pdf).
+The paper describes the ADAM framework architecture, the AMR/IB coupling strategy, the GPU parallelization approach (CUDA Fortran), and demonstrates strong scaling on a shock–sphere interaction benchmark. A preprint is available in [docs/papers/zaghi-2023-computer_fluids.pdf](./papers/zaghi-2023-computer_fluids.pdf).
 
 BibTeX entry:
 
@@ -195,34 +195,41 @@ end type
 All solvers share the same INI-driven configuration and build workflow:
 
 ```ini
+; excerpt of src/tests/flume/regression/sod-x/input.ini (Sod shock tube): a FLUME input lists every section
+[physics]
+physical_model = euler
+
 [numerics]
 scheme_space = weno
-fdv_order    = 5
 
 [runge_kutta]
-scheme = runge-kutta-ssp-54
+scheme = runge-kutta-ssp-33
 
 [time]
 time_max = 0.2
-CFL      = 0.4
-
-[grid]
-ni = 128 ; nj = 1 ; nk = 1 ; ngc = 3
-emin_x = 0.0 ; emax_x = 1.0
+CFL      = 0.5
 
 [initial_conditions]
-type = sod-x
+type           = riemann-problem
+regions_number = 2
+
+[initial_conditions_region_1]
+r      = 1.0
+u      = 0.0
+p      = 1.0
+emin_x = 0.0
+emax_x = 0.5
 ```
 
 ```bash
-# Navier-Stokes on GPU
-fobis build --mode nasto-nvf-cuda && mpirun -np 4 exe/adam_nasto_nvf
+# Compressible Euler / MHD on GPU (FLUME)
+fobis build --mode flume-fnl-nvf --varset local_nvf && mpirun -np 4 exe/adam_flume_fnl input.ini
 
-# Maxwell / plasma on GPU
-fobis build --mode prism-fnl-nvf-oac && mpirun -np 4 exe/adam_prism_fnl
+# Maxwell / plasma on GPU (PRISM)
+fobis build --mode prism-fnl-nvf --varset local_nvf && mpirun -np 4 exe/adam_prism_fnl
 
-# Any solver on CPU-only cluster — same source, same input file
-fobis build --mode nasto-cpu-gnu && mpirun -np 64 exe/adam_nasto_cpu
+# The same source on a CPU-only cluster
+fobis build --mode flume-cpu-gnu && mpirun -np 64 exe/adam_flume_cpu input.ini
 ```
 
 Results are written as HDF5 files, readable with ParaView or any HDF5 tool. For complete test cases see the [Tests](/tests/) section.

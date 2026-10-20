@@ -122,7 +122,7 @@ The manifest (any file name; the apps recognise it by its `[forest]` section):
 realms_number = 2
 
 [realm.1]
-ini = sod-2realm-r1.ini        ; relative to the manifest's directory
+ini = sod-2realm-r1.ini        ; relative to the working directory, not to the manifest
 
 [realm.2]
 ini = sod-2realm-r2.ini

@@ -213,13 +213,13 @@ The FNL backend adds GPU companion objects (`field_fnl_object`, `rk_fnl_object`,
 
 ```bash
 # CPU backend (GNU compiler)
-FoBiS.py build -mode prism-gnu
+fobis build --mode prism-cpu-gnu
 
 # CPU debug build
-FoBiS.py build -mode prism-gnu-debug
+fobis build --mode prism-cpu-gnu-debug
 
 # FNL (OpenACC) backend
-FoBiS.py build -mode prism-fnl-nvf-oac
+fobis build --mode prism-fnl-nvf --varset local_nvf
 ```
 
 Executables are written to `exe/adam_prism_cpu` and `exe/adam_prism_fnl`.

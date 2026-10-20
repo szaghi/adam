@@ -290,10 +290,10 @@ Single-cell device-callable procedures. Each routine is annotated with
 
 ```bash
 # Intel oneAPI (ifx) — OpenMP target offloading
-FoBiS.py build -mode nasto-gmp-ifx
+# no fobis mode nasto-gmp-ifx exists (NASTO is not maintained against the current library)
 
 # Debug build
-FoBiS.py build -mode nasto-gmp-ifx-debug
+# no fobis mode nasto-gmp-ifx-debug exists (NASTO is not maintained against the current library)
 ```
 
 The executable `adam_nasto_gmp` is placed in `exe/`.

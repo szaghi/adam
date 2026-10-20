@@ -220,10 +220,10 @@ mpih%finalize
 
 ```bash
 # Release build (GNU)
-FoBiS.py build -mode chase-gnu
+fobis build --mode chase-cpu-gnu
 
 # Debug build
-FoBiS.py build -mode chase-gnu-debug
+fobis build --mode chase-cpu-gnu-debug
 ```
 
 The executable is written to `exe/adam_chase_cpu`.

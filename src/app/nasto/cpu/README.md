@@ -240,10 +240,10 @@ building blocks. Used by `nasto_cpu_object` but designed as a standalone library
 
 ```bash
 # GNU compiler (production)
-FoBiS.py build -mode nasto-cpu-gnu
+fobis build --mode nasto-cpu-gnu
 
 # GNU compiler (debug — bounds checking + traceback)
-FoBiS.py build -mode nasto-cpu-gnu-debug
+fobis build --mode nasto-cpu-gnu-debug
 ```
 
 The executable `adam_nasto_cpu` is placed in `exe/`.

@@ -19,14 +19,16 @@ The result is a matrix of `N_equations × N_backends` combinations served by a s
 
 | Directory | Role | Parallelism |
 |-----------|------|-------------|
-| [`common/`](#common--src-lib-common) | Portable core objects — grid, tree, field, numerics, I/O | CPU · MPI · OpenMP |
-| [`fnl/`](#fnl--src-lib-fnl) | OpenACC GPU backend (FUNDAL-based) | OpenACC · MPI |
-| [`nvf/`](#nvf--src-lib-nvf) | CUDA Fortran GPU backend | CUDA Fortran · MPI |
-| [`gmp/`](#gmp--src-lib-gmp) | OpenMP target offloading backend *(experimental)* | OpenMP target · MPI |
+| [`common/`](#common) | Portable core objects — grid, tree, field, numerics, I/O | CPU · MPI · OpenMP |
+| [`fnl/`](#fnl) | OpenACC GPU backend (FUNDAL-based) | OpenACC · MPI |
+| [`nvf/`](#nvf) | CUDA Fortran GPU backend | CUDA Fortran · MPI |
+| [`gmp/`](#gmp) | OpenMP target offloading backend *(experimental)* | OpenMP target · MPI |
 
 ---
 
-## `common/` — `src/lib/common`
+## `common/`
+
+Source: `src/lib/common`.
 
 The common library provides all CPU-portable, physics-agnostic building blocks. Every GPU backend extends these classes rather than replacing them. All modules are re-exported by the aggregate entry point `adam_common_library`.
 
@@ -75,7 +77,9 @@ The common library provides all CPU-portable, physics-agnostic building blocks. 
 
 ---
 
-## `fnl/` — `src/lib/fnl`
+## `fnl/`
+
+Source: `src/lib/fnl`.
 
 The FNL backend accelerates compute-intensive kernels with **OpenACC**, relying on the [FUNDAL](https://github.com/szaghi/FUNDAL) library for GPU memory management and device-side data movement. It extends the common objects via Fortran type extension; all non-kernel logic is inherited unchanged.
 
@@ -104,7 +108,9 @@ The aggregate entry point is `adam_fnl_library`.
 
 ---
 
-## `nvf/` — `src/lib/nvf`
+## `nvf/`
+
+Source: `src/lib/nvf`.
 
 The NVF backend uses **CUDA Fortran** (NVIDIA HPC SDK `nvfortran`) for maximum low-level control over thread blocks, shared memory, and warp-level primitives on NVIDIA GPUs. It follows the same extension pattern as FNL.
 
@@ -131,7 +137,9 @@ The aggregate entry point is `adam_nvf_library`.
 
 ---
 
-## `gmp/` — `src/lib/gmp`
+## `gmp/`
+
+Source: `src/lib/gmp`.
 
 The GMP backend targets **OpenMP target offloading** (OpenMP 5.x `!$omp target` directives), enabling portability to non-NVIDIA accelerators (AMD, Intel GPUs) without vendor-specific extensions. It is currently experimental.
 

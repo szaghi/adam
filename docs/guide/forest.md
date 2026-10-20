@@ -24,7 +24,7 @@ A forest is declared by a small INI file. PRISM and other apps auto-detect a man
 realms_number = 2
 
 [realm.1]
-ini = realm_1.ini       ; path relative to forest.ini's directory
+ini = realm_1.ini       ; opened as given: relative to the working directory, not to forest.ini
 
 [realm.2]
 ini = realm_2.ini
@@ -46,7 +46,7 @@ Schema summary:
 | Section | Key | Required | Description |
 |---|---|---|---|
 | `[forest]`                       | `realms_number`             | yes | Number of realms in the forest (≥ 1). |
-| `[realm.N]`                      | `ini`                       | yes | Per-realm INI path, relative to the manifest's directory. |
+| `[realm.N]`                      | `ini`                       | yes | Per-realm INI path, opened as given: relative to the working directory of the run, not to the manifest's directory. |
 | `[forest.topology]`              | `inter_realm_faces_number`  | no  | Count of inter-realm seams; absent means no inter-realm coupling. |
 | `[forest.topology.face_N]`       | `realm_a`, `realm_b`        | yes | 1-based realm indices on each side of the seam. |
 |                                  | `face_a`, `face_b`          | yes | Face codes: `+x`/`-x`/`+y`/`-y`/`+z`/`-z`. |

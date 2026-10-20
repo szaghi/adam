@@ -231,10 +231,10 @@ endselect
 
 ```bash
 # Release build (GNU)
-FoBiS.py build -mode patch-gnu
+fobis build --mode patch-cpu-gnu
 
 # Debug build
-FoBiS.py build -mode patch-gnu-debug
+fobis build --mode patch-cpu-gnu-debug
 ```
 
 The executable is written to `exe/adam_patch_cpu`.

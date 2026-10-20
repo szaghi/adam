@@ -19,7 +19,7 @@ module adam_forest_manifest
 !<   realms_number = 2
 !<
 !<   [realm.1]
-!<   ini = realm_1.ini       ; path relative to forest.ini's directory
+!<   ini = realm_1.ini       ; opened as given: relative to the working directory, not to forest.ini
 !<
 !<   [realm.2]
 !<   ini = realm_2.ini

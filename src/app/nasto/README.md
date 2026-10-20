@@ -91,19 +91,19 @@ are defined in `fobos` at the repository root.
 
 ```bash
 # List available NASTO build modes
-FoBiS.py build -lmodes | grep nasto
+fobis build --lmodes | grep nasto
 
 # CPU — GNU compiler
-FoBiS.py build -mode nasto-cpu-gnu
+fobis build --mode nasto-cpu-gnu
 
 # CUDA Fortran — NVIDIA HPC SDK
-FoBiS.py build -mode nasto-nvf-cuda
+# no fobis mode nasto-nvf-cuda exists (NASTO is not maintained against the current library)
 
 # OpenACC — NVIDIA HPC SDK
-FoBiS.py build -mode nasto-fnl-nvf-oac
+fobis build --mode nasto-fnl-nvf --varset local_nvf
 
 # Debug (bounds checking, traceback)
-FoBiS.py build -mode nasto-cpu-gnu-debug
+fobis build --mode nasto-cpu-gnu-debug
 ```
 
 Executables are placed in `exe/` at the repository root.
@@ -191,7 +191,7 @@ Integration test cases are in `src/tests/nasto/`:
 Build and run a test:
 
 ```bash
-FoBiS.py build -mode test-nasto-sod-x-gnu
+# no fobis mode test-nasto-sod-x-gnu exists (NASTO is not maintained against the current library)
 mpirun -np 1 exe/test_nasto_sod_x
 ```
 
