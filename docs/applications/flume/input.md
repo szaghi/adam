@@ -414,7 +414,7 @@ Notes on `definition`:
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
 | `itype` | string | **no check** | `trilinear`, `inverse_distance`. Other → fatal (FLUME check). | Interpolation from the cells to the slice points. |
-| `n_save` | int | **no check** | Must be `> 0`. `0` makes `mod(it, 0)` crash at runtime. | Save cadence in steps. The last step is also saved. |
+| `n_save` | int | **no check** | `<= 0` disables this slice, last step included ([#97](https://github.com/szaghi/adam/issues/97); it used to crash on `mod(it, 0)`). | Save cadence in steps. The last step is also saved. |
 | `ni`, `nj`, `nk` | int | **no check** | `>= 1` | Points of the slice lattice (cell-centred on the box). |
 | `emin_x`, `emin_y`, `emin_z`, `emax_x`, `emax_y`, `emax_z` | real | **no check** | — | Box sampled by the lattice. |
 

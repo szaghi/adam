@@ -26,6 +26,7 @@ type :: prism_time_object
    contains
       procedure, pass(self) :: description    !< Return pretty-printed object description.
       procedure, pass(self) :: initialize     !< Initialize time handler.
+      procedure, pass(self) :: is_on_cadence  !< Return true if the current step is a multiple of a cadence.
       procedure, pass(self) :: is_to_save     !< Return true if data are to save.
       procedure, pass(self) :: load_from_file !< Load config from file.
       procedure, pass(self) :: print_progress !< Print simulation progress.
@@ -58,14 +59,30 @@ contains
    print '(A)', mpih%myrankstr//'prism_time_object%initialize finish'
    endsubroutine initialize
 
+   pure function is_on_cadence(self, cadence)
+   !< Return true if the current step is a multiple of `cadence`.
+   !<
+   !< A non-positive cadence is never on cadence: it disables the output it drives and never reaches `mod(it, 0)`
+   !< (issue #97). The test is nested, not `cadence > 0 .and. mod(...)`, because Fortran does not short-circuit.
+   class(prism_time_object), intent(in) :: self          !< Time handler.
+   integer(I4P),             intent(in) :: cadence       !< Cadence in time steps.
+   logical                              :: is_on_cadence !< Check result.
+
+   is_on_cadence = .false.
+   if (cadence > 0_I4P) is_on_cadence = (mod(self%it, cadence) == 0_I4P)
+   endfunction is_on_cadence
+
    function is_to_save(self, it_save)
-   !< Return true if slices are to save.
+   !< Return true if data are to save: every `it_save` steps and at the end of the run.
+   !<
+   !< A non-positive `it_save` disables saving, end of run included (as FLUME, issue #97).
    class(prism_time_object), intent(inout) :: self       !< Time handler.
    integer(I4P),             intent(in)    :: it_save    !< Save iterations frequency.
    logical                                 :: is_to_save !< Check result.
 
    is_to_save = .false.
-   if (mod(self%it,it_save)==0.or.self%it==self%it_max.or.   &
+   if (it_save <= 0_I4P) return
+   if (self%is_on_cadence(it_save).or.self%it==self%it_max.or. &
       (((self%it_max<=0).and.(self%time>=self%time_max)).or. &
        ((self%it_max> 0).and.(self%it>=self%it_max)))) is_to_save = .true.
    endfunction is_to_save

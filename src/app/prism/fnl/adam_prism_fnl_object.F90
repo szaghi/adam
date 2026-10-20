@@ -823,7 +823,7 @@ contains
       call self%save_slices
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
-      if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
+      if (self%time%is_on_cadence(self%io%restart_save)) call self%save_restart_files
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
@@ -6332,7 +6332,7 @@ contains
       call save_memory_status_cpu(file_name='memory_cpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
       call save_memory_status_gpu(file_name='memory_gpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
    endif
-   if (mod(self%time%it,self%amr%frequency)==0) then
+   if (self%time%is_on_cadence(self%amr%frequency)) then
       call mpih_fnl%barrier(tictoc=.true.)
       !call self%amr_update
       call mpih_fnl%barrier(tictoc=.true.)

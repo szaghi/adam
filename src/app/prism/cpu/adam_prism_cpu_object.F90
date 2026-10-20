@@ -444,7 +444,7 @@ contains
       call self%save_slices
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
-      if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
+      if (self%time%is_on_cadence(self%io%restart_save)) call self%save_restart_files
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
@@ -1990,7 +1990,7 @@ contains
    if (self%io%save_memory_status) then
       call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
    endif
-   if (mod(self%time%it,self%amr%frequency)==0) then
+   if (self%time%is_on_cadence(self%amr%frequency)) then
       ! call mpih%barrier(tictoc=.true.)
       !call self%amr_update
       ! call mpih%barrier(tictoc=.true.)

@@ -66,7 +66,8 @@ contains
    is_to_save = .false.
    if (self%slices_number>0) then
       slices_loop : do s=1, self%slices_number
-         if (it>0) then
+         ! A non-positive n_save disables that slice, end of run included; nested so mod(it, 0) is never reached (#97).
+         if (it>0 .and. self%slice(s)%n_save>0) then
             if (mod(it,self%slice(s)%n_save)==0.or.it==it_max.or.&
                (((it_max <= 0).and.(time >= time_max)).or.((it>=it_max).and.(it_max > 0)))) then
                is_to_save = .true.
@@ -224,7 +225,7 @@ contains
 
    if (self%slices_number>0) then
       do s=1, self%slices_number
-         if (it>0) then
+         if (it>0 .and. self%slice(s)%n_save>0) then ! as is_to_save: a non-positive n_save disables the slice (#97)
             if (mod(it,self%slice(s)%n_save)==0.or.it==it_max.or.&
                (((it_max <= 0).and.(time >= time_max)).or.((it>=it_max).and.(it_max > 0)))) then
                call mpih%barrier(tictoc=.true.)
