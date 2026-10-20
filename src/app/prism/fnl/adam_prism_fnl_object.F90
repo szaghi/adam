@@ -2008,8 +2008,7 @@ contains
       call self%compute_coils_current_time_zero()
       if (is_pic_model(self%physics%physical_model)) &
          call self%impose_pic_fields_time_zero(ivar=VAR_DX)
-      if (maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:))) > 0._R8P) &
-         call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+      if (self%has_current_density()) call self%impose_pic_fields_time_zero(ivar=VAR_BX)
    endif
 
    call self%copy_cpu_gpu

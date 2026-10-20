@@ -121,6 +121,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: compute_coils_current_time_zero !< Host-side coil current initialization at t=0.
       procedure, pass(self) :: impose_ct_correction   !< Host-side constrained-transport projection on q(ivar:ivar+2).
       procedure, pass(self) :: impose_pic_fields_time_zero !< Host-side elliptic initialization for PIC/current-driven fields.
+      procedure, pass(self) :: has_current_density    !< True if the current density is non-zero on any rank.
       procedure, pass(self) :: set_rectangular_coil_x !< Subroutine to set a rectangular coil source with +-x normal
       procedure, pass(self) :: set_rectangular_coil_y !< Subroutine to set a rectangular coil source with +-y normal
       procedure, pass(self) :: set_rectangular_coil_z !< Subroutine to set a rectangular coil source with +-z normal
@@ -1506,6 +1507,7 @@ contains
    class(prism_common_object), intent(inout) :: self            !< The equation.
    integer(I4P),               intent(in)    :: ivar            !< Variable (start) index in q.
    real(R8P)                                 :: dq_max          !< Maximum residual.
+   real(R8P)                                 :: div_rho_max     !< Maximum |div(D) - rho| over all ranks.
    real(R8P), allocatable                    :: D0(:,:,:,:,:)   !< Buffer to monitor divergence evolution for D.
    real(R8P), allocatable                    :: grad(:,:,:,:,:) !< Correction field.
    integer(I4P)                              :: elliptic_bc_type(6) !< Elliptic BC type for each face.
@@ -1577,9 +1579,9 @@ contains
                      enddo
                   enddo
                   call self%compute_divergence(hs=hs, ivar=ivar, q=D0, divergence=buffer(9,:,:,:,:))
-                  call mpih%print_message('Divergence - rho maximum value: '//trim(str(maxval(abs(buffer(9,:,:,:,:)- &
-                                                                              self%q(ind,:,:,:,:))),.true.)))
-                  if (maxval(abs(buffer(9,:,:,:,:)-self%q(ind,:,:,:,:))) < 1.0E-12_R8P) then
+                  div_rho_max = global_max(maxval(abs(buffer(9,:,:,:,:)-self%q(ind,:,:,:,:))))
+                  call mpih%print_message('Divergence - rho maximum value: '//trim(str(div_rho_max,.true.)))
+                  if (div_rho_max < 1.0E-12_R8P) then
                      call print_elliptic_progress(label='Elliptic CT divD-rho correction', progress_done=progress_counter, &
                                                   progress_total=progress_total, last_percent=last_progress_percent,       &
                                                   converged=.true.)
@@ -1598,6 +1600,8 @@ contains
                      enddo
                   enddo
                enddo
+            else
+               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=1.0E-12_R8P)
             endif
          endif
       elseif (ivar == VAR_BX) then
@@ -1625,6 +1629,7 @@ contains
                                                        progress_label='Elliptic CT divB correction',                          &
                                                        progress_counter=progress_counter, progress_total=progress_total,       &
                                                        progress_last_percent=last_progress_percent)
+               dq_max = global_max(dq_max)
                if (dq_max < self%flail%tolerance) then
                   call print_elliptic_progress(label='Elliptic CT divB correction', progress_done=progress_counter, &
                                                progress_total=progress_total, last_percent=last_progress_percent,   &
@@ -1645,10 +1650,22 @@ contains
                   enddo
                enddo
             enddo
+         else
+            call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
          endif
       endif
    endassociate
    endsubroutine impose_ct_correction
+
+   function has_current_density(self) result(has)
+   !< Return true if the current density (host `q`) is non-zero on any rank; every rank must call it.
+   !< It decides whether the elliptic magnetic-field initialization runs. A rank-local test let the ranks holding current
+   !< enter that solve while the others skipped it, and the solve's ghost exchange then waited forever (issue #84).
+   class(prism_common_object), intent(in) :: self !< The equation.
+   logical                                :: has  !< Check result.
+
+   has = global_max(maxval(abs(self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)))) > 0._R8P
+   endfunction has_current_density
 
    subroutine impose_pic_fields_time_zero(self, ivar)
    !< Compute initial condition for the fields in presence of plasma or current sources.
@@ -1717,6 +1734,8 @@ contains
                   enddo
                enddo
                if (self%pic%elliptic_correction) call self%impose_ct_correction(ivar=VAR_DX)
+            else
+               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
             endif
          elseif (ivar == VAR_BX) then
             allocate(phi(1:3,        &
@@ -1755,6 +1774,8 @@ contains
                      enddo
                   enddo
                enddo
+            else
+               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
             endif
          endif
       elseif (self%physics%physical_model == EM_PHYSICAL_MODEL) then
@@ -1797,6 +1818,8 @@ contains
                      enddo
                   enddo
                enddo
+            else
+               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
             endif
          endif
       elseif (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
@@ -1839,6 +1862,8 @@ contains
                      enddo
                   enddo
                enddo
+            else
+               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
             endif
          endif
       endif
@@ -1873,6 +1898,7 @@ contains
                                                          progress_label='Elliptic BC initialization',        &
                                                          progress_counter=progress_counter, progress_total=progress_total, &
                                                          progress_last_percent=last_progress_percent)
+         dphi_max = global_max(dphi_max)
          if (dphi_max < self%flail%tolerance) then
             call print_elliptic_progress(label='Elliptic BC initialization', progress_done=progress_counter, &
                                          progress_total=progress_total, last_percent=last_progress_percent,  &
@@ -1903,6 +1929,30 @@ contains
       last_percent = percent
    endif
    endsubroutine print_elliptic_progress
+
+   subroutine follow_elliptic_convergence(iterations, tolerance)
+   !< On a rank without blocks, take part in the global convergence test of an elliptic solve that the ranks with blocks
+   !< run (issue #84): one global_max per outer iteration, as the solve loop does, contributing 0, and exit on the same
+   !< global value, so every rank leaves at the same iteration. The FLAIL sweeps themselves need blocks.
+   integer(I4P), intent(in) :: iterations !< Outer iterations of the solve.
+   real(R8P),    intent(in) :: tolerance  !< Convergence tolerance of the solve.
+   integer(I4P)             :: iter       !< Counter.
+
+   do iter=1, iterations
+      if (global_max(0._R8P) < tolerance) exit
+   enddo
+   endsubroutine follow_elliptic_convergence
+
+   function global_max(local) result(global)
+   !< Return the maximum of `local` over all MPI ranks; every rank must call it.
+   !< The FLAIL convergence tests use it (issue #84): a rank-local test let ranks leave the elliptic iterations at
+   !< different counts, and the inter-block ghost exchange of the next sweep then waited forever on the ranks that left.
+   real(R8P), intent(in) :: local  !< This rank's value.
+   real(R8P)             :: global !< Maximum over all ranks.
+   integer(I4P)          :: ierr   !< MPI error flag.
+
+   call MPI_ALLREDUCE(local, global, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   endfunction global_max
 
    subroutine print_source_progress(label, progress_done, progress_total, last_percent)
    character(*), intent(in)    :: label
