@@ -54,6 +54,9 @@ public :: MODEL_MHD_EGLM
 public :: MODEL_EULER_DE
 public :: MODEL_EULER_PS
 public :: MODEL_EULER_DE_PS
+public :: MODEL_EULER_ISO
+public :: EOS_IDEAL
+public :: EOS_ISOTHERMAL
 public :: PHYSICAL_MODEL_EULER
 public :: PHYSICAL_MODEL_MHD_IDEAL
 public :: PHYSICAL_MODEL_EULER_DE
@@ -88,6 +91,7 @@ public :: REFLUX_CADENCE_STEP
 public :: REFLUX_CADENCE_STAGE
 public :: strip_control
 public :: is_hydrodynamic
+public :: is_isothermal
 public :: has_entropy
 
 ! conservative variables
@@ -139,11 +143,15 @@ integer(I4P), parameter :: MODEL_MHD_EGLM = 4_I4P !< Ideal compressible MHD with
 integer(I4P), parameter :: MODEL_EULER_DE = 5_I4P !< Compressible Euler with dual energy, advected entropy (nv = 6, #91).
 integer(I4P), parameter :: MODEL_EULER_PS = 6_I4P !< Euler with NS_MAX passive scalar slots (nv = 9, #92).
 integer(I4P), parameter :: MODEL_EULER_DE_PS = 7_I4P !< euler-de with NS_MAX passive scalar slots (nv = 10, #92).
+integer(I4P), parameter :: MODEL_EULER_ISO = 8_I4P !< Isothermal Euler, `[eos] type = isothermal` (nv = 5, the energy
+                                                   !< slot inert: zero flux, zero source, held at 0; #100, D-M13-1).
 ! accepted option values
 character(len=5),  parameter :: PHYSICAL_MODEL_EULER="euler"          !< [physics].(physical_model): compressible Euler.
 character(len=9),  parameter :: PHYSICAL_MODEL_MHD_IDEAL="mhd-ideal"  !< [physics].(physical_model): ideal MHD.
 character(len=8),  parameter :: PHYSICAL_MODEL_EULER_DE="euler-de"    !< [physics].(physical_model): compressible
                                                                       !< Euler with dual energy (issue #91).
+character(len=5),  parameter :: EOS_IDEAL="ideal"                    !< [eos].(type): calorically perfect gas (default).
+character(len=10), parameter :: EOS_ISOTHERMAL="isothermal"           !< [eos].(type): P = c0^2 rho (issue #100).
 real(R8P),         parameter :: DUAL_ENERGY_ETA=5.e-2_R8P             !< Default [physics].(dual_energy_eta): in a cell
                                                                       !< whose internal energy is below eta times its E
                                                                       !< the entropy is a floor of the internal energy
@@ -208,8 +216,17 @@ contains
    integer(I4P), intent(in) :: model !< Physical model id.
    logical                  :: yes   !< Hydrodynamic model.
 
-   yes = model == MODEL_EULER .or. model == MODEL_EULER_DE .or. model == MODEL_EULER_PS .or. model == MODEL_EULER_DE_PS
+   yes = model == MODEL_EULER .or. model == MODEL_EULER_DE .or. model == MODEL_EULER_PS .or. model == MODEL_EULER_DE_PS &
+         .or. model == MODEL_EULER_ISO
    endfunction is_hydrodynamic
+
+   elemental function is_isothermal(model) result(yes)
+   !< Return true for the isothermal models (issue #100), whose energy slot is inert: no thermodynamics beyond P(rho).
+   integer(I4P), intent(in) :: model !< Physical model id.
+   logical                  :: yes   !< Isothermal model.
+
+   yes = model == MODEL_EULER_ISO
+   endfunction is_isothermal
 
    elemental function has_entropy(model) result(yes)
    !< Return true for the dual-energy models, whose slot IQ_S is the advected entropy (issue #91; with scalars, #92).

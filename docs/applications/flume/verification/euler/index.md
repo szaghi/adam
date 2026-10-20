@@ -23,6 +23,7 @@ golden; the goldens of the regression suite are listed in each page's header.
 | [Dual energy: the advected entropy of euler-de](./dual-energy) | DE | `euler-de` changes nothing where no cell is cold (Sod bitwise) and keeps a cold Noh shock heated |
 | [Passive scalars](./passive-scalars) | PS | up to four scalars that do not act on the flow, are conserved, and stay uniform through runtime AMR |
 | [Radiative cooling](./radiative-cooling) | CO | optically thin cooling by Townsend's exact integration: the isochoric ODE to round-off, the floor, a radiative shock against its steady structure |
+| [Isothermal equation of state](./isothermal-eos) | EO | $P = c_0^2\rho$: the shock tube and a Mach-5 collision against the exact solution, the fifth order on an acoustic wave, the inert energy slot, the contract |
 
 The figures are drawn by `src/tests/flume/verification/make_doc_figures.py` from the work directories that the
 `check.sh` scripts leave behind (the step's with `--keep`):

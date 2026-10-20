@@ -187,6 +187,7 @@ export default withMermaid({
                         { text: 'Dual energy: the advected entropy of euler-de', link: '/applications/flume/verification/euler/dual-energy' },
                         { text: 'Passive scalars', link: '/applications/flume/verification/euler/passive-scalars' },
                         { text: 'Radiative cooling', link: '/applications/flume/verification/euler/radiative-cooling' },
+                        { text: 'Isothermal equation of state', link: '/applications/flume/verification/euler/isothermal-eos' },
                       ],
                     },
                     {

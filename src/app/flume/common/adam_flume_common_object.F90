@@ -28,6 +28,7 @@ use :: adam_mpih_global,              only : mpih
 use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, flume_bc_object
 use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
+use :: adam_flume_euler_iso_library,  only : conservative_to_auxiliary_iso=>conservative_to_auxiliary
 use :: adam_flume_euler_de_library,   only : conservative_to_auxiliary_de=>conservative_to_auxiliary
 use :: adam_flume_euler_ps_library,   only : conservative_to_auxiliary_ps=>conservative_to_auxiliary
 use :: adam_flume_euler_de_ps_library, only : conservative_to_auxiliary_de_ps=>conservative_to_auxiliary
@@ -35,11 +36,12 @@ use :: adam_flume_gravity_object,     only : POISSON_SOLVER_AUTO, POISSON_SOLVER
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
-use :: adam_flume_parameters,         only : has_entropy, is_hydrodynamic, GLM_CH_CHECK_ERROR, IA_BX, IA_BY, IA_BZ, IA_P, &
+use :: adam_flume_parameters,         only : has_entropy, is_hydrodynamic, is_isothermal, GLM_CH_CHECK_ERROR,          &
+                                             IA_BX, IA_BY, IA_BZ, IA_P,                                               &
                                              IA_R, IA_S, &
                                              IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S, MODEL_EULER,   &
                                              MODEL_EULER_DE, &
-                                             MODEL_EULER_PS, MODEL_EULER_DE_PS, NS_MAX, &
+                                             MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_EULER_ISO, NS_MAX, &
                                              MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,            &
                                              IQ_PSI, POSITIVITY_LIMITER_CELL, POSITIVITY_LIMITER_KAPPA,               &
                                              RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,                                     &
@@ -163,6 +165,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: check_divb_flux       !< Check [diagnostics] divb_flux (#68 A2).
       procedure, pass(self), private :: check_positivity_limiter !< Refuse the limiter where it cannot work.
       procedure, pass(self), private :: check_gravity !< Refuse gravity where it is not defined (issue #73).
+      procedure, pass(self), private :: check_isothermal !< Refuse what the isothermal gas does not define (#100).
       procedure, pass(self), private :: check_slices     !< Check the slices interpolation types.
       procedure, pass(self), private :: check_weno_scheme     !< Refuse the centred WENO schemes.
       procedure, pass(self), private :: initialize_riemann_scheme !< Check and set up the weno-riemann scheme.
@@ -999,6 +1002,7 @@ contains
                                   domain_emin=self%adam%grid%domain_emin, domain_emax=self%adam%grid%domain_emax, &
                                   ngc=self%ngc)
    if (self%sinks%is_active) print '(A)', self%sinks%description()
+   call self%check_isothermal
    call self%check_runtime_amr
    call self%check_divb_flux
    call self%check_ngc_number
@@ -1063,7 +1067,7 @@ contains
 
    freeze = 0_I4P
    select case(self%physics%model)
-   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_EULER_ISO)
       do d=1, 3
          if (self%adam%grid%null_xyz(d)) freeze(d) = IQ_RU + d - 1
       enddo
@@ -2407,6 +2411,17 @@ contains
             enddo
          enddo
       enddo
+   case(MODEL_EULER_ISO) ! issue #100: the EOS parameter is c0^2
+      do b=1, self%blocks_number
+         do k=1-self%ngc, self%nk+self%ngc
+            do j=1-self%ngc, self%nj+self%ngc
+               do i=1-self%ngc, self%ni+self%ngc
+                  call conservative_to_auxiliary_iso(gamma=self%physics%cs2, R=self%physics%R, q=self%q(:,i,j,k,b), &
+                                                     qa=self%q_aux(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
    case(MODEL_EULER_DE)
       do b=1, self%blocks_number
          do k=1-self%ngc, self%nk+self%ngc
@@ -2540,6 +2555,25 @@ contains
                                'viscosity, conductivity, resistivity or their numbers): the limiter does not bound a '// &
                                'diffusive flux (issue #65, D-M4-5)')
    endsubroutine check_positivity_limiter
+
+   subroutine check_isothermal(self)
+   !< Refuse, with the isothermal gas (issue #100, P1), what is not defined for it yet: the positivity limiter (its
+   !< admissibility is the internal energy; a density-only variant is a later phase), immersed solids (their ghost
+   !< states rebuild the energy) and the IC types whose density needs gamma. Gravity, dissipation, cooling and sinks are
+   !< refused with the physics, `[reference]` by its own layer (it runs first), the no-slip and hydrostatic walls with
+   !< the boundary conditions.
+   class(flume_common_object), intent(in) :: self !< The equation.
+
+   if (.not.is_isothermal(self%physics%model)) return
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
+      call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is refused with [eos].(type)=isothermal '// &
+                               '(issue #100, P1: its admissibility is the internal energy)')
+   if (self%ib%solids_number > 0_I4P) &
+      call mpih%error_stop(msg=': immersed solids are refused with [eos].(type)=isothermal (issue #100, P1)')
+   if (.not.self%ic%is_isothermal_safe()) &
+      call mpih%error_stop(msg=': [initial_conditions].(type)='//self%ic%ic_type//' is not defined for '// &
+                               '[eos].(type)=isothermal (issue #100: its density needs gamma)')
+   endsubroutine check_isothermal
 
    subroutine check_gravity(self)
    !< Refuse the external gravity (issue #73, M7-G1) where its sources are not defined: a component along a null
@@ -2726,7 +2760,7 @@ contains
 
    if (self%numerics%scheme_space /= SCHEME_SPACE_WENO_RIEMANN) return
    select case(self%physics%model)
-   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_EULER_ISO)
       ok = any(self%numerics%riemann_solver == [character(4) :: RIEMANN_SOLVER_LLF, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC])
    case default
       ok = any(self%numerics%riemann_solver == [character(4) :: RIEMANN_SOLVER_LLF, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLD])

@@ -256,6 +256,38 @@ for four slots, the first $N$ used and the others zero, so a scalar run pays the
 may vanish (a face state needs it non-negative, the entropy positive); WENO keeps it bounded only to its own accuracy:
 across a Sod contact a mass fraction moving from 1 to 0 over- and undershoots by $5\cdot10^{-4}$.
 
+## Isothermal equation of state
+
+`[eos] type = isothermal` ([#100](https://github.com/szaghi/adam/issues/100), M13 P1) closes the Euler equations
+with $P = c_0^2\rho$: mass and momentum only, the sound speed $c_0$ everywhere. The state keeps the Euler layout
+(D-M13-1): the energy slot $\rho E$ is inert, with zero flux, zero source and an eigenvalue of 0, and stays at its
+initial 0. It is its own model (`MODEL_EULER_ISO`) with its own pointwise library
+(`adam_flume_euler_iso_library`) behind the same interface as the Euler one, so the model-agnostic kernel bodies run
+it unchanged; the EOS argument the kernels pass as `gamma` is $c_0^2$ for this model.
+
+In direction $\mathbf n$ the waves are $u_n - c_0$, the inert slot (0), $u_n$ twice (the transverse velocities) and
+$u_n + c_0$, with
+
+$$\mathbf r_{1,5} = (1,\ \mathbf u \mp c_0\mathbf n,\ 0),\qquad \mathbf l_{1,5} = \Big(\pm\frac{u_n \pm c_0}{2c_0},\
+\mp\frac{\mathbf n}{2c_0},\ 0\Big),$$
+
+the transverse waves $\mathbf r = (0, \mathbf t, 0)$, $\mathbf l = (-\mathbf u\cdot\mathbf t, \mathbf t, 0)$. The Roe
+average of two isothermal states is the $\sqrt\rho$-weighted velocity with the same $c_0$. The `weno` scheme splits on
+this eigensystem; `weno-riemann` interpolates the characteristic fields or the primitives $(\rho, \mathbf u)$, the
+inert slot in place of the pressure, and the face state is admissible when $\rho > 0$. `llf` and `hll` (Einfeldt
+speeds) are the standard fluxes on the two acoustic speeds. The isothermal HLLC is HLL on the mass and the normal
+momentum, the transverse momenta (and any advected scalar) the HLL mass flux times the upwind specific value: the
+isothermal system has one wave between the acoustic ones, the contact, and it carries only the transverse velocity, so
+the star state needs no pressure. A Riemann flux always returns 0 in the inert slot.
+
+The isothermal Riemann problem is solved exactly with no energy equation: the shock jump
+$u_* = u_K \mp c_0(\rho_*/\rho_K - 1)\sqrt{\rho_K/\rho_*}$ on the compressive side, the fan
+$u_* = u_K \mp c_0\ln(\rho_*/\rho_K)$ on the other; two streams at Mach $M$ compress to $\rho_* = \rho M_1^2$, $M_1$ the
+Mach number in the frame of the shock. `src/tests/flume/verification/eos/eos_oracle.py` builds these solutions
+independently of the code, and the runs match them ([EO](./verification/euler/isothermal-eos)). A null direction
+freezes its momentum (`null_freeze`) for this model as for every Euler model: a 1-D run cannot carry a transverse
+velocity.
+
 ## Radiative cooling
 
 `[cooling]` ([#93](https://github.com/szaghi/adam/issues/93), M11) adds optically thin cooling,

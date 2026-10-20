@@ -53,6 +53,9 @@
 #           scalar, ps4, a checkpoint every 5 steps) (#92 P3) (2 runs, 2 min)
 #   cooling co-box (the uniform box of cooling/check.sh co1 from T = 5), co-limited (co1 with dt_factor 0.01) and
 #           co-shock (the radiative shock of co7) (#93 P3) (3 runs, 2 min)
+#   eos     eo-tube (the isothermal shock tube of eos/check.sh eo1), eo-tube-hllc (eo6, weno-riemann hllc),
+#           eo-collide (the Mach-5 collision of eo2), eo-wave-{12,24,48} (the acoustic wave of eo3) and eo-steep (the
+#           wave of amplitude 0.3 of eo5 on 200 cells, a checkpoint every 20 steps) (#100 P1) (7 runs, 2 min)
 #   sinks   si-binary (the circular binary of sinks/check.sh si2, one orbit), si-shu-{32,64} (the overdense singular
 #           isothermal sphere of si11 at 32^3 and 64^3) and si-collapse-amr (the si10 collapse on runtime AMR, two levels
 #           above the base) (#94 P4), with the FFT executable (JEANS_EXE) (4 runs, 6 min)
@@ -77,7 +80,7 @@
 #        selfgravity: --only selfgravity-potential selfgravity-poisson; jeans: --only selfgravity-jeans;
 #        isolated: --only selfgravity-isolated selfgravity-star selfgravity-star-amr;
 #        collapse-regrid: --only selfgravity-star-regrid; dualenergy: --only dual-energy; scalars: --only passive-scalars;
-#        cooling: --only radiative-cooling; sinks: --only sink-particles;
+#        cooling: --only radiative-cooling; sinks: --only sink-particles; eos: --only isothermal-eos;
 #        amr: --only selfgravity-amr selfgravity-amr-jeans
 #        selfgravity-amr-regrid selfgravity-amr-isolated)
 #
@@ -96,17 +99,17 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars] [cooling] [sinks]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars] [cooling] [sinks] [eos]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks eos}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks|eos)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
            "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, seams, blast77, divb," \
-           "rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks)" >&2
+           "rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks, eos)" >&2
       exit 2
    fi
 done
@@ -356,6 +359,22 @@ for g in $GROUPS_; do
          fresh co-shock
          python3 -I "$VERIF_DIR/cooling/make_co.py" "$W/input.ini" --case shock
          run input.ini ;;
+      eos)
+         iso() { # iso <case dir> <ranks> <make_eos arguments>: write and run one isothermal case (one block: 1 rank)
+            local np=$2
+            fresh "$1" ; shift 2
+            python3 -I "$VERIF_DIR/eos/make_eos.py" "$W/input.ini" "$@"
+            if (cd "$W" && mpirun -np "$np" "$EXE" input.ini > log.txt 2>&1); then
+               echo "   $(basename "$W"): done"
+            else
+               echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+            fi
+         }
+         iso eo-tube 1 --case tube
+         iso eo-tube-hllc 1 --case tube --scheme weno-riemann --solver hllc
+         iso eo-collide 1 --case collide --mach 5.0 --time-max 1.0
+         for n in 12 24 48; do iso "eo-wave-$n" 2 --case wave --ni "$n" --cfl 0.1 --rk runge-kutta-ssp-54 ; done
+         iso eo-steep 2 --case wave --ni 200 --set "initial_conditions:wave_amplitude=0.3" --set "IO:it_save=20" ;;
       sinks)
          sink() { # sink <case dir> <make_si arguments>: write and run one sink case with the FFT executable
             fresh "$1" ; shift

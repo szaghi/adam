@@ -38,7 +38,7 @@ use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_parameters,     only : IQ_BX, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RW, MODEL_EULER, MODEL_EULER_DE, &
                                         MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, &
-                                        strip_control
+                                        MODEL_EULER_ISO, is_isothermal, strip_control
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 ! third party modules
 use :: finer,                     only : file_ini
@@ -142,7 +142,7 @@ contains
    ! reflecting wall, D-12) also negates the wall-normal magnetic field, psi stays even
    self%wall_sign = 1._R8P
    select case(physics%model)
-   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_EULER_ISO)
       nprim = 5_I4P
       do d=1, 3
          self%wall_sign(IQ_RU+d-1,d) = -1._R8P
@@ -170,6 +170,11 @@ contains
          do k=1, nprim
             call file_parameters%get(section_name=SECTION_NAME(f), option_name=trim(INFLOW_KEY(k)), val=prim(k), &
                                      error=error)
+            ! the isothermal gas has no pressure input (P = c0^2 rho, issue #100): `p` optional, ignored
+            if (error > 0 .and. k == 5_I4P .and. is_isothermal(physics%model)) then
+               prim(k) = 0._R8P
+               cycle
+            endif
             if (error > 0) &
                call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))//')')
          enddo
@@ -184,6 +189,10 @@ contains
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID
       case(BC_WALL_NOSLIP_STR, BC_WALL_ISOTHERMAL_STR)
+         ! the no-slip ghost rebuilds the energy from the pressure and the temperature (gamma-law, issue #65)
+         if (is_isothermal(physics%model)) &
+            call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(type)='//bc_str//' is refused with [eos].(type)='// &
+                                     'isothermal (issue #100, P1)')
          self%bc_type(f) = BC_WALL_NOSLIP
          if (bc_str == BC_WALL_ISOTHERMAL_STR) self%bc_type(f) = BC_WALL_ISOTHERMAL
          ! the wall velocity: tangential, optional (a resting wall by default)
@@ -206,6 +215,10 @@ contains
       case(BC_PERIODIC_STR)
          self%bc_type(f) = BC_PERIODIC
       case(BC_HYDROSTATIC_STR)
+         ! the hydrostatic ghost extrapolates the temperature through the gamma-law energy (issue #73)
+         if (is_isothermal(physics%model)) &
+            call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(type)='//bc_str//' is refused with [eos].(type)='// &
+                                     'isothermal (issue #100, P1)')
          self%bc_type(f) = BC_HYDROSTATIC
       case default
          call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(type) "'//bc_str//'"; expected one of '// &

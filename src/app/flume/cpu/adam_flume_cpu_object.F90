@@ -27,6 +27,7 @@ use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sy
                                               realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
                                               BC_HYDROSTATIC, hydrostatic_ghost,                                        &
                                               MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS,           &
+                                              MODEL_EULER_ISO, is_isothermal,                                           &
                                               is_hydrodynamic, has_entropy,                                             &
                                               MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,        &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,                                 &
@@ -90,6 +91,14 @@ use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>b
                                               compute_lambda_max_dissipative_euler=>compute_lambda_max_dissipative,  &
                                               compute_q_aux_euler=>compute_q_aux,                                    &
                                               count_nonfinite_euler=>count_nonfinite
+use :: adam_flume_cpu_euler_iso_kernels, only : blend_inadmissible_ghosts_euler_iso=>blend_inadmissible_ghosts,         &
+                                               compute_face_fluxes_euler_iso=>compute_face_fluxes,                     &
+                                               compute_lambda_max_euler_iso=>compute_lambda_max,                       &
+                                               compute_q_aux_euler_iso=>compute_q_aux,                                 &
+                                               count_nonfinite_euler_iso=>count_nonfinite
+use :: adam_flume_cpu_euler_iso_hll_kernels,  only : compute_riemann_face_fluxes_euler_iso_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_iso_hllc_kernels, only : compute_riemann_face_fluxes_euler_iso_hllc=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_euler_iso_llf_kernels,  only : compute_riemann_face_fluxes_euler_iso_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_euler_ps_kernels, only : blend_inadmissible_ghosts_euler_ps=>blend_inadmissible_ghosts,            &
                                               blend_positivity_fluxes_euler_ps=>blend_positivity_fluxes,                &
                                               compute_backbone_fluxes_euler_ps=>compute_backbone_fluxes,                &
@@ -461,6 +470,8 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER)
       return
+   case(MODEL_EULER_ISO)
+      return
    case(MODEL_EULER_PS)
       return
    case(MODEL_EULER_DE_PS)
@@ -539,7 +550,7 @@ contains
    real(R8P)                              :: speed_max !< Fastest wave speed of this rank.
 
    select case(self%physics%model)
-   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_MHD)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_MHD, MODEL_EULER_ISO)
       return
    case(MODEL_MHD_GLM)
       call compute_speed_max_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
@@ -565,6 +576,9 @@ contains
    case(MODEL_EULER)
       call count_nonfinite_euler(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                  q=self%q, n=n)
+   case(MODEL_EULER_ISO)
+      call count_nonfinite_euler_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     q=self%q, n=n)
    case(MODEL_EULER_PS)
       call count_nonfinite_euler_ps(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                  q=self%q, n=n)
@@ -802,6 +816,9 @@ contains
    case(MODEL_EULER)
       call compute_q_aux_euler(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
+   case(MODEL_EULER_ISO)
+      call compute_q_aux_euler_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                   gamma=self%physics%cs2, R=self%physics%R, q=q, q_aux=self%q_aux)
    case(MODEL_EULER_PS)
       call compute_q_aux_euler_ps(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
@@ -915,7 +932,9 @@ contains
       endselect
    endif
    if (seam) call self%seam_sync_fluxes(q=q)
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+   ! the EOS parameter: c0^2 for the isothermal gas (issue #100), gamma otherwise
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                    &
+             gamma=>merge(self%physics%cs2, self%physics%gamma, is_isothermal(self%physics%model)),        &
              ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
              dxyz=>self%adam%field%dxyz, g=>self%physics%gravity%g_uniform,                                      &
              has_phi=>self%physics%gravity%has_potential)
@@ -1612,6 +1631,9 @@ contains
    case(MODEL_EULER)
       call blend_inadmissible_ghosts_euler(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
                                            blended=blended)
+   case(MODEL_EULER_ISO)
+      call blend_inadmissible_ghosts_euler_iso(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                               blended=blended)
    case(MODEL_EULER_PS)
       call blend_inadmissible_ghosts_euler_ps(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
                                            blended=blended)
@@ -1820,6 +1842,11 @@ contains
                                        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                        dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
                                        lambda_max=lambda_max)
+      case(MODEL_EULER_ISO)
+         call compute_lambda_max_euler_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                          &
+                                           blocks_number=self%blocks_number, gamma=self%physics%cs2, R=self%physics%R, &
+                                           dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,     &
+                                           lambda_max=lambda_max)
       case(MODEL_EULER_PS)
          call compute_lambda_max_euler_ps(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
                                        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
@@ -2709,7 +2736,9 @@ contains
    edge_riemann => null()
    ids = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+   ! the EOS parameter: c0^2 for the isothermal gas (issue #100), gamma otherwise
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                    &
+             gamma=>merge(self%physics%cs2, self%physics%gamma, is_isothermal(self%physics%model)),        &
              ch=>self%physics%mhd%glm_ch, g=>self%physics%gravity%g_uniform)
    call compute_gravity_correction_faces(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=g, flx=self%flx_f, &
                                          fly=self%fly_f, flz=self%flz_f, gc=self%gcor)
@@ -2850,7 +2879,9 @@ contains
    if (self%physics%gravity%self_gravity) call self%solve_potential(q=q) ! Phi of this stage (issue #81)
    call self%compute_q_aux(q=q)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+   ! the EOS parameter: c0^2 for the isothermal gas (issue #100), gamma otherwise
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                    &
+             gamma=>merge(self%physics%cs2, self%physics%gamma, is_isothermal(self%physics%model)),        &
              is_null=>self%adam%grid%null_xyz)
    select case(self%physics%model)
    case(MODEL_EULER)
@@ -2863,6 +2894,19 @@ contains
                                                           ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                           weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
       if (.not.is_null(3)) call compute_face_fluxes_euler(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                          nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                          ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                          weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   case(MODEL_EULER_ISO)
+      if (.not.is_null(1)) call compute_face_fluxes_euler_iso(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                          nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                          ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                          weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_face_fluxes_euler_iso(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                          nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                          ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                          weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_face_fluxes_euler_iso(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
                                                           nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
                                                           ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                           weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
@@ -3031,7 +3075,9 @@ contains
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
    cc = self%numerics%correction_coefficients()
    tau = self%numerics%correction_threshold()
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+   ! the EOS parameter: c0^2 for the isothermal gas (issue #100), gamma otherwise
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                    &
+             gamma=>merge(self%physics%cs2, self%physics%gamma, is_isothermal(self%physics%model)),        &
              ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz)
    face_fluxes => null()
    if (self%physics%model == MODEL_EULER) then
@@ -3042,6 +3088,15 @@ contains
          face_fluxes => compute_riemann_face_fluxes_euler_hll
       case(RIEMANN_SOLVER_HLLC)
          face_fluxes => compute_riemann_face_fluxes_euler_hllc
+      endselect
+   elseif (self%physics%model == MODEL_EULER_ISO) then
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_euler_iso_llf
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_euler_iso_hll
+      case(RIEMANN_SOLVER_HLLC)
+         face_fluxes => compute_riemann_face_fluxes_euler_iso_hllc
       endselect
    elseif (self%physics%model == MODEL_EULER_DE) then
       select case(self%numerics%riemann_solver)

@@ -2055,6 +2055,96 @@ def fig_radiative_cooling(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_isothermal_eos(out: Path, runs: Path) -> None:
+    """EO (issue #100, P1): the isothermal gas P = c0^2 rho (CPU). Top left: the shock tube (eos/check.sh eo1) at
+    t = 0.2, density and transverse velocity against the exact solution (eos_oracle.py), WENO-5 characteristic and
+    weno-riemann HLLC. Top right: the Mach-5 collision (eo2) at t = 1, the dense layer rho* = M^2 and its decaying
+    post-shock oscillation train. Bottom left: the L1 density error of the acoustic wave (eo3) after one period against
+    N, the slope 5 dashed. Bottom right: the wave of amplitude 0.3 (eo5, 200 cells), which breaks into a shock at t ~ 0.53,
+    its density at t = 0, 0.5, 1 and, inset, the relative drift of the total mass, round-off."""
+    sys.path.insert(0, str(HERE / "eos"))
+    import eos_oracle as eo  # noqa: PLC0415
+
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    eos = eo.isothermal(1.0)
+    ax = axs[0, 0]
+    sol = eo.Solution(eos, eo.State(1.0, 0.0, 0.3), eo.State(0.125, 0.0, -0.2))
+    ax2 = ax.twinx()
+    for name, label, marker in (("eo-tube", "WENO-5 characteristic", "o"), ("eo-tube-hllc", "weno-riemann HLLC", "s")):
+        work = runs / name
+        it = eo.checkpoints(work)[-1]
+        t = eo.checkpoint_time(work, it)
+        x, q = eo.checkpoint_line(work, it)
+        ax.plot(x, q["r"], marker, ms=2.5, mfc="none", label=f"rho, {label}")
+        ax2.plot(x, q["rv"] / q["r"], marker, ms=2.0, color="tab:red", alpha=0.6, mfc="none")
+    xs = np.linspace(0.0, 1.0, 2001)
+    exact = [sol.sample((xi - 0.5) / t) for xi in xs]
+    ax.plot(xs, [s.rho for s in exact], "-", color="0.3", lw=1.0, label="exact")
+    ax2.plot(xs, [s.v for s in exact], "-", color="tab:red", lw=0.8, label="v exact")
+    ax2.set_ylabel("v (transverse velocity)", color="tab:red")
+    ax.set_xlabel("x")
+    ax.set_ylabel("rho")
+    ax.legend(fontsize=8, loc="lower left")
+    ax.set_title(f"shock tube, 400 cells, t = {t:.1f}: rarefaction, contact (v only), shock", fontsize=10)
+    ax = axs[0, 1]
+    work = runs / "eo-collide"
+    it = eo.checkpoints(work)[-1]
+    t = eo.checkpoint_time(work, it)
+    x, q = eo.checkpoint_line(work, it)
+    sol = eo.Solution(eos, eo.State(1.0, 5.0), eo.State(1.0, -5.0))
+    ax.plot(x, q["r"], "o", ms=2.5, mfc="none", label="run")
+    ax.plot(xs, [sol.sample((xi - 0.5) / t).rho for xi in xs], "-", color="0.3", lw=1.0, label="exact")
+    ax.axhline(sol.rho_star, color="0.6", ls="--", lw=0.8, label=f"rho* = M^2 = {sol.rho_star:.2f}")
+    ax.set_xlim(0.2, 0.8)
+    ax.set_xlabel("x")
+    ax.set_ylabel("rho")
+    ax.legend(fontsize=8)
+    ax.set_title(f"Mach-5 collision, 400 cells, t = {t:.0f}: the layer mean within 1e-3", fontsize=10)
+    ax = axs[1, 0]
+    ns, errs = [], []
+    for n in (12, 24, 48):
+        work = runs / f"eo-wave-{n}"
+        it = eo.checkpoints(work)[-1]
+        x, q = eo.checkpoint_line(work, it)
+        rho_ex, _ = eo.linear_wave(eos, 1.0, 1.0e-6, 2.0 * np.pi, x, eo.checkpoint_time(work, it))
+        ns.append(x.size)
+        errs.append(float(np.mean(np.abs(q["r"] - rho_ex))))
+    ns, errs = np.array(ns), np.array(errs)
+    ax.loglog(ns, errs, "o-", label="L1 density error")
+    ax.loglog(ns, errs[-1] * (ns / ns[-1]) ** -5.0, "--", color="0.5", label="slope 5")
+    for k in range(1, ns.size):
+        order = np.log(errs[k - 1] / errs[k]) / np.log(ns[k] / ns[k - 1])
+        ax.annotate(f"{order:.2f}", (np.sqrt(ns[k - 1] * ns[k]), np.sqrt(errs[k - 1] * errs[k])), fontsize=8)
+    ax.set_xticks(ns, [str(n) for n in ns])
+    ax.minorticks_off()
+    ax.set_xlabel("N")
+    ax.set_ylabel("L1")
+    ax.legend(fontsize=8)
+    ax.set_title("acoustic wave, amplitude 1e-6, one period: SSP-54, CFL 0.1", fontsize=10)
+    ax = axs[1, 1]
+    work = runs / "eo-steep"
+    its = eo.checkpoints(work)
+    times = np.array([eo.checkpoint_time(work, it) for it in its])
+    for target in (0.0, 0.5, 1.0):
+        it = its[int(np.argmin(np.abs(times - target)))]
+        x, q = eo.checkpoint_line(work, it)
+        ax.plot(x, q["r"], "-", lw=1.0, label=f"t = {eo.checkpoint_time(work, it):.2f}")
+    ax.set_xlabel("x")
+    ax.set_ylabel("rho")
+    ax.legend(fontsize=8, loc="lower left")
+    ax.set_title("amplitude 0.3: the wave breaks at t ~ 0.53, rE stays 0", fontsize=10)
+    names, rows = eo.history(work)
+    mass = rows[:, names.index("int_r")]
+    inset = ax.inset_axes([0.62, 0.62, 0.35, 0.33])
+    inset.semilogy(rows[:, names.index("time")], np.maximum(np.abs(mass / mass[0] - 1.0), FLOOR), "-", lw=0.8)
+    inset.set_ylim(FLOOR, 1.0e-12)
+    inset.set_title("|M / M0 - 1|", fontsize=8)
+    inset.tick_params(labelsize=7)
+    fig.suptitle("EO: the isothermal equation of state, P = c0^2 rho (CPU)")
+    fig.savefig(out / "isothermal-eos.png", dpi=DPI)
+    plt.close(fig)
+
+
 def _ini(work: Path) -> configparser.ConfigParser:
     """Read the input.ini of a run."""
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
@@ -3300,7 +3390,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "selfgravity-star-regrid": fig_selfgravity_star_regrid,
            "dual-energy": fig_dual_energy,
            "passive-scalars": fig_passive_scalars,
-           "radiative-cooling": fig_radiative_cooling,
+           "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "sink-particles": fig_sink_particles,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,

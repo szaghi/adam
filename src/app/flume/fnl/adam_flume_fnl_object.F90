@@ -38,7 +38,7 @@ use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sy
                                               seam_weno5_sensor,                                                        &
                                               seam_fine_to_coarse, seam_skin_cell, seam_skin_index,                    &
                                               MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS,           &
-                                              is_hydrodynamic, has_entropy, MODEL_MHD, MODEL_MHD_EGLM,                &
+                                              is_hydrodynamic, is_isothermal, has_entropy, MODEL_MHD, MODEL_MHD_EGLM, &
                                               MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,                                &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,            &
                                               RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO,              &
@@ -1207,6 +1207,9 @@ contains
    ! Split among the realms and among the ranks bound to the same device (#96).
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+   if (is_isothermal(self%physics%model)) & ! issue #100: the FNL kernels of the isothermal gas are P2
+      call mpih_fnl%error_stop(msg=': [eos].(type)=isothermal has no FNL kernels yet (issue #100, P2): use the CPU '// &
+                                   'backend')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')

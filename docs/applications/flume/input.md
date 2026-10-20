@@ -13,7 +13,7 @@ below; otherwise the file is itself a single-realm input.
 
 A realm input is read in this order: `[IO]` → `[reference]` (if present it converts the file to code units, then
 `[IO]` is read again) → `[numerics]` → `[physics]`
-(+ `[mhd]`, `[gravity]`) → `[runge_kutta].scheme` (memory budget) → `[grid]` → `[amr]` (tree, seam fill, markers) → `[solids]`
+(+ `[eos]`, `[mhd]`, `[gravity]`) → `[runge_kutta].scheme` (memory budget) → `[grid]` → `[amr]` (tree, seam fill, markers) → `[solids]`
 → `[slices]` → `[runge_kutta]` → `[weno]` → `[linear-algebra]` → `[fdv]` → `[bc_*]` → `[time]` →
 `[initial_conditions]` → `[diagnostics]` → `[IO].save_auxiliary_fields`. After reading, FLUME applies
 cross-section checks (slices, WENO scheme, Riemann solver per model, ghost cells, even block cells for AMR).
@@ -491,7 +491,8 @@ verification DC can check every converted value exactly.
 
 ## [physics]
 
-`physical_model` is required, with either `gamma` or both `cp` and `cv`.
+`physical_model` is required, with either `gamma` or both `cp` and `cv` (neither with
+[`[eos] type = isothermal`](#eos-optional-equation-of-state)).
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
@@ -527,6 +528,38 @@ the Navier–Stokes fluxes of every model, the resistivity the Ohmic ones of `mh
 with a central dissipative flux is not admissible without the extension of Zhang (2017, *J. Comput. Phys.* 328), which
 is not implemented (D-M4-5). A coefficient is also fatal with immersed solids (their walls are inviscid), and
 `dissipative_order = 4` with `[grid] ngc < 3`.
+
+---
+
+## [eos] (optional: equation of state)
+
+Without the section the gas is the ideal gas of `[physics]` (`gamma`, or `cp` and `cv`). `type = isothermal`
+([#100](https://github.com/szaghi/adam/issues/100), M13 P1) selects the isothermal gas $P = c_0^2
+ho$: no energy
+equation, the sound speed $c_0$ everywhere ([numerics](./numerics#isothermal-equation-of-state)). The state keeps its
+five slots; the energy slot `rE` is inert (zero flux, zero source) and stays 0, and the checkpoints still write it.
+The auxiliary fields report $p = c_0^2
+ho$, $T = c_0^2$ (with $R = 1$), $a = c_0$, $H = 0$.
+
+| Key | Type | Req. | Accepted / invalid | Meaning |
+|-----|------|------|--------------------|---------|
+| `type` | string | yes | `ideal`, `isothermal`; other → fatal | The equation of state. `ideal` is the default gas of `[physics]`. |
+| `sound_speed` | real | with `isothermal` | `> 0`; missing or non-positive → fatal | The isothermal sound speed $c_0$ (code units). |
+
+With `type = isothermal`:
+- `[physics]` must be `physical_model = euler` without `passive_scalars`, and must not set `gamma`, `cp` or `cv`
+  (fatal: they would be ignored);
+- the regions of `[initial_conditions]` and the `inflow` faces need no `p` (it is ignored: $P = c_0^2
+ho$);
+- the accepted initial conditions are `uniform`, `riemann-problem`, `rotated-riemann`, `sine-wave` (with
+  `wave_mode = acoustic` the wave travels at $c_0$), `linear`, `polynomial` and `shu-osher`; the others, whose
+  density needs $\gamma$, are fatal;
+- refused until a later phase, each with its own message: `[cooling]` (nothing to radiate), `[sinks]` and `[gravity]`
+  (P4), the dissipative terms, `[reference]`, `[numerics] positivity_limiter = cell` (its admissibility is the
+  internal energy; a density-only limiter is a later phase), immersed solids, and the `wall-noslip`,
+  `wall-isothermal` and `hydrostatic` faces;
+- the FNL executable refuses the input: its kernels are P2. The CPU backend runs the `weno` and `weno-riemann`
+  schemes, all reconstructions, and the `llf`, `hll`, `hllc` solvers (the isothermal HLLC).
 
 ---
 
@@ -776,6 +809,8 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `polynomial` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z`, `degree` (an integer $n \ge 1$). Every conservative variable is `q_1 (1 + sum_d g_d x_d^n)`: the ghost probe's field for the high-order seam operators ([#68](https://github.com/szaghi/adam/issues/68) D1), not a flow. Fatal under a non-dimensional reference (`g_d` has dimension $L^{-n}$). |
 
 A model mismatch (for example `glm-pulse` with `euler`) is fatal. The complete formulas are in the module header.
+With [`[eos] type = isothermal`](#eos-optional-equation-of-state) only `uniform`, `riemann-problem`,
+`rotated-riemann`, `sine-wave`, `linear`, `polynomial` and `shu-osher` are accepted, and the regions need no `p`.
 
 ### [initial_conditions_region_N]
 

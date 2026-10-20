@@ -16,12 +16,14 @@ module adam_flume_physics_object
 use :: adam_mpih_global,         only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library, only : primitive_to_conservative
+use :: adam_flume_euler_iso_library, only : iso_primitive_to_conservative=>primitive_to_conservative
 use :: adam_flume_mhd_library,   only : mhd_primitive_to_conservative
 use :: adam_flume_cooling_object, only : flume_cooling_object
 use :: adam_flume_dissipation_object, only : flume_dissipation_object
 use :: adam_flume_gravity_object, only : flume_gravity_object
 use :: adam_flume_mhd_object,    only : flume_mhd_object
-use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, has_entropy, IQ_PSI, IQ_S, MODEL_EULER, MODEL_EULER_DE,         &
+use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, EOS_IDEAL, EOS_ISOTHERMAL, MODEL_EULER_ISO,                       &
+                                        has_entropy, IQ_PSI, IQ_S, MODEL_EULER, MODEL_EULER_DE,                         &
                                         MODEL_EULER_DE_PS, MODEL_EULER_PS, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,     &
                                         NS_MAX, NV_AUX, NV_AUX_DE, NV_AUX_DE_PS, NV_AUX_MHD, NV_AUX_PS, NV_EULER,        &
                                         NV_EULER_DE, NV_EULER_DE_PS, NV_EULER_PS, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM,       &
@@ -46,6 +48,9 @@ type :: flume_physics_object
    real(R8P)                 :: cv=0._R8P      !< Specific heat at constant volume.
    real(R8P)                 :: gamma=0._R8P   !< Specific heats ratio, cp/cv.
    real(R8P)                 :: R=0._R8P       !< Gas constant, cp-cv.
+   character(:), allocatable :: eos            !< `[eos].(type)`: ideal (default) or isothermal (issue #100).
+   real(R8P)                 :: sound_speed=0._R8P !< `[eos].(sound_speed)`: the isothermal c0.
+   real(R8P)                 :: cs2=0._R8P     !< c0^2, the EOS parameter the isothermal kernels take as `gamma`.
    integer(I4P)              :: nv=0_I4P       !< Conservative variables number.
    integer(I4P)              :: nv_aux=0_I4P   !< Auxiliary variables number.
    integer(I4P)              :: nv_mhd=0_I4P   !< Last slot of the MHD state: NV_EULER (hydrodynamic models) or nv (MHD).
@@ -74,6 +79,9 @@ contains
 
    desc =       mpih%myrankstr//'Physics main data'//NL
    desc = desc//mpih%myrankstr//'  physical_model: '//self%physical_model//NL
+   desc = desc//mpih%myrankstr//'  eos:            '//self%eos
+   if (self%eos == EOS_ISOTHERMAL) desc = desc//', sound_speed '//trim(str(self%sound_speed))
+   desc = desc//NL
    desc = desc//mpih%myrankstr//'  cp, cv:         '//trim(str(self%cp))//', '//trim(str(self%cv))//NL
    desc = desc//mpih%myrankstr//'  gamma, R:       '//trim(str(self%gamma))//', '//trim(str(self%R))//NL
    desc = desc//mpih%myrankstr//'  nv, nv_aux:     '//trim(str(self%nv))//', '//trim(str(self%nv_aux))//NL
@@ -94,6 +102,10 @@ contains
 
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
+   ! issue #100, P1: the isothermal gas is an Euler model only; refused before any model loader reads its section
+   if (self%eos == EOS_ISOTHERMAL .and. (self%physical_model /= PHYSICAL_MODEL_EULER .or. self%passive_scalars > 0_I4P)) &
+      call mpih%error_stop(msg=': [eos].(type)='//EOS_ISOTHERMAL//' needs [physics].(physical_model)='// &
+                               PHYSICAL_MODEL_EULER//' without passive_scalars (issue #100, P1)')
    select case(self%physical_model)
    case(PHYSICAL_MODEL_EULER)
       self%model  = MODEL_EULER
@@ -127,12 +139,28 @@ contains
       endif
       self%nv_aux = NV_AUX_MHD
    endselect
+   if (self%eos == EOS_ISOTHERMAL) then ! issue #100, P1: the isothermal Euler model, energy slot inert (D-M13-1)
+      if (file_parameters%has_section(section_name='cooling')) &
+         call mpih%error_stop(msg=': [cooling] is refused with [eos].(type)='//EOS_ISOTHERMAL// &
+                                  ': an isothermal gas has no thermal energy to radiate (issue #100)')
+      ! the sinks' virial test and accretion use the internal energy (P4); refused by the section, before any loader
+      if (file_parameters%has_section(section_name='sinks')) &
+         call mpih%error_stop(msg=': [sinks] is refused with [eos].(type)='//EOS_ISOTHERMAL//' until P4 (issue #100)')
+      self%model = MODEL_EULER_ISO
+   endif
    self%nv_mhd = merge(self%nv, NV_EULER, self%physical_model == PHYSICAL_MODEL_MHD_IDEAL)
    self%iq_scalar1 = 0_I4P ; if (self%passive_scalars > 0_I4P) self%iq_scalar1 = self%nv - NS_MAX + 1_I4P
    self%nv_entropy = merge(IQ_S, self%nv_mhd, has_entropy(self%model))
    call self%dissipation%load_from_file(file_parameters=file_parameters, model=self%model, cp=self%cp)
    call self%gravity%load_from_file(file_parameters=file_parameters)
    call self%cooling%load_from_file(file_parameters=file_parameters, model=self%model, gamma=self%gamma, R=self%R)
+   if (self%model == MODEL_EULER_ISO) then ! issue #100, P1: the energy sources of these terms are not defined yet
+      if (self%dissipation%is_active) &
+         call mpih%error_stop(msg=': dissipative terms ([physics] viscosity, conductivity, ...) are refused with '// &
+                                  '[eos].(type)='//EOS_ISOTHERMAL//' (issue #100, P1)')
+      if (self%gravity%is_active) &
+         call mpih%error_stop(msg=': [gravity] is refused with [eos].(type)='//EOS_ISOTHERMAL//' until P4 (issue #100)')
+   endif
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize finish'
    endsubroutine initialize
@@ -174,6 +202,35 @@ contains
       if (.not.(self%dual_energy_eta > 0._R8P .and. self%dual_energy_eta < 1._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(dual_energy_eta) must lie in (0, 1), got '// &
                                   trim(str(self%dual_energy_eta)))
+   endif
+   ! the equation of state (issue #100): [eos] optional, type ideal (the gas below) by default, or isothermal
+   self%eos = EOS_IDEAL
+   if (file_parameters%has_section(section_name='eos')) then
+      call file_parameters%get(section_name='eos', option_name='type', val=buff, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load [eos].(type)')
+      self%eos = trim(adjustl(strip_control(buff)))
+      select case(self%eos)
+      case(EOS_IDEAL)
+      case(EOS_ISOTHERMAL)
+         call file_parameters%get(section_name='eos', option_name='sound_speed', val=self%sound_speed, error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load [eos].(sound_speed) (needed by type = '// &
+                                                 EOS_ISOTHERMAL//')')
+         if (.not.(self%sound_speed > 0._R8P)) &
+            call mpih%error_stop(msg=': [eos].(sound_speed) must be positive, got '//trim(str(self%sound_speed)))
+         ! the gas keys have no meaning without an energy equation: refuse them rather than ignore them
+         if (has(option_name='gamma') .or. has(option_name='cp') .or. has(option_name='cv')) &
+            call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] gamma, cp, cv are not used with [eos].(type) = '// &
+                                     EOS_ISOTHERMAL//': remove them')
+         self%cs2   = self%sound_speed**2
+         self%gamma = 1._R8P ! unused by the isothermal kernels (they take cs2); the gamma-law paths are refused
+         self%R     = 1._R8P ! the temperature is then T = c0^2, in code units
+         self%cp    = 0._R8P
+         self%cv    = 0._R8P
+         return
+      case default
+         call mpih%error_stop(msg=': unknown [eos].(type) "'//self%eos//'"; expected one of '//EOS_IDEAL//', '// &
+                                  EOS_ISOTHERMAL)
+      endselect
    endif
    ! the gas: cp and cv, or gamma alone (R = 1, the code-unit gas constant of issue #49, ND-2); giving both is fatal
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gamma', val=self%gamma, error=error)
@@ -233,6 +290,8 @@ contains
       call primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q(1:NV_EULER))
       q(IQ_S) = prim(5) * prim(1)**(1._R8P - gamma)
       q(IQ_S+1:) = 0._R8P
+   case(MODEL_EULER_ISO) ! issue #100: the pressure is not a state variable, prim(5) is ignored, the inert slot 0
+      call iso_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), q=q)
    case(MODEL_MHD)
       call mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
                                          bx=prim(6), by=prim(7), bz=prim(8), q=q)

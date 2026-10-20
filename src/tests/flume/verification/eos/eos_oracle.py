@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """FLUME isothermal and barotropic equation-of-state oracle (issue #100, M13): the exact solutions P1-P4 check against.
 
-    eos_oracle.py selftest      the oracle checks itself against properties independent of its construction (below)
+    eos_oracle.py selftest                    the oracle checks itself against properties independent of its construction
+    eos_oracle.py riemann <work> [--case tube|collide] [--c0 C0] [--mach M]
+                                              a run against the exact solution: the star plateau, the shock and contact
+                                              positions, the inert energy slot, the L1 density error (reported)
+    eos_oracle.py wave <work> ... [--c0 C0]   acoustic-wave runs, coarse to fine: the L1 error after one period, the
+                                              observed orders, the finest above ORDER_MIN
+    eos_oracle.py inert <work>                every checkpoint's energy slot exactly 0, the total mass constant
 
 The equation of state is barotropic, P = P(rho), so the hydro system is mass and momentum only; FLUME keeps its state
 layout and the energy slot is inert (D-M13-1): zero flux, zero source, its eigenvector the unit vector. Two forms:
@@ -61,6 +67,7 @@ import argparse
 import math
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -543,13 +550,204 @@ def selftest() -> bool:
     return all(results)
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# runs (P1): the FLUME checkpoints against the exact solutions
+# --------------------------------------------------------------------------------------------------------------------
+TOL_PLATEAU = 1.0e-3  # star plateau mean density against rho*, relative
+TOL_WAVE_CELLS = 1.5  # shock position (mid-density crossing) against the exact one, in cells
+TOL_CONTACT_CELLS = 2.0  # contact position (mid transverse-velocity crossing), in cells
+TOL_MASS = 1.0e-13  # total mass of a periodic box, relative drift
+ORDER_MIN = 4.5  # observed order of the finest pair of the acoustic wave (WENO-5, SSP-54 at CFL 0.1)
+EDGE_CELLS = 5  # cells kept away from every wave edge when the plateau is measured
+
+
+def run_ngc(work: Path) -> int:
+    for line in (work / "input.ini").read_text().splitlines():
+        if line.split("=")[0].strip() == "ngc":
+            return int(line.split("=")[1].split(";")[0])
+    raise ValueError(f"{work}: no [grid] ngc")
+
+
+def checkpoints(work: Path) -> list[int]:
+    return sorted({int(p.name.rsplit("-proc", 1)[0].rsplit("-", 1)[1]) for p in work.glob("*-proc*.h5")})
+
+
+def checkpoint_line(work: Path, it: int) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Cell centres along x and r, ru, rv, rE along x of a checkpoint (the first cell in y and z)."""
+    import h5py  # noqa: PLC0415 (only the run comparisons need it)
+
+    ngc = run_ngc(work)
+    cells: dict[float, list[float]] = {}
+    names = ("r", "ru", "rv", "rE")
+    for path in sorted(work.glob(f"*-{it:09d}-proc*.h5")):
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                origin, dxyz = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                q = [h5[f"{blk}-{v}"][()][ngc:-ngc, ngc:-ngc, ngc:-ngc][0, 0, :] for v in names]
+                for i in range(q[0].size):
+                    cells[round(float(origin[0] + (i + ngc + 0.5) * dxyz[0]), 10)] = [float(a[i]) for a in q]
+    x = np.array(sorted(cells))
+    return x, {v: np.array([cells[c][k] for c in x]) for k, v in enumerate(names)}
+
+
+def history(work: Path) -> tuple[list[str], np.ndarray]:
+    path = next(work.glob("*conservation_history*"))
+    lines = path.read_text().splitlines()
+    names = [n.strip('"') for n in lines[0].split("=", 1)[1].split()]
+    return names, np.array([[float(v) for v in ln.split()] for ln in lines[1:] if ln.strip()])
+
+
+def checkpoint_time(work: Path, it: int) -> float:
+    names, rows = history(work)
+    row = rows[rows[:, names.index("it")] == it]
+    assert row.size, f"{work}: no history row for it = {it}"
+    return float(row[0, names.index("time")])
+
+
+def crossing(x: np.ndarray, y: np.ndarray, level: float, lo: float, hi: float) -> float:
+    """The first x in [lo, hi] where y crosses level (linear interpolation between the bracketing cells)."""
+    for i in range(x.size - 1):
+        if lo <= x[i] <= hi and (y[i] - level) * (y[i + 1] - level) <= 0.0 and y[i] != y[i + 1]:
+            return float(x[i] + (level - y[i]) * (x[i + 1] - x[i]) / (y[i + 1] - y[i]))
+    return math.nan
+
+
+def compare_riemann(work: Path, case: str, c0: float, mach: float) -> bool:
+    """A shock tube or a collision against the exact solution: plateau, waves, inert slot, L1."""
+    eos = isothermal(c0)
+    if case == "tube":
+        left, right = State(1.0, 0.0, 0.3), State(0.125, 0.0, -0.2)
+    else:
+        left, right = State(1.0, mach * c0), State(1.0, -mach * c0)
+    sol = Solution(eos, left, right)
+    it = checkpoints(work)[-1]
+    t = checkpoint_time(work, it)
+    x, q = checkpoint_line(work, it)
+    dx = float(x[1] - x[0])
+    rho_ex = np.array([sol.sample((xi - 0.5) / t).rho for xi in x])
+    l1 = float(np.mean(np.abs(q["r"] - rho_ex)) / np.mean(rho_ex))
+    edges = [0.5 + t * s for s in sol_edges(sol)]
+    inner = [
+        xi
+        for xi in x
+        if all(abs(xi - e) > EDGE_CELLS * dx for e in edges)
+        and abs(sol.sample((xi - 0.5) / t).rho - sol.rho_star) == 0.0
+    ]
+    mask = np.isin(x, inner)
+    # the plateau mean: a strong shock leaves a decaying, zero-mean oscillation train behind it (WENO, Arora & Roe
+    # 1997), reported by its largest deviation, which the mean does not see
+    plateau = float(abs(np.mean(q["r"][mask]) - sol.rho_star) / sol.rho_star) if mask.any() else math.inf
+    ripple = float(np.max(np.abs(q["r"][mask] - sol.rho_star)) / sol.rho_star) if mask.any() else math.inf
+    ok = check(
+        "plateau",
+        plateau < TOL_PLATEAU,
+        f"{work.name}: star density {sol.rho_star:.6f}, plateau mean error {plateau:.1e} ({mask.sum()} cells, "
+        f"largest deviation {ripple:.1e})",
+    )
+    for side in ("left", "right"):
+        s = left if side == "left" else right
+        if sol.rho_star <= s.rho:
+            continue
+        xs = 0.5 + t * sol.shock_speed(side)
+        level = 0.5 * (sol.rho_star + s.rho)
+        lo, hi = (0.0, 0.5 + t * sol.u_star) if side == "left" else (0.5 + t * sol.u_star, 1.0)
+        xm = crossing(x, q["r"], level, lo, hi)
+        err = abs(xm - xs) / dx
+        ok = (
+            check(
+                "shock",
+                err < TOL_WAVE_CELLS,
+                f"{work.name}: {side} shock at {xm:.5f}, exact {xs:.5f} ({err:.2f} cells)",
+            )
+            and ok
+        )
+    if case == "tube":
+        xc = 0.5 + t * sol.u_star
+        v = q["rv"] / q["r"]
+        xm = crossing(x, v, 0.5 * (left.v + right.v), xc - 0.1, xc + 0.1)
+        err = abs(xm - xc) / dx
+        ok = (
+            check(
+                "contact",
+                err < TOL_CONTACT_CELLS,
+                f"{work.name}: contact at {xm:.5f}, exact {xc:.5f} ({err:.2f} cells)",
+            )
+            and ok
+        )
+    inert = float(np.max(np.abs(q["rE"])))
+    ok = check("inert", inert == 0.0, f"{work.name}: max |rE| {inert:.1e} (the energy slot is inert)") and ok
+    print(f"INFO [l1] {work.name}: L1 density error {l1:.3e} relative ({x.size} cells)")
+    if case == "tube":
+        v_ex = np.array([sol.sample((xi - 0.5) / t).v for xi in x])
+        l1v = float(np.mean(np.abs(q["rv"] / q["r"] - v_ex)))
+        print(f"INFO [l1] {work.name}: L1 transverse-velocity error {l1v:.3e} (the contact)")
+    return ok
+
+
+def sol_edges(sol: Solution) -> list[float]:
+    """The speeds of every wave edge: shocks, fan heads and tails, the contact (when it carries a jump)."""
+    eos = sol.eos
+    out = [sol.u_star] if (sol.left.v, sol.left.w) != (sol.right.v, sol.right.w) else []  # a contact only if it jumps
+    for side, s, sign in (("left", sol.left, 1.0), ("right", sol.right, -1.0)):
+        if sol.rho_star > s.rho:
+            out.append(sol.shock_speed(side))
+        else:
+            out += [s.u - sign * eos.c(s.rho), sol.u_star - sign * eos.c(sol.rho_star)]
+    return out
+
+
+def compare_wave(works: list[Path], c0: float, amplitude: float) -> bool:
+    """The acoustic wave after one period against its initial profile: the L1 error at each resolution, the orders."""
+    rows = []
+    for work in works:
+        it = checkpoints(work)[-1]
+        x, q = checkpoint_line(work, it)
+        t = checkpoint_time(work, it)
+        rho_ex, _ = linear_wave(isothermal(c0), 1.0, amplitude, 2.0 * math.pi, x, t)
+        rows.append((x.size, float(np.mean(np.abs(q["r"] - rho_ex)))))
+    ok = True
+    for (n0, e0), (n1, e1) in zip(rows[:-1], rows[1:], strict=True):
+        order = math.log(e0 / e1) / math.log(n1 / n0)
+        print(f"INFO [order] N {n0} -> {n1}: L1 {e0:.3e} -> {e1:.3e}, order {order:.2f}")
+    (n0, e0), (n1, e1) = rows[-2], rows[-1]
+    finest = math.log(e0 / e1) / math.log(n1 / n0)
+    return check("order", finest > ORDER_MIN, f"finest pair N {n0} -> {n1}: order {finest:.2f} (> {ORDER_MIN})") and ok
+
+
+def compare_inert(work: Path) -> bool:
+    """Every checkpoint's energy slot exactly 0; the total mass of a periodic box constant (TOL_MASS)."""
+    worst = max(float(np.max(np.abs(checkpoint_line(work, it)[1]["rE"]))) for it in checkpoints(work))
+    names, rows = history(work)
+    mass = rows[:, names.index("int_r")]
+    drift = float(np.max(np.abs(mass - mass[0])) / abs(mass[0]))
+    ok = check("inert", worst == 0.0, f"{work.name}: max |rE| over every checkpoint {worst:.1e}")
+    return check("mass", drift < TOL_MASS, f"{work.name}: total mass drift {drift:.1e} ({len(mass)} rows)") and ok
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("selftest", help="check the oracle against properties independent of its construction")
+    p = sub.add_parser("riemann", help="a shock tube or collision run against the exact solution")
+    p.add_argument("work", type=Path)
+    p.add_argument("--case", choices=("tube", "collide"), default="tube")
+    p.add_argument("--c0", type=float, default=1.0)
+    p.add_argument("--mach", type=float, default=5.0)
+    p = sub.add_parser("wave", help="acoustic-wave runs (coarse to fine): L1 errors and orders")
+    p.add_argument("works", type=Path, nargs="+")
+    p.add_argument("--c0", type=float, default=1.0)
+    p.add_argument("--amplitude", type=float, default=1.0e-6)
+    p = sub.add_parser("inert", help="the energy slot of every checkpoint and the total mass of a run")
+    p.add_argument("work", type=Path)
     args = ap.parse_args()
     if args.cmd == "selftest":
         return 0 if selftest() else 1
+    if args.cmd == "riemann":
+        return 0 if compare_riemann(args.work, args.case, args.c0, args.mach) else 1
+    if args.cmd == "wave":
+        return 0 if compare_wave(args.works, args.c0, args.amplitude) else 1
+    if args.cmd == "inert":
+        return 0 if compare_inert(args.work) else 1
     return 2
 
 

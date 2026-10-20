@@ -34,7 +34,7 @@ module adam_flume_reference_object
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
-use :: adam_flume_parameters, only : strip_control
+use :: adam_flume_parameters, only : EOS_ISOTHERMAL, strip_control
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
@@ -176,10 +176,19 @@ contains
    !< dimensional option of the loaded input to code units.
    class(flume_reference_object), intent(inout) :: self            !< Reference layer.
    type(file_ini),                intent(inout) :: file_parameters !< Simulation parameters ini file handler.
+   character(999)                               :: buff            !< Option value buffer.
+   integer(I4P)                                 :: error           !< Error status.
 
    print '(A)', mpih%myrankstr//'flume_reference_object%initialize start'
    self%is_active = file_parameters%has_section(section_name=INI_SECTION_NAME)
    if (self%is_active) then
+      ! issue #100, P1: the layer converts gamma-law quantities, not the isothermal sound speed; refuse it before any
+      ! conversion reads the gas (this layer runs before the physics, so the physics cannot refuse it first)
+      if (file_parameters%has_section(section_name='eos')) then
+         call file_parameters%get(section_name='eos', option_name='type', val=buff, error=error)
+         if (error <= 0 .and. trim(adjustl(strip_control(buff))) == EOS_ISOTHERMAL) &
+            call mpih%error_stop(msg=': [reference] is refused with [eos].(type)=isothermal (issue #100, P1)')
+      endif
       call self%load_context(file_parameters=file_parameters)
       call self%load_from_file(file_parameters=file_parameters)
       call self%convert_options(file_parameters=file_parameters)
