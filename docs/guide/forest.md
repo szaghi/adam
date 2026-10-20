@@ -96,7 +96,7 @@ Mid-step peer ghosts are intentionally stale-by-one-step. Each realm reads peer 
 
 This is the **AMReX `FillCoarsePatch` convention** (Berger-Oliger 1984; AMReX `Amr.cpp::timeStep`). It is well-understood numerically and admits **asymmetric per-realm K**: a forest may mix SSP-RK-3 and SSP-RK-5 realms without restructuring.
 
-The cost is structural: **first-order seam coupling in time**, while the per-realm interior keeps the full RK order. Far from steep gradients the effect is benign.
+The cost is structural: **first-order seam coupling in time**, while the per-realm interior keeps the full RK order. Far from steep gradients the effect is benign. Full-order coupling under asymmetric K would need dense (continuous) Runge-Kutta output for the peer reads; that design (γ) is recorded in [#17](https://github.com/szaghi/adam/issues/17) and is not planned.
 
 When to use α:
 
