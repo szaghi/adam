@@ -3,10 +3,16 @@
 !< The deposits replicate the CPU backend (adam_prism_pic_object, adam_prism_cpu_object): B-spline charge with the optional
 !< binomial filter, the Esirkepov directional charge change with its face prefix sum, the matched currents
 !< (esirkepov_Q<N>, totorica: rho = P S, J_d = Q_d P_transverse F_d) and londrillo (A^-1 line solve with the checkerboard
-!< constraint). Two gathers are compared:
+!< constraint). Three gathers are compared:
 !<   current  : the B-spline gather of field_weighting_model (order and filter as configured), the same for E and B;
 !<   coherent : the adjoint of the deposit, E with the charge operator and B_c paired with the current component j_d it
-!<              multiplies in v x B, gathered with the operator of J_d.
+!<              multiplies in v x B, gathered with the operator of J_d (column F_B of the coherent block);
+!<   F_B(rho) : B gathered with the charge operator as E. This is the gather adopted in PRISM for every deposit (the
+!<              field_weighting_model named after the conserving solver): E and B are gathered with the transpose of the
+!<              charge operator S^rho (P^T on the field, then the base shape, on the dual nodes for the odd esirkepov_Q<N>;
+!<              londrillo: the particle shape with the optional binomial filter), as the polynomial gathers already do.
+!<              It is the adjoint of the charge deposit and cancels both self-forces; the paired B gather is the
+!<              momentum-conserving prescription (Totorica 2025, eq. 57) and is left to a later step.
 !< Metrics (unit charge, dx = 1, eps = 1):
 !<   adjoint  : |sum_cells(deposit*F) - gather(F)| / sum|deposit*F| for a random F (rho and J_x, J_y, J_z);
 !<   F_E      : electrostatic self-force, max over the sub-cell positions (periodic box, centered FD Poisson, F_ref = 1/(4 pi));
