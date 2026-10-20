@@ -5388,14 +5388,8 @@ contains
       endif
       call cc%build_stage_target(q_pic=self%pic_fnl%q_pic_gpu, q_pic_rk=q_pic_rk_gpu, s=s, coeff=coeff, dt=self%time%dt)
       if (cleanup) call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,s))
-      if (cc%solver == CONSERVING_SOLVER_DIRECT) then
-         call cc%decomposition_displacement(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, field=self%adam%field, &
-                                            grid=self%adam%grid, q_ref=self%pic_fnl%q_pic_gpu, q_to=cc%q_next_gpu, &
-                                            h=cc%h_gpu(:,:,:,:,:,s))
-      else
-         call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=self%pic_fnl%q_pic_gpu, q_to=cc%q_next_gpu, &
-                                        h=cc%h_gpu(:,:,:,:,:,s), p_first=1_I4P, p_last=cc%particle_number)
-      endif
+      call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=self%pic_fnl%q_pic_gpu, q_to=cc%q_next_gpu, &
+                                     h=cc%h_gpu(:,:,:,:,:,s), p_first=1_I4P, p_last=cc%particle_number)
       ! the source of the particles of all the ranks
       call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,s))
       call cc%combine_stage_source(h=cc%h_gpu, s=s, coeff=coeff)
@@ -5490,14 +5484,8 @@ contains
    if (self%time%it_max <= 0_I4P) self%time%dt = min(self%time%dt, self%time%time_max)
    if (self%time%dt <= 0._R8P) call mpih%error_stop(msg=': nonpositive initial PIC timestep')
    call cc%build_centered_trajectory(q_pic=self%pic_fnl%q_pic_gpu, dt=self%time%dt)
-   if (cc%solver == CONSERVING_SOLVER_DIRECT) then
-      call cc%decomposition_displacement(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, field=self%adam%field, &
-                                         grid=self%adam%grid, q_ref=cc%q_ref_gpu, q_to=cc%q_next_gpu, &
-                                         h=cc%h_gpu(:,:,:,:,:,1))
-   else
-      call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=cc%q_ref_gpu, q_to=cc%q_next_gpu, &
-                                     h=cc%h_gpu(:,:,:,:,:,1), p_first=1_I4P, p_last=cc%particle_number)
-   endif
+   call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=cc%q_ref_gpu, q_to=cc%q_next_gpu, &
+                                  h=cc%h_gpu(:,:,:,:,:,1), p_first=1_I4P, p_last=cc%particle_number)
    ! the source of the particles of all the ranks
    call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,1))
    if (cc%tail_cleanup) then
@@ -6440,11 +6428,11 @@ contains
 
    ! CPU parity (prism_cpu_object%accumulate_charge_conservation_current): intra-realm ghost exchange only -- no physical
    ! BCs and no coil re-stamp (update_ghost would add the analytic coil J to the div(J) of the plasma current) -- then
-   ! the current ghosts the solver assumes: odd mirror for the Esirkepov variants, zero otherwise.
+   ! the current ghosts the solver assumes: odd mirror for the conserving solvers, zero otherwise.
    call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
    call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
                                             comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, q_gpu=q_gpu)
-   if (self%conserving_fnl%enabled .and. self%conserving_fnl%solver /= CONSERVING_SOLVER_DIRECT) then
+   if (self%conserving_fnl%enabled) then
       call self%conserving_fnl%impose_current_ghosts(q=q_gpu, var_jx=self%physics%var_jx)
    else
       call zero_current_ghosts_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &

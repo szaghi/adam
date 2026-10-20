@@ -5,6 +5,7 @@ module adam_prism_pic_object
 ! ADAM classes, libraries, parameters
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
+use :: adam_fdv_operators_library, only : FV1_CC
 ! ADAM singleton objects
 use :: adam_mpih_global,  only : mpih
 use :: mpi
@@ -40,8 +41,9 @@ public :: NUM_SCHEME_TIME_PIC_LEAPFROG
 public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
 public :: COHERENT_INITIALIZATION
 public :: ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER
-public :: ESIRKEPOV_CURRENT_CONSERVING_SOLVER
-public :: DIRECT_CURRENT_CONSERVING_SOLVER
+public :: LONDRILLO_CURRENT_CONSERVING_SOLVER
+public :: TOTORICA_CURRENT_CONSERVING_SOLVER
+public :: totorica_kernels
 public :: CONSERVING_CURRENT_WEIGHTING_MODEL
 public :: effective_gaussian_weight
 public :: bspline_weight
@@ -88,9 +90,11 @@ character(len=12), parameter :: UNIFORM_CELL                     = 'Uniform_cell
 
 character(len=10), parameter :: CONSERVING_CURRENT_WEIGHTING_MODEL = 'conserving'      !< Charge-conserving current model.
 
-character(len=6 ), parameter :: DIRECT_CURRENT_CONSERVING_SOLVER = 'direct'            !< Direct line-solve conserving current.
+character(len=9 ), parameter :: LONDRILLO_CURRENT_CONSERVING_SOLVER = 'londrillo'      !< Esirkepov face flux + inverse
+                                                                                       !< reconstruction (P = I, rho unfiltered).
 
-character(len=9 ), parameter :: ESIRKEPOV_CURRENT_CONSERVING_SOLVER = 'esirkepov'      !< Esirkepov particle current.
+character(len=8 ), parameter :: TOTORICA_CURRENT_CONSERVING_SOLVER = 'totorica'        !< Matched local current with L = m,
+                                                                                       !< P = A m, any centered FD order.
 
 character(len=11), parameter :: ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER = 'esirkepov_Q' !< Matched local current family
                                                                                             !< esirkepov_Q<N> (filter in esirkepov_q).
@@ -130,8 +134,8 @@ type :: prism_pic_object
    character(len=99)         :: current_weighting_model     !< Current weighting model.
    character(len=99)         :: field_weighting_model       !< Field weighting model.
    logical                   :: esirkepov_tail_cleanup = .false. !< Remove small current leakage outside each particle's support.
-   character(len=99)         :: current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER !< Conserving current solver.
-   integer(I4P)              :: esirkepov_q = 0_I4P         !< Q filter coefficients of esirkepov_Q<N> (2,5,6,8,10), 0 otherwise.
+   character(len=99)         :: current_conserving_solver = LONDRILLO_CURRENT_CONSERVING_SOLVER !< Conserving current solver.
+   integer(I4P)              :: esirkepov_q = 0_I4P         !< Q filter coefficients of esirkepov_Q<N> (5,6,8,10), 0 otherwise.
    character(len=99)         :: scheme_time                 !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    !< Pointer (abstract) TBP.
    procedure(particle_weighting_interface), pass(self), pointer :: particle_weighting =>null() !< Particle weighting.
@@ -140,6 +144,7 @@ type :: prism_pic_object
 contains
    procedure, pass(self) :: description                   !< Return pretty-printed object description.
    procedure, pass(self) :: conserving_solver_name        !< Input name of the conserving current solver.
+   procedure, pass(self) :: matched_current               !< True for the local matched currents (totorica, esirkepov_Q<N>).
    procedure, pass(self) :: check_esirkepov_q_order       !< Check the esirkepov_Q<N> filter against the FD order.
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
@@ -226,16 +231,48 @@ contains
    endif
    endfunction conserving_solver_name
 
+   pure function matched_current(self) result(matched)
+   !< True for the local matched currents J_d = L_d P_transverse F_d^E with rho = P rho^P (totorica, esirkepov_Q<N>): they
+   !< share the deposit of the filtered charge, the P/Q kernels and the per-particle cleanup.
+   class(prism_pic_object), intent(in) :: self    !< PIC object.
+   logical                             :: matched !< Matched current flag.
+
+   matched = trim(self%current_conserving_solver) == TOTORICA_CURRENT_CONSERVING_SOLVER .or. &
+             trim(self%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER
+   endfunction matched_current
+
+   pure subroutine totorica_kernels(hs, p, qw, radius, qfirst, nq)
+   !< Totorica's matched current (Totorica 2025, eq. 53-54, S^JO = I) for the centered FD of half stencil hs. The derivative
+   !< factors as D = delta A, A the face reconstruction FV1_CC(:,hs) (A = m C, m = [1,1]/2); then L = Q = m and P = A m:
+   !< center i <- faces i-1/2, i+1/2 (weight 1/2 each) <- centers i+1-m, i+m and i-m, i-1+m (weight a_m). FD2 gives
+   !< P = [1,2,1]/4, the former esirkepov_Q2; from FD4 on P has negative lobes (those of C).
+   integer(I4P), intent(in)  :: hs     !< FD half stencil.
+   real(R8P),    intent(out) :: p(-7:7) !< P kernel on cell centers.
+   real(R8P),    intent(out) :: qw(0:9) !< Q kernel from the faces to the centers.
+   integer(I4P), intent(out) :: radius  !< Taps of P.
+   integer(I4P), intent(out) :: qfirst  !< Offset of the first Q face (flux index = center + qfirst).
+   integer(I4P), intent(out) :: nq      !< Taps of Q.
+   integer(I4P)              :: m       !< Counter.
+
+   p = 0._R8P ; qw = 0._R8P
+   do m=1,hs
+      p(1-m) = p(1-m) + 0.5_R8P*FV1_CC(m,hs)
+      p(m)   = p(m)   + 0.5_R8P*FV1_CC(m,hs)
+      p(-m)  = p(-m)  + 0.5_R8P*FV1_CC(m,hs)
+      p(m-1) = p(m-1) + 0.5_R8P*FV1_CC(m,hs)
+   enddo
+   qw(0:1) = [1._R8P,1._R8P]/2._R8P
+   radius = hs ; qfirst = -1_I4P ; nq = 2_I4P
+   endsubroutine totorica_kernels
+
    subroutine check_esirkepov_q_order(self, fdv_order)
-   !< The matched current needs D = delta A with P = A Q: esirkepov_Q2 pairs with FD2 (A2 = [1,1]/2), esirkepov_Q5, Q6, Q8
-   !< and Q10 with FD6 (A6 = [1,-8,37,37,-8,1]/60). No-op for the other solvers.
+   !< The esirkepov_Q<N> filters are built on D = delta A with P = A Q for FD6 (A6 = [1,-8,37,37,-8,1]/60): Q5, Q6, Q8 and
+   !< Q10 require fdv_order = 6. No-op for the other solvers (totorica adapts to any centered FD order).
    class(prism_pic_object), intent(in) :: self      !< PIC object.
    integer(I4P),            intent(in) :: fdv_order !< FD order.
 
    if (trim(self%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) return
    select case(self%esirkepov_q)
-   case(2_I4P)
-      if (fdv_order /= 2_I4P) call mpih%error_stop(msg=': esirkepov_Q2 requires fdv_order = 2')
    case(5_I4P, 6_I4P, 8_I4P, 10_I4P)
       if (fdv_order /= 6_I4P) call mpih%error_stop(msg=': '//self%conserving_solver_name()//' requires fdv_order = 6')
    case default
@@ -624,19 +661,20 @@ contains
       ['//INI_SECTION_NAME//'].(field_weighting_model)')
    endselect
 
-   self%current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER
+   self%current_conserving_solver = LONDRILLO_CURRENT_CONSERVING_SOLVER
    self%esirkepov_q = 0_I4P
    buff = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='current_conserving_solver', val=buff, error=error)
    if (error == 0) then
       buff = trim(adjustl(buff))
       select case(trim(adjustl(buff)))
-      case('direct', 'DIRECT', 'Direct', 'line', 'LINE', 'line_solve', 'LINE_SOLVE')
-         self%current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER
-      case('esirkepov', 'ESIRKEPOV', 'Esirkepov')
-         self%current_conserving_solver = ESIRKEPOV_CURRENT_CONSERVING_SOLVER
+      case('londrillo', 'LONDRILLO', 'Londrillo')
+         self%current_conserving_solver = LONDRILLO_CURRENT_CONSERVING_SOLVER
+      case('totorica', 'TOTORICA', 'Totorica')
+         self%current_conserving_solver = TOTORICA_CURRENT_CONSERVING_SOLVER
       case('esirkepov_Q2', 'ESIRKEPOV_Q2', 'Esirkepov_Q2', 'esirkepov_q2')
-         self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER ; self%esirkepov_q = 2_I4P
+         ! alias: with FD2 Totorica's kernels are the former esirkepov_Q2 ones (L = [1,1]/2, P = [1,2,1]/4)
+         self%current_conserving_solver = TOTORICA_CURRENT_CONSERVING_SOLVER
       case('esirkepov_Q5', 'ESIRKEPOV_Q5', 'Esirkepov_Q5', 'esirkepov_q5')
          self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER ; self%esirkepov_q = 5_I4P
       case('esirkepov_Q6', 'ESIRKEPOV_Q6', 'Esirkepov_Q6', 'esirkepov_q6')
@@ -645,16 +683,22 @@ contains
          self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER ; self%esirkepov_q = 8_I4P
       case('esirkepov_Q10', 'ESIRKEPOV_Q10', 'Esirkepov_Q10', 'esirkepov_q10')
          self%current_conserving_solver = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER ; self%esirkepov_q = 10_I4P
+      case('esirkepov', 'ESIRKEPOV', 'Esirkepov')
+         call mpih%error_stop(msg=': current conserving solver ['//trim(buff)//'] was renamed: use londrillo in ['// &
+                                  INI_SECTION_NAME//'].(current_conserving_solver)')
+      case('direct', 'DIRECT', 'Direct', 'line', 'LINE', 'line_solve', 'LINE_SOLVE')
+         call mpih%error_stop(msg=': current conserving solver ['//trim(buff)//'] was removed: use londrillo or '// &
+                                  'totorica in ['//INI_SECTION_NAME//'].(current_conserving_solver)')
       case('esirkepov-modified', 'ESIRKEPOV-MODIFIED', 'Esirkepov-Modified', 'esirkepov_modified')
          call mpih%error_stop(msg=': current conserving solver ['//trim(buff)//'] was renamed: use esirkepov_Q10 '// &
-                                  '(FD6) or esirkepov_Q2 (FD2) in ['//INI_SECTION_NAME//'].(current_conserving_solver)')
+                                  '(FD6) or totorica (FD2) in ['//INI_SECTION_NAME//'].(current_conserving_solver)')
       case default
          call mpih%error_stop(msg=': invalid current conserving solver ['//trim(buff)//'] in  &
       ['//INI_SECTION_NAME//'].(current_conserving_solver)')
       endselect
    endif
    if (self%current_weighting_model /= CONSERVING_CURRENT_WEIGHTING_MODEL) then
-      self%current_conserving_solver = DIRECT_CURRENT_CONSERVING_SOLVER
+      self%current_conserving_solver = LONDRILLO_CURRENT_CONSERVING_SOLVER
       self%esirkepov_q = 0_I4P
    endif
 

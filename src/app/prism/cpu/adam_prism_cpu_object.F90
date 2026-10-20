@@ -33,19 +33,17 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P), allocatable ::   flz_f(:,:,:,:,:    ) !< Fluxes along z at cell face.
    real(R8P), allocatable :: charge_conservation_acc(:,:,:,:)  !< Accumulator for rho/dt + weighted div(J) diagnostic.
    real(R8P), allocatable :: charge_conservation_divj(:,:,:,:) !< Workspace for stage div(J) diagnostic.
-   real(R8P), allocatable :: direct_current_matrix_x(:,:,:)    !< Cached factored x-line matrices for direct PIC current.
-   real(R8P), allocatable :: direct_current_matrix_y(:,:,:)    !< Cached factored y-line matrices for direct PIC current.
-   real(R8P), allocatable :: direct_current_matrix_z(:,:,:)    !< Cached factored z-line matrices for direct PIC current.
-   real(R8P), allocatable :: direct_current_dxyz(:,:)          !< Grid spacings used to build direct current matrices.
-   integer(I4P), allocatable :: direct_current_pivot_x(:,:)    !< Cached x-line pivots for direct PIC current.
-   integer(I4P), allocatable :: direct_current_pivot_y(:,:)    !< Cached y-line pivots for direct PIC current.
-   integer(I4P), allocatable :: direct_current_pivot_z(:,:)    !< Cached z-line pivots for direct PIC current.
-   integer(I4P)          :: direct_current_cache_ni = 0_I4P    !< Cached x-line size.
-   integer(I4P)          :: direct_current_cache_nj = 0_I4P    !< Cached y-line size.
-   integer(I4P)          :: direct_current_cache_nk = 0_I4P    !< Cached z-line size.
-   integer(I4P)          :: direct_current_cache_nb = 0_I4P    !< Cached block count.
-   integer(I4P)          :: direct_current_cache_hs = 0_I4P    !< Cached half-stencil.
-   logical               :: direct_current_cache_esirkepov = .false.
+   real(R8P), allocatable :: londrillo_current_matrix_x(:,:,:)    !< Cached factored x-line matrices for the londrillo PIC current.
+   real(R8P), allocatable :: londrillo_current_matrix_y(:,:,:)    !< Cached factored y-line matrices for the londrillo PIC current.
+   real(R8P), allocatable :: londrillo_current_matrix_z(:,:,:)    !< Cached factored z-line matrices for the londrillo PIC current.
+   integer(I4P), allocatable :: londrillo_current_pivot_x(:,:)    !< Cached x-line pivots for the londrillo PIC current.
+   integer(I4P), allocatable :: londrillo_current_pivot_y(:,:)    !< Cached y-line pivots for the londrillo PIC current.
+   integer(I4P), allocatable :: londrillo_current_pivot_z(:,:)    !< Cached z-line pivots for the londrillo PIC current.
+   integer(I4P)          :: londrillo_current_cache_ni = 0_I4P    !< Cached x-line size.
+   integer(I4P)          :: londrillo_current_cache_nj = 0_I4P    !< Cached y-line size.
+   integer(I4P)          :: londrillo_current_cache_nk = 0_I4P    !< Cached z-line size.
+   integer(I4P)          :: londrillo_current_cache_nb = 0_I4P    !< Cached block count.
+   integer(I4P)          :: londrillo_current_cache_hs = 0_I4P    !< Cached half-stencil.
    logical               :: fv_add_phi_damping = .false. !< Apply phi damping in FV residuals.
    logical               :: fv_add_psi_damping = .false. !< Apply psi damping in FV residuals.
    integer(I4P)          :: fv_ivar_phi        = 0_I4P   !< Phi slot index in FV residuals.
@@ -1368,8 +1366,7 @@ contains
    if (.not.is_restart) call self%initialize_pic_time_zero()
    if (.not.is_restart .and. is_pic_model(self%physics%physical_model)) then
       if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
-         if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) &
-            call deposit_pic_modified_charge(self=self, q=self%q)
+         if (self%pic%matched_current()) call deposit_pic_modified_charge(self=self, q=self%q)
          call initialize_pic_conserving_current_time_zero(self=self)
       endif
    endif
@@ -4480,7 +4477,6 @@ contains
    class(prism_cpu_object), intent(inout) :: self
    integer(I4P)                           :: s, r, np, nrk
    real(R8P), allocatable                 :: q_stage(:,:,:,:,:)
-   real(R8P), allocatable                 :: q_work(:,:,:,:,:)
    real(R8P), allocatable                 :: q_gather(:,:,:,:,:)
    real(R8P), allocatable                 :: q_pic_next(:,:)
    real(R8P), allocatable                 :: q_pic_to_stage(:,:,:)
@@ -4503,20 +4499,10 @@ contains
                                        1-self%ngc,self%nk+self%ngc, &
                                        1,self%nb],[2,5]),           &
                           msg=mpih%myrankstr//'integrate_rk_ssp_pic_charge_conserving allocate q_stage')
-   if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_CURRENT_CONSERVING_SOLVER .and. &
-       trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
-      call allocate_variable(var=q_work,                               &
-                             ulb=reshape([1,self%nv,                   &
-                                          1-self%ngc,self%ni+self%ngc, &
-                                          1-self%ngc,self%nj+self%ngc, &
-                                          1-self%ngc,self%nk+self%ngc, &
-                                          1,self%nb],[2,5]),           &
-                             msg=mpih%myrankstr//'integrate_rk_ssp_pic_charge_conserving allocate q_work')
-   endif
    allocate(q_pic_next(1:8, 1:np), coeff(1:nrk))
    if (self%pic%esirkepov_tail_cleanup) then
-      if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) &
-         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires an esirkepov_Q<N> solver')
+      if (.not.self%pic%matched_current()) &
+         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires totorica or an esirkepov_Q<N> solver')
       allocate(q_pic_to_stage(1:8,1:np,1:nrk))
       allocate(q_pic_ref,source=self%q_pic)
    endif
@@ -4571,14 +4557,7 @@ contains
       q_pic_next(7:8,:) = self%q_pic(7:8,:)
       if (self%pic%esirkepov_tail_cleanup) q_pic_to_stage(:,:,s) = q_pic_next
 
-      if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_CURRENT_CONSERVING_SOLVER .or. &
-          trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
-         call compute_pic_esirkepov_displacement(self=self, q_ref=self%q_pic, q_to=q_pic_next, &
-                                                 h_dir=h_q(:,:,:,:,:,s,1))
-      else
-         call compute_pic_charge_displacement_decomposition(self=self, q_ref=self%q_pic, q_to=q_pic_next, &
-                                                            q_work=q_work, h_dir=h_q(:,:,:,:,:,s,1))
-      endif
+      call compute_pic_esirkepov_displacement(self=self, q_ref=self%q_pic, q_to=q_pic_next, h_dir=h_q(:,:,:,:,:,s,1))
       do r=1, s-1
          h_q(:,:,:,:,:,s,1) = h_q(:,:,:,:,:,s,1) - coeff(r) * h_q(:,:,:,:,:,r,1)
       enddo
@@ -4618,7 +4597,7 @@ contains
    call self%apply_fWL_correction(q=self%q)
    call self%impose_div_free
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
-   if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+   if (self%pic%matched_current()) then
       call deposit_pic_modified_charge(self=self, q=self%q)
    else
       call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
@@ -4635,44 +4614,12 @@ contains
                                                context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
    call self%compute_coils_current(q=self%q)
    if (allocated(q_stage)) deallocate(q_stage)
-   if (allocated(q_work)) deallocate(q_work)
    if (allocated(q_pic_next)) deallocate(q_pic_next)
    if (allocated(q_pic_to_stage)) deallocate(q_pic_to_stage)
    if (allocated(q_pic_ref)) deallocate(q_pic_ref)
    if (allocated(h_q)) deallocate(h_q)
    if (allocated(coeff)) deallocate(coeff)
    endsubroutine integrate_rk_ssp_pic_charge_conserving
-
-   subroutine compute_pic_charge_displacement_decomposition(self, q_ref, q_to, q_work, h_dir)
-   !< Directional telescopic decomposition of rho(q_to)-rho(q_ref), using the configured particle shape.
-   implicit none
-   class(prism_cpu_object), intent(inout) :: self
-   real(R8P),               intent(in)    :: q_ref(1:,1:)
-   real(R8P),               intent(in)    :: q_to(1:,1:)
-   real(R8P),               intent(inout) :: q_work(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
-   real(R8P),               intent(inout) :: h_dir(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
-   integer(I4P), parameter                :: perm(3,6) = reshape([1,2,3, 1,3,2, 2,1,3, 2,3,1, 3,1,2, 3,2,1], [3,6])
-   real(R8P), allocatable                 :: q_mixed(:,:)
-   integer(I4P)                           :: p, step, l, alpha
-
-   allocate(q_mixed(1:8, 1:self%pic%particle_number))
-   h_dir = 0._R8P
-   do p=1, 6
-      do step=1, 3
-         q_mixed = q_ref
-         do l=1, step-1
-            q_mixed(perm(l,p),:) = q_to(perm(l,p),:)
-         enddo
-         alpha = perm(step,p)
-         call deposit_pic_charge_density(self=self, q_pic_pos=q_mixed, q_work=q_work)
-         h_dir(alpha,:,:,:,:) = h_dir(alpha,:,:,:,:) - q_work(self%nv,:,:,:,:) / 6._R8P
-         q_mixed(alpha,:) = q_to(alpha,:)
-         call deposit_pic_charge_density(self=self, q_pic_pos=q_mixed, q_work=q_work)
-         h_dir(alpha,:,:,:,:) = h_dir(alpha,:,:,:,:) + q_work(self%nv,:,:,:,:) / 6._R8P
-      enddo
-   enddo
-   if (allocated(q_mixed)) deallocate(q_mixed)
-   endsubroutine compute_pic_charge_displacement_decomposition
 
    subroutine compute_pic_esirkepov_displacement(self, q_ref, q_to, h_dir, particle)
    !< Symmetric Esirkepov density decomposition for the same separable shape used by rho.
@@ -4704,7 +4651,7 @@ contains
    case default    ; order = -1_I4P
    endselect
    closed = order >= 0_I4P .and. .not.(self%pic%filter_deposition .and. &
-            trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER)
+            (.not.self%pic%matched_current()))
    if (gaussian .or. closed) then
       if (gaussian .and. (self%pic%sigma <= 0._R8P .or. self%pic%cutoff_sigma <= 0._R8P .or. &
           self%pic%gaussian_support_cells < 0_I4P)) &
@@ -4732,7 +4679,7 @@ contains
       if (q_ref(7,p) /= q_to(7,p)) call mpih%error_stop(msg=': esirkepov particle charge changed during an RK stage')
       call particle_weighting_radius(self=self, b=b, rx=rx, ry=ry, rz=rz)
       if (self%pic%filter_deposition .and. &
-          trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+          (.not.self%pic%matched_current())) then
          rx = rx + 1_I4P ; ry = ry + 1_I4P ; rz = rz + 1_I4P
       endif
       i0 = min(ip,it) - rx ; i1 = max(ip,it) + rx
@@ -4741,7 +4688,7 @@ contains
       if (i0 < 1_I4P .or. i1 > self%ni .or. j0 < 1_I4P .or. j1 > self%nj .or. &
           k0 < 1_I4P .or. k1 > self%nk) &
          call mpih%error_stop(msg=': esirkepov particle shape touches a boundary; charge flux BC is unsupported')
-      if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+      if (self%pic%matched_current()) then
          if (min(i0,j0,k0) <= modified_filter_radius(self) .or. &
              self%ni-i1 <= modified_filter_radius(self) .or. &
              self%nj-j1 <= modified_filter_radius(self) .or. &
@@ -4856,7 +4803,7 @@ contains
    do i=ip-radius, ip+radius
       w(i) = effective_gaussian_weight(r=(x-x_cell(i))/self%pic%sigma, shift=shift, &
                                         cutoff_limit=cutoff_limit, filter=self%pic%filter_deposition .and. &
-                                        trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER)
+                                        (.not.self%pic%matched_current()))
    enddo
    weight_sum = sum(w)
    if (weight_sum <= tiny(1._R8P)) &
@@ -4877,7 +4824,7 @@ contains
    if (trim(self%pic%particle_weighting_model) == 'NGP') then
       r = (x-xc)/dx
       if (self%pic%filter_deposition .and. &
-          trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+          (.not.self%pic%matched_current())) then
          w = 0._R8P
          if (r > -0.5_R8P+tol .and. r <= 0.5_R8P+tol) then
             w = 0.5_R8P
@@ -4895,7 +4842,7 @@ contains
    call particle_shape_weight_1d(self=self, model=trim(self%pic%particle_weighting_model), x=x, xc=xc, dx=dx, w=wc)
    w = wc
    if (self%pic%filter_deposition .and. &
-       trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+       (.not.self%pic%matched_current())) then
       call particle_shape_weight_1d(self=self, model=trim(self%pic%particle_weighting_model), &
                                     x=x, xc=xc-dx, dx=dx, w=wm)
       call particle_shape_weight_1d(self=self, model=trim(self%pic%particle_weighting_model), &
@@ -4903,18 +4850,6 @@ contains
       w = 0.25_R8P*wm + 0.5_R8P*wc + 0.25_R8P*wp
    endif
    endsubroutine esirkepov_shape_weight_1d
-
-   subroutine deposit_pic_charge_density(self, q_pic_pos, q_work)
-   !< Deposit charge density for an arbitrary PIC position array.
-   implicit none
-   class(prism_cpu_object), intent(inout) :: self
-   real(R8P),               intent(in)    :: q_pic_pos(1:,1:)
-   real(R8P),               intent(inout) :: q_work(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
-
-   q_work = 0._R8P
-   call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=q_pic_pos)
-   call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=q_work, q_pic=q_pic_pos, nv=self%nv)
-   endsubroutine deposit_pic_charge_density
 
    subroutine initialize_charge_conservation_diagnostic(self)
    !< Initialize rho_n/dt + sum_s beta_s div(J_s) diagnostic accumulator.
@@ -4943,8 +4878,7 @@ contains
 
    call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
    call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q)
-   if (trim(self%pic%current_conserving_solver) == ESIRKEPOV_CURRENT_CONSERVING_SOLVER .or. &
-       trim(self%pic%current_conserving_solver) == ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) then
+   if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
       call impose_odd_current_ghosts(self=self, q=q)
    else
       call impose_zero_current_ghosts(self=self, q=q)
@@ -5081,41 +5015,39 @@ contains
    real(R8P),               intent(in)    :: hq(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
 
    select case(trim(self%pic%current_conserving_solver))
-   case(DIRECT_CURRENT_CONSERVING_SOLVER)
-      call solve_pic_charge_conserving_current(self=self, q=q, hq=hq)
-   case(ESIRKEPOV_CURRENT_CONSERVING_SOLVER)
-      call solve_pic_charge_conserving_current_esirkepov(self=self, q=q, hq=hq)
-   case(ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER)
+   case(LONDRILLO_CURRENT_CONSERVING_SOLVER)
+      call solve_pic_charge_conserving_current_londrillo(self=self, q=q, hq=hq)
+   case(TOTORICA_CURRENT_CONSERVING_SOLVER, ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER)
       call solve_pic_charge_conserving_current_modified(self=self, q=q, hq=hq)
    case default
       call mpih%error_stop(msg=': unsupported current_conserving_solver '//trim(self%pic%current_conserving_solver))
    endselect
    endsubroutine solve_pic_charge_conserving_current_dispatch
 
-   subroutine ensure_esirkepov_current_solver_cache(self)
+   subroutine ensure_londrillo_current_solver_cache(self)
    !< Factor the interior face map plus one checkerboard constraint per line.
    implicit none
    class(prism_cpu_object), intent(inout) :: self
    real(R8P), allocatable                 :: face_map(:,:)
    integer(I4P)                           :: b, dir, n, face, col, maxn
 
-   if (self%direct_current_cache_esirkepov .and. allocated(self%direct_current_matrix_x)) then
-      if (self%direct_current_cache_ni == self%ni .and. self%direct_current_cache_nj == self%nj .and. &
-          self%direct_current_cache_nk == self%nk .and. self%direct_current_cache_nb == self%blocks_number .and. &
-          self%direct_current_cache_hs == self%fdv_half_stencils(1)) return
+   if (allocated(self%londrillo_current_matrix_x)) then
+      if (self%londrillo_current_cache_ni == self%ni .and. self%londrillo_current_cache_nj == self%nj .and. &
+          self%londrillo_current_cache_nk == self%nk .and. self%londrillo_current_cache_nb == self%blocks_number .and. &
+          self%londrillo_current_cache_hs == self%fdv_half_stencils(1)) return
    endif
-   if (allocated(self%direct_current_matrix_x)) deallocate(self%direct_current_matrix_x)
-   if (allocated(self%direct_current_matrix_y)) deallocate(self%direct_current_matrix_y)
-   if (allocated(self%direct_current_matrix_z)) deallocate(self%direct_current_matrix_z)
-   if (allocated(self%direct_current_pivot_x)) deallocate(self%direct_current_pivot_x)
-   if (allocated(self%direct_current_pivot_y)) deallocate(self%direct_current_pivot_y)
-   if (allocated(self%direct_current_pivot_z)) deallocate(self%direct_current_pivot_z)
-   allocate(self%direct_current_matrix_x(self%ni,self%ni,self%blocks_number), &
-            self%direct_current_matrix_y(self%nj,self%nj,self%blocks_number), &
-            self%direct_current_matrix_z(self%nk,self%nk,self%blocks_number))
-   allocate(self%direct_current_pivot_x(self%ni,self%blocks_number), &
-            self%direct_current_pivot_y(self%nj,self%blocks_number), &
-            self%direct_current_pivot_z(self%nk,self%blocks_number))
+   if (allocated(self%londrillo_current_matrix_x)) deallocate(self%londrillo_current_matrix_x)
+   if (allocated(self%londrillo_current_matrix_y)) deallocate(self%londrillo_current_matrix_y)
+   if (allocated(self%londrillo_current_matrix_z)) deallocate(self%londrillo_current_matrix_z)
+   if (allocated(self%londrillo_current_pivot_x)) deallocate(self%londrillo_current_pivot_x)
+   if (allocated(self%londrillo_current_pivot_y)) deallocate(self%londrillo_current_pivot_y)
+   if (allocated(self%londrillo_current_pivot_z)) deallocate(self%londrillo_current_pivot_z)
+   allocate(self%londrillo_current_matrix_x(self%ni,self%ni,self%blocks_number), &
+            self%londrillo_current_matrix_y(self%nj,self%nj,self%blocks_number), &
+            self%londrillo_current_matrix_z(self%nk,self%nk,self%blocks_number))
+   allocate(self%londrillo_current_pivot_x(self%ni,self%blocks_number), &
+            self%londrillo_current_pivot_y(self%nj,self%blocks_number), &
+            self%londrillo_current_pivot_z(self%nk,self%blocks_number))
    maxn = max(self%ni,self%nj,self%nk)
    allocate(face_map(0:maxn,1:maxn))
    do b=1,self%blocks_number
@@ -5132,45 +5064,45 @@ contains
          select case(dir)
          case(1)
             do face=1,n-1
-               self%direct_current_matrix_x(face,1:n,b) = face_map(face,1:n)
+               self%londrillo_current_matrix_x(face,1:n,b) = face_map(face,1:n)
             enddo
             do col=1,n
-               self%direct_current_matrix_x(n,col,b) = (-1._R8P)**col
+               self%londrillo_current_matrix_x(n,col,b) = (-1._R8P)**col
             enddo
-            call factorize_matrix_pivot(a=self%direct_current_matrix_x(:,:,b), &
-                                        pivot=self%direct_current_pivot_x(:,b), n=n)
+            call factorize_matrix_pivot(a=self%londrillo_current_matrix_x(:,:,b), &
+                                        pivot=self%londrillo_current_pivot_x(:,b), n=n)
          case(2)
             do face=1,n-1
-               self%direct_current_matrix_y(face,1:n,b) = face_map(face,1:n)
+               self%londrillo_current_matrix_y(face,1:n,b) = face_map(face,1:n)
             enddo
             do col=1,n
-               self%direct_current_matrix_y(n,col,b) = (-1._R8P)**col
+               self%londrillo_current_matrix_y(n,col,b) = (-1._R8P)**col
             enddo
-            call factorize_matrix_pivot(a=self%direct_current_matrix_y(:,:,b), &
-                                        pivot=self%direct_current_pivot_y(:,b), n=n)
+            call factorize_matrix_pivot(a=self%londrillo_current_matrix_y(:,:,b), &
+                                        pivot=self%londrillo_current_pivot_y(:,b), n=n)
          case(3)
             do face=1,n-1
-               self%direct_current_matrix_z(face,1:n,b) = face_map(face,1:n)
+               self%londrillo_current_matrix_z(face,1:n,b) = face_map(face,1:n)
             enddo
             do col=1,n
-               self%direct_current_matrix_z(n,col,b) = (-1._R8P)**col
+               self%londrillo_current_matrix_z(n,col,b) = (-1._R8P)**col
             enddo
-            call factorize_matrix_pivot(a=self%direct_current_matrix_z(:,:,b), &
-                                        pivot=self%direct_current_pivot_z(:,b), n=n)
+            call factorize_matrix_pivot(a=self%londrillo_current_matrix_z(:,:,b), &
+                                        pivot=self%londrillo_current_pivot_z(:,b), n=n)
          endselect
       enddo
    enddo
    deallocate(face_map)
-   self%direct_current_cache_ni = self%ni
-   self%direct_current_cache_nj = self%nj
-   self%direct_current_cache_nk = self%nk
-   self%direct_current_cache_nb = self%blocks_number
-   self%direct_current_cache_hs = self%fdv_half_stencils(1)
-   self%direct_current_cache_esirkepov = .true.
-   endsubroutine ensure_esirkepov_current_solver_cache
+   self%londrillo_current_cache_ni = self%ni
+   self%londrillo_current_cache_nj = self%nj
+   self%londrillo_current_cache_nk = self%nk
+   self%londrillo_current_cache_nb = self%blocks_number
+   self%londrillo_current_cache_hs = self%fdv_half_stencils(1)
+   endsubroutine ensure_londrillo_current_solver_cache
 
-   subroutine solve_pic_charge_conserving_current_esirkepov(self, q, hq)
-   !< Integrate Esirkepov's directional charge changes to faces and invert D=G A.
+   subroutine solve_pic_charge_conserving_current_londrillo(self, q, hq)
+   !< Londrillo et al. 2010 (P = I, rho unfiltered): integrate Esirkepov's directional charge changes to faces and invert
+   !< D = G A along every line, the collocated null mode of A fixed by the checkerboard constraint.
    implicit none
    class(prism_cpu_object), intent(inout) :: self
    real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
@@ -5178,7 +5110,7 @@ contains
    integer(I4P)                           :: b, i, j, k, n, maxn
    real(R8P), allocatable                 :: flux(:), rhs(:), sol(:)
 
-   call ensure_esirkepov_current_solver_cache(self=self)
+   call ensure_londrillo_current_solver_cache(self=self)
    maxn = max(self%ni,self%nj,self%nk)
    allocate(flux(0:maxn), rhs(maxn), sol(maxn))
    q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
@@ -5188,7 +5120,7 @@ contains
          do j=1,self%nj
             call build_esirkepov_face_line(self=self, source=hq(1,1:n,j,k,b), dir=1_I4P, b=b, n=n, flux=flux)
             rhs(1:n-1) = flux(1:n-1) ; rhs(n) = 0._R8P
-            call solve_factored_matrix_pivot(a=self%direct_current_matrix_x(:,:,b), pivot=self%direct_current_pivot_x(:,b), &
+            call solve_factored_matrix_pivot(a=self%londrillo_current_matrix_x(:,:,b), pivot=self%londrillo_current_pivot_x(:,b), &
                                              rhs=rhs(1:n), sol=sol(1:n), n=n)
             call update_esirkepov_face_residual(self=self, n=n, sol=sol, flux=flux)
             q(self%physics%var_Jx,1:n,j,k,b) = sol(1:n)
@@ -5199,7 +5131,7 @@ contains
          do i=1,self%ni
             call build_esirkepov_face_line(self=self, source=hq(2,i,1:n,k,b), dir=2_I4P, b=b, n=n, flux=flux)
             rhs(1:n-1) = flux(1:n-1) ; rhs(n) = 0._R8P
-            call solve_factored_matrix_pivot(a=self%direct_current_matrix_y(:,:,b), pivot=self%direct_current_pivot_y(:,b), &
+            call solve_factored_matrix_pivot(a=self%londrillo_current_matrix_y(:,:,b), pivot=self%londrillo_current_pivot_y(:,b), &
                                              rhs=rhs(1:n), sol=sol(1:n), n=n)
             call update_esirkepov_face_residual(self=self, n=n, sol=sol, flux=flux)
             q(self%physics%var_Jy,i,1:n,k,b) = sol(1:n)
@@ -5210,7 +5142,7 @@ contains
          do i=1,self%ni
             call build_esirkepov_face_line(self=self, source=hq(3,i,j,1:n,b), dir=3_I4P, b=b, n=n, flux=flux)
             rhs(1:n-1) = flux(1:n-1) ; rhs(n) = 0._R8P
-            call solve_factored_matrix_pivot(a=self%direct_current_matrix_z(:,:,b), pivot=self%direct_current_pivot_z(:,b), &
+            call solve_factored_matrix_pivot(a=self%londrillo_current_matrix_z(:,:,b), pivot=self%londrillo_current_pivot_z(:,b), &
                                              rhs=rhs(1:n), sol=sol(1:n), n=n)
             call update_esirkepov_face_residual(self=self, n=n, sol=sol, flux=flux)
             q(self%physics%var_Jz,i,j,1:n,b) = sol(1:n)
@@ -5218,7 +5150,7 @@ contains
       enddo
    enddo
    call impose_odd_current_ghosts(self=self, q=q)
-   endsubroutine solve_pic_charge_conserving_current_esirkepov
+   endsubroutine solve_pic_charge_conserving_current_londrillo
 
    integer(I4P) function modified_filter_radius(self) result(radius)
    !< Cells reached by the P filter, plus one for the half-cell shift of the odd filters (boundary margin).
@@ -5252,12 +5184,12 @@ contains
    real(R8P),               intent(out) :: p(-7:7), qw(0:9)
    integer(I4P),            intent(out) :: radius, qfirst, nq
 
+   if (trim(self%pic%current_conserving_solver) == TOTORICA_CURRENT_CONSERVING_SOLVER) then
+      call totorica_kernels(hs=self%fdv_half_stencils(1), p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
+      return
+   endif
    p = 0._R8P ; qw = 0._R8P
    select case(self%pic%esirkepov_q)
-   case(2_I4P)
-      p(-1:1) = [1._R8P,2._R8P,1._R8P]/4._R8P
-      qw(0:1) = [1._R8P,1._R8P]/2._R8P
-      radius = 1_I4P ; qfirst = -1_I4P ; nq = 2_I4P
    case(5_I4P)
       p(-5:4) = real([1,2,3,49,1985,1985,49,3,2,1],R8P)/4080._R8P
       qw(0:4) = real([1,10,46,10,1],R8P)/68._R8P
@@ -5361,7 +5293,7 @@ contains
    implicit none
    class(prism_cpu_object), intent(inout) :: self
    real(R8P), allocatable                 :: q_minus(:,:), q_plus(:,:), q_plus_history(:,:,:)
-   real(R8P), allocatable                 :: h_dir(:,:,:,:,:), q_work(:,:,:,:,:)
+   real(R8P), allocatable                 :: h_dir(:,:,:,:,:)
 
    call check_conserving_single_block(self=self)
    ! The virtual interval is centered on the real particle positions and uses the first CFL step.
@@ -5377,22 +5309,11 @@ contains
    q_minus(1:3,:) = self%q_pic(1:3,:) - 0.5_R8P*self%time%dt*self%q_pic(4:6,:)
    q_plus(1:3,:) = self%q_pic(1:3,:) + 0.5_R8P*self%time%dt*self%q_pic(4:6,:)
 
-   select case(trim(self%pic%current_conserving_solver))
-   case(ESIRKEPOV_CURRENT_CONSERVING_SOLVER, ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER)
-      call compute_pic_esirkepov_displacement(self=self, q_ref=q_minus, q_to=q_plus, h_dir=h_dir)
-   case(DIRECT_CURRENT_CONSERVING_SOLVER)
-      allocate(q_work, mold=self%q)
-      call compute_pic_charge_displacement_decomposition(self=self, q_ref=q_minus, q_to=q_plus, &
-                                                         q_work=q_work, h_dir=h_dir)
-      ! The direct deposition updates the lookup for virtual positions; restore the real positions.
-      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
-   case default
-      call mpih%error_stop(msg=': unsupported conserving current solver at t=0')
-   endselect
+   call compute_pic_esirkepov_displacement(self=self, q_ref=q_minus, q_to=q_plus, h_dir=h_dir)
 
    if (self%pic%esirkepov_tail_cleanup) then
-      if (trim(self%pic%current_conserving_solver) /= ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER) &
-         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires an esirkepov_Q<N> solver')
+      if (.not.self%pic%matched_current()) &
+         call mpih%error_stop(msg=': esirkepov_tail_cleanup requires totorica or an esirkepov_Q<N> solver')
       allocate(q_plus_history(1:8,1:self%pic%particle_number,1:1))
       q_plus_history(:,:,1) = q_plus
       call solve_modified_current_with_cleanup(self=self, q=self%q, q_ref=q_minus, &
@@ -5730,134 +5651,6 @@ contains
    enddo
    endsubroutine update_esirkepov_face_residual
 
-   subroutine ensure_direct_current_solver_cache(self)
-   !< Build cached factored line matrices for the direct conserving-current solver.
-   implicit none
-   class(prism_cpu_object), intent(inout) :: self
-   integer(I4P)                           :: b
-   logical                                :: rebuild
-
-   rebuild = self%direct_current_cache_esirkepov .or. .not. allocated(self%direct_current_matrix_x)
-   rebuild = rebuild .or. .not. allocated(self%direct_current_matrix_y)
-   rebuild = rebuild .or. .not. allocated(self%direct_current_matrix_z)
-   rebuild = rebuild .or. .not. allocated(self%direct_current_pivot_x)
-   rebuild = rebuild .or. .not. allocated(self%direct_current_pivot_y)
-   rebuild = rebuild .or. .not. allocated(self%direct_current_pivot_z)
-   rebuild = rebuild .or. .not. allocated(self%direct_current_dxyz)
-   rebuild = rebuild .or. self%direct_current_cache_ni /= self%ni
-   rebuild = rebuild .or. self%direct_current_cache_nj /= self%nj
-   rebuild = rebuild .or. self%direct_current_cache_nk /= self%nk
-   rebuild = rebuild .or. self%direct_current_cache_nb /= self%blocks_number
-   rebuild = rebuild .or. self%direct_current_cache_hs /= self%fdv_half_stencils(1)
-   if (.not. rebuild) rebuild = any(self%direct_current_dxyz(:,1:self%blocks_number) /= &
-                                    self%adam%field%dxyz(:,1:self%blocks_number))
-   if (.not. rebuild) return
-
-   if (allocated(self%direct_current_matrix_x)) deallocate(self%direct_current_matrix_x)
-   if (allocated(self%direct_current_matrix_y)) deallocate(self%direct_current_matrix_y)
-   if (allocated(self%direct_current_matrix_z)) deallocate(self%direct_current_matrix_z)
-   if (allocated(self%direct_current_pivot_x)) deallocate(self%direct_current_pivot_x)
-   if (allocated(self%direct_current_pivot_y)) deallocate(self%direct_current_pivot_y)
-   if (allocated(self%direct_current_pivot_z)) deallocate(self%direct_current_pivot_z)
-   if (allocated(self%direct_current_dxyz)) deallocate(self%direct_current_dxyz)
-
-   allocate(self%direct_current_matrix_x(1:self%ni,1:self%ni,1:self%blocks_number))
-   allocate(self%direct_current_matrix_y(1:self%nj,1:self%nj,1:self%blocks_number))
-   allocate(self%direct_current_matrix_z(1:self%nk,1:self%nk,1:self%blocks_number))
-   allocate(self%direct_current_pivot_x(1:self%ni,1:self%blocks_number))
-   allocate(self%direct_current_pivot_y(1:self%nj,1:self%blocks_number))
-   allocate(self%direct_current_pivot_z(1:self%nk,1:self%blocks_number))
-   allocate(self%direct_current_dxyz(1:3,1:self%blocks_number))
-
-   do b=1, self%blocks_number
-      call build_centered_derivative_matrix(self=self, dir=1_I4P, b=b, n=self%ni, &
-                                            a=self%direct_current_matrix_x(:,:,b))
-      call factorize_matrix_pivot(a=self%direct_current_matrix_x(:,:,b), &
-                                  pivot=self%direct_current_pivot_x(:,b), n=self%ni)
-
-      call build_centered_derivative_matrix(self=self, dir=2_I4P, b=b, n=self%nj, &
-                                            a=self%direct_current_matrix_y(:,:,b))
-      call factorize_matrix_pivot(a=self%direct_current_matrix_y(:,:,b), &
-                                  pivot=self%direct_current_pivot_y(:,b), n=self%nj)
-
-      call build_centered_derivative_matrix(self=self, dir=3_I4P, b=b, n=self%nk, &
-                                            a=self%direct_current_matrix_z(:,:,b))
-      call factorize_matrix_pivot(a=self%direct_current_matrix_z(:,:,b), &
-                                  pivot=self%direct_current_pivot_z(:,b), n=self%nk)
-   enddo
-
-   self%direct_current_dxyz(:,1:self%blocks_number) = self%adam%field%dxyz(:,1:self%blocks_number)
-   self%direct_current_cache_ni = self%ni
-   self%direct_current_cache_nj = self%nj
-   self%direct_current_cache_nk = self%nk
-   self%direct_current_cache_nb = self%blocks_number
-   self%direct_current_cache_hs = self%fdv_half_stencils(1)
-   self%direct_current_cache_esirkepov = .false.
-   endsubroutine ensure_direct_current_solver_cache
-
-   subroutine solve_pic_charge_conserving_current(self, q, hq)
-   !< Reconstruct J from D_alpha J_alpha = -H_alpha(Q)/dt with homogeneous ghost-cell values.
-   implicit none
-   class(prism_cpu_object), intent(inout) :: self
-   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
-   real(R8P),               intent(in)    :: hq(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
-   integer(I4P)                           :: maxn, n, b, i, j, k
-   real(R8P), allocatable                 :: rhs(:), sol(:)
-
-   maxn = max(self%ni, max(self%nj, self%nk))
-   allocate(rhs(1:maxn), sol(1:maxn))
-   q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
-   call ensure_direct_current_solver_cache(self=self)
-
-   do b=1, self%blocks_number
-      n = self%ni
-      do k=1, self%nk
-         do j=1, self%nj
-            rhs(1:n) = -hq(1,1:n,j,k,b) / self%time%dt
-            call solve_factored_matrix_pivot(a=self%direct_current_matrix_x(1:n,1:n,b), &
-                                             pivot=self%direct_current_pivot_x(1:n,b), rhs=rhs(1:n), &
-                                             sol=sol(1:n), n=n)
-            call update_current_line_solver_residual(self=self, dir=1_I4P, b=b, n=n, sol=sol(1:n), &
-                                                     target=-hq(1,1:n,j,k,b) / self%time%dt)
-            do i=1, n
-               q(self%physics%var_Jx,i,j,k,b) = sol(i)
-            enddo
-         enddo
-      enddo
-      n = self%nj
-      do k=1, self%nk
-         do i=1, self%ni
-            rhs(1:n) = -hq(2,i,1:n,k,b) / self%time%dt
-            call solve_factored_matrix_pivot(a=self%direct_current_matrix_y(1:n,1:n,b), &
-                                             pivot=self%direct_current_pivot_y(1:n,b), rhs=rhs(1:n), &
-                                             sol=sol(1:n), n=n)
-            call update_current_line_solver_residual(self=self, dir=2_I4P, b=b, n=n, sol=sol(1:n), &
-                                                     target=-hq(2,i,1:n,k,b) / self%time%dt)
-            do j=1, n
-               q(self%physics%var_Jy,i,j,k,b) = sol(j)
-            enddo
-         enddo
-      enddo
-      n = self%nk
-      do j=1, self%nj
-         do i=1, self%ni
-            rhs(1:n) = -hq(3,i,j,1:n,b) / self%time%dt
-            call solve_factored_matrix_pivot(a=self%direct_current_matrix_z(1:n,1:n,b), &
-                                             pivot=self%direct_current_pivot_z(1:n,b), rhs=rhs(1:n), &
-                                             sol=sol(1:n), n=n)
-            call update_current_line_solver_residual(self=self, dir=3_I4P, b=b, n=n, sol=sol(1:n), &
-                                                     target=-hq(3,i,j,1:n,b) / self%time%dt)
-            do k=1, n
-               q(self%physics%var_Jz,i,j,k,b) = sol(k)
-            enddo
-         enddo
-      enddo
-   enddo
-   call impose_zero_current_ghosts(self=self, q=q)
-   if (allocated(rhs)) deallocate(rhs)
-   if (allocated(sol)) deallocate(sol)
-   endsubroutine solve_pic_charge_conserving_current
-
    subroutine find_pic_position_cell(self, q_pos, b, i, j, k)
    !< Locate one PIC position on the local Cartesian block grid.
    implicit none
@@ -5988,26 +5781,6 @@ contains
    enddo
    endsubroutine build_centered_reconstruction_matrix
 
-   subroutine build_centered_derivative_matrix(self, dir, b, n, a)
-   implicit none
-   class(prism_cpu_object), intent(in)    :: self
-   integer(I4P),            intent(in)    :: dir, b, n
-   real(R8P),               intent(inout) :: a(1:,1:)
-   integer(I4P)                           :: row, m, col
-   real(R8P)                              :: coeff
-
-   a(1:n,1:n) = 0._R8P
-   do row=1, n
-      do m=1, self%fdv_half_stencils(1)
-         coeff = FD1_CC(m,self%fdv_half_stencils(1)) / self%adam%field%dxyz(dir,b)
-         col = row + m
-         if (col >= 1_I4P .and. col <= n) a(row,col) = a(row,col) + coeff
-         col = row - m
-         if (col >= 1_I4P .and. col <= n) a(row,col) = a(row,col) - coeff
-      enddo
-   enddo
-   endsubroutine build_centered_derivative_matrix
-
    subroutine factorize_matrix_pivot(a, pivot, n)
    implicit none
    real(R8P),    intent(inout) :: a(1:,1:)
@@ -6076,29 +5849,6 @@ contains
       sol(i) = tmp / a(i,i)
    enddo
    endsubroutine solve_factored_matrix_pivot
-
-   subroutine update_current_line_solver_residual(self, dir, b, n, sol, target)
-   !< Update max residual |D_alpha sol - target| for one direct current line solve.
-   implicit none
-   class(prism_cpu_object), intent(inout) :: self
-   integer(I4P),            intent(in)    :: dir, b, n
-   real(R8P),               intent(in)    :: sol(1:)
-   real(R8P),               intent(in)    :: target(1:)
-   integer(I4P)                           :: row, m, col
-   real(R8P)                              :: coeff, value
-
-   do row=1, n
-      value = 0._R8P
-      do m=1, self%fdv_half_stencils(1)
-         coeff = FD1_CC(m,self%fdv_half_stencils(1)) / self%adam%field%dxyz(dir,b)
-         col = row + m
-         if (col >= 1_I4P .and. col <= n) value = value + coeff * sol(col)
-         col = row - m
-         if (col >= 1_I4P .and. col <= n) value = value - coeff * sol(col)
-      enddo
-      self%current_solver_residual_max = max(self%current_solver_residual_max, abs(value - target(row)))
-   enddo
-   endsubroutine update_current_line_solver_residual
 
    subroutine odd_mirror_index(idx, n, col, sgn)
    implicit none
