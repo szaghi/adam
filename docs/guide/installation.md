@@ -24,10 +24,16 @@ Clone the repository, then fetch source dependencies with FoBiS:
 ```bash
 git clone https://github.com/szaghi/adam
 cd adam
-fobis fetch
+fobis fetch --frozen
 ```
 
-`fobis fetch` reads `src/third_party/.deps_config.ini` and downloads all required source libraries into `src/third_party/`.
+`fobis fetch` downloads the source libraries listed in the `fobos` `[dependencies]` section into `src/third_party/`.
+With `--frozen` it checks each one out at the commit pinned in `src/third_party/fobos.lock`, which is tracked in the
+repository: the dependency state ADAM was tested with. Without `--frozen` it takes each dependency's current head and
+only warns where that differs from the lock.
+
+To move the pins, run `fobis fetch --update`, which fetches the current heads and rewrites the lock. Rebuild, run the
+regression suites, and commit the new `fobos.lock` with the change that needs it.
 
 Alternatively, use the provided `install.sh` script which automates both steps:
 

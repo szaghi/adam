@@ -22,7 +22,7 @@ jobs:
 
     - name: Fetch dependencies
       if: hashFiles('**/.deps_config.ini') != ''
-      run: fobis fetch
+      run: fobis fetch --frozen
 
     - name: Run tests with coverage
       id: cov
@@ -46,7 +46,7 @@ jobs:
 
     - name: Fetch dependencies
       if: hashFiles('**/.deps_config.ini') != ''
-      run: fobis fetch
+      run: fobis fetch --frozen
 
     - name: Run PRISM CPU regression
       # The ci_gnu varset (fobos) points HDF5 at lib/hdf5/develop/gnu/14.2.0:
@@ -86,7 +86,7 @@ jobs:
 
     - name: Fetch dependencies
       if: hashFiles('**/.deps_config.ini') != ''
-      run: fobis fetch
+      run: fobis fetch --frozen
 
     - name: Install FFTW
       # The self-gravity cases run on adam_flume_cpu_fft (flume-cpu-gnu-fft links -lfftw3; issue #81, P6).

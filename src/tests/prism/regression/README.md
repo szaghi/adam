@@ -367,10 +367,11 @@ the committed two-rank golden.
 
 > **FNL dependency note.** The FNL backend reaches the GPU through the
 > vendored **FUNDAL** library (`src/third_party/FUNDAL`). FUNDAL is a
-> `fobis fetch` dependency and its tree is gitignored — after any
-> `fobis fetch --update`, re-verify the FNL run, because a dependency bump
-> can re-introduce device-layer regressions that only the FNL backend
-> exercises.
+> `fobis fetch` dependency; its tree is gitignored, but its commit is pinned in
+> the tracked `src/third_party/fobos.lock` (fetch with `fobis fetch --frozen`).
+> After any `fobis fetch --update`, which moves the pins, re-verify the FNL run
+> before committing the new lock, because a dependency bump can re-introduce
+> device-layer regressions that only the FNL backend exercises.
 
 ### Capturing / refreshing the FNL golden
 

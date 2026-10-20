@@ -55,11 +55,15 @@ one `[varset:*]` block to `fobos`.
 ```bash
 pip install FoBiS.py          # the build tool; CLI binary is `fobis`
 git clone https://github.com/szaghi/adam && cd adam
-fobis fetch                   # vendored deps (PENF, FiNeR, FUNDAL, ...)
+fobis fetch --frozen          # vendored deps (PENF, FiNeR, FUNDAL, ...) at the pinned commits
 ```
 
-`fobis fetch` is mandatory on a fresh clone: `src/third_party/` is gitignored,
-and the FNL backend reaches the GPU through the **FUNDAL** library fetched here.
+`fobis fetch` is mandatory on a fresh clone: `src/third_party/` is gitignored
+(except its `fobos.lock`), and the FNL backend reaches the GPU through the
+**FUNDAL** library fetched here. `--frozen` checks every dependency out at the
+commit recorded in the tracked `src/third_party/fobos.lock`, the state the
+goldens were made with; a plain `fobis fetch` takes the dependencies' current
+heads and only warns when they differ from the lock.
 
 ::: warning FoBiS 3.8+ CLI form
 Use `fobis build --mode X --varset Y`. The legacy `FoBiS.py build -mode X`
