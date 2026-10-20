@@ -98,7 +98,8 @@ projectdownload() {
     git clone "$GITHUB"
     cd "$PROJECT"
     if [[ -f .deps_config.ini || -f src/third_party/.deps_config.ini ]]; then
-      fetchdeps
+      command -v FoBiS.py &>/dev/null || error "FoBiS.py not found (needed for fetch)."
+      FoBiS.py fetch
     fi
     cd -
 
@@ -125,19 +126,6 @@ projectdownload() {
   fi
 
   success "Downloaded"
-}
-
-# ── Fetch ─────────────────────────────────────────────────────────────────────
-fetchdeps() {
-  command -v fobis &>/dev/null || error "fobis not found (needed for fetch)."
-  # The tracked src/third_party/fobos.lock pins every dependency to a tested commit: fetch exactly that.
-  # Releases older than the lock have none, and --frozen would abort there: fetch the current heads instead.
-  if [[ -f src/third_party/fobos.lock ]]; then
-    fobis fetch --frozen
-  else
-    warn "no src/third_party/fobos.lock: fetching the dependencies' current heads, not pinned commits."
-    fobis fetch
-  fi
 }
 
 # ── Build ─────────────────────────────────────────────────────────────────────
@@ -190,8 +178,9 @@ elif [[ "$DOWNLOAD" != "0" && "$BUILD" != "0" ]]; then
   if [[ "$DOWNLOAD" == "wget" ]]; then
     cd "$EXTRACTED"
     if [[ -f .deps_config.ini || -f src/third_party/.deps_config.ini ]]; then
+      command -v FoBiS.py &>/dev/null || error "FoBiS.py not found (needed for fetch)."
       info "Fetching dependencies…"
-      fetchdeps
+      FoBiS.py fetch
       success "Dependencies fetched"
     fi
   else
