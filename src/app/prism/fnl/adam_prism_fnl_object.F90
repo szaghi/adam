@@ -522,14 +522,17 @@ contains
       call MPI_INITIALIZED(is_mpih_initialized, mpih_fnl%error)
       call mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
       mpih_fnl_is_initialized = .true.
+      mpih_fnl_device_sharers = count_device_sharers()
+      call mpih_fnl%print_message('device shared by '//trim(str(mpih_fnl_device_sharers, no_sign=.true.))//' rank(s)')
    endif
    call mpih_fnl%print_message('prism_fnl_object%initialize start')
    ! TOTAL device memory, not free: the capacity budget must be a machine
    ! property, else nb varies with whatever was resident at init and the grid
    ! size becomes irreproducible. dev_memory_avail (free) is still the right
    ! value for the j_vec_gpu OOM diagnostic in prism_fnl_coil_object.
+   ! Split among the realms and among the ranks bound to the same device (#96).
    ! Bytes -> GB via 1e9 to match compute_blocks_number's memory_avail*1e9.
-   memory_avail_ = real(mpih_fnl%dev_memory_total, R8P)/1e9_R8P / real(realms_number_, R8P)
+   memory_avail_ = real(mpih_fnl%dev_memory_total, R8P)/1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
    call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
    if (is_pic_model(self%physics%physical_model)) then
       ! CPU-parity validation (prism_cpu_object%initialize)

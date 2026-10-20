@@ -283,8 +283,20 @@ by design — there is **no host-staging fallback in the code**), so GPU-aware M
 is a hard requirement, not an optimization.
 
 `run.sh` uses `mpirun -np 2` for both backends. On a multi-GPU box that is one
-rank per GPU; the grids are small enough that two ranks can share one GPU (the
-hardware floor is one GPU, not two).
+rank per GPU. On a one-GPU box the two ranks share the device, and the grids are
+small enough for that (the hardware floor is one GPU, not two). Each FNL rank
+counts the node-local ranks bound to its device and sizes its block pool for its
+share of the device memory; the startup log says `device shared by N rank(s)`.
+Before that ([#96](https://github.com/szaghi/adam/issues/96)) every rank sized
+its pool for the whole device; under WSL the driver paged the oversubscribed
+memory and every case crawled into the timeout.
+
+The count compares the device list each rank sees (`CUDA_VISIBLE_DEVICES`,
+`ROCR_VISIBLE_DEVICES`, `HIP_VISIBLE_DEVICES`) and the device number picked in it.
+A launcher that binds one GPU per task (`srun --gpu-bind`) gives the ranks
+different lists, so they count as not sharing. A launcher that shows every rank a
+different GPU under the same list makes the count err high: a smaller pool, never
+an oversubscribed device.
 
 ## Step 6 — Run the AMR-seam `check.sh` oracles
 

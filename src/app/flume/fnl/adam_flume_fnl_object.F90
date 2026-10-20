@@ -30,7 +30,7 @@ use :: adam_fnl_ib_object,        only : ib_fnl_object
 use :: adam_fnl_rk_object,        only : rk_fnl_object
 use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
-use :: adam_fnl_mpih_global,      only : mpih_fnl, mpih_fnl_is_initialized
+use :: adam_fnl_mpih_global,      only : count_device_sharers, mpih_fnl, mpih_fnl_device_sharers, mpih_fnl_is_initialized
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sync_object, seam_face_cells,             &
                                               REFLUX_POLICY_TROUBLED, IA_R, IA_U, IA_P, FLUX_CORRECTION_SENSOR_TAU,     &
@@ -1201,8 +1201,11 @@ contains
       call MPI_INITIALIZED(is_mpi_initialized, mpih_fnl%error)
       call mpih_fnl%initialize(do_mpi_init=.not.is_mpi_initialized, do_device_init=.true., verbose=.true.)
       mpih_fnl_is_initialized = .true.
+      mpih_fnl_device_sharers = count_device_sharers()
+      call mpih_fnl%print_message('device shared by '//trim(str(mpih_fnl_device_sharers, .true.))//' rank(s)')
    endif
-   memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_, R8P)
+   ! Split among the realms and among the ranks bound to the same device (#96).
+   memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
