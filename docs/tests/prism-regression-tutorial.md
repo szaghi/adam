@@ -394,7 +394,7 @@ caveats:
 - **Stale objects.** FoBiS does not always recompile a `.F90` when an
   `#include`d `.INC` it depends on changes (notably the vendored FUNDAL
   templates). If a rebuild seems not to pick up an edit, delete the stale
-  objects under `exe/obj/nvf/debug/` (and `exe/mod/...`) and rebuild.
+  objects under `exe/obj/prism/nvf/debug/` (and `exe/mod/prism/...`) and rebuild.
 - **`-fast`-only bugs.** Some failures appear only in release — the optimiser
   exposes undefined behaviour that `-O0` steps past. "Debug passes" does not
   mean "fixed".

@@ -1,15 +1,20 @@
 [modes]
 modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-cpu-gnu-fft flume-cpu-gnu-fft-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-nvf-fft flume-fnl-nvf-fft-debug flume-fnl-omp-amd flume-fnl-omp-amd-debug test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf test-flume-euler-library-fnl-omp-amd test-flume-mhd-library-gnu test-flume-mhd-library-fnl-nvf test-flume-mhd-library-fnl-omp-amd test-flume-mhd-riemann-gnu test-flume-mhd-riemann-fnl-nvf test-flume-mhd-riemann-fnl-omp-amd test-flume-positivity-gnu test-flume-weno-interpolation-gnu test-flume-weno-weights-gnu test-flume-weno-interpolation-fnl-nvf test-flume-weno-interpolation-fnl-omp-amd
 
+# Every application mode has its own mod_dir/obj_dir, ./mod/flume/<toolchain>/ (issue #72): PRISM and FLUME compile the
+# same library sources, and with one directory per compiler an incremental build of one app left the other's modules
+# stale. The test-* modes below keep the shared template directories.
 [flume-cpu-gnu]
 template = template-gnu
+mod_dir  = ./mod/flume/gnu/
+obj_dir  = ./obj/flume/gnu/
 preproc  = -D_MPI_ -w
 target   = adam_flume_cpu.F90
 
 [flume-cpu-gnu-omp]
 template = template-gnu
-mod_dir  = ./mod/gnu-omp/
-obj_dir  = ./obj/gnu-omp/
+mod_dir  = ./mod/flume/gnu-omp/
+obj_dir  = ./obj/flume/gnu-omp/
 openmp   = True
 preproc  = -D_MPI_ -w
 target   = adam_flume_cpu.F90
@@ -17,6 +22,8 @@ output   = adam_flume_cpu_omp
 
 [flume-cpu-gnu-debug]
 template = template-gnu-debug
+mod_dir  = ./mod/flume/gnu/debug/
+obj_dir  = ./obj/flume/gnu/debug/
 preproc  = -D_MPI_ -w
 target   = adam_flume_cpu.F90
 
@@ -24,8 +31,8 @@ target   = adam_flume_cpu.F90
 # directories (the solver modules compile with other macros than in the default builds) and own executables
 [flume-cpu-gnu-fft]
 template = template-gnu
-mod_dir  = ./mod/gnu-fft/
-obj_dir  = ./obj/gnu-fft/
+mod_dir  = ./mod/flume/gnu-fft/
+obj_dir  = ./obj/flume/gnu-fft/
 preproc  = -D_MPI_ -D_FFTW -w
 ext_libs = z hdf5_fortran dl fftw3
 target   = adam_flume_cpu.F90
@@ -33,8 +40,8 @@ output   = adam_flume_cpu_fft
 
 [flume-cpu-gnu-fft-debug]
 template = template-gnu-debug
-mod_dir  = ./mod/gnu-fft/debug/
-obj_dir  = ./obj/gnu-fft/debug/
+mod_dir  = ./mod/flume/gnu-fft/debug/
+obj_dir  = ./obj/flume/gnu-fft/debug/
 preproc  = -D_MPI_ -D_FFTW -w
 ext_libs = z hdf5_fortran dl fftw3
 target   = adam_flume_cpu.F90
@@ -42,8 +49,8 @@ output   = adam_flume_cpu_fft
 
 [flume-fnl-nvf-fft]
 template = template-nvf
-mod_dir  = ./mod/nvf-fft/
-obj_dir  = ./obj/nvf-fft/
+mod_dir  = ./mod/flume/nvf-fft/
+obj_dir  = ./obj/flume/nvf-fft/
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
 target   = adam_flume_fnl.F90
@@ -51,8 +58,8 @@ output   = adam_flume_fnl_fft
 
 [flume-fnl-nvf-fft-debug]
 template = template-nvf-debug
-mod_dir  = ./mod/nvf-fft/debug/
-obj_dir  = ./obj/nvf-fft/debug/
+mod_dir  = ./mod/flume/nvf-fft/debug/
+obj_dir  = ./obj/flume/nvf-fft/debug/
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -Mchkptr -Mchkstk -Ktrap=fp -g -O0 -cudalib=cufft
 target   = adam_flume_fnl.F90
@@ -60,21 +67,29 @@ output   = adam_flume_fnl_fft
 
 [flume-fnl-nvf]
 template = template-nvf
+mod_dir  = ./mod/flume/nvf/
+obj_dir  = ./obj/flume/nvf/
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_flume_fnl.F90
 
 [flume-fnl-nvf-debug]
 template = template-nvf-debug
+mod_dir  = ./mod/flume/nvf/debug/
+obj_dir  = ./obj/flume/nvf/debug/
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_flume_fnl.F90
 
 [flume-fnl-omp-amd]
 template = template-omp-amd
+mod_dir  = ./mod/flume/amd/omp/
+obj_dir  = ./obj/flume/amd/omp/
 preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
 target   = adam_flume_fnl.F90
 
 [flume-fnl-omp-amd-debug]
 template = template-omp-amd-debug
+mod_dir  = ./mod/flume/amd/omp/debug/
+obj_dir  = ./obj/flume/amd/omp/debug/
 preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
 target   = adam_flume_fnl.F90
 

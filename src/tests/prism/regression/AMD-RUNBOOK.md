@@ -156,7 +156,7 @@ fobis build --mode prism-fnl-omp-amd --varset "thera_amd gfx950"
 
 > Stale-object caveat: FoBiS does not always recompile a `.F90` when an
 > `#include`d FUNDAL `.INC` changes. If a rebuild seems to ignore an edit, wipe
-> `exe/obj/amd/` (and `exe/mod/amd/`) and rebuild.
+> `exe/obj/prism/amd/` (and `exe/mod/prism/amd/`) and rebuild.
 
 ---
 

@@ -462,7 +462,7 @@ crashes somewhere in a device routine" — but two caveats:
 - **Stale objects.** FoBiS does not always recompile a `.F90` when an
   `#include`d `.INC` it depends on changes (notably the vendored FUNDAL
   templates). If a debug rebuild seems not to pick up a source edit, delete
-  the specific stale objects under `exe/obj/nvf/debug/` (and `exe/mod/...`)
+  the specific stale objects under `exe/obj/prism/nvf/debug/` (and `exe/mod/prism/...`)
   and rebuild.
 - **`-fast`-only bugs.** Some failures appear *only* in the release build —
   the optimiser exposes undefined behaviour the `-O0` debug build steps past.
