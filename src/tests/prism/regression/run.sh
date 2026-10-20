@@ -19,6 +19,7 @@
 #   ./run.sh fnl --varset local_nvf              # NVIDIA OpenACC GPU build
 #   ./run.sh amd-omp --varset "thera_amd gfx942" # AMD OpenMP-offload GPU build
 #   ./run.sh cpu --no-build                      # skip the build step (use existing exe/)
+#   REGRESSION_CASES="rmf rmf-amr" ./run.sh cpu --no-build   # only the named cases (a name that is no case: exit 2)
 #
 # Exits 0 on full pass, non-zero on any case failure. A case fails when its outputs differ from the goldens or when its
 # run exits non-zero (a crash or the hard timeout; REGRESSION_ALLOW_MPIRUN_FAILURE=1 downgrades that to a warning).
@@ -140,6 +141,15 @@ REPO_ROOT="$(cd "$REGRESSION_DIR/../../../.." && pwd)" || {
    exit 2
 }
 
+# REGRESSION_CASES="a b ..." restricts the run to the named cases (e.g. a golden capture of new cases only). A name that
+# is not a case directory stops here, before the build: a misspelt filter would otherwise run nothing and pass.
+for name in ${REGRESSION_CASES:-}; do
+   if [[ ! -f "$REGRESSION_DIR/$name/input.ini" ]]; then
+      echo "ERROR: REGRESSION_CASES names '$name', which is not a case in $REGRESSION_DIR" >&2
+      exit 2
+   fi
+done
+
 # GPU race-shape lint gate (issue #26 G1.d): fail the sweep BEFORE any run if a
 # forbidden device-code pattern reappears — the gate fires at the first firewall
 # run, where FNL development actually happens (no CI GPU runners).
@@ -233,6 +243,7 @@ for case_dir in "$REGRESSION_DIR"/*/; do
    # Skip non-case directories (golden refs aren't cases)
    [[ "$case_name" == "golden" ]] && continue
    [[ -f "$case_dir/input.ini" ]] || { skip_count=$((skip_count + 1)); continue; }
+   if [[ -n "${REGRESSION_CASES:-}" && " $REGRESSION_CASES " != *" $case_name "* ]]; then continue; fi
 
    # A case with no golden/<backend>/ is not a regression anchor yet: it has
    # nothing to diff against, and running it can hang/OOM the whole sweep (e.g.
