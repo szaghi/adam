@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FLUME verification EO: the isothermal equation of state, `[eos] type = isothermal` (issue #100, M13 P1).
+# FLUME verification EO: the isothermal equation of state, `[eos] type = isothermal` (issue #100, M13 P1, P2).
 #
 # Why: the isothermal gas P = c0^2 rho drops the energy equation (D-M13-1: the state keeps its layout, the energy slot
 # rE is inert, zero flux and zero source, held at 0), so its Riemann problem has an exact solution with no pressure
@@ -17,14 +17,18 @@
 #   eo4  the contract: what the isothermal gas does not define yet is refused with its own message ([cooling],
 #        [sinks], [gravity], viscosity, positivity_limiter = cell, [reference], immersed solids, the no-slip and
 #        hydrostatic walls, an IC whose density needs gamma), and so are a malformed [eos] (mhd-ideal or passive
-#        scalars with it, the gas keys cp/cv, a missing or non-positive sound_speed, an unknown type); with the FNL
-#        executable the valid tube is refused too (no FNL kernels until P2);
+#        scalars with it, the gas keys cp/cv, a missing or non-positive sound_speed, an unknown type);
 #   eo5  the inert slot and the mass: a wave of amplitude 0.3 on the periodic box, which breaks into a shock at
-#        t ~ 1 / (c0 A k) = 0.53 (N = 48, two ranks, to t = 1): rE exactly 0 in every checkpoint, the total mass constant to 1e-13;
+#        t ~ 1 / (c0 A k) = 0.53 (N = 48, two ranks, to t = 1): rE exactly 0 in every checkpoint, the total mass
+#        constant to 1e-13;
 #   eo6  the Riemann solvers: eo1 with weno-riemann and llf, hll, hllc (characteristic reconstruction, the 6th-order
-#        flux correction), each against the exact solution as in eo1.
+#        flux correction), each against the exact solution as in eo1;
+#   eo7  (P2) CPU and FNL agree (run eo1, eo2, eo3 and eo6 with each executable first): on the last checkpoint of the
+#        tube, the collision, the N = 48 wave and the hllc tube, every field within 1e-10 of its scale (the floor of
+#        AV av8): the density its largest magnitude, a momentum at least max(rho) c0 (its flux carries the pressure
+#        c0^2 rho, so a 1e-6 wave's momentum has the round-off of an O(1) flux); rE exactly 0 on both.
 #
-# Usage: ./check.sh [--legs LIST]   (legs eo1 eo2 eo3 eo4 eo5 eo6, all; default all)
+# Usage: ./check.sh [--legs LIST]   (legs eo1 eo2 eo3 eo4 eo5 eo6 eo7, all; default all but eo7)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu); the caller owns the matching environment.
 set -euo pipefail
@@ -35,7 +39,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 source "$VERIF_DIR/legs.sh"
-legs_declare "eo1 eo2 eo3 eo4 eo5 eo6"
+legs_declare "eo1 eo2 eo3 eo4 eo5 eo6 eo7" "eo1 eo2 eo3 eo4 eo5 eo6"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -83,13 +87,6 @@ refuse() { # refuse <name> <message regex> [make_eos.py options]: one contract c
 
 ISO="with \[eos\]\.\(type\)=isothermal"
 echo ">> EO: the isothermal equation of state ($TAG)"
-if [[ $TAG == *fnl* ]]; then # P1 is CPU only: every leg but the contract needs the FNL kernels of P2
-   echo "-- eo4: the valid tube on the FNL executable"
-   make_case eo4-fnl --case tube
-   expect_refused "$W" "isothermal has no FNL kernels yet"
-   if [[ $FAILED -ne 0 ]]; then echo "EO FAILED ($TAG, FNL refusal)" ; exit 1 ; fi
-   echo "EO PASSED ($TAG, the FNL refusal only: the legs need the P2 kernels)" ; exit 0
-fi
 for leg in $LEGS; do
    case $leg in
       eo1)
@@ -141,6 +138,16 @@ for leg in $LEGS; do
             echo "-- eo6: the shock tube, weno-riemann $solver"
             make_case "eo6-$solver" --case tube --scheme weno-riemann --solver "$solver"
             run_oracle "$W" 1 riemann "$W" --case tube
+         done ;;
+      eo7)
+         for case_ in eo1-tube eo2-collide eo3-wave-48 eo6-hllc; do
+            echo "-- eo7: CPU and FNL agree, $case_"
+            cpu="$CASE_DIR/work-adam_flume_cpu-$case_" ; fnl="$CASE_DIR/work-adam_flume_fnl-$case_"
+            if [[ -f "$cpu/log.txt" && -f "$fnl/log.txt" ]]; then
+               "$VENV_PY" "$CASE_DIR/eos_oracle.py" agree "$cpu" "$fnl" || FAILED=1
+            else
+               echo "   missing a run: run eo1, eo2, eo3 and eo6 with both executables first" ; FAILED=1
+            fi
          done ;;
    esac
 done

@@ -558,8 +558,8 @@ ho$);
   (P4), the dissipative terms, `[reference]`, `[numerics] positivity_limiter = cell` (its admissibility is the
   internal energy; a density-only limiter is a later phase), immersed solids, and the `wall-noslip`,
   `wall-isothermal` and `hydrostatic` faces;
-- the FNL executable refuses the input: its kernels are P2. The CPU backend runs the `weno` and `weno-riemann`
-  schemes, all reconstructions, and the `llf`, `hll`, `hllc` solvers (the isothermal HLLC).
+- CPU and FNL run the `weno` and `weno-riemann` schemes, all reconstructions, and the `llf`, `hll`, `hllc` solvers
+  (the isothermal HLLC); the FNL kernels (P2) are the device twins of the CPU ones, on the same library.
 
 ---
 

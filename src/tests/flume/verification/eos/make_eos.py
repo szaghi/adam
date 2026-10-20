@@ -3,12 +3,12 @@
 
     make_eos.py <out.ini> [--case tube|collide|wave] [--ni N] [--time-max T] [--cfl C] [--c0 C0] [--mach M]
                           [--scheme weno|weno-riemann] [--recon characteristic|conservative|primitive]
-                          [--solver llf|hll|hllc] [--rk SCHEME] [--keep-gas] [--null-y] [--set SECTION:KEY=VALUE ...]
-                          [--unset SECTION:KEY ...]
+                          [--solver llf|hll|hllc] [--rk SCHEME] [--keep-gas] [--null-y] [--level L]
+                          [--set SECTION:KEY=VALUE ...] [--unset SECTION:KEY ...]
 
-The sod-x grid with `--ni` cells along x (default 400; one block, two for the periodic wave), the other directions
-null, the isothermal gas `[eos] type = isothermal, sound_speed = C0` (default 1) in place of `cp, cv` (`--keep-gas`
-keeps them: the contract leg), and no region pressure (P = c0^2 rho is not an input). The cases:
+The sod-x grid with `--ni` cells along x (default 400; one block, two for the periodic wave, 2^L with `--level L`),
+the other directions null, the isothermal gas `[eos] type = isothermal, sound_speed = C0` (default 1) in place of
+`cp, cv` (`--keep-gas` keeps them: the contract leg), and no region pressure (P = c0^2 rho is not an input). The cases:
 
   tube     the isothermal shock tube: rho 1 | 0.125 at x = 0.5, at rest, the transverse velocity v 0.3 | -0.2 (the
            contact carries it), extrapolation boundaries, to t = 0.2 (default): a left rarefaction, the contact, a
@@ -66,10 +66,11 @@ def case_ini(a: argparse.Namespace) -> str:
         s = re.sub(r"(?m)^cp\s*=.*\n^cv\s*=.*\n", "", s)
     s = set_key(s, "eos", "type", "isothermal")
     s = set_key(s, "eos", "sound_speed", repr(a.c0))
-    # one block along x; the periodic box two (a single block cannot be its own periodic neighbour)
-    level = 1 if a.case == "wave" else 0
-    assert a.ni % (level + 1) == 0, f"--ni {a.ni}: the wave needs an even cell count"
-    s = set_key(s, "grid", "ni", str(a.ni // (level + 1)))
+    # one block along x; the periodic box two (a single block cannot be its own periodic neighbour); --level L refines
+    # the base block L times (2^L blocks along x: a regression case keeps both of its ranks busy)
+    level = a.level if a.level is not None else (1 if a.case == "wave" else 0)
+    assert a.ni % 2**level == 0, f"--ni {a.ni}: not divisible by the 2^{level} blocks along x"
+    s = set_key(s, "grid", "ni", str(a.ni // 2**level))
     s = set_key(s, "amr", "max_level", str(level))
     s = set_key(s, "amr", "iu_ref_levels", str(level))
     s = set_key(s, "time", "time_max", repr(a.time_max))
@@ -129,6 +130,7 @@ def main() -> None:
     ap.add_argument("--rk", default=None)
     ap.add_argument("--keep-gas", action="store_true")
     ap.add_argument("--null-y", action="store_true")
+    ap.add_argument("--level", type=int, default=None)
     ap.add_argument("--set", action="append", default=[])
     ap.add_argument("--unset", action="append", default=[])
     a = ap.parse_args()

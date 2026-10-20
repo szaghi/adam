@@ -5,6 +5,8 @@
     eos_oracle.py riemann <work> [--case tube|collide] [--c0 C0] [--mach M]
                                               a run against the exact solution: the star plateau, the shock and contact
                                               positions, the inert energy slot, the L1 density error (reported)
+    eos_oracle.py agree <cpu work> <fnl work> [--tol T]
+                                              a CPU run against the FNL run of the same input (P2)
     eos_oracle.py wave <work> ... [--c0 C0]   acoustic-wave runs, coarse to fine: the L1 error after one period, the
                                               observed orders, the finest above ORDER_MIN
     eos_oracle.py inert <work>                every checkpoint's energy slot exactly 0, the total mass constant
@@ -559,6 +561,7 @@ TOL_CONTACT_CELLS = 2.0  # contact position (mid transverse-velocity crossing), 
 TOL_MASS = 1.0e-13  # total mass of a periodic box, relative drift
 ORDER_MIN = 4.5  # observed order of the finest pair of the acoustic wave (WENO-5, SSP-54 at CFL 0.1)
 EDGE_CELLS = 5  # cells kept away from every wave edge when the plateau is measured
+TOL_AGREE = 1.0e-10  # CPU against FNL (P2): the largest difference of a field over its largest magnitude (AV av8 floor)
 
 
 def run_ngc(work: Path) -> int:
@@ -724,6 +727,56 @@ def compare_inert(work: Path) -> bool:
     return check("mass", drift < TOL_MASS, f"{work.name}: total mass drift {drift:.1e} ({len(mass)} rows)") and ok
 
 
+def last_blocks(work: Path) -> dict[tuple[float, ...], dict[str, np.ndarray]]:
+    """Every field (r, ru, rv, rw, rE) of every block of the last checkpoint, interior cells, keyed by block origin."""
+    import h5py  # noqa: PLC0415 (only the run comparisons need it)
+
+    ngc, it = run_ngc(work), checkpoints(work)[-1]
+    out: dict[tuple[float, ...], dict[str, np.ndarray]] = {}
+    for path in sorted(work.glob(f"*-{it:09d}-proc*.h5")):
+        with h5py.File(path, "r") as h5:
+            for blk in {k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}:
+                key = tuple(np.round(h5[f"{blk}-origin"][()], 10))
+                out[key] = {
+                    v: h5[f"{blk}-{v}"][()][ngc:-ngc, ngc:-ngc, ngc:-ngc] for v in ("r", "ru", "rv", "rw", "rE")
+                }
+    return out
+
+
+def run_c0(work: Path) -> float:
+    for line in (work / "input.ini").read_text().splitlines():
+        if line.split("=")[0].strip() == "sound_speed":
+            return float(line.split("=")[1].split(";")[0])
+    raise ValueError(f"{work}: no [eos] sound_speed")
+
+
+def compare_agree(cpu: Path, fnl: Path, tol: float) -> bool:
+    """The last checkpoint of a CPU run against the FNL run of the same input: the same blocks, every field within
+    `tol` of its scale, the inert slot exactly 0 on both. The scale of the density is its largest magnitude; that of a
+    momentum is at least max(rho) c0, because its flux carries the pressure c0^2 rho: a small-amplitude wave has a
+    momentum of order 1e-6 whose round-off is that of the O(1) pressure flux."""
+    a, b = last_blocks(cpu), last_blocks(fnl)
+    rho_c0 = max(float(np.abs(a[k]["r"]).max()) for k in a) * run_c0(cpu)
+    if a.keys() != b.keys():
+        return check("agree", False, f"{cpu.name} vs {fnl.name}: different blocks ({len(a)} against {len(b)})")
+    ok, report = True, []
+    for v in ("r", "ru", "rv", "rw"):
+        d = max(float(np.abs(a[k][v] - b[k][v]).max()) for k in a)
+        m = max(float(np.abs(a[k][v]).max()) for k in a)
+        if v != "r":
+            m = max(m, rho_c0)
+        gap = d / m if m > 0.0 else d
+        report.append(f"{v} {gap:.1e}")
+        ok = ok and gap <= tol
+    inert = max(float(np.abs(c[k]["rE"]).max()) for c in (a, b) for k in c)
+    ok = check(
+        "agree",
+        ok and inert == 0.0,
+        f"{cpu.name} vs {fnl.name}: {', '.join(report)} (bound {tol:.0e}); max |rE| {inert:.1e}",
+    )
+    return ok
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -737,6 +790,10 @@ def main() -> int:
     p.add_argument("works", type=Path, nargs="+")
     p.add_argument("--c0", type=float, default=1.0)
     p.add_argument("--amplitude", type=float, default=1.0e-6)
+    p = sub.add_parser("agree", help="a CPU run against the FNL run of the same input (P2)")
+    p.add_argument("cpu", type=Path)
+    p.add_argument("fnl", type=Path)
+    p.add_argument("--tol", type=float, default=TOL_AGREE)
     p = sub.add_parser("inert", help="the energy slot of every checkpoint and the total mass of a run")
     p.add_argument("work", type=Path)
     args = ap.parse_args()
@@ -746,6 +803,8 @@ def main() -> int:
         return 0 if compare_riemann(args.work, args.case, args.c0, args.mach) else 1
     if args.cmd == "wave":
         return 0 if compare_wave(args.works, args.c0, args.amplitude) else 1
+    if args.cmd == "agree":
+        return 0 if compare_agree(args.cpu, args.fnl, args.tol) else 1
     if args.cmd == "inert":
         return 0 if compare_inert(args.work) else 1
     return 2

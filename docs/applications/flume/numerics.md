@@ -286,7 +286,8 @@ $u_* = u_K \mp c_0\ln(\rho_*/\rho_K)$ on the other; two streams at Mach $M$ comp
 Mach number in the frame of the shock. `src/tests/flume/verification/eos/eos_oracle.py` builds these solutions
 independently of the code, and the runs match them ([EO](./verification/euler/isothermal-eos)). A null direction
 freezes its momentum (`null_freeze`) for this model as for every Euler model: a 1-D run cannot carry a transverse
-velocity.
+velocity. CPU and FNL (P2) instantiate the same model-agnostic kernel bodies on the same library, so the backends run
+the same arithmetic.
 
 ## Radiative cooling
 
