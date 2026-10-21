@@ -1,0 +1,11 @@
+# executables kept by build.sh
+exe/
+# restart dumps and checkpoints: large, rebuilt by run.sh (timings.csv, run.info, result.md and the logs are kept)
+*.fbd
+*.tnd
+*.time
+*.reference
+*.h5
+*.xdmf
+# Slurm job output
+jobs/*.txt
