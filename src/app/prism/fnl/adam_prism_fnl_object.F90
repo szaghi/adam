@@ -1556,37 +1556,8 @@ contains
                do v=1, nv
                   q_gpu(b,i,j,k,v) = 0._R8P
                enddo
-            elseif (bc_type == BC_PERIOD) then
-               do v=1, nv
-                  q_gpu(b,i,j,k,v) = 0._R8P
-               enddo
-               select case(fec_1_6)
-               case(1)
-                  do v=1, nv_c
-                     q_gpu(b,i,j,k,v) = q_gpu(b,ni+i,j   ,k   ,v)
-                  enddo
-               case(2)
-                  do v=1, nv_c
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i-ni,j   ,k   ,v)
-                  enddo
-               case(3)
-                  do v=1, nv_c
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,nj+j,k   ,v)
-                  enddo
-               case(4)
-                  do v=1, nv_c
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,j-nj,k   ,v)
-                  enddo
-               case(5)
-                  do v=1, nv_c
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,j   ,nk+k,v)
-                  enddo
-               case(6)
-                  do v=1, nv_c
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i   ,j   ,k-nk,v)
-                  enddo
-               endselect
             endif
+            ! periodic faces (library BC_PERIODIC) are not boundary rows: the ghost exchange fills them
             if (has_pic_current /= 0_I4P) then
                q_gpu(b,i,j,k,var_Jx) = 0._R8P
                q_gpu(b,i,j,k,var_Jy) = 0._R8P

@@ -4,6 +4,7 @@ module adam_prism_bc_object
 
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
+use :: adam_parameters,  only : BC_PERIODIC
 ! third party modules
 use :: finer
 use :: penf
@@ -15,7 +16,6 @@ public :: BC_EXTRAPOLATION
 public :: BC_NEUMANN
 public :: BC_DIRICHLET
 public :: BC_Silver_Muller
-public :: BC_PERIOD
 public :: BC_radiative
 public :: BC_PEC
 public :: ELL_BC_DIRICHLET
@@ -33,7 +33,6 @@ integer(I4P), parameter :: BC_EXTRAPOLATION = 1_I4P !< Extrapolation.
 integer(I4P), parameter :: BC_NEUMANN       = 2_I4P !< Neumann BC.
 integer(I4P), parameter :: BC_DIRICHLET     = 3_I4P !< Dirichlet BC.
 integer(I4P), parameter :: BC_Silver_Muller = 4_I4P !< Silver-Muller BC.
-integer(I4P), parameter :: BC_PERIOD        = 5_I4P !< Periodic BC.
 integer(I4P), parameter :: BC_radiative     = 6_I4P !< Radiative BC.
 integer(I4P), parameter :: BC_PEC           = 7_I4P !< Perfect Electric Conductor BC.
 integer(I4P), parameter :: ELL_BC_DIRICHLET = 1_I4P !< Elliptic Dirichlet BC.
@@ -92,7 +91,7 @@ contains
       case('Silver_Muller')
          self%bc_type(b) = BC_Silver_Muller
       case('periodic')
-         self%bc_type(b) = BC_PERIOD
+         self%bc_type(b) = BC_PERIODIC ! library periodicity: the tree builds periodic neighbours
       case('radiative')
          self%bc_type(b) = BC_radiative
       case('PEC', 'pec')
@@ -102,6 +101,11 @@ contains
                                   sname//'].(type); '//&
                                   'expected one of extrapolation, Neumann, Dirichlet, Silver_Muller, periodic, radiative, PEC')
       endselect
+   enddo
+   do b=1, 5, 2
+      if ((self%bc_type(b) == BC_PERIODIC) .neqv. (self%bc_type(b+1) == BC_PERIODIC)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAMES(b)//'] and ['//INI_SECTION_NAMES(b+1)//'] '// &
+                                  'must be both periodic or neither')
    enddo
    endsubroutine load_from_file
 
@@ -127,7 +131,7 @@ contains
    select case(bc_type)
    case(BC_DIRICHLET)
       ell_bc_type = ELL_BC_DIRICHLET
-   case(BC_PERIOD)
+   case(BC_PERIODIC)
       ell_bc_type = ELL_BC_PERIODIC
    case(BC_NEUMANN, BC_Silver_Muller, BC_radiative)
       ell_bc_type = ELL_BC_EXACT_OPEN

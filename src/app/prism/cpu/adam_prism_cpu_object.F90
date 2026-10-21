@@ -774,23 +774,8 @@ contains
                      do v=1, nv
                         q(v,i,j,k,b) = 0._R8P
                      enddo
-               elseif (bc_type == BC_PERIOD) then
-                  q(:,i,j,k,b) = 0._R8P
-                  select case(fec_1_6)
-                  case(1)
-                     q(1:nv_c,i,j,k,b) = q(1:nv_c,ni+i,j   ,k   ,b)
-                  case(2)
-                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i-ni,j   ,k   ,b)
-                  case(3)
-                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,nj+j,k   ,b)
-                  case(4)
-                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j-nj,k   ,b)
-                  case(5)
-                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j   ,nk+k,b)
-                  case(6)
-                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j   ,k-nk,b)
-                  endselect
                endif
+               ! periodic faces (library BC_PERIODIC) are not boundary rows: the ghost exchange fills them
                ! Physical PIC ghosts carry no deposited charge or current.
                if (is_pic_model(self%physics%physical_model)) then
                   q(self%physics%var_Jx:self%physics%var_Jz,i,j,k,b) = 0._R8P

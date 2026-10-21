@@ -129,6 +129,15 @@ device-path a plain field case does not:
   block set (`prism_common_object%initialize_block_face_data`, issue #95 P5.1):
   before it, both objects stayed on the pre-AMR blocks, 48 of the 96 face blocks
   per rank, and the initial condition was built with the stale layer. 5 steps.
+- **`periodic-pulse-blocks`** — the only case with `periodic` faces (all six).
+  A Gaussian pulse along +x in a periodic box, 48^3 cells as 64 blocks of 12^3
+  split 32/32 over the two ranks, 192 steps = exactly one period
+  (`dt = dx/(4c)`), so the pulse crosses block faces owned by different ranks
+  and returns. It anchors PRISM `periodic` = library `BC_PERIODIC` (tree
+  periodic neighbours + ghost exchange). The previous same-block wrap fails it
+  (all 192 residual rows), and the single-block 48^3 run agrees with it to
+  ~2e-15. Longer than the other cases on purpose (one full period): ~20 s CPU,
+  ~55 s FNL.
 
 ## Running the harness
 

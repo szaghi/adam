@@ -225,6 +225,7 @@ type :: tree_object
       procedure, pass(self) :: node                      !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number      !< Return the buckets number as nearest prime number given nodes number.
       procedure, pass(self) :: prune                     !< Prune nodes.
+      procedure, pass(self) :: rebuild_neighborhood      !< Recompute the neighbors of every node (e.g. after grid%set_bc_type).
       procedure, pass(self) :: resize                    !< Resize the tree.
       procedure, pass(self) :: save_nodes                !< Save nodes data, used for restart.
       procedure, pass(self) :: traverse                  !< Traverse tree calling the iterator procedure.
@@ -898,6 +899,23 @@ contains
       enddo
    endif
    endsubroutine prune
+
+   subroutine rebuild_neighborhood(self, grid)
+   !< Recompute the neighbors of every node.
+   !< make_neighborhood refreshes an old node only when a stored neighbor code disappeared, and never a boundary neighbor
+   !< (no stored codes): a grid whose BC types changed after the tree was built (grid%set_bc_type, e.g. a face made
+   !< periodic) keeps its old boundary neighbors until this is called.
+   class(tree_object), intent(inout) :: self     !< The tree.
+   type(grid_object),  intent(in)    :: grid     !< Grid (sibling realm component, threaded in).
+   type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
+   type(tree_iterator_object)        :: iter     !< Tree traversal cursor (re-entrant).
+
+   iter%b = 1_I4P ; iter%p => null()
+   do while(self%loop(iter, node_ptr=node_ptr))
+      node_ptr%i_am_new = .true.
+   enddo
+   call self%make_neighborhood(grid=grid)
+   endsubroutine rebuild_neighborhood
 
    subroutine resize(self, grid, nodes_number, max_load)
    !< Resize the tree.

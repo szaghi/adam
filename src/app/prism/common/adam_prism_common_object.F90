@@ -388,6 +388,10 @@ contains
    endif
    call self%bc%initialize(file_parameters=file_parameters)
    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
+   ! the tree and the maps were built by realm_object%initialize before the BC types were known: rebuild them, or a
+   ! periodic face of an unrefined grid keeps its boundary neighbors and no ghost exchange fills it
+   call self%adam%tree%rebuild_neighborhood(grid=self%adam%grid)
+   call self%adam%make_comm_local_maps_ghost_bc
    if (is_pic_model(self%physics%physical_model)) &
       call self%pic%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
                                physics=self%physics)
@@ -1511,6 +1515,7 @@ contains
    real(R8P), allocatable                    :: D0(:,:,:,:,:)   !< Buffer to monitor divergence evolution for D.
    real(R8P), allocatable                    :: grad(:,:,:,:,:) !< Correction field.
    integer(I4P)                              :: elliptic_bc_type(6) !< Elliptic BC type for each face.
+   integer(I8P), allocatable                 :: bc_crown(:,:,:) !< BC crown map (zero rows on an all-periodic domain).
    integer(I4P)                              :: last_progress_percent !< Last printed progress percentage.
    integer(I4P)                              :: progress_counter !< Completed smoothing sweeps.
    integer(I4P)                              :: progress_total   !< Planned smoothing sweeps.
@@ -1520,6 +1525,12 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence, &
              hs=>self%fdv_half_stencil, physical_model=>self%physics%physical_model, nb=>self%nb)
       if (.not. allocated(self%adam%maps%local_map_bc_crown)) call self%adam%make_comm_local_maps_ghost_bc
+      ! an all-periodic domain has no boundary rows and the map stays unallocated: give FLAIL an empty one
+      if (allocated(self%adam%maps%local_map_bc_crown)) then
+         bc_crown = self%adam%maps%local_map_bc_crown
+      else
+         allocate(bc_crown(0,9,ngc))
+      endif
 
       buffer(5:9,:,:,:,:) = 0._R8P
       allocate(D0(1:3,          &
@@ -1561,7 +1572,7 @@ contains
                                                          iterations_coarse=self%flail%iterations_coarse,                        &
                                                          ivar=1_I4P, field=self%adam%field,                                     &
                                                          ell_bc_type=elliptic_bc_type,                                          &
-                                                         local_map_bc_crown=self%adam%maps%local_map_bc_crown,                  &
+                                                         local_map_bc_crown=bc_crown,                                           &
                                                          grid=self%adam%grid, maps=self%adam%maps,                              &
                                                          progress_label='Elliptic CT divD-rho correction',                      &
                                                          progress_counter=progress_counter, progress_total=progress_total,       &
@@ -1624,7 +1635,7 @@ contains
                                                        iterations_coarse=self%flail%iterations_coarse,                        &
                                                        ivar=1_I4P, field=self%adam%field,                                     &
                                                        ell_bc_type=elliptic_bc_type,                                          &
-                                                       local_map_bc_crown=self%adam%maps%local_map_bc_crown,                  &
+                                                       local_map_bc_crown=bc_crown,                                           &
                                                        grid=self%adam%grid, maps=self%adam%maps,                              &
                                                        progress_label='Elliptic CT divB correction',                          &
                                                        progress_counter=progress_counter, progress_total=progress_total,       &
@@ -1676,6 +1687,7 @@ contains
    real(R8P), allocatable                    :: dphi(:,:,:,:,:) !< Potential variation.
    real(R8P), allocatable                    :: f(:,:,:,:,:)    !< Source term.
    integer(I4P)                              :: elliptic_bc_type(6) !< Elliptic BC type for each face.
+   integer(I8P), allocatable                 :: bc_crown(:,:,:) !< BC crown map (zero rows on an all-periodic domain).
    integer(I4P)                              :: ind             !< Rho index.
    integer(I4P)                              :: last_progress_percent !< Last printed progress percentage.
    integer(I4P)                              :: progress_counter !< Completed smoothing sweeps.
@@ -1687,6 +1699,12 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
              nb=>self%nb, buffer=>self%divergence, hs=>self%fdv_half_stencil)
       if (.not. allocated(self%adam%maps%local_map_bc_crown)) call self%adam%make_comm_local_maps_ghost_bc
+      ! an all-periodic domain has no boundary rows and the map stays unallocated: give FLAIL an empty one
+      if (allocated(self%adam%maps%local_map_bc_crown)) then
+         bc_crown = self%adam%maps%local_map_bc_crown
+      else
+         allocate(bc_crown(0,9,ngc))
+      endif
       call self%bc%build_elliptic_bc_types(ivar=ivar, ell_bc_type=elliptic_bc_type)
       eps_scale = EPS0
       mu_scale = MU0
@@ -1893,7 +1911,7 @@ contains
                                                          iterations_coarse=self%flail%iterations_coarse,     &
                                                          ivar=ivar, mu=mu, eps=eps, field=self%adam%field,   &
                                                          ell_bc_type=ell_bc_type,                             &
-                                                         local_map_bc_crown=self%adam%maps%local_map_bc_crown, &
+                                                         local_map_bc_crown=bc_crown,                          &
                                                          grid=self%adam%grid, maps=self%adam%maps,            &
                                                          progress_label='Elliptic BC initialization',        &
                                                          progress_counter=progress_counter, progress_total=progress_total, &
