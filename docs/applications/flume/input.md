@@ -555,8 +555,8 @@ table's $1.4 \to 1.1$) is not genuinely nonlinear: its Riemann solutions contain
 schemes do not depend on convexity) and reported at start-up.
 
 With `type = isothermal` or `barotropic`:
-- `[physics]` must be `physical_model = euler` without `passive_scalars`, and must not set `gamma`, `cp` or `cv`
-  (fatal: they would be ignored);
+- `[physics]` must be `physical_model = euler` or `mhd-ideal` (P5, below) without `passive_scalars`, and must not set
+  `gamma`, `cp` or `cv` (fatal: they would be ignored);
 - the regions of `[initial_conditions]` and the `inflow` faces need no `p` (it is ignored: $P = P(\rho)$);
 - the accepted initial conditions are `uniform`, `riemann-problem`, `rotated-riemann`, `sine-wave` (with
   `wave_mode = acoustic` the wave travels at $\sqrt{P'(\rho_0)}$, with `wave_mode = jeans` it obeys
@@ -576,7 +576,19 @@ With `type = isothermal` or `barotropic`:
 - refused, each with its own message: `[cooling]` (nothing to radiate), the dissipative terms, `[reference]` (it
   converts no barotropic law), immersed solids, and the `wall-noslip`, `wall-isothermal` and `hydrostatic` faces;
 - CPU and FNL run the `weno` and `weno-riemann` schemes, all reconstructions, and the `llf`, `hll`, `hllc` solvers;
-  the FNL kernels are the device twins of the CPU ones, on the same library.
+  the FNL kernels are the device twins of the CPU ones, on the same library;
+- with `physical_model = mhd-ideal` (P5) the gas closes ideal MHD without an energy equation, the total pressure
+  $P(\rho) + |\mathbf B|^2/2$ ([numerics](./numerics#isothermal-and-barotropic-mhd)):
+  - `[mhd] divergence_control` must be `none` or `glm`. `eglm` is fatal, because its sources are built on the energy
+    equation.
+  - `rho_floor` and `p_floor` must be 0 (fatal otherwise: there is no pressure to floor).
+  - The accepted initial conditions are those above plus `glm-pulse`, `divb-peak`, `mhd-linear-wave` (the eigenvectors
+    of Kim et al. 1999; `wave = entropy` is fatal, since these gases have no entropy mode), `mhd-cpaw`, `mhd-rotor` and
+    `field-loop`. `orszag-tang` and `mhd-vortex` are fatal: their states need $\gamma$.
+  - The schemes are `weno` and `weno-riemann`, with the `llf`, `hll` and `hlld` solvers (Mignone's isothermal HLLD,
+    on any $P(\rho)$).
+  - `positivity_limiter = cell` works as for the Euler gases, and is fatal with `glm`, as for the ideal gas.
+  - These models run on the CPU backend only for now; the FNL backend refuses them (#100 P5b).
 
 ---
 
@@ -830,7 +842,8 @@ selected type uses is required** (fatal "failed to load" otherwise).
 A model mismatch (for example `glm-pulse` with `euler`) is fatal. The complete formulas are in the module header.
 With [`[eos] type = isothermal` or `barotropic`](#eos-optional-equation-of-state) only `uniform`, `riemann-problem`,
 `rotated-riemann`, `sine-wave`, `linear`, `polynomial`, `shu-osher` and `boss-bodenheimer` are accepted (with
-`isothermal` also `singular-isothermal-sphere` and `bonnor-ebert`), and the regions need no `p`.
+`isothermal` also `singular-isothermal-sphere` and `bonnor-ebert`; with `mhd-ideal` also `glm-pulse`, `divb-peak`,
+`mhd-linear-wave` without the entropy wave, `mhd-cpaw`, `mhd-rotor` and `field-loop`), and the regions need no `p`.
 
 ### [initial_conditions_region_N]
 

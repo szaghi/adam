@@ -67,6 +67,9 @@
 #           checkpoint every 5 steps), eg-be-{3,6,9} (eg7, every 10 steps), eg-shu (eg6, 32^3) and eg-bb, the
 #           Boss-Bodenheimer cloud on a 32^3 base with two Jeans-refined levels and sinks to 1.25 t_ff (8 ranks, a
 #           checkpoint every 20 steps)
+#   eosmhd  the isothermal and barotropic MHD (#100 P5, eos/mhd.sh): em-wave-{iso,baro}-{fast,alfven,slow}-{16,32,64}
+#           (em1 along x, the barotropic on rho0 = 5), em-tube{1,2,3}-hlld-{400,3200} (em4, weno-riemann HLLD) and
+#           em-tube2-hll-400 (em6) (25 runs, about 30 min)
 #   multirealm sod-x, sod-2realm, sod-amr, sod-amr-refined: the Sod unions of multirealm/check.sh legs 1 and 4 and
 #           their single-realm twins (4 runs, about 4 min)
 #   seams   the Sod shock crossing a static 2:1 face at x = 0.75 (amr-shock/make_amr_shock.py, #68; issue #85 R2b):
@@ -89,35 +92,37 @@
 #        isolated: --only selfgravity-isolated selfgravity-star selfgravity-star-amr;
 #        collapse-regrid: --only selfgravity-star-regrid; dualenergy: --only dual-energy; scalars: --only passive-scalars;
 #        cooling: --only radiative-cooling; sinks: --only sink-particles; eos: --only isothermal-eos barotropic-eos;
+#        eosgrav: --only barotropic-gravity; eosmhd: --only barotropic-mhd;
 #        amr: --only selfgravity-amr selfgravity-amr-jeans
 #        selfgravity-amr-regrid selfgravity-amr-isolated)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
 #        [jeans] [isolated] [amr] (default: all twelve)
 #
-# FLUME_EXE overrides the executable (default exe/adam_flume_cpu); the caller owns the matching MPI environment.
+# FLUME_EXE overrides the executable (default exe/adam_flume_cpu); the caller owns the matching MPI environment. DOC_NP
+# sets the ranks of the groups that use the default (2).
 set -euo pipefail
 
 VERIF_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$VERIF_DIR/../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
-NP=2
+NP="${DOC_NP:-2}"
 source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars] [cooling] [sinks] [eos]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars] [cooling] [sinks] [eos] [eosgrav] [eosmhd]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks eos eosgrav}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks eos eosgrav eosmhd}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks|eos|eosgrav)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks|eos|eosgrav|eosmhd)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
            "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, seams, blast77, divb," \
-           "rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks, eos, eosgrav)" >&2
+           "rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks, eos, eosgrav, eosmhd)" >&2
       exit 2
    fi
 done
@@ -419,6 +424,22 @@ for g in $GROUPS_; do
          for xi in 3 6 9; do grav "eg-be-$xi" 4 be --xi "$xi" --time-max 4.0 --it-save 10 ; done
          grav eg-shu 4 shu
          grav eg-bb 8 bb --cells 32 --amr 2 --it-save 20 ;;
+      eosmhd)
+         emhd() { # emhd <case dir> <make_eos_mhd arguments>: write and run one isothermal or barotropic MHD case
+            fresh "$1" ; shift
+            "$VENV_PY" -I "$VERIF_DIR/eos/make_eos_mhd.py" "$W/input.ini" "$@"
+            run input.ini
+         }
+         for wv in fast alfven slow; do
+            for n in 16 32 64; do
+               emhd "em-wave-iso-$wv-$n" wave --wave "$wv" --cells "$n"
+               emhd "em-wave-baro-$wv-$n" wave --wave "$wv" --eos barotropic --rho0 5 --cells "$n"
+            done
+         done
+         for t in 1 2 3; do
+            for n in 400 3200; do emhd "em-tube$t-hlld-$n" tube --tube "$t" --scheme weno-riemann --solver hlld --cells "$n" ; done
+         done
+         emhd em-tube2-hll-400 tube --tube 2 --scheme weno-riemann --solver hll --cells 400 ;;
       sinks)
          sink() { # sink <case dir> <make_si arguments>: write and run one sink case with the FFT executable
             fresh "$1" ; shift

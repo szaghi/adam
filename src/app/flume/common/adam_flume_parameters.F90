@@ -56,6 +56,10 @@ public :: MODEL_EULER_PS
 public :: MODEL_EULER_DE_PS
 public :: MODEL_EULER_ISO
 public :: MODEL_EULER_BARO
+public :: MODEL_MHD_ISO
+public :: MODEL_MHD_GLM_ISO
+public :: MODEL_MHD_BARO
+public :: MODEL_MHD_GLM_BARO
 public :: EOS_IDEAL
 public :: EOS_ISOTHERMAL
 public :: EOS_BAROTROPIC
@@ -94,6 +98,7 @@ public :: REFLUX_CADENCE_STAGE
 public :: strip_control
 public :: is_hydrodynamic
 public :: has_inert_energy
+public :: has_mixed_glm
 public :: has_entropy
 
 ! conservative variables
@@ -149,6 +154,11 @@ integer(I4P), parameter :: MODEL_EULER_ISO = 8_I4P !< Isothermal Euler, `[eos] t
                                                    !< slot inert: zero flux, zero source, held at 0; #100, D-M13-1).
 integer(I4P), parameter :: MODEL_EULER_BARO = 9_I4P !< Barotropic Euler, `[eos] type = barotropic`: a piecewise
                                                     !< polytrope, the energy slot inert as above (#100, M13 P3).
+integer(I4P), parameter :: MODEL_MHD_ISO = 10_I4P      !< Isothermal ideal MHD without divergence control (nv = 8, the
+                                                       !< energy slot inert; #100, M13 P5).
+integer(I4P), parameter :: MODEL_MHD_GLM_ISO = 11_I4P  !< Isothermal ideal MHD with GLM cleaning (nv = 9; #100, P5).
+integer(I4P), parameter :: MODEL_MHD_BARO = 12_I4P     !< Barotropic ideal MHD without divergence control (nv = 8; P5).
+integer(I4P), parameter :: MODEL_MHD_GLM_BARO = 13_I4P !< Barotropic ideal MHD with GLM cleaning (nv = 9; #100, P5).
 ! accepted option values
 character(len=5),  parameter :: PHYSICAL_MODEL_EULER="euler"          !< [physics].(physical_model): compressible Euler.
 character(len=9),  parameter :: PHYSICAL_MODEL_MHD_IDEAL="mhd-ideal"  !< [physics].(physical_model): ideal MHD.
@@ -231,8 +241,18 @@ contains
    integer(I4P), intent(in) :: model !< Physical model id.
    logical                  :: yes   !< Barotropic model.
 
-   yes = model == MODEL_EULER_ISO .or. model == MODEL_EULER_BARO
+   yes = model == MODEL_EULER_ISO .or. model == MODEL_EULER_BARO .or. model == MODEL_MHD_ISO .or.                &
+         model == MODEL_MHD_GLM_ISO .or. model == MODEL_MHD_BARO .or. model == MODEL_MHD_GLM_BARO
    endfunction has_inert_energy
+
+   elemental function has_mixed_glm(model) result(yes)
+   !< Return true for the MHD models with the mixed GLM cleaning (the ideal gas and its barotropic twins, issue #100
+   !< P5): `psi` carried, damped by a local source, out of the energy.
+   integer(I4P), intent(in) :: model !< Physical model id.
+   logical                  :: yes   !< Mixed GLM model.
+
+   yes = model == MODEL_MHD_GLM .or. model == MODEL_MHD_GLM_ISO .or. model == MODEL_MHD_GLM_BARO
+   endfunction has_mixed_glm
 
    elemental function has_entropy(model) result(yes)
    !< Return true for the dual-energy models, whose slot IQ_S is the advected entropy (issue #91; with scalars, #92).

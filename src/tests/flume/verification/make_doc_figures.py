@@ -2369,6 +2369,58 @@ def fig_barotropic_gravity(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_barotropic_mhd(out: Path, runs: Path) -> None:
+    """EO P5 (issue #100): the isothermal and barotropic MHD (CPU, make_doc_runs.sh eosmhd). Top left: the linear waves
+    along x (em1), the error after one period against the cells, the three families, isothermal (c0 = 1) and
+    barotropic (rho0 = 5, c^2 = dP/drho = 2.0198), the order of the finest pair in the legend; slope 5 dotted. Top right: Mignone's tube 1 (em4), rho at 400 cells
+    against the 3200-cell reference. Bottom left: tube 2 (em4, em6), B_y at 400 cells with HLLD and HLL against the
+    reference: the rotational discontinuities. Bottom right: tube 3 (em4), the two Mach-5 streams with B_x = 0, rho."""
+    mo = oracle_module("eos", "mhd_oracle")
+    lw = oracle_module("mhd/linear-wave", "linear_wave_oracle")
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    ax = axs[0, 0]
+    cells = np.array([16, 32, 64])
+    for gas, mk in (("iso", "o-"), ("baro", "s--")):
+        for wv, color in (("fast", "tab:blue"), ("alfven", "tab:orange"), ("slow", "tab:green")):
+            errs = []
+            for n in cells:
+                work = runs / f"em-wave-{gas}-{wv}-{n}"
+                errs.append(lw.error(work, int(read_ini(work / "input.ini")["grid"]["ngc"])) / lw.amplitude(work))
+            label = f"{wv}, {'isothermal' if gas == 'iso' else 'barotropic, rho0 = 5'}: {math.log2(errs[-2] / errs[-1]):.2f}"
+            ax.loglog(cells, errs, mk, color=color, ms=5, label=label)
+    ax.loglog(cells, 0.5 * errs[0] * (cells / cells[0]) ** -5.0, ":", color="0.4", label="slope 5")
+    ax.set_xticks(cells, [str(n) for n in cells])
+    ax.minorticks_off()
+    ax.set_xlabel("N")
+    ax.set_ylabel("error / amplitude")
+    ax.legend(fontsize=7, ncol=2)
+    ax.set_title("linear waves along x, one period (finest-pair order in the legend)", fontsize=10)
+    for ax, t, var, ylabel, title in ((axs[0, 1], 1, "r", "rho", "tube 1: fast and slow rarefactions and shocks"),
+                                      (axs[1, 1], 3, "r", "rho", "tube 3: two Mach-5 streams, B_x = 0")):
+        xr, fr, _ = mo.tube_line(runs / f"em-tube{t}-hlld-3200")
+        x, f, _ = mo.tube_line(runs / f"em-tube{t}-hlld-400")
+        ax.plot(xr, fr[var], "-", color="0.3", lw=1.0, label="HLLD, 3200 cells")
+        ax.plot(x, f[var], "o", ms=2.5, mfc="none", label="HLLD, 400 cells")
+        ax.set_xlabel("x")
+        ax.set_ylabel(ylabel)
+        ax.legend(fontsize=8)
+        ax.set_title(title, fontsize=10)
+    ax = axs[1, 0]
+    xr, fr, _ = mo.tube_line(runs / "em-tube2-hlld-3200")
+    ax.plot(xr, fr["by"], "-", color="0.3", lw=1.0, label="HLLD, 3200 cells")
+    for name, label, mk in (("hlld", "HLLD, 400 cells", "o"), ("hll", "HLL, 400 cells", "x")):
+        x, f, _ = mo.tube_line(runs / f"em-tube2-{name}-400")
+        ax.plot(x, f["by"], mk, ms=2.5, mfc="none", label=label)
+    ax.set_xlabel("x")
+    ax.set_ylabel("B_y")
+    ax.legend(fontsize=8)
+    ax.set_title("tube 2: rotational discontinuities, HLLD against HLL", fontsize=10)
+    fig.suptitle("EO P5: ideal MHD with the isothermal and barotropic gases (Mignone 2007 tubes, a = 1; CPU)",
+                 fontsize=12)
+    fig.savefig(out / "barotropic-mhd.png", dpi=DPI)
+    plt.close(fig)
+
+
 def _ini(work: Path) -> configparser.ConfigParser:
     """Read the input.ini of a run."""
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
@@ -3617,6 +3669,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "barotropic-gravity": fig_barotropic_gravity,
+           "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,

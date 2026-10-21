@@ -139,11 +139,17 @@ use :: adam_mpih_global,          only : mpih
 use :: adam_flume_eos_tables_library, only : barotropic_c2
 use :: adam_flume_euler_library,  only : primitive_to_conservative
 use :: adam_flume_mhd_library,    only : mhd_conservative_to_auxiliary, mhd_eigenvectors, mhd_primitive_to_conservative
+use :: adam_flume_mhd_baro_library, only : baro_mhd_conservative_to_auxiliary=>mhd_conservative_to_auxiliary, &
+                                         baro_mhd_eigenvectors=>mhd_eigenvectors
+use :: adam_flume_mhd_iso_library, only : iso_mhd_conservative_to_auxiliary=>mhd_conservative_to_auxiliary, &
+                                        iso_mhd_eigenvectors=>mhd_eigenvectors,                          &
+                                        iso_mhd_primitive_to_conservative=>mhd_primitive_to_conservative
 use :: adam_flume_parameters,     only : has_entropy, is_hydrodynamic, has_inert_energy,                                  &
                                         IQ_BX, IQ_BY, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S,                          &
                                         MODEL_EULER, MODEL_EULER_PS, MODEL_EULER_DE_PS, NS_MAX, &
                                         MODEL_EULER_DE, MODEL_EULER_ISO, MODEL_EULER_BARO, MODEL_MHD, &
-                                        MODEL_MHD_EGLM, MODEL_MHD_GLM, &
+                                        MODEL_MHD_EGLM, MODEL_MHD_GLM, MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, &
+                                        MODEL_MHD_GLM_BARO, &
                                         NV_AUX_MHD, &
                                         NV_EULER, NV_MHD, &
                                         strip_control
@@ -314,8 +320,11 @@ contains
    !< Return true if the IC type is defined for a barotropic gas (issue #100): its density, velocity and scalars are
    !< inputs or gamma-free formulas, and the pressure, which the barotropic gas ignores, enters nothing else. Refused:
    !< the isentropic vortex (rho from the adiabat, ^(1/(gamma-1))); the atmospheres and the polytrope (gamma-law
-   !< equilibria); the dissipation ICs with their module; the MHD ICs with the model. The isothermal spheres (P4),
-   !< singular and Bonnor-Ebert, are defined for the isothermal gas only.
+   !< equilibria); the dissipation ICs with their module; the MHD vortex (a pressure-balanced equilibrium) and the
+   !< Orszag-Tang vortex (its density `gamma^2 / (4 pi)` presumes `gamma = 5/3`). The MHD ICs whose density, velocity and
+   !< field are inputs or gamma-free formulas are accepted with the barotropic MHD models (P5); the linear wave takes
+   !< their eigenvectors. The isothermal spheres (P4), singular and Bonnor-Ebert, are defined for the isothermal gas
+   !< only.
    class(flume_ic_object), intent(in) :: self !< Initial conditions.
    logical                            :: safe !< IC type defined for a barotropic gas.
 
@@ -323,6 +332,9 @@ contains
                                                 IC_SINE_WAVE_STR, IC_LINEAR_STR, IC_POLYNOMIAL_STR, IC_SHU_OSHER_STR])
    if (self%model == MODEL_EULER_ISO) safe = safe .or. self%ic_type == IC_SIS_STR .or. self%ic_type == IC_BE_STR
    safe = safe .or. self%ic_type == IC_BB_STR
+   if (.not.is_hydrodynamic(self%model)) &
+      safe = safe .or. any(self%ic_type == [character(15) :: IC_GLM_PULSE_STR, IC_DIVB_PEAK_STR, IC_MHD_LINEAR_WAVE_STR, &
+                                                             IC_MHD_CPAW_STR, IC_MHD_ROTOR_STR, IC_FIELD_LOOP_STR])
    endfunction is_barotropic_safe
 
    function description(self) result(desc)
@@ -416,7 +428,7 @@ contains
    select case(self%model)
    case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_EULER_ISO, MODEL_EULER_BARO)
       self%nprim = 5_I4P
-   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
+   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM, MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO)
       self%nprim = 8_I4P
    case default
       call mpih%error_stop(msg=': no initial conditions for physical model "'//physics%physical_model//'"')
@@ -447,7 +459,7 @@ contains
       enddo
       if (self%vortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
    case(IC_GLM_PULSE_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
+      if (is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_GLM_PULSE_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -471,7 +483,7 @@ contains
       enddo
       if (self%pulse(2) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(pulse_width) must be positive')
    case(IC_DIVB_PEAK_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
+      if (is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_DIVB_PEAK_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -482,7 +494,7 @@ contains
       enddo
       if (self%peak(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(peak_radius) must be positive')
    case(IC_MHD_LINEAR_WAVE_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
+      if (is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_LINEAR_WAVE_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -495,6 +507,9 @@ contains
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(wave) "'//self%wave// &
                                   '"; expected one of fast, alfven, slow, entropy')
       endselect
+      if (has_inert_energy(self%model) .and. self%wave == 'entropy') &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave) = entropy: a barotropic gas has no entropy mode '// &
+                                  '(issue #100, P5); expected one of fast, alfven, slow')
       do k=1, 3
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(WAVE_KEY(k)), val=self%wave_par(k), &
                                   error=error)
@@ -502,7 +517,7 @@ contains
       enddo
       if (self%wave_par(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
    case(IC_MHD_CPAW_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
+      if (is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_CPAW_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -527,7 +542,7 @@ contains
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(b_par)')
       if (self%b_par == 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(b_par) must be non-zero')
    case(IC_MHD_VORTEX_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
+      if (is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_VORTEX_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -539,12 +554,12 @@ contains
       enddo
       if (self%mvortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
    case(IC_ORSZAG_TANG_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
+      if (is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_ORSZAG_TANG_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 0_I4P
    case(IC_MHD_ROTOR_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
+      if (is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_ROTOR_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -557,7 +572,7 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs 0 < r0 < r1')
       if (self%rotor(5) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(rho_in) must be positive')
    case(IC_FIELD_LOOP_STR)
-      if (self%model /= MODEL_MHD .and. self%model /= MODEL_MHD_GLM .and. self%model /= MODEL_MHD_EGLM) &
+      if (is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_FIELD_LOOP_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
@@ -846,9 +861,15 @@ contains
       enddo
       if (r == 1_I4P) self%prim_1 = prim
       if (r == 2_I4P) self%prim_2 = prim
-      if (r == 1_I4P .and. self%ic_type == IC_MHD_LINEAR_WAVE_STR) &
-         call linear_wave_eigenvector(gamma=physics%gamma, R=physics%R, prim=prim, wave=self%wave, &
-                                      angle=self%wave_par(1), r_global=self%wave_r)
+      if (r == 1_I4P .and. self%ic_type == IC_MHD_LINEAR_WAVE_STR) then
+         if (has_inert_energy(self%model)) then ! issue #100, P5: the eigenvectors of Kim et al. (1999)
+            call linear_wave_eigenvector_inert(model=self%model, eos_arg=physics%eos_arg, prim=prim, wave=self%wave, &
+                                               angle=self%wave_par(1), r_global=self%wave_r)
+         else
+            call linear_wave_eigenvector(gamma=physics%gamma, R=physics%R, prim=prim, wave=self%wave, &
+                                         angle=self%wave_par(1), r_global=self%wave_r)
+         endif
+      endif
       if (self%ic_type == IC_RIEMANN_PROBLEM_STR) then
          do k=1, 6
             call file_parameters%get(section_name=sname, option_name=EXTENT_KEY(k), val=extent(k), error=error)
@@ -1498,6 +1519,51 @@ contains
    r_global(IQ_BX) = c * er(IQ_BX,k) - s * er(IQ_BY,k)
    r_global(IQ_BY) = s * er(IQ_BX,k) + c * er(IQ_BY,k)
    endsubroutine linear_wave_eigenvector
+
+   subroutine linear_wave_eigenvector_inert(model, eos_arg, prim, wave, angle, r_global)
+   !< Return the right eigenvector of the right-going `wave` of a barotropic MHD model (issue #100, P5), as
+   !< `linear_wave_eigenvector`: the column of the isothermal or barotropic `mhd_eigenvectors` (Kim et al. 1999; waves
+   !< ordered `u_n - c_f, u_n - c_a, u_n - c_s, u_n + c_s, u_n + c_a, u_n + c_f`, then the inert slot and `B_n`), its
+   !< momentum and field rotated back to x, y, z. There is no entropy mode (refused by the loader).
+   integer(I4P), intent(in)  :: model             !< Physical model id.
+   real(R8P),    intent(in)  :: eos_arg           !< EOS parameter: c0^2, or the barotropic table id.
+   real(R8P),    intent(in)  :: prim(8)           !< Primitive state, global frame (r, u, v, w, p, bx, by, bz).
+   character(*), intent(in)  :: wave              !< Wave family: fast, alfven, slow.
+   real(R8P),    intent(in)  :: angle             !< Wave normal angle in the x-y plane (degrees).
+   real(R8P),    intent(out) :: r_global(NV_MHD)  !< Right eigenvector, global frame.
+   real(R8P)                 :: c, s              !< cos, sin of the angle.
+   real(R8P)                 :: q(NV_MHD)         !< Conservative state, wave frame.
+   real(R8P)                 :: qa(NV_AUX_MHD)    !< Auxiliary state, wave frame.
+   real(R8P)                 :: el(NV_MHD,NV_MHD) !< Left eigenvectors.
+   real(R8P)                 :: er(NV_MHD,NV_MHD) !< Right eigenvectors.
+   integer(I4P)              :: k                 !< Wave index.
+
+   c = cos(angle * PI / 180._R8P)
+   s = sin(angle * PI / 180._R8P)
+   call iso_mhd_primitive_to_conservative(gamma=eos_arg, r=prim(1), u=c * prim(2) + s * prim(3),                  &
+                                          v=-s * prim(2) + c * prim(3), w=prim(4), p=prim(5),                     &
+                                          bx=c * prim(6) + s * prim(7), by=-s * prim(6) + c * prim(7), bz=prim(8), q=q)
+   if (model == MODEL_MHD_ISO .or. model == MODEL_MHD_GLM_ISO) then
+      call iso_mhd_conservative_to_auxiliary(gamma=eos_arg, R=1._R8P, q=q, qa=qa)
+      call iso_mhd_eigenvectors(gamma=eos_arg, d=1_I4P, qa=qa, el=el, er=er)
+   else
+      call baro_mhd_conservative_to_auxiliary(gamma=eos_arg, R=1._R8P, q=q, qa=qa)
+      call baro_mhd_eigenvectors(gamma=eos_arg, d=1_I4P, qa=qa, el=el, er=er)
+   endif
+   select case(wave)
+   case('fast')
+      k = 6_I4P
+   case('alfven')
+      k = 5_I4P
+   case default ! slow
+      k = 4_I4P
+   endselect
+   r_global    = er(:,k)
+   r_global(IQ_RU) = c * er(IQ_RU,k) - s * er(IQ_RV,k)
+   r_global(IQ_RV) = s * er(IQ_RU,k) + c * er(IQ_RV,k)
+   r_global(IQ_BX) = c * er(IQ_BX,k) - s * er(IQ_BY,k)
+   r_global(IQ_BY) = s * er(IQ_BX,k) + c * er(IQ_BY,k)
+   endsubroutine linear_wave_eigenvector_inert
 
    pure subroutine mhd_vortex(prim0, mvortex, x, y, prim)
    !< Return the primitive state of the magnetised vortex at `(x, y)` (formulas in the module documentation).

@@ -36,7 +36,7 @@ What the case catches:
 | eo1 | the shock tube: $\rho = 1 \mid 0.125$ at $x = 0.5$, at rest, the transverse velocity $v = 0.3 \mid -0.2$; 400 cells along $x$, $y$ active with 4 cells (uniform), extrapolation faces, to $t = 0.2$ |
 | eo2 | two streams $\rho = 1$, $u = \pm 5$ colliding at $x = 0.5$, 400 cells, to $t = 1$ |
 | eo3 | a right-running acoustic wave, $\rho = 1 + 10^{-6}\sin 2\pi x$, $u = c_0(\rho - 1)$, on the periodic $[0, 1]$, $N = 12, 24, 48$ in two blocks on two ranks, one period |
-| eo4 | the eo1 input with `[cooling]`, a viscosity, `[reference]`, an immersed cylinder, a `wall-noslip` or `hydrostatic` face, `isentropic-vortex`; `mhd-ideal`, passive scalars, `cp`/`cv`, no or a negative `sound_speed`, an unknown `type` |
+| eo4 | the eo1 input with `[cooling]`, a viscosity, `[reference]`, an immersed cylinder, a `wall-noslip` or `hydrostatic` face, `isentropic-vortex`; `euler-de` (`mhd-ideal` until P5, [MHD](../mhd/barotropic-mhd)), passive scalars, `cp`/`cv`, no or a negative `sound_speed`, an unknown `type` |
 | eo5 | the eo3 wave at amplitude 0.3, $N = 48$, two ranks, to $t = 1$: it breaks into a shock at $t_b \approx 1/(c_0 A k) = 0.53$ |
 | eo6 | eo1 with `weno-riemann` and each solver |
 | eo7 | the eo1, eo2, eo3 ($N = 48$) and eo6 `hllc` runs of CPU and FNL |

@@ -334,6 +334,57 @@ the sinks' cold accretion (eg6) drifted its momentum by 13 % of the exchange, 2.
 Boss–Bodenheimer cloud stalled at $1.32\,t_\mathrm{ff}$, the ambient beside the corners of its refined cube drained to
 $10^{-5}$ at $|u| = 365$ ([EO P4](./verification/euler/barotropic-gravity)).
 
+### Isothermal and barotropic MHD
+
+With `physical_model = mhd-ideal` (P5) the two gases close ideal MHD without an energy equation, the total pressure
+$P(\rho) + |\mathbf B|^2/2$ (Mignone 2007, J. Comput. Phys. 225, 1427, eqs. 1–6). The models are
+`MODEL_MHD_ISO`, `MODEL_MHD_BARO` and their mixed-GLM twins `MODEL_MHD_GLM_ISO`, `MODEL_MHD_GLM_BARO`. They keep
+the MHD layout $(\rho, \rho\mathbf u, \rho E, \mathbf B[, \psi])$, the energy slot inert as for the Euler gases, and one
+library body (`adam_flume_mhd_iso_library_body.INC`) behind the EOS hooks of the isothermal and barotropic modules.
+The normal field is a parameter of the 1-D core, as in the adiabatic library: decoupled at speed 0, or the GLM pair
+$(B_n, \psi)$ at $\mp c_h$.
+
+**Eigensystem.** In direction $\mathbf n$ the six waves $u_n \mp c_f$, $u_n \mp c_a$, $u_n \mp c_s$ act on
+$(\rho, \rho u_n, \rho u_{t1}, \rho u_{t2}, B_{t1}, B_{t2})$; there is no entropy mode. The Jacobian holds the gas law
+only through $a^2 = dP/d\rho$, so the eigenvectors of Kim et al. (1999, ApJ 514, 506, eqs. 2-9 to 2-53) serve both
+gases with $a^2 = c_0^2$ or the table's $dP/d\rho$. Kim's fast normalisation
+$\alpha_f = \sqrt{c_f^2 - b_n^2}/\sqrt{c_f^2 - c_s^2}$ is the Ryu–Jones $\alpha_f$ times $c_f/a$. FLUME computes it from
+the cancellation-free pair of the adiabatic core ([#79](https://github.com/szaghi/adam/issues/79)), with that core's
+degenerate values and the sign of Kim's eq. 2-53. The characteristic projection takes the eigenvectors of the arithmetic
+face average.
+
+**HLLD.** The isothermal HLLD of Mignone (2007, section 3) has three states between the outer speeds $S_{L,R}$ and the
+rotational speeds $S^*_{L,R} = u^* \mp |B_n|/\sqrt{\rho^*}$:
+- $\rho^*$, $m_n^*$ and the first two flux components are the HLL averages, with $u^* = F_\rho^\mathrm{hll}/\rho^\mathrm{hll}$;
+- the transverse components follow eqs. 30–37, and the flux eq. 38.
+
+The outer speeds are those of the adiabatic library (Miyoshi & Kusano 2005, eq. 67). They bound Mignone's Davis
+estimates, whose eq. 39 is misprinted with $S_R$ a minimum: it must be the maximum. In the degenerate case,
+$(S - S^*_L)(S - S^*_R) \to 0$, the outer transverse state is kept. The flux falls back to HLL when $\rho^* \le 0$ or
+when the speeds are out of order. They can be: $u^*$ is the advective velocity, which a strong density jump drives far
+off, and on Mignone's own tube 1 ($\rho_L/\rho_R = 10$) the first face has $S^*_R = 3.90 > S_R = 3.37$.
+
+LLF and HLL use each state's own $B_n$, so its jump is dissipated as in the adiabatic library; HLLD uses the average.
+With $\mathbf B = 0$ the HLLD flux is the isothermal HLLC's, and an isolated rotational discontinuity is resolved
+exactly.
+
+`src/tests/flume/verification/eos/mhd_oracle.py` checks the two papers independently of the code ($LR = I$ and
+$R\Lambda L = \partial F/\partial U$ at random and degenerate states, both gases; HLLD consistency, exactness and its
+hydrodynamic limit), and the Fortran library agrees with it to $2\cdot10^{-15}$ on 525 cases.
+
+**Positivity, cleaning and refusals.**
+- **Floors:** the `[mhd]` density and pressure floors are refused, since there is no pressure to floor.
+- **Positivity limiter:** `positivity_limiter = cell` takes the density and the kinetic chord of the Euler gases,
+  $c^2 = dP/d\rho$ of the backbone.
+- **Cleaning:** GLM is the mixed GLM of the ideal MHD (refused with that limiter, as there). EGLM is refused: its
+  Derigs sources are built on the energy equation.
+- **Gravity:** it moves the momentum only, as for the Euler gases.
+- **Initial conditions:** `orszag-tang`, `mhd-vortex` and the `entropy` wave of `mhd-linear-wave` need a gamma-law
+  gas and are refused.
+- **Backends:** CPU only for now (P5a); the FNL backend refuses these models.
+
+Verification: [EO P5](./verification/mhd/barotropic-mhd).
+
 ## Radiative cooling
 
 `[cooling]` ([#93](https://github.com/szaghi/adam/issues/93), M11) adds optically thin cooling,

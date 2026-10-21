@@ -212,6 +212,7 @@ export default withMermaid({
                         { text: 'EGLM cleaning', link: '/applications/flume/verification/mhd/eglm' },
                         { text: 'Positivity limiter', link: '/applications/flume/verification/mhd/positivity-limiter' },
                         { text: 'Quadtree AMR', link: '/applications/flume/verification/mhd/quadtree-amr' },
+                        { text: 'Isothermal and barotropic MHD', link: '/applications/flume/verification/mhd/barotropic-mhd' },
                       ],
                     },
                     {

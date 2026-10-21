@@ -1271,6 +1271,9 @@ contains
    ! whole registry, so after the last realm every realm's table is on the device
    !$acc update device(eos_tables_segments, eos_tables_breaks, eos_tables_exponents, eos_tables_k)
    !$omp target update to(eos_tables_segments, eos_tables_breaks, eos_tables_exponents, eos_tables_k)
+   if (has_inert_energy(self%physics%model) .and. .not.is_hydrodynamic(self%physics%model)) &
+      call mpih_fnl%error_stop(msg=': [eos].(type)='//self%physics%eos//' with [physics].(physical_model)=mhd-ideal '// &
+                                   'runs on the CPU backend only, for now (issue #100, P5a; the FNL twin is P5b)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')

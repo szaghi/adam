@@ -18,6 +18,7 @@ use :: adam_mpih_global,         only : mpih
 use :: adam_flume_euler_library, only : primitive_to_conservative
 use :: adam_flume_euler_iso_library, only : iso_primitive_to_conservative=>primitive_to_conservative
 use :: adam_flume_mhd_library,   only : mhd_primitive_to_conservative
+use :: adam_flume_mhd_iso_library, only : iso_mhd_primitive_to_conservative=>mhd_primitive_to_conservative
 use :: adam_flume_cooling_object, only : flume_cooling_object
 use :: adam_flume_dissipation_object, only : flume_dissipation_object
 use :: adam_flume_gravity_object, only : flume_gravity_object
@@ -27,6 +28,7 @@ use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, EOS_BAROTROPIC, EOS_IDE
                                         MODEL_EULER_ISO,                                                                 &
                                         has_entropy, IQ_PSI, IQ_S, MODEL_EULER, MODEL_EULER_DE,                         &
                                         MODEL_EULER_DE_PS, MODEL_EULER_PS, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,     &
+                                        MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO,            &
                                         NS_MAX, NV_AUX, NV_AUX_DE, NV_AUX_DE_PS, NV_AUX_MHD, NV_AUX_PS, NV_EULER,        &
                                         NV_EULER_DE, NV_EULER_DE_PS, NV_EULER_PS, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM,       &
                                         PHYSICAL_MODEL_EULER, PHYSICAL_MODEL_EULER_DE, PHYSICAL_MODEL_MHD_IDEAL,          &
@@ -126,10 +128,10 @@ contains
    real(R8P),                   intent(in) :: e    !< Internal energy per unit volume (ideal gas only).
    real(R8P)                               :: p    !< Pressure.
 
-   select case(self%model)
-   case(MODEL_EULER_ISO)
+   select case(self%eos)
+   case(EOS_ISOTHERMAL)
       p = self%eos_arg * rho
-   case(MODEL_EULER_BARO)
+   case(EOS_BAROTROPIC)
       p = barotropic_pressure(id=nint(self%eos_arg, I4P), rho=rho)
    case default
       p = (self%gamma - 1._R8P) * e
@@ -145,10 +147,10 @@ contains
    real(R8P),                   intent(in) :: e    !< Internal energy per unit volume (ideal gas only).
    real(R8P)                               :: c2   !< Sound speed squared.
 
-   select case(self%model)
-   case(MODEL_EULER_ISO)
+   select case(self%eos)
+   case(EOS_ISOTHERMAL)
       c2 = self%eos_arg
-   case(MODEL_EULER_BARO)
+   case(EOS_BAROTROPIC)
       c2 = barotropic_c2(id=nint(self%eos_arg, I4P), rho=rho)
    case default
       c2 = self%gamma * (self%gamma - 1._R8P) * e / rho
@@ -162,11 +164,12 @@ contains
 
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
-   ! issue #100: a barotropic gas (isothermal included) is an Euler model only; refused before any model loader reads
-   ! its section
-   if (self%eos /= EOS_IDEAL .and. (self%physical_model /= PHYSICAL_MODEL_EULER .or. self%passive_scalars > 0_I4P)) &
+   ! issue #100: a barotropic gas (isothermal included) is an Euler (P1-P4) or ideal MHD (P5) model, without passive
+   ! scalars; refused before any model loader reads its section
+   if (self%eos /= EOS_IDEAL .and. ((self%physical_model /= PHYSICAL_MODEL_EULER .and.                             &
+                                     self%physical_model /= PHYSICAL_MODEL_MHD_IDEAL) .or. self%passive_scalars > 0_I4P)) &
       call mpih%error_stop(msg=': [eos].(type)='//self%eos//' needs [physics].(physical_model)='// &
-                               PHYSICAL_MODEL_EULER//' without passive_scalars (issue #100)')
+                               PHYSICAL_MODEL_EULER//' or '//PHYSICAL_MODEL_MHD_IDEAL//' without passive_scalars (issue #100)')
    select case(self%physical_model)
    case(PHYSICAL_MODEL_EULER)
       self%model  = MODEL_EULER
@@ -204,7 +207,21 @@ contains
       if (file_parameters%has_section(section_name='cooling')) &
          call mpih%error_stop(msg=': [cooling] is refused with [eos].(type)='//self%eos// &
                                   ': a barotropic gas has no thermal energy to radiate (issue #100)')
-      self%model = merge(MODEL_EULER_ISO, MODEL_EULER_BARO, self%eos == EOS_ISOTHERMAL)
+      if (self%physical_model == PHYSICAL_MODEL_MHD_IDEAL) then ! issue #100, P5: isothermal and barotropic MHD
+         if (self%mhd%has_eglm) &
+            call mpih%error_stop(msg=': [mhd].(divergence_control)=eglm is refused with [eos].(type)='//self%eos// &
+                                     ': its Derigs sources are built on the energy equation; use glm (issue #100, P5)')
+         if (self%mhd%rho_floor > 0._R8P .or. self%mhd%p_floor > 0._R8P) &
+            call mpih%error_stop(msg=': [mhd] rho_floor, p_floor are refused with [eos].(type)='//self%eos// &
+                                     ': there is no pressure to floor (issue #100, P5)')
+         if (self%mhd%has_glm) then
+            self%model = merge(MODEL_MHD_GLM_ISO, MODEL_MHD_GLM_BARO, self%eos == EOS_ISOTHERMAL)
+         else
+            self%model = merge(MODEL_MHD_ISO, MODEL_MHD_BARO, self%eos == EOS_ISOTHERMAL)
+         endif
+      else
+         self%model = merge(MODEL_EULER_ISO, MODEL_EULER_BARO, self%eos == EOS_ISOTHERMAL)
+      endif
    endif
    self%nv_mhd = merge(self%nv, NV_EULER, self%physical_model == PHYSICAL_MODEL_MHD_IDEAL)
    self%iq_scalar1 = 0_I4P ; if (self%passive_scalars > 0_I4P) self%iq_scalar1 = self%nv - NS_MAX + 1_I4P
@@ -432,6 +449,13 @@ contains
    case(MODEL_MHD_GLM, MODEL_MHD_EGLM) ! psi = 0: the EGLM energy psi^2 / 2 vanishes
       call mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
                                          bx=prim(6), by=prim(7), bz=prim(8), q=q)
+      q(IQ_PSI) = 0._R8P
+   case(MODEL_MHD_ISO, MODEL_MHD_BARO) ! issue #100, P5: prim(5) ignored, the inert slot 0 (the routine reads no EOS)
+      call iso_mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
+                                             bx=prim(6), by=prim(7), bz=prim(8), q=q)
+   case(MODEL_MHD_GLM_ISO, MODEL_MHD_GLM_BARO) ! issue #100, P5: as above, psi = 0
+      call iso_mhd_primitive_to_conservative(gamma=gamma, r=prim(1), u=prim(2), v=prim(3), w=prim(4), p=prim(5), &
+                                             bx=prim(6), by=prim(7), bz=prim(8), q=q)
       q(IQ_PSI) = 0._R8P
    endselect
    endsubroutine primitive_state_to_conservative

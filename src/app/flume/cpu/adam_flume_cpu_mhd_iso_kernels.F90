@@ -1,0 +1,137 @@
+!< ADAM, FLUME CPU kernels of the isothermal ideal MHD (no divergence control) model (issue #100, P5).
+
+module adam_flume_cpu_mhd_iso_kernels
+!< ADAM, FLUME CPU kernels of the isothermal ideal MHD (no divergence control) model (issue #100, P5).
+!<
+!< The model-agnostic auxiliary-variables loop (`adam_flume_cpu_aux_kernels_agnostic.INC`) and the MHD dt loop
+!< (`adam_flume_cpu_mhd_kernels_agnostic.INC`) instantiated with `NV_K = NV_MHD`, `NV_AUX_K = NV_AUX_MHD` (issue #41,
+!< section 4). The face-flux kernel is the shared body with the MHD split (M2-P3).
+
+! ADAM classes, libraries, parameters
+use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
+use :: adam_weno_object,           only : weno_object, weno_reconstruct_upwind
+! FLUME modules
+use :: adam_flume_dissipation_library, only : dissipative_diffusivity
+use :: adam_flume_mhd_iso_library, only : compute_face_flux_back_projection=>mhd_face_flux_back_projection, &
+                                      conservative_to_auxiliary=>mhd_conservative_to_auxiliary,         &
+                                      mhd_fast_speed, mhd_face_split_fluxes, mhd_sum3
+use :: adam_flume_mhd_iso_library, only : mhd_backbone_flux
+use :: adam_flume_parameters,  only : IA_P, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RV, &
+                                      IQ_RW, NV_AUX_K=>NV_AUX_MHD, NV_K=>NV_MHD,                         &
+                                      POSITIVITY_LIMITER_KAPPA, S_MAX
+! third party modules
+use :: penf,                   only : I4P, I8P, R8P
+
+implicit none
+private
+public :: apply_floors
+public :: blend_inadmissible_ghosts
+public :: blend_positivity_fluxes
+public :: compute_divb_norms
+public :: add_gravity_edge_correction
+public :: compute_face_fluxes
+public :: compute_lambda_max
+public :: compute_lambda_max_dissipative
+public :: compute_backbone_fluxes
+public :: compute_positivity_factors
+public :: compute_seam_positivity_factors
+public :: compute_q_aux
+public :: count_nonfinite
+public :: compute_speed_max
+
+contains
+   ! public procedures
+#include "adam_flume_cpu_face_kernels_agnostic.INC"
+
+#include "adam_flume_cpu_aux_kernels_agnostic.INC"
+
+#include "adam_flume_cpu_mhd_kernels_agnostic.INC"
+
+#include "adam_flume_cpu_positivity_kernels_agnostic.INC"
+
+#include "adam_flume_cpu_ghost_kernels_agnostic.INC"
+
+   ! private procedures
+   pure subroutine face_split_fluxes(gamma, ch, d, S, is_characteristic, qs, qas, fsplit, er, mu)
+   !< Split adapter of the shared face kernel (issue #41, M2-P3): the MHD split without cleaning, `ch` unused.
+   real(R8P),    intent(in)  :: gamma                          !< EOS parameter: c0^2 (isothermal).
+   real(R8P),    intent(in)  :: ch                             !< GLM cleaning speed.
+   integer(I4P), intent(in)  :: d                              !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)  :: S                              !< WENO stencil half-width, S <= S_MAX.
+   logical,      intent(in)  :: is_characteristic              !< Characteristic (or conservative) variables.
+   real(R8P),    intent(in)  :: qs(NV_K,1-S_MAX:S_MAX)         !< Stencil conservative variables.
+   real(R8P),    intent(in)  :: qas(NV_AUX_K,1-S_MAX:S_MAX)    !< Stencil auxiliary variables.
+   real(R8P),    intent(out) :: fsplit(2,1-S_MAX:S_MAX-1,NV_K) !< Split fields in the WENO upwind layout.
+   real(R8P),    intent(out) :: er(NV_K,NV_K)                  !< Right eigenvectors.
+   real(R8P),    intent(out) :: mu(NV_K)                       !< Magnitude of each field (WENO descaler).
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_face_split_fluxes(gamma=gamma, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
+                              fsplit=fsplit, er=er, mu=mu)
+   endsubroutine face_split_fluxes
+
+   pure function cleaning_energy(q) result(e)
+   !< Cleaning-energy adapter of the floors kernel: zero, `psi` (if any) is not part of the energy of this model.
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: e       !< Cleaning energy.
+   !$acc routine seq
+   !$omp declare target
+
+   e = 0._R8P
+   endfunction cleaning_energy
+
+   pure subroutine backbone_face_flux(gamma, ch, d, qL, qR, f)
+   !< Backbone adapter of the positivity limiter: the Lax-Friedrichs flux with the Wu speed, `ch` unused.
+   real(R8P),    intent(in)  :: gamma    !< EOS parameter: c0^2 (isothermal).
+   real(R8P),    intent(in)  :: ch       !< GLM cleaning speed.
+   integer(I4P), intent(in)  :: d        !< Direction, 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: qL(NV_K) !< Left state.
+   real(R8P),    intent(in)  :: qR(NV_K) !< Right state.
+   real(R8P),    intent(out) :: f(NV_K)  !< Flux.
+   !$acc routine seq
+   !$omp declare target
+
+   call mhd_backbone_flux(gamma=gamma, d=d, qL=qL, qR=qR, f=f)
+   endsubroutine backbone_face_flux
+
+   pure function internal_energy(q) result(e)
+   !< Internal-energy adapter of the positivity limiter: the density (isothermal: no internal energy).
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: e       !< Internal energy per unit volume.
+   !$acc routine seq
+   !$omp declare target
+
+   e = q(IQ_R) ! isothermal (issue #100, P5): no internal energy, the density is the one positive quantity
+   endfunction internal_energy
+
+   pure function kinetic_sound_speed2(gamma, q) result(c2)
+   !< Kinetic-chord adapter of the positivity limiter (issue #100, P4): the isothermal c0^2 (`gamma`).
+   real(R8P), intent(in) :: gamma   !< EOS parameter.
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: c2      !< c^2 of the kinetic chord (0: no chord).
+   !$acc routine seq
+   !$omp declare target
+
+   c2 = gamma ! isothermal (issue #100, P5): eos_arg = c0^2
+   endfunction kinetic_sound_speed2
+
+   pure subroutine cell_sources(ngc, hs, damping, dxyz, is_null, q, q_aux, i, j, k, b, s_lo, s_hi)
+   !< Sources adapter of the positivity limiter: none (MHD without divergence control).
+   integer(I4P), intent(in)  :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)  :: hs                                !< Half stencil of the high-order sources.
+   real(R8P),    intent(in)  :: damping                           !< GLM damping rate.
+   real(R8P),    intent(in)  :: dxyz(3)                           !< Block space steps.
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)  :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
+   real(R8P),    intent(in)  :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   integer(I4P), intent(in)  :: i, j, k, b                        !< Cell indexes.
+   real(R8P),    intent(out) :: s_lo(NV_K)                        !< Backbone sources.
+   real(R8P),    intent(out) :: s_hi(NV_K)                        !< High-order sources.
+   !$acc routine seq
+   !$omp declare target
+
+   s_lo = 0._R8P
+   s_hi = 0._R8P
+   endsubroutine cell_sources
+endmodule adam_flume_cpu_mhd_iso_kernels

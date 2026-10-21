@@ -28,6 +28,7 @@ Seven scripts (`rj2a`, `riemann`, `linear-wave`, `cpaw`, `orszag-tang`, `rotor`,
 | [EGLM cleaning](./eglm) | EV-2, EV-3, EV-4 | the energy-consistent cleaning: telegraph solution, EGLM = GLM at $\psi = 0$, drifts bounded by the sources |
 | [Positivity limiter](./positivity-limiter) | PV-1 to PV-5 | positivity on magnetised blasts and near vacuum, inactivity on smooth flow, 2:1 seams |
 | [Quadtree AMR](./quadtree-amr) | MV-15 | 2:1 seams on quadtrees against the octree reference |
+| [Isothermal and barotropic MHD](./barotropic-mhd) | EO (em) | ideal MHD without an energy equation: Kim's eigensystem and Mignone's isothermal HLLD on $P(\rho)$, fifth-order linear waves, Mignone's tubes, the inert energy slot |
 
 The Ryu–Jones 2a split in two realms (MV-14, `mhd/multirealm`) has no page of its own: it is on the
 [multi-realm](../euler/multi-realm) page.
@@ -42,6 +43,8 @@ cd src/tests/flume/verification
 ./make_doc_figures.py --out ../../../../docs/public/flume --runs <runs-dir> \
    --only blast near-vacuum mhd-riemann order glm-pulse orszag-tang rotor field-loop eglm-energy \
           weno-riemann rotated-shock-tube quadtree
+./make_doc_runs.sh <runs-dir> eosmhd && ./make_doc_figures.py --out ../../../../docs/public/flume --runs <runs-dir> \
+   --only barotropic-mhd   # the isothermal and barotropic MHD (#100 P5)
 ```
 
 `eglm-energy` reads the conservation histories kept in the `mhd/orszag-tang` work directories. The group `mhd` (issue #85, R2a) writes the runs of the gallery figures: Brio–Wu, RJ4d, the GLM

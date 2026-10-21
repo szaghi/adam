@@ -17,9 +17,9 @@
 #        order of the finest pair above 4.5;
 #   eo4  the contract: what the isothermal gas does not define yet is refused with its own message ([cooling],
 #        viscosity, [reference], immersed solids, the no-slip and hydrostatic walls, an IC whose density needs gamma),
-#        and so are a malformed [eos] (mhd-ideal or passive scalars with it, the gas keys cp/cv, a missing or
+#        and so are a malformed [eos] (euler-de or passive scalars with it, the gas keys cp/cv, a missing or
 #        non-positive sound_speed, an unknown type); gravity, sinks and the positivity limiter are defined since P4
-#        (gravity.sh);
+#        (gravity.sh), mhd-ideal since P5 (mhd.sh);
 #   eo5  the inert slot and the mass: a wave of amplitude 0.3 on the periodic box, which breaks into a shock at
 #        t ~ 1 / (c0 A k) = 0.53 (N = 48, two ranks, to t = 1): rE exactly 0 in every checkpoint, the total mass
 #        constant to 1e-13;
@@ -160,8 +160,9 @@ for leg in $LEGS; do
             --set "initial_conditions:type=isentropic-vortex" \
             --set "initial_conditions:x0=0.5" --set "initial_conditions:y0=0.5" \
             --set "initial_conditions:radius=0.1" --set "initial_conditions:strength=1.0"
-         refuse mhd "isothermal needs \[physics\]\.\(physical_model\)=euler" --set "physics:physical_model=mhd-ideal"
-         refuse scalars "isothermal needs \[physics\]\.\(physical_model\)=euler without passive_scalars" \
+         refuse euler-de "isothermal needs \[physics\]\.\(physical_model\)=euler or mhd-ideal" \
+            --set "physics:physical_model=euler-de"
+         refuse scalars "isothermal needs \[physics\]\.\(physical_model\)=euler or mhd-ideal without passive_scalars" \
             --set "physics:passive_scalars=1"
          refuse gas "gamma, cp, cv are not used with \[eos\]\.\(type\) = isothermal" --keep-gas
          refuse no-speed "failed to load \[eos\]\.\(sound_speed\)" --unset "eos:sound_speed"

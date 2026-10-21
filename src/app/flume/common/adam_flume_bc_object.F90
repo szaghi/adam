@@ -38,6 +38,7 @@ use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_parameters,     only : IQ_BX, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RW, MODEL_EULER, MODEL_EULER_DE, &
                                         MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, &
+                                        MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO, &
                                         MODEL_EULER_ISO, MODEL_EULER_BARO, has_inert_energy, strip_control
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 ! third party modules
@@ -147,7 +148,7 @@ contains
       do d=1, 3
          self%wall_sign(IQ_RU+d-1,d) = -1._R8P
       enddo
-   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
+   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM, MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO)
       nprim = 8_I4P
       do d=1, 3
          self%wall_sign(IQ_RU+d-1,d) = -1._R8P

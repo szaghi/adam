@@ -37,13 +37,16 @@ use :: adam_flume_gravity_object,     only : POISSON_SOLVER_AUTO, POISSON_SOLVER
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
-use :: adam_flume_parameters,         only : has_entropy, is_hydrodynamic, has_inert_energy, GLM_CH_CHECK_ERROR,          &
+use :: adam_flume_mhd_baro_library,   only : mhd_conservative_to_auxiliary_baro=>mhd_conservative_to_auxiliary
+use :: adam_flume_mhd_iso_library,    only : mhd_conservative_to_auxiliary_iso=>mhd_conservative_to_auxiliary
+use :: adam_flume_parameters,         only : has_entropy, is_hydrodynamic, has_inert_energy, has_mixed_glm, GLM_CH_CHECK_ERROR, &
                                              IA_BX, IA_BY, IA_BZ, IA_P,                                               &
                                              IA_R, IA_S, &
                                              IQ_BX, IQ_BY, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S, MODEL_EULER,   &
                                              MODEL_EULER_DE, &
                                              MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_EULER_ISO, MODEL_EULER_BARO, NS_MAX, &
                                              MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,            &
+                                             MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO, &
                                              IQ_PSI, POSITIVITY_LIMITER_CELL, POSITIVITY_LIMITER_KAPPA,               &
                                              RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,                                     &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
@@ -1079,7 +1082,7 @@ contains
       do d=1, 3
          if (self%adam%grid%null_xyz(d)) freeze(d) = IQ_RU + d - 1
       enddo
-   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
+   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM, MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO)
    case default
       call mpih%error_stop(msg=': no null-direction rule for physical model "'//self%physics%physical_model//'"')
    endselect
@@ -2504,6 +2507,28 @@ contains
             enddo
          enddo
       enddo
+   case(MODEL_MHD_ISO, MODEL_MHD_GLM_ISO) ! issue #100, P5
+      do b=1, self%blocks_number
+         do k=1-self%ngc, self%nk+self%ngc
+            do j=1-self%ngc, self%nj+self%ngc
+               do i=1-self%ngc, self%ni+self%ngc
+                  call mhd_conservative_to_auxiliary_iso(gamma=self%physics%eos_arg, R=self%physics%R, q=self%q(:,i,j,k,b), &
+                                                     qa=self%q_aux(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(MODEL_MHD_BARO, MODEL_MHD_GLM_BARO) ! issue #100, P5
+      do b=1, self%blocks_number
+         do k=1-self%ngc, self%nk+self%ngc
+            do j=1-self%ngc, self%nj+self%ngc
+               do i=1-self%ngc, self%ni+self%ngc
+                  call mhd_conservative_to_auxiliary_baro(gamma=self%physics%eos_arg, R=self%physics%R, q=self%q(:,i,j,k,b), &
+                                                     qa=self%q_aux(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
    case(MODEL_MHD_EGLM)
       do b=1, self%blocks_number
          do k=1-self%ngc, self%nk+self%ngc
@@ -2579,7 +2604,7 @@ contains
    class(flume_common_object), intent(in) :: self !< The equation.
 
    if (self%numerics%positivity_limiter /= POSITIVITY_LIMITER_CELL) return
-   if (self%physics%model == MODEL_MHD_GLM) &
+   if (has_mixed_glm(self%physics%model)) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is refused with [mhd].(divergence_control)=glm: '//&
                                'use eglm (issue #47, D-10)')
    if (.not.any(self%rk%scheme == [character(18) :: RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54])) &
@@ -2755,7 +2780,7 @@ contains
       call mpih%error_stop(msg=': [mhd].(divb_tol) > 0 monitors the normalised D_flux, max h|D_flux|/max|B| (issue '// &
                                '#68 G1): set [diagnostics].(divb_flux) = .true. (and divergence_control = glm or eglm)')
    if (.not.self%diagnostics%divb_flux) return
-   if (self%physics%model /= MODEL_MHD_GLM .and. self%physics%model /= MODEL_MHD_EGLM) &
+   if (.not.has_mixed_glm(self%physics%model) .and. self%physics%model /= MODEL_MHD_EGLM) &
       call mpih%error_stop(msg=': [diagnostics].(divb_flux) needs [mhd].(divergence_control) = glm or eglm: D_flux '// &
                                'is read from the psi face fluxes')
    if (self%rk%nrk < 2_I4P) &
@@ -2838,11 +2863,11 @@ contains
          self%q_name(self%physics%nv-NS_MAX+v) = 'rs'//trim(str(v, .true.))
          self%q_aux_name(self%physics%nv_aux-NS_MAX+v) = 's'//trim(str(v, .true.))
       enddo
-   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM)
+   case(MODEL_MHD, MODEL_MHD_GLM, MODEL_MHD_EGLM, MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO)
       self%q_name(6) = 'bx'
       self%q_name(7) = 'by'
       self%q_name(8) = 'bz'
-      if (self%physics%model /= MODEL_MHD) self%q_name(9) = 'psi'
+      if (has_mixed_glm(self%physics%model) .or. self%physics%model == MODEL_MHD_EGLM) self%q_name(9) = 'psi'
       ! the auxiliary copies of B share the XH5F file with the conservative bx, by, bz: distinct names
       self%q_aux_name(9)  = 'Bx'
       self%q_aux_name(10) = 'By'

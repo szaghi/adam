@@ -27,9 +27,11 @@ use :: adam_flume_common_library,      only : flume_common_object, flume_seam_sy
                                               realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
                                               BC_HYDROSTATIC, hydrostatic_ghost,                                        &
                                               MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS,           &
-                                              MODEL_EULER_ISO, MODEL_EULER_BARO, has_inert_energy,                         &
+                                              MODEL_EULER_ISO, MODEL_EULER_BARO, has_inert_energy,                      &
+                                              has_mixed_glm,                                                            &
                                               is_hydrodynamic, has_entropy,                                             &
                                               MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, POSITIVITY_LIMITER_CELL,        &
+                                              MODEL_MHD_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_ISO, MODEL_MHD_GLM_BARO,     &
                                               RECON_CHARACTERISTIC, RIEMANN_SOLVER_HLL,                                 &
                                               RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
                                               SCHEME_SPACE_WENO, REFLUX_CADENCE_STAGE,                                  &
@@ -61,16 +63,52 @@ use :: adam_flume_cpu_euler_de_llf_kernels,  only : add_gravity_edge_correction_
                                                  compute_riemann_face_fluxes_euler_de_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_hll_kernels,          only : add_gravity_edge_correction_mhd_hll=>add_gravity_edge_correction, &
                                                        compute_riemann_face_fluxes_mhd_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_iso_hll_kernels, only : &
+   add_gravity_edge_correction_mhd_iso_hll=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_iso_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_baro_hll_kernels, only : &
+   add_gravity_edge_correction_mhd_baro_hll=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_baro_hll=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_hlld_kernels,         only : add_gravity_edge_correction_mhd_hlld=>add_gravity_edge_correction, &
                                                        compute_riemann_face_fluxes_mhd_hlld=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_iso_hlld_kernels, only : &
+   add_gravity_edge_correction_mhd_iso_hlld=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_iso_hlld=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_baro_hlld_kernels, only : &
+   add_gravity_edge_correction_mhd_baro_hlld=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_baro_hlld=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_llf_kernels,          only : add_gravity_edge_correction_mhd_llf=>add_gravity_edge_correction, &
                                                        compute_riemann_face_fluxes_mhd_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_iso_llf_kernels, only : &
+   add_gravity_edge_correction_mhd_iso_llf=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_iso_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_baro_llf_kernels, only : &
+   add_gravity_edge_correction_mhd_baro_llf=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_baro_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_glm_hll_kernels,      only : add_gravity_edge_correction_mhd_glm_hll=>add_gravity_edge_correction, &
                                                        compute_riemann_face_fluxes_mhd_glm_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_glm_iso_hll_kernels, only : &
+   add_gravity_edge_correction_mhd_glm_iso_hll=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_glm_iso_hll=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_glm_baro_hll_kernels, only : &
+   add_gravity_edge_correction_mhd_glm_baro_hll=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_glm_baro_hll=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_glm_hlld_kernels,     only : add_gravity_edge_correction_mhd_glm_hlld=>add_gravity_edge_correction, &
                                                        compute_riemann_face_fluxes_mhd_glm_hlld=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_glm_iso_hlld_kernels, only : &
+   add_gravity_edge_correction_mhd_glm_iso_hlld=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_glm_iso_hlld=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_glm_baro_hlld_kernels, only : &
+   add_gravity_edge_correction_mhd_glm_baro_hlld=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_glm_baro_hlld=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_glm_llf_kernels,      only : add_gravity_edge_correction_mhd_glm_llf=>add_gravity_edge_correction, &
                                                        compute_riemann_face_fluxes_mhd_glm_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_glm_iso_llf_kernels, only : &
+   add_gravity_edge_correction_mhd_glm_iso_llf=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_glm_iso_llf=>compute_riemann_face_fluxes
+use :: adam_flume_cpu_mhd_glm_baro_llf_kernels, only : &
+   add_gravity_edge_correction_mhd_glm_baro_llf=>add_gravity_edge_correction, &
+   compute_riemann_face_fluxes_mhd_glm_baro_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_eglm_hll_kernels,     only : add_gravity_edge_correction_mhd_eglm_hll=>add_gravity_edge_correction, &
                                                        compute_riemann_face_fluxes_mhd_eglm_hll=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_mhd_eglm_hlld_kernels,    only : add_gravity_edge_correction_mhd_eglm_hlld=>add_gravity_edge_correction, &
@@ -161,6 +199,32 @@ use :: adam_flume_cpu_mhd_kernels,     only : apply_floors_mhd=>apply_floors,   
                                               compute_lambda_max_dissipative_mhd=>compute_lambda_max_dissipative,    &
                                               compute_q_aux_mhd=>compute_q_aux,                                      &
                                               count_nonfinite_mhd=>count_nonfinite
+use :: adam_flume_cpu_mhd_iso_kernels,     only : &
+                                              blend_inadmissible_ghosts_mhd_iso=>blend_inadmissible_ghosts,            &
+                                              blend_positivity_fluxes_mhd_iso=>blend_positivity_fluxes,                &
+                                              compute_backbone_fluxes_mhd_iso=>compute_backbone_fluxes,                &
+                                              compute_seam_positivity_factors_mhd_iso=>compute_seam_positivity_factors,&
+                                              compute_positivity_factors_mhd_iso=>compute_positivity_factors,          &
+                                              compute_divb_norms_mhd_iso=>compute_divb_norms,                          &
+                                              compute_face_fluxes_mhd_iso=>compute_face_fluxes,                        &
+                                              add_gravity_edge_correction_mhd_iso=>add_gravity_edge_correction,        &
+                                              compute_lambda_max_mhd_iso=>compute_lambda_max,                            &
+                                              compute_lambda_max_dissipative_mhd_iso=>compute_lambda_max_dissipative,    &
+                                              compute_q_aux_mhd_iso=>compute_q_aux,                                      &
+                                              count_nonfinite_mhd_iso=>count_nonfinite
+use :: adam_flume_cpu_mhd_baro_kernels,     only : &
+                                              blend_inadmissible_ghosts_mhd_baro=>blend_inadmissible_ghosts,            &
+                                              blend_positivity_fluxes_mhd_baro=>blend_positivity_fluxes,                &
+                                              compute_backbone_fluxes_mhd_baro=>compute_backbone_fluxes,                &
+                                              compute_seam_positivity_factors_mhd_baro=>compute_seam_positivity_factors,&
+                                              compute_positivity_factors_mhd_baro=>compute_positivity_factors,          &
+                                              compute_divb_norms_mhd_baro=>compute_divb_norms,                          &
+                                              compute_face_fluxes_mhd_baro=>compute_face_fluxes,                        &
+                                              add_gravity_edge_correction_mhd_baro=>add_gravity_edge_correction,        &
+                                              compute_lambda_max_mhd_baro=>compute_lambda_max,                            &
+                                              compute_lambda_max_dissipative_mhd_baro=>compute_lambda_max_dissipative,    &
+                                              compute_q_aux_mhd_baro=>compute_q_aux,                                      &
+                                              count_nonfinite_mhd_baro=>count_nonfinite
 use :: adam_flume_cpu_mhd_eglm_kernels, only : add_eglm_sources, add_eglm_sources_limited,                      &
                                                add_glm_damping_eglm=>add_glm_damping,                           &
                                                blend_inadmissible_ghosts_mhd_eglm=>blend_inadmissible_ghosts,   &
@@ -188,6 +252,26 @@ use :: adam_flume_cpu_mhd_glm_kernels, only : add_glm_damping, apply_floors_mhd_
                                               compute_q_aux_mhd_glm=>compute_q_aux,                                  &
                                               compute_speed_max_mhd_glm=>compute_speed_max,                          &
                                               count_nonfinite_mhd_glm=>count_nonfinite
+use :: adam_flume_cpu_mhd_glm_iso_kernels, only : &
+                                              blend_inadmissible_ghosts_mhd_glm_iso=>blend_inadmissible_ghosts,        &
+                                              compute_divb_norms_mhd_glm_iso=>compute_divb_norms,                      &
+                                              compute_face_fluxes_mhd_glm_iso=>compute_face_fluxes,                      &
+                                              add_gravity_edge_correction_mhd_glm_iso=>add_gravity_edge_correction,      &
+                                              compute_lambda_max_mhd_glm_iso=>compute_lambda_max,                        &
+                                              compute_lambda_max_dissipative_mhd_glm_iso=>compute_lambda_max_dissipative, &
+                                              compute_q_aux_mhd_glm_iso=>compute_q_aux,                                  &
+                                              compute_speed_max_mhd_glm_iso=>compute_speed_max,                          &
+                                              count_nonfinite_mhd_glm_iso=>count_nonfinite
+use :: adam_flume_cpu_mhd_glm_baro_kernels, only : &
+                                              blend_inadmissible_ghosts_mhd_glm_baro=>blend_inadmissible_ghosts,        &
+                                              compute_divb_norms_mhd_glm_baro=>compute_divb_norms,                      &
+                                              compute_face_fluxes_mhd_glm_baro=>compute_face_fluxes,                      &
+                                              add_gravity_edge_correction_mhd_glm_baro=>add_gravity_edge_correction,      &
+                                              compute_lambda_max_mhd_glm_baro=>compute_lambda_max,                        &
+                                              compute_lambda_max_dissipative_mhd_glm_baro=>compute_lambda_max_dissipative, &
+                                              compute_q_aux_mhd_glm_baro=>compute_q_aux,                                  &
+                                              compute_speed_max_mhd_glm_baro=>compute_speed_max,                          &
+                                              count_nonfinite_mhd_glm_baro=>count_nonfinite
 ! third party modules
 use, intrinsic :: ieee_arithmetic, only : ieee_quiet_nan, ieee_value
 use :: mpi
@@ -501,11 +585,19 @@ contains
                                 gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
                                 p_floor=self%physics%mhd%p_floor, q=q,               &
                                 floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
+   case(MODEL_MHD_ISO) ! issue #100, P5
+      return ! no floors: the density is the one positive quantity (no pressure to floor)
+   case(MODEL_MHD_BARO) ! issue #100, P5
+      return ! no floors: the density is the one positive quantity (no pressure to floor)
    case(MODEL_MHD_GLM)
       call apply_floors_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                 gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
                                 p_floor=self%physics%mhd%p_floor, q=q,                            &
                                 floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
+   case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+      return ! no floors: the density is the one positive quantity (no pressure to floor)
+   case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+      return ! no floors: the density is the one positive quantity (no pressure to floor)
    case(MODEL_MHD_EGLM)
       call apply_floors_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                 gamma=self%physics%gamma, R=self%physics%R, rho_floor=self%physics%mhd%rho_floor,   &
@@ -568,11 +660,20 @@ contains
    real(R8P)                              :: speed_max !< Fastest wave speed of this rank.
 
    select case(self%physics%model)
-   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_MHD, MODEL_EULER_ISO, MODEL_EULER_BARO)
+   case(MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_MHD, MODEL_MHD_ISO, MODEL_MHD_BARO, &
+        MODEL_EULER_ISO, MODEL_EULER_BARO)
       return
    case(MODEL_MHD_GLM)
       call compute_speed_max_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                      gamma=self%physics%gamma, R=self%physics%R, is_null=self%adam%grid%null_xyz,       &
+                                     q=self%q, speed_max=speed_max)
+   case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+      call compute_speed_max_mhd_glm_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     gamma=self%physics%eos_arg, R=self%physics%R, is_null=self%adam%grid%null_xyz,       &
+                                     q=self%q, speed_max=speed_max)
+   case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+      call compute_speed_max_mhd_glm_baro(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     gamma=self%physics%eos_arg, R=self%physics%R, is_null=self%adam%grid%null_xyz,       &
                                      q=self%q, speed_max=speed_max)
    case(MODEL_MHD_EGLM)
       call compute_speed_max_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
@@ -612,8 +713,20 @@ contains
    case(MODEL_MHD)
       call count_nonfinite_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                q=self%q, n=n)
+   case(MODEL_MHD_ISO) ! issue #100, P5
+      call count_nonfinite_mhd_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                               q=self%q, n=n)
+   case(MODEL_MHD_BARO) ! issue #100, P5
+      call count_nonfinite_mhd_baro(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                               q=self%q, n=n)
    case(MODEL_MHD_GLM)
       call count_nonfinite_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                   q=self%q, n=n)
+   case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+      call count_nonfinite_mhd_glm_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                   q=self%q, n=n)
+   case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+      call count_nonfinite_mhd_glm_baro(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                    q=self%q, n=n)
    case(MODEL_MHD_EGLM)
       call count_nonfinite_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
@@ -716,8 +829,28 @@ contains
                                   hs=hs, band=self%ngc, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz,  &
                                   seam=self%divb_seam, q=self%q, divb_max=norms(1), divb_l1=norms(2),                &
                                   divb_seam_max=norms(3))
+   case(MODEL_MHD_ISO) ! issue #100, P5
+      call compute_divb_norms_mhd_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                  hs=hs, band=self%ngc, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz,  &
+                                  seam=self%divb_seam, q=self%q, divb_max=norms(1), divb_l1=norms(2),                &
+                                  divb_seam_max=norms(3))
+   case(MODEL_MHD_BARO) ! issue #100, P5
+      call compute_divb_norms_mhd_baro(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                  hs=hs, band=self%ngc, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz,  &
+                                  seam=self%divb_seam, q=self%q, divb_max=norms(1), divb_l1=norms(2),                &
+                                  divb_seam_max=norms(3))
    case(MODEL_MHD_GLM)
       call compute_divb_norms_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                             &
+                                      blocks_number=self%blocks_number, hs=hs, band=self%ngc,                       &
+                                      dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, seam=self%divb_seam, &
+                                      q=self%q, divb_max=norms(1), divb_l1=norms(2), divb_seam_max=norms(3))
+   case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+      call compute_divb_norms_mhd_glm_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                             &
+                                      blocks_number=self%blocks_number, hs=hs, band=self%ngc,                       &
+                                      dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, seam=self%divb_seam, &
+                                      q=self%q, divb_max=norms(1), divb_l1=norms(2), divb_seam_max=norms(3))
+   case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+      call compute_divb_norms_mhd_glm_baro(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                             &
                                       blocks_number=self%blocks_number, hs=hs, band=self%ngc,                       &
                                       dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, seam=self%divb_seam, &
                                       q=self%q, divb_max=norms(1), divb_l1=norms(2), divb_seam_max=norms(3))
@@ -794,7 +927,7 @@ contains
          endassociate
       enddo
    endif
-   scale = merge(self%physics%mhd%glm_ch**2, self%physics%mhd%glm_ch, self%physics%model == MODEL_MHD_GLM)
+   scale = merge(self%physics%mhd%glm_ch**2, self%physics%mhd%glm_ch, has_mixed_glm(self%physics%model))
    w = merge(0._R8P, 1._R8P, is_null)
    norms = 0._R8P
    do b=1, nb
@@ -855,9 +988,21 @@ contains
    case(MODEL_MHD)
       call compute_q_aux_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                              gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
+   case(MODEL_MHD_ISO) ! issue #100, P5
+      call compute_q_aux_mhd_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                             gamma=self%physics%eos_arg, R=self%physics%R, q=q, q_aux=self%q_aux)
+   case(MODEL_MHD_BARO) ! issue #100, P5
+      call compute_q_aux_mhd_baro(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                             gamma=self%physics%eos_arg, R=self%physics%R, q=q, q_aux=self%q_aux)
    case(MODEL_MHD_GLM)
       call compute_q_aux_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                  gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
+   case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+      call compute_q_aux_mhd_glm_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                 gamma=self%physics%eos_arg, R=self%physics%R, q=q, q_aux=self%q_aux)
+   case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+      call compute_q_aux_mhd_glm_baro(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                 gamma=self%physics%eos_arg, R=self%physics%R, q=q, q_aux=self%q_aux)
    case(MODEL_MHD_EGLM)
       call compute_q_aux_mhd_eglm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                  gamma=self%physics%gamma, R=self%physics%R, q=q, q_aux=self%q_aux)
@@ -1005,6 +1150,18 @@ contains
                                           dxyz=dxyz, is_null=is_null, q=q,                                             &
                                           q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,            &
                                           gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
+   case(MODEL_MHD_ISO) ! issue #100, P5
+      call compute_positivity_factors_mhd_iso(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,           &
+                                          damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi=self%phi_grav,       &
+                                          dxyz=dxyz, is_null=is_null, q=q,                                             &
+                                          q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,            &
+                                          gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
+   case(MODEL_MHD_BARO) ! issue #100, P5
+      call compute_positivity_factors_mhd_baro(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,           &
+                                          damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi=self%phi_grav,       &
+                                          dxyz=dxyz, is_null=is_null, q=q,                                             &
+                                          q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,            &
+                                          gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD_EGLM)
       call compute_positivity_factors_mhd_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
                                                damping=self%physics%mhd%glm_damping, hs=hs, dt=dt, g=g,                &
@@ -1128,6 +1285,36 @@ contains
                                              blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
                                              fl=self%flz_f, limited=counts(1+d))
          endselect
+      case(MODEL_MHD_ISO) ! issue #100, P5
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_mhd_iso(d=d, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,        &
+                                             blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
+                                             fl=self%flx_f, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_mhd_iso(d=d, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,        &
+                                             blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
+                                             fl=self%fly_f, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_mhd_iso(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,        &
+                                             blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
+                                             fl=self%flz_f, limited=counts(1+d))
+         endselect
+      case(MODEL_MHD_BARO) ! issue #100, P5
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_mhd_baro(d=d, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,        &
+                                             blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
+                                             fl=self%flx_f, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_mhd_baro(d=d, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,        &
+                                             blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
+                                             fl=self%fly_f, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_mhd_baro(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,        &
+                                             blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,              &
+                                             fl=self%flz_f, limited=counts(1+d))
+         endselect
       case(MODEL_MHD_EGLM)
          select case(d)
          case(1)
@@ -1247,6 +1434,12 @@ contains
                                                qL=qL, qR=qR, flo=fl)
          case(MODEL_MHD)
             call compute_backbone_fluxes_mhd(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
+                                             qL=qL, qR=qR, flo=fl)
+         case(MODEL_MHD_ISO) ! issue #100, P5
+            call compute_backbone_fluxes_mhd_iso(n=nc, d=axis, gamma=self%physics%eos_arg, ch=self%physics%mhd%glm_ch, &
+                                             qL=qL, qR=qR, flo=fl)
+         case(MODEL_MHD_BARO) ! issue #100, P5
+            call compute_backbone_fluxes_mhd_baro(n=nc, d=axis, gamma=self%physics%eos_arg, ch=self%physics%mhd%glm_ch, &
                                              qL=qL, qR=qR, flo=fl)
          case(MODEL_MHD_EGLM)
             call compute_backbone_fluxes_mhd_eglm(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
@@ -1378,6 +1571,18 @@ contains
                                                  olo=olo, ohi=ohi, lam=self%lam, dbad=db, dnonfinite=dn)
    case(MODEL_MHD)
       call compute_seam_positivity_factors_mhd(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g,          &
+                                               has_phi=has_phi, phi=self%phi_grav, dxyz=dxyz,                                &
+                                               is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
+                                               flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
+                                               olo=olo, ohi=ohi, lam=self%lam, dbad=db, dnonfinite=dn)
+   case(MODEL_MHD_ISO) ! issue #100, P5
+      call compute_seam_positivity_factors_mhd_iso(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g,          &
+                                               has_phi=has_phi, phi=self%phi_grav, dxyz=dxyz,                                &
+                                               is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
+                                               flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
+                                               olo=olo, ohi=ohi, lam=self%lam, dbad=db, dnonfinite=dn)
+   case(MODEL_MHD_BARO) ! issue #100, P5
+      call compute_seam_positivity_factors_mhd_baro(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g,          &
                                                has_phi=has_phi, phi=self%phi_grav, dxyz=dxyz,                                &
                                                is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
                                                flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
@@ -1734,8 +1939,20 @@ contains
    case(MODEL_MHD)
       call blend_inadmissible_ghosts_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
                                          to_anchor=.false., blended=blended)
+   case(MODEL_MHD_ISO) ! issue #100, P5
+      call blend_inadmissible_ghosts_mhd_iso(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                         to_anchor=.false., blended=blended)
+   case(MODEL_MHD_BARO) ! issue #100, P5
+      call blend_inadmissible_ghosts_mhd_baro(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                         to_anchor=.false., blended=blended)
    case(MODEL_MHD_GLM)
       call blend_inadmissible_ghosts_mhd_glm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                             to_anchor=.false., blended=blended)
+   case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+      call blend_inadmissible_ghosts_mhd_glm_iso(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
+                                             to_anchor=.false., blended=blended)
+   case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+      call blend_inadmissible_ghosts_mhd_glm_baro(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
                                              to_anchor=.false., blended=blended)
    case(MODEL_MHD_EGLM)
       call blend_inadmissible_ghosts_mhd_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
@@ -1905,8 +2122,16 @@ contains
          lambda_dissipative => compute_lambda_max_dissipative_euler_de
       case(MODEL_MHD)
          lambda_dissipative => compute_lambda_max_dissipative_mhd
+      case(MODEL_MHD_ISO) ! issue #100, P5
+         lambda_dissipative => compute_lambda_max_dissipative_mhd_iso
+      case(MODEL_MHD_BARO) ! issue #100, P5
+         lambda_dissipative => compute_lambda_max_dissipative_mhd_baro
       case(MODEL_MHD_GLM)
          lambda_dissipative => compute_lambda_max_dissipative_mhd_glm
+      case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+         lambda_dissipative => compute_lambda_max_dissipative_mhd_glm_iso
+      case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+         lambda_dissipative => compute_lambda_max_dissipative_mhd_glm_baro
       case(MODEL_MHD_EGLM)
          lambda_dissipative => compute_lambda_max_dissipative_mhd_eglm
       case default
@@ -1923,7 +2148,7 @@ contains
                               re_cell_min=re_cell_min)
       if (self%time%it == 0_I4P) call self%log_dt_limit(lambda_hyp=lambda_hyp, lambda_dif=lambda_dif, &
                                                          re_cell_min=re_cell_min)
-      if (self%physics%model == MODEL_MHD_GLM .or. self%physics%model == MODEL_MHD_EGLM) &
+      if (has_mixed_glm(self%physics%model) .or. self%physics%model == MODEL_MHD_EGLM) &
          lambda_max = max(lambda_max, self%glm_lambda())
    else
       select case(self%physics%model)
@@ -1961,9 +2186,29 @@ contains
          call compute_lambda_max_mhd(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                      gamma=self%physics%gamma, R=self%physics%R, dxyz=self%adam%field%dxyz,              &
                                      is_null=self%adam%grid%null_xyz, q=self%q, lambda_max=lambda_max)
+      case(MODEL_MHD_ISO) ! issue #100, P5
+         call compute_lambda_max_mhd_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     gamma=self%physics%eos_arg, R=self%physics%R, dxyz=self%adam%field%dxyz,              &
+                                     is_null=self%adam%grid%null_xyz, q=self%q, lambda_max=lambda_max)
+      case(MODEL_MHD_BARO) ! issue #100, P5
+         call compute_lambda_max_mhd_baro(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                     gamma=self%physics%eos_arg, R=self%physics%R, dxyz=self%adam%field%dxyz,              &
+                                     is_null=self%adam%grid%null_xyz, q=self%q, lambda_max=lambda_max)
       case(MODEL_MHD_GLM)
          call compute_lambda_max_mhd_glm(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                                &
                                          blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
+                                         dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
+                                         lambda_max=lambda_max)
+         lambda_max = max(lambda_max, self%glm_lambda())
+      case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+         call compute_lambda_max_mhd_glm_iso(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                                &
+                                         blocks_number=self%blocks_number, gamma=self%physics%eos_arg, R=self%physics%R, &
+                                         dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
+                                         lambda_max=lambda_max)
+         lambda_max = max(lambda_max, self%glm_lambda())
+      case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+         call compute_lambda_max_mhd_glm_baro(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                                &
+                                         blocks_number=self%blocks_number, gamma=self%physics%eos_arg, R=self%physics%R, &
                                          dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q=self%q,         &
                                          lambda_max=lambda_max)
          lambda_max = max(lambda_max, self%glm_lambda())
@@ -2892,11 +3137,35 @@ contains
          case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_mhd_hll
          case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_hlld
          endselect
+      case(MODEL_MHD_ISO) ! issue #100, P5
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_mhd_iso_llf
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_mhd_iso_hll
+         case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_iso_hlld
+         endselect
+      case(MODEL_MHD_BARO) ! issue #100, P5
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_mhd_baro_llf
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_mhd_baro_hll
+         case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_baro_hlld
+         endselect
       case(MODEL_MHD_GLM)
          select case(self%numerics%riemann_solver)
          case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_mhd_glm_llf
          case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_mhd_glm_hll
          case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_glm_hlld
+         endselect
+      case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_mhd_glm_iso_llf
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_mhd_glm_iso_hll
+         case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_glm_iso_hlld
+         endselect
+      case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+         select case(self%numerics%riemann_solver)
+         case(RIEMANN_SOLVER_LLF)  ; edge_riemann => add_gravity_edge_correction_mhd_glm_baro_llf
+         case(RIEMANN_SOLVER_HLL)  ; edge_riemann => add_gravity_edge_correction_mhd_glm_baro_hll
+         case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_glm_baro_hlld
          endselect
       case(MODEL_MHD_EGLM)
          select case(self%numerics%riemann_solver)
@@ -2920,7 +3189,11 @@ contains
       case(MODEL_EULER_DE_PS)    ; edge_split => add_gravity_edge_correction_euler_de_ps
       case(MODEL_EULER_DE)    ; edge_split => add_gravity_edge_correction_euler_de
       case(MODEL_MHD)      ; edge_split => add_gravity_edge_correction_mhd
+      case(MODEL_MHD_ISO)      ; edge_split => add_gravity_edge_correction_mhd_iso ! issue #100, P5
+      case(MODEL_MHD_BARO)      ; edge_split => add_gravity_edge_correction_mhd_baro ! issue #100, P5
       case(MODEL_MHD_GLM)  ; edge_split => add_gravity_edge_correction_mhd_glm
+      case(MODEL_MHD_GLM_ISO)  ; edge_split => add_gravity_edge_correction_mhd_glm_iso ! issue #100, P5
+      case(MODEL_MHD_GLM_BARO)  ; edge_split => add_gravity_edge_correction_mhd_glm_baro ! issue #100, P5
       case(MODEL_MHD_EGLM) ; edge_split => add_gravity_edge_correction_mhd_eglm
       endselect
       if (.not.associated(edge_split)) call mpih%error_stop(msg=': no CPU gravity edge kernel for the model')
@@ -3091,6 +3364,32 @@ contains
                                                         nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
                                                         ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                         weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   case(MODEL_MHD_ISO) ! issue #100, P5
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_iso(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                        nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                        ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                        weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_iso(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                        nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                        ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                        weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_iso(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                        nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                        ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                        weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   case(MODEL_MHD_BARO) ! issue #100, P5
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_baro(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                        nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                        ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                        weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_baro(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                        nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                        ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                        weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_baro(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                        nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                        ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                        weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
    case(MODEL_MHD_GLM)
       if (.not.is_null(1)) call compute_face_fluxes_mhd_glm(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
                                                             nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
@@ -3101,6 +3400,32 @@ contains
                                                             ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                             weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
       if (.not.is_null(3)) call compute_face_fluxes_mhd_glm(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   case(MODEL_MHD_GLM_ISO) ! issue #100, P5
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_glm_iso(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_glm_iso(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_glm_iso(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
+   case(MODEL_MHD_GLM_BARO) ! issue #100, P5
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_glm_baro(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flx_f)
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_glm_baro(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,          &
+                                                            nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
+                                                            weno=self%weno, q=q, q_aux=self%q_aux, fl=self%fly_f)
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_glm_baro(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,          &
                                                             nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma,  &
                                                             ch=self%physics%mhd%glm_ch, is_characteristic=is_char, &
                                                             weno=self%weno, q=q, q_aux=self%q_aux, fl=self%flz_f)
@@ -3146,7 +3471,7 @@ contains
    ! a barotropic gas (issue #100, P4): gravity acts on the momentum only, the energy slot stays inert
    if (self%physics%gravity%is_active .and. has_inert_energy(self%physics%model)) &
       call clear_inert_energy(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, dq=dq)
-   if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
+   if (has_mixed_glm(self%physics%model)) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,           &
                                                                   damping=self%physics%mhd%glm_damping, q=q, dq=dq)
    if (self%physics%model == MODEL_MHD_EGLM) then
       call add_glm_damping_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, damping=self%physics%mhd%glm_damping, &
@@ -3276,6 +3601,24 @@ contains
       case(RIEMANN_SOLVER_HLLD)
          face_fluxes => compute_riemann_face_fluxes_mhd_hlld
       endselect
+   elseif (self%physics%model == MODEL_MHD_ISO) then ! issue #100, P5
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_mhd_iso_llf
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_mhd_iso_hll
+      case(RIEMANN_SOLVER_HLLD)
+         face_fluxes => compute_riemann_face_fluxes_mhd_iso_hlld
+      endselect
+   elseif (self%physics%model == MODEL_MHD_BARO) then ! issue #100, P5
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_mhd_baro_llf
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_mhd_baro_hll
+      case(RIEMANN_SOLVER_HLLD)
+         face_fluxes => compute_riemann_face_fluxes_mhd_baro_hlld
+      endselect
    elseif (self%physics%model == MODEL_MHD_GLM) then
       select case(self%numerics%riemann_solver)
       case(RIEMANN_SOLVER_LLF)
@@ -3284,6 +3627,24 @@ contains
          face_fluxes => compute_riemann_face_fluxes_mhd_glm_hll
       case(RIEMANN_SOLVER_HLLD)
          face_fluxes => compute_riemann_face_fluxes_mhd_glm_hlld
+      endselect
+   elseif (self%physics%model == MODEL_MHD_GLM_ISO) then ! issue #100, P5
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_mhd_glm_iso_llf
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_mhd_glm_iso_hll
+      case(RIEMANN_SOLVER_HLLD)
+         face_fluxes => compute_riemann_face_fluxes_mhd_glm_iso_hlld
+      endselect
+   elseif (self%physics%model == MODEL_MHD_GLM_BARO) then ! issue #100, P5
+      select case(self%numerics%riemann_solver)
+      case(RIEMANN_SOLVER_LLF)
+         face_fluxes => compute_riemann_face_fluxes_mhd_glm_baro_llf
+      case(RIEMANN_SOLVER_HLL)
+         face_fluxes => compute_riemann_face_fluxes_mhd_glm_baro_hll
+      case(RIEMANN_SOLVER_HLLD)
+         face_fluxes => compute_riemann_face_fluxes_mhd_glm_baro_hlld
       endselect
    elseif (self%physics%model == MODEL_MHD_EGLM) then
       select case(self%numerics%riemann_solver)
@@ -3345,7 +3706,7 @@ contains
    ! a barotropic gas (issue #100, P4): gravity acts on the momentum only, the energy slot stays inert
    if (self%physics%gravity%is_active .and. has_inert_energy(self%physics%model)) &
       call clear_inert_energy(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, dq=dq)
-   if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
+   if (has_mixed_glm(self%physics%model)) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,           &
                                                                   damping=self%physics%mhd%glm_damping, q=q, dq=dq)
    if (self%physics%model == MODEL_MHD_EGLM) then
       call add_glm_damping_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, damping=self%physics%mhd%glm_damping, &
