@@ -9,3 +9,5 @@ exe/
 *.xdmf
 # Slurm job output
 jobs/*.txt
+# profiler outputs of the profiling case (large: traces per rank)
+profile-couette3d/runs/

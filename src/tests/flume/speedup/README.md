@@ -315,6 +315,7 @@ analyze.sh/.py     step costs, throughputs and every comparison -> results/summa
 jobs/              medooza Slurm templates (CPU, FNL)
 builds/<leg>/      build.txt, toolchain.md
 results/           summary.md, summary.csv
+profile-couette3d/ the profiling case (not a speedup case): a 3-D Couette channel, see its README.md
 ```
 
 The root `.gitignore` ignores `*.sh` and `*.log`: add the scripts with `git add -f`. The build logs are named
