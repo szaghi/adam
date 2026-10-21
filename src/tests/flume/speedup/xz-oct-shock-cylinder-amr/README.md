@@ -15,9 +15,10 @@ reflux on.
 | Item | Value |
 |---|---|
 | Geometry | 2-D in the xz plane, y null; octree (`ratio = 8`), 4 cells per block along the null axis, which the octree also splits at every level |
-| Cells per block | TBD per active axis |
-| AMR | dynamic: base level TBD, finest TBD; one gradient-of-density marker (mode 2, `field = 1`, `var = 1`), `tol = 0.1·Δρ/h(base)`; a regrid every 10 steps, `iters = max - base`, conservative prolongation |
-| Uniform grid at the finest level | TBD (matrix.conf) |
+| Cells per block | 32 per active axis |
+| AMR | dynamic: base level 2, finest 5; one gradient-of-density marker (mode 2, `field = 1`, `var = 1`), `tol = 0.1·Δρ/h(base)`; a regrid every 10 steps, `iters = max - base`, conservative prolongation |
+| Grid | base level: 64 blocks, 262144 cells (h = 0.0078125); a uniform grid at the finest level would be 32768 blocks, 134217728 cells (h = 0.0009765625) |
+| Legs | every leg (cpu, fnl-nvf, fnl-amd) |
 | Warmup | to t = 0.15 (incident shock at mid-body), then a restart |
 | Window | 100 steps after 10, 3 repetitions, all output off |
 | Full simulation | no (speedup data only) |

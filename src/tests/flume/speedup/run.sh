@@ -20,7 +20,9 @@
 # Usage: ./run.sh <leg> [--np N] [--cases LIST] [--what data|full|all] [--launcher "CMD"] [--exe PATH] [--reuse-warmup]
 #   leg             cpu, fnl-nvf or fnl-amd (the executable is exe/<leg>/, see build.sh)
 #   --np            MPI ranks (default $SLURM_NTASKS); FNL: one rank per GPU
-#   --cases         case names or substrings, commas or blanks (default: every case); e.g. --cases cylinder-amr,sphere
+#   --cases         case names or substrings, commas or blanks (default: every case, but the AMD_ONLY_FLOWS of
+#                   matrix.conf only on fnl-amd); e.g. --cases cylinder-amr,sphere
+#   --skip          case names or substrings to leave out, applied after --cases; e.g. --skip xyz-amd-shock-sphere-amr
 #   --what          data (default), full (only the FULL_CASES of matrix.conf), or all
 #   --launcher      the launcher, followed by the rank count (default "mpirun -np"; medooza: "srun --mpi=pmix -n")
 #   --reuse-warmup  keep an existing warmup dump (same leg and np) instead of running it again
@@ -36,6 +38,7 @@ LEG="${1:-}"
 [[ $# -gt 0 ]] && shift
 NP="${SLURM_NTASKS:-}"
 SELECT=""
+SKIP=""
 WHAT=data
 LAUNCHER="mpirun -np"
 EXE=""
@@ -44,6 +47,7 @@ while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)           NP="$2" ; shift 2 ;;
       --cases)        SELECT+=" ${2//,/ }" ; shift 2 ;;
+      --skip)         SKIP+=" ${2//,/ }" ; shift 2 ;;
       --what)         WHAT="$2" ; shift 2 ;;
       --launcher)     LAUNCHER="$2" ; shift 2 ;;
       --exe)          EXE="$2" ; shift 2 ;;
@@ -66,7 +70,15 @@ fi
 
 CASES=()
 while read -r c; do
-   if [[ -z ${SELECT// } ]]; then CASES+=("$c"); continue; fi
+   for s in $SKIP; do
+      if [[ $c == *"$s"* ]]; then continue 2; fi
+   done
+   if [[ -z ${SELECT// } ]]; then
+      # the AMD-only flows run on the other legs only when --cases names them
+      if [[ $LEG != fnl-amd && " $AMD_ONLY_FLOWS " == *" ${c%-*} "* ]]; then continue; fi
+      CASES+=("$c")
+      continue
+   fi
    for s in $SELECT; do
       if [[ $c == *"$s"* ]]; then CASES+=("$c"); break; fi
    done

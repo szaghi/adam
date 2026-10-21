@@ -15,9 +15,10 @@ reflux on.
 | Item | Value |
 |---|---|
 | Geometry | 3-D octree (`ratio = 8`) |
-| Cells per block | TBD per active axis |
-| AMR | none: uniform at level TBD (the finest level of the amr twin), no marker, no regrid |
-| Uniform grid at the finest level | TBD (matrix.conf) |
+| Cells per block | 16 per active axis |
+| AMR | none: uniform at level 4, no marker, no regrid (a fixed-grid reference, independent of the amr levels) |
+| Grid | 4096 blocks, 16777216 cells (h = 0.00390625) |
+| Legs | every leg (cpu, fnl-nvf, fnl-amd) |
 | Warmup | to t = 0.15 (incident shock at mid-body), then a restart |
 | Window | 100 steps after 10, 3 repetitions, all output off |
 | Full simulation | to t = 0.25 |

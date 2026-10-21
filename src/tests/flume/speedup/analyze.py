@@ -16,7 +16,9 @@ ratios the study asks for. Per measurement (``<case>/data/<leg>-np<N>/``):
   FNL, their host round trip seconds, from the regrid lines.
 
 The comparisons (``results/summary.md``): backend speedup (a reference label against every other, per case), AMR
-speedup (noamr against amr: the uniform grid at the finest level against dynamic AMR to the same level), orientation
+(noamr and amr per step and per cell-step; the noamr level is independent of the amr levels, so the equal-resolution
+speedup is an estimate: the noamr cost per cell-step times the cells of a uniform grid at the amr finest level, over
+the amr step cost; it assumes the throughput does not depend on the grid size), orientation
 (xz-oct and yz-oct against xy-oct, same cells), tree tax (xy-oct against xy-quad), and 2-D against 3-D (the cost of
 a cell-step of the sphere against the cylinder).
 
@@ -187,6 +189,11 @@ def ratio(a: float | None, b: float | None) -> str:
     return f"{a / b:.2f}" if a and b else "—"
 
 
+def num(x: float | None, scale: float, digits: int) -> str:
+    """Return x * scale formatted, or a dash."""
+    return f"{x * scale:.{digits}f}" if x else "—"
+
+
 def main() -> None:
     """Collect every measurement, write result.md files, results/summary.{csv,md}, and refresh the READMEs."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -238,10 +245,28 @@ def main() -> None:
     for case in make_inputs.CASES:
         if any((case, lb) in table for lb in labels):
             md.append(f"| {case} | " + " | ".join(ratio(t(case, ref), t(case, lb)) for lb in labels) + " |")
-    md += ["", "## AMR speedup: step cost noamr / amr (same finest level)", "", "| Flow " + head, rule]
-    for flow in make_inputs.FLOWS:
-        md.append(f"| {flow} | " + " | ".join(ratio(t(f"{flow}-noamr", lb), t(f"{flow}-amr", lb)) for lb in labels)
-                  + " |")
+    conf = make_inputs.load_conf()
+    md += [
+        "", "## AMR", "",
+        "The noamr level is independent of the amr levels, so the two do not compute the same solution. The "
+        "equal-resolution speedup is an **estimate**: a uniform grid at the amr finest level costs about the noamr "
+        "ns/cell-step times its cells; it assumes the throughput does not depend on the grid size (on a GPU a larger "
+        "grid usually runs faster per cell, so the estimate overstates the AMR gain there).", "",
+        "| Flow | Label | noamr step [ms] | amr step [ms] | noamr ns/cell-step | amr ns/cell-step | "
+        "uniform at the finest level [cells] | estimated speedup |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for flow, (body, _, tree, grid) in make_inputs.FLOWS.items():
+        ni, _, top, _ = make_inputs.grid_of(grid, conf)
+        fine = None if make_inputs.TBD in (ni, top) else make_inputs.uniform_cells(body, tree, int(ni), int(top), conf)[1]
+        for lb in labels:
+            tn, ta, nn = t(f"{flow}-noamr", lb), t(f"{flow}-amr", lb), ns(f"{flow}-noamr", lb)
+            if tn is None and ta is None:
+                continue
+            na = ns(f"{flow}-amr", lb)
+            est = ratio(nn * 1e-9 * fine, ta) if nn and fine and ta else "—"
+            md.append(f"| {flow} | {lb} | {num(tn, 1e3, 3)} | {num(ta, 1e3, 3)} | {num(nn, 1, 2)} | {num(na, 1, 2)} | "
+                      f"{fine or '—'} | {est} |")
     md += [
         "", "## Orientation (same cells) and tree tax", "",
         "Step cost of xz-oct and yz-oct relative to xy-oct; xy-oct against xy-quad per step and per cell-step (the "
@@ -255,13 +280,29 @@ def main() -> None:
             md.append(f"| {amr} | {lb} | {ratio(t(f'xz-oct-shock-cylinder-{amr}', lb), t(xy, lb))} | "
                       f"{ratio(t(f'yz-oct-shock-cylinder-{amr}', lb), t(xy, lb))} | {ratio(t(xy, lb), t(quad, lb))} | "
                       f"{ratio(ns(xy, lb), ns(quad, lb))} |")
+    pairs = [("xyz-shock-sphere", "xy-quad-shock-cylinder"), ("xyz-shock-sphere", "xy-oct-shock-cylinder"),
+             ("xyz-amd-shock-sphere", "xy-quad-amd-shock-cylinder")]
     md += ["", "## 2-D against 3-D: cost of a cell-step, sphere / cylinder", "",
-           "| Variant | Label | sphere / xy-quad | sphere / xy-oct |", "|---|---|---|---|"]
+           "| Variant | Label | " + " | ".join(f"{s} / {c}" for s, c in pairs) + " |", "|---|---|" + "---|" * len(pairs)]
     for amr in ("noamr", "amr"):
-        sph = f"xyz-shock-sphere-{amr}"
         for lb in labels:
-            md.append(f"| {amr} | {lb} | {ratio(ns(sph, lb), ns(f'xy-quad-shock-cylinder-{amr}', lb))} | "
-                      f"{ratio(ns(sph, lb), ns(f'xy-oct-shock-cylinder-{amr}', lb))} |")
+            cells = [ratio(ns(f"{s}-{amr}", lb), ns(f"{c}-{amr}", lb)) for s, c in pairs]
+            if any(x != "—" for x in cells):
+                md.append(f"| {amr} | {lb} | " + " | ".join(cells) + " |")
+    # the same flow at growing sizes: where a backend saturates, and how far the equal-resolution AMR estimate (which
+    # assumes a size-independent throughput) is from the truth
+    ladders = {"quadtree": ["xy-quad-shock-cylinder", "xy-quad-heavy-shock-cylinder", "xy-quad-amd-shock-cylinder"],
+               "sphere": ["xyz-shock-sphere", None, "xyz-amd-shock-sphere"]}
+    md += ["", "## Throughput against size (noamr): ns per cell-step, cells in brackets", "",
+           "| Flow | Label | base matrix | heavy | AMD-only |", "|---|---|---|---|---|"]
+    for name, flows in ladders.items():
+        for lb in labels:
+            row = []
+            for flow in flows:
+                m = table.get((f"{flow}-noamr", lb)) if flow else None
+                row.append(f"{1e9 / m['throughput']:.2f} ({m['cells_mean']:.3g})" if m and m["throughput"] > 0 else "—")
+            if any(x != "—" for x in row):
+                md.append(f"| {name} | {lb} | " + " | ".join(row) + " |")
     full = []
     for case in make_inputs.CASES:
         fdir = ROOT / case / "full"
@@ -273,7 +314,6 @@ def main() -> None:
         md += ["", "## Full simulations", "", "| Case | Label | Wall [s] | Steps | Exit |", "|---|---|---|---|---|"]
         md += full
     (out / "summary.md").write_text("\n".join(md) + "\n")
-    conf = make_inputs.load_conf()
     for case in make_inputs.CASES:
         if (ROOT / case).is_dir():
             (ROOT / case / "README.md").write_text(make_inputs.case_readme(case, conf))

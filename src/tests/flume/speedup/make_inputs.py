@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Write the inputs and READMEs of the FLUME speedup matrix, and the small helpers its scripts need (stdlib only).
 
-Why this generator exists: the matrix is ten cases built from two flows (a Mach 2 shock over a cylinder in 2-D, over a
-sphere in 3-D), each without AMR (a uniform grid at the finest level) and with dynamic AMR (a gradient-of-density
-marker), the cylinder in three orientations (xy, xz, yz) on octrees plus xy on a quadtree. Writing them by hand would
-let the rotated copies drift apart; here one description is rotated, so the cases differ only where they must.
+Why this generator exists: the matrix is sixteen cases built from two flows (a Mach 2 shock over a cylinder in 2-D,
+over a sphere in 3-D), each without AMR (a uniform grid, a fixed-grid reference) and with dynamic AMR (a
+gradient-of-density marker): the cylinder in three orientations (xy, xz, yz) on octrees plus xy on a quadtree, a
+heavier quadtree, and the AMD-only sizes of the quadtree and the sphere (FLOWS; each flow reads its grid from
+matrix.conf by its own prefix). Writing them by hand would let the rotated copies drift apart; here one description
+is rotated and resized, so the cases differ only where they must.
 
 The flow is the V6 verification (verification/shock-cylinder/shock-cylinder.ini): pre-shock rho 1.4, p 1 (sound speed
 1), post-shock rho 3.7333, u_n 1.25, p 4.5 upstream of a = 0.2 and at the inflow (a the streamwise axis), a body of
@@ -40,13 +42,17 @@ SHOCK_AT = 0.2
 RADIUS = 0.13
 LEGS = ("cpu", "fnl-nvf", "fnl-amd")
 
-# name: (body, axes, tree); axes = streamwise, cross-stream, null (the sphere: x, y, z, all active)
+# name: (body, axes, tree, grid); axes = streamwise, cross-stream, null (the sphere: x, y, z, all active); grid = the
+# prefix of the flow's grid keys in matrix.conf (<grid>_NI, _NOAMR_LEVEL, _BASE_LEVEL, _MAX_LEVEL)
 FLOWS = {
-    "xy-quad-shock-cylinder": ("cylinder", "xyz", "quad"),
-    "xy-oct-shock-cylinder": ("cylinder", "xyz", "oct"),
-    "xz-oct-shock-cylinder": ("cylinder", "xzy", "oct"),
-    "yz-oct-shock-cylinder": ("cylinder", "yzx", "oct"),
-    "xyz-shock-sphere": ("sphere", "xyz", "oct"),
+    "xy-quad-shock-cylinder": ("cylinder", "xyz", "quad", "CYL"),
+    "xy-oct-shock-cylinder": ("cylinder", "xyz", "oct", "CYL"),
+    "xz-oct-shock-cylinder": ("cylinder", "xzy", "oct", "CYL"),
+    "yz-oct-shock-cylinder": ("cylinder", "yzx", "oct", "CYL"),
+    "xyz-shock-sphere": ("sphere", "xyz", "oct", "SPH"),
+    "xy-quad-heavy-shock-cylinder": ("cylinder", "xyz", "quad", "QH"),
+    "xy-quad-amd-shock-cylinder": ("cylinder", "xyz", "quad", "AQ"),
+    "xyz-amd-shock-sphere": ("sphere", "xyz", "oct", "AS"),
 }
 CASES = [f"{flow}-{amr}" for flow in FLOWS for amr in ("noamr", "amr")]
 
@@ -62,17 +68,25 @@ def load_conf() -> dict[str, str]:
     return conf
 
 
-def grid_of(body: str, conf: dict[str, str]) -> tuple[str, str, str]:
-    """Return NI, BASE_LEVEL, MAX_LEVEL of a body (strings, possibly TBD), checked when all are numbers."""
-    p = "CYL" if body == "cylinder" else "SPH"
-    ni, base, top = conf[f"{p}_NI"], conf[f"{p}_BASE_LEVEL"], conf[f"{p}_MAX_LEVEL"]
-    if TBD not in (ni, base, top):
-        n, b, t = int(ni), int(base), int(top)
-        if n < 6 or n % 2:
-            raise SystemExit(f"make_inputs: {p}_NI = {n} must be even and >= 6 (2 ngc along a refined axis)")
-        if not 0 <= b < t:
-            raise SystemExit(f"make_inputs: need 0 <= {p}_BASE_LEVEL < {p}_MAX_LEVEL, got {b}, {t}")
-    return ni, base, top
+def grid_of(p: str, conf: dict[str, str]) -> tuple[str, str, str, str]:
+    """Return NI, BASE_LEVEL, MAX_LEVEL, NOAMR_LEVEL of grid prefix p (strings, possibly TBD), checked when numbers."""
+    ni, base, top, uniform = (conf[f"{p}_{k}"] for k in ("NI", "BASE_LEVEL", "MAX_LEVEL", "NOAMR_LEVEL"))
+    if ni != TBD and (int(ni) < 6 or int(ni) % 2):
+        raise SystemExit(f"make_inputs: {p}_NI = {ni} must be even and >= 6 (2 ngc along a refined axis)")
+    if TBD not in (base, top) and not 0 <= int(base) < int(top):
+        raise SystemExit(f"make_inputs: need 0 <= {p}_BASE_LEVEL < {p}_MAX_LEVEL, got {base}, {top}")
+    if uniform != TBD and int(uniform) < 0:
+        raise SystemExit(f"make_inputs: {p}_NOAMR_LEVEL = {uniform} must be >= 0")
+    return ni, base, top, uniform
+
+
+def uniform_cells(body: str, tree: str, ni: int, level: int, conf: dict[str, str]) -> tuple[int, int]:
+    """Return the blocks and cells of a uniform grid at a level (the octree splits its null axis too)."""
+    if body == "sphere":
+        return 8**level, (ni * 2**level) ** 3
+    if tree == "quad":
+        return 4**level, (ni * 2**level) ** 2
+    return 8**level, (ni * 2**level) ** 2 * int(conf["OCT_NULL_CELLS"]) * 2**level
 
 
 def spacing(ni: str, level: str, pad: float = 1.0) -> str:
@@ -93,9 +107,9 @@ def state_lines(a: str, post: bool, pad: str) -> list[str]:
 def case_ini(case: str, conf: dict[str, str]) -> str:
     """Return the input of one case: the full-simulation configuration (run.sh rewrites IO and time per run)."""
     flow, amr = case.rsplit("-", 1)
-    body, (a, b, n), tree = FLOWS[flow]
+    body, (a, b, n), tree, grid = FLOWS[flow]
     dynamic = amr == "amr"
-    ni, base, top = grid_of(body, conf)
+    ni, base, top, uniform = grid_of(grid, conf)
     null = n if body == "cylinder" else ""
     cells = {ax: ("1" if tree == "quad" else conf["OCT_NULL_CELLS"]) if ax == null else ni for ax in AXES}
     walls = {b} if body == "cylinder" else {b, n}
@@ -103,7 +117,7 @@ def case_ini(case: str, conf: dict[str, str]) -> str:
     sweeps = TBD if TBD in (base, top) else str(int(top) - int(base))
     tol = TBD if TBD in (ni, base) else repr(float(conf["GRAD_TOL_FACTOR"]) * DRHO / float(spacing(ni, base)))
     what = (f"plane {a}{b}, null axis {n}, {tree}tree" if body == "cylinder" else "3-D octree") + (
-        f"; dynamic AMR, levels {base}..{top}, gradient-of-density marker" if dynamic else f"; uniform at level {top}")
+        f"; dynamic AMR, levels {base}..{top}, gradient-of-density marker" if dynamic else f"; uniform at level {uniform}")
     lines = [
         f"; FLUME speedup matrix, case {case} (make_inputs.py: edit matrix.conf and rerun, not this file)",
         f"; Mach 2 shock over a {body}, streamwise axis {a}, {what}",
@@ -117,8 +131,8 @@ def case_ini(case: str, conf: dict[str, str]) -> str:
     ]
     lines += [f"null_{ax} = {'.true.' if ax == null else '.false.'}" for ax in AXES]
     lines += [
-        "", "[amr]", f"max_level      = {top}", f"ratio          = {4 if tree == 'quad' else 8}",
-        f"iu_ref_levels  = {base if dynamic else top}", "i_prune        = 0", "j_prune        = 0",
+        "", "[amr]", f"max_level      = {top if dynamic else uniform}", f"ratio          = {4 if tree == 'quad' else 8}",
+        f"iu_ref_levels  = {base if dynamic else uniform}", "i_prune        = 0", "j_prune        = 0",
         "k_prune        = 0", "l_prune        = -1", f"frequency      = {conf['AMR_FREQUENCY'] if dynamic else 0}",
         f"iters          = {sweeps if dynamic else 1}", f"markers_number = {1 if dynamic else 0}",
     ]
@@ -182,26 +196,20 @@ def case_ini(case: str, conf: dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def grid_size(body: str, tree: str, ni: str, top: str, conf: dict[str, str]) -> str:
-    """Return the blocks and cells of the uniform grid at the finest level, or TBD."""
-    if TBD in (ni, top):
+def grid_size(body: str, tree: str, ni: str, level: str, conf: dict[str, str]) -> str:
+    """Return the blocks and cells of the uniform grid at a level, or TBD."""
+    if TBD in (ni, level):
         return "TBD (matrix.conf)"
-    level, n = int(top), int(ni)
-    if body == "sphere":
-        blocks, cells = 8**level, (n * 2**level) ** 3
-    elif tree == "quad":
-        blocks, cells = 4**level, (n * 2**level) ** 2
-    else:  # the octree splits its null axis too
-        blocks, cells = 8**level, (n * 2**level) ** 2 * int(conf["OCT_NULL_CELLS"]) * 2**level
-    return f"{blocks} blocks, {cells} cells (h = {spacing(ni, top)})"
+    blocks, cells = uniform_cells(body, tree, int(ni), int(level), conf)
+    return f"{blocks} blocks, {cells} cells (h = {spacing(ni, level)})"
 
 
 def case_readme(case: str, conf: dict[str, str]) -> str:
     """Return the README of one case: description, grid, protocol, layout, the toolchain of every built leg."""
     flow, amr = case.rsplit("-", 1)
-    body, (a, b, n), tree = FLOWS[flow]
+    body, (a, b, n), tree, grid = FLOWS[flow]
     dynamic = amr == "amr"
-    ni, base, top = grid_of(body, conf)
+    ni, base, top, uniform = grid_of(grid, conf)
     if body == "cylinder":
         geometry = f"2-D in the {a}{b} plane, {n} null; " + (
             "quadtree (`ratio = 4`), one cell along the null axis" if tree == "quad" else
@@ -217,9 +225,17 @@ def case_readme(case: str, conf: dict[str, str]) -> str:
         amr_row = (f"dynamic: base level {base}, finest {top}; one gradient-of-density marker (mode 2, `field = 1`, "
                    f"`var = 1`), `tol = {conf['GRAD_TOL_FACTOR']}·Δρ/h(base)`; a regrid every "
                    f"{conf['AMR_FREQUENCY']} steps, `iters = max - base`, conservative prolongation")
+        grid_row = (f"base level: {grid_size(body, tree, ni, base, conf)}; a uniform grid at the finest level would be "
+                    f"{grid_size(body, tree, ni, top, conf)}")
     else:
-        amr_row = f"none: uniform at level {top} (the finest level of the amr twin), no marker, no regrid"
+        amr_row = (f"none: uniform at level {uniform}, no marker, no regrid (a fixed-grid reference, independent of "
+                   "the amr levels)")
+        grid_row = grid_size(body, tree, ni, uniform, conf)
     has_full = case in conf["FULL_CASES"].split()
+    if flow in conf["AMD_ONLY_FLOWS"].split():
+        legs_row = "fnl-amd only (sized for the 192 GB AMD GPUs; run.sh skips it on the other legs unless named)"
+    else:
+        legs_row = "every leg (cpu, fnl-nvf, fnl-amd)"
     out = [
         f"# {case}",
         "",
@@ -240,7 +256,8 @@ def case_readme(case: str, conf: dict[str, str]) -> str:
         f"| Geometry | {geometry} |",
         f"| Cells per block | {ni} per active axis |",
         f"| AMR | {amr_row} |",
-        f"| Uniform grid at the finest level | {grid_size(body, tree, ni, top, conf)} |",
+        f"| Grid | {grid_row} |",
+        f"| Legs | {legs_row} |",
         f"| Warmup | to t = {conf['T_WARM']} (incident shock at mid-body), then a restart |",
         f"| Window | {conf['NWIN']} steps after {conf['N1']}, {conf['REPEATS']} repetitions, all output off |",
         f"| Full simulation | {'to t = ' + conf['T_END'] if has_full else 'no (speedup data only)'} |",
