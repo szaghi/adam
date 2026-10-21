@@ -639,7 +639,8 @@ contains
    !< Multi-block, multi-rank: as the charge deposit, P^T runs on the virtual block. Each field component is copied from
    !< the real interiors (every virtual cell has one owner block on one rank, the others add zero), summed over the ranks,
    !< filtered, and scattered back to every real cell, ghosts included (interface ghosts get the neighbour values, physical
-   !< ghosts 0, the zero extension of the single-block filter).
+   !< ghosts 0, the zero extension of the single-block filter). Along a periodic axis P^T is circular and the ghosts beyond
+   !< the face take the periodic image.
    class(prism_fnl_pic_conserving_object), intent(inout) :: self              !< Conserving current object.
    type(prism_fnl_pic_object),             intent(inout) :: pic_fnl           !< Device PIC helper.
    type(field_fnl_object),                 intent(in)    :: field_fnl         !< Device field helper.
@@ -654,8 +655,10 @@ contains
    integer(I4P)                                          :: b, i, j, k, v, n, ni, nj, nk, nbl, ngc, nx, ny, nz, gi, gj, gk, np
    real(R8P)                                             :: s1, s2, s3
    logical                                               :: old_filter
+   logical                                               :: px, py, pz
 
    if (.not.self%coherent) call mpih%error_stop(msg=': coherent gather kernels not initialized in conserving_fnl')
+   px = self%is_periodic(1) ; py = self%is_periodic(2) ; pz = self%is_periodic(3)
    ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
    nx = self%ni ; ny = self%nj ; nz = self%nk ; np = self%particle_number
    off => self%off_gpu ; wa => self%work_a_gpu ; wb => self%work_b_gpu ; gq => self%gq_gpu
@@ -684,14 +687,18 @@ contains
       call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P)
       call self%transposed_filter_axis(input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P)
       call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(gq,wb,off) firstprivate(v,nx,ny,nz) &
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(gq,wb,off) firstprivate(v,nx,ny,nz,px,py,pz) &
       !$acc& private(gi,gj,gk)
-      !$omp OMPLOOP collapse(4) DEVICEPTR(gq,wb,off) firstprivate(v,nx,ny,nz) private(gi,gj,gk)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(gq,wb,off) firstprivate(v,nx,ny,nz,px,py,pz) private(gi,gj,gk)
       do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
       do i=1-ngc, ni+ngc
       do b=1, nbl
          gi = off(b,1) + i ; gj = off(b,2) + j ; gk = off(b,3) + k
+         ! beyond a periodic face the ghost is the periodic image (a particle there gathers it)
+         if (px) gi = modulo(gi-1_I4P, nx) + 1_I4P
+         if (py) gj = modulo(gj-1_I4P, ny) + 1_I4P
+         if (pz) gk = modulo(gk-1_I4P, nz) + 1_I4P
          if (gi >= 1 .and. gi <= nx .and. gj >= 1 .and. gj <= ny .and. gk >= 1 .and. gk <= nz) then
             gq(b,i,j,k,v) = wb(1,gi,gj,gk)
          else
@@ -2278,8 +2285,8 @@ contains
    endsubroutine filter_axis
 
    subroutine transposed_filter_axis(self, input, output, axis)
-   !< Transpose of filter_axis with the coherent gather kernel: output_m = sum_s p(s) input_{m-s}, zero extension. CPU twin:
-   !< transposed_filter_axis of prism_pic_object.
+   !< Transpose of filter_axis with the coherent gather kernel: output_m = sum_s p(s) input_{m-s}, zero extension (circular
+   !< along a periodic axis). CPU twin: transposed_filter_axis of prism_pic_object.
    class(prism_fnl_pic_conserving_object), intent(in)    :: self              !< Conserving current object.
    real(R8P),                              intent(in)    :: input(1:,1:,1:,1:)  !< Input [nb,ni,nj,nk].
    real(R8P),                              intent(inout) :: output(1:,1:,1:,1:) !< Output [nb,ni,nj,nk].
@@ -2287,12 +2294,14 @@ contains
    real(R8P), pointer                                    :: p(:)
    real(R8P)                                             :: acc
    integer(I4P)                                          :: b, i, j, k, s, ii, jj, kk, ni, nj, nk, nbl, radius
+   logical                                               :: per
 
    ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number ; radius = self%gradius
+   per = self%is_periodic(axis)
    p => self%gp_gpu
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(input,output,p) firstprivate(axis,radius) &
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(input,output,p) firstprivate(axis,radius,per) &
    !$acc& private(acc,ii,jj,kk)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(input,output,p) firstprivate(axis,radius) private(acc,ii,jj,kk)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(input,output,p) firstprivate(axis,radius,per) private(acc,ii,jj,kk)
    do k=1, nk
    do j=1, nj
    do i=1, ni
@@ -2304,6 +2313,10 @@ contains
          if (axis == 1) ii = i - s
          if (axis == 2) jj = j - s
          if (axis == 3) kk = k - s
+         ! circular along a periodic axis
+         if (per .and. axis == 1) ii = modulo(ii-1, ni) + 1
+         if (per .and. axis == 2) jj = modulo(jj-1, nj) + 1
+         if (per .and. axis == 3) kk = modulo(kk-1, nk) + 1
          if (ii < 1 .or. ii > ni .or. jj < 1 .or. jj > nj .or. kk < 1 .or. kk > nk) cycle
          acc = acc + p(s+8)*input(b,ii,jj,kk)
       enddo

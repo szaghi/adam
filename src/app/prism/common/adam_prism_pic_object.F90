@@ -2220,8 +2220,9 @@ contains
    !<   londrillo              : rho = S rho^P (binomial filter included), gather with the particle shape S;
    !<   totorica, esirkepov_Q<N>: rho = P S rho^P (no binomial filter), gather P^T on the fields, then the unfiltered base
    !<                            shape, on the dual nodes x_c+dx/2 for the odd esirkepov_Q<N> (the particle seen at x-dx/2).
-   !< P^T is applied block by block with the zero extension of deposit_pic_modified_charge: single block, single rank (the
-   !< multi-block conserving path is FNL only).
+   !< P^T is applied block by block with the zero extension of deposit_pic_modified_charge, circular along a periodic axis
+   !< (whose filtered ghosts are then the periodic images): single block, single rank (the multi-block conserving path is
+   !< FNL only).
    implicit none
    class(prism_pic_object), intent(inout) :: self
    type(field_object),      intent(inout) :: field
@@ -2251,10 +2252,30 @@ contains
    q_filtered = 0._R8P
    do b=1, field%blocks_number
       a = q(1:6,1:ni,1:nj,1:nk,b)
-      call transposed_filter_axis(input=a, output=z, axis=1_I4P, p=self%gather_p, radius=self%gather_radius)
-      call transposed_filter_axis(input=z, output=a, axis=2_I4P, p=self%gather_p, radius=self%gather_radius)
-      call transposed_filter_axis(input=a, output=z, axis=3_I4P, p=self%gather_p, radius=self%gather_radius)
+      call transposed_filter_axis(input=a, output=z, axis=1_I4P, p=self%gather_p, radius=self%gather_radius, &
+                                  periodic=self%bc%is_periodic(1))
+      call transposed_filter_axis(input=z, output=a, axis=2_I4P, p=self%gather_p, radius=self%gather_radius, &
+                                  periodic=self%bc%is_periodic(2))
+      call transposed_filter_axis(input=a, output=z, axis=3_I4P, p=self%gather_p, radius=self%gather_radius, &
+                                  periodic=self%bc%is_periodic(3))
       q_filtered(1:6,1:ni,1:nj,1:nk,b) = z
+      ! periodic axes: the ghosts are the periodic images (a particle beyond the face gathers them), axis by axis so that
+      ! the edges and corners take the images of the images
+      if (self%bc%is_periodic(1)) then
+         do n=1, ngc
+            q_filtered(:,1-n,:,:,b) = q_filtered(:,ni+1-n,:,:,b) ; q_filtered(:,ni+n,:,:,b) = q_filtered(:,n,:,:,b)
+         enddo
+      endif
+      if (self%bc%is_periodic(2)) then
+         do n=1, ngc
+            q_filtered(:,:,1-n,:,b) = q_filtered(:,:,nj+1-n,:,b) ; q_filtered(:,:,nj+n,:,b) = q_filtered(:,:,n,:,b)
+         enddo
+      endif
+      if (self%bc%is_periodic(3)) then
+         do n=1, ngc
+            q_filtered(:,:,:,1-n,b) = q_filtered(:,:,:,nk+1-n,b) ; q_filtered(:,:,:,nk+n,b) = q_filtered(:,:,:,n,b)
+         enddo
+      endif
    enddo
    endassociate
    if (self%gather_dual) then
@@ -2273,17 +2294,19 @@ contains
    endif
    endsubroutine coherent_field_weighting
 
-   pure subroutine transposed_filter_axis(input, output, axis, p, radius)
-   !< Transpose of filter_modified_axis (prism_cpu_object) along one axis of a block interior, zero extension:
-   !< output_m = sum_s p(s) input_{m-s} (P^T, equal to P for the symmetric kernels).
+   pure subroutine transposed_filter_axis(input, output, axis, p, radius, periodic)
+   !< Transpose of the P filter along one axis of a block interior, zero extension (circular along a periodic axis, single
+   !< block): output_m = sum_s p(s) input_{m-s} (P^T, equal to P for the symmetric kernels).
    implicit none
    real(R8P),    intent(in)  :: input(1:,1:,1:,1:) !< Fields (6, ni, nj, nk).
    real(R8P),    intent(out) :: output(1:,1:,1:,1:) !< Filtered fields.
    integer(I4P), intent(in)  :: axis               !< Filter axis.
    real(R8P),    intent(in)  :: p(-7:7)            !< P kernel.
    integer(I4P), intent(in)  :: radius             !< Taps of P.
-   integer(I4P)              :: i, j, k, s, ii, jj, kk
+   logical,      intent(in)  :: periodic           !< Periodic axis.
+   integer(I4P)              :: i, j, k, s, ii, jj, kk, n
 
+   n = size(input,axis+1)
    output = 0._R8P
    do k=1,size(input,4)
       do j=1,size(input,3)
@@ -2291,9 +2314,9 @@ contains
             do s=-radius,radius
                ii=i ; jj=j ; kk=k
                select case(axis)
-               case(1) ; ii=i-s
-               case(2) ; jj=j-s
-               case(3) ; kk=k-s
+               case(1) ; ii=i-s ; if (periodic) ii = modulo(ii-1,n)+1
+               case(2) ; jj=j-s ; if (periodic) jj = modulo(jj-1,n)+1
+               case(3) ; kk=k-s ; if (periodic) kk = modulo(kk-1,n)+1
                endselect
                if (ii<1 .or. ii>size(input,2) .or. jj<1 .or. jj>size(input,3) .or. &
                    kk<1 .or. kk>size(input,4)) cycle
