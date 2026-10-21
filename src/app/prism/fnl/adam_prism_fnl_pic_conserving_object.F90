@@ -109,6 +109,9 @@ type :: prism_fnl_pic_conserving_object
    real(R8P)    :: p(-7:7) = 0._R8P      !< Modified P kernel (cell centers / transverse lines).
    real(R8P)    :: qw(0:9) = 0._R8P      !< Modified Q kernel (normal faces to centers).
    real(R8P)    :: residual_max = 0._R8P !< Max current-solver residual of the current step.
+   logical      :: coherent = .false.    !< Coherent matched gather (field_weighting_model totorica or esirkepov_Q<N>).
+   integer(I4P) :: gradius = 0_I4P       !< Coherent gather: taps of its P kernel.
+   real(R8P)    :: gshift(3) = 0._R8P    !< Coherent gather: dx/2 for the odd esirkepov_Q<N> (dual nodes), 0 otherwise.
    ! device data
    integer(I4P), pointer :: off_gpu(:,:)              => null() !< Real block origin in the virtual block, cells [bnb,3].
    real(R8P),    pointer :: vx_gpu(:)                 => null() !< Virtual x cell centers [NX].
@@ -127,6 +130,9 @@ type :: prism_fnl_pic_conserving_object
    real(R8P),    pointer :: work_b_gpu(:,:,:,:)       => null() !< Interior scratch [nb,ni,nj,nk].
    real(R8P),    pointer :: line_gpu(:)               => null() !< Line-major scratch for line solves/scans.
    real(R8P),    pointer :: gather_gpu(:,:,:,:,:)     => null() !< Real-block field copy, external-field gather [bnb,...,nv].
+   real(R8P),    pointer :: gp_gpu(:)                 => null() !< Coherent gather P kernel [-7:7].
+   real(R8P),    pointer :: gq_gpu(:,:,:,:,:)         => null() !< Coherent gather: E, B filtered by P^T [bnb,...,6].
+   real(R8P),    pointer :: q_dual_gpu(:,:)           => null() !< Coherent gather: stage particles at x-dx/2 [np,8].
    real(R8P),    pointer :: jp_gpu(:,:,:,:,:)         => null() !< Single-particle virtual current, cleanup [1,ghosts...,3].
    real(R8P),    pointer :: src_gpu(:,:,:,:,:)        => null() !< Single-particle source, cleanup [nb,ni,nj,nk,3].
    real(R8P),    pointer :: src_stage_gpu(:,:,:,:,:,:)=> null() !< Single-particle stage sources [nb,ni,nj,nk,3,nrk].
@@ -141,6 +147,8 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self) :: initialize                  !< Initialize from host configuration.
       procedure, pass(self) :: prepare                     !< Build geometry-dependent caches.
       procedure, pass(self) :: allocate_gather             !< Allocate the external-field gather copy.
+      procedure, pass(self) :: initialize_coherent_gather  !< Kernels and buffers of the coherent matched gather.
+      procedure, pass(self) :: coherent_field_weighting    !< Gather E, B with P^T and the base shape.
       procedure, pass(self) :: copy_field                  !< Copy a q-like device field.
       procedure, pass(self) :: copy_particles              !< Copy a device particle array.
       procedure, pass(self) :: build_stage_target          !< q_next = q_pic + dt sum_r c_r k_r.
@@ -161,6 +169,7 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self), private :: scatter_current         !< Real q(J) = virtual J, ghosts included.
       procedure, pass(self), private :: impose_virtual_ghosts   !< Odd/zero current ghosts of the virtual block.
       procedure, pass(self), private :: check_source_support    !< Particle source inside its trajectory support box.
+      procedure, pass(self), private :: transposed_filter_axis  !< P^T convolution of the coherent gather along one axis.
 endtype prism_fnl_pic_conserving_object
 
 contains
@@ -171,6 +180,9 @@ contains
 
    call free_r1(self%p_gpu)
    call free_r1(self%qw_gpu)
+   call free_r1(self%gp_gpu)
+   call free_r2(self%q_dual_gpu)
+   call free_r5(self%gq_gpu)
    call free_r1(self%fv1_gpu)
    call free_r1(self%line_gpu)
    call free_r1(self%vx_gpu)
@@ -197,6 +209,7 @@ contains
    call free_i2(self%piv_z_gpu)
    self%enabled  = .false.
    self%prepared = .false.
+   self%coherent = .false.
    contains
       subroutine free_r1(a)
       real(R8P), pointer, intent(inout) :: a(:)
@@ -434,6 +447,129 @@ contains
                   lbounds=[1,1-self%ngc,1-self%ngc,1-self%ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gather_gpu in prism_fnl_pic_conserving_object')
    endsubroutine allocate_gather
+
+   subroutine initialize_coherent_gather(self, pic)
+   !< Kernels and buffers of the coherent gather of totorica and esirkepov_Q<N> (pic%set_coherent_gather already ran). CPU
+   !< twin: the gather_* state of prism_pic_object.
+   class(prism_fnl_pic_conserving_object), intent(inout) :: self !< Conserving current object.
+   type(prism_pic_object),                 intent(in)    :: pic  !< Host PIC object.
+   integer(I4P)                                          :: ierr !< Error status.
+
+   if (.not.pic%matched_gather()) return
+   self%coherent = .true.
+   self%gradius  = pic%gather_radius
+   self%gshift   = 0._R8P
+   if (pic%gather_dual) self%gshift = 0.5_R8P*self%vdx
+   ! uploaded 1-based: gp_gpu(s+8) = gather_p(s)
+   call dev_assign_to_device(src=[pic%gather_p], dst=self%gp_gpu)
+   call dev_alloc(fptr_dev=self%gq_gpu, ubounds=[self%bnb,self%bni+self%ngc,self%bnj+self%ngc,self%bnk+self%ngc,6], &
+                  lbounds=[1,1-self%ngc,1-self%ngc,1-self%ngc,1], init_value=0._R8P, ierr=ierr)
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gq_gpu in prism_fnl_pic_conserving_object')
+   if (self%particle_number > 0_I4P .and. any(self%gshift /= 0._R8P)) then
+      call dev_alloc(fptr_dev=self%q_dual_gpu, ubounds=[self%particle_number,8], lbounds=[1,1], init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_dual_gpu in prism_fnl_pic_conserving_object')
+   endif
+   endsubroutine initialize_coherent_gather
+
+   subroutine coherent_field_weighting(self, pic_fnl, field_fnl, field, grid, pic_fields_gpu, q, q_pic_gpu, nv)
+   !< Gather E and B with the transpose of the matched charge operator: P^T on the fields, then the unfiltered base shape
+   !< (on the dual nodes x_c+dx/2 for the odd esirkepov_Q<N>), the adjoint of deposit_modified_charge. CPU twin:
+   !< coherent_field_weighting of prism_pic_object.
+   !<
+   !< Multi-block, multi-rank: as the charge deposit, P^T runs on the virtual block. Each field component is copied from
+   !< the real interiors (every virtual cell has one owner block on one rank, the others add zero), summed over the ranks,
+   !< filtered, and scattered back to every real cell, ghosts included (interface ghosts get the neighbour values, physical
+   !< ghosts 0, the zero extension of the single-block filter).
+   class(prism_fnl_pic_conserving_object), intent(inout) :: self              !< Conserving current object.
+   type(prism_fnl_pic_object),             intent(inout) :: pic_fnl           !< Device PIC helper.
+   type(field_fnl_object),                 intent(in)    :: field_fnl         !< Device field helper.
+   type(field_object),                     intent(in)    :: field             !< Host field.
+   type(grid_object),                      intent(in)    :: grid              !< Grid.
+   real(R8P),                              intent(inout) :: pic_fields_gpu(:,:) !< Fields at the particles [np,6].
+   real(R8P),                              intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real field.
+   real(R8P),                              intent(in)    :: q_pic_gpu(:,:)    !< Gather particles [np,8].
+   integer(I4P),                           intent(in)    :: nv                !< Field variables number.
+   integer(I4P), pointer                                 :: off(:,:)
+   real(R8P),    pointer                                 :: wa(:,:,:,:), wb(:,:,:,:), gq(:,:,:,:,:), q_dual(:,:)
+   integer(I4P)                                          :: b, i, j, k, v, n, ni, nj, nk, nbl, ngc, nx, ny, nz, gi, gj, gk, np
+   real(R8P)                                             :: s1, s2, s3
+   logical                                               :: old_filter
+
+   if (.not.self%coherent) call mpih%error_stop(msg=': coherent gather kernels not initialized in conserving_fnl')
+   ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
+   nx = self%ni ; ny = self%nj ; nz = self%nk ; np = self%particle_number
+   off => self%off_gpu ; wa => self%work_a_gpu ; wb => self%work_b_gpu ; gq => self%gq_gpu
+   do v=1, 6
+      !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(wa)
+      !$omp OMPLOOP collapse(3) DEVICEPTR(wa)
+      do k=1, nz
+      do j=1, ny
+      do i=1, nx
+         wa(1,i,j,k) = 0._R8P
+      enddo
+      enddo
+      enddo
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wa,off) firstprivate(v)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(q,wa,off) firstprivate(v)
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+      do b=1, nbl
+         wa(1,off(b,1)+i,off(b,2)+j,off(b,3)+k) = q(b,i,j,k,v)
+      enddo
+      enddo
+      enddo
+      enddo
+      call self%reduce_virtual(a=self%work_a_gpu)
+      call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P)
+      call self%transposed_filter_axis(input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P)
+      call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(gq,wb,off) firstprivate(v,nx,ny,nz) &
+      !$acc& private(gi,gj,gk)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(gq,wb,off) firstprivate(v,nx,ny,nz) private(gi,gj,gk)
+      do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+      do i=1-ngc, ni+ngc
+      do b=1, nbl
+         gi = off(b,1) + i ; gj = off(b,2) + j ; gk = off(b,3) + k
+         if (gi >= 1 .and. gi <= nx .and. gj >= 1 .and. gj <= ny .and. gk >= 1 .and. gk <= nz) then
+            gq(b,i,j,k,v) = wb(1,gi,gj,gk)
+         else
+            gq(b,i,j,k,v) = 0._R8P
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+   enddo
+   old_filter = pic_fnl%filter_deposition
+   pic_fnl%filter_deposition = .false.
+   if (np > 0_I4P .and. any(self%gshift /= 0._R8P)) then
+      ! odd filters: the base shape on the dual nodes, read as the particles at x-dx/2; then restore the real lookup
+      q_dual => self%q_dual_gpu
+      s1 = self%gshift(1) ; s2 = self%gshift(2) ; s3 = self%gshift(3)
+      !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(q_dual,q_pic_gpu) firstprivate(s1,s2,s3)
+      !$omp OMPLOOP collapse(2) DEVICEPTR(q_dual,q_pic_gpu) firstprivate(s1,s2,s3)
+      do v=1, 8
+      do n=1, np
+         select case(v)
+         case(1)      ; q_dual(n,v) = q_pic_gpu(n,v) - s1
+         case(2)      ; q_dual(n,v) = q_pic_gpu(n,v) - s2
+         case(3)      ; q_dual(n,v) = q_pic_gpu(n,v) - s3
+         case default ; q_dual(n,v) = q_pic_gpu(n,v)
+         endselect
+      enddo
+      enddo
+      call pic_fnl%particle_cartesian_grid_index_dev(field_fnl=field_fnl, field=field, grid=grid, q_pic_gpu=q_dual)
+      call pic_fnl%field_weighting_dev(field_fnl=field_fnl, field=field, grid=grid, pic_fields_gpu=pic_fields_gpu, &
+                                       q_gpu=gq, q_pic_gpu=q_dual, nv=nv)
+      call pic_fnl%particle_cartesian_grid_index_dev(field_fnl=field_fnl, field=field, grid=grid, q_pic_gpu=q_pic_gpu)
+   else
+      call pic_fnl%field_weighting_dev(field_fnl=field_fnl, field=field, grid=grid, pic_fields_gpu=pic_fields_gpu, &
+                                       q_gpu=gq, q_pic_gpu=q_pic_gpu, nv=nv)
+   endif
+   pic_fnl%filter_deposition = old_filter
+   endsubroutine coherent_field_weighting
 
    subroutine copy_field(self, src, dst)
    !< dst = src, full real-block q-like device field (ghosts included).
@@ -1671,6 +1807,43 @@ contains
    enddo
    enddo
    endsubroutine filter_axis
+
+   subroutine transposed_filter_axis(self, input, output, axis)
+   !< Transpose of filter_axis with the coherent gather kernel: output_m = sum_s p(s) input_{m-s}, zero extension. CPU twin:
+   !< transposed_filter_axis of prism_pic_object.
+   class(prism_fnl_pic_conserving_object), intent(in)    :: self              !< Conserving current object.
+   real(R8P),                              intent(in)    :: input(1:,1:,1:,1:)  !< Input [nb,ni,nj,nk].
+   real(R8P),                              intent(inout) :: output(1:,1:,1:,1:) !< Output [nb,ni,nj,nk].
+   integer(I4P),                           intent(in)    :: axis              !< Filter axis.
+   real(R8P), pointer                                    :: p(:)
+   real(R8P)                                             :: acc
+   integer(I4P)                                          :: b, i, j, k, s, ii, jj, kk, ni, nj, nk, nbl, radius
+
+   ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number ; radius = self%gradius
+   p => self%gp_gpu
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(input,output,p) firstprivate(axis,radius) &
+   !$acc& private(acc,ii,jj,kk)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(input,output,p) firstprivate(axis,radius) private(acc,ii,jj,kk)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, nbl
+      acc = 0._R8P
+      !$acc loop seq
+      do s=-radius, radius
+         ii = i ; jj = j ; kk = k
+         if (axis == 1) ii = i - s
+         if (axis == 2) jj = j - s
+         if (axis == 3) kk = k - s
+         if (ii < 1 .or. ii > ni .or. jj < 1 .or. jj > nj .or. kk < 1 .or. kk > nk) cycle
+         acc = acc + p(s+8)*input(b,ii,jj,kk)
+      enddo
+      output(b,i,j,k) = acc
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine transposed_filter_axis
 
    ! device helpers
    pure subroutine line_cell(dir, m, t1, t2, i, j, k)

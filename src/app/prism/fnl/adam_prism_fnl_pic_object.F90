@@ -348,7 +348,20 @@ contains
    case('Gaussian')
       self%field_weighting_dev => Gaussian_field_weighting_dev
    case default
-      call mpih_fnl%error_stop(msg=': invalid field weighting model in prism_fnl_pic_object%initialize')
+      if (.not.pic%coherent_gather()) &
+         call mpih_fnl%error_stop(msg=': invalid field weighting model in prism_fnl_pic_object%initialize')
+      ! coherent gathers: the particle-shape gather (on the P^T-filtered fields of conserving_fnl for totorica and
+      ! esirkepov_Q<N>, which also switch the binomial filter off; CPU twin: shape_field_weighting)
+      select case(trim(pic%particle_weighting_model))
+      case('NGP')      ; self%field_weighting_dev => zeroD_field_weighting_dev
+      case('CIC')      ; self%field_weighting_dev => oneD_field_weighting_dev
+      case('TSC')      ; self%field_weighting_dev => twoD_field_weighting_dev
+      case('cubic')    ; self%field_weighting_dev => threeD_field_weighting_dev
+      case('quartic')  ; self%field_weighting_dev => fourD_field_weighting_dev
+      case('quintic')  ; self%field_weighting_dev => fiveD_field_weighting_dev
+      case('sextic')   ; self%field_weighting_dev => sixD_field_weighting_dev
+      case('Gaussian') ; self%field_weighting_dev => Gaussian_field_weighting_dev
+      endselect
    endselect
 
    if (self%particle_number == 0) then

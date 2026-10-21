@@ -122,6 +122,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: fold_deposited_ghosts_dev !< Fold PIC deposits spilled into ghosts, locally and across ranks.
+      procedure, pass(self) :: gather_pic_fields_dev   !< Gather E, B at the particles (coherent matched gathers included).
       procedure, pass(self) :: migrate_particles       !< Migrate particles between ranks (end of a time step).
       procedure, pass(self) :: sync_particle_number    !< Align the device helpers to the local particle count.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
@@ -545,6 +546,11 @@ contains
             call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
          call self%pic%check_esirkepov_q_order(fdv_order=self%fdv_order)
       endif
+      call self%pic%set_coherent_gather(hs=self%fdv_half_stencils(1))
+      ! P^T of the coherent matched gathers runs on the virtual block of the conserving current
+      if (self%pic%matched_gather() .and. trim(self%pic%current_weighting_model) /= CONSERVING_CURRENT_WEIGHTING_MODEL) &
+         call mpih%error_stop(msg=': the coherent gather '//trim(self%pic%field_weighting_model)//' requires '// &
+                                  'current_weighting_model = conserving on the FNL backend')
    endif
    call check_pml_configuration()
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
@@ -570,6 +576,7 @@ contains
                                              nv=self%nv, nrk=self%rk%nrk, &
                                              fdv_order=self%fdv_order, hs=self%fdv_half_stencils(1))
          if (self%external_fields%ef_type /= EF_TYPE_NONE) call self%conserving_fnl%allocate_gather
+         call self%conserving_fnl%initialize_coherent_gather(pic=self%pic)
       endif
    endif
 
@@ -834,14 +841,15 @@ contains
       if (self%external_fields%ef_type /= EF_TYPE_NONE) &
          call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                       dt=0._R8P, time=self%time%time, q_gpu=self%q_gpu)
-      call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
-                                            pic_fields_gpu=self%pic_fnl%pic_fields_gpu, q_gpu=self%q_gpu, &
-                                            q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
+      call self%gather_pic_fields_dev(q_gpu=self%q_gpu, &
+                                      q_pic_gpu=self%pic_fnl%q_pic_gpu)
       if (self%external_fields%ef_type /= EF_TYPE_NONE) &
          call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                       dt=0._R8P, time=self%time%time, q_gpu=self%q_gpu)
       call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
-      if (self%time%it == 0_I4P .and. self%pic%particle_number > 0_I4P) then
+      ! host twin of the coherent matched gathers: single block, single rank only
+      if (self%time%it == 0_I4P .and. self%pic%particle_number > 0_I4P .and. &
+          .not.(self%pic%matched_gather() .and. (self%adam%field%blocks_number > 1_I4P .or. mpih%procs_number > 1_I4P))) then
          allocate(pic_fields_dev, source=self%pic_fields)
          allocate(neighbour_list_dev, source=self%pic%neighbour_list)
          allocate(pic_fields_host, mold=self%pic_fields)
@@ -2017,8 +2025,26 @@ contains
       call self%apply_fWL_correction(q_gpu=self%q_gpu)
       if (is_pic_model(self%physics%physical_model)) then
          call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q,src=self%q_gpu,buf=self%buf_5D_R8P)
-         call self%weight_pic_fields_time_zero()
-         call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+         if (self%pic%matched_gather()) then
+            ! coherent matched gather: P^T needs the virtual block (multi-block, multi-rank), so the t=0 gather runs on
+            ! the device (the host twin is single-block, single-rank)
+            call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+            call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                                grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+            if (self%external_fields%ef_type /= EF_TYPE_NONE) then
+               call self%conserving_fnl%copy_field(src=self%q_gpu, dst=self%conserving_fnl%gather_gpu)
+               call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
+                                            dt=0._R8P, time=0._R8P, q_gpu=self%conserving_fnl%gather_gpu)
+               call self%gather_pic_fields_dev(q_gpu=self%conserving_fnl%gather_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+            else
+               call self%gather_pic_fields_dev(q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+            endif
+            call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+            if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) call self%save_pic_self_force_diagnostic_time_zero()
+         else
+            call self%weight_pic_fields_time_zero()
+            call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+         endif
       endif
    endif
    endsubroutine set_initial_conditions
@@ -5228,10 +5254,8 @@ contains
          call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                       dt=self%time%dt, time=self%time%time, q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
                                       gamm=self%rk%gamm(s))
-      call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
-                                            pic_fields_gpu=self%pic_fnl%pic_fields_gpu, &
-                                            q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
-                                            q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+      call self%gather_pic_fields_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                      q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s))
       if (self%external_fields%ef_type/=EF_TYPE_NONE) &
          call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                       dt=self%time%dt, time=self%time%time, q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
@@ -5274,6 +5298,26 @@ contains
    ! hand the particles that left the blocks of this rank to their new owners
    call self%migrate_particles
    endsubroutine integrate_rk_ssp_pic
+
+   subroutine gather_pic_fields_dev(self, q_gpu, q_pic_gpu)
+   !< Gather E and B at the particles into pic_fnl%pic_fields_gpu: the coherent gathers of totorica and esirkepov_Q<N> run in
+   !< conserving_fnl (P^T on the virtual block, then the base shape), every other model is the pic_fnl gather. The
+   !< neighbour list of q_pic_gpu must be current.
+   class(prism_fnl_object), intent(inout) :: self                                             !< The equation.
+   real(R8P),               intent(in)    :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Fields on device.
+   real(R8P),               intent(in)    :: q_pic_gpu(1:,1:)                                 !< Particles on device.
+
+   if (self%pic%matched_gather()) then
+      call self%conserving_fnl%coherent_field_weighting(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, &
+                                                        field=self%adam%field, grid=self%adam%grid, &
+                                                        pic_fields_gpu=self%pic_fnl%pic_fields_gpu, q=q_gpu, &
+                                                        q_pic_gpu=q_pic_gpu, nv=self%nv)
+   else
+      call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
+                                            pic_fields_gpu=self%pic_fnl%pic_fields_gpu, q_gpu=q_gpu, &
+                                            q_pic_gpu=q_pic_gpu, nv=self%nv)
+   endif
+   endsubroutine gather_pic_fields_dev
 
    subroutine fold_deposited_ghosts_dev(self, q_gpu, v_first, v_last)
    !< Fold the PIC deposits that spilled into ghost cells back onto the cells they mirror, on this rank and across ranks,
@@ -5369,13 +5413,11 @@ contains
          call cc%copy_field(src=q_rk_gpu(:,:,:,:,:,s), dst=cc%gather_gpu)
          call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                       dt=self%time%dt, time=self%time%time, q_gpu=cc%gather_gpu, gamm=self%rk%gamm(s))
-         call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
-                                               pic_fields_gpu=self%pic_fnl%pic_fields_gpu, q_gpu=cc%gather_gpu, &
-                                               q_pic_gpu=q_pic_rk_gpu(:,:,s), nv=self%nv)
+         call self%gather_pic_fields_dev(q_gpu=cc%gather_gpu, &
+                                         q_pic_gpu=q_pic_rk_gpu(:,:,s))
       else
-         call self%pic_fnl%field_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
-                                               pic_fields_gpu=self%pic_fnl%pic_fields_gpu, q_gpu=q_rk_gpu(:,:,:,:,:,s), &
-                                               q_pic_gpu=q_pic_rk_gpu(:,:,s), nv=self%nv)
+         call self%gather_pic_fields_dev(q_gpu=q_rk_gpu(:,:,:,:,:,s), &
+                                         q_pic_gpu=q_pic_rk_gpu(:,:,s))
       endif
       call self%rk_pic_fnl%assign_stage(s=s, pic_fields_gpu=self%pic_fnl%pic_fields_gpu)
 
