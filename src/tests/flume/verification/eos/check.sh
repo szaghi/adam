@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # FLUME verification EO: the isothermal and barotropic equations of state, `[eos] type = isothermal | barotropic`
-# (issue #100, M13 P1, P2, P3).
+# (issue #100, M13 P1, P2, P3; gravity, self-gravity, the Jeans marker and sinks, P4: gravity.sh).
 #
 # Why: the isothermal gas P = c0^2 rho drops the energy equation (D-M13-1: the state keeps its layout, the energy slot
 # rE is inert, zero flux and zero source, held at 0), so its Riemann problem has an exact solution with no pressure
@@ -16,9 +16,10 @@
 #        (two blocks, two ranks), SSP-54 at CFL 0.1 (the time error below the WENO-5 space error): the observed L1
 #        order of the finest pair above 4.5;
 #   eo4  the contract: what the isothermal gas does not define yet is refused with its own message ([cooling],
-#        [sinks], [gravity], viscosity, positivity_limiter = cell, [reference], immersed solids, the no-slip and
-#        hydrostatic walls, an IC whose density needs gamma), and so are a malformed [eos] (mhd-ideal or passive
-#        scalars with it, the gas keys cp/cv, a missing or non-positive sound_speed, an unknown type);
+#        viscosity, [reference], immersed solids, the no-slip and hydrostatic walls, an IC whose density needs gamma),
+#        and so are a malformed [eos] (mhd-ideal or passive scalars with it, the gas keys cp/cv, a missing or
+#        non-positive sound_speed, an unknown type); gravity, sinks and the positivity limiter are defined since P4
+#        (gravity.sh);
 #   eo5  the inert slot and the mass: a wave of amplitude 0.3 on the periodic box, which breaks into a shock at
 #        t ~ 1 / (c0 A k) = 0.53 (N = 48, two ranks, to t = 1): rE exactly 0 in every checkpoint, the total mass
 #        constant to 1e-13;
@@ -147,10 +148,7 @@ for leg in $LEGS; do
          if [[ ${#works[@]} -eq 3 ]]; then "$VENV_PY" "$CASE_DIR/eos_oracle.py" wave "${works[@]}" || FAILED=1 ; fi ;;
       eo4)
          refuse cooling "\[cooling\] is refused $ISO" --set "cooling:particle_mass=1.0"
-         refuse sinks "\[sinks\] is refused $ISO" --set "sinks:mass=1.0"
-         refuse gravity "\[gravity\] is refused $ISO" --set "gravity:g_x=0.0"
          refuse viscosity "dissipative terms .* are refused with" --set "physics:viscosity=0.01"
-         refuse limiter "\(positivity_limiter\)=cell is refused $ISO" --set "numerics:positivity_limiter=cell"
          refuse reference "\[reference\] is refused $ISO" --set "reference:length=1.0"
          refuse solids "immersed solids are refused $ISO" --set "solids:number=1" --set "solid_1:name=cylinder" \
             --set "solid_1:bc_type=2" --set "solid_1:definition=analytical_circle" \

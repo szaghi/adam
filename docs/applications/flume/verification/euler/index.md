@@ -25,6 +25,7 @@ golden; the goldens of the regression suite are listed in each page's header.
 | [Radiative cooling](./radiative-cooling) | CO | optically thin cooling by Townsend's exact integration: the isochoric ODE to round-off, the floor, a radiative shock against its steady structure |
 | [Isothermal equation of state](./isothermal-eos) | EO | $P = c_0^2\rho$: the shock tube and a Mach-5 collision against the exact solution, the fifth order on an acoustic wave, the inert energy slot, the contract |
 | [Barotropic equation of state](./barotropic-eos) | EO (eb) | a piecewise polytrope: a fan split at a convex break, shocks across segments, the order with $c^2 = P'(\rho_0)$, the Mathew & Federrath table by self-convergence |
+| [Barotropic gases under gravity](./barotropic-gravity) | EO (eg) | gravity on the momentum only, Jeans waves with $c^2 = P'(\rho_0)$, the Jeans marker, sinks with $c_s^2 = dP/d\rho$ and the virial thermal energy, Bonnor–Ebert stability, Boss–Bodenheimer |
 
 The figures are drawn by `src/tests/flume/verification/make_doc_figures.py` from the work directories that the
 `check.sh` scripts leave behind (the step's with `--keep`):

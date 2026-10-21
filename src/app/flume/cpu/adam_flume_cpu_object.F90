@@ -94,11 +94,19 @@ use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>b
 use :: adam_flume_cpu_euler_iso_kernels, only : blend_inadmissible_ghosts_euler_iso=>blend_inadmissible_ghosts,         &
                                                compute_face_fluxes_euler_iso=>compute_face_fluxes,                     &
                                                compute_lambda_max_euler_iso=>compute_lambda_max,                       &
+                                               blend_positivity_fluxes_euler_iso=>blend_positivity_fluxes, &
+                                               compute_backbone_fluxes_euler_iso=>compute_backbone_fluxes, &
+                                               compute_seam_positivity_factors_euler_iso=>compute_seam_positivity_factors, &
+                                               compute_positivity_factors_euler_iso=>compute_positivity_factors, &
                                                compute_q_aux_euler_iso=>compute_q_aux,                                 &
                                                count_nonfinite_euler_iso=>count_nonfinite
 use :: adam_flume_cpu_euler_baro_kernels, only : blend_inadmissible_ghosts_euler_baro=>blend_inadmissible_ghosts,         &
                                                compute_face_fluxes_euler_baro=>compute_face_fluxes,                     &
                                                compute_lambda_max_euler_baro=>compute_lambda_max,                       &
+                                               blend_positivity_fluxes_euler_baro=>blend_positivity_fluxes, &
+                                               compute_backbone_fluxes_euler_baro=>compute_backbone_fluxes, &
+                                               compute_seam_positivity_factors_euler_baro=>compute_seam_positivity_factors, &
+                                               compute_positivity_factors_euler_baro=>compute_positivity_factors, &
                                                compute_q_aux_euler_baro=>compute_q_aux,                                 &
                                                count_nonfinite_euler_baro=>count_nonfinite
 use :: adam_flume_cpu_euler_iso_hll_kernels,  only : compute_riemann_face_fluxes_euler_iso_hll=>compute_riemann_face_fluxes
@@ -979,6 +987,18 @@ contains
                                             dxyz=dxyz, is_null=is_null, q=q,                                           &
                                             q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,          &
                                             gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
+   case(MODEL_EULER_ISO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+      call compute_positivity_factors_euler_iso(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,         &
+                                            damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi=self%phi_grav,     &
+                                            dxyz=dxyz, is_null=is_null, q=q,                                           &
+                                            q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,          &
+                                            gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
+   case(MODEL_EULER_BARO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+      call compute_positivity_factors_euler_baro(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,         &
+                                            damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi=self%phi_grav,     &
+                                            dxyz=dxyz, is_null=is_null, q=q,                                           &
+                                            q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f,          &
+                                            gc=self%gcor, lam=self%lam, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD)
       call compute_positivity_factors_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,           &
                                           damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi=self%phi_grav,       &
@@ -1060,6 +1080,36 @@ contains
                                                fl=self%fly_f, limited=counts(1+d))
          case(3)
             call blend_positivity_fluxes_euler_de(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%flz_f, limited=counts(1+d))
+         endselect
+      case(MODEL_EULER_ISO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_euler_iso(d=d, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%flx_f, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_euler_iso(d=d, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%fly_f, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_euler_iso(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%flz_f, limited=counts(1+d))
+         endselect
+      case(MODEL_EULER_BARO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_euler_baro(d=d, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%flx_f, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_euler_baro(d=d, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                               blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
+                                               fl=self%fly_f, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_euler_baro(d=d, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
                                                blocks_number=nb, gamma=gamma, ch=ch, q=q, lam=self%lam,            &
                                                fl=self%flz_f, limited=counts(1+d))
          endselect
@@ -1189,6 +1239,12 @@ contains
          case(MODEL_EULER_DE)
             call compute_backbone_fluxes_euler_de(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
                                                qL=qL, qR=qR, flo=fl)
+         case(MODEL_EULER_ISO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+            call compute_backbone_fluxes_euler_iso(n=nc, d=axis, gamma=self%physics%eos_arg, ch=self%physics%mhd%glm_ch, &
+                                               qL=qL, qR=qR, flo=fl)
+         case(MODEL_EULER_BARO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+            call compute_backbone_fluxes_euler_baro(n=nc, d=axis, gamma=self%physics%eos_arg, ch=self%physics%mhd%glm_ch, &
+                                               qL=qL, qR=qR, flo=fl)
          case(MODEL_MHD)
             call compute_backbone_fluxes_mhd(n=nc, d=axis, gamma=self%physics%gamma, ch=self%physics%mhd%glm_ch, &
                                              qL=qL, qR=qR, flo=fl)
@@ -1279,7 +1335,8 @@ contains
    enddo
    endassociate
    if (n == 0) return
-   associate(ngc=>self%ngc, gamma=>self%physics%gamma, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
+   ! the EOS parameter (issue #100): gamma, or c0^2 / the table id of a barotropic gas
+   associate(ngc=>self%ngc, gamma=>self%physics%eos_arg, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
              dt=>self%time%dt, hs=>self%weno%S, dxyz=>self%adam%field%dxyz, g=>self%physics%gravity%g_uniform, &
              has_phi=>self%physics%gravity%has_potential)
    select case(self%physics%model)
@@ -1303,6 +1360,18 @@ contains
                                                  olo=olo, ohi=ohi, lam=self%lam, dbad=db, dnonfinite=dn)
    case(MODEL_EULER_DE)
       call compute_seam_positivity_factors_euler_de(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g,        &
+                                                 has_phi=has_phi, phi=self%phi_grav, dxyz=dxyz,                              &
+                                                 is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
+                                                 flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
+                                                 olo=olo, ohi=ohi, lam=self%lam, dbad=db, dnonfinite=dn)
+   case(MODEL_EULER_ISO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+      call compute_seam_positivity_factors_euler_iso(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g,        &
+                                                 has_phi=has_phi, phi=self%phi_grav, dxyz=dxyz,                              &
+                                                 is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
+                                                 flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
+                                                 olo=olo, ohi=ohi, lam=self%lam, dbad=db, dnonfinite=dn)
+   case(MODEL_EULER_BARO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+      call compute_seam_positivity_factors_euler_baro(ngc=ngc, gamma=gamma, ch=ch, damping=0._R8P, hs=hs, dt=dt, g=g,        &
                                                  has_phi=has_phi, phi=self%phi_grav, dxyz=dxyz,                              &
                                                  is_null=is_null, q=q, q_aux=self%q_aux, flx=self%flx_f, fly=self%fly_f, &
                                                  flz=self%flz_f, gc=self%gcor, ncells=n, cell=cell, omask=omask,        &
@@ -1646,31 +1715,31 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER)
       call blend_inadmissible_ghosts_euler(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                           blended=blended)
+                                           to_anchor=.false., blended=blended)
    case(MODEL_EULER_ISO)
       call blend_inadmissible_ghosts_euler_iso(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                               blended=blended)
+                                               to_anchor=.true., blended=blended)
    case(MODEL_EULER_BARO) ! issue #100, P3
       call blend_inadmissible_ghosts_euler_baro(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                               blended=blended)
+                                               to_anchor=.true., blended=blended)
    case(MODEL_EULER_PS)
       call blend_inadmissible_ghosts_euler_ps(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                           blended=blended)
+                                           to_anchor=.false., blended=blended)
    case(MODEL_EULER_DE_PS)
       call blend_inadmissible_ghosts_euler_de_ps(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                           blended=blended)
+                                           to_anchor=.false., blended=blended)
    case(MODEL_EULER_DE)
       call blend_inadmissible_ghosts_euler_de(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                           blended=blended)
+                                           to_anchor=.false., blended=blended)
    case(MODEL_MHD)
       call blend_inadmissible_ghosts_mhd(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                         blended=blended)
+                                         to_anchor=.false., blended=blended)
    case(MODEL_MHD_GLM)
       call blend_inadmissible_ghosts_mhd_glm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                             blended=blended)
+                                             to_anchor=.false., blended=blended)
    case(MODEL_MHD_EGLM)
       call blend_inadmissible_ghosts_mhd_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                              blended=blended)
+                                              to_anchor=.false., blended=blended)
    endselect
    endassociate
    if (blended > 0_I4P) print '(A)', mpih%myrankstr//'ghost positivity: '//trim(str(blended))// &
@@ -1762,7 +1831,9 @@ contains
          if (self%physics%model == MODEL_MHD_EGLM) delta(IQ_BX:IQ_BZ) = 0._R8P
          theta = 1._R8P
          if (limit) theta = reflux_positivity_theta(nv=self%nv, q=self%q(:,i,j,k,face%coarse_block), d=scale*delta, &
-                                                    mag_w=mag_w, psi_w=psi_w)
+                                                    mag_w=mag_w, psi_w=psi_w,                                     &
+                                                    cs2_inert=merge(self%physics%sound_speed**2, 0._R8P,         &
+                                                                    has_inert_energy(self%physics%model)))
          if (theta < 1._R8P) then
             self%q(:,i,j,k,face%coarse_block) = self%q(:,i,j,k,face%coarse_block) + theta * (scale * delta)
             nclip = nclip + 1_I4P
@@ -2575,6 +2646,27 @@ contains
    !$omp end parallel do
    endsubroutine add_potential_sources
 
+   subroutine clear_inert_energy(ni, nj, nk, ngc, blocks_number, dq)
+   !< Clear the energy residual of a barotropic gas (issue #100, P4): the gravity sources give the energy row the work
+   !< of gravity, which a gas without an energy equation does not have; its energy slot stays inert (D-M13-1).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                  !< Actual blocks number.
+   real(R8P),    intent(inout) :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
+   integer(I4P)                :: b, i, j, k                     !< Counters.
+
+   !$omp parallel do collapse(4) default(firstprivate) shared(dq)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               dq(IQ_RE,i,j,k,b) = 0._R8P
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine clear_inert_energy
+
    subroutine add_gravity_limited_correction(ni, nj, nk, ngc, blocks_number, lam, dq)
    !< Remove from the gravity energy source of each cell `(1 - Lambda) L` (issue #73, M7-G1, option B): `Lambda` and
    !< `L` (`lam(1)`, `lam(2)`) from the positivity limiter, which gave the backbone the time-centred energy and limited
@@ -3028,7 +3120,8 @@ contains
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
-   if (self%physics%gravity%is_active) call self%compute_gravity_correction(q=q)
+   if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
+      call self%compute_gravity_correction(q=q)
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
                                                                                          flux_register=flux_register)
@@ -3050,6 +3143,9 @@ contains
                                                                       fly=self%fly_f, flz=self%flz_f, dq=dq)
    if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call add_gravity_limited_correction(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam=self%lam, dq=dq)
+   ! a barotropic gas (issue #100, P4): gravity acts on the momentum only, the energy slot stays inert
+   if (self%physics%gravity%is_active .and. has_inert_energy(self%physics%model)) &
+      call clear_inert_energy(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, dq=dq)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
                                                                   damping=self%physics%mhd%glm_damping, q=q, dq=dq)
    if (self%physics%model == MODEL_MHD_EGLM) then
@@ -3223,7 +3319,8 @@ contains
          print '(A)', mpih%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
-   if (self%physics%gravity%is_active) call self%compute_gravity_correction(q=q)
+   if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
+      call self%compute_gravity_correction(q=q)
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
                                                                                          flux_register=flux_register)
@@ -3245,6 +3342,9 @@ contains
                                                                       fly=self%fly_f, flz=self%flz_f, dq=dq)
    if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call add_gravity_limited_correction(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam=self%lam, dq=dq)
+   ! a barotropic gas (issue #100, P4): gravity acts on the momentum only, the energy slot stays inert
+   if (self%physics%gravity%is_active .and. has_inert_energy(self%physics%model)) &
+      call clear_inert_energy(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, dq=dq)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,          &
                                                                   damping=self%physics%mhd%glm_damping, q=q, dq=dq)
    if (self%physics%model == MODEL_MHD_EGLM) then

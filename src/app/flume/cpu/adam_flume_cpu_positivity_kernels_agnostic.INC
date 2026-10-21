@@ -2,13 +2,23 @@
    !
    ! Included in the `contains` part of the kernel modules of the models that accept the limiter (Euler, MHD without
    ! divergence control, MHD with EGLM; D-10 refuses it with the mixed GLM), which provide by use association `NV_K`,
-   ! `NV_AUX_K`, `IQ_R`, `POSITIVITY_LIMITER_KAPPA`, and three private adapters:
+   ! `NV_AUX_K`, `IQ_R`, `POSITIVITY_LIMITER_KAPPA`, and four private adapters:
    ! * `backbone_face_flux(gamma, ch, d, qL, qR, f)`: the first-order Lax-Friedrichs flux of two cell states, whose
    !   forward-Euler update is admissible under the CFL condition (Euler: Rusanov; MHD: the Wu speed);
    ! * `internal_energy(q)`: the internal energy per unit volume, `E` minus the kinetic, magnetic and cleaning energies,
    !   a concave function of `q` (positive with the density iff the state is admissible);
    ! * `cell_sources(...)`: the cell sources of the backbone (`s_lo`) and of the high-order update (`s_hi`); zero but for
-   !   EGLM (second-order and order-2S centred differences, plus the damping in both).
+   !   EGLM (second-order and order-2S centred differences, plus the damping in both);
+   ! * `kinetic_sound_speed2(gamma, q)`: the `c^2` of the kinetic chord of the barotropic gases (issue #100, P4), 0 for
+   !   the other models (no chord). Their `internal_energy` is the density, so nothing bounds the velocity `m / rho` of
+   !   a corner whose density the chord takes to the floor: it is extrapolated, up to `1 / KAPPA` times the
+   !   backbone's, where the internal-energy chord of the other models rejects that kinetic energy. The kinetic chord
+   !   is the same chord on `f = rho W - |m|^2 / (2 rho)`, concave, with `W = (4 |u_b|^2 + c^2) / 2` of the backbone:
+   !   `f >= KAPPA f_b` bounds the corner's speed by about `sqrt(4 |u_b|^2 + c^2)`, twice the backbone's (a bound of
+   !   `sqrt(|u_b|^2 + c^2)` clips a hypersonic stage that outruns its backbone by 0.45 c / M: the cold accretion of the
+   !   sinks' verification drifted its momentum by 13 % of the exchange, 2.6 % at twice). Without it the
+   !   Boss-Bodenheimer cloud drained the ambient beside the corners of its refined cube to `rho = 1e-5` at `|u| = 365`
+   !   and stalled at 1.32 t_ff.
    ! Gravity (issue #73, M7-G1, option B) is model-agnostic and enters here directly. The backbone takes the momentum
    ! source `rho g` and the time-centred energy `rho g . (u + g dt / 2)`, which leaves its internal energy unchanged
    ! (so gravity never makes a backbone inadmissible, near vacuum or stiff); per face, the antidiffusive difference
@@ -143,7 +153,7 @@
                dsrc = dt * (s_hi - s_lo)
                dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc + gc(1,i,j,k,b))
                lam(2,i,j,k,b) = sl - cc + gc(1,i,j,k,b)
-               call positivity_cell_factor(nf=nf, qb=qb, dlt=dlt, dsrc=dsrc, lc=lc, status=st)
+               call positivity_cell_factor(nf=nf, gamma=gamma, qb=qb, dlt=dlt, dsrc=dsrc, lc=lc, status=st)
                if (st == 1_I4P) bad = bad + 1_I4P
                if (st == 2_I4P) nonfinite = nonfinite + 1_I4P
                lam(1,i,j,k,b) = lc
@@ -283,8 +293,8 @@
       dsrc0 = dsrc
       dsrc0(IQ_RE) = dsrc0(IQ_RE) + dt * (sl0 - cc + gc(1,i,j,k,b))
       dsrc(IQ_RE) = dsrc(IQ_RE) + dt * (sl - cc + gc(1,i,j,k,b))
-      call positivity_cell_factor(nf=nf, qb=qb0, dlt=dlt0, dsrc=dsrc0, lc=lc0, status=st0)
-      call positivity_cell_factor(nf=nf, qb=qb, dlt=dlt, dsrc=dsrc, lc=lc, status=st)
+      call positivity_cell_factor(nf=nf, gamma=gamma, qb=qb0, dlt=dlt0, dsrc=dsrc0, lc=lc0, status=st0)
+      call positivity_cell_factor(nf=nf, gamma=gamma, qb=qb, dlt=dlt, dsrc=dsrc, lc=lc, status=st)
       dbad = dbad + merge(1_I4P, 0_I4P, st == 1_I4P) - merge(1_I4P, 0_I4P, st0 == 1_I4P)
       dnonfinite = dnonfinite + merge(1_I4P, 0_I4P, st == 2_I4P) - merge(1_I4P, 0_I4P, st0 == 2_I4P)
       lam(1,i,j,k,b) = lc
@@ -311,12 +321,13 @@
    enddo
    endsubroutine compute_backbone_fluxes
 
-   pure subroutine positivity_cell_factor(nf, qb, dlt, dsrc, lc, status)
+   pure subroutine positivity_cell_factor(nf, gamma, qb, dlt, dsrc, lc, status)
    !< The factor of one cell from its backbone update `qb`, the antidiffusive differences `dlt(:,1:nf)` of its active
    !< faces and the source difference `dsrc`: `status` 1 (and `lc = 0`) if the backbone is not admissible, 2 (and
    !< `lc = 0`) if a face difference is not finite (a NaN passes every comparison of the corners), else 0 with `lc` the
    !< largest factor of the corner box.
    integer(I4P), intent(in)  :: nf                      !< Active faces.
+   real(R8P),    intent(in)  :: gamma                   !< EOS parameter.
    real(R8P),    intent(in)  :: qb(NV_K)                !< Backbone update.
    real(R8P),    intent(in)  :: dlt(NV_K,6)             !< Antidiffusive differences.
    real(R8P),    intent(in)  :: dsrc(NV_K)              !< Source difference.
@@ -326,6 +337,7 @@
    real(R8P)                 :: dc(NV_K)                !< Corner direction.
    real(R8P)                 :: rb, eb, er, ee          !< Backbone density, energy, their floors.
    real(R8P)                 :: r1, e1, t               !< Corner density, energy, factor.
+   real(R8P)                 :: cs2                     !< Kinetic chord's c^2 (0: no chord).
    integer(I4P)              :: f, c                    !< Counters.
 
    lc = 0._R8P
@@ -345,6 +357,7 @@
       enddo
    enddo
    status = 0_I4P
+   cs2 = kinetic_sound_speed2(gamma=gamma, q=qb)
    ! the relative floor: a stage may not take the cell below KAPPA times its backbone value (no absolute floor: issue
    ! #49, the scheme has no unit), else a drained cell (its energy kept) makes the next stage's backbone inadmissible
    er = POSITIVITY_LIMITER_KAPPA * rb
@@ -360,10 +373,38 @@
       if (r1 < er) t = (rb - er) / (rb - r1)
       e1 = internal_energy(q=qb + t * dc)
       if (e1 < ee) t = t * (eb - ee) / (eb - e1)
+      if (cs2 > 0._R8P) t = kinetic_factor(cs2=cs2, qb=qb, dc=dc, t=t)
       lc = min(lc, t)
    enddo
    lc = max(0._R8P, lc)
    endsubroutine positivity_cell_factor
+
+   pure function kinetic_factor(cs2, qb, dc, t) result(tk)
+   !< The kinetic chord of a barotropic gas (issue #100, P4; see the module): the factor `t` of the corner `qb + t dc`
+   !< scaled so that `f = rho W - |m|^2 / (2 rho)`, `W = (4 |u_b|^2 + c^2) / 2`, stays at least `KAPPA f_b`, `f_b = rho_b
+   !< (3 |u_b|^2 + c^2) / 2`. `t` must already keep the density above its floor.
+   real(R8P), intent(in) :: cs2       !< Kinetic chord's c^2.
+   real(R8P), intent(in) :: qb(NV_K)  !< Backbone update.
+   real(R8P), intent(in) :: dc(NV_K)  !< Corner direction.
+   real(R8P), intent(in) :: t         !< Corner factor of the density chord.
+   real(R8P)             :: tk        !< Corner factor.
+   real(R8P)             :: w, fb, f1 !< Specific energy, backbone and corner values of f.
+   real(R8P)             :: rt, mt(3) !< Corner density and momentum.
+   integer(I4P)          :: v         !< Counter.
+
+   tk = t
+   w = 0.5_R8P * cs2
+   fb = 0._R8P
+   do v=0, 2
+      w = w + 2._R8P * (qb(IQ_RU+v) / qb(IQ_R))**2
+      fb = fb + qb(IQ_RU+v)**2
+      mt(v+1) = qb(IQ_RU+v) + t * dc(IQ_RU+v)
+   enddo
+   fb = qb(IQ_R) * w - 0.5_R8P * fb / qb(IQ_R)
+   rt = qb(IQ_R) + t * dc(IQ_R)
+   f1 = rt * w - 0.5_R8P * (mt(1)**2 + mt(2)**2 + mt(3)**2) / rt
+   if (f1 < POSITIVITY_LIMITER_KAPPA * fb) tk = t * (fb - POSITIVITY_LIMITER_KAPPA * fb) / (fb - f1)
+   endfunction kinetic_factor
 
    subroutine blend_positivity_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, q, lam, fl, limited)
    !< Blend the face fluxes of direction `d` with the backbone: `F <- F^LLF + theta (F - F^LLF)`, `theta` the smaller

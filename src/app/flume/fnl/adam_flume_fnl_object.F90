@@ -114,12 +114,22 @@ use :: adam_flume_fnl_euler_iso_kernels, only : blend_inadmissible_ghosts_euler_
                                               compute_conservation_euler_iso_dev=>compute_conservation_dev,            &
                                               compute_face_fluxes_euler_iso_dev=>compute_face_fluxes_dev,              &
                                               compute_lambda_max_euler_iso_dev=>compute_lambda_max_dev,                &
+                                              blend_positivity_fluxes_euler_iso_dev=>blend_positivity_fluxes_dev, &
+                                              compute_backbone_fluxes_euler_iso_host=>compute_backbone_fluxes_host, &
+                                              compute_seam_positivity_factors_euler_iso_host=>                             &
+                                                 compute_seam_positivity_factors_host, &
+                                              compute_positivity_factors_euler_iso_dev=>compute_positivity_factors_dev, &
                                               compute_q_aux_euler_iso_dev=>compute_q_aux_dev,                          &
                                               count_nonfinite_euler_iso_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_euler_baro_kernels, only : blend_inadmissible_ghosts_euler_baro_dev=>blend_inadmissible_ghosts_dev, &
                                               compute_conservation_euler_baro_dev=>compute_conservation_dev,            &
                                               compute_face_fluxes_euler_baro_dev=>compute_face_fluxes_dev,              &
                                               compute_lambda_max_euler_baro_dev=>compute_lambda_max_dev,                &
+                                              blend_positivity_fluxes_euler_baro_dev=>blend_positivity_fluxes_dev, &
+                                              compute_backbone_fluxes_euler_baro_host=>compute_backbone_fluxes_host, &
+                                              compute_seam_positivity_factors_euler_baro_host=>                             &
+                                                 compute_seam_positivity_factors_host, &
+                                              compute_positivity_factors_euler_baro_dev=>compute_positivity_factors_dev, &
                                               compute_q_aux_euler_baro_dev=>compute_q_aux_dev,                          &
                                               count_nonfinite_euler_baro_dev=>count_nonfinite_dev
 use :: adam_flume_fnl_euler_iso_hll_kernels,  only : &
@@ -241,7 +251,7 @@ use :: adam_flume_fnl_kernels,         only : apply_cooling_dev, apply_cooling_e
                                               apply_reflux_face_dev, compute_dflux_norms_dev, copy_state_dev,          &
                                               compute_flux_difference_dev, compute_flux_difference_ib_dev,             &
                                               add_gravity_sources_dev, add_potential_sources_dev,                      &
-                                              add_gravity_limited_correction_dev,                                      &
+                                              add_gravity_limited_correction_dev, clear_inert_energy_dev,              &
                                               compute_gravity_correction_faces_dev, subtract_equilibrium_residual_dev, &
                                               compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
                                               gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skins_dev,    &
@@ -1377,6 +1387,20 @@ contains
                                                 q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
                                                 fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, gc_gpu=self%gcor_gpu,  &
                                                 lam_gpu=self%lam_gpu, bad=counts(1), nonfinite=counts(5))
+   case(MODEL_EULER_ISO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+      call compute_positivity_factors_euler_iso_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,    &
+                                                damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi_gpu=self%phi_grav_gpu, &
+                                                dxyz_gpu=dxyz_gpu, is_null=is_null,                                   &
+                                                q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
+                                                fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, gc_gpu=self%gcor_gpu,  &
+                                                lam_gpu=self%lam_gpu, bad=counts(1), nonfinite=counts(5))
+   case(MODEL_EULER_BARO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+      call compute_positivity_factors_euler_baro_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,    &
+                                                damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi_gpu=self%phi_grav_gpu, &
+                                                dxyz_gpu=dxyz_gpu, is_null=is_null,                                   &
+                                                q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, flx_gpu=self%flx_f_gpu,         &
+                                                fly_gpu=self%fly_f_gpu, flz_gpu=self%flz_f_gpu, gc_gpu=self%gcor_gpu,  &
+                                                lam_gpu=self%lam_gpu, bad=counts(1), nonfinite=counts(5))
    case(MODEL_MHD)
       call compute_positivity_factors_mhd_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch,      &
                                               damping=0._R8P, hs=hs, dt=dt, g=g, has_phi=has_phi, phi_gpu=self%phi_grav_gpu, &
@@ -1462,6 +1486,36 @@ contains
                                                    lam_gpu=self%lam_gpu, fl_gpu=self%fly_f_gpu, limited=counts(1+d))
          case(3)
             call blend_positivity_fluxes_euler_de_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flz_f_gpu, limited=counts(1+d))
+         endselect
+      case(MODEL_EULER_ISO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_euler_iso_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flx_f_gpu, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_euler_iso_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%fly_f_gpu, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_euler_iso_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flz_f_gpu, limited=counts(1+d))
+         endselect
+      case(MODEL_EULER_BARO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+         select case(d)
+         case(1)
+            call blend_positivity_fluxes_euler_baro_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%flx_f_gpu, limited=counts(1+d))
+         case(2)
+            call blend_positivity_fluxes_euler_baro_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
+                                                   ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
+                                                   lam_gpu=self%lam_gpu, fl_gpu=self%fly_f_gpu, limited=counts(1+d))
+         case(3)
+            call blend_positivity_fluxes_euler_baro_dev(d=d, di=di(1,d), dj=di(2,d), dk=di(3,d), ni=ni, nj=nj, nk=nk,      &
                                                    ngc=ngc, blocks_number=nb, gamma=gamma, ch=ch, q_gpu=q_gpu,      &
                                                    lam_gpu=self%lam_gpu, fl_gpu=self%flz_f_gpu, limited=counts(1+d))
          endselect
@@ -1624,6 +1678,12 @@ contains
          case(MODEL_EULER_DE)
             call compute_backbone_fluxes_euler_de_host(n=1, d=fface(1,m), gamma=self%physics%gamma,              &
                                                     ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
+         case(MODEL_EULER_ISO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+            call compute_backbone_fluxes_euler_iso_host(n=1, d=fface(1,m), gamma=self%physics%eos_arg,              &
+                                                    ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
+         case(MODEL_EULER_BARO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+            call compute_backbone_fluxes_euler_baro_host(n=1, d=fface(1,m), gamma=self%physics%eos_arg,              &
+                                                    ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
          case(MODEL_MHD)
             call compute_backbone_fluxes_mhd_host(n=1, d=fface(1,m), gamma=self%physics%gamma,                &
                                                   ch=self%physics%mhd%glm_ch, qL=qL, qR=qR, flo=fl)
@@ -1728,8 +1788,9 @@ contains
       call seam_gather_cells(cells=cell, nv=self%physics%nv_aux, ngc=self%ngc, a_gpu=self%q_aux_gpu, out=qa)
       call seam_gather_faces(faces=face, nv=nv, flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
                              flz_f_gpu=self%flz_f_gpu, out=fh)
-      associate(gamma=>self%physics%gamma, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
-                dt=>self%time%dt, hs=>self%weno%S, g=>self%physics%gravity%g_uniform,                       &
+      ! the EOS parameter (issue #100): gamma, or c0^2 / the table id of a barotropic gas
+      associate(gamma=>self%physics%eos_arg, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
+                dt=>self%time%dt, hs=>self%weno%S, g=>self%physics%gravity%g_uniform,                         &
                 has_phi=>self%physics%gravity%has_potential)
       select case(self%physics%model)
       case(MODEL_EULER)
@@ -1755,6 +1816,20 @@ contains
                                                          dbad=db, dnonfinite=dn)
       case(MODEL_EULER_DE)
          call compute_seam_positivity_factors_euler_de_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
+                                                         has_phi=has_phi, ps=ps,                                 &
+                                                         ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
+                                                         fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
+                                                         ohi=ohi, gcs=gcs(1,:), lam=lam(1,:), lsrc=lam(2,:), &
+                                                         dbad=db, dnonfinite=dn)
+      case(MODEL_EULER_ISO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+         call compute_seam_positivity_factors_euler_iso_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
+                                                         has_phi=has_phi, ps=ps,                                 &
+                                                         ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
+                                                         fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
+                                                         ohi=ohi, gcs=gcs(1,:), lam=lam(1,:), lsrc=lam(2,:), &
+                                                         dbad=db, dnonfinite=dn)
+      case(MODEL_EULER_BARO) ! issue #100, P4: the density-only limiter (internal_energy = rho)
+         call compute_seam_positivity_factors_euler_baro_host(ncells=n, hs=hs, gamma=gamma, ch=ch, damping=0._R8P, dt=dt, g=g, &
                                                          has_phi=has_phi, ps=ps,                                 &
                                                          ds=ds, is_null=is_null, qs=qs, qa=qa,                     &
                                                          fh=reshape(fh, [nv, 6, n]), omask=omask, olo=olo,         &
@@ -1991,31 +2066,31 @@ contains
    select case(self%physics%model)
    case(MODEL_EULER_ISO) ! issue #100
       call blend_inadmissible_ghosts_euler_iso_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
-                                               q_gpu=q_gpu, blended=blended)
+                                               to_anchor=.true., q_gpu=q_gpu, blended=blended)
    case(MODEL_EULER_BARO) ! issue #100, P3
       call blend_inadmissible_ghosts_euler_baro_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
-                                               q_gpu=q_gpu, blended=blended)
+                                               to_anchor=.true., q_gpu=q_gpu, blended=blended)
    case(MODEL_EULER)
       call blend_inadmissible_ghosts_euler_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
-                                               q_gpu=q_gpu, blended=blended)
+                                               to_anchor=.false., q_gpu=q_gpu, blended=blended)
    case(MODEL_EULER_PS)
       call blend_inadmissible_ghosts_euler_ps_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
-                                               q_gpu=q_gpu, blended=blended)
+                                               to_anchor=.false., q_gpu=q_gpu, blended=blended)
    case(MODEL_EULER_DE_PS)
       call blend_inadmissible_ghosts_euler_de_ps_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
-                                               q_gpu=q_gpu, blended=blended)
+                                               to_anchor=.false., q_gpu=q_gpu, blended=blended)
    case(MODEL_EULER_DE)
       call blend_inadmissible_ghosts_euler_de_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
-                                               q_gpu=q_gpu, blended=blended)
+                                               to_anchor=.false., q_gpu=q_gpu, blended=blended)
    case(MODEL_MHD)
       call blend_inadmissible_ghosts_mhd_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
-                                             q_gpu=q_gpu, blended=blended)
+                                             to_anchor=.false., q_gpu=q_gpu, blended=blended)
    case(MODEL_MHD_GLM)
       call blend_inadmissible_ghosts_mhd_glm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
-                                                 q_gpu=q_gpu, blended=blended)
+                                                 to_anchor=.false., q_gpu=q_gpu, blended=blended)
    case(MODEL_MHD_EGLM)
       call blend_inadmissible_ghosts_mhd_eglm_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, &
-                                                  q_gpu=q_gpu, blended=blended)
+                                                  to_anchor=.false., q_gpu=q_gpu, blended=blended)
    endselect
    endassociate
    if (blended > 0_I4P) print '(A)', mpih_fnl%myrankstr//'ghost positivity: '//trim(str(blended))// &
@@ -2122,7 +2197,9 @@ contains
       call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk,  &
                                  ngc=self%ngc, nv=self%nv, nface_cells=face%nface_cells,                       &
                                  scale=real(sgn, R8P) * self%time%dt / self%adam%field%dxyz(axis,face%coarse_block), &
-                                 limit=limit, mag_w=mag_w, psi_w=psi_w, delta_gpu=delta_gpu, q_gpu=self%q_gpu,      &
+                                 limit=limit, mag_w=mag_w, psi_w=psi_w, &
+                                 cs2_inert=merge(self%physics%sound_speed**2, 0._R8P, has_inert_energy(self%physics%model)), &
+                                 delta_gpu=delta_gpu, q_gpu=self%q_gpu,                                              &
                                  nclip=nclip_f)
       nclip = nclip + nclip_f
       call dev_free(delta_gpu, mydev)
@@ -2332,7 +2409,7 @@ contains
       call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk, &
                                  ngc=self%ngc, nv=self%nv, nface_cells=face%nface_cells,                      &
                                  scale=real(sgn, R8P) / self%adam%field%dxyz(axis,face%coarse_block),         &
-                                 limit=.false., mag_w=0._R8P, psi_w=0._R8P,                                   &
+                                 limit=.false., mag_w=0._R8P, psi_w=0._R8P, cs2_inert=0._R8P,                    &
                                  delta_gpu=delta_gpu, q_gpu=self%dq_gpu, nclip=nclip_stage)
       call dev_free(delta_gpu, mydev)
       deallocate(delta)
@@ -3145,7 +3222,8 @@ contains
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
-   if (self%physics%gravity%is_active) call self%compute_gravity_correction(q_gpu=q_gpu)
+   if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
+      call self%compute_gravity_correction(q_gpu=q_gpu)
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes_dev
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
                                                                                              flux_register=flux_register)
@@ -3179,6 +3257,9 @@ contains
    if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call add_gravity_limited_correction_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam_gpu=self%lam_gpu, &
                                               dq_gpu=dq_gpu)
+   ! a barotropic gas (issue #100, P4): gravity acts on the momentum only, the energy slot stays inert
+   if (self%physics%gravity%is_active .and. has_inert_energy(self%physics%model)) &
+      call clear_inert_energy_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, dq_gpu=dq_gpu)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,      &
                                                                       damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, &
                                                                       dq_gpu=dq_gpu)
@@ -3360,7 +3441,8 @@ contains
          print '(A)', mpih_fnl%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
-   if (self%physics%gravity%is_active) call self%compute_gravity_correction(q_gpu=q_gpu)
+   if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
+      call self%compute_gravity_correction(q_gpu=q_gpu)
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes_dev
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
                                                                                              flux_register=flux_register)
@@ -3394,6 +3476,9 @@ contains
    if (self%physics%gravity%is_active .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
       call add_gravity_limited_correction_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, lam_gpu=self%lam_gpu, &
                                               dq_gpu=dq_gpu)
+   ! a barotropic gas (issue #100, P4): gravity acts on the momentum only, the energy slot stays inert
+   if (self%physics%gravity%is_active .and. has_inert_energy(self%physics%model)) &
+      call clear_inert_energy_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, dq_gpu=dq_gpu)
    if (self%physics%model == MODEL_MHD_GLM) call add_glm_damping_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,      &
                                                                       damping=self%physics%mhd%glm_damping, q_gpu=q_gpu, &
                                                                       dq_gpu=dq_gpu)

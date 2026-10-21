@@ -115,6 +115,21 @@ module adam_flume_ic_object
 !<   velocity, `A = sis_overdensity` (default 2, > 0): A = 2 is the hydrostatic sphere of Shu (1977), whose inside-out
 !<   collapse accretes at `0.975 a^3 / G`; A > 2 collapses everywhere at `m_0(A) a^3 / G` (Shu's A-family; A = 29.3 is
 !<   the run of Federrath et al. 2010, section 3.4). Fatal at a cell centre on the centre (place it on a cell corner).
+!<   With `[eos] type = isothermal` (issue #100, P4) `a^2 = c0^2`, the gas's own sound speed.
+!< * `bonnor-ebert` (issue #100, P4; `[eos] type = isothermal` and `[gravity].(self_gravity)` required): the isothermal
+!<   Lane-Emden sphere at rest centred at (`be_x0`, `be_y0`, `be_z0`) (default the origin), `rho = rho_c exp(-psi(xi))`,
+!<   `xi = r / r_0`, `r_0 = c0 / sqrt(4 pi G rho_c)`, `rho_c = be_density` (> 0), `psi'' + 2 psi' / xi = exp(-psi)`,
+!<   `psi(0) = psi'(0) = 0` (RK4 on `xi` steps of 1e-3, read by cubic Hermite interpolation), region 1's velocity. It
+!<   fills the domain: closed walls confine it, and the sphere inscribed in the box is a Bonnor-Ebert sphere of its
+!<   `xi`, stable below 6.45 (Bonnor 1956, Ebert 1955). `be_overdensity` (default 1, > 0) multiplies the density
+!<   everywhere (above 1 the sphere is no equilibrium and collapses: a supercritical sphere left exactly in equilibrium
+!<   may as well expand).
+!< * `boss-bodenheimer` (issue #100, P4; `[eos]` isothermal or barotropic, `[gravity].(self_gravity)` required): the
+!<   rotating cloud of Boss & Bodenheimer (1979) as set by Burkert & Bodenheimer (1993): a sphere of radius `bb_radius`
+!<   centred at (`bb_x0`, `bb_y0`, `bb_z0`) (default the origin), `rho = bb_density (1 + bb_amplitude cos(2 phi))`
+!<   (`bb_amplitude` default 0.1, phi the azimuth about z), in solid-body rotation about z at `bb_omega`; outside,
+!<   region 1's density and velocity (the light ambient medium). The density and velocity only: the pressure is the
+!<   gas's own P(rho).
 
 ! ADAM classes, libraries, parameters
 use :: adam_field_object,         only : field_object
@@ -188,6 +203,13 @@ character(len=9),  parameter :: IC_POLYTROPE_STR="polytrope"             !< n = 
 character(len=26), parameter :: IC_SIS_STR="singular-isothermal-sphere" !< Singular isothermal sphere, self-gravity (#94).
 character(len=15), parameter :: SIS_KEY(4)=['sis_x0         ', 'sis_y0         ', 'sis_z0         ', &
                                             'sis_overdensity'] !< Singular isothermal sphere keys.
+character(len=12), parameter :: IC_BE_STR="bonnor-ebert"                 !< Isothermal Lane-Emden sphere, self-gravity (#100).
+character(len=14), parameter :: BE_KEY(5)=['be_x0         ', 'be_y0         ', 'be_z0         ', 'be_density    ', &
+                                           'be_overdensity'] !< Bonnor-Ebert keys.
+real(R8P),         parameter :: BE_DXI=1.e-3_R8P                         !< Bonnor-Ebert: Lane-Emden table step in xi.
+character(len=16), parameter :: IC_BB_STR="boss-bodenheimer"             !< Rotating cloud, m = 2 perturbation (#100).
+character(len=12), parameter :: BB_KEY(7)=['bb_radius   ', 'bb_density  ', 'bb_omega    ', 'bb_amplitude', &
+                                           'bb_x0       ', 'bb_y0       ', 'bb_z0       '] !< Boss-Bodenheimer keys.
 character(len=20), parameter :: STAR_KEY(6)=['star_radius         ', 'star_density        ', &
                                              'star_x0             ', 'star_y0             ', &
                                              'star_z0             ', 'star_pressure_factor'] !< Polytrope keys.
@@ -270,6 +292,10 @@ type :: flume_ic_object
    real(R8P)                 :: star_k=0._R8P        !< Polytrope: K of p = K rho^2 in equilibrium, 2 G a^2 / pi.
    real(R8P)                 :: star_gm=0._R8P       !< Polytrope: G M of the star, 4 G rho_c a^3 / pi.
    real(R8P)                 :: sis(5)=0._R8P        !< Singular isothermal sphere: centre, overdensity A, G.
+   real(R8P)                 :: be(6)=0._R8P         !< Bonnor-Ebert sphere: centre, central density, overdensity,
+                                                     !< r_0 (#100).
+   real(R8P)                 :: bb(7)=0._R8P         !< Boss-Bodenheimer cloud: radius, density, omega, amplitude,
+                                                     !< centre (#100).
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -287,13 +313,16 @@ contains
    pure function is_barotropic_safe(self) result(safe)
    !< Return true if the IC type is defined for a barotropic gas (issue #100): its density, velocity and scalars are
    !< inputs or gamma-free formulas, and the pressure, which the barotropic gas ignores, enters nothing else. Refused:
-   !< the isentropic vortex (rho from the adiabat, ^(1/(gamma-1))); the gravity and dissipation ICs are refused with
-   !< their modules; the MHD ICs with the model.
+   !< the isentropic vortex (rho from the adiabat, ^(1/(gamma-1))); the atmospheres and the polytrope (gamma-law
+   !< equilibria); the dissipation ICs with their module; the MHD ICs with the model. The isothermal spheres (P4),
+   !< singular and Bonnor-Ebert, are defined for the isothermal gas only.
    class(flume_ic_object), intent(in) :: self !< Initial conditions.
    logical                            :: safe !< IC type defined for a barotropic gas.
 
    safe = any(self%ic_type == [character(15) :: IC_UNIFORM_STR, IC_RIEMANN_PROBLEM_STR, IC_ROTATED_RIEMANN_STR, &
                                                 IC_SINE_WAVE_STR, IC_LINEAR_STR, IC_POLYNOMIAL_STR, IC_SHU_OSHER_STR])
+   if (self%model == MODEL_EULER_ISO) safe = safe .or. self%ic_type == IC_SIS_STR .or. self%ic_type == IC_BE_STR
+   safe = safe .or. self%ic_type == IC_BB_STR
    endfunction is_barotropic_safe
 
    function description(self) result(desc)
@@ -349,6 +378,10 @@ contains
                                     trim(str(self%star))//', K '//trim(str(self%star_k))
    if (self%ic_type == IC_SIS_STR) &
    desc = desc//NL//mpih%myrankstr//'  singular isothermal sphere: centre, overdensity, G '//trim(str(self%sis))
+   if (self%ic_type == IC_BE_STR) &
+   desc = desc//NL//mpih%myrankstr//'  bonnor-ebert:   centre, central density, overdensity, r_0 '//trim(str(self%be))
+   if (self%ic_type == IC_BB_STR) &
+   desc = desc//NL//mpih%myrankstr//'  boss-bodenheimer: radius, density, omega, amplitude, centre '//trim(str(self%bb))
    endfunction description
 
    subroutine initialize(self, file_parameters, physics)
@@ -726,6 +759,41 @@ contains
       if (.not.(self%sis(4) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(sis_overdensity) must be positive')
       self%sis(5) = physics%gravity%grav_const
+   case(IC_BE_STR)
+      if (.not.physics%gravity%self_gravity) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_BE_STR//' needs '// &
+                                  '[gravity].(self_gravity) = .true.')
+      if (self%model /= MODEL_EULER_ISO) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_BE_STR//' needs [eos].(type) = '// &
+                                  'isothermal (issue #100)')
+      self%regions_number = 1_I4P
+      do k=1, 5
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(BE_KEY(k)), val=self%be(k), &
+                                  error=error)
+         if (error > 0 .and. k == 4) &
+            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(BE_KEY(k))//')')
+         if (error > 0) self%be(k) = merge(1._R8P, 0._R8P, k == 5)
+      enddo
+      if (.not.(self%be(4) > 0._R8P .and. self%be(5) > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(be_density, be_overdensity) must be positive')
+      self%be(6) = sqrt(physics%eos_arg / (physics%gravity%four_pi_g * self%be(4)))
+   case(IC_BB_STR)
+      if (.not.physics%gravity%self_gravity) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_BB_STR//' needs '// &
+                                  '[gravity].(self_gravity) = .true.')
+      if (.not.has_inert_energy(self%model)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_BB_STR//' needs [eos].(type) = '// &
+                                  'isothermal or barotropic (issue #100)')
+      self%regions_number = 1_I4P
+      do k=1, 7
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(BB_KEY(k)), val=self%bb(k), &
+                                  error=error)
+         if (error > 0 .and. k <= 3) &
+            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(BB_KEY(k))//')')
+         if (error > 0) self%bb(k) = merge(0.1_R8P, 0._R8P, k == 4)
+      enddo
+      if (.not.(self%bb(1) > 0._R8P .and. self%bb(2) > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(bb_radius, bb_density) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
                                error=error)
@@ -742,7 +810,7 @@ contains
                                IC_SINE_WAVE_STR//', '// &
                                IC_COUETTE_STR//', '//IC_BECKER_STR//', '//IC_ISOTHERMAL_ATM_STR//', '// &
                                IC_POLYTROPIC_ATM_STR//', '//IC_RAYLEIGH_TAYLOR_STR//', '//IC_POLYTROPE_STR//', '// &
-                               IC_SIS_STR)
+                               IC_SIS_STR//', '//IC_BE_STR//', '//IC_BB_STR)
    endselect
 
    if (allocated(self%q_region)) deallocate(self%q_region)
@@ -856,6 +924,7 @@ contains
                                                           !< height above the Rayleigh-Taylor interface.
    real(R8P)                             :: ca, sa        !< cos, sin of the CPAW normal angle.
    real(R8P)                             :: jk, jw2       !< Jeans wave: wavenumber, w^2 of the dispersion relation.
+   real(R8P), allocatable                :: le(:,:)       !< Bonnor-Ebert: Lane-Emden table, psi and psi' [2, 0:n].
    real(R8P)                             :: a2            !< Sine wave: speed of sound squared of the region-1 state.
    real(R8P)                             :: bt(2)         !< CPAW transverse field, t1 and t2 components.
    logical                               :: is_set        !< Flag: cell covered by a region.
@@ -930,6 +999,7 @@ contains
       enddo
    case(IC_SIS_STR)
       ! the singular isothermal sphere (issue #94, M12-P4): rho = A a^2 / (4 pi G r^2), p = rho a^2, a^2 = p_1 / rho_1
+      ! (c0^2 for the isothermal gas, issue #100)
       do b=1, field%blocks_number
          do k=1, field%nk
             do j=1, field%nj
@@ -943,8 +1013,57 @@ contains
                   s_ = inverse_square_mean(lo=center - 0.5_R8P * field%dxyz(:,b), hi=center + 0.5_R8P * field%dxyz(:,b), &
                                            c=self%sis(1:3))
                   prim = self%prim_1
-                  prim(1) = self%sis(4) * self%prim_1(5) / self%prim_1(1) / (4._R8P * PI * self%sis(5)) * s_
-                  prim(5) = prim(1) * self%prim_1(5) / self%prim_1(1)
+                  if (self%model == MODEL_EULER_ISO) then ! a^2 = c0^2 (issue #100, P4); the pressure is not an input
+                     prim(1) = self%sis(4) * self%eos_arg / (4._R8P * PI * self%sis(5)) * s_
+                  else
+                     prim(1) = self%sis(4) * self%prim_1(5) / self%prim_1(1) / (4._R8P * PI * self%sis(5)) * s_
+                     prim(5) = prim(1) * self%prim_1(5) / self%prim_1(1)
+                  endif
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_BE_STR)
+      ! the isothermal Lane-Emden sphere (issue #100, P4): rho = rho_c exp(-psi(r / r_0)), psi tabulated to the farthest
+      ! cell centre of this rank (every rank integrates the same steps from 0, so the shared nodes agree)
+      s_ = 0._R8P
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  s_ = max(s_, norm2(center - self%be(1:3)) / self%be(6))
+               enddo
+            enddo
+         enddo
+      enddo
+      le = lane_emden_isothermal_table(xi_max=s_, dxi=BE_DXI)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
+                  prim = self%prim_1
+                  prim(1) = self%be(5) * self%be(4) * exp(-lane_emden_isothermal_psi(tab=le, dxi=BE_DXI, &
+                                                                         xi=norm2(center - self%be(1:3)) / self%be(6)))
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_BB_STR)
+      ! the Boss-Bodenheimer cloud (issue #100, P4): inside rho_0 (1 + A cos(2 phi)), the rotation omega e_z x (x - x_0)
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  center = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)] - self%bb(5:7)
+                  prim = self%prim_1
+                  if (norm2(center) < self%bb(1)) then
+                     prim(1) = self%bb(2) * (1._R8P + self%bb(4) * cos(2._R8P * atan2(center(2), center(1))))
+                     prim(2:4) = self%bb(3) * [-center(2), center(1), 0._R8P]
+                  endif
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
@@ -1466,6 +1585,55 @@ contains
       prim(5) = self%prim_1(5) * s_**(self%polytropic_gamma / (self%polytropic_gamma - 1._R8P))
    endif
    endsubroutine atmosphere_state
+
+   pure function lane_emden_isothermal_table(xi_max, dxi) result(tab)
+   !< Tabulate the isothermal Lane-Emden function (issue #100, P4, the Bonnor-Ebert sphere): `psi'' + 2 psi' / xi =
+   !< exp(-psi)`, `psi(0) = psi'(0) = 0`, at the nodes `xi_n = n dxi` up to `xi_max` and one beyond: the first node from
+   !< the series `psi = xi^2/6 - xi^4/120 + xi^6/1890` (the equation is singular at 0), the rest by classical RK4.
+   real(R8P), intent(in)  :: xi_max      !< Largest xi to cover.
+   real(R8P), intent(in)  :: dxi         !< Node spacing.
+   real(R8P), allocatable :: tab(:,:)    !< psi and psi' at the nodes [2, 0:n].
+   real(R8P)              :: y(2), k1(2), k2(2), k3(2), k4(2), x !< RK4 state, stages, abscissa.
+   integer(I4P)           :: n, m        !< Nodes number, counter.
+
+   n = max(2_I4P, ceiling(xi_max / dxi, I4P) + 1_I4P)
+   allocate(tab(2,0:n))
+   tab(:,0) = 0._R8P
+   tab(:,1) = [dxi**2 / 6._R8P - dxi**4 / 120._R8P + dxi**6 / 1890._R8P, &
+               dxi / 3._R8P - dxi**3 / 30._R8P + dxi**5 / 315._R8P]
+   do m=1, n - 1
+      x = m * dxi
+      y = tab(:,m)
+      k1 = rhs(x, y)
+      k2 = rhs(x + 0.5_R8P * dxi, y + 0.5_R8P * dxi * k1)
+      k3 = rhs(x + 0.5_R8P * dxi, y + 0.5_R8P * dxi * k2)
+      k4 = rhs(x + dxi, y + dxi * k3)
+      tab(:,m+1) = y + dxi / 6._R8P * (k1 + 2._R8P * k2 + 2._R8P * k3 + k4)
+   enddo
+   contains
+      pure function rhs(x, y) result(f)
+      !< Right-hand side of the first-order system, `(psi', exp(-psi) - 2 psi' / xi)`.
+      real(R8P), intent(in) :: x, y(2) !< Abscissa, state.
+      real(R8P)             :: f(2)    !< Derivatives.
+
+      f = [y(2), exp(-y(1)) - 2._R8P * y(2) / x]
+      endfunction rhs
+   endfunction lane_emden_isothermal_table
+
+   pure function lane_emden_isothermal_psi(tab, dxi, xi) result(psi)
+   !< Return `psi(xi)` from the Lane-Emden table by cubic Hermite interpolation of its nodes (values and slopes).
+   real(R8P), intent(in) :: tab(1:,0:) !< psi and psi' at the nodes [2, 0:n].
+   real(R8P), intent(in) :: dxi        !< Node spacing.
+   real(R8P), intent(in) :: xi         !< Abscissa, within the table.
+   real(R8P)             :: psi        !< Interpolated psi.
+   real(R8P)             :: s          !< Local coordinate in [0, 1].
+   integer(I4P)          :: m          !< Left node.
+
+   m = min(int(xi / dxi, I4P), ubound(tab, dim=2) - 1_I4P)
+   s = xi / dxi - m
+   psi = (2._R8P * s**3 - 3._R8P * s**2 + 1._R8P) * tab(1,m) + (s**3 - 2._R8P * s**2 + s) * dxi * tab(2,m) + &
+         (-2._R8P * s**3 + 3._R8P * s**2) * tab(1,m+1) + (s**3 - s**2) * dxi * tab(2,m+1)
+   endfunction lane_emden_isothermal_psi
 
    pure function inverse_square_mean(lo, hi, c) result(mean)
    !< Mean of `1 / |x - c|^2` over the box `[lo, hi]` (issue #94, the singular isothermal sphere): by the divergence

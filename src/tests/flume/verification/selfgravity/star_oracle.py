@@ -3,6 +3,7 @@
 
     star_oracle.py equilibrium <work> [--tol-centre C] [--tol-mach M] [--tol-energy E]
     star_oracle.py convergence <coarse work> <fine work> [--min-reduction R]
+    star_oracle.py unstable <work> [--min-departure D]
 
 The n = 1 polytrope star of [initial_conditions] (`polytrope`), with `star_pressure_factor` 1, is an equilibrium of
 the Euler equations under its own isolated gravity; the discrete scheme holds it up to its truncation error. Per
@@ -24,6 +25,14 @@ converges slowest, and the E + W drift (with the limiter it is not exact).
 
 The SV-8 collapse (`star_pressure_factor` < 1) is checked by `jeans_oracle.py conservation` (E + W and momentum
 against dt).
+
+The `bonnor-ebert` sphere of the isothermal gas (issue #100, P4) is read the same way: its central density
+`be_density`, its "star" the sphere inscribed in the box around `be_x0, be_y0, be_z0` (radius a), the Mach number
+over c0. An isothermal gas conserves no energy, so the E + W drift is printed, not asserted (`--tol-energy inf`).
+In a closed cube the Lane-Emden profile is no exact equilibrium (the gas in the corners pulls through its cubic
+multipoles, a few per cent of the gravity), so the sphere is checked for stability: a sub-critical one stays within
+`--tol-centre` of its central density (`equilibrium`), a super-critical one departs from it by at least
+`--min-departure`, in either direction (`unstable`).
 """
 
 from __future__ import annotations
@@ -47,10 +56,18 @@ def star_rows(work: Path) -> list[tuple[float, float, float, float]]:
     checkpoint."""
     ini = read_ini(work)
     sec = ini["initial_conditions"]
-    centre = np.array([float(sec.get(f"star_{x}0", "0.0").split(";")[0]) for x in "xyz"])
-    rho_c = float(sec["star_density"].split(";")[0])
-    radius = float(sec["star_radius"].split(";")[0])
-    gamma = float(ini["physics"]["gamma"].split(";")[0])
+    bonnor_ebert = sec["type"].split(";")[0].strip() == "bonnor-ebert"  # issue #100, P4
+    pre = "be" if bonnor_ebert else "star"
+    centre = np.array([float(sec.get(f"{pre}_{x}0", "0.0").split(";")[0]) for x in "xyz"])
+    rho_c = float(sec[f"{pre}_density"].split(";")[0])
+    if bonnor_ebert:  # the inscribed sphere, every cell inside it counted; the sound speed c0
+        lo = np.array([float(ini["grid"][f"emin_{x}"].split(";")[0]) for x in "xyz"])
+        hi = np.array([float(ini["grid"][f"emax_{x}"].split(";")[0]) for x in "xyz"])
+        radius = float(np.min(np.minimum(centre - lo, hi - centre)))
+        c0 = float(ini["eos"]["sound_speed"].split(";")[0])
+    else:
+        radius = float(sec["star_radius"].split(";")[0])
+        gamma = float(ini["physics"]["gamma"].split(";")[0])
     rows = []
     for _, (t, paths) in sorted(checkpoints(work).items()):
         core, mach, mach_in = [], 0.0, 0.0
@@ -58,10 +75,14 @@ def star_rows(work: Path) -> list[tuple[float, float, float, float]]:
             rho = q["r"]
             if np.linalg.norm(c - centre) < float(np.max(dxyz)):
                 core.append(rho)
-            if rho > 0.1 * rho_c:
+            inside = np.linalg.norm(c - centre) < radius if bonnor_ebert else rho > 0.1 * rho_c
+            if inside:
                 u = np.array([q["ru"], q["rv"], q["rw"]]) / rho
-                p = (gamma - 1.0) * (q["rE"] - 0.5 * rho * float(np.dot(u, u)))
-                m = float(np.linalg.norm(u)) / math.sqrt(gamma * p / rho)
+                if bonnor_ebert:
+                    m = float(np.linalg.norm(u)) / c0
+                else:
+                    p = (gamma - 1.0) * (q["rE"] - 0.5 * rho * float(np.dot(u, u)))
+                    m = float(np.linalg.norm(u)) / math.sqrt(gamma * p / rho)
                 mach = max(mach, m)
                 if np.linalg.norm(c - centre) < 0.8 * radius:
                     mach_in = max(mach_in, m)
@@ -83,8 +104,21 @@ def equilibrium(args: argparse.Namespace) -> int:
     ok = drift_c <= args.tol_centre and mach <= args.tol_mach and drift_e <= args.tol_energy
     print(f"   {args.work.name}: {len(rows)} checkpoints to t = {rows[-1][0]:.4f}; largest central-density drift "
           f"{drift_c:.2e}, largest Mach {mach:.2e}, E + W drift {drift_e:.2e}")
-    print(f"Polytrope equilibrium: {'PASS' if ok else 'FAIL'} (central {args.tol_centre:g}, Mach {args.tol_mach:g}, "
+    print(f"Equilibrium: {'PASS' if ok else 'FAIL'} (central {args.tol_centre:g}, Mach {args.tol_mach:g}, "
           f"E + W {args.tol_energy:g})")
+    return 0 if ok else 1
+
+
+def unstable(args: argparse.Namespace) -> int:
+    """The super-critical Bonnor-Ebert sphere (issue #100, P4): its central density departs from the initial one."""
+    rows = star_rows(args.work)
+    rho0 = rows[0][1]
+    dep = max(abs(r[1] / rho0 - 1.0) for r in rows)
+    last = rows[-1][1] / rho0 - 1.0
+    ok = dep >= args.min_departure
+    print(f"   {args.work.name}: {len(rows)} checkpoints to t = {rows[-1][0]:.4f}; largest central-density departure "
+          f"{dep:.2e} (last {last:+.2e})")
+    print(f"Unstable: {'PASS' if ok else 'FAIL'} (min departure {args.min_departure:g})")
     return 0 if ok else 1
 
 
@@ -108,7 +142,7 @@ def convergence(args: argparse.Namespace) -> int:
     ok = red_c >= args.min_reduction and red_m >= args.min_reduction
     print(f"   reduction, coarse over fine: central density {red_c:.2f}, Mach inside 0.8 a {red_m:.2f} (whole star "
           f"{red_s:.2f}, not asserted)")
-    print(f"Polytrope equilibrium convergence: {'PASS' if ok else 'FAIL'} (min reduction {args.min_reduction:g})")
+    print(f"Equilibrium convergence: {'PASS' if ok else 'FAIL'} (min reduction {args.min_reduction:g})")
     return 0 if ok else 1
 
 
@@ -124,8 +158,11 @@ def main() -> int:
     p = sub.add_parser("convergence")
     p.add_argument("works", type=Path, nargs=2)
     p.add_argument("--min-reduction", type=float, default=2.0)
+    p = sub.add_parser("unstable")
+    p.add_argument("work", type=Path)
+    p.add_argument("--min-departure", type=float, default=0.5)
     args = parser.parse_args()
-    return {"equilibrium": equilibrium, "convergence": convergence}[args.check](args)
+    return {"equilibrium": equilibrium, "convergence": convergence, "unstable": unstable}[args.check](args)
 
 
 if __name__ == "__main__":

@@ -4,12 +4,13 @@
    ! Included in the `contains` part of every model's device kernel module, which provides by use association `NV_K`,
    ! `IQ_R`, `POSITIVITY_LIMITER_KAPPA` and the device adapter `internal_energy(q)`.
 
-   subroutine blend_inadmissible_ghosts_dev(ni, nj, nk, ngc, blocks_number, is_null, q_gpu, blended)
+   subroutine blend_inadmissible_ghosts_dev(ni, nj, nk, ngc, blocks_number, is_null, to_anchor, q_gpu, blended)
    !< Blend every inadmissible face ghost of `q_gpu` toward the adjacent interior cell and count the ghosts blended
    !< (device twin of the CPU `blend_inadmissible_ghosts`).
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
    logical,      intent(in)    :: is_null(3)                         !< Null directions.
+   logical,      intent(in)    :: to_anchor                          !< An inadmissible ghost takes the anchor.
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Conservative variables (ghosts updated).
    integer(I4P), intent(out)   :: blended                            !< Ghosts blended.
    integer(I8P), parameter     :: EXPONENT_MASK=2047_I8P             !< The 11 exponent bits of a binary64.
@@ -38,9 +39,9 @@
             ai = ia(1) ; aj = ia(2) ; ak = ia(3)
             n = 0_I4P
             !$acc parallel loop independent gang vector collapse(4) reduction(+:n) DEVICEVAR(q_gpu) &
-            !$acc& firstprivate(d,ai,aj,ak,blocks_number) private(isnf,ok,qg,qi,dc,qt,rb,eb,er,ee,r1,e1,t,ii,jj,kk)
+            !$acc& firstprivate(d,ai,aj,ak,blocks_number,to_anchor) private(isnf,ok,qg,qi,dc,qt,rb,eb,er,ee,r1,e1,t,ii,jj,kk)
             !$omp OMPLOOP collapse(4) reduction(+:n) DEVICEPTR(q_gpu) &
-            !$omp& firstprivate(d,ai,aj,ak,blocks_number) private(isnf,ok,qg,qi,dc,qt,rb,eb,er,ee,r1,e1,t,ii,jj,kk)
+            !$omp& firstprivate(d,ai,aj,ak,blocks_number,to_anchor) private(isnf,ok,qg,qi,dc,qt,rb,eb,er,ee,r1,e1,t,ii,jj,kk)
             do k=kl, ku
             do j=jl, ju
             do i=il, iu
@@ -63,7 +64,7 @@
                if ((.not.ok) .and. rb > 0._R8P .and. eb > 0._R8P) then
                   n = n + 1_I4P
                   t = 0._R8P
-                  if (.not.isnf) then
+                  if (.not.(isnf .or. to_anchor)) then
                      er = POSITIVITY_LIMITER_KAPPA * rb
                      ee = POSITIVITY_LIMITER_KAPPA * eb
                      !$acc loop seq

@@ -118,7 +118,10 @@ def shu(work: Path) -> bool:
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
     ini.read(work / "input.ini")
     overdensity = float(ini["initial_conditions"].get("sis_overdensity", "2.0"))
-    a2 = float(ini["initial_conditions_region_1"]["p"]) / float(ini["initial_conditions_region_1"]["r"])
+    if ini.has_section("eos") and ini["eos"]["type"].strip() == "isothermal":  # issue #100, P4: a^2 = c0^2
+        a2 = float(ini["eos"]["sound_speed"]) ** 2
+    else:
+        a2 = float(ini["initial_conditions_region_1"]["p"]) / float(ini["initial_conditions_region_1"]["r"])
     grav = float(ini["gravity"]["G"])
     m0 = shu_m0(overdensity)
     col = read_history(next(work.glob("*-sinks_history.dat")))

@@ -22,7 +22,7 @@ use :: adam_flume_cooling_object, only : flume_cooling_object
 use :: adam_flume_dissipation_object, only : flume_dissipation_object
 use :: adam_flume_gravity_object, only : flume_gravity_object
 use :: adam_flume_mhd_object,    only : flume_mhd_object
-use :: adam_flume_eos_tables_library, only : EOS_SEGMENTS_MAX, register_barotropic_table
+use :: adam_flume_eos_tables_library, only : EOS_SEGMENTS_MAX, barotropic_c2, barotropic_pressure, register_barotropic_table
 use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, EOS_BAROTROPIC, EOS_IDEAL, EOS_ISOTHERMAL, MODEL_EULER_BARO, &
                                         MODEL_EULER_ISO,                                                                 &
                                         has_entropy, IQ_PSI, IQ_S, MODEL_EULER, MODEL_EULER_DE,                         &
@@ -72,6 +72,8 @@ type :: flume_physics_object
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
+      procedure, pass(self) :: eos_pressure   !< Pressure of a cell by the equation of state (host).
+      procedure, pass(self) :: eos_sound_speed2 !< Sound speed squared, dP/drho, of a cell (host).
       procedure, pass(self) :: initialize     !< Initialize physics.
       procedure, pass(self) :: load_from_file !< Load config from file.
       ! private methods
@@ -115,6 +117,43 @@ contains
    desc = desc//self%gravity%description()//NL
    desc = desc//self%cooling%description()
    endfunction description
+
+   pure function eos_pressure(self, rho, e) result(p)
+   !< Return the pressure of a cell (issue #100, P4; host code: the sinks): `(gamma - 1) e` for the ideal gas, `c0^2
+   !< rho` for the isothermal gas, the table's `P(rho)` for the barotropic gas, whose `e` is ignored.
+   class(flume_physics_object), intent(in) :: self !< Physics.
+   real(R8P),                   intent(in) :: rho  !< Density.
+   real(R8P),                   intent(in) :: e    !< Internal energy per unit volume (ideal gas only).
+   real(R8P)                               :: p    !< Pressure.
+
+   select case(self%model)
+   case(MODEL_EULER_ISO)
+      p = self%eos_arg * rho
+   case(MODEL_EULER_BARO)
+      p = barotropic_pressure(id=nint(self%eos_arg, I4P), rho=rho)
+   case default
+      p = (self%gamma - 1._R8P) * e
+   endselect
+   endfunction eos_pressure
+
+   pure function eos_sound_speed2(self, rho, e) result(c2)
+   !< Return the sound speed squared `c_s^2 = dP/drho` of a cell (issue #100, P4, D-M13-4; host code: the sinks and the
+   !< Jeans marker): `gamma (gamma - 1) e / rho` for the ideal gas, `c0^2` for the isothermal gas, the table's
+   !< `Gamma_k P / rho` for the barotropic gas, whose `e` is ignored.
+   class(flume_physics_object), intent(in) :: self !< Physics.
+   real(R8P),                   intent(in) :: rho  !< Density.
+   real(R8P),                   intent(in) :: e    !< Internal energy per unit volume (ideal gas only).
+   real(R8P)                               :: c2   !< Sound speed squared.
+
+   select case(self%model)
+   case(MODEL_EULER_ISO)
+      c2 = self%eos_arg
+   case(MODEL_EULER_BARO)
+      c2 = barotropic_c2(id=nint(self%eos_arg, I4P), rho=rho)
+   case default
+      c2 = self%gamma * (self%gamma - 1._R8P) * e / rho
+   endselect
+   endfunction eos_sound_speed2
 
    subroutine initialize(self, file_parameters)
    !< Initialize physics.
@@ -165,9 +204,6 @@ contains
       if (file_parameters%has_section(section_name='cooling')) &
          call mpih%error_stop(msg=': [cooling] is refused with [eos].(type)='//self%eos// &
                                   ': a barotropic gas has no thermal energy to radiate (issue #100)')
-      ! the sinks' virial test and accretion use the internal energy (P4); refused by the section, before any loader
-      if (file_parameters%has_section(section_name='sinks')) &
-         call mpih%error_stop(msg=': [sinks] is refused with [eos].(type)='//self%eos//' until P4 (issue #100)')
       self%model = merge(MODEL_EULER_ISO, MODEL_EULER_BARO, self%eos == EOS_ISOTHERMAL)
    endif
    self%nv_mhd = merge(self%nv, NV_EULER, self%physical_model == PHYSICAL_MODEL_MHD_IDEAL)
@@ -176,13 +212,11 @@ contains
    call self%dissipation%load_from_file(file_parameters=file_parameters, model=self%model, cp=self%cp)
    call self%gravity%load_from_file(file_parameters=file_parameters)
    call self%cooling%load_from_file(file_parameters=file_parameters, model=self%model, gamma=self%gamma, R=self%R)
-   if (self%eos /= EOS_IDEAL) then ! issue #100: the energy sources of these terms are not defined yet
-      if (self%dissipation%is_active) &
-         call mpih%error_stop(msg=': dissipative terms ([physics] viscosity, conductivity, ...) are refused with '// &
-                                  '[eos].(type)='//self%eos//' (issue #100)')
-      if (self%gravity%is_active) &
-         call mpih%error_stop(msg=': [gravity] is refused with [eos].(type)='//self%eos//' until P4 (issue #100)')
-   endif
+   ! issue #100: the dissipative energy sources are not defined for a barotropic gas; gravity is (P4), on the momentum
+   ! only, and so are the sinks (their c_s^2 and thermal energy come from the equation of state)
+   if (self%eos /= EOS_IDEAL .and. self%dissipation%is_active) &
+      call mpih%error_stop(msg=': dissipative terms ([physics] viscosity, conductivity, ...) are refused with '// &
+                               '[eos].(type)='//self%eos//' (issue #100)')
    print '(A)', self%description()
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize finish'
    endsubroutine initialize

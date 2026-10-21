@@ -14,6 +14,7 @@ module adam_flume_fnl_euler_baro_kernels
 use :: adam_fnl_weno_kernels,    only : weno_reconstruct_upwind_dev
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
+use :: adam_flume_eos_tables_library, only : barotropic_c2
 use :: adam_flume_euler_baro_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &
                                         compute_riemann_llf, conservative_to_auxiliary
 use :: adam_flume_parameters,    only : IA_A, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW,                   &
@@ -232,6 +233,17 @@ contains
 
    e = q(IQ_R) ! barotropic (issue #100): no internal energy, the density is the one positive quantity
    endfunction internal_energy
+
+   pure function kinetic_sound_speed2(gamma, q) result(c2)
+   !< Kinetic-chord adapter of the positivity limiter (issue #100, P4): dP/drho of the table at the cell's density.
+   real(R8P), intent(in) :: gamma   !< EOS parameter.
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: c2      !< c^2 of the kinetic chord (0: no chord).
+   !$acc routine seq
+   !$omp declare target
+
+   c2 = barotropic_c2(id=nint(gamma, I4P), rho=q(IQ_R)) ! barotropic (issue #100): eos_arg = the table id
+   endfunction kinetic_sound_speed2
 
    pure subroutine cell_sources(hs, damping, ds, w, qsx, qsy, qsz, qac, s_lo, s_hi)
    !< Sources adapter of the positivity limiter: none (Euler).

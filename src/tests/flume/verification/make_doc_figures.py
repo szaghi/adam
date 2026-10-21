@@ -2253,6 +2253,122 @@ def fig_barotropic_eos(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def _column_density(work: Path, it: int) -> tuple[np.ndarray, tuple[float, float, float, float], float]:
+    """The column density along z of a 3-D FLUME checkpoint on its composite grid, sampled at the finest spacing: the
+    image, its extent and the checkpoint time."""
+    sys.path.insert(0, str(HERE / "eos"))
+    import eos_oracle as eo  # noqa: PLC0415
+
+    ngc = eo.run_ngc(work)
+    blocks, h = [], math.inf
+    for path in sorted(work.glob(f"*-{it:09d}-proc*.h5")):
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                origin, dxyz = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                r = h5[f"{blk}-r"][()].transpose(2, 1, 0)[ngc:-ngc, ngc:-ngc, ngc:-ngc]
+                blocks.append((origin + ngc * dxyz, dxyz, r.sum(axis=2) * dxyz[2]))
+                h = min(h, float(dxyz[0]))
+    lo = np.min([b[0][:2] for b in blocks], axis=0)
+    hi = np.max([b[0][:2] + np.array(b[2].shape) * b[1][:2] for b in blocks], axis=0)
+    n = np.rint((hi - lo) / h).astype(int)
+    img = np.zeros(n)
+    for o, d, col in blocks:
+        f = int(round(d[0] / h))
+        i0, j0 = np.rint((o[:2] - lo) / h).astype(int)
+        img[i0 : i0 + col.shape[0] * f, j0 : j0 + col.shape[1] * f] += np.kron(col, np.ones((f, f)))
+    return img, (lo[0], hi[0], lo[1], hi[1]), eo.checkpoint_time(work, it)
+
+
+def fig_barotropic_gravity(out: Path, runs: Path) -> None:
+    """EO P4 (issue #100): the barotropic gases under gravity (CPU, FFT executable). Top left: the stable Jeans wave
+    (eg2, eg4), the L1 error of rho over the mode amplitude after one period against the cells, isothermal, barotropic
+    (rho0 = 5, c^2 = dP/drho) and isothermal across the 2:1 seams of the refined box; slope 2 dashed. Top centre: the
+    unstable mode (eg3), its amplitude against exp(sigma t), sigma = sqrt(5/4) c k (dashed), both gases. Top right: the
+    Bonnor-Ebert spheres (eg7), the central density over its initial value: sub-critical xi = 3 and 6 oscillate, the
+    super-critical xi = 9 departs. Bottom left: the overdense singular isothermal sphere (eg6, 32^3): the sink's mass
+    against Shu's rate m_0(A) a^3 / G (dashed, fitted offset). Bottom centre and right: the Boss-Bodenheimer cloud,
+    the column density along z (log) at two times, with the sinks (white crosses)."""
+    jo = oracle_module("selfgravity", "jeans_oracle")
+    so = oracle_module("selfgravity", "star_oracle")
+    sio = oracle_module("sinks", "si_oracle")
+    fig, axs = plt.subplots(2, 3, figsize=(17.0, 10.0), constrained_layout=True)
+    ax = axs[0, 0]
+    for tag, label, mk in (("isothermal", "isothermal", "o-"), ("barotropic", "barotropic, rho0 = 5", "s-"),
+                           ("box", "isothermal, 2:1 box", "^-")):
+        cells = [32, 64, 128]
+        errs = [jo.wave_error(runs / f"eg-jeans-{tag}-{n}")[1] for n in (8, 16, 32)]
+        ax.loglog(cells, errs, mk, ms=5, label=label)
+        for k in (1, 2):
+            ax.annotate(f"{math.log2(errs[k - 1] / errs[k]):.2f}", (cells[k], errs[k]), fontsize=7,
+                        textcoords="offset points", xytext=(4, 4))
+    ax.loglog([32, 128], [errs[0], errs[0] / 16], "k--", lw=0.8, label="slope 2")
+    ax.set_xlabel("cells per side")
+    ax.set_ylabel("L1 rho / (rho0 A)")
+    ax.legend(fontsize=8)
+    ax.set_title("stable Jeans wave, one period: w^2 = c^2 k^2 - 4 pi G rho0", fontsize=10)
+    ax = axs[0, 1]
+    for eos, color in (("isothermal", "tab:blue"), ("barotropic", "tab:orange")):
+        work = runs / f"eg-jeansu-{eos}"
+        jm = jo.Jeans(jo.read_ini(work))
+        ta = np.array(jo.mode_amplitudes(work))
+        ax.semilogy(ta[:, 0], ta[:, 1], "o", ms=3, color=color, label=f"{eos}, sigma = {jm.rate:.3f}")
+        ax.semilogy(ta[:, 0], jm.amp * np.exp(jm.rate * ta[:, 0]), "--", color=color, lw=0.8)
+    ax.set_xlabel("t")
+    ax.set_ylabel("mode amplitude")
+    ax.legend(fontsize=8)
+    ax.set_title("unstable Jeans mode, 64^2: amplitude against exp(sigma t)", fontsize=10)
+    ax = axs[0, 2]
+    for xi, color in ((3, "tab:green"), (6, "tab:blue"), (9, "tab:red")):
+        rows = np.array(so.star_rows(runs / f"eg-be-{xi}"))
+        ax.plot(rows[:, 0], rows[:, 1] / rows[0, 1], "-", color=color,
+                label=f"xi = {xi} ({'sub' if xi < 6.45 else 'super'}-critical)")
+    ax.axhline(1.0, color="0.5", lw=0.6)
+    ax.set_xlabel("t")
+    ax.set_ylabel("central density / initial")
+    ax.legend(fontsize=8)
+    ax.set_title("Bonnor-Ebert spheres in a closed cube, 32^3", fontsize=10)
+    ax = axs[1, 0]
+    work = runs / "eg-shu"
+    col = sio.read_history(next(work.glob("*-sinks_history.dat")))
+    ini = jo.read_ini(work)
+    a2 = float(ini["eos"]["sound_speed"].split(";")[0]) ** 2
+    rate = sio.shu_m0(float(ini["initial_conditions"]["sis_overdensity"].split(";")[0])) * a2**1.5 / \
+        float(ini["gravity"]["G"].split(";")[0])
+    tt, mm = col["time"], col["m"]
+    w = tt >= 0.4 * tt[-1]
+    off = float(np.mean(mm[w] - rate * tt[w]))
+    ax.plot(tt, mm, "-", label="sink mass")
+    ax.plot(tt, off + rate * tt, "k--", lw=0.8, label="Shu: m_0(A) a^3 / G")
+    ax.set_xlabel("t")
+    ax.set_ylabel("sink mass")
+    ax.legend(fontsize=8)
+    ax.set_title("overdense singular isothermal sphere (A = 29.3), 32^3", fontsize=10)
+    work = runs / "eg-bb"
+    sys.path.insert(0, str(HERE / "eos"))
+    import eos_oracle as eo  # noqa: PLC0415
+
+    its = eo.checkpoints(work)
+    times = [eo.checkpoint_time(work, it) for it in its]
+    pick = [its[int(np.argmin(np.abs(np.array(times) - 0.8 * times[-1])))], its[-1]]
+    sk_path = next(work.glob("*-sinks_history.dat"), None)
+    sk = sio.read_history(sk_path) if sk_path and len(sk_path.read_text().splitlines()) > 1 else None
+    for ax, it in zip(axs[1, 1:], pick, strict=True):
+        img, ext, tc = _column_density(work, it)
+        im = ax.imshow(np.log10(img.T), origin="lower", extent=ext, cmap="magma")
+        fig.colorbar(im, ax=ax, shrink=0.85, label="log10 column density")
+        if sk is not None and sk["time"].size:
+            now = np.isclose(sk["time"], tc)
+            ax.plot(sk["x"][now], sk["y"][now], "wx", ms=8)
+        ax.set_xlim(-1.2, 1.2)
+        ax.set_ylim(-1.2, 1.2)
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_title(f"Boss-Bodenheimer, t = {tc:.3f}", fontsize=10)
+    fig.suptitle("EO P4: the isothermal and barotropic gases under self-gravity (CPU)", fontsize=12)
+    fig.savefig(out / "barotropic-gravity.png", dpi=110)
+    plt.close(fig)
+
+
 def _ini(work: Path) -> configparser.ConfigParser:
     """Read the input.ini of a run."""
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
@@ -3500,6 +3616,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "passive-scalars": fig_passive_scalars,
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
+           "barotropic-gravity": fig_barotropic_gravity,
            "sink-particles": fig_sink_particles,
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,

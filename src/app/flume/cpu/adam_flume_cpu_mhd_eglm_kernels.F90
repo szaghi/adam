@@ -239,6 +239,17 @@ contains
        0.5_R8P * mhd_sum3(q(IQ_BX)**2, q(IQ_BY)**2, q(IQ_BZ)**2) - 0.5_R8P * q(IQ_PSI)**2
    endfunction internal_energy
 
+   pure function kinetic_sound_speed2(gamma, q) result(c2)
+   !< Kinetic-chord adapter of the positivity limiter (issue #100, P4): none (0), the internal energy bounds the kinetic one.
+   real(R8P), intent(in) :: gamma   !< EOS parameter.
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: c2      !< c^2 of the kinetic chord (0: no chord).
+   !$acc routine seq
+   !$omp declare target
+
+   c2 = 0._R8P
+   endfunction kinetic_sound_speed2
+
    pure subroutine cell_sources(ngc, hs, damping, dxyz, is_null, q, q_aux, i, j, k, b, s_lo, s_hi)
    !< Sources adapter of the positivity limiter (EGLM): the nonconservative sources with second-order (`s_lo`, the
    !< backbone's) and order-2 hs (`s_hi`) centred differences, both with the damping of `psi`.

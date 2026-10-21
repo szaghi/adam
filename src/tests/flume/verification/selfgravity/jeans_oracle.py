@@ -10,7 +10,8 @@
 
 The exact linear solution of a Jeans mode of [initial_conditions] (`sine-wave`, `wave_mode = jeans`) on the uniform
 state of region 1 under the self-gravity of [gravity] (`G` or `G_star`): with k = 2 pi / wavelength along
-n = (cos a, sin a), the phase theta = k n . x and w^2 = c^2 k^2 - 4 pi G rho_0 (c^2 = gamma p_0 / rho_0),
+n = (cos a, sin a), the phase theta = k n . x and w^2 = c^2 k^2 - 4 pi G rho_0 (c^2 = gamma p_0 / rho_0, or with an
+[eos] section the isothermal c0^2 or the barotropic dP/drho at rho_0, issue #100: eos_oracle.py),
 
     stable (w^2 >= 0)    rho = rho_0 (1 + A sin(theta - w t)),
     unstable (w^2 < 0)   rho = rho_0 (1 + A e^(sigma t) sin(theta)),  sigma = sqrt(-w^2).
@@ -49,6 +50,9 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "gravity"))
 from atmosphere_oracle import checkpoints, interior, read_ini  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "eos"))
+from eos_oracle import eos_of_section  # noqa: E402
+
 
 def value(sec: configparser.SectionProxy, key: str) -> float:
     """A numeric option, inline comments stripped."""
@@ -60,14 +64,17 @@ class Jeans:
 
     def __init__(self, ini: configparser.ConfigParser) -> None:
         reg, ic, grav = ini["initial_conditions_region_1"], ini["initial_conditions"], ini["gravity"]
-        self.rho0, self.p0 = value(reg, "r"), value(reg, "p")
-        self.gamma = value(ini["physics"], "gamma")
+        self.rho0 = value(reg, "r")
+        if "eos" in ini and ini["eos"]["type"].split(";")[0].strip() != "ideal":  # issue #100: c^2 = dP/drho
+            self.c2 = eos_of_section(ini["eos"]).c2(self.rho0)
+        else:
+            self.c2 = value(ini["physics"], "gamma") * value(reg, "p") / self.rho0
         big_g = value(grav, "G") if "G" in grav else value(grav, "G_star")
         angle = math.radians(value(ic, "wave_angle"))
         self.amp = value(ic, "wave_amplitude")
         self.k = 2.0 * math.pi / value(ic, "wavelength")
         self.n = np.array([math.cos(angle), math.sin(angle), 0.0])
-        self.w2 = self.gamma * self.p0 / self.rho0 * self.k**2 - 4.0 * math.pi * big_g * self.rho0
+        self.w2 = self.c2 * self.k**2 - 4.0 * math.pi * big_g * self.rho0
         self.corner = np.array([value(ini["grid"], f"emin_{x}") for x in "xyz"])
         self.length = np.array([value(ini["grid"], f"emax_{x}") for x in "xyz"]) - self.corner
         self.null = [ini["grid"][f"null_{x}"].strip() == ".true." for x in "xyz"]

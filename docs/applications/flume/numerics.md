@@ -310,6 +310,30 @@ the exact solver of the verification refuses such a law, and the default table o
 is non-convex at its $1.4 \to 1.1$ break, is verified by self-convergence instead
 ([EO barotropic](./verification/euler/barotropic-eos)).
 
+Under gravity (P4) both gases take the momentum sources of the gamma-law gas, $\rho\mathbf g$ (constant or from the cell
+potential, self-gravity included), and no energy source: the residual of the energy slot is cleared after the sources
+(`clear_inert_energy`), the fourth-order energy correction of the constant gravity is not computed (nor its `ngc >= 4`
+stencil required), and the AMR reflux carries no seam gravity work. Where the ideal gas reads $c_s^2$ or a thermal
+energy from the energy slot, these gases take them from the equation of state (D-M13-4): the Jeans marker's
+$\lambda_J = \sqrt{\pi c_s^2/(G\rho)}$ and the sinks' threshold density $\pi c_s^2/(4 G r_\mathrm{acc}^2)$ with
+$c_s^2 = dP/d\rho$, and the sinks' Jeans test $|E_\mathrm{grav}| > 2E_\mathrm{th}$ with the virial thermal energy
+$E_\mathrm{th} = \tfrac{3}{2}\int P\,dV$ (the ideal gas keeps its internal energy, the same at $\gamma = 5/3$; at
+$\gamma \to 1$ the internal energy $\int P/(\gamma - 1)\,dV$ diverges: at $\gamma = 1.001$ it is a thousand times the
+virial term, so the test could not pass, and the SIS runs of the gamma-law gas keep creation off). The cell positivity
+limiter is the density-only one: the models' admissible quantity (`internal_energy` of the kernels) is the density, so a
+stage, and the end-of-step reflux, keep every cell's density above `POSITIVITY_LIMITER_KAPPA` times its first-order
+backbone value, and an inadmissible seam ghost takes its interior cell ([AMR](#adaptive-mesh-refinement)). A corner
+whose density the chord takes to the floor would keep its momentum, so its velocity $\rho\mathbf{u}/\rho$ would be
+extrapolated up to $1/\kappa$ times the backbone's; the ideal gas's internal-energy chord rejects that state, and the
+barotropic gases take a **kinetic chord** in its place, the same closed form on the concave
+$f = \rho W - |\mathbf{m}|^2/(2\rho)$ with $W = (4|\mathbf{u}_b|^2 + c^2)/2$ of the backbone ($c^2 = dP/d\rho$ at its
+density; the reflux limiter $c_0^2$): $f \ge \kappa f_b$ bounds the corner's speed by about
+$\sqrt{4|\mathbf{u}_b|^2 + c^2}$, twice the backbone's. The factor matters for cold gas: with
+$W = (|\mathbf{u}_b|^2 + c^2)/2$ a stage at Mach $M$ that outruns its backbone by $0.45\,c/M$ is already clipped, and
+the sinks' cold accretion (eg6) drifted its momentum by 13 % of the exchange, 2.6 % with the factor. Without it the
+Boss–Bodenheimer cloud stalled at $1.32\,t_\mathrm{ff}$, the ambient beside the corners of its refined cube drained to
+$10^{-5}$ at $|u| = 365$ ([EO P4](./verification/euler/barotropic-gravity)).
+
 ## Radiative cooling
 
 `[cooling]` ([#93](https://github.com/szaghi/adam/issues/93), M11) adds optically thin cooling,
@@ -526,7 +550,11 @@ one level (2:1 balance). At a coarse–fine face:
   blended toward the adjacent interior cell, $g \leftarrow q_\text{in} + t\,(g - q_\text{in})$, with the largest $t$ that
   keeps $\rho$ and $\rho e$ above the limiter's floors of $q_\text{in}$ (a non-finite ghost takes $q_\text{in}$). An
   admissible ghost is never touched, so the blend changes nothing else and costs one scan of the face ghosts; the log
-  reports the ghosts blended, per rank;
+  reports the ghosts blended, per rank. The isothermal and barotropic gases take $q_\text{in}$ outright
+  ([#100](https://github.com/szaghi/adam/issues/100) P4): a ghost with $\rho \le 0$ makes the segment extrapolate the
+  velocity $\rho\mathbf{u}/\rho$, up to $1/\kappa$ times the anchor's at the density floor. The internal-energy chord
+  rejects that kinetic energy for the other models, but the density alone does not. On the Boss–Bodenheimer cloud the
+  blended ghosts at the corners of the refined cube raised the velocity by a factor per step, until $dt \to 0$;
 - **conservation** is restored by the Berger–Colella **reflux**: the fluxes of every Runge–Kutta stage through the seam
   are accumulated in a flux register, weighted by the stage's coefficient in the step, and at the end of the step the
   coarse cells next to the seam are corrected by the difference between the fine fluxes and their own

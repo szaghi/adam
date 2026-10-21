@@ -55,6 +55,7 @@ round trip): a setup table documents it better than a plot of a difference that 
 | [Radiative cooling](./euler/radiative-cooling) | CO | M11 ([#93](https://github.com/szaghi/adam/issues/93)) | CPU, FNL | yes |
 | [Isothermal equation of state](./euler/isothermal-eos) | EO | M13 ([#100](https://github.com/szaghi/adam/issues/100)) | CPU, FNL | yes |
 | [Barotropic equation of state](./euler/barotropic-eos) | EO (eb) | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P3 | CPU, FNL | yes |
+| [Barotropic gases under gravity](./euler/barotropic-gravity) | EO (eg) | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P4 | CPU, FNL | yes |
 
 ## [Ideal MHD](./mhd/)
 

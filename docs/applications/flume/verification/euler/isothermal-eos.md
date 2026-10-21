@@ -36,7 +36,7 @@ What the case catches:
 | eo1 | the shock tube: $\rho = 1 \mid 0.125$ at $x = 0.5$, at rest, the transverse velocity $v = 0.3 \mid -0.2$; 400 cells along $x$, $y$ active with 4 cells (uniform), extrapolation faces, to $t = 0.2$ |
 | eo2 | two streams $\rho = 1$, $u = \pm 5$ colliding at $x = 0.5$, 400 cells, to $t = 1$ |
 | eo3 | a right-running acoustic wave, $\rho = 1 + 10^{-6}\sin 2\pi x$, $u = c_0(\rho - 1)$, on the periodic $[0, 1]$, $N = 12, 24, 48$ in two blocks on two ranks, one period |
-| eo4 | the eo1 input with `[cooling]`, `[sinks]`, `[gravity]`, a viscosity, `positivity_limiter = cell`, `[reference]`, an immersed cylinder, a `wall-noslip` or `hydrostatic` face, `isentropic-vortex`; `mhd-ideal`, passive scalars, `cp`/`cv`, no or a negative `sound_speed`, an unknown `type` |
+| eo4 | the eo1 input with `[cooling]`, a viscosity, `[reference]`, an immersed cylinder, a `wall-noslip` or `hydrostatic` face, `isentropic-vortex`; `mhd-ideal`, passive scalars, `cp`/`cv`, no or a negative `sound_speed`, an unknown `type` |
 | eo5 | the eo3 wave at amplitude 0.3, $N = 48$, two ranks, to $t = 1$: it breaks into a shock at $t_b \approx 1/(c_0 A k) = 0.53$ |
 | eo6 | eo1 with `weno-riemann` and each solver |
 | eo7 | the eo1, eo2, eo3 ($N = 48$) and eo6 `hllc` runs of CPU and FNL |
@@ -83,7 +83,7 @@ into a shock after $t \approx 0.53$; the total mass is constant to round-off and
 | eo1 | `rE`; the L1 errors of $\rho$ and $v$ (reported) | exactly 0; — | 0; $2.1\cdot10^{-3}$, $2.0\cdot10^{-3}$ | the same |
 | eo2 | the layer mean against $M_1^2$; both shocks | $10^{-3}$; 1.5 cells | $8.3\cdot10^{-5}$ (144 cells; largest deviation $1.7\cdot10^{-2}$); 0.05 cells each | the same |
 | eo3 | the L1 order of the finest pair | $> 4.5$ | 4.84 (4.94 on 12 → 24; L1 $2.8\cdot10^{-12}$ at $N = 48$) | the same |
-| eo4 | the 16 invalid inputs | refused | refused | refused |
+| eo4 | the 13 invalid inputs (16 before P4, which defines `[sinks]`, `[gravity]` and the density-only `positivity_limiter = cell`: [under gravity](./barotropic-gravity)) | refused | refused | refused |
 | eo5 | `rE` in every checkpoint; the total mass | exactly 0; $10^{-13}$ | 0; $1.1\cdot10^{-16}$ | 0; $2.2\cdot10^{-16}$ |
 | eo6 | eo1 with `llf`, `hll`, `hllc` | as eo1 | plateau $6.1\cdot10^{-5}$, $3.2\cdot10^{-5}$, $3.2\cdot10^{-5}$; shock 0.15, 0.07, 0.07 cells; contact 0.16 cells each; `rE` 0 | the same |
 | eo7 | FNL against CPU, the last checkpoint, per field over its scale (a momentum's at least $\max\rho\,c_0$); `rE` | $10^{-10}$; exactly 0 | (the same comparison) | tube $1.7\cdot10^{-14}$, collision $4.2\cdot10^{-12}$, wave $2.4\cdot10^{-15}$, HLLC tube $1.2\cdot10^{-14}$ (largest field); 0 |

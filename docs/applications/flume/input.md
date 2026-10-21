@@ -559,12 +559,22 @@ With `type = isothermal` or `barotropic`:
   (fatal: they would be ignored);
 - the regions of `[initial_conditions]` and the `inflow` faces need no `p` (it is ignored: $P = P(\rho)$);
 - the accepted initial conditions are `uniform`, `riemann-problem`, `rotated-riemann`, `sine-wave` (with
-  `wave_mode = acoustic` the wave travels at $\sqrt{P'(\rho_0)}$), `linear`, `polynomial` and `shu-osher`; the
-  others, whose density needs $\gamma$, are fatal;
-- refused until a later phase, each with its own message: `[cooling]` (nothing to radiate), `[sinks]` and `[gravity]`
-  (P4), the dissipative terms, `[reference]` (it converts no barotropic law), `[numerics] positivity_limiter = cell`
-  (its admissibility is the internal energy; a density-only limiter is a later phase), immersed solids, and the
-  `wall-noslip`, `wall-isothermal` and `hydrostatic` faces;
+  `wave_mode = acoustic` the wave travels at $\sqrt{P'(\rho_0)}$, with `wave_mode = jeans` it obeys
+  $\omega^2 = P'(\rho_0) k^2 - 4\pi G\rho_0$), `linear`, `polynomial`, `shu-osher` and `boss-bodenheimer`; with
+  `isothermal` also `singular-isothermal-sphere` ($a^2 = c_0^2$) and `bonnor-ebert`
+  ([initial conditions](./initial-conditions)); the others, whose density needs $\gamma$, are fatal;
+- gravity (P4): `[gravity]`, external and self-gravity, acts on the momentum only, the energy slot stays 0 (no energy
+  source, so no fourth-order energy correction and no `ngc >= 4` requirement, no seam gravity work in the AMR reflux);
+  the Jeans marker (`[amr_marker_*] mode = 5`) and the sinks take $c_s^2 = dP/d\rho$ of the cell, and the sinks'
+  Jeans test (`|E_grav| > 2 E_th`) the virial thermal energy $E_\mathrm{th} = \tfrac{3}{2}\int P\,dV$ (equal to the
+  internal energy at $\gamma = 5/3$);
+- `[numerics] positivity_limiter = cell` (P4) is the density-only limiter: the models' admissible quantity is the
+  density, kept above `POSITIVITY_LIMITER_KAPPA` times its first-order backbone value (the stages and the AMR reflux),
+  with a kinetic chord that keeps the velocity of a limited cell near its backbone's
+  ([numerics](./numerics#isothermal-and-barotropic-equations-of-state)); the sinks need it, since accretion drains
+  the cells within the accretion radius to the threshold density;
+- refused, each with its own message: `[cooling]` (nothing to radiate), the dissipative terms, `[reference]` (it
+  converts no barotropic law), immersed solids, and the `wall-noslip`, `wall-isothermal` and `hydrostatic` faces;
 - CPU and FNL run the `weno` and `weno-riemann` schemes, all reconstructions, and the `llf`, `hll`, `hllc` solvers;
   the FNL kernels are the device twins of the CPU ones, on the same library.
 
@@ -814,10 +824,13 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `polytropic-atmosphere` | any | 1 (as above) | `polytropic_gamma` $G > 1$ (fatal otherwise); needs `[gravity]`. $p = p_1(\rho/\rho_1)^G$, $\rho = \rho_1 s^{1/(G-1)}$, $s = 1 + \frac{G-1}{G}\frac{\rho_1}{p_1}\mathbf g\cdot\mathbf x$; fatal where $s \le 0$ (the top of the atmosphere inside the domain). |
 | `rayleigh-taylor` | any | 1 (the light layer: $T_l = p_1/\rho_1$, $p_1$ the pressure at the interface; its field uniform) | Needs `[gravity]` along one axis (fatal otherwise). `rt_height` $h_0$ (along $-\mathbf g$, $h = -\mathbf g\cdot\mathbf x/|\mathbf g|$), `rt_width` $\delta$, `rt_density_ratio` $R$ (heavy over light at equal pressure; $R < 1$ is the stable control), `rt_wavelength` $\lambda$, `rt_amplitude` $A$, `rt_seed_width` $w$; every key required, $\delta, R, \lambda, w > 0$ (fatal otherwise). Two isothermal layers joined by $T = a + b\tanh((h - h_0)/\delta)$, $a = (T_l + T_h)/2$, $b = (T_h - T_l)/2$, $T_h = T_l/R$, hydrostatic in closed form, at rest; seeded with the solenoidal single mode $v_h = A\cos(k x_t) f(h)$, $u_t = -\frac{A}{k}\sin(k x_t) f'(h)$, $f = e^{-((h - h_0)/w)^2}$, $k = 2\pi/\lambda$, $x_t$ the first axis other than $\mathbf g$'s (M7-G3; its linear growth rate: `verification/gravity/rt_oracle.py`). |
 | `polynomial` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z`, `degree` (an integer $n \ge 1$). Every conservative variable is `q_1 (1 + sum_d g_d x_d^n)`: the ghost probe's field for the high-order seam operators ([#68](https://github.com/szaghi/adam/issues/68) D1), not a flow. Fatal under a non-dimensional reference (`g_d` has dimension $L^{-n}$). |
+| `bonnor-ebert` | **euler**, `[eos] type = isothermal` | 1 (its velocity) | Needs `[gravity] self_gravity`. `be_density` $\rho_c$ (`> 0`, required), `be_x0`, `be_y0`, `be_z0` (default 0), `be_overdensity` $f$ (`> 0`, default 1). $\rho = f\rho_c e^{-\psi(r/r_0)}$, $r_0 = c_0/\sqrt{4\pi G\rho_c}$, $\psi$ the isothermal Lane–Emden function ([#100](https://github.com/szaghi/adam/issues/100) P4). |
+| `boss-bodenheimer` | **euler**, `[eos]` isothermal or barotropic | 1 (the ambient medium) | Needs `[gravity] self_gravity`. `bb_radius` $R$, `bb_density` $\rho_0$ (`> 0`, required), `bb_omega` $\Omega$ (required), `bb_amplitude` $A$ (default 0.1), `bb_x0`, `bb_y0`, `bb_z0` (default 0). Inside $R$: $\rho = \rho_0(1 + A\cos 2\phi)$, solid-body rotation $\Omega\,\mathbf e_z \times (\mathbf x - \mathbf x_0)$ (P4). |
 
 A model mismatch (for example `glm-pulse` with `euler`) is fatal. The complete formulas are in the module header.
 With [`[eos] type = isothermal` or `barotropic`](#eos-optional-equation-of-state) only `uniform`, `riemann-problem`,
-`rotated-riemann`, `sine-wave`, `linear`, `polynomial` and `shu-osher` are accepted, and the regions need no `p`.
+`rotated-riemann`, `sine-wave`, `linear`, `polynomial`, `shu-osher` and `boss-bodenheimer` are accepted (with
+`isothermal` also `singular-isothermal-sphere` and `bonnor-ebert`), and the regions need no `p`.
 
 ### [initial_conditions_region_N]
 

@@ -62,6 +62,11 @@
 #   sinks   si-binary (the circular binary of sinks/check.sh si2, one orbit), si-shu-{32,64} (the overdense singular
 #           isothermal sphere of si11 at 32^3 and 64^3) and si-collapse-amr (the si10 collapse on runtime AMR, two levels
 #           above the base) (#94 P4), with the FFT executable (JEANS_EXE) (4 runs, 6 min)
+#   eosgrav the barotropic gases under gravity (#100 P4, eos/gravity.sh) with the FFT executable (JEANS_EXE):
+#           eg-jeans-{isothermal,barotropic,box}-{8,16,32} (eg2, eg4), eg-jeansu-{isothermal,barotropic} (eg3, a
+#           checkpoint every 5 steps), eg-be-{3,6,9} (eg7, every 10 steps), eg-shu (eg6, 32^3) and eg-bb, the
+#           Boss-Bodenheimer cloud on a 32^3 base with two Jeans-refined levels and sinks to 1.25 t_ff (8 ranks, a
+#           checkpoint every 20 steps)
 #   multirealm sod-x, sod-2realm, sod-amr, sod-amr-refined: the Sod unions of multirealm/check.sh legs 1 and 4 and
 #           their single-realm twins (4 runs, about 4 min)
 #   seams   the Sod shock crossing a static 2:1 face at x = 0.75 (amr-shock/make_amr_shock.py, #68; issue #85 R2b):
@@ -107,12 +112,12 @@ if [[ $# -lt 1 ]]; then
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks eos}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks eos eosgrav}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks|eos)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks|eos|eosgrav)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
            "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, seams, blast77, divb," \
-           "rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks, eos)" >&2
+           "rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks, eos, eosgrav)" >&2
       exit 2
    fi
 done
@@ -394,6 +399,26 @@ for g in $GROUPS_; do
                --time-max 3.0e-7 --ni "$n" --level 1 --null-y --set bc_x_min:type=periodic \
                --set bc_x_max:type=periodic --set weno:weights=si
          done ;;
+      eosgrav)
+         grav() { # grav <case dir> <ranks> <make_eos_gravity arguments>: write and run one case with the FFT executable
+            local np=$2
+            fresh "$1" ; shift 2
+            "$VENV_PY" -I "$VERIF_DIR/eos/make_eos_gravity.py" "$W/input.ini" "$@"
+            if (cd "$W" && mpirun -np "$np" "${JEANS_EXE:-$REPO_ROOT/exe/adam_flume_cpu_fft}" input.ini > log.txt 2>&1)
+            then
+               echo "   $(basename "$W"): done"
+            else
+               echo "   $(basename "$W"): FAILED, see $W/log.txt" ; FAILED=1
+            fi
+         }
+         for n in 8 16 32; do
+            for eos in isothermal barotropic; do grav "eg-jeans-$eos-$n" 4 jeans --eos "$eos" --cells "$n" ; done
+            grav "eg-jeans-box-$n" 4 jeans --eos isothermal --box --cells "$n"
+         done
+         for eos in isothermal barotropic; do grav "eg-jeansu-$eos" 4 jeansu --eos "$eos" --cells 16 --it-save 5 ; done
+         for xi in 3 6 9; do grav "eg-be-$xi" 4 be --xi "$xi" --time-max 4.0 --it-save 10 ; done
+         grav eg-shu 4 shu
+         grav eg-bb 8 bb --cells 32 --amr 2 --it-save 20 ;;
       sinks)
          sink() { # sink <case dir> <make_si arguments>: write and run one sink case with the FFT executable
             fresh "$1" ; shift

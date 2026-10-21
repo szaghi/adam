@@ -465,8 +465,9 @@ contains
    subroutine mark_by_jeans(self, jeans_cells, jeans_cells_derefine, delta_type, refine_only)
    !< Mark blocks by the resolution of the local Jeans length (issue #91; Truelove et al. 1997, ApJ 489, L179).
    !<
-   !< On a cell, `lambda_J = sqrt(pi c_s^2 / (G rho))` with the thermal sound speed `c_s^2 = gamma p / rho` (magnetic
-   !< support is not counted, so an MHD run refines at least as early as the hydrodynamic criterion asks). A block takes
+   !< On a cell, `lambda_J = sqrt(pi c_s^2 / (G rho))` with the thermal sound speed `c_s^2 = gamma p / rho`, and for a
+   !< barotropic gas `dP/drho` (issue #100, D-M13-4: the piecewise polytrope's `Gamma_k P / rho`). Magnetic support is
+   !< not counted, so an MHD run refines at least as early as the hydrodynamic criterion asks. A block takes
    !< the smallest `lambda_J / h` over its interior cells, `h` its spacing by `delta_type`: refined below `jeans_cells`
    !< (Truelove: at least 4), derefined above `jeans_cells_derefine`, untouched between (the hysteresis band of Federrath
    !< et al. 2010). Cell-local: it reads no ghost cell. `refine_only` (the initial AMR) never asks to derefine.
@@ -490,12 +491,17 @@ contains
    associate(refinements_needed=>self%adam%field%refinements_needed, gamma=>self%physics%gamma, &
              g=>self%physics%gravity%grav_const)
    do b=1, self%blocks_number
-      ! smallest lambda_J^2 = pi gamma p / (G rho^2) over the interior cells
+      ! smallest lambda_J^2 = pi c_s^2 / (G rho) over the interior cells: pi gamma p / (G rho^2), or the barotropic c_s^2
       r_min = huge(1._R8P)
       do k=1, self%nk
          do j=1, self%nj
             do i=1, self%ni
-               r_min = min(r_min, PI * gamma * self%q_aux(IA_P,i,j,k,b) / (g * self%q_aux(IA_R,i,j,k,b)**2))
+               if (has_inert_energy(self%physics%model)) then
+                  r_min = min(r_min, PI * self%physics%eos_sound_speed2(rho=self%q_aux(IA_R,i,j,k,b), e=0._R8P) / &
+                                     (g * self%q_aux(IA_R,i,j,k,b)))
+               else
+                  r_min = min(r_min, PI * gamma * self%q_aux(IA_P,i,j,k,b) / (g * self%q_aux(IA_R,i,j,k,b)**2))
+               endif
             enddo
          enddo
       enddo
@@ -780,6 +786,7 @@ contains
    real(R8P)                                  :: phi_f, phi_g, phi_mean, phi_c !< Potentials.
 
    if (.not.(self%physics%gravity%self_gravity .and. allocated(self%poisson_mg))) return
+   if (has_inert_energy(self%physics%model)) return ! a barotropic gas has no energy row (issue #100, P4)
    sgn_idx = self%adam%maps%inter_realm_face_register_index(b, fec)
    if (sgn_idx == 0_I4P) return
    if (abs(sgn_idx) > flux_register%nfaces) return
@@ -1789,7 +1796,7 @@ contains
 
    subroutine accrete_cells(self, cells, values)
    !< Threshold accretion on gathered cells (issue #94, D-M12-4; Federrath et al. 2010, section 2.3). A cell within the
-   !< accretion radius of a sink gives up the mass above `rho_thr = pi c_s^2 / (4 G r_acc^2)` (`c_s^2 = gamma p / rho` of
+   !< accretion radius of a sink gives up the mass above `rho_thr = pi c_s^2 / (4 G r_acc^2)` (`c_s^2 = dP/drho` of
    !< the cell) if that gas is bound to the sink and falls in (`0.5 |u - v_s|^2 - G m_s / r < 0`, `(u - v_s) . (x - x_s)
    !< < 0`); the cell that holds the sink, and every cell of a sink formed this step, are accreted without the checks. A
    !< cell within several radii gives its gas to the most bound sink. The cell keeps its specific values: every
@@ -1822,7 +1829,7 @@ contains
       rho = values(IQ_R,c)
       u = values(IQ_RU:IQ_RW,c) / rho
       e = values(IQ_RE,c) - 0.5_R8P * rho * sum(u**2)
-      cs2 = gamma * (gamma - 1._R8P) * e / rho
+      cs2 = self%physics%eos_sound_speed2(rho=rho, e=e) ! dP/drho (issue #100, D-M13-4)
       best = 0_I4P ; eb_best = huge(1._R8P) ; thr_best = 0._R8P
       do sk=1, self%sinks%n
          dx = sink_separation(grid=self%adam%grid, a=self%sinks%x(:,sk), b=xc)
@@ -1904,7 +1911,7 @@ contains
    ! list (a run after another found every candidate and formed no sink); the list has room for every interior cell
    allocate(cand(4, self%ni * self%nj * self%nk * max(self%adam%field%blocks_number, 1_I4P)))
    ncand = 0_I4P
-   associate(q=>self%q, gamma=>self%physics%gamma, grav=>self%physics%gravity%grav_const, field=>self%adam%field, &
+   associate(q=>self%q, grav=>self%physics%gravity%grav_const, field=>self%adam%field, &
              phi=>self%phi_grav, is_null=>self%adam%grid%null_xyz)
    do b=1, field%blocks_number
       if (self%adam%tree%level(code=field%code(b)) /= lmax) cycle
@@ -1916,7 +1923,7 @@ contains
                rho = q(IQ_R,i,j,k,b)
                u = q(IQ_RU:IQ_RW,i,j,k,b) / rho
                e = q(IQ_RE,i,j,k,b) - 0.5_R8P * rho * sum(u**2)
-               cs2 = gamma * (gamma - 1._R8P) * e / rho
+               cs2 = self%physics%eos_sound_speed2(rho=rho, e=e) ! dP/drho (issue #100, D-M13-4)
                rho_thr = PI * cs2 / (4._R8P * grav * r_acc**2)
                if (.not.(rho > rho_thr)) cycle
                xc = [field%x_cell(i,b), field%y_cell(j,b), field%z_cell(k,b)]
@@ -2033,7 +2040,9 @@ contains
 
       function collapsing(b, i, j, k, r_acc) result(is_collapsing)
       !< Return true if the control volume is Jeans-unstable and bound: `|E_grav| > 2 E_th` and `E_grav + E_th + E_kin <
-      !< 0`, `E_grav` the sum over the pairs of its cells, `E_kin` relative to its centre of mass.
+      !< 0`, `E_grav` the sum over the pairs of its cells, `E_kin` relative to its centre of mass. `E_th` is the internal
+      !< energy of the ideal gas, and for a barotropic gas (issue #100, P4), which has none, the virial thermal term
+      !< `3/2 int P dV` (`2 E_th = 3 int P dV`, the two equal at gamma = 5/3).
       integer(I4P), intent(in) :: b, i, j, k !< Cell.
       real(R8P),    intent(in) :: r_acc      !< Accretion radius.
       logical                  :: is_collapsing !< Jeans-unstable and bound.
@@ -2057,8 +2066,12 @@ contains
                mc(nn) = q(IQ_R,i+di,j+dj,k+dk,b) * dvol
                xcv(:,nn) = real(o, R8P) * field%dxyz(:,b)
                ucv(:,nn) = q(IQ_RU:IQ_RW,i+di,j+dj,k+dk,b) / q(IQ_R,i+di,j+dj,k+dk,b)
-               eth = eth + (q(IQ_RE,i+di,j+dj,k+dk,b) - 0.5_R8P * sum(q(IQ_RU:IQ_RW,i+di,j+dj,k+dk,b)**2) / &
-                            q(IQ_R,i+di,j+dj,k+dk,b)) * dvol
+               if (has_inert_energy(self%physics%model)) then
+                  eth = eth + 1.5_R8P * self%physics%eos_pressure(rho=q(IQ_R,i+di,j+dj,k+dk,b), e=0._R8P) * dvol
+               else
+                  eth = eth + (q(IQ_RE,i+di,j+dj,k+dk,b) - 0.5_R8P * sum(q(IQ_RU:IQ_RW,i+di,j+dj,k+dk,b)**2) / &
+                               q(IQ_R,i+di,j+dj,k+dk,b)) * dvol
+               endif
             enddo
          enddo
       enddo
@@ -2273,7 +2286,7 @@ contains
    endselect
    endsubroutine seam_skin_cell
 
-   pure function reflux_positivity_theta(nv, q, d, mag_w, psi_w) result(theta)
+   pure function reflux_positivity_theta(nv, q, d, mag_w, psi_w, cs2_inert) result(theta)
    !< Largest fraction `theta` in [0, 1] of the end-of-step reflux correction `d` that keeps the coarse cell `q`
    !< admissible (issue #88): the density and the internal energy of `q + theta d` stay at least
    !< `POSITIVITY_LIMITER_KAPPA` times those of `q`, the positivity limiter's relative floor. The correction is applied
@@ -2282,34 +2295,41 @@ contains
    !< `E - |m|^2 / (2 rho) - mag_w |B|^2 / 2 - psi_w psi^2 / 2` (`mag_w` 1 for MHD, `psi_w` 1 for EGLM, as the models'
    !< `internal_energy`) is concave in `theta`, so the admissible fractions are an interval holding 0, whose end the
    !< bisection finds. 1 when the full correction is admissible, and for a cell that is not admissible to begin with
-   !< (left to the scheme).
-   integer(I4P), intent(in) :: nv     !< Variables number.
-   real(R8P),    intent(in) :: q(nv)  !< Coarse cell state before the correction.
-   real(R8P),    intent(in) :: d(nv)  !< Full correction (scale times the flux mismatch).
-   real(R8P),    intent(in) :: mag_w  !< Weight of the magnetic energy (1 MHD, 0 Euler).
-   real(R8P),    intent(in) :: psi_w  !< Weight of psi^2/2 in the total energy (1 EGLM, 0 otherwise).
-   real(R8P)                :: theta  !< Admissible fraction of the correction.
-   real(R8P)                :: e0     !< Internal energy before the correction.
-   real(R8P)                :: lo, hi !< Bisection bracket.
-   integer(I4P)             :: it     !< Bisection counter.
+   !< (left to the scheme). A barotropic gas (`cs2_inert > 0`, issue #100 P4) has no internal energy: the density and
+   !< the kinetic chord of the cell limiter take its place, `rho W - |m|^2 / (2 rho)` with `W = (4 |u|^2 + c^2) / 2` of
+   !< `q` (`c^2 = cs2_inert`), which bounds the speed of the corrected cell by about `sqrt(4 |u|^2 + c^2)`.
+   integer(I4P), intent(in) :: nv        !< Variables number.
+   real(R8P),    intent(in) :: q(nv)     !< Coarse cell state before the correction.
+   real(R8P),    intent(in) :: d(nv)     !< Full correction (scale times the flux mismatch).
+   real(R8P),    intent(in) :: mag_w     !< Weight of the magnetic energy (1 MHD, 0 Euler).
+   real(R8P),    intent(in) :: psi_w     !< Weight of psi^2/2 in the total energy (1 EGLM, 0 otherwise).
+   real(R8P),    intent(in) :: cs2_inert !< Barotropic gas: the reference c^2 of the kinetic chord (0 otherwise).
+   real(R8P)                :: theta     !< Admissible fraction of the correction.
+   real(R8P)                :: w         !< Kinetic chord's specific energy (0: not a barotropic gas).
+   real(R8P)                :: e0        !< Internal energy before the correction.
+   real(R8P)                :: lo, hi    !< Bisection bracket.
+   integer(I4P)             :: it        !< Bisection counter.
    !$acc routine seq
    !$omp declare target
 
    theta = 1._R8P
-   e0 = reflux_internal_energy(nv, q, mag_w, psi_w)
-   if (q(IQ_R) <= 0._R8P .or. e0 <= 0._R8P) return
+   if (q(IQ_R) <= 0._R8P) return
+   w = 0._R8P
+   if (cs2_inert > 0._R8P) w = 0.5_R8P * (4._R8P * (q(IQ_RU)**2 + q(IQ_RU+1)**2 + q(IQ_RU+2)**2) / q(IQ_R)**2 + cs2_inert)
+   e0 = reflux_internal_energy(nv, q, mag_w, psi_w, w)
+   if (e0 <= 0._R8P) return
    if (q(IQ_R) + d(IQ_R) >= POSITIVITY_LIMITER_KAPPA * q(IQ_R)) then
-      if (reflux_internal_energy(nv, q + d, mag_w, psi_w) >= POSITIVITY_LIMITER_KAPPA * e0) return
+      if (reflux_internal_energy(nv, q + d, mag_w, psi_w, w) >= POSITIVITY_LIMITER_KAPPA * e0) return
    endif
    hi = 1._R8P
    if (d(IQ_R) < 0._R8P) hi = min(1._R8P, (1._R8P - POSITIVITY_LIMITER_KAPPA) * q(IQ_R) / (-d(IQ_R)))
    lo = 0._R8P
-   if (reflux_internal_energy(nv, q + hi * d, mag_w, psi_w) >= POSITIVITY_LIMITER_KAPPA * e0) then
+   if (reflux_internal_energy(nv, q + hi * d, mag_w, psi_w, w) >= POSITIVITY_LIMITER_KAPPA * e0) then
       lo = hi
    else
       do it=1, 50
          theta = 0.5_R8P * (lo + hi)
-         if (reflux_internal_energy(nv, q + theta * d, mag_w, psi_w) >= POSITIVITY_LIMITER_KAPPA * e0) then
+         if (reflux_internal_energy(nv, q + theta * d, mag_w, psi_w, w) >= POSITIVITY_LIMITER_KAPPA * e0) then
             lo = theta
          else
             hi = theta
@@ -2319,16 +2339,22 @@ contains
    theta = lo
    endfunction reflux_positivity_theta
 
-   pure function reflux_internal_energy(nv, q, mag_w, psi_w) result(e)
-   !< Internal energy per unit volume of a state, any model by the weights of `reflux_positivity_theta`.
+   pure function reflux_internal_energy(nv, q, mag_w, psi_w, w) result(e)
+   !< Internal energy per unit volume of a state, any model by the weights of `reflux_positivity_theta`; for a
+   !< barotropic gas (`w > 0`, issue #100) the kinetic chord's `rho w - |m|^2 / (2 rho)` in its place.
    integer(I4P), intent(in) :: nv    !< Variables number.
    real(R8P),    intent(in) :: q(nv) !< Conservative variables.
    real(R8P),    intent(in) :: mag_w !< Weight of the magnetic energy.
    real(R8P),    intent(in) :: psi_w !< Weight of psi^2/2.
+   real(R8P),    intent(in) :: w     !< Barotropic gas: the kinetic chord's specific energy (0 otherwise).
    real(R8P)                :: e     !< Internal energy.
    !$acc routine seq
    !$omp declare target
 
+   if (w > 0._R8P) then
+      e = q(IQ_R) * w - 0.5_R8P * (q(IQ_RU)**2 + q(IQ_RU+1)**2 + q(IQ_RU+2)**2) / q(IQ_R)
+      return
+   endif
    e = q(IQ_RE) - 0.5_R8P * (q(IQ_RU)**2 + q(IQ_RU+1)**2 + q(IQ_RU+2)**2) / q(IQ_R)
    if (mag_w > 0._R8P) e = e - 0.5_R8P * mag_w * (q(IQ_BX)**2 + q(IQ_BY)**2 + q(IQ_BZ)**2)
    if (psi_w > 0._R8P) e = e - 0.5_R8P * psi_w * q(IQ_PSI)**2
@@ -2530,7 +2556,8 @@ contains
       call mpih%error_stop(msg=': [grid].(ngc)='//trim(str(self%ngc))//' is smaller than 2, the stencil of the '// &
                                'weno-riemann face flux correction')
    ! issue #73, M7-G2a: the fourth-order gravity energy source reads the face beyond each block end, one cell further
-   if (self%physics%gravity%is_active) then
+   ! (a barotropic gas has no energy source: issue #100, P4)
+   if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) then
       if (self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN) then
          ns = max(self%weno%S, 2_I4P) + 1_I4P
       else
@@ -2569,22 +2596,19 @@ contains
    endsubroutine check_positivity_limiter
 
    subroutine check_barotropic(self)
-   !< Refuse, with a barotropic gas (issue #100), what is not defined for it yet: the positivity limiter (its
-   !< admissibility is the internal energy; a density-only variant is a later phase), immersed solids (their ghost
-   !< states rebuild the energy) and the IC types whose density needs gamma. Gravity, dissipation, cooling and sinks are
-   !< refused with the physics, `[reference]` by its own layer (it runs first), the no-slip and hydrostatic walls with
-   !< the boundary conditions.
+   !< Refuse, with a barotropic gas (issue #100), what is not defined for it yet: immersed solids (their ghost states
+   !< rebuild the energy) and the IC types whose density needs gamma. Dissipation and cooling are refused with the
+   !< physics, `[reference]` by its own layer (it runs first), the no-slip and hydrostatic walls with the boundary
+   !< conditions. The positivity limiter is defined (P4): the models' `internal_energy` is the density, so it keeps
+   !< the density above its relative floor (a density-only limiter).
    class(flume_common_object), intent(in) :: self !< The equation.
 
    if (.not.has_inert_energy(self%physics%model)) return
-   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
-      call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is refused with [eos].(type)='//self%physics%eos//' '// &
-                               '(issue #100: its admissibility is the internal energy)')
    if (self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': immersed solids are refused with [eos].(type)='//self%physics%eos//' (issue #100)')
    if (.not.self%ic%is_barotropic_safe()) &
       call mpih%error_stop(msg=': [initial_conditions].(type)='//self%ic%ic_type//' is not defined for '// &
-                               '[eos].(type)='//self%physics%eos//' (issue #100: its density needs gamma)')
+                               '[eos].(type)='//self%physics%eos//' (issue #100)')
    endsubroutine check_barotropic
 
    subroutine check_gravity(self)

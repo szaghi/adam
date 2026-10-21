@@ -233,6 +233,17 @@ contains
    e = q(IQ_RE) - 0.5_R8P * (q(IQ_RU)**2 + q(IQ_RV)**2 + q(IQ_RW)**2) / q(IQ_R)
    endfunction internal_energy
 
+   pure function kinetic_sound_speed2(gamma, q) result(c2)
+   !< Kinetic-chord adapter of the positivity limiter (issue #100, P4): none (0), the internal energy bounds the kinetic one.
+   real(R8P), intent(in) :: gamma   !< EOS parameter.
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: c2      !< c^2 of the kinetic chord (0: no chord).
+   !$acc routine seq
+   !$omp declare target
+
+   c2 = 0._R8P
+   endfunction kinetic_sound_speed2
+
    pure subroutine cell_sources(hs, damping, ds, w, qsx, qsy, qsz, qac, s_lo, s_hi)
    !< Sources adapter of the positivity limiter: none (Euler).
    integer(I4P), intent(in)  :: hs                     !< Half stencil of the high-order sources.

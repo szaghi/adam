@@ -1,6 +1,6 @@
 # Initial conditions
 
-The initial state is set by the `[initial_conditions]` section: `type` selects one of the fourteen initial conditions
+The initial state is set by the `[initial_conditions]` section: `type` selects one of the sixteen initial conditions
 below, and the primitive states of the regions are given in `[initial_conditions_region_N]` sections. The value of
 every key is checked: an unknown `type`, a missing key or an inconsistent value stops the run with a message naming the
 accepted values.
@@ -17,6 +17,8 @@ accepted values.
 | `linear` (verification) | ✓ | ✓ | ✓ | 1 |
 | `polytrope` (self-gravity) | ✓ | ✗ | ✗ | 1 (the atmosphere) |
 | `singular-isothermal-sphere` (self-gravity) | ✓ | ✗ | ✗ | 1 (the temperature) |
+| `bonnor-ebert` (self-gravity, `[eos] type = isothermal`) | ✓ | ✗ | ✗ | 1 (the velocity) |
+| `boss-bodenheimer` (self-gravity, `[eos]` isothermal or barotropic) | ✓ | ✗ | ✗ | 1 (the ambient medium) |
 
 "MHD" in the error messages means `[physics] physical_model = mhd-ideal`. `glm` versus `none` is chosen separately by
 `[mhd] divergence_control`.
@@ -918,7 +920,10 @@ Shu (1977), whose inside-out collapse accretes at $0.975\,a^3/G$; $A > 2$ collap
 of $\mathbf x/r^2$ through its faces): sampled at the centres, $1/r^2$ would miss the mass of the unresolved core and
 the hydrostatic sphere would expand. Keys: `sis_overdensity` $A$ (default 2, $> 0$), `sis_x0`, `sis_y0`, `sis_z0`
 (the centre, default 0). A cell centre on the centre is fatal: place it on a cell corner. The gas stays isothermal
-with $\gamma$ close to 1 (`gamma = 1.001`, [SI si11](./verification/self-gravity/sink-particles)).
+with $\gamma$ close to 1 (`gamma = 1.001`, [SI si11](./verification/self-gravity/sink-particles)), or is isothermal
+exactly with [`[eos] type = isothermal`](./input#eos-optional-equation-of-state)
+([#100](https://github.com/szaghi/adam/issues/100) P4): then $a^2 = c_0^2$ and the regions need no `p`
+([EO P4](./verification/euler/barotropic-gravity)).
 
 ```ini
 [physics]
@@ -936,3 +941,46 @@ v = 0.0
 w = 0.0
 p = 0.25
 ```
+
+## `bonnor-ebert`: the isothermal Lane–Emden sphere (self-gravity)
+
+The isothermal sphere in hydrostatic equilibrium ([#100](https://github.com/szaghi/adam/issues/100) P4; Euler with
+`[eos] type = isothermal`, `[gravity] self_gravity` required), at rest with region 1's velocity:
+$\rho = f\rho_c e^{-\psi(\xi)}$, $\xi = r/r_0$, $r_0 = c_0/\sqrt{4\pi G\rho_c}$, where $\psi$ solves the isothermal
+Lane–Emden equation $\psi'' + 2\psi'/\xi = e^{-\psi}$, $\psi(0) = \psi'(0) = 0$ (tabulated by RK4 on steps
+$\Delta\xi = 10^{-3}$ from the series start, read by cubic Hermite interpolation). The profile fills the domain: in a
+closed box the walls confine it, and the sphere inscribed in the box is a Bonnor–Ebert sphere (Bonnor 1956, Ebert
+1955), stable when its $\xi$ is below 6.45. The overdensity $f$ pushes it out of equilibrium (a super-critical sphere
+left exactly at equilibrium may as well expand). In a cube the profile is not an exact equilibrium: the gas in the
+corners pulls through its cubic multipoles ([EO P4](./verification/euler/barotropic-gravity), eg7). Keys:
+`be_density` $\rho_c$ (required, $> 0$), `be_overdensity` $f$ (default 1, $> 0$), `be_x0`, `be_y0`, `be_z0` (the
+centre, default 0).
+
+```ini
+[eos]
+type        = isothermal
+sound_speed = 1.0
+
+[initial_conditions]
+type           = bonnor-ebert
+amr_iterations = 0
+be_density     = 0.716    ; xi = 3 at r = 1 with G = 1
+
+[initial_conditions_region_1]
+r = 1.0
+u = 0.0
+v = 0.0
+w = 0.0
+```
+
+## `boss-bodenheimer`: the rotating cloud with an $m = 2$ perturbation (self-gravity)
+
+The standard test of binary fragmentation (Boss & Bodenheimer 1979, as set by Burkert & Bodenheimer 1993;
+[#100](https://github.com/szaghi/adam/issues/100) P4; Euler with `[eos]` isothermal or barotropic, `[gravity]
+self_gravity` required): a sphere of radius $R$ centred at $\mathbf x_0$, $\rho = \rho_0(1 + A\cos 2\phi)$ ($\phi$ the
+azimuth about $z$) in solid-body rotation $\Omega\,\mathbf e_z \times (\mathbf x - \mathbf x_0)$, embedded in region
+1's density and velocity (the light ambient medium). Only the density and the velocity are set: the pressure is the
+gas's own $P(\rho)$. Keys: `bb_radius` $R$, `bb_density` $\rho_0$ (both required, $> 0$), `bb_omega` $\Omega$
+(required), `bb_amplitude` $A$ (default 0.1), `bb_x0`, `bb_y0`, `bb_z0` (default 0). With $G = 1$, $R = 1$ and
+$M = 1$, Burkert & Bodenheimer's ratios $\alpha = E_\mathrm{th}/|W| = 0.26$ and $\beta = E_\mathrm{rot}/|W| = 0.16$
+give $c_0 = 0.3225$ and $\Omega = 0.6928$ (`eos/make_eos_gravity.py bb`).

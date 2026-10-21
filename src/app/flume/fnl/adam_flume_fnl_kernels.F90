@@ -37,6 +37,7 @@ public :: add_potential_sources_dev
 public :: compute_gravity_correction_faces_dev
 public :: subtract_equilibrium_residual_dev
 public :: add_gravity_limited_correction_dev
+public :: clear_inert_energy_dev
 public :: compute_dflux_norms_dev
 public :: copy_state_dev
 public :: compute_flux_difference_ib_dev
@@ -56,7 +57,7 @@ public :: unpack_potential_dev
 contains
    ! public procedures
    subroutine apply_reflux_face_dev(axis, sgn, b, ni, nj, nk, ngc, nv, nface_cells, scale, limit, mag_w, psi_w, &
-                                    delta_gpu, q_gpu, nclip)
+                                    cs2_inert, delta_gpu, q_gpu, nclip)
    !< Add the Berger-Colella correction `scale delta(:, c)` of one register face to the coarse skin cells of block `b`.
    !< With `limit` (the positivity limiter, issue #88) each cell receives the largest admissible fraction of its
    !< correction (`reflux_positivity_theta`), exactly the full one whenever admissible; `nclip` counts the others.
@@ -68,6 +69,7 @@ contains
    real(R8P),    intent(in)    :: scale                             !< Correction scale, sgn dt / dx_coarse.
    logical,      intent(in)    :: limit                             !< Keep the corrected cells admissible.
    real(R8P),    intent(in)    :: mag_w, psi_w                      !< Magnetic and psi energy weights of the model.
+   real(R8P),    intent(in)    :: cs2_inert                         !< Barotropic gas: the kinetic chord's c^2 (#100).
    real(R8P),    intent(in)    :: delta_gpu(1:,1:)                  !< Flux mismatch F_coarse - F_fine_sum (nv, cells).
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
    integer(I4P), intent(out)   :: nclip                             !< Cells whose correction was limited.
@@ -77,10 +79,10 @@ contains
 
    nclip = 0_I4P
    !$acc parallel loop independent gang vector DEVICEVAR(delta_gpu,q_gpu) &
-   !$acc& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w) private(i,j,k,qc,dc,theta) &
+   !$acc& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w,cs2_inert) private(i,j,k,qc,dc,theta) &
    !$acc& reduction(+:nclip)
    !$omp OMPLOOP DEVICEPTR(delta_gpu,q_gpu) &
-   !$omp& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w) private(i,j,k,qc,dc,theta) &
+   !$omp& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w,cs2_inert) private(i,j,k,qc,dc,theta) &
    !$omp& reduction(+:nclip)
    do c=1, nface_cells
       call seam_skin_cell(axis=axis, sgn=sgn, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
@@ -91,7 +93,7 @@ contains
             qc(v) = q_gpu(b,i,j,k,v)
             dc(v) = scale * delta_gpu(v,c)
          enddo
-         theta = reflux_positivity_theta(nv=nv, q=qc(1:nv), d=dc(1:nv), mag_w=mag_w, psi_w=psi_w)
+         theta = reflux_positivity_theta(nv=nv, q=qc(1:nv), d=dc(1:nv), mag_w=mag_w, psi_w=psi_w, cs2_inert=cs2_inert)
       endif
       if (theta < 1._R8P) then
          nclip = nclip + 1_I4P
@@ -447,6 +449,27 @@ contains
    enddo
    enddo
    endsubroutine add_gravity_limited_correction_dev
+
+   subroutine clear_inert_energy_dev(ni, nj, nk, ngc, blocks_number, dq_gpu)
+   !< Clear the energy residual of a barotropic gas (issue #100, P4; device twin of the CPU `clear_inert_energy`): the
+   !< gravity sources give the energy row the work of gravity, which a gas without an energy equation does not have.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
+   real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
+   integer(I4P)                :: b, i, j, k                         !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dq_gpu) firstprivate(ni,nj,nk,blocks_number)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dq_gpu) firstprivate(ni,nj,nk,blocks_number)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      dq_gpu(b,i,j,k,IQ_RE) = 0._R8P
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine clear_inert_energy_dev
 
    subroutine compute_flux_difference_ib_dev(nv, ni, nj, nk, ngc, blocks_number, is_null, freeze, dxyz_gpu, flx_f_gpu, &
                                              fly_f_gpu, flz_f_gpu, phi_gpu, dq_gpu)

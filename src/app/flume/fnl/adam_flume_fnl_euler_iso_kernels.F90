@@ -233,6 +233,17 @@ contains
    e = q(IQ_R) ! isothermal (issue #100): no internal energy, the density is the one positive quantity
    endfunction internal_energy
 
+   pure function kinetic_sound_speed2(gamma, q) result(c2)
+   !< Kinetic-chord adapter of the positivity limiter (issue #100, P4): the isothermal c0^2 (`gamma`).
+   real(R8P), intent(in) :: gamma   !< EOS parameter.
+   real(R8P), intent(in) :: q(NV_K) !< Conservative variables.
+   real(R8P)             :: c2      !< c^2 of the kinetic chord (0: no chord).
+   !$acc routine seq
+   !$omp declare target
+
+   c2 = gamma ! isothermal (issue #100): eos_arg = c0^2
+   endfunction kinetic_sound_speed2
+
    pure subroutine cell_sources(hs, damping, ds, w, qsx, qsy, qsz, qac, s_lo, s_hi)
    !< Sources adapter of the positivity limiter: none (Euler).
    integer(I4P), intent(in)  :: hs                     !< Half stencil of the high-order sources.

@@ -14,12 +14,18 @@
    ! internal energy through its chord); a non-finite ghost takes `q_in`. Admissible ghosts are not touched (bitwise), nor
    ! is a ghost whose interior cell is itself inadmissible (no admissible anchor). Face ghosts only, in the active
    ! directions: the stencils of the split and Riemann schemes and the EGLM sources read no other ghost.
+   !
+   ! `to_anchor` (the isothermal and barotropic models, issue #100): an inadmissible ghost takes `q_in`. The segment
+   ! toward a ghost of negative density extrapolates the velocity `m/rho`, up to `1/kappa` times the anchor's at the
+   ! density floor; the internal-energy chord of the other models rejects that kinetic energy, the density alone does
+   ! not, and on the Boss-Bodenheimer cloud the blended seam ghosts drove the velocity up by a factor per step.
 
-   subroutine blend_inadmissible_ghosts(ni, nj, nk, ngc, blocks_number, is_null, q, blended)
+   subroutine blend_inadmissible_ghosts(ni, nj, nk, ngc, blocks_number, is_null, to_anchor, q, blended)
    !< Blend every inadmissible face ghost of `q` toward the adjacent interior cell and count the ghosts blended.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                    !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                      !< Actual blocks number.
    logical,      intent(in)    :: is_null(3)                         !< Null directions.
+   logical,      intent(in)    :: to_anchor                          !< An inadmissible ghost takes the anchor.
    real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Conservative variables (ghosts updated).
    integer(I4P), intent(out)   :: blended                            !< Ghosts blended.
    integer(I8P), parameter     :: EXPONENT_MASK=2047_I8P             !< The 11 exponent bits of a binary64.
@@ -59,7 +65,7 @@
                         eb = internal_energy(q=qi)
                         if (.not.(eb > 0._R8P)) cycle
                         blended = blended + 1_I4P
-                        if (isnf) then
+                        if (isnf .or. to_anchor) then
                            q(1:NV_K,i,j,k,b) = qi
                            cycle
                         endif

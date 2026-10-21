@@ -566,6 +566,7 @@ ORDER_MIN = 4.5  # observed order of the finest pair of the acoustic wave (WENO-
 EDGE_CELLS = 5  # cells kept away from every wave edge when the plateau is measured
 SELFCONV_ORDER_MIN = 0.5  # self-convergence order of a discontinuous solution with no exact form (the MF2021 table)
 TOL_AGREE = 1.0e-10  # CPU against FNL (P2): the largest difference of a field over its largest magnitude (AV av8 floor)
+TOL_FREEFALL = 1.0e-12  # P4: a uniform box under constant gravity, rho and rho u - rho g t, relative
 
 
 def run_ngc(work: Path) -> int:
@@ -628,7 +629,11 @@ def read_input(work: Path) -> configparser.ConfigParser:
 def eos_of(work: Path) -> Eos:
     """The equation of state of a run, from its [eos] section: isothermal, or the barotropic table (without densities
     and exponents, the Mathew & Federrath 2021 table, as the code's default)."""
-    sec = read_input(work)["eos"]
+    return eos_of_section(read_input(work)["eos"])
+
+
+def eos_of_section(sec: configparser.SectionProxy) -> Eos:
+    """The equation of state of an [eos] section (see `eos_of`)."""
     c0 = float(sec["sound_speed"])
     if sec["type"].strip() == "isothermal":
         return isothermal(c0)
@@ -824,6 +829,75 @@ def compare_inert(work: Path) -> bool:
     return check("mass", drift < TOL_MASS, f"{work.name}: total mass drift {drift:.1e} ({len(mass)} rows)") and ok
 
 
+def compare_freefall(work: Path) -> bool:
+    """P4: a uniform periodic box under the constant gravity [gravity].(g_x): at every checkpoint rho uniform (to
+    TOL_FREEFALL relative), rho u = rho g t (TOL_FREEFALL relative) and rE exactly 0 (gravity moves the momentum only)."""
+    ini = read_input(work)
+    g = float(ini["gravity"]["g_x"])
+    worst_r = worst_u = worst_e = 0.0
+    for it in checkpoints(work):
+        _, q = checkpoint_line(work, it)
+        t = checkpoint_time(work, it)
+        rho0 = float(np.mean(q["r"]))
+        worst_r = max(worst_r, float(np.max(np.abs(q["r"] / rho0 - 1.0))))
+        worst_u = max(worst_u, float(np.max(np.abs(q["ru"] - rho0 * g * t))) / (rho0 * abs(g) * max(t, 1.0)))
+        worst_e = max(worst_e, float(np.max(np.abs(q["rE"]))))
+    ok = check("freefall", worst_r < TOL_FREEFALL and worst_u < TOL_FREEFALL,
+               f"{work.name}: rho uniform to {worst_r:.1e}, rho u - rho g t {worst_u:.1e} of rho g max(t, 1) "
+               f"(bound {TOL_FREEFALL:g})")
+    return check("inert", worst_e == 0.0, f"{work.name}: max |rE| {worst_e:.1e} (gravity moves the momentum only)") \
+        and ok
+
+
+def compare_inert_history(work: Path) -> bool:
+    """P4: the energy integral of the conservation history exactly 0 at every step (no energy row, AMR reflux too)."""
+    names, rows = history(work)
+    worst = float(np.max(np.abs(rows[:, names.index("int_rE")])))
+    return check("inert", worst == 0.0, f"{work.name}: max |int rE| over {len(rows)} history rows {worst:.1e}")
+
+
+def block_count(work: Path, it: int) -> int:
+    """The blocks of a checkpoint, over its ranks."""
+    import h5py  # noqa: PLC0415
+
+    n = 0
+    for path in work.glob(f"*-{it:09d}-proc*.h5"):
+        with h5py.File(path, "r") as h5:
+            n += sum(1 for k in h5 if k.endswith("-origin"))
+    return n
+
+
+def compare_refined(work: Path, expect: bool) -> bool:
+    """P4, the Jeans marker: the last checkpoint has more blocks than the first (refined), or the same (not)."""
+    its = checkpoints(work)
+    first, last = block_count(work, its[0]), block_count(work, its[-1])
+    refined = last > first
+    return check("marker", refined == expect, f"{work.name}: {first} blocks at it {its[0]}, {last} at it {its[-1]}: "
+                 f"{'refined' if refined else 'not refined'} (expected {'refined' if expect else 'not refined'})")
+
+
+def compare_advancing(work: Path, last: int, min_ratio: float) -> bool:
+    """P4, the Boss-Bodenheimer cloud: an it_max-driven run still advancing at its end, with a sink formed.
+
+    The seam ghost blend and the cell limiter of an inert gas once extrapolated the velocity m / rho of the states they
+    took to the density floor (up to 1 / kappa of the anchor's): the corners of the refined cube drove it up by a factor
+    per step and dt to 0, so the run stalled (at t = 1.37, then 1.46). The check: the time advanced over the last `last`
+    steps is at least `min_ratio` of `last` mean steps of the run (stalled 0 to 0.009; advancing 0.37)."""
+    names, rows = history(work)
+    t, it = rows[:, names.index("time")], rows[:, names.index("it")]
+    n = int(it[-1])
+    k = int(np.searchsorted(it, n - last))
+    ratio = (t[-1] - t[k]) / (last * t[-1] / n) if t[-1] > 0.0 else 0.0
+    ok = check("advancing", ratio >= min_ratio,
+               f"{work.name}: t = {t[-1]:.4f} after {n} steps; the last {last} steps advanced {t[-1] - t[k]:.3e}, "
+               f"{ratio:.3f} of the mean (bound {min_ratio:g})")
+    path = next(work.glob("*sinks_history*"), None)
+    n_sinks = 0
+    if path is not None:
+        n_sinks = len({int(ln.split()[2]) for ln in path.read_text().splitlines()[1:] if ln.strip()})
+    return check("sinks", n_sinks >= 1, f"{work.name}: {n_sinks} sinks formed") and ok
+
+
 def last_blocks(work: Path) -> dict[tuple[float, ...], dict[str, np.ndarray]]:
     """Every field (r, ru, rv, rw, rE) of every block of the last checkpoint, interior cells, keyed by block origin."""
     import h5py  # noqa: PLC0415 (only the run comparisons need it)
@@ -890,6 +964,17 @@ def main() -> int:
     p.add_argument("works", type=Path, nargs="+")
     p = sub.add_parser("inert", help="the energy slot of every checkpoint and the total mass of a run")
     p.add_argument("work", type=Path)
+    p = sub.add_parser("freefall", help="a uniform periodic box under constant gravity (P4)")
+    p.add_argument("work", type=Path)
+    p = sub.add_parser("inert-history", help="the energy integral of the history exactly 0 at every step (P4)")
+    p.add_argument("work", type=Path)
+    p = sub.add_parser("refined", help="the Jeans marker refined the grid, or not (P4)")
+    p.add_argument("work", type=Path)
+    p.add_argument("--expect", choices=("yes", "no"), required=True)
+    p = sub.add_parser("advancing", help="an it_max-driven run still advancing at its end, a sink formed (P4)")
+    p.add_argument("work", type=Path)
+    p.add_argument("--last", type=int, default=50)
+    p.add_argument("--min-ratio", type=float, default=0.1)
     args = ap.parse_args()
     if args.cmd == "selftest":
         return 0 if selftest() else 1
@@ -903,6 +988,14 @@ def main() -> int:
         return 0 if compare_selfconv(args.works) else 1
     if args.cmd == "inert":
         return 0 if compare_inert(args.work) else 1
+    if args.cmd == "freefall":
+        return 0 if compare_freefall(args.work) else 1
+    if args.cmd == "inert-history":
+        return 0 if compare_inert_history(args.work) else 1
+    if args.cmd == "refined":
+        return 0 if compare_refined(args.work, args.expect == "yes") else 1
+    if args.cmd == "advancing":
+        return 0 if compare_advancing(args.work, args.last, args.min_ratio) else 1
     return 2
 
 
