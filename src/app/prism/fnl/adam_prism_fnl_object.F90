@@ -5249,6 +5249,7 @@ contains
       call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
    endif
    call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   call self%pic_fnl%wrap_periodic_positions_dev
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
 
@@ -5440,6 +5441,7 @@ contains
       call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
    endif
    call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   call self%pic_fnl%wrap_periodic_positions_dev
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
@@ -6434,6 +6436,7 @@ contains
    real(R8P),               intent(inout) :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
    real(R8P),               intent(in)    :: weight
    integer(I4P),            intent(in)    :: s
+   integer(I4P)                           :: crown
 
    if (.not. is_pic_model(self%physics%physical_model)) return
    if (.not. associated(self%charge_conservation_acc_gpu)) return
@@ -6448,10 +6451,16 @@ contains
    if (self%conserving_fnl%enabled) then
       call self%conserving_fnl%impose_current_ghosts(q=q_gpu, var_jx=self%physics%var_jx)
    else
-      call zero_current_ghosts_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
-                                          blocks_number=self%blocks_number,                 &
-                                          var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
-                                          var_jz=self%physics%var_jz, q_gpu=q_gpu)
+      ! physical boundary ghosts only: block interfaces and periodic faces keep the exchanged current
+      if (associated(self%field_fnl%maps%local_map_bc_crown_gpu)) then
+         do crown=1, self%ngc
+            call zero_current_ghosts_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, crown=crown,  &
+                                                var_jx=self%physics%var_jx, var_jy=self%physics%var_jy, &
+                                                var_jz=self%physics%var_jz,                             &
+                                                local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu, &
+                                                q_gpu=q_gpu)
+         enddo
+      endif
    endif
    call accumulate_charge_conservation_current_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                                           blocks_number=self%blocks_number,                 &
@@ -6462,25 +6471,28 @@ contains
                                                           acc_gpu=self%charge_conservation_acc_gpu,         &
                                                           divj_gpu=self%charge_conservation_divj_gpu)
    contains
-      subroutine zero_current_ghosts_dev_kernel(ni, nj, nk, ngc, blocks_number, var_jx, var_jy, var_jz, q_gpu)
+      subroutine zero_current_ghosts_dev_kernel(ni, nj, nk, ngc, crown, var_jx, var_jy, var_jz, local_map_bc_crown_gpu, q_gpu)
+      !< Zero the normal current in the physical boundary ghosts of one crown. CPU twin: impose_zero_current_ghosts.
       implicit none
-      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number
+      integer(I4P), intent(in)    :: ni, nj, nk, ngc, crown
       integer(I4P), intent(in)    :: var_jx, var_jy, var_jz
+      integer(I8P), intent(in)    :: local_map_bc_crown_gpu(1:,1:,1:)
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-      integer(I4P)                :: i, j, k, b
+      integer(I4P)                :: c, i, j, k, b
 
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu) firstprivate(var_jx,var_jy,var_jz)
-      !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu) firstprivate(var_jx,var_jy,var_jz)
-      do k=1-ngc,nk+ngc
-      do j=1-ngc,nj+ngc
-      do i=1-ngc,ni+ngc
-      do b=1,blocks_number
-         if (i < 1 .or. i > ni) q_gpu(b,i,j,k,var_jx) = 0._R8P
-         if (j < 1 .or. j > nj) q_gpu(b,i,j,k,var_jy) = 0._R8P
-         if (k < 1 .or. k > nk) q_gpu(b,i,j,k,var_jz) = 0._R8P
-      enddo
-      enddo
-      enddo
+      !$acc parallel loop independent gang vector DEVICEVAR(local_map_bc_crown_gpu, q_gpu) &
+      !$acc& firstprivate(ni,nj,nk,crown,var_jx,var_jy,var_jz)
+      !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,crown,var_jx,var_jy,var_jz)
+      do c=1, size(local_map_bc_crown_gpu, dim=1)
+         b = local_map_bc_crown_gpu(c, 1, crown)
+         if (b > 0) then
+            i = local_map_bc_crown_gpu(c, 2, crown)
+            j = local_map_bc_crown_gpu(c, 3, crown)
+            k = local_map_bc_crown_gpu(c, 4, crown)
+            if (i < 1 .or. i > ni) q_gpu(b,i,j,k,var_jx) = 0._R8P
+            if (j < 1 .or. j > nj) q_gpu(b,i,j,k,var_jy) = 0._R8P
+            if (k < 1 .or. k > nk) q_gpu(b,i,j,k,var_jz) = 0._R8P
+         endif
       enddo
       endsubroutine zero_current_ghosts_dev_kernel
 

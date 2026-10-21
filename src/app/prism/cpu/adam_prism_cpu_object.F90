@@ -4213,6 +4213,7 @@ contains
    !< Integration of equations
    call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
+   call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
    call self%apply_fWL_correction(q=self%q)
    call self%impose_div_free
    endsubroutine integrate_leapfrog_pic
@@ -4350,6 +4351,7 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
+   call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
       call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
@@ -4578,6 +4580,7 @@ contains
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
+   call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
       call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    call self%apply_fWL_correction(q=self%q)
@@ -5829,21 +5832,26 @@ contains
    endsubroutine odd_mirror_index
 
    subroutine impose_zero_current_ghosts(self, q)
+   !< Zero the normal current in the physical boundary ghosts (rows of local_map_bc_crown). The ghosts of block interfaces
+   !< and of periodic faces keep the exchanged current.
    implicit none
    class(prism_cpu_object), intent(in)    :: self
    real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
-   integer(I4P)                           :: g, b
+   integer(I4P)                           :: crown, c, b, i, j, k
 
-   do b=1, self%blocks_number
-      do g=1, self%ngc
-         q(self%physics%var_Jx,1-g,:,:,b) = 0._R8P
-         q(self%physics%var_Jx,self%ni+g,:,:,b) = 0._R8P
-         q(self%physics%var_Jy,:,1-g,:,b) = 0._R8P
-         q(self%physics%var_Jy,:,self%nj+g,:,b) = 0._R8P
-         q(self%physics%var_Jz,:,:,1-g,b) = 0._R8P
-         q(self%physics%var_Jz,:,:,self%nk+g,b) = 0._R8P
+   if (.not.allocated(self%adam%maps%local_map_bc_crown)) return
+   associate(map=>self%adam%maps%local_map_bc_crown)
+   do crown=1, self%ngc
+      do c=1, size(map, dim=1)
+         b = int(map(c,1,crown), I4P)
+         if (b <= 0_I4P) cycle
+         i = int(map(c,2,crown), I4P) ; j = int(map(c,3,crown), I4P) ; k = int(map(c,4,crown), I4P)
+         if (i < 1_I4P .or. i > self%ni) q(self%physics%var_Jx,i,j,k,b) = 0._R8P
+         if (j < 1_I4P .or. j > self%nj) q(self%physics%var_Jy,i,j,k,b) = 0._R8P
+         if (k < 1_I4P .or. k > self%nk) q(self%physics%var_Jz,i,j,k,b) = 0._R8P
       enddo
    enddo
+   endassociate
    endsubroutine impose_zero_current_ghosts
 
    subroutine impose_odd_current_ghosts(self, q)

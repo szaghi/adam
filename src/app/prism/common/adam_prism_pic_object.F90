@@ -11,6 +11,7 @@ use :: adam_mpih_global,  only : mpih
 use :: mpi
 ! PRISM modules
 use :: adam_prism_parameters
+use :: adam_prism_pic_bc_object, only : prism_pic_bc_object
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 ! third party modules
 use :: finer, only : file_ini
@@ -126,6 +127,7 @@ type :: prism_pic_object
 	integer(I4P)				  :: n_electrons = 0_I4P         !< Total electrons number
 	integer(I4P)				  :: n_neutrals = 0_I4P          !< Total neutrals number
    integer(I4P), allocatable :: neighbour_list(:,:)         !< Particle grid positions array.
+   type(prism_pic_bc_object) :: bc                          !< Particle closures at the domain faces.
    character(len=99)         :: problem_type = ''           !< Type of problem analyzed
    character(len=99)         :: plasma_domain = ''          !< Domain of plasma at t0
    character(len=99)         :: initialization = COHERENT_INITIALIZATION !< Field initialization solver.
@@ -430,6 +432,7 @@ contains
       !desc = desc//NL//mpih%myrankstr//'    of which neutrals: '//trim(str(self%n_neutrals))
    endif
    desc = desc//NL//mpih%myrankstr//'    Initialization type: '//trim(self%initialization)
+   desc = desc//NL//self%bc%description(prefix=mpih%myrankstr//'    ')
    desc = desc//NL//mpih%myrankstr//'    Elliptic correction: '//trim(str(self%elliptic_correction))
    desc = desc//NL//mpih%myrankstr//'    Filter deposition and gather: '//trim(str(self%filter_deposition))
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
@@ -463,6 +466,7 @@ contains
    print '(A)', mpih%myrankstr//'prism_pic_object%initialize start'
 
    call self%load_from_file(file_parameters=file_parameters)
+   call self%bc%initialize(grid=grid)
    if (is_adim_model(physics%physical_model)) then
       if (self%problem_type == PLASMA_TYPE_PROBLEM) then
          self%plasma_density = self%plasma_density*physics%L0**3
@@ -884,7 +888,10 @@ contains
    !< located in the ghost cells of a local block, at most halo_margin_cells() cells outside the interior, so that its
    !< stencil stays within the ghosts (deposits are folded back by reduce_ghost_local/mpi, gathers read exchanged ghosts).
    !< With owned_only the halo search is skipped and a non-owned particle gets a zero row, without errors (injection,
-   !< migration). A particle outside the domain, or beyond the halo of every local block, stops the run.
+   !< migration). A particle beyond a periodic face is located the same way, in the ghost halo of the block on that face
+   !< (the periodic ghosts are images of the opposite interior), until its position is wrapped at the end of the step. A
+   !< particle outside the domain across a face without particle closure, or beyond the halo of every local block, stops
+   !< the run.
    class(prism_pic_object), intent(inout)        :: self               !< PIC object.
    type(field_object),      intent(in)           :: field              !< The field.
    type(grid_object),       intent(in)           :: grid               !< Grid (sibling realm component, threaded in)
@@ -898,8 +905,7 @@ contains
    owned_only_ = .false. ; if (present(owned_only)) owned_only_ = owned_only
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj,                                   &
             nk=>grid%nk, ngc=>grid%ngc, dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), &
-            np => self%particle_number, domain_emin => grid%domain_emin, domain_emax => grid%domain_emax,    &
-            emin => field%emin, neighbour_list => self%neighbour_list)
+            np => self%particle_number, emin => field%emin, neighbour_list => self%neighbour_list)
 
    ! Multi-block: a stencil spilling beyond the owner-block ghosts would be truncated, while the single-block run of the same
    ! domain keeps it (deposits are folded back with field%reduce_ghost_local, gathers read the exchanged ghosts).
@@ -908,7 +914,7 @@ contains
                                trim(str(self%stencil_radius_cells(),.true.))//', ngc '//trim(str(ngc,.true.))//')')
    m = self%halo_margin_cells(ngc=ngc)
    do n = 1, np
-      ! a particle owned by no block must not keep a stale index: particle boundary conditions are not implemented yet
+      ! a particle owned by no block must not keep a stale index
       neighbour_list(:,n) = 0_I4P
       do b = 1, blocks_number
          i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
@@ -922,9 +928,9 @@ contains
          endif
       enddo
       if (neighbour_list(1,n) /= 0_I4P .or. owned_only_) cycle
-      if (any(q_pic(1:3,n) <= domain_emin) .or. any(q_pic(1:3,n) > domain_emax)) &
-         call mpih%error_stop(msg=': PIC particle '//trim(str(n,.true.))//' is outside the domain; particle boundary '// &
-                                  'conditions are not implemented')
+      if (self%bc%is_outside(q_pic(1:3,n))) &
+         call mpih%error_stop(msg=': PIC particle '//trim(str(n,.true.))//' is outside the domain across a face without '// &
+                                  'particle closure (only periodic is implemented)')
       do b = 1, blocks_number
          i_p = ceiling((q_pic(1,n) - emin(1,b)) / dx(b))
          j_p = ceiling((q_pic(2,n) - emin(2,b)) / dy(b))

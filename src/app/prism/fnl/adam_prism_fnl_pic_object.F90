@@ -46,6 +46,10 @@ type :: prism_fnl_pic_object
    integer(I4P)          :: gaussian_support_cells = -1_I4P  !< Gaussian compact support radius in cells.
    logical               :: filter_deposition = .false.      !< Apply binomial filtering to particle weighting.
    integer(I4P)          :: stencil_radius = 0_I4P           !< Max cells reached by deposit/gather stencils (multi-block check).
+   logical               :: is_periodic(3) = .false.         !< Periodic particle closure along each axis (host pic%bc).
+   real(R8P)             :: domain_emin(3) = 0.0_R8P         !< Domain minimum coordinates (host pic%bc).
+   real(R8P)             :: domain_emax(3) = 0.0_R8P         !< Domain maximum coordinates (host pic%bc).
+   real(R8P)             :: domain_length(3) = 0.0_R8P       !< Domain lengths (host pic%bc).
    integer(I4P)          :: particle_number = 0_I4P          !< Total number of particles.
    integer(I4P)          :: n_ions         = 0_I4P           !< Total ions number.
    integer(I4P)          :: n_electrons    = 0_I4P           !< Total electrons number.
@@ -62,6 +66,7 @@ contains
    procedure, pass(self) :: initialize
    procedure, pass(self) :: migrate_particles_dev
    procedure, pass(self) :: particle_cartesian_grid_index_dev_impl
+   procedure, pass(self) :: wrap_periodic_positions_dev
    procedure, pass(self) :: NGP_charge_weighting_dev
    procedure, pass(self) :: CIC_charge_weighting_dev
    procedure, pass(self) :: TSC_charge_weighting_dev
@@ -270,6 +275,10 @@ contains
    self%gaussian_support_cells = pic%gaussian_support_cells
    self%filter_deposition = pic%filter_deposition
    self%stencil_radius    = pic%stencil_radius_cells()
+   self%is_periodic       = pic%bc%is_periodic
+   self%domain_emin       = pic%bc%domain_emin
+   self%domain_emax       = pic%bc%domain_emax
+   self%domain_length     = pic%bc%domain_length
 
    self%particle_cartesian_grid_index_dev => particle_cartesian_grid_index_dev_impl
 
@@ -534,6 +543,7 @@ contains
    real(R8P)                                  :: dx, dy, dz        !< Local cell spacings.
    real(R8P)                                  :: emin_x, emin_y, emin_z !< Block minimum coordinates.
    real(R8P)                                  :: dmin_x, dmin_y, dmin_z, dmax_x, dmax_y, dmax_z !< Domain bounds.
+   logical                                    :: per_x, per_y, per_z !< Periodic particle closure along each axis.
    real(R8P), pointer                        :: x_cell_gpu(:,:)   !< Cells x coordinates on GPU.
    real(R8P), pointer                        :: y_cell_gpu(:,:)   !< Cells y coordinates on GPU.
    real(R8P), pointer                        :: z_cell_gpu(:,:)   !< Cells z coordinates on GPU.
@@ -558,6 +568,7 @@ contains
    if (owned_only_) m = -1_I4P
    dmin_x = grid%domain_emin(1) ; dmin_y = grid%domain_emin(2) ; dmin_z = grid%domain_emin(3)
    dmax_x = grid%domain_emax(1) ; dmax_y = grid%domain_emax(2) ; dmax_z = grid%domain_emax(3)
+   per_x = self%is_periodic(1) ; per_y = self%is_periodic(2) ; per_z = self%is_periodic(3)
    blocks_number = field_fnl%blocks_number
    x_cell_gpu => field_fnl%x_cell_gpu
    y_cell_gpu => field_fnl%y_cell_gpu
@@ -582,13 +593,14 @@ contains
       block_p = 0_I4P
       i_p = 0_I4P ; j_p = 0_I4P ; k_p = 0_I4P
 
-      ! pass 1: ownership (interior cells); pass 2: ghost halo within m cells (inside the domain only)
+      ! pass 1: ownership (interior cells); pass 2: ghost halo within m cells (inside the domain, or beyond a periodic face)
       !$acc loop seq
       do pass = 1, 2
          if (pass == 2) then
             if (m < 0_I4P) exit
-            if (x_p <= dmin_x .or. y_p <= dmin_y .or. z_p <= dmin_z .or. &
-                x_p >  dmax_x .or. y_p >  dmax_y .or. z_p >  dmax_z) then
+            if (((.not.per_x) .and. (x_p <= dmin_x .or. x_p > dmax_x)) .or. &
+                ((.not.per_y) .and. (y_p <= dmin_y .or. y_p > dmax_y)) .or. &
+                ((.not.per_z) .and. (z_p <= dmin_z .or. z_p > dmax_z))) then
                outside = outside + 1_I4P
                exit
             endif
@@ -626,12 +638,66 @@ contains
       neighbour_list_gpu(n,3) = j_p
       neighbour_list_gpu(n,4) = k_p
    enddo
-   ! CPU twin: a particle outside the domain stops the run (particle boundary conditions are not implemented yet)
+   ! CPU twin: a particle outside the domain across a face without particle closure stops the run
    if (outside > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(outside,.true.))//' PIC particle(s) outside the '// &
-                                                     'domain; particle boundary conditions are not implemented')
+                                                     'domain across a face without particle closure (only periodic is '// &
+                                                     'implemented)')
    if (lost > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(lost,.true.))//' PIC particle(s) moved beyond the '// &
                                                   'ghost halo of their rank within a time step')
    endsubroutine particle_cartesian_grid_index_dev_impl
+
+   subroutine wrap_periodic_positions_dev(self)
+   !< Bring the particles that crossed a periodic face back in the domain (emin, emax], by one domain length. Particles
+   !< inside the domain are not touched (bitwise). CPU twin: prism_pic_bc_object%wrap_periodic_positions.
+   class(prism_fnl_pic_object), intent(inout) :: self           !< PIC object on device.
+   real(R8P), pointer                         :: q_pic_gpu(:,:) !< PIC variables on device.
+   integer(I4P)                               :: n              !< Counter.
+   integer(I4P)                               :: np             !< Particles number (local: no implicit copy of self).
+   integer(I4P)                               :: escaped        !< Particle coordinates still outside after one shift.
+   logical                                    :: per_x, per_y, per_z    !< Periodic particle closure along each axis.
+   real(R8P)                                  :: dmin_x, dmin_y, dmin_z !< Domain minimum coordinates.
+   real(R8P)                                  :: dmax_x, dmax_y, dmax_z !< Domain maximum coordinates.
+   real(R8P)                                  :: len_x, len_y, len_z    !< Domain lengths.
+
+   if (.not.any(self%is_periodic) .or. self%particle_number == 0_I4P .or. .not.associated(self%q_pic_gpu)) return
+   q_pic_gpu => self%q_pic_gpu
+   np = self%particle_number
+   per_x = self%is_periodic(1) ; per_y = self%is_periodic(2) ; per_z = self%is_periodic(3)
+   dmin_x = self%domain_emin(1) ; dmin_y = self%domain_emin(2) ; dmin_z = self%domain_emin(3)
+   dmax_x = self%domain_emax(1) ; dmax_y = self%domain_emax(2) ; dmax_z = self%domain_emax(3)
+   len_x = self%domain_length(1) ; len_y = self%domain_length(2) ; len_z = self%domain_length(3)
+   escaped = 0_I4P
+   !$acc parallel loop independent DEVICEVAR(q_pic_gpu) reduction(+:escaped)
+   !$omp OMPLOOP DEVICEPTR(q_pic_gpu) reduction(+:escaped)
+   do n = 1, np
+      if (per_x) then
+         if (q_pic_gpu(n,1) > dmax_x) then
+            q_pic_gpu(n,1) = q_pic_gpu(n,1) - len_x
+         elseif (q_pic_gpu(n,1) <= dmin_x) then
+            q_pic_gpu(n,1) = q_pic_gpu(n,1) + len_x
+         endif
+         if (q_pic_gpu(n,1) > dmax_x .or. q_pic_gpu(n,1) <= dmin_x) escaped = escaped + 1_I4P
+      endif
+      if (per_y) then
+         if (q_pic_gpu(n,2) > dmax_y) then
+            q_pic_gpu(n,2) = q_pic_gpu(n,2) - len_y
+         elseif (q_pic_gpu(n,2) <= dmin_y) then
+            q_pic_gpu(n,2) = q_pic_gpu(n,2) + len_y
+         endif
+         if (q_pic_gpu(n,2) > dmax_y .or. q_pic_gpu(n,2) <= dmin_y) escaped = escaped + 1_I4P
+      endif
+      if (per_z) then
+         if (q_pic_gpu(n,3) > dmax_z) then
+            q_pic_gpu(n,3) = q_pic_gpu(n,3) - len_z
+         elseif (q_pic_gpu(n,3) <= dmin_z) then
+            q_pic_gpu(n,3) = q_pic_gpu(n,3) + len_z
+         endif
+         if (q_pic_gpu(n,3) > dmax_z .or. q_pic_gpu(n,3) <= dmin_z) escaped = escaped + 1_I4P
+      endif
+   enddo
+   if (escaped > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(escaped,.true.))//' PIC particle coordinate(s) '// &
+                                                     'moved more than one domain length in a step')
+   endsubroutine wrap_periodic_positions_dev
 
    subroutine NGP_charge_weighting_dev(self, field_fnl, field, grid, q_gpu, q_pic_gpu, nv)
    !< Nearest Grid Point weighting of particle charge density to the grid.

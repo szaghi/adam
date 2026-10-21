@@ -533,6 +533,8 @@ PIC configuration lives in its own `[PIC]` section (`adam_prism_pic_object.F90`,
 
 Particle state is `q_pic(8, particle_number)` with `pic_fields(6, particle_number)`, allocated only under PIC (`adam_prism_common_object.F90:275-285`).
 
+**Particle closure at the domain faces** (`adam_prism_pic_bc_object.F90`, component `pic%bc`, FNL mirror in `prism_fnl_pic_object`): derived from the field `[bc_*] type` by a total map (no input key of its own). `periodic` → `PIC_BC_PERIODIC`: a particle beyond a periodic face is located in the ghost halo of the block on that face (periodic ghosts are images of the opposite interior, so standard deposits fold back through `reduce_ghost_*` and gathers read the images) and its position is wrapped by ±L at the **end of the step only**, never inside RK stages (their positions combine linearly). Every other kind → `PIC_BC_LEGACY` + an init warning (particle outside the domain stops the run). The conserving currents do **not** support periodic faces yet (their support may not reach a face): see `CLAUDE_WORKS/particle_bc_periodic.md` P3. The non-conserving charge-conservation diagnostic zeroes the normal current only in the physical boundary ghosts (`local_map_bc_crown`); it used to zero every block ghost, which broke its `R_cont` at block interfaces and periodic faces.
+
 ### `[bc_*] type`: accepted spellings, and PRISM `periodic` is library periodicity
 
 The six face sections `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]`, `[bc_z_max]` each take a `type`. The parser (`adam_prism_bc_object.F90`) accepts exactly seven spellings:
