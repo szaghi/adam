@@ -5249,7 +5249,6 @@ contains
       call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
    endif
    call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
-   call self%pic_fnl%wrap_periodic_positions_dev
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
 
@@ -5267,6 +5266,9 @@ contains
                                                    context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%finalize_charge_conservation_diagnostic
+   ! bring the particles beyond a periodic face back in the domain only now: until the end-of-step deposit is done they
+   ! stay in the ghost halo of the block on that face (wrapped, they would jump to the blocks of another rank)
+   call self%pic_fnl%wrap_periodic_positions_dev
    ! hand the particles that left the blocks of this rank to their new owners
    call self%migrate_particles
    endsubroutine integrate_rk_ssp_pic
@@ -5402,14 +5404,23 @@ contains
       endif
       call cc%build_stage_target(q_pic=self%pic_fnl%q_pic_gpu, q_pic_rk=q_pic_rk_gpu, s=s, coeff=coeff, dt=self%time%dt)
       if (cleanup) call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,s))
-      call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=self%pic_fnl%q_pic_gpu, q_to=cc%q_next_gpu, &
-                                     h=cc%h_gpu(:,:,:,:,:,s), p_first=1_I4P, p_last=cc%particle_number)
+      if (cc%box_current) then
+         ! periodic faces: the stage slot receives the matched current built on the trajectory boxes, combined over the
+         ! stages as the sources are (the solve is linear)
+         call cc%deposit_matched_current_box(q_ref=self%pic_fnl%q_pic_gpu, q_to=cc%q_next_gpu, h=cc%h_gpu(:,:,:,:,:,s), &
+                                             p_first=1_I4P, p_last=cc%particle_number, dt=self%time%dt)
+      else
+         call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=self%pic_fnl%q_pic_gpu, q_to=cc%q_next_gpu, &
+                                        h=cc%h_gpu(:,:,:,:,:,s), p_first=1_I4P, p_last=cc%particle_number)
+      endif
       ! the source of the particles of all the ranks
       call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,s))
       call cc%combine_stage_source(h=cc%h_gpu, s=s, coeff=coeff)
 
       ! stage current
-      if (cleanup) then
+      if (cc%box_current) then
+         call cc%store_box_current(q=q_rk_gpu(:,:,:,:,:,s), var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,s))
+      elseif (cleanup) then
          call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=q_rk_gpu(:,:,:,:,:,s), &
                                              var_jx=var_jx, q_ref=self%pic_fnl%q_pic_gpu, q_hist=cc%q_hist_gpu, &
                                              active_stage=s, alph=self%rk%alph, beta=self%rk%beta, dt=self%time%dt, &
@@ -5441,7 +5452,6 @@ contains
       call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
    endif
    call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
-   call self%pic_fnl%wrap_periodic_positions_dev
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
@@ -5459,7 +5469,9 @@ contains
       call self%fold_deposited_ghosts_dev(q_gpu=self%q_gpu, v_first=self%nv, v_last=self%nv)
    endif
    call self%finalize_charge_conservation_diagnostic
-   if (cleanup) then
+   if (cc%box_current) then
+      call cc%store_box_current(q=self%q_gpu, var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,nrk))
+   elseif (cleanup) then
       call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=self%q_gpu, var_jx=var_jx, &
                                           q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, active_stage=nrk, alph=self%rk%alph, &
                                           beta=self%rk%beta, dt=self%time%dt, mixed_source=cc%h_gpu(:,:,:,:,:,nrk))
@@ -5471,6 +5483,8 @@ contains
                                                    context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    endassociate
+   ! periodic faces: positions wrapped after the end-of-step deposit, before the migration (as integrate_rk_ssp_pic)
+   call self%pic_fnl%wrap_periodic_positions_dev
    ! hand the particles that left the blocks of this rank to their new owners
    call self%migrate_particles
    endsubroutine integrate_rk_ssp_pic_charge_conserving
@@ -5499,11 +5513,18 @@ contains
    if (self%time%it_max <= 0_I4P) self%time%dt = min(self%time%dt, self%time%time_max)
    if (self%time%dt <= 0._R8P) call mpih%error_stop(msg=': nonpositive initial PIC timestep')
    call cc%build_centered_trajectory(q_pic=self%pic_fnl%q_pic_gpu, dt=self%time%dt)
-   call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=cc%q_ref_gpu, q_to=cc%q_next_gpu, &
-                                  h=cc%h_gpu(:,:,:,:,:,1), p_first=1_I4P, p_last=cc%particle_number)
+   if (cc%box_current) then
+      call cc%deposit_matched_current_box(q_ref=cc%q_ref_gpu, q_to=cc%q_next_gpu, h=cc%h_gpu(:,:,:,:,:,1), &
+                                          p_first=1_I4P, p_last=cc%particle_number, dt=self%time%dt)
+   else
+      call cc%esirkepov_displacement(field_fnl=self%field_fnl, q_ref=cc%q_ref_gpu, q_to=cc%q_next_gpu, &
+                                     h=cc%h_gpu(:,:,:,:,:,1), p_first=1_I4P, p_last=cc%particle_number)
+   endif
    ! the source of the particles of all the ranks
    call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,1))
-   if (cc%tail_cleanup) then
+   if (cc%box_current) then
+      call cc%store_box_current(q=self%q_gpu, var_jx=self%physics%var_jx, hq=cc%h_gpu(:,:,:,:,:,1))
+   elseif (cc%tail_cleanup) then
       call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,1))
       call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=self%q_gpu, &
                                           var_jx=self%physics%var_jx, q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, &

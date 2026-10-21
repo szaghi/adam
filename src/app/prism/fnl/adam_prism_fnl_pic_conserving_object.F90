@@ -65,6 +65,8 @@ integer(I4P), parameter :: SHAPE_SEXTIC   = 6_I4P !< Sextic particle shape.
 integer(I4P), parameter :: SHAPE_GAUSSIAN = 7_I4P !< Gaussian particle shape.
 
 integer(I4P), parameter :: MAX_SPAN = 32_I4P !< Max 1D cells touched by one particle trajectory (gang-private weights).
+integer(I4P), parameter :: LQ_SPAN = MAX_SPAN + 10_I4P !< Box cells widened by the Q taps (box current, nq <= 10).
+integer(I4P), parameter :: LP_SPAN = MAX_SPAN + 14_I4P !< Box cells widened by the P taps (box current, radius <= 7).
 
 integer(I4P), parameter :: ERR_OUTSIDE  = 1_I4P !< Particle outside the domain.
 integer(I4P), parameter :: ERR_CHARGE   = 3_I4P !< Particle charge changed during the trajectory.
@@ -85,6 +87,8 @@ type :: prism_fnl_pic_conserving_object
    integer(I4P) :: shape        = 0_I4P   !< Particle shape (SHAPE_*).
    logical      :: filter_deposition = .false. !< Binomial filter on deposition.
    logical      :: tail_cleanup = .false. !< Matched-current per-particle tail cleanup.
+   logical      :: is_periodic(3) = .false. !< Periodic particle closure along each axis (host pic%bc).
+   logical      :: box_current = .false.  !< Matched current and charge built per particle on its box (periodic faces).
    real(R8P)    :: sigma        = 0._R8P  !< Gaussian width.
    real(R8P)    :: cutoff_sigma = 0._R8P  !< Gaussian cutoff in sigma units.
    integer(I4P) :: gaussian_support_cells = -1_I4P !< Gaussian support radius in cells.
@@ -160,6 +164,8 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self) :: solve_modified              !< Matched current (totorica, esirkepov_Q<N>).
       procedure, pass(self) :: solve_modified_with_cleanup !< Per-particle modified current with tail cleanup.
       procedure, pass(self) :: deposit_modified_charge     !< Unfiltered deposit + P_c filter of rho.
+      procedure, pass(self) :: deposit_matched_current_box !< Matched current per particle on its box, folded (periodic).
+      procedure, pass(self) :: store_box_current           !< Real q(J) = virtual stage current of the box solver.
       procedure, pass(self) :: impose_current_ghosts       !< Odd/zero current ghosts on the physical faces of real blocks.
       procedure, pass(self) :: reduce_virtual4             !< Sum a rank-4 virtual-block array over the ranks.
       procedure, pass(self) :: reduce_virtual5             !< Sum a rank-5 virtual-block array over the ranks.
@@ -168,6 +174,8 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self), private :: build_virtual_geometry  !< Virtual block of the whole domain.
       procedure, pass(self), private :: scatter_current         !< Real q(J) = virtual J, ghosts included.
       procedure, pass(self), private :: impose_virtual_ghosts   !< Odd/zero current ghosts of the virtual block.
+      procedure, pass(self), private :: impose_virtual_ghosts_periodic !< Virtual current ghosts with periodic axes.
+      procedure, pass(self), private :: deposit_matched_charge_box !< Matched rho per particle, folded (periodic).
       procedure, pass(self), private :: check_source_support    !< Particle source inside its trajectory support box.
       procedure, pass(self), private :: transposed_filter_axis  !< P^T convolution of the coherent gather along one axis.
 endtype prism_fnl_pic_conserving_object
@@ -280,6 +288,7 @@ contains
    self%solver_name            = pic%conserving_solver_name()
    self%filter_deposition      = pic%filter_deposition
    self%tail_cleanup           = pic%esirkepov_tail_cleanup
+   self%is_periodic            = pic%bc%is_periodic
    self%sigma                  = pic%sigma
    self%cutoff_sigma           = pic%cutoff_sigma
    self%gaussian_support_cells = pic%gaussian_support_cells
@@ -295,6 +304,17 @@ contains
 
    if (self%tail_cleanup .and. self%solver /= CONSERVING_SOLVER_MODIFIED) &
       call mpih%error_stop(msg=': esirkepov_tail_cleanup requires totorica or an esirkepov_Q<N> solver')
+   ! periodic particle closure: the matched currents built on the trajectory boxes only (CPU twin:
+   ! check_conserving_single_block); without periodic faces the virtual line solves are kept bitwise
+   if (any(self%is_periodic)) then
+      if (self%solver /= CONSERVING_SOLVER_MODIFIED) &
+         call mpih%error_stop(msg=': '//self%solver_name//' does not support periodic faces yet (totorica and '// &
+                                  'esirkepov_Q<N> do)')
+      if (self%tail_cleanup) &
+         call mpih%error_stop(msg=': esirkepov_tail_cleanup does not support periodic faces (and the matched current '// &
+                                  'built on the trajectory boxes has no tails: disable it)')
+      self%box_current = .true.
+   endif
    if (self%shape == SHAPE_GAUSSIAN) then
       if (self%sigma <= 0._R8P .or. self%cutoff_sigma <= 0._R8P .or. self%gaussian_support_cells < 0_I4P) &
          call mpih%error_stop(msg=': invalid Gaussian width, cutoff or support in Esirkepov current')
@@ -470,6 +490,146 @@ contains
       if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_dual_gpu in prism_fnl_pic_conserving_object')
    endif
    endsubroutine initialize_coherent_gather
+
+   subroutine deposit_matched_charge_box(self, pic_fnl, q, nv)
+   !< Matched charge rho = P S rho^P built particle by particle and folded into the virtual block along the periodic axes,
+   !< summed over the ranks, then scattered to every real cell (ghosts beyond a periodic face take the periodic image,
+   !< physical ghosts 0). CPU twin: deposit_matched_charge_box. Used with periodic faces only.
+   !<
+   !< Parallel mapping: one gang per particle, the three 1D factors P w computed sequentially (one column per axis), the
+   !< deposit one vector lane per cell, atomic.
+   class(prism_fnl_pic_conserving_object), intent(inout) :: self    !< Conserving current object.
+   type(prism_fnl_pic_object),             intent(inout) :: pic_fnl !< Device PIC helper.
+   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real field.
+   integer(I4P),                           intent(in)    :: nv      !< Charge density slot.
+   real(R8P),    pointer                                 :: pk(:), wa(:,:,:,:), q_pic(:,:)
+   integer(I4P), pointer                                 :: off(:,:)
+   real(R8P)                                             :: w(MAX_SPAN,3), xc(MAX_SPAN), pw(LP_SPAN,3)
+   real(R8P)                                             :: dxyz(3), x(3), emin(3), cutoff_limit, charge_density, sigma, acc
+   real(R8P)                                             :: value, e1, e2, e3, d1, d2, d3, s1, s2, s3
+   integer(I4P)                                          :: part, d, m, l, sm, li, lj, lk, perr, ierr, rad, radius, shp
+   integer(I4P)                                          :: ni, nj, nk, nx, ny, nz, nbl, ngc, np, b, i, j, k, gi, gj, gk
+   integer(I4P)                                          :: ii, jj, kk, ic(3), lo(3), rr(3), nn(3)
+   logical                                               :: px, py, pz, per(3)
+
+   nx = self%ni ; ny = self%nj ; nz = self%nk ; np = self%particle_number
+   ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
+   pk => self%p_gpu ; wa => self%work_a_gpu ; off => self%off_gpu
+   e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
+   d1 = self%vdx(1)   ; d2 = self%vdx(2)   ; d3 = self%vdx(3)
+   s1 = self%shift(1) ; s2 = self%shift(2) ; s3 = self%shift(3)
+   px = self%is_periodic(1) ; py = self%is_periodic(2) ; pz = self%is_periodic(3)
+   rad = support_radius(self) ; radius = self%radius ; shp = self%shape ; sigma = self%sigma
+   cutoff_limit = self%cutoff_sigma + 64._R8P*epsilon(self%cutoff_sigma)*max(1._R8P, abs(self%cutoff_sigma))
+   !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(wa)
+   !$omp OMPLOOP collapse(3) DEVICEPTR(wa)
+   do k=1, nz
+   do j=1, ny
+   do i=1, nx
+      wa(1,i,j,k) = 0._R8P
+   enddo
+   enddo
+   enddo
+   ierr = 0_I4P
+   if (np > 0_I4P) then
+      q_pic => pic_fnl%q_pic_gpu
+      !$acc parallel loop gang DEVICEVAR(q_pic,wa,pk) &
+      !$acc& firstprivate(nx,ny,nz,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz) &
+      !$acc& private(nn,per,w,xc,pw,dxyz,x,emin,ic,lo,rr,perr,charge_density) reduction(max:ierr)
+      !$omp OMPLOOP DEVICEPTR(q_pic,wa,pk) &
+      !$omp& firstprivate(nx,ny,nz,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz) &
+      !$omp& private(nn,per,w,xc,pw,dxyz,x,emin,ic,lo,rr,perr,charge_density) reduction(max:ierr)
+      do part=1, np
+         perr = 0_I4P
+         nn(1) = nx ; nn(2) = ny ; nn(3) = nz
+         per(1) = px ; per(2) = py ; per(3) = pz
+         dxyz(1) = d1 ; dxyz(2) = d2 ; dxyz(3) = d3
+         emin(1) = e1 ; emin(2) = e2 ; emin(3) = e3
+         x(1) = q_pic(part,1) - s1 ; x(2) = q_pic(part,2) - s2 ; x(3) = q_pic(part,3) - s3
+         !$acc loop seq
+         do d=1, 3
+            ic(d) = ceiling((x(d) - emin(d)) / dxyz(d), kind=I4P)
+            lo(d) = ic(d) - rad
+            rr(d) = 2_I4P*rad + 1_I4P
+            if (.not.per(d)) then
+               if (lo(d) <= radius .or. nn(d)-(ic(d)+rad) <= radius) perr = ERR_FILTER
+            endif
+         enddo
+         if (perr == 0_I4P) then
+            !$acc loop seq
+            do d=1, 3
+               !$acc loop seq
+               do m=1, rr(d)
+                  xc(m) = emin(d) + (real(lo(d)+m-1_I4P, R8P) - 0.5_R8P)*dxyz(d)
+               enddo
+               call shape_weights_dev(shp=shp, filter=.false., sigma=sigma, cutoff_limit=cutoff_limit, &
+                                      radius=rad, x=x(d), ic=ic(d)-lo(d)+1_I4P, span=rr(d), dx=dxyz(d), xc=xc, &
+                                      w=w(:,d), perr=perr)
+               ! P on the weights, cell lo-radius+l-1
+               !$acc loop seq
+               do l=1, rr(d)+2_I4P*radius
+                  acc = 0._R8P
+                  !$acc loop seq
+                  do sm=-radius, radius
+                     m = l - radius + sm
+                     if (m < 1_I4P .or. m > rr(d)) cycle
+                     acc = acc + pk(sm+8)*w(m,d)
+                  enddo
+                  pw(l,d) = acc
+               enddo
+            enddo
+         endif
+         if (perr /= 0_I4P) then
+            ierr = max(ierr, perr)
+         else
+            charge_density = q_pic(part,7) / (d1*d2*d3)
+            !$acc loop vector collapse(3) private(value,ii,jj,kk)
+            do lk=1, rr(3)+2*radius
+            do lj=1, rr(2)+2*radius
+            do li=1, rr(1)+2*radius
+               value = charge_density*pw(li,1)*pw(lj,2)*pw(lk,3)
+               if (value /= 0._R8P) then
+                  ii = lo(1) - radius + li - 1_I4P
+                  jj = lo(2) - radius + lj - 1_I4P
+                  kk = lo(3) - radius + lk - 1_I4P
+                  if (px) ii = modulo(ii-1_I4P, nx) + 1_I4P
+                  if (py) jj = modulo(jj-1_I4P, ny) + 1_I4P
+                  if (pz) kk = modulo(kk-1_I4P, nz) + 1_I4P
+                  if (ii >= 1_I4P .and. ii <= nx .and. jj >= 1_I4P .and. jj <= ny .and. kk >= 1_I4P .and. kk <= nz) then
+                     !$acc atomic update
+                     !$omp atomic update
+                     wa(1,ii,jj,kk) = wa(1,ii,jj,kk) + value
+                  endif
+               endif
+            enddo
+            enddo
+            enddo
+         endif
+      enddo
+   endif
+   call check_particle_error(ierr)
+   call self%reduce_virtual(a=self%work_a_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wa,off) &
+   !$acc& firstprivate(nv,nx,ny,nz,px,py,pz) private(gi,gj,gk)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q,wa,off) firstprivate(nv,nx,ny,nz,px,py,pz) private(gi,gj,gk)
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do b=1, nbl
+      gi = off(b,1) + i ; gj = off(b,2) + j ; gk = off(b,3) + k
+      if (px) gi = modulo(gi-1_I4P, nx) + 1_I4P
+      if (py) gj = modulo(gj-1_I4P, ny) + 1_I4P
+      if (pz) gk = modulo(gk-1_I4P, nz) + 1_I4P
+      if (gi >= 1 .and. gi <= nx .and. gj >= 1 .and. gj <= ny .and. gk >= 1 .and. gk <= nz) then
+         q(b,i,j,k,nv) = wa(1,gi,gj,gk)
+      else
+         q(b,i,j,k,nv) = 0._R8P
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine deposit_matched_charge_box
 
    subroutine coherent_field_weighting(self, pic_fnl, field_fnl, field, grid, pic_fields_gpu, q, q_pic_gpu, nv)
    !< Gather E and B with the transpose of the matched charge operator: P^T on the fields, then the unfiltered base shape
@@ -802,6 +962,233 @@ contains
    enddo
    call check_particle_error(ierr)
    endsubroutine esirkepov_displacement
+
+   subroutine deposit_matched_current_box(self, q_ref, q_to, h, p_first, p_last, dt)
+   !< Matched current (totorica, esirkepov_Q<N>) of the trajectories q_ref -> q_to, built particle by particle on the box of
+   !< each trajectory and folded into the virtual block along the periodic axes: J_d = Q_d P_e1 P_e2 F_d^E. CPU twin:
+   !< deposit_matched_current (the separable factors are explained there). Used with periodic faces only: h receives the
+   !< stage current in place of the stage source, combined over the stages by combine_stage_source as the sources are (the
+   !< solve is linear) and written to the real blocks by store_box_current.
+   !<
+   !< Parallel mapping: one gang per particle. The 1D factors (weights of both endpoints, face prefix sum + Q along d, P on
+   !< the transverse weights) are computed sequentially into gang-private arrays, one column per direction and written
+   !< once (the zero-flux closure past the last weight change is applied when the prefix sums are read: nvfortran 25.11
+   !< -fast can lose a second store into a private array). The deposit is one vector lane per cell of the widened box,
+   !< atomic (particles overlap). Cells are unwrapped, center emin+(i-1/2)dx, and folded modulo n along the periodic axes.
+   class(prism_fnl_pic_conserving_object), intent(inout) :: self              !< Conserving current object.
+   real(R8P),                              intent(in)    :: q_ref(1:,1:)      !< Trajectory start [np,8].
+   real(R8P),                              intent(in)    :: q_to(1:,1:)       !< Trajectory end [np,8].
+   real(R8P),                              intent(inout) :: h(1:,1:,1:,1:,1:) !< Current [1,NX,NY,NZ,3].
+   integer(I4P),                           intent(in)    :: p_first           !< First particle.
+   integer(I4P),                           intent(in)    :: p_last            !< Last particle.
+   real(R8P),                              intent(in)    :: dt                !< Time step.
+   real(R8P), pointer                                    :: pk(:), qw(:)
+   real(R8P)                                             :: wref(MAX_SPAN,3), wto(MAX_SPAN,3), xc(MAX_SPAN)
+   real(R8P)                                             :: g(0:MAX_SPAN,3), lq(LQ_SPAN,3)
+   real(R8P)                                             :: pt0(LP_SPAN,3), pdt(LP_SPAN,3), pu(LP_SPAN,3), pv(LP_SPAN,3)
+   real(R8P)                                             :: dxyz(3), xr(3), xt(3), emin(3)
+   real(R8P)                                             :: cutoff_limit, charge_density, sigma, res, acc, acd, value, w0, dw
+   real(R8P)                                             :: e1, e2, e3, d1, d2, d3, s1, s2, s3
+   integer(I4P)                                          :: part, d, a, b, m, l, t, sm, li, lj, lk, perr, ierr
+   integer(I4P)                                          :: rad, radius, qfirst, nq, shp, ni, nj, nk, nli, nlj, nlk
+   integer(I4P)                                          :: ci, cj, ck, ii, jj, kk
+   integer(I4P)                                          :: cr(3), ct(3), lo(3), hi(3), rr(3), nn(3), last(3)
+   logical                                               :: px, py, pz, per(3)
+
+   call zero_h(self=self, h=h)
+   if (p_last < p_first) return
+   pk => self%p_gpu ; qw => self%qw_gpu
+   ni = self%ni ; nj = self%nj ; nk = self%nk ; shp = self%shape
+   e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
+   d1 = self%vdx(1)   ; d2 = self%vdx(2)   ; d3 = self%vdx(3)
+   s1 = self%shift(1) ; s2 = self%shift(2) ; s3 = self%shift(3)
+   px = self%is_periodic(1) ; py = self%is_periodic(2) ; pz = self%is_periodic(3)
+   rad = support_radius(self) ; radius = self%radius ; qfirst = self%qfirst ; nq = self%nq
+   sigma = self%sigma
+   cutoff_limit = self%cutoff_sigma + 64._R8P*epsilon(self%cutoff_sigma)*max(1._R8P, abs(self%cutoff_sigma))
+   ierr = 0_I4P ; res = 0._R8P
+
+   !$acc parallel loop gang DEVICEVAR(q_ref,q_to,h,pk,qw) &
+   !$acc& firstprivate(ni,nj,nk,rad,radius,qfirst,nq,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz,dt) &
+   !$acc& private(nn,per,wref,wto,xc,g,lq,pt0,pdt,pu,pv,dxyz,xr,xt,emin,cr,ct,lo,hi,rr,last,perr,charge_density) &
+   !$acc& private(a,b,nli,nlj,nlk) reduction(max:ierr,res)
+   !$omp OMPLOOP DEVICEPTR(q_ref,q_to,h,pk,qw) &
+   !$omp& firstprivate(ni,nj,nk,rad,radius,qfirst,nq,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz,dt) &
+   !$omp& private(nn,per,wref,wto,xc,g,lq,pt0,pdt,pu,pv,dxyz,xr,xt,emin,cr,ct,lo,hi,rr,last,perr,charge_density) &
+   !$omp& private(a,b,nli,nlj,nlk) reduction(max:ierr,res)
+   do part=p_first, p_last
+      perr = 0_I4P
+      nn(1) = ni ; nn(2) = nj ; nn(3) = nk
+      per(1) = px ; per(2) = py ; per(3) = pz
+      dxyz(1) = d1 ; dxyz(2) = d2 ; dxyz(3) = d3
+      emin(1) = e1 ; emin(2) = e2 ; emin(3) = e3
+      xr(1) = q_ref(part,1) - s1 ; xr(2) = q_ref(part,2) - s2 ; xr(3) = q_ref(part,3) - s3
+      xt(1) = q_to(part,1)  - s1 ; xt(2) = q_to(part,2)  - s2 ; xt(3) = q_to(part,3)  - s3
+      !$acc loop seq
+      do d=1, 3
+         cr(d) = ceiling((xr(d) - emin(d)) / dxyz(d), kind=I4P)
+         ct(d) = ceiling((xt(d) - emin(d)) / dxyz(d), kind=I4P)
+         if (.not.per(d)) then
+            if (cr(d) < 1_I4P .or. cr(d) > nn(d) .or. ct(d) < 1_I4P .or. ct(d) > nn(d)) perr = ERR_OUTSIDE
+         endif
+      enddo
+      if (perr == 0_I4P .and. q_ref(part,7) /= q_to(part,7)) perr = ERR_CHARGE
+      if (perr == 0_I4P) then
+         !$acc loop seq
+         do d=1, 3
+            lo(d) = min(cr(d),ct(d)) - rad
+            hi(d) = max(cr(d),ct(d)) + rad
+            rr(d) = hi(d) - lo(d) + 1_I4P
+            if (rr(d) > MAX_SPAN) perr = ERR_SPAN
+            if (.not.per(d)) then
+               if (lo(d) <= radius .or. nn(d)-hi(d) <= radius) perr = ERR_FILTER
+            endif
+         enddo
+      endif
+      if (perr == 0_I4P) then
+         !$acc loop seq
+         do d=1, 3
+            !$acc loop seq
+            do m=1, rr(d)
+               xc(m) = emin(d) + (real(lo(d)+m-1_I4P, R8P) - 0.5_R8P)*dxyz(d)
+            enddo
+            call shape_weights_dev(shp=shp, filter=.false., sigma=sigma, cutoff_limit=cutoff_limit, &
+                                   radius=rad, x=xr(d), ic=cr(d)-lo(d)+1_I4P, span=rr(d), dx=dxyz(d), xc=xc, &
+                                   w=wref(:,d), perr=perr)
+            call shape_weights_dev(shp=shp, filter=.false., sigma=sigma, cutoff_limit=cutoff_limit, &
+                                   radius=rad, x=xt(d), ic=ct(d)-lo(d)+1_I4P, span=rr(d), dx=dxyz(d), xc=xc, &
+                                   w=wto(:,d), perr=perr)
+         enddo
+      endif
+      if (perr /= 0_I4P) then
+         ierr = max(ierr, perr)
+      else
+         charge_density = q_ref(part,7) / (d1*d2*d3)
+         ! longitudinal factors: face prefix sum of the weight change (faces lo-1..hi, index m = face-(lo-1)), then Q
+         !$acc loop seq
+         do d=1, 3
+            g(0,d) = 0._R8P
+            last(d) = 0_I4P
+            !$acc loop seq
+            do m=1, rr(d)
+               g(m,d) = g(m-1,d) - dxyz(d)*charge_density*(wto(m,d) - wref(m,d))/dt
+               if (wto(m,d) /= wref(m,d)) last(d) = m
+            enddo
+            res = max(res, abs(g(rr(d),d)))
+            ! cell index of lq(l,d): lo(d)-1-qfirst-(nq-1)+l-1; its faces m = l-nq+t, zero past the last weight change
+            !$acc loop seq
+            do l=1, rr(d)+nq
+               acc = 0._R8P
+               !$acc loop seq
+               do t=0, nq-1
+                  m = l - nq + t
+                  if (m < 0_I4P .or. m > rr(d)) cycle
+                  if (last(d) > 0_I4P .and. m >= last(d)) cycle
+                  acc = acc + qw(t+1)*g(m,d)
+               enddo
+               lq(l,d) = acc
+            enddo
+         enddo
+         ! transverse factors of direction d: P on t0, dt (axis a) and on s0+ds/2, s0/2+ds/3 (axis b); cell lo-radius+l-1
+         !$acc loop seq
+         do d=1, 3
+            a = 1_I4P + merge(1_I4P, 0_I4P, d == 1_I4P)
+            b = 3_I4P - merge(1_I4P, 0_I4P, d == 3_I4P)
+            !$acc loop seq
+            do l=1, rr(a)+2_I4P*radius
+               acc = 0._R8P ; acd = 0._R8P
+               !$acc loop seq
+               do sm=-radius, radius
+                  m = l - radius + sm
+                  if (m < 1_I4P .or. m > rr(a)) cycle
+                  acc = acc + pk(sm+8)*wref(m,a)
+                  acd = acd + pk(sm+8)*(wto(m,a) - wref(m,a))
+               enddo
+               pt0(l,d) = acc ; pdt(l,d) = acd
+            enddo
+            !$acc loop seq
+            do l=1, rr(b)+2_I4P*radius
+               acc = 0._R8P ; acd = 0._R8P
+               !$acc loop seq
+               do sm=-radius, radius
+                  m = l - radius + sm
+                  if (m < 1_I4P .or. m > rr(b)) cycle
+                  w0 = wref(m,b) ; dw = wto(m,b) - wref(m,b)
+                  acc = acc + pk(sm+8)*(w0 + 0.5_R8P*dw)
+                  acd = acd + pk(sm+8)*(0.5_R8P*w0 + dw/3._R8P)
+               enddo
+               pu(l,d) = acc ; pv(l,d) = acd
+            enddo
+         enddo
+         ! deposit, one vector lane per cell of the widened box, folded along the periodic axes
+         !$acc loop seq
+         do d=1, 3
+            a = 1_I4P + merge(1_I4P, 0_I4P, d == 1_I4P)
+            b = 3_I4P - merge(1_I4P, 0_I4P, d == 3_I4P)
+            nli = rr(d) + nq ; nlj = rr(a) + 2_I4P*radius ; nlk = rr(b) + 2_I4P*radius
+            !$acc loop vector collapse(3) private(value,ci,cj,ck,ii,jj,kk)
+            do lk=1, nlk
+            do lj=1, nlj
+            do li=1, nli
+               value = lq(li,d)*(pt0(lj,d)*pu(lk,d) + pdt(lj,d)*pv(lk,d))
+               if (value /= 0._R8P) then
+                  ci = lo(d) - 1_I4P - qfirst - (nq - 1_I4P) + li - 1_I4P
+                  cj = lo(a) - radius + lj - 1_I4P
+                  ck = lo(b) - radius + lk - 1_I4P
+                  if (d == 1_I4P) then
+                     ii = ci ; jj = cj ; kk = ck
+                  elseif (d == 2_I4P) then
+                     ii = cj ; jj = ci ; kk = ck
+                  else
+                     ii = cj ; jj = ck ; kk = ci
+                  endif
+                  if (px) ii = modulo(ii-1_I4P, ni) + 1_I4P
+                  if (py) jj = modulo(jj-1_I4P, nj) + 1_I4P
+                  if (pz) kk = modulo(kk-1_I4P, nk) + 1_I4P
+                  if (ii >= 1_I4P .and. ii <= ni .and. jj >= 1_I4P .and. jj <= nj .and. kk >= 1_I4P .and. kk <= nk) then
+                     !$acc atomic update
+                     !$omp atomic update
+                     h(1,ii,jj,kk,d) = h(1,ii,jj,kk,d) + value
+                  endif
+               endif
+            enddo
+            enddo
+            enddo
+         enddo
+      endif
+   enddo
+   call check_particle_error(ierr)
+   self%residual_max = max(self%residual_max, res)
+   endsubroutine deposit_matched_current_box
+
+   subroutine store_box_current(self, q, var_jx, hq)
+   !< Real q(J) = virtual stage current of the box solver (deposit_matched_current_box + combine_stage_source), ghosts
+   !< included: the virtual ghosts are the periodic images along the periodic axes and the odd mirror along the others
+   !< (impose_virtual_ghosts_periodic), then scatter_current. CPU twin: store_matched_current.
+   class(prism_fnl_pic_conserving_object), intent(inout) :: self               !< Conserving current object.
+   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real field.
+   integer(I4P),                           intent(in)    :: var_jx             !< Jx slot in q.
+   real(R8P),                              intent(in)    :: hq(1:,1:,1:,1:,1:) !< Virtual current [1,NX,NY,NZ,3].
+   real(R8P), pointer                                    :: jv(:,:,:,:,:)
+   integer(I4P)                                          :: i, j, k, d, ni, nj, nk
+
+   ni = self%ni ; nj = self%nj ; nk = self%nk
+   jv => self%jv_gpu
+   call zero_current(self=self, q=jv, var_jx=1_I4P)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(jv,hq)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(jv,hq)
+   do d=1, 3
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      jv(1,i,j,k,d) = hq(1,i,j,k,d)
+   enddo
+   enddo
+   enddo
+   enddo
+   call self%impose_virtual_ghosts_periodic(q=jv, var_jx=1_I4P)
+   call self%scatter_current(q=q, var_jx=var_jx)
+   endsubroutine store_box_current
 
    subroutine combine_stage_source(self, h, s, coeff)
    !< H_s = (H_s - sum_{r<s} coeff(r) H_r) / coeff(s). CPU twin: the h_q SSP combination of the conserving integrator.
@@ -1387,6 +1774,12 @@ contains
    real(R8P)                                             :: s1, s2, s3
    logical                                               :: old_filter
 
+   ! periodic faces: built particle by particle and folded (deposit_matched_charge_box); without them the deposit below,
+   ! whose results the box deposit reproduces to roundoff only, is kept bitwise
+   if (self%box_current) then
+      call self%deposit_matched_charge_box(pic_fnl=pic_fnl, q=q, nv=nv)
+      return
+   endif
    ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
    nx = self%ni ; ny = self%nj ; nz = self%nk
    rx = support_radius(self) ; margin = self%radius ; np = self%particle_number
@@ -1502,21 +1895,24 @@ contains
    integer(I4P), pointer                                 :: off(:,:)
    integer(I4P)                                          :: b, i, j, k, ni, nj, nk, ngc, nbl, vx, vy, vz, nx, ny, nz
    logical                                               :: xm, xp, ym, yp, zm, zp
+   logical                                               :: px, py, pz
 
    ni = self%bni ; nj = self%bnj ; nk = self%bnk ; ngc = self%ngc ; nbl = self%bblocks
    nx = self%ni ; ny = self%nj ; nz = self%nk
    vx = var_jx ; vy = var_jx + 1_I4P ; vz = var_jx + 2_I4P
+   px = self%is_periodic(1) ; py = self%is_periodic(2) ; pz = self%is_periodic(3)
    off => self%off_gpu
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,off) firstprivate(vx,vy,vz,nx,ny,nz) &
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,off) firstprivate(vx,vy,vz,nx,ny,nz,px,py,pz) &
    !$acc& private(xm,xp,ym,yp,zm,zp)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(q,off) firstprivate(vx,vy,vz,nx,ny,nz) private(xm,xp,ym,yp,zm,zp)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q,off) firstprivate(vx,vy,vz,nx,ny,nz,px,py,pz) private(xm,xp,ym,yp,zm,zp)
    do k=1-ngc, nk+ngc
    do j=1-ngc, nj+ngc
    do i=1-ngc, ni+ngc
    do b=1, nbl
-      xm = off(b,1) == 0_I4P ; xp = off(b,1) + ni == nx
-      ym = off(b,2) == 0_I4P ; yp = off(b,2) + nj == ny
-      zm = off(b,3) == 0_I4P ; zp = off(b,3) + nk == nz
+      ! physical faces only: periodic faces keep the exchanged images
+      xm = off(b,1) == 0_I4P .and. (.not.px) ; xp = off(b,1) + ni == nx .and. (.not.px)
+      ym = off(b,2) == 0_I4P .and. (.not.py) ; yp = off(b,2) + nj == ny .and. (.not.py)
+      zm = off(b,3) == 0_I4P .and. (.not.pz) ; zp = off(b,3) + nk == nz .and. (.not.pz)
       if (i < 1  .and. xm) q(b,i,j,k,vx) = -q(b,1-i,j,k,vx)
       if (i > ni .and. xp) q(b,i,j,k,vx) = -q(b,2*ni+1-i,j,k,vx)
       if (j < 1  .and. ym) q(b,i,j,k,vy) = -q(b,i,1-j,k,vy)
@@ -1680,6 +2076,79 @@ contains
    enddo
    enddo
    endsubroutine impose_virtual_ghosts
+
+   subroutine impose_virtual_ghosts_periodic(self, q, var_jx)
+   !< Current ghosts of the virtual block with periodic axes: along a periodic axis every component takes the periodic
+   !< image, along the others the normal component is the odd mirror (impose_virtual_ghosts). One kernel per axis, in
+   !< order, so that the edge and corner ghosts take the images of already filled ghosts. CPU twin: impose_odd_current_ghosts.
+   class(prism_fnl_pic_conserving_object), intent(in)    :: self   !< Conserving current object.
+   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Virtual field.
+   integer(I4P),                           intent(in)    :: var_jx !< Jx slot in q.
+   integer(I4P)                                          :: b, i, j, k, g, v, ni, nj, nk, ngc, nbl, vj
+   logical                                               :: per
+
+   ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc ; nbl = self%blocks_number ; vj = var_jx
+   per = self%is_periodic(1)
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q) firstprivate(vj,per)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(q) firstprivate(vj,per)
+   do v=0, 2
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do g=1, ngc
+   do b=1, nbl
+      if (per) then
+         q(b,1-g,j,k,vj+v)  = q(b,ni+1-g,j,k,vj+v)
+         q(b,ni+g,j,k,vj+v) = q(b,g,j,k,vj+v)
+      elseif (v == 0) then
+         q(b,1-g,j,k,vj)  = -q(b,g,j,k,vj)
+         q(b,ni+g,j,k,vj) = -q(b,ni+1-g,j,k,vj)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   per = self%is_periodic(2)
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q) firstprivate(vj,per)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(q) firstprivate(vj,per)
+   do v=0, 2
+   do k=1-ngc, nk+ngc
+   do g=1, ngc
+   do i=1-ngc, ni+ngc
+   do b=1, nbl
+      if (per) then
+         q(b,i,1-g,k,vj+v)  = q(b,i,nj+1-g,k,vj+v)
+         q(b,i,nj+g,k,vj+v) = q(b,i,g,k,vj+v)
+      elseif (v == 1) then
+         q(b,i,1-g,k,vj+1)  = -q(b,i,g,k,vj+1)
+         q(b,i,nj+g,k,vj+1) = -q(b,i,nj+1-g,k,vj+1)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   per = self%is_periodic(3)
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q) firstprivate(vj,per)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(q) firstprivate(vj,per)
+   do v=0, 2
+   do g=1, ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do b=1, nbl
+      if (per) then
+         q(b,i,j,1-g,vj+v)  = q(b,i,j,nk+1-g,vj+v)
+         q(b,i,j,nk+g,vj+v) = q(b,i,j,g,vj+v)
+      elseif (v == 2) then
+         q(b,i,j,1-g,vj+2)  = -q(b,i,j,g,vj+2)
+         q(b,i,j,nk+g,vj+2) = -q(b,i,j,nk+1-g,vj+2)
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine impose_virtual_ghosts_periodic
 
    subroutine check_source_support(self, h, slo, shi, particle)
    !< Stop if the directional source of one particle has nonzero cells outside the support box built from its trajectory

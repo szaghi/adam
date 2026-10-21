@@ -4351,7 +4351,6 @@ contains
       !call self%update_q_BC(dt=self%time%dt)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
-   call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
       call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
@@ -4366,6 +4365,9 @@ contains
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
                                                context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q=self%q)
+   ! bring the particles beyond a periodic face back in the domain only now: until the end-of-step deposit is done they
+   ! stay in the ghost halo of the block on that face (wrapped, they would jump to the blocks of another rank)
+   call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
    ! hand the particles that left the blocks of this rank to their new owners
    call self%pic%migrate_particles(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    endsubroutine integrate_rk_ssp_pic
@@ -4470,10 +4472,17 @@ contains
    real(R8P), allocatable                 :: q_pic_to_stage(:,:,:)
    real(R8P), allocatable                 :: q_pic_ref(:,:)
    real(R8P), allocatable                 :: h_q(:,:,:,:,:,:,:)
+   real(R8P), allocatable                 :: j_stage(:,:,:,:,:,:) !< Stage currents of the matched box solver.
+   real(R8P), allocatable                 :: j_box(:,:,:,:,:)     !< Matched current of the stage trajectories.
    real(R8P), allocatable                 :: coeff(:)
+   logical                                :: box_current          !< Matched current built particle by particle.
 
 
    call check_conserving_single_block(self=self)
+   ! with periodic faces the matched currents are built particle by particle on the trajectory boxes and folded
+   ! (deposit_matched_current), the stage currents combined as the stage sources were (the solve is linear); without them
+   ! the line solve of the summed source is kept bitwise (the box current reproduces it to roundoff only)
+   box_current = self%pic%matched_current() .and. (.not.self%pic%esirkepov_tail_cleanup) .and. any(self%pic%bc%is_periodic)
    np = self%pic%particle_number
    nrk = self%rk%nrk
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
@@ -4494,9 +4503,13 @@ contains
       allocate(q_pic_to_stage(1:8,1:np,1:nrk))
       allocate(q_pic_ref,source=self%q_pic)
    endif
-   allocate(h_q(1:3, 1-self%ngc:self%ni+self%ngc, 1-self%ngc:self%nj+self%ngc, &
-                1-self%ngc:self%nk+self%ngc, 1:self%nb, 1:nrk, 1:1))
-   h_q = 0._R8P
+   if (box_current) then
+      allocate(j_stage(1:3,1:self%ni,1:self%nj,1:self%nk,1:self%nb,1:nrk), j_box(1:3,1:self%ni,1:self%nj,1:self%nk,1:self%nb))
+   else
+      allocate(h_q(1:3, 1-self%ngc:self%ni+self%ngc, 1-self%ngc:self%nj+self%ngc, &
+                   1-self%ngc:self%nk+self%ngc, 1:self%nb, 1:nrk, 1:1))
+      h_q = 0._R8P
+   endif
    self%current_solver_residual_max = 0._R8P
    call self%initialize_charge_conservation_diagnostic
 
@@ -4545,14 +4558,25 @@ contains
       q_pic_next(7:8,:) = self%q_pic(7:8,:)
       if (self%pic%esirkepov_tail_cleanup) q_pic_to_stage(:,:,s) = q_pic_next
 
-      call compute_pic_esirkepov_displacement(self=self, q_ref=self%q_pic, q_to=q_pic_next, h_dir=h_q(:,:,:,:,:,s,1))
-      do r=1, s-1
-         h_q(:,:,:,:,:,s,1) = h_q(:,:,:,:,:,s,1) - coeff(r) * h_q(:,:,:,:,:,r,1)
-      enddo
       if (abs(coeff(s)) <= tiny(1._R8P)) call mpih%error_stop(msg=': zero SSP coefficient in charge-conserving PIC current')
-      h_q(:,:,:,:,:,s,1) = h_q(:,:,:,:,:,s,1) / coeff(s)
+      if (box_current) then
+         call deposit_matched_current(self=self, q_ref=self%q_pic, q_to=q_pic_next, jc=j_box)
+         j_stage(:,:,:,:,:,s) = j_box
+         do r=1, s-1
+            j_stage(:,:,:,:,:,s) = j_stage(:,:,:,:,:,s) - coeff(r) * j_stage(:,:,:,:,:,r)
+         enddo
+         j_stage(:,:,:,:,:,s) = j_stage(:,:,:,:,:,s) / coeff(s)
+      else
+         call compute_pic_esirkepov_displacement(self=self, q_ref=self%q_pic, q_to=q_pic_next, h_dir=h_q(:,:,:,:,:,s,1))
+         do r=1, s-1
+            h_q(:,:,:,:,:,s,1) = h_q(:,:,:,:,:,s,1) - coeff(r) * h_q(:,:,:,:,:,r,1)
+         enddo
+         h_q(:,:,:,:,:,s,1) = h_q(:,:,:,:,:,s,1) / coeff(s)
+      endif
 
-      if (self%pic%esirkepov_tail_cleanup) then
+      if (box_current) then
+         call store_matched_current(self=self, q=q_stage, jc=j_stage(:,:,:,:,:,s))
+      elseif (self%pic%esirkepov_tail_cleanup) then
          call solve_modified_current_with_cleanup(self=self, q=q_stage, q_ref=self%q_pic, &
                                                   q_to_history=q_pic_to_stage(:,:,1:s), active_stage=s, &
                                                   mixed_source=h_q(:,:,:,:,:,s,1))
@@ -4580,7 +4604,6 @@ contains
       call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q)
    endif
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
-   call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
       call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    call self%apply_fWL_correction(q=self%q)
@@ -4592,7 +4615,9 @@ contains
       call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
    endif
    call self%finalize_charge_conservation_diagnostic
-   if (self%pic%esirkepov_tail_cleanup) then
+   if (box_current) then
+      call store_matched_current(self=self, q=self%q, jc=j_stage(:,:,:,:,:,nrk))
+   elseif (self%pic%esirkepov_tail_cleanup) then
       call solve_modified_current_with_cleanup(self=self, q=self%q, q_ref=q_pic_ref, &
                                                q_to_history=q_pic_to_stage, active_stage=nrk, &
                                                mixed_source=h_q(:,:,:,:,:,nrk,1))
@@ -4602,11 +4627,15 @@ contains
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
                                                context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
    call self%compute_coils_current(q=self%q)
+   ! periodic faces: positions wrapped after the end-of-step deposit (as integrate_rk_ssp_pic, single rank here)
+   call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
    if (allocated(q_stage)) deallocate(q_stage)
    if (allocated(q_pic_next)) deallocate(q_pic_next)
    if (allocated(q_pic_to_stage)) deallocate(q_pic_to_stage)
    if (allocated(q_pic_ref)) deallocate(q_pic_ref)
    if (allocated(h_q)) deallocate(h_q)
+   if (allocated(j_stage)) deallocate(j_stage)
+   if (allocated(j_box)) deallocate(j_box)
    if (allocated(coeff)) deallocate(coeff)
    endsubroutine integrate_rk_ssp_pic_charge_conserving
 
@@ -5202,6 +5231,260 @@ contains
    enddo
    endsubroutine filter_modified_axis
 
+   subroutine matched_shape_1d(self, axis, b, x, ic, radius, w)
+   !< Base-shape weights of the matched current and charge along one axis, on the cells ic-radius..ic+radius: closed
+   !< B-spline (bspline_closed_weights) or Gaussian normalized on the stencil, as compute_pic_esirkepov_displacement. Cell
+   !< indices are unwrapped (any i, center emin+(i-1/2)dx), so that a shape across a periodic face is built in one piece and
+   !< folded afterwards; the current and the charge take the same weights, so the continuity is exact to roundoff.
+   implicit none
+   class(prism_cpu_object), intent(in)  :: self
+   integer(I4P),            intent(in)  :: axis, b, ic, radius
+   real(R8P),               intent(in)  :: x
+   real(R8P),               intent(out) :: w(ic-radius:ic+radius)
+   real(R8P), parameter                 :: tau_pu = 1.e-10_R8P !< Max |raw weight sum - 1| before the closure.
+   real(R8P)                            :: xc(ic-radius:ic+radius), dx, cutoff_limit, weight_sum, pu_error
+   integer(I4P)                         :: i, order, smin, smax
+
+   dx = self%adam%field%dxyz(axis,b)
+   do i=ic-radius, ic+radius
+      xc(i) = self%adam%field%emin(axis,b) + (real(i,R8P) - 0.5_R8P)*dx
+   enddo
+   w = 0._R8P
+   select case(trim(self%pic%particle_weighting_model))
+   case('NGP')     ; order = 0_I4P
+   case('CIC')     ; order = 1_I4P
+   case('TSC')     ; order = 2_I4P
+   case('cubic')   ; order = 3_I4P
+   case('quartic') ; order = 4_I4P
+   case('quintic') ; order = 5_I4P
+   case('sextic')  ; order = 6_I4P
+   case('Gaussian')
+      cutoff_limit = self%pic%cutoff_sigma + 64._R8P*epsilon(self%pic%cutoff_sigma)*max(1._R8P, abs(self%pic%cutoff_sigma))
+      do i=ic-radius, ic+radius
+         w(i) = effective_gaussian_weight(r=(x-xc(i))/self%pic%sigma, shift=dx/self%pic%sigma, &
+                                           cutoff_limit=cutoff_limit, filter=.false.)
+      enddo
+      weight_sum = sum(w)
+      if (weight_sum <= tiny(1._R8P)) call mpih%error_stop(msg=': empty Gaussian support in the matched current')
+      w = w / weight_sum
+      return
+   case default
+      call mpih%error_stop(msg=': unsupported particle weighting in the matched current')
+   endselect
+   call set_bspline_stencil(order=order, x_p=x, x_c=xc(ic), i_p=ic, i_min=smin, i_max=smax)
+   call bspline_closed_weights(order=order, x_p=x, x_cell=xc(smin:smax), dx=dx, w=w(smin:smax), pu_error=pu_error)
+   ! NGP is discontinuous: a raw weight of 0 on the owning cell (tie between ceiling and x_cell) is closed to 1, not an error
+   if (order > 0_I4P .and. pu_error > tau_pu) &
+      call mpih%error_stop(msg=': matched-current B-spline weights do not sum to one on the deposition stencil')
+   endsubroutine matched_shape_1d
+
+   subroutine check_matched_support(self, lo, hi)
+   !< Along a non-periodic axis the cells lo..hi of a particle support, widened by the P taps, must stay inside the block.
+   implicit none
+   class(prism_cpu_object), intent(in) :: self
+   integer(I4P),            intent(in) :: lo(3), hi(3)
+   integer(I4P)                        :: a, n(3), margin
+
+   n = [self%ni, self%nj, self%nk]
+   margin = modified_filter_radius(self)
+   do a=1, 3
+      if (self%pic%bc%is_periodic(a)) cycle
+      if (lo(a) <= margin .or. n(a)-hi(a) <= margin) &
+         call mpih%error_stop(msg=': '//self%pic%conserving_solver_name()//' P filter support reaches a boundary '// &
+                                  'without particle closure')
+   enddo
+   endsubroutine check_matched_support
+
+   subroutine fold_matched_cell(self, idx)
+   !< Fold an unwrapped cell into the block interior along the periodic axes; along the others it must be inside.
+   implicit none
+   class(prism_cpu_object), intent(in)    :: self
+   integer(I4P),            intent(inout) :: idx(3)
+   integer(I4P)                           :: a, n(3)
+
+   n = [self%ni, self%nj, self%nk]
+   do a=1, 3
+      if (self%pic%bc%is_periodic(a)) then
+         idx(a) = modulo(idx(a)-1_I4P, n(a)) + 1_I4P
+      elseif (idx(a) < 1_I4P .or. idx(a) > n(a)) then
+         call mpih%error_stop(msg=': '//self%pic%conserving_solver_name()//' support leaves the block along a '// &
+                                  'non-periodic axis')
+      endif
+   enddo
+   endsubroutine fold_matched_cell
+
+   subroutine deposit_matched_current(self, q_ref, q_to, jc)
+   !< Matched current (totorica, esirkepov_Q<N>) of the trajectories q_ref -> q_to, built particle by particle on the box of
+   !< each trajectory and folded into the block interior:
+   !<   J_d = Q_d P_e1 P_e2 F_d^E,   F_d^E(f) = -dx_d/dt sum_{i<=f} W_d(i),
+   !< W_d being Esirkepov's directional charge change. W_d = rho_q dL (x) [t0 (x) (s0 + ds/2) + dt (x) (s0/2 + ds/3)], with dL,
+   !< t0, dt, s0, ds the 1-D weights (and their changes) along d and the transverse axes e1 < e2, so every factor is 1-D:
+   !< the prefix sum and Q act on dL, P on the transverse weights. F_d^E vanishes past the box (sum of dL = 0, its roundoff
+   !< residual cut as the zero-flux closure of the line solve did), so the current of a particle is exactly zero outside
+   !< its box widened by the P and Q taps: no tails between particles. Cells are unwrapped and folded modulo n along the
+   !< periodic axes on writing: a support across a periodic face deposits what leaves the domain on the opposite cells, the
+   !< current through the face included. In exact arithmetic it equals the line solve of the summed source
+   !< (solve_pic_charge_conserving_current_modified). Single block (check_conserving_single_block).
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(in)    :: q_ref(1:,1:), q_to(1:,1:)
+   real(R8P),               intent(out)   :: jc(1:,1:,1:,1:,1:) !< Current (3, ni, nj, nk, nb), block interior.
+   real(R8P), allocatable               :: w0(:,:), w1(:,:)    !< Endpoint weights (cell, axis).
+   real(R8P), allocatable               :: g(:), lq(:), pt0(:), pdt(:), pu(:), pv(:)
+   real(R8P)                            :: p(-7:7), qw(0:9), shift(3), xr(3), xt(3), rho_q, value
+   integer(I4P)                         :: radius, qfirst, nq, part, b, a, d, e1, e2, i, j, k, t, f, last, sm
+   integer(I4P)                         :: r(3), icr(3), ict(3), lo(3), hi(3), idx(3), ilo, ihi
+
+   call modified_kernels(self=self, p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
+   shift = modified_position_shift(self)
+   jc = 0._R8P
+   b = 1_I4P
+   call particle_weighting_radius(self=self, b=b, rx=r(1), ry=r(2), rz=r(3))
+   do part=1, self%pic%particle_number
+      if (q_ref(7,part) /= q_to(7,part)) call mpih%error_stop(msg=': particle charge changed during an RK stage')
+      xr = q_ref(1:3,part) - shift
+      xt = q_to(1:3,part) - shift
+      do a=1, 3
+         icr(a) = ceiling((xr(a) - self%adam%field%emin(a,b)) / self%adam%field%dxyz(a,b))
+         ict(a) = ceiling((xt(a) - self%adam%field%emin(a,b)) / self%adam%field%dxyz(a,b))
+         lo(a) = min(icr(a), ict(a)) - r(a)
+         hi(a) = max(icr(a), ict(a)) + r(a)
+      enddo
+      call check_matched_support(self=self, lo=lo, hi=hi)
+      allocate(w0(minval(lo):maxval(hi),3), w1(minval(lo):maxval(hi),3))
+      w0 = 0._R8P ; w1 = 0._R8P
+      do a=1, 3
+         call matched_shape_1d(self=self, axis=a, b=b, x=xr(a), ic=icr(a), radius=r(a), w=w0(icr(a)-r(a):icr(a)+r(a),a))
+         call matched_shape_1d(self=self, axis=a, b=b, x=xt(a), ic=ict(a), radius=r(a), w=w1(ict(a)-r(a):ict(a)+r(a),a))
+      enddo
+      rho_q = q_ref(7,part) / product(self%adam%field%dxyz(:,b))
+      do d=1, 3
+         select case(d)
+         case(1) ; e1 = 2_I4P ; e2 = 3_I4P
+         case(2) ; e1 = 1_I4P ; e2 = 3_I4P
+         case(3) ; e1 = 1_I4P ; e2 = 2_I4P
+         endselect
+         ! longitudinal: face prefix sum of the weight change, zero-flux closure past the last change, then Q
+         allocate(g(lo(d)-1:hi(d)))
+         g(lo(d)-1) = 0._R8P
+         last = lo(d) - 1_I4P
+         do f=lo(d), hi(d)
+            g(f) = g(f-1) - self%adam%field%dxyz(d,b)*rho_q*(w1(f,d) - w0(f,d))/self%time%dt
+            if (w1(f,d) /= w0(f,d)) last = f
+         enddo
+         ! closure residual (sum of the weight change): the current_solver_residual of the line solves
+         self%current_solver_residual_max = max(self%current_solver_residual_max, abs(g(hi(d))))
+         g(max(last,lo(d)-1):hi(d)) = 0._R8P
+         ilo = lo(d) - 1_I4P - qfirst - (nq - 1_I4P) ; ihi = hi(d) - qfirst
+         allocate(lq(ilo:ihi))
+         lq = 0._R8P
+         do i=ilo, ihi
+            do t=0, nq-1
+               f = i + qfirst + t
+               if (f < lo(d)-1 .or. f > hi(d)) cycle
+               lq(i) = lq(i) + qw(t)*g(f)
+            enddo
+         enddo
+         ! transverse: P on t0, dt (e1) and on s0+ds/2, s0/2+ds/3 (e2)
+         allocate(pt0(lo(e1)-radius:hi(e1)+radius), pdt(lo(e1)-radius:hi(e1)+radius))
+         allocate(pu(lo(e2)-radius:hi(e2)+radius),  pv(lo(e2)-radius:hi(e2)+radius))
+         pt0 = 0._R8P ; pdt = 0._R8P ; pu = 0._R8P ; pv = 0._R8P
+         do j=lo(e1)-radius, hi(e1)+radius
+            do sm=-radius, radius
+               if (j+sm < lo(e1) .or. j+sm > hi(e1)) cycle
+               pt0(j) = pt0(j) + p(sm)*w0(j+sm,e1)
+               pdt(j) = pdt(j) + p(sm)*(w1(j+sm,e1) - w0(j+sm,e1))
+            enddo
+         enddo
+         do k=lo(e2)-radius, hi(e2)+radius
+            do sm=-radius, radius
+               if (k+sm < lo(e2) .or. k+sm > hi(e2)) cycle
+               pu(k) = pu(k) + p(sm)*(w0(k+sm,e2) + 0.5_R8P*(w1(k+sm,e2) - w0(k+sm,e2)))
+               pv(k) = pv(k) + p(sm)*(0.5_R8P*w0(k+sm,e2) + (w1(k+sm,e2) - w0(k+sm,e2))/3._R8P)
+            enddo
+         enddo
+         do k=lo(e2)-radius, hi(e2)+radius
+            do j=lo(e1)-radius, hi(e1)+radius
+               if (pt0(j) == 0._R8P .and. pdt(j) == 0._R8P) cycle
+               do i=ilo, ihi
+                  value = lq(i)*(pt0(j)*pu(k) + pdt(j)*pv(k))
+                  if (value == 0._R8P) cycle
+                  idx(d) = i ; idx(e1) = j ; idx(e2) = k
+                  call fold_matched_cell(self=self, idx=idx)
+                  jc(d,idx(1),idx(2),idx(3),b) = jc(d,idx(1),idx(2),idx(3),b) + value
+               enddo
+            enddo
+         enddo
+         deallocate(g, lq, pt0, pdt, pu, pv)
+      enddo
+      deallocate(w0, w1)
+   enddo
+   endsubroutine deposit_matched_current
+
+   subroutine store_matched_current(self, q, jc)
+   !< Write a matched current (block interior) into q and set its ghosts as the line solves did (impose_odd_current_ghosts).
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P),               intent(in)    :: jc(1:,1:,1:,1:,1:)
+
+   q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
+   q(self%physics%var_Jx:self%physics%var_Jz,1:self%ni,1:self%nj,1:self%nk,1:self%blocks_number) = jc
+   call impose_odd_current_ghosts(self=self, q=q)
+   endsubroutine store_matched_current
+
+   subroutine deposit_matched_charge_box(self, q)
+   !< Matched charge rho = P S rho^P of totorica and esirkepov_Q<N>: the unfiltered base shape (on the dual nodes x_c+dx/2 for
+   !< the odd esirkepov_Q<N>, i.e. the particle seen at x-dx/2) filtered by P along every axis. Separable, so built particle
+   !< by particle from the 1-D weights of matched_shape_1d (those of the matched current) and folded into the block interior
+   !< along the periodic axes, as deposit_matched_current (the deposit with periodic faces). Ghosts are zero.
+   implicit none
+   class(prism_cpu_object), intent(inout) :: self
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
+   real(R8P), allocatable                 :: w(:,:), pw(:,:)
+   real(R8P)                              :: p(-7:7), qw(0:9), shift(3), x(3), rho_q, value
+   integer(I4P)                           :: radius, qfirst, nq, part, b, a, i, j, k, sm
+   integer(I4P)                           :: r(3), ic(3), lo(3), hi(3), idx(3)
+
+   call modified_kernels(self=self, p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
+   shift = modified_position_shift(self)
+   b = 1_I4P
+   call particle_weighting_radius(self=self, b=b, rx=r(1), ry=r(2), rz=r(3))
+   q(self%nv,:,:,:,:) = 0._R8P
+   do part=1, self%pic%particle_number
+      x = self%q_pic(1:3,part) - shift
+      do a=1, 3
+         ic(a) = ceiling((x(a) - self%adam%field%emin(a,b)) / self%adam%field%dxyz(a,b))
+         lo(a) = ic(a) - r(a) ; hi(a) = ic(a) + r(a)
+      enddo
+      call check_matched_support(self=self, lo=lo, hi=hi)
+      allocate(w(minval(lo):maxval(hi),3), pw(minval(lo)-radius:maxval(hi)+radius,3))
+      w = 0._R8P ; pw = 0._R8P
+      do a=1, 3
+         call matched_shape_1d(self=self, axis=a, b=b, x=x(a), ic=ic(a), radius=r(a), w=w(lo(a):hi(a),a))
+         do i=lo(a)-radius, hi(a)+radius
+            do sm=-radius, radius
+               if (i+sm < lo(a) .or. i+sm > hi(a)) cycle
+               pw(i,a) = pw(i,a) + p(sm)*w(i+sm,a)
+            enddo
+         enddo
+      enddo
+      rho_q = self%q_pic(7,part) / product(self%adam%field%dxyz(:,b))
+      do k=lo(3)-radius, hi(3)+radius
+         do j=lo(2)-radius, hi(2)+radius
+            do i=lo(1)-radius, hi(1)+radius
+               value = rho_q*pw(i,1)*pw(j,2)*pw(k,3)
+               if (value == 0._R8P) cycle
+               idx = [i, j, k]
+               call fold_matched_cell(self=self, idx=idx)
+               q(self%nv,idx(1),idx(2),idx(3),b) = q(self%nv,idx(1),idx(2),idx(3),b) + value
+            enddo
+         enddo
+      enddo
+      deallocate(w, pw)
+   enddo
+   endsubroutine deposit_matched_charge_box
+
    subroutine deposit_pic_modified_charge(self, q)
    !< Deposit the unfiltered particle shape, then apply P_c=Q A in all directions.
    implicit none
@@ -5212,6 +5495,12 @@ contains
    integer(I4P)                           :: radius,qfirst,nq,b,part,rx,ry,rz,margin
    logical                                :: old_filter
 
+   ! periodic faces: built particle by particle and folded (deposit_matched_charge_box); without them the block deposit
+   ! below, whose results the box deposit reproduces to roundoff only, is kept bitwise
+   if (any(self%pic%bc%is_periodic)) then
+      call deposit_matched_charge_box(self=self, q=q)
+      return
+   endif
    call modified_kernels(self=self,p=p,qw=qw,radius=radius,qfirst=qfirst,nq=nq)
    margin = radius
    do part=1,self%pic%particle_number
@@ -5256,6 +5545,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self
    real(R8P), allocatable                 :: q_minus(:,:), q_plus(:,:), q_plus_history(:,:,:)
    real(R8P), allocatable                 :: h_dir(:,:,:,:,:)
+   real(R8P), allocatable                 :: j_box(:,:,:,:,:)
 
    call check_conserving_single_block(self=self)
    ! The virtual interval is centered on the real particle positions and uses the first CFL step.
@@ -5271,6 +5561,15 @@ contains
    q_minus(1:3,:) = self%q_pic(1:3,:) - 0.5_R8P*self%time%dt*self%q_pic(4:6,:)
    q_plus(1:3,:) = self%q_pic(1:3,:) + 0.5_R8P*self%time%dt*self%q_pic(4:6,:)
 
+   if (self%pic%matched_current() .and. (.not.self%pic%esirkepov_tail_cleanup) .and. any(self%pic%bc%is_periodic)) then
+      ! periodic faces: matched current particle by particle on the trajectory boxes (deposit_matched_current)
+      allocate(j_box(1:3,1:self%ni,1:self%nj,1:self%nk,1:self%blocks_number))
+      call deposit_matched_current(self=self, q_ref=q_minus, q_to=q_plus, jc=j_box)
+      call store_matched_current(self=self, q=self%q, jc=j_box)
+      call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
+                                                  context='initialize_pic_conserving_current_time_zero')
+      return
+   endif
    call compute_pic_esirkepov_displacement(self=self, q_ref=q_minus, q_to=q_plus, h_dir=h_dir)
 
    if (self%pic%esirkepov_tail_cleanup) then
@@ -5296,6 +5595,15 @@ contains
    if (self%adam%field%blocks_number > 1_I4P .or. mpih%procs_number > 1_I4P) &
       call mpih%error_stop(msg=': charge-conserving PIC current is single-block, single-rank on the CPU backend '// &
                                '(multi-block and multi-rank are supported by the FNL backend only)')
+   ! periodic particle closure: the matched currents built on the trajectory boxes only (line solves are not periodic)
+   if (any(self%pic%bc%is_periodic)) then
+      if (.not.self%pic%matched_current()) &
+         call mpih%error_stop(msg=': '//self%pic%conserving_solver_name()//' does not support periodic faces yet '// &
+                                  '(totorica and esirkepov_Q<N> do)')
+      if (self%pic%esirkepov_tail_cleanup) &
+         call mpih%error_stop(msg=': esirkepov_tail_cleanup does not support periodic faces (and the matched current '// &
+                                  'built on the trajectory boxes has no tails: disable it)')
+   endif
    endsubroutine check_conserving_single_block
 
    subroutine modified_current_line(self, source, dir, b, n, qw, qfirst, nq, sol)
@@ -5855,22 +6163,44 @@ contains
    endsubroutine impose_zero_current_ghosts
 
    subroutine impose_odd_current_ghosts(self, q)
-   !< Zero normal face flux: J outside the face is the odd mirror of J inside.
+   !< Zero normal face flux: J outside the face is the odd mirror of J inside. Along a periodic axis the ghosts are the
+   !< periodic images instead (single block: the opposite interior of the same block).
    implicit none
    class(prism_cpu_object), intent(in)    :: self
    real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
-   integer(I4P)                           :: g, b
+   integer(I4P)                           :: g, b, v
 
    if (self%ngc > min(self%ni,self%nj,self%nk)) &
       call mpih%error_stop(msg=': esirkepov needs at least ngc interior cells per direction')
    do b=1,self%blocks_number
       do g=1,self%ngc
-         q(self%physics%var_Jx,1-g,:,:,b) = -q(self%physics%var_Jx,g,:,:,b)
-         q(self%physics%var_Jx,self%ni+g,:,:,b) = -q(self%physics%var_Jx,self%ni+1-g,:,:,b)
-         q(self%physics%var_Jy,:,1-g,:,b) = -q(self%physics%var_Jy,:,g,:,b)
-         q(self%physics%var_Jy,:,self%nj+g,:,b) = -q(self%physics%var_Jy,:,self%nj+1-g,:,b)
-         q(self%physics%var_Jz,:,:,1-g,b) = -q(self%physics%var_Jz,:,:,g,b)
-         q(self%physics%var_Jz,:,:,self%nk+g,b) = -q(self%physics%var_Jz,:,:,self%nk+1-g,b)
+         if (self%pic%bc%is_periodic(1)) then
+            do v=self%physics%var_Jx, self%physics%var_Jz
+               q(v,1-g,:,:,b) = q(v,self%ni+1-g,:,:,b)
+               q(v,self%ni+g,:,:,b) = q(v,g,:,:,b)
+            enddo
+         else
+            q(self%physics%var_Jx,1-g,:,:,b) = -q(self%physics%var_Jx,g,:,:,b)
+            q(self%physics%var_Jx,self%ni+g,:,:,b) = -q(self%physics%var_Jx,self%ni+1-g,:,:,b)
+         endif
+         if (self%pic%bc%is_periodic(2)) then
+            do v=self%physics%var_Jx, self%physics%var_Jz
+               q(v,:,1-g,:,b) = q(v,:,self%nj+1-g,:,b)
+               q(v,:,self%nj+g,:,b) = q(v,:,g,:,b)
+            enddo
+         else
+            q(self%physics%var_Jy,:,1-g,:,b) = -q(self%physics%var_Jy,:,g,:,b)
+            q(self%physics%var_Jy,:,self%nj+g,:,b) = -q(self%physics%var_Jy,:,self%nj+1-g,:,b)
+         endif
+         if (self%pic%bc%is_periodic(3)) then
+            do v=self%physics%var_Jx, self%physics%var_Jz
+               q(v,:,:,1-g,b) = q(v,:,:,self%nk+1-g,b)
+               q(v,:,:,self%nk+g,b) = q(v,:,:,g,b)
+            enddo
+         else
+            q(self%physics%var_Jz,:,:,1-g,b) = -q(self%physics%var_Jz,:,:,g,b)
+            q(self%physics%var_Jz,:,:,self%nk+g,b) = -q(self%physics%var_Jz,:,:,self%nk+1-g,b)
+         endif
       enddo
    enddo
    endsubroutine impose_odd_current_ghosts
