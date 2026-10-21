@@ -267,6 +267,7 @@ contains
             call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
          call self%pic%check_esirkepov_q_order(fdv_order=self%fdv_order)
       endif
+      call self%pic%set_coherent_gather(hs=self%fdv_half_stencils(1))
    endif
    call self%allocate_cpu
 
@@ -5175,41 +5176,14 @@ contains
    endfunction modified_position_shift
 
    subroutine modified_kernels(self, p, qw, radius, qfirst, nq)
-   !< P = A Q maps the base-shape nodes to centers, Q maps the face prefix sums to centers (A2 = [1,1]/2 for FD2,
-   !< A6 = [1,-8,37,37,-8,1]/60 for FD6, so that D J = P H). Even Q: base on centers, P odd and centered, Q from faces.
-   !< Odd Q: base on the dual nodes (node m at x_m+dx/2, see modified_position_shift), P even with taps m=i-N/2-2..i+N/2+2,
-   !< Q centered on the prefix sums at centers (flux index f = center-1). radius bounds the taps of P (plus one if odd).
+   !< P and Q kernels of the matched current in use (matched_kernels of prism_pic_object).
    implicit none
    class(prism_cpu_object), intent(in)  :: self
    real(R8P),               intent(out) :: p(-7:7), qw(0:9)
    integer(I4P),            intent(out) :: radius, qfirst, nq
 
-   if (trim(self%pic%current_conserving_solver) == TOTORICA_CURRENT_CONSERVING_SOLVER) then
-      call totorica_kernels(hs=self%fdv_half_stencils(1), p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
-      return
-   endif
-   p = 0._R8P ; qw = 0._R8P
-   select case(self%pic%esirkepov_q)
-   case(5_I4P)
-      p(-5:4) = real([1,2,3,49,1985,1985,49,3,2,1],R8P)/4080._R8P
-      qw(0:4) = real([1,10,46,10,1],R8P)/68._R8P
-      radius = 6_I4P ; qfirst = -3_I4P ; nq = 5_I4P
-   case(6_I4P)
-      p(-5:5) = real([1,1,1,118,1378,2522,1378,118,1,1,1],R8P)/5520._R8P
-      qw(0:5) = real([1,9,36,36,9,1],R8P)/92._R8P
-      radius = 5_I4P ; qfirst = -3_I4P ; nq = 6_I4P
-   case(8_I4P)
-      p(-6:6) = real([1,1,1,152,1167,3327,4622,3327,1167,152,1,1,1],R8P)/13920._R8P
-      qw(0:7) = real([1,9,36,70,70,36,9,1],R8P)/232._R8P
-      radius = 6_I4P ; qfirst = -4_I4P ; nq = 8_I4P
-   case(10_I4P)
-      p(-7:7) = real([1,1,1,166,1111,3487,6567,8052,6567,3487,1111,166,1,1,1],R8P)/30720._R8P
-      qw(0:9) = real([1,9,36,84,126,126,84,36,9,1],R8P)/512._R8P
-      radius = 7_I4P ; qfirst = -5_I4P ; nq = 10_I4P
-   case default
-      radius = 0_I4P ; qfirst = 0_I4P ; nq = 0_I4P
-      call mpih%error_stop(msg=': unsupported esirkepov_Q filter '//trim(str(self%pic%esirkepov_q, .true.)))
-   endselect
+   call matched_kernels(solver=self%pic%current_conserving_solver, q=self%pic%esirkepov_q, hs=self%fdv_half_stencils(1), &
+                        p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
    endsubroutine modified_kernels
 
    subroutine filter_modified_axis(input, output, axis, p, radius)

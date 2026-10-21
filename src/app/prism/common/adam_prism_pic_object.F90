@@ -44,6 +44,7 @@ public :: ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER
 public :: LONDRILLO_CURRENT_CONSERVING_SOLVER
 public :: TOTORICA_CURRENT_CONSERVING_SOLVER
 public :: totorica_kernels
+public :: matched_kernels
 public :: CONSERVING_CURRENT_WEIGHTING_MODEL
 public :: effective_gaussian_weight
 public :: bspline_weight
@@ -136,6 +137,11 @@ type :: prism_pic_object
    logical                   :: esirkepov_tail_cleanup = .false. !< Remove small current leakage outside each particle's support.
    character(len=99)         :: current_conserving_solver = LONDRILLO_CURRENT_CONSERVING_SOLVER !< Conserving current solver.
    integer(I4P)              :: esirkepov_q = 0_I4P         !< Q filter coefficients of esirkepov_Q<N> (5,6,8,10), 0 otherwise.
+   integer(I4P)              :: gather_q = 0_I4P            !< Coherent gather esirkepov_Q<N>: N (5,6,8,10), 0 otherwise.
+   real(R8P)                 :: gather_p(-7:7) = 0._R8P     !< Coherent matched gather: P kernel of the charge deposit.
+   integer(I4P)              :: gather_radius = 0_I4P       !< Coherent matched gather: taps of P.
+   logical                   :: gather_dual = .false.       !< Coherent gather of an odd esirkepov_Q<N>: base shape on the
+                                                            !< dual nodes x_c+dx/2.
    character(len=99)         :: scheme_time                 !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    !< Pointer (abstract) TBP.
    procedure(particle_weighting_interface), pass(self), pointer :: particle_weighting =>null() !< Particle weighting.
@@ -146,6 +152,9 @@ contains
    procedure, pass(self) :: conserving_solver_name        !< Input name of the conserving current solver.
    procedure, pass(self) :: matched_current               !< True for the local matched currents (totorica, esirkepov_Q<N>).
    procedure, pass(self) :: check_esirkepov_q_order       !< Check the esirkepov_Q<N> filter against the FD order.
+   procedure, pass(self) :: coherent_gather               !< True for the gathers named after a conserving solver.
+   procedure, pass(self) :: matched_gather                !< True for the coherent gathers of totorica and esirkepov_Q<N>.
+   procedure, pass(self) :: set_coherent_gather           !< Set the coherent gather kernels, warn on a deposit mismatch.
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
    procedure, pass(self) :: particle_cartesian_grid_index !< Compute the grid index corresponding to a particle position.
@@ -177,6 +186,8 @@ contains
    procedure, pass(self) :: fiveD_field_weighting
    procedure, pass(self) :: Gaussian_field_weighting
    procedure, pass(self) :: bspline_field_weighting
+   procedure, pass(self) :: shape_field_weighting         !< Gather with the particle shape (charge deposit of the model).
+   procedure, pass(self) :: coherent_field_weighting      !< Gather with the transpose of the conserving charge operator.
 endtype prism_pic_object
 
 interface
@@ -279,6 +290,118 @@ contains
       call mpih%error_stop(msg=': unsupported esirkepov_Q filter '//trim(str(self%esirkepov_q, .true.)))
    endselect
    endsubroutine check_esirkepov_q_order
+
+   subroutine matched_kernels(solver, q, hs, p, qw, radius, qfirst, nq)
+   !< P = A Q maps the base-shape nodes to centers, Q maps the face prefix sums to centers (A2 = [1,1]/2 for FD2,
+   !< A6 = [1,-8,37,37,-8,1]/60 for FD6, so that D J = P H). Even Q: base on centers, P odd and centered, Q from faces.
+   !< Odd Q: base on the dual nodes (node m at x_m+dx/2), P even with taps m=i-N/2-2..i+N/2+2, Q centered on the prefix
+   !< sums at centers (flux index f = center-1). radius bounds the taps of P (plus one if odd). totorica: totorica_kernels.
+   character(*), intent(in)  :: solver  !< Matched solver (totorica or esirkepov_Q).
+   integer(I4P), intent(in)  :: q       !< esirkepov_Q<N> filter N.
+   integer(I4P), intent(in)  :: hs      !< FD half stencil (totorica).
+   real(R8P),    intent(out) :: p(-7:7) !< P kernel on cell centers.
+   real(R8P),    intent(out) :: qw(0:9) !< Q kernel from the faces to the centers.
+   integer(I4P), intent(out) :: radius  !< Taps of P.
+   integer(I4P), intent(out) :: qfirst  !< Offset of the first Q face (flux index = center + qfirst).
+   integer(I4P), intent(out) :: nq      !< Taps of Q.
+
+   if (trim(solver) == TOTORICA_CURRENT_CONSERVING_SOLVER) then
+      call totorica_kernels(hs=hs, p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
+      return
+   endif
+   p = 0._R8P ; qw = 0._R8P
+   select case(q)
+   case(5_I4P)
+      p(-5:4) = real([1,2,3,49,1985,1985,49,3,2,1],R8P)/4080._R8P
+      qw(0:4) = real([1,10,46,10,1],R8P)/68._R8P
+      radius = 6_I4P ; qfirst = -3_I4P ; nq = 5_I4P
+   case(6_I4P)
+      p(-5:5) = real([1,1,1,118,1378,2522,1378,118,1,1,1],R8P)/5520._R8P
+      qw(0:5) = real([1,9,36,36,9,1],R8P)/92._R8P
+      radius = 5_I4P ; qfirst = -3_I4P ; nq = 6_I4P
+   case(8_I4P)
+      p(-6:6) = real([1,1,1,152,1167,3327,4622,3327,1167,152,1,1,1],R8P)/13920._R8P
+      qw(0:7) = real([1,9,36,70,70,36,9,1],R8P)/232._R8P
+      radius = 6_I4P ; qfirst = -4_I4P ; nq = 8_I4P
+   case(10_I4P)
+      p(-7:7) = real([1,1,1,166,1111,3487,6567,8052,6567,3487,1111,166,1,1,1],R8P)/30720._R8P
+      qw(0:9) = real([1,9,36,84,126,126,84,36,9,1],R8P)/512._R8P
+      radius = 7_I4P ; qfirst = -5_I4P ; nq = 10_I4P
+   case default
+      radius = 0_I4P ; qfirst = 0_I4P ; nq = 0_I4P
+      call mpih%error_stop(msg=': unsupported esirkepov_Q filter '//trim(str(q, .true.)))
+   endselect
+   endsubroutine matched_kernels
+
+   pure function coherent_gather(self) result(coherent)
+   !< True for the gathers named after a conserving solver (londrillo, totorica, esirkepov_Q<N>): E and B are gathered
+   !< with the transpose of that solver's charge operator S^rho, the adjoint of its charge deposit.
+   class(prism_pic_object), intent(in) :: self     !< PIC object.
+   logical                             :: coherent !< Coherent gather flag.
+
+   coherent = trim(self%field_weighting_model) == LONDRILLO_CURRENT_CONSERVING_SOLVER .or. self%matched_gather()
+   endfunction coherent_gather
+
+   pure function matched_gather(self) result(matched)
+   !< True for the coherent gathers of the matched currents (totorica, esirkepov_Q<N>): P^T on the fields, then the base
+   !< shape (on the dual nodes for the odd esirkepov_Q<N>).
+   class(prism_pic_object), intent(in) :: self    !< PIC object.
+   logical                             :: matched !< Matched gather flag.
+
+   matched = trim(self%field_weighting_model) == TOTORICA_CURRENT_CONSERVING_SOLVER .or. self%gather_q > 0_I4P
+   endfunction matched_gather
+
+   subroutine set_coherent_gather(self, hs)
+   !< Set the P kernel of the coherent matched gathers (totorica needs the FD half stencil) and warn when the gather is not
+   !< the coherent one of the deposit in use: it is then not the adjoint of the charge deposit and self-forces are not
+   !< cancelled. A conserving solver is coherent with the gather of its name (londrillo also with the gather of the particle
+   !< shape, S^rho = S); a non-conserving deposit with the gather of its particle shape.
+   class(prism_pic_object), intent(inout) :: self      !< PIC object.
+   integer(I4P),            intent(in)    :: hs        !< FD half stencil.
+   real(R8P)                              :: qw(0:9)   !< Q kernel (unused by the gather).
+   integer(I4P)                           :: qfirst,nq !< Q layout (unused by the gather).
+   character(len=:), allocatable          :: deposit   !< Name of the deposit in use.
+   character(len=:), allocatable          :: coherent  !< Name of its coherent gather.
+   logical                                :: match     !< Gather and deposit agree.
+
+   if (self%matched_gather()) then
+      call matched_kernels(solver=self%field_weighting_model, q=self%gather_q, hs=hs, p=self%gather_p, qw=qw, &
+                           radius=self%gather_radius, qfirst=qfirst, nq=nq)
+      self%gather_dual = mod(self%gather_q, 2_I4P) == 1_I4P
+   endif
+   if (trim(self%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+      deposit = self%conserving_solver_name()
+      coherent = deposit
+      match = trim(self%field_weighting_model) == deposit
+      if (trim(self%current_conserving_solver) == LONDRILLO_CURRENT_CONSERVING_SOLVER) &
+         match = match .or. trim(self%field_weighting_model) == shape_field_model(self%particle_weighting_model)
+   else
+      deposit = trim(self%particle_weighting_model)//' (non-conserving)'
+      coherent = shape_field_model(self%particle_weighting_model)
+      match = trim(self%field_weighting_model) == coherent
+   endif
+   if (.not.match) call mpih%print_message('warning: field_weighting_model '//trim(self%field_weighting_model)// &
+                                           ' is not the coherent gather of the deposit '//deposit//' (use '//coherent// &
+                                           '): the gather is not the adjoint of the charge deposit, self-forces are '// &
+                                           'not cancelled')
+   contains
+      function shape_field_model(model) result(field_model)
+      !< Field weighting model of the same shape as a particle weighting model.
+      character(*), intent(in)      :: model       !< Particle weighting model.
+      character(len=:), allocatable :: field_model !< Field weighting model.
+
+      select case(trim(model))
+      case(NGP_WEIGHTING_MODEL)      ; field_model = ZEROD_FIELDS_WEIGHTING_MODEL
+      case(CIC_WEIGHTING_MODEL)      ; field_model = ONED_FIELDS_WEIGHTING_MODEL
+      case(TSC_WEIGHTING_MODEL)      ; field_model = TWOD_FIELDS_WEIGHTING_MODEL
+      case(CUBIC_WEIGHTING_MODEL)    ; field_model = THREED_FIELDS_WEIGHTING_MODEL
+      case(QUARTIC_WEIGHTING_MODEL)  ; field_model = FOURD_FIELDS_WEIGHTING_MODEL
+      case(QUINTIC_WEIGHTING_MODEL)  ; field_model = FIVED_FIELDS_WEIGHTING_MODEL
+      case(SEXTIC_WEIGHTING_MODEL)   ; field_model = SIXD_FIELDS_WEIGHTING_MODEL
+      case default                   ; field_model = GAUSSIAN_WEIGHTING_MODEL
+      endselect
+      endfunction shape_field_model
+   endsubroutine set_coherent_gather
 
    function description(self) result(desc)
    !< Return a pretty-formatted object description.
@@ -460,7 +583,9 @@ contains
    case(GAUSSIAN_WEIGHTING_MODEL)
       self%field_weighting => Gaussian_field_weighting
    case default
-      call mpih%error_stop(msg=': invalid field weighting model in prism_cpu_object%initialize')
+      if (.not.self%coherent_gather()) &
+         call mpih%error_stop(msg=': invalid field weighting model in prism_cpu_object%initialize')
+      self%field_weighting => coherent_field_weighting
    endselect
 
    print '(A)', mpih%myrankstr//'prism_pic_object%initialize finish'
@@ -635,6 +760,7 @@ contains
 
 
    buff = ''
+   self%gather_q = 0_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='field_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(field_weighting_model) from file')
@@ -656,6 +782,19 @@ contains
       self%field_weighting_model = SIXD_FIELDS_WEIGHTING_MODEL
    case('GAUSSIAN', 'Gaussian', 'gaussian', 'GAUSS', 'gauss')
       self%field_weighting_model = GAUSSIAN_WEIGHTING_MODEL
+   ! coherent gathers, named after the conserving solver whose charge deposit they are the adjoint of
+   case('londrillo', 'LONDRILLO', 'Londrillo')
+      self%field_weighting_model = LONDRILLO_CURRENT_CONSERVING_SOLVER
+   case('totorica', 'TOTORICA', 'Totorica', 'esirkepov_Q2', 'ESIRKEPOV_Q2', 'Esirkepov_Q2', 'esirkepov_q2')
+      self%field_weighting_model = TOTORICA_CURRENT_CONSERVING_SOLVER
+   case('esirkepov_Q5', 'ESIRKEPOV_Q5', 'Esirkepov_Q5', 'esirkepov_q5')
+      self%field_weighting_model = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER//'5' ; self%gather_q = 5_I4P
+   case('esirkepov_Q6', 'ESIRKEPOV_Q6', 'Esirkepov_Q6', 'esirkepov_q6')
+      self%field_weighting_model = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER//'6' ; self%gather_q = 6_I4P
+   case('esirkepov_Q8', 'ESIRKEPOV_Q8', 'Esirkepov_Q8', 'esirkepov_q8')
+      self%field_weighting_model = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER//'8' ; self%gather_q = 8_I4P
+   case('esirkepov_Q10', 'ESIRKEPOV_Q10', 'Esirkepov_Q10', 'esirkepov_q10')
+      self%field_weighting_model = ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER//'10' ; self%gather_q = 10_I4P
    case default
       call mpih%error_stop(msg=': invalid field weighting model ['//trim(buff)//'] in  &
       ['//INI_SECTION_NAME//'].(field_weighting_model)')
@@ -966,6 +1105,9 @@ contains
    if (trim(self%current_weighting_model) /= CONSERVING_CURRENT_WEIGHTING_MODEL) &
       radius = max(radius, model_radius(self%current_weighting_model))
    radius = max(radius, model_radius(self%field_weighting_model))
+   ! a coherent gather reads with the particle shape, one more cell for the dual nodes of the odd esirkepov_Q<N>
+   if (self%coherent_gather()) &
+      radius = max(radius, model_radius(self%particle_weighting_model) + merge(1_I4P, 0_I4P, self%gather_dual))
    contains
       function model_radius(model) result(r)
       character(*), intent(in) :: model
@@ -2025,6 +2167,136 @@ contains
    enddo
    endassociate
    endsubroutine bspline_field_weighting
+
+   subroutine shape_field_weighting(self, field, grid, pic_fields, q, q_pic, nv, filter)
+   !< Gather with the particle shape of particle_weighting_model (the transpose of its charge deposit), with or without the
+   !< binomial filter.
+   implicit none
+   class(prism_pic_object), intent(inout) :: self
+   type(field_object),      intent(inout) :: field
+   type(grid_object),       intent(in)    :: grid
+   real(R8P),               intent(inout) :: pic_fields(1:,1:)
+   real(R8P),               intent(in)    :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
+                                                  1-grid%ngc:,1:)
+   real(R8P),               intent(in)    :: q_pic(1:,1:)
+   integer(I4P),            intent(in)    :: nv
+   logical,                 intent(in)    :: filter     !< Binomial filter of the shape.
+   logical                                :: old_filter !< filter_deposition of the input.
+
+   old_filter = self%filter_deposition
+   self%filter_deposition = filter
+   select case(trim(self%particle_weighting_model))
+   case(NGP_WEIGHTING_MODEL)
+      call self%bspline_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv, order=0_I4P)
+   case(CIC_WEIGHTING_MODEL)
+      call self%bspline_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv, order=1_I4P)
+   case(TSC_WEIGHTING_MODEL)
+      call self%bspline_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv, order=2_I4P)
+   case(CUBIC_WEIGHTING_MODEL)
+      call self%bspline_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv, order=3_I4P)
+   case(QUARTIC_WEIGHTING_MODEL)
+      call self%bspline_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv, order=4_I4P)
+   case(QUINTIC_WEIGHTING_MODEL)
+      call self%bspline_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv, order=5_I4P)
+   case(SEXTIC_WEIGHTING_MODEL)
+      call self%bspline_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv, order=6_I4P)
+   case(GAUSSIAN_WEIGHTING_MODEL)
+      call self%Gaussian_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv)
+   endselect
+   self%filter_deposition = old_filter
+   endsubroutine shape_field_weighting
+
+   subroutine coherent_field_weighting(self, field, grid, pic_fields, q, q_pic, nv)
+   !< Gather E and B with the transpose of the charge operator S^rho of the conserving solver the gather is named after, the
+   !< adjoint of its charge deposit (cancels the electrostatic and magnetostatic self-forces, as the polynomial gathers do
+   !< for their deposits):
+   !<   londrillo              : rho = S rho^P (binomial filter included), gather with the particle shape S;
+   !<   totorica, esirkepov_Q<N>: rho = P S rho^P (no binomial filter), gather P^T on the fields, then the unfiltered base
+   !<                            shape, on the dual nodes x_c+dx/2 for the odd esirkepov_Q<N> (the particle seen at x-dx/2).
+   !< P^T is applied block by block with the zero extension of deposit_pic_modified_charge: single block, single rank (the
+   !< multi-block conserving path is FNL only).
+   implicit none
+   class(prism_pic_object), intent(inout) :: self
+   type(field_object),      intent(inout) :: field
+   type(grid_object),       intent(in)    :: grid
+   real(R8P),               intent(inout) :: pic_fields(1:,1:)
+   real(R8P),               intent(in)    :: q(1:,1-grid%ngc:, &
+                                                  1-grid%ngc:, &
+                                                  1-grid%ngc:,1:)
+   real(R8P),               intent(in)    :: q_pic(1:,1:)
+   integer(I4P),            intent(in)    :: nv
+   real(R8P), allocatable                 :: q_filtered(:,:,:,:,:) !< E and B filtered by P^T, zero ghosts.
+   real(R8P), allocatable                 :: a(:,:,:,:), z(:,:,:,:) !< Block interior work arrays.
+   real(R8P), allocatable                 :: q_dual(:,:)           !< Particles seen at x-dx/2 (odd esirkepov_Q<N>).
+   integer(I4P)                           :: b, n                  !< Counters.
+
+   if (.not.self%matched_gather()) then
+      call self%shape_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv, &
+                                      filter=self%filter_deposition)
+      return
+   endif
+   if (field%blocks_number > 1_I4P .or. mpih%procs_number > 1_I4P) &
+      call mpih%error_stop(msg=': the coherent gather '//trim(self%field_weighting_model)//' is single-block, '// &
+                               'single-rank on the host (multi-block and multi-rank: FNL device gather)')
+   associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc)
+   allocate(q_filtered(1:6,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:field%blocks_number))
+   allocate(a(1:6,1:ni,1:nj,1:nk), z(1:6,1:ni,1:nj,1:nk))
+   q_filtered = 0._R8P
+   do b=1, field%blocks_number
+      a = q(1:6,1:ni,1:nj,1:nk,b)
+      call transposed_filter_axis(input=a, output=z, axis=1_I4P, p=self%gather_p, radius=self%gather_radius)
+      call transposed_filter_axis(input=z, output=a, axis=2_I4P, p=self%gather_p, radius=self%gather_radius)
+      call transposed_filter_axis(input=a, output=z, axis=3_I4P, p=self%gather_p, radius=self%gather_radius)
+      q_filtered(1:6,1:ni,1:nj,1:nk,b) = z
+   enddo
+   endassociate
+   if (self%gather_dual) then
+      ! the gather reads the base shape on the dual nodes as the deposit writes it: shift, gather, restore the real lookup
+      allocate(q_dual, source=q_pic)
+      do n=1, self%particle_number
+         q_dual(1:3,n) = q_pic(1:3,n) - 0.5_R8P*field%dxyz(:,1)
+      enddo
+      call self%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_dual)
+      call self%shape_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q_filtered, q_pic=q_dual, nv=nv, &
+                                      filter=.false.)
+      call self%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic)
+   else
+      call self%shape_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q_filtered, q_pic=q_pic, nv=nv, &
+                                      filter=.false.)
+   endif
+   endsubroutine coherent_field_weighting
+
+   pure subroutine transposed_filter_axis(input, output, axis, p, radius)
+   !< Transpose of filter_modified_axis (prism_cpu_object) along one axis of a block interior, zero extension:
+   !< output_m = sum_s p(s) input_{m-s} (P^T, equal to P for the symmetric kernels).
+   implicit none
+   real(R8P),    intent(in)  :: input(1:,1:,1:,1:) !< Fields (6, ni, nj, nk).
+   real(R8P),    intent(out) :: output(1:,1:,1:,1:) !< Filtered fields.
+   integer(I4P), intent(in)  :: axis               !< Filter axis.
+   real(R8P),    intent(in)  :: p(-7:7)            !< P kernel.
+   integer(I4P), intent(in)  :: radius             !< Taps of P.
+   integer(I4P)              :: i, j, k, s, ii, jj, kk
+
+   output = 0._R8P
+   do k=1,size(input,4)
+      do j=1,size(input,3)
+         do i=1,size(input,2)
+            do s=-radius,radius
+               ii=i ; jj=j ; kk=k
+               select case(axis)
+               case(1) ; ii=i-s
+               case(2) ; jj=j-s
+               case(3) ; kk=k-s
+               endselect
+               if (ii<1 .or. ii>size(input,2) .or. jj<1 .or. jj>size(input,3) .or. &
+                   kk<1 .or. kk>size(input,4)) cycle
+               output(:,i,j,k) = output(:,i,j,k) + p(s)*input(:,ii,jj,kk)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine transposed_filter_axis
 
    pure subroutine set_bspline_stencil(order, x_p, x_c, i_p, i_min, i_max)
    !< Compute the one-dimensional B-spline stencil.
