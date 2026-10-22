@@ -138,8 +138,11 @@ symmetric temperature, the isothermal mirror $T_w^2/T$ is second-order, so the r
 ### `periodic`
 
 `periodic` gets **no crown rows**. The library tree builds true periodic neighbours, and `update_ghost_local` and
-`update_ghost_mpi` fill the ghosts across blocks and ranks. Unlike PRISM's `periodic`, this is the library `BC_PERIODIC`, so it works
-with any number of blocks along the axis. The only constraint is the pairing rule in B.1.
+`update_ghost_mpi` fill the ghosts across blocks and ranks. It is the library `BC_PERIODIC` (as PRISM's `periodic` since
+`cd92194a`), so it works with any number of blocks along the axis, one included: the tree and the maps are rebuilt once
+the BC types are known ([#103](https://github.com/szaghi/adam/issues/103); before, a grid not refined at init kept its
+boundary neighbours, which the CPU refused and the FNL silently left unfilled). The only constraint is the pairing rule
+in B.1.
 
 ### Edges and corners (`fec > 6`)
 

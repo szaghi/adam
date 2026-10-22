@@ -996,6 +996,11 @@ contains
                                self%physics%physical_model)
    call self%bc%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
+   ! issue #103: realm_object%initialize built the tree and the maps before the BC types were known; rebuild them, or a
+   ! periodic face of a grid not refined at init (iu_ref_levels = 0) keeps its boundary neighbours: the CPU stopped on
+   ! the unknown crown row, the FNL BC kernel skipped it and left the periodic ghosts stale (a silently wrong solution)
+   call self%adam%tree%rebuild_neighborhood(grid=self%adam%grid)
+   call self%adam%make_comm_local_maps_ghost_bc
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%diagnostics%initialize(file_parameters=file_parameters)
