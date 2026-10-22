@@ -106,66 +106,8 @@ contains
       self%ark(1) = 1._R8P        ; self%brk(1) = 0._R8P        ; self%crk(1) = 1._R8P
       self%ark(2) = 0.75_R8P      ; self%brk(2) = 0.25_R8P      ; self%crk(2) = 0.25_R8P
       self%ark(3) = 1._R8P/3._R8P ; self%brk(3) = 2._R8P/3._R8P ; self%crk(3) = 2._R8P/3._R8P
-   case(RK_SSP_11) ! 1 stage, 1st order SSP (forward Euler, issue #25); mirrors adam_rk_object
-      self%nrk = 1
-      allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
-      self%alph = 0._R8P
-      self%beta = 0._R8P
-      self%gamm = 0._R8P
-
-      self%beta(1) = 1._R8P
-   case(RK_SSP_22) ! 2 stages, 2nd order SSP
-      self%nrk = 2
-      allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
-      self%alph = 0._R8P
-      self%beta = 0._R8P
-      self%gamm = 0._R8P
-
-      self%beta(1) = 0.5_R8P
-      self%beta(2) = 0.5_R8P
-
-      self%alph(2,1) = 1._R8P
-
-      self%gamm(2) = 1._R8P
-   case(RK_SSP_33) ! 3 stages, 3rd order SSP
-      self%nrk = 3 ! was 2 (issue #25 finding): out-of-bounds writes below, twin of adam_rk_object
-      allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
-      self%alph = 0._R8P
-      self%beta = 0._R8P
-      self%gamm = 0._R8P
-
-      self%beta(1) = 1._R8P/6._R8P
-      self%beta(2) = 1._R8P/6._R8P
-      self%beta(3) = 2._R8P/3._R8P
-
-      self%alph(2,1) = 1._R8P
-      self%alph(3,1) = 0.25_R8P ; self%alph(3,2) = 0.25_R8P
-
-      self%gamm(2) = 1._R8P
-      self%gamm(3) = 0.5_R8P
-   case(RK_SSP_54) ! 5 stages, 4th order SSP
-      self%nrk = 5
-      allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
-      self%alph = 0._R8P
-      self%beta = 0._R8P
-      self%gamm = 0._R8P
-
-      self%beta(1) = 0.14681187618661_R8P
-      self%beta(2) = 0.24848290924556_R8P
-      self%beta(3) = 0.10425883036650_R8P
-      self%beta(4) = 0.27443890091960_R8P
-      self%beta(5) = 0.22600748319395_R8P
-
-      self%alph(2,1) = 0.39175222700392_R8P
-      self%alph(3,1) = 0.21766909633821_R8P ; self%alph(3,2) = 0.36841059262959_R8P
-      self%alph(4,1) = 0.08269208670950_R8P ; self%alph(4,2) = 0.13995850206999_R8P ; self%alph(4,3) = 0.25189177424738_R8P
-      self%alph(5,1) = 0.06796628370320_R8P ; self%alph(5,2) = 0.11503469844438_R8P ; self%alph(5,3) = 0.20703489864929_R8P
-      self%alph(5,4) = 0.54497475021237_R8P
-
-      self%gamm(2) = 0.39175222700392_R8P
-      self%gamm(3) = 0.58607968896780_R8P
-      self%gamm(4) = 0.47454236302687_R8P
-      self%gamm(5) = 0.93501063100924_R8P
+   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54) ! the library's SSP tableaux (issue #104)
+      call ssp_tableau(scheme=self%scheme, nrk=self%nrk, alph=self%alph, beta=self%beta, gamm=self%gamm)
    case(RK_YOSHIDA)
       self%nrk = 4
       w0 = -1.702414383919315_R8P
