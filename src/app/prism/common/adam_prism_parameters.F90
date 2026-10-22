@@ -17,6 +17,8 @@ public :: EPS0_SQ_I2
 public :: C0
 public :: E_CHARGE
 public :: E_MASS
+public :: ION_MASS
+public :: NEUTRAL_MASS
 public :: K_B
 public :: PI
 public :: EV
@@ -38,6 +40,8 @@ real(R8P),    parameter :: C0         = 1._R8P/sqrt(MU0*EPS0)         !< Vacuum 
 real(R8P),    parameter :: E_CHARGE   = -1.6e-19_R8P                  !< Elettron charge value.
 real(R8P),    parameter :: E_MASS     = 9.11e-31_R8P                  !< Elettron mass value.
 real(R8P),    parameter :: Q_OVER_M   = E_CHARGE/E_MASS               !< Q/m value for elettron.
+real(R8P),    parameter :: ION_MASS   = 1.67262192595e-27_R8P         !< Ion mass value (H+, proton, CODATA 2022).
+real(R8P),    parameter :: NEUTRAL_MASS = ION_MASS + E_MASS           !< Neutral mass value (ion + electron).
 real(R8P),    parameter :: K_B        = 1.380649e-23_R8P              !< Boltzmann coefficient.
 real(R8P),    parameter :: T_E        = 300000_R8P                    !< Plasma Temperature.
 real(R8P),    parameter :: VTH        = sqrt(k_B * T_e / e_mass)      !< Thermal Velocity value.

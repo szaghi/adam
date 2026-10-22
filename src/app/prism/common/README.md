@@ -39,6 +39,8 @@ Module-level parameters (all `save`):
 | `C0` | `1/√(MU0·EPS0)` | Vacuum speed of light (m/s) |
 | `E_CHARGE` | `-1.6e-19` | Electron charge (C) |
 | `E_MASS` | `9.11e-31` | Electron mass (kg) |
+| `ION_MASS` | `1.67262192595e-27` | Ion mass, H⁺ (proton, CODATA 2022) (kg): mass of the injected plasma ions |
+| `NEUTRAL_MASS` | `ION_MASS + E_MASS` | Mass of the injected plasma neutrals (kg) |
 | `K_B` | `1.380649e-23` | Boltzmann constant (J/K) |
 | `PI` | `3.141592653589793` | π |
 

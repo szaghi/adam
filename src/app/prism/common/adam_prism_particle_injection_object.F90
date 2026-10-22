@@ -750,7 +750,7 @@ contains
 			q_pic(2,i) = y_p
 			q_pic(3,i) = z_p
 			q_pic(7,i) = -E_CHARGE
-			q_pic(8,i) = E_MASS
+			q_pic(8,i) = ION_MASS
 		enddo
 		do i = 1, n_electrons
 			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
@@ -772,7 +772,7 @@ contains
 			q_pic(2,i+n_ions+n_electrons) = y_p
 			q_pic(3,i+n_ions+n_electrons) = z_p
 			q_pic(7,i+n_ions+n_electrons) = 0.0_R8P
-			q_pic(8,i+n_ions+n_electrons) = E_MASS
+			q_pic(8,i+n_ions+n_electrons) = NEUTRAL_MASS
 		enddo
 
       domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
@@ -829,7 +829,7 @@ contains
 			q_pic(2,i) = y_p
 			q_pic(3,i) = z_p
 			q_pic(7,i) = -E_CHARGE
-			q_pic(8,i) = E_MASS
+			q_pic(8,i) = ION_MASS
 		enddo
 		do i = 1, n_electrons
 			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
@@ -855,7 +855,7 @@ contains
 			q_pic(2,i+n_ions+n_electrons) = y_p
 			q_pic(3,i+n_ions+n_electrons) = z_p
 			q_pic(7,i+n_ions+n_electrons) = 0.0_R8P
-			q_pic(8,i+n_ions+n_electrons) = E_MASS
+			q_pic(8,i+n_ions+n_electrons) = NEUTRAL_MASS
 		enddo
 
       domain_volume = PI*Radius**2*length
@@ -926,7 +926,7 @@ contains
 			call space_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
 			q_pic(1:3,i) = r_min+r_n*(r_max-r_min)
 			q_pic(7,i) = -E_CHARGE
-			q_pic(8,i) = E_MASS
+			q_pic(8,i) = ION_MASS
 		enddo
 		do i = 1, n_electrons
 			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
@@ -938,7 +938,7 @@ contains
 			call space_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
 			q_pic(1:3,i+n_ions+n_electrons) = r_min+r_n*(r_max-r_min)
 			q_pic(7,i+n_ions+n_electrons) = 0.0_R8P
-			q_pic(8,i+n_ions+n_electrons) = E_MASS
+			q_pic(8,i+n_ions+n_electrons) = NEUTRAL_MASS
 		enddo
 
       domain_volume = product(r_max-r_min)
@@ -1019,7 +1019,7 @@ contains
 							q_pic(2,p) = y_p
 							q_pic(3,p) = z_p
 							q_pic(7,p) = -E_CHARGE
-							q_pic(8,p) = E_MASS
+							q_pic(8,p) = ION_MASS
 						enddo
 					enddo
 				enddo
@@ -1081,7 +1081,7 @@ contains
 							q_pic(2,p) = y_p
 							q_pic(3,p) = z_p
 							q_pic(7,p) = 0.0_R8P
-							q_pic(8,p) = E_MASS
+							q_pic(8,p) = NEUTRAL_MASS
 						enddo
 					enddo
 				enddo
@@ -1165,7 +1165,7 @@ contains
 		shuffled_list_electrons(:,:) = 0_I4P
 		do i = 1, n_electrons
 			call velocity_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
-			v_t = sqrt(K_B*T_e/q_pic(8,i))
+			v_t = sqrt(K_B*T_e/q_pic(8,i+n_ions))
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
@@ -1189,7 +1189,7 @@ contains
 		shuffled_list_neutrals(:,:)  = 0_I4P
 		do i = 1, n_neutrals
 			call velocity_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
-			v_t = sqrt(K_B*T_n/q_pic(8,i))
+			v_t = sqrt(K_B*T_n/q_pic(8,i+n_ions+n_electrons))
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
@@ -1276,9 +1276,9 @@ contains
 		shuffled_list_electrons(:,:) = 0_I4P
 		do i = 1, n_electrons
 			call velocity_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
-			v_tx = sqrt(K_B*T_e_x/q_pic(8,i))
-			v_ty = sqrt(K_B*T_e_y/q_pic(8,i))
-			v_tz = sqrt(K_B*T_e_z/q_pic(8,i))
+			v_tx = sqrt(K_B*T_e_x/q_pic(8,i+n_ions))
+			v_ty = sqrt(K_B*T_e_y/q_pic(8,i+n_ions))
+			v_tz = sqrt(K_B*T_e_z/q_pic(8,i+n_ions))
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
@@ -1302,9 +1302,9 @@ contains
 		shuffled_list_neutrals(:,:)  = 0_I4P
 		do i = 1, n_neutrals
 			call velocity_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
-			v_tx = sqrt(K_B*T_n_x/q_pic(8,i))
-			v_ty = sqrt(K_B*T_n_y/q_pic(8,i))
-			v_tz = sqrt(K_B*T_n_z/q_pic(8,i))
+			v_tx = sqrt(K_B*T_n_x/q_pic(8,i+n_ions+n_electrons))
+			v_ty = sqrt(K_B*T_n_y/q_pic(8,i+n_ions+n_electrons))
+			v_tz = sqrt(K_B*T_n_z/q_pic(8,i+n_ions+n_electrons))
 			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
 			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
 			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
