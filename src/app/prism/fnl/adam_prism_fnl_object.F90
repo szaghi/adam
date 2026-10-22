@@ -1985,9 +1985,14 @@ contains
    call self%initialize_coils
    if (.not.is_restart) then
       call self%compute_coils_current_time_zero()
-      if (is_pic_model(self%physics%physical_model)) &
-         call self%impose_pic_fields_time_zero(ivar=VAR_DX)
-      if (self%has_current_density()) call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+      ! PIC: each t0 elliptic solve can be switched off ([PIC] *_field_elliptic_initialization), the field then stays
+      ! the IC one
+      if (is_pic_model(self%physics%physical_model)) then
+         if (self%pic%electric_field_elliptic_initialization) call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+      endif
+      if (.not.is_pic_model(self%physics%physical_model) .or. self%pic%magnetic_field_elliptic_initialization) then
+         if (self%has_current_density()) call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+      endif
    endif
 
    call self%copy_cpu_gpu

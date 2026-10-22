@@ -143,6 +143,8 @@ type :: prism_pic_object
    character(len=99)         :: plasma_domain = ''          !< Domain of plasma at t0
    character(len=99)         :: initialization = COHERENT_INITIALIZATION !< Field initialization solver.
    logical                   :: elliptic_correction=.false. !< elliptic correction for the initial fields
+   logical                   :: electric_field_elliptic_initialization = .true. !< Solve for phi (div D = rho) at t0.
+   logical                   :: magnetic_field_elliptic_initialization = .true. !< Solve for A (curl B = mu J) at t0.
    logical                   :: filter_deposition = .false. !< Binomial filter for deposition and gather weights.
    character(len=99)         :: particle_weighting_model    !< Particle weighting model.
    character(len=99)         :: current_weighting_model     !< Current weighting model.
@@ -456,6 +458,10 @@ contains
    endif
    desc = desc//NL//mpih%myrankstr//'    Initialization type: '//trim(self%initialization)
    desc = desc//NL//self%bc%description(prefix=mpih%myrankstr//'    ')
+   desc = desc//NL//mpih%myrankstr//'    Electric field elliptic initialization: '// &
+                     trim(str(self%electric_field_elliptic_initialization))
+   desc = desc//NL//mpih%myrankstr//'    Magnetic field elliptic initialization: '// &
+                     trim(str(self%magnetic_field_elliptic_initialization))
    desc = desc//NL//mpih%myrankstr//'    Elliptic correction: '//trim(str(self%elliptic_correction))
    desc = desc//NL//mpih%myrankstr//'    Filter deposition and gather: '//trim(str(self%filter_deposition))
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
@@ -818,6 +824,17 @@ contains
    val=self%elliptic_correction, error=error)
    if (.not.go_on_fail_.and.error>0) &
    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(elliptic_correction)')
+
+   ! optional: the t0 elliptic solves for D and B, each on by default (the fields are then the IC ones plus the solves)
+   self%electric_field_elliptic_initialization = .true.
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electric_field_elliptic_initialization', &
+                            val=self%electric_field_elliptic_initialization, error=error)
+   if (error > 0) self%electric_field_elliptic_initialization = .true.
+
+   self%magnetic_field_elliptic_initialization = .true.
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='magnetic_field_elliptic_initialization', &
+                            val=self%magnetic_field_elliptic_initialization, error=error)
+   if (error > 0) self%magnetic_field_elliptic_initialization = .true.
 
    self%esirkepov_tail_cleanup = .false.
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_cleanup', &
