@@ -275,8 +275,13 @@ contains
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. &
          self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       select case(self%numerics%scheme_time)
-      case(NUM_SCHEME_TIME_BLANES_MOAN)        ; self%integrate => integrate_blanesmoan
-      case(NUM_SCHEME_TIME_CFM)                ; self%integrate => integrate_cfm
+      case(NUM_SCHEME_TIME_BLANES_MOAN)
+         ! self%blanesmoan is never initialized (adam_realm_object initialize, call commented out): its coefficients
+         ! are unallocated (issue #55)
+         call mpih%error_stop(msg=': Blanes-Moan time integration is not functional (blanesmoan object never initialized)')
+      case(NUM_SCHEME_TIME_CFM)
+         ! self%cfm is never initialized either (issue #55)
+         call mpih%error_stop(msg=': Commutator-Free Magnus time integration is not functional (cfm object never initialized)')
       case(NUM_SCHEME_TIME_LEAPFROG)
          ! self%leapfrog is never initialized (adam_realm_object initialize, call commented out): q_old unallocated
          call mpih%error_stop(msg=': leapfrog time integration is not functional (leapfrog object never initialized)')

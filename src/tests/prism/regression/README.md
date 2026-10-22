@@ -143,11 +143,26 @@ device-path a plain field case does not:
   hyperbolic`, `chi = 1` and the damping `alpha = 1e9` 1/s (alpha·t ≈ 0.1 over
   the 10 steps). It anchors the GLM state layout, `nv = 11` with φ and ψ in
   slots 7 and 8 and J in 9..11 (issue #61): before it no case ran the
-  cleaning. Its `check.sh` (manual, `PRISM_EXE=` selects the backend) asserts
-  the two inputs PRISM refuses at initialization, each by its message:
-  `hyperbolic` without constrained transport (which left `var_J*` undefined:
-  `q(var_Jx,…)` read garbage indices and the run entered the t0 elliptic B
-  solve the CT run never takes) and `poisson` (not implemented).
+  cleaning. The two inputs #61 refuses are legs of `refusals.sh`.
+
+### Init refusals (`refusals.sh`)
+
+`refusals.sh` (manual; `PRISM_EXE=` selects the executable, and so the
+backend) runs the `rmf` input rewritten into each configuration PRISM must
+refuse at initialization, and requires a non-zero exit **and** the refusal's
+own message in the log: a crash also exits non-zero. A leg whose `sed` script
+changes nothing fails, so a drift of `rmf/input.ini` cannot make a leg pass
+vacuously. Legs, `-np 1`, a few seconds each:
+
+| Leg | Backends | Refused because |
+|---|---|---|
+| `hyperbolic-no-ct` | cpu, fnl | no φ/ψ slot without constrained transport; `var_J*` were left undefined (#61) |
+| `poisson` | cpu, fnl | the Poisson projection is not implemented (68457200, #61) |
+| `blanes-moan`, `cfm` | cpu, fnl | `realm_object` never initializes their objects; the FNL routines are empty (#55) |
+| `leapfrog` | cpu, fnl | as above (refused since 596eb3cd / c27d6ad8) |
+| `yoshida` | fnl | `integrate_rk_yoshida_dev` is empty (#55); the CPU integrator works |
+
+Add a leg here whenever an input becomes a refusal.
 
 ## Running the harness
 

@@ -67,7 +67,7 @@ All cases share `physical_model = EM`, `fdv_order = 6` and `ngc = 3`. All but `r
 | `rmf-fwl`              | single | — | fd | the only fWLayer case (six faces) + 4 coils — guards the FNL fWLayer host→device transfer fix ([#31](https://github.com/szaghi/adam/issues/31)); **FNL-goldened, CPU golden pending CI** |
 | `rmf-fwl-amr`          | single | — | fd | `rmf-fwl` with an init-time box marker refining the x-minus slab to level 3: the fWLayer ranges rebuilt on the refined blocks ([#95](https://github.com/szaghi/adam/issues/95) P5.1) |
 | `rmf-pml-amr`          | single | — | fd | the same grid with a CFS PML instead of the layer: the PML support and its RK storage rebuilt on the refined blocks ([#95](https://github.com/szaghi/adam/issues/95) P5.1) |
-| `rmf-hyperbolic`       | single | — | fd | `rmf` with hyperbolic cleaning on D and B (`chi = 1`, damping `alpha = 1e9` 1/s): the GLM state layout, φ and ψ in slots 7 and 8, J in 9..11 ([#61](https://github.com/szaghi/adam/issues/61)). Its manual `check.sh` asserts the two init refusals: `hyperbolic` without constrained transport, and `poisson` |
+| `rmf-hyperbolic`       | single | — | fd | `rmf` with hyperbolic cleaning on D and B (`chi = 1`, damping `alpha = 1e9` 1/s): the GLM state layout, φ and ψ in slots 7 and 8, J in 9..11 ([#61](https://github.com/szaghi/adam/issues/61)). Its two init refusals (`hyperbolic` without constrained transport, `poisson`) are legs of `refusals.sh` |
 
 ### Inter-realm 1:1 seam anchor
 

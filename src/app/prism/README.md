@@ -97,10 +97,14 @@ set them to `.false.` for an output with the electromagnetic fields alone. Any o
 
 | Scheme | INI key | Description |
 |--------|---------|-------------|
-| Runge-Kutta | `RUNGE_KUTTA` | Explicit RK (order configurable) |
-| Leapfrog | `LEAPFROG` | Staggered-in-time symplectic scheme |
-| Blanes-Moan | `BLANES_MOAN` | High-order splitting method |
-| Commutator-Free Magnus | `COMMUTATOR_FREE_MAGNUS` | CFM exponential integrator |
+| Runge-Kutta | `RUNGE_KUTTA` | Explicit RK, scheme from `[runge_kutta] scheme`. SSP 11/22/33/54 and low-storage 1/2/3 on both backends; Yoshida on CPU only (FNL stops at init) |
+| Leapfrog | `LEAPFROG` | **Not functional**: stops at init on both backends |
+| Blanes-Moan | `BLANES_MOAN` | **Not functional**: stops at init on both backends ([issue #55](https://github.com/szaghi/adam/issues/55)) |
+| Commutator-Free Magnus | `COMMUTATOR_FREE_MAGNUS` | **Not functional**: stops at init on both backends (issue #55) |
+
+The three non-RK field integrators exist as library objects, but `realm_object%initialize` never initializes them, so
+PRISM refuses them instead of running on unallocated coefficients (CPU) or empty device stubs (FNL). PIC's own particle
+leapfrog (`[PIC] scheme_time`) is a separate path.
 
 ### Spatial Schemes
 

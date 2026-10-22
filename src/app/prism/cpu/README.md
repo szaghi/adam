@@ -243,6 +243,9 @@ All operators iterate `(b, k, j, i)` loops and call the corresponding scalar/vec
 
 ### Time integration schemes
 
+Leapfrog, Blanes-Moan and CFM below are **not reachable**: `initialize_prism` refuses them (`error_stop`), because
+`realm_object%initialize` never initializes their objects (issue #55). The routines are kept for a future port.
+
 #### Leapfrog (`integrate_leapfrog`)
 ```
 compute_coils_current

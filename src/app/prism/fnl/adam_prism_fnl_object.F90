@@ -553,38 +553,16 @@ contains
                                   'current_weighting_model = conserving on the FNL backend')
    endif
    call check_pml_configuration()
-   call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
-   call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-   call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
-   call self%weno_fnl%initialize(weno=self%weno)
-   call self%initialize_pml_fnl
-   call self%allocate_gpu
-   if (allocated(self%buf_6D_R8P)) then
-      call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid, &
-                                    buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
-   else
-      call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid)
-   endif
-   if (is_pic_model(self%physics%physical_model)) then
-      call self%pic_fnl%initialize(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
-      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
-         call self%leapfrog_pic_fnl%initialize(pic=self%pic, leapfrog_pic=self%leapfrog_pic)
-      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-         call self%rk_pic_fnl%initialize(pic=self%pic, rk_pic=self%rk_pic)
-      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
-         call self%conserving_fnl%initialize(pic=self%pic, grid=self%adam%grid, field=self%adam%field, nb=self%nb, &
-                                             nv=self%nv, nrk=self%rk%nrk, &
-                                             fdv_order=self%fdv_order, hs=self%fdv_half_stencils(1))
-         if (self%external_fields%ef_type /= EF_TYPE_NONE) call self%conserving_fnl%allocate_gather
-         call self%conserving_fnl%initialize_coherent_gather(pic=self%pic)
-      endif
-   endif
-
-   ! set pointer (abstract) TBP
+   ! set pointer (abstract) TBP, before any device allocation: a scheme refused here must not first fail to allocate
+   ! (an FNL Yoshida run under-budgets its stages and died in allocate_gpu, issue #55)
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       select case(self%numerics%scheme_time)
-      case(NUM_SCHEME_TIME_BLANES_MOAN)        ; self%integrate_dev => integrate_blanesmoan_dev
-      case(NUM_SCHEME_TIME_CFM)                ; self%integrate_dev => integrate_cfm_dev
+      case(NUM_SCHEME_TIME_BLANES_MOAN)
+         ! integrate_blanesmoan_dev is an empty stub: dispatching to it would silently freeze the solution (issue #55)
+         call mpih_fnl%error_stop(msg=': Blanes-Moan time integration not ported to FNL backend')
+      case(NUM_SCHEME_TIME_CFM)
+         ! integrate_cfm_dev is an empty stub too (issue #55)
+         call mpih_fnl%error_stop(msg=': Commutator-Free Magnus time integration not ported to FNL backend')
       case(NUM_SCHEME_TIME_LEAPFROG)
          ! integrate_leapfrog_dev is an empty stub: dispatching to it would silently freeze the solution
          call mpih_fnl%error_stop(msg=': leapfrog time integration not ported to FNL backend')
@@ -592,7 +570,9 @@ contains
          select case(self%rk%scheme)
          case(RK_1, RK_2, RK_3)                ; self%integrate_dev => integrate_rk_ls_dev
          case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate_dev => integrate_rk_ssp_dev
-         case(RK_YOSHIDA)                      ; self%integrate_dev => integrate_rk_yoshida_dev
+         case(RK_YOSHIDA)
+            ! integrate_rk_yoshida_dev is an empty stub: dispatching to it would silently freeze the solution (issue #55)
+            call mpih_fnl%error_stop(msg=': Yoshida Runge-Kutta time integration not ported to FNL backend')
          endselect
       endselect
    elseif (is_pic_model(self%physics%physical_model)) then
@@ -622,6 +602,33 @@ contains
       case default
          call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
       endselect
+   endif
+
+   call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
+   call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
+   call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
+   call self%weno_fnl%initialize(weno=self%weno)
+   call self%initialize_pml_fnl
+   call self%allocate_gpu
+   if (allocated(self%buf_6D_R8P)) then
+      call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid, &
+                                    buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
+   else
+      call self%coil_fnl%initialize(coil=self%coil, field=self%adam%field, grid=self%adam%grid)
+   endif
+   if (is_pic_model(self%physics%physical_model)) then
+      call self%pic_fnl%initialize(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
+      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
+         call self%leapfrog_pic_fnl%initialize(pic=self%pic, leapfrog_pic=self%leapfrog_pic)
+      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
+         call self%rk_pic_fnl%initialize(pic=self%pic, rk_pic=self%rk_pic)
+      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
+         call self%conserving_fnl%initialize(pic=self%pic, grid=self%adam%grid, field=self%adam%field, nb=self%nb, &
+                                             nv=self%nv, nrk=self%rk%nrk, &
+                                             fdv_order=self%fdv_order, hs=self%fdv_half_stencils(1))
+         if (self%external_fields%ef_type /= EF_TYPE_NONE) call self%conserving_fnl%allocate_gather
+         call self%conserving_fnl%initialize_coherent_gather(pic=self%pic)
+      endif
    endif
 
    self%fv_flux_variant    = FV_FLUX_VARIANT_MAXWELL

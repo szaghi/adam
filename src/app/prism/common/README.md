@@ -125,7 +125,7 @@ Configured from the `[numerics]` INI section.
 
 | Key | Values | Description |
 |-----|--------|-------------|
-| `scheme_time` | `RUNGE_KUTTA` / `LEAPFROG` / `BLANES_MOAN` / `COMMUTATOR_FREE_MAGNUS` | Temporal integration scheme |
+| `scheme_time` | `RUNGE_KUTTA` / `LEAPFROG` / `BLANES_MOAN` / `COMMUTATOR_FREE_MAGNUS` | Temporal integration scheme. Only `RUNGE_KUTTA` works: the other three are parsed, then refused by both backends at init (issue #55) |
 | `scheme_space` | `WENO` / `FD_CENTERED` / `FV_CENTERED` | Spatial discretisation scheme |
 | `fdv_order` | integer | Order of centered FD/FV schemes |
 | `reconstruction_variables` | `CONSERVATIVE` / `CHARACTERISTICS` | WENO reconstruction basis |
@@ -230,9 +230,8 @@ The 34-step initialization sequence called by both backends:
 22. `external_fields%initialize` — external field type and parameters
 23. `rk%initialize` — RK coefficients (if `RUNGE_KUTTA`)
 24. `rk_bc%initialize` — RK-BC stage arrays (if `RUNGE_KUTTA`)
-25. `leapfrog%initialize` — leapfrog weights (if `LEAPFROG`)
-26. `blanesmoan%initialize` — Blanes-Moan weights (if `BLANES_MOAN`)
-27. `cfm%initialize` — CFM weights (if `COMMUTATOR_FREE_MAGNUS`)
+25. ~~`leapfrog%initialize`, `blanesmoan%initialize`, `cfm%initialize`~~ — commented out in `realm_object%initialize`:
+    never called, which is why the backends refuse those schemes (issue #55)
 28. `weno%initialize` — WENO stencil configuration (if `WENO`)
 29. `leapfrog_pic%initialize` — Boris leapfrog PIC (if PIC + LEAPFROG)
 30. `rk_pic%initialize` — RK PIC (if PIC + RUNGE_KUTTA)

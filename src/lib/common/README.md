@@ -166,6 +166,9 @@ Convective interface flux computation for the compressible Euler equations. All 
 
 Stage storage `q_rk(nv, ni, nj, nk, nb, nrk)` is pre-allocated; no allocation occurs during time-stepping. Configuration section: `[runge_kutta]`.
 
+The next three integrators are library objects that `realm_object` declares but does **not** initialize (the calls
+are commented out); no application can use them today, and PRISM refuses them at init (issue #55).
+
 ### `adam_leapfrog_object` — leapfrog with RAW filter
 
 Second-order leapfrog scheme with optional Robert–Asselin–Williams noise filter:

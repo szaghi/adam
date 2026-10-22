@@ -128,12 +128,12 @@ set procedure pointers          ← based on scheme_space / scheme_time
 
 | `physical_model` | `scheme_time` | RK variant | `integrate` | Status |
 |-----------------|--------------|------------|-------------|--------|
-| EM | `BLANES_MOAN` | — | `integrate_blanesmoan` | stub |
-| EM | `CFM` | — | `integrate_cfm` | stub |
-| EM | `LEAPFROG` | — | `integrate_leapfrog` | stub |
-| EM | `RK` | `RK_1/2/3` | `integrate_rk_ls` | stub |
-| EM | `RK` | `RK_SSP_22/33/54` | `integrate_rk_ssp` | **active** |
-| EM | `RK` | `RK_YOSHIDA` | `integrate_rk_yoshida` | stub |
+| EM | `BLANES_MOAN` | — | — (`integrate_blanesmoan_dev` is an empty stub) | **refused at init** (#55) |
+| EM | `CFM` | — | — (`integrate_cfm_dev` is an empty stub) | **refused at init** (#55) |
+| EM | `LEAPFROG` | — | — (`integrate_leapfrog_dev` is an empty stub) | **refused at init** |
+| EM | `RK` | `RK_1/2/3` | `integrate_rk_ls_dev` | active |
+| EM | `RK` | `RK_SSP_11/22/33/54` | `integrate_rk_ssp_dev` | **active** |
+| EM | `RK` | `RK_YOSHIDA` | — (`integrate_rk_yoshida_dev` is an empty stub) | **refused at init** (#55) |
 | PIC | `LEAPFROG` | PIC_LEAPFROG/RK | `integrate_leapfrog_pic` | stub |
 
 The only fully implemented time integrator is **SSP RK** (`integrate_rk_ssp`).
@@ -396,7 +396,7 @@ Provides `external_fields_initialize_dev`, `sub_external_fields_dev`, and
 | FV centered space operator | Not implemented |
 | WENO space operator | Not implemented |
 | SSP RK time integration | Active |
-| Leapfrog / Yoshida / Blanes-Moan / CFM | Stubbed (CPU logic commented out) |
+| Leapfrog / Yoshida / Blanes-Moan / CFM | Empty stubs, refused at init (issue #55) |
 | PIC integration | Stubbed |
 | Silver-Müller BC | Pending |
 | Periodic BC | Pending |
