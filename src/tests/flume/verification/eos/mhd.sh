@@ -33,10 +33,10 @@
 #        on HLLD and along y (split), the one-segment table, the barotropic free fall with GLM. Not the limited tube 3
 #        (the limiter is not bitwise across backends, as eg9 of gravity.sh);
 #   em10 gravity on the magnetised gases: the uniform box of em1 (amplitude 0, B = (1, sqrt(2), 1/2)) under g_x = 0.5,
-#        isothermal and barotropic (rho0 = 5), with GLM (c_h = 4: the gas accelerates to 0.2), SSP-33: rho uniform,
-#        rho u = rho g t (eos_oracle.py freefall), rE exactly 0 (gravity moves the momentum only). SSP-33 as in eg1:
-#        the library's SSP-54 weights sum to 1 - 8.8e-11 (14 printed digits), which a constant force integrates as a
-#        relative drift of that size (issue #104).
+#        isothermal and barotropic (rho0 = 5), with GLM (c_h = 4: the gas accelerates to 0.2), SSP-54: rho uniform,
+#        rho u = rho g t (eos_oracle.py freefall), rE exactly 0 (gravity moves the momentum only). On SSP-54 since issue
+#        #104: its former tableau, accurate to ~1e-10, integrated the constant force with a relative drift of 3.5e-11
+#        here (8.8e-11 per unit time), above the 1e-12 bound; the leg is the solver-level regression of that fix.
 #
 # Usage: ./mhd.sh [--legs LIST]   (legs em1..em10; default em1..em8, em10: em9 compares two backends' runs)
 #
@@ -200,8 +200,7 @@ for leg in $LEGS; do
          for gas in isothermal barotropic; do
             echo "-- em10: free fall, $gas, GLM"
             make_case "em10-$gas" wave --cells 48 --amplitude 0.0 --eos "$gas" --dc glm --time-max 0.4 --it-save 10 \
-               --rho0 "$([[ $gas == barotropic ]] && echo 5 || echo 1)" --set gravity:g_x=0.5 --set mhd:glm_ch=4.0 \
-               --set runge_kutta:scheme=runge-kutta-ssp-33
+               --rho0 "$([[ $gas == barotropic ]] && echo 5 || echo 1)" --set gravity:g_x=0.5 --set mhd:glm_ch=4.0
             if run "$W"; then
                "$VENV_PY" "$CASE_DIR/eos_oracle.py" freefall "$W" || FAILED=1
             else

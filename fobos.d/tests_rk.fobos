@@ -1,0 +1,14 @@
+[modes]
+modes = test-rk-ssp-tableau-gnu                        test-rk-ssp-tableau-gnu-debug
+
+# The SSP Runge-Kutta Butcher tableaux (issue #104): order conditions in quadruple precision, constant forcing exact,
+# the convergence order on y' = -y. Pure, no MPI calls.
+[test-rk-ssp-tableau-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_rk_ssp_tableau.F90
+
+[test-rk-ssp-tableau-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_rk_ssp_tableau.F90

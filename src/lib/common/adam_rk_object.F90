@@ -79,6 +79,10 @@ contains
    real(R8P), allocatable, intent(out)   :: alph(:,:) !< Butcher matrix A.
    real(R8P), allocatable, intent(out)   :: beta(:)   !< Butcher weights b.
    real(R8P), allocatable, intent(out)   :: gamm(:)   !< Butcher abscissas c.
+   real(R8P)                             :: so_a(5,0:4) !< SSP-54 Shu-Osher alpha.
+   real(R8P)                             :: so_b(5,0:4) !< SSP-54 Shu-Osher beta.
+   real(R8P)                             :: bk(0:5,5)   !< SSP-54 stage coefficients: u(i) = u^n + dt sum_j bk(i,j) F_j.
+   integer(I4P)                          :: i, k        !< Counters.
 
    select case(scheme)
    case(RK_SSP_11) ! 1 stage, 1st order SSP (forward Euler): the 1-stage debugging
@@ -121,29 +125,36 @@ contains
 
       gamm(2) = 1._R8P
       gamm(3) = 0.5_R8P
-   case(RK_SSP_54) ! 5 stages, 4th order SSP
+   case(RK_SSP_54) ! 5 stages, 4th order SSP: Spiteri & Ruuth (2002, SIAM J. Numer. Anal. 40, 469), SSP coeff. 1.508
+      ! The Shu-Osher form u(i) = sum_k a_ik u(k) + dt b_ik F(u(k)), u(0) = u^n, u^(n+1) = u(5), as printed (15 digits)
+      ! by Isherwood, Grant & Gottlieb (2018, arXiv:1810.04800, section 4); every a_ik, b_ik >= 0 (the SSP property) and
+      ! sum_k a_ik = 1. The Butcher tableau is derived from it, row i of the stage coefficients being
+      ! sum_k a_ik (row k) + b_ik e_(k+1): the order conditions then hold to ~5e-16 (issue #104; the former 14-digit
+      ! Butcher literals were accurate to ~1e-10 only, their weights summing to 1 - 8.8e-11).
       nrk = 5
       allocate(alph(nrk,nrk), beta(nrk), gamm(nrk))
-      alph = 0._R8P
-      beta = 0._R8P
-      gamm = 0._R8P
-
-      beta(1) = 0.14681187618661_R8P
-      beta(2) = 0.24848290924556_R8P
-      beta(3) = 0.10425883036650_R8P
-      beta(4) = 0.27443890091960_R8P
-      beta(5) = 0.22600748319395_R8P
-
-      alph(2,1) = 0.39175222700392_R8P
-      alph(3,1) = 0.21766909633821_R8P ; alph(3,2) = 0.36841059262959_R8P
-      alph(4,1) = 0.08269208670950_R8P ; alph(4,2) = 0.13995850206999_R8P ; alph(4,3) = 0.25189177424738_R8P
-      alph(5,1) = 0.06796628370320_R8P ; alph(5,2) = 0.11503469844438_R8P ; alph(5,3) = 0.20703489864929_R8P
-      alph(5,4) = 0.54497475021237_R8P
-
-      gamm(2) = 0.39175222700392_R8P
-      gamm(3) = 0.58607968896780_R8P
-      gamm(4) = 0.47454236302687_R8P
-      gamm(5) = 0.93501063100924_R8P
+      so_a = 0._R8P
+      so_b = 0._R8P
+      so_a(1,0) = 1._R8P
+      so_b(1,0) = 0.391752226571890_R8P
+      so_a(2,0) = 0.444370493651235_R8P ; so_a(2,1) = 0.555629506348765_R8P
+      so_b(2,1) = 0.368410593050371_R8P
+      so_a(3,0) = 0.620101851488403_R8P ; so_a(3,2) = 0.379898148511597_R8P
+      so_b(3,2) = 0.251891774271694_R8P
+      so_a(4,0) = 0.178079954393132_R8P ; so_a(4,3) = 0.821920045606868_R8P
+      so_b(4,3) = 0.544974750228521_R8P
+      so_a(5,2) = 0.517231671970585_R8P ; so_a(5,3) = 0.096059710526147_R8P ; so_a(5,4) = 0.386708617503268_R8P
+      so_b(5,3) = 0.063692468666290_R8P ; so_b(5,4) = 0.226007483236906_R8P
+      bk = 0._R8P
+      do i=1, 5
+         do k=0, i - 1
+            bk(i,:) = bk(i,:) + so_a(i,k) * bk(k,:)
+            bk(i,k+1) = bk(i,k+1) + so_b(i,k)
+         enddo
+      enddo
+      alph = bk(0:4,:)
+      beta = bk(5,:)
+      gamm = sum(alph, dim=2)
    endselect
    endsubroutine ssp_tableau
 

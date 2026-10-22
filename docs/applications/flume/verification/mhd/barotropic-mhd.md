@@ -59,7 +59,7 @@ extrapolated ends.
 | em7 | tube 2 with $c_0 = 1.3$: the isothermal gas against the barotropic one-segment table of exponent 1 |
 | em8 | `eglm`; `p_floor = 1e-6`; `orszag-tang`; the `entropy` wave |
 | em9 | the last checkpoints of CPU and FNL: `em1-iso-2d-fast-64`, `em1-baro-1d-slow-32`, `em1-iso-glm-1d-fast-32`, `em2-iso-hlld-1d-alfven-32`, `em3-cpaw-right-64`, `em4-tube2-400`, `em5-weno-y`, `em7-baro`, `em10-barotropic` (not the limited tube 3: the limiter is not bitwise across backends) |
-| em10 | the em1 box with amplitude 0 under $g_x = 0.5$, 48 cells, GLM ($c_h = 4$), SSP(3,3), $t = 0.4$: isothermal $\rho_0 = 1$, barotropic $\rho_0 = 5$ |
+| em10 | the em1 box with amplitude 0 under $g_x = 0.5$, 48 cells, GLM ($c_h = 4$), SSP(5,4), $t = 0.4$: isothermal $\rho_0 = 1$, barotropic $\rho_0 = 5$ |
 
 ## Input files
 
@@ -100,7 +100,7 @@ tube 3, the two Mach-5 streams with $B_n = 0$.*
 | em7 | the one-segment table against the isothermal gas | $10^{-10}$ | 0 | $6.2\cdot10^{-13}$ |
 | em8 | the 4 invalid inputs | refused | refused | refused |
 | em9 | CPU against FNL, the 9 cases: the largest gap over the fields | $10^{-10}$ | (the same comparison) | $2.9\cdot10^{-13}$ (tube 2 along y, `weno`); the waves and the CPAW $\le 1.7\cdot10^{-14}$; `rE` 0 |
-| em10 | $\rho$ uniform, $\rho u - \rho g t$ relative, `rE`: isothermal, barotropic | $10^{-12}$; 0 | 0, $6.6\cdot10^{-15}$, 0; 0, $1.5\cdot10^{-14}$, 0 | 0, 0, 0; 0, $2.2\cdot10^{-15}$, 0 |
+| em10 | $\rho$ uniform, $\rho u - \rho g t$ relative, `rE`: isothermal, barotropic (SSP(5,4), since [#104](https://github.com/szaghi/adam/issues/104)) | $10^{-12}$; 0 | 0, $1.1\cdot10^{-14}$, 0; 0, $7.0\cdot10^{-15}$, 0 | 0, $1.1\cdot10^{-16}$, 0; 0, $2.2\cdot10^{-15}$, 0 |
 
 Related cases: the [linear waves](./order-of-accuracy) and the [HLLD verification](./weno-riemann) of the ideal gas.
 
@@ -140,7 +140,8 @@ Related cases: the [linear waves](./order-of-accuracy) and the [HLLD verificatio
 - **One transverse cell per block.** The Sod inputs the tubes are built from carry four cells per block along each
   null axis: 16 copies of the same 1-D solution. `make_eos_mhd.py` sets one, bitwise the same profile (tube 2 at 400
   cells, checked), and the 3200-cell references take minutes instead of hours.
-- **SSP(5,4) of the library is consistent to $9\cdot10^{-11}$ only.** Its weights, printed with 14 digits, sum to
-  $1 - 8.8\cdot10^{-11}$, so a constant force integrates with that relative drift: the free fall on SSP(5,4) gives
-  $\rho u - \rho g t$ of $3.5\cdot10^{-11}$ after $t = 0.4$, against $10^{-14}$ on SSP(3,3) (em10 runs on SSP(3,3)).
-  This concerns every SSP(5,4) run of the library, not this model ([#104](https://github.com/szaghi/adam/issues/104)).
+- **The free fall found a defect of the library's SSP(5,4), now fixed.** Its former weights, printed with 14 digits,
+  summed to $1 - 8.8\cdot10^{-11}$, so the free fall on SSP(5,4) gave $\rho u - \rho g t$ of $3.5\cdot10^{-11}$ after
+  $t = 0.4$; em10 ran on SSP(3,3) until the tableau was rebuilt from its Shu–Osher form
+  ([#104](https://github.com/szaghi/adam/issues/104), [time integration](../../numerics#time-integration)). On SSP(5,4)
+  em10 now gives $1.1\cdot10^{-14}$ and $7.0\cdot10^{-15}$, and runs there as the solver-level regression of that fix.

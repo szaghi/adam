@@ -31,5 +31,7 @@ fobis build --mode test-flume-<name>-fnl-nvf --varset local_nvf  # device twin
 | `test_poisson_fft` (+ `-fnl-nvf`) | `src/tests/poisson/` | the FFT Poisson solver, periodic and isolated (SV-2, SV-6) | [FFT Poisson solver](./self-gravity/fft-poisson), [isolated solver](./self-gravity/isolated-solver) |
 | `test_poisson_mg` | `src/tests/poisson/` | the multigrid Poisson solver on AMR grids (SV-9) | [multigrid on AMR](./self-gravity/multigrid-amr) |
 
+| `test_rk_ssp_tableau` | `src/tests/rk/` | the SSP Butcher tableaux ([#104](https://github.com/szaghi/adam/issues/104)): the order conditions up to each scheme's order in quadruple precision ($\le 10^{-14}$; SSP(5,4) at $6\cdot10^{-16}$), $c_i = \sum_j a_{ij}$, $A$ strictly lower triangular, a constant force exact, the observed order on $y' = -y$, the SSP(5,4) error at 320 steps $\le 10^{-12}$ | every case (the time integrator) |
+
 Build modes: `test-tree-closest-block-gnu`, `test-quadtree-seam-ghost-gnu` (`-fnl-nvf`), `test-poisson-fft-gnu`
-(`-fnl-nvf`), `test-poisson-mg-gnu`.
+(`-fnl-nvf`), `test-poisson-mg-gnu`, `test-rk-ssp-tableau-gnu`.

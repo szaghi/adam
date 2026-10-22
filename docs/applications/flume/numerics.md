@@ -589,6 +589,16 @@ recomputes the auxiliary variables, applies the positivity floors (MHD) and eval
 the [CFL bound](./models#time-step-bound), with the diffusive part of the
 [dissipative fluxes](#dissipative-fluxes-navier–stokes) when they are on; `[time] it_max` and `time_max` stop the run.
 
+The SSP Butcher tableaux have one source, `ssp_tableau` of `adam_rk_object` (the PRISM boundary and PIC integrators
+call it too). SSP(5,4) is the optimal five-stage fourth-order scheme of Spiteri & Ruuth (2002, SIAM J. Numer. Anal.
+40, 469), SSP coefficient 1.508: the library stores its Shu–Osher form as printed with 15 digits by Isherwood, Grant &
+Gottlieb (2018, arXiv:1810.04800, §4), every coefficient nonnegative, and derives the Butcher tableau from it. The
+order conditions then hold to $6\cdot10^{-16}$, and a refinement in time keeps fourth order down to $10^{-13}$. The
+tableau the library used before ([#104](https://github.com/szaghi/adam/issues/104)) was accurate to ~$10^{-10}$ only:
+its weights summed to $1 - 8.8\cdot10^{-11}$, so a constant force drifted by that relative amount per unit time and
+an ODE refinement study stalled at $3\cdot10^{-11}$. The unit test `test_rk_ssp_tableau` pins every SSP tableau
+([unit tests](./verification/unit-tests)).
+
 ## Adaptive mesh refinement
 
 The block tree is refined at initialisation (`[initial_conditions] amr_iterations` passes) by the markers of the `[amr]`
