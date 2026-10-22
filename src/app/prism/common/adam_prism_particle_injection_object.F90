@@ -583,6 +583,21 @@ contains
    	if (.not.go_on_fail_.and.error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_drift_z)')
 
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electrons_drift_x', &
+   			val=self%electrons_drift_x, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electrons_drift_x)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electrons_drift_y', &
+   			val=self%electrons_drift_y, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electrons_drift_y)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electrons_drift_z', &
+   			val=self%electrons_drift_z, error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electrons_drift_z)')
+
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_drift_x', &
    			val=self%neutrals_drift_x, error=error)
    	if (.not.go_on_fail_.and.error>0) &
@@ -623,6 +638,9 @@ contains
 				if (any([self%T_e_x, self%T_e_y, self%T_e_z] /= [self%T_i_x, self%T_i_y, self%T_i_z])) &
 					call mpih%error_stop(msg=': velocity_pairing needs electronic_temperature_x/y/z = ionic_temperature_x/y/z')
 			endif
+			if (any([self%electrons_drift_x, self%electrons_drift_y, self%electrons_drift_z] /= &
+			        [self%ions_drift_x, self%ions_drift_y, self%ions_drift_z])) &
+				call mpih%error_stop(msg=': velocity_pairing needs electrons_drift_x/y/z = ions_drift_x/y/z')
 		endif
 
 	elseif (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then

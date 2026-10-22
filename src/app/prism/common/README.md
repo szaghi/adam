@@ -543,10 +543,11 @@ Sets the initial spatial and velocity distributions for PIC particles.
 | `velocity_distribution` | `Uniform_Maxwellian` / `Non_uniform_Maxwellian` / `Velocity_random_number_generator` / `Velocity_layered_number_generator` | Initial velocity distribution |
 | `T_i`, `T_e`, `T_n` | real | Ion/electron/neutral temperature (uniform Maxwellian) |
 | `T_i_x/y/z`, `T_e_x/y/z`, `T_n_x/y/z` | real | Per-axis temperatures (non-uniform Maxwellian) |
-| `v_drift_x/y/z` | real | Drift velocity components |
+| `v_drift_x/y/z` | real | Drift velocity components (single particle) |
+| `ions_drift_x/y/z`, `electrons_drift_x/y/z`, `neutrals_drift_x/y/z` | real | Per-species drift velocity components (plasma, all required) |
 | `box_number` | real | Number of boxes for charge-neutral injection |
 | `space_pairing` | `yes`/`no` | Electron i at the position of ion i (ions sampled as usual): zero charge density at t0 |
-| `velocity_pairing` | `yes`/`no` | Electron i with the velocity of ion i (ions sampled as usual); needs the same distribution and temperatures for ions and electrons, otherwise fatal; read only when a Maxwellian is selected |
+| `velocity_pairing` | `yes`/`no` | Electron i with the velocity of ion i (ions sampled as usual); needs the same distribution, temperatures and drifts for ions and electrons, otherwise fatal; read only when a Maxwellian is selected |
 | `v_av_correction` | logical | Correct mean velocity after sampling |
 | `x_position`, `y_position`, `z_position` | real | Initial position (single particle) |
 | `charge`, `mass` | real | Charge and mass (single particle) |
