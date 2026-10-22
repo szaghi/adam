@@ -76,7 +76,7 @@ round trip): a setup table documents it better than a plot of a difference that 
 | [EGLM cleaning](./mhd/eglm) | EV-2, EV-3, EV-4 | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P4) | CPU, FNL | yes |
 | [Positivity limiter](./mhd/positivity-limiter) | PV-1 to PV-5 | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P5); PV-5 [#50](https://github.com/szaghi/adam/issues/50) | CPU, FNL (PV-1 as a sphere: FNL only) | yes |
 | [Quadtree AMR](./mhd/quadtree-amr) | MV-15 | [#46](https://github.com/szaghi/adam/issues/46) (no milestone, after M3) | CPU, FNL | yes |
-| [Isothermal and barotropic MHD](./mhd/barotropic-mhd) | EO (em) | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P5a | CPU | yes |
+| [Isothermal and barotropic MHD](./mhd/barotropic-mhd) | EO (em) | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P5a, P5b | CPU, FNL | yes |
 
 ## [Infrastructure](./infrastructure/)
 

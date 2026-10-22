@@ -2,7 +2,7 @@
 
 | ID | Group | Milestone | Backends | Figure | Regression |
 |---|---|---|---|---|---|
-| EO (em1 to em10) | Ideal MHD | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P5a | CPU | yes | `iso-mhd-tube2`, `baro-mhd-glm-hlld` |
+| EO (em1 to em10) | Ideal MHD | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P5a (CPU), P5b (FNL) | CPU, FNL | yes | `iso-mhd-tube2`, `baro-mhd-glm-hlld` |
 
 ## Case and scope
 
@@ -30,8 +30,8 @@ What the legs catch:
 - **the barotropic path drifting from the isothermal one:** a one-segment table with exponent 1 is the isothermal gas
   (em7);
 - **the energy slot written:** every leg checks `rE` exactly 0, gravity included (em10);
-- **an input that would silently run wrong:** EGLM, the floors, the gamma-law initial conditions, the FNL backend
-  (em8, em9).
+- **an input that would silently run wrong:** EGLM, the floors, the gamma-law initial conditions (em8);
+- **a backend that disagrees:** one case per model, scheme and solver on CPU and FNL (em9).
 
 ## Models and numerics
 
@@ -39,7 +39,7 @@ What the legs catch:
 |---|---|---|
 | Models | `mhd-ideal` with `[eos] type = isothermal` or `barotropic`: `MODEL_MHD_ISO`, `MODEL_MHD_BARO`, and with `divergence_control = glm` `MODEL_MHD_GLM_ISO`, `MODEL_MHD_GLM_BARO` | [`adam_flume_physics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_physics_object.F90) |
 | Library | one body behind the EOS hooks of the isothermal and barotropic modules | `adam_flume_mhd_iso_library_body.INC`, `adam_flume_mhd_{iso,baro}_library.F90` |
-| Kernels | the model-agnostic MHD kernel bodies on these libraries (16 CPU modules) | `adam_flume_cpu_mhd[_glm]_{iso,baro}[_{llf,hll,hlld}]_kernels.F90` |
+| Kernels | the model-agnostic MHD kernel bodies on these libraries (16 CPU and 16 FNL modules; the barotropic table read from the device registry on FNL) | `adam_flume_{cpu,fnl}_mhd[_glm]_{iso,baro}[_{llf,hll,hlld}]_kernels.F90` |
 | Space, time | WENO5, characteristic flux splitting (`weno`) or `weno-riemann` with HLLD and the 6th-order correction; SSP-RK(3,3), CFL 0.5 | — |
 
 ## Initial and boundary conditions
@@ -58,7 +58,7 @@ extrapolated ends.
 | em6 | tube 2 at 400 cells, HLLD and HLL, against the 3200-cell HLLD run |
 | em7 | tube 2 with $c_0 = 1.3$: the isothermal gas against the barotropic one-segment table of exponent 1 |
 | em8 | `eglm`; `p_floor = 1e-6`; `orszag-tang`; the `entropy` wave |
-| em9 | a tube on the FNL executable |
+| em9 | the last checkpoints of CPU and FNL: `em1-iso-2d-fast-64`, `em1-baro-1d-slow-32`, `em1-iso-glm-1d-fast-32`, `em2-iso-hlld-1d-alfven-32`, `em3-cpaw-right-64`, `em4-tube2-400`, `em5-weno-y`, `em7-baro`, `em10-barotropic` (not the limited tube 3: the limiter is not bitwise across backends) |
 | em10 | the em1 box with amplitude 0 under $g_x = 0.5$, 48 cells, GLM ($c_h = 4$), SSP(3,3), $t = 0.4$: isothermal $\rho_0 = 1$, barotropic $\rho_0 = 5$ |
 
 ## Input files
@@ -66,15 +66,16 @@ extrapolated ends.
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/eos/make_eos_mhd.py` | writes the cases: `tube` (from the Sod inputs), `wave` (from `mhd/linear-wave/make_linear_wave.py`, the period from the speed of the gas), `cpaw` (from `mhd/cpaw/make_cpaw.py`) |
-| `src/tests/flume/verification/eos/mhd.sh` | runs the legs (`--legs em1,...,em10`, default all but em9; `FLUME_EXE`, `EM_NP` ranks) |
-| `eos/mhd_oracle.py` (`selftest`, `rotation`, `selfconv`, `agree`, `hlld-gain`), `mhd/linear-wave/linear_wave_oracle.py`, `mhd/cpaw/cpaw_oracle.py`, `eos/eos_oracle.py` (`freefall`) | the checks |
+| `src/tests/flume/verification/eos/mhd.sh` | runs the legs (`--legs em1,...,em10`, default all but em9, which compares the two backends' runs; `FLUME_EXE`, `EM_NP` ranks) |
+| `eos/mhd_oracle.py` (`selftest`, `rotation`, `selfconv`, `agree`, `hlld-gain`, `backends`), `mhd/linear-wave/linear_wave_oracle.py`, `mhd/cpaw/cpaw_oracle.py`, `eos/eos_oracle.py` (`freefall`) | the checks |
 | `src/tests/flume/regression/iso-mhd-tube2/input.ini`, `baro-mhd-glm-hlld/input.ini` | the frozen tube 2 (isothermal, `weno`) and a barotropic GLM HLLD tube |
 | `make_doc_runs.sh <runs> eosmhd`, `make_doc_figures.py --only barotropic-mhd` | the figure |
 
 ```bash
 cd src/tests/flume/verification/eos && ../../../../../exe/.regression-venv/bin/python mhd_oracle.py selftest
 ./mhd.sh                                                                                   # CPU
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./mhd.sh --legs em9                       # FNL: the refusal
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./mhd.sh                                   # FNL
+./mhd.sh --legs em9                                                                        # CPU against FNL
 ```
 
 ## Results
@@ -86,20 +87,20 @@ and barotropic, the three families; the legend gives the order of the 32/64 pair
 2, $B_y$ at 400 cells with HLLD and with HLL against the reference: the rotational discontinuities. Bottom right:
 tube 3, the two Mach-5 streams with $B_n = 0$.*
 
-| Leg | Asserted | Bound | CPU |
-|---|---|---|---|
-| — | `mhd_oracle.py selftest`: Kim's eigensystem, the embedding, the speeds, the HLLD (consistency, rotational discontinuity, hydro limit, positivity), the CPAW | round-off | 13 checks pass |
-| em1 | the order of the finest pair: isothermal fast, Alfvén, slow along x; inclined; barotropic; GLM fast | $\ge 4.7$ | 4.96, 4.96, 4.96; 4.97, 4.97, 5.00; 4.97, 4.96, 4.96; 4.96 |
-| em2 | the same on `weno-riemann` HLLD: fast, Alfvén, slow | $\ge 4.7$ | 4.96, 4.96, 4.96 |
-| em3 | the CPAW order, right and left; right against left | $\ge 4.7$; 0 | 4.89, 4.89; 0 |
-| em4 | the ladder order of the L1 distance of $\rho$ to 3200 cells, tubes 1, 2, 3; $\rho > 0$, `rE` | $\ge 0.5$; 0 | 1.15, 1.03, 0.66 (pairs 1.09 and 1.22, 1.03 and 1.03, 0.17 and 1.15); positive, 0 |
-| em4 | tube 3 with the limiter: $\rho > 0$, `rE`; the L1 distance (reported) | 0 | positive, 0; $9.0\cdot10^{-3}$ (unlimited $5.4\cdot10^{-4}$) |
-| em5 | tube 2 along x, y, z, `weno` and `weno-riemann` | 0 | 0, 0 |
-| em6 | the L1 distance of $B_y$ to 3200 cells, HLLD against HLL | HLLD < HLL | $2.35\cdot10^{-3}$ against $2.79\cdot10^{-3}$ (0.84) |
-| em7 | the one-segment table against the isothermal gas | $10^{-10}$ | 0 |
-| em8 | the 4 invalid inputs | refused | refused |
-| em9 | the FNL backend | refused | FNL: refused |
-| em10 | $\rho$ uniform, $\rho u - \rho g t$ relative, `rE`: isothermal, barotropic | $10^{-12}$; 0 | 0, $6.6\cdot10^{-15}$, 0; 0, $1.5\cdot10^{-14}$, 0 |
+| Leg | Asserted | Bound | CPU | FNL |
+|---|---|---|---|---|
+| — | `mhd_oracle.py selftest`: Kim's eigensystem, the embedding, the speeds, the HLLD (consistency, rotational discontinuity, hydro limit, positivity), the CPAW | round-off | 13 checks pass | — |
+| em1 | the order of the finest pair: isothermal fast, Alfvén, slow along x; inclined; barotropic; GLM fast | $\ge 4.7$ | 4.96, 4.96, 4.96; 4.97, 4.97, 5.00; 4.97, 4.96, 4.96; 4.96 | the same to the printed digits |
+| em2 | the same on `weno-riemann` HLLD: fast, Alfvén, slow | $\ge 4.7$ | 4.96, 4.96, 4.96 | 4.96, 4.96, 4.96 |
+| em3 | the CPAW order, right and left; right against left | $\ge 4.7$; 0 | 4.89, 4.89; 0 | 4.89, 4.89; 0 |
+| em4 | the ladder order of the L1 distance of $\rho$ to 3200 cells, tubes 1, 2, 3; $\rho > 0$, `rE` | $\ge 0.5$; 0 | 1.15, 1.03, 0.66 (pairs 1.09 and 1.22, 1.03 and 1.03, 0.17 and 1.15); positive, 0 | the same |
+| em4 | tube 3 with the limiter: $\rho > 0$, `rE`; the L1 distance (reported) | 0 | positive, 0; $9.0\cdot10^{-3}$ (unlimited $5.4\cdot10^{-4}$) | positive, 0; $9.0\cdot10^{-3}$ |
+| em5 | tube 2 along x, y, z, `weno` and `weno-riemann` | 0 | 0, 0 | 0, 0 |
+| em6 | the L1 distance of $B_y$ to 3200 cells, HLLD against HLL | HLLD < HLL | $2.35\cdot10^{-3}$ against $2.79\cdot10^{-3}$ (0.84) | the same |
+| em7 | the one-segment table against the isothermal gas | $10^{-10}$ | 0 | $6.2\cdot10^{-13}$ |
+| em8 | the 4 invalid inputs | refused | refused | refused |
+| em9 | CPU against FNL, the 9 cases: the largest gap over the fields | $10^{-10}$ | (the same comparison) | $2.9\cdot10^{-13}$ (tube 2 along y, `weno`); the waves and the CPAW $\le 1.7\cdot10^{-14}$; `rE` 0 |
+| em10 | $\rho$ uniform, $\rho u - \rho g t$ relative, `rE`: isothermal, barotropic | $10^{-12}$; 0 | 0, $6.6\cdot10^{-15}$, 0; 0, $1.5\cdot10^{-14}$, 0 | 0, 0, 0; 0, $2.2\cdot10^{-15}$, 0 |
 
 Related cases: the [linear waves](./order-of-accuracy) and the [HLLD verification](./weno-riemann) of the ideal gas.
 
@@ -129,6 +130,10 @@ Related cases: the [linear waves](./order-of-accuracy) and the [HLLD verificatio
   collision lowers the L1 error (from $1.99\cdot10^{-2}$ to $1.43\cdot10^{-2}$, `weno-riemann` HLLC), and on `weno`
   it never acts. For magnetised collisions with $B_n \approx 0$, prefer `weno-riemann` HLLD, and enable the limiter
   only where positivity is at risk.
+- **The backends agree to round-off, the one-segment table only to $10^{-12}$ on FNL.** On the CPU the one-segment table
+  of exponent 1 and the isothermal gas give the same bits; on FNL they differ by $6.2\cdot10^{-13}$. The table path
+  evaluates $K\rho^{\Gamma}$ through a power and the isothermal path $c_0^2\rho$ directly, and the device rounds the
+  two differently. Across backends the same input agrees to $2.9\cdot10^{-13}$ at most (em9).
 - **The tube-3 criterion was changed after its first run.** Tube 3 has shocks only, so its L1 distance is set by where
   each shock falls within its cell: the pair orders are 0.17 and 1.15. em4 asserts the order over the whole ladder
   (0.66) and prints the pairs.

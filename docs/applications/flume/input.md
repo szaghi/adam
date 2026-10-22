@@ -588,7 +588,7 @@ With `type = isothermal` or `barotropic`:
   - The schemes are `weno` and `weno-riemann`, with the `llf`, `hll` and `hlld` solvers (Mignone's isothermal HLLD,
     on any $P(\rho)$).
   - `positivity_limiter = cell` works as for the Euler gases, and is fatal with `glm`, as for the ideal gas.
-  - These models run on the CPU backend only for now; the FNL backend refuses them (#100 P5b).
+  - CPU and FNL run them (P5a, P5b); the FNL kernels are the device twins of the CPU ones, on the same library.
 
 ---
 

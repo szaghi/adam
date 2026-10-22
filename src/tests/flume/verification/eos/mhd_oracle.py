@@ -617,6 +617,65 @@ def compare_gain(hlld: Path, hll: Path, ref: Path) -> bool:
                  f"(ratio {dist['hlld'] / dist['hll']:.2f})")
 
 
+def last_fields(work: Path) -> dict[tuple[float, ...], dict[str, np.ndarray]]:
+    """Every block of the last checkpoint of a run, by its origin (the block names follow the decomposition, so two runs
+    on different rank counts name the same block differently): the interior of each field (arrays stored (z, y, x) with
+    ngc ghosts on every side)."""
+    import configparser  # noqa: PLC0415
+
+    import h5py  # noqa: PLC0415
+
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None, strict=False)
+    ini.read(work / "input.ini")
+    ng = int(ini["grid"]["ngc"])
+    steps = sorted({int(f.name.rsplit("-", 2)[-2]) for f in work.glob("*-proc*.h5")})
+    out: dict[tuple[float, ...], dict[str, np.ndarray]] = {}
+    for path in work.glob(f"*-{steps[-1]:09d}-proc*.h5"):
+        with h5py.File(path, "r") as h5:
+            for b in {name.rsplit("-", 1)[0] for name in h5}:
+                key = tuple(round(float(o), 12) for o in h5[f"{b}-origin"][:])
+                out[key] = {n: h5[f"{b}-{n}"][:][ng:-ng, ng:-ng, ng:-ng] for n in NAMES if f"{b}-{n}" in h5}
+    return out
+
+
+def compare_backends(cpu: Path, fnl: Path, tol: float) -> bool:
+    """P5b: the last checkpoint of a CPU run against the FNL run of the same input. The same blocks; every field within
+    `tol` of its scale; the energy slot exactly 0 on both. Scales: rho its largest magnitude; the momenta at least
+    max(rho) c_ref and B and psi at least max|B|, c_ref = sqrt(max(rho c0^2, |B|^2) / min(rho)) the largest wave speed
+    of the background (a wave of amplitude 1e-7 carries momenta of that order, whose round-off is that of the O(1)
+    fluxes)."""
+    a, b = last_fields(cpu), last_fields(fnl)
+    if a.keys() != b.keys():
+        return check("backends", False, f"{cpu.name} vs {fnl.name}: different blocks ({len(a)} against {len(b)})")
+    big = lambda w, v: max(float(np.abs(w[k][v]).max()) for k in w) if v in next(iter(w.values())) else 0.0  # noqa: E731
+    rho_max, rho_min = big(a, "r"), min(float(a[k]["r"].min()) for k in a)
+    b_max = math.sqrt(max(float((a[k]["bx"] ** 2 + a[k]["by"] ** 2 + a[k]["bz"] ** 2).max()) for k in a))
+    c_ref = math.sqrt(max(rho_max * run_c0(cpu) ** 2, b_max**2) / rho_min)
+    report, ok = [], True
+    for v in [n for n in NAMES if n != "rE" and n in next(iter(a.values()))]:
+        d = max(float(np.abs(a[k][v] - b[k][v]).max()) for k in a)
+        scale = big(a, v)
+        if v in ("ru", "rv", "rw"):
+            scale = max(scale, rho_max * c_ref)
+        elif v in ("bx", "by", "bz", "psi"):
+            scale = max(scale, b_max)
+        gap = d / scale if scale > 0.0 else d
+        report.append(f"{v} {gap:.1e}")
+        ok = ok and gap <= tol
+    inert = max(float(np.abs(w[k]["rE"]).max()) for w in (a, b) for k in w)
+    return check("backends", ok and inert == 0.0,
+                 f"{cpu.name} vs {fnl.name}: {', '.join(report)} (bound {tol:.0e}); max |rE| {inert:.1e}")
+
+
+def run_c0(work: Path) -> float:
+    """The [eos] sound_speed of a run's input."""
+    import configparser  # noqa: PLC0415
+
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None, strict=False)
+    ini.read(work / "input.ini")
+    return float(ini["eos"]["sound_speed"])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -631,6 +690,10 @@ def main() -> int:
     p.add_argument("a", type=Path)
     p.add_argument("b", type=Path)
     p.add_argument("--tol", type=float, default=1e-10)
+    p = sub.add_parser("backends", help="a CPU run against the FNL run of the same input (P5b)")
+    p.add_argument("cpu", type=Path)
+    p.add_argument("fnl", type=Path)
+    p.add_argument("--tol", type=float, default=1e-10)
     p = sub.add_parser("hlld-gain", help="HLLD closer to the reference than HLL (B_y)")
     p.add_argument("hlld", type=Path)
     p.add_argument("hll", type=Path)
@@ -644,6 +707,8 @@ def main() -> int:
         return 0 if compare_selfconv(args.works, args.ref, args.order_min) else 1
     if args.cmd == "agree":
         return 0 if compare_agree(args.a, args.b, args.tol) else 1
+    if args.cmd == "backends":
+        return 0 if compare_backends(args.cpu, args.fnl, args.tol) else 1
     if args.cmd == "hlld-gain":
         return 0 if compare_gain(args.hlld, args.hll, args.ref) else 1
     return 2

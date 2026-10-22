@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FLUME verification EO, P5: the isothermal and barotropic MHD models (issue #100, M13 P5a, CPU).
+# FLUME verification EO, P5: the isothermal and barotropic MHD models (issue #100, M13: P5a CPU, P5b FNL).
 #
 # Why: the barotropic gases of P1-P4 gain a magnetic field: ideal MHD without an energy equation (D-M13-1), the six
 # waves of Kim et al. (1999) for the characteristic projection and the isothermal HLLD of Mignone (2007), with
@@ -27,14 +27,18 @@
 #        c0 = 1.3 on tube 2: agreement within 1e-10 (the barotropic path takes P and c from the table);
 #   em8  the contract: EGLM, the [mhd] floors, the Orszag-Tang vortex (a gamma-law density) and the entropy wave are
 #        refused with the barotropic gases;
-#   em9  (FNL executable only) the inert MHD models refused on the FNL backend until P5b;
+#   em9  CPU and FNL agree (P5b; run the cases' legs with each executable first): the last checkpoints within 1e-10 of
+#        each field's scale, rE exactly 0 on both, for one case per model, scheme and solver: the isothermal fast wave
+#        inclined (split), the barotropic slow wave (split), the GLM fast wave, the Alfven wave on HLLD, the CPAW, tube 2
+#        on HLLD and along y (split), the one-segment table, the barotropic free fall with GLM. Not the limited tube 3
+#        (the limiter is not bitwise across backends, as eg9 of gravity.sh);
 #   em10 gravity on the magnetised gases: the uniform box of em1 (amplitude 0, B = (1, sqrt(2), 1/2)) under g_x = 0.5,
 #        isothermal and barotropic (rho0 = 5), with GLM (c_h = 4: the gas accelerates to 0.2), SSP-33: rho uniform,
 #        rho u = rho g t (eos_oracle.py freefall), rE exactly 0 (gravity moves the momentum only). SSP-33 as in eg1:
 #        the library's SSP-54 weights sum to 1 - 8.8e-11 (14 printed digits), which a constant force integrates as a
 #        relative drift of that size (issue #104).
 #
-# Usage: ./mhd.sh [--legs LIST]   (legs em1..em10; default em1..em8, em10)
+# Usage: ./mhd.sh [--legs LIST]   (legs em1..em10; default em1..em8, em10: em9 compares two backends' runs)
 #
 # FLUME_EXE overrides the executable under test (default exe/adam_flume_cpu); the caller owns the environment. EM_NP sets
 # the ranks (default 2).
@@ -182,7 +186,16 @@ for leg in $LEGS; do
             --set initial_conditions:type=orszag-tang
          expect_refused em8-entropy "no entropy mode" wave --cells 16 --set initial_conditions:wave=entropy ;;
       em9)
-         expect_refused em9-fnl "runs on the CPU backend only" tube --cells 40 ;;
+         for c in em1-iso-2d-fast-64 em1-baro-1d-slow-32 em1-iso-glm-1d-fast-32 em2-iso-hlld-1d-alfven-32 \
+                  em3-cpaw-right-64 em4-tube2-400 em5-weno-y em7-baro em10-barotropic; do
+            cpu="$CASE_DIR/work-adam_flume_cpu-$c" fnl="$CASE_DIR/work-adam_flume_fnl-$c"
+            echo "-- em9: CPU and FNL agree, $c"
+            if [[ -f "$cpu/log.txt" && -f "$fnl/log.txt" ]]; then
+               "$VENV_PY" "$ORACLE" backends "$cpu" "$fnl" || FAILED=1
+            else
+               echo "   missing a run: run its leg with both executables first  FAIL" ; FAILED=1
+            fi
+         done ;;
       em10)
          for gas in isothermal barotropic; do
             echo "-- em10: free fall, $gas, GLM"

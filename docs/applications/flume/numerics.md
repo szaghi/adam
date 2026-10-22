@@ -375,13 +375,15 @@ hydrodynamic limit), and the Fortran library agrees with it to $2\cdot10^{-15}$ 
 **Positivity, cleaning and refusals.**
 - **Floors:** the `[mhd]` density and pressure floors are refused, since there is no pressure to floor.
 - **Positivity limiter:** `positivity_limiter = cell` takes the density and the kinetic chord of the Euler gases,
-  $c^2 = dP/d\rho$ of the backbone.
+  $c^2 = dP/d\rho$ of the backbone, and an inadmissible seam ghost takes its interior cell (P5b; P5a had left the
+  MHD twins on the ideal gas's blend).
 - **Cleaning:** GLM is the mixed GLM of the ideal MHD (refused with that limiter, as there). EGLM is refused: its
   Derigs sources are built on the energy equation.
 - **Gravity:** it moves the momentum only, as for the Euler gases.
 - **Initial conditions:** `orszag-tang`, `mhd-vortex` and the `entropy` wave of `mhd-linear-wave` need a gamma-law
   gas and are refused.
-- **Backends:** CPU only for now (P5a); the FNL backend refuses these models.
+- **Backends:** CPU (P5a) and FNL (P5b), the FNL kernels the device twins of the CPU ones on the same library; the
+  barotropic table is read from the device registry.
 
 Verification: [EO P5](./verification/mhd/barotropic-mhd).
 

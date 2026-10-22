@@ -1941,19 +1941,19 @@ contains
                                          to_anchor=.false., blended=blended)
    case(MODEL_MHD_ISO) ! issue #100, P5
       call blend_inadmissible_ghosts_mhd_iso(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                         to_anchor=.false., blended=blended)
+                                         to_anchor=.true., blended=blended)
    case(MODEL_MHD_BARO) ! issue #100, P5
       call blend_inadmissible_ghosts_mhd_baro(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                         to_anchor=.false., blended=blended)
+                                         to_anchor=.true., blended=blended)
    case(MODEL_MHD_GLM)
       call blend_inadmissible_ghosts_mhd_glm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
                                              to_anchor=.false., blended=blended)
    case(MODEL_MHD_GLM_ISO) ! issue #100, P5
       call blend_inadmissible_ghosts_mhd_glm_iso(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                             to_anchor=.false., blended=blended)
+                                             to_anchor=.true., blended=blended)
    case(MODEL_MHD_GLM_BARO) ! issue #100, P5
       call blend_inadmissible_ghosts_mhd_glm_baro(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
-                                             to_anchor=.false., blended=blended)
+                                             to_anchor=.true., blended=blended)
    case(MODEL_MHD_EGLM)
       call blend_inadmissible_ghosts_mhd_eglm(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null, q=q, &
                                               to_anchor=.false., blended=blended)
