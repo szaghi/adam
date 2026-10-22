@@ -31,7 +31,9 @@ character(len=10), parameter :: IC_TYPE_RMF="rmf_field"                   !< Rot
 character(len=15), parameter :: IC_TYPE_MAGNETIC_NOZZLE="magnetic_nozzle" !< Nozzle IC TYPE parameter.
 character(len=15), parameter :: IC_TYPE_RMF_NOZZLE="rmf_magnetic_nozzle"  !< Rotating Magnetic Field Nozzle IC TYPE parameter.
 character(len=13), parameter :: IC_TYPE_UNIFORM_FIELD="uniform_field"     !< Uniform field IC type parameter
-character(len=14), parameter :: IC_TYPE_GAUSSIAN_PULSE="gaussian_pulse"   !< 
+character(len=14), parameter :: IC_TYPE_GAUSSIAN_PULSE="gaussian_pulse"   !< Gaussian pulse IC TYPE parameter.
+character(len=*),  parameter :: IC_TYPES_ACCEPTED=IC_TYPE_VACUUM//', '//IC_TYPE_PLANE_WAVE//', '//IC_TYPE_GAUSSIAN_PULSE// &
+                                                  ', '//IC_TYPE_RMF//', '//IC_TYPE_UNIFORM_FIELD !< Types the IC applies.
 
 type :: prism_ic_object
    !< Initial Conditions class definition, CPU backend.
@@ -129,7 +131,25 @@ contains
    self%amr_iterations = max(0_I4P, self%amr_iterations)
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='type', val=buff_char, error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(type)')
+   do i=1, len(buff_char) ! blank the control characters (a CR of a Windows input)
+      if (iachar(buff_char(i:i)) < 32) buff_char(i:i) = ' '
+   enddo
    self%ic_type = trim(adjustl(buff_char))
+   ! set_initial_conditions applies only these types: any other one would leave the field as allocated (issue #56)
+   select case(self%ic_type)
+   case(IC_TYPE_VACUUM, IC_TYPE_PLANE_WAVE, IC_TYPE_GAUSSIAN_PULSE, IC_TYPE_RMF, IC_TYPE_UNIFORM_FIELD)
+      continue
+   case(IC_TYPE_RP)
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_TYPE_RP//' is not implemented (its regions '// &
+                               'are read but never applied); accepted: '//IC_TYPES_ACCEPTED)
+   case(IC_TYPE_MAGNETIC_NOZZLE, IC_TYPE_RMF_NOZZLE)
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//self%ic_type//' is not implemented as an '// &
+                               'initial condition; for a nozzle field use [external_fields].(external_fields_applied); '//&
+                               'accepted: '//IC_TYPES_ACCEPTED)
+   case default
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(type) "'//self%ic_type//'"; accepted: '// &
+                               IC_TYPES_ACCEPTED)
+   endselect
    if (self%ic_type == IC_TYPE_RP) then
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(regions_number)')
@@ -158,7 +178,7 @@ contains
             if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Jy)')
             call file_parameters%get(section_name=sname, option_name='Jz', val=self%q(9,i), error=error)
             if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Jz)')
-
+            call file_parameters%get(section_name=sname, option_name='emin_x', val=self%emin(1,i), error=error)
             if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(emin_x)')
             call file_parameters%get(section_name=sname, option_name='emin_y', val=self%emin(2,i), error=error)
             if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(emin_y)')
@@ -225,6 +245,9 @@ contains
 	   	self%alpha = 1_I4P
 	   	self%beta  = 2_I4P
 	   	self%gamma = 3_I4P
+      case default ! alpha, beta and gamma index q in set_initial_conditions: they must be defined (issue #56)
+         call mpih%error_stop(msg=': unknown [external_fields].(RMF_rotation_axis) "'//trim(self%RMF_rotation_axis)// &
+                                  '"; accepted: X, Y, Z')
 	   endselect
    endif
 
@@ -407,8 +430,8 @@ contains
          enddo
       enddo
    enddo
-   case default
-      ! to be added error print
+   case default ! load_from_file accepts only the types above (issue #56)
+      call mpih%error_stop(msg=': initial condition type "'//self%ic_type//'" has no implementation')
    endselect
    endassociate
    endsubroutine set_initial_conditions

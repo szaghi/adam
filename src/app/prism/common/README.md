@@ -294,12 +294,16 @@ Configured from the `[initial_conditions]` INI section.
 | `type` value | Description |
 |-------------|-------------|
 | `vacuum` | All fields set to zero |
-| `riemann-problem` | Piecewise constant regions; each region in `[initial_conditions_region_N]` |
 | `plane_wave` | Sinusoidal electromagnetic plane wave |
-| `rmf_field` | Rotating Magnetic Field (reads from `[external_fields]`) |
-| `uniform_field` | Uniform background B and/or D |
-| `magnetic_nozzle` | Magnetic nozzle configuration (parameters TBD) |
-| `rmf_magnetic_nozzle` | Combined RMF + magnetic nozzle |
+| `gaussian_pulse` | Gaussian-modulated plane wave packet (`B0`, `k0`, `r0`, `sigma`, `pulse_direction` = `±x`, `±y`, `±z`) |
+| `rmf_field` | Rotating Magnetic Field (reads `RMF_frequency`, `RMF_B_amplitude` and `RMF_rotation_axis` = `X`, `Y` or `Z` from `[external_fields]`; any other axis stops at load) |
+| `uniform_field` | Uniform background B (`B_x`, `B_y`, `B_z`); D is set to zero |
+
+Any other `type` stops at load, naming the accepted values ([issue #56](https://github.com/szaghi/adam/issues/56)). That
+includes three names the loader still knows but `set_initial_conditions` never applied, so they used to start the run
+from the zero field silently:
+- `riemann-problem`: the regions were read and dropped (its apply code was commented out, then removed in 2025);
+- `magnetic_nozzle` and `rmf_magnetic_nozzle`: for a nozzle field use `[external_fields] external_fields_applied`.
 
 ### INI Keys (`[initial_conditions]`)
 
@@ -307,13 +311,14 @@ Configured from the `[initial_conditions]` INI section.
 |-----|-------------|
 | `amr_iterations` | Number of AMR iterations during IC application |
 | `type` | IC type string (see table above) |
-| `regions_number` | Number of regions (Riemann problem only) |
 | `kx`, `ky`, `kz` | Wave number direction cosines (plane wave) |
 | `lambda` | Wavelength (plane wave) |
 | `B0` | Background magnetic field amplitude (plane wave) |
 | `B_x`, `B_y`, `B_z` | Uniform background B components |
 
-**Region sections** (`riemann-problem`): `[initial_conditions_region_N]` with keys `Dx`, `Dy`, `Dz`, `Bx`, `By`, `Bz`, `Jx`, `Jy`, `Jz`, `emin_x/y/z`, `emax_x/y/z`.
+The loader still reads the `riemann-problem` region sections (`[initial_conditions_region_N]`, keys `Dx..Jz`,
+`emin_x/y/z`, `emax_x/y/z`; `emin_x` was never read before #56), so restoring that type needs its apply case and the removal of
+its refusal.
 
 ---
 

@@ -24,6 +24,12 @@ LEGS=(
    "cfm|cpu fnl|s/^scheme_time *=.*/scheme_time = commutator_free_magnus/|Commutator-Free Magnus time integration"
    "leapfrog|cpu fnl|s/^scheme_time *=.*/scheme_time = leapfrog/|leapfrog time integration"
    "yoshida|fnl|s/^scheme = runge-kutta-ssp-54/scheme = runge-kutta-yoshida/|Yoshida Runge-Kutta time integration"
+   # issue #56: initial conditions that set_initial_conditions never applied (the run started from the zero field), and
+   # an RMF axis that left the component indices undefined
+   "ic-riemann-problem|cpu fnl|s/^type *= *vacuum/type = riemann-problem/|riemann-problem is not implemented"
+   "ic-magnetic-nozzle|cpu fnl|s/^type *= *vacuum/type = magnetic_nozzle/|is not implemented as an initial condition"
+   "ic-unknown|cpu fnl|s/^type *= *vacuum/type = no_such_ic/|unknown [initial_conditions].(type)"
+   "ic-rmf-axis|cpu fnl|s/^type *= *vacuum/type = rmf_field/;s/^external_fields_applied *=.*/&\nRMF_frequency = 1.0E6\nRMF_B_amplitude = 1.0E-3\nRMF_rotation_axis = W/|unknown [external_fields].(RMF_rotation_axis)"
 )
 
 fail=0
