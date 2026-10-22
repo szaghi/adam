@@ -162,9 +162,13 @@ variable, not a shell environment variable: exporting it has no effect. NVF vars
 | `local_nvf` | workstation: nvfortran 26.9 | `lib/hdf5/develop/nvf/26.9` | `cc89` |
 | `ci_gnu` | GitHub Actions: Ubuntu 24.04 gfortran 14 + Open MPI | `lib/hdf5/develop/gnu/14.2.0` | — |
 | `iac_gnu` | medooza cluster: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — |
-| `iac_nvf` | medooza cluster: nvfortran 26.9, CUDA 12.9 | `lib/hdf5/develop/iac/nvf/26.9` | `cc80` |
+| `iac_nvf` | medooza cluster: nvfortran 26.9, CUDA 12.9 | `lib/hdf5/develop/iac/nvf/26.9` | `cc80,cuda12.9` |
 | `leonardo` | Leonardo, Spack NVHPC 24.5 | Spack path | `cc80` |
 | `spacehpc` | Cray PE | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` |
+
+`$NVF_CC` can also pin the CUDA toolkit, as `iac_nvf` does (`cc80,cuda12.9`, issue #102). nvfortran otherwise targets
+the CUDA of the build machine's driver, and on a node with no driver (a login node) its newest bundled CUDA: a binary
+built there for a newer CUDA than the compute nodes' driver supports fails at the first GPU call ("Invalid image").
 
 The AMD builds use `local_amd` or `thera_amd` together with a GPU-architecture varset (`gfx90a`, `gfx942`, ...), e.g.
 `--varset "thera_amd gfx942"`.

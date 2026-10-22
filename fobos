@@ -101,8 +101,10 @@ $NVF_CC      = cc80
 $HDF5_PREFIX = lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11
 
 [varset:iac_nvf]
+# CUDA pinned (issue #102): nvfortran 26.9 targets the CUDA of the build machine's driver, 13.3 where there is none (the
+# login node); the A30 nodes' driver 575 runs CUDA 12.9 at most, so a login-node build failed at the first GPU call.
 $HDF5_PREFIX = lib/hdf5/develop/iac/nvf/26.9
-$NVF_CC      = cc80
+$NVF_CC      = cc80,cuda12.9
 
 [varset:spacehpc]
 $HDF5_PREFIX = /opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3
