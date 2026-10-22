@@ -545,8 +545,8 @@ Sets the initial spatial and velocity distributions for PIC particles.
 | `T_i_x/y/z`, `T_e_x/y/z`, `T_n_x/y/z` | real | Per-axis temperatures (non-uniform Maxwellian) |
 | `v_drift_x/y/z` | real | Drift velocity components |
 | `box_number` | real | Number of boxes for charge-neutral injection |
-| `space_pairing` | logical | Pair ions and electrons in space |
-| `velocity_pairing` | logical | Pair ion/electron velocities |
+| `space_pairing` | `yes`/`no` | Electron i at the position of ion i (ions sampled as usual): zero charge density at t0 |
+| `velocity_pairing` | `yes`/`no` | Electron i with the velocity of ion i (ions sampled as usual); needs the same distribution and temperatures for ions and electrons, otherwise fatal; read only when a Maxwellian is selected |
 | `v_av_correction` | logical | Correct mean velocity after sampling |
 | `x_position`, `y_position`, `z_position` | real | Initial position (single particle) |
 | `charge`, `mass` | real | Charge and mass (single particle) |

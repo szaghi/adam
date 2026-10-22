@@ -48,7 +48,7 @@ type :: prism_particle_injection_object
    character(len=99)  :: space_random_number_generator	 !< Type of random number generator for space distribution
    integer(I4P)       :: seed = -1_I4P                       !< Random seed of the plasma injection (<0: processor default).
    real(R8P)		    :: box_number = 0.0_R8P				 !< Number of boxes in which ensure charge neutrality
-   logical			    :: space_pairing = .false.			 !< Enable space pairing of particles
+   logical			    :: space_pairing = .false.			 !< Electron i at the position of ion i.
 	character(len=99)  :: electrons_velocity_distribution	 !< Electrons velocity distribution type.
 	character(len=99)  :: ions_velocity_distribution		 !< Ions velocity distribution type.
 	character(len=99)  :: neutrals_velocity_distribution	 !< Neutrals velocity distribution type.
@@ -70,7 +70,7 @@ type :: prism_particle_injection_object
    real(R8P)		    :: charge=0.0_R8P					    !< charge of the particle in single particle problem
    real(R8P)		    :: mass=0.0_R8P						    !< mass of the particle in single particle problem
    character(len=99)  :: velocity_random_number_generator !< Type of random number generator for space distribution
-   logical			    :: velocity_pairing = .false.		 !< Enable space pairing of particles
+   logical			    :: velocity_pairing = .false.		 !< Electron i with the velocity of ion i.
    real(R8P)		    :: v_drift_x=0.0_R8P			    	 !< Single particle drift velocity along x
    real(R8P)		    :: v_drift_y=0.0_R8P			    	 !< Single particle drift_velocity along y
    real(R8P)		    :: v_drift_z=0.0_R8P			    	 !< Single particle drift velocity along z
@@ -611,6 +611,20 @@ contains
    	   ['//INI_SECTION_NAME//'].(v_av_correction)')
 		endselect
 
+		! the electrons copy the ion velocities: a different electron distribution would be silently discarded
+		if (self%velocity_pairing) then
+			if (self%electrons_velocity_distribution /= self%ions_velocity_distribution) &
+				call mpih%error_stop(msg=': velocity_pairing needs the same velocity distribution for ions and electrons, got ['// &
+											trim(self%ions_velocity_distribution)//'] and ['//trim(self%electrons_velocity_distribution)//']')
+			if (self%ions_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+				if (self%T_e /= self%T_i) &
+					call mpih%error_stop(msg=': velocity_pairing needs electronic_temperature = ionic_temperature')
+			elseif (self%ions_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+				if (any([self%T_e_x, self%T_e_y, self%T_e_z] /= [self%T_i_x, self%T_i_y, self%T_i_z])) &
+					call mpih%error_stop(msg=': velocity_pairing needs electronic_temperature_x/y/z = ionic_temperature_x/y/z')
+			endif
+		endif
+
 	elseif (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_position', &
    		val=self%x_position, error=error)
@@ -673,9 +687,16 @@ contains
 		endif
 		!Setta posizione spaziale delle particelle e relativa tipologia
 		call self%particle_space_injection(field=field, grid=grid, pic=pic, q_pic=q_pic)
+		! pairing: electron i takes the position (velocity) of ion i, sampled as usual; ions sit in 1:n_ions, electrons
+		! in n_ions+1:n_ions+n_electrons, n_ions = n_electrons
+		if (self%space_pairing) q_pic(1:3,pic%n_ions+1:pic%n_ions+pic%n_electrons) = q_pic(1:3,1:pic%n_ions)
 		!Setta velocità iniziale delle particelle
 		call self%ions_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'i')
-		call self%electrons_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'e')
+		if (self%velocity_pairing) then
+			q_pic(4:6,pic%n_ions+1:pic%n_ions+pic%n_electrons) = q_pic(4:6,1:pic%n_ions)
+		else
+			call self%electrons_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'e')
+		endif
 		call self%neutrals_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'n')
 		!Definisci neighbour list
 		call pic%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic, owned_only=.true.)
