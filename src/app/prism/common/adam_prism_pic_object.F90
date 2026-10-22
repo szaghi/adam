@@ -33,6 +33,8 @@ public :: SINGLE_PARTICLE_TYPE_PROBLEM
 public :: UNIFORM_DOMAIN
 public :: UNIFORM_CILINDER
 public :: UNIFORM_CELL
+public :: UNIFORM_SLAB
+public :: UNIFORM_BOX
 !public :: CIC_WEIGHTING_MODEL
 !public :: NGP_WEIGHTING_MODEL
 !public :: TSC_WEIGHTING_MODEL
@@ -87,6 +89,8 @@ character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'
 character(len=14), parameter :: UNIFORM_DOMAIN                   = 'Uniform_domain'   !<
 character(len=16), parameter :: UNIFORM_CILINDER                 = 'Uniform_cilinder' !<
 character(len=12), parameter :: UNIFORM_CELL                     = 'Uniform_cell'     !<
+character(len=12), parameter :: UNIFORM_SLAB                     = 'Uniform_slab'     !< Slab spanning the transverse domain.
+character(len=11), parameter :: UNIFORM_BOX                      = 'Uniform_box'      !< Box inside the domain.
 !character(len=32), parameter :: UNIFORM_BOX_SPACE_DISTRIBUTION   = 'Uniform_boxes_space_distribution'
 !character(len=31), parameter :: UNIFORM_CELL_SPACE_DISTRIBUTION  = 'Uniform_cell_space_distribution'
 
@@ -118,6 +122,13 @@ type :: prism_pic_object
    real(R8P)		           :: cilinder_radius = 0.0_R8P   !<
    real(R8P)                 :: cilinder_center(3)          !<
    character(len=1)          :: cilinder_axis               !<
+   character(len=1)          :: slab_normal = 'x'           !< Slab normal direction (x, y, z).
+   real(R8P)                 :: slab_thickness = 0.0_R8P    !< Slab thickness along the normal.
+   real(R8P)                 :: slab_center = 0.0_R8P       !< Slab centre coordinate along the normal.
+   real(R8P)                 :: box_length(3) = 0.0_R8P     !< Box side lengths along x, y, z.
+   real(R8P)                 :: box_center(3) = 0.0_R8P     !< Box centre.
+   real(R8P)                 :: plasma_region_min(3) = 0.0_R8P !< Slab/box region at t0, minimum corner.
+   real(R8P)                 :: plasma_region_max(3) = 0.0_R8P !< Slab/box region at t0, maximum corner.
    real(R8P)                 :: sigma = 0.0_R8P             !< Standard deviation for a gaussian weighting
    real(R8P)                 :: cutoff_sigma = 0._R8P       !< Gaussian cutoff.
    integer(I4P)              :: gaussian_support_cells = -1_I4P !< Gaussian support radius; negative selects automatic.
@@ -159,6 +170,7 @@ contains
    procedure, pass(self) :: set_coherent_gather           !< Set the coherent gather kernels, warn on a deposit mismatch.
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
+   procedure, pass(self) :: set_plasma_region             !< Set and check the slab/box region of the plasma at t0.
    procedure, pass(self) :: particle_cartesian_grid_index !< Compute the grid index corresponding to a particle position.
    procedure, pass(self) :: halo_margin_cells             !< Cells a particle may lie outside its block interior.
    procedure, pass(self) :: distribute_particles          !< Keep the injected particles owned by this rank.
@@ -425,7 +437,18 @@ contains
          desc = desc//NL//mpih%myrankstr//'    	Cilinder y centre: '//trim(str(self%cilinder_center(2)))
          desc = desc//NL//mpih%myrankstr//'    	Cilinder z centre: '//trim(str(self%cilinder_center(3)))
          desc = desc//NL//mpih%myrankstr//'    	Cilinder axis: '//trim(self%cilinder_axis)
+		elseif (self%plasma_domain == UNIFORM_SLAB) then
+         desc = desc//NL//mpih%myrankstr//'    	Slab normal: '//trim(self%slab_normal)
+         desc = desc//NL//mpih%myrankstr//'    	Slab thickness: '//trim(str(self%slab_thickness))
+         desc = desc//NL//mpih%myrankstr//'    	Slab centre: '//trim(str(self%slab_center))
+		elseif (self%plasma_domain == UNIFORM_BOX) then
+         desc = desc//NL//mpih%myrankstr//'    	Box lengths: '//trim(str(self%box_length))
+         desc = desc//NL//mpih%myrankstr//'    	Box centre: '//trim(str(self%box_center))
 		endif
+      if (self%plasma_domain == UNIFORM_SLAB .or. self%plasma_domain == UNIFORM_BOX) then
+         desc = desc//NL//mpih%myrankstr//'    	Plasma region minimum: '//trim(str(self%plasma_region_min))
+         desc = desc//NL//mpih%myrankstr//'    	Plasma region maximum: '//trim(str(self%plasma_region_max))
+      endif
       !desc = desc//NL//mpih%myrankstr//'    Total number of particles: '//trim(str(self%particle_number))
       !desc = desc//NL//mpih%myrankstr//'    of which ions: '//trim(str(self%n_ions))
       !desc = desc//NL//mpih%myrankstr//'    of which electrons: '//trim(str(self%n_electrons))
@@ -474,6 +497,12 @@ contains
             self%cilinder_radius = self%cilinder_radius/physics%L0
             self%cilinder_length = self%cilinder_length/physics%L0
             self%cilinder_center = self%cilinder_center/physics%L0
+         elseif (self%plasma_domain == UNIFORM_SLAB) then
+            self%slab_thickness = self%slab_thickness/physics%L0
+            self%slab_center = self%slab_center/physics%L0
+         elseif (self%plasma_domain == UNIFORM_BOX) then
+            self%box_length = self%box_length/physics%L0
+            self%box_center = self%box_center/physics%L0
          endif
       endif
       if (self%sigma > 0._R8P) self%sigma = self%sigma/physics%L0
@@ -486,6 +515,9 @@ contains
          domain_volume = (emax(1)-emin(1))*(emax(2)-emin(2))*(emax(3)-emin(3))
       elseif (self%plasma_domain==UNIFORM_CILINDER) then
          domain_volume = PI*self%cilinder_radius**2*self%cilinder_length
+      elseif (self%plasma_domain==UNIFORM_SLAB .or. self%plasma_domain==UNIFORM_BOX) then
+         call self%set_plasma_region(emin=emin, emax=emax)
+         domain_volume = product(self%plasma_region_max-self%plasma_region_min)
       else
          call mpih%error_stop(msg=': invalid plasma_domain for particle number computation')
       endif
@@ -595,6 +627,40 @@ contains
    print '(A)', mpih%myrankstr//'prism_pic_object%initialize finish'
    endsubroutine initialize
 
+   subroutine set_plasma_region(self, emin, emax)
+   !< Set the slab/box region of the plasma at t0, stop if it leaves the domain.
+   !<
+   !< The slab spans the whole domain across its normal; a face of the region may touch a domain face.
+   implicit none
+   class(prism_pic_object), intent(inout) :: self    !< PIC object.
+   real(R8P),               intent(in)    :: emin(3) !< Domain minimum corner.
+   real(R8P),               intent(in)    :: emax(3) !< Domain maximum corner.
+   character(len=1), parameter            :: AXES(3)=['x', 'y', 'z'] !< Axis names.
+   integer(I4P)                           :: d       !< Counter.
+
+   if (self%plasma_domain == UNIFORM_SLAB) then
+      if (self%slab_thickness <= 0._R8P) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(slab_thickness) must be > 0')
+      self%plasma_region_min = emin
+      self%plasma_region_max = emax
+      d = findloc(AXES, self%slab_normal, dim=1)
+      self%plasma_region_min(d) = self%slab_center - 0.5_R8P*self%slab_thickness
+      self%plasma_region_max(d) = self%slab_center + 0.5_R8P*self%slab_thickness
+   elseif (self%plasma_domain == UNIFORM_BOX) then
+      if (any(self%box_length <= 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(box_length_x/y/z) must be > 0')
+      self%plasma_region_min = self%box_center - 0.5_R8P*self%box_length
+      self%plasma_region_max = self%box_center + 0.5_R8P*self%box_length
+   endif
+   do d = 1, 3
+      if (self%plasma_region_min(d) < emin(d) .or. self%plasma_region_max(d) > emax(d)) &
+         call mpih%error_stop(msg=': plasma '//trim(self%plasma_domain)//' leaves the domain along '//AXES(d)// &
+                                  ': ['//trim(str(self%plasma_region_min(d)))//', '//                          &
+                                  trim(str(self%plasma_region_max(d)))//'] not in ['//trim(str(emin(d)))//', '// &
+                                  trim(str(emax(d)))//']')
+   enddo
+   endsubroutine set_plasma_region
+
    subroutine load_from_file(self, file_parameters, go_on_fail)
    !< Load PIC configuration from file.
    implicit none
@@ -627,6 +693,10 @@ contains
          self%plasma_domain = UNIFORM_DOMAIN
       case('Cilinder', 'cilinder', 'CILINDER', 'uniform_cilinder', 'UNIFORM_CILINDER')
          self%plasma_domain = UNIFORM_CILINDER
+      case('Slab', 'slab', 'SLAB', 'uniform_slab', 'UNIFORM_SLAB')
+         self%plasma_domain = UNIFORM_SLAB
+      case('Box', 'box', 'BOX', 'uniform_box', 'UNIFORM_BOX')
+         self%plasma_domain = UNIFORM_BOX
       case default
          call mpih%error_stop(msg=': invalid initial domain for the plasma ['//trim(adjustl(buff))//'] in  &
          ['//INI_SECTION_NAME//'].(plasma_domain)')
@@ -662,6 +732,59 @@ contains
          val=self%cilinder_axis, error=error)
          if (.not.go_on_fail_.and.error>0) &
          call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_axis)')
+      elseif (self%plasma_domain == UNIFORM_SLAB) then
+         buff = ''
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slab_normal', val=buff, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slab_normal)')
+         select case(trim(adjustl(buff)))
+         case('x', 'X') ; self%slab_normal = 'x'
+         case('y', 'Y') ; self%slab_normal = 'y'
+         case('z', 'Z') ; self%slab_normal = 'z'
+         case default
+            call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(slab_normal) ['//trim(adjustl(buff))// &
+                                     '], accepted: x, y, z')
+         endselect
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slab_thickness', &
+         val=self%slab_thickness, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slab_thickness)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slab_center', &
+         val=self%slab_center, error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slab_center)')
+      elseif (self%plasma_domain == UNIFORM_BOX) then
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_length_x', &
+         val=self%box_length(1), error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_length_x)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_length_y', &
+         val=self%box_length(2), error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_length_y)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_length_z', &
+         val=self%box_length(3), error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_length_z)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_x_center', &
+         val=self%box_center(1), error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_x_center)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_y_center', &
+         val=self%box_center(2), error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_y_center)')
+
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_z_center', &
+         val=self%box_center(3), error=error)
+         if (.not.go_on_fail_.and.error>0) &
+         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_z_center)')
       endif
 
 	   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &

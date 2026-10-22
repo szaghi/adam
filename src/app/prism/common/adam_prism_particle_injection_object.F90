@@ -11,7 +11,7 @@ use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 ! PRISM modules
 use :: adam_prism_parameters
 use :: adam_prism_pic_object, only: prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM, &
-                              UNIFORM_DOMAIN, UNIFORM_CILINDER, UNIFORM_CELL
+                              UNIFORM_DOMAIN, UNIFORM_CILINDER, UNIFORM_CELL, UNIFORM_SLAB, UNIFORM_BOX
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
@@ -102,6 +102,7 @@ contains
    procedure, pass(self) :: uniform_domain_space_injection
    procedure, pass(self) :: uniform_cilinder_space_injection
    procedure, pass(self) :: uniform_cell_space_injection
+   procedure, pass(self) :: uniform_region_space_injection !< Uniform in the slab/box region of pic.
    procedure, pass(self) :: uniform_maxwellian_velocity_injection
    procedure, pass(self) :: non_uniform_maxwellian_velocity_injection
 	procedure, pass(self) :: pure_drift_velocity_injection
@@ -287,6 +288,8 @@ contains
    	   self%particle_space_injection => uniform_domain_space_injection
       case(UNIFORM_CILINDER)
    	   self%particle_space_injection => uniform_cilinder_space_injection
+      case(UNIFORM_SLAB, UNIFORM_BOX)
+   	   self%particle_space_injection => uniform_region_space_injection
    	case(UNIFORM_CELL)
    	   self%particle_space_injection => uniform_cell_space_injection
    	!case(UNIFORM_BOX_SPACE_DISTRIBUTION)
@@ -893,9 +896,61 @@ contains
    endselect
    endsubroutine cylindrical_to_cartesian
 
-	!subroutine uniform_box_space_injection(self, field, pic, q_pic)
+   subroutine uniform_region_space_injection(self, field, grid, pic, q_pic)
+   !< Uniform injection in the slab/box region [plasma_region_min, plasma_region_max] set by pic%initialize.
+	class(prism_particle_injection_object), intent(inout) :: self
+	type(field_object),                  	 intent(in) 	:: field
+	type(grid_object),                      intent(in) 	:: grid !< Grid (sibling realm component, threaded in).
+	type(prism_pic_object),					 	 intent(in)		:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	real(R8P)															:: r_n(3)
+   real(R8P)                                             :: domain_volume
+	integer(I4P)														:: i
+	integer(I4P), allocatable										:: shuffled_list_ions(:,:)
+	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
+	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
+	character(len=:), allocatable		                   	:: desc
+   character(len=1), parameter  		                   	:: NL=new_line('a')
 
-	!endsubroutine uniform_box_space_injection
+	associate(np=>pic%particle_number, r_min=>pic%plasma_region_min, r_max=>pic%plasma_region_max, &
+				n_ions=>pic%n_ions, n_electrons=>pic%n_electrons, n_neutrals=>pic%n_neutrals)
+
+	allocate(shuffled_list_ions	  (1:3,1:n_ions))
+	allocate(shuffled_list_electrons(1:3,1:n_electrons))
+	allocate(shuffled_list_neutrals (1:3,1:n_neutrals))
+	shuffled_list_ions(:,:) 	  = 0_I4P
+	shuffled_list_electrons(:,:) = 0_I4P
+	shuffled_list_neutrals(:,:)  = 0_I4P
+
+		do i = 1, n_ions
+			call space_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
+			q_pic(1:3,i) = r_min+r_n*(r_max-r_min)
+			q_pic(7,i) = -E_CHARGE
+			q_pic(8,i) = E_MASS
+		enddo
+		do i = 1, n_electrons
+			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
+			q_pic(1:3,i+n_ions) = r_min+r_n*(r_max-r_min)
+			q_pic(7,i+n_ions) = E_CHARGE
+			q_pic(8,i+n_ions) = E_MASS
+		enddo
+		do i = 1, n_neutrals
+			call space_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
+			q_pic(1:3,i+n_ions+n_electrons) = r_min+r_n*(r_max-r_min)
+			q_pic(7,i+n_ions+n_electrons) = 0.0_R8P
+			q_pic(8,i+n_ions+n_electrons) = E_MASS
+		enddo
+
+      domain_volume = product(r_max-r_min)
+
+	desc =       mpih%myrankstr//'Injected particles:'
+   desc = desc//NL//mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
+	desc = desc//NL//mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
+	desc = desc//NL//mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
+	desc = desc//NL//mpih%myrankstr//'    	Effective plasma density: '//trim(str(real(np)/domain_volume))
+	print '(A)', desc
+	endassociate
+   endsubroutine uniform_region_space_injection
 
 	subroutine uniform_cell_space_injection(self, field, grid, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self
