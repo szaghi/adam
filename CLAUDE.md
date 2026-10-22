@@ -435,26 +435,25 @@ Applications use INI files (parsed by FiNeR library) for simulation parameters:
 
 ## PRISM-Specific Gotchas
 
-### `physics%nv` vs `numerics%constrained_transport_*` disagree on `phi`/`psi` slots
+### Divergence correction: `hyperbolic` needs CT, `poisson` is refused, `physics` owns the `phi`/`psi` slots
 
-PRISM's state-vector width `nv` and the `phi`/`psi` slot inclusion are decided in **two different places** with **two different ground-truth sources**:
+The `phi`/`psi` GLM scalars used to have two sources of truth: `physics%nv` added their slots only under `divergence_correction = hyperbolic`, while `io_initialize` named them from the `numerics%constrained_transport_*` flags alone, so CT + `poisson` wrote 10–11 names into 9 slots (heap corruption, [issue #11](https://github.com/szaghi/adam/issues/11) → [#61](https://github.com/szaghi/adam/issues/61)). Current state:
 
-- `adam_prism_physics_object%initialize` (`src/app/prism/common/adam_prism_physics_object.F90:296-389`) derives `nv_cl` (and thus `nv`) ONLY for the `divergence_correction = hyperbolic` case. Under `poisson` or `no`, `nv_cl = 0` regardless of whether `constrained_transport = D|B|DB`.
-- `adam_prism_common_object%io_initialize` (`src/app/prism/common/adam_prism_common_object.F90:232-280`) appends `phi`/`psi` to the variable-names array (`q_name`, `dq_name`, `div_name`, `curl_name`) based ONLY on `numerics%constrained_transport_D/B` flags, independent of `physics%nv`.
+- **`poisson` stops at initialization** (`adam_prism_numerics_object.F90`, since `68457200`): no backend implements it. Its code is dead, not removed: `impose_div_free` (CPU and FNL) dispatches only on `DIV_CORR_VAR_POISS`, which nothing assigns, and the FNL `impose_ct_correction_dev` is a stub (solve and gradient commented out, `dq_max` read uninitialised). Do not re-enable `poisson` without implementing both.
+- **`hyperbolic` without CT stops at initialization** (#61): there is no scalar to carry, and the `physics` layout chain had no `else`, so `var_Jx/Jy/Jz` stayed undefined; `has_current_density()` then read `q(var_Jx:var_Jz)` at garbage indices and sent the run into the t0 elliptic B solve. `physics%initialize` also `error_stop`s on that combination, for any caller that bypasses `numerics`.
+- **One source for the slots:** `physics%var_phi` / `physics%var_psi` (0 when absent) are set in the same branch that sets `nv_cl` and `var_J*`; `io_initialize` names φ/ψ from them and `error_stop`s if the names do not number `physics%nv`. The CPU flux setup still derives `fv_ivar_phi/psi` from `nv_c` in its own branch chain; it agrees by construction today.
+- **CT with `divergence_correction = no` is ignored** with a warning (`numerics` clears both flags); 16 research inputs rely on that.
 
-When CT is enabled with Poisson correction (`constrained_transport = D|B|DB` AND `divergence_correction = poisson`), the names array gets 10–11 entries written into a 9-slot allocation. **Silent heap corruption** in init; release-mode SIGSEGV in `__GI___libc_realloc` later when the trampled memory is touched. Under gfortran 16 *experimental* the debug build crashed first, in the WENO `description`, which hid this primary bug; that crash was a compiler false positive, not a purity violation (`pure` may read module variables), and debug builds run cleanly under gfortran 16.2.0 ([issue #62](https://github.com/szaghi/adam/issues/62)).
-
-Tracked as [issue #11](https://github.com/szaghi/adam/issues/11). Until that issue ships, the **safe input combinations** are:
-
-| `constrained_transport` | `divergence_correction` | Safe? |
+| `constrained_transport` | `divergence_correction` | Result |
 |---|---|---|
-| `no` | `no` or `poisson` | ✅ |
-| `no` | `hyperbolic` | ⚠️ `var_Jx/y/z` never assigned (the hyperbolic `if/elseif` chain at `adam_prism_physics_object.F90:336-372` has no `else`, and the components have no default) |
-| `D` / `B` / `DB` | `hyperbolic` | ✅ |
-| `D` / `B` / `DB` | `no` (or any unknown value) | ✅ — the `divergence_correction` `case default` resets both CT flags to `.false.` (`adam_prism_numerics_object.F90`), so CT is silently disabled rather than corrupting |
-| `D` / `B` / `DB` | `poisson` | ❌ release-mode SIGSEGV |
+| `no` | `no` | ✅ `nv = 9` |
+| `D` / `B` / `DB` | `no` | ✅ CT ignored (warning), `nv = 9` |
+| `D` / `B` | `hyperbolic` | ✅ `nv = 10` (φ or ψ in slot 7) |
+| `DB` | `hyperbolic` | ✅ `nv = 11` (φ 7, ψ 8); regression case `rmf-hyperbolic` |
+| `no` | `hyperbolic` | ⛔ refused at init |
+| any | `poisson` | ⛔ refused at init |
 
-When touching `prism_physics_object%initialize`, `prism_common_object%allocate_common`, `prism_common_object%io_initialize`, or any code that allocates state-vector-sized arrays, treat `physics%nv` and `numerics%constrained_transport_*` as **two independent invariants that must be reconciled before either is read**. The structural fix is to make `nv_cl` track `constrained_transport_*` under all correction kinds (option 2 in #11's fix plan), or to gate the `q_name` append on `physics%nv_cl` instead of `numerics%constrained_transport_*` (option 1).
+When adding a state variable, follow the `rho` pattern below (one predicate drives width and names) or set an index in `physics` and derive the names from it.
 
 ### Forest substage state is per-realm (`stage_active`), NOT a shared module scalar
 
@@ -473,10 +472,10 @@ PRISM keeps `div(B) = 0` to machine precision on **uniform** grids: `compute_cur
 | **E1** | matched ghost VALUES (single-valued seam fill) | RED — 1D-normal-only, behaved as q=2 |
 | **E2** | single-valued flux VALUES (auxiliary EMF) | NULL — fluxes already agree 0.24%; reframed the source to OPERATOR-not-value |
 | **E3** | matched-difference seam OPERATOR (telescoping-exact) | CLOSED — eigenvalue-**unstable** (both-operator horizon → 1e18); the non-SBP construction Mattsson-Carpenter 2010 / Ranocha 2019 predict; telescoping-exactness ≠ time-stability |
-| **E** | complete the Dedner GLM (add parabolic damping) | CLOSED for the **centred** GLM only — implemented + tunable `[physics].c_r`, c_r sweep 0.05→5.0 all still run away. **Reopened as E′ ([#99](https://github.com/szaghi/adam/issues/99)):** centred `grad_h` annihilates the π mode, so a seam error in the grid-oscillation subspace drives ψ into a mode that exerts no force on B (#68 F3); an upwinded or dissipative (B_n, ψ) coupling is untested, and FLUME's upwinded GLM keeps its seam div(B) bounded (#68 G3) |
+| **E** | complete the Dedner GLM (add parabolic damping) | CLOSED for the **centred** GLM only — implemented + tunable `[physics].c_r` (since `68457200` replaced by the rate `[physics].alpha`, 1/s), c_r sweep 0.05→5.0 all still run away. **Reopened as E′ ([#99](https://github.com/szaghi/adam/issues/99)):** centred `grad_h` annihilates the π mode, so a seam error in the grid-oscillation subspace drives ψ into a mode that exerts no force on B (#68 F3); an upwinded or dissipative (B_n, ψ) coupling is untested, and FLUME's upwinded GLM keeps its seam div(B) bounded (#68 G3) |
 | **A** | SBP-norm-compatible seam + weak SAT | CLOSED (analysis) — SBP bounds `‖B‖` (already fine), NOT `div(B)`; a value-transfer cannot restore operator commutation across the resolution jump (the `R∘P≠I` wall, #21) |
 
-**RESOLUTION = accept-truncation, pending E′ (#99).** The O(h^p) refinement-convergent floor is accepted; its growth law versus h at a fixed long physical time is not yet measured (#68 G7, part of #99), so "refine h" is not a quantified mitigation. **Route 2** ([#30](https://github.com/szaghi/adam/issues/30): Stokes-form CT, B staged on faces while the FD cell update stays; #68 C7) is **parked** behind #99, activating only if E′ fails or a production workload exceeds tolerance. Guard-rail: `[IO].seam_divB_tol` (default off) + `[IO].seam_divB_error` — a run-time monitor in `save_divergence_history` (`adam_io_object.F90` / `adam_prism_common_object.F90`) that warns (or `error_stop`s) when seam `max|div(B)|` exceeds the tolerance on AMR runs, turning the otherwise-**silent** growth into a visible signal. **Mitigation to extend AMR runs:** enable `divergence_correction = hyperbolic` (needs `constrained_transport = D/B/DB`, the #11 hazard) and tune `[physics].c_r` — this *delays* the runaway (~5.5× margin) but does **not** cure it. **Safe usage:** short/moderate-horizon AMR runs, or refine h, or accept the monitored floor. Tracked in [issue #29](https://github.com/szaghi/adam/issues/29).
+**RESOLUTION = accept-truncation, pending E′ (#99).** The O(h^p) refinement-convergent floor is accepted; its growth law versus h at a fixed long physical time is not yet measured (#68 G7, part of #99), so "refine h" is not a quantified mitigation. **Route 2** ([#30](https://github.com/szaghi/adam/issues/30): Stokes-form CT, B staged on faces while the FD cell update stays; #68 C7) is **parked** behind #99, activating only if E′ fails or a production workload exceeds tolerance. Guard-rail: `[IO].seam_divB_tol` (default off) + `[IO].seam_divB_error` — a run-time monitor in `save_divergence_history` (`adam_io_object.F90` / `adam_prism_common_object.F90`) that warns (or `error_stop`s) when seam `max|div(B)|` exceeds the tolerance on AMR runs, turning the otherwise-**silent** growth into a visible signal. **Mitigation to extend AMR runs:** enable `divergence_correction = hyperbolic` (needs `constrained_transport = D/B/DB`, refused without it) and tune the damping `[physics].alpha` — this *delays* the runaway (~5.5× margin, measured with the former `c_r`, not re-measured with `alpha`) but does **not** cure it. **Safe usage:** short/moderate-horizon AMR runs, or refine h, or accept the monitored floor. Tracked in [issue #29](https://github.com/szaghi/adam/issues/29).
 
 ### Inter-realm 1:1 mirror seam needs β cadence to stay div-free (issue #31, CLOSED)
 
@@ -522,7 +521,7 @@ CPU time integration is implemented only for `CLASSIC`, `CLASSIC_DIRECT`, `BERMU
 
 `[physics] physical_model` selects `EM` (default), `ADIM_EM` (non-dimensional), or `PIC`; an unknown string **does** `error_stop` here (`adam_prism_physics_object.F90:447`). Under `PIC`, `nv_pic = 1` and the state vector widens — `nv = nv_c + nv_s + nv_cl + nv_pic`, so a plain `PIC` run is `nv = 10`, carrying charge density `rho` as the extra slot (`:410-414`).
 
-**This is deliberately *not* the issue #11 hazard**, and the contrast is worth internalising: `io_initialize`'s `add_rho` is gated on `physics%physical_model == PIC_PHYSICAL_MODEL` — the **same** predicate that set `nv_pic`. One source of truth, so the names array and the allocation cannot disagree. The `phi`/`psi` slots above are gated on `numerics%constrained_transport_*` while `nv_cl` is derived from `divergence_correction` — **two** sources, which is exactly why they can disagree and corrupt the heap. When adding a new state variable, follow the `rho` pattern (one predicate drives both width and names), never the `phi`/`psi` one.
+**This was never the issue #11 hazard**: `io_initialize`'s `add_rho` is gated on `physics%physical_model == PIC_PHYSICAL_MODEL`, the **same** predicate that set `nv_pic`, so the names array and the allocation cannot disagree. The `phi`/`psi` slots were gated on `numerics%constrained_transport_*` while `nv_cl` came from `divergence_correction`, two sources that disagreed under `poisson`; since #61 they follow `physics%var_phi/var_psi`. When adding a new state variable, keep one source for its width and its name.
 
 PIC configuration lives in its own `[PIC]` section (`adam_prism_pic_object.F90`, 2114 lines — the largest PRISM common file):
 

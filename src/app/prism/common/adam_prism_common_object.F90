@@ -466,14 +466,17 @@ contains
       logical                    :: add_rho   !< Flag to add rho for PIC.
       integer(I4P)               :: v         !< Counter.
 
+      ! every slot follows the physics layout that sized q (issue #61): the CT flags alone do not mean phi/psi slots
       add_rho = is_pic_model(self%physics%physical_model)
-      associate(add_phi=>self%numerics%constrained_transport_D, &
-                add_psi=>self%numerics%constrained_transport_B)
+      associate(add_phi=>self%physics%var_phi > 0_I4P, &
+                add_psi=>self%physics%var_psi > 0_I4P)
                    q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ']
       if (add_phi) q_name = [q_name, 'phi']
       if (add_psi) q_name = [q_name, 'psi']
                    q_name = [q_name, 'Jx ','Jy ','Jz ']
       if (add_rho) q_name = [q_name, 'rho']
+      if (size(q_name,dim=1) /= self%physics%nv) &
+         call mpih%error_stop(msg=': '//trim(str(size(q_name,dim=1)))//' variable names for nv = '//trim(str(self%physics%nv)))
       do v=1, size(q_name,dim=1)
          self%q_name(v) = trim(q_name(v))
       enddo

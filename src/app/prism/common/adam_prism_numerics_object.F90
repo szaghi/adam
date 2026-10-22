@@ -164,6 +164,9 @@ contains
       call mpih%error_stop(msg=': [numerics].(divergence_correction)=poisson is not implemented for PRISM CPU/FNL')
    case('HYPERBOLIC', 'hyperbolic', 'Hyperbolic')
       self%div_corr_var = DIV_CORR_VAR_HYPER
+      if (.not.(self%constrained_transport_D.or.self%constrained_transport_B)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(divergence_correction)=hyperbolic needs '// &
+                                  '['//INI_SECTION_NAME//'].(constrained_transport) = D, B or DB')
    case default
       call mpih%print_message(msg='warning: divergence correction variable not activated: divergence correction disabled!')
       self%div_corr_var = 'No'

@@ -69,6 +69,8 @@ type :: prism_physics_object
    integer(I4P)                :: nv_s  = 3_I4P          !< Number of source variables in q vector.
    integer(I4P)                :: nv_cl = 0_I4P          !< Number of divergence cleaning variables in q vector.
    integer(I4P)                :: nv_pic = 0_I4P         !< Number of PIC variables in q vector.
+   integer(I4P)                :: var_phi = 0_I4P        !< Index of the D cleaning scalar phi in q vector, 0 if absent.
+   integer(I4P)                :: var_psi = 0_I4P        !< Index of the B cleaning scalar psi in q vector, 0 if absent.
    integer(I4P)                :: var_Jx, var_Jy, var_Jz !< Indices of current density components in q vector.
    real(R8P)                   :: chi                    !< Speed coefficient for D & B div-cleaning (Dedner c_h).
    real(R8P)                   :: alpha = 0._R8P         !< Optional GLM damping rate for phi/psi.
@@ -334,6 +336,8 @@ contains
 
    div_corr_var_ = 'No'
    if (present(div_corr_var)) div_corr_var_ = trim(adjustl(div_corr_var))
+   self%var_phi = 0_I4P
+   self%var_psi = 0_I4P
    select case(div_corr_var_)
    case(DIV_CORR_VAR_POISS)
       self%nv_cl = 0_I4P
@@ -356,6 +360,7 @@ contains
    case(DIV_CORR_VAR_HYPER)
       if (constrained_transport_D .and. .not.constrained_transport_B) then
          self%nv_cl  = 1_I4P
+         self%var_phi = 7_I4P
          self%var_Jx = 8_I4P
          self%var_Jy = 9_I4P
          self%var_Jz = 10_I4P
@@ -374,6 +379,7 @@ contains
             endselect
       elseif (.not.constrained_transport_D .and. constrained_transport_B) then
          self%nv_cl  = 1_I4P
+         self%var_psi = 7_I4P
          self%var_Jx = 8_I4P
          self%var_Jy = 9_I4P
          self%var_Jz = 10_I4P
@@ -392,6 +398,8 @@ contains
          endselect
       elseif (constrained_transport_D .and. constrained_transport_B) then
          self%nv_cl  = 2_I4P
+         self%var_phi = 7_I4P
+         self%var_psi = 8_I4P
          self%var_Jx = 9_I4P
          self%var_Jy = 10_I4P
          self%var_Jz = 11_I4P
@@ -408,6 +416,9 @@ contains
                self%erw => IERL_D_B
                self%elw => IERL_D_B
          endselect
+      else
+         ! the GLM scalars phi/psi live only on a CT field: without one, var_J* and the eigensystem stay undefined
+         call mpih%error_stop(msg=': hyperbolic divergence correction needs constrained transport on D, B or both')
       end if
    case default
       self%nv_cl  = 0_I4P

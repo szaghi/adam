@@ -121,15 +121,15 @@ WENO reconstruction operates on either conservative variables (`CONSERVATIVE`) o
 
 ## Divergence Control
 
-Maxwell's equations require $\nabla \cdot \mathbf{D} = \rho$ and $\nabla \cdot \mathbf{B} = 0$. PRISM offers three strategies configured via `[numerics] divergence_correction`:
+Maxwell's equations require $\nabla \cdot \mathbf{D} = \rho$ and $\nabla \cdot \mathbf{B} = 0$. `[numerics] divergence_correction` selects the strategy, and `[numerics] constrained_transport = D | B | DB | NO` the fields it acts on:
 
-| Strategy | INI key | Description |
-|----------|---------|-------------|
-| None | *(absent)* | No divergence control |
-| Poisson | `POISSON` | Elliptic cleaning via a Poisson solve |
-| Hyperbolic | `HYPERBOLIC` | Dedner-type hyperbolic cleaning: augments system with scalar φ/ψ advecting divergence errors at speed $\chi c_0$ |
+| Strategy | INI value | Description |
+|----------|-----------|-------------|
+| None | `no` (or absent) | No divergence control; `constrained_transport` is ignored (a warning says so) |
+| Hyperbolic | `hyperbolic` | GLM cleaning: one scalar per field named by `constrained_transport` (φ for D, ψ for B), carrying divergence errors away at speed $\chi c_0$ (`[physics] chi`, required, > 0) and damped at the rate `[physics] alpha` (1/s, optional, default 0). **Requires `constrained_transport = D`, `B` or `DB`**: without it there is no scalar to carry, and the run stops at initialization |
+| Poisson | `poisson` | Not implemented: the run stops at initialization |
 
-Constrained Transport (CT) can additionally be applied to D, B, or both, controlled by `[numerics] constrained_transport = D | B | DB | NO`.
+With hyperbolic cleaning the state grows by one slot per scalar, placed after B: `nv = 10` for `D` or `B`, `nv = 11` for `DB` (φ in 7, ψ in 8), J follows. The regression case `rmf-hyperbolic` anchors the `DB` layout ([issue #61](https://github.com/szaghi/adam/issues/61)).
 
 ## Source Terms: Coils
 

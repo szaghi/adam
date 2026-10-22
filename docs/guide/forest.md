@@ -256,9 +256,8 @@ seam_divB_tol   = 1.0E-06   ; monitor threshold; <= 0 disables (default -1.0, of
 seam_divB_error = .false.   ; .true. = error_stop on exceedance; else warn-only
 ```
 
-The monitor arms whenever `seam_divB_tol > 0`: its second condition, `allocated(maps%amr_seam_quadrant)`, holds on every run, because `register_intra_realm_amr_seams` allocates the quadrant table for every realm with blocks. It therefore covers intra-realm 2:1 faces and inter-realm `refined` seams alike; on a run without 2:1 seams div(B) stays at round-off and it stays silent. On `max|div(B)| > seam_divB_tol` it either `error_stop`s (`seam_divB_error = .true.`) or prints a warning and continues. It is off by default (`save_divergence_history` in `adam_prism_common_object.F90`). To *delay* (not cure) the runaway on long AMR runs, enable `divergence_correction = hyperbolic` (requires `constrained_transport = D/B/DB`, the [issue #11] hazard) and tune `[physics].c_r` (default `0.18`).
+The monitor arms whenever `seam_divB_tol > 0`: its second condition, `allocated(maps%amr_seam_quadrant)`, holds on every run, because `register_intra_realm_amr_seams` allocates the quadrant table for every realm with blocks. It therefore covers intra-realm 2:1 faces and inter-realm `refined` seams alike; on a run without 2:1 seams div(B) stays at round-off and it stays silent. On `max|div(B)| > seam_divB_tol` it either `error_stop`s (`seam_divB_error = .true.`) or prints a warning and continues. It is off by default (`save_divergence_history` in `adam_prism_common_object.F90`). To *delay* (not cure) the runaway on long AMR runs, enable `divergence_correction = hyperbolic` (it requires `constrained_transport = D`, `B` or `DB`; without one the run stops at initialization, [issue #61](https://github.com/szaghi/adam/issues/61)) and tune the damping rate `[physics].alpha` (1/s, default 0). `alpha` replaced the dimensionless ratio `c_r` in `68457200`; the delay measured in issue #29 was obtained with `c_r` and has not been re-measured with `alpha`.
 
-[issue #11]: https://github.com/szaghi/adam/issues/11
 [issue #29]: https://github.com/szaghi/adam/issues/29
 
 ## Regression coverage

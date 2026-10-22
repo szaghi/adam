@@ -86,6 +86,7 @@ Accepted aliases for `electromagnetic`: `Maxwell`, `EM`, `em`, `maxwell`. For `P
 | `nv_cl` | `0` | Divergence-cleaning variable count (0, 1, or 2) |
 | `nv_pic` | `0` | PIC charge density variable count (0 or 1) |
 | `nv` | `nv_c + nv_s + nv_cl + nv_pic` | Total variable count |
+| `var_phi`, `var_psi` | `0` | Q-vector indices of the GLM scalars φ (D) and ψ (B), 0 when absent. The **single source** of the φ/ψ slots: `io_initialize` names the variables from them and stops if the names do not number `nv` (issue #61) |
 | `var_Jx/Jy/Jz` | 7/8/9 (no cleaning) | Q-vector indices of J components; shift with cleaning |
 | `chi` | `0` | Cleaning speed coefficient |
 | `evmax` | `c₀` or `chi·c₀` | Maximum eigenvalue (maximum signal speed) |
@@ -106,10 +107,11 @@ At `initialize`, the pointers `erw` and `elw` are set based on the combination o
 | `reconstruction_vars` | Div correction | `erw` / `elw` |
 |-----------------------|----------------|----------------|
 | `CONSERVATIVE` | any | `IERL` / `IERL_D` / `IERL_B` / `IERL_D_B` (identity) |
-| `CHARACTERISTICS` | none / POISSON | `ER(6,6,3)` / `EL(6,6,3)` |
+| `CHARACTERISTICS` | none | `ER(6,6,3)` / `EL(6,6,3)` |
 | `CHARACTERISTICS` | HYPERBOLIC, D only | `ER_D(7,7,3)` / `EL_D(7,7,3)` |
 | `CHARACTERISTICS` | HYPERBOLIC, B only | `ER_B(7,7,3)` / `EL_B(7,7,3)` |
 | `CHARACTERISTICS` | HYPERBOLIC, D+B | `ER_D_B(8,8,3)` / `EL_D_B(8,8,3)` |
+| any | HYPERBOLIC, no CT | none: `error_stop` (issue #61; `numerics` refuses the input first) |
 
 For hyperbolic divergence cleaning the enlarged eigensystem uses the cleaning speed `ch = chi·c₀`: eigenvalues include `0, ±ch, ±c₀`.
 
@@ -127,8 +129,8 @@ Configured from the `[numerics]` INI section.
 | `scheme_space` | `WENO` / `FD_CENTERED` / `FV_CENTERED` | Spatial discretisation scheme |
 | `fdv_order` | integer | Order of centered FD/FV schemes |
 | `reconstruction_variables` | `CONSERVATIVE` / `CHARACTERISTICS` | WENO reconstruction basis |
-| `constrained_transport` | `NO` / `D` / `B` / `DB` | Enable Constrained Transport on D and/or B |
-| `divergence_correction` | `POISSON` / `HYPERBOLIC` | Divergence error control strategy (absent = none) |
+| `constrained_transport` | `NO` / `D` / `B` / `DB` | Fields the hyperbolic cleaning acts on (ignored, with a warning, without it) |
+| `divergence_correction` | `NO` / `HYPERBOLIC` | Divergence error control strategy. `HYPERBOLIC` requires `constrained_transport` ≠ `NO`; `POISSON` is refused (not implemented). Issue #61 |
 
 The half-stencil width is derived as `fdv_half_stencil = fdv_order / 2`. Per-derivative stencil widths in `fdv_half_stencils(6)` are incremented progressively for higher-order derivatives.
 

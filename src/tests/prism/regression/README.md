@@ -138,6 +138,16 @@ device-path a plain field case does not:
   (all 192 residual rows), and the single-block 48^3 run agrees with it to
   ~2e-15. Longer than the other cases on purpose (one full period): ~20 s CPU,
   ~55 s FNL.
+- **`rmf-hyperbolic`** — the only case with hyperbolic (GLM) divergence
+  cleaning: `rmf` with `constrained_transport = DB`, `divergence_correction =
+  hyperbolic`, `chi = 1` and the damping `alpha = 1e9` 1/s (alpha·t ≈ 0.1 over
+  the 10 steps). It anchors the GLM state layout, `nv = 11` with φ and ψ in
+  slots 7 and 8 and J in 9..11 (issue #61): before it no case ran the
+  cleaning. Its `check.sh` (manual, `PRISM_EXE=` selects the backend) asserts
+  the two inputs PRISM refuses at initialization, each by its message:
+  `hyperbolic` without constrained transport (which left `var_J*` undefined:
+  `q(var_Jx,…)` read garbage indices and the run entered the t0 elliptic B
+  solve the CT run never takes) and `poisson` (not implemented).
 
 ## Running the harness
 

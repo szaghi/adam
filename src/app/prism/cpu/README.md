@@ -309,7 +309,9 @@ exponential updates with coefficients `s_coeffs` / `e_coeffs` via `cfm%compute_e
 
 ### Divergence cleaning (`impose_div_free`)
 
-Called at the end of every time step. Dispatches based on `div_corr_var` and CT flags:
+Called at the end of every time step. **Unreachable since `68457200`:** `divergence_correction = poisson` stops at
+initialization, so `div_corr_var` is never `POISS` and neither branch runs (issue #61). `impose_ct_correction` itself is
+still used by the PIC elliptic correction. Dispatches based on `div_corr_var` and CT flags:
 
 | Condition | Action |
 |-----------|--------|
