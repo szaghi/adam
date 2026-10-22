@@ -269,6 +269,7 @@ contains
       integer(I4P)                                   :: i_dir
       real(R8P)                                      :: x, y, r, omega, phase, c, s
       real(R8P)                                      :: wave_B, wave_D, wave_lambda, wave_phase
+      real(R8P)                                      :: pulse_k0, pulse_r0, pulse_sigma         !< Gaussian pulse in grid units.
    associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, &
              nv=>physics%nv, nv_c=>physics%nv_c, nv_cl=>physics%nv_cl)
    select case(self%ic_type)
@@ -331,6 +332,15 @@ contains
       case default
          call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(pulse_direction): '//trim(self%pulse_direction))
       endselect
+      ! SI input: under ADIM the lengths go to L0 units and the fields to D0, B0 units (SI path unchanged)
+      pulse_k0    = self%k0
+      pulse_r0    = self%r0
+      pulse_sigma = self%sigma
+      if (is_adim_model(physics%physical_model)) then
+         pulse_k0    = pulse_k0*physics%L0
+         pulse_r0    = pulse_r0/physics%L0
+         pulse_sigma = pulse_sigma/physics%L0
+      endif
       do b=1, blocks_number
          call grid%cell_xyz(coordinates = field%coordinates(:,b), &
                x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
@@ -340,11 +350,15 @@ contains
                   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
                   call set_gaussian_wave_pulse(x=cell_coord,     &
                                                i_dir=i_dir,      &
-                                               k0=self%k0,       &
-                                               x0=self%r0,       &
-                                               B0=self%B0,       &
-                                               sigma=self%sigma, &
+                                               k0=pulse_k0,       &
+                                               x0=pulse_r0,       &
+                                               B0=self%B0,        &
+                                               sigma=pulse_sigma, &
                                                q=q(1:6,i,j,k,b))
+                  if (is_adim_model(physics%physical_model)) then
+                     q(1:3,i,j,k,b) = q(1:3,i,j,k,b)/physics%D0
+                     q(4:6,i,j,k,b) = q(4:6,i,j,k,b)/physics%B0
+                  endif
                   do var = 7_I4P, nv
                      q(var,i,j,k,b) = 0.0_R8P
                   enddo
