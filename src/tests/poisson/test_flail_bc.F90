@@ -38,6 +38,14 @@ program test_flail_bc
 !< in the grid: the preconditioner is spectrally equivalent); the compact operator with zero ghosts equal to it with
 !< ghost-Dirichlet faces, bitwise.
 !<
+!< **PRISM's operators (E3a).** The identity PRISM's elliptic solves rest on: PRISM computes the correction as the
+!< divergence of the gradient with its own library operators (`adam_fdv_operators_library`, centred FD or FV of order
+!< 2s), the gradient read from the solution's ghost layers. With a manufactured source `f = div(grad u)` (the test's
+!< ghost rules for u), FLAIL's solution phi, its returned ghosts to depth 2s, gives `div(grad phi) = f` to `TOL_PRISM`
+!< (zero-ghost faces, solved by CG: `TOL_PCG`) for FD and FV, s = 1..4, periodic, PEC on a scalar (odd), PEC on the
+!< normal component (even), mixed, zero-ghost and zero-ghost next to PEC faces: the solver inverts exactly the operator
+!< PRISM applies.
+!<
 !< `--refuse-mixed-periodic` (a periodic face against a Dirichlet one), `--refuse-mixed-ghost` (a ghost-Dirichlet
 !< face against a face kind), `--refuse-wide-isolated` (the wide operator with isolated boundaries) and
 !< `--refuse-zero-mixed` (a zero-ghost face against a Dirichlet one) must stop (exit status 1).
@@ -47,6 +55,8 @@ program test_flail_bc
 #ifdef _FNL
 #include "fundal.H"
 #endif
+use :: adam_fdv_operators_library,  only : compute_divergence_fd_centered, compute_divergence_fv_centered, &
+                                           compute_gradient_fd_centered, compute_gradient_fv_centered
 use :: adam_flail_parameters,       only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, &
                                            FLAIL_BC_DIRICHLET_GHOST, FLAIL_BC_ZERO_GHOSTS
 use :: adam_mpih_global,            only : mpih
@@ -81,6 +91,7 @@ integer(I4P), parameter :: G=FLAIL_BC_DIRICHLET_GHOST !< Shorthand.
 integer(I4P), parameter :: Z=FLAIL_BC_ZERO_GHOSTS     !< Shorthand.
 real(R8P),    parameter :: TOL_PCG=1.e-9_R8P          !< Bound on the zero-ghost solution's error, relative.
 integer(I4P), parameter :: MAX_PCG_IT=40_I4P          !< Bound on the zero-ghost CG iterations.
+real(R8P),    parameter :: TOL_PRISM=1.e-11_R8P        !< Bound on |div(grad phi) - f| / max |f|, direct solves.
 logical        :: test_passed !< Aggregate pass flag.
 character(256) :: arg         !< Command argument.
 real(R8P)      :: e_disc, e_cont(3), e_energy !< Errors.
@@ -148,6 +159,16 @@ if (mpih%myrank == 0) print '(A)', '   p = 4, Z/Z D/D N/N, CG iterations on 16 a
 test_passed = test_passed .and. abs(it32 - it16) <= 1
 endblock
 call check_zero_compact
+! PRISM's own operators (E3a): div(grad phi) = f with the library's FD and FV centred derivatives
+if (mpih%myrank == 0) print '(A)', '   PRISM''s operators (E3a), div(grad phi) - f with adam_fdv_operators_library:'
+do po=1, 4
+   call check_prism_ops('P/P P/P P/P', reshape([P,P, P,P, P,P], [2,3]), po)
+   call check_prism_ops('D/D D/D D/D', reshape([D,D, D,D, D,D], [2,3]), po)
+   call check_prism_ops('N/N D/D D/D', reshape([N,N, D,D, D,D], [2,3]), po)
+   call check_prism_ops('D/N P/P N/D', reshape([D,N, P,P, N,D], [2,3]), po)
+   call check_prism_ops('Z/Z Z/Z Z/Z', reshape([Z,Z, Z,Z, Z,Z], [2,3]), po)
+   call check_prism_ops('Z/Z D/D N/N', reshape([Z,Z, D,D, N,N], [2,3]), po)
+enddo
 ! the wide p = 4 D/D order against the continuum
 cfg_order = 4
 do m=1, 3
@@ -512,6 +533,121 @@ contains
       merge(' ok  ', ' FAIL', ok)
    call solver%destroy
    endsubroutine check_zero
+
+   subroutine check_prism_ops(label, bc, s_)
+   !< E3a: the manufactured `f = div(grad u)` by the library's centred FD and FV operators of order 2 s_ (u's ghosts by
+   !< the test's rules), solved by FLAIL (one 16^3 block, on rank 0), then `div(grad phi)` by the same operators from
+   !< FLAIL's phi and its returned ghosts: equal to f.
+   character(*), intent(in) :: label   !< Configuration label.
+   integer(I4P), intent(in) :: bc(2,3) !< Kinds per face [lo/hi, axis].
+   integer(I4P), intent(in) :: s_      !< Half stencil (order 2 s_).
+#ifdef _FNL
+   type(poisson_fft_fnl_object) :: solver !< The solver.
+#else
+   type(poisson_fft_object)     :: solver !< The solver.
+#endif
+   integer(I4P), parameter   :: NC=16_I4P   !< Cells per axis.
+   integer(I4P)              :: p_, sch, nbl, i, j, k, c, ierr !< Order, scheme, counters.
+   real(R8P)                 :: dxyz(3), res(2), fmax !< Spacing, residual per scheme, max |f|.
+   real(R8P),    allocatable :: u(:,:,:), f(:,:,:), ph(:,:,:), buf(:), out(:) !< Fields.
+   integer(I4P)              :: coords(3,1) !< The one block.
+   logical                   :: ok          !< Pass flag.
+   character(2), parameter   :: SCHEME(2)=['FD', 'FV'] !< Schemes.
+
+   p_ = 2 * s_
+   dxyz = L / NC
+   allocate(u(1-p_:NC+p_,1-p_:NC+p_,1-p_:NC+p_), f(NC,NC,NC), ph(1-p_:NC+p_,1-p_:NC+p_,1-p_:NC+p_))
+   coords(:,1) = 0
+   nbl = merge(1, 0, mpih%myrank == 0)
+   allocate(buf(max(nbl*NC**3,1)), out(max(nbl*(NC+2*p_)**3,1)))
+   res = 0._R8P
+   do sch=1, 2
+      u = 0._R8P
+      do k=1, NC
+         do j=1, NC
+            do i=1, NC
+               u(i,j,k) = sin(0.7_R8P * i + 0.3_R8P) * cos(0.5_R8P * j - 0.2_R8P) * cos(0.4_R8P * k + 0.1_R8P) + &
+                          0.25_R8P * cos(1.1_R8P * i - 0.9_R8P * j + 0.3_R8P * k)
+            enddo
+         enddo
+      enddo
+      call rule_ghosts(u, [NC, NC, NC], bc, [.false., .false., .false.], p_)
+      call div_grad(u, s_, NC, dxyz, sch, f)
+      c = 0
+      do k=1, NC
+         do j=1, NC
+            do i=1, NC
+               c = c + 1
+               buf(min(c,size(buf))) = f(i,j,k) / FACTOR
+            enddo
+         enddo
+      enddo
+      call solver%initialize_blocks(nblk=[1,1,1], nijk=[NC,NC,NC], ngc=p_, dxyz=dxyz, level=0_I4P, &
+                                    null_xyz=[.false., .false., .false.], isolated=.false., bc=bc, dg_order=p_)
+      out = 0._R8P
+      call solver%solve_blocks(nbl=nbl, coords=coords, buf=buf, factor=FACTOR, gw=p_, out=out)
+      call solver%destroy
+      if (mpih%myrank == 0) then
+         c = 0
+         do k=1-p_, NC+p_
+            do j=1-p_, NC+p_
+               do i=1-p_, NC+p_
+                  c = c + 1
+                  ph(i,j,k) = out(c)
+               enddo
+            enddo
+         enddo
+         call div_grad(ph, s_, NC, dxyz, sch, u(1:NC,1:NC,1:NC))
+         fmax = maxval(abs(f))
+         res(sch) = maxval(abs(u(1:NC,1:NC,1:NC) - f)) / fmax
+      endif
+   enddo
+   call MPI_BCAST(res, 2, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
+   ok = all(res <= merge(TOL_PCG, TOL_PRISM, any(bc == Z)))
+   test_passed = test_passed .and. ok
+   if (mpih%myrank == 0) print '(A)', '   order '//trim(str(p_, .true.))//' '//label//': |div(grad phi) - f| / max|f| '// &
+      SCHEME(1)//' '//trim(str(res(1), .true.))//', '//SCHEME(2)//' '//trim(str(res(2), .true.))//merge(' ok  ', ' FAIL', ok)
+   endsubroutine check_prism_ops
+
+   subroutine div_grad(q, s_, nc, dxyz, sch_, y)
+   !< `y = div(grad q)` on the interior by the library's centred operators (FD: sch_ = 1, FV: 2) of order 2 s_: the
+   !< gradient on the interior and s_ ghost layers (from q's 2 s_ ghost layers), then the divergence (E3a).
+   integer(I4P), intent(in)  :: s_, nc               !< Half stencil, cells per axis.
+   real(R8P),    intent(in)  :: dxyz(3)              !< Spacing.
+   real(R8P),    intent(in)  :: q(1-2*s_:,1-2*s_:,1-2*s_:) !< Padded scalar.
+   integer(I4P), intent(in)  :: sch_                 !< Scheme.
+   real(R8P),    intent(out) :: y(1:,1:,1:)          !< Result [nc^3].
+   real(R8P), allocatable    :: gr(:,:,:,:)          !< Gradient, padded by s_.
+   integer(I4P)              :: ii, jj, kk           !< Counters.
+
+   allocate(gr(3,1-s_:nc+s_,1-s_:nc+s_,1-s_:nc+s_))
+   do kk=1-s_, nc+s_
+      do jj=1-s_, nc+s_
+         do ii=1-s_, nc+s_
+            if (sch_ == 1) then
+               call compute_gradient_fd_centered(s=s_, dxyz=dxyz, q=q(ii-s_:ii+s_,jj-s_:jj+s_,kk-s_:kk+s_), &
+                                                 gradient=gr(:,ii,jj,kk))
+            else
+               call compute_gradient_fv_centered(s=s_, dxyz=dxyz, q=q(ii-s_:ii+s_,jj-s_:jj+s_,kk-s_:kk+s_), &
+                                                 gradient=gr(:,ii,jj,kk))
+            endif
+         enddo
+      enddo
+   enddo
+   do kk=1, nc
+      do jj=1, nc
+         do ii=1, nc
+            if (sch_ == 1) then
+               call compute_divergence_fd_centered(s=s_, dxyz=dxyz, q=gr(:,ii-s_:ii+s_,jj-s_:jj+s_,kk-s_:kk+s_), &
+                                                   divergence=y(ii,jj,kk))
+            else
+               call compute_divergence_fv_centered(s=s_, dxyz=dxyz, q=gr(:,ii-s_:ii+s_,jj-s_:jj+s_,kk-s_:kk+s_), &
+                                                   divergence=y(ii,jj,kk))
+            endif
+         enddo
+      enddo
+   enddo
+   endsubroutine div_grad
 
    subroutine check_zero_compact
    !< The compact operator with zero-ghost faces is the one with ghost-Dirichlet faces (one ghost layer read): equal
