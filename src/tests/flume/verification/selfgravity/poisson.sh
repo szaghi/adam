@@ -32,7 +32,8 @@
 #   - SV-12 (issue #87, P1), Dirichlet faces (no active direction periodic), the exact potential as the ghost values:
 #     SV-12a uniform, at most one iteration (the coarsest level's odd extension is the whole solve), Phi order >= 1.7;
 #     SV-12b as SV-9b with Dirichlet rows;
-#   - refused: mixed periodic and non-periodic directions.
+#   - refused: mixed periodic and non-periodic directions without bc (with bc they are accepted since issue #84,
+#     E1b), a periodic axis in bc that the grid bounds, an axis with a ghost-Dirichlet face and a face kind.
 # Measured (CPU, np 1-3, rank-independent to round-off): SV-9a 3e-15; SV-9b symmetry <= 8e-18, Phi order 1.92 (3-D
 # and 2-D), truncation growth 1.005, 2:1 face gravity order 1.03 (3-D) and 1.11 (2-D), 24-39 FCG iterations;
 # SV-12a 1 iteration, order 1.95; SV-12b symmetry <= 6.7e-18, Phi order 1.91 (3-D) and 1.93 (2-D), 22-36 iterations.
@@ -52,7 +53,21 @@
 # CPU = FNL: run this script once per build with --dump DIR, then
 #   poisson_oracle.py compare DIR_CPU DIR_FNL      (max |phi_CPU - phi_FNL| / max |phi|, 1e-13)
 #
-# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs LIST] [--dump DIR] [--keep]   LIST: sv2, sv6, sv9, sv13, bc or all
+# bcmg (test_poisson_mg --bc, issue #84, E1b): the multigrid with a boundary kind per face (periodic, Dirichlet or
+# Neumann at the face, ghost-Dirichlet; mixed across and within axes):
+#   - uniform grids: equal to the FFT solver with the same kinds (bc leg, E1a), 1e-8 relative, at most one iteration;
+#   - static AMR, the corner octant [0, L/2] refined (leaves of both levels on the low faces), a manufactured potential
+#     prod_d cos(2 pi x_d / L_d + theta_d) whose boundary values are the ghost values of each kind: residual,
+#     symmetry <= 1e-12, every face ghost filled, Phi order >= 1.7 (up to a constant without a Dirichlet face), the
+#     domain-face ghosts' order >= 1.7 against the potential at the ghost centres, truncation growth <= 1.5.
+# Measured (CPU, np 1-3, iterations rank-independent): uniform <= 1.2e-14, 1 iteration; AMR orders of Phi 1.95
+# (P/P D/N N/D), 2.00 (D/D N/N G/G), 1.95 (P/P N/N N/N), 2.00 (2-D N/D P/P), of the ghosts 1.95-2.03, truncation
+# growth 1.00-1.02, symmetry <= 2.5e-17, 21-40 FCG iterations. Each mutation alone fails: the Neumann weight in B
+# negated (orders 0.02-0.14), the Neumann ghost's h g negated (ghost orders ~1), the Dirichlet ghost 2 g + phi_C
+# (ghost orders ~0.03).
+#
+# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs LIST] [--dump DIR] [--keep]
+#        LIST: sv2, sv6, sv9, sv13, bc, bcmg or all
 #        (default all)
 #
 # POISSON_EXE overrides the executable under test, e.g. POISSON_EXE=$REPO/exe/test_poisson_fft_fnl ./poisson.sh
@@ -69,7 +84,7 @@ MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
 BC_EXE="${POISSON_BC_EXE:-$REPO_ROOT/exe/test_flail_bc}"
 NP_LIST="1 2 3"
 source "$VERIF_DIR/legs.sh"
-legs_declare "sv2 sv6 sv9 sv13 bc"
+legs_declare "sv2 sv6 sv9 sv13 bc bcmg"
 DUMP=""
 KEEP=0
 
@@ -86,7 +101,7 @@ done
 legs_resolve poisson.sh
 needs_fft=0 ; needs_mg=0 ; needs_bc=0
 for leg in $LEGS; do
-   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13) needs_mg=1 ;; bc) needs_bc=1 ;; esac
+   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13|bcmg) needs_mg=1 ;; bc) needs_bc=1 ;; esac
 done
 if [[ -n "$DUMP" ]]; then needs_fft=1 ; fi
 if [[ $needs_fft -eq 1 ]]; then
@@ -153,7 +168,12 @@ for leg in $LEGS; do
       sv9)
          echo ">> SV-9: the multigrid Poisson solver, AMR ($(basename "$MG_EXE"))"
          suite multigrid "" "$MG_EXE"
-         refusal "multigrid, mixed boundaries" --mixed 'mixed periodic and non-periodic directions' "$MG_EXE" ;;
+         refusal "multigrid, mixed boundaries without bc" --mixed 'mixed periodic and non-periodic directions' \
+            "$MG_EXE"
+         refusal "multigrid, a periodic axis in bc that the grid bounds" --refuse-bc-mismatch 'in the grid and' \
+            "$MG_EXE"
+         refusal "multigrid, a ghost-Dirichlet face against a face kind" --refuse-bc-mixed-ghost \
+            'mixes a ghost-Dirichlet face' "$MG_EXE" ;;
       sv13)
          echo ">> SV-13: the multigrid Poisson solver, isolated on AMR ($(basename "$MG_EXE"))"
          suite multigrid-isolated "--isolated" "$MG_EXE"
@@ -165,6 +185,9 @@ for leg in $LEGS; do
          refusal "a periodic face against a Dirichlet one" --refuse-mixed-periodic 'one periodic face and one' "$BC_EXE"
          refusal "a ghost-Dirichlet face against a face kind" --refuse-mixed-ghost 'mixes a ghost-Dirichlet face' \
             "$BC_EXE" ;;
+      bcmg)
+         echo ">> FLAIL boundary kinds per face, the multigrid solver (issue #84, E1b; $(basename "$MG_EXE"))"
+         suite multigrid-bc "--bc" "$MG_EXE" ;;
    esac
 done
 if [[ -n "$DUMP" ]]; then

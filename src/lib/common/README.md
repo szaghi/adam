@@ -340,8 +340,9 @@ needs (FLUME [models](/applications/flume/models#self-gravity)).
 
 ### `adam_poisson_mg_object` — Poisson solver on AMR grids (multigrid-preconditioned CG)
 
-Solves `A phi = factor V (f - mean f)` on the leaf cells of a 2:1-balanced octree (quadtree with `null_z`), periodic
-([#81](https://github.com/szaghi/adam/issues/81), P5a). `A` is the composite second-order Laplacian, V-weighted
+Solves `A phi = factor V f - B g` on the leaf cells of a 2:1-balanced octree (quadtree with `null_z`), periodic
+([#81](https://github.com/szaghi/adam/issues/81), P5a) or with a boundary kind per face (#87, #84 E1b), the mean of
+the right-hand side removed when `A` is singular. `A` is the composite second-order Laplacian, V-weighted
 (finite-volume form): the 7-point stencil between leaves of one level and, across a 2:1 face, the **mimetic mean
 flux** — every fine cell on a coarse cell's face gets the flux `(2/3) w (mean of the face's fine cells - phi_C)`, `w`
 its face area over its spacing, and the coarse cell their sum. That coupling is the hybrid mimetic finite-difference
@@ -353,11 +354,11 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 
 | Procedure | Role |
 |-----------|------|
-| `initialize(grid, field, tolerance, max_iterations, coarse, isolated)` | Gather the leaf list (every rank), derive the level hierarchy, assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the coarsest-level FFT solver, of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise; `isolated` also sizes the ghost-to-ghost Green's function of the James step (an isolated FFT solver of the same type on the coarsest box widened by the ghost layer) |
-| `solve(field, q, iv, factor, phi, energy, ghost)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi`; Dirichlet: `ghost` the values at the boundary faces' ghost centres; isolated: the James step (no `ghost`) |
+| `initialize(grid, field, tolerance, max_iterations, coarse, isolated, bc)` | Gather the leaf list (every rank), derive the level hierarchy, assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the coarsest-level FFT solver, of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise; `isolated` also sizes the ghost-to-ghost Green's function of the James step (an isolated FFT solver of the same type on the coarsest box widened by the ghost layer); `bc` the kind of every face (E1b; default ghost-Dirichlet on the bounded axes) |
+| `solve(field, q, iv, factor, phi, energy, ghost)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi`; `ghost` the boundary value of each boundary face, of its kind (below); isolated: the James step (no `ghost`) |
 | `solve_packed(field, buf, factor, phi, energy, ghost)` | The same from the packed interior source |
 | `symmetry_defect(x, y)`, `apply_a(x, y)` | Verification: `|x.Ay - y.Ax| / (|x| |Ay|)` and `y = A x` on the leaves |
-| `apply_b(g, y)`, `apply_bt(x, s)` | Dirichlet: `y = B g` (the ghost values onto the boundary rows) and `s = B^T x`; the boundary faces are `nbnd`, `bnd_row`, `bnd_w`, `bnd_x` (the ghost centre) |
+| `apply_b(g, y)`, `apply_bt(x, s)` | `y = B g` (the boundary values onto the boundary rows) and `s = B^T x`; the boundary faces are `nbnd`, `bnd_row`, `bnd_w` (the weight in `B`), `bnd_kind`, `bnd_dir` (the outward axis, signed), `bnd_x` (where the value lives: the ghost or the face centre) |
 | `destroy()` | Free everything |
 
 - **Solver:** flexible CG (Notay's FCG(1)), stopping on the relative max-norm residual: `tolerance` (default `1e-10`)
@@ -373,23 +374,36 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 - **Distributed, assembled:** CSR rows over global cell keys, each operator with a halo-exchange plan
   (`MPI_ALLTOALLV`); every rank owns its leaves' rows and the shadows whose first leaf it owns. Correct for any rank
   count (results equal to round-off across rank counts); not tuned for speed.
-- **Dirichlet faces (#87, P1):** when no active direction is periodic, a domain face takes the value `g` at its ghost
-  centre: `-w phi_C` stays in the row (symmetric), `w g` goes to the right-hand side (`A phi = factor V f - B g`); no
-  mean is removed; the V-cycle's levels take zero ghosts and the coarsest level the FFT solver's Dirichlet mode.
+- **Boundary faces (#87 P1; per face, #84 E1b):** an active axis is periodic or bounded; each face of a bounded axis
+  has a kind (`adam_flail_parameters`), its row homogeneous (symmetric) and its value `g` on the right-hand side
+  (`A phi = factor V f - B g`), `w` the face area over the spacing:
+
+  | Kind | `g` | Row | `B` | Ghost |
+  |------|-----|-----|-----|-------|
+  | `FLAIL_BC_DIRICHLET_GHOST` (#87, the default) | value at the ghost centre | `-w phi_C` | `w` | `g` |
+  | `FLAIL_BC_DIRICHLET` | value at the face | `-2 w phi_C` | `2 w` | `2 g - phi_C` |
+  | `FLAIL_BC_NEUMANN` | outward derivative at the face | none | `w h` | `phi_C + h g` |
+
+  Without a Dirichlet face `A` is singular as on a periodic grid: the mean of `factor V f - B g` and of the solution
+  are removed. The V-cycle's levels take the same kinds, homogeneous, and the coarsest level the FFT solver with them
+  (E1a): on a uniform grid one V-cycle is the exact solve.
 - **Isolated boundaries (#87, P2), the James step:** `phi0 = A^-1 factor V f` (zero ghosts), the screening charge
   `s = B^T phi0` on the ghost cells, their free-space values `g = -G s` (`G` the lattice Green's function over the
   coarsest spacing, from ghost cell to ghost cell, by the padded FFT on the coarsest box widened by the ghost layer,
   gathered on rank 0), then `phi = A^-1 (factor V f - B g)`: the map `(A^-1 + A^-1 B G B^T A^-1) factor V` is
   symmetric in the V-weighted form, the exact discrete free-space solution on a uniform grid, second order on AMR.
   Two solves per call, each warm-started from its own last solution (`iterations0`, `iterations`).
-- **Scope (fatal otherwise):** every active direction periodic, or none (mixed boundaries refused); isolated: 3-D,
-  cubic cells, every leaf on the domain boundary at the coarsest level; 2:1 balance across
+- **Scope (fatal otherwise):** without `bc` every active direction periodic or none; with it, the grid's periodicity
+  and `bc` agree, the two faces of an axis both ghost-Dirichlet or
+  neither (the FFT solver's scope); isolated: 3-D, no periodic direction, no `bc`, cubic cells, every leaf on the
+  domain boundary at the coarsest level; 2:1 balance across
   faces; fewer than `2^19` cells per direction at the finest level. Host code: FLUME's FNL backend runs it on the host
   with a cuFFT coarsest level (#81 P5b).
 - **Build:** as `adam_poisson_fft_object` (`-D_FFTW`, not re-exported by `adam_common_library`; mode
   `test-poisson-mg-gnu`).
-- **Verification:** SV-9, SV-12 (Dirichlet) and SV-13 (isolated), `src/tests/poisson/test_poisson_mg.F90`, driven
-  by `src/tests/flume/verification/selfgravity/poisson.sh` (legs `sv9`, `sv13`).
+- **Verification:** SV-9, SV-12 (Dirichlet), SV-13 (isolated) and the boundary kinds (E1b, `--bc`: the FFT solver's
+  result on uniform grids, a manufactured potential on AMR), `src/tests/poisson/test_poisson_mg.F90`, driven by
+  `src/tests/flume/verification/selfgravity/poisson.sh` (legs `sv9`, `sv13`, `bcmg`).
 
 ### `adam_lattice_green_library` — lattice Green's function of the 7-point Laplacian (generated)
 

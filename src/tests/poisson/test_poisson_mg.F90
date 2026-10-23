@@ -38,13 +38,30 @@ program test_poisson_mg
 !<     of the solution map in situ, `|x . V K y - y . V K x| / |x . V K y|` for two pseudo-random sources
 !<     (`TOL_SYMMETRY_ISOLATED`, set by the FCG tolerance `TOL_ISOLATED` of the four solves).
 !<
-!< `--mixed` builds one uniform grid periodic along x only: the solver must stop (exit status 1; every active direction
-!< periodic, or none). `--refuse-boundary-refined` builds the isolated cube at level 1 with one octant refined, a leaf
-!< above the coarsest level on the boundary: the isolated solver must stop.
+!<   - FLAIL boundary kinds per face (issue #84, E1b, `--bc`): periodic, Dirichlet or Neumann at the face, and
+!<     ghost-Dirichlet, mixed across axes and within an axis, on SV-2's box. Uniform grids: the multigrid against the
+!<     FFT solver with the same kinds (issue #84, E1a; the same operator: `TOL_FFT`, at most one iteration), the
+!<     homogeneous problem with SV-2's source. Static AMR, the corner octant [0, L/2] refined (leaves of both levels on
+!<     the low faces, so the boundary rows above the coarsest level and the preconditioner's are exercised): the
+!<     manufactured potential
+!<     `Phi = prod_d cos(2 pi x_d / L_d + theta_d)` (periodic along every axis, generic at the faces), its Laplacian the
+!<     source and its boundary values the ghost values of each kind (the value at the ghost centre or at the face, the
+!<     outward derivative at the face); asserted as SV-12b (residual, symmetry, every face ghost filled, order of Phi,
+!<     truncation growth) and the order of the domain-face ghosts against the manufactured potential at the ghost
+!<     centres (each kind's ghost formula). Without a Dirichlet face the solution is known up to a constant: Phi is
+!<     compared after removing both means.
 !<
-!< Usage: `mpirun -np N exe/test_poisson_mg [--isolated | --mixed | --refuse-boundary-refined]`.
+!< `--mixed` builds a grid periodic along x only and gives no `bc` (every active direction periodic or none then);
+!< `--refuse-bc-mismatch` gives the same grid a periodic y in `bc`; `--refuse-bc-mixed-ghost` an axis with a
+!< ghost-Dirichlet face and a Dirichlet one: the solver must stop (exit status 1). `--refuse-boundary-refined` builds
+!< the isolated cube at level 1 with one octant refined, a leaf above the coarsest level on the boundary: the isolated
+!< solver must stop.
+!<
+!< Usage: `mpirun -np N exe/test_poisson_mg [--isolated | --bc | --mixed | --refuse-bc-mismatch |
+!< --refuse-bc-mixed-ghost | --refuse-boundary-refined]`.
 
 use :: adam_common_library,     only : realm_object
+use :: adam_flail_parameters,   only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST
 use :: adam_parameters,         only : BC_PERIODIC, TO_BE_REFINED
 use :: adam_tree_node_object,   only : tree_node_object
 use :: adam_mpih_global,        only : mpih
@@ -75,17 +92,33 @@ real(R8P),    parameter :: TOL_ISOLATED=1.e-12_R8P       !< FCG tolerance of the
 real(R8P),    parameter :: TOL_FFT_ISOLATED=1.e-9_R8P    !< Bound on |Phi_mg - Phi_fft| / max |Phi_fft|, isolated.
 real(R8P),    parameter :: TOL_SYMMETRY_ISOLATED=1.e-9_R8P !< Bound on the solution map's symmetry defect, isolated.
 real(R8P),    parameter :: MIN_ORDER_SPHERE=1.2_R8P      !< Bound on the uniform sphere's order.
+integer(I4P), parameter :: P_=FLAIL_BC_PERIODIC          !< Periodic (the configurations below).
+integer(I4P), parameter :: D_=FLAIL_BC_DIRICHLET         !< Dirichlet at the face.
+integer(I4P), parameter :: N_=FLAIL_BC_NEUMANN           !< Neumann at the face.
+integer(I4P), parameter :: G_=FLAIL_BC_DIRICHLET_GHOST   !< Dirichlet at the ghost centre.
+integer(I4P), parameter :: BC_A(2,3)=reshape([P_, P_, D_, N_, N_, D_], [2, 3]) !< Mixed periodicity, mixed axes.
+integer(I4P), parameter :: BC_B(2,3)=reshape([D_, D_, N_, N_, G_, G_], [2, 3]) !< Every bounded kind, one per axis.
+integer(I4P), parameter :: BC_C(2,3)=reshape([P_, P_, N_, N_, N_, N_], [2, 3]) !< Singular: periodic and Neumann.
+integer(I4P), parameter :: BC_D(2,3)=reshape([N_, D_, P_, P_, P_, P_], [2, 3]) !< 2-D: N/D along x, periodic y.
+real(R8P),    parameter :: THETA(3)=[0.3_R8P, 0.7_R8P, 1.1_R8P] !< Phases of the manufactured potential.
 logical                 :: test_passed                   !< Aggregate pass flag.
-logical                 :: mixed                         !< Run the mixed-boundary refusal only.
+logical                 :: bc_suite                      !< Run the boundary-kind suite (issue #84, E1b).
+logical                 :: refuse_bc_mismatch            !< Run the bc-against-grid refusal only.
+logical                 :: refuse_bc_ghost               !< Run the mixed ghost-Dirichlet refusal only.
+logical                 :: mixed                         !< Run the mixed-periodicity-without-bc refusal only.
 logical                 :: isolated                      !< Run the isolated suite (SV-13).
 logical                 :: refuse_boundary               !< Run the boundary-refined refusal only.
 character(256)          :: arg                           !< Command argument.
 integer(I4P)            :: a                             !< Counter.
 
-mixed = .false. ; isolated = .false. ; refuse_boundary = .false.
+bc_suite = .false. ; refuse_bc_mismatch = .false. ; refuse_bc_ghost = .false. ; mixed = .false.
+isolated = .false. ; refuse_boundary = .false.
 do a=1, command_argument_count()
    call get_command_argument(a, arg)
+   if (trim(arg) == '--bc') bc_suite = .true.
    if (trim(arg) == '--mixed') mixed = .true.
+   if (trim(arg) == '--refuse-bc-mismatch') refuse_bc_mismatch = .true.
+   if (trim(arg) == '--refuse-bc-mixed-ghost') refuse_bc_ghost = .true.
    if (trim(arg) == '--isolated') isolated = .true.
    if (trim(arg) == '--refuse-boundary-refined') refuse_boundary = .true.
 enddo
@@ -93,7 +126,13 @@ call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
 test_passed = .true.
 if (mixed) then
    call refuse_mixed
-   if (mpih%myrank == 0) print '(A)', 'test_poisson_mg: FAILED (the solver accepted mixed boundaries)'
+   if (mpih%myrank == 0) print '(A)', 'test_poisson_mg: FAILED (the solver accepted mixed boundaries without bc)'
+   call mpih%finalize
+   error stop 1
+endif
+if (refuse_bc_mismatch .or. refuse_bc_ghost) then
+   call refuse_bc(mismatch=refuse_bc_mismatch)
+   if (mpih%myrank == 0) print '(A)', 'test_poisson_mg: FAILED (the solver accepted inconsistent boundary kinds)'
    call mpih%finalize
    error stop 1
 endif
@@ -102,6 +141,26 @@ if (refuse_boundary) then
    if (mpih%myrank == 0) print '(A)', 'test_poisson_mg: FAILED (the isolated solver accepted a refined boundary leaf)'
    call mpih%finalize
    error stop 1
+endif
+if (bc_suite) then
+   call check_bc_uniform(label='E1b, uniform 3-D, P/P D/N N/D,', bc=BC_A, ratio=8_I4P, nk=8_I4P, level=1_I4P)
+   call check_bc_uniform(label='E1b, uniform 3-D, D/D N/N G/G,', bc=BC_B, ratio=8_I4P, nk=8_I4P, level=1_I4P)
+   call check_bc_uniform(label='E1b, uniform 3-D, P/P N/N N/N,', bc=BC_C, ratio=8_I4P, nk=8_I4P, level=1_I4P)
+   call check_bc_uniform(label='E1b, uniform 2-D, N/D P/P,    ', bc=BC_D, ratio=4_I4P, nk=1_I4P, level=2_I4P)
+   call check_bc_amr(label='E1b, AMR 3-D, P/P D/N N/D,', bc=BC_A, ratio=8_I4P, nk=8_I4P, levels=[2_I4P, 3_I4P])
+   call check_bc_amr(label='E1b, AMR 3-D, D/D N/N G/G,', bc=BC_B, ratio=8_I4P, nk=8_I4P, levels=[2_I4P, 3_I4P])
+   call check_bc_amr(label='E1b, AMR 3-D, P/P N/N N/N,', bc=BC_C, ratio=8_I4P, nk=8_I4P, levels=[2_I4P, 3_I4P])
+   call check_bc_amr(label='E1b, AMR 2-D, N/D P/P,    ', bc=BC_D, ratio=4_I4P, nk=1_I4P, levels=[2_I4P, 3_I4P])
+   if (mpih%myrank == 0) then
+      if (test_passed) then
+         print '(A)', 'test_poisson_mg: PASSED'
+      else
+         print '(A)', 'test_poisson_mg: FAILED'
+      endif
+   endif
+   call mpih%finalize
+   if (.not.test_passed) error stop 1
+   stop
 endif
 if (isolated) then
    call check_isolated(label='SV-13a, isolated, uniform, polytrope n=1,', prof=PROFILE_POLYTROPE, &
@@ -143,7 +202,7 @@ if (.not.test_passed) error stop 1
 
 contains
    subroutine refuse_mixed
-   !< A uniform 3-D grid periodic along x only: `initialize` must stop the run.
+   !< A uniform 3-D grid periodic along x only and no bc: `initialize` must stop the run.
    type(realm_object)      :: realm !< Realm.
    type(poisson_mg_object) :: mg    !< Multigrid solver.
    real(R8P), allocatable  :: q(:,:,:,:,:) !< Source.
@@ -152,6 +211,23 @@ contains
    call realm%adam%grid%set_bc_type(bc_type=[BC_PERIODIC, BC_PERIODIC, 0_I4P, 0_I4P, 0_I4P, 0_I4P])
    call mg%initialize(grid=realm%adam%grid, field=realm%adam%field)
    endsubroutine refuse_mixed
+
+   subroutine refuse_bc(mismatch)
+   !< A uniform 3-D grid periodic along x only, with inconsistent kinds: `initialize` must stop the run. `mismatch`:
+   !< bc periodic along y, which the grid bounds; else a ghost-Dirichlet face and a Dirichlet one along y.
+   logical, intent(in)     :: mismatch !< The bc-against-grid case, else the mixed ghost one.
+   type(realm_object)      :: realm !< Realm.
+   type(poisson_mg_object) :: mg    !< Multigrid solver.
+   real(R8P), allocatable  :: q(:,:,:,:,:) !< Source.
+
+   call build(realm, 8_I4P, 8_I4P, 1_I4P, sphere=.false., q=q, periodic=.false.)
+   call realm%adam%grid%set_bc_type(bc_type=[BC_PERIODIC, BC_PERIODIC, 0_I4P, 0_I4P, 0_I4P, 0_I4P])
+   if (mismatch) then
+      call mg%initialize(grid=realm%adam%grid, field=realm%adam%field, bc=reshape([P_, P_, P_, P_, D_, D_], [2, 3]))
+   else
+      call mg%initialize(grid=realm%adam%grid, field=realm%adam%field, bc=reshape([P_, P_, G_, D_, D_, D_], [2, 3]))
+   endif
+   endsubroutine refuse_bc
 
    subroutine refuse_boundary_refined
    !< The isolated cube at level 1 with the octant x, y, z > 0 refined: a leaf at level 2 on the boundary, `initialize`
@@ -410,6 +486,239 @@ contains
       endif
    endif
    endfunction phi_sphere
+
+   subroutine check_bc_uniform(label, bc, ratio, nk, level)
+   !< Issue #84, E1b: the multigrid with face kinds `bc` on a uniform grid against the FFT solver with the same kinds
+   !< (the same operator), the homogeneous problem with SV-2's source.
+   character(*), intent(in) :: label   !< Label.
+   integer(I4P), intent(in) :: bc(2,3) !< Kinds per face [lo/hi, axis].
+   integer(I4P), intent(in) :: ratio   !< Tree ratio.
+   integer(I4P), intent(in) :: nk      !< Cells per block along z.
+   integer(I4P), intent(in) :: level   !< Uniform level.
+   type(realm_object)       :: realm   !< Realm.
+   type(poisson_mg_object)  :: mg      !< Multigrid solver.
+   type(poisson_fft_object) :: fft     !< FFT solver.
+   real(R8P), allocatable   :: q(:,:,:,:,:), phi_mg(:,:,:,:), phi_fft(:,:,:,:) !< Fields.
+   real(R8P)                :: diff, scale_ !< Max difference, max |Phi_fft|.
+   logical                  :: ok      !< Pass flag.
+   integer(I4P)             :: n, ni, nj, ierr !< Sizes, MPI status.
+
+   call build(realm, ratio, nk, level, sphere=.false., q=q, periodic=.false.)
+   call set_grid_bc(realm, bc)
+   allocate(phi_mg(lbound(q,2):ubound(q,2),lbound(q,3):ubound(q,3),lbound(q,4):ubound(q,4),ubound(q,5)))
+   allocate(phi_fft, mold=phi_mg)
+   phi_mg = SENTINEL ; phi_fft = SENTINEL
+   call mg%initialize(grid=realm%adam%grid, field=realm%adam%field, max_iterations=MAX_ITERATIONS, bc=bc)
+   call mg%solve(field=realm%adam%field, q=q, iv=1_I4P, factor=FACTOR, phi=phi_mg)
+   call fft%initialize(grid=realm%adam%grid, field=realm%adam%field, bc=bc)
+   call fft%solve(field=realm%adam%field, q=q, iv=1_I4P, factor=FACTOR, phi=phi_fft)
+   n = realm%adam%field%blocks_number ; ni = realm%adam%grid%ni ; nj = realm%adam%grid%nj
+   diff = 0._R8P ; scale_ = 0._R8P
+   if (n > 0) then
+      diff = maxval(abs(phi_mg(1:ni,1:nj,1:nk,1:n) - phi_fft(1:ni,1:nj,1:nk,1:n)))
+      scale_ = maxval(abs(phi_fft(1:ni,1:nj,1:nk,1:n)))
+   endif
+   call MPI_ALLREDUCE(MPI_IN_PLACE, diff, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, scale_, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   ok = diff / scale_ <= TOL_FFT .and. mg%iterations <= 1 .and. &
+        (mg%singular .eqv. .not.any(bc == FLAIL_BC_DIRICHLET .or. bc == FLAIL_BC_DIRICHLET_GHOST))
+   if (mpih%myrank == 0) print '(A)', '   '//label//' |Phi_mg - Phi_fft| / max|Phi| '// &
+      trim(str(diff / scale_, .true.))//', iterations '//trim(str(mg%iterations, .true.))//', singular '// &
+      trim(merge('T', 'F', mg%singular))//merge('  PASS', '  FAIL', ok)
+   test_passed = test_passed .and. ok
+   call mg%destroy
+   call fft%destroy
+   endsubroutine check_bc_uniform
+
+   subroutine check_bc_amr(label, bc, ratio, nk, levels)
+   !< Issue #84, E1b: the face kinds `bc` on static AMR (the central box refined once over two base levels), against the
+   !< manufactured potential (`phi_m`), its boundary values the ghost values of each kind.
+   character(*), intent(in) :: label     !< Label.
+   integer(I4P), intent(in) :: bc(2,3)   !< Kinds per face [lo/hi, axis].
+   integer(I4P), intent(in) :: ratio     !< Tree ratio.
+   integer(I4P), intent(in) :: nk        !< Cells per block along z.
+   integer(I4P), intent(in) :: levels(2) !< Base levels.
+   real(R8P), allocatable   :: q(:,:,:,:,:), phi(:,:,:,:), x(:), y(:), ghost(:), pe(:), ye(:), yb(:) !< Fields, vectors.
+   real(R8P)                :: e_phi(2), h(2), trunc(2), sym, order, vsum, pmean, umean, v, xyz(3) !< Measures.
+   real(R8P)                :: e_gh(2), order_gh, pg(3), hd !< Domain-face ghost error, its order, ghost centre.
+   integer(I4P)             :: unfilled, m, i, j, k, b, c, nl, ijk(3), nb(3), dd, s, ierr !< Counters.
+   integer(I4P)             :: nbnd, nkind(4) !< Boundary faces over the ranks, per kind.
+   integer(I4P)             :: n3(3)     !< Cells per block.
+   logical                  :: ok        !< Pass flag.
+   logical                  :: active(3) !< Active directions.
+
+   ok = .true.
+   do m=1, 2
+      block
+      type(realm_object)      :: realm !< Realm (a fresh one per grid).
+      type(poisson_mg_object) :: mg    !< Solver.
+      call build(realm, ratio, nk, levels(m), sphere=.true., q=q, periodic=.false., corner=.true.)
+      call set_grid_bc(realm, bc)
+      active = .not.realm%adam%grid%null_xyz
+      associate(f=>realm%adam%field, g=>realm%adam%grid)
+      n3 = [g%ni, g%nj, nk]
+      do b=1, f%blocks_number ! the source: the manufactured Laplacian over the factor
+         do k=1, nk
+            do j=1, g%nj
+               do i=1, g%ni
+                  q(1,i,j,k,b) = lap_m([f%x_cell(i,b), f%y_cell(j,b), f%z_cell(k,b)], active) / FACTOR
+               enddo
+            enddo
+         enddo
+      enddo
+      allocate(phi(lbound(q,2):ubound(q,2),lbound(q,3):ubound(q,3),lbound(q,4):ubound(q,4),ubound(q,5)))
+      phi = SENTINEL
+      call mg%initialize(grid=g, field=f, max_iterations=MAX_ITERATIONS, bc=bc)
+      allocate(ghost(max(mg%nbnd,1)))
+      nkind = 0
+      do i=1, mg%nbnd
+         if (mg%bnd_kind(i) == FLAIL_BC_NEUMANN) then
+            ghost(i) = sign(1_I4P, mg%bnd_dir(i)) * grad_m(mg%bnd_x(:,i), active, abs(mg%bnd_dir(i)))
+         else
+            ghost(i) = phi_m(mg%bnd_x(:,i), active)
+         endif
+         nkind(mg%bnd_kind(i)+1) = nkind(mg%bnd_kind(i)+1) + 1
+      enddo
+      call mg%solve(field=f, q=q, iv=1_I4P, factor=FACTOR, phi=phi, ghost=ghost)
+      nl = f%blocks_number * g%ni * g%nj * nk
+      allocate(x(max(nl,1)), y(max(nl,1)), pe(max(nl,1)), ye(max(nl,1)), yb(max(nl,1)))
+      do i=1, nl
+         x(i) = sin(1.3_R8P * i + 0.7_R8P * mpih%myrank) ; y(i) = cos(2.1_R8P * i - 0.4_R8P * mpih%myrank)
+      enddo
+      sym = mg%symmetry_defect(x, y)
+      ! the manufactured potential at the centres, its volume mean (singular: Phi is compared up to a constant)
+      vsum = 0._R8P ; pmean = 0._R8P ; umean = 0._R8P
+      c = 0
+      do b=1, f%blocks_number
+         v = product(merge(g%cell_dxyz(:,f%coordinates(4,b)), 1._R8P, active))
+         do k=1, nk
+            do j=1, g%nj
+               do i=1, g%ni
+                  c = c + 1
+                  pe(c) = phi_m([f%x_cell(i,b), f%y_cell(j,b), f%z_cell(k,b)], active)
+                  vsum = vsum + v ; pmean = pmean + v * pe(c) ; umean = umean + v * phi(i,j,k,b)
+               enddo
+            enddo
+         enddo
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, vsum, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, pmean, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, umean, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ierr)
+      pmean = pmean / vsum ; umean = umean / vsum
+      if (.not.mg%singular) then
+         pmean = 0._R8P ; umean = 0._R8P
+      endif
+      ! the truncation error |(A Phi_m + B g) / V - lap Phi_m|, the error of Phi, the unfilled face ghosts
+      call mg%apply_a(pe, ye)
+      call mg%apply_b(ghost, yb)
+      trunc(m) = 0._R8P ; e_phi(m) = 0._R8P ; e_gh(m) = 0._R8P ; unfilled = 0
+      c = 0
+      do b=1, f%blocks_number
+         v = product(merge(g%cell_dxyz(:,f%coordinates(4,b)), 1._R8P, active))
+         do k=1, nk
+            do j=1, g%nj
+               do i=1, g%ni
+                  c = c + 1
+                  xyz = [f%x_cell(i,b), f%y_cell(j,b), f%z_cell(k,b)]
+                  trunc(m) = max(trunc(m), abs((ye(c) + yb(c)) / v - lap_m(xyz, active)))
+                  e_phi(m) = max(e_phi(m), abs((phi(i,j,k,b) - umean) - (pe(c) - pmean)))
+                  do dd=1, 3
+                     if (.not.active(dd)) cycle
+                     do s=-1, 1, 2
+                        ijk = [i, j, k] ; nb = ijk ; nb(dd) = nb(dd) + s
+                        if (nb(dd) >= 1 .and. nb(dd) <= n3(dd)) cycle
+                        if (phi(nb(1),nb(2),nb(3),b) == SENTINEL) unfilled = unfilled + 1
+                        if (all(bc(:,dd) == FLAIL_BC_PERIODIC)) cycle ! a domain face of a bounded axis only
+                        hd = g%cell_dxyz(dd,f%coordinates(4,b))
+                        pg = xyz ; pg(dd) = pg(dd) + s * hd
+                        if (pg(dd) > g%domain_emin(dd) .and. pg(dd) < g%domain_emax(dd)) cycle
+                        e_gh(m) = max(e_gh(m), abs((phi(nb(1),nb(2),nb(3),b) - umean) - (phi_m(pg, active) - pmean)))
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, trunc(m), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, e_phi(m), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, e_gh(m), 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, unfilled, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
+      nbnd = mg%nbnd
+      call MPI_ALLREDUCE(MPI_IN_PLACE, nbnd, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, nkind, 4, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
+      h(m) = g%cell_dxyz(1,levels(m))
+      ok = ok .and. mg%residual <= mg%tolerance_used .and. sym <= TOL_SYMMETRY .and. unfilled == 0
+      if (mpih%myrank == 0) print '(A)', '   '//label//' base level '//trim(str(levels(m), .true.))// &
+         ', boundary faces '//trim(str(nbnd, .true.))//' (D '//trim(str(nkind(FLAIL_BC_DIRICHLET+1), .true.))// &
+         ', N '//trim(str(nkind(FLAIL_BC_NEUMANN+1), .true.))//', G '// &
+         trim(str(nkind(FLAIL_BC_DIRICHLET_GHOST+1), .true.))//'): iterations '//trim(str(mg%iterations, .true.))// &
+         ', symmetry '//trim(str(sym, .true.))//', truncation '//trim(str(trunc(m), .true.))// &
+         ', |Phi - Phi_m| '//trim(str(e_phi(m), .true.))//', domain-face ghosts '//trim(str(e_gh(m), .true.))// &
+         ', unfilled '//trim(str(unfilled, .true.))
+      endassociate
+      call mg%destroy
+      deallocate(phi, x, y, ghost, pe, ye, yb)
+      endblock
+   enddo
+   order = log(e_phi(1) / e_phi(2)) / log(h(1) / h(2))
+   order_gh = log(e_gh(1) / e_gh(2)) / log(h(1) / h(2))
+   ok = ok .and. order >= MIN_ORDER .and. order_gh >= MIN_ORDER .and. trunc(2) / trunc(1) <= MAX_TRUNCATION_GROWTH
+   if (mpih%myrank == 0) print '(A)', '   '//label//' order of Phi '//trim(str(order, .true.))// &
+      ', of the domain-face ghosts '//trim(str(order_gh, .true.))//' (min '// &
+      trim(str(MIN_ORDER, .true.))//'), truncation growth '//trim(str(trunc(2) / trunc(1), .true.))//' (max '// &
+      trim(str(MAX_TRUNCATION_GROWTH, .true.))//')'//merge('  PASS', '  FAIL', ok)
+   test_passed = test_passed .and. ok
+   endsubroutine check_bc_amr
+
+   subroutine set_grid_bc(realm, bc)
+   !< The grid's periodicity from the kinds: an axis periodic in `bc` is periodic in the grid, the others bounded.
+   type(realm_object), intent(inout) :: realm   !< Realm.
+   integer(I4P),       intent(in)    :: bc(2,3) !< Kinds per face [lo/hi, axis].
+   integer(I4P)                      :: t(6)    !< Grid boundary types.
+   integer(I4P)                      :: d       !< Counter.
+
+   t = 0_I4P
+   do d=1, 3
+      if (all(bc(:,d) == FLAIL_BC_PERIODIC) .and. .not.realm%adam%grid%null_xyz(d)) t(2*d-1:2*d) = BC_PERIODIC
+   enddo
+   call realm%adam%grid%set_bc_type(bc_type=t)
+   endsubroutine set_grid_bc
+
+   pure function phi_m(xyz, active) result(p)
+   !< The manufactured potential, prod_d cos(2 pi x_d / L_d + theta_d) over the active directions.
+   real(R8P), intent(in) :: xyz(3)    !< Point.
+   logical,   intent(in) :: active(3) !< Active directions.
+   real(R8P)             :: p         !< Potential.
+   integer(I4P)          :: d         !< Counter.
+
+   p = 1._R8P
+   do d=1, 3
+      if (active(d)) p = p * cos(2._R8P * PI * xyz(d) / L(d) + THETA(d))
+   enddo
+   endfunction phi_m
+
+   pure function lap_m(xyz, active) result(lp)
+   !< The Laplacian of the manufactured potential, -sum_d (2 pi / L_d)^2 phi_m.
+   real(R8P), intent(in) :: xyz(3)    !< Point.
+   logical,   intent(in) :: active(3) !< Active directions.
+   real(R8P)             :: lp        !< Laplacian.
+
+   lp = -sum(merge((2._R8P * PI / L)**2, 0._R8P, active)) * phi_m(xyz, active)
+   endfunction lap_m
+
+   pure function grad_m(xyz, active, d) result(gr)
+   !< d phi_m / d x_d.
+   real(R8P),    intent(in) :: xyz(3)    !< Point.
+   logical,      intent(in) :: active(3) !< Active directions.
+   integer(I4P), intent(in) :: d         !< Direction.
+   real(R8P)                :: gr        !< Derivative.
+   integer(I4P)             :: e         !< Counter.
+
+   gr = -2._R8P * PI / L(d) * sin(2._R8P * PI * xyz(d) / L(d) + THETA(d))
+   do e=1, 3
+      if (active(e) .and. e /= d) gr = gr * cos(2._R8P * PI * xyz(e) / L(e) + THETA(e))
+   enddo
+   endfunction grad_m
 
    subroutine check_dirichlet(label, ratio, nk, levels, sphere)
    !< SV-12: Dirichlet boundaries, the exact potential as the ghost values; two base levels, uniform or with the box
@@ -714,8 +1023,9 @@ contains
    enddo
    endfunction level_at
 
-   subroutine build(realm, ratio, nk, level, sphere, q, periodic)
-   !< The realm: uniform at `level`, and with `sphere` the central box [L/4, 3L/4] refined once more.
+   subroutine build(realm, ratio, nk, level, sphere, q, periodic, corner)
+   !< The realm: uniform at `level`, and with `sphere` the central box [L/4, 3L/4] refined once more (with `corner`, the
+   !< corner octant [0, L/2] instead, its leaves on the low domain faces).
    type(realm_object),     intent(inout) :: realm  !< Realm.
    integer(I4P),           intent(in)    :: ratio  !< Tree ratio.
    integer(I4P),           intent(in)    :: nk     !< Cells per block along z.
@@ -723,10 +1033,13 @@ contains
    logical,                intent(in)    :: sphere !< Refine near the sphere.
    real(R8P), allocatable, intent(inout) :: q(:,:,:,:,:) !< The source field.
    logical, optional,      intent(in)    :: periodic !< Periodic boundaries (default true).
+   logical, optional,      intent(in)    :: corner   !< Refine the corner octant instead of the central box.
    character(:), allocatable             :: filename !< Input file.
    integer(I4P)                          :: ngc, ni, nj, b, i, j, k, d, ierr !< Counters.
    logical                               :: active(3) !< Active directions.
    type(tree_node_object), pointer       :: node      !< A tree node.
+   logical                               :: corner_   !< Refine the corner octant.
+   real(R8P)                             :: c(3)      !< A block centre.
 
    filename = 'test_poisson_mg-r'//trim(str(ratio, .true.))//'-l'//trim(str(level, .true.))//'.ini'
    if (mpih%myrank == 0) call write_input(filename=filename, nk=nk, ratio=ratio, level=level+1)
@@ -743,10 +1056,13 @@ contains
    q = 0._R8P
    if (level > 0) call realm%adam%refine_uniform(refinement_levels=level, q=q, do_mpi_redistribute=.true., &
                                                  do_blocks_reorder=.false.)
-   if (sphere) then ! refine the central box [L/4, 3L/4]: block-aligned from base level 2 on, the same at every level
+   corner_ = .false.
+   if (present(corner)) corner_ = corner
+   if (sphere) then ! refine the central box [L/4, 3L/4] (or the corner [0, L/2]): block-aligned from base level 2 on
       do b=1, realm%adam%field%blocks_number
-         if (all(abs(0.5_R8P * (realm%adam%field%emin(:,b) + realm%adam%field%emax(:,b)) - 0.5_R8P * L) < 0.25_R8P * L &
-                 .or. realm%adam%grid%null_xyz)) then
+         c = 0.5_R8P * (realm%adam%field%emin(:,b) + realm%adam%field%emax(:,b))
+         if ((.not.corner_ .and. all(abs(c - 0.5_R8P * L) < 0.25_R8P * L .or. realm%adam%grid%null_xyz)) .or. &
+             (corner_ .and. all(c < 0.5_R8P * L .or. realm%adam%grid%null_xyz))) then
             node => realm%adam%tree%node(code=realm%adam%field%code(b))
             node%refinement_needed = TO_BE_REFINED
          endif
