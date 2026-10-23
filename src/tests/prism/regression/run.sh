@@ -154,6 +154,8 @@ done
 # forbidden device-code pattern reappears — the gate fires at the first firewall
 # run, where FNL development actually happens (no CI GPU runners).
 "$REGRESSION_DIR/../../lint/check-gpu-race-shapes.sh"
+# Removed-input-key lint gate (issue #58): no committed PRISM input may carry a key the parser no longer reads.
+"$REGRESSION_DIR/../../lint/check-removed-input-keys.sh"
 
 if ! command -v mpirun >/dev/null 2>&1; then
    echo "ERROR: mpirun not on PATH" >&2

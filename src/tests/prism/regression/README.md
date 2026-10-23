@@ -144,6 +144,12 @@ device-path a plain field case does not:
   slots 7 and 8 and J in 9..11 (issue #61): before it no case ran the
   cleaning. The two inputs #61 refuses are legs of `refusals.sh`.
 
+### Lint gates
+
+`run.sh` runs two static gates before any case: `src/tests/lint/check-gpu-race-shapes.sh` (issue #26) and
+`src/tests/lint/check-removed-input-keys.sh` (issue #58). The latter fails the sweep if a committed PRISM input still
+carries a key the parser no longer reads; today the only rule is `[fWLayer] C`, replaced by `width` in `8e05d363`.
+
 ### Init refusals (`refusals.sh`)
 
 `refusals.sh` (manual; `PRISM_EXE=` selects the executable, and so the
