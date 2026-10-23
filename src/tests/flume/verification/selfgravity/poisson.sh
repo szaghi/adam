@@ -66,8 +66,14 @@
 # negated (orders 0.02-0.14), the Neumann ghost's h g negated (ghost orders ~1), the Dirichlet ghost 2 g + phi_C
 # (ghost orders ~0.03).
 #
+# flail (test_poisson_mg --flail, issue #84, E1c): the FLAIL facade with boundary kinds, flail%setup(..., bc) and
+# solve against the solver it chooses called directly, bitwise on every cell and ghost (FFT on a uniform grid, the
+# multigrid on AMR with inhomogeneous boundary values); a vector with per-component kinds (a PEC face normal to z)
+# as three FLAIL instances, solved interleaved, bitwise equal to three solved alone; refused: boundary values on the
+# FFT path, isolated with bc.
+#
 # Usage: ./poisson.sh [--np-list "1 2 3"] [--legs LIST] [--dump DIR] [--keep]
-#        LIST: sv2, sv6, sv9, sv13, bc, bcmg or all
+#        LIST: sv2, sv6, sv9, sv13, bc, bcmg, flail or all
 #        (default all)
 #
 # POISSON_EXE overrides the executable under test, e.g. POISSON_EXE=$REPO/exe/test_poisson_fft_fnl ./poisson.sh
@@ -84,7 +90,7 @@ MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
 BC_EXE="${POISSON_BC_EXE:-$REPO_ROOT/exe/test_flail_bc}"
 NP_LIST="1 2 3"
 source "$VERIF_DIR/legs.sh"
-legs_declare "sv2 sv6 sv9 sv13 bc bcmg"
+legs_declare "sv2 sv6 sv9 sv13 bc bcmg flail"
 DUMP=""
 KEEP=0
 
@@ -101,7 +107,7 @@ done
 legs_resolve poisson.sh
 needs_fft=0 ; needs_mg=0 ; needs_bc=0
 for leg in $LEGS; do
-   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13|bcmg) needs_mg=1 ;; bc) needs_bc=1 ;; esac
+   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13|bcmg|flail) needs_mg=1 ;; bc) needs_bc=1 ;; esac
 done
 if [[ -n "$DUMP" ]]; then needs_fft=1 ; fi
 if [[ $needs_fft -eq 1 ]]; then
@@ -188,6 +194,12 @@ for leg in $LEGS; do
       bcmg)
          echo ">> FLAIL boundary kinds per face, the multigrid solver (issue #84, E1b; $(basename "$MG_EXE"))"
          suite multigrid-bc "--bc" "$MG_EXE" ;;
+      flail)
+         echo ">> The FLAIL facade with boundary kinds (issue #84, E1c; $(basename "$MG_EXE"))"
+         suite flail "--flail" "$MG_EXE"
+         refusal "facade, boundary values on the FFT path" --refuse-flail-ghost-fft 'need the multigrid path' \
+            "$MG_EXE"
+         refusal "facade, isolated with bc" --refuse-flail-isolated-bc 'isolated boundaries take no bc' "$MG_EXE" ;;
    esac
 done
 if [[ -n "$DUMP" ]]; then

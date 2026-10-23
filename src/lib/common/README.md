@@ -265,9 +265,14 @@ AMR grids. The legacy smoothers (next section) retire once PRISM moves here (#84
 
 | Procedure | Role |
 |-----------|------|
-| `setup(grid, field, isolated, backend[, option_name])` | Choose the solver for the current grid (`FLAIL_BACKEND_AUTO`: the FFT solver on a uniform grid, the multigrid otherwise; `_FFT`, `_MULTIGRID`); call it on the initial grid and after every regrid |
-| `solve(field, q, iv, factor, phi, energy)`, `solve_packed(field, buf, factor, phi, energy)` | Forward to the chosen solver; `energy = sum f phi dV` |
+| `setup(grid, field, isolated, backend[, option_name][, bc])` | Choose the solver for the current grid (`FLAIL_BACKEND_AUTO`: the FFT solver on a uniform grid, the multigrid otherwise; `_FFT`, `_MULTIGRID`); call it on the initial grid and after every regrid. `bc(2,3)` (E1c): the kind of every face, forwarded (`FLAIL_BC_PERIODIC`, `_DIRICHLET`, `_NEUMANN`, `_DIRICHLET_GHOST`, re-exported here); without it, periodic or isolated as in E0; isolated with `bc` is fatal |
+| `solve(field, q, iv, factor, phi, energy[, ghost])`, `solve_packed(field, buf, factor, phi, energy[, ghost])` | Forward to the chosen solver; `energy = sum f phi dV`; `ghost` the boundary value of each boundary face (`mg%nbnd`, `mg%bnd_kind`, `mg%bnd_dir`, `mg%bnd_x`), multigrid path only (fatal on the FFT path, which solves the homogeneous problem) |
 | `iterations()`, `is_multigrid()`, `destroy()` | The last FCG iteration count (0 for the FFT solver), the solver in use, cleanup |
+
+A vector whose components take different kinds (PRISM's vector potential at a PEC face: Neumann for the normal
+component, Dirichlet for the others) takes one FLAIL per set of kinds: the operators differ (the FFT extensions, the
+singularity), and the instances coexist (`test_poisson_mg --flail`, bitwise). The mapping from an app's boundaries to
+the kinds belongs to the app (PRISM's lands with its migration, #84 E3).
 
 A backend chooses its FFT engine by allocating the `fft` component before `setup` (FLUME's FNL backend allocates the
 cuFFT one). The boundary kinds per face, `FLAIL_BC_PERIODIC | _DIRICHLET | _NEUMANN | _DIRICHLET_GHOST`, live in

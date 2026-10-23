@@ -12,11 +12,22 @@ module adam_flail_object
 !< Phase E0 is a facade over the two solvers: `setup` chooses one for the current grid, as FLUME's self-gravity did,
 !< and `solve`/`solve_packed` forward to it with the call sequence unchanged, so a client gets bitwise the results it
 !< got from the solvers directly. The operator is the compact second-order Laplacian `L_h phi = factor (f - mean f)`
-!< (periodic) or `L_h phi = factor f` (isolated); further operators and boundary conditions come in E1-E2.
+!< (periodic) or `L_h phi = factor f` (isolated); further operators come in E2.
+!<
+!< **Boundary kinds (E1c).** `setup(..., bc)` gives the kind of every face (`adam_flail_parameters`: periodic, Dirichlet
+!< or Neumann at the face, ghost-Dirichlet; mixed across axes and within one), forwarded to the solver chosen; the
+!< grid's periodicity must agree with it. Without a Dirichlet face the operator is singular and the mean of the source
+!< is removed, as on a periodic grid. Without `bc` the setup is the E0 one, unchanged: periodic or isolated. The values
+!< at the boundary are homogeneous on the FFT path; `solve(..., ghost=)` gives inhomogeneous ones (the multigrid's
+!< boundary-face list, `mg%nbnd`, `mg%bnd_kind`, `mg%bnd_dir`, `mg%bnd_x`) and needs the multigrid path
+!< (`FLAIL_BACKEND_MULTIGRID`: on a uniform grid one V-cycle is the exact FFT solve). A vector whose components take
+!< different kinds (PRISM's vector potential at a PEC face: Neumann for the normal component, Dirichlet for the others)
+!< takes one FLAIL per set of kinds: the operators differ, and the instances coexist.
 !<
 !< A backend's FFT solver is chosen by allocating the `fft` component before `setup` (the FNL backend allocates the
 !< cuFFT extension); otherwise `setup` allocates the host one.
 use :: adam_field_object,       only : field_object
+use :: adam_flail_parameters,   only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST
 use :: adam_grid_object,        only : grid_object
 use :: adam_mpih_global,        only : mpih
 use :: adam_poisson_fft_object, only : poisson_fft_object
@@ -30,6 +41,7 @@ public :: flail_object
 public :: FLAIL_BACKEND_AUTO
 public :: FLAIL_BACKEND_FFT
 public :: FLAIL_BACKEND_MULTIGRID
+public :: FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST ! the kinds, for clients
 
 integer(I4P), parameter :: FLAIL_BACKEND_AUTO      = 0_I4P !< FFT on a uniform grid, multigrid otherwise.
 integer(I4P), parameter :: FLAIL_BACKEND_FFT       = 1_I4P !< The FFT solver (uniform grids only).
@@ -81,23 +93,26 @@ contains
    if (allocated(self%mg)) iterations = self%mg%iterations
    endfunction iterations
 
-   subroutine setup(self, grid, field, isolated, backend, option_name)
+   subroutine setup(self, grid, field, isolated, backend, option_name, bc)
    !< Choose and set up the solver for the current grid: call it on the initial grid and after every regrid.
    !<
    !< `FLAIL_BACKEND_AUTO` uses the FFT solver when every leaf is at one level and the multigrid solver otherwise;
    !< `FLAIL_BACKEND_FFT` on a grid with more than one level is fatal, the message naming `option_name` (the client's
    !< input key, default `[flail].(backend)`). The multigrid solver is rebuilt at every call, its coarsest level solved
-   !< by a solver of the `fft` component's type.
+   !< by a solver of the `fft` component's type. `bc` (E1c): the kind of every face, forwarded to the solver; isolated
+   !< boundaries take none (fatal: the FFT solver would ignore it).
    class(flail_object), intent(inout)        :: self        !< FLAIL.
    type(grid_object),   intent(in)           :: grid        !< The grid.
    type(field_object),  intent(in)           :: field       !< The field (block coordinates).
    logical,             intent(in)           :: isolated    !< Free-space boundaries, else periodic.
    integer(I4P),        intent(in)           :: backend     !< FLAIL_BACKEND_AUTO, _FFT or _MULTIGRID.
    character(*),        intent(in), optional :: option_name !< The client's input key, for the messages.
+   integer(I4P),        intent(in), optional :: bc(2,3)     !< Kinds per face [lo/hi, axis] (adam_flail_parameters).
    integer(I4P)                              :: lev(2)      !< Lowest and (negated) highest leaf level over the ranks.
    integer(I4P)                              :: b           !< Counter.
    integer(I4P)                              :: ierr        !< MPI error status.
 
+   if (isolated .and. present(bc)) call mpih%error_stop(msg='flail_object%setup: isolated boundaries take no bc')
    if (.not.allocated(self%fft)) allocate(poisson_fft_object :: self%fft)
    lev = [huge(1_I4P), huge(1_I4P)]
    do b=1, field%blocks_number
@@ -118,16 +133,25 @@ contains
       endif
    endif
    if (backend == FLAIL_BACKEND_FFT .or. (backend == FLAIL_BACKEND_AUTO .and. lev(1) == -lev(2))) then
-      call self%fft%initialize(grid=grid, field=field, isolated=isolated)
+      if (present(bc)) then
+         call self%fft%initialize(grid=grid, field=field, isolated=isolated, bc=bc)
+      else
+         call self%fft%initialize(grid=grid, field=field, isolated=isolated)
+      endif
    else
       allocate(self%mg)
-      call self%mg%initialize(grid=grid, field=field, coarse=self%fft, isolated=isolated)
+      if (present(bc)) then
+         call self%mg%initialize(grid=grid, field=field, coarse=self%fft, isolated=isolated, bc=bc)
+      else
+         call self%mg%initialize(grid=grid, field=field, coarse=self%fft, isolated=isolated)
+      endif
    endif
    endsubroutine setup
 
-   subroutine solve(self, field, q, iv, factor, phi, energy)
+   subroutine solve(self, field, q, iv, factor, phi, energy, ghost)
    !< Solve for phi from the variable `iv` of q, every ghost layer of phi filled; optionally the energy
-   !< `sum_cells f phi dV` (every rank).
+   !< `sum_cells f phi dV` (every rank). `ghost` (E1c): the boundary value of each of this rank's boundary faces
+   !< (`mg%nbnd`, of its kind), multigrid path only.
    class(flail_object), intent(inout)         :: self       !< FLAIL.
    type(field_object),  intent(in)            :: field      !< The field (coordinates).
    real(R8P),           intent(in)            :: q(1:,1:,1:,1:,1:) !< Conservative [nv,i,j,k,nb], ghosts included.
@@ -135,30 +159,41 @@ contains
    real(R8P),           intent(in)            :: factor     !< Source factor (4 pi G for gravity).
    real(R8P),           intent(inout)         :: phi(1:,1:,1:,1:) !< Potential [i,j,k,nb], ghosts included.
    real(R8P),           intent(out), optional :: energy     !< sum_cells f phi dV (all ranks).
+   real(R8P),           intent(in),  optional :: ghost(1:)  !< Boundary values per boundary face (multigrid path).
 
    if (allocated(self%mg)) then
-      call self%mg%solve(field=field, q=q, iv=iv, factor=factor, phi=phi, energy=energy)
+      call self%mg%solve(field=field, q=q, iv=iv, factor=factor, phi=phi, energy=energy, ghost=ghost)
    else
+      if (present(ghost)) call refuse_ghost
       call self%fft%solve(field=field, q=q, iv=iv, factor=factor, phi=phi, energy=energy)
       if (present(energy)) energy = energy * product(self%fft%dxyz) ! uniform grid: one cell volume
    endif
    endsubroutine solve
 
-   subroutine solve_packed(self, field, buf, factor, phi, energy)
+   subroutine solve_packed(self, field, buf, factor, phi, energy, ghost)
    !< Solve for phi from the packed interior source of the active blocks (block-major, `i` fastest), every ghost layer
-   !< of phi filled; optionally the energy `sum_cells f phi dV` (every rank).
+   !< of phi filled; optionally the energy `sum_cells f phi dV` (every rank); `ghost` as in `solve`.
    class(flail_object), intent(inout)         :: self    !< FLAIL.
    type(field_object),  intent(in)            :: field   !< The field (coordinates).
    real(R8P),           intent(in)            :: buf(1:) !< Packed interior source.
    real(R8P),           intent(in)            :: factor  !< Source factor (4 pi G for gravity).
    real(R8P),           intent(inout)         :: phi(1:,1:,1:,1:) !< Potential [i,j,k,nb], ghosts included.
    real(R8P),           intent(out), optional :: energy  !< sum_cells f phi dV (all ranks).
+   real(R8P),           intent(in),  optional :: ghost(1:) !< Boundary values per boundary face (multigrid path).
 
    if (allocated(self%mg)) then
-      call self%mg%solve_packed(field=field, buf=buf, factor=factor, phi=phi, energy=energy)
+      call self%mg%solve_packed(field=field, buf=buf, factor=factor, phi=phi, energy=energy, ghost=ghost)
    else
+      if (present(ghost)) call refuse_ghost
       call self%fft%solve_packed(field=field, buf=buf, factor=factor, phi=phi, energy=energy)
       if (present(energy)) energy = energy * product(self%fft%dxyz) ! uniform grid: one cell volume
    endif
    endsubroutine solve_packed
+
+   ! private
+   subroutine refuse_ghost
+   !< Boundary values given on the FFT path, which solves the homogeneous problem: fatal.
+   call mpih%error_stop(msg='flail_object%solve: boundary values (ghost) need the multigrid path; set it up with '// &
+                            'FLAIL_BACKEND_MULTIGRID (on a uniform grid one V-cycle is the exact FFT solve)')
+   endsubroutine refuse_ghost
 endmodule adam_flail_object
