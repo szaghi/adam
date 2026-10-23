@@ -257,7 +257,27 @@ Marker modes:
 
 Each marker carries threshold parameters `delta_fine` / `delta_coarse` (cell-spacing ratios), a tolerance `tol`, and a reference to the field variable and direction. AMR is triggered every `frequency` time steps and iterated `iters` times per cycle to enforce 2:1 level balance. Configuration section: `[amr]`.
 
-### `adam_flail_object` — linear algebra interface
+### `adam_flail_object` — FLAIL, the elliptic solver library (issue #84)
+
+One entry point for the elliptic solves of every app, the realm component `flail` (`self%flail`). It is built on the two
+solvers below, verified in #81/#87: the FFT solver on uniform grids and the multigrid-preconditioned CG solver on
+AMR grids. The legacy smoothers (next section) retire once PRISM moves here (#84, E3-E4).
+
+| Procedure | Role |
+|-----------|------|
+| `setup(grid, field, isolated, backend[, option_name])` | Choose the solver for the current grid (`FLAIL_BACKEND_AUTO`: the FFT solver on a uniform grid, the multigrid otherwise; `_FFT`, `_MULTIGRID`); call it on the initial grid and after every regrid |
+| `solve(field, q, iv, factor, phi, energy)`, `solve_packed(field, buf, factor, phi, energy)` | Forward to the chosen solver; `energy = sum f phi dV` |
+| `iterations()`, `is_multigrid()`, `destroy()` | The last FCG iteration count (0 for the FFT solver), the solver in use, cleanup |
+
+A backend chooses its FFT engine by allocating the `fft` component before `setup` (FLUME's FNL backend allocates the
+cuFFT one). The boundary kinds per face, `FLAIL_BC_PERIODIC | _DIRICHLET | _NEUMANN | _DIRICHLET_GHOST`, live in
+`adam_flail_parameters` (a module of their own: the solvers use them, and the facade uses the solvers). Phases and
+status: [issue #84](https://github.com/szaghi/adam/issues/84).
+
+### `adam_flail_legacy_object` — legacy FLAIL smoothers (retired in issue #84, E4)
+
+PRISM's elliptic smoothers until they move to the FLAIL library (E3); the realm component is `flail_legacy`, and it
+owns the `[linear-algebra]` section. No new code should use it.
 
 Iterative solver and smoother infrastructure for implicit operators (e.g., elliptic sub-problems). Provides a common interface over several smoothing strategies:
 
@@ -270,7 +290,7 @@ Iterative solver and smoother infrastructure for implicit operators (e.g., ellip
 
 Convergence is controlled by `tolerance` (default 10⁻⁶) and `iterations`. Configuration section: `[linear-algebra]`.
 
-### `adam_poisson_fft_object` — FFT Poisson solver (uniform grids, periodic or isolated)
+### `adam_poisson_fft_object` — FFT Poisson solver (uniform grids: periodic, Dirichlet/Neumann faces, or isolated)
 
 Solves `L_h phi = factor (f - mean f)` (periodic) or `L_h phi = factor f` with `phi -> 0` at infinity (isolated) for
 one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the second-order 7-point Laplacian (5-point in
@@ -284,30 +304,39 @@ one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the second-
   ghosts included. `G` comes from `adam_lattice_green_library` (below): its residual is about `1e-13` per offset, so
   the residual of `phi` is that summed over the source (`2e-11` of `factor f` at `64^3`), not round-off.
 
-Both are symmetric linear maps of the source, which is what exact energy and momentum conservation of self-gravity
+- **Dirichlet/Neumann faces (issue #84, E1a):** `bc(2,3)` gives each face a homogeneous kind; an axis is periodic, or
+  each of its faces is Dirichlet (zero at the face) or Neumann (zero normal derivative), possibly different at the two
+  ends. The source is extended odd about a Dirichlet face and even about a Neumann one, over `2n` cells when the faces
+  agree and `4n` when they differ, and the periodic transform of the extension solves the 7-point operator with those
+  conditions exactly (round-off residual, face placement of the wall: second order). Without a Dirichlet face the source
+  mean is dropped, as on a periodic grid. The energy sums the interior only.
+
+All are symmetric linear maps of the source, which is what exact energy and momentum conservation of self-gravity
 needs (FLUME [models](/applications/flume/models#self-gravity)).
 
 | Procedure | Role |
 |-----------|------|
-| `initialize(grid, field, isolated)` | Check the scope, size the solver, make the plans (and, isolated, the kernel's spectrum) on rank 0 |
+| `initialize(grid, field, isolated, bc)` | Check the scope, size the solver, make the plans (and, isolated, the kernel's spectrum) on rank 0; `bc(2,3)` optional, consistent with the grid's periodicity |
 | `solve(field, q, iv, factor, phi, energy)` | Gather `q(iv)` to rank 0, transform, scatter `phi(1-ngc:n+ngc, ..., b)` with every ghost layer filled from the global solution; optionally `energy = sum f phi` |
 | `solve_packed(field, buf, factor, phi, energy)` | The same from the interior source already packed (block-major, `i` fastest: what a device kernel produces) |
-| `initialize_blocks(nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet)` | Size the solver for an explicit uniform block lattice, no grid object and no scope check (the caller owns it): the multigrid's coarsest level; `dirichlet` (#87) zero at the first ghost centres, by the odd extension to `2 (n + 1)` cells per active direction (the type-I sine transform) |
+| `initialize_blocks(nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet, bc)` | Size the solver for an explicit uniform block lattice, no grid object and no scope check (the caller owns it): the multigrid's coarsest level; `dirichlet` (#87) zero at the first ghost centres, by the odd extension to `2 (n + 1)` cells per active direction (the type-I sine transform: `FLAIL_BC_DIRICHLET_GHOST` on every axis); `bc` the kinds per face (E1a) |
 | `solve_blocks(nbl, coords, buf, factor, gw, out, energy)` | Solve on an explicit list of this rank's blocks (integer coordinates, packed source), returning each block's potential with `gw` ghost layers; `initialize`/`solve_packed` are wrappers over these two |
 | `destroy()` | Free the arrays and the plans |
 
 - **Data path:** `MPI_Gatherv` of the block interiors (with their integer block coordinates) to rank 0, which holds the
   whole grid, solves and `MPI_Scatterv`s every block with its ghosts, so no ghost exchange follows. Correct for any rank
   count, ranks without blocks included; **not scalable**.
-- **Scope (fatal otherwise):** every block at one level and the blocks covering the domain. Periodic: every active
-  direction periodic. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's). AMR
+- **Scope (fatal otherwise):** every block at one level and the blocks covering the domain. Without `bc`, every active
+  direction periodic; one periodic face against a non-periodic one, or a ghost-Dirichlet face against a face kind, on
+  one axis are fatal. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's). AMR
   grids: `adam_poisson_mg_object` (below).
 - **Build:** `-D_FFTW` and `-lfftw3` (FFTW 3, `FFTW_ESTIMATE` plans: deterministic). Without an FFT library,
   `initialize` stops with "built without an FFT library". The FNL twin is `adam_fnl_poisson_fft_object` (cuFFT).
-  The module is **not** re-exported by `adam_common_library`: only the modes that use it build it
-  (`test-poisson-fft-*` today, with their own `mod`/`obj` directories).
+  Every mode builds it since the FLAIL facade (#84, E0) is a realm component; only the `*-fft` modes link an FFT library.
 - **Verification:** SV-2 (periodic) and SV-6 (isolated), `src/tests/poisson/test_poisson_fft.F90` (`--isolated`)
-  driven by `src/tests/flume/verification/selfgravity/poisson.sh`.
+  driven by `src/tests/flume/verification/selfgravity/poisson.sh`; the face kinds by
+  `src/tests/poisson/test_flail_bc.F90` (E1a: per-axis discrete eigenfunctions of every kind mix, the ghost layer
+  included, at round-off on 1-3 ranks; the D/D order against the continuum 1.99; refusals).
 
 ### `adam_poisson_mg_object` — Poisson solver on AMR grids (multigrid-preconditioned CG)
 

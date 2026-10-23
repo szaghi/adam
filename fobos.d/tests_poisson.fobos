@@ -2,6 +2,7 @@
 modes = test-poisson-fft-gnu                           test-poisson-fft-gnu-debug
         test-poisson-fft-fnl-nvf
         test-poisson-mg-gnu                            test-poisson-mg-gnu-debug
+        test-flail-bc-gnu                              test-flail-bc-fnl-nvf
 
 # The FFT Poisson solver (issue #81): -D_FFTW links FFTW 3 on the CPU, -D_CUFFT cuFFT on FNL. The modes have their own
 # mod/obj directories: the solver module is compiled with different macros than in the default builds.
@@ -47,3 +48,21 @@ obj_dir  = ./obj/gnu-fft/debug/
 preproc  = -D_MPI_ -D_FFTW -w
 ext_libs = z hdf5_fortran dl fftw3
 target   = test_poisson_mg.F90
+
+# FLAIL boundary conditions per face (issue #84, E1a): the FFT solver's extensions, on initialize_blocks/solve_blocks.
+[test-flail-bc-gnu]
+template = template-gnu
+mod_dir  = ./mod/gnu-fft/
+obj_dir  = ./obj/gnu-fft/
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
+target   = test_flail_bc.F90
+
+[test-flail-bc-fnl-nvf]
+template = template-nvf
+mod_dir  = ./mod/nvf-fft/
+obj_dir  = ./obj/nvf-fft/
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+lflags   = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
+target   = test_flail_bc.F90
+output   = test_flail_bc_fnl

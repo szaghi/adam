@@ -52,7 +52,7 @@
 # CPU = FNL: run this script once per build with --dump DIR, then
 #   poisson_oracle.py compare DIR_CPU DIR_FNL      (max |phi_CPU - phi_FNL| / max |phi|, 1e-13)
 #
-# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs LIST] [--dump DIR] [--keep]   LIST: sv2, sv6, sv9, sv13 or all
+# Usage: ./poisson.sh [--np-list "1 2 3"] [--legs LIST] [--dump DIR] [--keep]   LIST: sv2, sv6, sv9, sv13, bc or all
 #        (default all)
 #
 # POISSON_EXE overrides the executable under test, e.g. POISSON_EXE=$REPO/exe/test_poisson_fft_fnl ./poisson.sh
@@ -66,9 +66,10 @@ VERIF_DIR="$(cd "$CASE_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${POISSON_EXE:-$REPO_ROOT/exe/test_poisson_fft}"
 MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
+BC_EXE="${POISSON_BC_EXE:-$REPO_ROOT/exe/test_flail_bc}"
 NP_LIST="1 2 3"
 source "$VERIF_DIR/legs.sh"
-legs_declare "sv2 sv6 sv9 sv13"
+legs_declare "sv2 sv6 sv9 sv13 bc"
 DUMP=""
 KEEP=0
 
@@ -83,9 +84,9 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 legs_resolve poisson.sh
-needs_fft=0 ; needs_mg=0
+needs_fft=0 ; needs_mg=0 ; needs_bc=0
 for leg in $LEGS; do
-   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13) needs_mg=1 ;; esac
+   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13) needs_mg=1 ;; bc) needs_bc=1 ;; esac
 done
 if [[ -n "$DUMP" ]]; then needs_fft=1 ; fi
 if [[ $needs_fft -eq 1 ]]; then
@@ -99,6 +100,12 @@ if [[ $needs_mg -eq 1 ]]; then
       echo "poisson.sh: executable '$MG_EXE' not found (build it or set POISSON_MG_EXE)" >&2 ; exit 2
    fi
    MG_EXE="$(realpath "$MG_EXE")"
+fi
+if [[ $needs_bc -eq 1 ]]; then
+   if [[ ! -x "$BC_EXE" ]]; then
+      echo "poisson.sh: executable '$BC_EXE' not found (build test-flail-bc-* or set POISSON_BC_EXE)" >&2 ; exit 2
+   fi
+   BC_EXE="$(realpath "$BC_EXE")"
 fi
 
 TAG="$(basename "$EXE")"
@@ -116,7 +123,7 @@ suite() { # suite <label> <flags> [exe]: the test on every rank count of the lis
          continue
       fi
       grep '^   ' "$log" | sed "s/^/   np $np:/"
-      if ! grep -qE '^test_poisson_(fft|mg): PASSED' "$log"; then FAILED=1 ; fi
+      if ! grep -qE '^test_(poisson_(fft|mg)|flail_bc): PASSED' "$log"; then FAILED=1 ; fi
    done
 }
 refusal() { # refusal <label> <flag> <expected message> [exe]: the run must stop, naming the cause
@@ -152,6 +159,12 @@ for leg in $LEGS; do
          suite multigrid-isolated "--isolated" "$MG_EXE"
          refusal "isolated, a refined leaf on the boundary" --refuse-boundary-refined 'touches the domain boundary' \
             "$MG_EXE" ;;
+      bc)
+         echo ">> FLAIL boundary kinds per face, the FFT solver (issue #84, E1a; $(basename "$BC_EXE"))"
+         suite flail-bc "" "$BC_EXE"
+         refusal "a periodic face against a Dirichlet one" --refuse-mixed-periodic 'one periodic face and one' "$BC_EXE"
+         refusal "a ghost-Dirichlet face against a face kind" --refuse-mixed-ghost 'mixes a ghost-Dirichlet face' \
+            "$BC_EXE" ;;
    esac
 done
 if [[ -n "$DUMP" ]]; then
