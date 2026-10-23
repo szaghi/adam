@@ -326,6 +326,16 @@ one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the second-
   for D(G) (86 → 677 at p = 2, N = 32 → 256: the checkerboard branch it does not see), while the wide p = 2 operator
   (2^d compact Laplacians on the sub-lattices of spacing 2h) is spectrally equivalent (17–30 iterations, independent of
   N). PRISM's zero-ghost Dirichlet face is not a reflection: `wide_dg_zero_ghost.py` measures it (#84 E2b).
+- **Zero-ghost faces (issue #84, E2b):** `FLAIL_BC_ZERO_GHOSTS` (both faces of an axis) is PRISM's elliptic Dirichlet
+  face, every ghost layer zero. With the compact operator it is the ghost-Dirichlet kind (one layer read; the multigrid
+  maps it the same way). With the wide D(G) the operator is the stencil truncated, symmetric and nonsingular, and no
+  transform diagonalises it: rank 0 solves it on the gathered array by conjugate gradients (`tolerance` 1e-12 on the
+  max-norm residual, `iterations`), preconditioned by the wide p = 2 operator with the same faces inverted exactly.
+  Along a zero-ghost axis that operator splits into the two parity sub-lattices, each the compact Laplacian at spacing
+  2h with zero at the ghost centres; the `2^z` sub-problems are FFT solves by sub-solvers of the solver's own type
+  (cuFFT on FNL). Spectrally equivalent: 1, 17, 24, 30 iterations at p = 2, 4, 6, 8, independent of the grid and of
+  the companion axes' kinds (`wide_dg_zero_ghost.py`, `wide_dg_e2b.py`). The ghost layers returned carry the faces'
+  rules. A zero-ghost face against another kind on one axis is fatal (a reflection would couple the parity classes).
 
 All are symmetric linear maps of the source, which is what exact energy and momentum conservation of self-gravity
 needs (FLUME [models](/applications/flume/models#self-gravity)).

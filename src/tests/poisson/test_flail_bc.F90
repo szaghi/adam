@@ -29,17 +29,26 @@ program test_flail_bc
 !< cells by its own formula, divided by it. Asserted as above, the ghost layers read back to depth `p` (the depth
 !< PRISM's D and G read), and the D/D order of p = 4 against the continuum (`MIN_ORDER_WIDE`).
 !<
-!< `--refuse-mixed-periodic` (a periodic face against a Dirichlet one), `--refuse-mixed-ghost` (a ghost-Dirichlet
-!< face against a face kind) and `--refuse-wide-isolated` (the wide operator with isolated boundaries) must stop (exit
-!< status 1).
+!< **Zero-ghost faces (E2b).** PRISM's Dirichlet face writes zero in every ghost layer; with the wide operator it is no
+!< reflection, and the solver runs preconditioned CG. No closed form: the solution is manufactured, a smooth field `u`
+!< whose source `D(G) u / factor` the test computes itself (the ghosts by the faces' rules, `D1` applied twice). Per
+!< configuration (a zero-ghost axis next to periodic, reflected and zero-ghost axes) and order: `u` recovered to
+!< `TOL_PCG`, the ghost layers returned to depth `p` equal to the rules applied to the interior returned, the CG
+!< iterations at most `MAX_PCG_IT`; at p = 4 the iterations on 32 cells per axis within one of those on 16 (bounded
+!< in the grid: the preconditioner is spectrally equivalent); the compact operator with zero ghosts equal to it with
+!< ghost-Dirichlet faces, bitwise.
 !<
-!< Usage: `mpirun -np N exe/test_flail_bc [--refuse-mixed-periodic | --refuse-mixed-ghost | --refuse-wide-isolated]`
-!< (or `exe/test_flail_bc_fnl`).
+!< `--refuse-mixed-periodic` (a periodic face against a Dirichlet one), `--refuse-mixed-ghost` (a ghost-Dirichlet
+!< face against a face kind), `--refuse-wide-isolated` (the wide operator with isolated boundaries) and
+!< `--refuse-zero-mixed` (a zero-ghost face against a Dirichlet one) must stop (exit status 1).
+!<
+!< Usage: `mpirun -np N exe/test_flail_bc [--refuse-mixed-periodic | --refuse-mixed-ghost | --refuse-wide-isolated |
+!< --refuse-zero-mixed]` (or `exe/test_flail_bc_fnl`).
 #ifdef _FNL
 #include "fundal.H"
 #endif
 use :: adam_flail_parameters,       only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, &
-                                           FLAIL_BC_DIRICHLET_GHOST
+                                           FLAIL_BC_DIRICHLET_GHOST, FLAIL_BC_ZERO_GHOSTS
 use :: adam_mpih_global,            only : mpih
 #ifdef _FNL
 use :: adam_fnl_mpih_global,        only : mpih_fnl
@@ -69,6 +78,9 @@ integer(I4P), parameter :: P=FLAIL_BC_PERIODIC        !< Shorthand.
 integer(I4P), parameter :: D=FLAIL_BC_DIRICHLET       !< Shorthand.
 integer(I4P), parameter :: N=FLAIL_BC_NEUMANN         !< Shorthand.
 integer(I4P), parameter :: G=FLAIL_BC_DIRICHLET_GHOST !< Shorthand.
+integer(I4P), parameter :: Z=FLAIL_BC_ZERO_GHOSTS     !< Shorthand.
+real(R8P),    parameter :: TOL_PCG=1.e-9_R8P          !< Bound on the zero-ghost solution's error, relative.
+integer(I4P), parameter :: MAX_PCG_IT=40_I4P          !< Bound on the zero-ghost CG iterations.
 logical        :: test_passed !< Aggregate pass flag.
 character(256) :: arg         !< Command argument.
 real(R8P)      :: e_disc, e_cont(3), e_energy !< Errors.
@@ -87,6 +99,7 @@ call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
 call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
 #endif
 test_passed = .true.
+cfg_order = 0 ! the refusals below run before the order loop sets it
 select case(trim(arg))
 case('--refuse-mixed-periodic')
    call solve_case(bc=reshape([P,D, D,D, D,D], [2,3]), nblk=[2,2,2], nijk=[8,8,8], null_z=.false., &
@@ -98,6 +111,9 @@ case('--refuse-mixed-ghost')
    call refusal_failed
 case('--refuse-wide-isolated')
    call refuse_wide_isolated
+   call refusal_failed
+case('--refuse-zero-mixed')
+   call check_zero('refusal    ', reshape([Z,D, P,P, P,P], [2,3]), 4_I4P, [2,2,2], [8,8,8], .false., m)
    call refusal_failed
 endselect
 ! the compact operator (E1a) and the wide D(G) of order 2, 4, 6, 8 (E2a)
@@ -115,6 +131,23 @@ do po=0, 8, 2
    call check('2-D D/N N/N ', reshape([D,N, N,N, P,P], [2,3]), null_z=.true.)
    call check('2-D P/P D/D ', reshape([P,P, D,D, P,P], [2,3]), null_z=.true.)
 enddo
+! zero-ghost faces (E2b): preconditioned CG, a manufactured solution
+if (mpih%myrank == 0) print '(A)', '   zero-ghost faces (E2b), preconditioned CG:'
+do po=2, 8, 2
+   call check_zero('Z/Z P/P P/P', reshape([Z,Z, P,P, P,P], [2,3]), po, [4,4,4], [4,4,4], .false., m)
+   call check_zero('Z/Z D/D N/N', reshape([Z,Z, D,D, N,N], [2,3]), po, [4,4,4], [4,4,4], .false., m)
+   call check_zero('Z/Z Z/Z Z/Z', reshape([Z,Z, Z,Z, Z,Z], [2,3]), po, [4,4,4], [4,4,4], .false., m)
+   call check_zero('2-D Z/Z N/N', reshape([Z,Z, N,N, P,P], [2,3]), po, [4,4,1], [4,4,1], .true.,  m)
+enddo
+block
+integer(I4P) :: it16, it32 !< Iterations on 16 and 32 cells per axis.
+call check_zero('Z/Z D/D N/N', reshape([Z,Z, D,D, N,N], [2,3]), 4_I4P, [4,4,4], [4,4,4], .false., it16)
+call check_zero('Z/Z D/D N/N', reshape([Z,Z, D,D, N,N], [2,3]), 4_I4P, [4,4,4], [8,8,8], .false., it32)
+if (mpih%myrank == 0) print '(A)', '   p = 4, Z/Z D/D N/N, CG iterations on 16 and 32 cells per axis: '// &
+   trim(str(it16, .true.))//', '//trim(str(it32, .true.))//merge(' ok  ', ' FAIL', abs(it32 - it16) <= 1)
+test_passed = test_passed .and. abs(it32 - it16) <= 1
+endblock
+call check_zero_compact
 ! the wide p = 4 D/D order against the continuum
 cfg_order = 4
 do m=1, 3
@@ -368,6 +401,248 @@ contains
       v = cos(x)
    endif
    endfunction axis_fun
+
+   subroutine check_zero(label, bc, p_, nblk, nijk, null_z, iters)
+   !< Zero-ghost faces with the wide D(G) of order p_ (E2b): the manufactured `u`, its source computed here, solved; the
+   !< error, the ghosts returned against the rules, the CG iterations asserted.
+   character(*), intent(in)  :: label   !< Configuration label.
+   integer(I4P), intent(in)  :: bc(2,3) !< Kinds per face [lo/hi, axis].
+   integer(I4P), intent(in)  :: p_      !< Order.
+   integer(I4P), intent(in)  :: nblk(3), nijk(3) !< Blocks and cells per block per direction.
+   logical,      intent(in)  :: null_z  !< 2-D.
+   integer(I4P), intent(out) :: iters   !< CG iterations.
+#ifdef _FNL
+   type(poisson_fft_fnl_object) :: solver !< The solver.
+#else
+   type(poisson_fft_object)     :: solver !< The solver.
+#endif
+   integer(I4P)              :: ncell(3), nbl, nb_total, b, bi, bj, bk, i, j, k, c, ierr !< Sizes, counters.
+   real(R8P)                 :: dxyz(3)  !< Spacing.
+   logical                   :: null_xyz(3) !< Null directions.
+   real(R8P),    allocatable :: u(:,:,:), f(:,:,:), uo(:,:,:) !< Exact solution, source, solution returned (padded).
+   integer(I4P), allocatable :: coords(:,:) !< This rank's block coordinates.
+   real(R8P),    allocatable :: buf(:), out(:) !< Packed source and potential.
+   real(R8P)                 :: emax, umax, gmax !< Errors.
+   logical                   :: ok  !< Pass flag.
+
+   null_xyz = [.false., .false., null_z]
+   ncell = nblk * nijk
+   dxyz = L / ncell
+   allocate(u(1-p_:ncell(1)+p_,1-p_:ncell(2)+p_,1-p_:ncell(3)+p_), f(ncell(1),ncell(2),ncell(3)))
+   allocate(uo, mold=u)
+   u = 0._R8P
+   do k=1, ncell(3)
+      do j=1, ncell(2)
+         do i=1, ncell(1)
+            u(i,j,k) = sin(0.7_R8P * i + 0.3_R8P) * cos(0.5_R8P * j - 0.2_R8P) * cos(0.4_R8P * k + 0.1_R8P) + &
+                       0.25_R8P * cos(1.1_R8P * i - 0.9_R8P * j + 0.3_R8P * k)
+            if (null_z) u(i,j,k) = sin(0.7_R8P * i + 0.3_R8P) * cos(0.5_R8P * j - 0.2_R8P) + &
+                                   0.25_R8P * cos(1.1_R8P * i - 0.9_R8P * j)
+         enddo
+      enddo
+   enddo
+   call rule_ghosts(u, ncell, bc, null_xyz, p_)
+   call d1d1(u, ncell, dxyz, null_xyz, p_, f)
+   f = f / FACTOR
+   ! this rank's blocks, round robin
+   nb_total = product(nblk)
+   nbl = 0
+   do b=0, nb_total-1
+      if (mod(b, mpih%procs_number) == mpih%myrank) nbl = nbl + 1
+   enddo
+   allocate(coords(3,max(nbl,1)), buf(max(nbl*product(nijk),1)), out(max(nbl*product(nijk+2*p_),1)))
+   c = 0 ; nbl = 0
+   do b=0, nb_total-1
+      if (mod(b, mpih%procs_number) /= mpih%myrank) cycle
+      nbl = nbl + 1
+      bi = mod(b, nblk(1)) ; bj = mod(b / nblk(1), nblk(2)) ; bk = b / (nblk(1) * nblk(2))
+      coords(:,nbl) = [bi, bj, bk]
+      do k=1, nijk(3)
+         do j=1, nijk(2)
+            do i=1, nijk(1)
+               c = c + 1
+               buf(c) = f(bi*nijk(1)+i, bj*nijk(2)+j, bk*nijk(3)+k)
+            enddo
+         enddo
+      enddo
+   enddo
+   call solver%initialize_blocks(nblk=nblk, nijk=nijk, ngc=p_, dxyz=dxyz, level=0_I4P, null_xyz=null_xyz, &
+                                 isolated=.false., bc=bc, dg_order=p_)
+   out = 0._R8P
+   call solver%solve_blocks(nbl=nbl, coords=coords, buf=buf, factor=FACTOR, gw=p_, out=out)
+   iters = solver%iterations
+   call MPI_BCAST(iters, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+   ! the interior returned, then the rules applied to it, against the ghosts returned
+   uo = 0._R8P
+   c = 0
+   do b=1, nbl
+      do k=1-p_, nijk(3)+p_
+         do j=1-p_, nijk(2)+p_
+            do i=1-p_, nijk(1)+p_
+               c = c + 1
+               if (i>=1 .and. i<=nijk(1) .and. j>=1 .and. j<=nijk(2) .and. k>=1 .and. k<=nijk(3)) &
+                  uo(coords(1,b)*nijk(1)+i, coords(2,b)*nijk(2)+j, coords(3,b)*nijk(3)+k) = out(c)
+            enddo
+         enddo
+      enddo
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, uo, size(uo), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ierr) ! each cell from one rank
+   emax = maxval(abs(uo(1:ncell(1),1:ncell(2),1:ncell(3)) - u(1:ncell(1),1:ncell(2),1:ncell(3))))
+   umax = maxval(abs(u(1:ncell(1),1:ncell(2),1:ncell(3))))
+   call rule_ghosts(uo, ncell, bc, null_xyz, p_)
+   gmax = 0._R8P
+   c = 0
+   do b=1, nbl
+      do k=1-p_, nijk(3)+p_
+         do j=1-p_, nijk(2)+p_
+            do i=1-p_, nijk(1)+p_
+               c = c + 1
+               if (null_z .and. (k < 1 .or. k > nijk(3))) cycle ! a null z: the ghost layers copy the cell
+               gmax = max(gmax, abs(out(c) - uo(coords(1,b)*nijk(1)+i, coords(2,b)*nijk(2)+j, coords(3,b)*nijk(3)+k)))
+            enddo
+         enddo
+      enddo
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, gmax, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   ok = emax / umax <= TOL_PCG .and. gmax <= TOL_DISCRETE * umax .and. iters <= MAX_PCG_IT
+   test_passed = test_passed .and. ok
+   if (mpih%myrank == 0) print '(A)', '   D(G) p = '//trim(str(p_, .true.))//' '//label//' ('// &
+      trim(str(ncell(1), .true.))//' cells per axis): |u - u_exact| '//trim(str(emax / umax, .true.))// &
+      ', ghosts against the rules '//trim(str(gmax, .true.))//', CG iterations '//trim(str(iters, .true.))// &
+      merge(' ok  ', ' FAIL', ok)
+   call solver%destroy
+   endsubroutine check_zero
+
+   subroutine check_zero_compact
+   !< The compact operator with zero-ghost faces is the one with ghost-Dirichlet faces (one ghost layer read): equal
+   !< solutions, every cell and ghost, bitwise.
+#ifdef _FNL
+   type(poisson_fft_fnl_object) :: s1, s2 !< The solvers.
+#else
+   type(poisson_fft_object)     :: s1, s2 !< The solvers.
+#endif
+   real(R8P), allocatable :: buf(:), o1(:), o2(:) !< Source, the two potentials.
+   integer(I4P)           :: coords(3,8), nbl, b, i, ierr !< Blocks, counters.
+   real(R8P)              :: dmax !< Max difference.
+
+   nbl = 0
+   do b=0, 7
+      if (mod(b, mpih%procs_number) /= mpih%myrank) cycle
+      nbl = nbl + 1
+      coords(:,nbl) = [mod(b, 2), mod(b / 2, 2), b / 4]
+   enddo
+   allocate(buf(max(nbl*512,1)), o1(max(nbl*1000,1)), o2(max(nbl*1000,1)))
+   do i=1, size(buf)
+      buf(i) = sin(0.37_R8P * i + mpih%myrank)
+   enddo
+   o1 = 0._R8P ; o2 = 0._R8P
+   call s1%initialize_blocks(nblk=[2,2,2], nijk=[8,8,8], ngc=1_I4P, dxyz=[0.1_R8P, 0.1_R8P, 0.1_R8P], level=0_I4P, &
+                             null_xyz=[.false., .false., .false.], isolated=.false., bc=reshape([Z,Z, D,N, P,P], [2,3]))
+   call s2%initialize_blocks(nblk=[2,2,2], nijk=[8,8,8], ngc=1_I4P, dxyz=[0.1_R8P, 0.1_R8P, 0.1_R8P], level=0_I4P, &
+                             null_xyz=[.false., .false., .false.], isolated=.false., bc=reshape([G,G, D,N, P,P], [2,3]))
+   call s1%solve_blocks(nbl=nbl, coords=coords, buf=buf, factor=FACTOR, gw=1_I4P, out=o1)
+   call s2%solve_blocks(nbl=nbl, coords=coords, buf=buf, factor=FACTOR, gw=1_I4P, out=o2)
+   dmax = 0._R8P
+   if (nbl > 0) dmax = maxval(abs(o1(1:nbl*1000) - o2(1:nbl*1000)))
+   call MPI_ALLREDUCE(MPI_IN_PLACE, dmax, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   test_passed = test_passed .and. dmax == 0._R8P
+   if (mpih%myrank == 0) print '(A)', '   compact operator, Z/Z D/N P/P against G/G D/N P/P (every cell and ghost): '// &
+      trim(str(dmax, .true.))//merge(' ok  ', ' FAIL', dmax == 0._R8P)
+   call s1%destroy
+   call s2%destroy
+   endsubroutine check_zero_compact
+
+   subroutine rule_ghosts(u, nc, bc, null_xyz, ng)
+   !< The `ng` ghost layers of the padded global array `u` by the faces' rules (the test's own, for the manufactured
+   !< source and the check of the ghosts returned): periodic (and null) the wrap, Dirichlet and Neumann at the face
+   !< the odd and even reflections about it, ghost-Dirichlet the odd reflection about the ghost centre, zero ghosts 0.
+   integer(I4P), intent(in)    :: nc(3), bc(2,3), ng !< Cells, kinds, ghost layers.
+   logical,      intent(in)    :: null_xyz(3)       !< Null directions.
+   real(R8P),    intent(inout) :: u(1-ng:,1-ng:,1-ng:) !< Padded array.
+   integer(I4P)                :: ax, j, lo, hi      !< Counters.
+
+   do ax=1, 3
+      do j=1, ng
+         lo = 1 - j ; hi = nc(ax) + j
+         if (null_xyz(ax) .or. all(bc(:,ax) == P)) then
+            call put(u, ng, ax, lo, modulo(lo - 1, nc(ax)) + 1, 1._R8P)
+            call put(u, ng, ax, hi, modulo(hi - 1, nc(ax)) + 1, 1._R8P)
+            cycle
+         endif
+         select case(bc(1,ax))
+         case(D) ; call put(u, ng, ax, lo, j, -1._R8P)
+         case(N) ; call put(u, ng, ax, lo, j, 1._R8P)
+         case(G)
+            if (j == 1) then
+               call put(u, ng, ax, lo, 1, 0._R8P)
+            else
+               call put(u, ng, ax, lo, j-1, -1._R8P)
+            endif
+         case default ; call put(u, ng, ax, lo, 1, 0._R8P)
+         endselect
+         select case(bc(2,ax))
+         case(D) ; call put(u, ng, ax, hi, nc(ax)+1-j, -1._R8P)
+         case(N) ; call put(u, ng, ax, hi, nc(ax)+1-j, 1._R8P)
+         case(G)
+            if (j == 1) then
+               call put(u, ng, ax, hi, nc(ax), 0._R8P)
+            else
+               call put(u, ng, ax, hi, nc(ax)+2-j, -1._R8P)
+            endif
+         case default ; call put(u, ng, ax, hi, nc(ax), 0._R8P)
+         endselect
+      enddo
+   enddo
+   endsubroutine rule_ghosts
+
+   subroutine put(u, ng, d_, t, src, sg)
+   !< Plane t of axis d_ of the padded array u <- sg times plane src.
+   integer(I4P), intent(in)    :: ng         !< Ghost layers.
+   real(R8P),    intent(inout) :: u(1-ng:,1-ng:,1-ng:) !< Padded array.
+   integer(I4P), intent(in)    :: d_, t, src !< Axis, indices.
+   real(R8P),    intent(in)    :: sg         !< Sign.
+
+   select case(d_)
+   case(1) ; u(t,:,:) = sg * u(src,:,:)
+   case(2) ; u(:,t,:) = sg * u(:,src,:)
+   case(3) ; u(:,:,t) = sg * u(:,:,src)
+   endselect
+   endsubroutine put
+
+   subroutine d1d1(u, nc, dxyz, null_xyz, p_, y)
+   !< `y = D(G) u` on the interior: per axis D1 applied to the padded u (its ghosts set), then D1 again.
+   integer(I4P), intent(in)  :: nc(3), p_           !< Cells, order.
+   real(R8P),    intent(in)  :: u(1-p_:,1-p_:,1-p_:) !< Padded array.
+   real(R8P),    intent(in)  :: dxyz(3)            !< Spacing.
+   logical,      intent(in)  :: null_xyz(3)        !< Null directions.
+   real(R8P),    intent(out) :: y(1:,1:,1:)        !< Result [nc].
+   real(R8P), allocatable    :: g(:)               !< D1 along a line.
+   integer(I4P)              :: ax, i, j, k, o, a, idx(3) !< Counters.
+
+   y = 0._R8P
+   allocate(g(-p_/2:p_/2))
+   do ax=1, 3
+      if (null_xyz(ax)) cycle
+      do k=1, nc(3)
+         do j=1, nc(2)
+            do i=1, nc(1)
+               do o=-p_/2, p_/2
+                  g(o) = 0._R8P
+                  do a=1, p_/2
+                     idx = [i, j, k] ; idx(ax) = idx(ax) + o + a
+                     g(o) = g(o) + A_D1(a,p_/2) * u(idx(1),idx(2),idx(3))
+                     idx(ax) = idx(ax) - 2 * a
+                     g(o) = g(o) - A_D1(a,p_/2) * u(idx(1),idx(2),idx(3))
+                  enddo
+               enddo
+               do a=1, p_/2
+                  y(i,j,k) = y(i,j,k) + A_D1(a,p_/2) * (g(a) - g(-a)) / dxyz(ax)**2
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine d1d1
 
    function op_label() result(lab)
    !< The operator of the current case, for the lines.

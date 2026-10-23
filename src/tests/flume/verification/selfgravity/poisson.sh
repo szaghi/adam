@@ -57,8 +57,11 @@
 # Neumann at the face, ghost-Dirichlet), the compact operator and the wide D(G) of order 2, 4, 6, 8 (PRISM's elliptic
 # operator, E2a): per-axis discrete eigenfunctions (the wide eigenvalue computed in real space, D1 applied twice),
 # interior and ghost layers to depth p at round-off, the energy, the D/D order (compact >= 1.9, wide p = 4 >= 3.8);
+# zero-ghost faces (E2b, PRISM's Dirichlet: every ghost layer 0) with the wide operator, by preconditioned CG: a
+# manufactured solution recovered to 1e-9, the ghosts returned against the rules, at most 40 iterations, bounded in
+# the grid (16 and 32 cells per axis within one); the compact operator with zero ghosts equal to ghost-Dirichlet;
 # refused: a periodic face against a Dirichlet one, a ghost-Dirichlet face against a face kind, the wide operator
-# with isolated boundaries.
+# with isolated boundaries, a zero-ghost face against a Dirichlet one.
 #
 # bcmg (test_poisson_mg --bc, issue #84, E1b): the multigrid with a boundary kind per face (periodic, Dirichlet or
 # Neumann at the face, ghost-Dirichlet; mixed across and within axes):
@@ -199,7 +202,8 @@ for leg in $LEGS; do
          refusal "a ghost-Dirichlet face against a face kind" --refuse-mixed-ghost 'mixes a ghost-Dirichlet face' \
             "$BC_EXE"
          refusal "the wide D(G) with isolated boundaries" --refuse-wide-isolated 'the compact operator only' \
-            "$BC_EXE" ;;
+            "$BC_EXE"
+         refusal "a zero-ghost face against a Dirichlet one" --refuse-zero-mixed 'mixes a zero-ghost face' "$BC_EXE" ;;
       bcmg)
          echo ">> FLAIL boundary kinds per face, the multigrid solver (issue #84, E1b; $(basename "$MG_EXE"))"
          suite multigrid-bc "--bc" "$MG_EXE" ;;

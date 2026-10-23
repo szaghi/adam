@@ -53,9 +53,21 @@ module adam_poisson_fft_object
 !< `theta_d` in {0, pi} are in the kernel and dropped, Dirichlet faces or not: G of them is zero, so the gradient a
 !< client takes is unique. The odd and even extensions are reflections, which the wide stencil commutes with, so the
 !< kinds per face hold as for the compact operator (the scatter fills `p` ghost layers from the extension); PRISM's
-!< zero-ghost Dirichlet face is not a reflection (#84 E2b). Measured on the prototype (`wide_dg_proto.py`): a compact
+!< zero-ghost Dirichlet face is not a reflection (below). Measured on the prototype (`wide_dg_proto.py`): a compact
 !< preconditioner needs O(N) iterations for D(G) (the checkerboard branch), so the direct solve here is the method on
 !< uniform grids.
+!<
+!< **Zero-ghost faces (issue #84, E2b).** `FLAIL_BC_ZERO_GHOSTS` (both faces of an axis) is PRISM's elliptic Dirichlet
+!< face: every ghost layer zero. With the compact operator it is the ghost-Dirichlet kind (the 7-point stencil reads one
+!< layer). With the wide D(G) it is no reflection: the operator is the stencil truncated, symmetric and nonsingular, and
+!< no transform diagonalises it. Rank 0 then solves it, on the gathered array, by conjugate gradients preconditioned by
+!< the wide p = 2 operator with the same faces, inverted exactly: along a zero-ghost axis that operator splits into the
+!< two parity sub-lattices, each the compact Laplacian at spacing 2h with zero at the ghost centres (the ghost-Dirichlet
+!< kind), along the other axes it is the p = 2 operator with their own kinds; the 2^z sub-problems (z zero-ghost axes)
+!< are FFT solves by sub-solvers of this solver's own type (`sub`). Spectrally equivalent (kappa <= 2.8 at p = 4,
+!< 7.1 at p = 8): 1, 17, 24, 30 iterations at p = 2, 4, 6, 8, independent of the grid (`wide_dg_zero_ghost.py`,
+!< `wide_dg_e2b.py`, with periodic and with reflected companion axes). The ghost layers returned carry the faces' rules
+!< (zero, reflection, periodic wrap).
 !<
 !< **Scope (fatal otherwise).** One level for every block, the blocks covering the domain. Without `bc`, every active
 !< direction periodic. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's), the
@@ -64,7 +76,8 @@ module adam_poisson_fft_object
 use :: adam_grid_object, only : grid_object
 use :: adam_lattice_green_library, only : lattice_green
 use :: adam_field_object, only : field_object
-use :: adam_flail_parameters, only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST
+use :: adam_flail_parameters, only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, &
+                                      FLAIL_BC_ZERO_GHOSTS
 use :: adam_mpih_global, only : mpih
 use :: iso_c_binding
 use :: mpi
@@ -82,6 +95,14 @@ real(R8P), parameter :: D1_COEF(4,4)=reshape([1._R8P/2._R8P, 0._R8P, 0._R8P, 0._
                                               4._R8P/5._R8P, -1._R8P/5._R8P, 4._R8P/105._R8P, -1._R8P/280._R8P], &
                                              [4, 4]) !< a_j [j, p/2].
 
+type :: fft_slot
+   !< One sub-solver of the E2b preconditioner (issue #84). A scalar polymorphic pointer in a slot, not a polymorphic
+   !< array component: nvfortran 26.9 rejects a recursive allocatable component (NVFORTRAN-S-0155) and crashed
+   !< deallocating a polymorphic pointer array allocated with `mold` (pgf90_dealloc_mbr03a, on the FNL type). Owned:
+   !< `destroy` frees it.
+   class(poisson_fft_object), pointer :: s=>null() !< The sub-solver.
+endtype fft_slot
+
 type :: poisson_fft_object
    !< FFT Poisson solver on uniform periodic grids.
    logical                   :: is_initialized=.false. !< Initialization status.
@@ -92,6 +113,18 @@ type :: poisson_fft_object
    integer(I4P)              :: bc(2,3)=FLAIL_BC_PERIODIC !< Kinds per face [lo/hi, axis] (issue #84, E1a).
    logical                   :: extended=.false.       !< Some axis is extended (Dirichlet or Neumann faces).
    integer(I4P)              :: dg_order=0_I4P         !< 0: the compact Laplacian; p: the wide D(G) of order p (E2a).
+   integer(I4P)              :: axis_order(3)=0_I4P    !< The operator per axis (dg_order, but in E2b's sub-problems).
+   ! zero-ghost faces with the wide operator (issue #84, E2b): preconditioned CG on rank 0
+   logical                   :: pcg=.false.            !< Some axis has zero-ghost faces and the operator is wide.
+   logical                   :: null_xyz(3)=.false.    !< Null directions.
+   real(R8P)                 :: stencil(-8:8)=0._R8P   !< The 1-D D1 D1 stencil (times h^2), offsets -p..p.
+   real(R8P)                 :: tolerance=1.e-12_R8P   !< Relative max-norm residual to stop.
+   integer(I4P)              :: max_iterations=200_I4P !< CG iterations at most.
+   integer(I4P)              :: iterations=0_I4P       !< Iterations of the last solve.
+   real(R8P)                 :: residual=0._R8P        !< Relative residual of the last solve.
+   integer(I4P)              :: nsub=0_I4P             !< Preconditioner sub-problems, 2^z.
+   integer(I4P),              allocatable :: sub_par(:,:) !< Parity per axis of each sub-problem [3,nsub] (-1: no split).
+   type(fft_slot),            allocatable :: sub(:)       !< The preconditioner's sub-problems [nsub] (see fft_slot).
    integer(I4P)              :: nt(3)=1_I4P            !< Cells of the periodic transform the eigenvalues refer to: n,
                                                        !< or m with dirichlet.
    integer(I4P)              :: nijk(3)=1_I4P          !< Cells per block per direction.
@@ -117,6 +150,11 @@ type :: poisson_fft_object
       procedure, pass(self) :: solve_blocks      !< Solve from an explicit list of blocks (coordinates and source).
       ! private methods
       procedure, pass(self), private :: make_kernel !< Rank 0, isolated: the kernel's spectrum.
+      procedure, pass(self), private :: extend_global  !< Rank 0: the source extended over the transform cells.
+      procedure, pass(self), private :: apply_wide     !< Rank 0: y = D(G) x with the faces' ghost rules (E2b).
+      procedure, pass(self), private :: fill_ghosts    !< Rank 0: the ghost layers of a padded array by the faces.
+      procedure, pass(self), private :: precondition   !< Rank 0: z = M^-1 r, the sub-lattice solves (E2b).
+      procedure, pass(self), private :: solve_pcg      !< Rank 0: f_global <- factor D(G)^-1 f_global by PCG (E2b).
       ! backend hooks
       procedure, pass(self) :: destroy_plans    !< Destroy the transform plans.
       procedure, pass(self) :: make_plans       !< Make the transform plans (rank 0).
@@ -172,9 +210,10 @@ endinterface
 
 contains
    ! public methods
-   subroutine destroy(self)
-   !< Destroy the solver.
+   recursive subroutine destroy(self)
+   !< Destroy the solver (and its sub-solvers).
    class(poisson_fft_object), intent(inout) :: self !< The solver.
+   integer(I4P)                             :: i    !< Counter.
 
    if (self%is_initialized) call self%destroy_plans
    if (allocated(self%lam1))     deallocate(self%lam1)
@@ -184,6 +223,18 @@ contains
    if (allocated(self%f_source)) deallocate(self%f_source)
    if (allocated(self%f_hat))    deallocate(self%f_hat)
    if (allocated(self%khat))     deallocate(self%khat)
+   if (allocated(self%sub)) then
+      do i=1, size(self%sub)
+         if (associated(self%sub(i)%s)) then
+            call self%sub(i)%s%destroy
+            deallocate(self%sub(i)%s)
+         endif
+      enddo
+      deallocate(self%sub)
+   endif
+   if (allocated(self%sub_par))  deallocate(self%sub_par)
+   self%pcg = .false. ; self%nsub = 0_I4P ; self%iterations = 0_I4P ; self%residual = 0._R8P
+   self%dg_order = 0_I4P ; self%axis_order = 0_I4P ; self%stencil = 0._R8P ; self%null_xyz = .false.
    self%n = 1_I4P ; self%m = 1_I4P ; self%nijk = 1_I4P ; self%ngc = 0_I4P ; self%level = 0_I4P ; self%dxyz = 0._R8P
    self%isolated = .false.
    self%dirichlet = .false.
@@ -266,7 +317,8 @@ contains
    endif
    endsubroutine initialize
 
-   subroutine initialize_blocks(self, nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet, bc, dg_order)
+   recursive subroutine initialize_blocks(self, nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet, bc, &
+                                          dg_order, axis_dg_order)
    !< Size the solver for a uniform grid of `nblk` blocks per direction, `nijk` cells each, at `level` with spacing
    !< `dxyz`, and make the plans (and, isolated, the kernel) on rank 0. No check of a grid: the caller owns the scope
    !< (the multigrid's coarsest level calls it directly, issue #81 P5; with `dirichlet`, issue #87).
@@ -287,8 +339,10 @@ contains
    logical,                   intent(in), optional :: dirichlet   !< Homogeneous ghost-Dirichlet everywhere (default false).
    integer(I4P),              intent(in), optional :: bc(2,3)     !< Kinds per face [lo/hi, axis] (default periodic).
    integer(I4P),              intent(in), optional :: dg_order    !< 0 compact (default); 2, 4, 6, 8: the wide D(G).
+   integer(I4P),              intent(in), optional :: axis_dg_order(3) !< The operator per axis (E2b's sub-problems).
    integer(I4P)                                    :: nblk_(3), nijk_(3), ngc_, level_ !< Copies of the arguments.
    integer(I4P)                                    :: dg_order_   !< Copy of the argument.
+   integer(I4P)                                    :: axis_order_(3) !< Copy of the argument.
    real(R8P)                                       :: dxyz_(3)    !< Copy of the argument.
    logical                                         :: null_(3), isolated_, dirichlet_ !< Copies of the arguments.
    integer(I4P)                                    :: bc_(2,3)    !< Copy of the argument.
@@ -309,6 +363,8 @@ contains
       'poisson_fft_object%initialize_blocks: dg_order '//trim(str(dg_order_, .true.))//' is not 0 (compact), 2, 4, 6 or 8')
    if (isolated_ .and. dg_order_ /= 0_I4P) call mpih%error_stop(msg='poisson_fft_object%initialize_blocks: isolated '// &
       'boundaries take the compact operator only (the lattice Green''s function is its), not the wide D(G)')
+   axis_order_ = dg_order_
+   if (present(axis_dg_order)) axis_order_ = axis_dg_order
    do d=1, 3
       if (null_(d)) cycle
       if (count(bc_(:,d) == FLAIL_BC_PERIODIC) == 1) call mpih%error_stop(msg='poisson_fft_object%initialize_blocks: '//&
@@ -316,12 +372,18 @@ contains
       if (count(bc_(:,d) == FLAIL_BC_DIRICHLET_GHOST) == 1) call mpih%error_stop(msg= &
          'poisson_fft_object%initialize_blocks: axis '//trim(str(d, .true.))//' mixes a ghost-Dirichlet face with a '// &
          'face kind')
+      if (count(bc_(:,d) == FLAIL_BC_ZERO_GHOSTS) == 1) call mpih%error_stop(msg= &
+         'poisson_fft_object%initialize_blocks: axis '//trim(str(d, .true.))//' mixes a zero-ghost face with another '// &
+         'kind (both faces or neither: a reflection at the other end couples the parity sub-lattices, issue #84 E2b)')
       do k=1, 2
-         if (all(bc_(k,d) /= [FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST])) &
+         if (all(bc_(k,d) /= [FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST,  &
+                              FLAIL_BC_ZERO_GHOSTS])) &
             call mpih%error_stop(msg='poisson_fft_object%initialize_blocks: unknown boundary kind '// &
                                      trim(str(bc_(k,d), .true.))//' on axis '//trim(str(d, .true.)))
       enddo
    enddo
+   ! zero ghosts: with the compact operator, the ghost-Dirichlet kind (one ghost layer read); wide, preconditioned CG
+   if (all(axis_order_ == 0_I4P)) where (bc_ == FLAIL_BC_ZERO_GHOSTS) bc_ = FLAIL_BC_DIRICHLET_GHOST
    call self%destroy
    self%nijk = nijk_
    self%ngc = ngc_
@@ -331,9 +393,20 @@ contains
    self%dirichlet = dirichlet_
    self%bc = bc_
    self%dg_order = dg_order_
+   self%axis_order = axis_order_
+   self%null_xyz = null_
+   self%pcg = any(self%bc == FLAIL_BC_ZERO_GHOSTS)
+   if (self%pcg) self%stencil = dg_stencil(self%dg_order)
    self%n = nblk_ * self%nijk
    self%m = self%n
-   if (self%isolated) then
+   if (self%pcg) then
+      do d=1, 3
+         if (null_(d)) cycle
+         if (self%n(d) < self%dg_order) call mpih%error_stop(msg='poisson_fft_object%initialize_blocks: '// &
+            trim(str(self%n(d), .true.))//' cells along axis '//trim(str(d, .true.))//' are fewer than the stencil''s '// &
+            'reach, '//trim(str(self%dg_order, .true.)))
+      enddo
+   elseif (self%isolated) then
       self%m = 2 * (self%n + self%ngc)
    else
       do d=1, 3
@@ -345,24 +418,24 @@ contains
          endif
       enddo
    endif
-   self%extended = (.not.self%isolated) .and. any(self%m /= self%n)
+   self%extended = (.not.self%isolated) .and. any(self%m /= self%n) ! never with pcg (m = n)
    self%nt = merge(self%n, self%m, self%isolated)
    ! eigenvalue parts of L_h per direction on the nt-cell periodic transform; zero along a null direction
    allocate(self%lam1(0:self%nt(1)/2), self%lam2(0:self%nt(2)-1), self%lam3(0:self%nt(3)-1))
    self%lam1 = 0._R8P ; self%lam2 = 0._R8P ; self%lam3 = 0._R8P
    if (.not.null_(1)) then
       do k=0, self%nt(1)/2
-         self%lam1(k) = axis_eigenvalue(k, self%nt(1), self%dxyz(1), self%dg_order)
+         self%lam1(k) = axis_eigenvalue(k, self%nt(1), self%dxyz(1), self%axis_order(1))
       enddo
    endif
    if (.not.null_(2)) then
       do k=0, self%nt(2)-1
-         self%lam2(k) = axis_eigenvalue(k, self%nt(2), self%dxyz(2), self%dg_order)
+         self%lam2(k) = axis_eigenvalue(k, self%nt(2), self%dxyz(2), self%axis_order(2))
       enddo
    endif
    if (.not.null_(3)) then
       do k=0, self%nt(3)-1
-         self%lam3(k) = axis_eigenvalue(k, self%nt(3), self%dxyz(3), self%dg_order)
+         self%lam3(k) = axis_eigenvalue(k, self%nt(3), self%dxyz(3), self%axis_order(3))
       enddo
    endif
    if (mpih%myrank == 0) then
@@ -372,10 +445,43 @@ contains
       self%f_global = 0._R8P
       self%f_source = 0._R8P
       self%f_hat = (0._R8P, 0._R8P)
-      call self%make_plans
+      if (.not.self%pcg) call self%make_plans ! the CG solve transforms its sub-problems only
       if (self%isolated) call self%make_kernel
    endif
+   if (self%pcg) call make_preconditioner
    self%is_initialized = .true.
+   contains
+      subroutine make_preconditioner
+      !< The 2^z sub-problems of the wide p = 2 operator (z zero-ghost axes): along a zero-ghost axis one parity class
+      !< (ceil or floor of n/2 cells), the compact operator at spacing 2h with zero at the ghost centres; along the other
+      !< axes the p = 2 operator with their kinds. Sub-solvers of this solver's own type (cuFFT on FNL), one block each.
+      integer(I4P) :: z, c, d_, bit       !< Zero-ghost axes, counters.
+      integer(I4P) :: n_sub(3), ord_sub(3), bc_sub(2,3) !< A sub-problem's cells, operators, kinds.
+      real(R8P)    :: dx_sub(3)           !< A sub-problem's spacing.
+
+      z = count([(any(self%bc(:,d_) == FLAIL_BC_ZERO_GHOSTS), d_=1, 3)])
+      self%nsub = 2_I4P**z
+      allocate(self%sub_par(3,self%nsub))
+      allocate(self%sub(self%nsub))
+      do c=1, self%nsub
+         bit = 0
+         do d_=1, 3
+            self%sub_par(d_,c) = -1
+            n_sub(d_) = self%n(d_) ; dx_sub(d_) = self%dxyz(d_) ; ord_sub(d_) = 2_I4P ; bc_sub(:,d_) = self%bc(:,d_)
+            if (any(self%bc(:,d_) == FLAIL_BC_ZERO_GHOSTS)) then
+               self%sub_par(d_,c) = ibits(c-1, bit, 1)
+               bit = bit + 1
+               n_sub(d_) = (self%n(d_) - self%sub_par(d_,c) + 1) / 2 ! cells i (1-based) with mod(i-1, 2) = parity
+               dx_sub(d_) = 2._R8P * self%dxyz(d_) ; ord_sub(d_) = 0_I4P ; bc_sub(:,d_) = FLAIL_BC_DIRICHLET_GHOST
+            endif
+            if (null_(d_)) ord_sub(d_) = 0_I4P
+         enddo
+         allocate(self%sub(c)%s, mold=self)
+         call self%sub(c)%s%initialize_blocks(nblk=[1_I4P, 1_I4P, 1_I4P], nijk=n_sub, ngc=0_I4P, dxyz=dx_sub,     &
+                                            level=self%level, null_xyz=null_, isolated=.false., bc=bc_sub, &
+                                            dg_order=2_I4P, axis_dg_order=ord_sub)
+      enddo
+      endsubroutine make_preconditioner
    endsubroutine initialize_blocks
 
    subroutine solve(self, field, q, iv, factor, phi, energy)
@@ -472,6 +578,7 @@ contains
    integer(I4P), allocatable                        :: rdispls(:)      !< Rank 0: displacements per rank (values).
    integer(I4P), allocatable                        :: coords_all(:,:) !< Rank 0: block coordinates of every rank.
    real(R8P),    allocatable                        :: buf_all(:)      !< Rank 0: buffer of every rank.
+   real(R8P),    allocatable                        :: u_pad(:,:,:)    !< Rank 0, E2b: the solution with its ghosts.
    real(R8P)                                        :: e               !< sum_cells f phi.
    integer(I4P)                                     :: ub(3)           !< Upper bounds per direction.
    integer(I4P)                                     :: g(3)            !< Global cell index, wrapped.
@@ -519,15 +626,25 @@ contains
             enddo
          enddo
       enddo
-      if (self%extended) call extend
+      if (self%extended) call self%extend_global
       if (present(energy)) self%f_source = self%f_global
-      call self%transform(factor=factor)
+      if (self%pcg) then
+         call self%solve_pcg(factor=factor)
+      else
+         call self%transform(factor=factor)
+      endif
       if (present(energy)) then
          if (self%extended) then ! the interior only: the images are not cells
             e = sum(self%f_source(1:self%n(1),1:self%n(2),1:self%n(3)) * self%f_global(1:self%n(1),1:self%n(2),1:self%n(3)))
          else
             e = sum(self%f_source * self%f_global)
          endif
+      endif
+      if (self%pcg) then ! the ghosts by the faces' rules (no extension holds them)
+         allocate(u_pad(1-gw:self%n(1)+gw,1-gw:self%n(2)+gw,1-gw:self%n(3)+gw))
+         u_pad = 0._R8P
+         u_pad(1:self%n(1),1:self%n(2),1:self%n(3)) = self%f_global
+         call self%fill_ghosts(u_pad, gw)
       endif
       c = 0
       do b=1, blocks_total
@@ -538,7 +655,12 @@ contains
                do i=1-gw, ub(1)
                   g(1) = modulo(coords_all(1,b)*self%nijk(1) + i - 1, self%m(1)) + 1
                   c = c + 1
-                  buf_all(c) = self%f_global(g(1),g(2),g(3))
+                  if (self%pcg) then
+                     buf_all(c) = u_pad(coords_all(1,b)*self%nijk(1)+i, coords_all(2,b)*self%nijk(2)+j, &
+                                        coords_all(3,b)*self%nijk(3)+k)
+                  else
+                     buf_all(c) = self%f_global(g(1),g(2),g(3))
+                  endif
                enddo
             enddo
          enddo
@@ -551,66 +673,6 @@ contains
       call MPI_BCAST(e, 1, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
       energy = e
    endif
-   contains
-      subroutine extend
-      !< Rank 0: the source extended over the m cells of every extended axis (cell index t = 0..m-1, array index t + 1),
-      !< one axis after the other (the extensions are separable):
-      !<   - ghost-Dirichlet (m = 2 (n + 1)): f(t) for t < n, 0 at t = n and t = m - 1 (the ghost centres), -f(2 n - t)
-      !<     for n < t < m - 1;
-      !<   - face kinds: f(t) for t < n; the reflection about the high face, s_hi f(2 n - 1 - t), for n <= t < 2 n; with
-      !<     m = 4 n (the two faces differ) the reflection of [0, 2 n) about the low face, s_lo g(4 n - 1 - t), for
-      !<     2 n <= t < 4 n. The sign s is -1 at a Dirichlet face, +1 at a Neumann one; the periodic extension then has
-      !<     both reflection symmetries, and so does its periodic solution: the boundary conditions on [0, n).
-      integer(I4P) :: t, d_, src   !< Cell index, axis, source cell index.
-      real(R8P)    :: sg           !< Reflection sign.
-
-      do d_=1, 3
-         if (self%m(d_) == self%n(d_)) cycle ! a null or periodic axis
-         do t=self%n(d_), self%m(d_)-1
-            if (all(self%bc(:,d_) == FLAIL_BC_DIRICHLET_GHOST)) then
-               if (t == self%n(d_) .or. t == self%m(d_)-1) then
-                  call set_plane(d_, t, 0, 0._R8P)
-               else
-                  call set_plane(d_, t, 2*self%n(d_)-t, -1._R8P)
-               endif
-            elseif (t < 2*self%n(d_)) then
-               sg = merge(-1._R8P, 1._R8P, self%bc(2,d_) == FLAIL_BC_DIRICHLET)
-               call set_plane(d_, t, 2*self%n(d_)-1-t, sg)
-            else
-               sg = merge(-1._R8P, 1._R8P, self%bc(1,d_) == FLAIL_BC_DIRICHLET)
-               src = 4*self%n(d_) - 1 - t
-               call set_plane(d_, t, src, sg)
-            endif
-         enddo
-      enddo
-      endsubroutine extend
-
-      subroutine set_plane(d_, t, src, sg)
-      !< Rank 0: the plane t of axis d_ set to sg times the plane src (cell indices; sg = 0 zeroes it).
-      integer(I4P), intent(in) :: d_, t, src !< Axis, target and source cell indices.
-      real(R8P),    intent(in) :: sg         !< Sign (0: zero).
-
-      select case(d_)
-      case(1)
-         if (sg == 0._R8P) then
-            self%f_global(t+1,:,:) = 0._R8P
-         else
-            self%f_global(t+1,:,:) = sg * self%f_global(src+1,:,:)
-         endif
-      case(2)
-         if (sg == 0._R8P) then
-            self%f_global(:,t+1,:) = 0._R8P
-         else
-            self%f_global(:,t+1,:) = sg * self%f_global(:,src+1,:)
-         endif
-      case(3)
-         if (sg == 0._R8P) then
-            self%f_global(:,:,t+1) = 0._R8P
-         else
-            self%f_global(:,:,t+1) = sg * self%f_global(:,:,src+1)
-         endif
-      endselect
-      endsubroutine set_plane
    endsubroutine solve_blocks
 
    ! backend hooks
@@ -667,6 +729,239 @@ contains
                             'CPU, -D_CUFFT on FNL)')
 #endif
    endsubroutine make_plans
+
+   subroutine extend_global(self)
+   !< Rank 0: the source extended over the m cells of every extended axis (cell index t = 0..m-1, array index t + 1),
+   !< one axis after the other (the extensions are separable):
+   !<   - ghost-Dirichlet (m = 2 (n + 1)): f(t) for t < n, 0 at t = n and t = m - 1 (the ghost centres), -f(2 n - t)
+   !<     for n < t < m - 1;
+   !<   - face kinds: f(t) for t < n; the reflection about the high face, s_hi f(2 n - 1 - t), for n <= t < 2 n; with
+   !<     m = 4 n (the two faces differ) the reflection of [0, 2 n) about the low face, s_lo g(4 n - 1 - t), for
+   !<     2 n <= t < 4 n. The sign s is -1 at a Dirichlet face, +1 at a Neumann one; the periodic extension then has
+   !<     both reflection symmetries, and so does its periodic solution: the boundary conditions on [0, n).
+   class(poisson_fft_object), intent(inout) :: self !< The solver.
+   integer(I4P) :: t, d_, src   !< Cell index, axis, source cell index.
+   real(R8P)    :: sg           !< Reflection sign.
+
+   do d_=1, 3
+      if (self%m(d_) == self%n(d_)) cycle ! a null or periodic axis
+      do t=self%n(d_), self%m(d_)-1
+         if (all(self%bc(:,d_) == FLAIL_BC_DIRICHLET_GHOST)) then
+            if (t == self%n(d_) .or. t == self%m(d_)-1) then
+               call set_plane(self%f_global, d_, t, 0, 0._R8P)
+            else
+               call set_plane(self%f_global, d_, t, 2*self%n(d_)-t, -1._R8P)
+            endif
+         elseif (t < 2*self%n(d_)) then
+            sg = merge(-1._R8P, 1._R8P, self%bc(2,d_) == FLAIL_BC_DIRICHLET)
+            call set_plane(self%f_global, d_, t, 2*self%n(d_)-1-t, sg)
+         else
+            sg = merge(-1._R8P, 1._R8P, self%bc(1,d_) == FLAIL_BC_DIRICHLET)
+            src = 4*self%n(d_) - 1 - t
+            call set_plane(self%f_global, d_, t, src, sg)
+         endif
+      enddo
+   enddo
+   endsubroutine extend_global
+
+   pure subroutine set_plane(f, d_, t, src, sg)
+   !< The plane t of axis d_ set to sg times the plane src (cell indices; sg = 0 zeroes it).
+   real(R8P),    intent(inout) :: f(1:,1:,1:) !< The array.
+   integer(I4P), intent(in)    :: d_, t, src  !< Axis, target and source cell indices.
+   real(R8P),    intent(in)    :: sg          !< Sign (0: zero).
+
+   select case(d_)
+   case(1)
+      if (sg == 0._R8P) then
+         f(t+1,:,:) = 0._R8P
+      else
+         f(t+1,:,:) = sg * f(src+1,:,:)
+      endif
+   case(2)
+      if (sg == 0._R8P) then
+         f(:,t+1,:) = 0._R8P
+      else
+         f(:,t+1,:) = sg * f(:,src+1,:)
+      endif
+   case(3)
+      if (sg == 0._R8P) then
+         f(:,:,t+1) = 0._R8P
+      else
+         f(:,:,t+1) = sg * f(:,:,src+1)
+      endif
+   endselect
+   endsubroutine set_plane
+
+   subroutine fill_ghosts(self, u, ng)
+   !< Rank 0: the `ng` ghost layers of the padded global array `u` by the faces' rules, one axis after the other:
+   !< periodic (and null) the wrap, Dirichlet and Neumann at the face the odd and even reflections about it,
+   !< ghost-Dirichlet the odd reflection about the ghost centre (zero there), zero-ghost zero.
+   class(poisson_fft_object), intent(in)    :: self !< The solver.
+   integer(I4P),              intent(in)    :: ng   !< Ghost layers.
+   real(R8P),                 intent(inout) :: u(1-ng:,1-ng:,1-ng:) !< Padded array [1-ng:n+ng per axis].
+   integer(I4P)                             :: d, j, lo, hi, n !< Axis, layer, ghost indices, cells.
+
+   do d=1, 3
+      n = self%n(d)
+      do j=1, ng
+         lo = 1 - j ; hi = n + j
+         if (all(self%bc(:,d) == FLAIL_BC_PERIODIC)) then
+            call copy_plane(d, lo, modulo(lo - 1, n) + 1, 1._R8P)
+            call copy_plane(d, hi, modulo(hi - 1, n) + 1, 1._R8P)
+            cycle
+         endif
+         select case(self%bc(1,d))
+         case(FLAIL_BC_DIRICHLET)
+            call copy_plane(d, lo, j, -1._R8P)
+         case(FLAIL_BC_NEUMANN)
+            call copy_plane(d, lo, j, 1._R8P)
+         case(FLAIL_BC_DIRICHLET_GHOST)
+            if (j == 1) then
+               call copy_plane(d, lo, 1, 0._R8P)
+            else
+               call copy_plane(d, lo, j-1, -1._R8P)
+            endif
+         case default ! zero ghosts
+            call copy_plane(d, lo, 1, 0._R8P)
+         endselect
+         select case(self%bc(2,d))
+         case(FLAIL_BC_DIRICHLET)
+            call copy_plane(d, hi, n+1-j, -1._R8P)
+         case(FLAIL_BC_NEUMANN)
+            call copy_plane(d, hi, n+1-j, 1._R8P)
+         case(FLAIL_BC_DIRICHLET_GHOST)
+            if (j == 1) then
+               call copy_plane(d, hi, n, 0._R8P)
+            else
+               call copy_plane(d, hi, n+2-j, -1._R8P)
+            endif
+         case default
+            call copy_plane(d, hi, n, 0._R8P)
+         endselect
+      enddo
+   enddo
+   contains
+      subroutine copy_plane(d_, t, src, sg)
+      !< The plane t of axis d_ set to sg times the plane src (sg = 0 zeroes it).
+      integer(I4P), intent(in) :: d_, t, src !< Axis, target and source indices.
+      real(R8P),    intent(in) :: sg         !< Sign.
+
+      select case(d_)
+      case(1)
+         u(t,:,:) = sg * u(src,:,:)
+      case(2)
+         u(:,t,:) = sg * u(:,src,:)
+      case(3)
+         u(:,:,t) = sg * u(:,:,src)
+      endselect
+      endsubroutine copy_plane
+   endsubroutine fill_ghosts
+
+   subroutine apply_wide(self, x, y)
+   !< Rank 0: `y = D(G) x` on the global interior, the ghosts by the faces' rules (`fill_ghosts`).
+   class(poisson_fft_object), intent(in)  :: self          !< The solver.
+   real(R8P),                 intent(in)  :: x(1:,1:,1:)   !< Interior values [n].
+   real(R8P),                 intent(out) :: y(1:,1:,1:)   !< Result [n].
+   real(R8P), allocatable                 :: u(:,:,:)      !< Padded copy.
+   integer(I4P)                           :: p, i, j, k, o !< Reach, counters.
+   real(R8P)                              :: w(3)          !< 1 / dx^2 per axis (0 along a null one).
+
+   p = self%dg_order
+   allocate(u(1-p:self%n(1)+p,1-p:self%n(2)+p,1-p:self%n(3)+p))
+   u = 0._R8P
+   u(1:self%n(1),1:self%n(2),1:self%n(3)) = x
+   call self%fill_ghosts(u, p)
+   w = 0._R8P
+   where (.not.self%null_xyz) w = 1._R8P / self%dxyz**2
+   do k=1, self%n(3)
+      do j=1, self%n(2)
+         do i=1, self%n(1)
+            y(i,j,k) = 0._R8P
+            do o=-p, p
+               y(i,j,k) = y(i,j,k) + self%stencil(o) * (w(1) * u(i+o,j,k) + w(2) * u(i,j+o,k) + w(3) * u(i,j,k+o))
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine apply_wide
+
+   subroutine precondition(self, r, z)
+   !< Rank 0: `z = M^-1 r`, M the wide p = 2 operator with the same faces: the 2^z parity sub-problems, each solved by
+   !< its sub-solver's transform (the extension of its kinds, then the division by its eigenvalues).
+   class(poisson_fft_object), intent(inout) :: self        !< The solver.
+   real(R8P),                 intent(in)    :: r(1:,1:,1:) !< Residual [n].
+   real(R8P),                 intent(inout) :: z(1:,1:,1:) !< Correction [n].
+   integer(I4P)                             :: c, i, j, k, ii, jj, kk !< Counters, global indices.
+
+   do c=1, self%nsub
+      associate(sb=>self%sub(c)%s, par=>self%sub_par(:,c))
+      sb%f_global = 0._R8P
+      do k=1, sb%n(3)
+         kk = merge(k, 2*k-1+par(3), par(3) < 0)
+         do j=1, sb%n(2)
+            jj = merge(j, 2*j-1+par(2), par(2) < 0)
+            do i=1, sb%n(1)
+               ii = merge(i, 2*i-1+par(1), par(1) < 0)
+               sb%f_global(i,j,k) = r(ii,jj,kk)
+            enddo
+         enddo
+      enddo
+      if (sb%extended) call sb%extend_global
+      call sb%transform(factor=1._R8P)
+      do k=1, sb%n(3)
+         kk = merge(k, 2*k-1+par(3), par(3) < 0)
+         do j=1, sb%n(2)
+            jj = merge(j, 2*j-1+par(2), par(2) < 0)
+            do i=1, sb%n(1)
+               ii = merge(i, 2*i-1+par(1), par(1) < 0)
+               z(ii,jj,kk) = sb%f_global(i,j,k)
+            enddo
+         enddo
+      enddo
+      endassociate
+   enddo
+   endsubroutine precondition
+
+   subroutine solve_pcg(self, factor)
+   !< Rank 0: `f_global <- u`, `D(G) u = factor f_global` with zero-ghost faces (E2b), by conjugate gradients
+   !< preconditioned by `precondition`, from zero, to `tolerance` (the max-norm residual relative to the source).
+   !< D(G) and M are negative definite here (the zero ghosts remove every null mode), which the iteration takes as is.
+   class(poisson_fft_object), intent(inout) :: self !< The solver.
+   real(R8P),                 intent(in)    :: factor !< Source factor.
+   real(R8P), allocatable :: f(:,:,:), u(:,:,:), r(:,:,:), z(:,:,:), d(:,:,:), q(:,:,:) !< Vectors.
+   real(R8P)              :: fmax, rz, rz_new, alpha !< Scalars.
+   integer(I4P)           :: it !< Counter.
+
+   allocate(f, mold=self%f_global)
+   f = factor * self%f_global
+   allocate(u, r, z, d, q, mold=f)
+   u = 0._R8P ; r = f ; z = 0._R8P
+   fmax = maxval(abs(f))
+   self%iterations = 0 ; self%residual = 0._R8P
+   if (fmax > 0._R8P) then
+      call self%precondition(r, z)
+      d = z
+      rz = sum(r * z)
+      self%residual = 1._R8P
+      do it=1, self%max_iterations
+         call self%apply_wide(d, q)
+         alpha = rz / sum(d * q)
+         u = u + alpha * d
+         r = r - alpha * q
+         self%iterations = it
+         self%residual = maxval(abs(r)) / fmax
+         if (self%residual <= self%tolerance) exit
+         call self%precondition(r, z)
+         rz_new = sum(r * z)
+         d = z + (rz_new / rz) * d
+         rz = rz_new
+      enddo
+      if (self%residual > self%tolerance) print '(A)', mpih%myrankstr//'warning: poisson_fft_object: '// &
+         trim(str(self%max_iterations, .true.))//' CG iterations left the residual at '//trim(str(self%residual))// &
+         ' (tolerance '//trim(str(self%tolerance))//')'
+   endif
+   self%f_global = u
+   endsubroutine solve_pcg
 
    subroutine transform(self, factor)
    !< Rank 0: `f_global <- factor * L_h^-1 f_global`. Periodic: the modes of zero eigenvalue (the mean) set to zero;
@@ -739,4 +1034,23 @@ contains
    enddo
    lam = -(s * s) / dx**2
    endfunction axis_eigenvalue
+
+   pure function dg_stencil(p) result(c)
+   !< The 1-D stencil of D1 D1 (times h^2), offsets -p..p, the centred D1 of order p (`D1_COEF`) composed with itself.
+   integer(I4P), intent(in) :: p          !< Order.
+   real(R8P)                :: c(-8:8)    !< Stencil.
+   real(R8P)                :: a(-4:4)    !< D1 (times h).
+   integer(I4P)             :: j, o1, o2  !< Counters.
+
+   a = 0._R8P
+   do j=1, p/2
+      a(j) = D1_COEF(j,p/2) ; a(-j) = -D1_COEF(j,p/2)
+   enddo
+   c = 0._R8P
+   do o1=-p/2, p/2
+      do o2=-p/2, p/2
+         c(o1+o2) = c(o1+o2) + a(o1) * a(o2)
+      enddo
+   enddo
+   endfunction dg_stencil
 endmodule adam_poisson_fft_object

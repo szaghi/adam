@@ -75,7 +75,8 @@ module adam_poisson_mg_object
 !< `(mean_f - phi_C) / (1.5 h)` (fine side: `phi_f - (mean_f - phi_C) / 1.5`; coarse side:
 !< `phi_C + (mean_f - phi_C) / 0.75`); deeper ghost layers copy the first.
 use :: adam_field_object, only : field_object
-use :: adam_flail_parameters, only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST
+use :: adam_flail_parameters, only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, &
+                                      FLAIL_BC_ZERO_GHOSTS
 use :: adam_grid_object, only : grid_object
 use :: adam_mpih_global, only : mpih
 use :: adam_poisson_fft_object, only : poisson_fft_object
@@ -321,15 +322,17 @@ contains
             'poisson_mg_object%initialize: direction '//trim(str(d, .true.))//' is '// &
             merge('    periodic', 'not periodic', self%periodic(d))//' in the grid and '// &
             merge('    periodic', 'not periodic', all(bc(:,d) == FLAIL_BC_PERIODIC))//' in bc')
-         if (count(bc(:,d) == FLAIL_BC_DIRICHLET_GHOST) == 1) call mpih%error_stop(msg= &
-            'poisson_mg_object%initialize: direction '//trim(str(d, .true.))//' mixes a ghost-Dirichlet face with a '//&
-            'face kind')
+         if (count(bc(:,d) == FLAIL_BC_DIRICHLET_GHOST .or. bc(:,d) == FLAIL_BC_ZERO_GHOSTS) == 1) &
+            call mpih%error_stop(msg='poisson_mg_object%initialize: direction '//trim(str(d, .true.))// &
+                                     ' mixes a ghost-Dirichlet face (or a zero-ghost one) with a face kind')
          do r=1, 2
-            if (all(bc(r,d) /= [FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST])) &
+            if (all(bc(r,d) /= [FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, &
+                                FLAIL_BC_ZERO_GHOSTS])) &
                call mpih%error_stop(msg='poisson_mg_object%initialize: unknown boundary kind '// &
                                         trim(str(bc(r,d), .true.))//' on direction '//trim(str(d, .true.)))
          enddo
-         self%bc(:,d) = bc(:,d)
+         ! zero ghosts (PRISM's Dirichlet, #84 E2b): the compact operator reads one ghost layer, ghost-Dirichlet at 0
+         self%bc(:,d) = merge(FLAIL_BC_DIRICHLET_GHOST, bc(:,d), bc(:,d) == FLAIL_BC_ZERO_GHOSTS)
       elseif (.not.self%periodic(d)) then
          self%bc(:,d) = FLAIL_BC_DIRICHLET_GHOST
       endif

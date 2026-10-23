@@ -13,6 +13,9 @@ module adam_flail_parameters
 !<   - `FLAIL_BC_DIRICHLET_GHOST`: the value at the centre of the first ghost cell (issue #87: the multigrid's
 !<     coarsest level and its James step, where the ghost values are computed, not prescribed). The wall sits half a
 !<     cell outside the domain, so as a prescribed condition it is first order; not for clients.
+!<   - `FLAIL_BC_ZERO_GHOSTS`: every ghost layer zero (issue #84, E2b): PRISM's elliptic Dirichlet face, which its D
+!<     and G read the same way. With the compact operator it is `FLAIL_BC_DIRICHLET_GHOST` (the 7-point stencil reads
+!<     one ghost layer); with the wide D(G) it is no reflection, and the FFT solver solves it by preconditioned CG.
 use :: penf, only : I4P
 
 implicit none
@@ -21,9 +24,11 @@ public :: FLAIL_BC_PERIODIC
 public :: FLAIL_BC_DIRICHLET
 public :: FLAIL_BC_NEUMANN
 public :: FLAIL_BC_DIRICHLET_GHOST
+public :: FLAIL_BC_ZERO_GHOSTS
 
 integer(I4P), parameter :: FLAIL_BC_PERIODIC        = 0_I4P !< Periodic (both faces of the axis).
 integer(I4P), parameter :: FLAIL_BC_DIRICHLET       = 1_I4P !< Value at the face.
 integer(I4P), parameter :: FLAIL_BC_NEUMANN         = 2_I4P !< Normal derivative at the face.
 integer(I4P), parameter :: FLAIL_BC_DIRICHLET_GHOST = 3_I4P !< Value at the first ghost centre (issue #87, internal).
+integer(I4P), parameter :: FLAIL_BC_ZERO_GHOSTS     = 4_I4P !< Every ghost layer zero (PRISM's Dirichlet, E2b).
 endmodule adam_flail_parameters

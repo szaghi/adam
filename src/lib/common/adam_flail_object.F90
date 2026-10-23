@@ -20,7 +20,9 @@ module adam_flail_object
 !< is removed, as on a periodic grid. Without `bc` the setup is the E0 one, unchanged: periodic or isolated. The values
 !< at the boundary are homogeneous on the FFT path; `solve(..., ghost=)` gives inhomogeneous ones (the multigrid's
 !< boundary-face list, `mg%nbnd`, `mg%bnd_kind`, `mg%bnd_dir`, `mg%bnd_x`) and needs the multigrid path
-!< (`FLAIL_BACKEND_MULTIGRID`: on a uniform grid one V-cycle is the exact FFT solve). A vector whose components take
+!< (`FLAIL_BACKEND_MULTIGRID`: on a uniform grid one V-cycle is the exact FFT solve). `FLAIL_BC_ZERO_GHOSTS` (E2b,
+!< PRISM's Dirichlet face) is ghost-Dirichlet at zero for the compact operator; with the wide D(G) the FFT solver
+!< solves it by preconditioned CG. A vector whose components take
 !< different kinds (PRISM's vector potential at a PEC face: Neumann for the normal component, Dirichlet for the others)
 !< takes one FLAIL per set of kinds: the operators differ, and the instances coexist.
 !<
@@ -33,7 +35,8 @@ module adam_flail_object
 !< A backend's FFT solver is chosen by allocating the `fft` component before `setup` (the FNL backend allocates the
 !< cuFFT extension); otherwise `setup` allocates the host one.
 use :: adam_field_object,       only : field_object
-use :: adam_flail_parameters,   only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST
+use :: adam_flail_parameters,   only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, &
+                                       FLAIL_BC_ZERO_GHOSTS
 use :: adam_grid_object,        only : grid_object
 use :: adam_mpih_global,        only : mpih
 use :: adam_poisson_fft_object, only : poisson_fft_object
@@ -47,7 +50,7 @@ public :: flail_object
 public :: FLAIL_BACKEND_AUTO
 public :: FLAIL_BACKEND_FFT
 public :: FLAIL_BACKEND_MULTIGRID
-public :: FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST ! the kinds, for clients
+public :: FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, FLAIL_BC_ZERO_GHOSTS ! kinds
 
 integer(I4P), parameter :: FLAIL_BACKEND_AUTO      = 0_I4P !< FFT on a uniform grid, multigrid otherwise.
 integer(I4P), parameter :: FLAIL_BACKEND_FFT       = 1_I4P !< The FFT solver (uniform grids only).
