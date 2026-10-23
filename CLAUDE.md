@@ -550,7 +550,13 @@ Note the underscore spelling `Silver_Muller` — the hyphenated form appears onl
 
 There is a **second, derived** taxonomy for the elliptic solver: `build_elliptic_bc_types` maps each face BC into `ELL_BC_{DIRICHLET,PERIODIC,EXACT_OPEN,PEC}` (`Neumann` and `Silver_Muller` collapse to `EXACT_OPEN`; so would `radiative`, which the parser now refuses). Unlike the EM parser, **this mapping is total** — `BC_EXTRAPOLATION` and any unmapped value both `error_stop`. So a misconfigured face can pass EM setup silently and only fail later, when an elliptic solve (PIC initialisation, divergence correction) first touches it.
 
-When adding a BC kind, update **both** `select case`s.
+The t0 elliptic solves run on FLAIL since [#84](https://github.com/szaghi/adam/issues/84) E3b (`solve_time_zero` in
+`impose_pic_fields_time_zero`): `ELL_BC_PERIODIC` → `FLAIL_BC_PERIODIC`, `ELL_BC_DIRICHLET` → `FLAIL_BC_ZERO_GHOSTS`,
+`ELL_BC_PEC` → `FLAIL_BC_DIRICHLET` (φ, tangential A) or `FLAIL_BC_NEUMANN` (normal A); an `ELL_BC_EXACT_OPEN` face
+still takes the legacy smoothers (until E3c), and a refined grid is refused (E7). Every PRISM build mode links an FFT
+library for it (FFTW, or cuFFT on the NVIDIA FNL modes).
+
+When adding a BC kind, update **all three** `select case`s (the EM parser, the elliptic map, `solve_time_zero`).
 
 ## Suspected, unverified defects (do not fix before verifying)
 

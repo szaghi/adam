@@ -143,6 +143,21 @@ device-path a plain field case does not:
   the 10 steps). It anchors the GLM state layout, `nv = 11` with φ and ψ in
   slots 7 and 8 and J in 9..11 (issue #61): before it no case ran the
   cleaning. The two inputs #61 refuses are legs of `refusals.sh`.
+- **`pic-pec-t0`**, **`rmf-pec-t0`** — the first cases that enter PRISM's t0
+  elliptic solves ([#84](https://github.com/szaghi/adam/issues/84) E3b; before
+  them 0 of 18 did). `pic-pec-t0` is the `plasma_box` PIC input (FD order 6, PEC
+  faces, 32³ cells in 8 blocks, the non-conserving TSC deposit: the conserving
+  one is single-rank on the CPU), so both the electric (`D(G) phi = -rho/eps`)
+  and the magnetic (`D(G) A = -mu J`) solves run; `rmf-pec-t0` is `rmf` with PEC
+  faces and `time_delay = 0` (the coils carry their current at t0) and
+  `ngc = 6`. Besides the goldens, each has a `check.sh` (np 1 and 2) on
+  `t0_elliptic.py`: the Gauss law `div D - rho = -c chi` to 1e-12 (`chi =
+  (-1)^(i+j+k)`, which PRISM's centred div∘grad annihilates: with PEC faces the
+  component of rho along it is out of reach of any D, 3e-5 of max|rho| here),
+  `div B` to 1e-12, and the t0 fields equal at np 1 and np 2. Measured against the
+  legacy smoother: it left 3.4e-5 max|rho| of Gauss-law error beyond chi, and its
+  `rmf-pec-t0` B, stopped after 11 iterations, differs from FLAIL's by 1.6 (relative
+  max norm), 0.48 after 40 iterations, 0.034 after 160.
 
 ### Lint gates
 
@@ -166,6 +181,7 @@ vacuously. Legs, `-np 1`, a few seconds each:
 | `blanes-moan`, `cfm` | cpu, fnl | `realm_object` never initializes their objects; the FNL routines are empty (#55) |
 | `leapfrog` | cpu, fnl | as above (refused since 596eb3cd / c27d6ad8) |
 | `yoshida` | fnl | `integrate_rk_yoshida_dev` is empty (#55); the CPU integrator works |
+| `t0-elliptic-amr` | cpu, fnl | a t0 elliptic solve on a refined grid: the wide D(G) across 2:1 faces is not defined yet (#84 E3b, E7) |
 
 Add a leg here whenever an input becomes a refusal.
 
@@ -211,6 +227,7 @@ varset is ever needed.
 | `mpirun`       | both         | On `PATH`; for FNL the wrapper loads it via `nvhpc`        |
 | `fobis` 3.8+   | both         | Long-form CLI; legacy `FoBiS.py -mode` not accepted        |
 | `python3`     | both         | A venv with `h5py` is created on first run                 |
+| FFTW 3         | `cpu` only   | Every PRISM mode links `-lfftw3` (#84 E3b); FNL links cuFFT |
 | `nvhpc` module | `fnl` only   | Loaded by `run-fnl-local.sh`; provides nvfortran + mpirun  |
 
 On first invocation `run.sh` creates a private Python venv at

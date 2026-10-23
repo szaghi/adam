@@ -1686,6 +1686,12 @@ contains
 
    subroutine impose_pic_fields_time_zero(self, ivar)
    !< Compute initial condition for the fields in presence of plasma or current sources.
+   !<
+   !< The electric field (PIC): D(G) phi = -rho/eps, then D <- D - eps G phi. The magnetic field: D(G) A_d = -mu J_d per
+   !< component, then B <- B + curl A. D(G) is PRISM's own operator, the order-p centred derivative composed with itself
+   !< (`fdv_order`), so the corrected field satisfies div D = rho to round-off with PRISM's divergence (issue #84, E3a).
+   !< The solves run by FLAIL's FFT solver (E3b) when no face is exact/open; an exact/open face keeps the legacy
+   !< smoothers until E3c. A refined grid is refused: the wide operator across 2:1 faces is not defined yet (E7).
    class(prism_common_object), intent(inout) :: self            !< The equation.
    integer(I4P),               intent(in)    :: ivar            !< Variable (start) index in q.
    real(R8P)                                 :: dphi_max        !< Maximum residual.
@@ -1712,6 +1718,7 @@ contains
          allocate(bc_crown(0,9,ngc))
       endif
       call self%bc%build_elliptic_bc_types(ivar=ivar, ell_bc_type=elliptic_bc_type)
+      call refuse_refined_grid
       eps_scale = EPS0
       mu_scale = MU0
       if (is_adim_model(self%physics%physical_model)) then
@@ -1740,11 +1747,8 @@ contains
             f(:,:,:,:,:)    = 0._R8P
             ind = size(self%q(:,1,1,1,1))
             f(1,:,:,:,:) = -self%q(ind,:,:,:,:)/eps_scale
+            call solve_time_zero(nv_solve=1_I4P, f=f, phi=phi, label='electric displacement field', eps=eps_scale)
             if (blocks_number > 0) then
-               call solve_pic_elliptic(nv_solve=1_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                       dphi_max=dphi_max, eps=eps_scale)
-               call mpih%print_message('FLAIL convergence for electric displacement field at t0 '// &
-                                       'reached at iteration '//trim(str(iter,.true.)))
                call self%compute_gradient_extended(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
                   do k=1-ngc/2, nk+ngc/2
@@ -1758,8 +1762,6 @@ contains
                   enddo
                enddo
                if (self%pic%elliptic_correction) call self%impose_ct_correction(ivar=VAR_DX)
-            else
-               call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
             endif
          elseif (ivar == VAR_BX) then
             allocate(phi(1:3,        &
@@ -1782,11 +1784,8 @@ contains
             f(:,:,:,:,:)    = 0._R8P
             f(:,:,:,:,:) = -mu_scale*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             call remove_singular_mean(f=f, mu=mu_scale)
+            call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field', mu=mu_scale)
             if (blocks_number > 0) then
-               call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                       dphi_max=dphi_max, mu=mu_scale)
-               call mpih%print_message('FLAIL convergence for magnetic field at t0 reached at iteration '// &
-                                       trim(str(iter,.true.)))
                call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
                   do k=1-ngc/2, nk+ngc/2
@@ -1799,8 +1798,6 @@ contains
                      enddo
                   enddo
                enddo
-            else
-               call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
             endif
          endif
       elseif (self%physics%physical_model == EM_PHYSICAL_MODEL) then
@@ -1827,11 +1824,8 @@ contains
             f(:,:,:,:,:)    = 0._R8P
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             call remove_singular_mean(f=f, mu=MU0)
+            call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field', mu=MU0)
             if (blocks_number > 0) then
-               call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                       dphi_max=dphi_max, mu=MU0)
-               call mpih%print_message('FLAIL convergence for magnetic field at t0 reached at iteration '// &
-                                       trim(str(iter,.true.)))
                call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
                   do k=1-ngc/2, nk+ngc/2
@@ -1844,8 +1838,6 @@ contains
                      enddo
                   enddo
                enddo
-            else
-               call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
             endif
          endif
       elseif (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
@@ -1872,11 +1864,8 @@ contains
             f(:,:,:,:,:)    = 0._R8P
             f(:,:,:,:,:) = -self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             call remove_singular_mean(f=f, mu=1._R8P)
+            call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field', mu=1._R8P)
             if (blocks_number > 0) then
-               call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                       dphi_max=dphi_max, mu=1._R8P)
-               call mpih%print_message('FLAIL convergence for magnetic field at t0 reached at iteration '// &
-                                       trim(str(iter,.true.)))
                call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
                   do k=1-ngc/2, nk+ngc/2
@@ -1889,13 +1878,91 @@ contains
                      enddo
                   enddo
                enddo
-            else
-               call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
             endif
          endif
       endif
    endassociate
    contains
+      subroutine refuse_refined_grid
+      !< Stop on a grid whose blocks are at more than one level: the t0 solves need a uniform grid (issue #84, E7).
+      !< Every rank calls it.
+      integer(I4P) :: lev(2) !< Lowest and (negated) highest block level over the ranks.
+      integer(I4P) :: b      !< Counter.
+
+      lev = [huge(1_I4P), huge(1_I4P)]
+      do b=1, self%blocks_number
+         lev = min(lev, [self%adam%field%coordinates(4,b), -self%adam%field%coordinates(4,b)])
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, lev, 2, MPI_INTEGER, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+      if (lev(1) /= -lev(2)) call mpih%error_stop(msg=': the t0 elliptic solve on q('//trim(str(ivar))//') needs a '// &
+         'uniform grid (the blocks are at more than one level); on AMR it is not available yet (issue #84, E7)')
+      endsubroutine refuse_refined_grid
+
+      subroutine solve_time_zero(nv_solve, f, phi, label, mu, eps)
+      !< Solve D(G) phi_c = f_c for every component c, by FLAIL (no exact/open face) or by the legacy smoothers.
+      !< Every rank calls it, with or without blocks: the FLAIL solves gather to rank 0, the legacy ones follow the
+      !< convergence test.
+      !<
+      !< The face kinds: periodic stays periodic; PRISM's Dirichlet writes zero into every ghost layer
+      !< (`FLAIL_BC_ZERO_GHOSTS`); PEC reflects about the face, odd for the potential and for a vector-potential component
+      !< tangential to the face (`FLAIL_BC_DIRICHLET`), even for the component normal to it (`FLAIL_BC_NEUMANN`). These are
+      !< the legacy ghost rules (`apply_bc_elliptic_from_faces`). FLAIL drops the null modes of a singular problem itself
+      !< (the mean and the checkerboard of the wide operator).
+      integer(I4P), intent(in)           :: nv_solve !< Components.
+      real(R8P),    intent(in)           :: f(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< Forcing.
+      real(R8P),    intent(inout)        :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Solution, ghosts filled.
+      character(*), intent(in)           :: label    !< Field name, for the messages.
+      real(R8P),    intent(in), optional :: mu, eps  !< Electromagnetic constants (legacy exact/open faces).
+      real(R8P), allocatable             :: work(:,:,:,:) !< One component of the solution.
+      integer(I4P)                       :: kinds(2,3)    !< FLAIL face kinds [lo/hi, axis].
+      integer(I4P)                       :: c, face       !< Counters.
+
+      if (any(elliptic_bc_type == ELL_BC_EXACT_OPEN)) then
+         if (self%blocks_number > 0) then
+            call solve_pic_elliptic(nv_solve=nv_solve, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
+                                    dphi_max=dphi_max, mu=mu, eps=eps)
+            call mpih%print_message('FLAIL convergence for '//label//' at t0 reached at iteration '//trim(str(iter,.true.)))
+         else
+            call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
+         endif
+         return
+      endif
+      allocate(work(1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc,1:self%nb))
+      do c=1, nv_solve
+         do face=1, 6
+            select case(elliptic_bc_type(face))
+            case(ELL_BC_PERIODIC)
+               kinds(2-mod(face,2),(face+1)/2) = FLAIL_BC_PERIODIC
+            case(ELL_BC_DIRICHLET)
+               kinds(2-mod(face,2),(face+1)/2) = FLAIL_BC_ZERO_GHOSTS
+            case(ELL_BC_PEC)
+               if (ivar == VAR_BX .and. c == (face+1)/2) then
+                  kinds(2-mod(face,2),(face+1)/2) = FLAIL_BC_NEUMANN
+               else
+                  kinds(2-mod(face,2),(face+1)/2) = FLAIL_BC_DIRICHLET
+               endif
+            case default
+               call mpih%error_stop(msg=': no FLAIL face kind for elliptic BC '//trim(str(elliptic_bc_type(face))))
+            endselect
+         enddo
+         call self%flail%setup(grid=self%adam%grid, field=self%adam%field, isolated=.false., backend=FLAIL_BACKEND_FFT, &
+                               bc=kinds, dg_order=self%fdv_order)
+         work = 0._R8P
+         call self%flail%solve(field=self%adam%field, q=f, iv=c, factor=1._R8P, phi=work)
+         phi(c,:,:,:,:) = work
+         if (mpih%myrank == 0_I4P) then
+            if (self%flail%fft%pcg) then
+               call mpih%print_message('FLAIL t0 solve, '//label//' component '//trim(str(c,.true.))//': '// &
+                                       trim(str(self%flail%fft%iterations,.true.))//' CG iterations, residual '// &
+                                       trim(str(self%flail%fft%residual)))
+            else
+               call mpih%print_message('FLAIL t0 solve, '//label//' component '//trim(str(c,.true.))//': direct FFT')
+            endif
+         endif
+      enddo
+      call self%flail%fft%destroy ! the plans and the global arrays are not needed after t0
+      endsubroutine solve_time_zero
+
       subroutine solve_pic_elliptic(nv_solve, ell_bc_type, phi, dphi, f, dphi_max, mu, eps)
       integer(I4P),      intent(in)            :: nv_solve
       integer(I4P),      intent(in)            :: ell_bc_type(6)

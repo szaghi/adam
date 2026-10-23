@@ -41,6 +41,10 @@ LEGS=(
    "ef-typo|cpu fnl|s/^external_fields_applied *=.*/external_fields_applied = rmff/|(external_fields_applied) \"rmff\""
    "fwl-flag-typo|cpu fnl|s/^x_minus_layer *=.*/x_minus_layer = yse/|(x_minus_layer) \"yse\""
    "ib-file-off|cpu fnl|s/^number    = 0/number    = 1/;s/^n_eikonal = 2/&\n[solid_1]\nname = s\nbc_type = 1\ndefinition = file.off/|(definition) \"file.off\""
+   # issue #84 E3b: the t0 elliptic solves (here the magnetic one: the coils carry their current at t0) need a uniform
+   # grid; the wide D(G) across 2:1 faces is not defined yet (E7). The first IC pass runs on the uniform grid (PEC faces:
+   # the FLAIL path), the marker refines, the second pass must refuse
+   "t0-elliptic-amr|cpu fnl|s/^type = Neumann/type = PEC/;s/^time_delay = .*/time_delay = 0.0/;s/^amr_iterations = 0/amr_iterations = 1/;s/^iu_ref_levels  = 2/iu_ref_levels  = 1/;s/^markers_number = 0/markers_number = 1\n[amr_marker_1]\nmode = 1\ngeo_type = primitive-box\ndelta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0\nbox_xmin = -0.06\nbox_ymin = -0.06\nbox_zmin = -0.06\nbox_xmax = 0.0\nbox_ymax = 0.06\nbox_zmax = 0.06\ntarget_level = 2/|needs a uniform grid"
    "ib-axis|cpu fnl|s/^number    = 0/number    = 1/;s/^n_eikonal = 2/&\n[solid_1]\nname = s\nbc_type = 1\ndefinition = analytical_circle\ncircle_center_x = 0.0\ncircle_center_y = 0.0\ncircle_center_z = 0.0\ncircle_radius = 0.01\ncircle_axis = w/|(circle_axis) \"w\""
 )
 

@@ -35,7 +35,7 @@ confusing error at layer *n+1*.
                                       |
 2. varset (fobos)      $HDF5_PREFIX, $NVF_CC     <- the porting seam
                                       |
-1. toolchain           gfortran|nvfortran + MPI + parallel HDF5 + python3
+1. toolchain           gfortran|nvfortran + MPI + parallel HDF5 + FFTW + python3
 ```
 
 Layer 2 is the only machine-specific one. Porting is, almost entirely, adding
@@ -49,6 +49,7 @@ one `[varset:*]` block to `fobos`.
 | `nvfortran` | FNL backend | NVHPC 22.x+ | `nvfortran --version` |
 | MPI | both | OpenMPI ≥4.0 / MPICH ≥3.3 | `mpirun --version` |
 | parallel HDF5 | both | ≥1.10, **same MPI as the app** | Step 1 |
+| FFTW 3 | CPU backend (every PRISM mode links `-lfftw3` since [#84](https://github.com/szaghi/adam/issues/84) E3b; the NVIDIA FNL modes link cuFFT, part of NVHPC) | 3.3 | `ls /usr/lib/x86_64-linux-gnu/libfftw3.so` (`apt install libfftw3-dev`) |
 | `fobis` | both | **3.8+** (long-form CLI) | `fobis --version` |
 | `python3` | both | 3.8+, with `venv` | `python3 -m venv --help` |
 

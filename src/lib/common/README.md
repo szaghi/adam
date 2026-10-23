@@ -272,7 +272,19 @@ AMR grids. The legacy smoothers (next section) retire once PRISM moves here (#84
 A vector whose components take different kinds (PRISM's vector potential at a PEC face: Neumann for the normal
 component, Dirichlet for the others) takes one FLAIL per set of kinds: the operators differ (the FFT extensions, the
 singularity), and the instances coexist (`test_poisson_mg --flail`, bitwise). The mapping from an app's boundaries to
-the kinds belongs to the app (PRISM's lands with its migration, #84 E3).
+the kinds belongs to the app.
+
+**PRISM's t0 solves (#84, E3b).** `impose_pic_fields_time_zero` (`adam_prism_common_object.F90`) solves
+`D(G) phi = -rho/eps` (PIC, then `D <- D - eps G phi`) and `D(G) A_d = -mu J_d` per component (then `B <- B + curl A`)
+through the realm's `flail`, one `setup` per component, `dg_order = fdv_order`, on the FFT path: periodic stays
+periodic, PRISM's Dirichlet is `FLAIL_BC_ZERO_GHOSTS`, PEC is `FLAIL_BC_DIRICHLET` (odd) for the potential and the
+tangential components of A, `FLAIL_BC_NEUMANN` (even) for the normal one, as the legacy ghost rules. A refined grid is
+refused (E7); an exact/open face (PRISM's `Neumann`, `Silver_Muller`) keeps the legacy smoothers until E3c. The FNL
+backend allocates the cuFFT solver; every PRISM mode links an FFT library (FFTW on the host, cuFFT on NVIDIA FNL).
+Regression cases `pic-pec-t0` and `rmf-pec-t0` enter the two solves. Two limits: the solve gathers the grid on rank 0
+(and on its GPU on FNL), the FFT solver's design, about 24 B per transform cell, 8 N cells with reflected faces (a
+256³ PEC grid takes about 3 GB at t0); and PRISM's centred div∘grad annihilates the checkerboard, so with PEC faces the
+component of rho along `(-1)^(i+j+k)` stays in `div D - rho` (no D can carry it; the legacy smoother could not either).
 
 A backend chooses its FFT engine by allocating the `fft` component before `setup` (FLUME's FNL backend allocates the
 cuFFT one). The boundary kinds per face, `FLAIL_BC_PERIODIC | _DIRICHLET | _NEUMANN | _DIRICHLET_GHOST`, live in
@@ -281,8 +293,9 @@ status: [issue #84](https://github.com/szaghi/adam/issues/84).
 
 ### `adam_flail_legacy_object` — legacy FLAIL smoothers (retired in issue #84, E4)
 
-PRISM's elliptic smoothers until they move to the FLAIL library (E3); the realm component is `flail_legacy`, and it
-owns the `[linear-algebra]` section. No new code should use it.
+PRISM's elliptic smoothers: since #84 E3b only a t0 solve with an exact/open face (until E3c) and the unused
+`[PIC] elliptic_correction` (E3d) reach them. The realm component is `flail_legacy`, and it owns the
+`[linear-algebra]` section. No new code should use it.
 
 Iterative solver and smoother infrastructure for implicit operators (e.g., elliptic sub-problems). Provides a common interface over several smoothing strategies:
 
@@ -358,7 +371,8 @@ needs (FLUME [models](/applications/flume/models#self-gravity)).
   grids: `adam_poisson_mg_object` (below).
 - **Build:** `-D_FFTW` and `-lfftw3` (FFTW 3, `FFTW_ESTIMATE` plans: deterministic). Without an FFT library,
   `initialize` stops with "built without an FFT library". The FNL twin is `adam_fnl_poisson_fft_object` (cuFFT).
-  Every mode builds it since the FLAIL facade (#84, E0) is a realm component; only the `*-fft` modes link an FFT library.
+  Every mode builds it since the FLAIL facade (#84, E0) is a realm component; FLUME's `*-fft` modes and every PRISM mode
+  (#84, E3b) link an FFT library.
 - **Verification:** SV-2 (periodic) and SV-6 (isolated), `src/tests/poisson/test_poisson_fft.F90` (`--isolated`)
   driven by `src/tests/flume/verification/selfgravity/poisson.sh`; the face kinds by
   `src/tests/poisson/test_flail_bc.F90` (E1a: per-axis discrete eigenfunctions of every kind mix, the ghost layer

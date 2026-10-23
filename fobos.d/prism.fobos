@@ -3,54 +3,63 @@ modes = prism-cpu-gnu prism-cpu-gnu-debug prism-fnl-nvf prism-fnl-nvf-debug pris
 
 # Every mode has its own mod_dir/obj_dir, ./mod/prism/<toolchain>/ (issue #72): PRISM and FLUME compile the same library
 # sources, and with one directory per compiler an incremental build of one app left the other's modules stale.
+# Every mode links an FFT library for FLAIL's t0 elliptic solves (issue #84, E3b): FFTW on the host (-D_FFTW, the CPU
+# and AMD modes; cuFFT is NVIDIA only), cuFFT on the NVIDIA FNL modes (-D_CUFFT, -cudalib=cufft).
 
 [prism-cpu-gnu]
 template = template-gnu
 mod_dir  = ./mod/prism/gnu/
 obj_dir  = ./obj/prism/gnu/
-preproc  = -D_MPI_ -w
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
 target   = adam_prism_cpu.F90
 
 [prism-cpu-gnu-debug]
 template = template-gnu-debug
 mod_dir  = ./mod/prism/gnu/debug/
 obj_dir  = ./obj/prism/gnu/debug/
-preproc  = -D_MPI_ -w
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
 target   = adam_prism_cpu.F90
 
 [prism-cpu-amd]
 template = template-amd
 mod_dir  = ./mod/prism/amd/
 obj_dir  = ./obj/prism/amd/
-preproc  = -D_MPI_ -w
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
 target   = adam_prism_cpu.F90
 
 [prism-cpu-amd-debug]
 template = template-amd
 mod_dir  = ./mod/prism/amd/debug/
 obj_dir  = ./obj/prism/amd/debug/
-preproc  = -D_MPI_ -w
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
 target   = adam_prism_cpu.F90
 
 [prism-fnl-nvf]
 template = template-nvf
 mod_dir  = ./mod/prism/nvf/
 obj_dir  = ./obj/prism/nvf/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+lflags   = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
 target   = adam_prism_fnl.F90
 
 [prism-fnl-nvf-debug]
 template = template-nvf-debug
 mod_dir  = ./mod/prism/nvf/debug/
 obj_dir  = ./obj/prism/nvf/debug/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+lflags   = -acc -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -Mchkptr -Mchkstk -Ktrap=fp -g -O0 -cudalib=cufft
 target   = adam_prism_fnl.F90
 
 [prism-fnl-nvf-spacehpc]
 template  = template-nvf
 mod_dir   = ./mod/prism/nvf-spacehpc/
 obj_dir   = ./obj/prism/nvf-spacehpc/
-preproc   = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc   = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+lflags    = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
 target    = adam_prism_fnl.F90
 libs      =
 ext_libs  = hdf5_fortran hdf5 z
@@ -59,12 +68,14 @@ ext_libs  = hdf5_fortran hdf5 z
 template = template-omp-amd
 mod_dir  = ./mod/prism/amd/omp/
 obj_dir  = ./obj/prism/amd/omp/
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
 target   = adam_prism_fnl.F90
 
 [prism-fnl-omp-amd-debug]
 template = template-omp-amd-debug
 mod_dir  = ./mod/prism/amd/omp/debug/
 obj_dir  = ./obj/prism/amd/omp/debug/
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
 target   = adam_prism_fnl.F90

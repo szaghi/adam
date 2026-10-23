@@ -48,6 +48,10 @@ jobs:
       if: hashFiles('**/.deps_config.ini') != ''
       run: fobis fetch
 
+    - name: Install FFTW
+      # Every PRISM mode links -lfftw3: FLAIL's t0 elliptic solves (issue #84, E3b).
+      run: sudo apt install -y libfftw3-dev
+
     - name: Run PRISM CPU regression
       # The ci_gnu varset (fobos) points HDF5 at lib/hdf5/develop/gnu/14.2.0:
       # the runner's apt gfortran-14 cannot read the default local_gnu HDF5,

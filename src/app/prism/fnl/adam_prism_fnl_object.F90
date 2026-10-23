@@ -11,6 +11,9 @@ use :: adam_common_library
 use :: adam_prism_common_library
 ! PRISM FNL modules
 use :: adam_prism_fnl_library
+#ifdef _CUFFT
+use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
+#endif
 ! third party modules
 use :: fundal, save_memory_status_gpu=>save_memory_status
 use :: penf,   save_memory_status_cpu=>save_memory_status
@@ -604,6 +607,11 @@ contains
       endselect
    endif
 
+#ifdef _CUFFT
+   ! FLAIL's FFT solver on cuFFT for the t0 elliptic solves (issue #84, E3b); without cuFFT (the AMD build) FLAIL sets up
+   ! the host solver (FFTW)
+   allocate(poisson_fft_fnl_object :: self%flail%fft)
+#endif
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
