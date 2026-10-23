@@ -55,7 +55,7 @@ Every library object belongs to a **realm** — the per-domain solver instance �
 | `io` | `io_object` | INI file handle, output/restart configuration |
 | `amr` | `amr_object` | refinement markers |
 | `weno`, `rk`, `ib` | `weno_object`, `rk_object`, `ib_object` | reconstruction, time integration, immersed boundary |
-| `slices`, `flail`, `leapfrog`, `blanesmoan`, `cfm` | … | slices output, linear algebra, alternative integrators |
+| `slices`, `flail`, `flail_legacy`, `leapfrog`, `blanesmoan`, `cfm` | … | slices output, the FLAIL elliptic solver library (issue #84: FFT and multigrid Poisson solvers; `flail_legacy` holds PRISM's old smoothers until they retire), alternative integrators |
 
 Library routines that need another object receive it **as an argument**, e.g. `call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)`. Because each realm owns its objects, several realms (a multi-realm *forest*) coexist in one process without sharing state.
 

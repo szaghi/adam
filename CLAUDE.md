@@ -64,7 +64,7 @@ src/
 | `adam_ib_object` | Immersed boundary method |
 | `adam_io_object` | HDF5 and restart file I/O |
 | `adam_mpih_object` | MPI wrapper and communication |
-| `adam_realm_object` | Abstract app base: **owns every library object as a component** (`io, amr, slices, weno, ib, rk, flail, adam{grid,tree,field,maps}`) + the `_forest` TBP contract |
+| `adam_realm_object` | Abstract app base: **owns every library object as a component** (`io, amr, slices, weno, ib, rk, flail, flail_legacy, adam{grid,tree,field,maps}`; `flail` is the elliptic solver library, issue #84) + the `_forest` TBP contract |
 | `adam_forest_object` | Time-loop orchestrator (`simulate`, `simulate_from_manifest`): single-realm fast path, AMR-staged path, multi-realm seams |
 | `adam_mpih_global` | The **only** CPU program-scope singleton (`mpih`); `adam_globals` re-exports just this |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian operators |

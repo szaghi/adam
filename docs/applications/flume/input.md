@@ -323,7 +323,8 @@ Two further constraints:
 
 ## [linear-algebra]
 
-FLAIL elliptic-solver settings. **FLUME never runs an elliptic solve, so every key here is unused.**
+Settings of the legacy FLAIL smoothers (PRISM's; retired in issue #84, E4). **FLUME reads none of these keys**: its
+elliptic solve, self-gravity, runs through the FLAIL library and is configured in `[gravity]`.
 The keys are still required: every key except `smoothing` has an `error_stop` on absence. `smoothing` also errors when
 missing.
 

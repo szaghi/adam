@@ -41,6 +41,7 @@ use :: adam_cfm_object
 use :: adam_eos_ic_object
 use :: adam_fdv_operators_library
 use :: adam_field_object
+use :: adam_flail_legacy_object
 use :: adam_flail_object
 use :: adam_flux_register_object
 use :: adam_ib_object
@@ -81,7 +82,8 @@ type :: realm_object
    type(blanesmoan_object) :: blanesmoan !< Blanes-Moan integrator.
    type(cfm_object)        :: cfm        !< Commutator-Free Magnus integrator.
    type(leapfrog_object)   :: leapfrog   !< Leapfrog integrator.
-   type(flail_object)      :: flail      !< Linear algebra methods handler.
+   type(flail_object)        :: flail        !< FLAIL, the elliptic solver library (issue #84).
+   type(flail_legacy_object) :: flail_legacy !< Legacy FLAIL smoothers and their [linear-algebra] config (retired in E4).
    type(weno_object)       :: weno       !< WENO reconstructor.
    type(ib_object)         :: ib         !< Immersed boundary.
    type(rk_object)         :: rk         !< Runge-Kutta integrator.
@@ -362,7 +364,7 @@ contains
       self%blocks_number => self%adam%field%blocks_number
       self%nv            => self%adam%field%nv
       call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
-      call self%flail%initialize(file_parameters=file_parameters)
+      call self%flail_legacy%initialize(file_parameters=file_parameters)
       call self%load_fdv_from_file(file_parameters=file_parameters)
    endassociate
 

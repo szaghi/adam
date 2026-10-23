@@ -16,8 +16,8 @@ use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
                                              SEAM_KIND_INTER_REALM, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_parameters,               only : AMR_PROLONGATION_CONSERVATIVE, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
-use :: adam_poisson_fft_object,       only : poisson_fft_object
-use :: adam_poisson_mg_object,        only : poisson_mg_object
+use :: adam_flail_object,             only : FLAIL_BACKEND_AUTO, FLAIL_BACKEND_FFT, FLAIL_BACKEND_MULTIGRID
+use :: adam_poisson_mg_object,        only : MG_SEAM_GHOST_SCALE
 use :: adam_realm_object,             only : realm_object
 use :: adam_tree_node_object,         only : tree_node_object
 use :: adam_grid_object,              only : grid_object
@@ -33,7 +33,7 @@ use :: adam_flume_euler_iso_library,  only : conservative_to_auxiliary_iso=>cons
 use :: adam_flume_euler_de_library,   only : conservative_to_auxiliary_de=>conservative_to_auxiliary
 use :: adam_flume_euler_ps_library,   only : conservative_to_auxiliary_ps=>conservative_to_auxiliary
 use :: adam_flume_euler_de_ps_library, only : conservative_to_auxiliary_de_ps=>conservative_to_auxiliary
-use :: adam_flume_gravity_object,     only : POISSON_SOLVER_AUTO, POISSON_SOLVER_FFT
+use :: adam_flume_gravity_object,     only : POISSON_SOLVER_FFT, POISSON_SOLVER_MULTIGRID
 use :: adam_flume_ic_object,          only : flume_ic_object
 use :: adam_flume_numerics_object,    only : flume_numerics_object
 use :: adam_flume_mhd_library,        only : mhd_conservative_to_auxiliary, mhd_eglm_conservative_to_auxiliary
@@ -89,9 +89,6 @@ type, extends(realm_object) :: flume_common_object
    real(R8P),         allocatable :: q_aux(:,:,:,:,:)    !< Auxiliary variables [nv_aux, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: phi_grav(:,:,:,:)   !< Gravitational potential [1-ngc:ni+ngc, ..., nb] (issue #81);
                                                          !< a one-cell placeholder without a potential.
-   class(poisson_fft_object), allocatable :: poisson     !< Self-gravity Poisson solver (issue #81; FNL: the cuFFT one).
-   type(poisson_mg_object),   allocatable :: poisson_mg  !< Self-gravity on AMR grids (issue #81, P5b): the multigrid
-                                                         !< solver, its coarsest level solved by `poisson`.
    real(R8P)                      :: poisson_wall=0._R8P !< Wall time of the last Poisson solve (s).
    type(string),      allocatable :: q_name(:)           !< Conservative variables names.
    type(string),      allocatable :: dq_name(:)          !< Residuals names.
@@ -788,7 +785,7 @@ contains
    real(R8P)                                  :: g             !< Face gravity, -(Phi_+ - Phi_-) / dx.
    real(R8P)                                  :: phi_f, phi_g, phi_mean, phi_c !< Potentials.
 
-   if (.not.(self%physics%gravity%self_gravity .and. allocated(self%poisson_mg))) return
+   if (.not.(self%physics%gravity%self_gravity .and. self%flail%is_multigrid())) return
    if (has_inert_energy(self%physics%model)) return ! a barotropic gas has no energy row (issue #100, P4)
    sgn_idx = self%adam%maps%inter_realm_face_register_index(b, fec)
    if (sgn_idx == 0_I4P) return
@@ -834,7 +831,7 @@ contains
                enddo
             enddo
             phi_mean = phi_mean / real(ratios(1) * ratios(2), R8P)
-            phi_c = phi_mean - 1.5_R8P * (phi_f - phi_g)
+            phi_c = phi_mean - MG_SEAM_GHOST_SCALE * (phi_f - phi_g)
             skin(IQ_RE,c) = skin(IQ_RE,c) - skin(IQ_R,c) * (phi_c - phi_f) + s * 0.5_R8P * g * skin(IQ_R,c) * dx
          endif
       enddo
@@ -928,14 +925,7 @@ contains
    if (allocated(self%dq))         deallocate(self%dq)
    if (allocated(self%q_aux))      deallocate(self%q_aux)
    if (allocated(self%phi_grav))   deallocate(self%phi_grav)
-   if (allocated(self%poisson)) then
-      call self%poisson%destroy
-      deallocate(self%poisson)
-   endif
-   if (allocated(self%poisson_mg)) then
-      call self%poisson_mg%destroy
-      deallocate(self%poisson_mg)
-   endif
+   call self%flail%destroy
    if (allocated(self%q_name))     deallocate(self%q_name)
    if (allocated(self%dq_name))    deallocate(self%dq_name)
    if (allocated(self%q_aux_name)) deallocate(self%q_aux_name)
@@ -1378,8 +1368,7 @@ contains
    !< block arrays; call it after the initial grid and after every regrid.
    class(flume_common_object), intent(inout) :: self    !< The equation.
    integer(I4P)                              :: b, i, j, k !< Counters.
-   integer(I4P)                              :: lev(2)  !< Lowest and (negated) highest leaf level over the ranks.
-   integer(I4P)                              :: ierr    !< MPI error status.
+   integer(I4P)                              :: backend !< FLAIL backend for the Poisson solve (issue #84).
 
    if (allocated(self%phi_grav)) deallocate(self%phi_grav)
    if (.not.self%physics%gravity%has_potential) then
@@ -1391,29 +1380,13 @@ contains
       allocate(self%phi_grav(1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc, &
                              1:self%nb))
       self%phi_grav = 0._R8P
-      if (.not.allocated(self%poisson)) allocate(poisson_fft_object :: self%poisson)
-      lev = [huge(1_I4P), huge(1_I4P)]
-      do b=1, self%adam%field%blocks_number
-         lev = min(lev, [self%adam%field%coordinates(4,b), -self%adam%field%coordinates(4,b)])
-      enddo
-      call MPI_ALLREDUCE(MPI_IN_PLACE, lev, 2, MPI_INTEGER, MPI_MIN, MPI_COMM_WORLD, ierr)
-      if (allocated(self%poisson_mg)) then
-         call self%poisson_mg%destroy
-         deallocate(self%poisson_mg)
-      endif
-      associate(solver=>self%physics%gravity%poisson_solver)
-      if (lev(1) /= -lev(2) .and. solver == POISSON_SOLVER_FFT) &
-         call mpih%error_stop(msg=': [gravity].(poisson_solver) = fft needs a uniform grid (the leaves are at more '// &
-                                  'than one level): use auto or multigrid')
-      if (solver == POISSON_SOLVER_FFT .or. (solver == POISSON_SOLVER_AUTO .and. lev(1) == -lev(2))) then
-         call self%poisson%initialize(grid=self%adam%grid, field=self%adam%field, &
-                                      isolated=self%physics%gravity%isolated)
-      else
-         allocate(self%poisson_mg)
-         call self%poisson_mg%initialize(grid=self%adam%grid, field=self%adam%field, coarse=self%poisson, &
-                                         isolated=self%physics%gravity%isolated)
-      endif
-      endassociate
+      select case(self%physics%gravity%poisson_solver)
+      case(POISSON_SOLVER_FFT)       ; backend = FLAIL_BACKEND_FFT
+      case(POISSON_SOLVER_MULTIGRID) ; backend = FLAIL_BACKEND_MULTIGRID
+      case default                   ; backend = FLAIL_BACKEND_AUTO
+      endselect
+      call self%flail%setup(grid=self%adam%grid, field=self%adam%field, isolated=self%physics%gravity%isolated, &
+                            backend=backend, option_name='[gravity].(poisson_solver)')
       call self%solve_potential(q=self%q)
       return
    endif
@@ -1468,14 +1441,8 @@ contains
          return
       endif
    endif
-   if (allocated(self%poisson_mg)) then
-      call self%poisson_mg%solve(field=self%adam%field, q=q, iv=IQ_R, factor=self%physics%gravity%four_pi_g, &
-                                 phi=self%phi_grav, energy=energy)
-   else
-      call self%poisson%solve(field=self%adam%field, q=q, iv=IQ_R, factor=self%physics%gravity%four_pi_g, &
-                              phi=self%phi_grav, energy=energy)
-      if (present(energy)) energy = energy * product(self%poisson%dxyz) ! uniform grid: one cell volume
-   endif
+   call self%flail%solve(field=self%adam%field, q=q, iv=IQ_R, factor=self%physics%gravity%four_pi_g, phi=self%phi_grav, &
+                         energy=energy)
    self%poisson_wall = MPI_WTIME() - t0
    endsubroutine solve_potential
 
@@ -1494,25 +1461,13 @@ contains
          allocate(buf_sinks(size(buf))) ! explicit: no reallocation on assignment (see create_sinks)
          buf_sinks(:) = buf(:)
          call self%deposit_sinks(buf=buf_sinks)
-         if (allocated(self%poisson_mg)) then
-            call self%poisson_mg%solve_packed(field=self%adam%field, buf=buf_sinks, factor=self%physics%gravity%four_pi_g, &
-                                              phi=self%phi_grav, energy=energy)
-         else
-            call self%poisson%solve_packed(field=self%adam%field, buf=buf_sinks, factor=self%physics%gravity%four_pi_g, &
-                                           phi=self%phi_grav, energy=energy)
-            if (present(energy)) energy = energy * product(self%poisson%dxyz) ! uniform grid: one cell volume
-         endif
+         call self%flail%solve_packed(field=self%adam%field, buf=buf_sinks, factor=self%physics%gravity%four_pi_g, &
+                                      phi=self%phi_grav, energy=energy)
          return
       endif
    endif
-   if (allocated(self%poisson_mg)) then
-      call self%poisson_mg%solve_packed(field=self%adam%field, buf=buf, factor=self%physics%gravity%four_pi_g, &
-                                        phi=self%phi_grav, energy=energy)
-   else
-      call self%poisson%solve_packed(field=self%adam%field, buf=buf, factor=self%physics%gravity%four_pi_g, &
-                                     phi=self%phi_grav, energy=energy)
-      if (present(energy)) energy = energy * product(self%poisson%dxyz) ! uniform grid: one cell volume
-   endif
+   call self%flail%solve_packed(field=self%adam%field, buf=buf, factor=self%physics%gravity%four_pi_g, phi=self%phi_grav, &
+                                energy=energy)
    endsubroutine solve_potential_packed
 
    subroutine sink_stencil(self, point, npt, pts, w, h)
@@ -2703,7 +2658,7 @@ contains
 
    if (.not.self%physics%gravity%self_gravity) return
    solver = ''
-   if (allocated(self%poisson_mg)) solver = ', multigrid solver, '//trim(str(self%poisson_iterations(), .true.))// &
+   if (self%flail%is_multigrid()) solver = ', multigrid solver, '//trim(str(self%poisson_iterations(), .true.))// &
                                             ' FCG iterations'
    rmax = 0._R8P
    if (self%blocks_number > 0) rmax(1) = maxval(self%q(IQ_R,1:self%ni,1:self%nj,1:self%nk,1:self%blocks_number))
@@ -2724,7 +2679,7 @@ contains
    integer(I4P)                           :: iterations !< Iterations.
 
    iterations = 0_I4P
-   if (allocated(self%poisson_mg)) iterations = self%poisson_mg%iterations
+   iterations = self%flail%iterations()
    endfunction poisson_iterations
 
    subroutine check_dissipation(self)

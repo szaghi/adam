@@ -1561,21 +1561,21 @@ contains
             if (blocks_number > 0) then
                call self%compute_divergence(hs=hs, ivar=ivar, q=self%q, divergence=buffer(5,:,:,:,:))
                buffer(5,:,:,:,:) = buffer(5,:,:,:,:) - self%q(ind,:,:,:,:)
-               progress_total = max(1_I4P, self%flail%iterations * max(1_I4P, self%flail%iterations_fine))
+               progress_total = max(1_I4P, self%flail_legacy%iterations * max(1_I4P, self%flail_legacy%iterations_fine))
                progress_counter = 0_I4P
                last_progress_percent = -1_I4P
                call print_elliptic_progress(label='Elliptic CT divD-rho correction', progress_done=progress_counter, &
                                             progress_total=progress_total, last_percent=last_progress_percent)
-               do iter=1, self%flail%iterations
+               do iter=1, self%flail_legacy%iterations
                   call compute_smoothing_gauss_seidel_6th(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=1_I4P, blocks_number=blocks_number, &
                                                          dxyz=self%adam%field%dxyz,                                             &
                                                          f=buffer(5:5,:,:,:,:),                                                 &
                                                          q=buffer(8:8,:,:,:,:),                                                 &
                                                          dq_max=dq_max,                                                         &
                                                          dq=buffer(6:6,:,:,:,:),                                                &
-                                                         iterations_init=self%flail%iterations_init,                            &
-                                                         iterations_fine=self%flail%iterations_fine,                            &
-                                                         iterations_coarse=self%flail%iterations_coarse,                        &
+                                                         iterations_init=self%flail_legacy%iterations_init,                            &
+                                                         iterations_fine=self%flail_legacy%iterations_fine,                            &
+                                                         iterations_coarse=self%flail_legacy%iterations_coarse,                        &
                                                          ivar=1_I4P, field=self%adam%field,                                     &
                                                          ell_bc_type=elliptic_bc_type,                                          &
                                                          local_map_bc_crown=bc_crown,                                           &
@@ -1618,27 +1618,27 @@ contains
                   enddo
                enddo
             else
-               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=1.0E-12_R8P)
+               call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=1.0E-12_R8P)
             endif
          endif
       elseif (ivar == VAR_BX) then
          call self%compute_divergence(hs=hs, ivar=ivar, q=self%q, divergence=buffer(5,:,:,:,:))
          if (blocks_number > 0) then
-            progress_total = max(1_I4P, self%flail%iterations * max(1_I4P, self%flail%iterations_fine))
+            progress_total = max(1_I4P, self%flail_legacy%iterations * max(1_I4P, self%flail_legacy%iterations_fine))
             progress_counter = 0_I4P
             last_progress_percent = -1_I4P
             call print_elliptic_progress(label='Elliptic CT divB correction', progress_done=progress_counter, &
                                          progress_total=progress_total, last_percent=last_progress_percent)
-            do iter=1, self%flail%iterations
+            do iter=1, self%flail_legacy%iterations
                call compute_smoothing_gauss_seidel_6th(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=1_I4P, blocks_number=blocks_number, &
                                                        dxyz=self%adam%field%dxyz,                                             &
                                                        f=buffer(5:5,:,:,:,:),                                                 &
                                                        q=buffer(8:8,:,:,:,:),                                                 &
                                                        dq_max=dq_max,                                                         &
                                                        dq=buffer(6:6,:,:,:,:),                                                &
-                                                       iterations_init=self%flail%iterations_init,                            &
-                                                       iterations_fine=self%flail%iterations_fine,                            &
-                                                       iterations_coarse=self%flail%iterations_coarse,                        &
+                                                       iterations_init=self%flail_legacy%iterations_init,                            &
+                                                       iterations_fine=self%flail_legacy%iterations_fine,                            &
+                                                       iterations_coarse=self%flail_legacy%iterations_coarse,                        &
                                                        ivar=1_I4P, field=self%adam%field,                                     &
                                                        ell_bc_type=elliptic_bc_type,                                          &
                                                        local_map_bc_crown=bc_crown,                                           &
@@ -1647,7 +1647,7 @@ contains
                                                        progress_counter=progress_counter, progress_total=progress_total,       &
                                                        progress_last_percent=last_progress_percent)
                dq_max = global_max(dq_max)
-               if (dq_max < self%flail%tolerance) then
+               if (dq_max < self%flail_legacy%tolerance) then
                   call print_elliptic_progress(label='Elliptic CT divB correction', progress_done=progress_counter, &
                                                progress_total=progress_total, last_percent=last_progress_percent,   &
                                                converged=.true.)
@@ -1668,7 +1668,7 @@ contains
                enddo
             enddo
          else
-            call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
+            call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
          endif
       endif
    endassociate
@@ -1759,7 +1759,7 @@ contains
                enddo
                if (self%pic%elliptic_correction) call self%impose_ct_correction(ivar=VAR_DX)
             else
-               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
+               call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
             endif
          elseif (ivar == VAR_BX) then
             allocate(phi(1:3,        &
@@ -1799,7 +1799,7 @@ contains
                   enddo
                enddo
             else
-               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
+               call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
             endif
          endif
       elseif (self%physics%physical_model == EM_PHYSICAL_MODEL) then
@@ -1843,7 +1843,7 @@ contains
                   enddo
                enddo
             else
-               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
+               call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
             endif
          endif
       elseif (self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
@@ -1887,7 +1887,7 @@ contains
                   enddo
                enddo
             else
-               call follow_elliptic_convergence(iterations=self%flail%iterations, tolerance=self%flail%tolerance)
+               call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
             endif
          endif
       endif
@@ -1902,19 +1902,19 @@ contains
       real(R8P),         intent(out)           :: dphi_max
       real(R8P),         intent(in), optional  :: mu, eps
 
-      progress_total = max(1_I4P, self%flail%iterations * max(1_I4P, self%flail%iterations_fine))
+      progress_total = max(1_I4P, self%flail_legacy%iterations * max(1_I4P, self%flail_legacy%iterations_fine))
       progress_counter = 0_I4P
       last_progress_percent = -1_I4P
       call print_elliptic_progress(label='Elliptic BC initialization', progress_done=progress_counter, &
                                    progress_total=progress_total, last_percent=last_progress_percent)
-      do iter=1, self%flail%iterations
+      do iter=1, self%flail_legacy%iterations
          call compute_smoothing_gauss_seidel_centered_dg(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                                          nv=nv_solve, blocks_number=self%blocks_number,      &
                                                          order=self%fdv_order,                               &
                                                          dxyz=self%adam%field%dxyz, f=f, q=phi, dq_max=dphi_max, &
-                                                         dq=dphi, iterations_init=self%flail%iterations_init, &
-                                                         iterations_fine=self%flail%iterations_fine,         &
-                                                         iterations_coarse=self%flail%iterations_coarse,     &
+                                                         dq=dphi, iterations_init=self%flail_legacy%iterations_init, &
+                                                         iterations_fine=self%flail_legacy%iterations_fine,         &
+                                                         iterations_coarse=self%flail_legacy%iterations_coarse,     &
                                                          ivar=ivar, mu=mu, eps=eps, field=self%adam%field,   &
                                                          ell_bc_type=ell_bc_type,                             &
                                                          local_map_bc_crown=bc_crown,                          &
@@ -1923,7 +1923,7 @@ contains
                                                          progress_counter=progress_counter, progress_total=progress_total, &
                                                          progress_last_percent=last_progress_percent)
          dphi_max = global_max(dphi_max)
-         if (dphi_max < self%flail%tolerance) then
+         if (dphi_max < self%flail_legacy%tolerance) then
             call print_elliptic_progress(label='Elliptic BC initialization', progress_done=progress_counter, &
                                          progress_total=progress_total, last_percent=last_progress_percent,  &
                                          converged=.true.)

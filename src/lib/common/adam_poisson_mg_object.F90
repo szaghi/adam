@@ -74,7 +74,11 @@ use :: penf, only : I4P, I8P, R8P, str
 implicit none
 private
 public :: poisson_mg_object
+public :: MG_SEAM_GHOST_SCALE
 
+real(R8P),    parameter :: MG_SEAM_GHOST_SCALE=1.5_R8P !< 2:1 fine-side ghost: phi_g = phi_f - (mean_f - phi_C) / 1.5, the
+                                                     !< composite operator's face gradient (clients that invert it, as
+                                                     !< FLUME's seam gravity work, use this constant).
 integer(I4P), parameter :: CLS_SAME=1_I4P    !< Neighbour position: a leaf of the same level.
 integer(I4P), parameter :: CLS_FINER=2_I4P   !< Neighbour position: refined (finer leaves).
 integer(I4P), parameter :: CLS_COARSER=3_I4P !< Neighbour position: inside a leaf one level coarser.
@@ -519,9 +523,9 @@ contains
                         case(CLS_COARSER) ! fine side: phi_f - (mean_f - phi_C) / 1.5, M's face gradient over h
                            cp = self%parent3(nb3)
                            call self%face_cells(lv, cc, dd, keys_f)
-                           keys = [ckey(lv, cc), ckey(lv-1, cp)] ; wts = [1._R8P, 1._R8P / 1.5_R8P]
+                           keys = [ckey(lv, cc), ckey(lv-1, cp)] ; wts = [1._R8P, 1._R8P / MG_SEAM_GHOST_SCALE]
                            do e=1, size(keys_f)
-                              keys = [keys, keys_f(e)] ; wts = [wts, -1._R8P / 1.5_R8P / size(keys_f)]
+                              keys = [keys, keys_f(e)] ; wts = [wts, -1._R8P / MG_SEAM_GHOST_SCALE / size(keys_f)]
                            enddo
                         endselect
                         nrow = nrow + 1

@@ -7769,17 +7769,17 @@ contains
    associate(blocks_number=>self%blocks_number)
    if (blocks_number>0) then
       ! call self%compute_divergence(ivar=ivar,ovar=4,q_gpu=q_gpu,divergence_gpu=buffer)
-      do iter=1, self%flail%iterations
+      do iter=1, self%flail_legacy%iterations
          ! call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
          !                                  dxyz=field%dxyz,                                                &
          !                                  f=-buffer(4:4,:,:,:,:),                                         &
          !                                  q=buffer(7:7,:,:,:,:),                                          &
          !                                  dq_max=dq_max,                                                  &
          !                                  dq=buffer(5:5,:,:,:,:),                                         &
-         !                                  iterations_init=self%flail%iterations_init,                     &
-         !                                  iterations_fine=self%flail%iterations_fine,                     &
-         !                                  iterations_coarse=self%flail%iterations_coarse)
-         if (dq_max < self%flail%tolerance) exit
+         !                                  iterations_init=self%flail_legacy%iterations_init,                     &
+         !                                  iterations_fine=self%flail_legacy%iterations_fine,                     &
+         !                                  iterations_coarse=self%flail_legacy%iterations_coarse)
+         if (dq_max < self%flail_legacy%tolerance) exit
       enddo
       call mpih_fnl%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
       ! call self%compute_gradient(ivar=1,q_gpu=buffer(:,:,:,:,7:7),gradient_gpu=buffer(:,:,:,:,4:6))
