@@ -1781,6 +1781,7 @@ contains
             dphi(:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:)    = 0._R8P
             f(:,:,:,:,:) = -mu_scale*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+            call remove_singular_mean(f=f, mu=mu_scale)
             if (blocks_number > 0) then
                call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
                                        dphi_max=dphi_max, mu=mu_scale)
@@ -1825,6 +1826,7 @@ contains
             dphi(:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:)    = 0._R8P
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+            call remove_singular_mean(f=f, mu=MU0)
             if (blocks_number > 0) then
                call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
                                        dphi_max=dphi_max, mu=MU0)
@@ -1869,6 +1871,7 @@ contains
             dphi(:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:)    = 0._R8P
             f(:,:,:,:,:) = -self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
+            call remove_singular_mean(f=f, mu=1._R8P)
             if (blocks_number > 0) then
                call solve_pic_elliptic(nv_solve=3_I4P, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
                                        dphi_max=dphi_max, mu=1._R8P)
@@ -1931,6 +1934,56 @@ contains
          endif
       enddo
       endsubroutine solve_pic_elliptic
+
+      subroutine remove_singular_mean(f, mu)
+      !< Remove the volume mean of the forcing of each vector-potential component that has no Dirichlet face.
+      !< A PEC face normal to d makes A_d even (Neumann) there, a PEC face normal to another axis makes it odd (Dirichlet):
+      !< with only periodic and PEC-normal-to-d faces the problem for A_d is singular, solvable only for a zero-mean forcing.
+      !< The uniform current along d has no magnetostatic field (it is displacement current, eps0 dE_d/dt = -<J_d>), so
+      !< dropping it leaves B unchanged; the current itself stays in q. The volume mean is the exact compatibility condition
+      !< on a uniform grid; with AMR the composite operator is not symmetric and it is an approximation. Every rank calls it.
+      real(R8P), intent(inout) :: f(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Forcing, -mu J.
+      real(R8P), intent(in)    :: mu                                            !< Magnetic permeability scale.
+      character(len=1), parameter :: AXIS(3) = ['x', 'y', 'z']                 !< Axis names.
+      logical                  :: singular(3)                                   !< Components without Dirichlet face.
+      real(R8P)                :: sums(7)                                       !< Volume, sum of f dV, sum of f^2 dV.
+      real(R8P)                :: dv                                            !< Cell volume.
+      real(R8P)                :: f_mean, f_rms                                 !< Mean and rms of the forcing.
+      character(len=:), allocatable :: units                                    !< Current density units.
+      integer(I4P)             :: d, face, b                                    !< Counters.
+
+      singular = all(elliptic_bc_type == ELL_BC_PERIODIC .or. elliptic_bc_type == ELL_BC_PEC)
+      do face=1, 6
+         if (elliptic_bc_type(face) == ELL_BC_PEC) then
+            do d=1, 3
+               if ((face + 1) / 2 /= d) singular(d) = .false.
+            enddo
+         endif
+      enddo
+      if (.not.any(singular)) return
+      sums = 0._R8P
+      do b=1, self%blocks_number
+         dv = product(self%adam%field%dxyz(1:3,b))
+         sums(1) = sums(1) + dv * self%ni * self%nj * self%nk
+         do d=1, 3
+            sums(1+d) = sums(1+d) + dv * sum(f(d,1:self%ni,1:self%nj,1:self%nk,b))
+            sums(4+d) = sums(4+d) + dv * sum(f(d,1:self%ni,1:self%nj,1:self%nk,b)**2)
+         enddo
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 7, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+      units = ' A/m^2'
+      if (is_adim_model(self%physics%physical_model)) units = ' (non-dimensional)'
+      do d=1, 3
+         if (.not.singular(d)) cycle
+         f_mean = sums(1+d) / sums(1)
+         f_rms = sqrt(sums(4+d) / sums(1))
+         f(d,1:self%ni,1:self%nj,1:self%nk,1:self%blocks_number) = &
+            f(d,1:self%ni,1:self%nj,1:self%nk,1:self%blocks_number) - f_mean
+         call mpih%print_message('B elliptic t0: component '//AXIS(d)//' has no Dirichlet face, removed <J_'//AXIS(d)// &
+                                 '> = '//trim(str(-f_mean / mu))//units//' (|<J_'//AXIS(d)//'>|/rms(J_'//AXIS(d)//  &
+                                 ') = '//trim(str(abs(f_mean) / max(f_rms, tiny(1._R8P))))//')')
+      enddo
+      endsubroutine remove_singular_mean
    endsubroutine impose_pic_fields_time_zero
 
    subroutine print_elliptic_progress(label, progress_done, progress_total, last_percent, converged)
