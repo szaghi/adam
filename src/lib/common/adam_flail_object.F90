@@ -24,6 +24,12 @@ module adam_flail_object
 !< different kinds (PRISM's vector potential at a PEC face: Neumann for the normal component, Dirichlet for the others)
 !< takes one FLAIL per set of kinds: the operators differ, and the instances coexist.
 !<
+!< **The wide operator (E2a).** `setup(..., dg_order=p)` (2, 4, 6, 8) solves PRISM's D(G), the order-p centred first
+!< derivative composed with itself, instead of the compact Laplacian: on a uniform grid the FFT solver inverts it
+!< exactly (`adam_poisson_fft_object`). On AMR it is refused: a composite wide operator across 2:1 faces is not
+!< defined yet (#84 E7), and a compact multigrid preconditioner does not converge for it in a bounded number of
+!< iterations (the checkerboard branch; the #84 E2 prototype).
+!<
 !< A backend's FFT solver is chosen by allocating the `fft` component before `setup` (the FNL backend allocates the
 !< cuFFT extension); otherwise `setup` allocates the host one.
 use :: adam_field_object,       only : field_object
@@ -93,14 +99,15 @@ contains
    if (allocated(self%mg)) iterations = self%mg%iterations
    endfunction iterations
 
-   subroutine setup(self, grid, field, isolated, backend, option_name, bc)
+   subroutine setup(self, grid, field, isolated, backend, option_name, bc, dg_order)
    !< Choose and set up the solver for the current grid: call it on the initial grid and after every regrid.
    !<
    !< `FLAIL_BACKEND_AUTO` uses the FFT solver when every leaf is at one level and the multigrid solver otherwise;
    !< `FLAIL_BACKEND_FFT` on a grid with more than one level is fatal, the message naming `option_name` (the client's
    !< input key, default `[flail].(backend)`). The multigrid solver is rebuilt at every call, its coarsest level solved
    !< by a solver of the `fft` component's type. `bc` (E1c): the kind of every face, forwarded to the solver; isolated
-   !< boundaries take none (fatal: the FFT solver would ignore it).
+   !< boundaries take none (fatal: the FFT solver would ignore it). `dg_order` (E2a): 0 the compact Laplacian (the
+   !< default), 2, 4, 6 or 8 the wide D(G), on the FFT path only.
    class(flail_object), intent(inout)        :: self        !< FLAIL.
    type(grid_object),   intent(in)           :: grid        !< The grid.
    type(field_object),  intent(in)           :: field       !< The field (block coordinates).
@@ -108,6 +115,7 @@ contains
    integer(I4P),        intent(in)           :: backend     !< FLAIL_BACKEND_AUTO, _FFT or _MULTIGRID.
    character(*),        intent(in), optional :: option_name !< The client's input key, for the messages.
    integer(I4P),        intent(in), optional :: bc(2,3)     !< Kinds per face [lo/hi, axis] (adam_flail_parameters).
+   integer(I4P),        intent(in), optional :: dg_order    !< 0 compact (default); 2, 4, 6, 8: the wide D(G).
    integer(I4P)                              :: lev(2)      !< Lowest and (negated) highest leaf level over the ranks.
    integer(I4P)                              :: b           !< Counter.
    integer(I4P)                              :: ierr        !< MPI error status.
@@ -134,11 +142,15 @@ contains
    endif
    if (backend == FLAIL_BACKEND_FFT .or. (backend == FLAIL_BACKEND_AUTO .and. lev(1) == -lev(2))) then
       if (present(bc)) then
-         call self%fft%initialize(grid=grid, field=field, isolated=isolated, bc=bc)
+         call self%fft%initialize(grid=grid, field=field, isolated=isolated, bc=bc, dg_order=dg_order)
       else
-         call self%fft%initialize(grid=grid, field=field, isolated=isolated)
+         call self%fft%initialize(grid=grid, field=field, isolated=isolated, dg_order=dg_order)
       endif
    else
+      if (present(dg_order)) then
+         if (dg_order /= 0_I4P) call mpih%error_stop(msg='flail_object%setup: the wide D(G) needs a uniform grid and '//&
+            'the FFT path; on AMR (or with backend multigrid) it is not available yet (issue #84, E7)')
+      endif
       allocate(self%mg)
       if (present(bc)) then
          call self%mg%initialize(grid=grid, field=field, coarse=self%fft, isolated=isolated, bc=bc)

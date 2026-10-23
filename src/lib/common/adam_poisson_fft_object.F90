@@ -45,8 +45,21 @@ module adam_poisson_fft_object
 !< of zero eigenvalue are dropped as on a periodic grid: without a Dirichlet face the source mean is removed (the
 !< operator is singular). The energy sums the interior only. Inhomogeneous values are the clients' (FLAIL's) work.
 !<
+!< **The wide operator D(G) (issue #84, E2a).** `dg_order = p` (2, 4, 6, 8; 0, the default, is the compact 7-point
+!< Laplacian) solves PRISM's elliptic operator instead: the order-p centred first derivative `D1` composed with itself
+!< per axis (the stencil reaches `p` cells, `adam_flail_legacy_object`'s Gauss-Seidel kernels), eigenvalue
+!< `-sum_d s_p(theta_d)^2 / dx_d^2` with `s_p(theta) = sum_j 2 a_j sin(j theta)` (the `a_j` of `D1`). Every centred
+!< `D1` annihilates the checkerboard (`s_p(pi) = 0`, set exactly: `sin(pi)` is 1e-16, not 0), so the modes with every
+!< `theta_d` in {0, pi} are in the kernel and dropped, Dirichlet faces or not: G of them is zero, so the gradient a
+!< client takes is unique. The odd and even extensions are reflections, which the wide stencil commutes with, so the
+!< kinds per face hold as for the compact operator (the scatter fills `p` ghost layers from the extension); PRISM's
+!< zero-ghost Dirichlet face is not a reflection (#84 E2b). Measured on the prototype (`wide_dg_proto.py`): a compact
+!< preconditioner needs O(N) iterations for D(G) (the checkerboard branch), so the direct solve here is the method on
+!< uniform grids.
+!<
 !< **Scope (fatal otherwise).** One level for every block, the blocks covering the domain. Without `bc`, every active
-!< direction periodic. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's).
+!< direction periodic. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's), the
+!< compact operator only.
 !< AMR is the multigrid's (`adam_poisson_mg_object`), which calls this solver on its coarsest level.
 use :: adam_grid_object, only : grid_object
 use :: adam_lattice_green_library, only : lattice_green
@@ -62,6 +75,12 @@ private
 public :: poisson_fft_object
 
 real(R8P), parameter :: PI=acos(-1._R8P) !< Pi.
+! centred first-derivative coefficients a_j of order p: D1 q_i = sum_j a_j (q_{i+j} - q_{i-j}) / h (column p/2)
+real(R8P), parameter :: D1_COEF(4,4)=reshape([1._R8P/2._R8P, 0._R8P, 0._R8P, 0._R8P,                         &
+                                              2._R8P/3._R8P, -1._R8P/12._R8P, 0._R8P, 0._R8P,                 &
+                                              3._R8P/4._R8P, -3._R8P/20._R8P, 1._R8P/60._R8P, 0._R8P,         &
+                                              4._R8P/5._R8P, -1._R8P/5._R8P, 4._R8P/105._R8P, -1._R8P/280._R8P], &
+                                             [4, 4]) !< a_j [j, p/2].
 
 type :: poisson_fft_object
    !< FFT Poisson solver on uniform periodic grids.
@@ -72,6 +91,7 @@ type :: poisson_fft_object
    logical                   :: dirichlet=.false.      !< Homogeneous Dirichlet boundaries (odd extension, #87).
    integer(I4P)              :: bc(2,3)=FLAIL_BC_PERIODIC !< Kinds per face [lo/hi, axis] (issue #84, E1a).
    logical                   :: extended=.false.       !< Some axis is extended (Dirichlet or Neumann faces).
+   integer(I4P)              :: dg_order=0_I4P         !< 0: the compact Laplacian; p: the wide D(G) of order p (E2a).
    integer(I4P)              :: nt(3)=1_I4P            !< Cells of the periodic transform the eigenvalues refer to: n,
                                                        !< or m with dirichlet.
    integer(I4P)              :: nijk(3)=1_I4P          !< Cells per block per direction.
@@ -173,7 +193,7 @@ contains
    self%is_initialized = .false.
    endsubroutine destroy
 
-   subroutine initialize(self, grid, field, isolated, bc)
+   subroutine initialize(self, grid, field, isolated, bc, dg_order)
    !< Check the grid (one level, the domain covered, the boundaries), size the solver, make the plans and, isolated,
    !< the kernel. `bc` (issue #84, E1a): the kind of every face; a periodic axis of the grid must be periodic in `bc`
    !< and the other way round. Without it every active axis must be periodic (or the solve isolated).
@@ -182,6 +202,7 @@ contains
    type(field_object),        intent(in)    :: field        !< The field (block coordinates).
    logical, optional,         intent(in)    :: isolated     !< Isolated boundaries (default: periodic).
    integer(I4P), optional,    intent(in)    :: bc(2,3)      !< Kinds per face [lo/hi, axis] (default periodic).
+   integer(I4P), optional,    intent(in)    :: dg_order     !< 0 compact (default); 2, 4, 6, 8: the wide D(G) (E2a).
    integer(I4P)                             :: lmin, lmax   !< Min and max block level over the ranks.
    integer(I4P)                             :: nblk(3)      !< Blocks per direction at the level.
    integer(I4P)                             :: blocks_total !< Blocks over the ranks.
@@ -238,14 +259,14 @@ contains
    endif
    if (present(bc) .and. .not.self%isolated) then
       call self%initialize_blocks(nblk=nblk, nijk=self%nijk, ngc=self%ngc, dxyz=self%dxyz, level=self%level, &
-                                  null_xyz=grid%null_xyz, isolated=self%isolated, bc=bc)
+                                  null_xyz=grid%null_xyz, isolated=self%isolated, bc=bc, dg_order=dg_order)
    else
       call self%initialize_blocks(nblk=nblk, nijk=self%nijk, ngc=self%ngc, dxyz=self%dxyz, level=self%level, &
-                                  null_xyz=grid%null_xyz, isolated=self%isolated)
+                                  null_xyz=grid%null_xyz, isolated=self%isolated, dg_order=dg_order)
    endif
    endsubroutine initialize
 
-   subroutine initialize_blocks(self, nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet, bc)
+   subroutine initialize_blocks(self, nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet, bc, dg_order)
    !< Size the solver for a uniform grid of `nblk` blocks per direction, `nijk` cells each, at `level` with spacing
    !< `dxyz`, and make the plans (and, isolated, the kernel) on rank 0. No check of a grid: the caller owns the scope
    !< (the multigrid's coarsest level calls it directly, issue #81 P5; with `dirichlet`, issue #87).
@@ -265,7 +286,9 @@ contains
    logical,                   intent(in)           :: isolated    !< Isolated boundaries, else periodic.
    logical,                   intent(in), optional :: dirichlet   !< Homogeneous ghost-Dirichlet everywhere (default false).
    integer(I4P),              intent(in), optional :: bc(2,3)     !< Kinds per face [lo/hi, axis] (default periodic).
+   integer(I4P),              intent(in), optional :: dg_order    !< 0 compact (default); 2, 4, 6, 8: the wide D(G).
    integer(I4P)                                    :: nblk_(3), nijk_(3), ngc_, level_ !< Copies of the arguments.
+   integer(I4P)                                    :: dg_order_   !< Copy of the argument.
    real(R8P)                                       :: dxyz_(3)    !< Copy of the argument.
    logical                                         :: null_(3), isolated_, dirichlet_ !< Copies of the arguments.
    integer(I4P)                                    :: bc_(2,3)    !< Copy of the argument.
@@ -280,6 +303,12 @@ contains
    if (dirichlet_) bc_ = FLAIL_BC_DIRICHLET_GHOST
    if (isolated_ .and. (dirichlet_ .or. any(bc_ /= FLAIL_BC_PERIODIC))) call mpih%error_stop( &
       msg='poisson_fft_object%initialize_blocks: isolated excludes dirichlet and bc')
+   dg_order_ = 0_I4P
+   if (present(dg_order)) dg_order_ = dg_order
+   if (all(dg_order_ /= [0_I4P, 2_I4P, 4_I4P, 6_I4P, 8_I4P])) call mpih%error_stop(msg= &
+      'poisson_fft_object%initialize_blocks: dg_order '//trim(str(dg_order_, .true.))//' is not 0 (compact), 2, 4, 6 or 8')
+   if (isolated_ .and. dg_order_ /= 0_I4P) call mpih%error_stop(msg='poisson_fft_object%initialize_blocks: isolated '// &
+      'boundaries take the compact operator only (the lattice Green''s function is its), not the wide D(G)')
    do d=1, 3
       if (null_(d)) cycle
       if (count(bc_(:,d) == FLAIL_BC_PERIODIC) == 1) call mpih%error_stop(msg='poisson_fft_object%initialize_blocks: '//&
@@ -301,6 +330,7 @@ contains
    self%isolated = isolated_
    self%dirichlet = dirichlet_
    self%bc = bc_
+   self%dg_order = dg_order_
    self%n = nblk_ * self%nijk
    self%m = self%n
    if (self%isolated) then
@@ -322,17 +352,17 @@ contains
    self%lam1 = 0._R8P ; self%lam2 = 0._R8P ; self%lam3 = 0._R8P
    if (.not.null_(1)) then
       do k=0, self%nt(1)/2
-         self%lam1(k) = (2._R8P * cos(2._R8P * PI * k / self%nt(1)) - 2._R8P) / self%dxyz(1)**2
+         self%lam1(k) = axis_eigenvalue(k, self%nt(1), self%dxyz(1), self%dg_order)
       enddo
    endif
    if (.not.null_(2)) then
       do k=0, self%nt(2)-1
-         self%lam2(k) = (2._R8P * cos(2._R8P * PI * k / self%nt(2)) - 2._R8P) / self%dxyz(2)**2
+         self%lam2(k) = axis_eigenvalue(k, self%nt(2), self%dxyz(2), self%dg_order)
       enddo
    endif
    if (.not.null_(3)) then
       do k=0, self%nt(3)-1
-         self%lam3(k) = (2._R8P * cos(2._R8P * PI * k / self%nt(3)) - 2._R8P) / self%dxyz(3)**2
+         self%lam3(k) = axis_eigenvalue(k, self%nt(3), self%dxyz(3), self%dg_order)
       enddo
    endif
    if (mpih%myrank == 0) then
@@ -684,4 +714,29 @@ contains
    call mpih%error_stop(msg='poisson_fft_object%transform_kernel: built without an FFT library')
 #endif
    endsubroutine transform_kernel
+
+   ! module helpers
+   pure function axis_eigenvalue(k, nt, dx, dg_order) result(lam)
+   !< The eigenvalue part of mode k of an axis on the nt-cell periodic transform: the compact operator,
+   !< `(2 cos(theta) - 2) / dx^2`, or the wide D(G) of order p, `-s_p(theta)^2 / dx^2`, exactly 0 at theta = 0 and pi.
+   integer(I4P), intent(in) :: k, nt    !< Mode, transform cells.
+   real(R8P),    intent(in) :: dx       !< Spacing.
+   integer(I4P), intent(in) :: dg_order !< 0 compact, else the order of D(G).
+   real(R8P)                :: lam      !< Eigenvalue part.
+   real(R8P)                :: th, s    !< Phase, symbol of dx D1.
+   integer(I4P)             :: j        !< Counter.
+
+   if (dg_order == 0_I4P) then
+      lam = (2._R8P * cos(2._R8P * PI * k / nt) - 2._R8P) / dx**2
+      return
+   endif
+   lam = 0._R8P
+   if (k == 0_I4P .or. 2_I4P * k == nt) return ! theta = 0 or pi: s_p vanishes exactly
+   th = 2._R8P * PI * k / nt
+   s = 0._R8P
+   do j=1, dg_order/2
+      s = s + 2._R8P * D1_COEF(j,dg_order/2) * sin(j * th)
+   enddo
+   lam = -(s * s) / dx**2
+   endfunction axis_eigenvalue
 endmodule adam_poisson_fft_object

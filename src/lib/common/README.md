@@ -265,7 +265,7 @@ AMR grids. The legacy smoothers (next section) retire once PRISM moves here (#84
 
 | Procedure | Role |
 |-----------|------|
-| `setup(grid, field, isolated, backend[, option_name][, bc])` | Choose the solver for the current grid (`FLAIL_BACKEND_AUTO`: the FFT solver on a uniform grid, the multigrid otherwise; `_FFT`, `_MULTIGRID`); call it on the initial grid and after every regrid. `bc(2,3)` (E1c): the kind of every face, forwarded (`FLAIL_BC_PERIODIC`, `_DIRICHLET`, `_NEUMANN`, `_DIRICHLET_GHOST`, re-exported here); without it, periodic or isolated as in E0; isolated with `bc` is fatal |
+| `setup(grid, field, isolated, backend[, option_name][, bc][, dg_order])` | Choose the solver for the current grid (`FLAIL_BACKEND_AUTO`: the FFT solver on a uniform grid, the multigrid otherwise; `_FFT`, `_MULTIGRID`); call it on the initial grid and after every regrid. `bc(2,3)` (E1c): the kind of every face, forwarded (`FLAIL_BC_PERIODIC`, `_DIRICHLET`, `_NEUMANN`, `_DIRICHLET_GHOST`, re-exported here); without it, periodic or isolated as in E0; isolated with `bc` is fatal. `dg_order` (E2a): the wide D(G) of order 2, 4, 6, 8, on the FFT path only (fatal on AMR: not defined across 2:1 faces yet, #84 E7) |
 | `solve(field, q, iv, factor, phi, energy[, ghost])`, `solve_packed(field, buf, factor, phi, energy[, ghost])` | Forward to the chosen solver; `energy = sum f phi dV`; `ghost` the boundary value of each boundary face (`mg%nbnd`, `mg%bnd_kind`, `mg%bnd_dir`, `mg%bnd_x`), multigrid path only (fatal on the FFT path, which solves the homogeneous problem) |
 | `iterations()`, `is_multigrid()`, `destroy()` | The last FCG iteration count (0 for the FFT solver), the solver in use, cleanup |
 
@@ -315,13 +315,24 @@ one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the second-
   agree and `4n` when they differ, and the periodic transform of the extension solves the 7-point operator with those
   conditions exactly (round-off residual, face placement of the wall: second order). Without a Dirichlet face the source
   mean is dropped, as on a periodic grid. The energy sums the interior only.
+- **The wide operator D(G) (issue #84, E2a):** `dg_order = p` (2, 4, 6, 8; 0 the compact Laplacian, the default) solves
+  PRISM's elliptic operator, the order-p centred first derivative composed with itself per axis (a stencil of
+  `2p + 1` cells per axis), eigenvalue `-sum_d s_p(theta_d)^2 / dx_d^2`, `s_p(theta) = sum_j 2 a_j sin(j theta)`.
+  Every centred derivative annihilates the checkerboard, `s_p(pi) = 0`, set exactly (`sin(pi)` is `1e-16`): the modes
+  with each `theta_d` in {0, pi} are in the kernel and dropped, Dirichlet faces or not (G of them is zero). The
+  extensions are reflections, which the wide stencil commutes with, so the kinds per face hold, the scatter filling
+  `p` ghost layers; isolated boundaries take the compact operator only. Why a direct solve: on the prototype
+  (`src/tests/poisson/wide_dg_proto.py`) a compact preconditioner, even inverted exactly, needs O(N) PCG iterations
+  for D(G) (86 → 677 at p = 2, N = 32 → 256: the checkerboard branch it does not see), while the wide p = 2 operator
+  (2^d compact Laplacians on the sub-lattices of spacing 2h) is spectrally equivalent (17–30 iterations, independent of
+  N). PRISM's zero-ghost Dirichlet face is not a reflection: `wide_dg_zero_ghost.py` measures it (#84 E2b).
 
 All are symmetric linear maps of the source, which is what exact energy and momentum conservation of self-gravity
 needs (FLUME [models](/applications/flume/models#self-gravity)).
 
 | Procedure | Role |
 |-----------|------|
-| `initialize(grid, field, isolated, bc)` | Check the scope, size the solver, make the plans (and, isolated, the kernel's spectrum) on rank 0; `bc(2,3)` optional, consistent with the grid's periodicity |
+| `initialize(grid, field, isolated, bc, dg_order)` | Check the scope, size the solver, make the plans (and, isolated, the kernel's spectrum) on rank 0; `bc(2,3)` optional, consistent with the grid's periodicity; `dg_order` the wide D(G) (E2a) |
 | `solve(field, q, iv, factor, phi, energy)` | Gather `q(iv)` to rank 0, transform, scatter `phi(1-ngc:n+ngc, ..., b)` with every ghost layer filled from the global solution; optionally `energy = sum f phi` |
 | `solve_packed(field, buf, factor, phi, energy)` | The same from the interior source already packed (block-major, `i` fastest: what a device kernel produces) |
 | `initialize_blocks(nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet, bc)` | Size the solver for an explicit uniform block lattice, no grid object and no scope check (the caller owns it): the multigrid's coarsest level; `dirichlet` (#87) zero at the first ghost centres, by the odd extension to `2 (n + 1)` cells per active direction (the type-I sine transform: `FLAIL_BC_DIRICHLET_GHOST` on every axis); `bc` the kinds per face (E1a) |

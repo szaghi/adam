@@ -53,6 +53,13 @@
 # CPU = FNL: run this script once per build with --dump DIR, then
 #   poisson_oracle.py compare DIR_CPU DIR_FNL      (max |phi_CPU - phi_FNL| / max |phi|, 1e-13)
 #
+# bc (test_flail_bc, issue #84, E1a and E2a): the FFT solver with a boundary kind per face (periodic, Dirichlet or
+# Neumann at the face, ghost-Dirichlet), the compact operator and the wide D(G) of order 2, 4, 6, 8 (PRISM's elliptic
+# operator, E2a): per-axis discrete eigenfunctions (the wide eigenvalue computed in real space, D1 applied twice),
+# interior and ghost layers to depth p at round-off, the energy, the D/D order (compact >= 1.9, wide p = 4 >= 3.8);
+# refused: a periodic face against a Dirichlet one, a ghost-Dirichlet face against a face kind, the wide operator
+# with isolated boundaries.
+#
 # bcmg (test_poisson_mg --bc, issue #84, E1b): the multigrid with a boundary kind per face (periodic, Dirichlet or
 # Neumann at the face, ghost-Dirichlet; mixed across and within axes):
 #   - uniform grids: equal to the FFT solver with the same kinds (bc leg, E1a), 1e-8 relative, at most one iteration;
@@ -186,10 +193,12 @@ for leg in $LEGS; do
          refusal "isolated, a refined leaf on the boundary" --refuse-boundary-refined 'touches the domain boundary' \
             "$MG_EXE" ;;
       bc)
-         echo ">> FLAIL boundary kinds per face, the FFT solver (issue #84, E1a; $(basename "$BC_EXE"))"
+         echo ">> FLAIL boundary kinds per face and the wide D(G), the FFT solver (issue #84, E1a, E2a; $(basename "$BC_EXE"))"
          suite flail-bc "" "$BC_EXE"
          refusal "a periodic face against a Dirichlet one" --refuse-mixed-periodic 'one periodic face and one' "$BC_EXE"
          refusal "a ghost-Dirichlet face against a face kind" --refuse-mixed-ghost 'mixes a ghost-Dirichlet face' \
+            "$BC_EXE"
+         refusal "the wide D(G) with isolated boundaries" --refuse-wide-isolated 'the compact operator only' \
             "$BC_EXE" ;;
       bcmg)
          echo ">> FLAIL boundary kinds per face, the multigrid solver (issue #84, E1b; $(basename "$MG_EXE"))"
@@ -199,7 +208,8 @@ for leg in $LEGS; do
          suite flail "--flail" "$MG_EXE"
          refusal "facade, boundary values on the FFT path" --refuse-flail-ghost-fft 'need the multigrid path' \
             "$MG_EXE"
-         refusal "facade, isolated with bc" --refuse-flail-isolated-bc 'isolated boundaries take no bc' "$MG_EXE" ;;
+         refusal "facade, isolated with bc" --refuse-flail-isolated-bc 'isolated boundaries take no bc' "$MG_EXE"
+         refusal "facade, the wide D(G) on AMR" --refuse-flail-wide-amr 'the wide D(G) needs a uniform grid' "$MG_EXE" ;;
    esac
 done
 if [[ -n "$DUMP" ]]; then

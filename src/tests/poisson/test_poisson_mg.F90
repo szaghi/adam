@@ -57,6 +57,8 @@ program test_poisson_mg
 !<     PEC face normal to z: Dirichlet for the tangential components, Neumann for the normal one) takes one FLAIL per
 !<     component: the three instances, solved interleaved, equal three solves each by a FLAIL of its own, bitwise.
 !<     `--refuse-flail-ghost-fft`: boundary values on the FFT path; `--refuse-flail-isolated-bc`: isolated with `bc`.
+!<     The wide operator D(G) (E2a): `setup(..., dg_order=4)` on a uniform grid against the FFT solver with it, bitwise;
+!<     `--refuse-flail-wide-amr`: the wide operator on AMR (not defined across 2:1 faces yet, E7).
 !<
 !< `--mixed` builds a grid periodic along x only and gives no `bc` (every active direction periodic or none then);
 !< `--refuse-bc-mismatch` gives the same grid a periodic y in `bc`; `--refuse-bc-mixed-ghost` an axis with a
@@ -65,7 +67,8 @@ program test_poisson_mg
 !< solver must stop.
 !<
 !< Usage: `mpirun -np N exe/test_poisson_mg [--isolated | --bc | --flail | --mixed | --refuse-bc-mismatch |
-!< --refuse-bc-mixed-ghost | --refuse-boundary-refined | --refuse-flail-ghost-fft | --refuse-flail-isolated-bc]`.
+!< --refuse-bc-mixed-ghost | --refuse-boundary-refined | --refuse-flail-ghost-fft | --refuse-flail-isolated-bc |
+!< --refuse-flail-wide-amr]`.
 
 use :: adam_common_library,     only : realm_object
 use :: adam_flail_object,       only : flail_object, FLAIL_BACKEND_AUTO
@@ -118,13 +121,14 @@ logical                 :: mixed                         !< Run the mixed-period
 logical                 :: flail_suite                   !< Run the facade suite (issue #84, E1c).
 logical                 :: refuse_flail_ghost            !< Run the facade's ghost-on-FFT refusal only.
 logical                 :: refuse_flail_isolated         !< Run the facade's isolated-with-bc refusal only.
+logical                 :: refuse_flail_wide             !< Run the facade's wide-operator-on-AMR refusal only.
 logical                 :: isolated                      !< Run the isolated suite (SV-13).
 logical                 :: refuse_boundary               !< Run the boundary-refined refusal only.
 character(256)          :: arg                           !< Command argument.
 integer(I4P)            :: a                             !< Counter.
 
 bc_suite = .false. ; refuse_bc_mismatch = .false. ; refuse_bc_ghost = .false. ; mixed = .false.
-flail_suite = .false. ; refuse_flail_ghost = .false. ; refuse_flail_isolated = .false.
+flail_suite = .false. ; refuse_flail_ghost = .false. ; refuse_flail_isolated = .false. ; refuse_flail_wide = .false.
 isolated = .false. ; refuse_boundary = .false.
 do a=1, command_argument_count()
    call get_command_argument(a, arg)
@@ -133,6 +137,7 @@ do a=1, command_argument_count()
    if (trim(arg) == '--flail') flail_suite = .true.
    if (trim(arg) == '--refuse-flail-ghost-fft') refuse_flail_ghost = .true.
    if (trim(arg) == '--refuse-flail-isolated-bc') refuse_flail_isolated = .true.
+   if (trim(arg) == '--refuse-flail-wide-amr') refuse_flail_wide = .true.
    if (trim(arg) == '--refuse-bc-mismatch') refuse_bc_mismatch = .true.
    if (trim(arg) == '--refuse-bc-mixed-ghost') refuse_bc_ghost = .true.
    if (trim(arg) == '--isolated') isolated = .true.
@@ -140,6 +145,12 @@ do a=1, command_argument_count()
 enddo
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
 test_passed = .true.
+if (refuse_flail_wide) then
+   call refuse_flail_wide_amr
+   if (mpih%myrank == 0) print '(A)', 'test_poisson_mg: FAILED (the facade accepted the wide operator on AMR)'
+   call mpih%finalize
+   error stop 1
+endif
 if (refuse_flail_ghost .or. refuse_flail_isolated) then
    call refuse_flail(ghost_on_fft=refuse_flail_ghost)
    if (mpih%myrank == 0) print '(A)', 'test_poisson_mg: FAILED (the facade accepted an inconsistent call)'
@@ -153,6 +164,8 @@ if (flail_suite) then
                             nk=8_I4P, level=2_I4P, amr=.true.)
    call check_flail_forward(label='E1c, facade, AMR 2-D, N/D P/P (multigrid),        ', bc=BC_D, ratio=4_I4P, &
                             nk=1_I4P, level=2_I4P, amr=.true.)
+   call check_flail_forward(label='E2a, facade, uniform 3-D, P/P D/N N/D, D(G) p = 4,  ', bc=BC_A, ratio=8_I4P, &
+                            nk=8_I4P, level=1_I4P, amr=.false., dg_order=4_I4P)
    call check_flail_vector(label='E1c, facade, PEC z faces, 3 instances, uniform (FFT),', amr=.false.)
    call check_flail_vector(label='E1c, facade, PEC z faces, 3 instances, AMR (multigrid),', amr=.true.)
    if (mpih%myrank == 0) then
@@ -551,7 +564,19 @@ contains
    endif
    endsubroutine refuse_flail
 
-   subroutine check_flail_forward(label, bc, ratio, nk, level, amr)
+   subroutine refuse_flail_wide_amr
+   !< The facade with the wide operator on AMR (the corner refined): setup must stop the run.
+   type(realm_object)      :: realm !< Realm.
+   type(flail_object)      :: flail !< FLAIL.
+   real(R8P), allocatable  :: q(:,:,:,:,:) !< Source.
+
+   call build(realm, 8_I4P, 8_I4P, 2_I4P, sphere=.true., q=q, periodic=.false., corner=.true.)
+   call set_grid_bc(realm, BC_B)
+   call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=.false., backend=FLAIL_BACKEND_AUTO, &
+                    bc=BC_B, dg_order=4_I4P)
+   endsubroutine refuse_flail_wide_amr
+
+   subroutine check_flail_forward(label, bc, ratio, nk, level, amr, dg_order)
    !< Issue #84, E1c: `flail%setup(..., bc)` and `solve` against the solver it chooses called directly, bitwise on every
    !< cell and ghost of phi; on AMR (the corner refined) with the manufactured potential's boundary values as `ghost`.
    character(*), intent(in) :: label   !< Label.
@@ -560,6 +585,7 @@ contains
    integer(I4P), intent(in) :: nk      !< Cells per block along z.
    integer(I4P), intent(in) :: level   !< Base level.
    logical,      intent(in) :: amr     !< Refine the corner (the multigrid path), else uniform (the FFT path).
+   integer(I4P), intent(in), optional :: dg_order !< The wide D(G) of this order (FFT path), else compact.
    type(realm_object)       :: realm   !< Realm.
    type(flail_object)       :: flail   !< FLAIL.
    type(poisson_mg_object)  :: mg      !< Multigrid solver, direct.
@@ -575,7 +601,8 @@ contains
    allocate(phi_f(lbound(q,2):ubound(q,2),lbound(q,3):ubound(q,3),lbound(q,4):ubound(q,4),ubound(q,5)))
    allocate(phi_d, mold=phi_f)
    phi_f = SENTINEL ; phi_d = SENTINEL
-   call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=.false., backend=FLAIL_BACKEND_AUTO, bc=bc)
+   call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=.false., backend=FLAIL_BACKEND_AUTO, bc=bc, &
+                    dg_order=dg_order)
    ok = flail%is_multigrid() .eqv. amr
    if (amr) then
       call mg%initialize(grid=realm%adam%grid, field=realm%adam%field, bc=bc)
@@ -591,7 +618,7 @@ contains
       call mg%solve(field=realm%adam%field, q=q, iv=1_I4P, factor=FACTOR, phi=phi_d, ghost=ghost)
       call mg%destroy
    else
-      call fft%initialize(grid=realm%adam%grid, field=realm%adam%field, bc=bc)
+      call fft%initialize(grid=realm%adam%grid, field=realm%adam%field, bc=bc, dg_order=dg_order)
       call flail%solve(field=realm%adam%field, q=q, iv=1_I4P, factor=FACTOR, phi=phi_f)
       call fft%solve(field=realm%adam%field, q=q, iv=1_I4P, factor=FACTOR, phi=phi_d)
       call fft%destroy

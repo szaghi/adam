@@ -1,6 +1,6 @@
-!< Unit test of the FFT solver's boundary conditions per face (issue #84, E1a).
+!< Unit test of the FFT solver's boundary conditions per face (issue #84, E1a) and its wide operator D(G) (E2a).
 program test_flail_bc
-!< Unit test of the FFT solver's boundary conditions per face (issue #84, E1a).
+!< Unit test of the FFT solver's boundary conditions per face (issue #84, E1a) and its wide operator D(G) (E2a).
 !<
 !< **Why this test exists.** FLAIL's clients need more than periodic and isolated boundaries: PRISM's elliptic solves
 !< take Dirichlet (PEC) and Neumann faces, often different at the two ends of one axis. The FFT solver handles them by
@@ -22,10 +22,19 @@ program test_flail_bc
 !<   - the energy `sum_interior f phi` against the exact sum, relative (`TOL_DISCRETE`): no images in it;
 !<   - for D/D, the order against the continuum solution (the same sine, divided by `-|k|^2`) on a ladder, at least
 !<     `MIN_ORDER`: the face placement of the wall is second order.
-!< `--refuse-mixed-periodic` (a periodic face against a Dirichlet one) and `--refuse-mixed-ghost` (a ghost-Dirichlet
-!< face against a face kind) must stop (exit status 1).
+!< **The wide operator (E2a).** The same configurations with `dg_order = p` (2, 4, 6, 8): PRISM's D(G), the order-p
+!< centred first derivative composed with itself. The axis eigenfunctions above are eigenfunctions of it too (they are
+!< reflections about the faces, which the wide stencil commutes with); their eigenvalue `mu_d` is computed here in
+!< real space, independently of the solver's symbol: `D1` applied twice to the eigenfunction, extended over `p` ghost
+!< cells by its own formula, divided by it. Asserted as above, the ghost layers read back to depth `p` (the depth
+!< PRISM's D and G read), and the D/D order of p = 4 against the continuum (`MIN_ORDER_WIDE`).
 !<
-!< Usage: `mpirun -np N exe/test_flail_bc [--refuse-mixed-periodic | --refuse-mixed-ghost]` (or `exe/test_flail_bc_fnl`).
+!< `--refuse-mixed-periodic` (a periodic face against a Dirichlet one), `--refuse-mixed-ghost` (a ghost-Dirichlet
+!< face against a face kind) and `--refuse-wide-isolated` (the wide operator with isolated boundaries) must stop (exit
+!< status 1).
+!<
+!< Usage: `mpirun -np N exe/test_flail_bc [--refuse-mixed-periodic | --refuse-mixed-ghost | --refuse-wide-isolated]`
+!< (or `exe/test_flail_bc_fnl`).
 #ifdef _FNL
 #include "fundal.H"
 #endif
@@ -49,6 +58,13 @@ real(R8P), parameter :: RHO0=1.5_R8P                  !< Constant added without 
 real(R8P), parameter :: L(3)=[1._R8P, 2._R8P, 3._R8P] !< Domain lengths.
 real(R8P), parameter :: TOL_DISCRETE=1.e-12_R8P       !< Bound on the discrete error and the energy, relative.
 real(R8P), parameter :: MIN_ORDER=1.9_R8P             !< Bound on the D/D order against the continuum.
+real(R8P), parameter :: MIN_ORDER_WIDE=3.8_R8P        !< Bound on the D/D order of the wide p = 4 operator.
+! centred first-derivative coefficients a_j of order p: D1 q_i = sum_j a_j (q_{i+j} - q_{i-j}) / h (column p/2)
+real(R8P), parameter :: A_D1(4,4)=reshape([1._R8P/2._R8P, 0._R8P, 0._R8P, 0._R8P,                         &
+                                           2._R8P/3._R8P, -1._R8P/12._R8P, 0._R8P, 0._R8P,                 &
+                                           3._R8P/4._R8P, -3._R8P/20._R8P, 1._R8P/60._R8P, 0._R8P,         &
+                                           4._R8P/5._R8P, -1._R8P/5._R8P, 4._R8P/105._R8P, -1._R8P/280._R8P], &
+                                          [4, 4]) !< a_j [j, p/2].
 integer(I4P), parameter :: P=FLAIL_BC_PERIODIC        !< Shorthand.
 integer(I4P), parameter :: D=FLAIL_BC_DIRICHLET       !< Shorthand.
 integer(I4P), parameter :: N=FLAIL_BC_NEUMANN         !< Shorthand.
@@ -56,10 +72,11 @@ integer(I4P), parameter :: G=FLAIL_BC_DIRICHLET_GHOST !< Shorthand.
 logical        :: test_passed !< Aggregate pass flag.
 character(256) :: arg         !< Command argument.
 real(R8P)      :: e_disc, e_cont(3), e_energy !< Errors.
-integer(I4P)   :: m           !< Counter.
+integer(I4P)   :: m, po       !< Counters.
 integer(I4P)   :: cfg_bc(2,3)    !< Current case: kinds per face.
 integer(I4P)   :: cfg_kmode(3)   !< Current case: mode per axis.
 integer(I4P)   :: cfg_ncell(3)   !< Current case: global cells per axis.
+integer(I4P)   :: cfg_order      !< Current case: 0 compact, p the wide D(G).
 logical        :: cfg_null(3)    !< Current case: null directions.
 logical        :: cfg_dirichlet  !< Current case: some axis has a Dirichlet face.
 real(R8P)      :: order       !< Observed order.
@@ -79,18 +96,38 @@ case('--refuse-mixed-ghost')
    call solve_case(bc=reshape([G,D, D,D, D,D], [2,3]), nblk=[2,2,2], nijk=[8,8,8], null_z=.false., &
                    e_disc=e_disc, e_cont=e_cont(1), e_energy=e_energy)
    call refusal_failed
+case('--refuse-wide-isolated')
+   call refuse_wide_isolated
+   call refusal_failed
 endselect
-! 3-D, one combination per axis kind
-call check('P/P D/D N/N', reshape([P,P, D,D, N,N], [2,3]), null_z=.false.)
-call check('D/N N/D P/P', reshape([D,N, N,D, P,P], [2,3]), null_z=.false.)
-call check('N/N N/N N/N', reshape([N,N, N,N, N,N], [2,3]), null_z=.false.)
-call check('D/D D/D D/D', reshape([D,D, D,D, D,D], [2,3]), null_z=.false.)
-call check('N/D D/N N/N', reshape([N,D, D,N, N,N], [2,3]), null_z=.false.)
-call check('G/G G/G G/G', reshape([G,G, G,G, G,G], [2,3]), null_z=.false.)
-! 2-D (null z)
-call check('2-D D/N N/N ', reshape([D,N, N,N, P,P], [2,3]), null_z=.true.)
-call check('2-D P/P D/D ', reshape([P,P, D,D, P,P], [2,3]), null_z=.true.)
-! the D/D order against the continuum
+! the compact operator (E1a) and the wide D(G) of order 2, 4, 6, 8 (E2a)
+do po=0, 8, 2
+   if (po == 2 .and. mpih%myrank == 0) print '(A)', '   the wide operator D(G) (E2a):'
+   cfg_order = po
+   ! 3-D, one combination per axis kind
+   call check('P/P D/D N/N', reshape([P,P, D,D, N,N], [2,3]), null_z=.false.)
+   call check('D/N N/D P/P', reshape([D,N, N,D, P,P], [2,3]), null_z=.false.)
+   call check('N/N N/N N/N', reshape([N,N, N,N, N,N], [2,3]), null_z=.false.)
+   call check('D/D D/D D/D', reshape([D,D, D,D, D,D], [2,3]), null_z=.false.)
+   call check('N/D D/N N/N', reshape([N,D, D,N, N,N], [2,3]), null_z=.false.)
+   call check('G/G G/G G/G', reshape([G,G, G,G, G,G], [2,3]), null_z=.false.)
+   ! 2-D (null z)
+   call check('2-D D/N N/N ', reshape([D,N, N,N, P,P], [2,3]), null_z=.true.)
+   call check('2-D P/P D/D ', reshape([P,P, D,D, P,P], [2,3]), null_z=.true.)
+enddo
+! the wide p = 4 D/D order against the continuum
+cfg_order = 4
+do m=1, 3
+   call solve_case(bc=reshape([D,D, D,D, D,D], [2,3]), nblk=[2,2,2], nijk=[4,4,4]*2**m, null_z=.false., &
+                   e_disc=e_disc, e_cont=e_cont(m), e_energy=e_energy)
+enddo
+order = log(e_cont(2) / e_cont(3)) / log(2._R8P)
+if (mpih%myrank == 0) print '(A)', '   wide p = 4, D/D D/D D/D order against the continuum, 16^3 -> 32^3 -> 64^3: '// &
+   trim(str(log(e_cont(1) / e_cont(2)) / log(2._R8P), .true.))//', '//trim(str(order, .true.))//' (min '//       &
+   trim(str(MIN_ORDER_WIDE, .true.))//')'
+test_passed = test_passed .and. order >= MIN_ORDER_WIDE
+! the compact D/D order against the continuum
+cfg_order = 0
 do m=1, 3
    call solve_case(bc=reshape([D,D, D,D, D,D], [2,3]), nblk=[2,2,2], nijk=[4,4,4]*2**m, null_z=.false., &
                    e_disc=e_disc, e_cont=e_cont(m), e_energy=e_energy)
@@ -127,8 +164,8 @@ contains
    call solve_case(bc=bc, nblk=nblk, nijk=nijk, null_z=null_z, e_disc=e_disc, e_cont=e_cont(1), e_energy=e_energy)
    ok = e_disc <= TOL_DISCRETE .and. e_energy <= TOL_DISCRETE
    test_passed = test_passed .and. ok
-   if (mpih%myrank == 0) print '(A)', '   '//label//': |phi - phi_h| '//trim(str(e_disc, .true.))//', energy '// &
-      trim(str(e_energy, .true.))//merge(' ok  ', ' FAIL', ok)
+   if (mpih%myrank == 0) print '(A)', '   '//op_label()//' '//label//': |phi - phi_h| '//trim(str(e_disc, .true.))// &
+      ', energy '//trim(str(e_energy, .true.))//merge(' ok  ', ' FAIL', ok)
    endsubroutine check
 
    subroutine solve_case(bc, nblk, nijk, null_z, e_disc, e_cont, e_energy)
@@ -147,7 +184,7 @@ contains
 #else
    type(poisson_fft_object)     :: solver !< The solver.
 #endif
-   integer(I4P), parameter   :: GW=1_I4P   !< Ghost layers read back.
+   integer(I4P)              :: gw         !< Ghost layers read back: 1, or p for the wide operator.
    integer(I4P)              :: ncell(3)   !< Global cells per direction.
    real(R8P)                 :: dxyz(3)    !< Spacing.
    real(R8P)                 :: mu(3)      !< Discrete eigenvalue per axis.
@@ -160,6 +197,7 @@ contains
    real(R8P)                 :: s, ph, ph_c, f_all, e, e_exact, emax, pmax, cmax !< Work.
    integer(I4P)              :: nbl, b, bi, bj, bk, i, j, k, c, d_, nb_total, ierr !< Counters.
 
+   gw = max(1_I4P, cfg_order)
    null_xyz = [.false., .false., null_z]
    ncell = nblk * nijk
    dxyz = L / ncell
@@ -167,7 +205,7 @@ contains
    has_dirichlet = any(bc == D) .or. any(bc == G)
    cfg_bc = bc ; cfg_kmode = kmode ; cfg_ncell = ncell ; cfg_null = null_xyz ; cfg_dirichlet = has_dirichlet
    do d_=1, 3
-      call axis_eigen(bc(:,d_), kmode(d_), ncell(d_), dxyz(d_), L(d_), null_xyz(d_), mu(d_), kap(d_))
+      call axis_eigen(bc(:,d_), kmode(d_), ncell(d_), dxyz(d_), null_xyz(d_), cfg_order, mu(d_), kap(d_))
    enddo
    ! this rank's blocks, round robin
    nb_total = product(nblk)
@@ -175,7 +213,7 @@ contains
    do b=0, nb_total-1
       if (mod(b, mpih%procs_number) == mpih%myrank) nbl = nbl + 1
    enddo
-   allocate(coords(3,max(nbl,1)), buf(max(nbl*product(nijk),1)), out(max(nbl*product(nijk+2*GW),1)))
+   allocate(coords(3,max(nbl,1)), buf(max(nbl*product(nijk),1)), out(max(nbl*product(nijk+2*gw),1)))
    c = 0 ; nbl = 0
    do b=0, nb_total-1
       if (mod(b, mpih%procs_number) /= mpih%myrank) cycle
@@ -191,17 +229,17 @@ contains
          enddo
       enddo
    enddo
-   call solver%initialize_blocks(nblk=nblk, nijk=nijk, ngc=GW, dxyz=dxyz, level=0_I4P, null_xyz=null_xyz, &
-                                 isolated=.false., bc=bc)
+   call solver%initialize_blocks(nblk=nblk, nijk=nijk, ngc=gw, dxyz=dxyz, level=0_I4P, null_xyz=null_xyz, &
+                                 isolated=.false., bc=bc, dg_order=cfg_order)
    out = 0._R8P
-   call solver%solve_blocks(nbl=nbl, coords=coords, buf=buf, factor=FACTOR, gw=GW, out=out, energy=e)
+   call solver%solve_blocks(nbl=nbl, coords=coords, buf=buf, factor=FACTOR, gw=gw, out=out, energy=e)
    ! errors over this rank's blocks, then reduced
    emax = 0._R8P ; pmax = 0._R8P ; cmax = 0._R8P ; e_exact = 0._R8P
    c = 0
    do b=1, nbl
-      do k=1-GW, nijk(3)+GW ! along a null z the scatter stores the ghost layers too; the mode is 1 there
-         do j=1-GW, nijk(2)+GW
-            do i=1-GW, nijk(1)+GW
+      do k=1-gw, nijk(3)+gw ! along a null z the scatter stores the ghost layers too; the mode is 1 there
+         do j=1-gw, nijk(2)+gw
+            do i=1-gw, nijk(1)+gw
                c = c + 1
                ph = FACTOR * mode(coords(1,b)*nijk(1)+i, coords(2,b)*nijk(2)+j, coords(3,b)*nijk(3)+k) / sum(mu)
                emax = max(emax, abs(out(c) - ph))
@@ -245,21 +283,48 @@ contains
    if (.not.cfg_dirichlet) v = v + RHO0
    endfunction source
 
-   pure subroutine axis_eigen(kinds, k, n, dx, len, is_null, mu, kap)
-   !< The discrete eigenvalue of the 7-point operator and the continuum wavenumber of an axis's eigenfunction.
+   pure subroutine axis_eigen(kinds, k, n, dx, is_null, dg_order, mu, kap)
+   !< The discrete eigenvalue and the continuum wavenumber of an axis's eigenfunction: the 7-point operator's in
+   !< closed form, or the wide D(G)'s in real space (D1 applied twice to the eigenfunction, extended by its own formula
+   !< over the ghost cells, divided by it at the cell where it is largest), independently of the solver's symbol.
    integer(I4P), intent(in)  :: kinds(2) !< Kinds at the two faces.
    integer(I4P), intent(in)  :: k        !< Mode.
    integer(I4P), intent(in)  :: n        !< Cells.
-   real(R8P),    intent(in)  :: dx, len  !< Spacing and length.
+   real(R8P),    intent(in)  :: dx       !< Spacing.
    logical,      intent(in)  :: is_null  !< Null direction.
+   integer(I4P), intent(in)  :: dg_order !< 0 compact, p the wide D(G).
    real(R8P),    intent(out) :: mu, kap  !< Discrete eigenvalue, continuum wavenumber.
    real(R8P)                 :: th       !< Phase step per cell.
+   real(R8P)                 :: g(-4:4)  !< D1 of the eigenfunction around the cell.
+   real(R8P)                 :: dg, fmax !< D1 D1 at the cell, the eigenfunction there.
+   integer(I4P)              :: i0, i, j, o !< Cell, counters.
 
    mu = 0._R8P ; kap = 0._R8P
    if (is_null) return
    th = phase_step(kinds, k, n)
-   mu = (2._R8P * cos(th) - 2._R8P) / dx**2
    kap = th / dx
+   if (dg_order == 0_I4P) then
+      mu = (2._R8P * cos(th) - 2._R8P) / dx**2
+      return
+   endif
+   i0 = 1 ; fmax = 0._R8P
+   do i=1, n
+      if (abs(axis_fun(kinds, k, n, i, .false.)) > fmax) then
+         fmax = abs(axis_fun(kinds, k, n, i, .false.)) ; i0 = i
+      endif
+   enddo
+   g = 0._R8P
+   do o=-dg_order/2, dg_order/2
+      do j=1, dg_order/2
+         g(o) = g(o) + A_D1(j,dg_order/2) * (axis_fun(kinds, k, n, i0+o+j, .false.) - &
+                                             axis_fun(kinds, k, n, i0+o-j, .false.))
+      enddo
+   enddo
+   dg = 0._R8P
+   do j=1, dg_order/2
+      dg = dg + A_D1(j,dg_order/2) * (g(j) - g(-j))
+   enddo
+   mu = dg / axis_fun(kinds, k, n, i0, .false.) / dx**2
    endsubroutine axis_eigen
 
    pure function phase_step(kinds, k, n) result(th)
@@ -303,6 +368,29 @@ contains
       v = cos(x)
    endif
    endfunction axis_fun
+
+   function op_label() result(lab)
+   !< The operator of the current case, for the lines.
+   character(:), allocatable :: lab !< Label.
+
+   if (cfg_order == 0) then
+      lab = 'compact   '
+   else
+      lab = 'D(G) p = '//trim(str(cfg_order, .true.))
+   endif
+   endfunction op_label
+
+   subroutine refuse_wide_isolated
+   !< The wide operator with isolated boundaries: initialize_blocks must stop the run.
+#ifdef _FNL
+   type(poisson_fft_fnl_object) :: solver !< The solver.
+#else
+   type(poisson_fft_object)     :: solver !< The solver.
+#endif
+
+   call solver%initialize_blocks(nblk=[2,2,2], nijk=[8,8,8], ngc=4_I4P, dxyz=[0.1_R8P, 0.1_R8P, 0.1_R8P], &
+                                 level=0_I4P, null_xyz=[.false., .false., .false.], isolated=.true., dg_order=4_I4P)
+   endsubroutine refuse_wide_isolated
 
    subroutine refusal_failed
    !< A refusal configuration ran: the test fails.
