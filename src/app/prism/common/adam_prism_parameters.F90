@@ -8,6 +8,7 @@ use :: penf
 implicit none
 private
 public :: NV_MAX
+public :: strip_control
 public :: MU0
 public :: EPS0
 public :: MU0_SQ
@@ -33,7 +34,8 @@ public :: IERL_D
 public :: IERL_B
 public :: IERL_D_B
 
-integer(I4P), parameter :: NV_MAX     = 11_I4P                        !< Maximum number of variables for static arrays dimensioning.
+integer(I4P), parameter :: NV_MAX     = 12_I4P                        !< Maximum number of variables for static arrays dimensioning.
+                                                                      !< 12 = 6 (D, B) + 3 (J) + 2 (phi, psi) + 1 (rho), issue #57.
 real(R8P),    parameter :: MU0        = 1.256637e-6_R8P               !< Vacuum magnetic permeability.
 real(R8P),    parameter :: EPS0       = 8.854187e-12_R8P              !< Vacuum dielectric constant.
 real(R8P),    parameter :: C0         = 1._R8P/sqrt(MU0*EPS0)         !< Vacuum speed of light.
@@ -192,4 +194,21 @@ real(R8P), target      :: IERL_D_B(8,8,3) =reshape([1._R8P,0._R8P,0._R8P,0._R8P,
                                                     0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,1._R8P,0._R8P, &
                                                     0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,1._R8P],&
                                                  [8,8,3])   !< Identity eigenvectors, D & B divergence cleaning.
+contains
+   pure function strip_control(string) result(cleaned)
+   !< Return `string` with control characters (CR, TAB, ...) replaced by blanks.
+   !<
+   !< INI files authored on Windows carry a trailing CR that `trim`/`adjustl` do
+   !< not remove, so a value would miss every `case` and hit the `case default`
+   !< error path purely because of its line ending. Blank them first: the
+   !< subsequent trim/adjustl then yields the intended token.
+   character(len=*), intent(in)  :: string          !< Raw value as read from the INI file.
+   character(len=len(string))    :: cleaned         !< Value with control characters blanked.
+   integer(I4P)                  :: c               !< Counter.
+
+   cleaned = string
+   do c=1, len(cleaned)
+      if (iachar(cleaned(c:c)) < 32_I4P) cleaned(c:c) = ' '
+   enddo
+   endfunction strip_control
 endmodule adam_prism_parameters

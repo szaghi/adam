@@ -30,6 +30,18 @@ LEGS=(
    "ic-magnetic-nozzle|cpu fnl|s/^type *= *vacuum/type = magnetic_nozzle/|is not implemented as an initial condition"
    "ic-unknown|cpu fnl|s/^type *= *vacuum/type = no_such_ic/|unknown [initial_conditions].(type)"
    "ic-rmf-axis|cpu fnl|s/^type *= *vacuum/type = rmf_field/;s/^external_fields_applied *=.*/&\nRMF_frequency = 1.0E6\nRMF_B_amplitude = 1.0E-3\nRMF_rotation_axis = W/|unknown [external_fields].(RMF_rotation_axis)"
+   # issue #57: a BC no backend implements (FNL applied none), and values that used to fall back silently or with a
+   # warning; a typo now stops, naming the option and the value
+   "bc-radiative|cpu fnl|s/^type = Neumann/type = radiative/|radiative is not implemented"
+   "scheme-time-typo|cpu fnl|s/^scheme_time *=.*/scheme_time = runge-kutta/|(scheme_time) \"runge-kutta\""
+   "scheme-space-typo|cpu fnl|s/^scheme_space *=.*/scheme_space = fd_centred/|(scheme_space) \"fd_centred\""
+   "reconstruction-typo|cpu fnl|s/^reconstruction_variables *=.*/reconstruction_variables = characteristichs/|(reconstruction_variables) \"characteristichs\""
+   "ct-typo|cpu fnl|s/^constrained_transport *=.*/constrained_transport = DD/|(constrained_transport) \"DD\""
+   "dc-typo|cpu fnl|s/^divergence_correction *=.*/divergence_correction = hyperbolc/|(divergence_correction) \"hyperbolc\""
+   "ef-typo|cpu fnl|s/^external_fields_applied *=.*/external_fields_applied = rmff/|(external_fields_applied) \"rmff\""
+   "fwl-flag-typo|cpu fnl|s/^x_minus_layer *=.*/x_minus_layer = yse/|(x_minus_layer) \"yse\""
+   "ib-file-off|cpu fnl|s/^number    = 0/number    = 1/;s/^n_eikonal = 2/&\n[solid_1]\nname = s\nbc_type = 1\ndefinition = file.off/|(definition) \"file.off\""
+   "ib-axis|cpu fnl|s/^number    = 0/number    = 1/;s/^n_eikonal = 2/&\n[solid_1]\nname = s\nbc_type = 1\ndefinition = analytical_circle\ncircle_center_x = 0.0\ncircle_center_y = 0.0\ncircle_center_z = 0.0\ncircle_radius = 0.01\ncircle_axis = w/|(circle_axis) \"w\""
 )
 
 fail=0

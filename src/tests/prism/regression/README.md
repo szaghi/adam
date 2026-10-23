@@ -65,12 +65,11 @@ represented by any regression anchor.
 
 ### Boundary-condition kinds
 
-`[bc_*] type` accepts (`src/app/prism/common/adam_prism_bc_object.F90:84-101`):
-`extrapolation`, `Neumann`, `Dirichlet`, `Silver_Muller`, `periodic`,
-`radiative`, `PEC` (also lowercase `pec`). Note the **underscore** spelling
-`Silver_Muller` — the hyphen appears only in a directory name. There is no
-`default` branch in the `select case`, so an unrecognised string leaves the BC
-type undefined rather than erroring: spelling mistakes fail silently.
+`[bc_*] type` accepts (`src/app/prism/common/adam_prism_bc_object.F90`):
+`extrapolation`, `Neumann`, `Dirichlet`, `Silver_Muller`, `periodic`, `PEC`
+(also lowercase `pec`). Note the **underscore** spelling `Silver_Muller` — the
+hyphen appears only in a directory name. An unrecognised string stops at load
+(`0259860f`), and so does `radiative`, which no backend implements (issue #57).
 
 Cases under this directory (`src/tests/prism/regression/`) are derived from
 research cases but **tuned for CI**:

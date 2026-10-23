@@ -195,7 +195,9 @@ contains
 	if (.not.go_on_fail_.and.error>0) &
 	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(external field applied)')
 
-   select case(trim(adjustl(buff_char)))
+   select case(trim(adjustl(strip_control(buff_char))))
+   case('none', 'None', 'NONE', 'no', 'No', 'NO')
+      self%ef_type = EF_TYPE_NONE
    case('RMF', 'rmf', 'Rmf')
       self%ef_type = EF_TYPE_RMF
    case('Uniform_field', 'uniform_field', 'UNIFORM_FIELD', 'UniformField', 'uniformfield')
@@ -205,8 +207,9 @@ contains
    case('RMF_and_magnetic_nozzle', 'rmf_and_magnetic_nozzle', 'RMF_AND_MAGNETIC_NOZZLE', &
         'Rmf_and_magnetic_nozzle', 'rmfAndMagneticNozzle', 'RMFAndMagneticNozzle')
       self%ef_type = EF_TYPE_RMF_AND_MAGNETIC_NOZZLE
-   case default
-      self%ef_type = EF_TYPE_NONE
+   case default ! issue #57: a typo used to mean none, silently
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(external_fields_applied) "'// &
+                               trim(adjustl(strip_control(buff_char)))//'"; accepted: none, RMF, uniform_field')
    endselect
 
    selectcase(self%ef_type)

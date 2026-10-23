@@ -394,8 +394,9 @@ Notes on `bc_type`:
 
 Notes on `definition`:
 
-- `file.off` appears in the definitions list but is not implemented.
-- An unknown value reads no geometry keys and **silently produces no solid** (the distance function stays -1).
+- Accepted: `analytical_sphere`, `analytical_circle`, `analytical_rectangle`. Any other value, `file.off` included (it
+  was listed but never implemented), stops at load, and so does a `circle_axis` or `rectangle_axis` other than `x`, `y`,
+  `z`. Both used to produce no solid, silently ([#57](https://github.com/szaghi/adam/issues/57)).
 
 ---
 

@@ -538,17 +538,17 @@ Particle state is `q_pic(8, particle_number)` with `pic_fields(6, particle_numbe
 
 ### `[bc_*] type`: accepted spellings, and PRISM `periodic` is library periodicity
 
-The six face sections `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]`, `[bc_z_max]` each take a `type`. The parser (`adam_prism_bc_object.F90`) accepts exactly seven spellings:
+The six face sections `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]`, `[bc_z_max]` each take a `type`. The parser (`adam_prism_bc_object.F90`) accepts exactly six spellings:
 
-`extrapolation` · `Neumann` · `Dirichlet` · `Silver_Muller` · `periodic` · `radiative` · `PEC` (or `pec`)
+`extrapolation` · `Neumann` · `Dirichlet` · `Silver_Muller` · `periodic` · `PEC` (or `pec`)
 
-Matching is case-sensitive; an unrecognised value is **fatal** (`case default` → `error_stop` naming section, value and accepted spellings, `0259860f`), values pass through `strip_control` (CRLF-safe), and `bc_type(6)` is default-initialised to `0_I4P`.
+Matching is case-sensitive; an unrecognised value is **fatal** (`case default` → `error_stop` naming section, value and accepted spellings, `0259860f`), values pass through `strip_control` (CRLF-safe; one public copy in `adam_prism_parameters` since #57), and `bc_type(6)` is default-initialised to `0_I4P`. `radiative` is parsed and **refused** (#57): the CPU stopped only at the first BC application, and the FNL kernel had no branch for it, so the face got no BC.
 
 **PRISM `periodic` is the library's `BC_PERIODIC = -1`** (`adam_parameters.f90`), so `grid%set_bc_type` sets `is_ijk_periodic`, the tree builds periodic neighbours and the ghost exchange (`update_ghost_local/mpi`) fills periodic ghosts across blocks and ranks; periodic faces are not boundary rows of `local_map_bc_crown`, and `set_boundary_conditions` has no periodic branch. The two faces of an axis must be both periodic or neither (`error_stop`). Two traps fixed with it: `realm_object%initialize` builds the tree and maps before the BC types are known, and `make_neighborhood` never refreshes an old boundary neighbour, so `prism_common_object%initialize` calls `tree%rebuild_neighborhood` + `make_comm_local_maps_ghost_bc` right after `set_bc_type` (without it an unrefined single block kept its periodic faces as unfilled boundary rows); on an all-periodic domain `local_map_bc_crown` stays **unallocated** (the FNL maps read that as "no rows"), so the FLAIL callers pass a zero-row copy. FLUME calls `set_bc_type` at the same point and has the same unrefined single-block trap. Before this, PRISM used an app constant (`BC_PERIOD = 5`) and a same-block wrap, correct only with one block along the periodic axis. **`Dirichlet` writes zero**, not a prescribed value, and edge/corner crown rows (`fec > 6`) receive no BC at all.
 
 Note the underscore spelling `Silver_Muller` — the hyphenated form appears only in directory names (`BC_tests/Silver_Muller/`), never as an accepted input value. `PEC` is the only kind with a lowercase alias.
 
-There is a **second, derived** taxonomy for the elliptic solver: `build_elliptic_bc_types` maps each face BC into `ELL_BC_{DIRICHLET,PERIODIC,EXACT_OPEN,PEC}` (`Neumann`, `Silver_Muller` and `radiative` all collapse to `EXACT_OPEN`). Unlike the EM parser, **this mapping is total** — `BC_EXTRAPOLATION` and any unmapped value both `error_stop`. So a misconfigured face can pass EM setup silently and only fail later, when an elliptic solve (PIC initialisation, divergence correction) first touches it.
+There is a **second, derived** taxonomy for the elliptic solver: `build_elliptic_bc_types` maps each face BC into `ELL_BC_{DIRICHLET,PERIODIC,EXACT_OPEN,PEC}` (`Neumann` and `Silver_Muller` collapse to `EXACT_OPEN`; so would `radiative`, which the parser now refuses). Unlike the EM parser, **this mapping is total** — `BC_EXTRAPOLATION` and any unmapped value both `error_stop`. So a misconfigured face can pass EM setup silently and only fail later, when an elliptic solve (PIC initialisation, divergence correction) first touches it.
 
 When adding a BC kind, update **both** `select case`s.
 

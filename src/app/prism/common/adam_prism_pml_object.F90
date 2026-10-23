@@ -8,6 +8,7 @@ use :: adam_field_object,     only : field_object
 use :: adam_tree_object,      only : tree_object
 use :: adam_prism_absorbing_layer_geometry, only : compute_absorbing_face_range
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
+use :: adam_prism_parameters, only : strip_control
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
@@ -608,20 +609,4 @@ contains
    endfunction face_is_active
 
 
-   pure function strip_control(string) result(cleaned)
-   !< Return `string` with control characters (CR, TAB, ...) replaced by blanks.
-   !<
-   !< INI files authored on Windows carry a trailing CR that `trim`/`adjustl` do
-   !< not remove, so a value would miss every `case` and hit the `case default`
-   !< error path purely because of its line ending. Blank them first: the
-   !< subsequent trim/adjustl then yields the intended token.
-   character(len=*), intent(in)  :: string          !< Raw value as read from the INI file.
-   character(len=len(string))    :: cleaned         !< Value with control characters blanked.
-   integer(I4P)                  :: c               !< Counter.
-
-   cleaned = string
-   do c=1, len(cleaned)
-      if (iachar(cleaned(c:c)) < 32_I4P) cleaned(c:c) = ' '
-   enddo
-   endfunction strip_control
 endmodule adam_prism_pml_object

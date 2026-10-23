@@ -194,68 +194,74 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_minus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_minus_layer)')
-   select case(trim(adjustl(buff)))
+   select case(trim(adjustl(strip_control(buff))))
    case('NO', 'no', 'No', 'nO')
       self%layer(1) = .false.
    case('YES', 'yes', 'Yes', 'yES')
       self%layer(1) = .true.
-   case default
-      self%layer(1) = .false.
+   case default ! issue #57: any other value used to mean no, silently
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(x_minus_layer) "'//trim(adjustl(strip_control(buff)))// &
+                               '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_plus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_plus_layer)')
-   select case(trim(adjustl(buff)))
+   select case(trim(adjustl(strip_control(buff))))
    case('NO', 'no', 'No', 'nO')
       self%layer(2) = .false.
    case('YES', 'yes', 'Yes', 'yES')
       self%layer(2) = .true.
-   case default
-      self%layer(2) = .false.
+   case default ! issue #57: any other value used to mean no, silently
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(x_plus_layer) "'//trim(adjustl(strip_control(buff)))// &
+                               '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_minus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_minus_layer)')
-   select case(trim(adjustl(buff)))
+   select case(trim(adjustl(strip_control(buff))))
    case('NO', 'no', 'No', 'nO')
       self%layer(3) = .false.
    case('YES', 'yes', 'Yes', 'yES')
       self%layer(3) = .true.
-   case default
-      self%layer(3) = .false.
+   case default ! issue #57: any other value used to mean no, silently
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(y_minus_layer) "'//trim(adjustl(strip_control(buff)))// &
+                               '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_plus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_plus_layer)')
-   select case(trim(adjustl(buff)))
+   select case(trim(adjustl(strip_control(buff))))
    case('NO', 'no', 'No', 'nO')
       self%layer(4) = .false.
    case('YES', 'yes', 'Yes', 'yES')
       self%layer(4) = .true.
-   case default
-      self%layer(4) = .false.
+   case default ! issue #57: any other value used to mean no, silently
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(y_plus_layer) "'//trim(adjustl(strip_control(buff)))// &
+                               '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_minus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_minus_layer)')
-   select case(trim(adjustl(buff)))
+   select case(trim(adjustl(strip_control(buff))))
    case('NO', 'no', 'No', 'nO')
       self%layer(5) = .false.
    case('YES', 'yes', 'Yes', 'yES')
       self%layer(5) = .true.
-   case default
-      self%layer(5) = .false.
+   case default ! issue #57: any other value used to mean no, silently
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(z_minus_layer) "'//trim(adjustl(strip_control(buff)))// &
+                               '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_plus_layer', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_plus_layer)')
-   select case(trim(adjustl(buff)))
+   select case(trim(adjustl(strip_control(buff))))
    case('NO', 'no', 'No', 'nO')
       self%layer(6) = .false.
    case('YES', 'yes', 'Yes', 'yES')
       self%layer(6) = .true.
-   case default
-      self%layer(6) = .false.
+   case default ! issue #57: any other value used to mean no, silently
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(z_plus_layer) "'//trim(adjustl(strip_control(buff)))// &
+                               '"; accepted: yes, no')
    endselect
    endsubroutine load_from_file
 

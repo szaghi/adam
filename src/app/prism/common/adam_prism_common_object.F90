@@ -373,6 +373,9 @@ contains
    self%nv_s   => self%physics%nv_s
    self%nv_cl  => self%physics%nv_cl
    !self%nv_pic => self%physics%nv_pic
+   ! NV_MAX sizes the CPU WENO flux stack arrays: a wider state would write past them (issue #57)
+   if (self%physics%nv > NV_MAX) call mpih%error_stop(msg=': nv = '//trim(str(self%physics%nv))//' exceeds NV_MAX = '// &
+                                                          trim(str(NV_MAX)))
    if (present(fields_number)) then
       fields_number_ = fields_number
    else

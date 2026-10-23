@@ -5,6 +5,7 @@ module adam_prism_bc_object
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_parameters,  only : BC_PERIODIC
+use :: adam_prism_parameters, only : strip_control
 ! third party modules
 use :: finer
 use :: penf
@@ -93,13 +94,15 @@ contains
       case('periodic')
          self%bc_type(b) = BC_PERIODIC ! library periodicity: the tree builds periodic neighbours
       case('radiative')
-         self%bc_type(b) = BC_radiative
+         ! no backend implements it: the CPU stopped at the first BC application, the FNL kernel has no branch and left
+         ! the face without a BC (issue #57)
+         call mpih%error_stop(msg=': ['//sname//'].(type) = radiative is not implemented')
       case('PEC', 'pec')
          self%bc_type(b) = BC_PEC
       case default
          call mpih%error_stop(msg=': unknown boundary condition "'//trim(adjustl(strip_control(buff_c)))//'" in ['// &
                                   sname//'].(type); '//&
-                                  'expected one of extrapolation, Neumann, Dirichlet, Silver_Muller, periodic, radiative, PEC')
+                                  'expected one of extrapolation, Neumann, Dirichlet, Silver_Muller, periodic, PEC')
       endselect
    enddo
    do b=1, 5, 2
@@ -144,20 +147,4 @@ contains
    endselect
    endsubroutine map_face_bc_to_elliptic
 
-   pure function strip_control(string) result(cleaned)
-   !< Return `string` with control characters (CR, TAB, ...) replaced by blanks.
-   !<
-   !< INI files authored on Windows carry a trailing CR that `trim`/`adjustl` do
-   !< not remove, so a value would miss every `case` and hit the `case default`
-   !< error path purely because of its line ending. Blank them first: the
-   !< subsequent trim/adjustl then yields the intended token.
-   character(len=*), intent(in)  :: string          !< Raw value as read from the INI file.
-   character(len=len(string))    :: cleaned         !< Value with control characters blanked.
-   integer(I4P)                  :: c               !< Counter.
-
-   cleaned = string
-   do c=1, len(cleaned)
-      if (iachar(cleaned(c:c)) < 32_I4P) cleaned(c:c) = ' '
-   enddo
-   endfunction strip_control
 endmodule adam_prism_bc_object

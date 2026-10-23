@@ -129,7 +129,7 @@ Maxwell's equations require $\nabla \cdot \mathbf{D} = \rho$ and $\nabla \cdot \
 
 | Strategy | INI value | Description |
 |----------|-----------|-------------|
-| None | `no` (or absent) | No divergence control; `constrained_transport` is ignored (a warning says so) |
+| None | `no` | No divergence control; `constrained_transport` is ignored (a warning says so) |
 | Hyperbolic | `hyperbolic` | GLM cleaning: one scalar per field named by `constrained_transport` (φ for D, ψ for B), carrying divergence errors away at speed $\chi c_0$ (`[physics] chi`, required, > 0) and damped at the rate `[physics] alpha` (1/s, optional, default 0). **Requires `constrained_transport = D`, `B` or `DB`**: without it there is no scalar to carry, and the run stops at initialization |
 | Poisson | `poisson` | Not implemented: the run stops at initialization |
 

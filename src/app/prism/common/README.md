@@ -132,6 +132,11 @@ Configured from the `[numerics]` INI section.
 | `constrained_transport` | `NO` / `D` / `B` / `DB` | Fields the hyperbolic cleaning acts on (ignored, with a warning, without it) |
 | `divergence_correction` | `NO` / `HYPERBOLIC` | Divergence error control strategy. `HYPERBOLIC` requires `constrained_transport` ≠ `NO`; `POISSON` is refused (not implemented). Issue #61 |
 
+Every key is required, and an unknown value stops at load naming the option and the accepted values (issue #57);
+before, `scheme_time`, `scheme_space`, `reconstruction_variables`, `constrained_transport` and `divergence_correction`
+warned and fell back to a default. The same holds for `[external_fields] external_fields_applied` (`none`, `RMF`,
+`uniform_field`) and the `[fWLayer]` face flags (`yes`, `no`), which fell back silently.
+
 The half-stencil width is derived as `fdv_half_stencil = fdv_order / 2`. Per-derivative stencil widths in `fdv_half_stencils(6)` are incremented progressively for higher-order derivatives.
 
 ---
@@ -278,8 +283,8 @@ Each section requires the key `type`:
 | `Neumann` | `BC_NEUMANN = 2` | Neumann (zero normal derivative) |
 | `Dirichlet` | `BC_DIRICHLET = 3` | Dirichlet (prescribed field values) |
 | `Silver_Muller` | `BC_Silver_Muller = 4` | Silver-Müller absorbing BC |
-| `periodic` | `BC_PERIOD = 5` | Periodic |
-| `radiative` | `BC_radiative = 6` | Radiative (first-order absorbing) |
+| `periodic` | `BC_PERIODIC = -1` (library) | Periodic: library periodicity, the tree builds periodic neighbours |
+| `radiative` | — | **Refused at load**: not implemented on any backend (issue #57) |
 
 The object stores `bc_type(6)` (integer codes) and `q(9,6)` (field values for Dirichlet BCs, one set per face).
 

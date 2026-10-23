@@ -22,10 +22,10 @@ character(len=5), parameter :: INI_SECTION_NAME="solid" !< INI (config) file sec
 character(len=20), parameter :: IB_ANALYTICAL_SPHERE   = 'analytical_sphere   ' !< Analytical sphere solid.
 character(len=20), parameter :: IB_ANALYTICAL_CIRCLE   = 'analytical_circle   ' !< Analytical circle solid.
 character(len=20), parameter :: IB_ANALYTICAL_RECTANGLE= 'analytical_rectangle' !< Analytical rectangle solid.
-character(len=20), parameter :: IB_DEFINITIONS(4)=[IB_ANALYTICAL_SPHERE,    &
+character(len=20), parameter :: IB_DEFINITIONS(3)=[IB_ANALYTICAL_SPHERE,    &
                                                    IB_ANALYTICAL_CIRCLE,    &
-                                                   IB_ANALYTICAL_RECTANGLE, &
-                                                   'file.off            ']      !< Available solid definitions.
+                                                   IB_ANALYTICAL_RECTANGLE] !< Available solid definitions (file.off: no
+                                                                            !< implementation, refused at load, issue #57).
 
 integer(I4P), parameter :: BCS_VISCOUS = 1_I4P !< Visous wall.
 integer(I4P), parameter :: BCS_EULER   = 2_I4P !< Inviscid wall.
@@ -193,6 +193,7 @@ contains
    logical                                :: go_on_fail_     !< Go on if load fails.
    character(:), allocatable              :: sname           !< Section name.
    integer(I4P)                           :: i               !< Counter.
+   integer(I4P)                           :: c               !< Character counter.
    integer(I4P)                           :: err             !< Error status.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
@@ -216,6 +217,9 @@ contains
          if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(bc_type)')
          call file_parameters%get(section_name=sname, option_name='definition', val=self%definition(i), error=err)
          if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(definition)')
+         do c=1, len(self%definition(i)) ! blank the control characters (a CR of a Windows input)
+            if (iachar(self%definition(i)(c:c)) < 32) self%definition(i)(c:c) = ' '
+         enddo
          select case(trim(adjustl(self%definition(i))))
          case(trim(IB_ANALYTICAL_SPHERE))
             call file_parameters%get(section_name=sname, option_name='sphere_center_x', val=self%sphere(i)%center(1), error=err)
@@ -237,6 +241,7 @@ contains
             if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_radius)')
             call file_parameters%get(section_name=sname, option_name='circle_axis', val=self%sphere(i)%axis, error=err)
             if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_axis)')
+            call check_axis(axis=self%sphere(i)%axis, option='circle_axis')
          case(trim(IB_ANALYTICAL_RECTANGLE))
             call file_parameters%get(section_name=sname,option_name='rectangle_center_x',val=self%rectangle(i)%center(1),error=err)
             if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_center_x)')
@@ -250,9 +255,27 @@ contains
             if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_edge_2)')
             call file_parameters%get(section_name=sname, option_name='rectangle_axis', val=self%rectangle(i)%axis, error=err)
             if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_axis)')
+            call check_axis(axis=self%rectangle(i)%axis, option='rectangle_axis')
+         case default ! issue #57: compute_phi has no case for any other definition, so the solid got no phi, silently
+            call mpih%error_stop(msg=': unknown ['//sname//'].(definition) "'//trim(adjustl(self%definition(i)))// &
+                                     '"; accepted: '//trim(IB_ANALYTICAL_SPHERE)//', '//trim(IB_ANALYTICAL_CIRCLE)//', '// &
+                                     trim(IB_ANALYTICAL_RECTANGLE))
          endselect
       enddo
    endif
+   contains
+      subroutine check_axis(axis, option)
+      !< Stop on an axis the phi kernels do not select: they would leave the solid without phi (issue #57).
+      character(*), intent(in) :: axis   !< Axis value.
+      character(*), intent(in) :: option !< Option name, for the message.
+
+      select case(axis)
+      case('x', 'y', 'z')
+         continue
+      case default
+         call mpih%error_stop(msg=': unknown ['//sname//'].('//option//') "'//trim(axis)//'"; accepted: x, y, z')
+      endselect
+      endsubroutine check_axis
    endsubroutine load_from_file
 
    subroutine move_phi(self, velocity, s)
