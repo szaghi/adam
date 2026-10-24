@@ -3,6 +3,7 @@ modes = test-poisson-fft-gnu                           test-poisson-fft-gnu-debu
         test-poisson-fft-fnl-nvf
         test-poisson-mg-gnu                            test-poisson-mg-gnu-debug
         test-flail-bc-gnu                              test-flail-bc-fnl-nvf
+        bench-poisson-gnu                              bench-poisson-fnl-nvf
 
 # The FFT Poisson solver (issue #81): -D_FFTW links FFTW 3 on the CPU, -D_CUFFT cuFFT on FNL. The modes have their own
 # mod/obj directories: the solver module is compiled with different macros than in the default builds.
@@ -66,3 +67,22 @@ preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
 target   = test_flail_bc.F90
 output   = test_flail_bc_fnl
+
+# Scaling benchmark of FLAIL's solves (issue #84, E5): the FFT path, the multigrid with its coarsest level and James
+# step, phase by phase; src/tests/poisson/bench.sh runs the ladders.
+[bench-poisson-gnu]
+template = template-gnu
+mod_dir  = ./mod/gnu-fft/
+obj_dir  = ./obj/gnu-fft/
+preproc  = -D_MPI_ -D_FFTW -w
+ext_libs = z hdf5_fortran dl fftw3
+target   = bench_poisson.F90
+
+[bench-poisson-fnl-nvf]
+template = template-nvf
+mod_dir  = ./mod/nvf-fft/
+obj_dir  = ./obj/nvf-fft/
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+lflags   = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
+target   = bench_poisson.F90
+output   = bench_poisson_fnl

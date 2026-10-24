@@ -295,6 +295,19 @@ _ZERO_GHOSTS | _FREE_GHOSTS`, live in
 `adam_flail_parameters` (a module of their own: the solvers use them, and the facade uses the solvers). Phases and
 status: [issue #84](https://github.com/szaghi/adam/issues/84).
 
+**Scaling (#84, E5).** Both solvers gather to rank 0: the FFT solver the whole uniform grid, the multigrid its
+coarsest level (the whole base grid) in every V-cycle and the James step's ghost charges in every isolated solve.
+`poisson_fft_object%wall(3)` accumulates the gather, rank-0 solve and scatter times of `solve_blocks` on each rank
+(the caller resets it). `exe/bench_poisson` (modes `bench-poisson-gnu`, `bench-poisson-fnl-nvf`) times FLAIL's solves
+on the cube [-1,1]^3 (Gaussian source, uniform or with the central box refined), and `src/tests/poisson/bench.sh
+[cpu|fnl] [--weak] [--strong] [--np-max N]` runs the ladders and prints one row per run: solve time (min over the
+repetitions, max over the ranks) and rank 0's phases. Baseline (E5a, medooza CPU, strong scaling, 2.1 M uniform or
+3.9 M AMR cells): the solve time stays flat from 1 to 16 ranks on the FFT paths (rank 0's part 83% periodic, 99%
+isolated at 16 ranks) and on the isolated multigrid (36.6 s of 39.9 s per solve in rank 0's coarsest level, a 258^3
+odd extension solved 42 times); the periodic multigrid falls from 9.4 s to 2.6 s, 45% of it rank 0's. E5b sized the
+isolated transforms for speed (above); E5c moves the multigrid below the base level inside each block and solves a
+root grid of one cell per base block on every rank; E5d distributes the uniform FFT.
+
 ### Legacy FLAIL smoothers (deleted in issue #84, E4)
 
 `adam_flail_legacy_object` (the realm component `flail_legacy`, the `[linear-algebra]` section: multigrid, Gauss-Seidel
@@ -312,8 +325,9 @@ one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the second-
 
 - **Periodic (P2):** each Fourier mode is divided by the eigenvalue of `L_h` itself,
   `lambda_k = sum_d (2 cos(2 pi k_d/N_d) - 2)/dx_d^2`, so the discrete residual is at round-off.
-- **Isolated (P4), Hockney–Eastwood:** the source sits in a zero-padded array of `m = 2 (n + ngc)` cells per direction
-  and is convolved (one r2c, a product, one c2r) with the **lattice** Green's function of `L_h`, `h^2 G(n)`, whose
+- **Isolated (P4), Hockney–Eastwood:** the source sits in a zero-padded array of `m >= 2 (n + ngc)` cells per
+  direction (the smallest even size with no prime factor above 13, #84 E5b: FFTW took 3.3 times as long on
+  `262 = 2 x 131` as on 264) and is convolved (one r2c, a product, one c2r) with the **lattice** Green's function of `L_h`, `h^2 G(n)`, whose
   spectrum is computed once. The circular convolution equals the free-space one on every cell the scatter reads,
   ghosts included. `G` comes from `adam_lattice_green_library` (below): its residual is about `1e-13` per offset, so
   the residual of `phi` is that summed over the source (`2e-11` of `factor f` at `64^3`), not round-off.

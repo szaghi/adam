@@ -25,11 +25,14 @@ module adam_poisson_fft_object
 !<
 !< **Isolated boundaries (issue #81, M8-P4), Hockney and Eastwood.** `initialize(..., isolated=.true.)` solves
 !< `L_h phi = factor f` with `phi -> 0` at infinity (no mean removed): the source sits in a zero-padded array of
-!< `m = 2 (n + ngc)` cells per direction, and the circular convolution with the lattice Green's function of `L_h`
+!< `m >= 2 (n + ngc)` cells per direction, and the circular convolution with the lattice Green's function of `L_h`
 !< (`adam_lattice_green_library`, `h^2 G(n)`) equals the free-space one on every cell the scatter reads, the ghost
-!< layers included, since `m` exceeds the largest offset, `n - 1 + ngc`, twice. The kernel's spectrum (`khat`, real:
-!< the kernel is even) is computed once. Inside the domain the discrete residual is that of the kernel, about 1e-11
-!< of the source (`scripts/lattice_green.py`).
+!< layers included, since `m` exceeds the largest offset, `n - 1 + ngc`, twice. `m` is the smallest even size at or
+!< above `2 (n + ngc)` with no prime factor above 13 (#84 E5b): the transform cost no longer depends on the factors of
+!< `n + ngc` (medooza, n = 128: 262 = 2 x 131 cells cost FFTW 3.3 times as long as 264; the kernel entries beyond
+!< the offsets the read cells need meet only the zero padding). The kernel's spectrum (`khat`, real: the kernel is
+!< even) is computed once. Inside the domain the discrete residual is that of the kernel, about 1e-11 of the source
+!< (`scripts/lattice_green.py`).
 !<
 !< **Homogeneous Dirichlet boundaries (issue #87, P1)** are for the multigrid's coarsest level only
 !< (`initialize_blocks(..., dirichlet=.true.)`): `phi = 0` at the centres of the first ghost layer. The source is
@@ -115,7 +118,7 @@ type :: poisson_fft_object
    !< FFT Poisson solver on uniform periodic grids.
    logical                   :: is_initialized=.false. !< Initialization status.
    integer(I4P)              :: n(3)=1_I4P             !< Global cells per direction.
-   integer(I4P)              :: m(3)=1_I4P             !< Transform cells per direction: n, or 2 (n + ngc) isolated.
+   integer(I4P)              :: m(3)=1_I4P             !< Transform cells per direction: n, or >= 2 (n + ngc) isolated.
    logical                   :: isolated=.false.       !< Isolated boundaries (zero padding), else periodic.
    logical                   :: dirichlet=.false.      !< Homogeneous Dirichlet boundaries (odd extension, #87).
    integer(I4P)              :: bc(2,3)=FLAIL_BC_PERIODIC !< Kinds per face [lo/hi, axis] (issue #84, E1a).
@@ -132,6 +135,9 @@ type :: poisson_fft_object
    integer(I4P)              :: max_iterations=200_I4P !< CG iterations at most.
    integer(I4P)              :: iterations=0_I4P       !< Iterations of the last solve.
    real(R8P)                 :: residual=0._R8P        !< Relative residual of the last solve.
+   real(R8P)                 :: wall(3)=0._R8P         !< Wall time (s) of `solve_blocks`, accumulated over calls on
+                                                       !< this rank: gather, rank-0 solve, scatter (#84 E5; the
+                                                       !< caller resets it).
    integer(I4P)              :: nsub=0_I4P             !< Preconditioner sub-problems, 2^z.
    integer(I4P),              allocatable :: sub_par(:,:) !< Parity per axis of each sub-problem [3,nsub] (-1: no split).
    type(fft_slot),            allocatable :: sub(:)       !< The preconditioner's sub-problems [nsub] (see fft_slot).
@@ -430,7 +436,9 @@ contains
             'reach, '//trim(str(self%dg_order, .true.)))
       enddo
    elseif (self%isolated) then
-      self%m = 2 * (self%n + self%ngc)
+      do d=1, 3 ! at least 2 (n + ngc); the next 13-smooth size (#84 E5b: FFTW slows on large prime factors)
+         self%m(d) = smooth_size(2 * (self%n(d) + self%ngc))
+      enddo
    else
       do d=1, 3
          if (null_(d)) cycle
@@ -616,8 +624,10 @@ contains
    integer(I4P)                                     :: g(3)            !< Global cell index, wrapped.
    integer(I4P)                                     :: b, i, j, k, c, r !< Counters.
    integer(I4P)                                     :: ierr            !< MPI error status.
+   real(R8P)                                        :: t(0:3)          !< Phase marks (MPI_WTIME).
 
    if (.not.self%is_initialized) call mpih%error_stop(msg='poisson_fft_object%solve: called before initialize')
+   t(0) = MPI_WTIME()
    ub     = self%nijk + gw
    ncell  = product(self%nijk)
    nghost = product(self%nijk + 2 * gw)
@@ -642,6 +652,7 @@ contains
       rcounts = ncell * counts ; rdispls = ncell * displs
    endif
    call MPI_GATHERV(buf, nbl*ncell, MPI_REAL8, buf_all, rcounts, rdispls, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
+   t(1) = MPI_WTIME()
    ! rank 0: place, transform, pack every block with its ghosts by the periodic wrap
    e = 0._R8P
    if (mpih%myrank == 0) then
@@ -701,12 +712,15 @@ contains
       enddo
       rcounts = nghost * counts ; rdispls = nghost * displs
    endif
+   t(2) = MPI_WTIME()
    ! scatter back, ghosts included
    call MPI_SCATTERV(buf_all, rcounts, rdispls, MPI_REAL8, out, nbl*nghost, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
    if (present(energy)) then
       call MPI_BCAST(e, 1, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
       energy = e
    endif
+   t(3) = MPI_WTIME()
+   self%wall = self%wall + (t(1:3) - t(0:2))
    endsubroutine solve_blocks
 
    ! backend hooks
@@ -1140,6 +1154,29 @@ contains
    endsubroutine transform_kernel
 
    ! module helpers
+   pure function smooth_size(k) result(m)
+   !< The smallest even size `m >= k` with no prime factor above 13: FFTW has hard-coded transforms for these factors
+   !< (#84 E5b, medooza: a 7-smooth rule moved the James step's 260 = 2^2 5 13 to 270 and cost it 15%; cuFFT took the
+   !< same time on 262 and 270).
+   integer(I4P), intent(in) :: k !< Least size.
+   integer(I4P)             :: m !< Size.
+   integer(I4P), parameter  :: PRIMES(6)=[2_I4P, 3_I4P, 5_I4P, 7_I4P, 11_I4P, 13_I4P] !< Allowed factors.
+   integer(I4P)             :: r !< Remainder after the allowed factors.
+   integer(I4P)             :: p !< Counter.
+
+   m = k + mod(k, 2_I4P)
+   do
+      r = m
+      do p=1, size(PRIMES)
+         do while (mod(r, PRIMES(p)) == 0)
+            r = r / PRIMES(p)
+         enddo
+      enddo
+      if (r == 1) return
+      m = m + 2_I4P
+   enddo
+   endfunction smooth_size
+
    pure function axis_eigenvalue(k, nt, dx, dg_order) result(lam)
    !< The eigenvalue part of mode k of an axis on the nt-cell periodic transform: the compact operator,
    !< `(2 cos(theta) - 2) / dx^2`, or the wide D(G) of order p, `-s_p(theta)^2 / dx^2`, exactly 0 at theta = 0 and pi.
