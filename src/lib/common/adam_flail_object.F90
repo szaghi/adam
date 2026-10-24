@@ -22,7 +22,8 @@ module adam_flail_object
 !< boundary-face list, `mg%nbnd`, `mg%bnd_kind`, `mg%bnd_dir`, `mg%bnd_x`) and needs the multigrid path
 !< (`FLAIL_BACKEND_MULTIGRID`: on a uniform grid one V-cycle is the exact FFT solve). `FLAIL_BC_ZERO_GHOSTS` (E2b,
 !< PRISM's Dirichlet face) is ghost-Dirichlet at zero for the compact operator; with the wide D(G) the FFT solver
-!< solves it by preconditioned CG. A vector whose components take
+!< solves it by preconditioned CG. `FLAIL_BC_FREE_GHOSTS` (E3c, PRISM's exact/open face) holds the free-space potential
+!< of the source in the ghosts, on the same CG path. A vector whose components take
 !< different kinds (PRISM's vector potential at a PEC face: Neumann for the normal component, Dirichlet for the others)
 !< takes one FLAIL per set of kinds: the operators differ, and the instances coexist.
 !<
@@ -36,7 +37,7 @@ module adam_flail_object
 !< cuFFT extension); otherwise `setup` allocates the host one.
 use :: adam_field_object,       only : field_object
 use :: adam_flail_parameters,   only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, &
-                                       FLAIL_BC_ZERO_GHOSTS
+                                       FLAIL_BC_ZERO_GHOSTS, FLAIL_BC_FREE_GHOSTS
 use :: adam_grid_object,        only : grid_object
 use :: adam_mpih_global,        only : mpih
 use :: adam_poisson_fft_object, only : poisson_fft_object
@@ -51,6 +52,7 @@ public :: FLAIL_BACKEND_AUTO
 public :: FLAIL_BACKEND_FFT
 public :: FLAIL_BACKEND_MULTIGRID
 public :: FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, FLAIL_BC_ZERO_GHOSTS ! kinds
+public :: FLAIL_BC_FREE_GHOSTS
 
 integer(I4P), parameter :: FLAIL_BACKEND_AUTO      = 0_I4P !< FFT on a uniform grid, multigrid otherwise.
 integer(I4P), parameter :: FLAIL_BACKEND_FFT       = 1_I4P !< The FFT solver (uniform grids only).

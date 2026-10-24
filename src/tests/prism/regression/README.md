@@ -158,6 +158,18 @@ device-path a plain field case does not:
   legacy smoother: it left 3.4e-5 max|rho| of Gauss-law error beyond chi, and its
   `rmf-pec-t0` B, stopped after 11 iterations, differs from FLAIL's by 1.6 (relative
   max norm), 0.48 after 40 iterations, 0.034 after 160.
+- **`pic-open-t0`**, **`rmf-open-t0`** — the same two solves with exact/open
+  faces (PRISM's `Neumann`; [#84](https://github.com/szaghi/adam/issues/84)
+  E3c): the ghosts hold the free-space potential of the source,
+  `-sum f dV / (4 pi r)`, summed by FLAIL over the whole domain. 64 blocks of 8³
+  (32³ cells) so that np 2 splits them 32/32 (with fewer blocks every block
+  sits on rank 0 at t0 and np 2 tests nothing). `check.sh`: the t0 fields at
+  np 1 and np 2 equal (the legacy smoother summed over each rank's blocks: its
+  B differed by 3.5 relative on `rmf-open-t0`, its D and B by 2e-2 on
+  `pic-open-t0`), `div D = rho` to 1e-11 (the CG tolerance) and `div B` to
+  1e-12 beyond 3 cells of the faces (nearer, div reads the ghosts PRISM's
+  Neumann field BC copies). `pic-pec-t0` has 8 blocks, all on rank 0 at np 2:
+  its np 1 = np 2 leg checks the empty rank only.
 
 ### Lint gates
 

@@ -1690,33 +1690,20 @@ contains
    !< The electric field (PIC): D(G) phi = -rho/eps, then D <- D - eps G phi. The magnetic field: D(G) A_d = -mu J_d per
    !< component, then B <- B + curl A. D(G) is PRISM's own operator, the order-p centred derivative composed with itself
    !< (`fdv_order`), so the corrected field satisfies div D = rho to round-off with PRISM's divergence (issue #84, E3a).
-   !< The solves run by FLAIL's FFT solver (E3b) when no face is exact/open; an exact/open face keeps the legacy
-   !< smoothers until E3c. A refined grid is refused: the wide operator across 2:1 faces is not defined yet (E7).
+   !< The solves run by FLAIL's FFT solver (E3b); an exact/open face holds the free-space potential of the source in its
+   !< ghosts, summed over the whole domain (E3c). A refined grid is refused: the wide operator across 2:1 faces is not
+   !< defined yet (E7).
    class(prism_common_object), intent(inout) :: self            !< The equation.
    integer(I4P),               intent(in)    :: ivar            !< Variable (start) index in q.
-   real(R8P)                                 :: dphi_max        !< Maximum residual.
    real(R8P), allocatable                    :: phi(:,:,:,:,:)  !< Potential computed.
-   real(R8P), allocatable                    :: dphi(:,:,:,:,:) !< Potential variation.
    real(R8P), allocatable                    :: f(:,:,:,:,:)    !< Source term.
    integer(I4P)                              :: elliptic_bc_type(6) !< Elliptic BC type for each face.
-   integer(I8P), allocatable                 :: bc_crown(:,:,:) !< BC crown map (zero rows on an all-periodic domain).
    integer(I4P)                              :: ind             !< Rho index.
-   integer(I4P)                              :: last_progress_percent !< Last printed progress percentage.
-   integer(I4P)                              :: progress_counter !< Completed smoothing sweeps.
-   integer(I4P)                              :: progress_total   !< Planned smoothing sweeps.
-   integer(I4P)                              :: iter            !< Counter.
    integer(I4P)                              :: i, j, k, b, v   !< Counters.
    real(R8P)                                 :: eps_scale, mu_scale
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
              nb=>self%nb, buffer=>self%divergence, hs=>self%fdv_half_stencil)
-      if (.not. allocated(self%adam%maps%local_map_bc_crown)) call self%adam%make_comm_local_maps_ghost_bc
-      ! an all-periodic domain has no boundary rows and the map stays unallocated: give FLAIL an empty one
-      if (allocated(self%adam%maps%local_map_bc_crown)) then
-         bc_crown = self%adam%maps%local_map_bc_crown
-      else
-         allocate(bc_crown(0,9,ngc))
-      endif
       call self%bc%build_elliptic_bc_types(ivar=ivar, ell_bc_type=elliptic_bc_type)
       call refuse_refined_grid
       eps_scale = EPS0
@@ -1732,22 +1719,16 @@ contains
                          1-ngc:nj+ngc, &
                          1-ngc:nk+ngc, &
                          1:nb))
-            allocate(dphi(1:1,       &
-                          1-ngc:ni+ngc, &
-                          1-ngc:nj+ngc, &
-                          1-ngc:nk+ngc, &
-                          1:nb))
             allocate(f(1:1,          &
                        1-ngc:ni+ngc, &
                        1-ngc:nj+ngc, &
                        1-ngc:nk+ngc, &
                        1:nb))
             phi(:,:,:,:,:)  = 0._R8P
-            dphi(:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:)    = 0._R8P
             ind = size(self%q(:,1,1,1,1))
             f(1,:,:,:,:) = -self%q(ind,:,:,:,:)/eps_scale
-            call solve_time_zero(nv_solve=1_I4P, f=f, phi=phi, label='electric displacement field', eps=eps_scale)
+            call solve_time_zero(nv_solve=1_I4P, f=f, phi=phi, label='electric displacement field')
             if (blocks_number > 0) then
                call self%compute_gradient_extended(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
@@ -1769,22 +1750,16 @@ contains
                          1-ngc:nj+ngc, &
                          1-ngc:nk+ngc, &
                          1:nb))
-            allocate(dphi(1:3,       &
-                          1-ngc:ni+ngc, &
-                          1-ngc:nj+ngc, &
-                          1-ngc:nk+ngc, &
-                          1:nb))
             allocate(f(1:3,          &
                        1-ngc:ni+ngc, &
                        1-ngc:nj+ngc, &
                        1-ngc:nk+ngc, &
                        1:nb))
             phi(:,:,:,:,:)  = 0._R8P
-            dphi(:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:)    = 0._R8P
             f(:,:,:,:,:) = -mu_scale*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             call remove_singular_mean(f=f, mu=mu_scale)
-            call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field', mu=mu_scale)
+            call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field')
             if (blocks_number > 0) then
                call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
@@ -1809,22 +1784,16 @@ contains
                          1-ngc:nj+ngc, &
                          1-ngc:nk+ngc, &
                          1:nb))
-            allocate(dphi(1:3,       &
-                          1-ngc:ni+ngc, &
-                          1-ngc:nj+ngc, &
-                          1-ngc:nk+ngc, &
-                          1:nb))
             allocate(f(1:3,          &
                        1-ngc:ni+ngc, &
                        1-ngc:nj+ngc, &
                        1-ngc:nk+ngc, &
                        1:nb))
             phi(:,:,:,:,:)  = 0._R8P
-            dphi(:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:)    = 0._R8P
             f(:,:,:,:,:) = -MU0*self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             call remove_singular_mean(f=f, mu=MU0)
-            call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field', mu=MU0)
+            call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field')
             if (blocks_number > 0) then
                call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
@@ -1849,22 +1818,16 @@ contains
                          1-ngc:nj+ngc, &
                          1-ngc:nk+ngc, &
                          1:nb))
-            allocate(dphi(1:3,       &
-                          1-ngc:ni+ngc, &
-                          1-ngc:nj+ngc, &
-                          1-ngc:nk+ngc, &
-                          1:nb))
             allocate(f(1:3,          &
                        1-ngc:ni+ngc, &
                        1-ngc:nj+ngc, &
                        1-ngc:nk+ngc, &
                        1:nb))
             phi(:,:,:,:,:)  = 0._R8P
-            dphi(:,:,:,:,:) = 0._R8P
             f(:,:,:,:,:)    = 0._R8P
             f(:,:,:,:,:) = -self%q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:)
             call remove_singular_mean(f=f, mu=1._R8P)
-            call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field', mu=1._R8P)
+            call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field')
             if (blocks_number > 0) then
                call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
@@ -1898,35 +1861,26 @@ contains
          'uniform grid (the blocks are at more than one level); on AMR it is not available yet (issue #84, E7)')
       endsubroutine refuse_refined_grid
 
-      subroutine solve_time_zero(nv_solve, f, phi, label, mu, eps)
-      !< Solve D(G) phi_c = f_c for every component c, by FLAIL (no exact/open face) or by the legacy smoothers.
-      !< Every rank calls it, with or without blocks: the FLAIL solves gather to rank 0, the legacy ones follow the
-      !< convergence test.
+      subroutine solve_time_zero(nv_solve, f, phi, label)
+      !< Solve D(G) phi_c = f_c for every component c by FLAIL. Every rank calls it, with or without blocks: the solves
+      !< gather to rank 0.
       !<
-      !< The face kinds: periodic stays periodic; PRISM's Dirichlet writes zero into every ghost layer
-      !< (`FLAIL_BC_ZERO_GHOSTS`); PEC reflects about the face, odd for the potential and for a vector-potential component
-      !< tangential to the face (`FLAIL_BC_DIRICHLET`), even for the component normal to it (`FLAIL_BC_NEUMANN`). These are
-      !< the legacy ghost rules (`apply_bc_elliptic_from_faces`). FLAIL drops the null modes of a singular problem itself
-      !< (the mean and the checkerboard of the wide operator).
-      integer(I4P), intent(in)           :: nv_solve !< Components.
-      real(R8P),    intent(in)           :: f(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< Forcing.
-      real(R8P),    intent(inout)        :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Solution, ghosts filled.
-      character(*), intent(in)           :: label    !< Field name, for the messages.
-      real(R8P),    intent(in), optional :: mu, eps  !< Electromagnetic constants (legacy exact/open faces).
-      real(R8P), allocatable             :: work(:,:,:,:) !< One component of the solution.
-      integer(I4P)                       :: kinds(2,3)    !< FLAIL face kinds [lo/hi, axis].
-      integer(I4P)                       :: c, face       !< Counters.
+      !< The face kinds, the legacy ghost rules (`apply_bc_elliptic_from_faces`): periodic stays periodic; PRISM's
+      !< Dirichlet writes zero into every ghost layer (`FLAIL_BC_ZERO_GHOSTS`); PEC reflects about the face, odd for the
+      !< potential and for a vector-potential component tangential to the face (`FLAIL_BC_DIRICHLET`), even for the
+      !< component normal to it (`FLAIL_BC_NEUMANN`); exact/open holds the free-space potential of the source,
+      !< -sum f dV / (4 pi r), in every ghost layer (`FLAIL_BC_FREE_GHOSTS`), summed over the whole domain (the legacy
+      !< sum ran over the rank's own blocks, so the result depended on the rank count). A null axis takes the periodic
+      !< kind: D(G) reads nothing along it. FLAIL drops the null modes of a singular problem itself (the mean and the
+      !< checkerboard of the wide operator).
+      integer(I4P), intent(in)    :: nv_solve !< Components.
+      real(R8P),    intent(in)    :: f(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< Forcing.
+      real(R8P),    intent(inout) :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Solution, ghosts filled.
+      character(*), intent(in)    :: label    !< Field name, for the messages.
+      real(R8P), allocatable      :: work(:,:,:,:) !< One component of the solution.
+      integer(I4P)                :: kinds(2,3)    !< FLAIL face kinds [lo/hi, axis].
+      integer(I4P)                :: c, face       !< Counters.
 
-      if (any(elliptic_bc_type == ELL_BC_EXACT_OPEN)) then
-         if (self%blocks_number > 0) then
-            call solve_pic_elliptic(nv_solve=nv_solve, ell_bc_type=elliptic_bc_type, phi=phi, dphi=dphi, f=f, &
-                                    dphi_max=dphi_max, mu=mu, eps=eps)
-            call mpih%print_message('FLAIL convergence for '//label//' at t0 reached at iteration '//trim(str(iter,.true.)))
-         else
-            call follow_elliptic_convergence(iterations=self%flail_legacy%iterations, tolerance=self%flail_legacy%tolerance)
-         endif
-         return
-      endif
       allocate(work(1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc,1:self%nb))
       do c=1, nv_solve
          do face=1, 6
@@ -1941,10 +1895,13 @@ contains
                else
                   kinds(2-mod(face,2),(face+1)/2) = FLAIL_BC_DIRICHLET
                endif
+            case(ELL_BC_EXACT_OPEN)
+               kinds(2-mod(face,2),(face+1)/2) = FLAIL_BC_FREE_GHOSTS
             case default
                call mpih%error_stop(msg=': no FLAIL face kind for elliptic BC '//trim(str(elliptic_bc_type(face))))
             endselect
          enddo
+         where (spread(self%adam%grid%null_xyz, 1, 2)) kinds = FLAIL_BC_PERIODIC
          call self%flail%setup(grid=self%adam%grid, field=self%adam%field, isolated=.false., backend=FLAIL_BACKEND_FFT, &
                                bc=kinds, dg_order=self%fdv_order)
          work = 0._R8P
@@ -1962,45 +1919,6 @@ contains
       enddo
       call self%flail%fft%destroy ! the plans and the global arrays are not needed after t0
       endsubroutine solve_time_zero
-
-      subroutine solve_pic_elliptic(nv_solve, ell_bc_type, phi, dphi, f, dphi_max, mu, eps)
-      integer(I4P),      intent(in)            :: nv_solve
-      integer(I4P),      intent(in)            :: ell_bc_type(6)
-      real(R8P),         intent(inout)         :: phi(:,:,:,:,:)
-      real(R8P),         intent(inout)         :: dphi(:,:,:,:,:)
-      real(R8P),         intent(in)            :: f(:,:,:,:,:)
-      real(R8P),         intent(out)           :: dphi_max
-      real(R8P),         intent(in), optional  :: mu, eps
-
-      progress_total = max(1_I4P, self%flail_legacy%iterations * max(1_I4P, self%flail_legacy%iterations_fine))
-      progress_counter = 0_I4P
-      last_progress_percent = -1_I4P
-      call print_elliptic_progress(label='Elliptic BC initialization', progress_done=progress_counter, &
-                                   progress_total=progress_total, last_percent=last_progress_percent)
-      do iter=1, self%flail_legacy%iterations
-         call compute_smoothing_gauss_seidel_centered_dg(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
-                                                         nv=nv_solve, blocks_number=self%blocks_number,      &
-                                                         order=self%fdv_order,                               &
-                                                         dxyz=self%adam%field%dxyz, f=f, q=phi, dq_max=dphi_max, &
-                                                         dq=dphi, iterations_init=self%flail_legacy%iterations_init, &
-                                                         iterations_fine=self%flail_legacy%iterations_fine,         &
-                                                         iterations_coarse=self%flail_legacy%iterations_coarse,     &
-                                                         ivar=ivar, mu=mu, eps=eps, field=self%adam%field,   &
-                                                         ell_bc_type=ell_bc_type,                             &
-                                                         local_map_bc_crown=bc_crown,                          &
-                                                         grid=self%adam%grid, maps=self%adam%maps,            &
-                                                         progress_label='Elliptic BC initialization',        &
-                                                         progress_counter=progress_counter, progress_total=progress_total, &
-                                                         progress_last_percent=last_progress_percent)
-         dphi_max = global_max(dphi_max)
-         if (dphi_max < self%flail_legacy%tolerance) then
-            call print_elliptic_progress(label='Elliptic BC initialization', progress_done=progress_counter, &
-                                         progress_total=progress_total, last_percent=last_progress_percent,  &
-                                         converged=.true.)
-            exit
-         endif
-      enddo
-      endsubroutine solve_pic_elliptic
 
       subroutine remove_singular_mean(f, mu)
       !< Remove the volume mean of the forcing of each vector-potential component that has no Dirichlet face.

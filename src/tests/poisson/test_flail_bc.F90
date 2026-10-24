@@ -46,19 +46,28 @@ program test_flail_bc
 !< normal component (even), mixed, zero-ghost and zero-ghost next to PEC faces: the solver inverts exactly the operator
 !< PRISM applies.
 !<
+!< **Free-space ghosts (E3c).** PRISM's exact/open face: every ghost layer holds the continuum free-space potential of
+!< the source, `-sum_y factor f(y) dV / (4 pi |x - y|)`, computed by the solver on rank 0 from the gathered source. A
+!< smooth source on 2^3 blocks of 4^3 cells (round robin over the ranks), per configuration (free faces everywhere,
+!< next to Dirichlet and periodic axes, mixed with a zero-ghost face on one axis) and order p = 2, 4, 6: the ghost slabs
+!< returned equal to the direct sum computed here (`TOL_DISCRETE`, relative), D(G) of the solution with the ghosts
+!< returned equal to `factor f` (`TOL_FREE`), the CG iterations at most `MAX_PCG_IT`; the same on 1, 2 and 3 ranks, so
+!< the values do not depend on the decomposition (the legacy sum ran over the rank's own blocks).
+!<
 !< `--refuse-mixed-periodic` (a periodic face against a Dirichlet one), `--refuse-mixed-ghost` (a ghost-Dirichlet
 !< face against a face kind), `--refuse-wide-isolated` (the wide operator with isolated boundaries) and
-!< `--refuse-zero-mixed` (a zero-ghost face against a Dirichlet one) must stop (exit status 1).
+!< `--refuse-zero-mixed` (a zero-ghost face against a Dirichlet one) and `--refuse-free-compact` (free-space ghosts with
+!< the compact operator) must stop (exit status 1).
 !<
 !< Usage: `mpirun -np N exe/test_flail_bc [--refuse-mixed-periodic | --refuse-mixed-ghost | --refuse-wide-isolated |
-!< --refuse-zero-mixed]` (or `exe/test_flail_bc_fnl`).
+!< --refuse-zero-mixed | --refuse-free-compact]` (or `exe/test_flail_bc_fnl`).
 #ifdef _FNL
 #include "fundal.H"
 #endif
 use :: adam_fdv_operators_library,  only : compute_divergence_fd_centered, compute_divergence_fv_centered, &
                                            compute_gradient_fd_centered, compute_gradient_fv_centered
 use :: adam_flail_parameters,       only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, &
-                                           FLAIL_BC_DIRICHLET_GHOST, FLAIL_BC_ZERO_GHOSTS
+                                           FLAIL_BC_DIRICHLET_GHOST, FLAIL_BC_ZERO_GHOSTS, FLAIL_BC_FREE_GHOSTS
 use :: adam_mpih_global,            only : mpih
 #ifdef _FNL
 use :: adam_fnl_mpih_global,        only : mpih_fnl
@@ -89,9 +98,11 @@ integer(I4P), parameter :: D=FLAIL_BC_DIRICHLET       !< Shorthand.
 integer(I4P), parameter :: N=FLAIL_BC_NEUMANN         !< Shorthand.
 integer(I4P), parameter :: G=FLAIL_BC_DIRICHLET_GHOST !< Shorthand.
 integer(I4P), parameter :: Z=FLAIL_BC_ZERO_GHOSTS     !< Shorthand.
+integer(I4P), parameter :: F=FLAIL_BC_FREE_GHOSTS     !< Shorthand.
 real(R8P),    parameter :: TOL_PCG=1.e-9_R8P          !< Bound on the zero-ghost solution's error, relative.
 integer(I4P), parameter :: MAX_PCG_IT=40_I4P          !< Bound on the zero-ghost CG iterations.
 real(R8P),    parameter :: TOL_PRISM=1.e-11_R8P        !< Bound on |div(grad phi) - f| / max |f|, direct solves.
+real(R8P),    parameter :: TOL_FREE=1.e-10_R8P         !< Bound on |D(G) phi - factor f| / max |factor f|, free ghosts.
 logical        :: test_passed !< Aggregate pass flag.
 character(256) :: arg         !< Command argument.
 real(R8P)      :: e_disc, e_cont(3), e_energy !< Errors.
@@ -125,6 +136,9 @@ case('--refuse-wide-isolated')
    call refusal_failed
 case('--refuse-zero-mixed')
    call check_zero('refusal    ', reshape([Z,D, P,P, P,P], [2,3]), 4_I4P, [2,2,2], [8,8,8], .false., m)
+   call refusal_failed
+case('--refuse-free-compact')
+   call check_free('refusal    ', reshape([F,F, F,F, F,F], [2,3]), 0_I4P)
    call refusal_failed
 endselect
 ! the compact operator (E1a) and the wide D(G) of order 2, 4, 6, 8 (E2a)
@@ -168,6 +182,13 @@ do po=1, 4
    call check_prism_ops('D/N P/P N/D', reshape([D,N, P,P, N,D], [2,3]), po)
    call check_prism_ops('Z/Z Z/Z Z/Z', reshape([Z,Z, Z,Z, Z,Z], [2,3]), po)
    call check_prism_ops('Z/Z D/D N/N', reshape([Z,Z, D,D, N,N], [2,3]), po)
+enddo
+! free-space ghosts (E3c): PRISM's exact/open face, the ghosts summed by the solver over the gathered source
+if (mpih%myrank == 0) print '(A)', '   free-space ghosts (E3c), preconditioned CG:'
+do po=2, 6, 2
+   call check_free('F/F F/F F/F', reshape([F,F, F,F, F,F], [2,3]), po)
+   call check_free('F/F D/D P/P', reshape([F,F, D,D, P,P], [2,3]), po)
+   call check_free('F/Z N/N F/F', reshape([F,Z, N,N, F,F], [2,3]), po)
 enddo
 ! the wide p = 4 D/D order against the continuum
 cfg_order = 4
@@ -533,6 +554,147 @@ contains
       merge(' ok  ', ' FAIL', ok)
    call solver%destroy
    endsubroutine check_zero
+
+   subroutine check_free(label, bc, p_)
+   !< Free-space ghosts with the wide D(G) of order p_ (E3c): a smooth source on 2^3 blocks of 4^3 cells, solved; the
+   !< ghost slabs of the free faces against the direct sum `-FACTOR sum_y f(y) dV / (4 pi |x - y|)` computed here, and
+   !< D(G) of the solution (its ghosts: the slabs returned on the free faces, the test's rules on the others) against
+   !< `FACTOR f`. p_ = 0 is the refusal (the compact operator).
+   character(*), intent(in)  :: label   !< Configuration label.
+   integer(I4P), intent(in)  :: bc(2,3) !< Kinds per face [lo/hi, axis].
+   integer(I4P), intent(in)  :: p_      !< Order.
+#ifdef _FNL
+   type(poisson_fft_fnl_object) :: solver !< The solver.
+#else
+   type(poisson_fft_object)     :: solver !< The solver.
+#endif
+   integer(I4P), parameter   :: NBLK(3)=[2,2,2], NIJK(3)=[4,4,4] !< Blocks and cells per block per direction.
+   integer(I4P)              :: ncell(3), nbl, nb_total, gw, b, bi, bj, bk, i, j, k, ii, jj, kk, c, ax, side, ierr
+   integer(I4P)              :: lo(3), hi(3), x(3), iters !< A slab, a global cell, CG iterations.
+   integer(I4P)              :: bc_rule(2,3) !< The kinds with the free faces zeroed (the test's rules).
+   real(R8P)                 :: dxyz(3), s, gref, gmax, gscale, res !< Spacing, sums, errors.
+   real(R8P),    allocatable :: src(:,:,:), uo(:,:,:), y(:,:,:) !< Source, solution returned (padded), D(G) of it.
+   integer(I4P), allocatable :: coords(:,:) !< This rank's block coordinates.
+   real(R8P),    allocatable :: buf(:), out(:) !< Packed source and potential.
+   logical                   :: ok  !< Pass flag.
+
+   gw = max(p_, 1_I4P)
+   ncell = NBLK * NIJK
+   dxyz = L / ncell
+   allocate(src(ncell(1),ncell(2),ncell(3)), uo(1-gw:ncell(1)+gw,1-gw:ncell(2)+gw,1-gw:ncell(3)+gw), y(ncell(1),ncell(2),ncell(3)))
+   do k=1, ncell(3)
+      do j=1, ncell(2)
+         do i=1, ncell(1)
+            src(i,j,k) = sin(0.7_R8P * i + 0.3_R8P) * cos(0.5_R8P * j - 0.2_R8P) * cos(0.4_R8P * k + 0.1_R8P) + 0.3_R8P
+         enddo
+      enddo
+   enddo
+   nb_total = product(NBLK)
+   nbl = 0
+   do b=0, nb_total-1
+      if (mod(b, mpih%procs_number) == mpih%myrank) nbl = nbl + 1
+   enddo
+   allocate(coords(3,max(nbl,1)), buf(max(nbl*product(NIJK),1)), out(max(nbl*product(NIJK+2*gw),1)))
+   c = 0 ; nbl = 0
+   do b=0, nb_total-1
+      if (mod(b, mpih%procs_number) /= mpih%myrank) cycle
+      nbl = nbl + 1
+      bi = mod(b, NBLK(1)) ; bj = mod(b / NBLK(1), NBLK(2)) ; bk = b / (NBLK(1) * NBLK(2))
+      coords(:,nbl) = [bi, bj, bk]
+      do k=1, NIJK(3)
+         do j=1, NIJK(2)
+            do i=1, NIJK(1)
+               c = c + 1
+               buf(c) = src(bi*NIJK(1)+i, bj*NIJK(2)+j, bk*NIJK(3)+k)
+            enddo
+         enddo
+      enddo
+   enddo
+   call solver%initialize_blocks(nblk=NBLK, nijk=NIJK, ngc=gw, dxyz=dxyz, level=0_I4P, null_xyz=[.false.,.false.,.false.], &
+                                 isolated=.false., bc=bc, dg_order=p_)
+   out = 0._R8P
+   call solver%solve_blocks(nbl=nbl, coords=coords, buf=buf, factor=FACTOR, gw=gw, out=out)
+   iters = solver%iterations
+   call MPI_BCAST(iters, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+   ! the interior and the face ghost slabs returned (each cell from one block), on every rank
+   uo = 0._R8P
+   c = 0
+   do b=1, nbl
+      do k=1-gw, NIJK(3)+gw
+         do j=1-gw, NIJK(2)+gw
+            do i=1-gw, NIJK(1)+gw
+               c = c + 1
+               x = coords(:,b) * NIJK + [i, j, k]
+               ! a block's own cells, and the face-slab cells outside the domain along one axis and inside this block
+               ! along the other two, from the boundary block of that axis only (the ghost layers may be deeper than a
+               ! block): edges, corners and inter-block ghosts are taken from no block
+               if (count(x < 1 .or. x > ncell) > 1) cycle
+               if (count([i, j, k] < 1 .or. [i, j, k] > NIJK) /= count(x < 1 .or. x > ncell)) cycle
+               if (any((x < 1 .and. coords(:,b) /= 0) .or. (x > ncell .and. coords(:,b) /= NBLK - 1))) cycle
+               uo(x(1),x(2),x(3)) = out(c)
+            enddo
+         enddo
+      enddo
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, uo, size(uo), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ierr)
+   ! the free slabs against the direct sum
+   gmax = 0._R8P ; gscale = 0._R8P
+   do ax=1, 3
+      do side=1, 2
+         if (bc(side,ax) /= F) cycle
+         lo = 1 ; hi = ncell
+         if (side == 1) then
+            lo(ax) = 1 - gw ; hi(ax) = 0
+         else
+            lo(ax) = ncell(ax) + 1 ; hi(ax) = ncell(ax) + gw
+         endif
+         do k=lo(3), hi(3)
+            do j=lo(2), hi(2)
+               do i=lo(1), hi(1)
+                  s = 0._R8P
+                  do kk=1, ncell(3)
+                     do jj=1, ncell(2)
+                        do ii=1, ncell(1)
+                           s = s + src(ii,jj,kk) / norm2([real(i-ii, R8P), real(j-jj, R8P), real(k-kk, R8P)] * dxyz)
+                        enddo
+                     enddo
+                  enddo
+                  gref = -FACTOR * product(dxyz) * s / (4._R8P * PI)
+                  gmax = max(gmax, abs(uo(i,j,k) - gref)) ; gscale = max(gscale, abs(gref))
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   gmax = gmax / gscale
+   ! D(G) of the solution: the free slabs as returned, the test's rules on the other faces
+   bc_rule = merge(Z, bc, bc == F)
+   block
+   real(R8P), allocatable :: ua(:,:,:) !< The solution with its ghosts for D(G).
+   ua = uo
+   call rule_ghosts(ua, ncell, bc_rule, [.false.,.false.,.false.], gw)
+   do ax=1, 3
+      do side=1, 2
+         if (bc(side,ax) /= F) cycle
+         lo = 1 ; hi = ncell
+         if (side == 1) then
+            lo(ax) = 1 - gw ; hi(ax) = 0
+         else
+            lo(ax) = ncell(ax) + 1 ; hi(ax) = ncell(ax) + gw
+         endif
+         ua(lo(1):hi(1),lo(2):hi(2),lo(3):hi(3)) = uo(lo(1):hi(1),lo(2):hi(2),lo(3):hi(3))
+      enddo
+   enddo
+   call d1d1(ua, ncell, dxyz, [.false.,.false.,.false.], p_, y)
+   endblock
+   res = maxval(abs(y - FACTOR * src)) / maxval(abs(FACTOR * src))
+   ok = gmax <= TOL_DISCRETE .and. res <= TOL_FREE .and. iters <= MAX_PCG_IT
+   test_passed = test_passed .and. ok
+   if (mpih%myrank == 0) print '(A)', '   D(G) p = '//trim(str(p_, .true.))//' '//label//': free ghosts against the '// &
+      'direct sum '//trim(str(gmax, .true.))//', |D(G) phi - factor f| '//trim(str(res, .true.))//', CG iterations '// &
+      trim(str(iters, .true.))//merge(' ok  ', ' FAIL', ok)
+   call solver%destroy
+   endsubroutine check_free
 
    subroutine check_prism_ops(label, bc, s_)
    !< E3a: the manufactured `f = div(grad u)` by the library's centred FD and FV operators of order 2 s_ (u's ghosts by

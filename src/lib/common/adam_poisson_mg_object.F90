@@ -76,7 +76,7 @@ module adam_poisson_mg_object
 !< `phi_C + (mean_f - phi_C) / 0.75`); deeper ghost layers copy the first.
 use :: adam_field_object, only : field_object
 use :: adam_flail_parameters, only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, &
-                                      FLAIL_BC_ZERO_GHOSTS
+                                      FLAIL_BC_ZERO_GHOSTS, FLAIL_BC_FREE_GHOSTS
 use :: adam_grid_object, only : grid_object
 use :: adam_mpih_global, only : mpih
 use :: adam_poisson_fft_object, only : poisson_fft_object
@@ -325,6 +325,9 @@ contains
          if (count(bc(:,d) == FLAIL_BC_DIRICHLET_GHOST .or. bc(:,d) == FLAIL_BC_ZERO_GHOSTS) == 1) &
             call mpih%error_stop(msg='poisson_mg_object%initialize: direction '//trim(str(d, .true.))// &
                                      ' mixes a ghost-Dirichlet face (or a zero-ghost one) with a face kind')
+         if (any(bc(:,d) == FLAIL_BC_FREE_GHOSTS)) call mpih%error_stop(msg='poisson_mg_object%initialize: '// &
+            'free-space ghosts on direction '//trim(str(d, .true.))//' need the FFT solver with the wide D(G) (issue '// &
+            '#84 E3c)')
          do r=1, 2
             if (all(bc(r,d) /= [FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, &
                                 FLAIL_BC_ZERO_GHOSTS])) &

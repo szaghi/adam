@@ -69,6 +69,14 @@ module adam_poisson_fft_object
 !< `wide_dg_e2b.py`, with periodic and with reflected companion axes). The ghost layers returned carry the faces' rules
 !< (zero, reflection, periodic wrap).
 !<
+!< **Free-space ghosts (issue #84, E3c).** `FLAIL_BC_FREE_GHOSTS` is PRISM's exact/open face: every ghost layer holds
+!< the continuum free-space potential of the source, `g(x) = -sum_y factor f(y) dV / (4 pi |x - y|)`. The operator is
+!< the zero-ghost one (the two kinds mix on an axis, and share the CG path and its preconditioner); the ghost values move
+!< to the right-hand side, `D(G)_0 u = factor f - D(G) u_g` (u_g: g in the ghost slabs, zero inside), and the returned
+!< ghost layers carry g. Rank 0 sums over the gathered source (`free_ghosts`), so the values do not depend on the
+!< decomposition; the cost is O(ghost-slab cells x cells), a direct sum (a lattice free-space solve is #84 E7). The
+!< wide D(G) only. Edges and corners of the ghost region stay zero: D(G) reads along the axis lines only.
+!<
 !< **Scope (fatal otherwise).** One level for every block, the blocks covering the domain. Without `bc`, every active
 !< direction periodic. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's), the
 !< compact operator only.
@@ -77,7 +85,7 @@ use :: adam_grid_object, only : grid_object
 use :: adam_lattice_green_library, only : lattice_green
 use :: adam_field_object, only : field_object
 use :: adam_flail_parameters, only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, &
-                                      FLAIL_BC_ZERO_GHOSTS
+                                      FLAIL_BC_ZERO_GHOSTS, FLAIL_BC_FREE_GHOSTS
 use :: adam_mpih_global, only : mpih
 use :: iso_c_binding
 use :: mpi
@@ -116,6 +124,8 @@ type :: poisson_fft_object
    integer(I4P)              :: axis_order(3)=0_I4P    !< The operator per axis (dg_order, but in E2b's sub-problems).
    ! zero-ghost faces with the wide operator (issue #84, E2b): preconditioned CG on rank 0
    logical                   :: pcg=.false.            !< Some axis has zero-ghost faces and the operator is wide.
+   logical                   :: free=.false.           !< Some face has free-space ghosts (E3c).
+   real(R8P), allocatable    :: g_free(:,:,:)          !< Rank 0, E3c: the free-space ghost slabs, zero elsewhere.
    logical                   :: null_xyz(3)=.false.    !< Null directions.
    real(R8P)                 :: stencil(-8:8)=0._R8P   !< The 1-D D1 D1 stencil (times h^2), offsets -p..p.
    real(R8P)                 :: tolerance=1.e-12_R8P   !< Relative max-norm residual to stop.
@@ -155,6 +165,9 @@ type :: poisson_fft_object
       procedure, pass(self), private :: fill_ghosts    !< Rank 0: the ghost layers of a padded array by the faces.
       procedure, pass(self), private :: precondition   !< Rank 0: z = M^-1 r, the sub-lattice solves (E2b).
       procedure, pass(self), private :: solve_pcg      !< Rank 0: f_global <- factor D(G)^-1 f_global by PCG (E2b).
+      procedure, pass(self), private :: free_ghosts    !< Rank 0: g_free, the free-space ghost slabs (E3c).
+      procedure, pass(self), private :: subtract_free_ghosts !< Rank 0: f <- f - D(G) u_g (E3c).
+      procedure, pass(self), private :: put_free_ghosts      !< Rank 0: the free-space ghost slabs into a padded array.
       ! backend hooks
       procedure, pass(self) :: destroy_plans    !< Destroy the transform plans.
       procedure, pass(self) :: make_plans       !< Make the transform plans (rank 0).
@@ -233,6 +246,8 @@ contains
       deallocate(self%sub)
    endif
    if (allocated(self%sub_par))  deallocate(self%sub_par)
+   if (allocated(self%g_free))   deallocate(self%g_free)
+   self%free = .false.
    self%pcg = .false. ; self%nsub = 0_I4P ; self%iterations = 0_I4P ; self%residual = 0._R8P
    self%dg_order = 0_I4P ; self%axis_order = 0_I4P ; self%stencil = 0._R8P ; self%null_xyz = .false.
    self%n = 1_I4P ; self%m = 1_I4P ; self%nijk = 1_I4P ; self%ngc = 0_I4P ; self%level = 0_I4P ; self%dxyz = 0._R8P
@@ -372,12 +387,15 @@ contains
       if (count(bc_(:,d) == FLAIL_BC_DIRICHLET_GHOST) == 1) call mpih%error_stop(msg= &
          'poisson_fft_object%initialize_blocks: axis '//trim(str(d, .true.))//' mixes a ghost-Dirichlet face with a '// &
          'face kind')
-      if (count(bc_(:,d) == FLAIL_BC_ZERO_GHOSTS) == 1) call mpih%error_stop(msg= &
+      if (count(bc_(:,d) == FLAIL_BC_ZERO_GHOSTS .or. bc_(:,d) == FLAIL_BC_FREE_GHOSTS) == 1) call mpih%error_stop(msg=&
          'poisson_fft_object%initialize_blocks: axis '//trim(str(d, .true.))//' mixes a zero-ghost face with another '// &
          'kind (both faces or neither: a reflection at the other end couples the parity sub-lattices, issue #84 E2b)')
+      if (any(bc_(:,d) == FLAIL_BC_FREE_GHOSTS) .and. axis_order_(d) == 0_I4P) call mpih%error_stop(msg= &
+         'poisson_fft_object%initialize_blocks: free-space ghosts on axis '//trim(str(d, .true.))//' need the wide '// &
+         'D(G) (dg_order 2, 4, 6 or 8; issue #84 E3c)')
       do k=1, 2
          if (all(bc_(k,d) /= [FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST,  &
-                              FLAIL_BC_ZERO_GHOSTS])) &
+                              FLAIL_BC_ZERO_GHOSTS, FLAIL_BC_FREE_GHOSTS])) &
             call mpih%error_stop(msg='poisson_fft_object%initialize_blocks: unknown boundary kind '// &
                                      trim(str(bc_(k,d), .true.))//' on axis '//trim(str(d, .true.)))
       enddo
@@ -395,7 +413,12 @@ contains
    self%dg_order = dg_order_
    self%axis_order = axis_order_
    self%null_xyz = null_
-   self%pcg = any(self%bc == FLAIL_BC_ZERO_GHOSTS)
+   self%pcg = .false.
+   do d=1, 3 ! a null axis has no ghosts the operator reads
+      if (.not.null_(d)) self%pcg = self%pcg .or. any(self%bc(:,d) == FLAIL_BC_ZERO_GHOSTS .or. &
+                                                    self%bc(:,d) == FLAIL_BC_FREE_GHOSTS)
+   enddo
+   self%free = any(self%bc == FLAIL_BC_FREE_GHOSTS)
    if (self%pcg) self%stencil = dg_stencil(self%dg_order)
    self%n = nblk_ * self%nijk
    self%m = self%n
@@ -459,7 +482,7 @@ contains
       integer(I4P) :: n_sub(3), ord_sub(3), bc_sub(2,3) !< A sub-problem's cells, operators, kinds.
       real(R8P)    :: dx_sub(3)           !< A sub-problem's spacing.
 
-      z = count([(any(self%bc(:,d_) == FLAIL_BC_ZERO_GHOSTS), d_=1, 3)])
+      z = count([(zero_class(d_), d_=1, 3)])
       self%nsub = 2_I4P**z
       allocate(self%sub_par(3,self%nsub))
       allocate(self%sub(self%nsub))
@@ -468,7 +491,7 @@ contains
          do d_=1, 3
             self%sub_par(d_,c) = -1
             n_sub(d_) = self%n(d_) ; dx_sub(d_) = self%dxyz(d_) ; ord_sub(d_) = 2_I4P ; bc_sub(:,d_) = self%bc(:,d_)
-            if (any(self%bc(:,d_) == FLAIL_BC_ZERO_GHOSTS)) then
+            if (zero_class(d_)) then
                self%sub_par(d_,c) = ibits(c-1, bit, 1)
                bit = bit + 1
                n_sub(d_) = (self%n(d_) - self%sub_par(d_,c) + 1) / 2 ! cells i (1-based) with mod(i-1, 2) = parity
@@ -482,6 +505,15 @@ contains
                                             dg_order=2_I4P, axis_dg_order=ord_sub)
       enddo
       endsubroutine make_preconditioner
+
+      pure function zero_class(d_)
+      !< The axis has zero-ghost (or free-space ghost) faces and is not null: its parity classes decouple.
+      integer(I4P), intent(in) :: d_         !< Axis.
+      logical                  :: zero_class !< Result.
+
+      zero_class = .not.self%null_xyz(d_) .and. any(self%bc(:,d_) == FLAIL_BC_ZERO_GHOSTS .or. &
+                                                    self%bc(:,d_) == FLAIL_BC_FREE_GHOSTS)
+      endfunction zero_class
    endsubroutine initialize_blocks
 
    subroutine solve(self, field, q, iv, factor, phi, energy)
@@ -628,6 +660,7 @@ contains
       enddo
       if (self%extended) call self%extend_global
       if (present(energy)) self%f_source = self%f_global
+      if (self%free) call self%free_ghosts(factor=factor, gd=max(gw, self%dg_order))
       if (self%pcg) then
          call self%solve_pcg(factor=factor)
       else
@@ -645,6 +678,7 @@ contains
          u_pad = 0._R8P
          u_pad(1:self%n(1),1:self%n(2),1:self%n(3)) = self%f_global
          call self%fill_ghosts(u_pad, gw)
+         if (self%free) call self%put_free_ghosts(u_pad, gw)
       endif
       c = 0
       do b=1, blocks_total
@@ -934,6 +968,7 @@ contains
 
    allocate(f, mold=self%f_global)
    f = factor * self%f_global
+   if (self%free) call self%subtract_free_ghosts(f) ! D(G)_0 u = factor f - D(G) u_g (E3c)
    allocate(u, r, z, d, q, mold=f)
    u = 0._R8P ; r = f ; z = 0._R8P
    fmax = maxval(abs(f))
@@ -962,6 +997,100 @@ contains
    endif
    self%f_global = u
    endsubroutine solve_pcg
+
+   subroutine free_ghosts(self, factor, gd)
+   !< Rank 0, E3c: `g_free`, to depth `gd`, the ghost slab of every free-space face (the cells outside along that face's
+   !< axis, inside along the others): the continuum free-space potential of the gathered source,
+   !< `g(x) = -sum_y factor f(y) dV / (4 pi |x - y|)` over the interior cell centres, as PRISM's exact/open face.
+   class(poisson_fft_object), intent(inout) :: self   !< The solver.
+   real(R8P),                 intent(in)    :: factor !< Source factor.
+   integer(I4P),              intent(in)    :: gd     !< Ghost layers.
+   real(R8P)                                :: c      !< -factor dV / (4 pi).
+   real(R8P)                                :: s, dz2, dyz2 !< Partial sum, squared distances.
+   integer(I4P)                             :: lo(3), hi(3) !< The slab.
+   integer(I4P)                             :: d, side, i, j, k, ii, jj, kk !< Counters.
+
+   if (allocated(self%g_free)) deallocate(self%g_free)
+   allocate(self%g_free(1-gd:self%n(1)+gd,1-gd:self%n(2)+gd,1-gd:self%n(3)+gd))
+   self%g_free = 0._R8P
+   c = -factor * product(self%dxyz) / (4._R8P * acos(-1._R8P))
+   do d=1, 3
+      if (self%null_xyz(d)) cycle
+      do side=1, 2
+         if (self%bc(side,d) /= FLAIL_BC_FREE_GHOSTS) cycle
+         lo = 1 ; hi = self%n
+         if (side == 1) then
+            lo(d) = 1 - gd ; hi(d) = 0
+         else
+            lo(d) = self%n(d) + 1 ; hi(d) = self%n(d) + gd
+         endif
+         do k=lo(3), hi(3)
+            do j=lo(2), hi(2)
+               do i=lo(1), hi(1)
+                  s = 0._R8P
+                  do kk=1, self%n(3)
+                     dz2 = (real(k - kk, R8P) * self%dxyz(3))**2
+                     do jj=1, self%n(2)
+                        dyz2 = dz2 + (real(j - jj, R8P) * self%dxyz(2))**2
+                        do ii=1, self%n(1)
+                           s = s + self%f_global(ii,jj,kk) / sqrt(dyz2 + (real(i - ii, R8P) * self%dxyz(1))**2)
+                        enddo
+                     enddo
+                  enddo
+                  self%g_free(i,j,k) = c * s
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine free_ghosts
+
+   subroutine subtract_free_ghosts(self, f)
+   !< Rank 0, E3c: `f <- f - D(G) u_g` on the interior, u_g the free-space ghost slabs (`g_free`) and zero inside.
+   class(poisson_fft_object), intent(in)    :: self        !< The solver.
+   real(R8P),                 intent(inout) :: f(1:,1:,1:) !< Right-hand side [n].
+   integer(I4P)                             :: p, i, j, k, o !< Reach, counters.
+   real(R8P)                                :: w(3), y   !< 1 / dx^2 per axis (0 along a null one), D(G) u_g.
+
+   p = self%dg_order
+   w = 0._R8P
+   where (.not.self%null_xyz) w = 1._R8P / self%dxyz**2
+   associate(g=>self%g_free)
+   do k=1, self%n(3)
+      do j=1, self%n(2)
+         do i=1, self%n(1)
+            y = 0._R8P
+            do o=-p, p
+               y = y + self%stencil(o) * (w(1) * g(i+o,j,k) + w(2) * g(i,j+o,k) + w(3) * g(i,j,k+o))
+            enddo
+            f(i,j,k) = f(i,j,k) - y
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine subtract_free_ghosts
+
+   subroutine put_free_ghosts(self, u, ng)
+   !< Rank 0, E3c: the `ng` ghost layers of every free-space face of the padded array `u` set to `g_free`.
+   class(poisson_fft_object), intent(in)    :: self !< The solver.
+   integer(I4P),              intent(in)    :: ng   !< Ghost layers.
+   real(R8P),                 intent(inout) :: u(1-ng:,1-ng:,1-ng:) !< Padded array [1-ng:n+ng per axis].
+   integer(I4P)                             :: lo(3), hi(3), d, side !< The slab, counters.
+
+   do d=1, 3
+      if (self%null_xyz(d)) cycle
+      do side=1, 2
+         if (self%bc(side,d) /= FLAIL_BC_FREE_GHOSTS) cycle
+         lo = 1 ; hi = self%n
+         if (side == 1) then
+            lo(d) = 1 - ng ; hi(d) = 0
+         else
+            lo(d) = self%n(d) + 1 ; hi(d) = self%n(d) + ng
+         endif
+         u(lo(1):hi(1),lo(2):hi(2),lo(3):hi(3)) = self%g_free(lo(1):hi(1),lo(2):hi(2),lo(3):hi(3))
+      enddo
+   enddo
+   endsubroutine put_free_ghosts
 
    subroutine transform(self, factor)
    !< Rank 0: `f_global <- factor * L_h^-1 f_global`. Periodic: the modes of zero eigenvalue (the mean) set to zero;

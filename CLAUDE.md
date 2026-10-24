@@ -552,8 +552,9 @@ There is a **second, derived** taxonomy for the elliptic solver: `build_elliptic
 
 The t0 elliptic solves run on FLAIL since [#84](https://github.com/szaghi/adam/issues/84) E3b (`solve_time_zero` in
 `impose_pic_fields_time_zero`): `ELL_BC_PERIODIC` → `FLAIL_BC_PERIODIC`, `ELL_BC_DIRICHLET` → `FLAIL_BC_ZERO_GHOSTS`,
-`ELL_BC_PEC` → `FLAIL_BC_DIRICHLET` (φ, tangential A) or `FLAIL_BC_NEUMANN` (normal A); an `ELL_BC_EXACT_OPEN` face
-still takes the legacy smoothers (until E3c), and a refined grid is refused (E7). Every PRISM build mode links an FFT
+`ELL_BC_PEC` → `FLAIL_BC_DIRICHLET` (φ, tangential A) or `FLAIL_BC_NEUMANN` (normal A), `ELL_BC_EXACT_OPEN` →
+`FLAIL_BC_FREE_GHOSTS` (E3c: the free-space potential of the source in the ghosts, summed over the whole domain on rank 0;
+the legacy sum was rank-local); a null axis takes the periodic kind, and a refined grid is refused (E7). Every PRISM build mode links an FFT
 library for it (FFTW, or cuFFT on the NVIDIA FNL modes).
 
 When adding a BC kind, update **all three** `select case`s (the EM parser, the elliptic map, `solve_time_zero`).

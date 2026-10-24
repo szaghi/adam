@@ -62,8 +62,10 @@
 # the grid (16 and 32 cells per axis within one); the compact operator with zero ghosts equal to ghost-Dirichlet;
 # PRISM's operators (E3a): div(grad phi) = f with adam_fdv_operators_library's centred FD and FV of order 2-8 (PRISM's
 # own D and G), phi FLAIL's solution with its returned ghosts, periodic, PEC (odd and even), mixed and zero-ghost faces;
+# free-space ghosts (E3c, PRISM's exact/open face): the ghost slabs equal to the direct sum -factor sum f dV / (4 pi r)
+# over the whole source (1e-12, on every rank count), D(G) of the solution with them equal to factor f (1e-10);
 # refused: a periodic face against a Dirichlet one, a ghost-Dirichlet face against a face kind, the wide operator
-# with isolated boundaries, a zero-ghost face against a Dirichlet one.
+# with isolated boundaries, a zero-ghost face against a Dirichlet one, free-space ghosts with the compact operator.
 #
 # bcmg (test_poisson_mg --bc, issue #84, E1b): the multigrid with a boundary kind per face (periodic, Dirichlet or
 # Neumann at the face, ghost-Dirichlet; mixed across and within axes):
@@ -205,7 +207,8 @@ for leg in $LEGS; do
             "$BC_EXE"
          refusal "the wide D(G) with isolated boundaries" --refuse-wide-isolated 'the compact operator only' \
             "$BC_EXE"
-         refusal "a zero-ghost face against a Dirichlet one" --refuse-zero-mixed 'mixes a zero-ghost face' "$BC_EXE" ;;
+         refusal "a zero-ghost face against a Dirichlet one" --refuse-zero-mixed 'mixes a zero-ghost face' "$BC_EXE"
+         refusal "free-space ghosts with the compact operator" --refuse-free-compact 'need the wide D(G)' "$BC_EXE" ;;
       bcmg)
          echo ">> FLAIL boundary kinds per face, the multigrid solver (issue #84, E1b; $(basename "$MG_EXE"))"
          suite multigrid-bc "--bc" "$MG_EXE" ;;

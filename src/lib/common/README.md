@@ -278,23 +278,26 @@ the kinds belongs to the app.
 `D(G) phi = -rho/eps` (PIC, then `D <- D - eps G phi`) and `D(G) A_d = -mu J_d` per component (then `B <- B + curl A`)
 through the realm's `flail`, one `setup` per component, `dg_order = fdv_order`, on the FFT path: periodic stays
 periodic, PRISM's Dirichlet is `FLAIL_BC_ZERO_GHOSTS`, PEC is `FLAIL_BC_DIRICHLET` (odd) for the potential and the
-tangential components of A, `FLAIL_BC_NEUMANN` (even) for the normal one, as the legacy ghost rules. A refined grid is
-refused (E7); an exact/open face (PRISM's `Neumann`, `Silver_Muller`) keeps the legacy smoothers until E3c. The FNL
+tangential components of A, `FLAIL_BC_NEUMANN` (even) for the normal one, as the legacy ghost rules; an exact/open face
+(PRISM's `Neumann`, `Silver_Muller`) is `FLAIL_BC_FREE_GHOSTS` (E3c), a null axis periodic. A refined grid is refused
+(E7). The FNL
 backend allocates the cuFFT solver; every PRISM mode links an FFT library (FFTW on the host, cuFFT on NVIDIA FNL).
-Regression cases `pic-pec-t0` and `rmf-pec-t0` enter the two solves. Two limits: the solve gathers the grid on rank 0
+Regression cases `pic-pec-t0`, `rmf-pec-t0`, `pic-open-t0` and `rmf-open-t0` enter the two solves. Three limits: the solve gathers the grid on rank 0
 (and on its GPU on FNL), the FFT solver's design, about 24 B per transform cell, 8 N cells with reflected faces (a
 256³ PEC grid takes about 3 GB at t0); and PRISM's centred div∘grad annihilates the checkerboard, so with PEC faces the
-component of rho along `(-1)^(i+j+k)` stays in `div D - rho` (no D can carry it; the legacy smoother could not either).
+component of rho along `(-1)^(i+j+k)` stays in `div D - rho` (no D can carry it; the legacy smoother could not either);
+the free-space ghost sum is a direct one on rank 0, O(ghost-slab cells x cells) per component (a lattice free-space
+solve is E7).
 
 A backend chooses its FFT engine by allocating the `fft` component before `setup` (FLUME's FNL backend allocates the
-cuFFT one). The boundary kinds per face, `FLAIL_BC_PERIODIC | _DIRICHLET | _NEUMANN | _DIRICHLET_GHOST`, live in
+cuFFT one). The boundary kinds per face, `FLAIL_BC_PERIODIC | _DIRICHLET | _NEUMANN | _DIRICHLET_GHOST |
+_ZERO_GHOSTS | _FREE_GHOSTS`, live in
 `adam_flail_parameters` (a module of their own: the solvers use them, and the facade uses the solvers). Phases and
 status: [issue #84](https://github.com/szaghi/adam/issues/84).
 
 ### `adam_flail_legacy_object` — legacy FLAIL smoothers (retired in issue #84, E4)
 
-PRISM's elliptic smoothers: since #84 E3b only a t0 solve with an exact/open face (until E3c) and the unused
-`[PIC] elliptic_correction` (E3d) reach them. The realm component is `flail_legacy`, and it owns the
+PRISM's elliptic smoothers: since #84 E3c only the unused `[PIC] elliptic_correction` (E3d) reaches them. The realm component is `flail_legacy`, and it owns the
 `[linear-algebra]` section. No new code should use it.
 
 Iterative solver and smoother infrastructure for implicit operators (e.g., elliptic sub-problems). Provides a common interface over several smoothing strategies:
@@ -349,6 +352,14 @@ one variable `f` of a conservative array `q(nv,i,j,k,b)`, with `L_h` the second-
   (cuFFT on FNL). Spectrally equivalent: 1, 17, 24, 30 iterations at p = 2, 4, 6, 8, independent of the grid and of
   the companion axes' kinds (`wide_dg_zero_ghost.py`, `wide_dg_e2b.py`). The ghost layers returned carry the faces'
   rules. A zero-ghost face against another kind on one axis is fatal (a reflection would couple the parity classes).
+- **Free-space ghosts (issue #84, E3c):** `FLAIL_BC_FREE_GHOSTS` is PRISM's exact/open face: every ghost layer holds the
+  continuum free-space potential of the source, `g(x) = -sum_y factor f(y) dV / (4 pi |x - y|)`, which rank 0 sums over
+  the gathered source (`free_ghosts`: the values do not depend on the decomposition; PRISM's legacy sum ran over each
+  rank's blocks, and its t0 fields at 1 and 2 ranks differed by up to 3.5 relative on `rmf-open-t0`). The operator is
+  the zero-ghost one, the two kinds mixing on an axis; the ghosts move to the right-hand side,
+  `D(G)_0 u = factor f - D(G) u_g`, and the returned ghost layers carry g. Edges and corners of the ghost region stay
+  zero (D(G) reads along the axis lines only). Wide D(G) only (fatal with the compact operator; the multigrid refuses
+  it). The PCG and the sub-lattice split skip a null axis.
 
 All are symmetric linear maps of the source, which is what exact energy and momentum conservation of self-gravity
 needs (FLUME [models](/applications/flume/models#self-gravity)).
