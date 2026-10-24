@@ -86,8 +86,15 @@
 # as three FLAIL instances, solved interleaved, bitwise equal to three solved alone; refused: boundary values on the
 # FFT path, isolated with bc.
 #
+# sub (test_poisson_mg --sub, issue #84, E5c): the levels inside the blocks below the coarsest tree level, forced
+# down to one cell per block (root_cells = 1), against the exact coarsest level (root_cells = huge): 3 levels for
+# 8^3 blocks, both solves below their tolerance, Phi equal to 1e-7 relative, the iterations at most 1.5 times the
+# exact ones (20 where those are 1); uniform and AMR, octree and quadtree, periodic, D/D N/N G/G, P/P D/N N/D,
+# isolated. Measured (CPU, np 1-3): Phi equal to 1.6e-14 - 1.1e-11, iterations 14 (1), 47 (36), 25 (24), 41 (39),
+# 53 (40), 52 (47). The mutation "no off-diagonals in the levels below lmin" fails 5 of 6 (60-120 iterations).
+#
 # Usage: ./poisson.sh [--np-list "1 2 3"] [--legs LIST] [--dump DIR] [--keep]
-#        LIST: sv2, sv6, sv9, sv13, bc, bcmg, flail or all
+#        LIST: sv2, sv6, sv9, sv13, bc, bcmg, flail, sub or all
 #        (default all)
 #
 # POISSON_EXE overrides the executable under test, e.g. POISSON_EXE=$REPO/exe/test_poisson_fft_fnl ./poisson.sh
@@ -104,7 +111,7 @@ MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
 BC_EXE="${POISSON_BC_EXE:-$REPO_ROOT/exe/test_flail_bc}"
 NP_LIST="1 2 3"
 source "$VERIF_DIR/legs.sh"
-legs_declare "sv2 sv6 sv9 sv13 bc bcmg flail"
+legs_declare "sv2 sv6 sv9 sv13 bc bcmg flail sub"
 DUMP=""
 KEEP=0
 
@@ -121,7 +128,7 @@ done
 legs_resolve poisson.sh
 needs_fft=0 ; needs_mg=0 ; needs_bc=0
 for leg in $LEGS; do
-   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13|bcmg|flail) needs_mg=1 ;; bc) needs_bc=1 ;; esac
+   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13|bcmg|flail|sub) needs_mg=1 ;; bc) needs_bc=1 ;; esac
 done
 if [[ -n "$DUMP" ]]; then needs_fft=1 ; fi
 if [[ $needs_fft -eq 1 ]]; then
@@ -219,6 +226,9 @@ for leg in $LEGS; do
             "$MG_EXE"
          refusal "facade, isolated with bc" --refuse-flail-isolated-bc 'isolated boundaries take no bc' "$MG_EXE"
          refusal "facade, the wide D(G) on AMR" --refuse-flail-wide-amr 'the wide D(G) needs a uniform grid' "$MG_EXE" ;;
+      sub)
+         echo ">> The multigrid's levels inside the blocks (issue #84, E5c; $(basename "$MG_EXE"))"
+         suite multigrid-sub "--sub" "$MG_EXE" ;;
    esac
 done
 if [[ -n "$DUMP" ]]; then

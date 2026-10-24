@@ -305,8 +305,10 @@ repetitions, max over the ranks) and rank 0's phases. Baseline (E5a, medooza CPU
 3.9 M AMR cells): the solve time stays flat from 1 to 16 ranks on the FFT paths (rank 0's part 83% periodic, 99%
 isolated at 16 ranks) and on the isolated multigrid (36.6 s of 39.9 s per solve in rank 0's coarsest level, a 258^3
 odd extension solved 42 times); the periodic multigrid falls from 9.4 s to 2.6 s, 45% of it rank 0's. E5b sized the
-isolated transforms for speed (above); E5c moves the multigrid below the base level inside each block and solves a
-root grid of one cell per base block on every rank; E5d distributes the uniform FFT.
+isolated transforms for speed (above); E5c coarsens the multigrid inside the blocks below the base level and solves
+the root on every rank (medooza CPU, 3.9 M AMR cells: isolated 39.9 -> 6.5 s per solve at 16 ranks, periodic
+2.6 -> 2.3 s, but 9.2 -> 12.7 s at one rank, where one FFT of the 128^3 base level beats smoothing it with the
+generic CSR sweep; so the cuFFT root keeps the exact coarsest level up to 128^3); E5d distributes the uniform FFT.
 
 ### Legacy FLAIL smoothers (deleted in issue #84, E4)
 
@@ -376,7 +378,7 @@ needs (FLUME [models](/applications/flume/models#self-gravity)).
 | `initialize(grid, field, isolated, bc, dg_order)` | Check the scope, size the solver, make the plans (and, isolated, the kernel's spectrum) on rank 0; `bc(2,3)` optional, consistent with the grid's periodicity; `dg_order` the wide D(G) (E2a) |
 | `solve(field, q, iv, factor, phi, energy)` | Gather `q(iv)` to rank 0, transform, scatter `phi(1-ngc:n+ngc, ..., b)` with every ghost layer filled from the global solution; optionally `energy = sum f phi` |
 | `solve_packed(field, buf, factor, phi, energy)` | The same from the interior source already packed (block-major, `i` fastest: what a device kernel produces) |
-| `initialize_blocks(nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet, bc)` | Size the solver for an explicit uniform block lattice, no grid object and no scope check (the caller owns it): the multigrid's coarsest level; `dirichlet` (#87) zero at the first ghost centres, by the odd extension to `2 (n + 1)` cells per active direction (the type-I sine transform: `FLAIL_BC_DIRICHLET_GHOST` on every axis); `bc` the kinds per face (E1a) |
+| `initialize_blocks(nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet, bc, redundant)` | Size the solver for an explicit uniform block lattice, no grid object and no scope check (the caller owns it): the multigrid's root; `redundant` (#84 E5c) every rank holds the arrays and plans, and `solve_blocks` gathers the source to every rank and solves there, no scatter (compact operator, not isolated, no energy); `dirichlet` (#87) zero at the first ghost centres, by the odd extension to `2 (n + 1)` cells per active direction (the type-I sine transform: `FLAIL_BC_DIRICHLET_GHOST` on every axis); `bc` the kinds per face (E1a) |
 | `solve_blocks(nbl, coords, buf, factor, gw, out, energy)` | Solve on an explicit list of this rank's blocks (integer coordinates, packed source), returning each block's potential with `gw` ghost layers; `initialize`/`solve_packed` are wrappers over these two |
 | `destroy()` | Free the arrays and the plans |
 
@@ -412,7 +414,7 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 
 | Procedure | Role |
 |-----------|------|
-| `initialize(grid, field, tolerance, max_iterations, coarse, isolated, bc)` | Gather the leaf list (every rank), derive the level hierarchy, assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the coarsest-level FFT solver, of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise; `isolated` also sizes the ghost-to-ghost Green's function of the James step (an isolated FFT solver of the same type on the coarsest box widened by the ghost layer); `bc` the kind of every face (E1b; default ghost-Dirichlet on the bounded axes) |
+| `initialize(grid, field, tolerance, max_iterations, coarse, isolated, bc, root_cells)` | Gather the leaf list (every rank), derive the level hierarchy (the tree levels, then the levels inside the blocks down to the root, at most `root_cells` cells, default the root solver's `root_cells_max`: 32^3 on the host, 128^3 on cuFFT, #84 E5c), assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the root FFT solver (on every rank when at most 32^3 cells), of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise; `isolated` also sizes the ghost-to-ghost Green's function of the James step (an isolated FFT solver of the same type on the coarsest box widened by the ghost layer); `bc` the kind of every face (E1b; default ghost-Dirichlet on the bounded axes) |
 | `solve(field, q, iv, factor, phi, energy, ghost)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi`; `ghost` the boundary value of each boundary face, of its kind (below); isolated: the James step (no `ghost`) |
 | `solve_packed(field, buf, factor, phi, energy, ghost)` | The same from the packed interior source |
 | `symmetry_defect(x, y)`, `apply_a(x, y)` | Verification: `|x.Ay - y.Ax| / (|x| |Ay|)` and `y = A x` on the leaves |
@@ -424,9 +426,17 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
   `1e-6` perturbation of a uniform density is known to `1e-10` of itself; without the floor every solve ran to the cap,
   #81 P5b); `tolerance_used` keeps the one applied, and reaching `max_iterations` (200) above it prints a warning.
   The V-cycle runs over levels holding the leaves and a **shadow** block per refined node (ADAM keeps leaves only);
-  red-black Gauss-Seidel (2 sweeps down, 2 up), restriction by sum, piecewise-constant prolongation, the coarsest level
-  (the minimum leaf level: the whole domain) solved by `adam_poisson_fft_object%solve_blocks`. Diagnostics after a
-  solve: `iterations`, `residual`, `factor_mean`.
+  red-black Gauss-Seidel (2 sweeps down, 2 up), restriction by sum, piecewise-constant prolongation. Below the
+  coarsest tree level (the minimum leaf level: the whole domain) the levels coarsen **inside the blocks** (#84 E5c):
+  the same blocks on the same ranks, half the cells per block per level along the active directions, while those
+  are even and the level has more than `root_cells` cells; the last, the root (`lbot`), is solved by
+  `adam_poisson_fft_object%solve_blocks`, with `redundant` on every rank (`MPI_ALLGATHERV`, no scatter) when it has
+  at most 32^3 cells, on rank 0 above that (four ranks each transforming a 128^3 root contend for the node's memory). A coarsest
+  tree level of at most that many cells is its own root, as before E5c. The design is Athena++'s (Tomida & Stone 2023, §3:
+  each MeshBlock coarsened to one cell, the root solved redundantly after an `MPI_Allgather`); its cost is FCG
+  iterations (`test_poisson_mg --sub`: 1 -> 14 on a uniform 1:2:3-cell box, point smoothing on anisotropic cells;
+  +1 to +13 on AMR), its gain the rank-0 gather of the whole base grid per V-cycle. Diagnostics after a solve:
+  `iterations`, `residual`, `factor_mean`.
 - **Ghosts:** the first layer per face from the solution (across a 2:1 face, the value whose one-sided difference is
   the operator's own face gradient), deeper layers copying the first.
 - **Distributed, assembled:** CSR rows over global cell keys, each operator with a halo-exchange plan
@@ -443,8 +453,8 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
   | `FLAIL_BC_NEUMANN` | outward derivative at the face | none | `w h` | `phi_C + h g` |
 
   Without a Dirichlet face `A` is singular as on a periodic grid: the mean of `factor V f - B g` and of the solution
-  are removed. The V-cycle's levels take the same kinds, homogeneous, and the coarsest level the FFT solver with them
-  (E1a): on a uniform grid one V-cycle is the exact solve.
+  are removed. The V-cycle's levels take the same kinds, homogeneous, and the root the FFT solver with them
+  (E1a): on a uniform grid that is its own root one V-cycle is the exact solve.
 - **Isolated boundaries (#87, P2), the James step:** `phi0 = A^-1 factor V f` (zero ghosts), the screening charge
   `s = B^T phi0` on the ghost cells, their free-space values `g = -G s` (`G` the lattice Green's function over the
   coarsest spacing, from ghost cell to ghost cell, by the padded FFT on the coarsest box widened by the ghost layer,

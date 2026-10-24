@@ -135,6 +135,7 @@ type :: poisson_fft_object
    integer(I4P)              :: max_iterations=200_I4P !< CG iterations at most.
    integer(I4P)              :: iterations=0_I4P       !< Iterations of the last solve.
    real(R8P)                 :: residual=0._R8P        !< Relative residual of the last solve.
+   logical                   :: redundant=.false.      !< Every rank holds the global arrays and solves (#84 E5c).
    real(R8P)                 :: wall(3)=0._R8P         !< Wall time (s) of `solve_blocks`, accumulated over calls on
                                                        !< this rank: gather, rank-0 solve, scatter (#84 E5; the
                                                        !< caller resets it).
@@ -174,11 +175,13 @@ type :: poisson_fft_object
       procedure, pass(self), private :: free_ghosts    !< Rank 0: g_free, the free-space ghost slabs (E3c).
       procedure, pass(self), private :: subtract_free_ghosts !< Rank 0: f <- f - D(G) u_g (E3c).
       procedure, pass(self), private :: put_free_ghosts      !< Rank 0: the free-space ghost slabs into a padded array.
+      procedure, pass(self), private :: solve_everywhere     !< `solve_blocks` with `redundant`: every rank solves.
       ! backend hooks
       procedure, pass(self) :: destroy_plans    !< Destroy the transform plans.
       procedure, pass(self) :: make_plans       !< Make the transform plans (rank 0).
       procedure, pass(self) :: transform        !< f_global <- factor * L_h^-1 f_global (rank 0).
       procedure, pass(self) :: transform_kernel !< khat <- the spectrum of f_global over prod(m) (rank 0, isolated).
+      procedure, nopass     :: root_cells_max   !< Most cells of a multigrid root solved by this backend (#84 E5c).
 endtype poisson_fft_object
 
 #ifdef _FFTW
@@ -258,6 +261,7 @@ contains
    self%dg_order = 0_I4P ; self%axis_order = 0_I4P ; self%stencil = 0._R8P ; self%null_xyz = .false.
    self%n = 1_I4P ; self%m = 1_I4P ; self%nijk = 1_I4P ; self%ngc = 0_I4P ; self%level = 0_I4P ; self%dxyz = 0._R8P
    self%isolated = .false.
+   self%redundant = .false.
    self%dirichlet = .false.
    self%bc = FLAIL_BC_PERIODIC
    self%extended = .false.
@@ -339,7 +343,7 @@ contains
    endsubroutine initialize
 
    recursive subroutine initialize_blocks(self, nblk, nijk, ngc, dxyz, level, null_xyz, isolated, dirichlet, bc, &
-                                          dg_order, axis_dg_order)
+                                          dg_order, axis_dg_order, redundant)
    !< Size the solver for a uniform grid of `nblk` blocks per direction, `nijk` cells each, at `level` with spacing
    !< `dxyz`, and make the plans (and, isolated, the kernel) on rank 0. No check of a grid: the caller owns the scope
    !< (the multigrid's coarsest level calls it directly, issue #81 P5; with `dirichlet`, issue #87).
@@ -349,6 +353,11 @@ contains
    !< face: 2n cells when the two faces agree, 4n when they differ), or ghost-Dirichlet (both faces, odd about the ghost
    !< centres, 2(n+1) cells: what `dirichlet` sets on every active axis). Periodic against non-periodic, and
    !< ghost-Dirichlet against a face kind, on one axis are fatal; a null axis takes no extension.
+   !<
+   !< `redundant` (issue #84, E5c): every rank holds the global arrays and the plans, and `solve_blocks` gathers the
+   !< source to every rank (`MPI_ALLGATHERV`), transforms on every rank and keeps each rank's own blocks: no scatter,
+   !< and no rank waits on another's transform. For a small grid (the multigrid's root); the compact operator only, not
+   !< isolated, no energy.
    class(poisson_fft_object), intent(inout)        :: self        !< The solver.
    integer(I4P),              intent(in)           :: nblk(3)     !< Blocks per direction.
    integer(I4P),              intent(in)           :: nijk(3)     !< Cells per block per direction.
@@ -361,6 +370,7 @@ contains
    integer(I4P),              intent(in), optional :: bc(2,3)     !< Kinds per face [lo/hi, axis] (default periodic).
    integer(I4P),              intent(in), optional :: dg_order    !< 0 compact (default); 2, 4, 6, 8: the wide D(G).
    integer(I4P),              intent(in), optional :: axis_dg_order(3) !< The operator per axis (E2b's sub-problems).
+   logical,                   intent(in), optional :: redundant   !< Every rank solves (default false).
    integer(I4P)                                    :: nblk_(3), nijk_(3), ngc_, level_ !< Copies of the arguments.
    integer(I4P)                                    :: dg_order_   !< Copy of the argument.
    integer(I4P)                                    :: axis_order_(3) !< Copy of the argument.
@@ -469,7 +479,10 @@ contains
          self%lam3(k) = axis_eigenvalue(k, self%nt(3), self%dxyz(3), self%axis_order(3))
       enddo
    endif
-   if (mpih%myrank == 0) then
+   if (present(redundant)) self%redundant = redundant
+   if (self%redundant .and. (self%isolated .or. self%pcg)) call mpih%error_stop(msg= &
+      'poisson_fft_object%initialize_blocks: redundant is for the compact operator, not isolated')
+   if (mpih%myrank == 0 .or. self%redundant) then
       allocate(self%f_global(self%m(1),self%m(2),self%m(3)))
       allocate(self%f_source(self%m(1),self%m(2),self%m(3)))
       allocate(self%f_hat(self%m(1)/2+1,self%m(2),self%m(3)))
@@ -627,6 +640,11 @@ contains
    real(R8P)                                        :: t(0:3)          !< Phase marks (MPI_WTIME).
 
    if (.not.self%is_initialized) call mpih%error_stop(msg='poisson_fft_object%solve: called before initialize')
+   if (self%redundant) then
+      if (present(energy)) call mpih%error_stop(msg='poisson_fft_object%solve: no energy with redundant')
+      call self%solve_everywhere(nbl=nbl, coords=coords, buf=buf, factor=factor, gw=gw, out=out)
+      return
+   endif
    t(0) = MPI_WTIME()
    ub     = self%nijk + gw
    ncell  = product(self%nijk)
@@ -722,6 +740,76 @@ contains
    t(3) = MPI_WTIME()
    self%wall = self%wall + (t(1:3) - t(0:2))
    endsubroutine solve_blocks
+
+   subroutine solve_everywhere(self, nbl, coords, buf, factor, gw, out)
+   !< `solve_blocks` with `redundant` (issue #84, E5c): the source of every rank gathered to every rank, placed and
+   !< transformed on every rank (the same arrays, the same plans: the same values as rank 0 computes in
+   !< `solve_blocks`), and each rank's blocks packed from its own global solution. `wall`: gather, solve, 0.
+   class(poisson_fft_object), intent(inout) :: self          !< The solver.
+   integer(I4P),              intent(in)    :: nbl           !< Blocks of this rank.
+   integer(I4P),              intent(in)    :: coords(1:,1:) !< Block coordinates [3,nbl].
+   real(R8P),                 intent(in)    :: buf(1:)       !< Packed interior source of this rank.
+   real(R8P),                 intent(in)    :: factor        !< Source factor.
+   integer(I4P),              intent(in)    :: gw            !< Ghost layers of `out`.
+   real(R8P),                 intent(inout) :: out(1:)       !< Packed potential, ghosts included.
+   integer(I4P)                             :: ncell, nr     !< Interior cells per block, ranks.
+   integer(I4P), allocatable                :: counts(:), displs(:), rcounts(:), rdispls(:) !< Allgather layout.
+   integer(I4P), allocatable                :: coords_all(:,:) !< Block coordinates of every rank.
+   real(R8P),    allocatable                :: buf_all(:)    !< Source of every rank.
+   integer(I4P)                             :: ub(3), g(3)   !< Upper bounds, wrapped global index.
+   integer(I4P)                             :: b, i, j, k, c, r, blocks_total !< Counters.
+   integer(I4P)                             :: ierr          !< MPI error status.
+   real(R8P)                                :: t(0:2)        !< Phase marks (MPI_WTIME).
+
+   t(0) = MPI_WTIME()
+   ub    = self%nijk + gw
+   ncell = product(self%nijk)
+   nr    = mpih%procs_number
+   allocate(counts(nr), displs(nr), rcounts(nr), rdispls(nr))
+   call MPI_ALLGATHER(nbl, 1, MPI_INTEGER, counts, 1, MPI_INTEGER, MPI_COMM_WORLD, ierr)
+   displs(1) = 0
+   do r=2, nr
+      displs(r) = displs(r-1) + counts(r-1)
+   enddo
+   blocks_total = sum(counts)
+   allocate(coords_all(3,max(blocks_total,1)), buf_all(max(blocks_total*ncell,1)))
+   rcounts = 3 * counts ; rdispls = 3 * displs
+   call MPI_ALLGATHERV(coords, 3*nbl, MPI_INTEGER, coords_all, rcounts, rdispls, MPI_INTEGER, MPI_COMM_WORLD, ierr)
+   rcounts = ncell * counts ; rdispls = ncell * displs
+   call MPI_ALLGATHERV(buf, nbl*ncell, MPI_REAL8, buf_all, rcounts, rdispls, MPI_REAL8, MPI_COMM_WORLD, ierr)
+   t(1) = MPI_WTIME()
+   if (self%extended) self%f_global = 0._R8P
+   c = 0
+   do b=1, blocks_total
+      do k=1, self%nijk(3)
+         do j=1, self%nijk(2)
+            do i=1, self%nijk(1)
+               c = c + 1
+               self%f_global(coords_all(1,b)*self%nijk(1)+i, coords_all(2,b)*self%nijk(2)+j, &
+                             coords_all(3,b)*self%nijk(3)+k) = buf_all(c)
+            enddo
+         enddo
+      enddo
+   enddo
+   if (self%extended) call self%extend_global
+   call self%transform(factor=factor)
+   c = 0
+   do b=displs(mpih%myrank+1)+1, displs(mpih%myrank+1)+nbl
+      do k=1-gw, ub(3)
+         g(3) = modulo(coords_all(3,b)*self%nijk(3) + k - 1, self%m(3)) + 1
+         do j=1-gw, ub(2)
+            g(2) = modulo(coords_all(2,b)*self%nijk(2) + j - 1, self%m(2)) + 1
+            do i=1-gw, ub(1)
+               g(1) = modulo(coords_all(1,b)*self%nijk(1) + i - 1, self%m(1)) + 1
+               c = c + 1
+               out(c) = self%f_global(g(1),g(2),g(3))
+            enddo
+         enddo
+      enddo
+   enddo
+   t(2) = MPI_WTIME()
+   self%wall(1:2) = self%wall(1:2) + (t(1:2) - t(0:1))
+   endsubroutine solve_everywhere
 
    ! backend hooks
    ! private methods
@@ -1152,6 +1240,16 @@ contains
    call mpih%error_stop(msg='poisson_fft_object%transform_kernel: built without an FFT library')
 #endif
    endsubroutine transform_kernel
+
+   pure function root_cells_max() result(n)
+   !< The most cells the multigrid leaves to this backend's exact root solve, below which it does not coarsen inside the
+   !< blocks (#84 E5c): 32^3 on the host, where a 128^3 FFT on one core costs more per V-cycle than smoothing the level
+   !< over 8 or more ranks (medooza: the periodic multigrid on 3.9 M cells, 9.2 -> 12.7 s at np 1, 2.6 -> 2.3 s at
+   !< np 16).
+   integer(I4P) :: n !< Cells.
+
+   n = 32768_I4P
+   endfunction root_cells_max
 
    ! module helpers
    pure function smooth_size(k) result(m)

@@ -51,6 +51,16 @@ program test_poisson_mg
 !<     centres (each kind's ghost formula). Without a Dirichlet face the solution is known up to a constant: Phi is
 !<     compared after removing both means.
 !<
+!<   - The levels inside the blocks (issue #84, E5c, `--sub`): below the coarsest tree level the V-cycle coarsens
+!<     every block inside down to one cell per block (`initialize(..., root_cells=1)`) and solves that root on every
+!<     rank. Each configuration is solved with the levels forced and without them (`root_cells=huge`: the coarsest
+!<     tree level solved exactly), and asserted: the levels created (`lmin - lbot`, log2 of the cells per block), both
+!<     solves below their stop tolerance, `max |Phi_sub - Phi_exact| / max |Phi_exact|` within `TOL_SUB` (the two
+!<     stop at the same tolerance, from different preconditioners), and the iterations at most `MAX_SUB_RATIO` times
+!<     the exact ones or `MAX_SUB_UNIFORM` (FCG converges with a wrong preconditioner too: the bound is what sees a
+!<     broken level). Uniform and AMR, octree
+!<     and quadtree, periodic, every bounded kind (BC_B), mixed periodicity (BC_A), isolated.
+!<
 !<   - The FLAIL facade with boundary kinds (issue #84, E1c, `--flail`): `flail%setup(..., bc)` and `solve` against the
 !<     solver it chooses, called directly, bitwise (every cell and ghost of phi): the FFT solver on a uniform grid, the
 !<     multigrid on AMR with inhomogeneous boundary values (`ghost`). A vector whose components take different kinds (a
@@ -66,7 +76,7 @@ program test_poisson_mg
 !< the isolated cube at level 1 with one octant refined, a leaf above the coarsest level on the boundary: the isolated
 !< solver must stop.
 !<
-!< Usage: `mpirun -np N exe/test_poisson_mg [--isolated | --bc | --flail | --mixed | --refuse-bc-mismatch |
+!< Usage: `mpirun -np N exe/test_poisson_mg [--isolated | --bc | --sub | --flail | --mixed | --refuse-bc-mismatch |
 !< --refuse-bc-mixed-ghost | --refuse-boundary-refined | --refuse-flail-ghost-fft | --refuse-flail-isolated-bc |
 !< --refuse-flail-wide-amr]`.
 
@@ -103,6 +113,10 @@ real(R8P),    parameter :: TOL_ISOLATED=1.e-12_R8P       !< FCG tolerance of the
 real(R8P),    parameter :: TOL_FFT_ISOLATED=1.e-9_R8P    !< Bound on |Phi_mg - Phi_fft| / max |Phi_fft|, isolated.
 real(R8P),    parameter :: TOL_SYMMETRY_ISOLATED=1.e-9_R8P !< Bound on the solution map's symmetry defect, isolated.
 real(R8P),    parameter :: MIN_ORDER_SPHERE=1.2_R8P      !< Bound on the uniform sphere's order.
+real(R8P),    parameter :: TOL_SUB=1.e-7_R8P             !< Bound on |Phi_sub - Phi_exact| / max |Phi_exact| (E5c).
+real(R8P),    parameter :: MAX_SUB_RATIO=1.5_R8P         !< Bound on the iterations with the levels inside the blocks over
+                                                         !< those without (E5c; FCG converges with any preconditioner).
+integer(I4P), parameter :: MAX_SUB_UNIFORM=20_I4P        !< The same bound where the exact coarsest needs 1 iteration.
 integer(I4P), parameter :: P_=FLAIL_BC_PERIODIC          !< Periodic (the configurations below).
 integer(I4P), parameter :: D_=FLAIL_BC_DIRICHLET         !< Dirichlet at the face.
 integer(I4P), parameter :: N_=FLAIL_BC_NEUMANN           !< Neumann at the face.
@@ -119,6 +133,7 @@ logical                 :: refuse_bc_mismatch            !< Run the bc-against-g
 logical                 :: refuse_bc_ghost               !< Run the mixed ghost-Dirichlet refusal only.
 logical                 :: mixed                         !< Run the mixed-periodicity-without-bc refusal only.
 logical                 :: flail_suite                   !< Run the facade suite (issue #84, E1c).
+logical                 :: sub_suite                     !< Run the levels-inside-the-blocks suite (issue #84, E5c).
 logical                 :: refuse_flail_ghost            !< Run the facade's ghost-on-FFT refusal only.
 logical                 :: refuse_flail_isolated         !< Run the facade's isolated-with-bc refusal only.
 logical                 :: refuse_flail_wide             !< Run the facade's wide-operator-on-AMR refusal only.
@@ -129,12 +144,14 @@ integer(I4P)            :: a                             !< Counter.
 
 bc_suite = .false. ; refuse_bc_mismatch = .false. ; refuse_bc_ghost = .false. ; mixed = .false.
 flail_suite = .false. ; refuse_flail_ghost = .false. ; refuse_flail_isolated = .false. ; refuse_flail_wide = .false.
+sub_suite = .false.
 isolated = .false. ; refuse_boundary = .false.
 do a=1, command_argument_count()
    call get_command_argument(a, arg)
    if (trim(arg) == '--bc') bc_suite = .true.
    if (trim(arg) == '--mixed') mixed = .true.
    if (trim(arg) == '--flail') flail_suite = .true.
+   if (trim(arg) == '--sub') sub_suite = .true.
    if (trim(arg) == '--refuse-flail-ghost-fft') refuse_flail_ghost = .true.
    if (trim(arg) == '--refuse-flail-isolated-bc') refuse_flail_isolated = .true.
    if (trim(arg) == '--refuse-flail-wide-amr') refuse_flail_wide = .true.
@@ -156,6 +173,27 @@ if (refuse_flail_ghost .or. refuse_flail_isolated) then
    if (mpih%myrank == 0) print '(A)', 'test_poisson_mg: FAILED (the facade accepted an inconsistent call)'
    call mpih%finalize
    error stop 1
+endif
+if (sub_suite) then
+   call check_sub(label='E5c, uniform 3-D octree, periodic,       ', ratio=8_I4P, nk=8_I4P, level=2_I4P, amr=.false.)
+   call check_sub(label='E5c, AMR 3-D octree, periodic,           ', ratio=8_I4P, nk=8_I4P, level=2_I4P, amr=.true.)
+   call check_sub(label='E5c, AMR 2-D quadtree, periodic,         ', ratio=4_I4P, nk=1_I4P, level=2_I4P, amr=.true.)
+   call check_sub(label='E5c, AMR 3-D octree, D/D N/N G/G,        ', ratio=8_I4P, nk=8_I4P, level=2_I4P, amr=.true., &
+                  bc=BC_B)
+   call check_sub(label='E5c, AMR 3-D octree, P/P D/N N/D,        ', ratio=8_I4P, nk=8_I4P, level=2_I4P, amr=.true., &
+                  bc=BC_A)
+   call check_sub(label='E5c, AMR 3-D octree, isolated (James),   ', ratio=8_I4P, nk=8_I4P, level=2_I4P, amr=.true., &
+                  isolated=.true.)
+   if (mpih%myrank == 0) then
+      if (test_passed) then
+         print '(A)', 'test_poisson_mg: PASSED'
+      else
+         print '(A)', 'test_poisson_mg: FAILED'
+      endif
+   endif
+   call mpih%finalize
+   if (.not.test_passed) error stop 1
+   stop
 endif
 if (flail_suite) then
    call check_flail_forward(label='E1c, facade, uniform 3-D, P/P D/N N/D (FFT),      ', bc=BC_A, ratio=8_I4P, &
@@ -575,6 +613,75 @@ contains
    call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=.false., backend=FLAIL_BACKEND_AUTO, &
                     bc=BC_B, dg_order=4_I4P)
    endsubroutine refuse_flail_wide_amr
+
+   subroutine check_sub(label, ratio, nk, level, amr, bc, isolated)
+   !< Issue #84, E5c: one configuration solved with the levels inside the blocks forced (`root_cells=1`) and without
+   !< them (`root_cells=huge`); see the module.
+   character(*), intent(in)           :: label    !< Label.
+   integer(I4P), intent(in)           :: ratio    !< Tree ratio.
+   integer(I4P), intent(in)           :: nk       !< Cells per block along z.
+   integer(I4P), intent(in)           :: level    !< Base level.
+   logical,      intent(in)           :: amr      !< Refine the central box (the star's, isolated).
+   integer(I4P), intent(in), optional :: bc(2,3)  !< Kinds per face (default periodic).
+   logical,      intent(in), optional :: isolated !< Isolated boundaries (the star's cube).
+   type(realm_object)                 :: realm    !< Realm.
+   type(poisson_mg_object)            :: mg(2)    !< Solvers: the levels forced, none.
+   real(R8P), allocatable             :: q(:,:,:,:,:), phi(:,:,:,:,:) !< Source, the two potentials.
+   real(R8P)                          :: diff(2)  !< max |Phi_sub - Phi_exact|, max |Phi_exact|.
+   integer(I4P)                       :: its(2), nsub_expected, s, b, i, j, k, ierr !< Iterations, levels, counters.
+   logical                            :: iso, ok  !< Isolated, pass flag.
+
+   iso = .false. ; if (present(isolated)) iso = isolated
+   if (iso) then
+      call build_star(realm, level, refine=amr, boundary=.false., prof=PROFILE_POLYTROPE, q=q)
+   elseif (present(bc)) then
+      call build(realm, ratio, nk, level, sphere=amr, q=q, periodic=.false.)
+      call set_grid_bc(realm, bc)
+   else
+      call build(realm, ratio, nk, level, sphere=amr, q=q)
+   endif
+   associate(f=>realm%adam%field, g=>realm%adam%grid)
+   allocate(phi(lbound(q,2):ubound(q,2),lbound(q,3):ubound(q,3),lbound(q,4):ubound(q,4),ubound(q,5),2))
+   phi = 0._R8P
+   do s=1, 2
+      if (iso) then
+         call mg(s)%initialize(grid=g, field=f, tolerance=TOL_ISOLATED, max_iterations=MAX_ITERATIONS, isolated=.true., &
+                               root_cells=merge(1_I4P, huge(1_I4P), s == 1))
+      elseif (present(bc)) then
+         call mg(s)%initialize(grid=g, field=f, max_iterations=MAX_ITERATIONS, bc=bc, &
+                               root_cells=merge(1_I4P, huge(1_I4P), s == 1))
+      else
+         call mg(s)%initialize(grid=g, field=f, max_iterations=MAX_ITERATIONS, root_cells=merge(1_I4P, huge(1_I4P), s == 1))
+      endif
+      call mg(s)%solve(field=f, q=q, iv=1_I4P, factor=FACTOR, phi=phi(:,:,:,:,s))
+      its(s) = mg(s)%iterations + mg(s)%iterations0
+   enddo
+   diff = 0._R8P
+   do b=1, f%blocks_number
+      do k=1, nk
+         do j=1, g%nj
+            do i=1, g%ni
+               diff(1) = max(diff(1), abs(phi(i,j,k,b,1) - phi(i,j,k,b,2)))
+               diff(2) = max(diff(2), abs(phi(i,j,k,b,2)))
+            enddo
+         enddo
+      enddo
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, diff, 2, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   nsub_expected = nint(log(real(g%ni, R8P)) / log(2._R8P))
+   ok = mg(1)%lmin - mg(1)%lbot == nsub_expected .and. mg(2)%lbot == mg(2)%lmin
+   ok = ok .and. mg(1)%residual <= mg(1)%tolerance_used .and. mg(2)%residual <= mg(2)%tolerance_used
+   ok = ok .and. diff(1) <= TOL_SUB * diff(2)
+   ok = ok .and. its(1) <= max(MAX_SUB_UNIFORM, nint(MAX_SUB_RATIO * its(2)))
+   if (mpih%myrank == 0) print '(A)', '   '//label//' levels inside the blocks '// &
+      trim(str(mg(1)%lmin - mg(1)%lbot, .true.))//', iterations '//trim(str(its(1), .true.))//' (exact coarsest '// &
+      trim(str(its(2), .true.))//'), |Phi_sub - Phi_exact| / max |Phi| '//trim(str(diff(1) / diff(2)))//'  '// &
+      merge('PASS', 'FAIL', ok)
+   test_passed = test_passed .and. ok
+   endassociate
+   call mg(1)%destroy
+   call mg(2)%destroy
+   endsubroutine check_sub
 
    subroutine check_flail_forward(label, bc, ratio, nk, level, amr, dg_order)
    !< Issue #84, E1c: `flail%setup(..., bc)` and `solve` against the solver it chooses called directly, bitwise on every

@@ -24,8 +24,22 @@ module adam_poisson_mg_object
 !< at `l` and a **shadow** block for every tree node at `l` that has children (ADAM keeps leaves only); red-black
 !< Gauss-Seidel sweeps down and up on the plain level Laplacian, a face to a cell outside the level reading the
 !< coarser correction (piecewise constant) on the way up; restriction the sum of the children's residuals, prolongation
-!< piecewise constant; the coarsest level (every block at the minimum leaf level: the whole domain) solved exactly by
-!< the FFT solver (`adam_poisson_fft_object%solve_blocks`; of the caller's backend type with `initialize(coarse=)`). It
+!< piecewise constant; the coarsest tree level (every block at the minimum leaf level: the whole domain) coarsened
+!< further **inside the blocks** (issue #84, E5c): each level below it halves the cells per block along every active
+!< direction, the same blocks on the same ranks, the plain level Laplacian with the face kinds, the same smoother and
+!< transfers, while the cells per block are even and the domain has more than `root_cells` cells at the level
+!< (default: the root solver's `root_cells_max`, 32^3 on the host FFT, 128^3 on cuFFT, which outruns the host
+!< smoother); the last of them, the root (`lbot`), is solved exactly by the FFT solver
+!< (`adam_poisson_fft_object%solve_blocks`; of the caller's backend type with `initialize(coarse=)`): on **every
+!< rank** (`redundant`), from the source gathered by `MPI_ALLGATHERV`, when it has at most `REDUNDANT_ROOT_MAX` (32^3)
+!< cells, so no rank-0 gather and scatter per V-cycle; a larger root (cuFFT keeps up to 128^3) on rank 0 as before,
+!< since every rank transforming it contends for the node's memory (FNL, 4 GPUs, the isolated 128^3 coarsest level:
+!< 4.7 -> 6.4 s per solve). A coarsest tree level of at most `root_cells` cells is its own root, solved as before. Measured
+!< (`test_poisson_mg --sub`, every level down to one cell per block): 1 -> 14 FCG iterations on a uniform 1:2:3-cell
+!< box (point smoothing on anisotropic cells), +1 to +13 on AMR (24-47 -> 25-53). Medooza CPU, 3.9 M AMR cells per
+!< solve: isolated 50.7 -> 31.2 s at np 1 and 39.9 -> 6.5 s at np 16 (its 258^3 coarsest level and 42 exact solves
+!< were 70% of it); periodic 9.2 -> 12.7 s at np 1, even at np 8, 2.6 -> 2.3 s at np 16 (the generic CSR smoother
+!< on the base level costs more than one FFT of it on few ranks; a stencil smoother is #84 E6). It
 !< stops at `tolerance` or at the round-off floor of the source, `100 eps max|factor f| / max|factor (f - mean f)|`,
 !< whichever is larger (a small perturbation of a uniform density is known only to that floor, #81 P5b).
 !<
@@ -33,7 +47,8 @@ module adam_poisson_mg_object
 !< derives the shadow blocks and their owners (the owner of the first leaf below, in the gathered order: the same on
 !< every rank), and assembles, from the geometry only, the rows of its own cells: the operator, the ghost fill, the level
 !< operators and transfers. Columns are global cell keys; every operator owns a halo-exchange plan (the remote columns
-!< it reads, fetched from their owners by `MPI_ALLTOALLV`). Correct for any rank count; not tuned for speed.
+!< it reads, fetched from their owners by `MPI_ALLTOALLV`). Correct for any rank count. Cell keys carry the level
+!< offset by `KEY_LEVEL_OFFSET` (the levels inside the blocks may be negative).
 !<
 !< **Domain boundaries (issue #87, P1; per face, issue #84, E1b).** Every active axis is periodic (both faces) or
 !< bounded, and each face of a bounded axis has a kind (`adam_flail_parameters`; `initialize(..., bc=)`, by default
@@ -94,7 +109,12 @@ real(R8P),    parameter :: MG_SEAM_GHOST_SCALE=1.5_R8P !< 2:1 fine-side ghost: p
 integer(I4P), parameter :: CLS_SAME=1_I4P    !< Neighbour position: a leaf of the same level.
 integer(I4P), parameter :: CLS_FINER=2_I4P   !< Neighbour position: refined (finer leaves).
 integer(I4P), parameter :: CLS_COARSER=3_I4P !< Neighbour position: inside a leaf one level coarser.
-integer(I4P), parameter :: SPACE_COMP=-1_I4P !< Vector space: the composite leaf cells (levels are spaces >= 0).
+integer(I4P), parameter :: SPACE_COMP=-100_I4P !< Vector space: the composite leaf cells (levels are the other spaces;
+                                              !< below lmin they may be negative, #84 E5c).
+integer(I4P), parameter :: KEY_LEVEL_OFFSET=16_I4P !< Level offset in the cell keys (the levels below lmin, E5c).
+integer(I4P), parameter :: REDUNDANT_ROOT_MAX=32768_I4P !< A root of at most this many cells is solved on every rank;
+                                                        !< a larger one on rank 0 (E5c: four ranks transforming a
+                                                        !< 128^3 root each contend for the node's memory).
 
 type :: hash_table
    !< Open-addressing hash, int64 key (>= 0) -> int32 value (0: absent).
@@ -139,6 +159,8 @@ type :: poisson_mg_object
    integer(I4P)              :: nblk0(3)=1_I4P         !< Blocks per direction at level 0.
    real(R8P)                 :: dx0(3)=0._R8P          !< Cell spacing at level 0.
    integer(I4P)              :: lmin=0_I4P, lmax=0_I4P !< Leaf levels range.
+   integer(I4P)              :: lbot=0_I4P             !< The root level: lmin less the levels inside the blocks (E5c).
+   integer(I4P)              :: root_max=0_I4P         !< Most cells of the root (E5c; the root solver's default).
    integer(I4P)              :: nr=1_I4P, me=0_I4P     !< Ranks, this rank.
    ! the global leaf list
    integer(I4P)              :: nleaf=0_I4P            !< Leaves over the ranks.
@@ -153,8 +175,9 @@ type :: poisson_mg_object
    integer(I4P), allocatable :: node_loc(:)            !< Local block index in its level space on its owner.
    logical,      allocatable :: node_leaf(:)           !< The node is a leaf.
    type(hash_table)          :: node_hash              !< Block key -> node id.
-   integer(I4P), allocatable :: nloc_lev(:)            !< This rank's blocks per level [lmin:lmax].
-   integer(I4P), allocatable :: lev_node(:,:)          !< This rank's level blocks: node id [max blocks, lmin:lmax].
+   integer(I4P), allocatable :: nloc_lev(:)            !< This rank's blocks per level [lbot:lmax].
+   integer(I4P), allocatable :: lev_node(:,:)          !< This rank's level blocks: node id [max blocks, lbot:lmax]
+                                                       !< (below lmin, the lmin blocks).
    integer(I4P)              :: nleaf_loc=0_I4P        !< This rank's leaves.
    integer(I4P), allocatable :: leaf_lev(:)            !< This rank's leaf b: its level.
    integer(I4P), allocatable :: leaf_lev_loc(:)        !< This rank's leaf b: its local index in its level space.
@@ -162,12 +185,12 @@ type :: poisson_mg_object
    type(dcsr)                :: a                      !< The composite operator on the leaves.
    type(dcsr)                :: g                      !< Ghost fill: the first ghost layer of the leaves.
    integer(I4P), allocatable :: g_dst(:,:)             !< Ghost fill destinations (i,j,k,b) [4,rows].
-   type(dcsr),   allocatable :: al(:)                  !< Level operators [lmin+1:lmax].
-   type(dcsr),   allocatable :: el(:)                  !< Level ghost terms from level l-1 [lmin+1:lmax].
-   type(dcsr),   allocatable :: rl(:)                  !< Restriction l -> l-1 [lmin+1:lmax].
-   type(dcsr),   allocatable :: pl(:)                  !< Prolongation l-1 -> l [lmin+1:lmax].
-   type(rvec),   allocatable :: diag(:)                !< Level operator diagonals [lmin+1:lmax].
-   type(rvec),   allocatable :: colour(:)              !< Red-black colour (0, 1) of the level cells [lmin+1:lmax].
+   type(dcsr),   allocatable :: al(:)                  !< Level operators [lbot+1:lmax].
+   type(dcsr),   allocatable :: el(:)                  !< Level ghost terms from level l-1 [lbot+1:lmax].
+   type(dcsr),   allocatable :: rl(:)                  !< Restriction l -> l-1 [lbot+1:lmax].
+   type(dcsr),   allocatable :: pl(:)                  !< Prolongation l-1 -> l [lbot+1:lmax].
+   type(rvec),   allocatable :: diag(:)                !< Level operator diagonals [lbot+1:lmax].
+   type(rvec),   allocatable :: colour(:)              !< Red-black colour (0, 1) of the level cells [lbot+1:lmax].
    real(R8P),    allocatable :: vol(:)                 !< Leaf cell volumes.
    ! domain boundaries (issue #87; per face, issue #84 E1b)
    integer(I4P)              :: bc(2,3)=FLAIL_BC_PERIODIC !< Kind per face [lo/hi, axis] (adam_flail_parameters).
@@ -188,7 +211,7 @@ type :: poisson_mg_object
    integer(I4P), allocatable :: bnd_gi(:)              !< Boundary face: its ghost cell in the widened coarsest box.
    real(R8P),    allocatable :: u0(:)                  !< The last zero-ghost solution (warm start of the first solve).
    integer(I4P)              :: iterations0=0_I4P      !< Iterations of the last zero-ghost solve.
-   class(poisson_fft_object), allocatable :: fft       !< The coarsest-level solver (FFTW, or the caller's backend).
+   class(poisson_fft_object), allocatable :: fft       !< The root solver, on every rank (FFTW, or the caller's backend).
    class(poisson_fft_object), allocatable :: gfft      !< Isolated: the ghost-to-ghost Green's function (padded FFT).
    ! controls and diagnostics
    real(R8P)                 :: tolerance=1.e-10_R8P   !< Relative max-norm residual to stop.
@@ -223,7 +246,11 @@ type :: poisson_mg_object
       procedure, pass(self), private :: face_weight !< V-weighted face weight (area over distance) at a level.
       procedure, pass(self), private :: ghost_green !< Isolated: g = -G s, the ghost-to-ghost Green's function.
       procedure, pass(self), private :: solve_fcg   !< The FCG solve with given ghost values (or none).
-      procedure, pass(self), private :: lin         !< Linear index of a cell in a block.
+      procedure, pass(self), private :: lin         !< Linear index of a cell in a leaf block.
+      procedure, pass(self), private :: lin_of      !< Linear index of a cell in a block at a level.
+      procedure, pass(self), private :: ncb_of      !< Cells per block at a level.
+      procedure, pass(self), private :: ncell       !< Cells along a direction over the domain at a level.
+      procedure, pass(self), private :: nijk_of     !< Cells per block per direction at a level.
       procedure, pass(self), private :: outside     !< A cell position beyond a domain face.
       procedure, pass(self), private :: locate      !< Owner and local index of a cell key in a space.
       procedure, pass(self), private :: parent3     !< Parent cell coordinates.
@@ -269,16 +296,20 @@ contains
    call hash_free(self%node_hash)
    self%a = dcsr()
    self%g = dcsr()
+   self%lbot = 0_I4P
+   self%root_max = 0_I4P
    self%has_guess = .false.
    self%is_initialized = .false.
    endsubroutine destroy
 
-   subroutine initialize(self, grid, field, tolerance, max_iterations, coarse, isolated, bc)
+   subroutine initialize(self, grid, field, tolerance, max_iterations, coarse, isolated, bc, root_cells)
    !< Gather the leaves, derive the hierarchy, assemble the operator, the ghost fill and the preconditioner, set up the
    !< coarsest-level FFT solver: of the dynamic type of `coarse` when given (the FNL backend passes its cuFFT solver),
    !< the FFTW one otherwise. With `isolated` (issue #87), also the ghost-to-ghost Green's function of the James step.
    !< `bc` (issue #84, E1b): the kind of every face (see the module); a periodic axis of the grid must be periodic in
-   !< `bc` and the other way round. Without it, every bounded axis takes ghost-Dirichlet faces.
+   !< `bc` and the other way round. Without it, every bounded axis takes ghost-Dirichlet faces. `root_cells` (#84 E5c):
+   !< the levels inside the blocks below lmin stop once the root has at most this many cells (default: the root
+   !< solver's `root_cells_max`, 32^3 on the host, 128^3 on cuFFT; tests force the levels with a small one).
    class(poisson_mg_object), intent(inout)        :: self           !< The solver.
    type(grid_object),        intent(in)           :: grid           !< The grid.
    type(field_object),       intent(in)           :: field          !< The field (block coordinates).
@@ -287,6 +318,8 @@ contains
    class(poisson_fft_object), intent(in), optional :: coarse        !< Mold of the coarsest-level solver.
    logical,                  intent(in), optional :: isolated       !< Free-space boundaries (James), else as the grid.
    integer(I4P),             intent(in), optional :: bc(2,3)        !< Kinds per face [lo/hi, axis].
+   integer(I4P),             intent(in), optional :: root_cells     !< Most cells of the root (default: the backend's).
+   type(poisson_fft_object)  :: host_fft             !< The host FFT solver (its root_cells_max, without coarse).
    integer(I4P), allocatable :: counts(:), displs(:) !< Allgather counts and displacements.
    integer(I4P), allocatable :: mine(:,:)            !< This rank's block coordinates and index [5,nb].
    integer(I4P), allocatable :: all_(:,:)            !< Every rank's [5,nleaf].
@@ -296,6 +329,9 @@ contains
    integer(I4P)              :: ierr                 !< MPI error status.
 
    call self%destroy
+   self%root_max = host_fft%root_cells_max()
+   if (present(coarse)) self%root_max = coarse%root_cells_max()
+   if (present(root_cells)) self%root_max = root_cells
    if (present(tolerance)) self%tolerance = tolerance
    if (present(max_iterations)) self%max_iterations = max_iterations
    self%nr = mpih%procs_number
@@ -384,6 +420,17 @@ contains
    self%lmax = maxval(self%leaf_c(4,:))
    if (2_I8P**self%lmax * maxval(self%nblk0 * self%nijk) >= 2_I8P**19) call mpih%error_stop(msg= &
       'poisson_mg_object%initialize: the finest level has 2^19 or more cells along a direction (the key limit)')
+   ! the levels inside the blocks below lmin (#84 E5c): halve the cells per block along every active direction while
+   ! they are even and the root has more than root_max cells
+   self%lbot = self%lmin
+   do
+      c(1:3) = self%nijk_of(self%lbot)
+      if (self%lmin - self%lbot >= KEY_LEVEL_OFFSET) exit
+      if (product(int(self%nblk0, I8P) * merge(1_I8P, 2_I8P**self%lmin, self%null) * int(c(1:3), I8P)) <= &
+          int(self%root_max, I8P)) exit
+      if (any([(mod(c(self%act(p)), 2) /= 0, p=1, self%nd)])) exit
+      self%lbot = self%lbot - 1
+   enddo
    ! the nodes: every leaf and its ancestors down to lmin; a shadow's owner is its first leaf's
    allocate(self%node_c(4,2*self%nleaf+8), self%node_owner(2*self%nleaf+8), self%node_loc(2*self%nleaf+8), &
             self%node_leaf(2*self%nleaf+8))
@@ -411,10 +458,14 @@ contains
       cnt(self%node_owner(id),l) = cnt(self%node_owner(id),l) + 1
       self%node_loc(id) = cnt(self%node_owner(id),l)
    enddo
-   allocate(self%nloc_lev(self%lmin:self%lmax), self%lev_node(max(maxval(cnt(self%me,:)),1),self%lmin:self%lmax))
-   self%nloc_lev = cnt(self%me,:)
+   allocate(self%nloc_lev(self%lbot:self%lmax), self%lev_node(max(maxval(cnt(self%me,:)),1),self%lbot:self%lmax))
+   self%nloc_lev(self%lmin:self%lmax) = cnt(self%me,:)
    do id=1, self%nnode
       if (self%node_owner(id) == self%me) self%lev_node(self%node_loc(id),self%node_c(4,id)) = id
+   enddo
+   do l=self%lbot, self%lmin-1 ! the levels inside the blocks: the lmin blocks, the same owners
+      self%nloc_lev(l) = self%nloc_lev(self%lmin)
+      self%lev_node(:,l) = self%lev_node(:,self%lmin)
    enddo
    self%nleaf_loc = n
    allocate(self%leaf_lev(max(n,1)), self%leaf_lev_loc(max(n,1)))
@@ -436,15 +487,18 @@ contains
    call assemble_a
    call assemble_ghost_fill
    call assemble_levels
-   ! the coarsest level: every block at lmin, the whole domain
+   ! the root: every block at lmin, the whole domain, nijk_of(lbot) cells per block; solved on every rank when small
+   ! (#84 E5c), else on rank 0 as before E5c
    if (present(coarse)) then
       allocate(self%fft, mold=coarse)
    else
       allocate(poisson_fft_object :: self%fft)
    endif
-   call self%fft%initialize_blocks(nblk=self%nblk0 * merge(1, 2**self%lmin, self%null), nijk=self%nijk, ngc=0_I4P, &
-                                   dxyz=self%dx_of(self%lmin), level=self%lmin, null_xyz=self%null, isolated=.false., &
-                                   bc=self%bc)
+   call self%fft%initialize_blocks(nblk=self%nblk0 * merge(1, 2**self%lmin, self%null), nijk=self%nijk_of(self%lbot), &
+                                   ngc=0_I4P, dxyz=self%dx_of(self%lbot), level=self%lmin, null_xyz=self%null,        &
+                                   isolated=.false., bc=self%bc, redundant=product(int(self%nblk0, I8P) *          &
+                                   merge(1_I8P, 2_I8P**self%lmin, self%null) * int(self%nijk_of(self%lbot), I8P)) <= &
+                                   int(REDUNDANT_ROOT_MAX, I8P))
    if (self%isolated) then ! the coarsest box widened by the ghost layer, zero-padded: sources and values on its shell
       if (present(coarse)) then
          allocate(self%gfft, mold=coarse)
@@ -619,13 +673,14 @@ contains
       endsubroutine assemble_ghost_fill
 
       subroutine assemble_levels
-      !< The preconditioner's level operators, ghost terms and transfers, for every level above lmin.
+      !< The preconditioner's level operators, ghost terms and transfers, for every level above the root (lbot): the
+      !< tree levels above lmin, lmin itself and the levels inside the blocks when there are some (#84 E5c).
       integer(I4P) :: lv, lt !< Level, top.
 
-      lt = max(self%lmax, self%lmin+1)
-      allocate(self%al(self%lmin+1:lt), self%el(self%lmin+1:lt), self%rl(self%lmin+1:lt), self%pl(self%lmin+1:lt), &
-               self%diag(self%lmin+1:lt), self%colour(self%lmin+1:lt))
-      do lv=self%lmin+1, self%lmax
+      lt = max(self%lmax, self%lbot+1)
+      allocate(self%al(self%lbot+1:lt), self%el(self%lbot+1:lt), self%rl(self%lbot+1:lt), self%pl(self%lbot+1:lt), &
+               self%diag(self%lbot+1:lt), self%colour(self%lbot+1:lt))
+      do lv=self%lbot+1, self%lmax
          call level_ops(lv)
       enddo
       endsubroutine assemble_levels
@@ -633,24 +688,28 @@ contains
       subroutine level_ops(lv)
       !< Level lv: A_l (the plain Laplacian on the level's cells, a face to a cell outside the level reading E_l: the
       !< level-(lv-1) cell containing it), R_l (rows: this rank's shadow cells at lv-1, the sum of their children at
-      !< lv) and P_l (rows: the level's cells, their parent at lv-1).
+      !< lv) and P_l (rows: the level's cells, their parent at lv-1). At lmin and below every cell of the domain is in
+      !< the level (no E_l), and below lmin every block has its cells at lv-1 (E5c: the blocks coarsen inside).
       integer(I4P), intent(in) :: lv !< Level.
       type(triplets)           :: ta, te, tr, tp !< Assembly buffers.
       integer(I4P)             :: q, nloc, i, j, kk, pp, dd, sgn, row, o, id_, ch !< Counters.
       integer(I4P)             :: cc(3), nb3(3), pc(3), cch(3) !< Coordinates.
+      integer(I4P)             :: nl(3), nlc(3) !< Cells per block at lv and lv-1.
       real(R8P)                :: w !< Face weight.
 
-      nloc = self%nloc_lev(lv) * self%ncb
+      nl = self%nijk_of(lv)
+      nlc = self%nijk_of(lv-1)
+      nloc = self%nloc_lev(lv) * self%ncb_of(lv)
       allocate(self%colour(lv)%v(max(nloc,1)), self%diag(lv)%v(max(nloc,1)))
       self%diag(lv)%v = 1._R8P
       if (nloc > 0) self%diag(lv)%v(1:nloc) = 0._R8P
       do q=1, self%nloc_lev(lv)
          id_ = self%lev_node(q,lv)
-         do kk=1, self%nijk(3)
-            do j=1, self%nijk(2)
-               do i=1, self%nijk(1)
-                  cc = self%node_c(1:3,id_) * self%nijk + [i-1, j-1, kk-1]
-                  row = (q - 1) * self%ncb + self%lin([i, j, kk])
+         do kk=1, nl(3)
+            do j=1, nl(2)
+               do i=1, nl(1)
+                  cc = self%node_c(1:3,id_) * nl + [i-1, j-1, kk-1]
+                  row = (q - 1) * self%ncb_of(lv) + self%lin_of(lv, [i, j, kk])
                   self%colour(lv)%v(row) = real(mod(sum(cc), 2), R8P)
                   do pp=1, self%nd
                      dd = self%act(pp)
@@ -671,7 +730,9 @@ contains
                         endif
                         call trip_add(ta, row, ckey(lv, cc), -w)
                         self%diag(lv)%v(row) = self%diag(lv)%v(row) - w
-                        if (hash_get(self%node_hash, bkey([nb3 / self%nijk, lv])) > 0) then
+                        if (lv <= self%lmin) then ! every cell of the domain is in the level
+                           call trip_add(ta, row, ckey(lv, nb3), w)
+                        elseif (hash_get(self%node_hash, bkey([nb3 / self%nijk, lv])) > 0) then
                            call trip_add(ta, row, ckey(lv, nb3), w)
                         else
                            call trip_add(te, row, ckey(lv-1, self%parent3(nb3)), w)
@@ -685,12 +746,12 @@ contains
       enddo
       do q=1, self%nloc_lev(lv-1)
          id_ = self%lev_node(q,lv-1)
-         if (self%node_leaf(id_)) cycle
-         do kk=1, self%nijk(3)
-            do j=1, self%nijk(2)
-               do i=1, self%nijk(1)
-                  pc = self%node_c(1:3,id_) * self%nijk + [i-1, j-1, kk-1]
-                  row = (q - 1) * self%ncb + self%lin([i, j, kk])
+         if (lv-1 >= self%lmin .and. self%node_leaf(id_)) cycle ! below lmin every block has its finer cells
+         do kk=1, nlc(3)
+            do j=1, nlc(2)
+               do i=1, nlc(1)
+                  pc = self%node_c(1:3,id_) * nlc + [i-1, j-1, kk-1]
+                  row = (q - 1) * self%ncb_of(lv-1) + self%lin_of(lv-1, [i, j, kk])
                   do o=0, 2**self%nd-1
                      cch = pc
                      do ch=1, self%nd
@@ -704,7 +765,7 @@ contains
       enddo
       call self%assemble(ta, nloc, lv, self%al(lv))
       call self%assemble(te, nloc, lv-1, self%el(lv))
-      call self%assemble(tr, self%nloc_lev(lv-1) * self%ncb, lv, self%rl(lv))
+      call self%assemble(tr, self%nloc_lev(lv-1) * self%ncb_of(lv-1), lv, self%rl(lv))
       call self%assemble(tp, nloc, lv-1, self%pl(lv))
       endsubroutine level_ops
 
@@ -1023,7 +1084,7 @@ contains
    if (space == SPACE_COMP) then
       m%nloc = self%nleaf_loc * self%ncb
    else
-      m%nloc = self%nloc_lev(space) * self%ncb
+      m%nloc = self%nloc_lev(space) * self%ncb_of(space)
    endif
    allocate(prov(max(t%n,1)), hkey(max(t%n,1)), hown(max(t%n,1)))
    call hash_init(hh, max(t%n,1))
@@ -1351,6 +1412,50 @@ contains
    l = ijk(1) + (ijk(2) - 1) * self%nijk(1) + (ijk(3) - 1) * self%nijk(1) * self%nijk(2)
    endfunction lin
 
+   pure function lin_of(self, lv, ijk) result(l)
+   !< Linear index of a cell (1-based) in a block at level lv (`nijk_of(lv)` cells).
+   class(poisson_mg_object), intent(in) :: self   !< The solver.
+   integer(I4P),             intent(in) :: lv     !< Level.
+   integer(I4P),             intent(in) :: ijk(3) !< Cell (1-based).
+   integer(I4P)                         :: l      !< Index.
+   integer(I4P)                         :: nl(3)  !< Cells per block.
+
+   nl = self%nijk_of(lv)
+   l = ijk(1) + (ijk(2) - 1) * nl(1) + (ijk(3) - 1) * nl(1) * nl(2)
+   endfunction lin_of
+
+   pure function ncb_of(self, lv) result(n)
+   !< Cells per block at level lv.
+   class(poisson_mg_object), intent(in) :: self !< The solver.
+   integer(I4P),             intent(in) :: lv   !< Level.
+   integer(I4P)                         :: n    !< Cells.
+
+   n = product(self%nijk_of(lv))
+   endfunction ncb_of
+
+   pure function ncell(self, lv, d) result(n)
+   !< Cells along direction d over the domain at level lv: the blocks at max(lv, lmin) times their cells.
+   class(poisson_mg_object), intent(in) :: self !< The solver.
+   integer(I4P),             intent(in) :: lv   !< Level.
+   integer(I4P),             intent(in) :: d    !< Direction.
+   integer(I4P)                         :: n    !< Cells.
+   integer(I4P)                         :: nl(3) !< Cells per block.
+
+   nl = self%nijk_of(lv)
+   n = self%nblk0(d) * 2**max(lv, self%lmin) * nl(d)
+   endfunction ncell
+
+   pure function nijk_of(self, lv) result(nl)
+   !< Cells per block per direction at level lv: nijk at lmin and above, halved per level below it along the active
+   !< directions (the levels inside the blocks, #84 E5c).
+   class(poisson_mg_object), intent(in) :: self  !< The solver.
+   integer(I4P),             intent(in) :: lv    !< Level.
+   integer(I4P)                         :: nl(3) !< Cells per block.
+
+   nl = self%nijk
+   if (lv < self%lmin) nl = merge(self%nijk, self%nijk / 2**(self%lmin - lv), self%null)
+   endfunction nijk_of
+
    subroutine locate(self, space, key, owner, lidx)
    !< Owner rank and local index of a cell key in a space (the composite leaves, or a level).
    class(poisson_mg_object), intent(in)  :: self  !< The solver.
@@ -1359,6 +1464,7 @@ contains
    integer(I4P),             intent(out) :: owner !< Owner rank.
    integer(I4P),             intent(out) :: lidx  !< Local index on the owner.
    integer(I4P)                          :: lv, cc(3), id, loc !< Decoded key, ids.
+   integer(I4P)                          :: nl(3)              !< Cells per block at the level.
 
    call kdecode(key, lv, cc)
    if (space == SPACE_COMP) then
@@ -1366,6 +1472,14 @@ contains
       if (id == 0) call mpih%error_stop(msg='poisson_mg_object: a composite key names no leaf')
       owner = self%leaf_owner(id)
       loc = self%leaf_loc(id)
+   elseif (lv < self%lmin) then ! a level inside the blocks (#84 E5c): the lmin block holding the cell
+      if (lv /= space) call mpih%error_stop(msg='poisson_mg_object: a level key names another level')
+      nl = self%nijk_of(lv)
+      id = hash_get(self%node_hash, bkey([cc / nl, self%lmin]))
+      if (id == 0) call mpih%error_stop(msg='poisson_mg_object: a level key names no node')
+      owner = self%node_owner(id)
+      lidx = (self%node_loc(id) - 1) * self%ncb_of(lv) + self%lin_of(lv, cc - (cc / nl) * nl + 1)
+      return
    else
       if (lv /= space) call mpih%error_stop(msg='poisson_mg_object: a level key names another level')
       id = hash_get(self%node_hash, bkey([cc / self%nijk, lv]))
@@ -1425,19 +1539,20 @@ contains
    endsubroutine smooth
 
    subroutine vcycle(self, r_leaf, z_leaf)
-   !< The preconditioner: z = M r, one V-cycle over the levels (see the module).
+   !< The preconditioner: z = M r, one V-cycle over the levels (see the module), down to the root (lbot), solved
+   !< exactly by FFT on every rank (#84 E5c: below lmin the levels coarsen inside the blocks).
    class(poisson_mg_object), intent(inout) :: self       !< The solver.
    real(R8P),                intent(in)    :: r_leaf(1:) !< Leaf residual (V-weighted).
    real(R8P),                intent(inout) :: z_leaf(1:) !< Leaf correction.
    type(rvec),   allocatable :: r(:), e(:)                !< Level residuals and corrections.
    real(R8P),    allocatable :: tmp(:), res(:), buf(:), out(:) !< Work vectors.
-   integer(I4P), allocatable :: coords(:,:)               !< Coarsest blocks.
+   integer(I4P), allocatable :: coords(:,:)               !< Root blocks.
    integer(I4P)              :: lv, b, q, n, nc           !< Counters.
-   real(R8P)                 :: v0                        !< Coarsest cell volume.
+   real(R8P)                 :: v0                        !< Root cell volume.
 
-   allocate(r(self%lmin:self%lmax), e(self%lmin:self%lmax))
-   do lv=self%lmin, self%lmax
-      n = max(self%nloc_lev(lv) * self%ncb, 1)
+   allocate(r(self%lbot:self%lmax), e(self%lbot:self%lmax))
+   do lv=self%lbot, self%lmax
+      n = max(self%nloc_lev(lv) * self%ncb_of(lv), 1)
       allocate(r(lv)%v(n), e(lv)%v(n))
       r(lv)%v = 0._R8P ; e(lv)%v = 0._R8P
    enddo
@@ -1448,9 +1563,9 @@ contains
       r(lv)%v((q-1)*self%ncb+1:q*self%ncb) = r_leaf((b-1)*self%ncb+1:b*self%ncb)
    enddo
    ! down
-   do lv=self%lmax, self%lmin+1, -1
-      n = self%nloc_lev(lv) * self%ncb
-      nc = self%nloc_lev(lv-1) * self%ncb
+   do lv=self%lmax, self%lbot+1, -1
+      n = self%nloc_lev(lv) * self%ncb_of(lv)
+      nc = self%nloc_lev(lv-1) * self%ncb_of(lv-1)
       call self%smooth(lv, e(lv)%v, r(lv)%v, 0_I4P)
       allocate(tmp(max(n,1)), res(max(n,1)))
       call self%apply(self%al(lv), e(lv)%v, tmp)
@@ -1461,26 +1576,31 @@ contains
       if (nc > 0) r(lv-1)%v(1:nc) = r(lv-1)%v(1:nc) + tmp(1:nc)
       deallocate(tmp, res)
    enddo
-   ! coarsest: exact, by FFT (L e = r / V, the mean removed)
-   n = self%nloc_lev(self%lmin)
-   v0 = self%cell_volume(self%lmin)
-   allocate(coords(3,max(n,1)), buf(max(n*self%ncb,1)), out(max(n*self%ncb,1)))
+   ! the root: exact, by FFT on every rank (L e = r / V, the mean removed)
+   n = self%nloc_lev(self%lbot)
+   nc = n * self%ncb_of(self%lbot)
+   v0 = self%cell_volume(self%lbot)
+   allocate(coords(3,max(n,1)), buf(max(nc,1)), out(max(nc,1)))
    coords = 0
    do q=1, n
-      coords(:,q) = self%node_c(1:3,self%lev_node(q,self%lmin))
+      coords(:,q) = self%node_c(1:3,self%lev_node(q,self%lbot))
    enddo
    buf = 0._R8P
-   if (n > 0) buf(1:n*self%ncb) = r(self%lmin)%v(1:n*self%ncb) / v0
+   if (nc > 0) buf(1:nc) = r(self%lbot)%v(1:nc) / v0
    call self%fft%solve_blocks(nbl=n, coords=coords, buf=buf, factor=1._R8P, gw=0_I4P, out=out)
-   if (n > 0) e(self%lmin)%v(1:n*self%ncb) = out(1:n*self%ncb)
+   if (nc > 0) e(self%lbot)%v(1:nc) = out(1:nc)
    ! up
-   do lv=self%lmin+1, self%lmax
-      n = self%nloc_lev(lv) * self%ncb
+   do lv=self%lbot+1, self%lmax
+      n = self%nloc_lev(lv) * self%ncb_of(lv)
       allocate(tmp(max(n,1)), res(max(n,1)))
       call self%apply(self%pl(lv), e(lv-1)%v, tmp)
       if (n > 0) e(lv)%v(1:n) = e(lv)%v(1:n) + tmp(1:n)
-      call self%apply(self%el(lv), e(lv-1)%v, res)
-      if (n > 0) tmp(1:n) = r(lv)%v(1:n) - res(1:n)
+      if (lv > self%lmin) then ! a face to a cell outside the level reads the coarser correction
+         call self%apply(self%el(lv), e(lv-1)%v, res)
+         if (n > 0) tmp(1:n) = r(lv)%v(1:n) - res(1:n)
+      elseif (n > 0) then ! at lmin and below every cell is in the level
+         tmp(1:n) = r(lv)%v(1:n)
+      endif
       call self%smooth(lv, e(lv)%v, tmp, 1_I4P)
       deallocate(tmp, res)
    enddo
@@ -1504,7 +1624,7 @@ contains
    do p=1, self%nd
       d = self%act(p)
       if (self%periodic(d)) cycle
-      if (cc(d) < 0 .or. cc(d) >= self%nblk0(d) * 2**lv * self%nijk(d)) beyond = .true.
+      if (cc(d) < 0 .or. cc(d) >= self%ncell(lv, d)) beyond = .true.
    enddo
    endfunction outside
 
@@ -1520,7 +1640,7 @@ contains
    do p=1, self%nd
       d = self%act(p)
       if (.not.self%periodic(d)) cycle
-      cw(d) = modulo(cc(d), self%nblk0(d) * 2**lv * self%nijk(d))
+      cw(d) = modulo(cc(d), self%ncell(lv, d))
    enddo
    endfunction wrap
 
@@ -1555,7 +1675,7 @@ contains
    integer(I4P), intent(in) :: cc(3) !< Cell coordinates.
    integer(I8P)             :: key   !< Key.
 
-   key = bkey([cc, lv])
+   key = bkey([cc, lv + KEY_LEVEL_OFFSET]) ! the levels inside the blocks may be negative (#84 E5c)
    endfunction ckey
 
    pure subroutine kdecode(key, lv, cc)
@@ -1564,7 +1684,7 @@ contains
    integer(I4P), intent(out) :: lv    !< Level.
    integer(I4P), intent(out) :: cc(3) !< Cell coordinates.
 
-   lv = int(key / 2_I8P**57, I4P)
+   lv = int(key / 2_I8P**57, I4P) - KEY_LEVEL_OFFSET
    cc(1) = int(mod(key / 2_I8P**38, 2_I8P**19), I4P)
    cc(2) = int(mod(key / 2_I8P**19, 2_I8P**19), I4P)
    cc(3) = int(mod(key, 2_I8P**19), I4P)

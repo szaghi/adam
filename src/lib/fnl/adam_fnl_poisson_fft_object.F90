@@ -38,6 +38,7 @@ type, extends(poisson_fft_object) :: poisson_fft_fnl_object
       procedure, pass(self) :: make_plans    => make_plans_fnl    !< Make the cuFFT plans (rank 0).
       procedure, pass(self) :: transform     => transform_fnl     !< The spectral solve on the GPU (rank 0).
       procedure, pass(self) :: transform_kernel => transform_kernel_fnl !< The kernel's spectrum on the GPU (isolated).
+      procedure, nopass     :: root_cells_max => root_cells_max_fnl   !< 128^3: cuFFT outruns the host smoother.
 endtype poisson_fft_fnl_object
 
 contains
@@ -119,6 +120,15 @@ contains
    call mpih%error_stop(msg='poisson_fft_fnl_object%transform_kernel: built without cuFFT')
 #endif
    endsubroutine transform_kernel_fnl
+
+   pure function root_cells_max_fnl() result(n)
+   !< The most cells the multigrid leaves to the cuFFT root (#84 E5c): 128^3. The multigrid smooths on the host, and cuFFT
+   !< solves a 128^3 coarsest level faster than the host smooths it (medooza, 3.9 M cells: the levels inside the blocks
+   !< cost the periodic multigrid 2.6 -> 3.8 s on 4 GPUs).
+   integer(I4P) :: n !< Cells.
+
+   n = 2097152_I4P
+   endfunction root_cells_max_fnl
 
 #ifdef _CUFFT
    ! private procedures
