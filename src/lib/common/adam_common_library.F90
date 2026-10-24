@@ -13,7 +13,6 @@ use :: adam_forest_object
 use :: adam_forest_manifest
 use :: adam_fdv_operators_library
 use :: adam_field_object
-use :: adam_flail_legacy_object
 use :: adam_flail_object
 use :: adam_flux_register_object
 use :: adam_grid_object

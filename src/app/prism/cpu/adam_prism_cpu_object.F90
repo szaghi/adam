@@ -98,7 +98,6 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_energy_error         !< Compute energy error.
       procedure, pass(self) :: compute_grms                 !< Compute Grms of the rotating magnetic-field amplitude.
       procedure, pass(self) :: compute_magnetic_field_at_center_domain !< Compute B at the domain center.
-      procedure, pass(self) :: impose_div_free              !< Impose divergence-free property.
       procedure, pass(self) :: simulate                     !< Perform the simulation.
 endtype prism_cpu_object
 
@@ -1715,7 +1714,7 @@ contains
    !<
    !< Mirrors the post-substage tail of `integrate_rk_ssp`:
    !< `rk%update_q + update_q_BC + save_residuals + compute_coils_current +
-   !< impose_div_free + external_fields add`, plus the post-loop time
+   !< external_fields add`, plus the post-loop time
    !< advance + progress print that `advance_one_step_forest` does inline.
    class(prism_cpu_object), intent(inout) :: self !< The realm.
    real(R8P),               intent(in)    :: dt   !< Timestep size from the forest.
@@ -1732,7 +1731,6 @@ contains
    endif
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
-   call self%impose_div_free
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    ! Clear active-stage marker so any `fill_seam_from_peer_forest`
@@ -2687,48 +2685,6 @@ contains
       hi = min(hi, face_first - hs - 1_I4P)
    endif
    endsubroutine exclude_stencil_contaminated_face
-
-   subroutine impose_div_free(self)
-   !< Impose divergence-free property.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-
-   associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
-             constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
-   if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
-   if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   ! here should go also other corrections...
-   endassociate
-   endsubroutine impose_div_free
-
-   subroutine print_elliptic_progress(label, progress_done, progress_total, last_percent, converged)
-   character(*),  intent(in)    :: label        !< Progress label.
-   integer(I4P),  intent(in)    :: progress_done  !< Completed smoothing sweeps.
-   integer(I4P),  intent(in)    :: progress_total !< Planned smoothing sweeps.
-   integer(I4P),  intent(inout) :: last_percent !< Last printed percent.
-   logical,       intent(in), optional :: converged !< Force progress to 100% when converged.
-   integer(I4P)                  :: progress_total_ !< Safe planned smoothing sweeps.
-   integer(I4P)                  :: progress_done_  !< Safe completed smoothing sweeps.
-   integer(I4P)                  :: shown_done      !< Printed completed smoothing sweeps.
-   integer(I4P)                  :: progress      !< Current progress percentage.
-   logical                       :: converged_    !< Convergence flag.
-
-   progress_total_ = max(1_I4P, progress_total)
-   progress_done_  = min(max(progress_done, 0_I4P), progress_total_)
-   converged_ = .false.
-   if (present(converged)) converged_ = converged
-
-   shown_done = progress_done_
-   if (converged_) shown_done = progress_total_
-   progress = int(100._R8P * real(shown_done, R8P) / real(progress_total_, R8P), kind=I4P)
-   if (converged_) progress = 100_I4P
-   progress = min(100_I4P, max(0_I4P, progress))
-
-   if (progress > last_percent) then
-      call mpih%print_message(trim(label)//' progress: '//trim(str(progress,.true.))//'% ('//trim(str(shown_done,.true.))// &
-                              '/'//trim(str(progress_total_,.true.))//')')
-      last_percent = progress
-   endif
-   endsubroutine print_elliptic_progress
 
    subroutine simulate(self, filename)
    !< Perform the simulation: legacy single-realm entry point.
@@ -4150,7 +4106,6 @@ contains
    enddo
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
-   call self%impose_div_free
    endassociate
    endsubroutine integrate_blanesmoan
 
@@ -4180,7 +4135,6 @@ contains
    endassociate
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
-   call self%impose_div_free
    endsubroutine integrate_cfm
 
    subroutine integrate_leapfrog(self)
@@ -4193,7 +4147,6 @@ contains
    call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
-   call self%impose_div_free
    endsubroutine integrate_leapfrog
 
    subroutine integrate_leapfrog_pic(self)
@@ -4225,7 +4178,6 @@ contains
    call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
    call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
    call self%apply_fWL_correction(q=self%q)
-   call self%impose_div_free
    endsubroutine integrate_leapfrog_pic
 
    subroutine integrate_rk_ls(self)
@@ -4247,7 +4199,6 @@ contains
    enddo
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
-   call self%impose_div_free
    endsubroutine integrate_rk_ls
 
    subroutine integrate_rk_ssp(self)
@@ -4287,7 +4238,6 @@ contains
       call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
-   call self%impose_div_free
    endsubroutine integrate_rk_ssp
 
    subroutine integrate_rk_ssp_pic(self)
@@ -4365,7 +4315,6 @@ contains
       call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%apply_fWL_correction(q=self%q)
-   call self%impose_div_free
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%fold_deposited_ghosts(q=self%q, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
@@ -4617,7 +4566,6 @@ contains
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
       call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    call self%apply_fWL_correction(q=self%q)
-   call self%impose_div_free
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    if (self%pic%matched_current()) then
       call deposit_pic_modified_charge(self=self, q=self%q)
@@ -6239,7 +6187,6 @@ contains
    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
-   call self%impose_div_free
    endsubroutine integrate_rk_yoshida
 
    ! non TBP

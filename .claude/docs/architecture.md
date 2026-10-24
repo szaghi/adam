@@ -117,7 +117,6 @@ type :: realm_object
    type(cfm_object)        :: cfm
    type(leapfrog_object)   :: leapfrog
    type(flail_object)        :: flail        ! FLAIL elliptic solver library (issue #84: poisson_fft/mg facade)
-   type(flail_legacy_object) :: flail_legacy ! PRISM's legacy smoothers + [linear-algebra], retired in #84 E4
    ! FDV scheme metadata (used by backend dispatch):
    character(:), allocatable :: fdv_scheme
    integer(I4P)              :: fdv_order, fdv_half_stencil, fdv_half_stencils(6)
@@ -434,7 +433,7 @@ procedure(compute_residuals_interface_dev), pointer :: compute_residuals_dev
 procedure(integrate_interface_dev),         pointer :: integrate_dev
 ```
 
-Key procedures: `initialize_prism(self, filename)`, `simulate`, `compute_dt`, `compute_energy`, `compute_energy_error`, `update_ghost`, `update_rk_ghost`, `apply_fwl_correction`, `compute_coils_current`, `impose_ct_correction`, `impose_div_free`, `save_simulation_data`.
+Key procedures: `initialize_prism(self, filename)`, `simulate`, `compute_dt`, `compute_energy`, `compute_energy_error`, `update_ghost`, `update_rk_ghost`, `apply_fwl_correction`, `compute_coils_current`, `save_simulation_data`.
 
 ---
 

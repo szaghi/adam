@@ -387,7 +387,9 @@ contains
    case(INI_SECTION_NAME)
       kind = KIND_NONE
    case('numerics', 'runge_kutta', 'weno', 'linear-algebra', 'fdv', 'field', 'amr', 'solids', 'slices', 'diagnostics')
-      kind = KIND_NONE ! dimensionless sections (every option a count, a flag, a name or a dimensionless number)
+      ! dimensionless sections (every option a count, a flag, a name or a dimensionless number); linear-algebra is no
+      ! longer read (issue #84, E4) and stays here so that an old input carrying it is not refused as unclassified
+      kind = KIND_NONE
    case('physics')
       select case(option_name)
       case('physical_model', 'gamma', 'reynolds', 'prandtl', 'magnetic_reynolds', 'viscosity_law', 'viscosity_exponent', &

@@ -137,8 +137,6 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
     if weights:
         lines += [f"weights = {weights}"]
     lines += [
-        "[linear-algebra]", "smoothing = gauss-seidel", "iterations_init = 3", "iterations_coarse = 10",
-        "iterations_fine = 3", "iterations = 10", "tolerance = 1.e-20",
         "[fdv]", "fdv_scheme = fd", "fdv_order = 2", "[solids]", "number = 0", "n_eikonal = 0",
         "[slices]", "slices_number = 0",
         "[physics]", f"physical_model = {'mhd-ideal' if mhd else 'euler'}", "gamma = 1.4",

@@ -141,6 +141,8 @@ REPO_ROOT="$(cd "$REGRESSION_DIR/../../../.." && pwd)" || {
 
 # GPU race-shape lint gate (issue #26 G1.d): the check scans all of src/, FLUME device code included.
 "$REPO_ROOT/src/tests/lint/check-gpu-race-shapes.sh"
+# Removed-input-key lint gate (issues #58, #84 E4): no committed input may carry a section or key no parser reads.
+"$REPO_ROOT/src/tests/lint/check-removed-input-keys.sh"
 
 if ! command -v mpirun >/dev/null 2>&1; then
    echo "ERROR: mpirun not on PATH" >&2

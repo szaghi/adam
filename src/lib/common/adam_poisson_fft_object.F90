@@ -47,7 +47,7 @@ module adam_poisson_fft_object
 !<
 !< **The wide operator D(G) (issue #84, E2a).** `dg_order = p` (2, 4, 6, 8; 0, the default, is the compact 7-point
 !< Laplacian) solves PRISM's elliptic operator instead: the order-p centred first derivative `D1` composed with itself
-!< per axis (the stencil reaches `p` cells, `adam_flail_legacy_object`'s Gauss-Seidel kernels), eigenvalue
+!< per axis (the stencil reaches `p` cells, as PRISM's D and G read it), eigenvalue
 !< `-sum_d s_p(theta_d)^2 / dx_d^2` with `s_p(theta) = sum_j 2 a_j sin(j theta)` (the `a_j` of `D1`). Every centred
 !< `D1` annihilates the checkerboard (`s_p(pi) = 0`, set exactly: `sin(pi)` is 1e-16, not 0), so the modes with every
 !< `theta_d` in {0, pi} are in the kernel and dropped, Dirichlet faces or not: G of them is zero, so the gradient a

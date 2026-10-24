@@ -174,9 +174,10 @@ device-path a plain field case does not:
 ### Lint gates
 
 `run.sh` runs two static gates before any case: `src/tests/lint/check-gpu-race-shapes.sh` (issue #26) and
-`src/tests/lint/check-removed-input-keys.sh` (issue #58). The latter fails the sweep if a committed PRISM input still
-carries a key the parser no longer reads: `[fWLayer] C`, replaced by `width` in `8e05d363`, and `[PIC]
-elliptic_correction`, removed by #84 E3d.
+`src/tests/lint/check-removed-input-keys.sh` (issue #58). The latter fails the sweep if a committed PRISM, FLUME or AMR
+test input still carries a key the parser no longer reads: `[fWLayer] C`, replaced by `width` in `8e05d363`, `[PIC]
+elliptic_correction`, removed by #84 E3d, and the `[linear-algebra]` section, removed by #84 E4 with the legacy
+smoothers. The FLUME sweep runs the same gate.
 
 ### Init refusals (`refusals.sh`)
 

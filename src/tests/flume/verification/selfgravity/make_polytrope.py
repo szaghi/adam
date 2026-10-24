@@ -102,8 +102,6 @@ def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | N
         "[field]", "nv = 5", "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5", "ror_number = 0", "ror_threshold = 0.9", "ror_vars_number = 0",
         "enable_ror_stats = .false.", "ib_reduction_extent = 0", "ib_reduced_order = 2",
-        "[linear-algebra]", "smoothing = gauss-seidel", "iterations_init = 3", "iterations_coarse = 10",
-        "iterations_fine = 3", "iterations = 10", "tolerance = 1.e-20",
         "[fdv]", "fdv_scheme = fd", "fdv_order = 2", "[solids]", "number = 0", "n_eikonal = 0",
         "[slices]", "slices_number = 0",
         "[physics]", f"physical_model = {physical_model}", f"gamma = {GAMMA!r}",

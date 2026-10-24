@@ -252,7 +252,6 @@ compute_coils_current
 compute_residuals → dq
 save_residuals
 leapfrog%integrate(dt, q, dq)
-impose_div_free
 ```
 
 #### Leapfrog-PIC (`integrate_leapfrog_pic`)
@@ -265,7 +264,6 @@ save_residuals
 pic%field_weighting                ← fields at particle positions
 leapfrog%integrate(dt, q, dq)
 leapfrog_pic%integrate(dt, q_pic, pic_fields)
-impose_div_free
 ```
 
 #### Low-storage RK (`integrate_rk_ls`)
@@ -278,8 +276,7 @@ Strong Stability Preserving RK. Each stage `s`:
 3. `compute_residuals` — Maxwell RHS.
 4. `rk%assign_stage` — store stage residuals.
 
-After all stages: `rk%update_q`, `update_q_BC` (radiative BC), `compute_coils_current`,
-`impose_div_free`. Supports external fields via `sub_external_fields` / `add_external_fields`.
+After all stages: `rk%update_q`, `update_q_BC` (radiative BC), `compute_coils_current`. Supports external fields via `sub_external_fields` / `add_external_fields`.
 
 #### SSP RK-PIC (`integrate_rk_ssp_pic`)
 Same as SSP RK but co-integrates field (`rk`) and particle (`rk_pic`) stages:
@@ -299,7 +296,6 @@ for s=1..nrk-1:
   D += ssb(s)*dt*dq_D
 compute_residuals → dq
 B += ssa(nrk)*dt*dq_B
-impose_div_free
 ```
 
 #### Blanes-Moan symplectic (`integrate_blanesmoan`)
@@ -310,25 +306,12 @@ impose_div_free
 Exponential time integration. Evaluates `n_stages` residuals at intermediate times, then applies
 exponential updates with coefficients `s_coeffs` / `e_coeffs` via `cfm%compute_exponential_update`.
 
-### Divergence cleaning (`impose_div_free`)
+### Divergence cleaning
 
-Called at the end of every time step. **Unreachable since `68457200`:** `divergence_correction = poisson` stops at
-initialization, so `div_corr_var` is never `POISS` and neither branch runs (issue #61). `impose_ct_correction` itself is
-still used by the PIC elliptic correction. Dispatches based on `div_corr_var` and CT flags:
-
-| Condition | Action |
-|-----------|--------|
-| `constrained_transport_D` and `div_corr_var == POISS` | `impose_ct_correction(ivar=1)` (D field) |
-| `constrained_transport_B` and `div_corr_var == POISS` | `impose_ct_correction(ivar=4)` (B field) |
-
-#### `impose_ct_correction(ivar)`
-Poisson-based divergence correction via FLAIL multigrid:
-1. Compute `divF = ∇·q(ivar:ivar+2)`.
-2. Solve `−∇²φ = divF` using `compute_smoothing_multigrid` (with tolerance `flail%tolerance`,
-   up to `flail%iterations` outer iterations, `iterations_init/fine/coarse` V-cycle sweeps).
-3. Correct: `q(ivar+v-1) += (∇φ)_v` for `v = 1, 2, 3`.
-
-The `divergence` array (size `(7,:,:,:,:)`) is used as scratch buffer.
+`divergence_correction = poisson` stops at initialization (`68457200`, issue #61): no backend implemented the projection.
+Its dead code (`impose_div_free`, `impose_ct_correction`, the FNL stub `impose_ct_correction_dev`) and the legacy
+smoothers it called were deleted in issue #84 E4. The t0 elliptic solves run on FLAIL (`impose_pic_fields_time_zero`,
+#84 E3).
 
 ### Coil current initialization
 

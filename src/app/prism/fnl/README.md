@@ -324,7 +324,6 @@ for s = 1..nrk:
   rk_gpu%assign_stage(s, dq_gpu [,phi_gpu]) ← store stage residuals
 rk_gpu%update_q(dt, q_gpu [,phi_gpu])       ← final stage combination
 update_rk_ghost(dt)                         ← (stub)
-impose_div_free
 if external_fields: add_external_fields_dev
 ```
 
@@ -345,13 +344,10 @@ and B fields, exactly as in the CPU backend but without a copy to host.
 Currently stubbed — divergence and curl computations for diagnostic fields are commented out
 pending stable `compute_divergence_gpu` signatures.
 
-### Divergence cleaning (`impose_div_free` / `impose_ct_correction`)
+### Divergence cleaning
 
-Same logic as CPU: calls `impose_ct_correction(ivar=1)` for D and/or `ivar=4` for B when Poisson
-CT correction is enabled. **Unreachable**, as on the CPU: `divergence_correction = poisson` stops at initialization
-(issue #61). The device routine is a stub that must not be re-enabled as it stands: the FLAIL multigrid solve, the
-divergence and the gradient are commented out, `dq_max` is read uninitialised, and the kernel adds whatever
-`divergence_gpu(…,4:6)` holds to D or B.
+As on the CPU: `divergence_correction = poisson` stops at initialization, and its dead code, the device stub
+`impose_ct_correction_dev` included, was deleted in issue #84 E4.
 
 ## GPU support modules
 

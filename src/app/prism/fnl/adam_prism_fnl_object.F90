@@ -184,8 +184,6 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_magnetic_field_at_center_domain !< Compute B at the domain center.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
       procedure, pass(self) :: compute_max_divergence_outside_absorbing_layers !< Host twin of the CPU t0 diagnostic.
-      procedure, pass(self) :: impose_ct_correction_dev  !< Device-side constrained-transport correction on q_gpu.
-      procedure, pass(self) :: impose_div_free      	!< Impose divergence-free property.
       procedure, pass(self) :: simulate             	!< Perform the simulation.
 endtype prism_fnl_object
 
@@ -767,7 +765,7 @@ contains
       case default
          call mpih_fnl%error_stop(msg=': FNL PML is currently available only with SSP RK schemes')
       endselect
-      if (trim(self%numerics%div_corr_var) == DIV_CORR_VAR_HYPER .or. trim(self%numerics%div_corr_var) == DIV_CORR_VAR_POISS) &
+      if (trim(self%numerics%div_corr_var) == DIV_CORR_VAR_HYPER) &
          call mpih_fnl%error_stop(msg=': FNL PML is currently available only without divergence correction')
       if (self%numerics%constrained_transport_D .or. self%numerics%constrained_transport_B) &
          call mpih_fnl%error_stop(msg=': FNL PML is currently available only without constrained transport')
@@ -5138,7 +5136,6 @@ contains
    !    self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
    !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
    ! enddo
-   ! call self%impose_div_free
    ! endassociate
    endsubroutine integrate_blanesmoan_dev
 
@@ -5166,7 +5163,6 @@ contains
    ! enddo
    ! self%q = self%cfm%q
    ! endassociate
-   ! call self%impose_div_free
    endsubroutine integrate_cfm_dev
 
    subroutine integrate_leapfrog_dev(self)
@@ -5177,7 +5173,6 @@ contains
    ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
    ! call self%save_residuals
    ! call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
-   ! call self%impose_div_free
    endsubroutine integrate_leapfrog_dev
 
    subroutine integrate_leapfrog_pic(self)
@@ -5198,7 +5193,6 @@ contains
    !!Qua ci va la chiamata alla subroutine che integra aggiornando le velocita e le posizioni delle particelle
    !            !decidi se fare qui all'inizio del tempo successivo l'aggiornamento della neighbour list delle particelle
 
-   !call self%impose_div_free
    !!call self%apply_fWL_correction
    endsubroutine integrate_leapfrog_pic
 
@@ -5273,7 +5267,6 @@ contains
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
 
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
-   call self%impose_div_free
    call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
                                                        grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
    call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
@@ -5475,7 +5468,6 @@ contains
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
-   call self%impose_div_free
 
    ! end-of-step charge and current
    call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
@@ -5582,7 +5574,6 @@ contains
    enddo
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
-   call self%impose_div_free
 
    endsubroutine integrate_rk_ls_dev
 
@@ -5628,7 +5619,6 @@ contains
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
-   call self%impose_div_free
 
    endsubroutine integrate_rk_ssp_dev
 
@@ -5653,7 +5643,6 @@ contains
    ! self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
    ! self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
    ! self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-   ! call self%impose_div_free
    endsubroutine integrate_rk_yoshida_dev
 
    subroutine is_done_forest(self, done)
@@ -6052,7 +6041,6 @@ contains
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
-   call self%impose_div_free
 
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -7766,77 +7754,4 @@ contains
 		endsubroutine compute_max_divergence_dev_kernel
 	endsubroutine compute_max_divergence
 
-   subroutine impose_ct_correction_dev(self, ivar)
-   !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
-   !< Note that self%divergence memory is used as buffer, be carefull.
-   class(prism_fnl_object), intent(inout) :: self   !< The equation.
-   integer(I4P),            intent(in)    :: ivar   !< Variable (start) index in q.
-   real(R8P)                              :: dq_max !< Maximum residual.
-   integer(I4P)                           :: iter   !< Counter.
-
-   associate(blocks_number=>self%blocks_number)
-   if (blocks_number>0) then
-      ! call self%compute_divergence(ivar=ivar,ovar=4,q_gpu=q_gpu,divergence_gpu=buffer)
-      do iter=1, self%flail_legacy%iterations
-         ! call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-         !                                  dxyz=field%dxyz,                                                &
-         !                                  f=-buffer(4:4,:,:,:,:),                                         &
-         !                                  q=buffer(7:7,:,:,:,:),                                          &
-         !                                  dq_max=dq_max,                                                  &
-         !                                  dq=buffer(5:5,:,:,:,:),                                         &
-         !                                  iterations_init=self%flail_legacy%iterations_init,                     &
-         !                                  iterations_fine=self%flail_legacy%iterations_fine,                     &
-         !                                  iterations_coarse=self%flail_legacy%iterations_coarse)
-         if (dq_max < self%flail_legacy%tolerance) exit
-      enddo
-      call mpih_fnl%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
-      ! call self%compute_gradient(ivar=1,q_gpu=buffer(:,:,:,:,7:7),gradient_gpu=buffer(:,:,:,:,4:6))
-      call impose_ct_correction_kernel(ni            = self%ni,            &
-                                       nj            = self%nj,            &
-                                       nk            = self%nk,            &
-                                       ngc           = self%ngc,           &
-                                       blocks_number = blocks_number,      &
-                                       ivar          = ivar,               &
-                                       q_gpu         = self%q_gpu,         &
-                                       buffer_gpu    = self%divergence_gpu)
-   endif
-   endassociate
-   contains
-      subroutine impose_ct_correction_kernel(ni, nj, nk, ngc, blocks_number, ivar, q_gpu, buffer_gpu)
-      !< Apply the CT correction increment, device kernel.
-      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number          !< Grid dimensions.
-      integer(I4P), intent(in)    :: ivar                                    !< Variable (start) index in q.
-      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Conservative variables.
-      real(R8P),    intent(in)    :: buffer_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Correction buffer (self%divergence_gpu shape).
-      integer(I4P)                :: i, j, k, b, v                           !< Counter.
-
-      !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q_gpu,buffer_gpu) &
-      !$acc& firstprivate(ni,nj,nk,blocks_number,ivar)
-      !$omp OMPLOOP collapse(5) DEVICEPTR(q_gpu,buffer_gpu) &
-      !$omp& firstprivate(ni,nj,nk,blocks_number,ivar)
-      do v=1, 3
-         do k=1, nk
-            do j=1, nj
-               do i=1, ni
-                  do b=1, blocks_number
-                     q_gpu(b,i,j,k,ivar+v-1) = q_gpu(b,i,j,k,ivar+v-1) + buffer_gpu(b,i,j,k,3+v)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      endsubroutine impose_ct_correction_kernel
-   endsubroutine impose_ct_correction_dev
-
-   subroutine impose_div_free(self)
-   !< Impose divergence-free property.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
-
-   associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
-             constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
-   if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction_dev(ivar=1_I4P)
-   if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction_dev(ivar=4_I4P)
-   ! here should go also other corrections...
-   endassociate
-   endsubroutine impose_div_free
 endmodule adam_prism_fnl_object

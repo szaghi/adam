@@ -340,23 +340,9 @@ contains
    self%var_psi = 0_I4P
    select case(div_corr_var_)
    case(DIV_CORR_VAR_POISS)
-      self%nv_cl = 0_I4P
-      self%var_Jx = 7_I4P
-      self%var_Jy = 8_I4P
-      self%var_Jz = 9_I4P
-      select case(reconstruction_vars_)
-         case(RECONSTRUCTION_VARS_CONS)
-            self%erw => IERL
-            self%elw => IERL
-         case(RECONSTRUCTION_VARS_CHAR)
-            self%erw => ER
-            self%elw => EL
-         case default
-            call mpih%print_message(msg='warning: HO reconstruction variable "'//reconstruction_vars_// &
-                                         '" unknown. Revert back to conservative variables reconstruction')
-            self%erw => IERL
-            self%elw => IERL
-      endselect
+      ! numerics refuses it at load; this guards a caller that bypasses numerics. The Poisson projection was never
+      ! implemented, and its dead code went with the legacy smoothers (issue #84, E4)
+      call mpih%error_stop(msg='prism_physics_object%initialize: divergence_correction = poisson is not implemented')
    case(DIV_CORR_VAR_HYPER)
       if (constrained_transport_D .and. .not.constrained_transport_B) then
          self%nv_cl  = 1_I4P

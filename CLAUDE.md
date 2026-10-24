@@ -64,7 +64,7 @@ src/
 | `adam_ib_object` | Immersed boundary method |
 | `adam_io_object` | HDF5 and restart file I/O |
 | `adam_mpih_object` | MPI wrapper and communication |
-| `adam_realm_object` | Abstract app base: **owns every library object as a component** (`io, amr, slices, weno, ib, rk, flail, flail_legacy, adam{grid,tree,field,maps}`; `flail` is the elliptic solver library, issue #84) + the `_forest` TBP contract |
+| `adam_realm_object` | Abstract app base: **owns every library object as a component** (`io, amr, slices, weno, ib, rk, flail, adam{grid,tree,field,maps}`; `flail` is the elliptic solver library, issue #84) + the `_forest` TBP contract |
 | `adam_forest_object` | Time-loop orchestrator (`simulate`, `simulate_from_manifest`): single-realm fast path, AMR-staged path, multi-realm seams |
 | `adam_mpih_global` | The **only** CPU program-scope singleton (`mpih`); `adam_globals` re-exports just this |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian operators |
@@ -439,7 +439,7 @@ Applications use INI files (parsed by FiNeR library) for simulation parameters:
 
 The `phi`/`psi` GLM scalars used to have two sources of truth: `physics%nv` added their slots only under `divergence_correction = hyperbolic`, while `io_initialize` named them from the `numerics%constrained_transport_*` flags alone, so CT + `poisson` wrote 10–11 names into 9 slots (heap corruption, [issue #11](https://github.com/szaghi/adam/issues/11) → [#61](https://github.com/szaghi/adam/issues/61)). Current state:
 
-- **`poisson` stops at initialization** (`adam_prism_numerics_object.F90`, since `68457200`): no backend implements it. Its code is dead, not removed: `impose_div_free` (CPU and FNL) dispatches only on `DIV_CORR_VAR_POISS`, which nothing assigns, and the FNL `impose_ct_correction_dev` is a stub (solve and gradient commented out, `dq_max` read uninitialised). Do not re-enable `poisson` without implementing both.
+- **`poisson` stops at initialization** (`adam_prism_numerics_object.F90`, since `68457200`): no backend implements it. Its dead code (`impose_div_free`, `impose_ct_correction`, the FNL stub `impose_ct_correction_dev`) and the legacy smoothers it called were deleted in [#84](https://github.com/szaghi/adam/issues/84) E4; `physics%initialize` also `error_stop`s on it. A Poisson projection, if ever wanted, is a FLAIL solve (the t0 solves show the pattern).
 - **`hyperbolic` without CT stops at initialization** (#61): there is no scalar to carry, and the `physics` layout chain had no `else`, so `var_Jx/Jy/Jz` stayed undefined; `has_current_density()` then read `q(var_Jx:var_Jz)` at garbage indices and sent the run into the t0 elliptic B solve. `physics%initialize` also `error_stop`s on that combination, for any caller that bypasses `numerics`.
 - **One source for the slots:** `physics%var_phi` / `physics%var_psi` (0 when absent) are set in the same branch that sets `nv_cl` and `var_J*`; `io_initialize` names φ/ψ from them and `error_stop`s if the names do not number `physics%nv`. The CPU flux setup still derives `fv_ivar_phi/psi` from `nv_c` in its own branch chain; it agrees by construction today.
 - **CT with `divergence_correction = no` is ignored** with a warning (`numerics` clears both flags); 16 research inputs rely on that.

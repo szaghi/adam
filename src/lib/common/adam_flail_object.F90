@@ -6,8 +6,8 @@ module adam_flail_object
 !< #81 and #87: the FFT solver `poisson_fft_object` (uniform grids, periodic or isolated, FFTW on the host; its FNL
 !< extension runs the transforms on cuFFT) and the multigrid-preconditioned conjugate-gradient solver
 !< `poisson_mg_object` (2:1 AMR grids, the symmetric composite operator, periodic or isolated through the James step,
-!< its coarsest level solved by the FFT solver). The legacy smoothers of `adam_flail_legacy_object` retire once PRISM
-!< moves here (issue #84, E3-E4).
+!< its coarsest level solved by the FFT solver). PRISM's t0 solves moved here in issue #84 E3, and its legacy smoothers
+!< (`adam_flail_legacy_object`, the `[linear-algebra]` section) were deleted in E4.
 !<
 !< Phase E0 is a facade over the two solvers: `setup` chooses one for the current grid, as FLUME's self-gravity did,
 !< and `solve`/`solve_packed` forward to it with the call sequence unchanged, so a client gets bitwise the results it

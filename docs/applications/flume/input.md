@@ -14,7 +14,7 @@ below; otherwise the file is itself a single-realm input.
 A realm input is read in this order: `[IO]` → `[reference]` (if present it converts the file to code units, then
 `[IO]` is read again) → `[numerics]` → `[physics]`
 (+ `[eos]`, `[mhd]`, `[gravity]`) → `[runge_kutta].scheme` (memory budget) → `[grid]` → `[amr]` (tree, seam fill, markers) → `[solids]`
-→ `[slices]` → `[runge_kutta]` → `[weno]` → `[linear-algebra]` → `[fdv]` → `[bc_*]` → `[time]` →
+→ `[slices]` → `[runge_kutta]` → `[weno]` → `[fdv]` → `[bc_*]` → `[time]` →
 `[initial_conditions]` → `[diagnostics]` → `[IO].save_auxiliary_fields`. After reading, FLUME applies
 cross-section checks (slices, WENO scheme, Riemann solver per model, ghost cells, even block cells for AMR).
 
@@ -43,7 +43,7 @@ weights the data should be of order 1: either write the input in such units, add
   token aborts with a Fortran runtime I/O error.
 - **CRLF files**: FLUME's own string keys go through `strip_control` and are CRLF-safe. Library
   string keys (`[weno].scheme`, `[runge_kutta].scheme`, `[fdv].fdv_scheme`, `[amr_marker_N].geo_type`,
-  `[linear-algebra].smoothing`, ...) are not; neither FiNeR nor StringiFor strips `\r` (not verified at runtime).
+  ...) are not; neither FiNeR nor StringiFor strips `\r` (not verified at runtime).
   **Save inputs with LF line endings.**
 
 ## Legend for the tables
@@ -323,34 +323,9 @@ Two further constraints:
 
 ## [linear-algebra]
 
-Settings of the legacy FLAIL smoothers (PRISM's; retired in issue #84, E4). **FLUME reads none of these keys**: its
-elliptic solve, self-gravity, runs through the FLAIL library and is configured in `[gravity]`.
-The keys are still required: every key except `smoothing` has an `error_stop` on absence. `smoothing` also errors when
-missing.
-
-| Key | Type | Req. | Default | Accepted / invalid | Used |
-|-----|------|------|---------|--------------------|------|
-| `smoothing` | string | yes | (unallocated) | See the notes below the table. | no |
-| `iterations` | int | yes | 1 | — | no |
-| `iterations_init` | int | yes | 1 | — | no |
-| `iterations_fine` | int | yes | 1 | — | no |
-| `iterations_coarse` | int | yes | 1 | — | no |
-| `tolerance` | real | yes | 1e-6 | — | no |
-
-Accepted spellings for `smoothing`:
-
-| Method | Accepted spellings |
-|--------|--------------------|
-| Multigrid | `MULTIGRID`, `multigrid`, `Multigrid` |
-| Gauss-Seidel | `GAUSS-SEIDEL`, `gauss-seidel`, `Gauss-Seidel` |
-| SOR | `SOR`, `sor`, `Sor` |
-| SOR with OpenMP | `SOR-OMP`, `sor-omp`, `Sor-omp` |
-
-**Trap:** an unrecognised `smoothing` value is **not** rejected. The select has no `case default`, so the string stays
-unallocated and is then printed by `description()`. That is undefined behaviour and in practice
-usually crashes at initialisation.
-
----
+Removed in [issue #84](https://github.com/szaghi/adam/issues/84) E4, with the legacy FLAIL smoothers it configured (FLUME
+never read it). An input that still carries it runs (the section is ignored; the non-dimensional `[reference]`
+classifies it as dimensionless), but the committed inputs may not: the removed-keys lint rejects it.
 
 ## [fdv]
 
@@ -968,14 +943,6 @@ enable_ror_stats    = .false.
 ib_reduction_extent = 0
 ib_reduced_order    = 2
 
-[linear-algebra]
-smoothing         = gauss-seidel
-iterations_init   = 3
-iterations_coarse = 10
-iterations_fine   = 3
-iterations        = 10
-tolerance         = 1.e-20
-
 [fdv]
 fdv_scheme = fd
 fdv_order  = 2
@@ -1058,8 +1025,8 @@ conservation_history_save = 1
 - **`it_save = 100000`.** This is effectively "first and last step only", because the last step is always saved.
 - **`restart_save = 0` and `residuals_save = 1`.** Restarts are disabled, and the residual history is written every
   step.
-- **Keys FLUME ignores.** `[field] nv`, `[linear-algebra]`, `fdv_scheme` and the `ror_*`/`ib_*` keys of `[weno]`
-  are ignored by FLUME. All of them except `[field]` must still be present.
+- **Keys FLUME ignores.** `[field] nv`, `fdv_scheme` and the `ror_*`/`ib_*` keys of `[weno]` are ignored by FLUME.
+  All of them except `[field]` must still be present.
 - **Riemann-problem regions.** The regions tile x at 0.5: region 1 owns `0 < x <= 0.5` and region 2 owns
   `0.5 < x <= 1`. The domain minimum corner is covered because `emin` is the domain minimum and cell centres are
   strictly larger.
@@ -1131,14 +1098,6 @@ ror_vars_number = 0
 enable_ror_stats = .false.
 ib_reduction_extent = 0
 ib_reduced_order = 2
-
-[linear-algebra]
-smoothing = gauss-seidel
-iterations_init = 3
-iterations_coarse = 10
-iterations_fine = 3
-iterations = 10
-tolerance = 1.e-20
 
 [fdv]
 fdv_scheme = fd

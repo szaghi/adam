@@ -295,22 +295,14 @@ _ZERO_GHOSTS | _FREE_GHOSTS`, live in
 `adam_flail_parameters` (a module of their own: the solvers use them, and the facade uses the solvers). Phases and
 status: [issue #84](https://github.com/szaghi/adam/issues/84).
 
-### `adam_flail_legacy_object` — legacy FLAIL smoothers (retired in issue #84, E4)
+### Legacy FLAIL smoothers (deleted in issue #84, E4)
 
-PRISM's elliptic smoothers: since #84 E3d no live path reaches them; only the dead `divergence_correction = poisson`
-code (`impose_ct_correction`, refused at init) still calls them, and both go in E4. The realm component is `flail_legacy`, and it owns the
-`[linear-algebra]` section. No new code should use it.
-
-Iterative solver and smoother infrastructure for implicit operators (e.g., elliptic sub-problems). Provides a common interface over several smoothing strategies:
-
-| Constant | Method |
-|----------|--------|
-| `SMOOTHING_MULTIGRID` | Geometric multigrid V-cycle |
-| `SMOOTHING_GAUSS_SEIDEL` | Gauss–Seidel iteration |
-| `SMOOTHING_SOR` | Successive Over-Relaxation |
-| `SMOOTHING_SOR_OMP` | Parallel SOR (OpenMP) |
-
-Convergence is controlled by `tolerance` (default 10⁻⁶) and `iterations`. Configuration section: `[linear-algebra]`.
+`adam_flail_legacy_object` (the realm component `flail_legacy`, the `[linear-algebra]` section: multigrid, Gauss-Seidel
+and SOR smoothers of PRISM's D(G)) is deleted: PRISM's t0 solves run on FLAIL since #84 E3, `[PIC]
+elliptic_correction` was retired in E3d, and the only other caller was the dead `divergence_correction = poisson` code.
+FLAIL has no counterpart to the `[linear-algebra]` keys (the FFT solve is direct, the CG tolerance its own), so the
+section is gone from the committed inputs and the removed-keys lint rejects it; an input that still carries it is not
+read there.
 
 ### `adam_poisson_fft_object` — FFT Poisson solver (uniform grids: periodic, Dirichlet/Neumann faces, or isolated)
 
