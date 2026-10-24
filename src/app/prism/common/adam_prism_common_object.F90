@@ -1742,7 +1742,6 @@ contains
                      enddo
                   enddo
                enddo
-               if (self%pic%elliptic_correction) call self%impose_ct_correction(ivar=VAR_DX)
             endif
          elseif (ivar == VAR_BX) then
             allocate(phi(1:3,        &

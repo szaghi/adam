@@ -175,7 +175,8 @@ device-path a plain field case does not:
 
 `run.sh` runs two static gates before any case: `src/tests/lint/check-gpu-race-shapes.sh` (issue #26) and
 `src/tests/lint/check-removed-input-keys.sh` (issue #58). The latter fails the sweep if a committed PRISM input still
-carries a key the parser no longer reads; today the only rule is `[fWLayer] C`, replaced by `width` in `8e05d363`.
+carries a key the parser no longer reads: `[fWLayer] C`, replaced by `width` in `8e05d363`, and `[PIC]
+elliptic_correction`, removed by #84 E3d.
 
 ### Init refusals (`refusals.sh`)
 
@@ -194,6 +195,7 @@ vacuously. Legs, `-np 1`, a few seconds each:
 | `leapfrog` | cpu, fnl | as above (refused since 596eb3cd / c27d6ad8) |
 | `yoshida` | fnl | `integrate_rk_yoshida_dev` is empty (#55); the CPU integrator works |
 | `t0-elliptic-amr` | cpu, fnl | a t0 elliptic solve on a refined grid: the wide D(G) across 2:1 faces is not defined yet (#84 E3b, E7) |
+| `elliptic-correction` | cpu, fnl | `[PIC] elliptic_correction = .true.`, removed (#84 E3d); this leg rewrites `pic-pec-t0/input.ini` (a leg's optional fifth field names its base case) |
 
 Add a leg here whenever an input becomes a refusal.
 

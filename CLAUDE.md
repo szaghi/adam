@@ -528,7 +528,9 @@ PIC configuration lives in its own `[PIC]` section (`adam_prism_pic_object.F90`,
 - `problem_type` — `plasma` or `single_particle`; `plasma_domain` ∈ `Uniform_domain` / `Uniform_cilinder` / `Uniform_cell` (note the spelling **`cilinder`**), with `cilinder_{radius,length,x_center,y_center,z_center,axis}` when cylindrical, plus `plasma_density` and `neutral_fraction`.
 - `scheme_time` — `LEAPFROG` or Runge-Kutta; each has its own object pair (`prism_leapfrog_pic_object` / `prism_rk_pic_object`) on both backends.
 - `particle_weighting_model` / `current_weighting_model` / `field_weighting_model` — the full ladder (NGP, CIC, TSC, cubic, quartic, quintic, Gaussian for charge and current; 0D–5D, Gaussian and bspline for fields), every one mirrored as a `_dev` device routine in `prism_fnl_pic_object`. Gaussian kinds additionally read `sigma` and `cutoff_sigma`.
-- `initialization` (`coherent` → elliptic-solver field init) and `elliptic_correction` tie PIC into the FLAIL elliptic solver.
+- `initialization` (`coherent` → elliptic-solver field init) ties PIC into the FLAIL elliptic solver (the t0 solves,
+  `*_field_elliptic_initialization`). `elliptic_correction` is removed (#84 E3d): `.true.` stops the run, and the
+  removed-keys lint rejects it in committed inputs.
 
 Particle state is `q_pic(8, particle_number)` with `pic_fields(6, particle_number)`, allocated only under PIC (`adam_prism_common_object.F90:275-285`).
 

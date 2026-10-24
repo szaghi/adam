@@ -11,9 +11,8 @@ REGRESSION_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$REGRESSION_DIR/../../../.." && pwd)"
 EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_cpu}"
 BACKEND="${EXE##*_}"
-BASE="$REGRESSION_DIR/rmf/input.ini"
 
-# name | backends | sed script applied to rmf/input.ini | expected message (grep -F)
+# name | backends | sed script applied to rmf/input.ini | expected message (grep -F) [| base case, default rmf]
 LEGS=(
    # issue #61: hyperbolic cleaning has no phi/psi slot without constrained transport (var_J* were left undefined)
    "hyperbolic-no-ct|cpu fnl|s/^divergence_correction *=.*/divergence_correction = hyperbolic/|hyperbolic needs"
@@ -45,24 +44,27 @@ LEGS=(
    # grid; the wide D(G) across 2:1 faces is not defined yet (E7). The first IC pass runs on the uniform grid (PEC faces:
    # the FLAIL path), the marker refines, the second pass must refuse
    "t0-elliptic-amr|cpu fnl|s/^type = Neumann/type = PEC/;s/^time_delay = .*/time_delay = 0.0/;s/^amr_iterations = 0/amr_iterations = 1/;s/^iu_ref_levels  = 2/iu_ref_levels  = 1/;s/^markers_number = 0/markers_number = 1\n[amr_marker_1]\nmode = 1\ngeo_type = primitive-box\ndelta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0\nbox_xmin = -0.06\nbox_ymin = -0.06\nbox_zmin = -0.06\nbox_xmax = 0.0\nbox_ymax = 0.06\nbox_zmax = 0.06\ntarget_level = 2/|needs a uniform grid"
+   # issue #84 E3d: [PIC] elliptic_correction is removed; .true. must stop (a PIC input: the PIC section is read)
+   "elliptic-correction|cpu fnl|s/^\\[PIC\\]$/[PIC]\\nelliptic_correction = .true./|elliptic_correction) is removed|pic-pec-t0"
    "ib-axis|cpu fnl|s/^number    = 0/number    = 1/;s/^n_eikonal = 2/&\n[solid_1]\nname = s\nbc_type = 1\ndefinition = analytical_circle\ncircle_center_x = 0.0\ncircle_center_y = 0.0\ncircle_center_z = 0.0\ncircle_radius = 0.01\ncircle_axis = w/|(circle_axis) \"w\""
 )
 
 fail=0
 ran=0
 for leg in "${LEGS[@]}"; do
-   IFS='|' read -r name backends script message <<< "$leg"
+   IFS='|' read -r name backends script message base_case <<< "$leg"
+   base="$REGRESSION_DIR/${base_case:-rmf}/input.ini"
    if [[ " $backends " != *" $BACKEND "* ]]; then
       echo ">> [refusals/$BACKEND] $name: skipped (applies to $backends)"
       continue
    fi
    # inside the rmf case, like every case's work-*: a directory with an input.ini right under the suite would be
    # picked up by run.sh as a case
-   work="$REGRESSION_DIR/rmf/work-refusal-$BACKEND-$name"
+   work="$REGRESSION_DIR/${base_case:-rmf}/work-refusal-$BACKEND-$name"
    rm -rf "$work" && mkdir -p "$work"
-   sed -e "$script" "$BASE" > "$work/input.ini"
-   if cmp -s "$BASE" "$work/input.ini"; then
-      echo "FAIL [refusals/$BACKEND] $name: the sed script changed nothing (rmf/input.ini drifted?)"
+   sed -e "$script" "$base" > "$work/input.ini"
+   if cmp -s "$base" "$work/input.ini"; then
+      echo "FAIL [refusals/$BACKEND] $name: the sed script changed nothing (${base_case:-rmf}/input.ini drifted?)"
       fail=1; continue
    fi
    rc=0

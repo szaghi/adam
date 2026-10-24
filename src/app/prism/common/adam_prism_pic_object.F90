@@ -142,7 +142,6 @@ type :: prism_pic_object
    character(len=99)         :: problem_type = ''           !< Type of problem analyzed
    character(len=99)         :: plasma_domain = ''          !< Domain of plasma at t0
    character(len=99)         :: initialization = COHERENT_INITIALIZATION !< Field initialization solver.
-   logical                   :: elliptic_correction=.false. !< elliptic correction for the initial fields
    logical                   :: electric_field_elliptic_initialization = .true. !< Solve for phi (div D = rho) at t0.
    logical                   :: magnetic_field_elliptic_initialization = .true. !< Solve for A (curl B = mu J) at t0.
    logical                   :: filter_deposition = .false. !< Binomial filter for deposition and gather weights.
@@ -462,7 +461,6 @@ contains
                      trim(str(self%electric_field_elliptic_initialization))
    desc = desc//NL//mpih%myrankstr//'    Magnetic field elliptic initialization: '// &
                      trim(str(self%magnetic_field_elliptic_initialization))
-   desc = desc//NL//mpih%myrankstr//'    Elliptic correction: '//trim(str(self%elliptic_correction))
    desc = desc//NL//mpih%myrankstr//'    Filter deposition and gather: '//trim(str(self%filter_deposition))
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
@@ -820,10 +818,18 @@ contains
       endselect
    endif
 
+   ! elliptic_correction is removed (issue #84, E3d): after the t0 solve on FLAIL div D - rho is at round-off up to the
+   ! checkerboard component of rho, which no D can carry and the correction could not remove either. .true. stops the
+   ! run, so that no input loses silently a correction it asked for; .false. is ignored
+   block
+   logical :: elliptic_correction !< The removed key, if present.
+   elliptic_correction = .false.
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='elliptic_correction', &
-   val=self%elliptic_correction, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(elliptic_correction)')
+                            val=elliptic_correction, error=error)
+   if (error == 0 .and. elliptic_correction) call mpih%error_stop(msg=': ['//INI_SECTION_NAME// &
+      '].(elliptic_correction) is removed (issue #84, E3d): the t0 solve leaves div D - rho at round-off, up to the '// &
+      'checkerboard component of rho that no D can carry; delete the key')
+   endblock
 
    ! optional: the t0 elliptic solves for D and B, each on by default (the fields are then the IC ones plus the solves)
    self%electric_field_elliptic_initialization = .true.

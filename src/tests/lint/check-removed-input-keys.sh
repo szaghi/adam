@@ -7,6 +7,9 @@
 #
 #   [fWLayer] C  -> removed by 8e05d363; replaced by the physical [fWLayer] width (required even when no layer is
 #                   used). 48 research inputs kept C until issue #58.
+#   [PIC] elliptic_correction -> removed by issue #84 E3d (the t0 solve on FLAIL leaves div D - rho at round-off up to
+#                   the checkerboard component no D can carry); .true. stops the run, so no replacement. 29 inputs
+#                   carried it (all .false.) until E3d.
 #
 # Section-aware (a C key in another section is not the fWLayer one) and CRLF-tolerant. Git-ignored files (the
 # harnesses' work-* copies) are skipped.
@@ -22,9 +25,12 @@ hits="$(cd "$REPO_ROOT" && git ls-files -z 'src/tests/prism/*.ini' | xargs -0 aw
    { line = $0; sub(/\r$/, "", line) }
    line ~ /^[[:space:]]*\[/ { section = line; gsub(/[[:space:]]/, "", section); next }
    section == "[fWLayer]" && line ~ /^[[:space:]]*C[[:space:]]*=/ { print FILENAME ":" FNR ": [fWLayer] C" }
+   section == "[PIC]" && line ~ /^[[:space:]]*elliptic_correction[[:space:]]*=/ {
+      print FILENAME ":" FNR ": [PIC] elliptic_correction" }
 ')"
 if [[ -n "$hits" ]]; then
-   echo "FAIL [lint/removed-input-keys] removed keys in committed PRISM inputs (replace [fWLayer] C with width):"
+   echo "FAIL [lint/removed-input-keys] removed keys in committed PRISM inputs (replace [fWLayer] C with width; delete"
+   echo "     [PIC] elliptic_correction):"
    echo "$hits"
    exit 1
 fi

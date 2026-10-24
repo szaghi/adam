@@ -297,7 +297,8 @@ status: [issue #84](https://github.com/szaghi/adam/issues/84).
 
 ### `adam_flail_legacy_object` — legacy FLAIL smoothers (retired in issue #84, E4)
 
-PRISM's elliptic smoothers: since #84 E3c only the unused `[PIC] elliptic_correction` (E3d) reaches them. The realm component is `flail_legacy`, and it owns the
+PRISM's elliptic smoothers: since #84 E3d no live path reaches them; only the dead `divergence_correction = poisson`
+code (`impose_ct_correction`, refused at init) still calls them, and both go in E4. The realm component is `flail_legacy`, and it owns the
 `[linear-algebra]` section. No new code should use it.
 
 Iterative solver and smoother infrastructure for implicit operators (e.g., elliptic sub-problems). Provides a common interface over several smoothing strategies:
