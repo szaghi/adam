@@ -333,8 +333,14 @@ Each routine accepts a stencil half-width `s` and the local mesh spacing `dxyz`,
 
 ### `adam_fnl_poisson_fft_object` — FFT Poisson solver on the GPU (cuFFT)
 
-Extends `poisson_fft_object` ([common](/library/common)): the gather to rank 0, the placement and the scatter of
-`phi` with its ghosts are the CPU ones; the spectral solve runs on rank 0's GPU. The global source goes to the device,
+Extends `poisson_fft_object` ([common](/library/common)). The distributed slab transform (#84 E5d) keeps the CPU
+redistribution and return of the block planes on the host; the transform runs on each rank's GPU with its arrays
+resident there (`slab_r`, `slab_c`, `pen`, `khat_pen` and the transpose buffers, created with the plans): `slab_r`
+goes up (`slab_update_fnl`), the planes (`slab_planes_fnl`: one D2Z/Z2D plan for one plane, executed on every plane),
+the transpose (`slab_transpose_fnl`: packed and unpacked on the device, `MPI_ALLTOALLV` on the device buffers, so
+GPU-aware MPI as the ghost exchange; none on one rank), the lines (`slab_lines_fnl`: one Z2Z plan for one row of
+z-lines, executed on every row), the spectral solve (`slab_spectral_fnl`), back, and `slab_r` comes down. The result
+does not depend on the rank count. The rank-0 path below remains for PRISM's CG solves and the multigrid's small root. The global source goes to the device,
 a cuFFT D2Z transform, a kernel divides by the eigenvalues of `L_h` (the host-computed tables of the CPU solver), a Z2D
 transform, and the potential comes back. cuFFT is bound to the stream of the synchronous OpenACC queue
 (`acc_get_cuda_stream(acc_async_sync)`), so the transforms and the kernel between them are ordered.
@@ -379,7 +385,7 @@ A direct re-export of FUNDAL's MPI handler under the FNL-namespaced type alias `
 | `adam_fnl_ib_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
 | `adam_fnl_maps_object` | GPU communication index tables + MPI buffer staging | `maps_object` |
 | `adam_fnl_mpih_object` | FUNDAL MPI handler alias | — |
-| `adam_fnl_poisson_fft_object` | FFT Poisson solver, cuFFT on rank 0's GPU (not re-exported by `adam_fnl_library`) | `poisson_fft_object` |
+| `adam_fnl_poisson_fft_object` | FFT Poisson solver, cuFFT on each rank's GPU (the slab transform; not re-exported by `adam_fnl_library`) | `poisson_fft_object` |
 | `adam_fnl_fdv_operators_library` | Device-callable FD/FV spatial operators | — |
 | `adam_fnl_mpih_global` | Singleton — `mpih_fnl` | — |
 | `adam_fnl_field_global` | Singleton — `field_fnl` | — |

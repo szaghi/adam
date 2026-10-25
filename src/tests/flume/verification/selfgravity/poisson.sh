@@ -93,8 +93,13 @@
 # isolated. Measured (CPU, np 1-3): Phi equal to 1.6e-14 - 1.1e-11, iterations 14 (1), 47 (36), 25 (24), 41 (39),
 # 53 (40), 52 (47). The mutation "no off-diagonals in the levels below lmin" fails 5 of 6 (60-120 iterations).
 #
+# slab (test_poisson_fft --dump, issue #84, E5d): the distributed slab transform's results do not depend on the rank
+# count: the potentials of SV-2 and SV-6 (every level, the whole transform array, images and padding included)
+# dumped at every rank count of the list and compared byte for byte with the first one. Measured (CPU, np 1-3; FNL,
+# np 1-2): 13 of 13 identical; CPU against FNL 9.8e-15 relative at most.
+#
 # Usage: ./poisson.sh [--np-list "1 2 3"] [--legs LIST] [--dump DIR] [--keep]
-#        LIST: sv2, sv6, sv9, sv13, bc, bcmg, flail, sub or all
+#        LIST: sv2, sv6, sv9, sv13, bc, bcmg, flail, sub, slab or all
 #        (default all)
 #
 # POISSON_EXE overrides the executable under test, e.g. POISSON_EXE=$REPO/exe/test_poisson_fft_fnl ./poisson.sh
@@ -111,7 +116,7 @@ MG_EXE="${POISSON_MG_EXE:-$REPO_ROOT/exe/test_poisson_mg}"
 BC_EXE="${POISSON_BC_EXE:-$REPO_ROOT/exe/test_flail_bc}"
 NP_LIST="1 2 3"
 source "$VERIF_DIR/legs.sh"
-legs_declare "sv2 sv6 sv9 sv13 bc bcmg flail sub"
+legs_declare "sv2 sv6 sv9 sv13 bc bcmg flail sub slab"
 DUMP=""
 KEEP=0
 
@@ -128,7 +133,7 @@ done
 legs_resolve poisson.sh
 needs_fft=0 ; needs_mg=0 ; needs_bc=0
 for leg in $LEGS; do
-   case "$leg" in sv2|sv6) needs_fft=1 ;; sv9|sv13|bcmg|flail|sub) needs_mg=1 ;; bc) needs_bc=1 ;; esac
+   case "$leg" in sv2|sv6|slab) needs_fft=1 ;; sv9|sv13|bcmg|flail|sub) needs_mg=1 ;; bc) needs_bc=1 ;; esac
 done
 if [[ -n "$DUMP" ]]; then needs_fft=1 ; fi
 if [[ $needs_fft -eq 1 ]]; then
@@ -229,6 +234,29 @@ for leg in $LEGS; do
       sub)
          echo ">> The multigrid's levels inside the blocks (issue #84, E5c; $(basename "$MG_EXE"))"
          suite multigrid-sub "--sub" "$MG_EXE" ;;
+      slab)
+         echo ">> The slab FFT, bitwise across the rank counts (issue #84, E5d; $TAG)"
+         first="" ; nsame=0 ; ndiff=0
+         for np in $NP_LIST; do
+            for flags in "" "--isolated"; do
+               dir="$work/slab-np$np${flags:+-isolated}"
+               mkdir -p "$dir"
+               # shellcheck disable=SC2086
+               if ! (cd "$work" && mpirun -np "$np" "$EXE" $flags --dump "$dir" > "$dir.log" 2>&1); then
+                  echo "   slab, np $np ${flags:-periodic}: the run failed, see $dir.log  FAIL" ; FAILED=1
+               fi
+            done
+            if [[ -z "$first" ]]; then first="$np" ; continue ; fi
+            for f in "$work/slab-np$first"/*.bin "$work/slab-np$first-isolated"/*.bin; do
+               g="${f/slab-np$first/slab-np$np}"
+               if cmp -s "$f" "$g"; then nsame=$((nsame + 1)) ; else ndiff=$((ndiff + 1)) ; echo "   slab: $g differs" ; fi
+            done
+         done
+         if [[ $ndiff -eq 0 && $nsame -gt 0 ]]; then
+            echo "   slab: $nsame potentials identical to np $first  PASS"
+         else
+            echo "   slab: $ndiff of $((nsame + ndiff)) potentials differ from np $first  FAIL" ; FAILED=1
+         fi ;;
    esac
 done
 if [[ -n "$DUMP" ]]; then

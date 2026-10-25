@@ -8,19 +8,30 @@ module adam_poisson_fft_object
 !< `L_h` itself, `lambda_k = sum_d (2 cos(2 pi k_d / N_d) - 2) / dx_d^2`, so the discrete residual of the returned `phi`
 !< is at round-off; the modes with `lambda_k = 0` (the mean, and every mode along a null direction) are set to zero.
 !<
-!< **Data path (issue #81, D-81-2, first version).** Every rank packs the interior `f` of its blocks with their integer
-!< block coordinates; `MPI_Gatherv` brings them to rank 0, which places them by the global cell index, transforms
-!< (`transform`, real-to-complex and back), and `MPI_Scatterv`s every block's `phi` with all its ghost layers already
-!< filled by the periodic wrap of the global solution, so no ghost exchange follows. Correct for any rank count, ranks
-!< without blocks included; not scalable (rank 0 holds the whole grid).
+!< **Data path: the distributed slab transform (issue #84, E5d).** Rank r owns the z-planes [zr(r), zr(r+1)) of the
+!< transform array (`m` cells per direction: the grid, its extensions, its padding). Every block plane goes to the
+!< owners of the target planes that map to it, and each rank builds its planes by the per-axis maps (`tmap`, `tsgn`:
+!< a target cell's source cell and sign, the images of `extend_global` and the zero padding). The planes are transformed
+!< in 2-D (r2c), transposed to z-lines (`MPI_ALLTOALLV`, the y-rows [yr(r), yr(r+1)) on rank r) and transformed in 1-D,
+!< divided by the eigenvalues (or multiplied by the kernel's spectrum, kept in the pencil layout), and back. Every
+!< block then fetches its potential with all its ghost layers from the owners of its planes (wrapped modulo `m`), so
+!< no ghost exchange follows; the energy sums on the owners. One plan for one plane and one for one row of lines,
+!< executed on every plane and row in turn through fixed buffers (`slab_planes`, `slab_lines`, the backend hooks):
+!< the arithmetic of a value does not depend on how many planes or rows a rank holds, so the potential is bitwise the
+!< same on every rank count (`poisson.sh` leg `slab`). At most `m(3)` ranks hold planes (a pencil layout would lift
+!< it). PRISM's CG solves (`pcg`, below), the multigrid's redundant root and the CG's sub-problems keep the rank-0
+!< path of the first version (issue #81, D-81-2): rank 0 gathers the source (`MPI_Gatherv`), places it, transforms
+!< (`transform`) and scatters every block's `phi` (`MPI_Scatterv`); `global_potential` returns the transform array on
+!< rank 0 in either path (diagnostics).
 !<
 !< **Backends.** This object transforms with FFTW 3 (`-D_FFTW`, `-lfftw3`; FFTW_ESTIMATE plans, deterministic). The FNL
-!< twin `adam_fnl_poisson_fft_object` extends it and overrides `make_plans`, `transform` and `destroy_plans` with cuFFT
-!< on the GPU of rank 0. Built without either, `initialize` stops: "built without an FFT library".
+!< twin `adam_fnl_poisson_fft_object` extends it and overrides the slab hooks (`slab_make_plans`, `slab_planes`,
+!< `slab_lines`, `slab_destroy_plans`: each rank's GPU) and the rank-0 ones (`make_plans`, `transform`,
+!< `destroy_plans`) with cuFFT. Built without either, `initialize` stops: "built without an FFT library".
 !<
 !< **Entry points.** `solve` packs one variable of a host conservative array; `solve_packed` takes the interior source
 !< already packed (block-major, `i` fastest: what a device kernel produces on FNL). Both can return
-!< `energy = sum_cells f Phi` (computed on rank 0 from the global arrays, broadcast): `W = energy dV / 2` is the
+!< `energy = sum_cells f Phi` (summed on the slab owners, every rank gets it): `W = energy dV / 2` is the
 !< gravitational energy of self-gravity on a uniform grid.
 !<
 !< **Isolated boundaries (issue #81, M8-P4), Hockney and Eastwood.** `initialize(..., isolated=.true.)` solves
@@ -92,7 +103,7 @@ use :: adam_flail_parameters, only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAI
 use :: adam_mpih_global, only : mpih
 use :: iso_c_binding
 use :: mpi
-use :: penf, only : I4P, R8P, str
+use :: penf, only : I4P, I8P, R8P, str
 
 implicit none
 private
@@ -157,6 +168,25 @@ type :: poisson_fft_object
    real(R8P),    allocatable :: khat(:,:,:)            !< Rank 0, isolated: the kernel's spectrum over prod(m).
    type(c_ptr)               :: plan_r2c=c_null_ptr    !< FFTW forward plan (rank 0).
    type(c_ptr)               :: plan_c2r=c_null_ptr    !< FFTW backward plan (rank 0).
+   ! the distributed slab transform (issue #84, E5d)
+   logical                   :: slab=.false.           !< Every rank transforms its z-planes (see the module).
+   integer(I4P)              :: h1=1_I4P               !< Complex cells along x after r2c, m(1)/2 + 1.
+   integer(I4P), allocatable :: zr(:)                  !< First z-plane (0-based) of each rank's slab [0:ranks].
+   integer(I4P), allocatable :: yr(:)                  !< First y-row (0-based) of each rank's pencils [0:ranks].
+   integer(I4P), allocatable :: zown(:)                !< Owner rank of each z-plane [0:m(3)-1].
+   integer(I4P), allocatable :: tmap(:,:)              !< Per axis, target cell -> source cell, -1 for zero [0:,3].
+   real(R8P),    allocatable :: tsgn(:,:)              !< Per axis, the sign of the image [0:,3].
+   real(R8P),    allocatable :: slab_r(:,:,:)          !< This rank's z-planes [m(1),m(2),planes].
+   complex(R8P), allocatable :: slab_c(:,:,:)          !< Their 2-D transforms [h1,m(2),planes].
+   complex(R8P), allocatable :: pen(:,:,:)             !< This rank's z-lines [m(3),h1,rows].
+   real(R8P),    allocatable :: khat_pen(:,:,:)        !< Isolated: the kernel's spectrum in pencils [m(3),h1,rows].
+   real(R8P),    allocatable :: w_r(:,:)               !< FFTW: the plane buffer [m(1),m(2)].
+   complex(R8P), allocatable :: w_c(:,:)               !< FFTW: the transformed plane buffer [h1,m(2)].
+   complex(R8P), allocatable :: w_l(:,:)               !< FFTW: the row-of-lines buffer [m(3),h1].
+   type(c_ptr)               :: plan_pr2c=c_null_ptr   !< FFTW: one plane, r2c.
+   type(c_ptr)               :: plan_pc2r=c_null_ptr   !< FFTW: one plane, c2r.
+   type(c_ptr)               :: plan_lfwd=c_null_ptr   !< FFTW: one row of z-lines, forward.
+   type(c_ptr)               :: plan_lbwd=c_null_ptr   !< FFTW: one row of z-lines, backward.
    contains
       ! public methods
       procedure, pass(self) :: destroy    !< Destroy the solver.
@@ -176,16 +206,30 @@ type :: poisson_fft_object
       procedure, pass(self), private :: subtract_free_ghosts !< Rank 0: f <- f - D(G) u_g (E3c).
       procedure, pass(self), private :: put_free_ghosts      !< Rank 0: the free-space ghost slabs into a padded array.
       procedure, pass(self), private :: solve_everywhere     !< `solve_blocks` with `redundant`: every rank solves.
+      procedure, pass(self), private :: slab_setup           !< The slab layout, maps, arrays and plans (E5d).
+      procedure, pass(self), private :: solve_slabs          !< `solve_blocks` with `slab`: the distributed solve.
+      procedure, pass(self), private :: slab_transform       !< slab_r <- factor * L^-1 slab_r, distributed.
+      procedure, pass(self)          :: global_potential     !< Gather the slab solution to rank 0 (diagnostics).
       ! backend hooks
       procedure, pass(self) :: destroy_plans    !< Destroy the transform plans.
       procedure, pass(self) :: make_plans       !< Make the transform plans (rank 0).
       procedure, pass(self) :: transform        !< f_global <- factor * L_h^-1 f_global (rank 0).
       procedure, pass(self) :: transform_kernel !< khat <- the spectrum of f_global over prod(m) (rank 0, isolated).
       procedure, nopass     :: root_cells_max   !< Most cells of a multigrid root solved by this backend (#84 E5c).
+      procedure, pass(self) :: slab_make_plans    !< Make the slab plans: one plane, one row of lines (E5d).
+      procedure, pass(self) :: slab_destroy_plans !< Destroy the slab plans.
+      procedure, pass(self) :: slab_planes        !< 2-D transform of every local plane, slab_r <-> slab_c.
+      procedure, pass(self) :: slab_lines         !< 1-D transform of every local z-line, in place in pen.
+      procedure, pass(self) :: slab_transpose     !< slab_c <-> pen (MPI_ALLTOALLV).
+      procedure, pass(self) :: slab_spectral      !< pen <- the spectral solve (eigenvalues or kernel) of pen.
+      procedure, pass(self) :: slab_keep_kernel   !< khat_pen <- pen over prod(m) (isolated, at setup).
+      procedure, pass(self) :: slab_update        !< slab_r between the host and where the stages run.
 endtype poisson_fft_object
 
 #ifdef _FFTW
 integer(c_int), parameter :: FFTW_ESTIMATE=64_c_int !< FFTW planner flag, `fftw3.f03`.
+integer(c_int), parameter :: FFTW_FORWARD=-1_c_int  !< FFTW sign, `fftw3.f03`.
+integer(c_int), parameter :: FFTW_BACKWARD=1_c_int  !< FFTW sign, `fftw3.f03`.
 
 interface
    type(c_ptr) function fftw_plan_dft_r2c_3d(n0, n1, n2, in, out, flags) bind(C, name='fftw_plan_dft_r2c_3d')
@@ -222,6 +266,49 @@ interface
    real(c_double)            :: out(*) !< Output.
    endsubroutine fftw_execute_dft_c2r
 
+   type(c_ptr) function fftw_plan_dft_r2c_2d(n0, n1, in, out, flags) bind(C, name='fftw_plan_dft_r2c_2d')
+   !< FFTW: plan a 2-D real-to-complex transform (row-major sizes).
+   import :: c_ptr, c_int, c_double, c_double_complex
+   integer(c_int), value     :: n0, n1 !< Sizes, slowest first.
+   real(c_double)            :: in(*)  !< Input.
+   complex(c_double_complex) :: out(*) !< Output.
+   integer(c_int), value     :: flags  !< Planner flags.
+   endfunction fftw_plan_dft_r2c_2d
+
+   type(c_ptr) function fftw_plan_dft_c2r_2d(n0, n1, in, out, flags) bind(C, name='fftw_plan_dft_c2r_2d')
+   !< FFTW: plan a 2-D complex-to-real transform (row-major sizes).
+   import :: c_ptr, c_int, c_double, c_double_complex
+   integer(c_int), value     :: n0, n1 !< Sizes, slowest first.
+   complex(c_double_complex) :: in(*)  !< Input.
+   real(c_double)            :: out(*) !< Output.
+   integer(c_int), value     :: flags  !< Planner flags.
+   endfunction fftw_plan_dft_c2r_2d
+
+   type(c_ptr) function fftw_plan_many_dft(rnk, n, howmany, in, inembed, istride, idist, out, onembed, ostride, &
+                                           odist, sgn, flags) bind(C, name='fftw_plan_many_dft')
+   !< FFTW: plan a batch of complex transforms.
+   import :: c_ptr, c_int, c_double_complex
+   integer(c_int), value     :: rnk             !< Rank of each transform.
+   integer(c_int)            :: n(*)            !< Sizes.
+   integer(c_int), value     :: howmany         !< Transforms.
+   complex(c_double_complex) :: in(*)           !< Input.
+   type(c_ptr), value        :: inembed         !< NULL: n.
+   integer(c_int), value     :: istride, idist  !< Input stride and distance.
+   complex(c_double_complex) :: out(*)          !< Output.
+   type(c_ptr), value        :: onembed         !< NULL: n.
+   integer(c_int), value     :: ostride, odist  !< Output stride and distance.
+   integer(c_int), value     :: sgn             !< FFTW_FORWARD or FFTW_BACKWARD.
+   integer(c_int), value     :: flags           !< Planner flags.
+   endfunction fftw_plan_many_dft
+
+   subroutine fftw_execute_dft(p, in, out) bind(C, name='fftw_execute_dft')
+   !< FFTW: execute a complex plan on the given arrays.
+   import :: c_ptr, c_double_complex
+   type(c_ptr), value        :: p      !< Plan.
+   complex(c_double_complex) :: in(*)  !< Input.
+   complex(c_double_complex) :: out(*) !< Output.
+   endsubroutine fftw_execute_dft
+
    subroutine fftw_destroy_plan(p) bind(C, name='fftw_destroy_plan')
    !< FFTW: destroy a plan.
    import :: c_ptr
@@ -238,6 +325,20 @@ contains
    integer(I4P)                             :: i    !< Counter.
 
    if (self%is_initialized) call self%destroy_plans
+   if (self%is_initialized .and. self%slab) call self%slab_destroy_plans
+   if (allocated(self%zr))       deallocate(self%zr)
+   if (allocated(self%yr))       deallocate(self%yr)
+   if (allocated(self%zown))     deallocate(self%zown)
+   if (allocated(self%tmap))     deallocate(self%tmap)
+   if (allocated(self%tsgn))     deallocate(self%tsgn)
+   if (allocated(self%slab_r))   deallocate(self%slab_r)
+   if (allocated(self%slab_c))   deallocate(self%slab_c)
+   if (allocated(self%pen))      deallocate(self%pen)
+   if (allocated(self%khat_pen)) deallocate(self%khat_pen)
+   if (allocated(self%w_r))      deallocate(self%w_r)
+   if (allocated(self%w_c))      deallocate(self%w_c)
+   if (allocated(self%w_l))      deallocate(self%w_l)
+   self%slab = .false. ; self%h1 = 1_I4P
    if (allocated(self%lam1))     deallocate(self%lam1)
    if (allocated(self%lam2))     deallocate(self%lam2)
    if (allocated(self%lam3))     deallocate(self%lam3)
@@ -482,7 +583,12 @@ contains
    if (present(redundant)) self%redundant = redundant
    if (self%redundant .and. (self%isolated .or. self%pcg)) call mpih%error_stop(msg= &
       'poisson_fft_object%initialize_blocks: redundant is for the compact operator, not isolated')
-   if (mpih%myrank == 0 .or. self%redundant) then
+   ! the distributed slab transform (#84 E5d), for every solve but PRISM's CG ones (rank 0, #84 decision 3), the
+   ! redundant root and the CG's own sub-problems
+   self%slab = .not.(self%pcg .or. self%redundant .or. present(axis_dg_order))
+   if (self%slab) then
+      call self%slab_setup
+   elseif (mpih%myrank == 0 .or. self%redundant) then
       allocate(self%f_global(self%m(1),self%m(2),self%m(3)))
       allocate(self%f_source(self%m(1),self%m(2),self%m(3)))
       allocate(self%f_hat(self%m(1)/2+1,self%m(2),self%m(3)))
@@ -643,6 +749,10 @@ contains
    if (self%redundant) then
       if (present(energy)) call mpih%error_stop(msg='poisson_fft_object%solve: no energy with redundant')
       call self%solve_everywhere(nbl=nbl, coords=coords, buf=buf, factor=factor, gw=gw, out=out)
+      return
+   endif
+   if (self%slab) then
+      call self%solve_slabs(nbl=nbl, coords=coords, buf=buf, factor=factor, gw=gw, out=out, energy=energy)
       return
    endif
    t(0) = MPI_WTIME()
@@ -810,6 +920,349 @@ contains
    t(2) = MPI_WTIME()
    self%wall(1:2) = self%wall(1:2) + (t(1:2) - t(0:1))
    endsubroutine solve_everywhere
+
+   subroutine slab_setup(self)
+   !< The distributed slab transform (issue #84, E5d): rank r owns the z-planes [zr(r), zr(r+1)) of the transform array
+   !< and, after the transpose, the y-rows [yr(r), yr(r+1)) of its z-lines; the per-axis maps from a target cell of the
+   !< transform array to its source cell and sign (the extensions of `extend_global`, the isolated padding); the
+   !< arrays, the plans and, isolated, the kernel's spectrum in the pencil layout.
+   class(poisson_fft_object), intent(inout) :: self !< The solver.
+   integer(I4P)                             :: nr, me, r, d, t, mm, nzl, nyl !< Counters, sizes.
+
+   nr = mpih%procs_number ; me = mpih%myrank
+   self%h1 = self%m(1) / 2 + 1
+   allocate(self%zr(0:nr), self%yr(0:nr), self%zown(0:self%m(3)-1))
+   do r=0, nr
+      self%zr(r) = int((int(r, I8P) * self%m(3)) / nr, I4P)
+      self%yr(r) = int((int(r, I8P) * self%m(2)) / nr, I4P)
+   enddo
+   do r=0, nr-1
+      if (self%zr(r+1) > self%zr(r)) self%zown(self%zr(r):self%zr(r+1)-1) = r
+   enddo
+   mm = maxval(self%m)
+   allocate(self%tmap(0:mm-1,3), self%tsgn(0:mm-1,3))
+   self%tmap = -1 ; self%tsgn = 0._R8P
+   do d=1, 3
+      do t=0, self%m(d)-1
+         call axis_map(d, t, self%tmap(t,d), self%tsgn(t,d))
+      enddo
+   enddo
+   nzl = self%zr(me+1) - self%zr(me) ; nyl = self%yr(me+1) - self%yr(me)
+   allocate(self%slab_r(self%m(1),self%m(2),max(nzl,1)), self%slab_c(self%h1,self%m(2),max(nzl,1)), &
+            self%pen(self%m(3),self%h1,max(nyl,1)))
+   self%slab_r = 0._R8P ; self%slab_c = (0._R8P, 0._R8P) ; self%pen = (0._R8P, 0._R8P)
+   call self%slab_make_plans
+   if (self%isolated) call slab_kernel
+   contains
+      recursive subroutine axis_map(d_, t_, src, sg)
+      !< Target cell t_ (0-based) of axis d_: its source cell (0-based, -1 for zero) and sign, as `extend_global`.
+      integer(I4P), intent(in)  :: d_, t_ !< Axis, target cell.
+      integer(I4P), intent(out) :: src    !< Source cell.
+      real(R8P),    intent(out) :: sg     !< Sign.
+      integer(I4P)              :: n_     !< Source cells.
+
+      n_ = self%n(d_)
+      src = t_ ; sg = 1._R8P
+      if (t_ < n_) return ! the domain itself
+      src = -1 ; sg = 0._R8P
+      if (self%isolated) return ! the padding
+      if (all(self%bc(:,d_) == FLAIL_BC_DIRICHLET_GHOST)) then ! odd about the ghost centres n and m - 1
+         if (t_ == n_ .or. t_ == self%m(d_) - 1) return
+         src = 2 * n_ - t_ ; sg = -1._R8P
+      elseif (t_ < 2 * n_) then ! the reflection about the high face
+         src = 2 * n_ - 1 - t_ ; sg = merge(-1._R8P, 1._R8P, self%bc(2,d_) == FLAIL_BC_DIRICHLET)
+      else ! the reflection of [0, 2n) about the low face
+         call axis_map(d_, 4 * n_ - 1 - t_, src, sg)
+         sg = sg * merge(-1._R8P, 1._R8P, self%bc(1,d_) == FLAIL_BC_DIRICHLET)
+      endif
+      endsubroutine axis_map
+
+      subroutine slab_kernel
+      !< Isolated: the kernel `h^2 G(o)` on this rank's planes (offsets wrapped into (-m/2, m/2]), transformed as the
+      !< source is, its spectrum over prod(m) kept in the pencil layout (real: the kernel is even).
+      integer(I4P) :: o(3), i, j, k !< Offset, counters.
+
+      do k=1, nzl
+         o(3) = self%zr(me) + k - 1 ; if (o(3) > self%m(3) / 2) o(3) = o(3) - self%m(3)
+         do j=1, self%m(2)
+            o(2) = j - 1 ; if (o(2) > self%m(2) / 2) o(2) = o(2) - self%m(2)
+            do i=1, self%m(1)
+               o(1) = i - 1 ; if (o(1) > self%m(1) / 2) o(1) = o(1) - self%m(1)
+               self%slab_r(i,j,k) = self%dxyz(1)**2 * lattice_green(o)
+            enddo
+         enddo
+      enddo
+      call self%slab_update(to_device=.true.)
+      call self%slab_planes(forward=.true.)
+      call self%slab_transpose(forward=.true.)
+      call self%slab_lines(forward=.true.)
+      allocate(self%khat_pen(self%m(3),self%h1,max(nyl,1)))
+      call self%slab_keep_kernel
+      self%slab_r = 0._R8P
+      endsubroutine slab_kernel
+   endsubroutine slab_setup
+
+   subroutine solve_slabs(self, nbl, coords, buf, factor, gw, out, energy)
+   !< `solve_blocks` with `slab` (issue #84, E5d): every block plane sent to the owners of the target planes that map to
+   !< it, each rank's planes built (the extensions and the padding by the maps), transformed (`slab_transform`), and
+   !< every block's potential with its ghost layers fetched back from the owners of its planes (wrapped modulo m, as
+   !< `solve_blocks` reads `f_global`). The arithmetic of every value does not depend on the rank count (one plan per
+   !< plane and per row of lines). `wall`: redistribution, transform, return.
+   class(poisson_fft_object), intent(inout)         :: self          !< The solver.
+   integer(I4P),              intent(in)            :: nbl           !< Blocks of this rank.
+   integer(I4P),              intent(in)            :: coords(1:,1:) !< Block coordinates [3,nbl].
+   real(R8P),                 intent(in)            :: buf(1:)       !< Packed interior source of this rank.
+   real(R8P),                 intent(in)            :: factor        !< Source factor.
+   integer(I4P),              intent(in)            :: gw            !< Ghost layers of `out`.
+   real(R8P),                 intent(inout)         :: out(1:)       !< Packed potential, ghosts included.
+   real(R8P),                 intent(out), optional :: energy        !< sum_cells f phi (all ranks).
+   integer(I4P), allocatable :: tgo(:,:), ntgo(:)          !< Owner ranks of the targets of each source z-plane.
+   integer(I4P), allocatable :: srcidx(:)                  !< Source z-plane -> local index in src (0: not needed).
+   real(R8P),    allocatable :: src(:,:,:)                 !< This rank's source planes [n(1),n(2),needed].
+   integer(I4P), allocatable :: sc(:), sd(:), rc(:), rd(:) !< Alltoallv counts and displacements (items).
+   integer(I4P), allocatable :: shdr(:), rhdr(:), fill(:)  !< Headers, cursors.
+   real(R8P),    allocatable :: sval(:), rval(:)           !< Values.
+   integer(I4P)              :: nr, me, nb(3), np_, w, nzl, nsrc, b, i, j, k, t, t1, t2, t3, s1, s2, s3, r, c, e, q
+   real(R8P)                 :: sg3, sg23, el, tm(0:3)     !< Signs, energy, phase marks.
+   integer(I4P)              :: ierr                       !< MPI error status.
+
+   tm(0) = MPI_WTIME()
+   nr = mpih%procs_number ; me = mpih%myrank
+   nb = self%nijk ; np_ = nb(1) * nb(2)
+   nzl = self%zr(me+1) - self%zr(me)
+   allocate(sc(0:nr-1), sd(0:nr-1), rc(0:nr-1), rd(0:nr-1), fill(0:nr-1))
+   ! the owner ranks of the targets of every source plane (1, 2 or 4 targets, deduplicated)
+   allocate(tgo(4,0:self%n(3)-1), ntgo(0:self%n(3)-1))
+   ntgo = 0
+   do t=0, self%m(3)-1
+      s3 = self%tmap(t,3)
+      if (s3 < 0) cycle
+      r = self%zown(t)
+      if (any(tgo(1:ntgo(s3),s3) == r)) cycle
+      ntgo(s3) = ntgo(s3) + 1 ; tgo(ntgo(s3),s3) = r
+   enddo
+   ! this rank's source planes (those its target planes map to)
+   allocate(srcidx(0:self%n(3)-1))
+   srcidx = 0 ; nsrc = 0
+   do t=self%zr(me), self%zr(me+1)-1
+      s3 = self%tmap(t,3)
+      if (s3 < 0) cycle
+      if (srcidx(s3) > 0) cycle
+      nsrc = nsrc + 1 ; srcidx(s3) = nsrc
+   enddo
+   allocate(src(self%n(1),self%n(2),max(nsrc,1)))
+   ! forward: every block plane (header c1, c2, s3 and its np_ values) to each other owner that needs it, this rank's
+   ! own straight into src
+   sc = 0
+   do b=1, nbl
+      do k=1, nb(3)
+         s3 = coords(3,b) * nb(3) + k - 1
+         do q=1, ntgo(s3)
+            if (tgo(q,s3) /= me) sc(tgo(q,s3)) = sc(tgo(q,s3)) + 1
+         enddo
+      enddo
+   enddo
+   call exchange_counts
+   allocate(shdr(max(3*sum(sc),1)), sval(max(np_*sum(sc),1)), rhdr(max(3*sum(rc),1)), rval(max(np_*sum(rc),1)))
+   fill = sd
+   do b=1, nbl
+      do k=1, nb(3)
+         s3 = coords(3,b) * nb(3) + k - 1
+         e = (b-1)*np_*nb(3) + (k-1)*np_
+         do q=1, ntgo(s3)
+            r = tgo(q,s3)
+            if (r == me) then
+               call put_plane(coords(1,b), coords(2,b), srcidx(s3), buf(e+1:e+np_))
+            else
+               c = fill(r) ; fill(r) = fill(r) + 1
+               shdr(3*c+1:3*c+3) = [coords(1,b), coords(2,b), s3]
+               sval(np_*c+1:np_*c+np_) = buf(e+1:e+np_)
+            endif
+         enddo
+      enddo
+   enddo
+   if (nr > 1) then
+      call MPI_ALLTOALLV(shdr, 3*sc, 3*sd, MPI_INTEGER, rhdr, 3*rc, 3*rd, MPI_INTEGER, MPI_COMM_WORLD, ierr)
+      call MPI_ALLTOALLV(sval, np_*sc, np_*sd, MPI_REAL8, rval, np_*rc, np_*rd, MPI_REAL8, MPI_COMM_WORLD, ierr)
+   endif
+   do c=0, sum(rc)-1
+      call put_plane(rhdr(3*c+1), rhdr(3*c+2), srcidx(rhdr(3*c+3)), rval(np_*c+1:np_*c+np_))
+   enddo
+   ! this rank's target planes by the maps
+   do k=1, nzl
+      t3 = self%zr(me) + k - 1
+      s3 = self%tmap(t3,3) ; sg3 = self%tsgn(t3,3)
+      if (s3 < 0) then
+         self%slab_r(:,:,k) = 0._R8P
+         cycle
+      endif
+      do t2=0, self%m(2)-1
+         s2 = self%tmap(t2,2) ; sg23 = sg3 * self%tsgn(t2,2)
+         do t1=0, self%m(1)-1
+            s1 = self%tmap(t1,1)
+            if (s1 < 0 .or. s2 < 0) then
+               self%slab_r(t1+1,t2+1,k) = 0._R8P
+            else
+               self%slab_r(t1+1,t2+1,k) = sg23 * self%tsgn(t1,1) * src(s1+1,s2+1,srcidx(s3))
+            endif
+         enddo
+      enddo
+   enddo
+   tm(1) = MPI_WTIME()
+   call self%slab_transform(factor=factor)
+   tm(2) = MPI_WTIME()
+   if (present(energy)) then ! the domain's cells only: the images and the padding are not cells
+      el = 0._R8P
+      do k=1, nzl
+         t3 = self%zr(me) + k - 1
+         if (t3 >= self%n(3)) cycle
+         do j=1, self%n(2)
+            do i=1, self%n(1)
+               el = el + src(i,j,srcidx(t3)) * self%slab_r(i,j,k)
+            enddo
+         enddo
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, el, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ierr)
+      energy = el
+   endif
+   ! return: each block's planes, ghosts included, from their other owners (requests c1, c2, t3; windows wrapped
+   ! modulo m), this rank's own straight from slab_r
+   w = (nb(1) + 2 * gw) * (nb(2) + 2 * gw)
+   sc = 0
+   do b=1, nbl
+      do k=1-gw, nb(3)+gw
+         t3 = modulo(coords(3,b) * nb(3) + k - 1, self%m(3))
+         if (self%zown(t3) /= me) sc(self%zown(t3)) = sc(self%zown(t3)) + 1
+      enddo
+   enddo
+   call exchange_counts
+   deallocate(shdr, rhdr, sval, rval)
+   allocate(shdr(max(3*sum(sc),1)), rhdr(max(3*sum(rc),1)), sval(max(w*sum(rc),1)), rval(max(w*sum(sc),1)))
+   fill = sd
+   do b=1, nbl
+      do k=1-gw, nb(3)+gw
+         t3 = modulo(coords(3,b) * nb(3) + k - 1, self%m(3))
+         r = self%zown(t3)
+         if (r == me) cycle
+         c = fill(r) ; fill(r) = fill(r) + 1
+         shdr(3*c+1:3*c+3) = [coords(1,b), coords(2,b), t3]
+      enddo
+   enddo
+   if (nr > 1) call MPI_ALLTOALLV(shdr, 3*sc, 3*sd, MPI_INTEGER, rhdr, 3*rc, 3*rd, MPI_INTEGER, MPI_COMM_WORLD, ierr)
+   do c=0, sum(rc)-1
+      call get_plane(rhdr(3*c+1), rhdr(3*c+2), rhdr(3*c+3) - self%zr(me) + 1, sval(w*c+1:w*c+w))
+   enddo
+   if (nr > 1) call MPI_ALLTOALLV(sval, w*rc, w*rd, MPI_REAL8, rval, w*sc, w*sd, MPI_REAL8, MPI_COMM_WORLD, ierr)
+   fill = sd
+   e = 0
+   do b=1, nbl
+      do k=1-gw, nb(3)+gw
+         t3 = modulo(coords(3,b) * nb(3) + k - 1, self%m(3))
+         r = self%zown(t3)
+         if (r == me) then
+            call get_plane(coords(1,b), coords(2,b), t3 - self%zr(me) + 1, out(e+1:e+w))
+         else
+            c = fill(r) ; fill(r) = fill(r) + 1
+            out(e+1:e+w) = rval(w*c+1:w*c+w)
+         endif
+         e = e + w
+      enddo
+   enddo
+   tm(3) = MPI_WTIME()
+   self%wall = self%wall + (tm(1:3) - tm(0:2))
+   contains
+      subroutine put_plane(c1, c2, l, v)
+      !< The interior plane v of the block (c1, c2) into the local source plane l.
+      integer(I4P), intent(in) :: c1, c2, l !< Block coordinates, local source plane.
+      real(R8P),    intent(in) :: v(:)      !< Values, i fastest.
+      integer(I4P)             :: jj        !< Counter.
+
+      do jj=1, nb(2)
+         src(c1*nb(1)+1:c1*nb(1)+nb(1),c2*nb(2)+jj,l) = v((jj-1)*nb(1)+1:jj*nb(1))
+      enddo
+      endsubroutine put_plane
+
+      subroutine get_plane(c1, c2, l, v)
+      !< The window of the block (c1, c2), ghosts included and wrapped modulo m, from the local plane l of slab_r.
+      integer(I4P), intent(in)  :: c1, c2, l      !< Block coordinates, local plane.
+      real(R8P),    intent(out) :: v(:)           !< Values, i fastest.
+      integer(I4P)              :: ii, jj, o, wx, i0, y !< Counters, row width, first column (0-based), row.
+
+      wx = nb(1) + 2 * gw ; i0 = c1 * nb(1) - gw
+      o = 0
+      do jj=1-gw, nb(2)+gw
+         y = modulo(c2 * nb(2) + jj - 1, self%m(2)) + 1
+         if (i0 >= 0 .and. i0 + wx <= self%m(1)) then
+            v(o+1:o+wx) = self%slab_r(i0+1:i0+wx,y,l)
+         else
+            do ii=1, wx
+               v(o+ii) = self%slab_r(modulo(i0 + ii - 1, self%m(1)) + 1,y,l)
+            enddo
+         endif
+         o = o + wx
+      enddo
+      endsubroutine get_plane
+
+      subroutine exchange_counts
+      !< The receive counts from the send counts, and both displacements (items).
+      call MPI_ALLTOALL(sc, 1, MPI_INTEGER, rc, 1, MPI_INTEGER, MPI_COMM_WORLD, ierr)
+      sd(0) = 0 ; rd(0) = 0
+      do r=1, nr-1
+         sd(r) = sd(r-1) + sc(r-1) ; rd(r) = rd(r-1) + rc(r-1)
+      enddo
+      endsubroutine exchange_counts
+   endsubroutine solve_slabs
+
+   subroutine slab_transform(self, factor)
+   !< `slab_r <- factor L^-1 slab_r` on the distributed slabs: the planes' 2-D transforms, the transpose to z-lines,
+   !< their 1-D transforms, the spectral solve, and back; the stages run where the backend keeps the slab arrays
+   !< (`slab_update` moves `slab_r` there and back).
+   class(poisson_fft_object), intent(inout) :: self    !< The solver.
+   real(R8P),                 intent(in)    :: factor  !< Source factor.
+
+   call self%slab_update(to_device=.true.)
+   call self%slab_planes(forward=.true.)
+   call self%slab_transpose(forward=.true.)
+   call self%slab_lines(forward=.true.)
+   call self%slab_spectral(factor=factor)
+   call self%slab_lines(forward=.false.)
+   call self%slab_transpose(forward=.false.)
+   call self%slab_planes(forward=.false.)
+   call self%slab_update(to_device=.false.)
+   endsubroutine slab_transform
+
+   subroutine global_potential(self, g)
+   !< Rank 0: the transform array after the last solve, [m(1),m(2),m(3)] (the slabs gathered; `f_global` otherwise).
+   !< For diagnostics (`test_poisson_fft --dump`); other ranks get an empty array.
+   class(poisson_fft_object), intent(in)    :: self     !< The solver.
+   real(R8P), allocatable,    intent(inout) :: g(:,:,:) !< The array.
+   integer(I4P), allocatable :: rc(:), rd(:)             !< Counts and displacements.
+   integer(I4P)              :: nr, r, nzl               !< Counters.
+   integer(I4P)              :: ierr                     !< MPI error status.
+
+   if (allocated(g)) deallocate(g)
+   if (.not.self%slab) then
+      if (mpih%myrank == 0) then
+         g = self%f_global
+      else
+         allocate(g(0,0,0))
+      endif
+      return
+   endif
+   nr = mpih%procs_number
+   allocate(rc(0:nr-1), rd(0:nr-1))
+   do r=0, nr-1
+      rc(r) = self%m(1) * self%m(2) * (self%zr(r+1) - self%zr(r))
+      rd(r) = self%m(1) * self%m(2) * self%zr(r)
+   enddo
+   if (mpih%myrank == 0) then
+      allocate(g(self%m(1),self%m(2),self%m(3)))
+   else
+      allocate(g(1,1,1))
+   endif
+   nzl = self%zr(mpih%myrank+1) - self%zr(mpih%myrank)
+   call MPI_GATHERV(self%slab_r, self%m(1)*self%m(2)*nzl, MPI_REAL8, g, rc, rd, MPI_REAL8, 0, MPI_COMM_WORLD, ierr)
+   endsubroutine global_potential
 
    ! backend hooks
    ! private methods
@@ -1250,6 +1703,232 @@ contains
 
    n = 32768_I4P
    endfunction root_cells_max
+
+   subroutine slab_make_plans(self)
+   !< The slab plans (#84 E5d): one 2-D plane (r2c, c2r) and one row of z-lines (h1 lines of m(3) cells, c2c), each
+   !< made once on its own buffer and executed on every plane and row in turn (FFTW_ESTIMATE: deterministic, and the
+   !< arithmetic of a value does not depend on how many planes or rows a rank holds).
+   class(poisson_fft_object), intent(inout) :: self !< The solver.
+   integer(c_int)                           :: nl(1) !< Line length.
+
+   allocate(self%w_r(self%m(1),self%m(2)), self%w_c(self%h1,self%m(2)), self%w_l(self%m(3),self%h1))
+   self%w_r = 0._R8P ; self%w_c = (0._R8P, 0._R8P) ; self%w_l = (0._R8P, 0._R8P)
+#ifdef _FFTW
+   self%plan_pr2c = fftw_plan_dft_r2c_2d(int(self%m(2), c_int), int(self%m(1), c_int), self%w_r, self%w_c, &
+                                         FFTW_ESTIMATE)
+   self%plan_pc2r = fftw_plan_dft_c2r_2d(int(self%m(2), c_int), int(self%m(1), c_int), self%w_c, self%w_r, &
+                                         FFTW_ESTIMATE)
+   nl = int(self%m(3), c_int)
+   self%plan_lfwd = fftw_plan_many_dft(1_c_int, nl, int(self%h1, c_int), self%w_l, c_null_ptr, 1_c_int, nl(1), &
+                                       self%w_l, c_null_ptr, 1_c_int, nl(1), FFTW_FORWARD, FFTW_ESTIMATE)
+   self%plan_lbwd = fftw_plan_many_dft(1_c_int, nl, int(self%h1, c_int), self%w_l, c_null_ptr, 1_c_int, nl(1), &
+                                       self%w_l, c_null_ptr, 1_c_int, nl(1), FFTW_BACKWARD, FFTW_ESTIMATE)
+   if (.not.(c_associated(self%plan_pr2c) .and. c_associated(self%plan_pc2r) .and. c_associated(self%plan_lfwd) &
+       .and. c_associated(self%plan_lbwd))) call mpih%error_stop(msg='poisson_fft_object%slab_make_plans: FFTW '// &
+       'could not make the plans')
+#else
+   nl = 0_c_int
+   call mpih%error_stop(msg='poisson_fft_object: built without an FFT library (build a *-fft mode: -D_FFTW on the '// &
+                            'CPU, -D_CUFFT on FNL)')
+#endif
+   endsubroutine slab_make_plans
+
+   subroutine slab_destroy_plans(self)
+   !< Destroy the slab plans.
+   class(poisson_fft_object), intent(inout) :: self !< The solver.
+
+#ifdef _FFTW
+   if (c_associated(self%plan_pr2c)) call fftw_destroy_plan(self%plan_pr2c)
+   if (c_associated(self%plan_pc2r)) call fftw_destroy_plan(self%plan_pc2r)
+   if (c_associated(self%plan_lfwd)) call fftw_destroy_plan(self%plan_lfwd)
+   if (c_associated(self%plan_lbwd)) call fftw_destroy_plan(self%plan_lbwd)
+#endif
+   self%plan_pr2c = c_null_ptr ; self%plan_pc2r = c_null_ptr
+   self%plan_lfwd = c_null_ptr ; self%plan_lbwd = c_null_ptr
+   endsubroutine slab_destroy_plans
+
+   subroutine slab_planes(self, forward)
+   !< The 2-D transform of every local plane: forward slab_r -> slab_c (r2c), backward slab_c -> slab_r (c2r), one plane
+   !< at a time through the plane buffers.
+   class(poisson_fft_object), intent(inout) :: self    !< The solver.
+   logical,                   intent(in)    :: forward !< Direction.
+   integer(I4P)                             :: k       !< Counter.
+
+#ifdef _FFTW
+   do k=1, self%zr(mpih%myrank+1) - self%zr(mpih%myrank)
+      if (forward) then
+         self%w_r = self%slab_r(:,:,k)
+         call fftw_execute_dft_r2c(self%plan_pr2c, self%w_r, self%w_c)
+         self%slab_c(:,:,k) = self%w_c
+      else
+         self%w_c = self%slab_c(:,:,k)
+         call fftw_execute_dft_c2r(self%plan_pc2r, self%w_c, self%w_r)
+         self%slab_r(:,:,k) = self%w_r
+      endif
+   enddo
+#else
+   k = merge(1, 0, forward)
+   call mpih%error_stop(msg='poisson_fft_object%slab_planes: built without an FFT library')
+#endif
+   endsubroutine slab_planes
+
+   subroutine slab_lines(self, forward)
+   !< The 1-D transform of every local z-line, in place in pen, one row of h1 lines at a time through the row buffer.
+   class(poisson_fft_object), intent(inout) :: self    !< The solver.
+   logical,                   intent(in)    :: forward !< Direction.
+   integer(I4P)                             :: j       !< Counter.
+
+#ifdef _FFTW
+   do j=1, self%yr(mpih%myrank+1) - self%yr(mpih%myrank)
+      self%w_l = self%pen(:,:,j)
+      if (forward) then
+         call fftw_execute_dft(self%plan_lfwd, self%w_l, self%w_l)
+      else
+         call fftw_execute_dft(self%plan_lbwd, self%w_l, self%w_l)
+      endif
+      self%pen(:,:,j) = self%w_l
+   enddo
+#else
+   j = merge(1, 0, forward)
+   call mpih%error_stop(msg='poisson_fft_object%slab_lines: built without an FFT library')
+#endif
+   endsubroutine slab_lines
+
+   subroutine slab_transpose(self, forward)
+   !< forward: slab_c(x, y, z local) -> pen(z, x, y local); backward the reverse (MPI_ALLTOALLV, complex). This rank's
+   !< own block is copied directly.
+   class(poisson_fft_object), intent(inout) :: self    !< The solver.
+   logical,                   intent(in)    :: forward !< Direction.
+   integer(I4P), allocatable :: sc(:), sd(:), rc(:), rd(:) !< Counts and displacements (values).
+   complex(R8P), allocatable :: sb(:), rb(:)               !< Buffers.
+   integer(I4P)              :: nr, me, r, c, x, y, z, nzl, nyl, z0, y0 !< Counters, sizes, first plane and row.
+   integer(I4P)              :: ierr                       !< MPI error status.
+
+   nr = mpih%procs_number ; me = mpih%myrank
+   nzl = self%zr(me+1) - self%zr(me) ; nyl = self%yr(me+1) - self%yr(me)
+   z0 = self%zr(me) ; y0 = self%yr(me)
+   allocate(sc(0:nr-1), sd(0:nr-1), rc(0:nr-1), rd(0:nr-1))
+   do r=0, nr-1
+      if (forward) then
+         sc(r) = self%h1 * (self%yr(r+1) - self%yr(r)) * nzl
+         rc(r) = self%h1 * nyl * (self%zr(r+1) - self%zr(r))
+      else
+         sc(r) = self%h1 * nyl * (self%zr(r+1) - self%zr(r))
+         rc(r) = self%h1 * (self%yr(r+1) - self%yr(r)) * nzl
+      endif
+   enddo
+   sc(me) = 0 ; rc(me) = 0
+   sd(0) = 0 ; rd(0) = 0
+   do r=1, nr-1
+      sd(r) = sd(r-1) + sc(r-1) ; rd(r) = rd(r-1) + rc(r-1)
+   enddo
+   allocate(sb(max(sum(sc),1)), rb(max(sum(rc),1)))
+   c = 0
+   do r=0, nr-1
+      if (r == me) cycle
+      if (forward) then
+         do z=1, nzl
+            do y=self%yr(r)+1, self%yr(r+1)
+               do x=1, self%h1
+                  c = c + 1 ; sb(c) = self%slab_c(x,y,z)
+               enddo
+            enddo
+         enddo
+      else
+         do z=self%zr(r)+1, self%zr(r+1)
+            do y=1, nyl
+               do x=1, self%h1
+                  c = c + 1 ; sb(c) = self%pen(z,x,y)
+               enddo
+            enddo
+         enddo
+      endif
+   enddo
+   if (nr > 1) call MPI_ALLTOALLV(sb, sc, sd, MPI_DOUBLE_COMPLEX, rb, rc, rd, MPI_DOUBLE_COMPLEX, MPI_COMM_WORLD, ierr)
+   ! this rank's own block
+   do y=1, nyl
+      do x=1, self%h1
+         do z=1, nzl
+            if (forward) then
+               self%pen(z0+z,x,y) = self%slab_c(x,y0+y,z)
+            else
+               self%slab_c(x,y0+y,z) = self%pen(z0+z,x,y)
+            endif
+         enddo
+      enddo
+   enddo
+   c = 0
+   do r=0, nr-1
+      if (r == me) cycle
+      if (forward) then
+         do z=self%zr(r)+1, self%zr(r+1)
+            do y=1, nyl
+               do x=1, self%h1
+                  c = c + 1 ; self%pen(z,x,y) = rb(c)
+               enddo
+            enddo
+         enddo
+      else
+         do z=1, nzl
+            do y=self%yr(r)+1, self%yr(r+1)
+               do x=1, self%h1
+                  c = c + 1 ; self%slab_c(x,y,z) = rb(c)
+               enddo
+            enddo
+         enddo
+      endif
+   enddo
+   endsubroutine slab_transpose
+
+   subroutine slab_spectral(self, factor)
+   !< The spectral solve on this rank's z-lines: the division by the eigenvalues (the zero modes dropped) or, isolated,
+   !< the product with the kernel's spectrum.
+   class(poisson_fft_object), intent(inout) :: self    !< The solver.
+   real(R8P),                 intent(in)    :: factor  !< Source factor.
+   real(R8P)                                :: scale   !< Factor over the unnormalised transform pair.
+   real(R8P)                                :: lam     !< Eigenvalue of the mode.
+   integer(I4P)                             :: i, j, k, nyl, y0 !< Counters, local rows, first row.
+
+   nyl = self%yr(mpih%myrank+1) - self%yr(mpih%myrank) ; y0 = self%yr(mpih%myrank)
+   if (self%isolated) then
+      do j=1, nyl
+         do i=1, self%h1
+            do k=1, self%m(3)
+               self%pen(k,i,j) = self%pen(k,i,j) * (factor * self%khat_pen(k,i,j))
+            enddo
+         enddo
+      enddo
+   else
+      scale = factor / real(product(int(self%nt, I8P)), R8P)
+      do j=1, nyl
+         do i=1, self%h1
+            do k=1, self%m(3)
+               lam = self%lam1(i-1) + self%lam2(y0+j-1) + self%lam3(k-1)
+               if (lam == 0._R8P) then
+                  self%pen(k,i,j) = (0._R8P, 0._R8P)
+               else
+                  self%pen(k,i,j) = self%pen(k,i,j) * (scale / lam)
+               endif
+            enddo
+         enddo
+      enddo
+   endif
+   endsubroutine slab_spectral
+
+   subroutine slab_keep_kernel(self)
+   !< Isolated, at setup: `khat_pen <- real(pen) / prod(m)`, the kernel's spectrum (real: the kernel is even).
+   class(poisson_fft_object), intent(inout) :: self !< The solver.
+
+   self%khat_pen = real(self%pen, R8P) / real(product(int(self%m, I8P)), R8P)
+   endsubroutine slab_keep_kernel
+
+   subroutine slab_update(self, to_device)
+   !< Move `slab_r` to (`to_device`) or from where the stages run: nothing on the host.
+   class(poisson_fft_object), intent(inout) :: self      !< The solver.
+   logical,                   intent(in)    :: to_device !< Direction.
+
+   if (to_device .or. .not.self%slab) return
+   endsubroutine slab_update
 
    ! module helpers
    pure function smooth_size(k) result(m)

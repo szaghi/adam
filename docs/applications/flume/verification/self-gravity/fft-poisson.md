@@ -25,9 +25,9 @@ What the case catches (the unit test `test_poisson_fft`):
 | Item | Choice | Code |
 |---|---|---|
 | Equation | $L_h\Phi = 4\pi G(\rho - \bar\rho)$, $L_h$ the 7-point Laplacian (5-point in 2-D) | [models](../../models#self-gravity) |
-| Solver, CPU | FFTW. Rank 0 gathers the block interiors and transforms; each Fourier mode is divided by the eigenvalue of $L_h$ itself, $\lambda_k = \sum_d (2\cos(2\pi k_d/N_d) - 2)/\Delta x_d^2$; the mean ($\lambda_k = 0$) is set to zero; the inverse transform follows, then the scatter fills every block with all its ghost layers by the periodic wrap | `initialize`, `solve`, `transform`, [`adam_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_fft_object.F90) |
-| Solver, FNL | cuFFT on rank 0's GPU, the same gather and scatter | `transform_fnl`, `spectral_solve_dev`, [`adam_fnl_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/fnl/adam_fnl_poisson_fft_object.F90) |
-| Scope | uniform, periodic grids; anything else stops the run. The gather makes the solve **serial on rank 0**: correct for any rank count, not scalable. Isolated boundaries come in P4 ([SV-6](./isolated-solver)), AMR in P5 ([SV-9](./multigrid-amr)) | `initialize`, [`adam_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_fft_object.F90) |
+| Solver, CPU | FFTW, the distributed slab transform ([#84](https://github.com/szaghi/adam/issues/84) E5d): each rank owns z-planes of the transform array, transforms them in 2-D, the planes are transposed to z-lines by `MPI_ALLTOALLV` and transformed in 1-D, and back; one plan per plane and per row of lines, so the potential is bitwise the same on every rank count (the `slab` leg of `poisson.sh`); each Fourier mode is divided by the eigenvalue of $L_h$ itself, $\lambda_k = \sum_d (2\cos(2\pi k_d/N_d) - 2)/\Delta x_d^2$; the mean ($\lambda_k = 0$) is set to zero; the inverse transform follows, then every block fetches its cells with all their ghost layers from the owners of its planes, by the periodic wrap | `initialize`, `solve`, `transform`, [`adam_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_fft_object.F90) |
+| Solver, FNL | the same slab transform on each rank's GPU, its arrays resident there: cuFFT for the planes and the lines (one plan per plane and per row: bitwise equal across rank counts too), the transposes packed on the device and exchanged by GPU-aware `MPI_ALLTOALLV`, the division on the device | `slab_transpose_fnl`, `slab_spectral_fnl`, `transform_fnl`, `spectral_solve_dev`, [`adam_fnl_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/fnl/adam_fnl_poisson_fft_object.F90) |
+| Scope | uniform, periodic grids; anything else stops the run. Until #84 E5d the solve gathered the grid to rank 0 (serial, not scalable); since then it is distributed over the z-planes (at most $m_z$ ranks take part). Isolated boundaries come in P4 ([SV-6](./isolated-solver)), AMR in P5 ([SV-9](./multigrid-amr)) | `initialize`, [`adam_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_fft_object.F90) |
 
 ## Initial and boundary conditions
 
@@ -86,4 +86,5 @@ checked against this one on uniform grids, is [SV-9](./multigrid-amr); the coupl
 - The solver is exact for $L_h$, and the scheme is second order through $L_h$.
 - The residual grows from $10^{-15}$ to $4\cdot10^{-14}$ between $N = 16$ and 64: $L_h$ amplifies the round-off of
   $\Phi$ by $(k\Delta x)^{-2}$. That is the floor the conservation of P3 inherits.
-- The solve is serial on rank 0 (the gather): correct on any rank count, not scalable.
+- The solve is distributed over the z-planes since #84 E5d (it was serial on rank 0) and its result does not depend on
+  the rank count, bitwise.

@@ -235,6 +235,7 @@ contains
    character(:), allocatable    :: filename      !< Input file name.
    real(R8P),    allocatable    :: q(:,:,:,:,:)  !< Field (1, i, j, k, b).
    real(R8P),    allocatable    :: phi(:,:,:,:)  !< Potential (i, j, k, b).
+   real(R8P),    allocatable    :: g(:,:,:)      !< The transform array on rank 0 (--dump).
    real(R8P)                    :: xyz(3)        !< Cell centre.
    real(R8P)                    :: h(3)          !< Cell spacing.
    real(R8P)                    :: lap           !< L_h phi.
@@ -322,9 +323,11 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, unfilled, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
    e_disc = e_disc / scale(1)
    e_res  = e_res / scale(2)
-   if (mpih%myrank == 0 .and. len_trim(dump_dir) > 0) call dump(filename=trim(dump_dir)//'/phi-r'//         &
-      trim(str(ratio, .true.))//'-nk'//trim(str(nk, .true.))//'-l'//trim(str(level, .true.))//'-p'//     &
-      trim(str(prof, .true.))//'.bin', n=solver%m, f=solver%f_global)
+   if (len_trim(dump_dir) > 0) then ! the transform array gathered to rank 0 (issue #84, E5d: the slabs)
+      call solver%global_potential(g)
+      if (mpih%myrank == 0) call dump(filename=trim(dump_dir)//'/phi-r'//trim(str(ratio, .true.))//'-nk'// &
+         trim(str(nk, .true.))//'-l'//trim(str(level, .true.))//'-p'//trim(str(prof, .true.))//'.bin', n=solver%m, f=g)
+   endif
    call solver%destroy
    endsubroutine solve_level
 

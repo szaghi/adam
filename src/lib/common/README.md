@@ -282,9 +282,9 @@ tangential components of A, `FLAIL_BC_NEUMANN` (even) for the normal one, as the
 (PRISM's `Neumann`, `Silver_Muller`) is `FLAIL_BC_FREE_GHOSTS` (E3c), a null axis periodic. A refined grid is refused
 (E7). The FNL
 backend allocates the cuFFT solver; every PRISM mode links an FFT library (FFTW on the host, cuFFT on NVIDIA FNL).
-Regression cases `pic-pec-t0`, `rmf-pec-t0`, `pic-open-t0` and `rmf-open-t0` enter the two solves. Three limits: the solve gathers the grid on rank 0
-(and on its GPU on FNL), the FFT solver's design, about 24 B per transform cell, 8 N cells with reflected faces (a
-256³ PEC grid takes about 3 GB at t0); and PRISM's centred div∘grad annihilates the checkerboard, so with PEC faces the
+Regression cases `pic-pec-t0`, `rmf-pec-t0`, `pic-open-t0` and `rmf-open-t0` enter the two solves. Three limits: the CG solves (zero-ghost and free-space
+faces) gather the grid on rank 0 (and on its GPU on FNL), about 24 B per transform cell (#84 decision 3; the PEC
+solves are distributed over the z-planes since E5d, 8 N cells with reflected faces); and PRISM's centred div∘grad annihilates the checkerboard, so with PEC faces the
 component of rho along `(-1)^(i+j+k)` stays in `div D - rho` (no D can carry it; the legacy smoother could not either);
 the free-space ghost sum is a direct one on rank 0, O(ghost-slab cells x cells) per component (a lattice free-space
 solve is E7).
@@ -308,7 +308,9 @@ odd extension solved 42 times); the periodic multigrid falls from 9.4 s to 2.6 s
 isolated transforms for speed (above); E5c coarsens the multigrid inside the blocks below the base level and solves
 the root on every rank (medooza CPU, 3.9 M AMR cells: isolated 39.9 -> 6.5 s per solve at 16 ranks, periodic
 2.6 -> 2.3 s, but 9.2 -> 12.7 s at one rank, where one FFT of the 128^3 base level beats smoothing it with the
-generic CSR sweep; so the cuFFT root keeps the exact coarsest level up to 128^3); E5d distributes the uniform FFT.
+generic CSR sweep; so the cuFFT root keeps the exact coarsest level up to 128^3); E5d distributes the uniform FFT
+(medooza CPU, 2.1 M cells, 1 -> 16 ranks: periodic 0.115 -> 0.026 s, isolated 0.729 -> 0.108 s per solve, where they
+stayed at 0.12-0.14 s and 0.71-0.73 s; weak, np 8, 16.7 M cells: 0.81 -> 0.24 s and 5.7 -> 1.5 s).
 
 ### Legacy FLAIL smoothers (deleted in issue #84, E4)
 
@@ -382,9 +384,19 @@ needs (FLUME [models](/applications/flume/models#self-gravity)).
 | `solve_blocks(nbl, coords, buf, factor, gw, out, energy)` | Solve on an explicit list of this rank's blocks (integer coordinates, packed source), returning each block's potential with `gw` ghost layers; `initialize`/`solve_packed` are wrappers over these two |
 | `destroy()` | Free the arrays and the plans |
 
-- **Data path:** `MPI_Gatherv` of the block interiors (with their integer block coordinates) to rank 0, which holds the
-  whole grid, solves and `MPI_Scatterv`s every block with its ghosts, so no ghost exchange follows. Correct for any rank
-  count, ranks without blocks included; **not scalable**.
+- **Data path, the distributed slab transform (#84 E5d):** each rank owns z-planes of the transform array (the grid
+  with its extensions or padding); block planes go to the owners of the planes that map to them, the planes are
+  transformed in 2-D, transposed to z-lines (`MPI_ALLTOALLV`) and transformed in 1-D, divided by the eigenvalues (or
+  multiplied by the kernel's spectrum), and back; every block fetches its cells with their ghosts from the owners, so
+  no ghost exchange follows; a rank's own planes and cells are copied directly, outside MPI. The stages are backend
+  hooks (`slab_update`, `slab_planes`, `slab_transpose`, `slab_lines`, `slab_spectral`, `slab_keep_kernel`): the FNL
+  twin keeps the slab arrays on the device. One plan per plane and per row of lines, each executed through a fixed
+  buffer: the potential is **bitwise the same on every rank count** (`poisson.sh` leg `slab`: 26 of 26 potentials,
+  CPU np 1-3, FNL np 1, 2, 4). At most `m(3)` ranks hold planes. The CG solves, the multigrid's redundant root and the CG's
+  sub-problems keep the rank-0 path (`MPI_Gatherv` to rank 0, solve, `MPI_Scatterv`); `global_potential` returns the
+  transform array on rank 0 in either path. Measured (medooza, 2.1 M uniform cells, per solve, E5c -> E5d): CPU
+  periodic 0.138 -> 0.115 s on 1 rank, 0.124 -> 0.026 s on 16; isolated 0.734 -> 0.729 s and 0.733 -> 0.108 s; FNL
+  periodic 0.108 -> 0.067 s on 1 GPU, 0.080 -> 0.030 s on 4; isolated 0.149 -> 0.138 s and 0.115 -> 0.112 s.
 - **Scope (fatal otherwise):** every block at one level and the blocks covering the domain. Without `bc`, every active
   direction periodic; one periodic face against a non-periodic one, or a ghost-Dirichlet face against a face kind, on
   one axis are fatal. Isolated: 3-D, every direction non-periodic, cubic cells (the kernel is the unit lattice's). AMR

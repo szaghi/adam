@@ -644,7 +644,8 @@ boundary condition (M7-G0), and drives the sources (M7-G1):
 With `self_gravity` ([models](./models#self-gravity)):
 
 - every Runge–Kutta stage solves $\Phi$ from that stage's density after the ghost update, with the library FFT solver:
-  rank 0 gathers the grid and scatters $\Phi$ back with every ghost layer filled. Periodic: it divides each Fourier
+  distributed over the z-planes of the transform array ([#84](https://github.com/szaghi/adam/issues/84) E5d; bitwise the same on every rank count),
+  $\Phi$ returned with every ghost layer filled. Periodic: it divides each Fourier
   mode by the eigenvalue of the 7-point Laplacian $L_h$, so the discrete residual is round-off. Isolated: the density
   sits in a zero-padded array of $2(N + n_{gc})$ cells per direction and is convolved with the lattice Green's function
   of $L_h$, whose residual is about $10^{-13}$ per offset (`scripts/lattice_green.py`); the residual of $\Phi$ is that
