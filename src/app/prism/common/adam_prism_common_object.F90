@@ -18,6 +18,7 @@ use :: adam_prism_physics_object
 use :: adam_prism_pic_object
 use :: adam_prism_pml_object
 use :: adam_prism_particle_injection_object
+use :: adam_prism_probes_object
 use :: adam_prism_rk_pic_object
 use :: adam_prism_rk_pml_object
 !use :: adam_prism_rk_bc_object
@@ -83,6 +84,7 @@ type, extends(realm_object) :: prism_common_object
    type(prism_physics_object)            :: physics            !< Physics configuration.
    type(prism_pic_object)                :: pic                !< PIC state.
    type(prism_pml_object)                :: pml                !< Perfectly matched layer.
+   type(prism_probes_object)             :: probes             !< Field probes.
    !type(prism_rk_bc_object)              :: rk_bc              !< Runge-Kutta BC handler.
    type(prism_rk_pic_object)             :: rk_pic             !< Runge-Kutta PIC handler.
    type(prism_rk_pml_object)             :: rk_pml             !< Runge-Kutta PML auxiliary handler.
@@ -113,6 +115,9 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: save_divergence_history !< Save divergence history.
       procedure, pass(self) :: save_grms_history       !< Save Grms history.
       procedure, pass(self) :: save_magnetic_field_at_center_domain_history !< Save domain-center B history.
+      procedure, pass(self) :: save_probes_history     !< Save the field probes history on its cadence.
+      procedure, pass(self) :: sample_probes           !< Sample the fields at the probes (backend override).
+      procedure, pass(self) :: sync_probes             !< Sync the probe stencils with the backend (backend override).
       procedure, pass(self) :: save_restart_files      !< Save restart files.
       procedure, pass(self) :: save_slices             !< Save the slices on their cadence.
       procedure, pass(self) :: save_xh5f               !< Save simulation data in XH5F format.
@@ -187,6 +192,12 @@ contains
    enddo amr
    ! the layers, the PML and the PEC faces are indexed by local block: rebuild them on the new grid (issue #95, P5.1)
    if (is_grid_changed_any) call self%initialize_block_face_data
+   ! the probe stencils are indexed by local block too: rebuild them if they were built on the old grid
+   if (is_grid_changed_any.and.self%probes%is_built) then
+      call self%probes%build_stencils(grid=self%adam%grid, field=self%adam%field, ni=self%ni, nj=self%nj, nk=self%nk, &
+                                      blocks_number=self%blocks_number)
+      call self%sync_probes
+   endif
    endsubroutine amr_update
 
    subroutine mark_by_geometry(self, box_emin, box_emax, target_level, do_init)
@@ -405,6 +416,13 @@ contains
    call self%grms%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, verbose=verbose_)
    call self%magnetic_field_at_center_domain%initialize(file_parameters=file_parameters, &
                                                         output_basename=self%io%output_basename, verbose=verbose_)
+   if (is_adim_model(self%physics%physical_model)) then
+      call self%probes%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, &
+                                  grid=self%adam%grid, L0=self%physics%L0)
+   else
+      call self%probes%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, &
+                                  grid=self%adam%grid)
+   endif
    !if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
    !   call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
    !                              rk=self%rk, physics=self%physics)
@@ -1146,6 +1164,40 @@ contains
                                                              is_to_open=is_to_open, is_to_close=is_to_close)
    endif
    endsubroutine save_magnetic_field_at_center_domain_history
+
+   subroutine save_probes_history(self, is_to_open)
+   !< Save the field probes history on its cadence (`[probes] save_every` and the last step); collective.
+   !<
+   !< With `is_to_open` the stencils are built on the current grid, synced with the backend and the files opened.
+   !< The probes sample `q` as stored: the external fields, if any, are not added.
+   class(prism_common_object), intent(inout)        :: self        !< The equation.
+   logical,                    intent(in), optional :: is_to_open  !< Flag to open the files before the first saving.
+
+   if (self%probes%probes_number == 0_I4P) return
+   if (present(is_to_open)) then
+      if (is_to_open) then
+         call self%probes%build_stencils(grid=self%adam%grid, field=self%adam%field, ni=self%ni, nj=self%nj, &
+                                         nk=self%nk, blocks_number=self%blocks_number)
+         call self%sync_probes
+         call self%probes%open_files(q_name=self%q_name)
+      endif
+   endif
+   if (.not.self%time%is_to_save(it_save=self%probes%save_every)) return
+   call self%sample_probes
+   call self%probes%save_history(it=self%time%it, time=self%time%time)
+   endsubroutine save_probes_history
+
+   subroutine sample_probes(self)
+   !< Sample the fields at the probes: local sums of the host `q` (CPU); a device backend overrides it.
+   class(prism_common_object), intent(inout) :: self !< The equation.
+
+   call self%probes%sample_host(ngc=self%ngc, q=self%q)
+   endsubroutine sample_probes
+
+   subroutine sync_probes(self)
+   !< Sync the probe stencils with the backend after they are built: nothing on the host; a device backend overrides it.
+   class(prism_common_object), intent(inout) :: self !< The equation.
+   endsubroutine sync_probes
 
    subroutine save_energy_error(self, is_to_open, is_to_close)
    !< Save energy error history.

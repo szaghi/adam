@@ -57,6 +57,7 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(prism_fnl_rk_pic_object)  :: rk_pic_fnl  !< GPU PIC RK integrator.
    type(prism_fnl_pic_conserving_object) :: conserving_fnl !< GPU charge-conserving PIC current.
    type(prism_fnl_pml_object)     :: pml_fnl     !< GPU PML compact metadata/state.
+   type(prism_fnl_probes_object)  :: probes_fnl  !< GPU field probes.
    type(prism_fnl_rk_pml_object)  :: rk_pml_fnl  !< GPU PML SSP RK support.
    ! device data
    real(R8P), pointer :: q_gpu(:,:,:,:,:)=>null()           !< Field cell centered variables.
@@ -182,6 +183,8 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
       procedure, pass(self) :: compute_grms           !< Compute Grms of the rotating magnetic-field amplitude.
       procedure, pass(self) :: compute_magnetic_field_at_center_domain !< Compute B at the domain center.
+      procedure, pass(self) :: sample_probes !< Override: sample the probes on the device.
+      procedure, pass(self) :: sync_probes   !< Override: copy the probe stencils to the device.
 		procedure, pass(self) :: compute_max_divergence !< Compute divergence of D, B and J fields for diagnostics.
       procedure, pass(self) :: compute_max_divergence_outside_absorbing_layers !< Host twin of the CPU t0 diagnostic.
       procedure, pass(self) :: simulate             	!< Perform the simulation.
@@ -306,6 +309,7 @@ contains
 
    call self%rk_pml_fnl%destroy()
    call self%pml_fnl%destroy()
+   call self%probes_fnl%destroy()
    call self%conserving_fnl%destroy()
    call self%rk_pic_fnl%destroy()
    call self%leapfrog_pic_fnl%destroy()
@@ -5683,6 +5687,7 @@ contains
          inquire(unit=self%magnetic_field_at_center_domain%history_unit, opened=is_open)
          if (is_open) close(self%magnetic_field_at_center_domain%history_unit)
       endif
+      call self%probes%close_files
       inquire(unit=self%io%charge_conservation_history_unit, opened=is_open)
       if (is_open) close(self%io%charge_conservation_history_unit)
       inquire(unit=self%io%divergence_history_unit, opened=is_open)
@@ -5826,6 +5831,7 @@ contains
    call self%save_energy_history(is_to_open=.true.) !Cazzo
    call self%save_grms_history(is_to_open=.true.)
    call self%save_magnetic_field_at_center_domain_history(is_to_open=.true.)
+   call self%save_probes_history(is_to_open=.true.)
    call self%compute_max_divergence
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(is_to_open=.true., div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
@@ -6387,6 +6393,7 @@ contains
    call self%save_coils_current_diagnostics
    call self%save_grms_history
    call self%save_magnetic_field_at_center_domain_history
+   call self%save_probes_history
    call self%compute_max_divergence
    current_residual = 0._R8P
    if (self%conserving_fnl%enabled) then
@@ -7327,6 +7334,20 @@ contains
       enddo
       endsubroutine compute_grms_dev_kernel
    endsubroutine compute_grms
+
+   subroutine sample_probes(self)
+   !< Sample the fields at the probes on the device; only the local sums reach the host.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%probes_fnl%sample(probes=self%probes, ngc=self%ngc, q_gpu=self%q_gpu)
+   endsubroutine sample_probes
+
+   subroutine sync_probes(self)
+   !< Copy the probe stencils, just built on the host, to the device.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%probes_fnl%initialize(probes=self%probes, nv=size(self%q_name, kind=I4P))
+   endsubroutine sync_probes
 
    subroutine compute_magnetic_field_at_center_domain(self)
    !< Compute the magnetic field interpolated at the geometrical domain center.

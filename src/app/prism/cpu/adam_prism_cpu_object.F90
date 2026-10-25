@@ -1531,6 +1531,7 @@ contains
    call self%save_energy_history(is_to_open=.true.)
    call self%save_grms_history(is_to_open=.true.)
    call self%save_magnetic_field_at_center_domain_history(is_to_open=.true.)
+   call self%save_probes_history(is_to_open=.true.)
    call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
    if (is_pic_model(self%physics%physical_model)) &
       call self%io%save_charge_conservation_history(time=0._R8P, Q_particles=0._R8P, Q_deposited=0._R8P, &
@@ -2004,6 +2005,7 @@ contains
    call self%save_coils_current_diagnostics
    call self%save_grms_history
    call self%save_magnetic_field_at_center_domain_history
+   call self%save_probes_history
    call self%compute_divergence(hs=hs, ivar=1, q=self%q, divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=4, q=self%q, divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(hs=hs, ivar=self%physics%var_Jx, q=self%q, divergence=self%divergence(3,:,:,:,:))
@@ -2073,6 +2075,7 @@ contains
          inquire(unit=self%magnetic_field_at_center_domain%history_unit, opened=is_open)
          if (is_open) close(self%magnetic_field_at_center_domain%history_unit)
       endif
+      call self%probes%close_files
       if (is_pic_model(self%physics%physical_model)) then
          inquire(unit=self%io%charge_conservation_history_unit, opened=is_open)
          if (is_open) close(self%io%charge_conservation_history_unit)
