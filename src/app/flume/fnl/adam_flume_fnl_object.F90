@@ -26,6 +26,7 @@ use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev, pack_bloc
                                          unpack_blocks_transposed_dev, unpack_seam_rows_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
+use :: adam_fnl_poisson_mg_object, only : poisson_mg_fnl_object
 use :: adam_fnl_ib_object,        only : ib_fnl_object
 use :: adam_fnl_rk_object,        only : rk_fnl_object
 use :: adam_fnl_weno_object,      only : weno_fnl_object
@@ -1459,8 +1460,12 @@ contains
    if (realms_number_ > 1_I4P .and. self%numerics%reflux_cadence == REFLUX_CADENCE_STAGE) &
       call mpih_fnl%error_stop(msg=': [numerics].(reflux_cadence) = stage is not supported on multi-realm runs (the '// &
                                'per-stage reflux corrects intra-realm 2:1 faces only; issue #81)')
-   ! the cuFFT solver (issue #81) as FLAIL's FFT backend (issue #84): set_potential sets it up on the grid
-   if (self%physics%gravity%self_gravity) allocate(poisson_fft_fnl_object :: self%flail%fft)
+   ! the cuFFT solver (issue #81) as FLAIL's FFT backend and the device multigrid (issue #84, E6a) as its multigrid
+   ! backend: set_potential sets up the one the grid needs
+   if (self%physics%gravity%self_gravity) then
+      allocate(poisson_fft_fnl_object :: self%flail%fft)
+      allocate(poisson_mg_fnl_object :: self%flail%mg_mold)
+   endif
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)

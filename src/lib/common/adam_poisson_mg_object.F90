@@ -43,6 +43,12 @@ module adam_poisson_mg_object
 !< stops at `tolerance` or at the round-off floor of the source, `100 eps max|factor f| / max|factor (f - mean f)|`,
 !< whichever is larger (a small perturbation of a uniform density is known only to that floor, #81 P5b).
 !<
+!< **Backend hooks (issue #84, E6a).** The FCG iteration and the V-cycle work on vectors allocated once (`make_work`)
+!< through overridable hooks: `apply`, `smooth`, the vector operations (`vec_*`, nopass), `vec_update` (a vector to or
+!< from where the hooks compute) and `work_place` (the operators and vectors put there after `initialize`). Here they
+!< are the host loops, bitwise those of before; `adam_fnl_poisson_mg_object` runs them on the device. The right-hand
+!< side, the root, the James step and the ghost fill's placement stay on the host.
+!<
 !< **Distributed and assembled.** Every rank gathers the leaf list once (block coordinates, owner, local index),
 !< derives the shadow blocks and their owners (the owner of the first leaf below, in the gathered order: the same on
 !< every rank), and assembles, from the geometry only, the rows of its own cells: the operator, the ghost fill, the level
@@ -101,6 +107,7 @@ use :: penf, only : I4P, I8P, R8P, str
 implicit none
 private
 public :: poisson_mg_object
+public :: dcsr, rvec, ivec
 public :: MG_SEAM_GHOST_SCALE
 
 real(R8P),    parameter :: MG_SEAM_GHOST_SCALE=1.5_R8P !< 2:1 fine-side ghost: phi_g = phi_f - (mean_f - phi_C) / 1.5, the
@@ -138,6 +145,11 @@ type :: rvec
    !< A real vector (one per level).
    real(R8P), allocatable :: v(:) !< Values.
 endtype rvec
+
+type :: ivec
+   !< An integer vector (one per level).
+   integer(I4P), allocatable :: v(:) !< Values.
+endtype ivec
 
 type :: triplets
    !< Assembly buffer: (row, column key, value).
@@ -224,6 +236,17 @@ type :: poisson_mg_object
    real(R8P)                 :: factor_mean=0._R8P     !< Mean convergence factor per iteration of the last solve.
    real(R8P),    allocatable :: u(:)                   !< The last solution (warm start).
    logical                   :: has_guess=.false.      !< u holds a solution of the current grid.
+   ! work vectors (issue #84, E6a): allocated once by initialize, kept by a backend where its hooks compute
+   real(R8P),    allocatable :: wf(:), wr(:), wz(:), wp(:), wq(:), wpp(:), wqp(:) !< FCG: f, r, z, p, A p, the
+                                                       !< previous p and A p (leaf space).
+   real(R8P),    allocatable :: w1(:)                  !< Ones (leaf space).
+   real(R8P),    allocatable :: wg(:)                  !< Ghost-fill values [g%nrow].
+   type(rvec),   allocatable :: lr(:), le(:)           !< V-cycle: level residual and correction [lbot:lmax].
+   type(rvec),   allocatable :: lt1(:), lt2(:)         !< V-cycle: level temporaries [lbot:lmax].
+   type(ivec),   allocatable :: mlev(:), mleaf(:)      !< Per level: the level-space and leaf-space cells of the
+                                                       !< leaves at the level [lbot:lmax].
+   integer(I4P), allocatable :: root_coords(:,:)       !< V-cycle: the root blocks [3,blocks].
+   real(R8P),    allocatable :: root_buf(:), root_out(:) !< V-cycle: the root's source and solution (host).
    contains
       ! public methods
       procedure, pass(self) :: destroy         !< Destroy the solver.
@@ -234,8 +257,19 @@ type :: poisson_mg_object
       procedure, pass(self) :: apply_a        !< y = A x on the leaves (verification).
       procedure, pass(self) :: apply_b        !< y = B g: the boundary values onto the boundary rows.
       procedure, pass(self) :: apply_bt       !< s = B^T x: the boundary rows onto the boundary faces.
+      ! backend hooks (issue #84, E6a): the V-cycle and the FCG iteration on the persistent work vectors
+      procedure, pass(self) :: apply       !< y = M x for a distributed operator.
+      procedure, pass(self) :: smooth      !< Red-black Gauss-Seidel on a level.
+      procedure, nopass     :: vec_fill    !< x(1:n) = a.
+      procedure, nopass     :: vec_copy    !< y(1:n) = x(1:n).
+      procedure, nopass     :: vec_lincomb !< w(1:n) = x(1:n) + a y(1:n).
+      procedure, nopass     :: vec_axpy    !< y(1:n) = y(1:n) + a x(1:n).
+      procedure, nopass     :: vec_dot     !< sum x y over the local n entries and the ranks.
+      procedure, nopass     :: vec_relmax  !< max |r / vol| over the ranks, over fmax.
+      procedure, nopass     :: vec_permute !< y(iy(i)) = x(ix(i)).
+      procedure, nopass     :: vec_update  !< A work vector between the host and where the hooks compute.
+      procedure, pass(self) :: work_place  !< Put (or release) the operators and work vectors where the hooks compute.
       ! private methods
-      procedure, pass(self), private :: apply       !< y = M x for a distributed operator.
       procedure, pass(self), private :: assemble    !< Finish a distributed operator from triplets.
       procedure, pass(self), private :: a_row       !< The row of the composite operator at a cell.
       procedure, pass(self), private :: cell_volume !< Cell volume at a level.
@@ -247,6 +281,7 @@ type :: poisson_mg_object
       procedure, pass(self), private :: ghost_green !< Isolated: g = -G s, the ghost-to-ghost Green's function.
       procedure, pass(self), private :: solve_fcg   !< The FCG solve with given ghost values (or none).
       procedure, pass(self), private :: lin         !< Linear index of a cell in a leaf block.
+      procedure, pass(self), private :: make_work   !< Allocate the work vectors and the level maps.
       procedure, pass(self), private :: lin_of      !< Linear index of a cell in a block at a level.
       procedure, pass(self), private :: ncb_of      !< Cells per block at a level.
       procedure, pass(self), private :: ncell       !< Cells along a direction over the domain at a level.
@@ -254,7 +289,6 @@ type :: poisson_mg_object
       procedure, pass(self), private :: outside     !< A cell position beyond a domain face.
       procedure, pass(self), private :: locate      !< Owner and local index of a cell key in a space.
       procedure, pass(self), private :: parent3     !< Parent cell coordinates.
-      procedure, pass(self), private :: smooth      !< Red-black Gauss-Seidel on a level.
       procedure, pass(self), private :: vcycle      !< The preconditioner.
       procedure, pass(self), private :: wrap        !< Periodic wrap of cell coordinates at a level.
 endtype poisson_mg_object
@@ -265,6 +299,11 @@ contains
    !< Destroy the solver.
    class(poisson_mg_object), intent(inout) :: self !< The solver.
 
+   if (self%is_initialized) call self%work_place(attach=.false.)
+   if (allocated(self%wf))           deallocate(self%wf, self%wr, self%wz, self%wp, self%wq, self%wpp, self%wqp, &
+                                                self%w1, self%wg)
+   if (allocated(self%lr))           deallocate(self%lr, self%le, self%lt1, self%lt2, self%mlev, self%mleaf)
+   if (allocated(self%root_coords))  deallocate(self%root_coords, self%root_buf, self%root_out)
    if (allocated(self%fft)) then
       call self%fft%destroy
       deallocate(self%fft)
@@ -512,7 +551,9 @@ contains
    self%u = 0._R8P
    self%u0 = 0._R8P
    self%has_guess = .false.
+   call self%make_work
    self%is_initialized = .true.
+   call self%work_place(attach=.true.)
    contains
       subroutine add_node(cc, owner, leaf)
       !< Append a node.
@@ -842,7 +883,6 @@ contains
    real(R8P),    intent(inout) :: phi(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Potential [i,j,k,nb].
    real(R8P),                intent(out), optional :: energy  !< sum_cells V f phi (all ranks).
    real(R8P),                intent(in),  optional :: ghost(1:) !< The boundary value per boundary face.
-   real(R8P), allocatable :: f(:), r(:), z(:), p(:), qv(:), pp(:), qp(:), gv(:) !< Vectors.
    real(R8P)              :: fmax, alpha, beta, vsum, mean, r0, e_ !< Scalars.
    real(R8P)              :: fraw(1), tol !< Max |factor f| before the mean is removed, the stop tolerance.
    integer(I4P)           :: n, it, b, i, j, k, c, row, l, nn !< Counters.
@@ -852,8 +892,9 @@ contains
    if (.not.self%is_initialized) call mpih%error_stop(msg='poisson_mg_object%solve: called before initialize')
    n = field%blocks_number * self%ncb
    nn = max(n,1)
-   allocate(f(nn), r(nn), z(nn), p(nn), qv(nn), pp(nn), qp(nn))
-   f = 0._R8P ; r = 0._R8P ; z = 0._R8P ; p = 0._R8P ; qv = 0._R8P ; pp = 0._R8P ; qp = 0._R8P
+   if (size(self%wf) /= nn) call mpih%error_stop(msg='poisson_mg_object%solve: the field does not match the setup')
+   associate(f=>self%wf)
+   f = 0._R8P
    if (n > 0) f(1:n) = factor * self%vol(1:n) * buf(1:n)
    if (present(ghost) .and. all(self%periodic)) call mpih%error_stop(msg='poisson_mg_object%solve: ghost values '// &
       'given on a periodic grid')
@@ -885,34 +926,38 @@ contains
    tol = self%tolerance
    if (fmax > 0._R8P) tol = max(tol, 100._R8P * epsilon(1._R8P) * fraw(1) / fmax)
    self%tolerance_used = tol
+   endassociate
    if (.not.self%has_guess) self%u = 0._R8P
-   call self%apply(self%a, self%u, qv)
-   if (n > 0) r(1:n) = f(1:n) - qv(1:n)
-   r0 = rel_max(r)
+   ! the iteration on the work vectors, through the hooks (#84 E6a)
+   call self%vec_update(self%wf, to_device=.true.)
+   call self%vec_update(self%u, to_device=.true.)
+   call self%apply(self%a, self%u, self%wq)
+   call self%vec_lincomb(self%wf, -1._R8P, self%wq, self%wr, n)
+   r0 = self%vec_relmax(self%wr, self%vol, n, fmax)
    self%iterations = 0
    self%residual = r0
    has_prev = .false.
    do it=1, self%max_iterations
       if (self%residual <= tol .or. fmax == 0._R8P) exit
-      call self%vcycle(r, z)
+      call self%vcycle(self%wr, self%wz)
       if (self%singular) then
-         mean = gdot(z, self%vol, n) / vsum
-         if (n > 0) z(1:n) = z(1:n) - mean
+         mean = self%vec_dot(self%wz, self%vol, n) / vsum
+         call self%vec_axpy(-mean, self%w1, self%wz, n)
       endif
-      p = z
+      call self%vec_copy(self%wz, self%wp, nn)
       if (has_prev) then
-         beta = gdot(z, qp, n) / gdot(pp, qp, n)
-         if (n > 0) p(1:n) = z(1:n) - beta * pp(1:n)
+         beta = self%vec_dot(self%wz, self%wqp, n) / self%vec_dot(self%wpp, self%wqp, n)
+         call self%vec_lincomb(self%wz, -beta, self%wpp, self%wp, n)
       endif
-      call self%apply(self%a, p, qv)
-      alpha = gdot(p, r, n) / gdot(p, qv, n)
-      if (n > 0) then
-         self%u(1:n) = self%u(1:n) + alpha * p(1:n)
-         r(1:n) = r(1:n) - alpha * qv(1:n)
-      endif
-      pp = p ; qp = qv ; has_prev = .true.
+      call self%apply(self%a, self%wp, self%wq)
+      alpha = self%vec_dot(self%wp, self%wr, n) / self%vec_dot(self%wp, self%wq, n)
+      call self%vec_axpy(alpha, self%wp, self%u, n)
+      call self%vec_axpy(-alpha, self%wq, self%wr, n)
+      call self%vec_copy(self%wp, self%wpp, nn)
+      call self%vec_copy(self%wq, self%wqp, nn)
+      has_prev = .true.
       self%iterations = it
-      self%residual = rel_max(r)
+      self%residual = self%vec_relmax(self%wr, self%vol, n, fmax)
    enddo
    if (self%residual > tol .and. fmax > 0._R8P .and. self%me == 0) &
       print '(A)', mpih%myrankstr//'warning: poisson_mg_object: '//trim(str(self%max_iterations, .true.))// &
@@ -922,9 +967,10 @@ contains
       self%factor_mean = (self%residual / r0)**(1._R8P / self%iterations)
    ! remove the solution's mean, keep it for the next solve, fill phi
    if (self%singular) then
-      mean = gdot(self%u, self%vol, n) / vsum
-      if (n > 0) self%u(1:n) = self%u(1:n) - mean
+      mean = self%vec_dot(self%u, self%vol, n) / vsum
+      call self%vec_axpy(-mean, self%w1, self%u, n)
    endif
+   call self%vec_update(self%u, to_device=.false.)
    self%has_guess = .true.
    c = 0
    do b=1, field%blocks_number
@@ -937,8 +983,9 @@ contains
          enddo
       enddo
    enddo
-   allocate(gv(max(self%g%nrow,1)))
-   call self%apply(self%g, self%u, gv)
+   call self%apply(self%g, self%u, self%wg)
+   call self%vec_update(self%wg, to_device=.false.)
+   associate(gv=>self%wg)
    do row=1, self%g%nrow
       b = self%g_dst(4,row)
       i = self%g_dst(1,row) ; j = self%g_dst(2,row) ; k = self%g_dst(3,row)
@@ -960,6 +1007,7 @@ contains
          if (k > self%nijk(3)) phi(i,j,self%nijk(3)+l,b) = gv(row)
       enddo
    enddo
+   endassociate
    if (present(energy)) then
       e_ = 0._R8P
       do c=1, n
@@ -968,20 +1016,6 @@ contains
       call MPI_ALLREDUCE(MPI_IN_PLACE, e_, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ierr)
       energy = e_
    endif
-   contains
-      function rel_max(rr) result(rm)
-      !< max |r / V| over max |f / V|, over the ranks.
-      real(R8P), intent(in) :: rr(1:) !< Residual.
-      real(R8P)             :: rm     !< Result.
-      integer(I4P)          :: ii     !< Counter.
-
-      rm = 0._R8P
-      do ii=1, n
-         rm = max(rm, abs(rr(ii) / self%vol(ii)))
-      enddo
-      call MPI_ALLREDUCE(MPI_IN_PLACE, rm, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
-      if (fmax > 0._R8P) rm = rm / fmax
-      endfunction rel_max
    endsubroutine solve_fcg
 
    function symmetry_defect(self, x, y) result(defect)
@@ -995,18 +1029,24 @@ contains
 
    n = self%a%nrow
    allocate(ax(max(n,1)), ay(max(n,1)))
-   call self%apply(self%a, x, ax)
-   call self%apply(self%a, y, ay)
+   call self%apply_a(x, ax)
+   call self%apply_a(y, ay)
    defect = abs(gdot(x, ay, n) - gdot(y, ax, n)) / (sqrt(gdot(x, x, n)) * sqrt(gdot(ay, ay, n)))
    endfunction symmetry_defect
 
    subroutine apply_a(self, x, y)
-   !< y = A x on this rank's leaf cells (V-weighted).
-   class(poisson_mg_object), intent(in)    :: self  !< The solver.
+   !< y = A x on this rank's leaf cells (V-weighted), through the work vectors (where the hooks compute).
+   class(poisson_mg_object), intent(inout) :: self  !< The solver.
    real(R8P),                intent(in)    :: x(1:) !< Leaf vector.
    real(R8P),                intent(inout) :: y(1:) !< Result.
+   integer(I4P)                            :: n     !< Rows.
 
-   call self%apply(self%a, x, y)
+   n = self%a%nrow
+   if (n > 0) self%wp(1:n) = x(1:n)
+   call self%vec_update(self%wp, to_device=.true.)
+   call self%apply(self%a, self%wp, self%wq)
+   call self%vec_update(self%wq, to_device=.false.)
+   if (n > 0) y(1:n) = self%wq(1:n)
    endsubroutine apply_a
 
    subroutine apply_b(self, g, y)
@@ -1035,10 +1075,10 @@ contains
    enddo
    endsubroutine apply_bt
 
-   ! private methods
+   ! backend hooks
    subroutine apply(self, m, x, y)
    !< y = M x: fetch the halo of x from the owners, then the local rows.
-   class(poisson_mg_object), intent(in)    :: self   !< The solver.
+   class(poisson_mg_object), intent(inout) :: self   !< The solver.
    type(dcsr),               intent(in)    :: m      !< Operator.
    real(R8P),                intent(in)    :: x(1:)  !< Local column-space vector.
    real(R8P),                intent(inout) :: y(1:)  !< Result (rows).
@@ -1066,6 +1106,104 @@ contains
    if (.false.) y(1) = y(1) + self%dx0(1)
    endsubroutine apply
 
+   subroutine vec_fill(x, a, n)
+   !< x(1:n) = a.
+   real(R8P),    intent(inout) :: x(1:) !< Vector.
+   real(R8P),    intent(in)    :: a     !< Value.
+   integer(I4P), intent(in)    :: n     !< Entries.
+
+   if (n > 0) x(1:n) = a
+   endsubroutine vec_fill
+
+   subroutine vec_copy(x, y, n)
+   !< y(1:n) = x(1:n).
+   real(R8P),    intent(in)    :: x(1:) !< Source.
+   real(R8P),    intent(inout) :: y(1:) !< Destination.
+   integer(I4P), intent(in)    :: n     !< Entries.
+
+   if (n > 0) y(1:n) = x(1:n)
+   endsubroutine vec_copy
+
+   subroutine vec_lincomb(x, a, y, w, n)
+   !< w(1:n) = x(1:n) + a y(1:n) (w distinct from x and y).
+   real(R8P),    intent(in)    :: x(1:) !< First vector.
+   real(R8P),    intent(in)    :: a     !< Coefficient.
+   real(R8P),    intent(in)    :: y(1:) !< Second vector.
+   real(R8P),    intent(inout) :: w(1:) !< Result.
+   integer(I4P), intent(in)    :: n     !< Entries.
+
+   if (n > 0) w(1:n) = x(1:n) + a * y(1:n)
+   endsubroutine vec_lincomb
+
+   subroutine vec_axpy(a, x, y, n)
+   !< y(1:n) = y(1:n) + a x(1:n).
+   real(R8P),    intent(in)    :: a     !< Coefficient.
+   real(R8P),    intent(in)    :: x(1:) !< Vector.
+   real(R8P),    intent(inout) :: y(1:) !< Updated vector.
+   integer(I4P), intent(in)    :: n     !< Entries.
+
+   if (n > 0) y(1:n) = y(1:n) + a * x(1:n)
+   endsubroutine vec_axpy
+
+   function vec_dot(x, y, n) result(d)
+   !< sum_i x_i y_i over the local n entries and the ranks.
+   real(R8P),    intent(in) :: x(1:) !< First vector.
+   real(R8P),    intent(in) :: y(1:) !< Second vector.
+   integer(I4P), intent(in) :: n     !< Local entries.
+   real(R8P)                :: d     !< Result.
+
+   d = gdot(x, y, n)
+   endfunction vec_dot
+
+   function vec_relmax(r, vol, n, fmax) result(rm)
+   !< max |r / vol| over the ranks, over fmax (when positive).
+   real(R8P),    intent(in) :: r(1:)   !< Residual.
+   real(R8P),    intent(in) :: vol(1:) !< Cell volumes.
+   integer(I4P), intent(in) :: n       !< Local entries.
+   real(R8P),    intent(in) :: fmax    !< Normalisation.
+   real(R8P)                :: rm      !< Result.
+   integer(I4P)             :: i, ierr !< Counter, MPI error status.
+
+   rm = 0._R8P
+   do i=1, n
+      rm = max(rm, abs(r(i) / vol(i)))
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, rm, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   if (fmax > 0._R8P) rm = rm / fmax
+   endfunction vec_relmax
+
+   subroutine vec_permute(x, ix, y, iy, n)
+   !< y(iy(i)) = x(ix(i)), i = 1..n.
+   real(R8P),    intent(in)    :: x(1:)  !< Source.
+   integer(I4P), intent(in)    :: ix(1:) !< Source entries.
+   real(R8P),    intent(inout) :: y(1:)  !< Destination.
+   integer(I4P), intent(in)    :: iy(1:) !< Destination entries.
+   integer(I4P), intent(in)    :: n      !< Entries.
+   integer(I4P)                :: i      !< Counter.
+
+   do i=1, n
+      y(iy(i)) = x(ix(i))
+   enddo
+   endsubroutine vec_permute
+
+   subroutine vec_update(x, to_device)
+   !< A work vector to (`to_device`) or from where the hooks compute: nothing on the host.
+   real(R8P), intent(inout) :: x(1:)     !< Work vector.
+   logical,   intent(in)    :: to_device !< Direction.
+
+   if (to_device .or. size(x) == 0) return
+   endsubroutine vec_update
+
+   subroutine work_place(self, attach)
+   !< Put (`attach`) the operators and the work vectors where the hooks compute, or release them: nothing on the host.
+   class(poisson_mg_object), intent(inout) :: self   !< The solver.
+   logical,                  intent(in)    :: attach !< Put, or release.
+
+   if (.not.self%is_initialized) call mpih%error_stop(msg='poisson_mg_object%work_place: not initialized')
+   if (attach) return
+   endsubroutine work_place
+
+   ! private methods
    subroutine assemble(self, t, nrow, space, m)
    !< Finish a distributed operator: rows sorted; column keys resolved to local slots, or to halo slots grouped by
    !< owner; the exchange plan agreed with the owners (they receive the keys and return their local indices).
@@ -1403,6 +1541,45 @@ contains
    w = self%cell_volume(lv) / dx(d)**2
    endfunction face_weight
 
+   subroutine make_work(self)
+   !< Allocate the work vectors (FCG, ghost fill, the V-cycle's levels and root) and the maps of the leaves into the
+   !< level spaces (#84 E6a).
+   class(poisson_mg_object), intent(inout) :: self !< The solver.
+   integer(I4P)                            :: nn, lv, b, c, i, q, n !< Sizes, counters.
+
+   nn = size(self%u)
+   allocate(self%wf(nn), self%wr(nn), self%wz(nn), self%wp(nn), self%wq(nn), self%wpp(nn), self%wqp(nn), self%w1(nn), &
+            self%wg(max(self%g%nrow,1)))
+   self%wf = 0._R8P ; self%wr = 0._R8P ; self%wz = 0._R8P ; self%wp = 0._R8P ; self%wq = 0._R8P
+   self%wpp = 0._R8P ; self%wqp = 0._R8P ; self%w1 = 1._R8P ; self%wg = 0._R8P
+   allocate(self%lr(self%lbot:self%lmax), self%le(self%lbot:self%lmax), self%lt1(self%lbot:self%lmax), &
+            self%lt2(self%lbot:self%lmax), self%mlev(self%lbot:self%lmax), self%mleaf(self%lbot:self%lmax))
+   do lv=self%lbot, self%lmax
+      n = max(self%nloc_lev(lv) * self%ncb_of(lv), 1)
+      allocate(self%lr(lv)%v(n), self%le(lv)%v(n), self%lt1(lv)%v(n), self%lt2(lv)%v(n))
+      self%lr(lv)%v = 0._R8P ; self%le(lv)%v = 0._R8P ; self%lt1(lv)%v = 0._R8P ; self%lt2(lv)%v = 0._R8P
+      n = count(self%leaf_lev(1:self%nleaf_loc) == lv) * self%ncb
+      allocate(self%mlev(lv)%v(n), self%mleaf(lv)%v(n))
+      c = 0
+      do b=1, self%nleaf_loc
+         if (self%leaf_lev(b) /= lv) cycle
+         q = self%leaf_lev_loc(b)
+         do i=1, self%ncb
+            c = c + 1
+            self%mlev(lv)%v(c) = (q - 1) * self%ncb + i
+            self%mleaf(lv)%v(c) = (b - 1) * self%ncb + i
+         enddo
+      enddo
+   enddo
+   n = self%nloc_lev(self%lbot)
+   allocate(self%root_coords(3,max(n,1)), self%root_buf(max(n * self%ncb_of(self%lbot),1)), &
+            self%root_out(max(n * self%ncb_of(self%lbot),1)))
+   self%root_coords = 0 ; self%root_buf = 0._R8P ; self%root_out = 0._R8P
+   do q=1, n
+      self%root_coords(:,q) = self%node_c(1:3,self%lev_node(q,self%lbot))
+   enddo
+   endsubroutine make_work
+
    pure function lin(self, ijk) result(l)
    !< Linear index of cell (i,j,k) in a block, i fastest.
    class(poisson_mg_object), intent(in) :: self   !< The solver.
@@ -1501,7 +1678,7 @@ contains
 
    subroutine smooth(self, lv, e, rhs, order)
    !< Red-black Gauss-Seidel sweeps on level lv: A_l e = rhs (the ghost term already in rhs).
-   class(poisson_mg_object), intent(in)    :: self    !< The solver.
+   class(poisson_mg_object), intent(inout) :: self    !< The solver.
    integer(I4P),             intent(in)    :: lv      !< Level.
    real(R8P),                intent(inout) :: e(1:)   !< Correction.
    real(R8P),                intent(in)    :: rhs(1:) !< Right-hand side.
@@ -1540,75 +1717,59 @@ contains
 
    subroutine vcycle(self, r_leaf, z_leaf)
    !< The preconditioner: z = M r, one V-cycle over the levels (see the module), down to the root (lbot), solved
-   !< exactly by FFT on every rank (#84 E5c: below lmin the levels coarsen inside the blocks).
+   !< exactly by FFT on every rank (#84 E5c: below lmin the levels coarsen inside the blocks). On the work vectors,
+   !< through the hooks (#84 E6a); the root goes through the host.
    class(poisson_mg_object), intent(inout) :: self       !< The solver.
    real(R8P),                intent(in)    :: r_leaf(1:) !< Leaf residual (V-weighted).
    real(R8P),                intent(inout) :: z_leaf(1:) !< Leaf correction.
-   type(rvec),   allocatable :: r(:), e(:)                !< Level residuals and corrections.
-   real(R8P),    allocatable :: tmp(:), res(:), buf(:), out(:) !< Work vectors.
-   integer(I4P), allocatable :: coords(:,:)               !< Root blocks.
-   integer(I4P)              :: lv, b, q, n, nc           !< Counters.
+   integer(I4P)              :: lv, n, nc                 !< Counters.
    real(R8P)                 :: v0                        !< Root cell volume.
 
-   allocate(r(self%lbot:self%lmax), e(self%lbot:self%lmax))
    do lv=self%lbot, self%lmax
-      n = max(self%nloc_lev(lv) * self%ncb_of(lv), 1)
-      allocate(r(lv)%v(n), e(lv)%v(n))
-      r(lv)%v = 0._R8P ; e(lv)%v = 0._R8P
+      call self%vec_fill(self%lr(lv)%v, 0._R8P, size(self%lr(lv)%v))
+      call self%vec_fill(self%le(lv)%v, 0._R8P, size(self%le(lv)%v))
    enddo
    ! the leaf residual into the level spaces
-   do b=1, self%nleaf_loc
-      lv = self%leaf_lev(b)
-      q = self%leaf_lev_loc(b)
-      r(lv)%v((q-1)*self%ncb+1:q*self%ncb) = r_leaf((b-1)*self%ncb+1:b*self%ncb)
+   do lv=self%lbot, self%lmax
+      call self%vec_permute(r_leaf, self%mleaf(lv)%v, self%lr(lv)%v, self%mlev(lv)%v, size(self%mlev(lv)%v))
    enddo
    ! down
    do lv=self%lmax, self%lbot+1, -1
       n = self%nloc_lev(lv) * self%ncb_of(lv)
       nc = self%nloc_lev(lv-1) * self%ncb_of(lv-1)
-      call self%smooth(lv, e(lv)%v, r(lv)%v, 0_I4P)
-      allocate(tmp(max(n,1)), res(max(n,1)))
-      call self%apply(self%al(lv), e(lv)%v, tmp)
-      if (n > 0) res(1:n) = r(lv)%v(1:n) - tmp(1:n)
-      deallocate(tmp)
-      allocate(tmp(max(nc,1)))
-      call self%apply(self%rl(lv), res, tmp)
-      if (nc > 0) r(lv-1)%v(1:nc) = r(lv-1)%v(1:nc) + tmp(1:nc)
-      deallocate(tmp, res)
+      call self%smooth(lv, self%le(lv)%v, self%lr(lv)%v, 0_I4P)
+      call self%apply(self%al(lv), self%le(lv)%v, self%lt1(lv)%v)
+      call self%vec_lincomb(self%lr(lv)%v, -1._R8P, self%lt1(lv)%v, self%lt2(lv)%v, n)
+      call self%apply(self%rl(lv), self%lt2(lv)%v, self%lt1(lv-1)%v)
+      call self%vec_axpy(1._R8P, self%lt1(lv-1)%v, self%lr(lv-1)%v, nc)
    enddo
-   ! the root: exact, by FFT on every rank (L e = r / V, the mean removed)
+   ! the root: exact, by FFT on every rank (L e = r / V, the mean removed), through the host
    n = self%nloc_lev(self%lbot)
    nc = n * self%ncb_of(self%lbot)
    v0 = self%cell_volume(self%lbot)
-   allocate(coords(3,max(n,1)), buf(max(nc,1)), out(max(nc,1)))
-   coords = 0
-   do q=1, n
-      coords(:,q) = self%node_c(1:3,self%lev_node(q,self%lbot))
-   enddo
-   buf = 0._R8P
-   if (nc > 0) buf(1:nc) = r(self%lbot)%v(1:nc) / v0
-   call self%fft%solve_blocks(nbl=n, coords=coords, buf=buf, factor=1._R8P, gw=0_I4P, out=out)
-   if (nc > 0) e(self%lbot)%v(1:nc) = out(1:nc)
+   call self%vec_update(self%lr(self%lbot)%v, to_device=.false.)
+   self%root_buf = 0._R8P
+   if (nc > 0) self%root_buf(1:nc) = self%lr(self%lbot)%v(1:nc) / v0
+   call self%fft%solve_blocks(nbl=n, coords=self%root_coords, buf=self%root_buf, factor=1._R8P, gw=0_I4P, &
+                              out=self%root_out)
+   if (nc > 0) self%le(self%lbot)%v(1:nc) = self%root_out(1:nc)
+   call self%vec_update(self%le(self%lbot)%v, to_device=.true.)
    ! up
    do lv=self%lbot+1, self%lmax
       n = self%nloc_lev(lv) * self%ncb_of(lv)
-      allocate(tmp(max(n,1)), res(max(n,1)))
-      call self%apply(self%pl(lv), e(lv-1)%v, tmp)
-      if (n > 0) e(lv)%v(1:n) = e(lv)%v(1:n) + tmp(1:n)
+      call self%apply(self%pl(lv), self%le(lv-1)%v, self%lt1(lv)%v)
+      call self%vec_axpy(1._R8P, self%lt1(lv)%v, self%le(lv)%v, n)
       if (lv > self%lmin) then ! a face to a cell outside the level reads the coarser correction
-         call self%apply(self%el(lv), e(lv-1)%v, res)
-         if (n > 0) tmp(1:n) = r(lv)%v(1:n) - res(1:n)
-      elseif (n > 0) then ! at lmin and below every cell is in the level
-         tmp(1:n) = r(lv)%v(1:n)
+         call self%apply(self%el(lv), self%le(lv-1)%v, self%lt2(lv)%v)
+         call self%vec_lincomb(self%lr(lv)%v, -1._R8P, self%lt2(lv)%v, self%lt1(lv)%v, n)
+      else ! at lmin and below every cell is in the level
+         call self%vec_copy(self%lr(lv)%v, self%lt1(lv)%v, n)
       endif
-      call self%smooth(lv, e(lv)%v, tmp, 1_I4P)
-      deallocate(tmp, res)
+      call self%smooth(lv, self%le(lv)%v, self%lt1(lv)%v, 1_I4P)
    enddo
    ! the leaf correction
-   do b=1, self%nleaf_loc
-      lv = self%leaf_lev(b)
-      q = self%leaf_lev_loc(b)
-      z_leaf((b-1)*self%ncb+1:b*self%ncb) = e(lv)%v((q-1)*self%ncb+1:q*self%ncb)
+   do lv=self%lbot, self%lmax
+      call self%vec_permute(self%le(lv)%v, self%mlev(lv)%v, z_leaf, self%mleaf(lv)%v, size(self%mlev(lv)%v))
    enddo
    endsubroutine vcycle
 

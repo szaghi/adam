@@ -88,6 +88,17 @@ use :: adam_tree_node_object,   only : tree_node_object
 use :: adam_mpih_global,        only : mpih
 use :: adam_poisson_fft_object, only : poisson_fft_object
 use :: adam_poisson_mg_object,  only : poisson_mg_object
+#ifdef _FNL
+! the FNL build (issue #84, E6a): the device multigrid on cuFFT, and the facades on the same backend
+use :: adam_fnl_mpih_global,        only : mpih_fnl
+use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
+use :: adam_fnl_poisson_mg_object,  only : poisson_mg_fnl_object
+#define MG_T poisson_mg_fnl_object
+#define FFT_T poisson_fft_fnl_object
+#else
+#define MG_T poisson_mg_object
+#define FFT_T poisson_fft_object
+#endif
 use :: mpi
 use :: penf,                    only : I4P, R8P, str
 
@@ -161,6 +172,9 @@ do a=1, command_argument_count()
    if (trim(arg) == '--refuse-boundary-refined') refuse_boundary = .true.
 enddo
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
+#ifdef _FNL
+call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
+#endif
 test_passed = .true.
 if (refuse_flail_wide) then
    call refuse_flail_wide_amr
@@ -294,10 +308,22 @@ call mpih%finalize
 if (.not.test_passed) error stop 1
 
 contains
+   subroutine use_backend(fl)
+   !< The facade on the build's backend: the FNL build gives it the cuFFT and device multigrid molds (#84 E6a).
+   type(flail_object), intent(inout) :: fl !< FLAIL.
+
+#ifdef _FNL
+   allocate(poisson_fft_fnl_object :: fl%fft)
+   allocate(poisson_mg_fnl_object :: fl%mg_mold)
+#else
+   if (allocated(fl%mg_mold)) deallocate(fl%mg_mold)
+#endif
+   endsubroutine use_backend
+
    subroutine refuse_mixed
    !< A uniform 3-D grid periodic along x only and no bc: `initialize` must stop the run.
    type(realm_object)      :: realm !< Realm.
-   type(poisson_mg_object) :: mg    !< Multigrid solver.
+   type(MG_T) :: mg    !< Multigrid solver.
    real(R8P), allocatable  :: q(:,:,:,:,:) !< Source.
 
    call build(realm, 8_I4P, 8_I4P, 1_I4P, sphere=.false., q=q, periodic=.false.)
@@ -310,7 +336,7 @@ contains
    !< bc periodic along y, which the grid bounds; else a ghost-Dirichlet face and a Dirichlet one along y.
    logical, intent(in)     :: mismatch !< The bc-against-grid case, else the mixed ghost one.
    type(realm_object)      :: realm !< Realm.
-   type(poisson_mg_object) :: mg    !< Multigrid solver.
+   type(MG_T) :: mg    !< Multigrid solver.
    real(R8P), allocatable  :: q(:,:,:,:,:) !< Source.
 
    call build(realm, 8_I4P, 8_I4P, 1_I4P, sphere=.false., q=q, periodic=.false.)
@@ -326,7 +352,7 @@ contains
    !< The isolated cube at level 1 with the octant x, y, z > 0 refined: a leaf at level 2 on the boundary, `initialize`
    !< must stop the run.
    type(realm_object)      :: realm !< Realm.
-   type(poisson_mg_object) :: mg    !< Multigrid solver.
+   type(MG_T) :: mg    !< Multigrid solver.
    real(R8P), allocatable  :: q(:,:,:,:,:) !< Source.
 
    call build_star(realm, 1_I4P, refine=.true., boundary=.true., prof=PROFILE_POLYTROPE, q=q)
@@ -351,8 +377,8 @@ contains
    do m=1, 2
       block
       type(realm_object)       :: realm !< Realm (a fresh one per grid).
-      type(poisson_mg_object)  :: mg    !< Solver.
-      type(poisson_fft_object) :: fft   !< FFT solver (uniform grids).
+      type(MG_T)  :: mg    !< Solver.
+      type(FFT_T) :: fft   !< FFT solver (uniform grids).
       call build_star(realm, levels(m), refine=amr, boundary=.false., prof=prof, q=q)
       allocate(phi(lbound(q,2):ubound(q,2),lbound(q,3):ubound(q,3),lbound(q,4):ubound(q,4),ubound(q,5)))
       phi = SENTINEL
@@ -589,6 +615,7 @@ contains
    real(R8P), allocatable  :: q(:,:,:,:,:), phi(:,:,:,:), ghost(:) !< Fields, boundary values.
 
    call build(realm, 8_I4P, 8_I4P, 1_I4P, sphere=.false., q=q, periodic=.false.)
+   call use_backend(flail)
    if (ghost_on_fft) then
       call set_grid_bc(realm, BC_PEC_XY)
       call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=.false., backend=FLAIL_BACKEND_AUTO, &
@@ -610,6 +637,7 @@ contains
 
    call build(realm, 8_I4P, 8_I4P, 2_I4P, sphere=.true., q=q, periodic=.false., corner=.true.)
    call set_grid_bc(realm, BC_B)
+   call use_backend(flail)
    call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=.false., backend=FLAIL_BACKEND_AUTO, &
                     bc=BC_B, dg_order=4_I4P)
    endsubroutine refuse_flail_wide_amr
@@ -625,7 +653,7 @@ contains
    integer(I4P), intent(in), optional :: bc(2,3)  !< Kinds per face (default periodic).
    logical,      intent(in), optional :: isolated !< Isolated boundaries (the star's cube).
    type(realm_object)                 :: realm    !< Realm.
-   type(poisson_mg_object)            :: mg(2)    !< Solvers: the levels forced, none.
+   type(MG_T)            :: mg(2)    !< Solvers: the levels forced, none.
    real(R8P), allocatable             :: q(:,:,:,:,:), phi(:,:,:,:,:) !< Source, the two potentials.
    real(R8P)                          :: diff(2)  !< max |Phi_sub - Phi_exact|, max |Phi_exact|.
    integer(I4P)                       :: its(2), nsub_expected, s, b, i, j, k, ierr !< Iterations, levels, counters.
@@ -695,8 +723,8 @@ contains
    integer(I4P), intent(in), optional :: dg_order !< The wide D(G) of this order (FFT path), else compact.
    type(realm_object)       :: realm   !< Realm.
    type(flail_object)       :: flail   !< FLAIL.
-   type(poisson_mg_object)  :: mg      !< Multigrid solver, direct.
-   type(poisson_fft_object) :: fft     !< FFT solver, direct.
+   type(MG_T)  :: mg      !< Multigrid solver, direct.
+   type(FFT_T) :: fft     !< FFT solver, direct.
    real(R8P), allocatable   :: q(:,:,:,:,:), phi_f(:,:,:,:), phi_d(:,:,:,:), ghost(:) !< Fields, boundary values.
    real(R8P)                :: diff    !< Max |phi_flail - phi_direct|, ghosts included.
    logical                  :: ok, active(3) !< Pass flag, active directions.
@@ -708,6 +736,7 @@ contains
    allocate(phi_f(lbound(q,2):ubound(q,2),lbound(q,3):ubound(q,3),lbound(q,4):ubound(q,4),ubound(q,5)))
    allocate(phi_d, mold=phi_f)
    phi_f = SENTINEL ; phi_d = SENTINEL
+   call use_backend(flail)
    call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=.false., backend=FLAIL_BACKEND_AUTO, bc=bc, &
                     dg_order=dg_order)
    ok = flail%is_multigrid() .eqv. amr
@@ -766,6 +795,7 @@ contains
    phi_v = SENTINEL
    ok = .true.
    do c=1, 3
+      call use_backend(fl(c))
       call fl(c)%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=.false., backend=FLAIL_BACKEND_AUTO, &
                        bc=bcv(:,:,c))
       ok = ok .and. (fl(c)%is_multigrid() .eqv. amr)
@@ -777,6 +807,7 @@ contains
    diff = 0._R8P
    do c=1, 3
       phi_1 = SENTINEL
+      call use_backend(one) ! destroy releases the molds
       call one%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=.false., backend=FLAIL_BACKEND_AUTO, &
                      bc=bcv(:,:,c))
       call one%solve(field=realm%adam%field, q=q, iv=1_I4P, factor=FACTOR * c, phi=phi_1)
@@ -802,8 +833,8 @@ contains
    integer(I4P), intent(in) :: nk      !< Cells per block along z.
    integer(I4P), intent(in) :: level   !< Uniform level.
    type(realm_object)       :: realm   !< Realm.
-   type(poisson_mg_object)  :: mg      !< Multigrid solver.
-   type(poisson_fft_object) :: fft     !< FFT solver.
+   type(MG_T)  :: mg      !< Multigrid solver.
+   type(FFT_T) :: fft     !< FFT solver.
    real(R8P), allocatable   :: q(:,:,:,:,:), phi_mg(:,:,:,:), phi_fft(:,:,:,:) !< Fields.
    real(R8P)                :: diff, scale_ !< Max difference, max |Phi_fft|.
    logical                  :: ok      !< Pass flag.
@@ -857,7 +888,7 @@ contains
    do m=1, 2
       block
       type(realm_object)      :: realm !< Realm (a fresh one per grid).
-      type(poisson_mg_object) :: mg    !< Solver.
+      type(MG_T) :: mg    !< Solver.
       call build(realm, ratio, nk, levels(m), sphere=.true., q=q, periodic=.false., corner=.true.)
       call set_grid_bc(realm, bc)
       active = .not.realm%adam%grid%null_xyz
@@ -1045,7 +1076,7 @@ contains
    do m=1, 2
       block
       type(realm_object)      :: realm !< Realm (a fresh one per grid).
-      type(poisson_mg_object) :: mg    !< Solver.
+      type(MG_T) :: mg    !< Solver.
       call build(realm, ratio, nk, levels(m), sphere=sphere, q=q, periodic=.false.)
       active = .not.realm%adam%grid%null_xyz
       q = q - RHO0 ! the exact potential solves lap Phi = factor (rho - rho0)
@@ -1096,8 +1127,8 @@ contains
    integer(I4P), intent(in) :: nk    !< Cells per block along z.
    integer(I4P), intent(in) :: level !< Uniform level.
    type(realm_object)       :: realm !< Realm.
-   type(poisson_mg_object)  :: mg    !< Multigrid solver.
-   type(poisson_fft_object) :: fft   !< FFT solver.
+   type(MG_T)  :: mg    !< Multigrid solver.
+   type(FFT_T) :: fft   !< FFT solver.
    real(R8P), allocatable   :: q(:,:,:,:,:), phi_mg(:,:,:,:), phi_fft(:,:,:,:) !< Fields.
    real(R8P)                :: diff, scale_ !< Max difference, max |Phi_fft|.
    logical                  :: ok    !< Pass flag.
@@ -1144,7 +1175,7 @@ contains
    do m=1, 2
       block
       type(realm_object)      :: realm !< Realm (a fresh one per grid).
-      type(poisson_mg_object) :: mg    !< Solver.
+      type(MG_T) :: mg    !< Solver.
       call build(realm, ratio, nk, levels(m), sphere=.true., q=q)
       active = .not.realm%adam%grid%null_xyz
       allocate(phi(lbound(q,2):ubound(q,2),lbound(q,3):ubound(q,3),lbound(q,4):ubound(q,4),ubound(q,5)))
@@ -1194,7 +1225,7 @@ contains
    !< doubles it per level. Dirichlet: S Phi_exact + B g with the ghost values g, against V 4 pi G (rho - mean), the
    !< mean `source_mean` (the source the test passes is rho - rho0 already).
    type(realm_object),      intent(in)    :: realm     !< Realm.
-   type(poisson_mg_object), intent(inout) :: mg        !< Solver.
+   type(MG_T), intent(inout) :: mg        !< Solver.
    logical,                 intent(in)    :: active(3) !< Active directions.
    integer(I4P),            intent(in)    :: nk        !< Cells along z.
    real(R8P),               intent(out)   :: tmax      !< Max truncation.

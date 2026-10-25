@@ -18,7 +18,7 @@ program bench_poisson
 !< `BENCH` line of `key=value` pairs (`bench.sh` collects them).
 !<
 !< Usage: `mpirun -np N exe/bench_poisson [--level L] [--ni N] [--reps R] [--isolated] [--amr]` (or
-!< `exe/bench_poisson_fnl`: the FFT transforms on cuFFT, rank 0's GPU).
+!< `exe/bench_poisson_fnl`: the FFT transforms on cuFFT, the multigrid on the device, #84 E5d and E6a).
 #ifdef _FNL
 #include "fundal.H"
 #endif
@@ -30,6 +30,7 @@ use :: adam_mpih_global,            only : mpih
 #ifdef _FNL
 use :: adam_fnl_mpih_global,        only : mpih_fnl
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
+use :: adam_fnl_poisson_mg_object,  only : poisson_mg_fnl_object
 #endif
 use :: adam_poisson_fft_object,     only : poisson_fft_object
 use :: mpi
@@ -110,6 +111,7 @@ cells = blocks * int(ni, I8P)**2 * int(nk, I8P)
 
 #ifdef _FNL
 allocate(poisson_fft_fnl_object :: flail%fft)
+allocate(poisson_mg_fnl_object :: flail%mg_mold)
 #endif
 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
 t0 = MPI_WTIME()

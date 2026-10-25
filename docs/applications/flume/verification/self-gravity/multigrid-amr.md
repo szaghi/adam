@@ -192,7 +192,12 @@ Related cases: the FFT solver the coarsest level uses is [SV-2](./fft-poisson), 
   second order.
 - **M's truncation is $O(1)$ at the seam but consistent:** bounded under refinement, the classical supra-convergence
   of cell-centred schemes.
-- The multigrid runs on the host only (CPU); the FNL backend calls it with its coarsest level on cuFFT (SV-10).
+- On FNL the FCG iteration and the V-cycle run on the device (#84 E6a, `adam_fnl_poisson_mg_object`: CSR rows,
+  red-black sweeps per colour, transfers, dots by device reductions, GPU-aware halo exchange), the root on cuFFT
+  (SV-10). The results equal the host's to round-off. The iteration counts are the host's wherever both backends use
+  the same root (every one of `test_poisson_mg --sub`, which forces it); where the coarsest level lies between the
+  host's root of $32^3$ cells and cuFFT's $128^3$, FNL solves it exactly and takes the exact-root counts (SV-9b, SV-12b
+  at base level 3: 39 and 35 against 42 and 38).
 - **The levels inside the blocks trade iterations for the rank-0 gather** (E5c). Forced to one cell per block they
   add 1 to 13 FCG iterations on AMR and 13 on a uniform grid, where the exact coarsest level needs 1: the point
   smoother on SV-2's $1:2:3$ cells (the prototype `src/tests/poisson/mg_subblock_e5c.py` measures the same, 26 for
@@ -201,8 +206,9 @@ Related cases: the FFT solver the coarsest level uses is [SV-2](./fft-poisson), 
   the whole base grid per V-cycle, 70% of the isolated solve at $128^3$, goes: on 3.9 M AMR cells (medooza CPU) the
   isolated solve falls from 39.9 s to 6.5 s at 16 ranks and from 50.7 s to 31.2 s at one, the periodic one from 2.6 s
   to 2.3 s at 16 ranks but rises from 9.2 s to 12.7 s at one: there one FFT of the $128^3$ base level beats smoothing
-  it with the generic CSR sweep (a stencil smoother is #84 E6). On FNL the multigrid smooths on the host and cuFFT
-  solves the coarsest level fast, so the cuFFT root keeps the exact coarsest level up to $128^3$ cells. A mutation with no off-diagonal
+  it with the generic CSR sweep (a stencil smoother is #84 E6b, if measured to matter). On FNL, where the multigrid
+  then smoothed on the host and cuFFT solved the coarsest level fast, the cuFFT root keeps the exact coarsest level up
+  to $128^3$ cells. A mutation with no off-diagonal
   in the levels below the coarsest fails 5 of the 6 configurations on the iteration bound.
 - **Dirichlet boundaries cost nothing in symmetry or order** (SV-12): a boundary face adds $-w\Phi_C$ to its row and
   moves $wg$ to the right-hand side, so the rows stay symmetric ($6.7\cdot10^{-18}$) and consistent (the uniform

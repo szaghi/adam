@@ -331,6 +331,25 @@ Each routine accepts a stencil half-width `s` and the local mesh spacing `dxyz`,
 
 ## Poisson solver
 
+### `adam_fnl_poisson_mg_object` — multigrid Poisson solver on the GPU (#84 E6a)
+
+Extends `poisson_mg_object` ([common](/library/common)): the leaves, the hierarchy and every CSR operator are
+assembled on the host; `work_place_fnl` then enters the operators (composite operator, ghost fill, level operators,
+ghost terms, transfers), the level diagonals, colours and leaf maps, the cell volumes and the work vectors into
+device memory, with halo buffers sized for the largest operator, until `destroy`. The FCG iteration and the V-cycle
+run on the device through the common hooks: `apply_fnl` packs the halo on the device, exchanges it by
+`MPI_ALLTOALLV` on the device buffers (GPU-aware MPI; none on one rank) and computes one row per thread in the host's
+order; `smooth_fnl` runs one kernel per colour after its halo exchange. That parallel update equals the host's
+sequential Gauss-Seidel because no row couples to a cell of its own colour: the colour is the global cell parity and
+the level operators are 7-point (measured: no such entry in 5704 smoother calls over the AMR, isolated, boundary-kind
+and sub-block suites). The vector hooks are device kernels, the dots and the max-norm device reductions. The root goes
+through the host to the FFT solver: cuFFT by default (`initialize_fnl` passes `poisson_fft_fnl_object` when no
+`coarse` is given). So do the right-hand side, the James step and the ghost fill's placement. `initialize_fnl`
+releases and places the device copies itself, since the parent's `initialize`, called through the parent component,
+dispatches to the host's no-op hooks. Results equal the host's to round-off (another summation order in the dots,
+FMA contraction). FLUME's FNL backend and `bench_poisson_fnl` set `flail%mg_mold` to it; `test-poisson-mg-fnl-nvf`
+builds `test_poisson_mg` on it.
+
 ### `adam_fnl_poisson_fft_object` — FFT Poisson solver on the GPU (cuFFT)
 
 Extends `poisson_fft_object` ([common](/library/common)). The distributed slab transform (#84 E5d) keeps the CPU
@@ -386,6 +405,7 @@ A direct re-export of FUNDAL's MPI handler under the FNL-namespaced type alias `
 | `adam_fnl_maps_object` | GPU communication index tables + MPI buffer staging | `maps_object` |
 | `adam_fnl_mpih_object` | FUNDAL MPI handler alias | — |
 | `adam_fnl_poisson_fft_object` | FFT Poisson solver, cuFFT on each rank's GPU (the slab transform; not re-exported by `adam_fnl_library`) | `poisson_fft_object` |
+| `adam_fnl_poisson_mg_object` | Multigrid Poisson solver on AMR, the FCG iteration and the V-cycle on each rank's GPU (not re-exported by `adam_fnl_library`) | `poisson_mg_object` |
 | `adam_fnl_fdv_operators_library` | Device-callable FD/FV spatial operators | — |
 | `adam_fnl_mpih_global` | Singleton — `mpih_fnl` | — |
 | `adam_fnl_field_global` | Singleton — `field_fnl` | — |

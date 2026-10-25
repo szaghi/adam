@@ -454,6 +454,15 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 - **Distributed, assembled:** CSR rows over global cell keys, each operator with a halo-exchange plan
   (`MPI_ALLTOALLV`); every rank owns its leaves' rows and the shadows whose first leaf it owns. Correct for any rank
   count (results equal to round-off across rank counts); not tuned for speed.
+- **Backend hooks (#84 E6a):** the FCG iteration and the V-cycle work on vectors allocated once by `initialize`
+  (`wf`..`wqp`, the level vectors `lr`, `le`, `lt1`, `lt2`, the maps `mlev`/`mleaf` of the leaves into the level
+  spaces, the root buffers) through overridable hooks: `apply` (halo exchange and CSR rows), `smooth`, `vec_fill`,
+  `vec_copy`, `vec_lincomb`, `vec_axpy`, `vec_dot`, `vec_relmax`, `vec_permute`, `vec_update` (a vector to or from
+  where the hooks compute) and `work_place` (the operators and vectors put there after `initialize`, released by
+  `destroy`). On the host they are the loops of before, bitwise. The right-hand side, the root (through
+  `solve_blocks`), the James step and the ghost fill's placement stay on the host. `apply_a` and `symmetry_defect`
+  stage host vectors through `wp`/`wq`. The FNL twin `adam_fnl_poisson_mg_object` keeps it all on the device
+  ([fnl](/library/fnl)); the facade takes it from `flail%mg_mold`.
 - **Boundary faces (#87 P1; per face, #84 E1b):** an active axis is periodic or bounded; each face of a bounded axis
   has a kind (`adam_flail_parameters`), its row homogeneous (symmetric) and its value `g` on the right-hand side
   (`A phi = factor V f - B g`), `w` the face area over the spacing:

@@ -34,7 +34,8 @@ module adam_flail_object
 !< iterations (the checkerboard branch; the #84 E2 prototype).
 !<
 !< A backend's FFT solver is chosen by allocating the `fft` component before `setup` (the FNL backend allocates the
-!< cuFFT extension); otherwise `setup` allocates the host one.
+!< cuFFT extension); otherwise `setup` allocates the host one. Its multigrid solver likewise by allocating the
+!< `mg_mold` component (the FNL backend allocates the device extension, #84 E6a); otherwise the host one.
 use :: adam_field_object,       only : field_object
 use :: adam_flail_parameters,   only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, FLAIL_BC_DIRICHLET_GHOST, &
                                        FLAIL_BC_ZERO_GHOSTS, FLAIL_BC_FREE_GHOSTS
@@ -61,7 +62,8 @@ integer(I4P), parameter :: FLAIL_BACKEND_MULTIGRID = 2_I4P !< The multigrid solv
 type :: flail_object
    !< FLAIL: the elliptic solver of a realm.
    class(poisson_fft_object), allocatable :: fft !< FFT solver; on a multigrid setup, the mold of its coarsest level.
-   type(poisson_mg_object),   allocatable :: mg  !< Multigrid solver, allocated only when the current setup uses it.
+   class(poisson_mg_object),  allocatable :: mg  !< Multigrid solver, allocated only when the current setup uses it.
+   class(poisson_mg_object),  allocatable :: mg_mold !< The backend's multigrid solver type (none: the host one).
    contains
       ! public methods
       procedure, pass(self) :: destroy      !< Destroy the solvers.
@@ -85,6 +87,7 @@ contains
       call self%mg%destroy
       deallocate(self%mg)
    endif
+   if (allocated(self%mg_mold)) deallocate(self%mg_mold)
    endsubroutine destroy
 
    pure function is_multigrid(self)
@@ -156,7 +159,11 @@ contains
          if (dg_order /= 0_I4P) call mpih%error_stop(msg='flail_object%setup: the wide D(G) needs a uniform grid and '//&
             'the FFT path; on AMR (or with backend multigrid) it is not available yet (issue #84, E7)')
       endif
-      allocate(self%mg)
+      if (allocated(self%mg_mold)) then
+         allocate(self%mg, mold=self%mg_mold)
+      else
+         allocate(poisson_mg_object :: self%mg)
+      endif
       if (present(bc)) then
          call self%mg%initialize(grid=grid, field=field, coarse=self%fft, isolated=isolated, bc=bc)
       else
