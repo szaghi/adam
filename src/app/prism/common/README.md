@@ -301,6 +301,7 @@ Configured from the `[initial_conditions]` INI section.
 | `vacuum` | All fields set to zero |
 | `plane_wave` | Sinusoidal electromagnetic plane wave |
 | `gaussian_pulse` | Gaussian-modulated plane wave packet (`B0`, `k0`, `r0`, `sigma`, `pulse_direction` = `±x`, `±y`, `±z`) |
+| `gaussian_derivative_pulse` | Single-cycle pulse, derivative of a Gaussian vector potential: zero area, no ω = 0 content (`B0` = peak \|B\|, `r0`, `sigma` of the potential, `pulse_direction`; no `k0`) |
 | `rmf_field` | Rotating Magnetic Field (reads `RMF_frequency`, `RMF_B_amplitude` and `RMF_rotation_axis` = `X`, `Y` or `Z` from `[external_fields]`; any other axis stops at load) |
 | `uniform_field` | Uniform background B (`B_x`, `B_y`, `B_z`); D is set to zero |
 

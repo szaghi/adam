@@ -32,7 +32,9 @@ character(len=15), parameter :: IC_TYPE_MAGNETIC_NOZZLE="magnetic_nozzle" !< Noz
 character(len=15), parameter :: IC_TYPE_RMF_NOZZLE="rmf_magnetic_nozzle"  !< Rotating Magnetic Field Nozzle IC TYPE parameter.
 character(len=13), parameter :: IC_TYPE_UNIFORM_FIELD="uniform_field"     !< Uniform field IC type parameter
 character(len=14), parameter :: IC_TYPE_GAUSSIAN_PULSE="gaussian_pulse"   !< Gaussian pulse IC TYPE parameter.
+character(len=25), parameter :: IC_TYPE_GAUSSIAN_DERIVATIVE_PULSE="gaussian_derivative_pulse" !< Gaussian-derivative pulse.
 character(len=*),  parameter :: IC_TYPES_ACCEPTED=IC_TYPE_VACUUM//', '//IC_TYPE_PLANE_WAVE//', '//IC_TYPE_GAUSSIAN_PULSE// &
+                                                  ', '//IC_TYPE_GAUSSIAN_DERIVATIVE_PULSE//                         &
                                                   ', '//IC_TYPE_RMF//', '//IC_TYPE_UNIFORM_FIELD !< Types the IC applies.
 
 type :: prism_ic_object
@@ -61,7 +63,7 @@ type :: prism_ic_object
 	integer(I4P)              :: gamma                !< RMF rotation axis coordinate 3
    character(len=2)          :: pulse_direction  	  !< 
    real(R8P)                 :: r0                   !< reference point for gaussian pulse at t0
-   real(R8P)                 :: k0                   !< wave number for the gaussian pulse
+   real(R8P)                 :: k0=0.0_R8P           !< wave number for the gaussian pulse
    real(R8P)                 :: sigma                !< standard deviation for the gaussian pulse
    contains
       ! public methods
@@ -100,6 +102,12 @@ contains
       desc = desc//NL//mpih%myrankstr//'  pulse_direction: '//(self%pulse_direction)
       desc = desc//NL//mpih%myrankstr//'  sigma of the pulse: '//trim(str(self%sigma))
    endif
+   if (self%ic_type == IC_TYPE_GAUSSIAN_DERIVATIVE_PULSE) then
+      desc = desc//NL//mpih%myrankstr//'  B0 (peak |B|): '//trim(str(self%B0))
+      desc = desc//NL//mpih%myrankstr//'  r0: '//trim(str(self%r0))
+      desc = desc//NL//mpih%myrankstr//'  pulse_direction: '//(self%pulse_direction)
+      desc = desc//NL//mpih%myrankstr//'  sigma of the potential: '//trim(str(self%sigma))
+   endif
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -137,7 +145,8 @@ contains
    self%ic_type = trim(adjustl(buff_char))
    ! set_initial_conditions applies only these types: any other one would leave the field as allocated (issue #56)
    select case(self%ic_type)
-   case(IC_TYPE_VACUUM, IC_TYPE_PLANE_WAVE, IC_TYPE_GAUSSIAN_PULSE, IC_TYPE_RMF, IC_TYPE_UNIFORM_FIELD)
+   case(IC_TYPE_VACUUM, IC_TYPE_PLANE_WAVE, IC_TYPE_GAUSSIAN_PULSE, IC_TYPE_GAUSSIAN_DERIVATIVE_PULSE, IC_TYPE_RMF, &
+        IC_TYPE_UNIFORM_FIELD)
       continue
    case(IC_TYPE_RP)
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_TYPE_RP//' is not implemented (its regions '// &
@@ -205,11 +214,14 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
    endif
-   if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE) then
+   if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE .or. self%ic_type == IC_TYPE_GAUSSIAN_DERIVATIVE_PULSE) then
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='k0', val=self%k0, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(k0)')
+      ! the Gaussian-derivative pulse has no carrier: k0 is not read
+      if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE) then
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='k0', val=self%k0, error=error)
+         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(k0)')
+      endif
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='r0', val=self%r0, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(r0)')
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='pulse_direction', &
@@ -220,6 +232,7 @@ contains
       self%pulse_direction = trim(self%pulse_direction)   
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='sigma', val=self%sigma, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sigma)')
+      if (self%sigma <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(sigma) must be > 0')
    endif
    if (self%ic_type == IC_TYPE_RMF) then
       call file_parameters%get(section_name='external_fields', option_name='RMF_frequency', val=self%RMF_frequency, error=error)
@@ -338,7 +351,7 @@ contains
             enddo
          enddo
       enddo
-   case(IC_TYPE_GAUSSIAN_PULSE)
+   case(IC_TYPE_GAUSSIAN_PULSE, IC_TYPE_GAUSSIAN_DERIVATIVE_PULSE)
       select case(self%pulse_direction)
       case('+x')
          i_dir = 1_I4P
@@ -371,13 +384,18 @@ contains
             do j=1, nj
                do i=1, ni
                   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
-                  call set_gaussian_wave_pulse(x=cell_coord,     &
-                                               i_dir=i_dir,      &
-                                               k0=pulse_k0,       &
-                                               x0=pulse_r0,       &
-                                               B0=self%B0,        &
-                                               sigma=pulse_sigma, &
-                                               q=q(1:6,i,j,k,b))
+                  if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE) then
+                     call set_gaussian_wave_pulse(x=cell_coord,     &
+                                                  i_dir=i_dir,      &
+                                                  k0=pulse_k0,       &
+                                                  x0=pulse_r0,       &
+                                                  B0=self%B0,        &
+                                                  sigma=pulse_sigma, &
+                                                  q=q(1:6,i,j,k,b))
+                  else
+                     call set_gaussian_derivative_pulse(x=cell_coord, i_dir=i_dir, x0=pulse_r0, B0=self%B0, &
+                                                        sigma=pulse_sigma, q=q(1:6,i,j,k,b))
+                  endif
                   if (is_adim_model(physics%physical_model)) then
                      q(1:3,i,j,k,b) = q(1:3,i,j,k,b)/physics%D0
                      q(4:6,i,j,k,b) = q(4:6,i,j,k,b)/physics%B0
@@ -471,4 +489,44 @@ contains
       q(5) = verse*E_wave/C0
    end select
    endsubroutine set_gaussian_wave_pulse
+
+   subroutine set_gaussian_derivative_pulse(x, i_dir, x0, B0, sigma, q)
+   !< Set a linearly polarized single-cycle pulse, the derivative of a Gaussian vector potential.
+   !<
+   !< Along +x: `A_y = B0 sigma e^(1/2) exp(-s^2/(2 sigma^2))`, `s = x - x0`, and `B_z = dA_y/dx`, `E_y = c B_z`:
+   !<
+   !< `B_z = -B0 e^(1/2) (s/sigma) exp(-s^2/(2 sigma^2))`, so `max|B| = B0` (at `s = -/+sigma`) and `max|E| = c B0`.
+   !<
+   !< A_y vanishes on both sides, so the profile has zero area and no zero-frequency content: no net momentum to free
+   !< particles, no quasi-static field in an absorbing layer; its power spectrum peaks at `k sigma = 1`. The sampled
+   !< area is zero to round-off for sigma above a couple of cells (Poisson summation), so the profile is not truncated:
+   !< a cut would leave a jump and an area of the order of the cut tail.
+   real(R8P),    intent(in)    :: x(3)   !< Spatial coordinates.
+   integer(I4P), intent(in)    :: i_dir  !< Propagation direction: +/-1, +/-2, +/-3.
+   real(R8P),    intent(in)    :: x0     !< Initial pulse center along the propagation direction.
+   real(R8P),    intent(in)    :: B0     !< Peak magnetic field.
+   real(R8P),    intent(in)    :: sigma  !< Standard deviation of the Gaussian vector potential.
+   real(R8P),    intent(inout) :: q(6)   !< Electromagnetic state: D(1:3), B(1:3).
+   integer(I4P)                :: i_axis !< Propagation axis.
+   real(R8P)                   :: verse  !< Propagation orientation.
+   real(R8P)                   :: s      !< Coordinate relative to the pulse center, in sigma units.
+   real(R8P)                   :: E_wave !< Electric-field profile.
+
+   q = 0.0_R8P
+   i_axis = abs(i_dir)
+   verse  = sign(1.0_R8P, real(i_dir, R8P))
+   s = (x(i_axis) - x0) / sigma
+   E_wave = -B0*C0*exp(0.5_R8P)*s*exp(-0.5_R8P*s**2)
+   select case(i_axis) ! the same polarization and E/B pairing as set_gaussian_wave_pulse
+   case(1) !< Propagation along +/-x: E_y, B_z.
+      q(2) = EPS0*E_wave
+      q(6) = verse*E_wave/C0
+   case(2) !< Propagation along +/-y: E_z, B_x.
+      q(3) = EPS0*E_wave
+      q(4) = verse*E_wave/C0
+   case(3) !< Propagation along +/-z: E_x, B_y.
+      q(1) = EPS0*E_wave
+      q(5) = verse*E_wave/C0
+   end select
+   endsubroutine set_gaussian_derivative_pulse
 endmodule adam_prism_ic_object
