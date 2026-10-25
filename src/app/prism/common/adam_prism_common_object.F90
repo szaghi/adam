@@ -1564,6 +1564,7 @@ contains
             f(:,:,:,:,:)    = 0._R8P
             ind = size(self%q(:,1,1,1,1))
             f(1,:,:,:,:) = -self%q(ind,:,:,:,:)/eps_scale
+            call check_charge_null_modes(f=f)
             call solve_time_zero(nv_solve=1_I4P, f=f, phi=phi, label='electric displacement field')
             if (blocks_number > 0) then
                call self%compute_gradient_extended(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
@@ -1804,6 +1805,104 @@ contains
                                  ') = '//trim(str(abs(f_mean) / max(f_rms, tiny(1._R8P))))//')')
       enddo
       endsubroutine remove_singular_mean
+
+      subroutine check_charge_null_modes(f)
+      !< Measure the part of the charge forcing in the null space of D(G) for phi, which the solve cannot reach (FLAIL
+      !< drops it): the modes chi = (-1)^(a1 i + a2 j + a3 k), a_d among the parities axis d admits: periodic 0 (the mean)
+      !< and 1 (the checkerboard, global cell count even), PEC 1 (phi odd about the face), a null axis 0. A Dirichlet or
+      !< exact/open face makes D(G) nonsingular: nothing to check. sum_m |<f,chi_m>|/N bounds the div D - rho left after
+      !< the correction; it is reported relative to max|f|. Above NULL_MODES_TOL the mean (a net charge without a
+      !< Dirichlet face) is warned; the checkerboard is warned with an unfiltered deposit, while a matched current deposits
+      !< rho = P rho^P with P(pi) = 0 along every axis, so a checkerboard there is a deposit error and stops the run.
+      !< Every rank calls it.
+      real(R8P), intent(in)   :: f(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Forcing, -rho/eps.
+      real(R8P), parameter    :: NULL_MODES_TOL = 1e-12_R8P                     !< Tolerance relative to max|f|.
+      logical                 :: parity(0:1,3)   !< Parities admitted by each axis.
+      logical                 :: matched         !< Matched current: rho filtered by P.
+      integer(I4P)            :: n(3)            !< Block cells per axis.
+      integer(I4P)            :: nglob(3)        !< Global cells per axis.
+      integer(I4P)            :: g0(3)           !< Global index of the cell before the first of a block.
+      integer(I4P)            :: a(3,0:7)        !< Mode parities.
+      integer(I4P)            :: level           !< Block level (the grid is uniform).
+      integer(I4P)            :: d, m, b, i, j, k !< Counters.
+      real(R8P)               :: sums(0:7)       !< Projections <f,chi_m>.
+      real(R8P)               :: f_max           !< max|f|.
+      real(R8P)               :: mean, checker   !< Dropped parts, relative to max|f|.
+
+      parity = .false.
+      do d=1, 3
+         if (self%adam%grid%null_xyz(d)) then
+            parity(0,d) = .true.
+         elseif (all(elliptic_bc_type(2*d-1:2*d) == ELL_BC_PERIODIC)) then
+            parity(0,d) = .true.
+            parity(1,d) = .true. ! the even global count is checked below
+         elseif (all(elliptic_bc_type(2*d-1:2*d) == ELL_BC_PEC)) then
+            parity(1,d) = .true.
+         else
+            return ! a Dirichlet or exact/open face: D(G) is nonsingular
+         endif
+      enddo
+      n = [self%ni, self%nj, self%nk]
+      level = 0_I4P
+      do b=1, self%blocks_number
+         level = max(level, self%adam%field%coordinates(4,b))
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, level, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+      nglob = n * nint((self%adam%grid%domain_emax - self%adam%grid%domain_emin) / self%adam%grid%block_dxyz(:,level))
+      do d=1, 3
+         if (.not.self%adam%grid%null_xyz(d) .and. mod(nglob(d), 2_I4P) /= 0_I4P) parity(1,d) = .false.
+      enddo
+      do m=0, 7
+         a(:,m) = [mod(m,2), mod(m/2,2), mod(m/4,2)]
+      enddo
+      sums = 0._R8P
+      f_max = 0._R8P
+      do b=1, self%blocks_number
+         g0 = self%adam%field%coordinates(1:3,b) * n
+         do k=1, self%nk
+            do j=1, self%nj
+               do i=1, self%ni
+                  do m=0, 7
+                     if (mod(a(1,m)*(g0(1)+i) + a(2,m)*(g0(2)+j) + a(3,m)*(g0(3)+k), 2) == 0) then
+                        sums(m) = sums(m) + f(1,i,j,k,b)
+                     else
+                        sums(m) = sums(m) - f(1,i,j,k,b)
+                     endif
+                  enddo
+                  f_max = max(f_max, abs(f(1,i,j,k,b)))
+               enddo
+            enddo
+         enddo
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 8, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, f_max, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+      if (f_max <= 0._R8P) return
+      mean = 0._R8P
+      checker = 0._R8P
+      do m=0, 7
+         if (.not.(parity(a(1,m),1) .and. parity(a(2,m),2) .and. parity(a(3,m),3))) cycle
+         if (m == 0) then
+            mean = abs(sums(m)) / real(product(nglob), R8P) / f_max
+         else
+            checker = checker + abs(sums(m)) / real(product(nglob), R8P) / f_max
+         endif
+      enddo
+      matched = trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL .and. &
+                self%pic%matched_current()
+      if (mpih%myrank == 0_I4P) call mpih%print_message('D elliptic t0: rho in the null space of D(G), relative to '// &
+         'max|rho|: mean '//trim(str(mean))//', checkerboard '//trim(str(checker)))
+      if (checker > NULL_MODES_TOL) then
+         if (matched) call mpih%error_stop(msg=': D elliptic t0: the checkerboard of rho is '//trim(str(checker))// &
+            ' of max|rho| with the matched current '//self%pic%conserving_solver_name()//', whose filter P removes it'// &
+            ' (P(pi) = 0): the filtered deposit is wrong')
+         if (mpih%myrank == 0_I4P) call mpih%print_message('WARNING: D elliptic t0: the checkerboard of rho ('// &
+            trim(str(checker))//' of max|rho|) is out of reach of D(G) and dropped: div D - rho keeps it after t0 '// &
+            '(an unfiltered deposit; a matched current, totorica or esirkepov_Q<N>, removes it)')
+      endif
+      if (mean > NULL_MODES_TOL .and. mpih%myrank == 0_I4P) call mpih%print_message('WARNING: D elliptic t0: '// &
+         'the net charge ('//trim(str(mean))//' of max|rho| as mean density) has no solution without a Dirichlet face '// &
+         'and is dropped: div D - rho keeps it after t0')
+      endsubroutine check_charge_null_modes
    endsubroutine impose_pic_fields_time_zero
 
    function global_max(local) result(global)
