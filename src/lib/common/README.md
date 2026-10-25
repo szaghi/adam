@@ -308,9 +308,12 @@ odd extension solved 42 times); the periodic multigrid falls from 9.4 s to 2.6 s
 isolated transforms for speed (above); E5c coarsens the multigrid inside the blocks below the base level and solves
 the root on every rank (medooza CPU, 3.9 M AMR cells: isolated 39.9 -> 6.5 s per solve at 16 ranks, periodic
 2.6 -> 2.3 s, but 9.2 -> 12.7 s at one rank, where one FFT of the 128^3 base level beats smoothing it with the
-generic CSR sweep; so the cuFFT root keeps the exact coarsest level up to 128^3); E5d distributes the uniform FFT
+generic CSR sweep; so the cuFFT root kept the exact coarsest level up to 128^3, until E6 measured 32^3 faster
+there too); E5d distributes the uniform FFT
 (medooza CPU, 2.1 M cells, 1 -> 16 ranks: periodic 0.115 -> 0.026 s, isolated 0.729 -> 0.108 s per solve, where they
-stayed at 0.12-0.14 s and 0.71-0.73 s; weak, np 8, 16.7 M cells: 0.81 -> 0.24 s and 5.7 -> 1.5 s).
+stayed at 0.12-0.14 s and 0.71-0.73 s; weak, np 8, 16.7 M cells: 0.81 -> 0.24 s and 5.7 -> 1.5 s). E6 runs the
+multigrid on the device and sets the cuFFT root to 32^3 as on the host (medooza FNL, 3.9 M AMR cells, 1 / 2 / 4 GPUs,
+E5d -> E6: periodic 7.94 / 4.21 / 2.46 -> 0.33 / 0.19 / 0.12 s, isolated 18.2 / 9.9 / 7.3 -> 0.85 / 0.52 / 0.43 s).
 
 ### Legacy FLAIL smoothers (deleted in issue #84, E4)
 
@@ -426,7 +429,7 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 
 | Procedure | Role |
 |-----------|------|
-| `initialize(grid, field, tolerance, max_iterations, coarse, isolated, bc, root_cells)` | Gather the leaf list (every rank), derive the level hierarchy (the tree levels, then the levels inside the blocks down to the root, at most `root_cells` cells, default the root solver's `root_cells_max`: 32^3 on the host, 128^3 on cuFFT, #84 E5c), assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the root FFT solver (on every rank when at most 32^3 cells), of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise; `isolated` also sizes the ghost-to-ghost Green's function of the James step (an isolated FFT solver of the same type on the coarsest box widened by the ghost layer); `bc` the kind of every face (E1b; default ghost-Dirichlet on the bounded axes) |
+| `initialize(grid, field, tolerance, max_iterations, coarse, isolated, bc, root_cells)` | Gather the leaf list (every rank), derive the level hierarchy (the tree levels, then the levels inside the blocks down to the root, at most `root_cells` cells, default the root solver's `root_cells_max`: 32^3 on both backends, #84 E5c and E6), assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the root FFT solver (on every rank when at most 32^3 cells), of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise; `isolated` also sizes the ghost-to-ghost Green's function of the James step (an isolated FFT solver of the same type on the coarsest box widened by the ghost layer); `bc` the kind of every face (E1b; default ghost-Dirichlet on the bounded axes) |
 | `solve(field, q, iv, factor, phi, energy, ghost)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi`; `ghost` the boundary value of each boundary face, of its kind (below); isolated: the James step (no `ghost`) |
 | `solve_packed(field, buf, factor, phi, energy, ghost)` | The same from the packed interior source |
 | `symmetry_defect(x, y)`, `apply_a(x, y)` | Verification: `|x.Ay - y.Ax| / (|x| |Ay|)` and `y = A x` on the leaves |
@@ -443,7 +446,7 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
   the same blocks on the same ranks, half the cells per block per level along the active directions, while those
   are even and the level has more than `root_cells` cells; the last, the root (`lbot`), is solved by
   `adam_poisson_fft_object%solve_blocks`, with `redundant` on every rank (`MPI_ALLGATHERV`, no scatter) when it has
-  at most 32^3 cells, on rank 0 above that (four ranks each transforming a 128^3 root contend for the node's memory). A coarsest
+  at most 32^3 cells (the default), on the FFT solver's distributed path above that (a larger `root_cells`). A coarsest
   tree level of at most that many cells is its own root, as before E5c. The design is Athena++'s (Tomida & Stone 2023, §3:
   each MeshBlock coarsened to one cell, the root solved redundantly after an `MPI_Allgather`); its cost is FCG
   iterations (`test_poisson_mg --sub`: 1 -> 14 on a uniform 1:2:3-cell box, point smoothing on anisotropic cells;

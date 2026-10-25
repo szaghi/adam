@@ -1696,9 +1696,11 @@ contains
 
    pure function root_cells_max() result(n)
    !< The most cells the multigrid leaves to this backend's exact root solve, below which it does not coarsen inside the
-   !< blocks (#84 E5c): 32^3 on the host, where a 128^3 FFT on one core costs more per V-cycle than smoothing the level
-   !< over 8 or more ranks (medooza: the periodic multigrid on 3.9 M cells, 9.2 -> 12.7 s at np 1, 2.6 -> 2.3 s at
-   !< np 16).
+   !< blocks (#84 E5c): 32^3, the redundant root's limit. On the host a 128^3 FFT on one core costs more per V-cycle
+   !< than smoothing the level over 8 or more ranks (medooza: the periodic multigrid on 3.9 M cells, 9.2 -> 12.7 s at
+   !< np 1, 2.6 -> 2.3 s at np 16). On cuFFT too since the multigrid runs on the device (#84 E6): 3.9 M AMR cells,
+   !< 1 / 2 / 4 GPUs, isolated 4.45 / 2.55 / 2.92 s with a 128^3 root, 0.85 / 0.52 / 0.43 s with 32^3; periodic
+   !< 0.80 / 0.45 / 0.37 -> 0.33 / 0.19 / 0.12 s. A backend may override it.
    integer(I4P) :: n !< Cells.
 
    n = 32768_I4P

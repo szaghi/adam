@@ -28,13 +28,14 @@ module adam_poisson_mg_object
 !< further **inside the blocks** (issue #84, E5c): each level below it halves the cells per block along every active
 !< direction, the same blocks on the same ranks, the plain level Laplacian with the face kinds, the same smoother and
 !< transfers, while the cells per block are even and the domain has more than `root_cells` cells at the level
-!< (default: the root solver's `root_cells_max`, 32^3 on the host FFT, 128^3 on cuFFT, which outruns the host
-!< smoother); the last of them, the root (`lbot`), is solved exactly by the FFT solver
-!< (`adam_poisson_fft_object%solve_blocks`; of the caller's backend type with `initialize(coarse=)`): on **every
-!< rank** (`redundant`), from the source gathered by `MPI_ALLGATHERV`, when it has at most `REDUNDANT_ROOT_MAX` (32^3)
-!< cells, so no rank-0 gather and scatter per V-cycle; a larger root (cuFFT keeps up to 128^3) on rank 0 as before,
-!< since every rank transforming it contends for the node's memory (FNL, 4 GPUs, the isolated 128^3 coarsest level:
-!< 4.7 -> 6.4 s per solve). A coarsest tree level of at most `root_cells` cells is its own root, solved as before. Measured
+!< (default: the root solver's `root_cells_max`, 32^3 on both backends since #84 E6: with the multigrid on the device
+!< a 128^3 cuFFT root cost 2.4 to 6.8 times more per solve); the last of them, the root (`lbot`), is solved exactly by
+!< the FFT solver (`adam_poisson_fft_object%solve_blocks`; of the caller's backend type with `initialize(coarse=)`):
+!< on **every rank** (`redundant`), from the source gathered by `MPI_ALLGATHERV`, when it has at most
+!< `REDUNDANT_ROOT_MAX` (32^3) cells, so no rank-0 gather and scatter per V-cycle; a larger root (`root_cells` above
+!< the default) on the FFT solver's distributed path, since every rank transforming it contends for the node's memory
+!< (FNL, 4 GPUs, the isolated 128^3 coarsest level: 4.7 -> 6.4 s per solve). A coarsest tree level of at most
+!< `root_cells` cells is its own root, solved as before. Measured
 !< (`test_poisson_mg --sub`, every level down to one cell per block): 1 -> 14 FCG iterations on a uniform 1:2:3-cell
 !< box (point smoothing on anisotropic cells), +1 to +13 on AMR (24-47 -> 25-53). Medooza CPU, 3.9 M AMR cells per
 !< solve: isolated 50.7 -> 31.2 s at np 1 and 39.9 -> 6.5 s at np 16 (its 258^3 coarsest level and 42 exact solves
@@ -348,7 +349,7 @@ contains
    !< `bc` (issue #84, E1b): the kind of every face (see the module); a periodic axis of the grid must be periodic in
    !< `bc` and the other way round. Without it, every bounded axis takes ghost-Dirichlet faces. `root_cells` (#84 E5c):
    !< the levels inside the blocks below lmin stop once the root has at most this many cells (default: the root
-   !< solver's `root_cells_max`, 32^3 on the host, 128^3 on cuFFT; tests force the levels with a small one).
+   !< solver's `root_cells_max`, 32^3; tests force the levels with a small one, the bench measures others).
    class(poisson_mg_object), intent(inout)        :: self           !< The solver.
    type(grid_object),        intent(in)           :: grid           !< The grid.
    type(field_object),       intent(in)           :: field          !< The field (block coordinates).

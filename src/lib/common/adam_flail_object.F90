@@ -107,7 +107,7 @@ contains
    if (allocated(self%mg)) iterations = self%mg%iterations
    endfunction iterations
 
-   subroutine setup(self, grid, field, isolated, backend, option_name, bc, dg_order)
+   subroutine setup(self, grid, field, isolated, backend, option_name, bc, dg_order, root_cells)
    !< Choose and set up the solver for the current grid: call it on the initial grid and after every regrid.
    !<
    !< `FLAIL_BACKEND_AUTO` uses the FFT solver when every leaf is at one level and the multigrid solver otherwise;
@@ -115,7 +115,8 @@ contains
    !< input key, default `[flail].(backend)`). The multigrid solver is rebuilt at every call, its coarsest level solved
    !< by a solver of the `fft` component's type. `bc` (E1c): the kind of every face, forwarded to the solver; isolated
    !< boundaries take none (fatal: the FFT solver would ignore it). `dg_order` (E2a): 0 the compact Laplacian (the
-   !< default), 2, 4, 6 or 8 the wide D(G), on the FFT path only.
+   !< default), 2, 4, 6 or 8 the wide D(G), on the FFT path only. `root_cells` (#84 E6): the multigrid's root at most
+   !< this many cells (default: the root solver's `root_cells_max`); for measurements.
    class(flail_object), intent(inout)        :: self        !< FLAIL.
    type(grid_object),   intent(in)           :: grid        !< The grid.
    type(field_object),  intent(in)           :: field       !< The field (block coordinates).
@@ -124,6 +125,7 @@ contains
    character(*),        intent(in), optional :: option_name !< The client's input key, for the messages.
    integer(I4P),        intent(in), optional :: bc(2,3)     !< Kinds per face [lo/hi, axis] (adam_flail_parameters).
    integer(I4P),        intent(in), optional :: dg_order    !< 0 compact (default); 2, 4, 6, 8: the wide D(G).
+   integer(I4P),        intent(in), optional :: root_cells  !< Most cells of the multigrid's root.
    integer(I4P)                              :: lev(2)      !< Lowest and (negated) highest leaf level over the ranks.
    integer(I4P)                              :: b           !< Counter.
    integer(I4P)                              :: ierr        !< MPI error status.
@@ -165,9 +167,9 @@ contains
          allocate(poisson_mg_object :: self%mg)
       endif
       if (present(bc)) then
-         call self%mg%initialize(grid=grid, field=field, coarse=self%fft, isolated=isolated, bc=bc)
+         call self%mg%initialize(grid=grid, field=field, coarse=self%fft, isolated=isolated, bc=bc, root_cells=root_cells)
       else
-         call self%mg%initialize(grid=grid, field=field, coarse=self%fft, isolated=isolated)
+         call self%mg%initialize(grid=grid, field=field, coarse=self%fft, isolated=isolated, root_cells=root_cells)
       endif
    endif
    endsubroutine setup

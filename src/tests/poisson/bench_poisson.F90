@@ -17,8 +17,9 @@ program bench_poisson
 !< uniform FFT path, the multigrid's coarsest level (`mg%fft`) and its James step (`mg%gfft`). Rank 0 prints one
 !< `BENCH` line of `key=value` pairs (`bench.sh` collects them).
 !<
-!< Usage: `mpirun -np N exe/bench_poisson [--level L] [--ni N] [--reps R] [--isolated] [--amr]` (or
-!< `exe/bench_poisson_fnl`: the FFT transforms on cuFFT, the multigrid on the device, #84 E5d and E6a).
+!< Usage: `mpirun -np N exe/bench_poisson [--level L] [--ni N] [--reps R] [--isolated] [--amr] [--root-cells C]` (or
+!< `exe/bench_poisson_fnl`: the FFT transforms on cuFFT, the multigrid on the device, #84 E5d and E6a). `--root-cells`
+!< caps the multigrid's root (default: the backend's `root_cells_max`); the BENCH line reports it and the root level.
 #ifdef _FNL
 #include "fundal.H"
 #endif
@@ -50,6 +51,7 @@ character(256)                  :: arg                           !< Command argu
 character(:), allocatable       :: filename                      !< Input file name.
 character(:), allocatable       :: path                          !< Solver path label.
 integer(I4P)                    :: level, ni, reps               !< Base level, cells per block side, timed solves.
+integer(I4P)                    :: root_cells                    !< Multigrid root cap (0: the backend's default).
 logical                         :: isolated, amr                 !< Free-space boundaries; refine the central box.
 real(R8P)                       :: t0, t_setup, t_solve          !< Wall times.
 real(R8P)                       :: t_min, t_sum                  !< Solve statistics.
@@ -57,9 +59,10 @@ real(R8P)                       :: w(3,3)                        !< Phase walls 
 real(R8P)                       :: c(3)                          !< Block centre.
 integer(I8P)                    :: cells, blocks                 !< Leaf cells and blocks over the ranks.
 integer(I4P)                    :: its                           !< Iterations over the timed solves.
+integer(I4P)                    :: root_max, lbot                !< Multigrid: the root cap used, the root level.
 integer(I4P)                    :: ngc, nk, a, b, d, ierr        !< Counters.
 
-level = 3 ; ni = 8 ; reps = 5 ; isolated = .false. ; amr = .false.
+level = 3 ; ni = 8 ; reps = 5 ; isolated = .false. ; amr = .false. ; root_cells = 0
 do a=1, command_argument_count()
    call get_command_argument(a, arg)
    select case(trim(arg))
@@ -69,6 +72,8 @@ do a=1, command_argument_count()
       call get_command_argument(a+1, arg) ; read(arg, *) ni
    case('--reps')
       call get_command_argument(a+1, arg) ; read(arg, *) reps
+   case('--root-cells')
+      call get_command_argument(a+1, arg) ; read(arg, *) root_cells
    case('--isolated')
       isolated = .true.
    case('--amr')
@@ -115,7 +120,12 @@ allocate(poisson_mg_fnl_object :: flail%mg_mold)
 #endif
 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
 t0 = MPI_WTIME()
-call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=isolated, backend=FLAIL_BACKEND_AUTO)
+if (root_cells > 0) then
+   call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=isolated, backend=FLAIL_BACKEND_AUTO, &
+                    root_cells=root_cells)
+else
+   call flail%setup(grid=realm%adam%grid, field=realm%adam%field, isolated=isolated, backend=FLAIL_BACKEND_AUTO)
+endif
 t_setup = MPI_WTIME() - t0
 call MPI_ALLREDUCE(MPI_IN_PLACE, t_setup, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
 call flail%solve(field=realm%adam%field, q=q, iv=1_I4P, factor=FACTOR, phi=phi) ! warm-up
@@ -133,8 +143,10 @@ do a=1, reps
    its = its + flail%iterations()
 enddo
 w = 0._R8P
+root_max = 0 ; lbot = 0
 if (flail%is_multigrid()) then
    path = 'mg'
+   root_max = flail%mg%root_max ; lbot = flail%mg%lbot
    w(:,2) = flail%mg%fft%wall / reps
    if (allocated(flail%mg%gfft)) w(:,3) = flail%mg%gfft%wall / reps
 else
@@ -150,7 +162,8 @@ if (mpih%myrank == 0) print '(A)', 'BENCH path='//path//' isolated='//merge('T',
    ' fft_scatter='//trim(str(w(3,1), .true.))//' coarse_gather='//trim(str(w(1,2), .true.))// &
    ' coarse_rank0='//trim(str(w(2,2), .true.))//' coarse_scatter='//trim(str(w(3,2), .true.))// &
    ' james_gather='//trim(str(w(1,3), .true.))//' james_rank0='//trim(str(w(2,3), .true.))// &
-   ' james_scatter='//trim(str(w(3,3), .true.))
+   ' james_scatter='//trim(str(w(3,3), .true.))//' root_max='//trim(str(root_max, .true.))//' lbot='// &
+   trim(str(lbot, .true.))
 call flail%destroy
 call mpih%finalize
 
