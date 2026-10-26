@@ -52,6 +52,7 @@ export default withMermaid({
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Start here', link: '/start/' },
+      { text: 'Tutorials',  link: '/tutorials/' },
       { text: 'Concepts',   link: '/concepts/architecture' },
       { text: 'Cookbook',   link: '/cookbook/' },
       {
@@ -89,8 +90,44 @@ export default withMermaid({
         {
           text: 'Start here',
           items: [
-            { text: 'About',   link: '/start/' },
-            { text: 'Install', link: '/start/install' },
+            { text: 'About',     link: '/start/' },
+            { text: 'Install',   link: '/start/install' },
+            { text: 'First run', link: '/start/first-run' },
+          ],
+        },
+      ],
+      '/tutorials/': [
+        {
+          text: 'Tutorials',
+          items: [
+            { text: 'Overview', link: '/tutorials/' },
+          ],
+        },
+        {
+          text: 'FLUME',
+          items: [
+            { text: '1. Sod',                         link: '/tutorials/flume/sod' },
+            { text: '2. Lax',                         link: '/tutorials/flume/lax' },
+            { text: '3. A blast on a static AMR grid', link: '/tutorials/flume/blast-amr' },
+            { text: '4. The positivity limiter',      link: '/tutorials/flume/limiter' },
+          ],
+        },
+        {
+          text: 'PRISM',
+          items: [
+            { text: '1. A pulse in a periodic box',      link: '/tutorials/prism/pulse' },
+            { text: '2. Reflecting and absorbing faces', link: '/tutorials/prism/faces' },
+            { text: '3. A perfectly matched layer',      link: '/tutorials/prism/pml' },
+            { text: '4. The same on the GPU',            link: '/tutorials/prism/gpu' },
+          ],
+        },
+        {
+          text: 'Build your own solver',
+          items: [
+            { text: '1. A realm and the core layer', link: '/tutorials/build-your-own/core' },
+            { text: '2. The library\'s numerics',    link: '/tutorials/build-your-own/numerics' },
+            { text: '3. AMR and the staged layer',   link: '/tutorials/build-your-own/amr' },
+            { text: '4. The GPU twin',               link: '/tutorials/build-your-own/gpu' },
           ],
         },
       ],

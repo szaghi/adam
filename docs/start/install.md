@@ -177,3 +177,7 @@ The toolchain must match the varset exactly. A mismatch stops the build at `use 
 of GNU Fortran") or, under nvfortran, with an internal compiler error on a module symbol. Bring up a new machine by
 adding its own `[varset:*]` block; the [regression bring-up tutorial](/tests/prism-regression-tutorial) walks through
 it.
+
+## Next
+
+Build FLUME and run a Sod shock tube: [first run](/start/first-run). Then the [tutorials](/tutorials/).
