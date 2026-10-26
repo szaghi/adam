@@ -1,9 +1,10 @@
 # FLUME
 
-**FLUME** (**F**luid **L**orentz-coupled **U**nsteady **M**agnetohydrodynamic **E**quations) is the compressible-flow
-and magnetohydrodynamics application of ADAM. It solves the compressible Euler equations and the ideal MHD equations with
-high-order WENO finite differences on block-structured adaptive grids, on CPUs (MPI + OpenMP) and on GPUs (MPI +
-OpenACC), and it supersedes the deprecated CHASE.
+**FLUME** (**F**luid **L**aboratory for **U**nsteady **M**ultiphysics at **E**xascale) is the compressible-flow
+application of ADAM: compressible Euler, Navier–Stokes and ideal MHD with external gravity, self-gravity and sink
+particles, ideal, isothermal and barotropic gases, radiative cooling, passive scalars and immersed boundaries, solved
+with high-order WENO finite differences on block-structured adaptive grids (static and runtime AMR, multi-realm forests),
+on CPUs (MPI + OpenMP) and on GPUs (MPI + OpenACC, or OpenMP offload). It supersedes the deprecated CHASE.
 
 ![Orszag-Tang vortex](/flume/orszag-tang.png)
 
