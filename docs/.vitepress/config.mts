@@ -8,9 +8,8 @@ const apiSidebar = existsSync(apiSidebarFile) ? JSON.parse(readFileSync(apiSideb
 
 export default withMermaid({
   title: 'ADAM Documentation',
-  // ford.md is the API generator's project file (read by `formal generate` in CI), not a page; *.gcov.md are coverage
-  // reports, not documentation.
-  srcExclude: ['ford.md', '**/*.gcov.md'],
+  // ford.md is the API generator's project file (read by `formal generate` in CI), not a page.
+  srcExclude: ['ford.md'],
   head: [
     ['style', {}, '.dark-only{display:none}.dark .dark-only{display:block}.dark .light-only{display:none}'],
   ],
@@ -52,61 +51,75 @@ export default withMermaid({
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
+      { text: 'Start here', link: '/start/' },
+      { text: 'Concepts',   link: '/concepts/architecture' },
+      { text: 'Cookbook',   link: '/cookbook/' },
       {
-        text: 'Guide',
+        text: 'Applications',
         items: [
-          { text: 'About',                  link: '/guide/' },
-          { text: 'Features',               link: '/guide/features' },
-          { text: 'Installation',           link: '/guide/installation' },
-          { text: 'Architecture',           link: '/guide/architecture' },
-          { text: 'Forest (multi-realm)',   link: '/guide/forest' },
-          { text: 'Forest cookbook',        link: '/guide/forest-cookbook' },
-          { text: 'Contributing',           link: '/guide/contributing' },
-          { text: 'Changelog',              link: '/guide/changelog' },
+          { text: 'Overview', link: '/applications/' },
+          { text: 'FLUME',    link: '/applications/flume/' },
+          { text: 'PRISM',    link: '/applications/prism/' },
         ],
       },
-      { text: 'Library',      link: '/library/' },
-      { text: 'Applications', link: '/applications/' },
-      { text: 'Tests',        link: '/tests/' },
-      { text: 'API',          link: '/api/' },
-      { text: 'GitHub',       link: 'https://github.com/szaghi/adam' },
+      {
+        text: 'Reference',
+        items: [
+          { text: 'FLUME input',        link: '/applications/flume/input' },
+          { text: 'Regression testing', link: '/tests/' },
+          { text: 'API',                link: '/api/' },
+        ],
+      },
+      {
+        text: 'Project',
+        items: [
+          { text: 'Contributing', link: '/project/contributing' },
+          { text: 'Changelog',    link: '/project/changelog' },
+          { text: 'License',      link: '/project/license' },
+          { text: 'Citing ADAM',  link: '/project/citing' },
+        ],
+      },
+      { text: 'GitHub', link: 'https://github.com/szaghi/adam' },
     ],
     sidebar: {
-      '/guide/': [
+      '/start/': [
         {
-          text: 'Introduction',
+          text: 'Start here',
           items: [
-            { text: 'About',    link: '/guide/' },
-            { text: 'Features', link: '/guide/features' },
-          ],
-        },
-        {
-          text: 'Getting Started',
-          items: [
-            { text: 'Installation',       link: '/guide/installation' },
-            { text: 'Architecture',       link: '/guide/architecture' },
-            { text: 'Forest (multi-realm)', link: '/guide/forest' },
-            { text: 'Forest cookbook',      link: '/guide/forest-cookbook' },
-          ],
-        },
-        {
-          text: 'Project',
-          items: [
-            { text: 'Contributing',    link: '/guide/contributing' },
-            { text: 'Changelog',       link: '/guide/changelog' },
-            { text: 'Coverage Report', link: '/guide/coverage-analysis' },
+            { text: 'About',   link: '/start/' },
+            { text: 'Install', link: '/start/install' },
           ],
         },
       ],
-      '/library/': [
+      '/concepts/': [
         {
-          text: 'Library',
+          text: 'Concepts',
           items: [
-            { text: 'Overview',          link: '/library/' },
-            { text: 'Common',            link: '/library/common' },
-            { text: 'FNL (OpenACC)',     link: '/library/fnl' },
-            { text: 'NVF (CUDA Fortran)', link: '/library/nvf' },
-            { text: 'GMP (OpenMP)',      link: '/library/gmp' },
+            { text: 'Architecture',          link: '/concepts/architecture' },
+            { text: 'Features',              link: '/concepts/features' },
+            { text: 'Forest (multi-realm)',  link: '/concepts/forest' },
+            { text: 'The library',           link: '/concepts/library' },
+            { text: 'The FNL library (GPU)', link: '/concepts/library-fnl' },
+          ],
+        },
+      ],
+      '/cookbook/': [
+        {
+          text: 'Cookbook',
+          items: [
+            { text: 'Overview', link: '/cookbook/' },
+            { text: 'Forest',   link: '/cookbook/forest' },
+          ],
+        },
+      ],
+      '/project/': [
+        {
+          text: 'Project',
+          items: [
+            { text: 'Contributing', link: '/project/contributing' },
+            { text: 'Changelog',    link: '/project/changelog' },
+            { text: 'License',      link: '/project/license' },
+            { text: 'Citing ADAM',  link: '/project/citing' },
           ],
         },
       ],
@@ -116,49 +129,8 @@ export default withMermaid({
           items: [
             { text: 'Overview', link: '/applications/' },
             {
-              text: 'NASTO',
-              collapsed: false,
-              items: [
-                { text: 'Overview',      link: '/applications/nasto/' },
-                { text: 'Common',        link: '/applications/nasto/common' },
-                { text: 'CPU Backend',   link: '/applications/nasto/cpu' },
-                { text: 'FNL Backend',   link: '/applications/nasto/fnl' },
-                { text: 'NVF Backend',   link: '/applications/nasto/nvf' },
-                { text: 'GMP Backend',   link: '/applications/nasto/gmp' },
-              ],
-            },
-            {
-              text: 'PRISM',
-              collapsed: false,
-              items: [
-                { text: 'Overview',    link: '/applications/prism/' },
-                { text: 'Common',      link: '/applications/prism/common' },
-                { text: 'CPU Backend', link: '/applications/prism/cpu' },
-                { text: 'FNL Backend', link: '/applications/prism/fnl' },
-                { text: 'Verification', link: '/applications/prism/verification' },
-              ],
-            },
-            {
-              text: 'CHASE (deprecated)',
-              collapsed: false,
-              items: [
-                { text: 'Overview',    link: '/applications/chase/' },
-                { text: 'Common',      link: '/applications/chase/common' },
-                { text: 'CPU Backend', link: '/applications/chase/cpu' },
-              ],
-            },
-            {
-              text: 'PATCH',
-              collapsed: false,
-              items: [
-                { text: 'Overview',    link: '/applications/patch/' },
-                { text: 'Common',      link: '/applications/patch/common' },
-                { text: 'CPU Backend', link: '/applications/patch/cpu' },
-              ],
-            },
-            {
               text: 'FLUME',
-              collapsed: true,
+              collapsed: false,
               items: [
                 { text: 'Overview',            link: '/applications/flume/' },
                 { text: 'Physical Models',     link: '/applications/flume/models' },
@@ -318,7 +290,17 @@ export default withMermaid({
                 { text: 'FNL Backend', link: '/applications/flume/fnl' },
               ],
             },
-            { text: 'ASCOT', link: '/applications/ascot' },
+            {
+              text: 'PRISM',
+              collapsed: false,
+              items: [
+                { text: 'Overview',    link: '/applications/prism/' },
+                { text: 'Common',      link: '/applications/prism/common' },
+                { text: 'CPU Backend', link: '/applications/prism/cpu' },
+                { text: 'FNL Backend', link: '/applications/prism/fnl' },
+                { text: 'Verification', link: '/applications/prism/verification' },
+              ],
+            },
           ],
         },
       ],
@@ -338,15 +320,6 @@ export default withMermaid({
             { text: 'Overview',            link: '/tests/' },
             { text: 'PRISM regression',    link: '/tests/prism-regression' },
             { text: 'Regression bring-up', link: '/tests/prism-regression-tutorial' },
-          ],
-        },
-        {
-          text: 'NASTO integration',
-          items: [
-            { text: 'Sod-X',         link: '/tests/sod-x' },
-            { text: 'Sod-Y',         link: '/tests/sod-y' },
-            { text: 'Sod-Z',         link: '/tests/sod-z' },
-            { text: 'Shock-Sphere',  link: '/tests/shock-sphere' },
           ],
         },
       ],

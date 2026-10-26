@@ -10,7 +10,7 @@ Two flagship use cases motivate the multi-realm machinery:
 The first scenario requires the **α (end-of-step)** seam-coupling cadence, the AMReX-aligned default. The second is best served by **β (stage-coincident)**, the opt-in alternative that recovers single-realm temporal accuracy at the seam.
 
 ::: tip Looking for a recipe?
-The [forest cookbook](/guide/forest-cookbook) walks through every configuration available today (mirror and 2:1 seams, misaligned blocks, AMR inside a realm, cadences, many ranks, restart), with figures, input snippets, refusals and the tests that cover each one. This page is the reference.
+The [forest cookbook](/cookbook/forest) walks through every configuration available today (mirror and 2:1 seams, misaligned blocks, AMR inside a realm, cadences, many ranks, restart), with figures, input snippets, refusals and the tests that cover each one. This page is the reference.
 :::
 
 ## The manifest
@@ -293,7 +293,7 @@ The cadence × K matrix and both seam families are covered by cases under `src/t
 
 - **Manifest parser**: `src/lib/common/adam_forest_manifest.F90` — INI schema, parser, the `forest_manifest_t` and `forest_face_pair_t` structs; the `COUPLING_*`/`CADENCE_*` string→code mapping.
 - **Orchestrator**: `src/lib/common/adam_forest_object.F90` — `forest_object`, `evolve_one_step`'s phase outline, `register_inter_realm_seams`, `register_intra_realm_amr_seams`, `build_seam_local_map`, `check_beta_admissibility`.
-- **Realm contract**: `src/lib/common/adam_realm_object.F90` — the `_forest`-suffixed TBP family every app extension overrides (`fill_seam_from_peer_forest`, `coupling_descriptor_forest`, `apply_reflux_to_stage_forest`, `after_topology_build_forest`, ...). See also `src/lib/common/README.md` ("Forest orchestration" section) for the library-developer view.
+- **Realm contract**: `src/lib/common/adam_realm_object.F90` — the `_forest`-suffixed TBP family every app extension overrides (`fill_seam_from_peer_forest`, `coupling_descriptor_forest`, `apply_reflux_to_stage_forest`, `after_topology_build_forest`, ...). See also the [library page](/concepts/library#forest-orchestration-multi-realm), section "Forest orchestration", for the library-developer view.
 - **Seam constants & maps**: `src/lib/common/adam_maps_object.F90` — `FACE_*`, `COUPLING_*`, `CADENCE_*`, the `seam_local_*` arrays; `src/lib/common/adam_seam_interpolation_library.F90` — `SEAM_FILL_*` regimes and stencils; `BC_SEAM` in `adam_parameters.f90` (the forest rewrites the BC crown rows of a seam face to it, and sets `maps%seam_face(face)`, which the apps read to fill the ghosts at a realm edge that lies beyond a seam and a physical face, issue #65); `SEAM_KIND_*` in `adam_flux_register_object.F90`.
 - **PRISM backend seam TBPs**: `src/app/prism/cpu/adam_prism_cpu_object.F90` (`fill_seam_from_peer_forest`, the issue-#31 diagnostic seam refill in `post_step_forest`) and its FNL twin `src/app/prism/fnl/adam_prism_fnl_object.F90` (the 4-kernel device seam fill, `after_topology_build_forest` device-map refresh).
 - **Sibling case READMEs**: `src/tests/prism/regression/rmf-2realm/README.md` (α), `.../rmf-2realm-stagesync/README.md` (β), and the suite `README.md`.

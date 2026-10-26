@@ -21,7 +21,7 @@ mpirun -np <N> exe/<test_executable>
 
 ## Regression Tests
 
-The [PRISM regression suite](./prism-regression) is the structural-change baseline for the Maxwell/EM solver: CI-tuned two-rank cases run on both the CPU and FNL (GPU) backends, compared tolerance-aware against committed field-digest and residuals goldens. It covers the forest multi-realm seam machinery (α/β cadence, inter-realm 1:1 mirror seams), the intra-realm 2:1 AMR seams (with `check.sh`-driven `div(B)` oracles), reflux, and the fWLayer. See the [Forest guide](../guide/forest) for the seam machinery itself.
+The [PRISM regression suite](./prism-regression) is the structural-change baseline for the Maxwell/EM solver: CI-tuned two-rank cases run on both the CPU and FNL (GPU) backends, compared tolerance-aware against committed field-digest and residuals goldens. It covers the forest multi-realm seam machinery (α/β cadence, inter-realm 1:1 mirror seams), the intra-realm 2:1 AMR seams (with `check.sh`-driven `div(B)` oracles), reflux, and the fWLayer. See the [Forest guide](/concepts/forest) for the seam machinery itself.
 
 To stand the suite up on a new machine, compiler, or GPU architecture, follow the [regression bring-up tutorial](./prism-regression-tutorial).
 
@@ -46,23 +46,10 @@ Self-gravity cases run on the `-fft` executable (FFTW on the CPU, cuFFT on FNL).
 
 Research and development cases live separately under `src/tests/prism/<backend>/{fd,fv}/<family>/` — long integration times, full AMR, sized for physics validation. They are **not** regression anchors and `run.sh` never descends into them.
 
-## Integration Tests
-
-NASTO integration tests with known CFD benchmarks:
-
-| Test | Description |
-|------|-------------|
-| [Sod-X](./sod-x) | 1D Riemann Problem of Sod along X axis |
-| [Sod-Y](./sod-y) | 1D Riemann Problem of Sod along Y axis |
-| [Sod-Z](./sod-z) | 1D Riemann Problem of Sod along Z axis |
-| [Shock-Sphere](./shock-sphere) | Shock-sphere interaction simulation |
-
 ## Compiler Testing Matrix
 
-All changes affecting core numerics or parallel logic must pass:
+Changes to core numerics or parallel logic are gated on both maintained toolchains (versions in
+[Install](/start/install)):
 
-- **GNU gfortran** — baseline CPU, strict bounds checking
-- **NVIDIA nvfortran** — GPU targets (CUDA Fortran, OpenACC)
-- **Intel ifort/ifx** — aggressive optimization, vectorization reports
-
-Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during development.
+- **GNU gfortran** — the CPU backend; the `*-debug` modes add bounds checking and FPE traps
+- **NVIDIA nvfortran** — the FNL backend (OpenACC)

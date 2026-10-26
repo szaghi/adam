@@ -186,7 +186,7 @@ analyse, and send back a few small text files. Every command is run from `src/te
 - **HDF5:** parallel HDF5 built with the same `amdflang` and MPI. Point a fobos varset at it: `thera_amd` if your
   node is thera, or `local_amd` after building it into `lib/hdf5/develop/amd/latest` with
   `scripts/hdf5_build.sh -build -sdk ... -hdf5 $PWD/lib/hdf5/develop/amd/latest` (from the repository root; see
-  `docs/guide/installation.md`).
+  `docs/start/install.md`).
 - **FoBiS** ≥ 3.8 (`pip install FoBiS.py`, the command is `fobis`) and **python3 ≥ 3.7** (standard library only).
 
 ### 2. Build

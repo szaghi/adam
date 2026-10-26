@@ -5,7 +5,7 @@ the PRISM design, every type defined here is aggregated into `flume_common_objec
 The pointwise libraries (`*_library.F90`) are `pure`, take explicit-size arguments and are tagged `!$acc routine seq` +
 `!$omp declare target`, so the CPU loops and the GPU kernels call the same source.
 
-> **Status: development** (milestones M1 to M13 complete; the list is in `docs/applications/flume/index.md`).
+**Documentation:** <https://szaghi.github.io/adam/applications/flume/common>
 
 ## Modules
 
@@ -39,8 +39,4 @@ The pointwise libraries (`*_library.F90`) are `pure`, take explicit-size argumen
 
 The user documentation (models, numerics, input reference, verification gallery) is in `docs/applications/flume/`.
 
-## License
-
-FLUME is part of the ADAM framework, released under the [GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0.html) (LGPLv3).
-
-> Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.
+ADAM is dual-licensed under MIT or LGPLv3 (`LICENSE.mit.md`, `LICENSE.lgpl3.md`).

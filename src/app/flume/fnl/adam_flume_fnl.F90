@@ -4,7 +4,7 @@ program adam_flume_fnl
 !<
 !< Two driver paths, auto-detected from the input file: a plain FLUME `input.ini` runs one realm through
 !< `forest%simulate`; a `forest.ini` manifest (a `[forest] realms_number = N` section) runs N realms through
-!< `forest%simulate_from_manifest`. See `docs/guide/forest.md` for the manifest schema.
+!< `forest%simulate_from_manifest`. See `docs/concepts/forest.md` for the manifest schema.
 
 ! ADAM classes, libraries, parameters
 use :: adam_forest_object,    only : forest_object

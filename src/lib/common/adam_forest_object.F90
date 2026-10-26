@@ -27,7 +27,7 @@ module adam_forest_object
 !< connectivity descriptor) can be added as intrinsic-typed state
 !< without a module API break.
 !<
-!< See `docs/guide/forest.md` for the conceptual overview of the
+!< See `docs/concepts/forest.md` for the conceptual overview of the
 !< multi-realm machinery (manifest schema, α/β cadence trade-offs, phase
 !< cycle) and `src/lib/common/README.md` → "Forest orchestration" for the
 !< library-developer contract surface.

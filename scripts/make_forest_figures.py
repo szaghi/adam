@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the figures of the forest cookbook (docs/guide/forest-cookbook.md) as SVG.
+"""Draw the figures of the forest cookbook (docs/cookbook/forest.md) as SVG.
 
 Why this script exists: the multi-realm machinery (inter-realm seams, 2:1 jumps, misaligned blocks, the flux register,
 the seam cadence, the rank partition) is geometric, and its documentation needs pictures that stay consistent with each

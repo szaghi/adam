@@ -237,7 +237,7 @@ Tracked through:
 | [#16](https://github.com/szaghi/adam/issues/16) | α end-of-step barrier + asymmetric K | shipped (closed 2026-05-28) |
 | [#18](https://github.com/szaghi/adam/issues/18) | β stage-coincident recovery + cross-config oracle | shipped (closed 2026-05-28) |
 
-User-facing conceptual overview, manifest schema, and α/β cadence rationale are documented in `docs/guide/forest.md` (the project VitePress site). Library-developer contract reference is in `src/lib/common/README.md` → "Forest orchestration".
+User-facing conceptual overview, manifest schema, and α/β cadence rationale are documented in `docs/concepts/forest.md` (the project VitePress site). Library-developer contract reference is in `docs/concepts/library.md` → "Forest orchestration (multi-realm)".
 
 ### `grid_object` (`src/lib/common/adam_grid_object.F90`)
 

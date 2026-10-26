@@ -30,7 +30,7 @@ module adam_flux_register_object
 !< the AMReX `Reflux` cadence; same-K and asymmetric-K both reduce to the
 !< same Berger-Colella end-of-step correction.
 !<
-!< See `docs/guide/forest.md` for the conceptual overview of seam coupling
+!< See `docs/concepts/forest.md` for the conceptual overview of seam coupling
 !< cadence and `src/lib/common/README.md` → "Forest orchestration" for the
 !< contract surface.
 !<

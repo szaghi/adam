@@ -1,13 +1,9 @@
 # FLUME — CPU Backend
 
-> FLUME is part of the ADAM framework, released under the
-> [GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0.en.html) (LGPLv3).
-> Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.
-
 The CPU backend (`flume-cpu`) is the MPI (+ optional OpenMP) implementation of FLUME, extending the backend-independent
 infrastructure of `common/`.
 
-> **Status: development** (milestones M1 to M13 complete, the list in `docs/applications/flume/index.md`).
+**Documentation:** <https://szaghi.github.io/adam/applications/flume/cpu>
 
 ## Source Files
 
@@ -19,10 +15,4 @@ infrastructure of `common/`.
 | `adam_flume_cpu_*_kernels_agnostic.INC` | The model-agnostic kernel bodies (face, Riemann face, ghost, auxiliary, positivity, MHD) the model modules include |
 | `adam_flume_cpu_dissipation_kernels.F90` | Viscous, heat-conduction and Ohmic (MHD) face fluxes of order 2 and 4 (issue #65), model-agnostic, added to the inviscid face fluxes before the seam accumulation |
 
-## Build modes
-
-```bash
-fobis build --mode flume-cpu-gnu          # MPI
-fobis build --mode flume-cpu-gnu-omp      # MPI + OpenMP
-fobis build --mode flume-cpu-gnu-debug    # MPI, runtime checks
-```
+ADAM is dual-licensed under MIT or LGPLv3 (`LICENSE.mit.md`, `LICENSE.lgpl3.md`).

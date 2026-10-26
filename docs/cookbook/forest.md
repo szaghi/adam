@@ -1,6 +1,6 @@
 # Forest cookbook
 
-This page is the task-oriented companion of the [forest reference](/guide/forest). Each recipe is a configuration ADAM
+This page is the task-oriented companion of the [forest reference](/concepts/forest). Each recipe is a configuration ADAM
 runs today:
 - a picture of what it builds;
 - the manifest and realm keys it needs;
@@ -105,7 +105,7 @@ What happens at a 2:1 face:
 
 **PRISM.** A 2:1 face injects an O(h^p) div(B) source that refinement reduces but time does not
 ([#29](https://github.com/szaghi/adam/issues/29), accepted). The run-time monitor `[IO] seam_divB_tol` turns it into a
-warning or a stop; see [the reference](/guide/forest#seam-div-b-guard-rail-io).
+warning or a stop; see [the reference](/concepts/forest#seam-div-b-guard-rail-io).
 
 **Verified by** FLUME `sod-amr` (a 2:1 face crossed by a shock), `amr-periodic-reflux` (V3: conservation to round-off,
 the negative control without reflux, and the odd-cell refusal), MHD MV-11; PRISM `rmf-amr`, `rmf-amr-fd`,

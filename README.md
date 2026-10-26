@@ -6,214 +6,45 @@
   <img src="docs/public/adam-logo-bgai.png" alt="ADAM logo" width="480">
 </picture>
 
-> Multi-physics AMR SDK and apps for High Performance Computing — from laptop to exascale device-accelerated superpc
+> A physics-agnostic Fortran SDK for adaptive grids, and its solvers, from a laptop to GPU clusters
 
 ### *A*ccelerated fluid *D*ynamics on *A*daptive *M*esh refinement grids
 
 [![Version](https://img.shields.io/github/v/tag/szaghi/adam?sort=semver&label=version)](https://github.com/szaghi/adam/releases/latest)
-[![Tests](https://github.com/szaghi/adam/actions/workflows/tests.yml/badge.svg)](https://github.com/szaghi/adam/actions/workflows/tests.yml)
+[![CI](https://github.com/szaghi/adam/actions/workflows/ci.yml/badge.svg)](https://github.com/szaghi/adam/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://szaghi.github.io/adam/coverage-badge.json)](https://szaghi.github.io/adam/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![License: LGPLv3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
 
-[Full documentation](https://szaghi.github.io/adam/) — guides, application overviews, API reference
+[Documentation](https://szaghi.github.io/adam/) · [Install](https://szaghi.github.io/adam/start/install) · [FLUME](https://szaghi.github.io/adam/applications/flume/) · [PRISM](https://szaghi.github.io/adam/applications/prism/) · [Citing](https://szaghi.github.io/adam/project/citing)
 
 </div>
 
 ---
 
-![Features](./docs/hero_features.svg)
+**ADAM** is a modern Fortran library for block-structured adaptive grids — Morton-ordered octree/quadtree AMR, immersed
+boundaries, WENO reconstruction, Runge-Kutta integration, the FLAIL elliptic solvers and parallel I/O — with a CPU
+backend (MPI, OpenMP) and a GPU backend (OpenACC with nvfortran, or OpenMP offloading with amdflang). Solvers are built
+on it by supplying their equations. Two are maintained:
 
----
-[Why ADAM?](#why-adam%3F) &nbsp;·&nbsp; [Citing ADAM](#citing-adam) &nbsp;·&nbsp; [Quick Start](#quick-start)
-
-## Why ADAM?
-
-### *Physics-Agnostic SDK*
-
-> ADAM is designed as a **physics-agnostic SDK**: its core infrastructure — AMR, IB, WENO numerics, multi-backend GPU acceleration, and parallel I/O — is entirely decoupled from any specific set of governing equations. Solvers are built on top by composing these building blocks, so adding a new physics application requires only implementing the problem-specific terms while inheriting the full HPC stack for free. Applications already built on ADAM span a wide spectrum: from compressible Navier-Stokes flows and shock-driven phenomena to electromagnetic plasma simulations governed by Maxwell equations, with further models in development. The same INI-driven configuration system, the same restart and output formats, and the same GPU backends apply uniformly across all of them.
-
-### *Device (GPU)-accelerated and backward-compatible with CPU-based HPC*
-
-> ADAM runs equally well on **GPU-accelerated clusters** — exploiting CUDA Fortran, OpenACC, or OpenMP offloading across thousands of GPUs interconnected via NVLink or InfiniBand — and on **traditional CPU-based HPC clusters**, where the CPU backend with MPI and OpenMP delivers full functionality without requiring any GPU hardware. The choice of backend is a compile-time switch; the application source and input files are identical in both environments.
-
-## Authors
-
-- Andrea di Mascio — [andrea.dimascio@univaq.it](mailto:andrea.dimascio@univaq.it)
-- Federico Negro — [federico.negro.01@gmail.com](mailto:federico.negro.01@gmail.com)
-- Giacomo Rossi — [giacomo.rossi@amd.com](mailto:giacomo.rossi@amd.com)
-- Francesco Salvadore — [f.salvadore@cineca.it](mailto:f.salvadore@cineca.it)
-- Stefano Zaghi — [stefano.zaghi@cnr.it](mailto:stefano.zaghi@cnr.it)
-
-## Copyrights
-
-ADAM is dual-licensed under the [MIT License](https://opensource.org/licenses/MIT) and the [GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0) (LGPLv3). You may choose either license.
-
-## Citing ADAM
-
-If you use ADAM in work that leads to a scientific publication, please cite the following paper:
-
-> S. Zaghi, F. Salvadore, A. Di Mascio, G. Rossi —
-> **Efficient GPU parallelization of adaptive mesh refinement technique for high-order compressible solver with immersed boundary** —
-> *Computers and Fluids*, 266 (2023) 106040.
-> DOI: [10.1016/j.compfluid.2023.106040](https://doi.org/10.1016/j.compfluid.2023.106040)
-
-The paper describes the ADAM framework architecture, the AMR/IB coupling strategy, the GPU parallelization approach (CUDA Fortran), and demonstrates strong scaling on a shock–sphere interaction benchmark.
-
-BibTeX entry:
-
-```bibtex
-@article{zaghi2023adam,
-  author  = {Zaghi, S. and Salvadore, F. and {Di Mascio}, A. and Rossi, G.},
-  title   = {Efficient {GPU} parallelization of adaptive mesh refinement technique
-             for high-order compressible solver with immersed boundary},
-  journal = {Computers \& Fluids},
-  volume  = {266},
-  pages   = {106040},
-  year    = {2023},
-  doi     = {10.1016/j.compfluid.2023.106040},
-}
-```
-
-<div style="display:flex;gap:1rem;align-items:flex-start;">
-  <figure style="width:50%;margin:0;display:flex;flex-direction:column;">
-    <img src="./docs/pictures/3D-view-11-new.png" alt="3D view of shock–sphere interaction" style="width:100%;height:360px;object-fit:contain;">
-    <figcaption style="font-size:0.8em;color:var(--vp-c-text-2);margin-top:0.4rem;">Prospective overview of shock wave diffraction by a sphere: 3D pressure contour surfaces, 2D slice of temperature flow field with multi-level adaptive grids (side view), and 2D slice of pseudo Schlieren flow field (bottom view). (Fig. 9A, Zaghi et al. 2023)</figcaption>
-  </figure>
-  <figure style="width:50%;margin:0;display:flex;flex-direction:column;">
-    <img src="./docs/pictures/z-slice-sch-rho-grid-13.png" alt="Z-slice pseudo Schlieren and density flow fields" style="width:100%;height:360px;object-fit:contain;">
-    <figcaption style="font-size:0.8em;color:var(--vp-c-text-2);margin-top:0.4rem;">Shock wave diffraction by a sphere: density with multi-level adaptive grids (bottom) and pseudo Schlieren (top) flow fields; run #13, δ<sub>F</sub> = 0.015625. (Fig. 12, Zaghi et al. 2023)</figcaption>
-  </figure>
-</div>
+- **[FLUME](https://szaghi.github.io/adam/applications/flume/)** — compressible Euler and ideal MHD, with dissipative terms, gravity,
+  self-gravity, cooling and sink particles;
+- **[PRISM](https://szaghi.github.io/adam/applications/prism/)** — Maxwell equations with particle-in-cell plasmas.
 
 ## Quick start
 
-### The core library is the shared foundation
-
-`src/lib` provides the physics-agnostic building blocks. Every application in `src/app` composes the same set of core objects and adds only the physics-specific layer on top:
-
-```fortran
-! src/lib/common — shared by ALL applications
-use adam_mpih_object   ! MPI handler
-use adam_grid_object   ! block-structured grid + AMR geometry
-use adam_field_object  ! 5D field arrays  (nv, ni, nj, nk, nb)
-use adam_amr_object    ! AMR refinement / coarsening
-use adam_ib_object     ! Immersed Boundary
-use adam_weno_object   ! WENO reconstructor (orders 3–11)
-use adam_rk_object     ! Runge-Kutta integrator
-```
-
-### NASTO — compressible Navier-Stokes
-
-NASTO composes the core objects and adds the NS physics layer:
-
-```fortran
-type :: nasto_common_object
-   !--- reused from src/lib (identical in every application) ---
-   type(mpih_object)  :: mpih    ! MPI handler
-   type(grid_object)  :: grid    ! AMR grid
-   type(field_object) :: field   ! conservative variables q(nv,ni,nj,nk,nb)
-   type(amr_object)   :: amr     ! refinement markers
-   type(ib_object)    :: ib      ! solid bodies
-   type(weno_object)  :: weno    ! spatial reconstruction
-   type(rk_object)    :: rk      ! time integration
-   !--- NS-specific layer (src/app/nasto/common) ---------------
-   type(nasto_physics_object) :: physics  ! ideal-gas EOS, fluxes
-   type(nasto_bc_object)      :: bc       ! inflow / wall / periodic BCs
-   type(nasto_ic_object)      :: ic       ! shock-tube, vortex ICs
-   type(nasto_io_object)      :: io       ! HDF5 output
-   type(nasto_time_object)    :: time     ! CFL control
-end type
-```
-
-### PRISM — Maxwell equations + PIC
-
-PRISM reuses the **same** core objects and replaces the physics layer with electromagnetics:
-
-```fortran
-type :: prism_common_object
-   !--- reused from src/lib (identical to NASTO) ---------------
-   type(mpih_object)  :: mpih
-   type(grid_object)  :: grid
-   type(field_object) :: field   ! EM field  E, B, J  (nv,ni,nj,nk,nb)
-   type(amr_object)   :: amr
-   type(ib_object)    :: ib
-   type(weno_object)  :: weno
-   type(rk_object)    :: rk
-   !--- EM-specific layer (src/app/prism/common) ---------------
-   type(prism_physics_object)            :: physics   ! Maxwell curl operators
-   type(prism_coil_object)               :: coil      ! current sources
-   type(prism_pic_object)                :: pic       ! Particle-in-Cell
-   type(prism_external_fields_object)    :: external_fields
-   type(prism_bc_object)                 :: bc
-   type(prism_ic_object)                 :: ic
-   type(prism_io_object)                 :: io
-   type(prism_time_object)               :: time
-end type
-```
-
-### Adding a new solver follows the same pattern
-
-A new application needs only a physics-specific layer; the entire HPC stack is inherited:
-
-```fortran
-type :: my_solver_object
-   !--- reused from src/lib — zero extra work ---
-   type(mpih_object)  :: mpih
-   type(grid_object)  :: grid
-   type(field_object) :: field
-   type(amr_object)   :: amr
-   type(ib_object)    :: ib
-   type(weno_object)  :: weno
-   type(rk_object)    :: rk
-   !--- only this part is new ---
-   type(my_physics_object) :: physics
-   type(my_bc_object)      :: bc
-   type(my_ic_object)      :: ic
-   type(my_io_object)      :: io
-end type
-```
-
-### Run any application with an INI file
-
-All solvers share the same INI-driven configuration and build workflow:
-
-```ini
-; excerpt of src/tests/flume/regression/sod-x/input.ini (Sod shock tube): a FLUME input lists every section
-[physics]
-physical_model = euler
-
-[numerics]
-scheme_space = weno
-
-[runge_kutta]
-scheme = runge-kutta-ssp-33
-
-[time]
-time_max = 0.2
-CFL      = 0.5
-
-[initial_conditions]
-type           = riemann-problem
-regions_number = 2
-
-[initial_conditions_region_1]
-r      = 1.0
-u      = 0.0
-p      = 1.0
-emin_x = 0.0
-emax_x = 0.5
-```
-
 ```bash
-# Compressible Euler / MHD on GPU (FLUME)
-fobis build --mode flume-fnl-nvf --varset local_nvf && mpirun -np 4 exe/adam_flume_fnl input.ini
-
-# Maxwell / plasma on GPU (PRISM)
-fobis build --mode prism-fnl-nvf --varset local_nvf && mpirun -np 4 exe/adam_prism_fnl
-
-# The same source on a CPU-only cluster
-fobis build --mode flume-cpu-gnu && mpirun -np 64 exe/adam_flume_cpu input.ini
+git clone https://github.com/szaghi/adam && cd adam
+fobis fetch                                             # dependencies
+fobis build --mode flume-cpu-gnu                        # FLUME, CPU (gfortran + Open MPI)
+fobis build --mode flume-fnl-nvf --varset local_nvf     # FLUME, GPU (nvfortran); pick your machine's varset
+cd src/tests/flume/regression/sod-x && mpirun -np 2 ../../../../../exe/adam_flume_cpu input.ini   # a Sod tube
 ```
 
-Results are written as HDF5 files, readable with ParaView or any HDF5 tool.
+Toolchains, HDF5 and the varsets are on the [install page](https://szaghi.github.io/adam/start/install); the concepts, the cookbook and the
+input references are on the [documentation site](https://szaghi.github.io/adam/).
+
+## License
+
+ADAM is dual-licensed under the [MIT License](LICENSE.mit.md) and the [GNU LGPLv3](LICENSE.lgpl3.md); you may choose
+either. If you use ADAM in published work, please [cite it](https://szaghi.github.io/adam/project/citing).

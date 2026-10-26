@@ -14,7 +14,7 @@ program adam_prism_fnl
 !<     per-realm INI paths, allocates `realm(realms_number)`, and calls
 !<     `forest%simulate_from_manifest(realm, manifest)`.
 !<
-!< See `docs/guide/forest.md` for the manifest schema and the multi-realm
+!< See `docs/concepts/forest.md` for the manifest schema and the multi-realm
 !< coupling-cadence semantics.
 !<
 !< Detection is done by `is_forest_manifest`: the file is a manifest iff

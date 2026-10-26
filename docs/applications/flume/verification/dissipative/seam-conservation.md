@@ -104,4 +104,4 @@ seams is [Euler AMR conservation](../euler/amr-conservation); the forest machine
   and they kept their initial values. WENO never reads them, the dissipative tangential derivatives do: the mirror
   split went NaN at the first step (on a single realm of the same half domain the run is clean). The seam enumeration
   now wraps those ghost centres by one period when the axis is periodic on both realms
-  ([forest guide](/guide/forest#seams-across-ranks-issue-40)).
+  ([forest guide](/concepts/forest#seams-across-ranks-issue-40)).

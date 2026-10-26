@@ -17,8 +17,8 @@ Choose **MIT** if you want minimal obligations. Choose **LGPLv3** if you prefer 
 
 ## MIT
 
-<!--@include: ../LICENSE.mit.md-->
+<!--@include: ../../LICENSE.mit.md-->
 
 ## LGPLv3 {#lgplv3}
 
-<!--@include: ../LICENSE.lgpl3.md-->
+<!--@include: ../../LICENSE.lgpl3.md-->

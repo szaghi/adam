@@ -64,7 +64,7 @@ integer(I4P), parameter :: COUPLING_REFINED     = 4_I4P  !< 2:1 resolution jump 
 !< per RK substage, inside the stage loop, before `end_stage_forest` reads
 !< them. Admissible only when both endpoint realms agree on (ODE scheme, K,
 !< physics layout). Recovers bit-equivalence to a monolithic single-realm
-!< run on the union grid when admissible. See `docs/guide/forest.md`.
+!< run on the union grid when admissible. See `docs/concepts/forest.md`.
 integer(I4P), parameter :: CADENCE_END_OF_STEP      = 0_I4P !< α: once per step, after close_step_forest (default).
 integer(I4P), parameter :: CADENCE_STAGE_COINCIDENT = 1_I4P !< β: once per RK substage, inside the stage loop.
 

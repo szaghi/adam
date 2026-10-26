@@ -8,7 +8,7 @@ module adam_forest_manifest
 !< data the forest needs to populate per-realm `maps%inter_realm_neighbors`
 !< after each realm has been initialized.
 !<
-!< See `docs/guide/forest.md` for the conceptual overview of the multi-realm
+!< See `docs/concepts/forest.md` for the conceptual overview of the multi-realm
 !< machinery and `src/lib/common/README.md` → "Forest orchestration" for the
 !< library-developer contract surface.
 !<

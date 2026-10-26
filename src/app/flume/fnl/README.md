@@ -1,15 +1,10 @@
 # FLUME — FNL (OpenACC) Backend
 
-> FLUME is part of the ADAM framework, released under the
-> [GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0.en.html) (LGPLv3).
-> Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.
-
 The FNL backend (`flume-fnl`) is the GPU implementation of FLUME on the **FNL library** (OpenACC directives, each with
 its OpenMP offload twin), extending the backend-independent infrastructure of `common/`. The fields live on the device;
 the host copies are refreshed for output, restart and the coarse-fine seam fluxes of the reflux register.
 
-> **Status: development** (milestones M1 to M13 complete, the list in `docs/applications/flume/index.md`). The seam
-> face fluxes of a rank go to the host register in one copy per stage (issue #90).
+**Documentation:** <https://szaghi.github.io/adam/applications/flume/fnl>
 
 ## Source Files
 
@@ -23,10 +18,4 @@ the host copies are refreshed for output, restart and the coarse-fine seam fluxe
 | `adam_flume_fnl_*_kernels_agnostic.INC` | The model-agnostic device kernel bodies the model modules include |
 | `adam_flume_fnl_library.F90` | Barrel re-export of all FNL modules |
 
-## Build modes
-
-```bash
-fobis build --mode flume-fnl-nvf --varset local_nvf          # NVIDIA, OpenACC (verified)
-fobis build --mode flume-fnl-nvf-debug --varset local_nvf    # NVIDIA, OpenACC, runtime checks
-fobis build --mode flume-fnl-omp-amd                          # AMD, OpenMP offload (not verified)
-```
+ADAM is dual-licensed under MIT or LGPLv3 (`LICENSE.mit.md`, `LICENSE.lgpl3.md`).

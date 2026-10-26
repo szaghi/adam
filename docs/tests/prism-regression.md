@@ -110,7 +110,7 @@ Three single-realm cases carry a static intra-realm **2:1 AMR jump** (`markers_n
 | `rmf-amr-fd`       | `fd_centered` | control `max\|div(B)\| ≤ 1e-13` (interior identity intact); seam `max\|div(B)\|` within ±5% of a pinned baseline; div(J) truthfulness within a factor-3 band ([#26](https://github.com/szaghi/adam/issues/26)) |
 | `rmf-amr-fd-pulse` | `fd_centered` | source-free two-invariant oracle (`div(D)` structural-zero, `div(B)` seam baseline ±5%); a `--convergence` `p_obs ≥ 0.8` refinement ladder; and the RK-contract legs — leap-splitting refusal + SSP-11 instrument ([#25](https://github.com/szaghi/adam/issues/25)) |
 
-The pulse case is the valid convergence instrument: with `J = 0` the Maxwell system conserves both discrete divergences, so any seam `div(B)` is attributable to the 2:1 jump alone (no coil `h⁻²` contamination). Its `--convergence` leg is what pins the seam `div(B)` source as O(h^p) truncation-order (see [`div(B)` at 2:1 seams](/guide/forest#the-2-1-seam-is-not-div-free-accept-truncation)).
+The pulse case is the valid convergence instrument: with `J = 0` the Maxwell system conserves both discrete divergences, so any seam `div(B)` is attributable to the 2:1 jump alone (no coil `h⁻²` contamination). Its `--convergence` leg is what pins the seam `div(B)` source as O(h^p) truncation-order (see [`div(B)` at 2:1 seams](/concepts/forest#the-2-1-seam-is-not-div-free-accept-truncation)).
 
 ## Reproducers
 
@@ -118,6 +118,6 @@ The pulse case is the valid convergence instrument: with `J = 0` the Maxwell sys
 
 ## See also
 
-- [Forest (multi-realm)](/guide/forest) — the seam machinery these cases exercise.
+- [Forest (multi-realm)](/concepts/forest) — the seam machinery these cases exercise.
 - Suite [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md) — operational reference (golden capture, tolerances, adding a case).
 - `kernel_inventory.md` — the separate PRISM-FNL OpenACC kernel-class audit ([#10](https://github.com/szaghi/adam/issues/10) Step 3).

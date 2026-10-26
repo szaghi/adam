@@ -24,7 +24,7 @@ Each application (`prism`, `flume`) compiles to separate executables per backend
 ADAM uses a **Morton-order linearized octree/quadtree** for AMR:
 
 - Blocks are sorted by Z-order (Morton) curve for cache-friendly traversal
-- Refinement and coarsening preserve conservation properties
+- FLUME's refinement and coarsening conserve the state: coarsening restricts by the cell mean, refinement prolongs with a conservative (MC-limited) reconstruction, and the 2:1 faces are refluxed
 - Ghost cell exchange via MPI before every stencil operation
 - Configurable ghost cell width `ngc` (WENO5: 3, WENO7: 4)
 
@@ -37,7 +37,7 @@ Complex and moving geometries are handled without body-fitted meshes:
 - Solid body positions are tracked on a background Cartesian grid
 - IB forcing reconstructs boundary conditions at cut cells
 - Eikonal-based signed distance field for geometry representation
-- Compatible with AMR — IB markers trigger local refinement
+- Compatible with AMR: in FLUME an `AMR_GEO_SOLID` marker refines around a solid (PRISM does not implement it)
 
 ---
 

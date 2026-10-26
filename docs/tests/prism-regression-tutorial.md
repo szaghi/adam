@@ -415,4 +415,4 @@ isolating a crash, not for checking.
 
 - [PRISM regression suite](./prism-regression) — what the cases assert and why.
 - Suite [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md) — golden capture, tolerance rationale, adding a case.
-- [Forest (multi-realm)](../guide/forest) — the seam machinery the cases exercise.
+- [Forest (multi-realm)](/concepts/forest) — the seam machinery the cases exercise.
