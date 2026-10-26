@@ -919,9 +919,13 @@ contains
    real(R8P),    intent(in)  :: weno_rmu            !< Inverse of the descaler (1: Jiang-Shu weights).
    real(R8P),    intent(in)  :: v    (1:2,1-S:-1+S) !< Variable to be reconstructed.
    real(R8P),    intent(out) :: w    (1:2,0:S-1)    !< Weights of the stencils.
-   real(R8P)                 :: IS   (1:2,0:S-1)    !< Smoothness indicators of the stencils.
-   real(R8P)                 :: a    (1:2,0:S-1)    !< Alpha coifficients for the weights.
+   ! locals of constant bounds (S_MAX): bounds that depend on S make automatic arrays, which gfortran places on the heap
+   ! without -fstack-arrays, a malloc and a free per call (10% of a CPU run, FLUME profile-couette3d)
+   real(R8P)                 :: IS   (1:2,0:S_MAX_M1) !< Smoothness indicators of the stencils (0:S-1 used).
+   real(R8P)                 :: a    (1:2,0:S_MAX_M1) !< Alpha coifficients for the weights (0:S-1 used).
    real(R8P)                 :: a_tot(1:2)          !< Summ of the alpha coefficients.
+   real(R8P)                 :: d                   !< Denominator base, zeps + IS rmu^2.
+   real(R8P)                 :: dp                  !< The base to the power wexp.
    integer(I4P)              :: wexp                !< Exponent of the smoothness indicators.
    integer(I4P)              :: s1,s2,s3,f          !< Counter.
 
@@ -944,7 +948,23 @@ contains
    a_tot = 0._R8P
    do s1=0,S-1
       do f=1,2 ! 1 => left interface, 2 => right interface
-         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1)*weno_rmu*weno_rmu)**wexp) ; a_tot(f) = a_tot(f) + a(f,s1)
+         ! the power written out for the exponents weno_weights_exponent returns (1..4): the integer power of a variable
+         ! exponent is a library call (__powidf2, 3% of a CPU run); the products are the ones its binary exponentiation
+         ! forms, in the same order, so the result is bitwise the same
+         d = weno_zeps + IS(f,s1)*weno_rmu*weno_rmu
+         select case(wexp)
+         case(1)
+            dp = d
+         case(2)
+            dp = d*d
+         case(3)
+            dp = d*(d*d)
+         case(4)
+            dp = (d*d)*(d*d)
+         case default
+            dp = d**wexp
+         endselect
+         a(f,s1) = weno_a(f,s1,S)*(1._R8P/dp) ; a_tot(f) = a_tot(f) + a(f,s1)
       enddo
    enddo
    ! computing weights
@@ -966,9 +986,9 @@ contains
    real(R8P),    intent(in)  :: weno_rmu            !< Inverse of the descaler (1: Jiang-Shu weights).
    real(R8P),    intent(in)  :: v (1:2,1-S:S)       !< Variables to be reconstructed.
    real(R8P),    intent(out) :: vr(1:2)             !< Left and right (1,2) interface value of reconstructed v.
-   real(R8P)                 :: vu(1:2,1-S:-1+S)    !< Variables to be reconstructed, upwind stencils.
-   real(R8P)                 :: vp(1:2,0:S-1)       !< Polynomial reconstructions.
-   real(R8P)                 :: w (1:2,0:S-1)       !< Weights of the stencils.
+   real(R8P)                 :: vu(1:2,-S_MAX_M1:S_MAX_M1) !< Variables to be reconstructed, upwind stencils (1-S:S-1).
+   real(R8P)                 :: vp(1:2,0:S_MAX_M1)  !< Polynomial reconstructions (0:S-1 used).
+   real(R8P)                 :: w (1:2,0:S_MAX_M1)  !< Weights of the stencils (0:S-1 used).
    real(R8P)                 :: vc(1:2)             !< Centered reconstruction.
    real(R8P)                 :: IS(1:3),ISC(1:2)    !< Centered smoothness indicator.
    real(R8P)                 :: phi                 !< Centered-upwind blending coefficient.
@@ -1015,8 +1035,8 @@ contains
    real(R8P),    intent(in)  :: weno_rmu            !< Inverse of the descaler (1: Jiang-Shu weights).
    real(R8P),    intent(in)  :: v (1:2,1-S:-1+S)    !< Variables to be reconstructed.
    real(R8P),    intent(out) :: vr(1:2         )    !< Left and right (1,2) interface value of reconstructed v.
-   real(R8P)                 :: vp(1:2,0:S-1   )    !< Polynomial reconstructions.
-   real(R8P)                 :: w (1:2,0:S-1   )    !< Weights of the stencils.
+   real(R8P)                 :: vp(1:2,0:S_MAX_M1)  !< Polynomial reconstructions (0:S-1 used).
+   real(R8P)                 :: w (1:2,0:S_MAX_M1)  !< Weights of the stencils (0:S-1 used).
 
 #ifdef DEV_OMP
    !$omp declare target(weno_reconstruct_upwind)
@@ -1040,8 +1060,8 @@ contains
    real(R8P),    intent(in)  :: v (1:2,1-S:-1+S)    !< Variables to be reconstructed.
    real(R8P),    intent(out) :: vr(1:2         )    !< Left and right (1,2) interface value of reconstructed v.
    real(R8P),    intent(out) :: wr(1:2         )    !< Left and right (1,2) interface smoothness ratio.
-   real(R8P)                 :: vp(1:2,0:S-1   )    !< Polynomial reconstructions.
-   real(R8P)                 :: w (1:2,0:S-1   )    !< Weights of the stencils.
+   real(R8P)                 :: vp(1:2,0:S_MAX_M1)  !< Polynomial reconstructions (0:S-1 used).
+   real(R8P)                 :: w (1:2,0:S_MAX_M1)  !< Weights of the stencils (0:S-1 used).
    integer(I4P)              :: k, f                !< Counters.
 
 #ifdef DEV_OMP
