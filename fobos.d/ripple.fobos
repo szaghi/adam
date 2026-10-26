@@ -1,0 +1,32 @@
+[modes]
+modes = ripple-cpu-gnu ripple-cpu-gnu-debug ripple-fnl-nvf ripple-fnl-nvf-debug
+
+# RIPPLE (issue #59): scalar linear advection, the worked example of the "build your own solver" tutorial. Own mod/obj
+# directories, as every application (issue #72).
+[ripple-cpu-gnu]
+template = template-gnu
+mod_dir  = ./mod/ripple/gnu/
+obj_dir  = ./obj/ripple/gnu/
+preproc  = -D_MPI_ -w
+target   = adam_ripple_cpu.F90
+
+[ripple-cpu-gnu-debug]
+template = template-gnu-debug
+mod_dir  = ./mod/ripple/gnu/debug/
+obj_dir  = ./obj/ripple/gnu/debug/
+preproc  = -D_MPI_ -w
+target   = adam_ripple_cpu.F90
+
+[ripple-fnl-nvf]
+template = template-nvf
+mod_dir  = ./mod/ripple/nvf/
+obj_dir  = ./obj/ripple/nvf/
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_ripple_fnl.F90
+
+[ripple-fnl-nvf-debug]
+template = template-nvf-debug
+mod_dir  = ./mod/ripple/nvf/debug/
+obj_dir  = ./obj/ripple/nvf/debug/
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = adam_ripple_fnl.F90

@@ -127,3 +127,32 @@ jobs:
           src/tests/flume/regression/**/work-omp-*/run.log
         if-no-files-found: warn
         retention-days: 14
+
+  ripple-cpu:
+    # RIPPLE, the toy app of the "build your own solver" tutorial (issue #59): the CPU build and its oracles against the
+    # exact translated profile (uniform order 5, AMR order 2 with conservation, rank invariance). The FNL leg r4 runs
+    # on medooza: the hosted runners have no GPU.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
+
+    - name: Fetch dependencies
+      if: hashFiles('**/.deps_config.ini') != ''
+      run: fobis fetch
+
+    - name: Build RIPPLE (CPU)
+      run: fobis build --mode ripple-cpu-gnu --varset ci_gnu
+
+    - name: Run the RIPPLE oracles
+      run: |
+        python3 -m venv exe/.regression-venv
+        exe/.regression-venv/bin/pip install --quiet h5py numpy
+        ./src/tests/ripple/check.sh --legs r1,r2,r3
