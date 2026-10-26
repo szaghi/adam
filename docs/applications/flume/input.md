@@ -30,8 +30,8 @@ weights the data should be of order 1: either write the input in such units, add
 ## Parsing rules
 
 The [library input reference](/reference/library-input#parsing-rules) gives the rules of the INI parser (case,
-comments, missing keys, numbers, logicals, CRLF, the removed-keys lint). **Save inputs with LF line endings:** on
-nvfortran (the FNL build) a CRLF input stops at its first numeric key; on gfortran it runs as an LF one.
+comments, missing keys, numbers, logicals, CRLF, the removed-keys lint). A Windows (CRLF) input reads
+as an LF one on both backends.
 
 ## Legend for the tables
 

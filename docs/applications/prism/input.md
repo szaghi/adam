@@ -24,11 +24,8 @@ A realm input is read in this order: `[IO]` → `[numerics]` → `[physics]` →
 `[external_fields]` → `[fWLayer]` → `[PML]`. The backend then checks the combinations (time and space schemes, PML, PIC
 current) and stops on the ones it does not implement.
 
-**Strings and CRLF.** Save inputs with LF line endings: on nvfortran (the FNL build) a CRLF input stops at its first
-numeric key, whatever the string keys do (see the [library parsing rules](/reference/library-input#parsing-rules)). On
-gfortran a CRLF input runs as an LF one. The string keys of `[numerics]`, `[bc_*]`,
-`[external_fields] external_fields_applied`, `[fWLayer]` and `[PML] PML_type` go through `strip_control`, and
-`[initial_conditions] type` and `[IO] save_fields` blank their control characters.
+**CRLF.** A Windows (CRLF) input reads as an LF one on both backends (see the
+[library parsing rules](/reference/library-input#parsing-rules)).
 
 **Units.** SI, except under the non-dimensional models (`AdimEM`, `AdimPIC`), where lengths are divided by `L0`, fields
 by `B0` and `D0 = B0 c0 ε0`, times by `T0 = L0/c0`; the input stays in SI and PRISM converts it.
@@ -124,7 +121,7 @@ Every key is required.
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
 | `amr_iterations` | int | yes | negative values are clamped to 0 | Initial-condition + AMR passes: each sets the initial condition and runs the markers. |
-| `type` | string | yes | see below; other values are fatal (CRLF-safe) | Initial field. |
+| `type` | string | yes | see below; other values are fatal | Initial field. |
 
 | `type` | Extra keys (all required, real unless stated) | Field |
 |--------|-----------------------------------------------|-------|

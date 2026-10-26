@@ -13,11 +13,14 @@
 #       order is 2, not 5, by design of the library's 2:1 transfers: the mean restriction of the coarse ghosts and the
 #       reflux of point-value fluxes are second order (as FLUME's AO leg measures, issue #68);
 #   r3  the AMR case at N = 64 on 1 and 2 ranks: bitwise identical;
+#   r5  CRLF input: the periodic case at N = 64 on 1 rank with LF and with CR+LF line endings, bitwise identical, on
+#       RIPPLE_R5_EXE (default the CPU executable; the leg that matters runs the FNL one: nvfortran keeps the CR at the
+#       end of a formatted record, gfortran drops it; FiNeR drops every CR since c55f8d3);
 #   r4  CPU and FNL agree: the periodic and the AMR cases at N = 64 on 2 ranks with the FNL executable, against the
 #       CPU runs of r1 and r2 (run those first, in the CPU environment: the two executables need their own MPI), within
 #       1e-12; the FNL total of u dV constant as in r2.
 #
-# Usage: ./check.sh [--legs LIST]   (legs r1 r2 r3 r4, comma-separated; default r1,r2,r3)
+# Usage: ./check.sh [--legs LIST]   (legs r1 r2 r3 r4 r5, comma-separated; default r1,r2,r3,r5)
 #
 # RIPPLE_CPU_EXE, RIPPLE_FNL_EXE override the executables (default exe/adam_ripple_cpu, exe/adam_ripple_fnl), MPIRUN
 # the launcher (default "mpirun"), PYTHON the interpreter (default the regression venv, which has h5py); the caller owns
@@ -30,7 +33,7 @@ CPU_EXE="${RIPPLE_CPU_EXE:-$REPO_ROOT/exe/adam_ripple_cpu}"
 FNL_EXE="${RIPPLE_FNL_EXE:-$REPO_ROOT/exe/adam_ripple_fnl}"
 MPIRUN="${MPIRUN:-mpirun}"
 PYTHON="${PYTHON:-$REPO_ROOT/exe/.regression-venv/bin/python}"
-LEGS="r1,r2,r3"
+LEGS="r1,r2,r3,r5"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) LEGS="$2" ; shift 2 ;;
@@ -82,6 +85,15 @@ if has_leg r4; then
       verdict "r4 $input" "${ORACLE[@]}" compare "$cpu" "$WORK/r4-$input-fnl" --tol 1e-12
    done
    verdict "r4 conservation" "${ORACLE[@]}" conservation "$WORK/r4-amr-fnl" --tol 1e-14
+fi
+if has_leg r5; then
+   R5_EXE="${RIPPLE_R5_EXE:-$CPU_EXE}"
+   run "$R5_EXE" periodic.ini 16 1 "$WORK/r5-lf" || FAILED=1
+   rm -rf "$WORK/r5-crlf" && mkdir -p "$WORK/r5-crlf" && sed 's/$/\r/' "$WORK/r5-lf/input.ini" > "$WORK/r5-crlf/input.ini"
+   if ! (cd "$WORK/r5-crlf" && $MPIRUN -np 1 "$R5_EXE" input.ini > log.txt 2>&1); then
+      echo "FAIL: $R5_EXE on the CRLF input exited non-zero (see $WORK/r5-crlf/log.txt)" ; FAILED=1
+   fi
+   verdict r5 "${ORACLE[@]}" compare "$WORK/r5-lf" "$WORK/r5-crlf" --tol 0
 fi
 if [[ $FAILED -eq 0 ]]; then echo "RIPPLE oracles ($LEGS) PASSED" ; else echo "RIPPLE oracles ($LEGS) FAILED" ; fi
 exit $FAILED

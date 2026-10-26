@@ -20,12 +20,10 @@ The input is an INI file read by [FiNeR](https://github.com/szaghi/FiNeR):
   none. Integers are accepted for reals (`1` is a valid real).
 - **Logical keys.** FiNeR reads the value when its first character is one of `.tTfF` (`.true.`, `T`, `true`,
   `.false.`, ...); any other value (`yes`, `1`) is a conversion error, as above.
-- **CRLF files: save inputs with LF line endings.** What a Windows (CRLF) file does depends on the compiler:
-  - gfortran drops the CR when it reads the file, so a CRLF input runs as an LF one;
-  - nvfortran keeps it at the end of every value, so the first numeric key that is checked fails to convert and the run
-    stops there (`[IO].(it_save)`): every FNL build stops on a CRLF input. The string readers that blank the control
-    characters (PRISM's `strip_control` keys, PRISM's `[initial_conditions] type` and `[IO] save_fields`, FLUME's own
-    string keys, `[slice_N] itype`, `[solid_N] definition`) do not help there.
+- **CRLF files** (Windows line endings) read as LF ones on every compiler: FiNeR drops every CR before splitting the
+  file into lines (FiNeR `c55f8d3`). Before that fix, nvfortran kept the CR at the end of every value and every FNL
+  build stopped on a CRLF input at its first numeric key; a dependency fetched before 2026-10-26 needs
+  `fobis fetch --update`.
 - **Removed keys.** FiNeR ignores keys nobody reads, so a removed key is not an error by itself. The lint
   `src/tests/lint/check-removed-input-keys.sh` (run at the top of the PRISM and FLUME regression sweeps) rejects, in
   the committed PRISM, FLUME and AMR test inputs: `[fWLayer] C` (replaced by `width`), `[PIC] elliptic_correction`
@@ -263,7 +261,7 @@ Every key is required (fatal when missing) and checked at initialization.
 
 | Key | Type | Accepted / invalid | Meaning |
 |-----|------|--------------------|---------|
-| `itype` | string | `trilinear`, `inverse_distance`; other values are fatal (CRLF-safe) | Interpolation from the cells to the slice points. |
+| `itype` | string | `trilinear`, `inverse_distance`; other values are fatal | Interpolation from the cells to the slice points. |
 | `n_save` | int | `>= 1`; `0` or negative is fatal | Save cadence in steps; the last step is also saved. |
 | `ni`, `nj`, `nk` | int | `>= 1`, otherwise fatal | Points of the lattice, cell-centred on the box. |
 | `emin_x`, `emin_y`, `emin_z`, `emax_x`, `emax_y`, `emax_z` | real | `emin <= emax`, and every point inside the realm's domain, otherwise fatal | Box sampled by the lattice, in the grid's units (divided by `L0` in a PRISM non-dimensional model). |
