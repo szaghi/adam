@@ -312,8 +312,11 @@ generic CSR sweep; so the cuFFT root kept the exact coarsest level up to 128^3, 
 there too); E5d distributes the uniform FFT
 (medooza CPU, 2.1 M cells, 1 -> 16 ranks: periodic 0.115 -> 0.026 s, isolated 0.729 -> 0.108 s per solve, where they
 stayed at 0.12-0.14 s and 0.71-0.73 s; weak, np 8, 16.7 M cells: 0.81 -> 0.24 s and 5.7 -> 1.5 s). E6 runs the
-multigrid on the device and sets the cuFFT root to 32^3 as on the host (medooza FNL, 3.9 M AMR cells, 1 / 2 / 4 GPUs,
-E5d -> E6: periodic 7.94 / 4.21 / 2.46 -> 0.33 / 0.19 / 0.12 s, isolated 18.2 / 9.9 / 7.3 -> 0.85 / 0.52 / 0.43 s).
+multigrid on the device and sets the cuFFT root to 32^3 (medooza FNL, 3.9 M AMR cells, 1 / 2 / 4 GPUs, E5d -> E6:
+periodic 7.94 / 4.21 / 2.46 -> 0.33 / 0.19 / 0.12 s, isolated 18.2 / 9.9 / 7.3 -> 0.85 / 0.52 / 0.43 s); E6b sizes
+the host root by its transform, 128^3 cells, now that the transform is distributed (medooza CPU, np 1 / 4 / 16:
+periodic 12.4 / 3.9 / 2.5 -> 8.6 / 2.7 / 1.6 s with a 128^3 root, isolated 30.4 / 9.6 / 6.3 -> 26.8 / 8.5 / 5.2 s
+with 64^3, its transform 130^3).
 
 ### Legacy FLAIL smoothers (deleted in issue #84, E4)
 
@@ -429,7 +432,7 @@ its symmetrisation is symmetric but inconsistent (O(1/h) truncation, a non-conve
 
 | Procedure | Role |
 |-----------|------|
-| `initialize(grid, field, tolerance, max_iterations, coarse, isolated, bc, root_cells)` | Gather the leaf list (every rank), derive the level hierarchy (the tree levels, then the levels inside the blocks down to the root, at most `root_cells` cells, default the root solver's `root_cells_max`: 32^3 on both backends, #84 E5c and E6), assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the root FFT solver (on every rank when at most 32^3 cells), of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise; `isolated` also sizes the ghost-to-ghost Green's function of the James step (an isolated FFT solver of the same type on the coarsest box widened by the ghost layer); `bc` the kind of every face (E1b; default ghost-Dirichlet on the bounded axes) |
+| `initialize(grid, field, tolerance, max_iterations, coarse, isolated, bc, root_cells)` | Gather the leaf list (every rank), derive the level hierarchy (the tree levels, then the levels inside the blocks down to the root, at most `root_cells` cells, default the root solver's `root_cells_max(growth)`, `growth` the cells of the root's transform per cell (2 or 4 per bounded axis): on the host a transform of 128^3 cells, so a periodic root of 128^3 and a ghost-Dirichlet one of 64^3; on cuFFT 32^3 cells; #84 E5c, E6, E6b), assemble the operator, the ghost fill and the V-cycle operators from the geometry; size the root FFT solver (on every rank when at most 32^3 cells), of the dynamic type of `coarse` when given (FLUME's FNL backend passes its cuFFT solver), FFTW otherwise; `isolated` also sizes the ghost-to-ghost Green's function of the James step (an isolated FFT solver of the same type on the coarsest box widened by the ghost layer); `bc` the kind of every face (E1b; default ghost-Dirichlet on the bounded axes) |
 | `solve(field, q, iv, factor, phi, energy, ghost)` | FCG on `A`, preconditioned by one V-cycle, from the previous solution when the grid has not changed; `phi` returned with every ghost filled; optionally `energy = sum V f phi`; `ghost` the boundary value of each boundary face, of its kind (below); isolated: the James step (no `ghost`) |
 | `solve_packed(field, buf, factor, phi, energy, ghost)` | The same from the packed interior source |
 | `symmetry_defect(x, y)`, `apply_a(x, y)` | Verification: `|x.Ay - y.Ax| / (|x| |Ay|)` and `y = A x` on the leaves |

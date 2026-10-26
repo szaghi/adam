@@ -55,6 +55,7 @@ type, extends(poisson_fft_object) :: poisson_fft_fnl_object
       procedure, pass(self) :: make_plans    => make_plans_fnl    !< Make the cuFFT plans (rank 0).
       procedure, pass(self) :: transform     => transform_fnl     !< The spectral solve on the GPU (rank 0).
       procedure, pass(self) :: transform_kernel => transform_kernel_fnl !< The kernel's spectrum on the GPU (isolated).
+      procedure, nopass     :: root_cells_max => root_cells_max_fnl   !< 32^3: the device smooths, the host transforms.
       procedure, pass(self) :: slab_make_plans    => slab_make_plans_fnl    !< The cuFFT slab plans (#84 E5d).
       procedure, pass(self) :: slab_destroy_plans => slab_destroy_plans_fnl !< Destroy them.
       procedure, pass(self) :: slab_planes        => slab_planes_fnl        !< Every local plane on the GPU.
@@ -144,6 +145,18 @@ contains
    call mpih%error_stop(msg='poisson_fft_fnl_object%transform_kernel: built without cuFFT')
 #endif
    endsubroutine transform_kernel_fnl
+
+   pure function root_cells_max_fnl(growth) result(n)
+   !< The most cells of a multigrid root on cuFFT (#84 E6, E6b): 32^3 whatever the transform's growth. The multigrid
+   !< smooths on the device and the root's transform goes through the host's redistribution, so a small root wins
+   !< (medooza FNL, 3.9 M AMR cells, 1 / 2 / 4 GPUs: periodic 0.33 / 0.19 / 0.12 s with a 32^3 root, 0.80 / 0.45 /
+   !< 0.37 s with 128^3); for the isolated root 16^3 gains only 3-10% over 32^3 (0.83 / 0.51 / 0.39 against 0.85 /
+   !< 0.52 / 0.43 s), not worth a uniform 32^3 grid losing its exact one-V-cycle solve.
+   integer(I4P), intent(in) :: growth !< Transform cells per root cell (unused: the cap is in cells).
+   integer(I4P)             :: n      !< Cells.
+
+   n = 32768_I4P
+   endfunction root_cells_max_fnl
 
    subroutine slab_make_plans_fnl(self)
    !< The cuFFT slab plans (#84 E5d): one plane D2Z and Z2D, one row of z-lines Z2Z (h1 lines of m(3) cells,

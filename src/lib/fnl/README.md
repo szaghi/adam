@@ -344,8 +344,9 @@ sequential Gauss-Seidel because no row couples to a cell of its own colour: the 
 the level operators are 7-point (measured: no such entry in 5704 smoother calls over the AMR, isolated, boundary-kind
 and sub-block suites). The vector hooks are device kernels, the dots and the max-norm device reductions. The root goes
 through the host to the FFT solver: cuFFT by default (`initialize_fnl` passes `poisson_fft_fnl_object` when no
-`coarse` is given), at most 32^3 cells as on the host (#84 E6: a 128^3 cuFFT root, E5c's choice while the multigrid
-smoothed on the host, cost 2.4 to 6.8 times more per solve on 3.9 M AMR cells). So do the right-hand side, the James step and the ghost fill's placement. `initialize_fnl`
+`coarse` is given), at most 32^3 cells whatever its transform's growth (`root_cells_max_fnl`, #84 E6: a 128^3 cuFFT
+root, E5c's choice while the multigrid smoothed on the host, cost 2.4 to 6.8 times more per solve on 3.9 M AMR cells;
+the host sizes its root by the transform instead, E6b). So do the right-hand side, the James step and the ghost fill's placement. `initialize_fnl`
 releases and places the device copies itself, since the parent's `initialize`, called through the parent component,
 dispatches to the host's no-op hooks. Results equal the host's to round-off (another summation order in the dots,
 FMA contraction). FLUME's FNL backend and `bench_poisson_fnl` set `flail%mg_mold` to it; `test-poisson-mg-fnl-nvf`

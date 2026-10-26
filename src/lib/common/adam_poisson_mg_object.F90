@@ -28,8 +28,9 @@ module adam_poisson_mg_object
 !< further **inside the blocks** (issue #84, E5c): each level below it halves the cells per block along every active
 !< direction, the same blocks on the same ranks, the plain level Laplacian with the face kinds, the same smoother and
 !< transfers, while the cells per block are even and the domain has more than `root_cells` cells at the level
-!< (default: the root solver's `root_cells_max`, 32^3 on both backends since #84 E6: with the multigrid on the device
-!< a 128^3 cuFFT root cost 2.4 to 6.8 times more per solve); the last of them, the root (`lbot`), is solved exactly by
+!< (default: the root solver's `root_cells_max`, told the growth of the root's transform: on the host 128^3 transform
+!< cells, so a periodic root of 128^3 cells and a ghost-Dirichlet one of 64^3; on cuFFT 32^3 cells, #84 E6 and E6b);
+!< the last of them, the root (`lbot`), is solved exactly by
 !< the FFT solver (`adam_poisson_fft_object%solve_blocks`; of the caller's backend type with `initialize(coarse=)`):
 !< on **every rank** (`redundant`), from the source gathered by `MPI_ALLGATHERV`, when it has at most
 !< `REDUNDANT_ROOT_MAX` (32^3) cells, so no rank-0 gather and scatter per V-cycle; a larger root (`root_cells` above
@@ -349,7 +350,8 @@ contains
    !< `bc` (issue #84, E1b): the kind of every face (see the module); a periodic axis of the grid must be periodic in
    !< `bc` and the other way round. Without it, every bounded axis takes ghost-Dirichlet faces. `root_cells` (#84 E5c):
    !< the levels inside the blocks below lmin stop once the root has at most this many cells (default: the root
-   !< solver's `root_cells_max`, 32^3; tests force the levels with a small one, the bench measures others).
+   !< solver's `root_cells_max` for the root's transform growth; tests force the levels with a small one, the bench
+   !< measures others).
    class(poisson_mg_object), intent(inout)        :: self           !< The solver.
    type(grid_object),        intent(in)           :: grid           !< The grid.
    type(field_object),       intent(in)           :: field          !< The field (block coordinates).
@@ -365,13 +367,11 @@ contains
    integer(I4P), allocatable :: all_(:,:)            !< Every rank's [5,nleaf].
    integer(I4P), allocatable :: cnt(:,:)             !< Level blocks per rank and level.
    integer(I4P)              :: d, n, id, l, b, p, r !< Counters.
+   integer(I4P)              :: growth               !< Root transform cells per root cell (E6b).
    integer(I4P)              :: c(4)                 !< Block coordinates.
    integer(I4P)              :: ierr                 !< MPI error status.
 
    call self%destroy
-   self%root_max = host_fft%root_cells_max()
-   if (present(coarse)) self%root_max = coarse%root_cells_max()
-   if (present(root_cells)) self%root_max = root_cells
    if (present(tolerance)) self%tolerance = tolerance
    if (present(max_iterations)) self%max_iterations = max_iterations
    self%nr = mpih%procs_number
@@ -421,6 +421,25 @@ contains
        .not.all(self%periodic(self%act(1:self%nd)))) call mpih%error_stop(msg='poisson_mg_object%initialize: mixed '// &
       'periodic and non-periodic directions without bc; give the kind of every face (issue #84, E1b)')
    self%singular = .not.any(self%bc == FLAIL_BC_DIRICHLET .or. self%bc == FLAIL_BC_DIRICHLET_GHOST)
+   ! the root's cap (#84 E6b): the backend's, told how much the FFT solver extends the root's transform (each bounded
+   ! axis by 2, ghost-Dirichlet or two faces of one kind, or 4, two kinds); an explicit root_cells caps the cells
+   growth = 1
+   do d=1, self%nd
+      if (self%periodic(self%act(d))) cycle
+      if (all(self%bc(:,self%act(d)) == FLAIL_BC_DIRICHLET_GHOST) .or. &
+          self%bc(1,self%act(d)) == self%bc(2,self%act(d))) then
+         growth = growth * 2
+      else
+         growth = growth * 4
+      endif
+   enddo
+   if (present(root_cells)) then
+      self%root_max = root_cells
+   elseif (present(coarse)) then
+      self%root_max = coarse%root_cells_max(growth)
+   else
+      self%root_max = host_fft%root_cells_max(growth)
+   endif
    if (self%isolated) then
       if (any(self%periodic(self%act(1:self%nd)))) call mpih%error_stop(msg='poisson_mg_object%initialize: '// &
          'isolated boundaries on a periodic grid')

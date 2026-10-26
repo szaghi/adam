@@ -215,7 +215,7 @@ type :: poisson_fft_object
       procedure, pass(self) :: make_plans       !< Make the transform plans (rank 0).
       procedure, pass(self) :: transform        !< f_global <- factor * L_h^-1 f_global (rank 0).
       procedure, pass(self) :: transform_kernel !< khat <- the spectrum of f_global over prod(m) (rank 0, isolated).
-      procedure, nopass     :: root_cells_max   !< Most cells of a multigrid root solved by this backend (#84 E5c).
+      procedure, nopass     :: root_cells_max   !< Most cells of a multigrid root solved by this backend (#84 E5c, E6b).
       procedure, pass(self) :: slab_make_plans    !< Make the slab plans: one plane, one row of lines (E5d).
       procedure, pass(self) :: slab_destroy_plans !< Destroy the slab plans.
       procedure, pass(self) :: slab_planes        !< 2-D transform of every local plane, slab_r <-> slab_c.
@@ -1694,16 +1694,17 @@ contains
 #endif
    endsubroutine transform_kernel
 
-   pure function root_cells_max() result(n)
-   !< The most cells the multigrid leaves to this backend's exact root solve, below which it does not coarsen inside the
-   !< blocks (#84 E5c): 32^3, the redundant root's limit. On the host a 128^3 FFT on one core costs more per V-cycle
-   !< than smoothing the level over 8 or more ranks (medooza: the periodic multigrid on 3.9 M cells, 9.2 -> 12.7 s at
-   !< np 1, 2.6 -> 2.3 s at np 16). On cuFFT too since the multigrid runs on the device (#84 E6): 3.9 M AMR cells,
-   !< 1 / 2 / 4 GPUs, isolated 4.45 / 2.55 / 2.92 s with a 128^3 root, 0.85 / 0.52 / 0.43 s with 32^3; periodic
-   !< 0.80 / 0.45 / 0.37 -> 0.33 / 0.19 / 0.12 s. A backend may override it.
-   integer(I4P) :: n !< Cells.
+   pure function root_cells_max(growth) result(n)
+   !< The most cells of a multigrid root on this backend (#84 E5c, E6b), for a root whose transform (the FFT solver's
+   !< extension of its bounded axes, 2 or 4 times per axis) has `growth` cells per cell: on the host a transform of at
+   !< most 128^3 cells, where the distributed transform (E5d) of a large root beats smoothing more levels (medooza CPU,
+   !< 3.9 M AMR cells, np 1 / 4 / 16): periodic 12.4 / 3.9 / 2.5 s with a 32^3 root, 8.6 / 2.7 / 1.6 s with 128^3;
+   !< isolated (the root ghost-Dirichlet, its transform 8 times its cells)
+   !< 30.4 / 9.6 / 6.3 s with 32^3, 26.8 / 8.5 / 5.2 s with 64^3, 49.2 / 15.0 / 6.2 s with 128^3. cuFFT overrides it.
+   integer(I4P), intent(in) :: growth !< Transform cells per root cell.
+   integer(I4P)             :: n      !< Cells.
 
-   n = 32768_I4P
+   n = 2097152_I4P / max(growth, 1_I4P)
    endfunction root_cells_max
 
    subroutine slab_make_plans(self)
