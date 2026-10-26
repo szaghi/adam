@@ -1632,6 +1632,8 @@ contains
                   enddo
                enddo
             endif
+            if (self%pic%elliptic_initialization_closure == ELLIPTIC_CLOSURE_ISOLATED) &
+               call impose_isolated_mean(increment_scale=-eps_scale)
          elseif (ivar == VAR_BX) then
             allocate(phi(1:3,        &
                          1-ngc:ni+ngc, &
@@ -1662,6 +1664,8 @@ contains
                   enddo
                enddo
             endif
+            if (self%pic%elliptic_initialization_closure == ELLIPTIC_CLOSURE_ISOLATED) &
+               call impose_isolated_mean(increment_scale=1._R8P)
          endif
       elseif (self%physics%physical_model == EM_PHYSICAL_MODEL) then
          if (ivar == VAR_DX) then
@@ -1857,6 +1861,117 @@ contains
                                  ') = '//trim(str(abs(f_mean) / max(f_rms, tiny(1._R8P))))//')')
       enddo
       endsubroutine remove_singular_mean
+
+      subroutine impose_isolated_mean(increment_scale)
+      !< `[PIC] elliptic_initialization_closure = isolated`: set the transverse mean (k_perp = 0) of the field the solve
+      !< added to that of the same sources in open space along the non-periodic axis n.
+      !<
+      !< With the other axes periodic (or null) and PEC faces normal to n, the mean mode of the PEC cavity is 1-D, and
+      !< the solve fixes its two free invariants to zero (grounded): the potential difference between the walls,
+      !< <D_n> = 0, and the trapped flux, <B_t> = 0. In open space the 1-D field is the half difference of the source
+      !< integrated from either side, D_n(x) = (int_-inf^x rho - int_x^+inf rho)/2, whose mean over the domain is
+      !< <D_n> = -sum rho (x_n - x_mid) dV / V (x_mid the domain centre, V its volume), with a net charge too. From
+      !< n x dB/dx_n = mu J, likewise <B_t> = mu n x M with M = sum J (x_n - x_mid) dV / V. The mean of the increment is
+      !< set to it by a uniform shift of D_n (B_t): the IC field in q keeps its own mean. A uniform field has no
+      !< divergence nor curl and is even about a PEC face for D_n and B_t, the reflection PRISM's PEC ghosts make, so the
+      !< boundary cells stay as consistent as with the grounded closure. Only the mean mode is open: the modes
+      !< k_perp /= 0 keep the images in the walls, off open space by about e^(-k_perp d) at a distance d. The grid is
+      !< uniform (refined grids are refused above). Every rank calls it.
+      real(R8P), intent(in)       :: increment_scale !< Increment added to q per unit of buffer(5:7): -eps for D, 1 for B.
+      character(len=1), parameter :: AXIS(3) = ['x', 'y', 'z'] !< Axis names.
+      character(len=1)            :: field_name      !< D or B.
+      integer(I4P)                :: n               !< Non-periodic axis.
+      integer(I4P)                :: d, e, b, i, j, k !< Counters.
+      real(R8P)                   :: sums(7)         !< Volume, sum source (x_n - x_mid) dV, sum increment dV.
+      real(R8P)                   :: inc_max         !< max|increment| over the interior cells.
+      real(R8P)                   :: x_mid           !< Domain centre along n.
+      real(R8P)                   :: dv              !< Cell volume.
+      real(R8P)                   :: w               !< (x_n - x_mid) dV.
+      real(R8P)                   :: moment(3)       !< sum source (x_n - x_mid) dV / V.
+      real(R8P)                   :: mean_open(3)    !< Mean of the open-space field.
+      real(R8P)                   :: shift(3)        !< Uniform shift of the increment.
+      logical                     :: corrected(3)    !< Components set: D_n, or the two B_t.
+
+      field_name = merge('D', 'B', ivar == VAR_DX)
+      n = 0_I4P
+      do d=1, 3
+         if (self%adam%grid%null_xyz(d)) cycle
+         if (all(elliptic_bc_type(2*d-1:2*d) == ELL_BC_PERIODIC)) cycle
+         if (n /= 0_I4P .or. any(elliptic_bc_type(2*d-1:2*d) /= ELL_BC_PEC)) then
+            n = -1_I4P
+            exit
+         endif
+         n = d
+      enddo
+      if (n <= 0_I4P) call mpih%error_stop(msg=': [PIC].(elliptic_initialization_closure) = '//ELLIPTIC_CLOSURE_ISOLATED// &
+         ' needs one non-periodic axis with PEC faces, the others periodic or null, for the mean fields of the PEC '//     &
+         'cavity to be 1-D (the '//field_name//' solve has the elliptic BC types '//trim(str(elliptic_bc_type))//')')
+      x_mid = 0.5_R8P * (self%adam%grid%domain_emin(n) + self%adam%grid%domain_emax(n))
+      sums = 0._R8P
+      inc_max = 0._R8P
+      do b=1, self%blocks_number
+         dv = product(self%adam%field%dxyz(1:3,b))
+         do k=1, self%nk
+            do j=1, self%nj
+               do i=1, self%ni
+                  select case(n)
+                  case(1)
+                     w = (self%adam%field%x_cell(i,b) - x_mid) * dv
+                  case(2)
+                     w = (self%adam%field%y_cell(j,b) - x_mid) * dv
+                  case default
+                     w = (self%adam%field%z_cell(k,b) - x_mid) * dv
+                  endselect
+                  sums(1) = sums(1) + dv
+                  if (ivar == VAR_DX) then
+                     sums(2) = sums(2) + self%q(ind,i,j,k,b) * w
+                  else
+                     sums(2:4) = sums(2:4) + self%q(self%physics%var_Jx:self%physics%var_Jz,i,j,k,b) * w
+                  endif
+                  sums(5:7) = sums(5:7) + increment_scale * self%divergence(5:7,i,j,k,b) * dv
+                  inc_max = max(inc_max, maxval(abs(increment_scale * self%divergence(5:7,i,j,k,b))))
+               enddo
+            enddo
+         enddo
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 7, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, inc_max, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+      mean_open = 0._R8P
+      corrected = .false.
+      if (ivar == VAR_DX) then
+         moment = [sums(2) / sums(1), 0._R8P, 0._R8P]
+         mean_open(n) = -moment(1)
+         corrected(n) = .true.
+      else
+         moment = sums(2:4) / sums(1)
+         d = mod(n, 3_I4P) + 1_I4P ! (n, d, e) cyclic: n x M = M_d e_e - M_e e_d
+         e = mod(d, 3_I4P) + 1_I4P
+         mean_open(d) = -mu_scale * moment(e)
+         mean_open(e) =  mu_scale * moment(d)
+         corrected = .true.
+         corrected(n) = .false.
+      endif
+      shift = 0._R8P
+      where (corrected) shift = mean_open - sums(5:7) / sums(1)
+      do b=1, self%blocks_number
+         do k=1-self%ngc/2, self%nk+self%ngc/2
+            do j=1-self%ngc/2, self%nj+self%ngc/2
+               do i=1-self%ngc/2, self%ni+self%ngc/2
+                  self%q(ivar:ivar+2,i,j,k,b) = self%q(ivar:ivar+2,i,j,k,b) + shift
+               enddo
+            enddo
+         enddo
+      enddo
+      if (mpih%myrank == 0_I4P) then
+         do d=1, 3
+            if (.not.corrected(d)) cycle
+            call mpih%print_message(field_name//' elliptic t0, isolated closure along '//AXIS(n)//': <'//field_name// &
+               '_'//AXIS(d)//'> of the solve '//trim(str(sums(4+d) / sums(1)))//' -> '//trim(str(mean_open(d)))//  &
+               ', shift '//trim(str(shift(d)))//' (|shift|/max|increment| = '//                                     &
+               trim(str(abs(shift(d)) / max(inc_max, tiny(1._R8P))))//')')
+         enddo
+      endif
+      endsubroutine impose_isolated_mean
 
       subroutine check_charge_null_modes(f)
       !< Measure the part of the charge forcing in the null space of D(G) for phi, which the solve cannot reach (FLAIL

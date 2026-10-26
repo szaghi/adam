@@ -87,7 +87,10 @@ The particle closure of a face is derived from its field kind, with no key of it
 `[PIC] initialization = coherent` (the only value) builds the initial field from the initial particles: their charge is
 deposited and, with `electric_field_elliptic_initialization` (default on), the electric field of that charge is solved
 for, so $\nabla_h\cdot\mathbf D = \rho$ to round-off at t0; with `magnetic_field_elliptic_initialization` (default on)
-the magnetic field of the initial current is added ([numerics](./numerics#t0-elliptic-solves)). The charge in the null
+the magnetic field of the initial current is added ([numerics](./numerics#t0-elliptic-solves)). Between PEC walls
+along one axis, with the others periodic, `elliptic_initialization_closure = isolated` gives the mean fields of the
+plasma in open space along that axis instead of zero (between grounded walls the dipole of the particle positions and
+the first moment of the current shift the whole field off open space by a uniform amount). The charge in the null
 space of the operator (a net charge without a Dirichlet face, or a checkerboard) cannot be reached by the solve: it is
 measured and warned, and a checkerboard under a matched deposit stops the run as a deposit error.
 

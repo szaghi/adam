@@ -43,6 +43,8 @@ public :: UNIFORM_BOX
 public :: NUM_SCHEME_TIME_PIC_LEAPFROG
 public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
 public :: COHERENT_INITIALIZATION
+public :: ELLIPTIC_CLOSURE_GROUNDED
+public :: ELLIPTIC_CLOSURE_ISOLATED
 public :: ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER
 public :: LONDRILLO_CURRENT_CONSERVING_SOLVER
 public :: TOTORICA_CURRENT_CONSERVING_SOLVER
@@ -67,6 +69,10 @@ character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma' !< A
    !< plasma
 character(len=8 ), parameter :: COHERENT_INITIALIZATION          = 'coherent' !< Field initialization through elliptic solver with
    !< the coherent laplacian scheme.
+character(len=8 ), parameter :: ELLIPTIC_CLOSURE_GROUNDED        = 'grounded' !< t0 solves: the mean fields of the PEC
+   !< cavity zero (walls at one potential, no trapped flux).
+character(len=8 ), parameter :: ELLIPTIC_CLOSURE_ISOLATED        = 'isolated' !< t0 solves: the mean fields of the PEC
+   !< cavity those of the isolated sources (open space along the non-periodic axis).
 character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle' !< Analyzing physical problem involving the
    !< presence of a single particle
 character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'              !< NGP weighting model.
@@ -144,6 +150,7 @@ type :: prism_pic_object
    character(len=99)         :: initialization = COHERENT_INITIALIZATION !< Field initialization solver.
    logical                   :: electric_field_elliptic_initialization = .true. !< Solve for phi (div D = rho) at t0.
    logical                   :: magnetic_field_elliptic_initialization = .true. !< Solve for A (curl B = mu J) at t0.
+   character(len=99)         :: elliptic_initialization_closure = ELLIPTIC_CLOSURE_GROUNDED !< Mean fields of the t0 solves.
    logical                   :: filter_deposition = .false. !< Binomial filter for deposition and gather weights.
    character(len=99)         :: particle_weighting_model    !< Particle weighting model.
    character(len=99)         :: current_weighting_model     !< Current weighting model.
@@ -461,6 +468,7 @@ contains
                      trim(str(self%electric_field_elliptic_initialization))
    desc = desc//NL//mpih%myrankstr//'    Magnetic field elliptic initialization: '// &
                      trim(str(self%magnetic_field_elliptic_initialization))
+   desc = desc//NL//mpih%myrankstr//'    Elliptic initialization closure: '//trim(self%elliptic_initialization_closure)
    desc = desc//NL//mpih%myrankstr//'    Filter deposition and gather: '//trim(str(self%filter_deposition))
    desc = desc//NL//mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
@@ -841,6 +849,34 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='magnetic_field_elliptic_initialization', &
                             val=self%magnetic_field_elliptic_initialization, error=error)
    if (error > 0) self%magnetic_field_elliptic_initialization = .true.
+
+   ! optional, grounded by default (the closure before the key existed: no input changes). The t0 solves on a domain
+   ! periodic but along one axis with PEC faces leave two invariants of the cavity free, the potential difference
+   ! between the walls (<D_n>) and the trapped magnetic flux (<B_t>): grounded sets them to zero, isolated to the values
+   ! of the same sources in open space along that axis. Isolated is exact for the transverse mean (k_perp = 0) only, the
+   ! other modes keep the images in the walls (e^(-k_perp d) off open space at a distance d). D and B together, so
+   ! isolated needs both solves
+   buff = ELLIPTIC_CLOSURE_GROUNDED
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='elliptic_initialization_closure', &
+                            val=buff, error=error)
+   if (error > 0) then
+      self%elliptic_initialization_closure = ELLIPTIC_CLOSURE_GROUNDED
+   else
+      select case(trim(adjustl(strip_control(buff))))
+      case(ELLIPTIC_CLOSURE_GROUNDED)
+         self%elliptic_initialization_closure = ELLIPTIC_CLOSURE_GROUNDED
+      case(ELLIPTIC_CLOSURE_ISOLATED)
+         self%elliptic_initialization_closure = ELLIPTIC_CLOSURE_ISOLATED
+      case default
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(elliptic_initialization_closure) = "'//trim(buff)// &
+                              '" is not "'//ELLIPTIC_CLOSURE_GROUNDED//'" nor "'//ELLIPTIC_CLOSURE_ISOLATED//'"')
+      endselect
+   endif
+   if (self%elliptic_initialization_closure == ELLIPTIC_CLOSURE_ISOLATED .and.     &
+       .not.(self%electric_field_elliptic_initialization .and. self%magnetic_field_elliptic_initialization)) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(elliptic_initialization_closure) = '//              &
+                           ELLIPTIC_CLOSURE_ISOLATED//' sets the mean fields of the t0 solves of D and B: it needs '// &
+                           'electric_field_elliptic_initialization and magnetic_field_elliptic_initialization = .true.')
 
    self%esirkepov_tail_cleanup = .false.
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_cleanup', &

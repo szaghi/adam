@@ -149,3 +149,22 @@ branch at $\theta = \pi$, which the solver drops exactly. The face kinds come fr
 On a singular problem (no Dirichlet face) the mean of the forcing is removed per component; for $\mathbf A$ that mean is
 the uniform current, which by periodicity carries no magnetostatic field. A refined grid is refused at the solve (the
 wide operator across a 2:1 face is not defined), and so is `fdv_order = 10` (FLAIL accepts 2 to 8).
+
+**Mean fields between PEC walls (`[PIC] elliptic_initialization_closure`).** With one axis $n$ closed by PEC faces and
+the others periodic (or null), the transverse mean ($k_\perp = 0$) of the fields is a 1-D problem, and the PEC cavity
+leaves two of its invariants free: the potential difference between the walls, $\langle D_n\rangle$, and the trapped
+magnetic flux, $\langle\mathbf B_t\rangle$. The solves set both to zero (`grounded`, the default). `isolated` sets them
+to the values of the same sources in open space along $n$, where the 1-D field is half the difference of the source
+integrated from either side:
+
+$$\langle D_n\rangle = -\frac{1}{V}\sum \rho\,(x_n - x_{mid})\,dV, \qquad
+\langle\mathbf B_t\rangle = \mu_0\,\hat n\times\frac{1}{V}\sum \mathbf J\,(x_n - x_{mid})\,dV,$$
+
+with $x_{mid}$ the domain centre and $V$ its volume (a net charge or current included). The mean of the field the solve
+adds is shifted to these values; the initial-condition field keeps its own mean. A uniform field has no divergence nor
+curl and is even about a PEC face for $D_n$ and $\mathbf B_t$, as PRISM's PEC ghosts reflect them, so the boundary cells
+stay consistent with the evolution exactly as under `grounded`. Only the mean mode is open: the modes $k_\perp \ne 0$
+keep their images in the walls, off open space by about $e^{-k_\perp d}$ at a distance $d$ from the sources, so the walls
+must be far from them for the whole field to match open space. An exact/open face (Neumann, Silver–Müller) is not the
+same closure: its ghosts hold the free-space potential of the sources alone, without their periodic images, and do not
+match the hyperbolic ghosts of that face.

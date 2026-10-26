@@ -240,6 +240,7 @@ See the [PML hazards](#pml).
 | `initialization` | string | no | `coherent` | `coherent` only; other values are fatal | Field initialization. |
 | `electric_field_elliptic_initialization` | logical | no | `.true.` | logical | Solve D(G) φ = −ρ/ε at t0 and correct D, so div D = ρ to round-off. |
 | `magnetic_field_elliptic_initialization` | logical | no | `.true.` | logical | Solve D(G) A = −μ J at t0 and add curl A to B, when J ≠ 0 at t0. |
+| `elliptic_initialization_closure` | string | no | `grounded` | `grounded`, `isolated`; other values are fatal. `isolated` is fatal unless both t0 solves are on, and at t0 unless exactly one axis is non-periodic with PEC faces (the others periodic or null) | Mean fields of the t0 solves: `grounded` zero (the PEC walls at one potential, no trapped flux), `isolated` those of the same sources in open space along the non-periodic axis ([numerics](./numerics#t0-elliptic-solves)). |
 | `elliptic_correction` | logical | — | — | `.true.` is fatal ([#84](https://github.com/szaghi/adam/issues/84) E3d); the lint rejects the key | Removed. |
 | `particle_weighting_model` | string | yes | — | `NGP`, `CIC`, `TSC`, `cubic` (`3rd`), `quartic` (`4th`), `quintic` (`5th`), `sextic` (`6th`), `gaussian`, with case variants; other values are fatal | Charge deposition. |
 | `current_weighting_model` | string | yes | — | the same list, plus `conserving` (`charge_conserving`); other values are fatal | Current deposition. `conserving` needs `fd_centered`, `runge_kutta` and SSP-22/33/54 (fatal otherwise). |
