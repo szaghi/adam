@@ -66,6 +66,9 @@ export default withMermaid({
         text: 'Reference',
         items: [
           { text: 'FLUME input',        link: '/applications/flume/input' },
+          { text: 'PRISM input',        link: '/applications/prism/input' },
+          { text: 'Library input',      link: '/reference/library-input' },
+          { text: 'Build modes',        link: '/reference/build-modes' },
           { text: 'Regression testing', link: '/tests/' },
           { text: 'API',                link: '/api/' },
         ],
@@ -295,12 +298,26 @@ export default withMermaid({
               collapsed: false,
               items: [
                 { text: 'Overview',    link: '/applications/prism/' },
+                { text: 'Input Reference', link: '/applications/prism/input' },
                 { text: 'Common',      link: '/applications/prism/common' },
                 { text: 'CPU Backend', link: '/applications/prism/cpu' },
                 { text: 'FNL Backend', link: '/applications/prism/fnl' },
                 { text: 'Verification', link: '/applications/prism/verification' },
               ],
             },
+          ],
+        },
+      ],
+      '/reference/': [
+        {
+          text: 'Reference',
+          items: [
+            { text: 'FLUME input',        link: '/applications/flume/input' },
+            { text: 'PRISM input',        link: '/applications/prism/input' },
+            { text: 'Library input',      link: '/reference/library-input' },
+            { text: 'Build modes',        link: '/reference/build-modes' },
+            { text: 'Regression testing', link: '/tests/' },
+            { text: 'API',                link: '/api/' },
           ],
         },
       ],

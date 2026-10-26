@@ -74,18 +74,9 @@ The Maxwell system has wave speeds $\pm c_0$ and two degenerate zero speeds. The
 
 The `prism_physics_object` reads the physical model from the `[physics]` INI section and assembles the variable layout and eigensystem pointers.
 
-### INI Keys (`[physics]`)
+### Input keys
 
-| Key | Values | Description |
-|-----|--------|-------------|
-| `physical_model` | `electromagnetic` / `AdimEM` / `PIC` / `AdimPIC` | Select the EM or Particle-in-Cell model, dimensional or non-dimensional |
-| `L0`, `B0` | real | Reference length and field of the non-dimensional models (`AdimEM`, `AdimPIC` only) |
-| `chi` | real > 0 | Divergence-cleaning propagation speed coefficient (hyperbolic only, required); `evmax = max(1, chi) · c₀` (`max(1, chi)` non-dimensional) |
-| `alpha` | real ≥ 0 | Damping rate of the cleaning scalars, 1/s (hyperbolic only, optional, default 0) |
-
-Accepted aliases for `electromagnetic`: `Electromagnetic`, `Maxwell`, `EM`, `em`, `maxwell`. For `PIC`: `pic`,
-`ParticleInCell`, `particleincell`. For `AdimEM`: `adimem`, `AdimensionalizedElectromagnetic`,
-`adimensionalelectromagnetic`. For `AdimPIC`: `adimpic`, `adim_PIC`, `adim_pic`. Any other value is fatal.
+The keys of `[physics]` are in the [input reference](./input#physics).
 
 ### Data Members
 
@@ -133,23 +124,9 @@ For hyperbolic divergence cleaning the enlarged eigensystem uses the cleaning sp
 
 Configured from the `[numerics]` INI section.
 
-### INI Keys (`[numerics]`)
+### Input keys
 
-| Key | Values | Description |
-|-----|--------|-------------|
-| `scheme_time` | `RUNGE_KUTTA` / `LEAPFROG` / `BLANES_MOAN` / `COMMUTATOR_FREE_MAGNUS` | Temporal integration scheme. Only `RUNGE_KUTTA` works: the other three are parsed, then refused by both backends at init (issue #55) |
-| `scheme_space` | `WENO` / `FD_CENTERED` / `FV_CENTERED` | Spatial discretisation scheme |
-| `reconstruction_variables` | `CONSERVATIVE` / `CHARACTERISTICS` | WENO reconstruction basis |
-| `constrained_transport` | `NO` / `D` / `B` / `DB` | Fields the hyperbolic cleaning acts on (ignored, with a warning, without it) |
-| `divergence_correction` | `NO` / `HYPERBOLIC` | Divergence error control strategy. `HYPERBOLIC` requires `constrained_transport` ≠ `NO`; `POISSON` is refused (not implemented). Issue #61 |
-
-Every key is required, and an unknown value stops at load naming the option and the accepted values (issue #57);
-before, `scheme_time`, `scheme_space`, `reconstruction_variables`, `constrained_transport` and `divergence_correction`
-warned and fell back to a default. The same holds for `[external_fields] external_fields_applied` (`none`, `RMF`,
-`uniform_field`) and the `[fWLayer]` face flags (`yes`, `no`), which fell back silently.
-
-The order of the centred FD/FV schemes is not a `[numerics]` key: `[fdv] fdv_scheme` and `fdv_order` are read by the
-library's `realm_object` (`adam_realm_object.F90`). The half-stencil width is derived as `fdv_half_stencil = fdv_order / 2`. Per-derivative stencil widths in `fdv_half_stencils(6)` are incremented progressively for higher-order derivatives.
+The keys of `[numerics]` are in the [input reference](./input#numerics).
 
 ---
 
@@ -255,24 +232,9 @@ The `q` names must number `physics%nv`, otherwise `io_initialize` stops (issue #
 
 Reads one BC type per face from six INI sections.
 
-### INI Sections
+### Input keys
 
-`[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]`, `[bc_z_max]`
-
-Each section requires the key `type`; matching is case-sensitive and an unknown value is fatal. The two faces of an
-axis must be both periodic or neither:
-
-| `type` value | Integer constant | Description |
-|--------------|-----------------|-------------|
-| `extrapolation` | `BC_EXTRAPOLATION = 1` | Zero-gradient extrapolation |
-| `Neumann` | `BC_NEUMANN = 2` | Neumann (zero normal derivative) |
-| `Dirichlet` | `BC_DIRICHLET = 3` | Dirichlet (prescribed field values) |
-| `Silver_Muller` | `BC_Silver_Muller = 4` | Silver-Müller absorbing BC |
-| `periodic` | `BC_PERIODIC = -1` (library) | Periodic: library periodicity, the tree builds periodic neighbours |
-| `PEC` (or `pec`) | `BC_PEC = 7` | Perfect electric conductor |
-| `radiative` | — | **Refused at load**: not implemented on any backend (issue #57) |
-
-The object stores `bc_type(6)` (integer codes) and `q(9,6)` (field values for Dirichlet BCs, one set per face).
+The keys of `[bc_*]` are in the [input reference](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max).
 
 ---
 
@@ -280,37 +242,9 @@ The object stores `bc_type(6)` (integer codes) and `q(9,6)` (field values for Di
 
 Configured from the `[initial_conditions]` INI section.
 
-### IC Types
+### Input keys
 
-| `type` value | Description |
-|-------------|-------------|
-| `vacuum` | All fields set to zero |
-| `plane_wave` | Sinusoidal electromagnetic plane wave |
-| `gaussian_pulse` | Gaussian-modulated plane wave packet (`B0`, `k0`, `r0`, `sigma`, `pulse_direction` = `±x`, `±y`, `±z`) |
-| `gaussian_derivative_pulse` | Single-cycle pulse, derivative of a Gaussian vector potential: zero area, no ω = 0 content (`B0` = peak \|B\|, `r0`, `sigma` of the potential, `pulse_direction`; no `k0`) |
-| `rmf_field` | Rotating Magnetic Field (reads `RMF_frequency`, `RMF_B_amplitude` and `RMF_rotation_axis` = `X`, `Y` or `Z` from `[external_fields]`; any other axis stops at load) |
-| `uniform_field` | Uniform background B (`B_x`, `B_y`, `B_z`); D is set to zero |
-
-Any other `type` stops at load, naming the accepted values ([issue #56](https://github.com/szaghi/adam/issues/56)). That
-includes three names the loader still knows but `set_initial_conditions` never applied, so they used to start the run
-from the zero field silently:
-- `riemann-problem`: the regions were read and dropped (its apply code was commented out, then removed in 2025);
-- `magnetic_nozzle` and `rmf_magnetic_nozzle`: for a nozzle field use `[external_fields] external_fields_applied`.
-
-### INI Keys (`[initial_conditions]`)
-
-| Key | Description |
-|-----|-------------|
-| `amr_iterations` | Number of AMR iterations during IC application |
-| `type` | IC type string (see table above) |
-| `kx`, `ky`, `kz` | Wave number direction cosines (plane wave) |
-| `lambda` | Wavelength (plane wave) |
-| `B0` | Background magnetic field amplitude (plane wave) |
-| `B_x`, `B_y`, `B_z` | Uniform background B components |
-
-The loader still reads the `riemann-problem` region sections (`[initial_conditions_region_N]`, keys `Dx..Jz`,
-`emin_x/y/z`, `emax_x/y/z`; `emin_x` was never read before #56), so restoring that type needs its apply case and the removal of
-its refusal.
+The keys of `[initial_conditions]` are in the [input reference](./input#initial-conditions).
 
 ---
 
@@ -318,22 +252,9 @@ its refusal.
 
 Configured from the `[IO]` INI section.
 
-### INI Keys (`[IO]`)
+### Input keys
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `output_basename` | — | Prefix for all output files |
-| `it_save` | `100` | Field output save frequency (iterations) |
-| `restart` | `.false.` | Enable restart from existing files |
-| `restart_basename` | — | Prefix for restart files |
-| `restart_save` | `100` | Restart save frequency |
-| `residuals_save` | `10` | Residuals log save frequency |
-| `save_memory_status` | `.false.` | Log memory usage during allocations |
-| `save_residual_fields` | `.false.` | Include `dq` in field output |
-| `save_curl_fields` | `.false.` | Include curl field in output |
-| `save_divergence_fields` | `.false.` | Include divergence field in output |
-| `save_gradient_fields` | `.false.` | Include gradient field in output |
-| `save_laplacian_fields` | `.false.` | Include Laplacian field in output |
+The keys of `[IO]` are in the [input reference](./input#io).
 
 ### Output Files
 
@@ -348,13 +269,9 @@ Configured from the `[IO]` INI section.
 
 Configured from the `[time]` INI section.
 
-### INI Keys (`[time]`)
+### Input keys
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `it_max` | `-1` | Maximum iteration count (`−1` = terminate by time) |
-| `time_max` | `1.0` | Maximum physical time |
-| `CFL` | `0.3` | CFL number for time-step control |
+The keys of `[time]` are in the [input reference](./input#time).
 
 ### Termination Logic (`is_to_save`)
 
@@ -373,31 +290,9 @@ Configured from the `[time]` INI section.
 
 Models current-carrying coils as volumetric current density **J** sources.
 
-### INI Section (`[coils_input]`)
+### Input keys
 
-| Key | Values | Description |
-|-----|--------|-------------|
-| `rectangular_coils_number` | integer | Number of rectangular coils |
-| `circular_coils_number` | integer | Number of circular coils |
-| `solenoid_coils_number` | integer | Number of solenoids |
-| `helicon_coils_number` | integer | Number of helicon antennas |
-| `time_delay` | real | Ramp-up time (required when any coil exists): the current is multiplied by g(s) = 10s³ − 15s⁴ + 6s⁵, s = t/`time_delay` clamped to [0, 1], so it grows smoothly from zero at t0 to full at `time_delay`. With `time_delay ≤ 0` the coils carry full current at t0, and the t0 magnetic field is solved for (the t0 elliptic solve) |
-
-Per-coil configuration, section `[coils_input_coil_N]` (N = 1..total coils), every key required:
-
-| Key | Values | Description |
-|-----|--------|-------------|
-| `coil_type` | `rectangular` / `circular` / `solenoid` / `helicon` | Geometry |
-| `current_type` | `DC_current` / `AC_current` | Current waveform |
-| `sigma` | real | Gaussian current distribution width |
-| `x_center`, `y_center`, `z_center` | real | Coil centre coordinates |
-| `normal` | `+x` / `-x` / `+y` / `-y` / `+z` / `-z` | Coil plane normal |
-| `lx`, `ly` | real | Rectangular loop dimensions (`rectangular`) |
-| `r_coil` | real | Radius (`circular`, `solenoid`, `helicon`) |
-| `l_solenoid`, `windings` | real, integer | Length and windings (`solenoid`) |
-| `N_points`, `x_point_K`, `y_point_K`, `z_point_K` | integer (≤ 50), real | The antenna's points (`helicon`) |
-| `Amplitude` | real | Current amplitude (A) |
-| `Frequency`, `Phase` | real | Frequency (Hz) and initial phase (rad), `AC_current` only |
+The keys of `[coils_input]` are in the [input reference](./input#coils-input-and-coils-input-coil-n).
 
 ### Internal Arrays
 
@@ -411,14 +306,9 @@ Per-coil configuration, section `[coils_input_coil_N]` (N = 1..total coils), eve
 
 Implements a sponge-like damping layer at domain boundaries to absorb outgoing electromagnetic waves, following Barbas notation.
 
-### INI Section (`[fWLayer]`)
+### Input keys
 
-| Key | Description |
-|-----|-------------|
-| `width` | Physical layer width (real, required even when no face is active); the per-face cell count is `min(ni, ceiling(width/ds))` |
-| `x_minus_layer`, `x_plus_layer`, `y_minus_layer`, `y_plus_layer`, `z_minus_layer`, `z_plus_layer` | `yes` / `no` per face; any other value is fatal |
-
-The former cell-count key `C` is removed: the lint `src/tests/lint/check-removed-input-keys.sh` rejects it in committed inputs.
+The keys of `[fWLayer]` are in the [input reference](./input#fwlayer).
 
 ### Damping Function
 
@@ -450,18 +340,9 @@ former cell-count `C` input expressed directly.
 
 Prescribed electromagnetic fields added to (and subtracted from) the state vector around each time step.
 
-### INI Section (`[external_fields]`)
+### Input keys
 
-| Key | Values | Description |
-|-----|--------|-------------|
-| `external_fields_applied` | `none` / `RMF` / `uniform_field` (also `magnetic_nozzle`, `RMF_and_magnetic_nozzle`: parsed, then refused at initialization, not implemented) | External field type; an unknown value is fatal |
-| `RMF_frequency` | real | Rotating magnetic field frequency (Hz), `RMF` |
-| `RMF_B_amplitude` | real | Rotating magnetic field amplitude (T), `RMF` |
-| `RMF_rotation_axis` | `X` / `Y` / `Z` | Rotation axis, `RMF` |
-| `Uniform_field_D_amplitude`, `Uniform_field_B_amplitude` | real | Uniform field amplitudes, `uniform_field` (aliases `Uniform_D_amplitude`, `Uniform_B_amplitude`) |
-| `Uniform_field_direction` | `x` / `y` / `z` | Uniform field direction, `uniform_field` (alias `Uniform_direction`); any other value is fatal |
-
-At initialization, the `add_external_fields` and `sub_external_fields` procedure pointers are dispatched to the corresponding implementation (`add_external_fields_rmf`, `add_external_fields_uniform`) based on `external_fields_applied`.
+The keys of `[external_fields]` are in the [input reference](./input#external-fields).
 
 ---
 
@@ -496,22 +377,9 @@ and its initialization are commented out in `adam_prism_common_object.F90`.
 
 Manages macro-particle configuration, grid-particle mapping, and weighting.
 
-### INI Section (`[PIC]`)
+### Input keys
 
-| Key | Values | Description |
-|-----|--------|-------------|
-| `problem_type` | `plasma` / `single_particle` | Simulation scenario |
-| `plasma_density` | real | Initial plasma number density (m⁻³) — plasma only |
-| `neutral_fraction` | real | Fraction of neutral particles — plasma only |
-| `particle_weighting_model` | `NGP` / `CIC` / `TSC` / `cubic` / `quartic` / `quintic` / `sextic` / `Gaussian` | Charge deposition scheme |
-| `current_weighting_model` | the same, or `conserving` (charge-conserving, `current_conserving_solver`) | Current deposition scheme |
-| `field_weighting_model` | `0D` / `1D` / `2D` / `3D` / `4D` / `5D` / `6D` / `Gaussian` | Field interpolation at particle positions |
-| `scheme_time` | `LEAPFROG` / `RUNGE_KUTTA` | Particle time integrator; only `RUNGE_KUTTA` with SSP 22/33/54 runs, `LEAPFROG` stops at initialization on both backends |
-
-The section also reads `plasma_domain` (with the `cilinder_*`, `box_*` and `slab_*` geometry keys), `sigma` and
-`cutoff_sigma` (Gaussian kinds), `gaussian_support_cells`, `filter_deposition`, `current_conserving_solver`,
-`esirkepov_tail_cleanup`, `initialization`, and the t0 solve switches `electric_field_elliptic_initialization` and
-`magnetic_field_elliptic_initialization`. `elliptic_correction` is removed (issue #84 E3d): `.true.` stops the run.
+The keys of `[PIC]` are in the [input reference](./input#pic-pic-models-only).
 
 ### Particle Count
 
@@ -544,27 +412,9 @@ Stores the current grid indices `(block, i, j, k)` for each particle, updated ea
 
 Sets the initial spatial and velocity distributions for PIC particles.
 
-### INI Section (`[particle_injection]`)
+### Input keys
 
-Plasma problems (`[PIC] problem_type = plasma`); the spatial distribution follows `[PIC] plasma_domain`
-(`space_distribution` is no longer read):
-
-| Key | Values | Description |
-|-----|--------|-------------|
-| `random_seed` | integer | Optional: a fixed seed makes the injected plasma reproducible (default: the processor-dependent seed) |
-| `space_random_number_generator` | `random` / `layered` | Position sampling |
-| `space_pairing` | `yes` / `no` | Electron i at the position of ion i (ions sampled as usual): zero charge density at t0 |
-| `ions_velocity_distribution`, `electrons_velocity_distribution`, `neutrals_velocity_distribution` | `uniform_Maxwellian` (also `Maxwellian`, `uniform`) / `non_uniform_Maxwellian` / `drift` | Velocity distribution per species |
-| `ionic_temperature`, `electronic_temperature`, `neutrals_temperature` | real | Temperatures (uniform Maxwellian) |
-| `ionic_temperature_x/y/z`, `electronic_temperature_x/y/z`, `neutrals_temperature_x/y/z` | real | Per-axis temperatures (non-uniform Maxwellian) |
-| `velocity_random_number_generator` | `random` / `layered` | Velocity sampling, read when a Maxwellian is selected |
-| `velocity_pairing` | `yes` / `no` | Electron i with the velocity of ion i (ions sampled as usual); needs the same distribution, temperatures and drifts for ions and electrons, otherwise fatal; read only when a Maxwellian is selected |
-| `ions_drift_x/y/z`, `electrons_drift_x/y/z`, `neutrals_drift_x/y/z` | real | Per-species drift velocity components (all required) |
-| `v_av_correction` | `yes` / `no` | Correct the mean velocity after sampling |
-
-Single-particle problems: `x_position`, `y_position`, `z_position`, `v_drift_x/y/z`, `charge`, `mass`.
-
-At initialization, the procedure pointers `particle_space_injection` and `particle_velocity_injection` are dispatched to the selected distribution subroutines.
+The keys of `[particle_injection]` are in the [input reference](./input#particle-injection-pic-models-only).
 
 ---
 

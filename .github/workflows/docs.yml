@@ -61,6 +61,11 @@ jobs:
             json.dump(badge, f)
         EOF
 
+    - name: Regenerate the build-modes page
+      # docs/reference/build-modes.md lists the modes of `fobis build --lmodes` (FoBiS comes with setup-build-env):
+      # regenerated here so the published list cannot drift from the fobos files (issue #60, P3).
+      run: python3 scripts/make_build_modes_page.py
+
     - name: Build documentation
       env:
         COVERAGE_PCT: ${{ steps.cov.outputs.pct }}
