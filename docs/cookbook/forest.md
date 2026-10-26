@@ -38,6 +38,7 @@ to round-off or to a tolerance, the recipe says so and why.
 
 | You want | Recipe |
 |---|---|
+| write the program that drives the realms | [R0](#r0-the-driver-pattern) |
 | one domain, uniform grid | [R1](#r1-one-realm-uniform) |
 | one domain, finer cells in a region | [R2](#r2-one-realm-with-amr-intra-realm-2-1-faces) |
 | two domains, same cells, glued | [R3](#r3-two-realms-mirror-seam-lined-up-blocks) |
@@ -48,8 +49,53 @@ to round-off or to a tolerance, the recipe says so and why.
 | any of the above on many ranks | [R8](#r8-many-ranks) |
 | restart a forest | [R9](#r9-restart) |
 | build a split from an existing single-realm input | [R10](#r10-splitting-an-existing-input) |
+| run any of the above on the GPU | [R11](#r11-forest-on-fnl) |
 
 ---
+
+## R0. The driver pattern
+
+**Problem.** Write the `program` of an application so that the same executable runs a plain input and a manifest.
+
+**Code** (`src/app/flume/cpu/adam_flume_cpu.F90`; the FNL driver `adam_flume_fnl.F90` is the same with
+`flume_fnl_object`):
+
+```fortran
+type(flume_cpu_object), allocatable, target :: realm(:)          ! 1 for a single input, N for a manifest
+type(realm_pointer),    allocatable         :: realm_pointers(:) ! what the forest takes (#96)
+type(forest_object)                         :: forest
+type(forest_manifest_t)                     :: manifest
+...
+if (is_forest_manifest(trim(input_file_name))) then
+   call read_forest_manifest(filename=trim(input_file_name), manifest=manifest)
+   allocate(realm(manifest%realms_number))
+   call point_realms
+   call forest%simulate_from_manifest(realm=realm_pointers, manifest=manifest)
+else
+   allocate(realm(1))
+   call point_realms
+   call forest%simulate(realm=realm_pointers, filename=trim(input_file_name))
+endif
+contains
+   subroutine point_realms
+   integer :: i
+   allocate(realm_pointers(size(realm)))
+   do i = 1, size(realm)
+      realm_pointers(i)%ptr => realm(i)
+   enddo
+   endsubroutine point_realms
+```
+
+**What it does.** `is_forest_manifest` reports whether the file has a `[forest]` section with `realms_number >= 1`.
+The realms live in a **monomorphic** array of the concrete type, and the forest receives an array of `realm_pointer`:
+it never indexes a polymorphic array, which nvfortran addresses wrongly
+([#96](https://github.com/szaghi/adam/issues/96)). `simulate` and `simulate_from_manifest` initialize the realms, run
+the time loop (fast path or staged path, R1 and R2) and finalize them.
+
+A single-realm application can be smaller: RIPPLE's driver (`src/app/ripple/cpu/adam_ripple_cpu.F90`) declares one
+realm and one pointer and calls `forest%simulate` only.
+
+**Reference.** [Forest concepts](/concepts/forest); [RIPPLE](https://github.com/szaghi/adam/tree/develop/src/app/ripple).
 
 ## R1. One realm, uniform
 
@@ -355,6 +401,33 @@ For a refined split (R6), start from a single-realm run with a box marker. Give 
 unrefined; give the fine realm the refined part, built uniform one level finer (`iu_ref_levels + 1`, cell counts
 chosen so that `dx` halves). Drop the markers in both. `verification/multirealm/sod-amr-refined*.ini` and
 `src/tests/prism/regression/rmf-2realm-fd-pulse-refined/` are worked examples.
+
+## R11. Forest on FNL
+
+**Problem.** Run a forest on the GPU backend.
+
+**Input.** The same manifest and realm inputs as on the CPU, run with the FNL executable
+(`mpirun -np 2 exe/adam_flume_fnl forest.ini`). The forest machinery is the same on both backends: the multi-realm
+verification legs run on CPU and FNL, and the regression suites hold FNL goldens for the forest cases (`sod-2realm`,
+`sod-2realm-blocks`, `sod-amr-2realm`, `sod-amr-refined`; PRISM `rmf-2realm`, `rmf-2realm-asymK`,
+`rmf-2realm-stagesync`).
+
+**What changes on FNL** (the realm-contract hooks an FNL backend overrides, `src/app/flume/fnl/adam_flume_fnl_object.F90`):
+- `after_topology_build_forest`: the forest builds the inter-realm seam maps on the host **after** the realms are
+  initialized; this hook copies them, and the boundary-crown map whose seam rows the forest rewrote, to the device.
+  Without it the seam-fill kernel reads an unset device map.
+- `fill_seam_from_peer_forest`, `pack_seam_cells_forest`, `unpack_seam_cells_forest`: the seam ghosts are filled on the
+  device buffers of both realms (`q_gpu`, or the active Runge-Kutta stage), and the cross-rank rows are packed on the
+  device and exchanged through a host buffer.
+- `apply_reflux_to_stage_forest`: the register's mismatch is copied to the device and applied to `q_gpu`.
+- `finalize_mpi_forest`: finalizes `mpih_fnl` instead of `mpih`; the forest calls it once, after every realm is
+  finalized.
+- The device budget is divided among the realms of the forest and the ranks sharing the device.
+
+**Verified by** the FNL regression goldens of the forest cases and the multi-realm legs on FNL
+([multi-realm runs](/applications/flume/verification/euler/multi-realm)).
+
+**Reference.** [GPU](/cookbook/gpu); [forest concepts](/concepts/forest).
 
 ---
 

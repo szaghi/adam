@@ -40,6 +40,12 @@ while [[ $# -gt 0 ]]; do
       *)      echo "check.sh: unknown argument '$1' (accepted: --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+for leg in ${LEGS//,/ }; do
+   case "$leg" in
+      r1|r2|r3|r4|r5) ;;
+      *) echo "check.sh: unknown leg '$leg' (accepted: r1 r2 r3 r4 r5)" >&2 ; exit 2 ;;
+   esac
+done
 ORACLE=("$PYTHON" "$CASE_DIR/oracle.py")
 FAILED=0
 

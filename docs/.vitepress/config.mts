@@ -110,8 +110,13 @@ export default withMermaid({
         {
           text: 'Cookbook',
           items: [
-            { text: 'Overview', link: '/cookbook/' },
-            { text: 'Forest',   link: '/cookbook/forest' },
+            { text: 'Overview',                  link: '/cookbook/' },
+            { text: 'Input and output',          link: '/cookbook/io' },
+            { text: 'Adaptive mesh refinement',  link: '/cookbook/amr' },
+            { text: 'GPU (FNL)',                 link: '/cookbook/gpu' },
+            { text: 'MPI and clusters',          link: '/cookbook/clusters' },
+            { text: 'Regression testing',        link: '/cookbook/regression' },
+            { text: 'Forest',                    link: '/cookbook/forest' },
           ],
         },
       ],
