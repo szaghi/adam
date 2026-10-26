@@ -141,8 +141,6 @@ use :: mortif
 use :: penf
 ! sdk modules
 use :: mpi
-! intrinsic modules
-use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
 private
@@ -612,7 +610,9 @@ contains
    subroutine load_nodes(self, grid, file_name)
    !< Load nodes data, used for restart.
    !<
-   !< Note: the tree is made empty before lading nodes data.
+   !< Note: the tree is made empty before lading nodes data. A restart needs the rank count it was saved with: a node
+   !< owned by a rank that does not exist stops the run (on fewer ranks the missing ranks' blocks would be dropped, issue
+   !< #109; more ranks stop in `field%load_blocks`, which finds no file of its own). A missing file stops the run too.
    class(tree_object), intent(inout) :: self             !< The tree.
    type(grid_object),  intent(in) :: grid !< Grid (sibling realm component, threaded in).
    character(*),       intent(in)    :: file_name        !< Output file name.
@@ -634,6 +634,11 @@ contains
          call self%empty
          do c=1, codes_number
             read(unit=file_unit) node_code, node_rank, node_block_index
+            if (node_rank >= mpih%procs_number) &
+               call mpih%error_stop(msg=': restart file "'//trim(adjustl(file_name))//'" holds blocks of rank '// &
+                                        trim(str(node_rank, .true.))//', saved on more ranks than the '// &
+                                        trim(str(mpih%procs_number, .true.))//' of this run: restart on the rank '// &
+                                        'count it was saved with')
             call self%add_node(code=node_code, rank=node_rank, block_index=node_block_index)
          enddo
       endif
@@ -641,7 +646,7 @@ contains
       call self%make_neighborhood(grid=grid)
       call mpih%print_message('tree_object%load_nodes from file '//trim(adjustl(file_name))//' completed')
    else
-      write(stderr, '(A)') mpih%myrankstr//'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
+      call mpih%error_stop(msg=': restart file "'//trim(adjustl(file_name))//'" does not exist')
    endif
    endsubroutine load_nodes
 

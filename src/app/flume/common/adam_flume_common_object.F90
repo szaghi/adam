@@ -1306,7 +1306,7 @@ contains
    do b=1, self%adam%field%blocks_number
       bn = 'block_'//trim(strz(b, 9))//'-proc'//trim(strz(mpih%myrank, 6))
       call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time*self%units%time_output(), &
-                                length_scale=self%units%length_output())
+                                length_scale=self%units%length_output(), ngc_saved=ngc)
       call save_block(q=self%q(:,:,:,:,b), q_name=self%q_name, factor=factor_q)
       if (self%io%save_residual_fields) call save_block(q=self%dq(:,:,:,:,b), q_name=self%dq_name, factor=factor_dq)
       if (self%save_auxiliary_fields) call save_block(q=self%q_aux(:,:,:,:,b), q_name=self%q_aux_name, factor=factor_aux)

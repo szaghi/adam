@@ -907,9 +907,11 @@ contains
    call xh5f%close_file
    endsubroutine close_file_xh5f
 
-   subroutine open_block_xh5f(self, xh5f, b, nijk, t, time, length_scale)
+   subroutine open_block_xh5f(self, xh5f, b, nijk, t, time, length_scale, ngc_saved)
    !< Open XH5F file block; `length_scale` multiplies the written block origin and spacing (output units of an
-   !< application, e.g. FLUME `[reference] output_units`).
+   !< application, e.g. FLUME `[reference] output_units`). The origin is the corner of the first stored cell: `ngc_saved`
+   !< cells below the block's first interior cell, `ngc_saved` the ghost layers the caller writes (default all, `ngc`;
+   !< 0 for the interior only, e.g. the restart snapshot, issue #109).
    class(realm_object),    intent(inout)        :: self    !< The equation.
    type(xh5f_file_object), intent(inout)        :: xh5f    !< XH5F file handler.
    integer(I4P),           intent(in)           :: b       !< Block index.
@@ -917,6 +919,8 @@ contains
    integer(I4P),           intent(in), optional :: t       !< Time iteration.
    real(R8P),              intent(in), optional :: time    !< Time.
    real(R8P),              intent(in), optional :: length_scale !< Scale of the written origin and spacing.
+   integer(I4P),           intent(in), optional :: ngc_saved    !< Ghost layers written (default ngc).
+   integer(I4P)                                 :: ngc_    !< Ghost layers written, local var.
    integer(I4P)                                 :: t_      !< Time iteration, local var.
    real(R8P)                                    :: time_   !< Time, local var.
    real(R8P)                                    :: emin(3) !< Minimum abscissa of current block.
@@ -925,9 +929,10 @@ contains
 
    t_    = 0_I4P   ; if (present(t   )) t_    = t
    time_ = 0._R8P  ; if (present(time)) time_ = time
-   emin = [self%adam%field%emin(1,b)-self%ngc*self%adam%field%dxyz(1,b), &
-           self%adam%field%emin(2,b)-self%ngc*self%adam%field%dxyz(2,b), &
-           self%adam%field%emin(3,b)-self%ngc*self%adam%field%dxyz(3,b)]
+   ngc_  = self%ngc ; if (present(ngc_saved)) ngc_ = ngc_saved
+   emin = [self%adam%field%emin(1,b)-ngc_*self%adam%field%dxyz(1,b), &
+           self%adam%field%emin(2,b)-ngc_*self%adam%field%dxyz(2,b), &
+           self%adam%field%emin(3,b)-ngc_*self%adam%field%dxyz(3,b)]
    dxyz = self%adam%field%dxyz(:,b)
    if (present(length_scale)) then
       emin = emin * length_scale

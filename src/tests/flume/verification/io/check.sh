@@ -10,6 +10,9 @@
 #      identical on the interior cells (edge/corner ghost cells that no map fills keep stale values the directional
 #      stencils never read), and the residuals and conservation histories byte-identical (the restarted run appends
 #      to them and does not re-save its starting step).
+#      On sod-x two restart contracts more (issue #109): the restart snapshot (<restart_basename>.xdmf + .h5, interior
+#      cells only) places each block at its first stored cell (snapshot_oracle.py, against the regular save of the same
+#      step), and a restart on fewer ranks than saved stops (it used to drop the missing ranks' blocks and run on).
 #   2. sod-x with [IO] save_auxiliary_fields and one trilinear slice on the x cell centres: io_oracle.py checks the
 #      auxiliary fields against the conservative ones and the slice against the cell values.
 #
@@ -95,6 +98,19 @@ restart_round_trip() { # restart_round_trip <case-ini> <N>
 
 if has_leg v7; then
    restart_round_trip "$VERIF_DIR/sod/sod-x.ini" 40
+   b="$CASE_DIR/work-$TAG-sod-x-B"
+   "$VENV_PY" "$CASE_DIR/snapshot_oracle.py" "$b" sod-x-restart sod-x-000000020 3
+   if (( NP > 1 )); then
+      if (cd "$b" && mpirun -np $(( NP - 1 )) "$EXE" sod-x.ini > log-fewer.txt 2>&1); then
+         echo "   restart on $(( NP - 1 )) of $NP ranks: ran on  FAIL" >&2
+         exit 1
+      elif grep -q "saved on more ranks" "$b/log-fewer.txt"; then
+         echo "   restart on $(( NP - 1 )) of $NP ranks: stopped  PASS"
+      else
+         echo "   restart on $(( NP - 1 )) of $NP ranks: stopped without the rank message (see $b/log-fewer.txt)  FAIL" >&2
+         exit 1
+      fi
+   fi
    restart_round_trip "$VERIF_DIR/conservation/amr-periodic.ini" 20
    restart_round_trip "$VERIF_DIR/shock-cylinder/shock-cylinder.ini" 40
    # issue #42: 8 blocks, all on rank 0 after the uniform refinement at np 2, so rank 1 owns none when the restart is

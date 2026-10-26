@@ -21,7 +21,7 @@ multi-realm manifest ([forest R0](/cookbook/forest#r0-the-driver-pattern)). Each
 **What you get.** The blocks are spread over the ranks by Morton order, in whole sibling families. A grid with fewer
 families than ranks leaves ranks with **no block**: that is supported (they take part in every collective and do no
 work), not an error, on both backends ([ranks without blocks](/applications/flume/verification/infrastructure/ranks-without-blocks)).
-A restart needs the rank count it was saved with; fewer ranks is not caught ([IO4](/cookbook/io#io4-restart-a-run)).
+A restart needs the rank count it was saved with; more or fewer ranks stop the run ([IO4](/cookbook/io#io4-restart-a-run)).
 
 **Reference.** [`[amr] iu_ref_levels`](/reference/library-input#amr) (the family distribution).
 

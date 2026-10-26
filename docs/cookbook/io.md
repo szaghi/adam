@@ -34,7 +34,7 @@ save_laplacian_fields  = .false.
 |---|---|---|
 | `<output_basename>-<it:9>.xdmf` + `<output_basename>-<it:9>-procNNNNNN.h5` | The fields of every block, **ghost cells included**, one HDF5 file per rank and one XDMF index per save | step 0, every `it_save` steps and the last step (`it_save > 0`; a restarted FLUME run skips its first) |
 | `<restart_basename>.time`, `.tnd`, `-procNNNNNN.fbd` | Restart: the time, the tree nodes, the blocks of each rank | every `restart_save` steps (FLUME: also the last step) |
-| `<restart_basename>.xdmf` + `<restart_basename>-procNNNNNN.h5` | A snapshot of the restart state, interior cells only; its XDMF origin is `ngc` cells off (defect, [#109](https://github.com/szaghi/adam/issues/109)): read the regular field files instead | with every restart |
+| `<restart_basename>.xdmf` + `<restart_basename>-procNNNNNN.h5` | A snapshot of the restart state, interior cells only, viewable as a field file (origin at the first interior cell, [#109](https://github.com/szaghi/adam/issues/109)) | with every restart |
 | FLUME: units and sinks restart files; PRISM: PIC restart files | The app's extra restart state | with every restart |
 | `<output_basename>-residuals.dat` | L2 norm of every residual, one row per step | every `residuals_save` steps |
 | application histories | FLUME: `-conservation_history.dat`, `-divb_history.dat` (MHD); PRISM: `-energy_history.dat`, `-divergence_history.dat`, PIC and probe histories | see the application pages |
@@ -112,9 +112,10 @@ restart_save     = 100
 **Rules** (`load_restart_files`, `src/lib/common/adam_adam_object.F90`; `load_blocks`,
 `src/lib/common/adam_field_object.F90`):
 - **Same rank count.** Each rank reads its own `<restart_basename>-procNNNNNN.fbd`. A missing file stops the run
-  (`file ... does not exist`, error code -104), so a restart on **more** ranks stops. A restart on **fewer** ranks is
-  not caught: the files of the missing ranks are never read and the run continues without their blocks (defect,
-  [#109](https://github.com/szaghi/adam/issues/109)). Restart on the rank count you saved with.
+  (`file ... does not exist`, error code -104), so a restart on **more** ranks stops. A restart on **fewer** ranks
+  stops too: the tree file names the rank of every block, and a block of a rank this run does not have stops the run
+  ("saved on more ranks than ... of this run", `tree%load_nodes`, [#109](https://github.com/szaghi/adam/issues/109)).
+  A missing `.tnd` stops the run.
 - **Same block shape.** `nv`, `ni`, `nj`, `nk` and `ngc` must equal the saved ones; a mismatch stops the run (-103).
 - **Same backend budget.** A rank that saved more blocks than the restarted run can allocate stops (-102).
 - The time and the step come from `<restart_basename>.time`, the tree from `.tnd`. The residuals history is appended,
