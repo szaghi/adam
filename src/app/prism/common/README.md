@@ -2,7 +2,7 @@
 
 The `common/` directory contains all backend-independent modules shared by the CPU and FNL backends of PRISM. Every type described here is aggregated into `prism_common_object`, which serves as the base type for both backends.
 
-**Documentation:** <https://szaghi.github.io/adam/applications/prism/common>
+**Documentation:** <https://szaghi.github.io/adam/applications/prism/>
 
 ## Source Layout
 

@@ -1,256 +1,89 @@
 # PRISM
 
-**PRISM** — **P**lasma **R**esearch us**I**ng **S**imulation **M**ethods — is an electromagnetic and plasma simulation application built on the ADAM framework. It solves the Maxwell equations for computational electromagnetics and, optionally, couples them to charged-particle dynamics via a Particle-in-Cell (PIC) method.
+**PRISM** (**P**lasma **R**esearch us**I**ng **S**imulation **M**ethods) is the electromagnetics and plasma application
+of ADAM. It solves Maxwell's equations for the electric displacement $\mathbf D$ and the magnetic induction
+$\mathbf B$ with centred finite differences or finite volumes on block-structured adaptive grids, optionally coupled to
+charged macro-particles by a particle-in-cell (PIC) method, on CPUs (MPI + OpenMP) and on GPUs (MPI + OpenACC).
 
-## Physical Models
+## What is implemented
 
-PRISM supports four physical models, selected in the INI file under `[physics] physical_model` (an unknown value is
-fatal, `adam_prism_physics_object.F90`):
+| Area | Capabilities | Details |
+|---|---|---|
+| Physics | Maxwell's equations in SI or non-dimensional form, with a prescribed current density (coils) or the current and charge of PIC macro-particles; hyperbolic (GLM) divergence cleaning of $\mathbf D$, $\mathbf B$ or both | [Physical models](./models) |
+| Space | Centred finite differences or finite volumes of order 2–10 (`[fdv]`); WENO flux splitting (CPU only) | [Numerical methods](./numerics#space-discretization) |
+| Time | Runge–Kutta (SSP 11/22/33/54, low-storage 1/2/3, Yoshida on the CPU), CFL time step on the speed of light | [Numerical methods](./numerics#time-integration) |
+| Grid | Octree/quadtree of Cartesian blocks, AMR at initialization (box and current-variation markers), 2:1 coarse–fine faces, FV reflux | [Numerical methods](./numerics#adaptive-mesh-refinement) |
+| Coupling | Multi-realm runs glued by a forest manifest, α or β seam cadence | [Numerical methods](./numerics#multi-realm-runs) |
+| Sources | Rectangular, circular, solenoid and helicon coils, DC or AC, with a smooth ramp; external rotating or uniform fields (acting on the particles) | [Initial conditions and sources](./initial-conditions) |
+| Boundaries | Extrapolation, Neumann, Dirichlet (zero), first-order Silver–Müller, PEC, periodic; perfectly matched layers (four formulations) and a far-wave damping layer | [Boundary conditions](./boundary-conditions), [Absorbing layers](./pml) |
+| Particles | Plasma (uniform, cylinder, slab, box) or a single test particle; Maxwellian or drift velocities; charge and current deposition from NGP to sixth order and Gaussian; charge-conserving currents with periodic faces; Runge–Kutta push | [Particle-in-cell](./pic) |
+| t0 fields | The electric field of the initial charge and the magnetic field of the initial current, solved by FLAIL with PRISM's own operator | [Numerical methods](./numerics#t0-elliptic-solves) |
+| Input | One INI file per realm, every value checked, refusals at initialization | [Input reference](./input) |
+| Output | XDMF + HDF5 field files (ParaView), restart files, slices, probes, residual, energy, divergence, RMS-field and charge-conservation histories | [Outputs](#outputs) |
+| Verification | Regression digests on both backends; oracle checks on AMR seams | [Verification](./verification) |
 
-| Model | Accepted values | Description |
-|-------|-----------------|-------------|
-| Electromagnetic | `electromagnetic`, `Electromagnetic`, `EM`, `em`, `Maxwell`, `maxwell` | Solves the Maxwell equations for **D** and **B** with a prescribed current source **J** |
-| Non-dimensional electromagnetic | `AdimEM`, `adimem`, `AdimensionalizedElectromagnetic`, `adimensionalelectromagnetic` | The same equations in units of `[physics] L0` and `B0` |
-| Particle-in-Cell | `PIC`, `pic`, `ParticleInCell`, `particleincell` | Couples Maxwell equations to individual charged-particle trajectories; current **J** and charge density ρ are deposited from particle positions |
-| Non-dimensional PIC | `AdimPIC`, `adimpic`, `adim_PIC`, `adim_pic` | PIC in units of `L0` and `B0` |
+## Quick start
 
-## Governing Equations
-
-PRISM solves the first-order hyperbolic form of the Maxwell equations:
-
-$$\frac{\partial \mathbf{q}}{\partial t} + \nabla \cdot \mathbf{F}(\mathbf{q}) = \mathbf{S}$$
-
-The conservative state vector is $\mathbf{q} = (D_x, D_y, D_z, B_x, B_y, B_z, J_x, J_y, J_z)^\top$ and the flux components are:
-
-$$F_x = \begin{pmatrix} 0 \\ B_z/\mu \\ -B_y/\mu \\ 0 \\ -D_z/\varepsilon \\ D_y/\varepsilon \\ 0 \\ 0 \\ 0 \end{pmatrix} \quad F_y = \begin{pmatrix} -B_z/\mu \\ 0 \\ B_x/\mu \\ D_z/\varepsilon \\ 0 \\ -D_x/\varepsilon \\ 0 \\ 0 \\ 0 \end{pmatrix} \quad F_z = \begin{pmatrix} B_y/\mu \\ -B_x/\mu \\ 0 \\ -D_y/\varepsilon \\ D_x/\varepsilon \\ 0 \\ 0 \\ 0 \end{pmatrix}$$
-
-The wave speeds are $\pm c_0 = \pm 1/\sqrt{\varepsilon_0 \mu_0}$; the current components $J_{x,y,z}$ have zero flux (source-only variables).
-
-## Source Layout
-
-```
-src/app/prism/
-├── common/                                      # Shared across all backends
-│   ├── adam_prism_parameters.F90                # Physical constants and eigenvector matrices
-│   ├── adam_prism_physics_object.F90            # Physical model, variable counts, eigenvectors
-│   ├── adam_prism_numerics_object.F90           # Temporal and spatial scheme selection
-│   ├── adam_prism_common_object.F90             # prism_common_object base type (t0 elliptic solves on FLAIL)
-│   ├── adam_prism_bc_object.F90                 # Boundary conditions handler
-│   ├── adam_prism_ic_object.F90                 # Initial conditions handler
-│   ├── adam_prism_rk_bc_object.F90              # RK sub-stepping for boundary conditions
-│   ├── adam_prism_io_object.F90                 # I/O handler
-│   ├── adam_prism_time_object.F90               # Time integration handler
-│   ├── adam_prism_coil_object.F90               # Current-carrying coil sources
-│   ├── adam_prism_fWLayer_object.F90            # Far-wave layer (absorbing BC layer)
-│   ├── adam_prism_pml_object.F90                # Perfectly matched layer
-│   ├── adam_prism_rk_pml_object.F90             # RK support for the PML auxiliary variables
-│   ├── adam_prism_absorbing_layer_geometry.F90  # Layer geometry shared by fWLayer and PML
-│   ├── adam_prism_external_fields_object.F90    # Externally prescribed fields
-│   ├── adam_prism_pic_object.F90                # Particle-in-Cell configuration
-│   ├── adam_prism_pic_bc_object.F90             # Particle closure at the domain faces
-│   ├── adam_prism_particle_injection_object.F90 # Particle injection handler
-│   ├── adam_prism_leapfrog_pic_object.F90       # Leapfrog PIC time integrator
-│   ├── adam_prism_rk_pic_object.F90             # Runge-Kutta PIC time integrator
-│   ├── adam_prism_probes_object.F90             # Field probes: time histories at fixed points
-│   ├── adam_prism_grms_object.F90               # Grms diagnostic
-│   ├── adam_prism_magnetic_field_at_center_domain_object.F90 # Field-at-domain-centre diagnostic
-│   ├── adam_prism_riemann_library.F90           # Maxwell Riemann solvers (LLF, HLL) and flux routines
-│   └── adam_prism_common_library.F90            # Barrel re-export of all common modules
-├── cpu/                                         # CPU backend
-│   ├── adam_prism_cpu.F90                       # Entry point (program)
-│   └── adam_prism_cpu_object.F90                # prism_cpu_object implementation
-└── fnl/                                         # OpenACC GPU backend
-    ├── adam_prism_fnl.F90                       # Entry point (program)
-    ├── adam_prism_fnl_object.F90                # prism_fnl_object implementation
-    ├── adam_prism_fnl_external_fields_kernels.F90 # OpenACC external-fields kernels
-    ├── adam_prism_fnl_coil_object.F90           # GPU coil handler
-    ├── adam_prism_fnl_fWLayer_object.F90        # GPU far-wave layer handler
-    ├── adam_prism_fnl_pml_object.F90            # GPU PML
-    ├── adam_prism_fnl_rk_pml_object.F90         # GPU RK support for the PML auxiliary variables
-    ├── adam_prism_fnl_pic_object.F90            # GPU Particle-in-Cell
-    ├── adam_prism_fnl_pic_conserving_object.F90 # GPU charge-conserving currents
-    ├── adam_prism_fnl_leapfrog_pic_object.F90   # GPU PIC leapfrog integrator
-    ├── adam_prism_fnl_rk_pic_object.F90         # GPU PIC Runge-Kutta integrator
-    ├── adam_prism_fnl_probes_object.F90         # GPU field probes
-    └── adam_prism_fnl_library.F90               # Barrel re-export of all FNL modules
-```
-
-## Field Variables
-
-Variable counts are determined at runtime by the physical model and divergence correction settings:
-
-| Group | Variables | Count | Notes |
-|-------|-----------|-------|-------|
-| Conservative | $D_x, D_y, D_z, B_x, B_y, B_z$ | `nv_c = 6` | Always present |
-| Source | $J_x, J_y, J_z$ | `nv_s = 3` | Always present; zero flux |
-| Divergence cleaning | $\varphi$ (D) and/or $\psi$ (B) | `nv_cl = 0, 1, 2` | Optional hyperbolic cleaning scalars |
-| PIC charge density | $\rho$ | `nv_pic = 0, 1` | Present only in PIC model |
-
-Total: `nv = nv_c + nv_s + nv_cl + nv_pic`
-
-| Configuration | nv |
-|--------------|-----|
-| EM, no cleaning | 9 |
-| EM + D or B cleaning | 10 |
-| EM + D and B cleaning | 11 |
-| PIC, no cleaning | 10 |
-| PIC + D or B cleaning | 11 |
-| PIC + D and B cleaning | 12 |
-
-**Maximum supported**: `NV_MAX = 12` (`adam_prism_parameters.F90`); a larger `nv` is fatal at initialization.
-
-### Saved fields
-
-The XH5F checkpoints hold, by default (`[IO] save_fields = all`), the whole state vector (its width depends on the
-model above) and the current density of every coil, plus the arrays switched on by `save_residual_fields`,
-`save_curl_fields` and `save_divergence_fields`. `save_fields = em` writes only $D_x, D_y, D_z, B_x, B_y, B_z$ (the
-fields as stored, no conversion to $E$) for production runs; the three `save_*_fields` flags still add their arrays, so
-set them to `.false.` for an output with the electromagnetic fields alone. Any other value is fatal.
-
-## Numerical Methods
-
-### Temporal Schemes
-
-| Scheme | INI key | Description |
-|--------|---------|-------------|
-| Runge-Kutta | `RUNGE_KUTTA` | Explicit RK, scheme from `[runge_kutta] scheme`. SSP 11/22/33/54 and low-storage 1/2/3 on both backends; Yoshida on CPU only (FNL stops at init) |
-| Leapfrog | `LEAPFROG` | **Not functional**: stops at init on both backends |
-| Blanes-Moan | `BLANES_MOAN` | **Not functional**: stops at init on both backends ([issue #55](https://github.com/szaghi/adam/issues/55)) |
-| Commutator-Free Magnus | `COMMUTATOR_FREE_MAGNUS` | **Not functional**: stops at init on both backends (issue #55) |
-
-The three non-RK field integrators exist as library objects, but `realm_object%initialize` never initializes them, so
-PRISM refuses them instead of running on unallocated coefficients (CPU) or empty device stubs (FNL). PIC's own particle
-leapfrog (`[PIC] scheme_time`) is a separate path.
-
-### Spatial Schemes
-
-| Scheme | INI key | Description |
-|--------|---------|-------------|
-| WENO | `WENO` | High-order weighted essentially non-oscillatory reconstruction |
-| FD centered | `FD_CENTERED` | Finite-difference centered stencil |
-| FV centered | `FV_CENTERED` | Finite-volume centered stencil |
-
-WENO reconstruction operates on either conservative variables (`CONSERVATIVE`) or characteristic variables (`CHARACTERISTICS`), selected via `[numerics] reconstruction_variables`.
-
-### Riemann Solvers (`adam_prism_riemann_library`)
-
-| Solver | Description |
-|--------|-------------|
-| LLF (Rusanov) | Local Lax-Friedrichs: $F = \tfrac{1}{2}(F_L + F_R - c_0 (q_R - q_L))$ |
-| HLL | Harten–Lax–van Leer two-wave solver |
-
-## Divergence Control
-
-Maxwell's equations require $\nabla \cdot \mathbf{D} = \rho$ and $\nabla \cdot \mathbf{B} = 0$. `[numerics] divergence_correction` selects the strategy, and `[numerics] constrained_transport = D | B | DB | NO` the fields it acts on:
-
-| Strategy | INI value | Description |
-|----------|-----------|-------------|
-| None | `no` | No divergence control; `constrained_transport` is ignored (a warning says so) |
-| Hyperbolic | `hyperbolic` | GLM cleaning: one scalar per field named by `constrained_transport` (φ for D, ψ for B), carrying divergence errors away at speed $\chi c_0$ (`[physics] chi`, required, > 0) and damped at the rate `[physics] alpha` (1/s, optional, default 0). **Requires `constrained_transport = D`, `B` or `DB`**: without it there is no scalar to carry, and the run stops at initialization |
-| Poisson | `poisson` | Not implemented: the run stops at initialization |
-
-With hyperbolic cleaning the state grows by one slot per scalar, placed after B: `nv = 10` for `D` or `B`, `nv = 11` for `DB` (φ in 7, ψ in 8), J follows. The regression case `rmf-hyperbolic` anchors the `DB` layout ([issue #61](https://github.com/szaghi/adam/issues/61)).
-
-## Source Terms: Coils
-
-The `prism_coil_object` models current-carrying coils as volumetric current density sources $\mathbf{J}$:
-
-| Coil type | Description |
-|-----------|-------------|
-| `rectangular` | Rectangular loop coil with user-defined dimensions and normal direction |
-| `circular` | Circular loop coil |
-| `solenoid` | Solenoid |
-| `helicon` | Helicon antenna |
-
-| Current type | Description |
-|--------------|-------------|
-| `DC_current` | Constant (DC) current |
-| `AC_current` | Sinusoidal (AC) current with amplitude, frequency, and initial phase |
-
-Coil normals are specified as `+x`, `-x`, `+y`, `-y`, `+z`, or `-z`. Coil $\mathbf{J}$ contributions are computed each time step and registered for optional output as auxiliary fields (`j_vec_1/2/3`, `f_Gauss`).
-
-## Particle-in-Cell (PIC)
-
-When `physical_model = PIC`, PRISM tracks charged macro-particles alongside the Maxwell field. Each particle carries 8 state variables stored in `q_pic(8, particle_number)`:
-
-| Index | Variable | Description |
-|-------|----------|-------------|
-| 1 | x | Position x |
-| 2 | y | Position y |
-| 3 | z | Position z |
-| 4 | vx | Velocity x |
-| 5 | vy | Velocity y |
-| 6 | vz | Velocity z |
-| 7 | charge | Particle charge |
-| 8 | mass | Particle mass |
-
-Field values at particle locations (D and B) are stored in `pic_fields(6, particle_number)`. Particle time integration (`[PIC] scheme_time`) is Runge-Kutta (`RUNGE_KUTTA`, with `[runge_kutta]` SSP 22, 33 or 54; a charge-conserving variant with `current_weighting_model = conserving`); `LEAPFROG` is parsed and refused at initialization on both backends, as is any other RK scheme.
-
-Two problem types are supported:
-
-| Type | INI key | Description |
-|------|---------|-------------|
-| Plasma | `plasma` | Ensemble of charged particles |
-| Single particle | `single_particle` | Single test-particle trajectory |
-
-## `prism_common_object` Overview
-
-`prism_common_object` extends the library's `realm_object` and adds the PRISM sub-objects:
-
-**ADAM framework objects** (components of `realm_object`): `io`, `amr`, `slices`, `blanesmoan`, `cfm`, `leapfrog`, `flail`, `weno`, `ib`, `rk`, and `adam` (grid, tree, field, maps). MPI goes through the program-scope `mpih` singleton.
-
-**PRISM sub-objects**: `bc`, `coil`, `external_fields`, `fWLayer`, `grms`, `ic`, `leapfrog_pic`, `magnetic_field_at_center_domain`, `numerics`, `particle_injection`, `physics`, `pic`, `pml`, `probes`, `rk_pic`, `rk_pml`, `time` (`adam_prism_common_object.F90`)
-
-**Field arrays** (all shape `(nv, ni, nj, nk, nb)`):
-
-| Array | Description |
-|-------|-------------|
-| `q` | Conservative field: D, B, J (+ optional cleaning scalars and ρ) |
-| `dq` | Residuals RHS |
-| `curl` | Curl of field components (optional output) |
-| `divergence` | Divergence of field components (optional output) |
-
-**PIC arrays**: `q_pic(8, particle_number)`, `pic_fields(6, particle_number)`
-
-**Energy diagnostics**: `energy_D(:)`, `energy_B(:)` (time histories), `rms_energy_error_D/B`
-
-## Multi-realm support
-
-PRISM realms participate in multi-realm forests as `prism_cpu_object` / `prism_fnl_object` arrays. Both backends override the `_forest`-suffixed TBP family (`begin_stage_forest`, `end_stage_forest`, `close_step_forest`, `fill_seam_from_peer_forest`, `apply_reflux_to_stage_forest`, `coupling_descriptor_forest`, ...) inherited from `realm_object` via `prism_common_object`.
-
-- **Worked manifest example**: `src/tests/prism/regression/rmf-2realm/input.ini` and the sibling cases (`rmf-2realm-asymK`, `rmf-2realm-stagesync`).
-- **Conceptual overview**: [Forest (multi-realm)](/concepts/forest) — the project documentation site covers the manifest schema, the α/β seam-coupling cadence trade-offs, and the orchestrator's phase cycle.
-- **Library contract reference**: the [library page](/concepts/library#forest-orchestration-multi-realm), "Forest orchestration" — the per-realm and per-forest TBP surface, manifest data flow, and load-bearing invariants.
-
-## Backends
-
-| Backend | Entry point | Key type | Accelerator |
-|---------|-------------|----------|-------------|
-| CPU | `adam_prism_cpu.F90` | `prism_cpu_object` | MPI + OpenMP |
-| FNL | `adam_prism_fnl.F90` | `prism_fnl_object` | MPI + OpenACC (NVIDIA GPU) |
-
-The FNL backend adds GPU companion objects (`field_fnl_object`, `rk_fnl_object`, `weno_fnl_object`, etc.) and device-side pointer arrays (`q_gpu`, `dq_gpu`, `flx_f_gpu`, `curl_gpu`, …). The CPU backend implements all differential operators (curl, divergence, gradient, Laplacian, derivatives 1–4) via procedure pointers, dispatched at initialisation based on `scheme_space`.
-
-## Building
+Build (FoBiS, from the repository root):
 
 ```bash
-# CPU backend (GNU compiler)
-fobis build --mode prism-cpu-gnu
-
-# CPU debug build
-fobis build --mode prism-cpu-gnu-debug
-
-# FNL (OpenACC) backend
-fobis build --mode prism-fnl-nvf --varset local_nvf
+fobis build --mode prism-cpu-gnu                         # CPU backend
+fobis build --mode prism-fnl-nvf --varset local_nvf      # GPU backend (OpenACC, NVIDIA HPC SDK)
 ```
 
-Executables are written to `exe/adam_prism_cpu` and `exe/adam_prism_fnl`.
-
-## Running
+Run the rotating-magnetic-field regression case:
 
 ```bash
-mpirun -np <N> exe/adam_prism_cpu [input.ini]
-mpirun -np <N> exe/adam_prism_fnl [input.ini]
+cd src/tests/prism/regression/rmf
+mpirun -np 2 ../../../../../exe/adam_prism_cpu input.ini
 ```
 
-If no argument is given, `input.ini` in the working directory is used.
+Without an argument the executable reads `input.ini` in the working directory. A file with a `[forest]` section is a
+[forest manifest](/reference/library-input#forest-manifest-multi-realm) and runs several realms.
+
+## Outputs
+
+| File | Content | Enabled by |
+|---|---|---|
+| `<basename>-<it>-procNNNNNN.h5` + `<basename>-<it>.xdmf` | Field files: the state (`[IO] save_fields = all`) or D and B only (`em`), plus residuals, curls, divergences and the coils' current densities on request | `[IO] it_save` and the `save_*_fields` flags ([input](./input#io)) |
+| restart files | State and time, same rank count and grid to restart | `[IO] restart_save` |
+| `<basename>-residuals.dat` | L2 norm of every residual | `[IO] residuals_save` |
+| `<basename>-energy_history.dat` | the electric and magnetic energies $\tfrac12\sum\lvert\mathbf D\rvert^2/\varepsilon_0\,\Delta V$ and $\tfrac12\sum\lvert\mathbf B\rvert^2/\mu_0\,\Delta V$, the coil power and the Poynting flux | every 10 steps (fixed) |
+| `<basename>-divergence_history.dat` | max $\lvert\nabla\cdot\mathbf D\rvert$ ($\lvert\nabla\cdot\mathbf D - \rho\rvert$ with PIC), $\lvert\nabla\cdot\mathbf B\rvert$, $\lvert\nabla\cdot\mathbf J\rvert$ outside the absorbing layers, and the residual of the current solver | every step |
+| `<basename>-charge_conservation_history.dat` | PIC: particle and deposited charge, continuity and Gauss residuals | PIC models |
+| `<basename>-grms_history.dat`, `<basename>-magnetic_field_at_center_domain.dat` | RMS of the field over a region; $\mathbf B$ at the domain centre | `[grms]`, `[magnetic_field_at_center_domain]` |
+| `<basename>-probe_NN.dat` | The state at a fixed point, trilinear | `[probes]` |
+| `rectangular_current_coil_N.dat`, `helicon_current_coil_N.dat` | The current of rectangular and helicon coils | every step, when such a coil exists |
+| `single_particle_output.dat` | Position, velocity and fields of the test particle | `problem_type = single_particle` |
+
+## Pages
+
+- [Physical models](./models): equations, state vector, constants, non-dimensional form, GLM cleaning.
+- [Numerical methods](./numerics): the centred operators, WENO, time integration, AMR and seams, multi-realm runs, the
+  t0 elliptic solves.
+- [Initial conditions and sources](./initial-conditions): field initial conditions, coils, external fields.
+- [Boundary conditions](./boundary-conditions) and [absorbing layers](./pml): the face kinds, the PML, the far-wave layer.
+- [Particle-in-cell](./pic): particles, deposition, gather, push, particle boundaries, charge conservation.
+- [Input reference](./input): every section and key, with the refused combinations.
+- [Backends](./backends): CPU and FNL, what each implements, the step structure, device data.
+- [Verification](./verification): the oracle checks.
+
+## Known limitations
+
+- **Seam div(B).** At a 2:1 AMR face the centred operators no longer commute, and the seam injects an $O(h^p)$
+  $\nabla\cdot\mathbf B$ source that converges under refinement but grows in time at fixed $h$
+  ([#29](https://github.com/szaghi/adam/issues/29), accepted as truncation; an upwinded GLM coupling is
+  [#99](https://github.com/szaghi/adam/issues/99)). `[IO] seam_divB_tol` makes it visible
+  ([numerics](./numerics#the-2-1-seam-and-div-b)).
+- **Refinement at initialization only.** PRISM has no runtime regrid; the t0 elliptic solves refuse a refined grid.
+- **Time integration.** Only Runge–Kutta runs: leapfrog, Blanes–Moan and commutator-free Magnus are refused, for the
+  fields and for the particles ([#55](https://github.com/szaghi/adam/issues/55)).
+- **The GPU backend** has no WENO and no Yoshida; its PML needs the FD operators and an SSP scheme
+  ([backends](./backends#what-each-backend-implements)).
+- **The CPU charge-conserving deposit and the CPU coherent matched gather** run on one block and one rank only.
+- **Coils** (defects, [#108](https://github.com/szaghi/adam/issues/108)): a circular coil injects no current, and
+  the coils after the first take the first coil's amplitude, not their own `Amplitude`.
+- **The PML and far-wave-layer profiles** are computed per rank, so a layer that spans the blocks of several ranks
+  gives results that depend on the decomposition ([#108](https://github.com/szaghi/adam/issues/108)).
+- **Verification.** Analytic oracles (plane wave, cavity, PML reflection, Biot–Savart, Larmor orbit, plasma frequency)
+  are [#106](https://github.com/szaghi/adam/issues/106).

@@ -43,5 +43,5 @@ sections the library reads are shared; each application adds its own. Common sec
 | `[bc_*]` | Boundary conditions for each domain face |
 | `[solids]` | Immersed boundary geometry (analytical sphere, circle, rectangle) |
 
-The full key lists are in the [FLUME input reference](/applications/flume/input) and the PRISM
-[common page](/applications/prism/common).
+The full key lists are in the [FLUME input reference](/applications/flume/input) and the
+[PRISM input reference](/applications/prism/input).

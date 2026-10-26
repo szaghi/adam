@@ -5,7 +5,7 @@ The FNL backend (`prism-fnl`) is the GPU-accelerated implementation of PRISM usi
 common infrastructure and extends it with GPU-resident arrays, OpenACC-parallelized FDV operators,
 and GPU-aware MPI communication via the FUNDAL library.
 
-**Documentation:** <https://szaghi.github.io/adam/applications/prism/fnl>
+**Documentation:** <https://szaghi.github.io/adam/applications/prism/backends>
 
 ## Source files
 

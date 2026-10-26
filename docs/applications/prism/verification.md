@@ -7,6 +7,11 @@ problem) rather than a stored number. The figures are drawn from the runs by
 `src/tests/prism/regression/make_doc_figures.py` (each check run with `--keep`); the runs use the CPU backend unless
 stated, `PRISM_EXE=exe/adam_prism_fnl` runs a check on the GPU (FNL) backend.
 
+Analytic oracles for the physics (plane wave and Gaussian pulse convergence, PEC image, cavity mode, PML reflection
+against angle, infinite wire against Biot–Savart, Larmor orbit, plasma frequency) are tracked in
+[#106](https://github.com/szaghi/adam/issues/106); the Fresnel slab against its exact spectral solution in
+[#105](https://github.com/szaghi/adam/issues/105).
+
 ```bash
 cd src/tests/prism/regression/rmf-amr-fd-pulse && ./check.sh       # CPU backend
 PRISM_EXE=$PWD/../../../../../exe/adam_prism_fnl ./check.sh        # FNL backend (GPU)

@@ -174,7 +174,7 @@ The four counts are always required, even when they are all zero.
 | `N_points` | int | `helicon` | `<= 50`, otherwise fatal | Points of the antenna path. |
 | `x_point_K`, `y_point_K`, `z_point_K` | real | `helicon`, K = 1..`N_points` | — | Antenna path points. |
 | `Amplitude` | real | yes (`DC_current`, `AC_current`) | — | Current amplitude (A). |
-| `Frequency`, `Phase` | real | `AC_current` | — | Frequency (Hz) and initial phase (rad). |
+| `Frequency`, `Phase` | real | `AC_current` | — | Frequency (Hz) and initial phase (**degrees**). |
 
 ---
 

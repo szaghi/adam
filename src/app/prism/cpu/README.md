@@ -5,7 +5,7 @@ solver. It inherits the full PRISM common infrastructure (grid, field, physics, 
 coils, boundary conditions) and adds flux storage arrays, spatial-operator procedure pointers, and the
 Runge-Kutta time integration.
 
-**Documentation:** <https://szaghi.github.io/adam/applications/prism/cpu>
+**Documentation:** <https://szaghi.github.io/adam/applications/prism/backends>
 
 ## Source files
 
