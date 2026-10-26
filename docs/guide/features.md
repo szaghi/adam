@@ -6,15 +6,16 @@ title: Features
 
 ## GPU backends
 
-ADAM supports three GPU-acceleration backends, all sharing the same numerical core:
+The maintained GPU backend is **FNL**, one source tree with two device paths:
 
-| Backend | Macro | Compiler | Parallelism model |
-|---------|-------|----------|-------------------|
-| **NVF** | `_NVF` | NVIDIA nvfortran | CUDA Fortran device arrays and kernels |
-| **FNL** | `_FNL` | NVIDIA nvfortran | OpenACC + FUNDAL memory management |
-| **GMP** | `_GMP` | Intel ifx / GNU gfortran | OpenMP target offloading (experimental) |
+| Modes | Macro | Compiler | Parallelism model |
+|-------|-------|----------|-------------------|
+| `*-fnl-nvf` | `_FNL` | NVIDIA nvfortran | OpenACC + FUNDAL memory management (NVIDIA GPUs) |
+| `*-fnl-omp-amd` | `_FNL`, `DEV_OMP` | AMD amdflang | OpenMP target offloading + FUNDAL (AMD GPUs) |
 
-Each application (`nasto`, `prism`, …) compiles to separate executables per backend, sharing a common source tree under `src/app/<name>/common/`.
+The kernels carry both directive sets (`!$acc` and `!$omp` twins). The `src/lib/nvf` (CUDA Fortran) and `src/lib/gmp` (OpenMP offloading) libraries are in the tree, but no PRISM or FLUME build mode uses them.
+
+Each application (`prism`, `flume`) compiles to separate executables per backend, sharing a common source tree under `src/app/<name>/common/`.
 
 ---
 
@@ -46,13 +47,14 @@ Weighted Essentially Non-Oscillatory finite difference reconstructions:
 
 | Scheme | Order | Ghost cells |
 |--------|-------|-------------|
-| WENO-3 | 3rd | `ngc = 2` |
-| WENO-5 | 5th | `ngc = 3` |
-| WENO-7 | 7th | `ngc = 4` |
-| WENO-9 | 9th | `ngc = 5` |
-| WENO-11 | 11th | `ngc = 6` |
+| `weno-u-1` | 1st (upwind) | `ngc = 1` |
+| `weno-u-3` | 3rd (upwind) | `ngc = 2` |
+| `weno-u-5` | 5th (upwind) | `ngc = 3` |
+| `weno-u-7` | 7th (upwind) | `ngc = 4` |
+| `weno-u-9` | 9th (upwind) | `ngc = 5` |
+| `weno-c-2` … `weno-c-8` | 2nd–8th (centred) | `ngc = order/2` |
 
-Reconstruction variables: conservative or characteristic. Order-of-refinement (ROR) switching near shocks is supported.
+Nonlinear weights: Jiang–Shu (`js`, the default) or scale-invariant (`si`). Reconstruction variables: conservative or characteristic. ROR iterations lower the stencil where a variable check fails, and the order is reduced close to immersed solids.
 
 ---
 
@@ -60,9 +62,9 @@ Reconstruction variables: conservative or characteristic. Order-of-refinement (R
 
 Explicit Runge-Kutta multi-stage methods:
 
-- SSP-RK3, SSP-RK4, SSP-RK5(4), and standard RK schemes
+- `runge-kutta-1`, `-2`, `-3`; SSP `runge-kutta-ssp-11`, `-22`, `-33`, `-54`; the 4-stage symplectic `runge-kutta-yoshida`
 - CFL-based time step control
-- Optional leapfrog and Adams-Bashforth integrators
+- Leapfrog, Blanes–Moan (`blanes-moan4`) and commutator-free Magnus (`CFM-4`) integrator objects
 
 ---
 
@@ -80,10 +82,9 @@ The leftmost index `nv` is contiguous in memory and is the innermost loop for CP
 
 ## Parallel I/O
 
-- HDF5 parallel output with ZLIB/SZIP compression
-- Restart files for checkpoint/resume
-- Slice extraction for in-situ visualization
-- XDMF metadata support for ParaView/VisIt
+- Field output: one HDF5 file per MPI rank (`<basename>-procNNNNNN.h5`) plus one XDMF file (`<basename>.xdmf`) for ParaView/VisIt
+- Restart: Fortran stream files, the blocks per rank (`-procNNNNNN.fbd`), the tree nodes (`.tnd`) and the time (`.time`)
+- Slices: raw binary written with MPI-IO (`.mat`), converted by ASCOT or `slices_converter.py`
 
 ---
 
@@ -91,10 +92,9 @@ The leftmost index `nv` is contiguous in memory and is the innermost loop for CP
 
 | Compiler | GPU backends | CPU |
 |----------|-------------|-----|
-| NVIDIA nvfortran ≥ 25.3 | NVF, FNL | Yes |
-| GNU gfortran ≥ 9 | — | Yes |
-| Intel ifort / ifx | GMP (experimental) | Yes |
-| AMD flang | — | Planned |
+| NVIDIA nvfortran 26.9 (tested) | FNL (OpenACC) | Yes |
+| GNU gfortran 16.2.0 + Open MPI 5.0.11 (tested) | — | Yes |
+| AMD amdflang | FNL (OpenMP offloading, `*-fnl-omp-amd`) | Yes (`prism-cpu-amd`) |
 
 ---
 

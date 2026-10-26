@@ -4,13 +4,11 @@ The `src/tests/prism/regression/` suite is the **structural-change regression ba
 
 This page is the conceptual overview. The authoritative operational reference — golden-capture workflow, CI-as-authority rules, tolerance rationale, adding a case — is the suite's own [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md); it is not duplicated here. To stand the suite up on a new machine, compiler, or GPU architecture, follow the [bring-up tutorial](./prism-regression-tutorial).
 
-::: warning Current status — two open items (as of `cf16e20d`)
-The suite runs again after the `[fWLayer]` input migration, but is not fully green: **6 PASS, 1 FAIL, 3 SKIP** on a local CPU sweep.
-
-1. **`rmf-amr` digest mismatch.** It is the only case on `fv_centered`; its golden dates from `d15fed4c` (2026-07-04) and `28625dbf` has since reworked FV coil initialisation. The input changed only in comments, so this is a source-behaviour change on the FV path — previously masked by the fWLayer breakage. It needs adjudication (correct behaviour → golden bump; incorrect → fix), **not a reflexive golden refresh**.
-2. **`rmf-fwl` is still un-migrated** and still `error_stop`s: its layer is active, so translating `C = 6` to a physical `width` is not a guaranteed round-trip and its FNL golden must be re-verified.
-
-Details and evidence in the [suite README](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md).
+::: tip Current status (`1c6ebee5`, medooza gates)
+**15 PASS, 9 SKIP** on the CPU backend, **16 PASS, 8 SKIP** on FNL (a SKIP is a case with no golden for that backend, or one of the two non-case directories `reproducers/` and `slices/`;
+`rmf-fwl` is FNL-goldened only). The two items open at `cf16e20d` are closed: the `rmf-amr` FV-path change was
+adjudicated and its goldens refreshed on both backends (`bad09954`), and `rmf-fwl` was migrated to `[fWLayer] width`
+with its FNL golden refreshed (`43981538`).
 :::
 
 ## Design goals

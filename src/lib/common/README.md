@@ -1,6 +1,6 @@
 # ADAM Common Library — `src/lib/common`
 
-The common library is the **portable, physics-agnostic core** of the ADAM SDK. Every GPU backend (`fnl`, `nvf`, `gmp`) extends these objects rather than replacing them; every solver application (`nasto`, `prism`, `chase`, …) composes them. No GPU-specific code lives here — the entire directory compiles with any standard Fortran 2003+ compiler.
+The common library is the **portable, physics-agnostic core** of the ADAM SDK. The GPU objects (`fnl`; the unbuilt `nvf`, `gmp`) are separate types, initialised from these objects passed as arguments; every solver application (PRISM and FLUME are the maintained ones) composes them through `realm_object`. No GPU-specific code lives here — the entire directory compiles with any standard Fortran 2003+ compiler.
 
 The aggregate entry point `adam_common_library` re-exports all modules below; a single `use adam_common_library` statement in application code exposes the complete API.
 
@@ -65,12 +65,12 @@ Key configuration (`[grid]` INI section):
 
 Notable methods: `block_emin/emax`, `cell_xyz`, `node_xyz`, `compute_metrics`, `compute_weight_neighbor`, `load_from_ini_file`.
 
-### `adam_field_object` — 5D field array
+### `adam_field_object` — block geometry, ghost exchange, refinement
 
-Dense contiguous array holding all simulation variables for all blocks owned by an MPI rank:
+The field object holds the per-block geometry (`emin`, `emax`, `dxyz`, node and cell coordinates), the ghost exchange (`update_ghost_local`, `update_ghost_mpi`, and the reverse folds `reduce_ghost_local`, `reduce_ghost_mpi`), the refinement and derefinement of block data (`adapt`), and the restart blocks (`save_blocks`, `load_blocks`). The state arrays are owned by the application (e.g. `flume_common_object%q`), dense and contiguous over all blocks of an MPI rank:
 
 ```
-q(nv, ni, nj, nk, nb)
+q(nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nb)
 ```
 
 | Dimension | Meaning |
@@ -79,7 +79,7 @@ q(nv, ni, nj, nk, nb)
 | `ni, nj, nk` | Cell indices within a block, including ghost cells |
 | `nb` | Compact sequential block index (1 … current block count) |
 
-Fortran column-major order keeps `nv` contiguous in memory, enabling coalesced reads across CUDA threads or OpenACC/OpenMP SIMD lanes. The array is allocated once at simulation start to the maximum block count and reused across all Runge-Kutta stages — no dynamic allocation during time integration.
+Fortran column-major order keeps `nv` contiguous in memory, enabling coalesced reads across CUDA threads or OpenACC/OpenMP SIMD lanes. The application allocates it once, to the block count `nb` that `realm_object%initialize` derives from the memory budget, and reuses it across all Runge-Kutta stages — no dynamic allocation during time integration.
 
 ---
 
@@ -93,7 +93,7 @@ Bridges the tree (Morton-key addressed) and the field (compact-index addressed).
 
 | Map | Purpose |
 |-----|---------|
-| `local_map` | Block index ↔ Morton key translation (`b2m` / `m2b`) |
+| `local_map` | Block index changes of the rank's nodes (old → new) for block reordering |
 | `local_map_ghost` | Block-to-ghost-block adjacency for exchange |
 | `local_map_ghost_cell` | Cell-level ghost stencil offsets |
 | `local_map_bc_face/edge/corner/crown` | Boundary condition application stencils |
@@ -112,14 +112,14 @@ Key methods: `initialize`, `make_comm_local_maps`, `blocks_reorder`.
 
 ### `adam_weno_object` — WENO reconstruction
 
-Weighted Essentially Non-Oscillatory finite difference reconstruction. Upwind and centered variants are available at orders 1, 3, 5, 7, and 9 (upwind) and 2+ (centered). The stencil half-width `S_MAX` governs the ghost-cell requirement.
+Weighted Essentially Non-Oscillatory finite difference reconstruction. Upwind and centered variants are available at orders 1, 3, 5, 7, and 9 (upwind) and 2, 4, 6, and 8 (centered); the nonlinear weights are Jiang–Shu (`js`, default) or scale-invariant (`si`). The stencil half-width `S_MAX` governs the ghost-cell requirement.
 
 Scheme selectors:
 
 | Constant | Scheme |
 |----------|--------|
 | `WENO_U_1` … `WENO_U_9` | Upwind WENO, orders 1/3/5/7/9 |
-| `WENO_C_2` … | Centered WENO |
+| `WENO_C_2` … `WENO_C_8` | Centered WENO, orders 2/4/6/8 |
 
 Reference: Chi-Wang Shu, NASA/CR-97-206253 (1997).
 
@@ -159,10 +159,11 @@ Convective interface flux computation for the compressible Euler equations. All 
 | `RK_1` | Forward Euler | 1 | 1 |
 | `RK_2` | Heun | 2 | 2 |
 | `RK_3` | TVD-RK3 | 3 | 3 |
+| `RK_SSP_11` | SSP(1,1), forward Euler | 1 | 1 |
 | `RK_SSP_22` | SSP(2,2) | 2 | 2 |
 | `RK_SSP_33` | SSP(3,3) | 3 | 3 |
 | `RK_SSP_54` | SSP(5,4) | 5 | 4 |
-| `RK_YOSHIDA` | Yoshida symplectic | 3 | 4 |
+| `RK_YOSHIDA` | Yoshida symplectic | 4 | 4 |
 
 Stage storage `q_rk(nv, ni, nj, nk, nb, nrk)` is pre-allocated; no allocation occurs during time-stepping. Configuration section: `[runge_kutta]`.
 
@@ -233,7 +234,7 @@ Supported solid definitions:
 | Sphere / circle | `IB_ANALYTICAL_SPHERE` | Defined by centre, radius, axis |
 | Circle (XY plane) | `IB_ANALYTICAL_CIRCLE` | 2D equivalent |
 | Rectangle | `IB_ANALYTICAL_RECTANGLE` | Defined by centre, edge lengths, axis |
-| Surface mesh | — | OFF-format triangulated surface |
+| Surface mesh | — | `file.off`: no implementation, refused at load (issue #57) |
 
 Wall boundary condition types:
 
@@ -252,20 +253,23 @@ Marker modes:
 
 | Constant | Value | Criterion |
 |----------|-------|-----------|
-| `AMR_GEO` | 1 | Geometry-based (distance to IB surface) |
+| `AMR_GEO` | 1 | Geometry: an IB solid (`AMR_GEO_SOLID`), a primitive box (`AMR_GEO_PRIMITIVE_BOX`, up to `target_level`) or an STL surface (`AMR_GEO_STL`, refused by both PRISM and FLUME). In PRISM the `AMR_GEO_SOLID` and `AMR_GRAD` branches do nothing (it implements the primitive box and `AMR_TV`) |
 | `AMR_GRAD` | 2 | Field gradient magnitude |
+| `AMR_TV` | 3 | Field total variation |
+| `AMR_LOHNER` | 4 | Löhner normalised second derivative (`refine_tol`, `derefine_tol`; issue #74) |
+| `AMR_JEANS` | 5 | Jeans length resolution (`jeans_cells`, `jeans_cells_derefine`; issue #91) |
 
-Each marker carries threshold parameters `delta_fine` / `delta_coarse` (cell-spacing ratios), a tolerance `tol`, and a reference to the field variable and direction. AMR is triggered every `frequency` time steps and iterated `iters` times per cycle to enforce 2:1 level balance. Configuration section: `[amr]`.
+Each marker carries its own thresholds and a reference to the field variable. The markers refine the grid at initialization, iterated `iters` times to enforce 2:1 level balance. A realm that regrids during the run (FLUME, issue #74) re-applies them every `frequency` time steps through `regrid_forest`; PRISM refines at initialization only. Configuration section: `[amr]`.
 
 ### `adam_flail_object` — FLAIL, the elliptic solver library (issue #84)
 
 One entry point for the elliptic solves of every app, the realm component `flail` (`self%flail`). It is built on the two
 solvers below, verified in #81/#87: the FFT solver on uniform grids and the multigrid-preconditioned CG solver on
-AMR grids. The legacy smoothers (next section) retire once PRISM moves here (#84, E3-E4).
+AMR grids. The legacy smoothers (next section) were deleted once PRISM moved here (#84, E4).
 
 | Procedure | Role |
 |-----------|------|
-| `setup(grid, field, isolated, backend[, option_name][, bc][, dg_order])` | Choose the solver for the current grid (`FLAIL_BACKEND_AUTO`: the FFT solver on a uniform grid, the multigrid otherwise; `_FFT`, `_MULTIGRID`); call it on the initial grid and after every regrid. `bc(2,3)` (E1c): the kind of every face, forwarded (`FLAIL_BC_PERIODIC`, `_DIRICHLET`, `_NEUMANN`, `_DIRICHLET_GHOST`, re-exported here); without it, periodic or isolated as in E0; isolated with `bc` is fatal. `dg_order` (E2a): the wide D(G) of order 2, 4, 6, 8, on the FFT path only (fatal on AMR: not defined across 2:1 faces yet, #84 E7) |
+| `setup(grid, field, isolated, backend[, option_name][, bc][, dg_order])` | Choose the solver for the current grid (`FLAIL_BACKEND_AUTO`: the FFT solver on a uniform grid, the multigrid otherwise; `_FFT`, `_MULTIGRID`); call it on the initial grid and after every regrid. `bc(2,3)` (E1c): the kind of every face, forwarded (`FLAIL_BC_PERIODIC`, `_DIRICHLET`, `_NEUMANN`, `_DIRICHLET_GHOST`, re-exported here); without it, periodic or isolated as in E0; isolated with `bc` is fatal. `dg_order` (E2a): the wide D(G) of order 2, 4, 6, 8, on the FFT path only (fatal on AMR: not defined across 2:1 faces; #84 E7, closed with no consumer) |
 | `solve(field, q, iv, factor, phi, energy[, ghost])`, `solve_packed(field, buf, factor, phi, energy[, ghost])` | Forward to the chosen solver; `energy = sum f phi dV`; `ghost` the boundary value of each boundary face (`mg%nbnd`, `mg%bnd_kind`, `mg%bnd_dir`, `mg%bnd_x`), multigrid path only (fatal on the FFT path, which solves the homogeneous problem) |
 | `iterations()`, `is_multigrid()`, `destroy()` | The last FCG iteration count (0 for the FFT solver), the solver in use, cleanup |
 
@@ -280,14 +284,14 @@ through the realm's `flail`, one `setup` per component, `dg_order = fdv_order`, 
 periodic, PRISM's Dirichlet is `FLAIL_BC_ZERO_GHOSTS`, PEC is `FLAIL_BC_DIRICHLET` (odd) for the potential and the
 tangential components of A, `FLAIL_BC_NEUMANN` (even) for the normal one, as the legacy ghost rules; an exact/open face
 (PRISM's `Neumann`, `Silver_Muller`) is `FLAIL_BC_FREE_GHOSTS` (E3c), a null axis periodic. A refined grid is refused
-(E7). The FNL
+(the wide operator across 2:1 faces is not defined; #84 E7 closed with no consumer). The FNL
 backend allocates the cuFFT solver; every PRISM mode links an FFT library (FFTW on the host, cuFFT on NVIDIA FNL).
 Regression cases `pic-pec-t0`, `rmf-pec-t0`, `pic-open-t0` and `rmf-open-t0` enter the two solves. Three limits: the CG solves (zero-ghost and free-space
 faces) gather the grid on rank 0 (and on its GPU on FNL), about 24 B per transform cell (#84 decision 3; the PEC
 solves are distributed over the z-planes since E5d, 8 N cells with reflected faces); and PRISM's centred div∘grad annihilates the checkerboard, so with PEC faces the
 component of rho along `(-1)^(i+j+k)` stays in `div D - rho` (no D can carry it; the legacy smoother could not either);
 the free-space ghost sum is a direct one on rank 0, O(ghost-slab cells x cells) per component (a lattice free-space
-solve is E7).
+solve is not implemented: #84 E7 closed with no consumer).
 
 A backend chooses its FFT engine by allocating the `fft` component before `setup` (FLUME's FNL backend allocates the
 cuFFT one). The boundary kinds per face, `FLAIL_BC_PERIODIC | _DIRICHLET | _NEUMANN | _DIRICHLET_GHOST |
@@ -295,8 +299,10 @@ _ZERO_GHOSTS | _FREE_GHOSTS`, live in
 `adam_flail_parameters` (a module of their own: the solvers use them, and the facade uses the solvers). Phases and
 status: [issue #84](https://github.com/szaghi/adam/issues/84).
 
-**Scaling (#84, E5).** Both solvers gather to rank 0: the FFT solver the whole uniform grid, the multigrid its
-coarsest level (the whole base grid) in every V-cycle and the James step's ghost charges in every isolated solve.
+**Scaling (#84, E5-E6).** Before E5 both solvers gathered to rank 0: the FFT solver the whole uniform grid, the
+multigrid its coarsest level (the whole base grid) in every V-cycle and the James step's ghost charges in every
+isolated solve. Since E5d the uniform FFT is distributed over z-slabs; the multigrid's root is redundant on every rank
+up to 32^3 cells and on the slab FFT above it.
 `poisson_fft_object%wall(3)` accumulates the gather, rank-0 solve and scatter times of `solve_blocks` on each rank
 (the caller resets it). `exe/bench_poisson` (modes `bench-poisson-gnu`, `bench-poisson-fnl-nvf`) times FLAIL's solves
 on the cube [-1,1]^3 (Gaussian source, uniform or with the central box refined), and `src/tests/poisson/bench.sh
@@ -520,15 +526,15 @@ where table and expansion meet, `1.0e-13`; `G(0)` against Watson's closed form f
 
 ### `adam_mpih_object` — MPI wrapper
 
-Thin convenience layer over MPI. Provides rank/size query, tic-toc performance timing, rank-prefixed console output, non-blocking request bookkeeping (`req_send_recv`), and `abort`/`error_stop` helpers. All communication in the maps and field objects routes through this object.
+Thin convenience layer over MPI. Provides rank/size query, tic-toc performance timing, rank-prefixed console output, barrier, and `abort`/`error_stop` helpers. The ghost exchange itself lives in `adam_field_object` (`update_ghost_mpi`), with its request flags (`req_send_recv`).
 
 ### `adam_io_object` — parallel I/O
 
-Manages all simulation data output and restart files. Holds pointers to the primary field and to up to 30 auxiliary arrays (vectors and scalars at multiple precisions: `R8P`, `R4P`, `I8P`, `I4P`, `I2P`, `I1P`). Supported output formats: HDF5 (parallel, MPI-IO), VTK, XH5F, and MAT (MATLAB).
+Holds the `[IO]` configuration (output basenames and cadences, auxiliary-field switches, the seam div(B) monitor keys), writes the history files (residuals, energy, divergence, charge conservation), and provides the XH5F field writer `save_field` (rank 4 and 5, kinds `R8P`, `R4P`, `I8P`, `I4P`, `I2P`, `I1P`). Field output is one HDF5 file per rank, `<basename>-procNNNNNN.h5`, indexed by one `<basename>.xdmf` (`realm_object%open_file_xh5f`, `save_q_xh5f`). Restart files are written by `adam_object`.
 
 ### `adam_slices_object` — 2D diagnostic slices
 
-Extracts planar 2D slices from the 3D field at configurable spatial bounds and resolution (`emin`, `emax`, `nijk`). Save frequency is controlled by `n_save`. Output format: MAT. Configuration section: `[slices]`.
+Extracts planar 2D slices from the 3D field at configurable spatial bounds and resolution (`emin`, `emax`, `nijk`). Save frequency is controlled by `n_save`. Output: raw binary written with MPI-IO (`adam_object%save_slice`, extension `.mat`), converted by ASCOT or `scripts/slices_converter.py`. Configuration section: `[slices]`.
 
 ### `adam_adam_object` — top-level orchestrator
 
@@ -537,7 +543,7 @@ Composer that binds all SDK objects into a single `adam_object` and drives the s
 - **Initialisation**: `initialize` — sets up grid, tree, maps, field, and I/O from INI file
 - **AMR cycle**: `adapt`, `amr_update`, `refine_uniform` — marking, refinement/coarsening, load rebalancing
 - **Communication**: `make_comm_local_maps_ghost_bc`, `mpi_redistribute`, `mpi_gather_refinement_needed`, `blocks_reorder`
-- **I/O**: `save_hdf5`, `save_restart_files`, `save_vtk`, `save_xh5f`, `save_slice`, `load_restart_files`
+- **I/O**: `save_restart_files`, `load_restart_files` (Fortran stream files: blocks per rank `-procNNNNNN.fbd`, tree nodes `.tnd`, time `.time`), `save_slice`, `save_vtk`
 - **Geometry**: `interpolate_at_point`, `prune`
 
 ### `adam_parameters` — global constants
@@ -546,41 +552,26 @@ Named integer constants shared across all modules: boundary condition type flags
 
 ### `adam_common_library` — aggregate entry point
 
-Re-exports every module listed above, **including all eight singleton modules**. Applications need only:
+Re-exports every module listed above, including `adam_mpih_global`. Applications need only:
 
 ```fortran
 use adam_common_library
 ```
 
-For convenience, `adam_globals` bundles only the singleton variables (`mpih`, `grid`, `field`, `maps`, `tree`, `weno`, `ib`, `rk`) without dragging in the type-definition modules.
+`adam_globals` re-exports only `mpih`, without the type-definition modules.
 
 ### Program-scope singletons
 
-Each core object is exposed as a **module-level target variable** in its own singleton module. Any Fortran module that `use`-es the singleton module gains direct access to the object without receiving it as a dummy argument or embedding it in a derived type.
-
-| Module | Variable | Type | Re-exported by |
-|--------|----------|------|----------------|
-| `adam_mpih_global` | `mpih` | `mpih_object` | `adam_common_library` |
-| `adam_grid_global` | `grid` | `grid_object` | `adam_common_library` |
-| `adam_field_global` | `field` | `field_object` | `adam_common_library` |
-| `adam_maps_global` | `maps` | `maps_object` | `adam_common_library` |
-| `adam_tree_global` | `tree` | `tree_object` | `adam_common_library` |
-| `adam_weno_global` | `weno` | `weno_object` | `adam_common_library` |
-| `adam_ib_global` | `ib` | `ib_object` | `adam_common_library` |
-| `adam_rk_global` | `rk` | `rk_object` | `adam_common_library` |
-
-**Access pattern:**
+The only program-scope singletons are the MPI handlers, one per process: `mpih` (`adam_mpih_global`, `mpih_object`) and,
+on the FNL backend, `mpih_fnl` (`adam_fnl_mpih_global`), which also owns the device context. Every other object is a
+component of a realm (`self%adam%grid`, `self%adam%field`, `self%adam%maps`, `self%rk`, `self%weno`, `self%ib`, …) and
+reaches library routines as an argument:
 
 ```fortran
-use :: adam_grid_global,  only: grid
-use :: adam_field_global, only: field
-
-associate(ni=>grid%ni, ngc=>grid%ngc, nb=>field%nb)
-  ! numerical kernel — no argument passing needed
-endassociate
+call self%adam%field%update_ghost_local(q=q, grid=self%adam%grid, maps=self%adam%maps)
 ```
 
-Singletons are never passed as dummy arguments and never embedded as members of other derived types.
+The former `adam_{grid,field,maps,tree,weno,ib,rk}_global` modules no longer exist; do not add new `*_global` modules.
 
 ---
 
@@ -590,33 +581,36 @@ The **forest** machinery coordinates more than one independent simulation domain
 
 ### `adam_realm_object` — the per-realm contract
 
-`realm_object` is the abstract parent every solver application extends. It owns the conventional per-domain components (`tree`, `grid`, `field`, `maps`, `weno`, `rk`, `io`, `ib`, ...) and declares the **`_forest`-suffixed TBP family** the forest dispatches against. Default implementations error_stop; every app extension that participates in a multi-realm forest must override them.
+`realm_object` is the (concrete) parent every solver application extends. It owns every library object as a component (`adam` with `grid`, `tree`, `field`, `maps`; `io`, `amr`, `slices`, `weno`, `ib`, `rk`, `flail`, …) and declares the **`_forest`-suffixed TBP family** the forest dispatches against. The defaults of the core and staged TBPs (`apply_reflux_to_stage_forest` included) and of the seam pack/unpack/fill TBPs `error_stop` with the TBP's name; `finalize_mpi_forest` (`mpih%finalize`), `after_topology_build_forest` (nothing), `coupling_descriptor_forest` (sentinel), `runtime_amr_forest` (false) and `regrid_forest` (never) have usable defaults.
 
 | TBP | Role |
 |---|---|
-| `initialize_forest(filename, realms_number)` | Per-realm prologue: load INI, allocate state, place initial conditions, open IO. |
-| `finalize_forest()`                          | Per-realm epilogue: close IO, release resources, MPI finalize. |
+| `initialize_forest(filename, realms_number, memory_avail, nv, verbose)` | Per-realm prologue: load INI, allocate state, place initial conditions, open IO. |
+| `finalize_forest()`                          | Per-realm epilogue: close IO, release resources. |
+| `finalize_mpi_forest()`                      | Process-global MPI finalize, called once by the forest after every realm's `finalize_forest` (FNL overrides it). |
 | `compute_local_dt_forest(dt_local)`          | Report this realm's CFL-limited dt; the forest min-reduces across realms. |
-| `advance_one_step_forest(dt)`                | N=1 fast path: realm owns the entire step internally. |
-| `open_step_forest(dt)`                       | N>1 path: per-step prologue (external fields, RK stage buffer init, time bookkeeping). |
-| `begin_stage_forest(k, K_total, dt)`         | N>1 path: open integrator stage `k`; sets `self%stage_active = k`. |
-| `end_stage_forest(k, K_total, dt, ...)`      | N>1 path: residuals + stage assignment for stage `k`. |
-| `close_step_forest(dt)`                      | N>1 path: per-step epilogue (state assembly, BC, div-clean, time advance). |
+| `advance_one_step_forest(dt)`                | Fast path (one realm, no 2:1 face): realm owns the entire step internally. |
+| `open_step_forest(dt)`                       | Staged path: per-step prologue (external fields, RK stage buffer init, time bookkeeping). |
+| `begin_stage_forest(k, K_total, dt, realm)`  | Staged path: open integrator stage `k`; sets `self%stage_active = k`. |
+| `end_stage_forest(k, K_total, dt, realm, flux_register)` | Staged path: residuals + stage assignment for stage `k`. |
+| `close_step_forest(dt)`                      | Staged path: per-step epilogue (state assembly, BC, div-clean, time advance); clears `self%stage_active = 0`. |
 | `fill_seam_from_peer_forest(peer, p_idx)`    | Receive-side roundtrip: copy peer's interior into self's seam ghosts. Source/target buffer chosen by `self%stage_active`/`peer%stage_active` (`>0` ⇒ `rk%q_rk(:,...,stage)`, else committed `q`). |
+| `pack_seam_cells_forest(p_idx, buf)`, `unpack_seam_cells_forest(p_idx, buf)` | Pack own cells of the cross-rank seam send rows; unpack the receive rows into own ghosts. |
 | `after_topology_build_forest()`              | Backend hook fired once after the seam maps are built — FNL uses it to refresh the device-resident seam maps (`field_fnl%maps%copy_cpu_gpu`). |
 | `apply_reflux_to_stage_forest(stage, dt, flux_register)` | Apply Berger-Colella reflux at the realm's end-of-step (α.r1 gate). |
 | `stages_per_step_forest()`                   | Report K (the realm's integrator stride; `rk%nrk` for SSP-RK). |
 | `coupling_descriptor_forest(scheme_time, rk_scheme, nv)` | Report `(scheme_time, rk_scheme, nv)` for β admissibility (issue #18). Default returns `''/''/-1` — a realm can't join β unless it overrides. |
 | `is_done_forest(done)`                       | Report whether the simulation has reached its termination predicate. |
-| `post_step_forest(dt, t, it, realm)`         | Per-step diagnostics / IO block (savers, residual prints). |
+| `post_step_forest(dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)` | Per-step diagnostics / IO block (savers, residual prints). |
+| `runtime_amr_forest()`, `regrid_forest(regridded)` | Whether the realm regrids during the run, and the regrid itself, called by `forest%regrid` after `post_step_forest` (issue #74). |
 
 Each `_forest` TBP is `pass(self)`-dispatched. The forest receives `type(realm_pointer), intent(inout) :: realm(:)` as a parameter and never owns realm state: the driver allocates the realms as a concrete app type (e.g. `type(prism_cpu_object), allocatable, target :: realm(:)`) and points one `realm_pointer` at each, so element `is` is `realm(is)%ptr`. The forest never takes a polymorphic array `class(realm_object) :: realm(:)`: nvfortran (25.11, 26.9) can address its elements with the declared type's stride and dispatch on the wrong realm ([#96](https://github.com/szaghi/adam/issues/96)).
 
-The N=1 fast path bypasses every per-stage TBP. Single-realm apps that do not participate in multi-realm forests may leave them at the default error_stop.
+The fast path bypasses every per-stage TBP, but it is taken only by a single realm **without** 2:1 AMR faces (`flux_register%nfaces == 0`, `evolve_one_step`); a single realm with a 2:1 face runs the staged path. An app that refines its grid must therefore implement the staged TBPs; only the seam TBPs can stay at their defaults in a single-realm app.
 
 ### `adam_forest_object` — the orchestrator
 
-`forest_object` is behaviour-only: it owns no derived-type state (only an `n` integer realm count). All forest operations are TBP dispatches against the realm array passed in.
+`forest_object` owns no realm state: its components are the realm count `n`, the flux register (`flux_register`, the coarse-fine faces of every realm and seam) and the timing report. All forest operations are TBP dispatches against the realm array passed in.
 
 **Public methods**:
 
@@ -629,6 +623,7 @@ The N=1 fast path bypasses every per-stage TBP. Single-realm apps that do not pa
 | `compute_global_dt(realm, dt)`                | Min-reduce per-realm CFL across realms (intra-process) and ranks (`MPI_ALLREDUCE`). |
 | `evolve_one_step(realm)`                      | One global timestep: Phase 0 → K-loop (Phases 1–3) → Phase 4 → Phase 5; per-seam cadence gating inside. |
 | `post_step(realm)`                            | Per-step diagnostics block across realms. |
+| `regrid(realm)`                               | Dispatch each realm's `regrid_forest`; rebuild the flux register when a tree changed (issue #74). |
 | `is_done(realm, done)`                        | AND-reduce per-realm termination across realms and ranks. |
 | `finalize(realm)`                             | Sequence each realm's `finalize_forest`. |
 
@@ -677,7 +672,7 @@ The orchestrator gates per-seam: Phase 2 fires only on `STAGE_COINCIDENT` seams;
 
 The inter-realm machinery above couples two *realms*. A separate family — the **intra-realm AMR seam** — handles a 2:1 resolution jump *inside a single realm's* Morton octree (a level-`ℓ` block abutting a level-`ℓ+1` block, produced by AMR markers). It is not manifest-declared and uses different code:
 
-- **Registration**: `forest_object%register_intra_realm_amr_seams(realm)` (private) does a two-pass registration of the coarse-fine faces into the flux register with `SEAM_KIND_INTRA_REALM_AMR` (`adam_flux_register_object.F90`), and allocates/fills `maps%amr_seam_quadrant`. That array's allocation is also the **gate** for the seam `div(B)` guard-rail (below).
+- **Registration**: `forest_object%register_intra_realm_amr_seams(realm)` (private) does a two-pass registration of the coarse-fine faces into the flux register with `SEAM_KIND_INTRA_REALM_AMR` (`adam_flux_register_object.F90`), and allocates/fills `maps%amr_seam_quadrant`. The array is allocated for every realm with blocks, so the seam `div(B)` guard-rail (below) arms on its tolerance alone.
 - **Ghost fill**: the fine block's coarse-overlapping ghosts are filled through `field_object%update_ghost_local`'s **flag-4** map-row path → `interp_seam_ghost`. The interpolation *regime* is `maps%seam_ghost_fill`, one of `SEAM_FILL_INJECTION` (0, copy), `SEAM_FILL_COMPATIBLE` (1, q=2 restriction-compatible), `SEAM_FILL_TRICUBIC` (2, q=4) — declared in `adam_seam_interpolation_library.F90`, selected by `[amr] seam_ghost_fill`. **Effective default is `tricubic`**: `adam_object%initialize` overwrites the `maps` struct default (`SEAM_FILL_INJECTION`) with `SEAM_FILL_TRICUBIC` when the key is absent. The FNL device path carries the regime via `update_ghost_local_gpu(..., seam_ghost_fill=..., ...)`.
 - **Reflux**: Berger-Colella reflux at the 2:1 face, dispatched by `apply_reflux_corrections` at each realm's own end-of-step (α.r1 gate), identical machinery to the inter-realm register.
 
@@ -685,7 +680,7 @@ The two families are structurally disjoint — a single-realm run never touches 
 
 ### Seam div(B) guard-rail (`[IO]`, issue #29)
 
-The 2:1 AMR seam breaks the mimetic `div_h(curl_h) ≡ 0` identity (coarse Δx vs fine Δx/2 stencils no longer commute) and injects an O(h^p) `div(B)` source that is refinement-convergent but unbounded in `t` at fixed `h` — a constraint violation, not an energy instability. No local collocated-FD fix exists (five classes ruled out); the resolution is **accept-truncation**. To make the otherwise-silent growth visible, `save_divergence_history` (`adam_prism_common_object.F90`) carries an opt-in monitor: `[IO] seam_divB_tol` (default `-1.0`, off) and `seam_divB_error` (default `.false.`, warn-only). It arms only when `seam_divB_tol > 0` **and** `allocated(maps%amr_seam_quadrant)` (an AMR seam is present); on exceedance it `error_stop`s (`seam_divB_error = .true.`) or warns. `seam_divB_tol`/`seam_divB_error` live on the base `adam_io_object`.
+The 2:1 AMR seam breaks the mimetic `div_h(curl_h) ≡ 0` identity (coarse Δx vs fine Δx/2 stencils no longer commute) and injects an O(h^p) `div(B)` source that is refinement-convergent but unbounded in `t` at fixed `h` — a constraint violation, not an energy instability. No local collocated-FD fix exists (five classes ruled out); the resolution is **accept-truncation**. To make the otherwise-silent growth visible, `save_divergence_history` (`adam_prism_common_object.F90`) carries an opt-in monitor: `[IO] seam_divB_tol` (default `-1.0`, off) and `seam_divB_error` (default `.false.`, warn-only). It arms when `seam_divB_tol > 0`: its second condition, `allocated(maps%amr_seam_quadrant)`, holds for every realm with blocks, so it covers intra-realm 2:1 faces and inter-realm `refined` seams alike (without 2:1 seams div(B) stays at round-off and it stays silent); on exceedance it `error_stop`s (`seam_divB_error = .true.`) or warns. `seam_divB_tol`/`seam_divB_error` live on the base `adam_io_object`.
 
 ### Load-bearing invariants
 
@@ -693,8 +688,8 @@ The 2:1 AMR seam breaks the mimetic `div_h(curl_h) ≡ 0` identity (coarse Δx v
 - **Inter-realm seam diagnostic refill (issue #31)**: any div(B) diagnostic that runs `self%update_ghost` before reading the divergence stencil must ALSO refill the inter-realm seam (`fill_seam_from_peer_forest` per peer), because `update_ghost` fills intra-realm ghosts + physical BCs but NOT the inter-realm seam (the forest owns it). Omitting it reports a spurious seam-skin div(B) on a div-free field. `present(realm)`-guarded so single-realm runs are untouched. A 1:1 same-resolution inter-realm mirror seam must use `stage_coincident` (β) to stay div-free — α leaves the seam ghosts unfilled during RK substages.
 - **`stage_active` discipline**: `begin_stage_forest(k)` MUST set `self%stage_active = k`; `close_step_forest(dt)` MUST clear it back to 0. The `fill_seam_from_peer_forest` buffer-selection logic reads `self%stage_active` and `peer%stage_active` to pick between `q` (committed) and `rk%q_rk(:,...,stage_active)`. Mid-step writes to `q` outside this discipline corrupt peer reads.
 - **α.r1 reflux gate**: `apply_reflux_to_stage_forest` and `accumulate_seam_fluxes_fv` MUST gate on `stage == rk%nrk` (the realm's own final substage). `flux_register`'s third axis is collapsed to 1 under α.r1; per-stage RK-weighted reflux (Wang 2018) is deferred. Both α and β share this gate — β does not undo α.r1.
-- **N=1 fast path**: when `size(realm) == 1`, `evolve_one_step` routes through `advance_one_step_forest` directly with zero exposure to the per-stage TBPs. App backends MAY leave the per-stage TBPs at the parent's error_stop default for N=1-only use.
-- **No singletons embedded on realms**: the program-scope singletons (`mpih`, `grid`, `field`, ...) are aliased per-step from each active realm's components; they are not value members on the realm type. See "Program-scope singletons" above.
+- **Fast path**: when `size(realm) == 1` **and** the flux register has no faces, `evolve_one_step` routes through `advance_one_step_forest` directly with zero exposure to the per-stage TBPs. A single realm with a 2:1 AMR face takes the staged path, so an app that refines must implement the staged TBPs.
+- **No library singletons**: apart from `mpih` (and `mpih_fnl`), every library object is a realm component, passed as an argument. See "Program-scope singletons" above.
 
 ### Tracked through
 
@@ -734,6 +729,10 @@ The 2:1 AMR seam breaks the mimetic `div_h(curl_h) ≡ 0` identity (coarse Δx v
 | `adam_ib_object` | Physics | `adam_ib_object.F90` |
 | `adam_amr_object` | Physics | `adam_amr_object.F90` |
 | `adam_flail_object` | Physics | `adam_flail_object.F90` |
+| `adam_flail_parameters` | Physics | `adam_flail_parameters.F90` |
+| `adam_poisson_fft_object` | Physics | `adam_poisson_fft_object.F90` |
+| `adam_poisson_mg_object` | Physics | `adam_poisson_mg_object.F90` |
+| `adam_lattice_green_library` | Physics | `adam_lattice_green_library.F90` |
 | `adam_mpih_object` | Infrastructure | `adam_mpih_object.F90` |
 | `adam_io_object` | Infrastructure | `adam_io_object.F90` |
 | `adam_slices_object` | Infrastructure | `adam_slices_object.F90` |
@@ -744,19 +743,12 @@ The 2:1 AMR seam breaks the mimetic `div_h(curl_h) ≡ 0` identity (coarse Δx v
 | `adam_flux_register_object` | Forest | `adam_flux_register_object.F90` |
 | `adam_common_library` | Entry point | `adam_common_library.F90` |
 | `adam_mpih_global` | Singleton | `adam_mpih_global.F90` |
-| `adam_grid_global` | Singleton | `adam_grid_global.F90` |
-| `adam_field_global` | Singleton | `adam_field_global.F90` |
-| `adam_maps_global` | Singleton | `adam_maps_global.F90` |
-| `adam_tree_global` | Singleton | `adam_tree_global.F90` |
-| `adam_weno_global` | Singleton | `adam_weno_global.F90` |
-| `adam_ib_global` | Singleton | `adam_ib_global.F90` |
-| `adam_rk_global` | Singleton | `adam_rk_global.F90` |
 | `adam_globals` | Singleton aggregator | `adam_globals.F90` |
 
 ---
 
 ## Copyrights
 
-ADAM is released under the [GNU Lesser General Public License v3.0](/license) (LGPLv3).
+ADAM is dual-licensed under the [MIT License](/license#mit) and the [GNU Lesser General Public License v3.0](/license#lgplv3) (LGPLv3); you may choose either.
 
 > Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.

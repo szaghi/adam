@@ -4,12 +4,15 @@
 
 ## Physical Models
 
-PRISM supports two physical models, selected in the INI file under `[physics] physical_model`:
+PRISM supports four physical models, selected in the INI file under `[physics] physical_model` (an unknown value is
+fatal, `adam_prism_physics_object.F90`):
 
-| Model | INI key | Description |
-|-------|---------|-------------|
-| Electromagnetic | `electromagnetic` | Solves the Maxwell equations for **D** and **B** with a prescribed current source **J** |
-| Particle-in-Cell | `PIC` | Couples Maxwell equations to individual charged-particle trajectories; current **J** and charge density ρ are deposited from particle positions |
+| Model | Accepted values | Description |
+|-------|-----------------|-------------|
+| Electromagnetic | `electromagnetic`, `Electromagnetic`, `EM`, `em`, `Maxwell`, `maxwell` | Solves the Maxwell equations for **D** and **B** with a prescribed current source **J** |
+| Non-dimensional electromagnetic | `AdimEM`, `adimem`, `AdimensionalizedElectromagnetic`, `adimensionalelectromagnetic` | The same equations in units of `[physics] L0` and `B0` |
+| Particle-in-Cell | `PIC`, `pic`, `ParticleInCell`, `particleincell` | Couples Maxwell equations to individual charged-particle trajectories; current **J** and charge density ρ are deposited from particle positions |
+| Non-dimensional PIC | `AdimPIC`, `adimpic`, `adim_PIC`, `adim_pic` | PIC in units of `L0` and `B0` |
 
 ## Governing Equations
 
@@ -31,7 +34,7 @@ src/app/prism/
 │   ├── adam_prism_parameters.F90                # Physical constants and eigenvector matrices
 │   ├── adam_prism_physics_object.F90            # Physical model, variable counts, eigenvectors
 │   ├── adam_prism_numerics_object.F90           # Temporal and spatial scheme selection
-│   ├── adam_prism_common_object.F90             # prism_common_object base type
+│   ├── adam_prism_common_object.F90             # prism_common_object base type (t0 elliptic solves on FLAIL)
 │   ├── adam_prism_bc_object.F90                 # Boundary conditions handler
 │   ├── adam_prism_ic_object.F90                 # Initial conditions handler
 │   ├── adam_prism_rk_bc_object.F90              # RK sub-stepping for boundary conditions
@@ -39,11 +42,18 @@ src/app/prism/
 │   ├── adam_prism_time_object.F90               # Time integration handler
 │   ├── adam_prism_coil_object.F90               # Current-carrying coil sources
 │   ├── adam_prism_fWLayer_object.F90            # Far-wave layer (absorbing BC layer)
+│   ├── adam_prism_pml_object.F90                # Perfectly matched layer
+│   ├── adam_prism_rk_pml_object.F90             # RK support for the PML auxiliary variables
+│   ├── adam_prism_absorbing_layer_geometry.F90  # Layer geometry shared by fWLayer and PML
 │   ├── adam_prism_external_fields_object.F90    # Externally prescribed fields
 │   ├── adam_prism_pic_object.F90                # Particle-in-Cell configuration
+│   ├── adam_prism_pic_bc_object.F90             # Particle closure at the domain faces
 │   ├── adam_prism_particle_injection_object.F90 # Particle injection handler
 │   ├── adam_prism_leapfrog_pic_object.F90       # Leapfrog PIC time integrator
 │   ├── adam_prism_rk_pic_object.F90             # Runge-Kutta PIC time integrator
+│   ├── adam_prism_probes_object.F90             # Field probes: time histories at fixed points
+│   ├── adam_prism_grms_object.F90               # Grms diagnostic
+│   ├── adam_prism_magnetic_field_at_center_domain_object.F90 # Field-at-domain-centre diagnostic
 │   ├── adam_prism_riemann_library.F90           # Maxwell Riemann solvers (LLF, HLL) and flux routines
 │   └── adam_prism_common_library.F90            # Barrel re-export of all common modules
 ├── cpu/                                         # CPU backend
@@ -52,10 +62,16 @@ src/app/prism/
 └── fnl/                                         # OpenACC GPU backend
     ├── adam_prism_fnl.F90                       # Entry point (program)
     ├── adam_prism_fnl_object.F90                # prism_fnl_object implementation
-    ├── adam_prism_fnl_kernels.F90               # OpenACC GPU kernels
     ├── adam_prism_fnl_external_fields_kernels.F90 # OpenACC external-fields kernels
     ├── adam_prism_fnl_coil_object.F90           # GPU coil handler
     ├── adam_prism_fnl_fWLayer_object.F90        # GPU far-wave layer handler
+    ├── adam_prism_fnl_pml_object.F90            # GPU PML
+    ├── adam_prism_fnl_rk_pml_object.F90         # GPU RK support for the PML auxiliary variables
+    ├── adam_prism_fnl_pic_object.F90            # GPU Particle-in-Cell
+    ├── adam_prism_fnl_pic_conserving_object.F90 # GPU charge-conserving currents
+    ├── adam_prism_fnl_leapfrog_pic_object.F90   # GPU PIC leapfrog integrator
+    ├── adam_prism_fnl_rk_pic_object.F90         # GPU PIC Runge-Kutta integrator
+    ├── adam_prism_fnl_probes_object.F90         # GPU field probes
     └── adam_prism_fnl_library.F90               # Barrel re-export of all FNL modules
 ```
 
@@ -81,7 +97,7 @@ Total: `nv = nv_c + nv_s + nv_cl + nv_pic`
 | PIC + D or B cleaning | 11 |
 | PIC + D and B cleaning | 12 |
 
-**Maximum supported**: `NV_MAX = 11`.
+**Maximum supported**: `NV_MAX = 12` (`adam_prism_parameters.F90`); a larger `nv` is fatal at initialization.
 
 ### Saved fields
 
@@ -143,6 +159,8 @@ The `prism_coil_object` models current-carrying coils as volumetric current dens
 |-----------|-------------|
 | `rectangular` | Rectangular loop coil with user-defined dimensions and normal direction |
 | `circular` | Circular loop coil |
+| `solenoid` | Solenoid |
+| `helicon` | Helicon antenna |
 
 | Current type | Description |
 |--------------|-------------|
@@ -166,7 +184,7 @@ When `physical_model = PIC`, PRISM tracks charged macro-particles alongside the 
 | 7 | charge | Particle charge |
 | 8 | mass | Particle mass |
 
-Field values at particle locations are stored in `pic_fields(8, particle_number)`. Particle time integration uses either Leapfrog (`LEAPFROG`) or Runge-Kutta (`RUNGE_KUTTA`), configured independently from the field scheme.
+Field values at particle locations (D and B) are stored in `pic_fields(6, particle_number)`. Particle time integration (`[PIC] scheme_time`) is Runge-Kutta (`RUNGE_KUTTA`, with `[runge_kutta]` SSP 22, 33 or 54; a charge-conserving variant with `current_weighting_model = conserving`); `LEAPFROG` is parsed and refused at initialization on both backends, as is any other RK scheme.
 
 Two problem types are supported:
 
@@ -177,11 +195,11 @@ Two problem types are supported:
 
 ## `prism_common_object` Overview
 
-The base type aggregates all framework and PRISM sub-objects:
+`prism_common_object` extends the library's `realm_object` and adds the PRISM sub-objects:
 
-**ADAM framework objects**: `mpih_object`, `adam_object`, `field_object`, `grid_object`, `amr_object`, `ib_object`, `slices_object`, `leapfrog_object`, `blanesmoan_object`, `cfm_object`, `rk_object`, `weno_object`, `flail_object`
+**ADAM framework objects** (components of `realm_object`): `io`, `amr`, `slices`, `blanesmoan`, `cfm`, `leapfrog`, `flail`, `weno`, `ib`, `rk`, and `adam` (grid, tree, field, maps). MPI goes through the program-scope `mpih` singleton.
 
-**PRISM sub-objects**: `prism_physics_object`, `prism_numerics_object`, `prism_io_object`, `prism_bc_object`, `prism_ic_object`, `prism_rk_bc_object`, `prism_time_object`, `prism_coil_object`, `prism_fWLayer_object`, `prism_external_fields_object`, `prism_pic_object`, `prism_particle_injection_object`, `prism_leapfrog_pic_object`, `prism_rk_pic_object`
+**PRISM sub-objects**: `bc`, `coil`, `external_fields`, `fWLayer`, `grms`, `ic`, `leapfrog_pic`, `magnetic_field_at_center_domain`, `numerics`, `particle_injection`, `physics`, `pic`, `pml`, `probes`, `rk_pic`, `rk_pml`, `time` (`adam_prism_common_object.F90`)
 
 **Field arrays** (all shape `(nv, ni, nj, nk, nb)`):
 
@@ -192,7 +210,7 @@ The base type aggregates all framework and PRISM sub-objects:
 | `curl` | Curl of field components (optional output) |
 | `divergence` | Divergence of field components (optional output) |
 
-**PIC arrays**: `q_pic(8, particle_number)`, `pic_fields(8, particle_number)`
+**PIC arrays**: `q_pic(8, particle_number)`, `pic_fields(6, particle_number)`
 
 **Energy diagnostics**: `energy_D(:)`, `energy_B(:)` (time histories), `rms_energy_error_D/B`
 

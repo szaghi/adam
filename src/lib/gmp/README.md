@@ -2,7 +2,7 @@
 
 The GMP backend is ADAM's **OpenMP target offloading GPU acceleration layer**, providing vendor-neutral GPU support through OpenMP 5.0+ `!$omp target` directives. It follows the same two-tier pattern as the FNL and NVF backends — a **wrapper object** managing device-resident arrays plus a **kernel module** containing the offloaded computation — but replaces all vendor-specific constructs with standard OpenMP semantics, making it portable to NVIDIA, AMD, and Intel GPU hardware.
 
-> **Status**: experimental. The GMP backend is fully structured and compiles, but has not yet reached the production maturity level of the FNL and NVF backends.
+> **Status**: experimental, and no build mode uses it. AMD GPUs are served by the FNL sources compiled as OpenMP target offloading with amdflang (`*-fnl-omp-amd` modes); see [FNL](/library/fnl).
 
 No physics or algorithmic logic is duplicated from `src/lib/common`. All equations, coefficients, and data structures are defined once in the common layer and mirrored to the device by the GMP layer.
 
@@ -31,7 +31,7 @@ The aggregate entry point `adam_gmp_library` re-exports the entire GMP API toget
 |--------|--------------------|--------------|--------------------|
 | Standard | OpenMP 5.0+ | OpenACC 3.x | CUDA Fortran (nvfortran) |
 | Vendor portability | NVIDIA, AMD, Intel | NVIDIA, AMD (limited) | NVIDIA only |
-| Device arrays | `pointer` + `omp_target_alloc` | `declare device_resident` / OpenACC data | `allocatable, device` |
+| Device arrays | `pointer` + `omp_target_alloc` | FUNDAL `dev_alloc` device pointers | `allocatable, device` |
 | Kernel launch | `!$omp target teams distribute parallel do` | `!$acc parallel loop gang vector` | `!$cuf kernel do(N) <<<*,*>>>` |
 | Parallelism levels | 3 — teams / distribute / parallel do | 3 — gang / worker / vector | 2 — grid / block |
 | Loop collapsing | Explicit `collapse(N)` | Explicit `gang vector` | Implicit in `do(N)` |
@@ -407,6 +407,6 @@ All arrays are transferred via `assign_allocatable_gpu`. The send and receive bu
 
 ## Copyrights
 
-ADAM is released under the [GNU Lesser General Public License v3.0](/license) (LGPLv3).
+ADAM is dual-licensed under the [MIT License](/license#mit) and the [GNU Lesser General Public License v3.0](/license#lgplv3) (LGPLv3); you may choose either.
 
 > Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.

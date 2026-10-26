@@ -7,27 +7,28 @@ title: About ADAM
 
 # About ADAM
 
-**ADAM** (Accelerated fluid Dynamics on Adaptive Mesh refinement grids) is a high-performance fluid dynamics framework written in modern Fortran for device(GPU)-accelerated HPC simulations and traditional CPU-based superpc. It provides physics-agnostic SDK library offering AMR, IB, WENO, RK, parellel I/O, ecc... on top of which is easy to develop CFD solvers (currently a compressible Navier-Stokes solver named NASTO and an electromagnetic plasma solver named PRSIM are the principal applications developed with ADAM).
+**ADAM** (Accelerated fluid Dynamics on Adaptive Mesh refinement grids) is a high-performance fluid dynamics framework written in modern Fortran for device(GPU)-accelerated HPC simulations and traditional CPU-based superpc. It provides physics-agnostic SDK library offering AMR, IB, WENO, RK, parellel I/O, ecc... on top of which is easy to develop CFD solvers. The maintained applications are PRISM, an electromagnetic and plasma solver, and FLUME, a compressible Euler and MHD solver.
 
-The primary focus is on large-scale scientific computing: ADAM targets exascale deployments on device-accelerated clusters, where thousands of devices (GPU) nodes work in concert via MPI with node-level parallelism provided by CUDA Fortran, OpenACC, or OpenMP offloading.
+The primary focus is on large-scale scientific computing: ADAM targets exascale deployments on device-accelerated clusters, where thousands of devices (GPU) nodes work in concert via MPI with node-level parallelism provided by OpenACC (NVIDIA GPUs) or OpenMP offloading (AMD GPUs).
 
 ## Key capabilities
 
-- **AMR** — Morton-order linearized octree/quadtree with automatic refinement and coarsening
+- **AMR** — Morton-order linearized octree/quadtree; refinement at initialization by geometric, gradient and total-variation markers, and runtime regridding in FLUME (`[amr] frequency`)
 - **Immersed Boundary** — complex and moving geometries without body-fitted meshes
-- **High-order WENO** — finite difference reconstructions up to 5th order for shock-capturing flows
-- **Multi-backend GPU** — a single codebase compiles for CUDA Fortran (NVF), OpenACC (FNL), and OpenMP offloading (GMP)
-- **Parallel I/O** — HDF5 output and restart files via MPI-IO
+- **High-order WENO** — upwind reconstructions of order 1 to 9 and centred of order 2 to 8
+- **GPU backend** — one FNL codebase compiles for OpenACC (nvfortran) and OpenMP offloading (amdflang)
+- **Elliptic solvers** — FLAIL: FFT and AMR multigrid Poisson solvers, on CPU and GPU
+- **I/O** — per-rank HDF5 files with an XDMF index, stream restart files, MPI-IO slices
 
 ## Applications
 
 | Application | Description |
 |-------------|-------------|
-| [NASTO](/applications/nasto/) | Compressible 3D Navier-Stokes solver |
-| [PRISM](/applications/prism/) | Maxwell equations solver for electromagnetic simulations |
-| [CHASE](/applications/chase/) | Euler solver (deprecated, superseded by FLUME) |
-| [PATCH](/applications/patch/) | Patch-based application |
-| [FLUME](/applications/flume/) | Compressible Euler solver, MHD in development |
+| [PRISM](/applications/prism/) | Maxwell equations solver for electromagnetic and plasma (PIC) simulations |
+| [FLUME](/applications/flume/) | Compressible Euler and MHD solver |
+| [NASTO](/applications/nasto/) | Compressible 3D Navier-Stokes solver (unmaintained) |
+| [CHASE](/applications/chase/) | Euler solver (unmaintained, superseded by FLUME) |
+| [PATCH](/applications/patch/) | Patch-based application (unmaintained) |
 | [ASCOT](/applications/ascot) | Binary-to-ASCII output converter |
 
 ## Authors

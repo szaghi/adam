@@ -1,6 +1,8 @@
 # ADAM NVF Library — `src/lib/nvf`
 
-The NVF backend is ADAM's **CUDA Fortran GPU acceleration layer** targeting NVIDIA GPUs via the `nvfortran` compiler (NVIDIA HPC SDK). It follows the same two-tier pattern as the FNL backend — a **wrapper object** extending the common CPU class plus a **kernel module** containing the device-side computation — but replaces OpenACC directives with explicit CUDA Fortran constructs: `allocatable, device` arrays, `!$cuf kernel do()` launches, `dim3` grid/block dimensions, and direct `cudafor` runtime calls.
+The NVF backend is ADAM's **CUDA Fortran GPU acceleration layer** targeting NVIDIA GPUs via the `nvfortran` compiler (NVIDIA HPC SDK). It follows the same two-tier pattern as the FNL backend — a **wrapper object** holding the device arrays (a separate type, not an extension of the common class) plus a **kernel module** containing the device-side computation — but replaces OpenACC directives with explicit CUDA Fortran constructs: `allocatable, device` arrays, `!$cuf kernel do()` launches, `dim3` grid/block dimensions, and direct `cudafor` runtime calls.
+
+> **Status**: no build mode builds this library (its only consumer, NASTO NVF, has no mode; `ascot-nvf-cuda` uses PENF only). The maintained GPU backend is [FNL](/library/fnl).
 
 No physics or algorithmic logic is duplicated from `src/lib/common`. All equations, coefficients, and data structures are defined once in the common layer and mirrored to the GPU by the NVF layer.
 
@@ -26,7 +28,7 @@ The aggregate entry point `adam_nvf_library` re-exports the entire NVF API toget
 
 | Aspect | FNL (OpenACC) | NVF (CUDA Fortran) |
 |--------|--------------|-------------------|
-| Device arrays | OpenACC `declare device_resident` | `allocatable, device` |
+| Device arrays | FUNDAL `dev_alloc` device pointers | `allocatable, device` |
 | Kernel launch | `!$acc parallel loop` | `!$cuf kernel do(N) <<<*,*>>>` |
 | Grid/block dims | Compiler-chosen | Manual `dim3` via `set_cuda_dimensions` |
 | Synchronisation | Implicit at data regions | Explicit `cudaDeviceSynchronize()` |
@@ -325,6 +327,6 @@ Index arrays use `integer(I8P)` to accommodate large AMR block counts. `mode=1` 
 
 ## Copyrights
 
-ADAM is released under the [GNU Lesser General Public License v3.0](/license) (LGPLv3).
+ADAM is dual-licensed under the [MIT License](/license#mit) and the [GNU Lesser General Public License v3.0](/license#lgplv3) (LGPLv3); you may choose either.
 
 > Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.

@@ -16,10 +16,16 @@ and GPU-aware MPI communication via the FUNDAL library.
 | `adam_prism_fnl.F90` | entry point | Parses CLI argument, delegates to `prism%simulate` |
 | `adam_prism_fnl_object.F90` | `adam_prism_fnl_object` | Main type, all operators and integrators |
 | `adam_prism_fnl_library.F90` | `adam_prism_fnl_library` | Barrel re-export of all FNL PRISM modules |
-| `adam_prism_fnl_kernels.F90` | `adam_prism_fnl_kernels` | Standalone OpenACC device kernels |
 | `adam_prism_fnl_coil_object.F90` | `adam_prism_fnl_coil_object` | GPU coil current source handler |
 | `adam_prism_fnl_fWLayer_object.F90` | `adam_prism_fnl_fWLayer_object` | GPU far-wave layer handler |
 | `adam_prism_fnl_external_fields_kernels.F90` | `adam_prism_fnl_external_fields_kernels` | GPU external field sub/add kernels |
+| `adam_prism_fnl_pml_object.F90` | `adam_prism_fnl_pml_object` | GPU perfectly matched layer |
+| `adam_prism_fnl_rk_pml_object.F90` | `adam_prism_fnl_rk_pml_object` | GPU RK support for the PML auxiliary variables |
+| `adam_prism_fnl_pic_object.F90` | `adam_prism_fnl_pic_object` | GPU Particle-in-Cell (weightings, deposits, gathers) |
+| `adam_prism_fnl_pic_conserving_object.F90` | `adam_prism_fnl_pic_conserving_object` | GPU charge-conserving currents (londrillo, totorica, esirkepov_Q<N>) |
+| `adam_prism_fnl_leapfrog_pic_object.F90` | `adam_prism_fnl_leapfrog_pic_object` | GPU PIC leapfrog integrator |
+| `adam_prism_fnl_rk_pic_object.F90` | `adam_prism_fnl_rk_pic_object` | GPU PIC Runge-Kutta integrator |
+| `adam_prism_fnl_probes_object.F90` | `adam_prism_fnl_probes_object` | GPU field probes |
 
 ## Build modes
 
@@ -46,7 +52,8 @@ With `collapse(4)` over `(b, k, j, i)`, threads access `q_gpu(b,i,j,k,v)` with a
 values per warp, giving coalesced access in the `ni` dimension.
 
 The `copy_cpu_gpu` / `copy_gpu_cpu` routines perform a full layout transposition on every
-host↔device transfer via `field_gpu%copy_transpose_cpu_gpu` / `copy_transpose_gpu_cpu`.
+host↔device transfer, through FUNDAL's buffered transposed copies (`dev_memcpy_to_device` /
+`dev_memcpy_from_device` with `buf=`, whose staging buffer extent must equal the destination's, issue #31).
 
 ## Type: `prism_fnl_object`
 
@@ -56,22 +63,26 @@ host↔device transfer via `field_gpu%copy_transpose_cpu_gpu` / `copy_transpose_
 
 > **Singleton**: the GPU-aware MPI handler is the program-scope `mpih_fnl` singleton
 > (module `adam_fnl_mpih_global`), not an embedded member of `prism_fnl_object`.
-> It must be initialized once — via `call mpih_fnl%initialize(do_mpi_init=.true.,
-> do_device_init=.true., verbose=.true.)` — at the start of `prism_fnl_object%initialize`,
-> before any other FNL object is constructed.
+> `prism_fnl_object%initialize` initializes it once per process (`do_mpi_init` only when MPI is not yet up,
+> `do_device_init=.true.`), before any other FNL object is constructed.
 
 | Member | Type | Description |
 |--------|------|-------------|
-| `field_gpu` | `field_fnl_object` | Field object with GPU memory and transposed halo exchange |
-| `ib_gpu` | `ib_fnl_object` | Immersed Boundary with device-resident `phi_gpu` |
-| `rk_gpu` | `rk_fnl_object` | RK stage arrays on device (`q_rk_gpu`) |
-| `weno_gpu` | `weno_fnl_object` | WENO coefficients mirrored on device |
+| `field_fnl` | `field_fnl_object` | Field object with GPU memory and transposed halo exchange |
+| `ib_fnl` | `ib_fnl_object` | Immersed Boundary with device-resident `phi_gpu` |
+| `rk_fnl` | `rk_fnl_object` | RK stage arrays on device (`q_rk_gpu`) |
+| `weno_fnl` | `weno_fnl_object` | WENO coefficients mirrored on device |
 
 ### GPU-specific PRISM library objects
 
 | Member | Type | Description |
 |--------|------|-------------|
-| `coil_gpu` | `prism_fnl_coil_object` | Coil J-vector and flag arrays on device (transposed layout) |
+| `coil_fnl` | `prism_fnl_coil_object` | Coil J-vector arrays on device (transposed layout) |
+| `pic_fnl` | `prism_fnl_pic_object` | PIC support state |
+| `leapfrog_pic_fnl`, `rk_pic_fnl` | `prism_fnl_leapfrog_pic_object`, `prism_fnl_rk_pic_object` | PIC integrators |
+| `conserving_fnl` | `prism_fnl_pic_conserving_object` | Charge-conserving PIC current |
+| `pml_fnl`, `rk_pml_fnl` | `prism_fnl_pml_object`, `prism_fnl_rk_pml_object` | PML state and its SSP RK support |
+| `probes_fnl` | `prism_fnl_probes_object` | Field probes |
 
 ### Device data pointers
 
@@ -79,14 +90,14 @@ All allocated via FUNDAL `dev_alloc` in `allocate_gpu`:
 
 | Pointer | Shape (GPU transposed) | Description |
 |---------|------------------------|-------------|
-| `q_gpu` | `(nb, ni, nj, nk, nv)` | Field cell-centred variables (points into `field_gpu%q_gpu`) |
+| `q_gpu` | `(nb, ni, nj, nk, nv)` | Field cell-centred variables (points into `field_fnl%q_gpu`) |
 | `dq_gpu` | `(nb, ni, nj, nk, nv)` | Residuals right-hand side |
 | `flxyz_c_gpu` | `(nb, 3, 3, ni, nj, nk, nv)` | Cell-centre fluxes with ±-decomposition |
 | `flx_f_gpu` | `(nb, 0:ni, nj, nk, nv)` | X-face fluxes |
 | `fly_f_gpu` | `(nb, ni, 0:nj, nk, nv)` | Y-face fluxes |
 | `flz_f_gpu` | `(nb, ni, nj, 0:nk, nv)` | Z-face fluxes |
 | `curl_gpu` | `(nb, ni, nj, nk, nv)` | Curl auxiliary fields |
-| `divergence_gpu` | `(nb, ni, nj, nk, nv)` | Divergence auxiliary fields and Poisson buffer |
+| `divergence_gpu` | `(nb, ni, nj, nk, nv)` | Divergence auxiliary fields |
 
 ### Procedure pointers
 
@@ -96,23 +107,22 @@ implementations operating on GPU arrays.
 ## Initialization sequence (`initialize`)
 
 ```
-mpih_fnl%initialize             ← GPU-aware MPI init + CUDA device selection (singleton)
-prism_common_object%initialize  ← 34-step common CPU setup; also initializes CPU mpih singleton
-field_gpu%initialize(field)     ← mirror global field singleton metadata on device
-ib_gpu%initialize               ← copy IB phi to device
-rk_gpu%initialize               ← allocate q_rk_gpu stages
-weno_gpu%initialize             ← copy WENO coefficients to device
-allocate_gpu                    ← allocate all device data pointers
-coil_gpu%initialize             ← allocate and transpose coil arrays
+mpih_fnl%initialize             ← GPU-aware MPI init + device selection (singleton, once per process)
+prism_common_object%initialize  ← the common setup, on the per-realm device memory budget
+PIC checks, check_pml_configuration, time-scheme dispatch (before any device allocation, issue #55)
+field_fnl%initialize            ← device field from self%adam%grid/field/maps
+ib_fnl, rk_fnl, weno_fnl        ← device IB, RK stages, WENO coefficients
+initialize_pml_fnl, allocate_gpu
+coil_fnl%initialize             ← device coil arrays
+PIC only: pic_fnl, leapfrog_pic_fnl or rk_pic_fnl, conserving_fnl
+FLAIL's FFT solver on cuFFT (the t0 elliptic solves, issue #84)
+spatial-operator pointers       ← based on scheme_space
 external_fields_initialize_dev  ← copy external field data to device
-set procedure pointers          ← based on scheme_space / scheme_time
 ```
 
-> **Global singletons in scope** (via `adam_fnl_library` → `adam_common_library`):
-> `mpih_fnl` (GPU MPI handler), `mpih` (CPU MPI handler), `grid`, `field`, `maps`, `tree`.
-> The global `field` singleton is passed directly to `field_gpu%initialize(field=field, ...)`.
-> `self%adam%field` / `self%adam%maps` / `self%adam%tree` no longer exist — `adam_object`
-> is method-only and these accessors have been replaced by direct singleton use.
+> **Singletons:** the only program-scope objects are `mpih` (CPU MPI handler, `adam_mpih_global`) and `mpih_fnl`
+> (`adam_fnl_mpih_global`). Every other library object is a component of the realm (`self%adam%grid`,
+> `self%adam%field`, `self%adam%maps`, `self%adam%tree`, `self%rk`, ...) and is passed as an argument.
 
 ## Dispatch table
 
@@ -121,8 +131,8 @@ set procedure pointers          ← based on scheme_space / scheme_time
 | `scheme_space` | FDV pointer family | `compute_residuals` |
 |----------------|-------------------|---------------------|
 | `FD_CENTERED` | `*_fd` variants | `compute_residuals_fd_centered` ✓ |
-| `FV_CENTERED` | `*_fv` variants | *(not yet implemented)* |
-| `WENO` | `*_fv` variants | *(not yet implemented)* |
+| `FV_CENTERED` | `*_fv` variants | `compute_residuals_fv_centered_dev` ✓ |
+| `WENO` | — | **refused at init**: the WENO residual path is not ported to FNL (issue #23) |
 
 ### Time integration pointer
 
@@ -134,9 +144,10 @@ set procedure pointers          ← based on scheme_space / scheme_time
 | EM | `RK` | `RK_1/2/3` | `integrate_rk_ls_dev` | active |
 | EM | `RK` | `RK_SSP_11/22/33/54` | `integrate_rk_ssp_dev` | **active** |
 | EM | `RK` | `RK_YOSHIDA` | — (`integrate_rk_yoshida_dev` is an empty stub) | **refused at init** (#55) |
-| PIC | `LEAPFROG` | PIC_LEAPFROG/RK | `integrate_leapfrog_pic` | stub |
+| PIC | `LEAPFROG`, or `[PIC] scheme_time = LEAPFROG` | — | — (empty stubs) | **refused at init** |
+| PIC | `RK` | `RK_SSP_22/33/54` | `integrate_rk_ssp_pic`, or `integrate_rk_ssp_pic_charge_conserving` with `current_weighting_model = conserving` | **active** |
 
-The only fully implemented time integrator is **SSP RK** (`integrate_rk_ssp`).
+The PML on FNL needs `FD_CENTERED`, `RUNGE_KUTTA` and an SSP scheme, and refuses hyperbolic divergence correction and constrained transport (`check_pml_configuration`).
 
 ## OpenACC parallelization pattern
 
@@ -164,19 +175,18 @@ are declared `private` when needed to avoid false sharing between threads.
 ### Data management
 
 #### `allocate_gpu`
-Allocates all device pointers using `dev_alloc` from FUNDAL. `q_gpu` is a pointer alias into
-`field_gpu%q_gpu` (already allocated by `field_gpu%initialize`).
+Allocates the device pointers using `dev_alloc` from FUNDAL, each with its `ierr` checked.
 
 #### `copy_cpu_gpu`
 Transfers state from CPU to device after initial conditions or restart load:
-- `field_gpu%copy_transpose_cpu_gpu` — transposes and uploads `q`, `curl`, `divergence`
-- `field_gpu%copy_cpu_gpu` — uploads grid metadata (dxyz, cell coordinates, BC maps)
-- `coil_gpu%copy_cpu_gpu` — uploads coil amplitude, frequency, phase, J-vector (with transposition)
+- `q` → `q_gpu`, transposed through the staging buffer;
+- PIC only: `pic_fnl%copy_cpu_gpu` (particles), `leapfrog_pic_fnl%copy_cpu_gpu`;
+- `coil_fnl%copy_cpu_gpu` — coil arrays (with transposition);
+- `field_fnl%copy_cpu_gpu` — grid metadata and maps.
 
 #### `copy_gpu_cpu`
-Downloads state from device to CPU before I/O:
-- `field_gpu%copy_transpose_gpu_cpu` — downloads and un-transposes `q`, `curl`, `divergence`
-- `coil_gpu%copy_gpu_cpu` — downloads coil arrays
+Downloads state from device to CPU before I/O: `q`, `dq`, `curl`, `divergence` (un-transposed), the PIC state and
+the coil arrays.
 
 ### Simulation loop (`simulate`)
 
@@ -228,30 +238,31 @@ Same 3-step async scheme as CPU but on GPU arrays:
 
 | Step | Action |
 |------|--------|
-| 1 | `field_gpu%update_ghost_local_gpu` — block-local halo fill on device |
-| MPI | `field_gpu%update_ghost_mpi_gpu` — GPU-aware MPI halo exchange |
+| 1 | `field_fnl%update_ghost_local_gpu` — block-local halo fill on device |
+| MPI | `field_fnl%update_ghost_mpi_gpu` — GPU-aware MPI halo exchange |
 | 3 | `apply_fwl_correction` + `set_boundary_conditions` on device |
 
 #### `update_rk_ghost`
-Stub for future implementation of radiative BC ghost updates during RK stages.
+Empty stub (the radiative BC it served is refused at load, issue #57).
 
 ### Boundary conditions (`set_boundary_conditions`)
 
 Iterates `local_map_bc_crown_gpu` (device-resident BC map) over `ngc` ghost crowns using a
-`!$acc parallel loop independent gang vector` directive. Currently implemented:
+`!$acc parallel loop independent gang vector` directive:
 
-| BC type | Status | Implementation |
-|---------|--------|----------------|
-| `EXTRAPOLATION` | Active | `q_gpu(ghost) = q_gpu(interior)` |
-| `NEUMANN` | Active | Mirror reflection formula |
-| `DIRICHLET` | Active | Set to zero |
-| `Silver_Müller` | Pending | "to be implemented" |
-| `PERIODIC` | Pending | "to be implemented" |
+| BC type | Implementation |
+|---------|----------------|
+| `EXTRAPOLATION` | `q_gpu(ghost) = q_gpu(interior)` |
+| `NEUMANN` | Mirror reflection formula |
+| `Silver_Müller` | First-order absorbing condition, as on the CPU |
+| `PEC` | Mirror about the face, as on the CPU |
+| `DIRICHLET` | Set to zero |
+
+`periodic` faces are filled by the library's ghost exchange (library periodicity), not by this kernel.
 
 ### Sources — `compute_coils_current`
 
-Delegates to the `compute_coils_current_dev` kernel in `adam_prism_fnl_kernels` via
-`coil_gpu`'s device arrays. The GPU kernel (`adam_prism_fnl_kernels.F90`) applies the same
+`prism_fnl_object%compute_coils_current` runs on `coil_fnl`'s device arrays. Its kernel applies the same
 smooth-start polynomial and branchless step-function arithmetic as the CPU backend, over a
 `collapse(4)` gang-vector loop. The optional `gamma` argument shifts the evaluation time for
 SSP RK stages.
@@ -315,14 +326,14 @@ The only fully implemented integrator:
 
 ```
 if external_fields: sub_external_fields_dev
-rk_gpu%initialize_stages(q_gpu)
+rk_fnl%initialize_stages(q_gpu)
 for s = 1..nrk:
   compute_coils_current(gamma=rk%gamm(s))   ← GPU coil kernel
-  rk_gpu%compute_stage(s, dt [,phi_gpu])    ← advance q_rk_gpu stage on device
+  rk_fnl%compute_stage(s, dt [,phi_gpu])    ← advance q_rk_gpu stage on device
   compute_residuals(q_rk_gpu(:,:,:,:,:,s))  ← OpenACC FD curl kernel
   if s==1: save_residuals
-  rk_gpu%assign_stage(s, dq_gpu [,phi_gpu]) ← store stage residuals
-rk_gpu%update_q(dt, q_gpu [,phi_gpu])       ← final stage combination
+  rk_fnl%assign_stage(s, dq_gpu [,phi_gpu]) ← store stage residuals
+rk_fnl%update_q(dt, q_gpu [,phi_gpu])       ← final stage combination
 update_rk_ghost(dt)                         ← (stub)
 if external_fields: add_external_fields_dev
 ```
@@ -341,8 +352,8 @@ and B fields, exactly as in the CPU backend but without a copy to host.
 
 ### `compute_auxiliary_fields`
 
-Currently stubbed — divergence and curl computations for diagnostic fields are commented out
-pending stable `compute_divergence_gpu` signatures.
+The common host routine (`prism_common_object%compute_auxiliary_fields`) on the downloaded `q`: the curl and
+divergence diagnostics on the host, after `copy_gpu_cpu`.
 
 ### Divergence cleaning
 
@@ -366,19 +377,6 @@ factor per cell through `compute_fwl_factor` (`!$acc routine seq`), shared with 
 The kernel is direction-agnostic: the caller passes the index ranges and Barbas-notation field
 indices for the target face.
 
-### `adam_prism_fnl_kernels`
-
-Standalone module containing public device kernels:
-
-| Subroutine | Description |
-|-----------|-------------|
-| `compute_coils_current_dev` | Coil current injection with smooth start transient |
-| `compute_div_d_b_dev` | Divergence of D and B fields |
-| `compute_fluxes_convective_dev` | Convective flux computation (WENO, device) |
-| `compute_fluxes_difference_dev` | Flux divergence + source subtraction |
-| `set_bc_q_gpu_dev` | Apply boundary conditions on device |
-| `set_sir_dev` | Initialize direction versors on device |
-
 ### `adam_prism_fnl_external_fields_kernels`
 
 Provides `external_fields_initialize_dev`, `sub_external_fields_dev`, and
@@ -389,12 +387,11 @@ Provides `external_fields_initialize_dev`, `sub_external_fields_dev`, and
 | Feature | Status |
 |---------|--------|
 | FD centered space operator | Active |
-| FV centered space operator | Not implemented |
-| WENO space operator | Not implemented |
-| SSP RK time integration | Active |
+| FV centered space operator | Active |
+| WENO space operator | Refused at init (issue #23) |
+| Low-storage and SSP RK time integration | Active |
 | Leapfrog / Yoshida / Blanes-Moan / CFM | Empty stubs, refused at init (issue #55) |
-| PIC integration | Stubbed |
-| Silver-Müller BC | Pending |
-| Periodic BC | Pending |
-| FLAIL multigrid (divergence cleaning) | Partially ported |
-| Auxiliary fields (curl/divergence diagnostic) | Pending |
+| PIC (SSP RK, charge-conserving currents) | Active; PIC leapfrog refused at init |
+| PML | Active with FD centered and SSP RK |
+| Silver-Müller, PEC, periodic BCs | Active |
+| t0 elliptic solves (FLAIL, cuFFT) | Active; refused on refined grids (issue #84) |

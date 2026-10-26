@@ -1,10 +1,10 @@
 # ADAM FNL Library — `src/lib/fnl`
 
-The FNL backend is ADAM's **OpenACC GPU acceleration layer**, built on top of the [FUNDAL](https://github.com/szaghi/FUNDAL) GPU memory management library. It follows a consistent two-tier pattern for every subsystem: a **wrapper object** that extends the corresponding common CPU class and manages device-resident arrays, paired with a **kernel module** that contains OpenACC-decorated device subroutines implementing the actual computation.
+The FNL backend is ADAM's **GPU acceleration layer**, built on top of the [FUNDAL](https://github.com/szaghi/FUNDAL) GPU memory management library. The same sources compile as OpenACC with nvfortran (`*-fnl-nvf` modes) or as OpenMP target offloading with amdflang (`*-fnl-omp-amd` modes, `DEV_OMP`): every kernel carries an `!$acc` directive and its `!$omp` twin. It follows a consistent two-tier pattern for every subsystem: a **wrapper object** that holds the device-resident arrays, paired with a **kernel module** that contains the device subroutines implementing the actual computation. The wrappers are separate types, not extensions of the common classes (the Poisson solvers excepted): each is a component of the application's FNL type, initialised from the realm's common objects passed as arguments.
 
 No physics or algorithmic logic is duplicated — all equations, coefficients, and data structures are defined once in `src/lib/common` and mirrored to the GPU by the FNL layer.
 
-The aggregate entry point `adam_fnl_library` re-exports the entire FNL API together with `adam_common_library`, including all FNL singleton modules; a single `use adam_fnl_library` statement in application code exposes both layers.
+The aggregate entry point `adam_fnl_library` re-exports the entire FNL API together with `adam_common_library`, including `adam_fnl_mpih_global`; a single `use adam_fnl_library` statement in application code exposes both layers.
 
 ---
 
@@ -26,32 +26,25 @@ The aggregate entry point `adam_fnl_library` re-exports the entire FNL API toget
 
 ## Program-scope singletons
 
-Each FNL object is exposed as a **module-level target variable** in its own singleton module. GPU backend code accesses these singletons via `use`; they are never passed as dummy arguments and never embedded in derived types.
-
-| Module | Variable | Type | Purpose |
-|--------|----------|------|---------|
-| `adam_fnl_mpih_global` | `mpih_fnl` | `mpih_fnl_object` | GPU-aware MPI handler and device initialization |
-| `adam_fnl_field_global` | `field_fnl` | `field_fnl_object` | Device field arrays, coordinates, communication maps |
-| `adam_fnl_ib_global` | `ib_fnl` | `ib_fnl_object` | Device distance function `phi_gpu` and wall BC variables |
-| `adam_fnl_rk_global` | `rk_fnl` | `rk_fnl_object` | Device RK stage arrays |
-| `adam_fnl_weno_global` | `weno_fnl` | `weno_fnl_object` | Device WENO coefficients and ROR tables |
-
-All five are re-exported by `adam_fnl_library`.
-
-**Initialization order** — CPU value singletons must be populated from the solver's owned state before calling FNL `%initialize()`:
+The only FNL singleton is `mpih_fnl` (`adam_fnl_mpih_global`, type `mpih_fnl_object`): the GPU-aware MPI handler, which
+also owns the device context and must be initialised exactly once per process. The other FNL objects are components of
+the application's FNL type, one set per realm, initialised **after** the common initialisation from the realm's own
+objects (PRISM, `adam_prism_fnl_object.F90`):
 
 ```fortran
-ib   = self%ib    ! cpu ib_object  → ib  singleton
-rk   = self%rk    ! cpu rk_object  → rk  singleton
-weno = self%weno  ! cpu weno_object → weno singleton
-call mpih_fnl%initialize(do_mpi_init=.true., do_device_init=.true., verbose=.true.)
-call field_fnl%initialize(...)
-call ib_fnl%initialize()
-call rk_fnl%initialize()
-call weno_fnl%initialize()
+if (.not.mpih_fnl_is_initialized) then                                           ! once per process
+   call mpih_fnl%initialize(do_mpi_init=..., do_device_init=.true., verbose=.true.)
+   mpih_fnl_is_initialized = .true.
+endif
+call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
+call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
+call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
+call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
+call self%weno_fnl%initialize(weno=self%weno)
 ```
 
-Application-level backends may define additional FNL singletons for app-specific GPU objects (e.g. `coil_fnl`, `fwlayer_fnl` in the PRISM application).
+App-specific FNL objects follow the same pattern (PRISM's `coil_fnl`, `pic_fnl`, `pml_fnl`). The former
+`adam_fnl_{field,ib,rk,weno}_global` modules no longer exist.
 
 ---
 
@@ -71,7 +64,7 @@ On the GPU the block index is moved to the front so that threads mapped to adjac
 GPU:  q_gpu(nb, ni, nj, nk, nv)   — blocks contiguous
 ```
 
-The transposition between layouts is performed by `copy_transpose_cpu_gpu` / `copy_transpose_gpu_cpu` in `adam_fnl_field_object` and their device kernels in `adam_fnl_field_kernels`. This copy happens only at I/O and AMR update boundaries; during time integration the GPU layout is used exclusively.
+The device state arrays (`q_gpu`, `dq_gpu`, …) belong to the application's FNL type (e.g. `flume_fnl_object%q_gpu`); `field_fnl%initialize(..., q_gpu=)` can allocate one in this layout. The application transposes between layouts with FUNDAL's buffered transposed copies (`dev_memcpy_to_device(..., ij=[1,5], buf=)`, with a staging buffer of the destination's extent, issue #63) or with the device kernels `pack_blocks_transposed_dev` / `unpack_blocks_transposed_dev` of `adam_fnl_field_kernels`; the `copy_transpose_cpu_gpu` / `copy_transpose_gpu_cpu` routines in `adam_fnl_field_object` are not bound as TBPs. This copy happens only at I/O and AMR update boundaries; during time integration the GPU layout is used exclusively.
 
 ### FUNDAL integration
 
@@ -96,26 +89,23 @@ Every kernel that modifies field variables carries an implicit guard: cells insi
 
 ### `adam_fnl_field_object` — GPU field wrapper
 
-Extends `field_object` (common). Holds all device-side arrays needed for field operations and provides the host-device transfer interface.
+A plain type (not an extension of `field_object`), initialised from the realm's `grid`, `field` and `maps`. Holds the device-side geometry and maps needed for field operations (its `maps` component is a `maps_fnl_object`) and provides the ghost exchange on the device.
 
 **Device arrays:**
 
 | Array | Shape | Purpose |
 |-------|-------|---------|
-| `q_gpu` | `(nb, ni, nj, nk, nv)` | Primary field — conservative variables |
-| `q_t_gpu` | `(nv, ni, nj, nk, nb)` | Transposed scratch — used during CPU↔GPU copies |
-| `x_cell_gpu`, `y_cell_gpu`, `z_cell_gpu` | `(nb, ni, nj, nk)` | Cell centroid coordinates |
+| `x_cell_gpu`, `y_cell_gpu`, `z_cell_gpu` | `(nb, 1-ngc:ni+ngc)` (per axis) | Cell centroid coordinates |
 | `dxyz_gpu` | `(nb, 3)` | Block mesh spacing `(dx, dy, dz)` |
-| `fec_1_6_array_gpu` | `(nb, 26)` | Face enumeration codes for IB ghost-cell lookup |
+| `fec_1_6_array_gpu` | `(26)` | Maps the face/edge/corner codes 1-26 to the boundary faces 1-6 |
 
 **Key methods:**
 
 | Method | Purpose |
 |--------|---------|
-| `initialize` | Allocate all device arrays via `dev_alloc` |
-| `copy_cpu_gpu` | Transfer `q`, coordinate arrays, and maps to device |
-| `copy_transpose_cpu_gpu(nv, q_cpu, q_gpu)` | Transpose and copy `q_cpu(nv,…,nb)` → `q_gpu(nb,…,nv)` |
-| `copy_transpose_gpu_cpu(nv, q_gpu, q_cpu)` | Inverse transpose: `q_gpu(nb,…,nv)` → `q_cpu(nv,…,nb)` |
+| `initialize(grid, field, maps[, nv_aux][, q_gpu][, verbose])` | Allocate the device arrays via `dev_alloc` (and `q_gpu(nb,…,nv)` when passed) |
+| `copy_cpu_gpu` | Transfer the coordinate arrays and maps to device |
+| `reduce_ghost_local_gpu`, `reduce_ghost_mpi_gpu` | Fold deposited ghosts back onto their owner cells, locally and across ranks |
 | `update_ghost_local_gpu` | Apply intra-rank ghost-cell updates entirely on device |
 | `update_ghost_mpi_gpu` | Pack send buffer on device, perform MPI exchange, unpack on device |
 | `compute_q_gradient(b, ivar, dx, dy, dz, q_gpu, gradient)` | AMR refinement criterion: `max|∇q|/|q|` over block `b` |
@@ -163,7 +153,7 @@ All routines carry `!$acc parallel loop independent` and use `DEVICEVAR` on ever
 
 ### `adam_fnl_weno_object` — GPU WENO coefficient wrapper
 
-Extends `weno_object` (common). The CPU object computes all WENO coefficients once during initialisation; the FNL object mirrors them to device memory and holds the ROR (Reduced-Order Reconstruction) tables used near solid boundaries.
+A plain type, initialised from the realm's `weno` (`initialize(weno)`). The CPU object computes all WENO coefficients once during initialisation; the FNL object mirrors them to device memory and holds the ROR (Reduced-Order Reconstruction) tables used near solid boundaries.
 
 **Device arrays:**
 
@@ -195,7 +185,7 @@ The reconstruction follows the standard three-step algorithm:
 
 ### `adam_fnl_rk_object` — GPU RK stage manager
 
-Extends `rk_object` (common). Manages stage storage on device and drives the per-stage updates.
+A plain type, initialised from the realm's `grid`, `field` and `rk` (`initialize(grid, field, rk)`). Manages stage storage on device and drives the per-stage updates.
 
 **Device arrays:**
 
@@ -211,14 +201,14 @@ Extends `rk_object` (common). Manages stage storage on device and drives the per
 | Scheme | Storage mode | Stages |
 |--------|-------------|--------|
 | `RK_1`, `RK_2`, `RK_3` | Low-storage | 1 — overwrites `q_gpu` in place |
-| `RK_SSP_22`, `RK_SSP_33` | Multi-stage | 2 / 3 |
+| `RK_SSP_11`, `RK_SSP_22`, `RK_SSP_33` | Multi-stage | 1 / 2 / 3 |
 | `RK_SSP_54` | Multi-stage | 5 |
 
 **Key methods:**
 
 | Method | Purpose |
 |--------|---------|
-| `initialize(rk, nb, ngc, ni, nj, nk, nv)` | Allocate `q_rk_gpu` sized to scheme requirements |
+| `initialize(grid, field, rk)` | Allocate `q_rk_gpu` sized to scheme requirements |
 | `initialize_stages(q_gpu)` | Broadcast `q_gpu` into all stage slots |
 | `assign_stage(s, q_gpu, phi_gpu)` | Copy `q_gpu` into stage `s`, skipping solid cells |
 | `compute_stage(s, dt, phi_gpu)` | Accumulate stages 1…s−1 into stage `s` (SSP) |
@@ -243,7 +233,7 @@ All kernels carry `!$acc parallel loop independent` and mask solid cells via `ph
 
 ### `adam_fnl_ib_object` — GPU IB wrapper
 
-Extends `ib_object` (common). Manages the signed-distance field `phi_gpu` on device and drives the eikonal enforcement cycle.
+A plain type, initialised from the realm's `grid`, `field` and `ib` (`initialize(grid, field, ib)`). Manages the signed-distance field `phi_gpu` on device and drives the eikonal enforcement cycle.
 
 **Device arrays:**
 
@@ -258,7 +248,7 @@ The sign convention: `phi < 0` inside the solid (ghost region), `phi > 0` in the
 
 | Method | Purpose |
 |--------|---------|
-| `initialize` | Allocate `phi_gpu` and `q_bcs_vars_gpu` (reads dimensions from `field_fnl` singleton); copy BCS data to device |
+| `initialize(grid, field, ib)` | Allocate `phi_gpu` and `q_bcs_vars_gpu` (dimensions from the `grid` and `field` arguments); copy BCS data to device |
 | `evolve_eikonal(dxyz_gpu, dq_gpu, q_gpu)` | Advance eikonal equation inside solid: `q -= ∇φ·(q_bc − q)`; `dxyz_gpu` is passed explicitly by the caller (typically `field_fnl%dxyz_gpu`) |
 | `invert_eikonal(q_gpu)` | Enforce wall BC at solid surface (φ > 0): reflect momentum |
 
@@ -284,7 +274,7 @@ Wall BC modes applied by `invert_eikonal`:
 
 ### `adam_fnl_maps_object` — GPU maps wrapper
 
-Extends `maps_object` (common). Mirrors all communication index tables to device memory so that ghost-cell packing and unpacking happen entirely on the GPU, eliminating CPU staging for MPI buffers.
+A plain type, the `maps` component of `field_fnl_object`, initialised from the realm's `maps`. Mirrors all communication index tables to device memory so that ghost-cell packing and unpacking happen entirely on the GPU, eliminating CPU staging for MPI buffers.
 
 **Device arrays:**
 
@@ -396,29 +386,25 @@ A direct re-export of FUNDAL's MPI handler under the FNL-namespaced type alias `
 | Module | Role | Extends |
 |--------|------|---------|
 | `adam_fnl_library` | Aggregate entry point | — |
-| `adam_fnl_field_object` | GPU field wrapper + host↔device transfer | `field_object` |
+| `adam_fnl_field_object` | GPU field wrapper: device geometry, maps, ghost exchange | — |
 | `adam_fnl_field_kernels` | Gradient, L2 norm, ghost-cell pack/unpack | — |
-| `adam_fnl_weno_object` | GPU WENO coefficient mirror + ROR tables | `weno_object` |
+| `adam_fnl_weno_object` | GPU WENO coefficient mirror + ROR tables | — |
 | `adam_fnl_weno_kernels` | Upwind WENO reconstruction (`!$acc routine seq`) | — |
-| `adam_fnl_rk_object` | GPU RK stage storage and update dispatch | `rk_object` |
+| `adam_fnl_rk_object` | GPU RK stage storage and update dispatch | — |
 | `adam_fnl_rk_kernels` | Stage assign, accumulate, low-storage, final update | — |
-| `adam_fnl_ib_object` | GPU distance field + eikonal BC wrapper | `ib_object` |
+| `adam_fnl_ib_object` | GPU distance field + eikonal BC wrapper | — |
 | `adam_fnl_ib_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
-| `adam_fnl_maps_object` | GPU communication index tables + MPI buffer staging | `maps_object` |
+| `adam_fnl_maps_object` | GPU communication index tables + MPI buffer staging | — |
 | `adam_fnl_mpih_object` | FUNDAL MPI handler alias | — |
 | `adam_fnl_poisson_fft_object` | FFT Poisson solver, cuFFT on each rank's GPU (the slab transform; not re-exported by `adam_fnl_library`) | `poisson_fft_object` |
 | `adam_fnl_poisson_mg_object` | Multigrid Poisson solver on AMR, the FCG iteration and the V-cycle on each rank's GPU (not re-exported by `adam_fnl_library`) | `poisson_mg_object` |
 | `adam_fnl_fdv_operators_library` | Device-callable FD/FV spatial operators | — |
 | `adam_fnl_mpih_global` | Singleton — `mpih_fnl` | — |
-| `adam_fnl_field_global` | Singleton — `field_fnl` | — |
-| `adam_fnl_ib_global` | Singleton — `ib_fnl` | — |
-| `adam_fnl_rk_global` | Singleton — `rk_fnl` | — |
-| `adam_fnl_weno_global` | Singleton — `weno_fnl` | — |
 
 ---
 
 ## Copyrights
 
-ADAM is released under the [GNU Lesser General Public License v3.0](/license) (LGPLv3).
+ADAM is dual-licensed under the [MIT License](/license#mit) and the [GNU Lesser General Public License v3.0](/license#lgplv3) (LGPLv3); you may choose either.
 
 > Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.

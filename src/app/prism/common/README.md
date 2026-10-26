@@ -22,6 +22,13 @@ The `common/` directory contains all backend-independent modules shared by the C
 | `adam_prism_particle_injection_object.F90` | `adam_prism_particle_injection_object` | Initial particle space and velocity distribution |
 | `adam_prism_leapfrog_pic_object.F90` | `adam_prism_leapfrog_pic_object` | Leapfrog (Boris) PIC particle time integrator |
 | `adam_prism_rk_pic_object.F90` | `adam_prism_rk_pic_object` | Runge-Kutta PIC particle time integrator |
+| `adam_prism_pic_bc_object.F90` | `adam_prism_pic_bc_object` | Particle closure at the domain faces (periodic or legacy) |
+| `adam_prism_pml_object.F90` | `adam_prism_pml_object` | Perfectly matched layer (`[PML]`) |
+| `adam_prism_rk_pml_object.F90` | `adam_prism_rk_pml_object` | RK support for the PML auxiliary variables |
+| `adam_prism_absorbing_layer_geometry.F90` | `adam_prism_absorbing_layer_geometry` | Layer geometry shared by fWLayer and PML |
+| `adam_prism_probes_object.F90` | `adam_prism_probes_object` | Field probes (`[probes]`): time histories at fixed points |
+| `adam_prism_grms_object.F90` | `adam_prism_grms_object` | Grms diagnostic (`[grms]`) |
+| `adam_prism_magnetic_field_at_center_domain_object.F90` | `adam_prism_magnetic_field_at_center_domain_object` | Field-at-domain-centre diagnostic |
 | `adam_prism_riemann_library.F90` | `adam_prism_riemann_library` | Maxwell Riemann solvers (LLF, HLL) and convective flux routines |
 | `adam_prism_common_library.F90` | `adam_prism_common_library` | Barrel re-export of all common modules |
 
@@ -33,7 +40,7 @@ Module-level parameters (all `save`):
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `NV_MAX` | `11` | Maximum supported variable count (static array sizing) |
+| `NV_MAX` | `12` | Maximum supported variable count (static array sizing); a larger `nv` is fatal at initialization |
 | `MU0` | `1.256637e-6` | Vacuum magnetic permeability (H/m) |
 | `EPS0` | `8.854187e-12` | Vacuum permittivity (F/m) |
 | `C0` | `1/√(MU0·EPS0)` | Vacuum speed of light (m/s) |
@@ -71,10 +78,14 @@ The `prism_physics_object` reads the physical model from the `[physics]` INI sec
 
 | Key | Values | Description |
 |-----|--------|-------------|
-| `physical_model` | `electromagnetic` / `PIC` | Select EM or Particle-in-Cell model |
-| `chi` | real > 0 | Divergence-cleaning propagation speed coefficient (hyperbolic only); `evmax = chi · c₀` |
+| `physical_model` | `electromagnetic` / `AdimEM` / `PIC` / `AdimPIC` | Select the EM or Particle-in-Cell model, dimensional or non-dimensional |
+| `L0`, `B0` | real | Reference length and field of the non-dimensional models (`AdimEM`, `AdimPIC` only) |
+| `chi` | real > 0 | Divergence-cleaning propagation speed coefficient (hyperbolic only, required); `evmax = max(1, chi) · c₀` (`max(1, chi)` non-dimensional) |
+| `alpha` | real ≥ 0 | Damping rate of the cleaning scalars, 1/s (hyperbolic only, optional, default 0) |
 
-Accepted aliases for `electromagnetic`: `Maxwell`, `EM`, `em`, `maxwell`. For `PIC`: `pic`, `ParticleInCell`.
+Accepted aliases for `electromagnetic`: `Electromagnetic`, `Maxwell`, `EM`, `em`, `maxwell`. For `PIC`: `pic`,
+`ParticleInCell`, `particleincell`. For `AdimEM`: `adimem`, `AdimensionalizedElectromagnetic`,
+`adimensionalelectromagnetic`. For `AdimPIC`: `adimpic`, `adim_PIC`, `adim_pic`. Any other value is fatal.
 
 ### Data Members
 
@@ -89,7 +100,8 @@ Accepted aliases for `electromagnetic`: `Maxwell`, `EM`, `em`, `maxwell`. For `P
 | `var_phi`, `var_psi` | `0` | Q-vector indices of the GLM scalars φ (D) and ψ (B), 0 when absent. The **single source** of the φ/ψ slots: `io_initialize` names the variables from them and stops if the names do not number `nv` (issue #61) |
 | `var_Jx/Jy/Jz` | 7/8/9 (no cleaning) | Q-vector indices of J components; shift with cleaning |
 | `chi` | `0` | Cleaning speed coefficient |
-| `evmax` | `c₀` or `chi·c₀` | Maximum eigenvalue (maximum signal speed) |
+| `alpha` | `0` | Cleaning damping rate |
+| `evmax` | `c₀` or `max(1, chi)·c₀` | Maximum eigenvalue (maximum signal speed) |
 | `erw`, `elw` | pointer | Right/left eigenvectors for WENO characteristic reconstruction |
 
 ### Variable Index Constants
@@ -127,7 +139,6 @@ Configured from the `[numerics]` INI section.
 |-----|--------|-------------|
 | `scheme_time` | `RUNGE_KUTTA` / `LEAPFROG` / `BLANES_MOAN` / `COMMUTATOR_FREE_MAGNUS` | Temporal integration scheme. Only `RUNGE_KUTTA` works: the other three are parsed, then refused by both backends at init (issue #55) |
 | `scheme_space` | `WENO` / `FD_CENTERED` / `FV_CENTERED` | Spatial discretisation scheme |
-| `fdv_order` | integer | Order of centered FD/FV schemes |
 | `reconstruction_variables` | `CONSERVATIVE` / `CHARACTERISTICS` | WENO reconstruction basis |
 | `constrained_transport` | `NO` / `D` / `B` / `DB` | Fields the hyperbolic cleaning acts on (ignored, with a warning, without it) |
 | `divergence_correction` | `NO` / `HYPERBOLIC` | Divergence error control strategy. `HYPERBOLIC` requires `constrained_transport` ≠ `NO`; `POISSON` is refused (not implemented). Issue #61 |
@@ -137,67 +148,54 @@ before, `scheme_time`, `scheme_space`, `reconstruction_variables`, `constrained_
 warned and fell back to a default. The same holds for `[external_fields] external_fields_applied` (`none`, `RMF`,
 `uniform_field`) and the `[fWLayer]` face flags (`yes`, `no`), which fell back silently.
 
-The half-stencil width is derived as `fdv_half_stencil = fdv_order / 2`. Per-derivative stencil widths in `fdv_half_stencils(6)` are incremented progressively for higher-order derivatives.
+The order of the centred FD/FV schemes is not a `[numerics]` key: `[fdv] fdv_scheme` and `fdv_order` are read by the
+library's `realm_object` (`adam_realm_object.F90`). The half-stencil width is derived as `fdv_half_stencil = fdv_order / 2`. Per-derivative stencil widths in `fdv_half_stencils(6)` are incremented progressively for higher-order derivatives.
 
 ---
 
 ## `adam_prism_common_object` — Base Aggregate Type
 
-`prism_common_object` aggregates every framework and PRISM sub-object and owns all simulation field arrays. Both backends (`prism_cpu_object`, `prism_fnl_object`) extend this type.
+`prism_common_object` extends the library's `realm_object` and owns the PRISM sub-objects and field arrays. Both
+backends (`prism_cpu_object`, `prism_fnl_object`) extend this type.
 
 ### Data Members
 
-**Framework objects:**
+**Framework objects** (components of `realm_object`): `io`, `amr`, `slices`, `blanesmoan`, `cfm`, `leapfrog`, `flail`
+(the elliptic solver library of the t0 solves, issue #84), `weno`, `ib`, `rk`, and `adam` (`grid`, `tree`, `field`,
+`maps`). MPI goes through the program-scope `mpih` singleton (`adam_mpih_global`).
+
+**PRISM sub-objects** (`adam_prism_common_object.F90`):
 
 | Member | Type | Description |
 |--------|------|-------------|
-| `mpih` | `mpih_object` | MPI handler |
-| `adam` | `adam_object` | Top-level ADAM framework handle |
-| `field` | `field_object` pointer | Field storage and metrics |
-| `grid` | `grid_object` pointer | Grid geometry |
-| `amr` | `amr_object` | AMR marker handler |
-| `ib` | `ib_object` | Immersed Boundary handler |
-| `slices` | `slices_object` | Slice output handler |
-| `leapfrog` | `leapfrog_object` | Leapfrog field integrator |
-| `blanesmoan` | `blanesmoan_object` | Blanes-Moan field integrator |
-| `cfm` | `cfm_object` | Commutator-Free Magnus integrator |
-| `rk` | `rk_object` | Runge-Kutta field integrator |
-| `weno` | `weno_object` | WENO reconstructor |
-| `flail` | `flail_object` | Linear algebra methods (Poisson solver) |
-
-**PRISM sub-objects:**
-
-| Member | Type | Description |
-|--------|------|-------------|
-| `io` | `prism_io_object` | I/O configuration |
-| `numerics` | `prism_numerics_object` | Scheme selection |
-| `physics` | `prism_physics_object` | Physical model and variable layout |
-| `ic` | `prism_ic_object` | Initial conditions |
 | `bc` | `prism_bc_object` | Boundary conditions |
-| `rk_bc` | `prism_rk_bc_object` | RK sub-step BC integrator |
-| `time` | `prism_time_object` | Time control |
-| `fWLayer` | `prism_fWLayer_object` | Far-wave absorbing layer |
 | `coil` | `prism_coil_object` | Coil current density sources |
 | `external_fields` | `prism_external_fields_object` | Prescribed external fields |
-| `pic` | `prism_pic_object` | PIC configuration and weighting |
-| `particle_injection` | `prism_particle_injection_object` | Initial particle distribution |
+| `fWLayer` | `prism_fWLayer_object` | Far-wave absorbing layer |
+| `grms` | `prism_grms_object` | Grms diagnostic |
+| `ic` | `prism_ic_object` | Initial conditions |
 | `leapfrog_pic` | `prism_leapfrog_pic_object` | Leapfrog PIC integrator |
+| `magnetic_field_at_center_domain` | `prism_magnetic_field_at_center_domain_object` | Field-at-domain-centre diagnostic |
+| `numerics` | `prism_numerics_object` | Scheme selection |
+| `particle_injection` | `prism_particle_injection_object` | Initial particle distribution |
+| `physics` | `prism_physics_object` | Physical model and variable layout |
+| `pic` | `prism_pic_object` | PIC configuration and weighting |
+| `pml` | `prism_pml_object` | Perfectly matched layer |
+| `probes` | `prism_probes_object` | Field probes |
 | `rk_pic` | `prism_rk_pic_object` | RK PIC integrator |
-
-**Convenience pointers** (bound to `field`/`physics` members at init):
-
-`ngc`, `ni`, `nj`, `nk`, `nb`, `blocks_number`, `nv`, `nv_c`, `nv_s`, `nv_cl`
+| `rk_pml` | `prism_rk_pml_object` | RK PML auxiliary handler |
+| `time` | `prism_time_object` | Time control |
 
 **Field arrays** (allocated in `allocate_common`):
 
 | Array | Shape | Description |
 |-------|-------|-------------|
-| `q` | `(nv, 1-ngc:ni+ngc, …, nb)` | Conservative state vector (D, B, J, ±φ/ψ, ±ρ) |
+| `q` | `(nv, 1-ngc:ni+ngc, …, nb)` | Conservative state vector (D, B, ±φ/ψ, J, ±ρ) |
 | `dq` | same as `q` | Residual right-hand side |
 | `curl` | same as `q` | Curl of field components (optional output) |
 | `divergence` | same as `q` | Divergence of field components (optional output) |
 | `q_pic` | `(8, particle_number)` | PIC particle state (PIC model only) |
-| `pic_fields` | `(8, particle_number)` | Field values at particle locations (PIC model only) |
+| `pic_fields` | `(6, particle_number)` | D and B at the particle locations (PIC model only) |
 
 **Energy diagnostics:**
 
@@ -207,59 +205,45 @@ The half-stencil width is derived as `fdv_half_stencil = fdv_order / 2`. Per-der
 | `energy_B(:)` | Time history of magnetic field energy |
 | `rms_energy_error_D/B` | RMS relative energy error |
 
-### `initialize_common` Sequence
+### `initialize` sequence
 
-The 34-step initialization sequence called by both backends:
+`prism_common_object%initialize` (`adam_prism_common_object.F90`), called by both backends:
 
-1. `mpih%initialize` — MPI setup
-2. `io%initialize(filename)` — load and parse INI file
-3. `bc%initialize` — read boundary condition types
-4. `numerics%initialize` — read scheme selections and divergence correction
-5. `physics%initialize` — configure physical model and eigensystem (uses `numerics` outputs)
-6. `adam%grid%initialize` — initialize grid from INI (with BC type array)
-7. `adam%compute_blocks_number` — estimate blocks from available memory
-8. `adam%initialize` — allocate tree, maps, and field storage for `nv` variables
-9. Associate convenience pointers (`field`, `grid`, `ngc`, `ni`, …, `nv_cl`)
-10. `pic%initialize` — PIC configuration and particle count (PIC model only)
-11. `particle_injection%initialize` — particle distribution config (PIC model only)
-12. `adam%refine_uniform` — uniform mesh refinement to configured levels
-13. `adam%prune` — prune tree regions defined by `ijkl_prune`
-14. `amr%initialize` — AMR marker configuration
-15. `field%compute_metrics` — cell geometry and metrics
-16. `time%initialize` — read `it_max`, `time_max`, `CFL`
-17. `ic%initialize` — read initial conditions type and parameters
-18. `fWLayer%initialize` — compute far-wave layer damping function
-19. `coil%initialize` — compute coil current density fields
-20. `ib%initialize` — immersed boundary setup
-21. `slices%initialize` — slice output configuration
-22. `external_fields%initialize` — external field type and parameters
-23. `rk%initialize` — RK coefficients (if `RUNGE_KUTTA`)
-24. `rk_bc%initialize` — RK-BC stage arrays (if `RUNGE_KUTTA`)
-25. ~~`leapfrog%initialize`, `blanesmoan%initialize`, `cfm%initialize`~~ — commented out in `realm_object%initialize`:
-    never called, which is why the backends refuse those schemes (issue #55)
-28. `weno%initialize` — WENO stencil configuration (if `WENO`)
-29. `leapfrog_pic%initialize` — Boris leapfrog PIC (if PIC + LEAPFROG)
-30. `rk_pic%initialize` — RK PIC (if PIC + RUNGE_KUTTA)
-31. `flail%initialize` — linear algebra methods
-32. `check_ngc_number` — verify `ngc ≥ weno%S` and `ngc ≥ fdv_half_stencil`; stop on failure
-33. `allocate_common` — allocate `dq`, `divergence`, `curl`, and PIC arrays
-34. `io_initialize` — register auxiliary output fields with the I/O layer
+1. `mpih%initialize`; `io%initialize(filename)` (load the INI file); `[IO] save_fields`
+2. `numerics%initialize`, then `physics%initialize` (uses `numerics`); `nv > NV_MAX` is fatal
+3. `fields_number` (given, or computed from the input)
+4. `realm_object%initialize`: `adam` (grid, tree, maps, field), AMR markers, IB, slices, RK, WENO, the `[fdv]` keys
+   (`L0` for the non-dimensional models); FLAIL is set up later, by each t0 solve
+5. `bc%initialize`, `grid%set_bc_type`, then `tree%rebuild_neighborhood` and the ghost/BC maps (periodic faces need the
+   BC types first)
+6. PIC only: `pic%initialize`, `particle_injection%initialize`
+7. `time`, `ic`, `coil`, `grms`, `magnetic_field_at_center_domain`, `probes`
+8. PIC only: `leapfrog_pic%initialize` or `rk_pic%initialize`, by `[PIC] scheme_time`
+9. `check_ngc_number` (`ngc ≥ weno%S` with WENO, `ngc ≥ fdv_half_stencil`), `allocate_common`
+10. uniform refinement to `iu_ref_levels`; PIC Gaussian support cells; block face data
+11. `io_initialize` — the variable names
+
+The field integrators `leapfrog`, `blanesmoan` and `cfm` are never initialized (`realm_object%initialize` leaves them
+commented out), which is why both backends refuse those schemes (issue #55).
 
 **`io_initialize`** registers auxiliary fields conditionally:
 
 | Condition | Registered field | Names |
 |-----------|-----------------|-------|
-| `io%save_residual_fields` | `dq` | `res_Dx` … `res_Jz` [± `res_ph`/`res_ps`/`res_rh`] |
-| `io%save_divergence_fields` | `divergence` | `div_D`, `div_B`, `div_J`, `totvar`, `div_05`, `div_06`, `div_09`…`div_11` [± `div_07`/`div_08`/`div_12`] |
-| `coil%total_coils_number > 0` | `coil%j_vec`, `coil%coil_flag` | `j_vec_1/2/3`, `f_Gauss`, `coil_flag` |
-| `io%save_curl_fields` | `curl` | `curlD_x/y/z`, `curlB_x/y/z`, `curlJ_x/y/z` |
+| always | `q` | `Dx Dy Dz Bx By Bz` [`phi`] [`psi`] `Jx Jy Jz` [`rho`] |
+| `io%save_residual_fields` | `dq` | `res_Dx` … `res_Bz` [`res_phi`] [`res_psi`] `res_Jx` … `res_Jz` [`res_rho`] |
+| `io%save_divergence_fields` | `divergence` | `div_D`, `div_B`, `div_J`, `totvar`, `div_05`, `div_06` [`div_07`] [`div_08`] `div_09`…`div_11` [`div_12`] |
+| `io%save_curl_fields` | `curl` | `curl_Dx` … `curl_Bz` [`curl_07`] [`curl_08`] `curl_Jx` … `curl_Jz` [`curl_12`] |
+| coils present | `coil%j_vec` | `coil_NN_j_vec_1/2/3` per coil (`adam_prism_coil_object.F90`) |
+
+The `q` names must number `physics%nv`, otherwise `io_initialize` stops (issue #61).
 
 ### Methods
 
 | Method | Description |
 |--------|-------------|
 | `allocate_common` | Allocate `dq`, `divergence`, `curl`, and PIC arrays |
-| `initialize_common` | Full 34-step initialization (called by backend `initialize`) |
+| `initialize` | The initialization sequence above (called by the backends) |
 | `load_restart_files` | Load `q` and time from HDF5 restart files |
 | `save_energy_error` | Write energy error history if save frequency triggered |
 | `save_restart_files` | Save HDF5 restart files and an XH5F snapshot |
@@ -275,7 +259,8 @@ Reads one BC type per face from six INI sections.
 
 `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]`, `[bc_z_max]`
 
-Each section requires the key `type`:
+Each section requires the key `type`; matching is case-sensitive and an unknown value is fatal. The two faces of an
+axis must be both periodic or neither:
 
 | `type` value | Integer constant | Description |
 |--------------|-----------------|-------------|
@@ -284,6 +269,7 @@ Each section requires the key `type`:
 | `Dirichlet` | `BC_DIRICHLET = 3` | Dirichlet (prescribed field values) |
 | `Silver_Muller` | `BC_Silver_Muller = 4` | Silver-Müller absorbing BC |
 | `periodic` | `BC_PERIODIC = -1` (library) | Periodic: library periodicity, the tree builds periodic neighbours |
+| `PEC` (or `pec`) | `BC_PEC = 7` | Perfect electric conductor |
 | `radiative` | — | **Refused at load**: not implemented on any backend (issue #57) |
 
 The object stores `bc_type(6)` (integer codes) and `q(9,6)` (field values for Dirichlet BCs, one set per face).
@@ -393,30 +379,31 @@ Models current-carrying coils as volumetric current density **J** sources.
 |-----|--------|-------------|
 | `rectangular_coils_number` | integer | Number of rectangular coils |
 | `circular_coils_number` | integer | Number of circular coils |
+| `solenoid_coils_number` | integer | Number of solenoids |
+| `helicon_coils_number` | integer | Number of helicon antennas |
+| `time_delay` | real | Ramp-up time (required when any coil exists): the current is multiplied by g(s) = 10s³ − 15s⁴ + 6s⁵, s = t/`time_delay` clamped to [0, 1], so it grows smoothly from zero at t0 to full at `time_delay`. With `time_delay ≤ 0` the coils carry full current at t0, and the t0 magnetic field is solved for (the t0 elliptic solve) |
 
-Per-coil configuration (section `[coil_N]`):
+Per-coil configuration, section `[coils_input_coil_N]` (N = 1..total coils), every key required:
 
 | Key | Values | Description |
 |-----|--------|-------------|
-| `coil_type` | `rectangular` / `circular` | Loop geometry |
+| `coil_type` | `rectangular` / `circular` / `solenoid` / `helicon` | Geometry |
 | `current_type` | `DC_current` / `AC_current` | Current waveform |
-| `normal` | `+x` / `-x` / `+y` / `-y` / `+z` / `-z` | Coil plane normal |
-| `A` | real | Current amplitude (A) |
-| `f` | real | Frequency (Hz) — AC only |
-| `phase` | real | Initial phase (rad) — AC only |
-| `x_center`, `y_center`, `z_center` | real | Coil centre coordinates |
-| `lx`, `ly` | real | Rectangular loop dimensions |
-| `r_coil` | real | Circular loop radius |
 | `sigma` | real | Gaussian current distribution width |
+| `x_center`, `y_center`, `z_center` | real | Coil centre coordinates |
+| `normal` | `+x` / `-x` / `+y` / `-y` / `+z` / `-z` | Coil plane normal |
+| `lx`, `ly` | real | Rectangular loop dimensions (`rectangular`) |
+| `r_coil` | real | Radius (`circular`, `solenoid`, `helicon`) |
+| `l_solenoid`, `windings` | real, integer | Length and windings (`solenoid`) |
+| `N_points`, `x_point_K`, `y_point_K`, `z_point_K` | integer (≤ 50), real | The antenna's points (`helicon`) |
+| `Amplitude` | real | Current amplitude (A) |
+| `Frequency`, `Phase` | real | Frequency (Hz) and initial phase (rad), `AC_current` only |
 
 ### Internal Arrays
 
-| Array | Shape | Description |
-|-------|-------|-------------|
-| `J_vec` | `(total_coils_number, 4, ni, nj, nk, nb)` | Per-coil current density vector and Gaussian weight |
-| `coil_flag` | `(ni, nj, nk, nb)` | Integer flag: which coil passes through each cell |
-
-`J_vec(:,1:3,…)` holds current density direction components; `J_vec(:,4,…)` holds the Gaussian distribution value `f_Gauss`.
+| Array | Shape and description |
+|-------|-------------|
+| `J_vec` | `(3, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nb, total_coils_number)`: per-coil current density, written to the field output as `coil_NN_j_vec_1/2/3` |
 
 ---
 
@@ -428,8 +415,10 @@ Implements a sponge-like damping layer at domain boundaries to absorb outgoing e
 
 | Key | Description |
 |-----|-------------|
-| `C` | Layer width in cells (0 = layer disabled) |
-| `layer_xm`, `layer_xp`, … | Boolean flags for each of the six sides (−x, +x, −y, +y, −z, +z) |
+| `width` | Physical layer width (real, required even when no face is active); the per-face cell count is `min(ni, ceiling(width/ds))` |
+| `x_minus_layer`, `x_plus_layer`, `y_minus_layer`, `y_plus_layer`, `z_minus_layer`, `z_plus_layer` | `yes` / `no` per face; any other value is fatal |
+
+The former cell-count key `C` is removed: the lint `src/tests/lint/check-removed-input-keys.sh` rejects it in committed inputs.
 
 ### Damping Function
 
@@ -465,18 +454,21 @@ Prescribed electromagnetic fields added to (and subtracted from) the state vecto
 
 | Key | Values | Description |
 |-----|--------|-------------|
-| `ef_type` | `RMF` / `magnetic_nozzle` / `RMF_and_magnetic_nozzle` / `none` | External field type |
-| `RMF_frequency` | real | Rotating magnetic field frequency (Hz) |
-| `RMF_B_amplitude` | real | Rotating magnetic field amplitude (T) |
-| `RMF_rotation_axis` | `X` / `Y` / `Z` | Rotation axis |
+| `external_fields_applied` | `none` / `RMF` / `uniform_field` (also `magnetic_nozzle`, `RMF_and_magnetic_nozzle`: parsed, then refused at initialization, not implemented) | External field type; an unknown value is fatal |
+| `RMF_frequency` | real | Rotating magnetic field frequency (Hz), `RMF` |
+| `RMF_B_amplitude` | real | Rotating magnetic field amplitude (T), `RMF` |
+| `RMF_rotation_axis` | `X` / `Y` / `Z` | Rotation axis, `RMF` |
+| `Uniform_field_D_amplitude`, `Uniform_field_B_amplitude` | real | Uniform field amplitudes, `uniform_field` (aliases `Uniform_D_amplitude`, `Uniform_B_amplitude`) |
+| `Uniform_field_direction` | `x` / `y` / `z` | Uniform field direction, `uniform_field` (alias `Uniform_direction`); any other value is fatal |
 
-At initialization, the `add_external_fields` and `sub_external_fields` procedure pointers are dispatched to the corresponding implementation (`add_external_fields_rmf`, etc.) based on `ef_type`.
+At initialization, the `add_external_fields` and `sub_external_fields` procedure pointers are dispatched to the corresponding implementation (`add_external_fields_rmf`, `add_external_fields_uniform`) based on `external_fields_applied`.
 
 ---
 
 ## `adam_prism_rk_bc_object` — RK-BC Integrator
 
-Stores the per-stage boundary condition state during Runge-Kutta sub-stepping.
+Stores the per-stage boundary condition state during Runge-Kutta sub-stepping. **Not used**: the `rk_bc` component
+and its initialization are commented out in `adam_prism_common_object.F90`.
 
 ### Data Members
 
@@ -511,10 +503,15 @@ Manages macro-particle configuration, grid-particle mapping, and weighting.
 | `problem_type` | `plasma` / `single_particle` | Simulation scenario |
 | `plasma_density` | real | Initial plasma number density (m⁻³) — plasma only |
 | `neutral_fraction` | real | Fraction of neutral particles — plasma only |
-| `particle_weighting_model` | `CIC` / `NGP` / `TSC` | Charge deposition scheme |
-| `current_weighting_model` | `CIC` / `NGP` / `TSC` | Current deposition scheme |
-| `field_weighting_model` | `0D` / `1D` | Field interpolation order at particle positions |
-| `scheme_time` | `LEAPFROG` / `RUNGE_KUTTA` | Particle time integrator |
+| `particle_weighting_model` | `NGP` / `CIC` / `TSC` / `cubic` / `quartic` / `quintic` / `sextic` / `Gaussian` | Charge deposition scheme |
+| `current_weighting_model` | the same, or `conserving` (charge-conserving, `current_conserving_solver`) | Current deposition scheme |
+| `field_weighting_model` | `0D` / `1D` / `2D` / `3D` / `4D` / `5D` / `6D` / `Gaussian` | Field interpolation at particle positions |
+| `scheme_time` | `LEAPFROG` / `RUNGE_KUTTA` | Particle time integrator; only `RUNGE_KUTTA` with SSP 22/33/54 runs, `LEAPFROG` stops at initialization on both backends |
+
+The section also reads `plasma_domain` (with the `cilinder_*`, `box_*` and `slab_*` geometry keys), `sigma` and
+`cutoff_sigma` (Gaussian kinds), `gaussian_support_cells`, `filter_deposition`, `current_conserving_solver`,
+`esirkepov_tail_cleanup`, `initialization`, and the t0 solve switches `electric_field_elliptic_initialization` and
+`magnetic_field_elliptic_initialization`. `elliptic_correction` is removed (issue #84 E3d): `.true.` stops the run.
 
 ### Particle Count
 
@@ -549,20 +546,23 @@ Sets the initial spatial and velocity distributions for PIC particles.
 
 ### INI Section (`[particle_injection]`)
 
+Plasma problems (`[PIC] problem_type = plasma`); the spatial distribution follows `[PIC] plasma_domain`
+(`space_distribution` is no longer read):
+
 | Key | Values | Description |
 |-----|--------|-------------|
-| `space_distribution` | `Uniform_domain_space_distribution` / `Uniform_boxes_space_distribution` / `Uniform_cell_space_distribution` / `Space_random_number_generator` / `Space_layered_number_generator` | Initial spatial distribution |
-| `velocity_distribution` | `Uniform_Maxwellian` / `Non_uniform_Maxwellian` / `Velocity_random_number_generator` / `Velocity_layered_number_generator` | Initial velocity distribution |
-| `T_i`, `T_e`, `T_n` | real | Ion/electron/neutral temperature (uniform Maxwellian) |
-| `T_i_x/y/z`, `T_e_x/y/z`, `T_n_x/y/z` | real | Per-axis temperatures (non-uniform Maxwellian) |
-| `v_drift_x/y/z` | real | Drift velocity components (single particle) |
-| `ions_drift_x/y/z`, `electrons_drift_x/y/z`, `neutrals_drift_x/y/z` | real | Per-species drift velocity components (plasma, all required) |
-| `box_number` | real | Number of boxes for charge-neutral injection |
-| `space_pairing` | `yes`/`no` | Electron i at the position of ion i (ions sampled as usual): zero charge density at t0 |
-| `velocity_pairing` | `yes`/`no` | Electron i with the velocity of ion i (ions sampled as usual); needs the same distribution, temperatures and drifts for ions and electrons, otherwise fatal; read only when a Maxwellian is selected |
-| `v_av_correction` | logical | Correct mean velocity after sampling |
-| `x_position`, `y_position`, `z_position` | real | Initial position (single particle) |
-| `charge`, `mass` | real | Charge and mass (single particle) |
+| `random_seed` | integer | Optional: a fixed seed makes the injected plasma reproducible (default: the processor-dependent seed) |
+| `space_random_number_generator` | `random` / `layered` | Position sampling |
+| `space_pairing` | `yes` / `no` | Electron i at the position of ion i (ions sampled as usual): zero charge density at t0 |
+| `ions_velocity_distribution`, `electrons_velocity_distribution`, `neutrals_velocity_distribution` | `uniform_Maxwellian` (also `Maxwellian`, `uniform`) / `non_uniform_Maxwellian` / `drift` | Velocity distribution per species |
+| `ionic_temperature`, `electronic_temperature`, `neutrals_temperature` | real | Temperatures (uniform Maxwellian) |
+| `ionic_temperature_x/y/z`, `electronic_temperature_x/y/z`, `neutrals_temperature_x/y/z` | real | Per-axis temperatures (non-uniform Maxwellian) |
+| `velocity_random_number_generator` | `random` / `layered` | Velocity sampling, read when a Maxwellian is selected |
+| `velocity_pairing` | `yes` / `no` | Electron i with the velocity of ion i (ions sampled as usual); needs the same distribution, temperatures and drifts for ions and electrons, otherwise fatal; read only when a Maxwellian is selected |
+| `ions_drift_x/y/z`, `electrons_drift_x/y/z`, `neutrals_drift_x/y/z` | real | Per-species drift velocity components (all required) |
+| `v_av_correction` | `yes` / `no` | Correct the mean velocity after sampling |
+
+Single-particle problems: `x_position`, `y_position`, `z_position`, `v_drift_x/y/z`, `charge`, `mass`.
 
 At initialization, the procedure pointers `particle_space_injection` and `particle_velocity_injection` are dispatched to the selected distribution subroutines.
 

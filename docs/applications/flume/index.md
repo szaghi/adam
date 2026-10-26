@@ -11,26 +11,36 @@ OpenACC), and it supersedes the deprecated CHASE.
 
 | Area | Capabilities | Details |
 |---|---|---|
-| Physics | Compressible Euler; ideal MHD with mixed GLM divergence cleaning (or without control, for diagnostics); ideal gas | [Physical models](./models) |
-| Space | WENO flux splitting (`weno`, orders 3–9, characteristic or conservative); WENO interpolation + Riemann flux + high-order correction (`weno-riemann`, LLF/HLL/HLLC for Euler) | [Numerical methods](./numerics) |
+| Physics | Compressible Euler (optionally with dual energy and up to 4 passive scalars); ideal MHD with mixed GLM or EGLM divergence cleaning (or without control, for diagnostics); ideal, isothermal or barotropic gas; viscosity, heat conduction and Ohmic resistivity; external gravity and self-gravity; optically thin radiative cooling; sink particles | [Physical models](./models) |
+| Space | WENO flux splitting (`weno`, orders 3–9, characteristic or conservative); WENO interpolation + Riemann flux + high-order correction (`weno-riemann`, LLF/HLL/HLLC for Euler, LLF/HLL/HLLD for MHD); cell-based positivity limiter | [Numerical methods](./numerics) |
 | Time | SSP and low-storage Runge–Kutta, CFL time step (with the GLM cleaning speed) | [Numerical methods](./numerics#time-integration) |
-| Grid | Octree/quadtree of Cartesian blocks, initialisation-time AMR (box, gradient and solid markers), 2:1 coarse–fine faces with conservative reflux | [Numerical methods](./numerics#adaptive-mesh-refinement) |
+| Grid | Octree/quadtree of Cartesian blocks, AMR at initialisation and during the run (box, gradient, Löhner and solid markers), 2:1 coarse–fine faces with conservative reflux | [Numerical methods](./numerics#adaptive-mesh-refinement) |
 | Geometry | Immersed boundary for static solids (Euler) | [Numerical methods](./numerics#immersed-boundary-euler) |
 | Coupling | Multi-realm runs glued by a forest manifest | [Numerical methods](./numerics#multi-realm-runs) |
-| Setup | 17 initial conditions (Riemann problems, vortices, Shu–Osher, Orszag–Tang, rotor, field loop, linear waves, exact viscous states, ...), 6 boundary conditions (no-slip walls included) | [Initial conditions](./initial-conditions), [Boundary conditions](./boundary-conditions) |
+| Setup | 25 initial conditions (Riemann problems, vortices, Shu–Osher, Orszag–Tang, rotor, field loop, linear waves, exact viscous states, atmospheres, self-gravitating spheres and clouds, ...), 7 boundary conditions (no-slip and isothermal walls, hydrostatic faces under gravity included) | [Initial conditions](./initial-conditions), [Boundary conditions](./boundary-conditions) |
 | Input | One INI file per realm, every value checked | [Input reference](./input) |
 | Output | XDMF + HDF5 checkpoints (ParaView), restart, slices, residual, conservation and div(B) histories | [Input reference](./input#io) |
 | Verification | Exact solutions, convergence orders, symmetry and conservation oracles on both backends | [Verification gallery](./verification/) |
 
-**Status.** Milestones M1 to M5 are complete: M1 Euler ([#35](https://github.com/szaghi/adam/issues/35)), M2 ideal MHD
-with GLM ([#41](https://github.com/szaghi/adam/issues/41)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) the
-Riemann-solver scheme (`weno-riemann`, Euler and MHD), the energy-consistent EGLM cleaning and a positivity-preserving
-limiter, and M4 ([#65](https://github.com/szaghi/adam/issues/65)) the dissipative terms: compressible Navier–Stokes
-(viscosity and heat conduction, 4th-order conservative fluxes, no-slip walls) for every model and Ohmic resistivity for
-MHD, on both backends, conservative across AMR seams and realms (second order at a 2:1 seam, as the inviscid fluxes).
-M5 ([#74](https://github.com/szaghi/adam/issues/74)) runtime AMR: both backends regrid during the run (`[amr] frequency`), with
-a conservative limited prolongation, combined markers (gradient, Löhner, box, solid) and restarts across regrids
-([setting it up](./input#setting-up-runtime-amr)).
+**Status.** Milestones M1 to M13 are complete:
+
+| Milestone | Content |
+|---|---|
+| M1 [#35](https://github.com/szaghi/adam/issues/35) | compressible Euler |
+| M2 [#41](https://github.com/szaghi/adam/issues/41) | ideal MHD with GLM |
+| M3 [#47](https://github.com/szaghi/adam/issues/47) | the Riemann-solver scheme (`weno-riemann`, Euler and MHD), EGLM cleaning, the positivity-preserving limiter |
+| M4 [#65](https://github.com/szaghi/adam/issues/65) | viscosity, heat conduction (no-slip walls) and Ohmic resistivity, conservative across AMR seams and realms |
+| M5 [#74](https://github.com/szaghi/adam/issues/74) | runtime AMR (`[amr] frequency`, [setting it up](./input#setting-up-runtime-amr)), restarts across regrids |
+| M6 [#68](https://github.com/szaghi/adam/issues/68) | seam accuracy and divergence at 2:1 faces |
+| M7 [#73](https://github.com/szaghi/adam/issues/73) | external gravity |
+| M8 [#81](https://github.com/szaghi/adam/issues/81) | self-gravity, periodic and isolated, uniform and AMR ([#87](https://github.com/szaghi/adam/issues/87)) |
+| M9 [#91](https://github.com/szaghi/adam/issues/91) | dual energy (`euler-de`) and the Jeans refinement marker |
+| M10 [#92](https://github.com/szaghi/adam/issues/92) | passive scalars |
+| M11 [#93](https://github.com/szaghi/adam/issues/93) | optically thin radiative cooling |
+| M12 [#94](https://github.com/szaghi/adam/issues/94) | sink particles |
+| M13 [#100](https://github.com/szaghi/adam/issues/100) | isothermal and barotropic equations of state, Euler and MHD |
+
+Every milestone runs on both backends.
 
 ## Quick start
 

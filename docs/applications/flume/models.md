@@ -354,7 +354,7 @@ sum gains the diffusive part $2\nu\sum_d 1/\Delta x_d^2$
 
 ## Derived output fields
 
-With `[IO] save_auxiliary_fields = .true.` the checkpoints also hold $u, v, w, p, H, a$; MHD adds the total pressure
+With `[IO] save_auxiliary_fields = .true.` the checkpoints also hold $\rho, u, v, w, p, T, H, a$ (plus the specific entropy $s$ with dual energy and the passive scalars $s_1..s_4$); MHD adds the copies `Bx, By, Bz`, the total pressure
 `pt` $= p_T$, the plasma beta `beta`, the field magnitude `bmag` and the discrete divergence `divb`. Their exact
 definitions are on the [input reference](./input#derived-output-fields) page.
 

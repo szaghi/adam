@@ -15,7 +15,7 @@ The [forest cookbook](/guide/forest-cookbook) walks through every configuration 
 
 ## The manifest
 
-A forest is declared by a small INI file. PRISM and other apps auto-detect a manifest by looking for a `[forest]` section; a plain single-realm INI is dispatched through the legacy N=1 fast path with zero overhead.
+A forest is declared by a small INI file. PRISM and other apps auto-detect a manifest by looking for a `[forest]` section; a plain single-realm INI runs as a forest of one realm. Without 2:1 AMR faces each step takes the fused fast path (`advance_one_step_forest`); with a 2:1 face it takes the staged path, so the seam fluxes reach the flux register and the reflux fires (`evolve_one_step`, `adam_forest_object.F90`).
 
 ```ini
 ; forest.ini — minimal two-realm manifest

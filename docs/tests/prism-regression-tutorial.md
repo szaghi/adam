@@ -10,17 +10,10 @@ is the operational reference for golden capture and tolerances. **This page is
 the bring-up path**: from a bare checkout to a green `run.sh cpu`, then
 optionally to a green FNL/GPU run.
 
-::: warning Expect one known failure (as of `cf16e20d`)
-A correct port currently reaches **6 PASS, 1 FAIL, 3 SKIP** on the CPU
-backend. The failure is `rmf-amr` — an unadjudicated behaviour change on the
-`fv_centered` path, not a porting problem — and `rmf-fwl` is still un-migrated
-from the old `[fWLayer] C` key, so it `error_stop`s if you force it to run.
-
-When validating a new machine, judge the port on the **seven `fd` cases**:
-`rmf`, `rmf-2realm`, `rmf-2realm-asymK` and `rmf-2realm-stagesync` must PASS
-against their goldens, and `rmf-amr-fd` / `rmf-amr-fd-pulse` must pass their
-`check.sh` oracles. See the [suite page](./prism-regression) for the two open
-items.
+::: tip What a correct port reaches (as of `1c6ebee5`)
+**15 PASS, 9 SKIP** on the CPU backend and **16 PASS, 8 SKIP** on FNL, with no
+failure: a SKIP is a case with no golden for that backend, or one of the two non-case directories `reproducers/` and `slices/`. See the
+[suite page](./prism-regression) for the case list.
 :::
 
 ## The dependency stack
@@ -219,9 +212,9 @@ Exit code 0 means every case passed:
 
 ```
 == Summary [cpu]
-PASS: 5
+PASS: 15
 FAIL: 0
-SKIP: 4
+SKIP: 9
 ```
 
 ::: warning The venv lives under `exe/`, not `src/`
@@ -370,7 +363,7 @@ cp src/tests/prism/regression/<case>/work-fnl/digest.txt \
 | `ERROR: mpirun not on PATH` | 1 | load your MPI module before `run.sh` |
 | `ERROR: executable exe/adam_prism_* not found after build` | 3 | the build failed — scroll up; don't trust `--no-build` |
 | venv creation fails / `h5py` import error | 4 | system Python lacks `venv`; delete `exe/.regression-venv` and retry |
-| `error stop : failed to load [fWLayer].(width)` | 4 | the case's `input.ini` predates the `C` → `width` migration (`cf16e20d`). Expected for `rmf-fwl`, which is not yet migrated; for a research case under `cpu/`/`fnl/`, add `width = 0.0` (inactive) or the intended physical width |
+| `error stop : failed to load [fWLayer].(width)` | 4 | the input predates the `C` → `width` migration (`cf16e20d`): add `width = 0.0` (inactive) or the intended physical width. Every committed input is migrated (#58), and the removed-keys lint rejects `C` |
 | `no '*-*.h5' checkpoints produced` | 4 | the solver aborted — read the run output; try a debug build |
 | SIGABRT in `ucp_proto_rndv_send_start` (FNL, np≥2) | 4 | WSL2 rendezvous bug — `UCX_RNDV_THRESH=inf` ([#12](https://github.com/szaghi/adam/issues/12)) |
 | Digest mismatch ~1e-9 on stable fields | — | expected cross-compiler noise, inside `rtol=1e-6`; not a failure |

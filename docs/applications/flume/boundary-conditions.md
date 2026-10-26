@@ -10,7 +10,7 @@ the exchange machinery instead (below).
 
 There are six sections, `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]` and `[bc_z_max]`, which are
 faces 1–6. Each section **requires** `type`. The value goes through
-`strip_control`, so CRLF files are accepted. Six values are accepted, and matching is case-sensitive:
+`strip_control`, so CRLF files are accepted. Seven values are accepted, and matching is case-sensitive:
 
 | `type` | id | per-face keys |
 |---|---|---|
@@ -20,9 +20,10 @@ faces 1–6. Each section **requires** `type`. The value goes through
 | `wall-noslip` | `BC_WALL_NOSLIP = 4` | `wall_u, wall_v, wall_w` (optional, default 0; the normal one must be 0) |
 | `wall-isothermal` | `BC_WALL_ISOTHERMAL = 5` | `wall_temperature` (required, $> 0$), `wall_u, wall_v, wall_w` as above |
 | `periodic` | library `BC_PERIODIC = -1` | none |
+| `hydrostatic` | `BC_HYDROSTATIC = 6` | none (reads `[gravity]`); refused with `[eos]` `isothermal` or `barotropic` |
 
 *Validation:*
-- an unknown value stops the run and the message lists the six spellings;
+- an unknown value stops the run and the message lists the seven spellings;
 - a missing inflow key, or a missing or non-positive `wall_temperature`, is fatal;
 - a non-zero normal wall velocity is fatal (the wall does not move through the domain);
 - periodicity must be **paired**: `[bc_x_min]` and `[bc_x_max]` must both be periodic or neither, and the same for y and z;
@@ -134,6 +135,15 @@ The walls are boundary conditions of the ideal solver too: they take effect on a
 compressible Couette flow between an isothermal wall and a moving adiabatic one, against its exact profiles
 ([VV-3](./verification/dissipative/couette)): the moving-wall mirror is exact for its linear velocity and
 symmetric temperature, the isothermal mirror $T_w^2/T$ is second-order, so the run converges at order 2.
+
+### `hydrostatic`: an atmosphere under gravity ([#73](https://github.com/szaghi/adam/issues/73))
+
+The ghost density and pressure continue the isothermal hydrostatic equilibrium of the first interior cell along the
+normal, $\rho_g = \rho_1 \exp(g_d s/T_1)$, $p_g = \rho_g T_1$, with $T_1 = p_1/\rho_1$ and $s$ the signed distance from
+that cell to the ghost along the axis $d$: an isothermal atmosphere has exact ghosts. The velocity is mirrored as at
+`wall-inviscid` (no mass flux); the magnetic field and $\psi$ are mirrored even. Without gravity along the normal it is a
+slip wall that copies the first interior cell's thermodynamic state (Zingale et al. 2002). Source:
+`adam_flume_bc_object.F90` (`hydrostatic_ghost`).
 
 ### `periodic`
 

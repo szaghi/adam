@@ -77,7 +77,7 @@ the realm), and both loads are identical.
 | `save_laplacian_fields` | logical | yes | — | logical | **no** | PRISM only. |
 | `seam_divB_tol` | real | no | -1 (off) | no check | **no** | PRISM seam div(B) guard-rail. For FLUME use `[mhd].divb_tol`. |
 | `seam_divB_error` | logical | no | `.false.` | no check | **no** | PRISM only. |
-| `save_auxiliary_fields` | logical | yes | — | logical | yes | **FLUME key.** Also write the auxiliary fields (`rho,u,v,w,p,T,H,a`, plus `Bx,By,Bz` for MHD). For MHD it also writes the derived fields `pt, beta, bmag, divb`. |
+| `save_auxiliary_fields` | logical | yes | — | logical | yes | **FLUME key.** Also write the auxiliary fields (`rho,u,v,w,p,T,H,a`, plus `s` with dual energy, `s1..s4` with passive scalars, `Bx,By,Bz` for MHD). For MHD it also writes the derived fields `pt, beta, bmag, divb`. |
 
 ### Output formats (no format key exists)
 
@@ -817,7 +817,7 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `bonnor-ebert` | **euler**, `[eos] type = isothermal` | 1 (its velocity) | Needs `[gravity] self_gravity`. `be_density` $\rho_c$ (`> 0`, required), `be_x0`, `be_y0`, `be_z0` (default 0), `be_overdensity` $f$ (`> 0`, default 1). $\rho = f\rho_c e^{-\psi(r/r_0)}$, $r_0 = c_0/\sqrt{4\pi G\rho_c}$, $\psi$ the isothermal Lane–Emden function ([#100](https://github.com/szaghi/adam/issues/100) P4). |
 | `boss-bodenheimer` | **euler**, `[eos]` isothermal or barotropic | 1 (the ambient medium) | Needs `[gravity] self_gravity`. `bb_radius` $R$, `bb_density` $\rho_0$ (`> 0`, required), `bb_omega` $\Omega$ (required), `bb_amplitude` $A$ (default 0.1), `bb_x0`, `bb_y0`, `bb_z0` (default 0). Inside $R$: $\rho = \rho_0(1 + A\cos 2\phi)$, solid-body rotation $\Omega\,\mathbf e_z \times (\mathbf x - \mathbf x_0)$ (P4). |
 
-A model mismatch (for example `glm-pulse` with `euler`) is fatal. The complete formulas are in the module header.
+Five more types are accepted and documented, with their keys, in [initial conditions](./initial-conditions): `sine-wave`, `couette`, `becker-shock`, `polytrope` and `singular-isothermal-sphere`. A model mismatch (for example `glm-pulse` with `euler`) is fatal. The complete formulas are in the module header.
 With [`[eos] type = isothermal` or `barotropic`](#eos-optional-equation-of-state) only `uniform`, `riemann-problem`,
 `rotated-riemann`, `sine-wave`, `linear`, `polynomial`, `shu-osher` and `boss-bodenheimer` are accepted (with
 `isothermal` also `singular-isothermal-sphere` and `bonnor-ebert`; with `mhd-ideal` also `glm-pulse`, `divb-peak`,
@@ -870,11 +870,11 @@ above. Manifest errors use Fortran `error stop`, not `mpih%error_stop`.
 | `[forest.topology]` | `inter_realm_faces_number` | int | no | Default 0 (no coupling). | Number of glued faces. |
 | `[forest.topology.face_N]` | `realm_a`, `realm_b` | int | yes | `1..realms_number`, otherwise fatal. | Realms on each side of the seam. |
 | | `face_a`, `face_b` | string | yes | `+x -x +y -y +z -z`, also `X`/upper case and suffix forms `x+`, `X-`, ... Other → fatal. | Glued faces. |
-| | `coupling` | string | no | `mirror` (default), `periodic`, `interpolate` (each in lower, Capitalised or UPPER case). Other → fatal. | Declared coupling kind. **Stored, but no code dispatches on it**: `periodic` and `interpolate` are "reserved, not implemented" and behave as the pass-through seam. |
+| | `coupling` | string | no | `mirror` (default), `refined`, `periodic`, `interpolate` (each in lower, Capitalised or UPPER case). Other → fatal. `periodic` and `interpolate` are reserved: the forest stops at setup on them. | `mirror` joins seam cells of the same size (fatal otherwise). `refined` joins a 2:1 jump ([#52](https://github.com/szaghi/adam/issues/52)): the seam cells must differ by exactly 2 along every axis, the realm with the larger cells is the coarse side; octrees only ([#71](https://github.com/szaghi/adam/issues/71)). |
 | | `coupling_cadence` | string | no | `end_of_step` (default, α) or `stage_coincident` (β), in the same three case forms. Other → fatal. β requires both realms to have equal `[runge_kutta].scheme`, equal `nv` (same physics/divergence control) and equal stages per step (fatal otherwise). Conflicting cadences between the same realm pair are fatal. | Seam fill once per step (α) or at every RK stage (β). For a 1:1 same-resolution seam use β. |
 
 Note on `[realm.N] ini`: the path is **used verbatim**, so it resolves against the process working directory, **not**
-the manifest's directory (see the inconsistencies section).
+the manifest's directory.
 
 ---
 
@@ -1215,8 +1215,12 @@ each realm initialises and before the forest connects them, holds unfilled seam 
 | `H` | `IA_H` | $(E+p)/\rho$ | $(E+p+\tfrac12\vert \mathbf B\vert ^2)/\rho$, which includes the magnetic pressure |
 | `a` | `IA_A` | $\sqrt{\gamma p/\rho}$ | $\sqrt{\gamma p/\rho}$ (the **sound** speed, not the fast speed) |
 | `Bx`, `By`, `Bz` | `IA_BX..IA_BZ` | — | copies of $B_x, B_y, B_z$ (capitalised to avoid clashing with the conservative `bx, by, bz`) |
+| `s` | `IA_S` | `euler-de`: $(\rho s)/\rho$, the advected entropy per unit mass | — |
+| `s1` .. `s4` | after `IA_S` | passive scalars: $(\rho s_k)/\rho$, all four written whatever `passive_scalars` | — |
 
-The conservative variables are named `r, ru, rv, rw, rE [, bx, by, bz [, psi]]`, and the residuals `dq_<name>`.
+With `[eos] type = isothermal` or `barotropic` (no energy equation): `p` $= P(\rho)$, `T` $= P/(\rho R)$, `a` $= \sqrt{dP/d\rho}$ and `H` $= 0$.
+
+The conservative variables are named `r, ru, rv, rw, rE [, rs] [, rs1 .. rs4]` (Euler) or `r, ru, rv, rw, rE, bx, by, bz [, psi]` (MHD), and the residuals `dq_<name>`. With an inert energy (isothermal, barotropic) `rE` is carried and stays 0.
 
 ### MHD derived fields
 

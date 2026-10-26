@@ -1,7 +1,8 @@
 # Applications
 
-ADAM ships six solver applications (CHASE deprecated in favour of FLUME), each built on the same SDK layer of core objects
-(`adam_grid_object`, `adam_field_object`, `adam_weno_object`, etc.).
+ADAM ships six applications, each built on the same SDK layer of core objects (`adam_grid_object`, `adam_field_object`,
+`adam_weno_object`, etc.). Two are maintained against the current library: **PRISM** and **FLUME**. NASTO, CHASE and
+PATCH predate the realm refactor and are not maintained; FLUME supersedes CHASE.
 Applications share physics-agnostic infrastructure — AMR, ghost-cell exchange, I/O, IB —
 and specialise only in the equations being solved and the numerical methods they require.
 
@@ -9,11 +10,11 @@ and specialise only in the equations being solved and the numerical methods they
 
 | Application | Equations solved | Physics domain | Backends | Status |
 |-------------|-----------------|----------------|----------|--------|
-| [NASTO](#nasto) | Compressible Navier-Stokes | Turbulent compressible CFD | CPU · NVF · FNL · GMP | Production |
+| [NASTO](#nasto) | Compressible Navier-Stokes | Turbulent compressible CFD | CPU · NVF · FNL · GMP | Not maintained |
 | [PRISM](#prism) | Maxwell + PIC | Plasma/electromagnetics | CPU · FNL | Development |
-| [CHASE](#chase) | Euler (inviscid) | Inviscid compressible flow | CPU | Deprecated (use FLUME) |
-| [PATCH](#patch) | Poisson (elliptic) | Potential / pressure fields | CPU | Research |
-| [FLUME](#flume) | Compressible Euler (M1), ideal MHD (target) | Compressible flow, magnetohydrodynamics | CPU · FNL | Development |
+| [CHASE](#chase) | Euler (inviscid) | Inviscid compressible flow | CPU | Deprecated (use FLUME); does not build |
+| [PATCH](#patch) | Poisson (elliptic) | Potential / pressure fields | CPU | Not maintained; does not build |
+| [FLUME](#flume) | Compressible Euler and ideal MHD | Compressible flow, magnetohydrodynamics, astrophysics | CPU · FNL | Development |
 | [ASCOT](#ascot) | — (utility) | Post-processing | — | Complete |
 
 ## Common design pattern
@@ -173,23 +174,23 @@ and $\mathbf{J}$ the current density computed from particle trajectories.
 - **Particle-In-Cell**: kinetic plasma dynamics with particle injection and tracking
 - **Coil modelling**: user-defined electromagnetic coil sources
 - **External fields**: prescribed background electromagnetic fields
-- **Multiple integrators**:
-  - Runge-Kutta (explicit, multi-stage)
-  - Leapfrog (symplectic, time-reversible)
-  - Blanes-Moan (high-order symplectic)
-  - Commutator-Free Magnus (CFM) for time-varying Hamiltonians
-- **fWLayer**: forward-backward layer boundary treatment
-- **FLAIL**: linear algebra solver for implicit field equations
+- **Time integration**: Runge-Kutta (low-storage, SSP; Yoshida on the CPU only). `leapfrog`, `blanes_moan` and
+  `commutator_free_magnus` are parsed and refused at initialization (issue #55)
+- **Absorbing layers**: fWLayer and PML (`CLASSIC`, `CLASSIC_DIRECT`, `CFS`, `BERMUDEZ`)
+- **Elliptic t0 solves**: the PIC electric field and the magnetic field of currents present at t0, on the library's
+  FLAIL solver (issue #84); refused on refined grids
 
-### Physical constants (hard-coded)
+### Physical constants (hard-coded, `adam_prism_parameters.F90`)
 
 | Constant | Symbol | Value |
 |----------|--------|-------|
 | Vacuum permeability | $\mu_0$ | $1.256637 \times 10^{-6}$ H/m |
 | Vacuum permittivity | $\varepsilon_0$ | $8.854187 \times 10^{-12}$ F/m |
 | Speed of light | $c$ | $1/\sqrt{\mu_0 \varepsilon_0}$ |
-| Electron charge | $q_e$ | $1.602176 \times 10^{-19}$ C |
-| Electron mass | $m_e$ | $9.109383 \times 10^{-31}$ kg |
+| Electron charge | $q_e$ | $-1.6 \times 10^{-19}$ C |
+| Electron mass | $m_e$ | $9.11 \times 10^{-31}$ kg |
+| Ion (proton) mass | $m_i$ | $1.67262192595 \times 10^{-27}$ kg |
+| Boltzmann constant | $k_B$ | $1.380649 \times 10^{-23}$ J/K |
 
 ### Backends
 
@@ -202,35 +203,15 @@ and $\mathbf{J}$ the current density computed from particle trajectories.
 
 ```
 src/app/prism/
-├── common/
-│   ├── adam_prism_common_object.F90            # Base class
-│   ├── adam_prism_physics_object.F90           # EM field properties
-│   ├── adam_prism_pic_object.F90               # PIC handler
-│   ├── adam_prism_leapfrog_pic_object.F90      # Leapfrog PIC integrator
-│   ├── adam_prism_rk_pic_object.F90            # RK PIC integrator
-│   ├── adam_prism_coil_object.F90              # Electromagnetic coil sources
-│   ├── adam_prism_external_fields_object.F90   # Background field prescription
-│   ├── adam_prism_fWLayer_object.F90           # Forward-backward layer BC
-│   ├── adam_prism_particle_injection_object.F90 # Particle generation
-│   ├── adam_prism_numerics_object.F90          # Scheme parameters
-│   ├── adam_prism_rk_bc_object.F90             # RK boundary conditions
-│   ├── adam_prism_bc_object.F90                # Boundary conditions
-│   ├── adam_prism_ic_object.F90                # Initial conditions
-│   ├── adam_prism_io_object.F90                # HDF5 output, restart
-│   ├── adam_prism_time_object.F90              # Time-step control
-│   ├── adam_prism_riemann_library.F90          # Riemann fluxes (EM)
-│   └── adam_prism_common_library.F90           # Utility procedures
+├── common/        # backend-independent objects: physics, numerics, BC, IC, IO, time, coils, external fields,
+│                  # fWLayer, PML (+ its RK), PIC (+ particle BCs, injection, leapfrog and RK integrators),
+│                  # probes, grms and centre-field diagnostics, Riemann fluxes, parameters
 ├── cpu/
-│   ├── adam_prism_cpu.F90                      # Main program (CPU)
-│   └── adam_prism_cpu_object.F90               # CPU backend object
-└── fnl/
-    ├── adam_prism_fnl.F90                      # Main program (OpenACC)
-    ├── adam_prism_fnl_object.F90               # FNL backend object
-    ├── adam_prism_fnl_kernels.F90              # OpenACC kernels
-    ├── adam_prism_fnl_coil_object.F90          # GPU coil sources
-    ├── adam_prism_fnl_external_fields_kernels.F90 # GPU external fields
-    ├── adam_prism_fnl_fWLayer_object.F90       # GPU fWLayer BC
-    └── adam_prism_fnl_library.F90              # FNL utilities
+│   ├── adam_prism_cpu.F90          # Main program (CPU)
+│   └── adam_prism_cpu_object.F90   # CPU backend object
+└── fnl/           # adam_prism_fnl.F90 (main program), adam_prism_fnl_object.F90 (backend object) and the device
+                   # twins: coils, external fields, fWLayer, PML (+ RK), PIC (charge-conserving currents, leapfrog,
+                   # RK), probes
 ```
 
 ### Build
@@ -371,14 +352,11 @@ fobis build --mode patch-cpu-gnu
 
 > ADAM for the compressible magnetohydrodynamics equations — **F**luid **L**orentz-coupled **U**nsteady **M**agnetohydrodynamic **E**quations.
 
-FLUME targets the three-dimensional compressible MHD equations on AMR
-structured grids: an electrically conducting fluid coupled to its own magnetic
-field through the Lorentz force, starting from the ideal (inviscid, perfectly
-conducting) model.  **Status: development.**  Milestone M1 delivers the fluid
-core, the compressible Euler equations, on both backends (characteristic WENO,
-SSP Runge-Kutta, init-time AMR with conservative reflux, immersed boundary,
-restart and slices), verified and goldened in `src/tests/flume/`; the magnetic
-field is the next milestone.  FLUME supersedes CHASE.
+FLUME solves the three-dimensional compressible Euler and ideal MHD equations on AMR structured grids, with
+viscosity, heat conduction and Ohmic resistivity, ideal, isothermal or barotropic gases, external gravity and
+self-gravity, radiative cooling and sink particles, on both backends. **Status: development**, milestones M1 to M13
+complete (the list is in the [FLUME overview](/applications/flume/)), verified and goldened in `src/tests/flume/`.
+FLUME supersedes CHASE.
 
 ### Equations
 

@@ -7,7 +7,7 @@
 The CPU backend (`prism-cpu`) provides a pure CPU/MPI implementation of the PRISM Maxwell equations
 solver. It inherits the full PRISM common infrastructure (grid, field, physics, numerics, I/O, PIC,
 coils, boundary conditions) and adds flux storage arrays, spatial-operator procedure pointers, and a
-comprehensive set of time integration schemes.
+the Runge-Kutta time integration.
 
 ## Source files
 
@@ -57,7 +57,7 @@ on the divergence-cleaning configuration.
 
 ## Dispatch table (`initialize`)
 
-After calling `initialize_common`, `allocate_cpu` allocates the flux arrays, then all pointers are
+After calling `prism_common_object%initialize`, `allocate_cpu` allocates the flux arrays, then all pointers are
 set based on INI parameters:
 
 ### Spatial operator pointers
@@ -76,14 +76,12 @@ Always bound to `compute_derivative4_fd` (Kreiss-Oliger dissipation, FD only).
 
 | Physical model | `scheme_time` | RK variant | `integrate` |
 |----------------|--------------|------------|-------------|
-| Maxwell (non-PIC) | `LEAPFROG` | — | `integrate_leapfrog` |
-| Maxwell (non-PIC) | `RK` | `LS` | `integrate_rk_ls` |
-| Maxwell (non-PIC) | `RK` | `SSP` | `integrate_rk_ssp` |
-| Maxwell (non-PIC) | `RK` | `YOSHIDA` | `integrate_rk_yoshida` |
-| Maxwell (non-PIC) | `BLANES_MOAN` | — | `integrate_blanesmoan` |
-| Maxwell (non-PIC) | `CFM` | — | `integrate_cfm` |
-| PIC | `LEAPFROG` | — | `integrate_leapfrog_pic` |
-| PIC | `RK` | `SSP` | `integrate_rk_ssp_pic` |
+| Maxwell (non-PIC) | `RUNGE_KUTTA` | low-storage 1/2/3 | `integrate_rk_ls` |
+| Maxwell (non-PIC) | `RUNGE_KUTTA` | SSP 11/22/33/54 | `integrate_rk_ssp` |
+| Maxwell (non-PIC) | `RUNGE_KUTTA` | Yoshida | `integrate_rk_yoshida` |
+| Maxwell (non-PIC) | `LEAPFROG`, `BLANES_MOAN`, `COMMUTATOR_FREE_MAGNUS` | — | refused at initialization: the library integrators are never initialized (issue #55) |
+| PIC | `LEAPFROG`, or `[PIC] scheme_time = LEAPFROG` | — | refused at initialization (issue #55) |
+| PIC | `RUNGE_KUTTA` | SSP 22/33/54 | `integrate_rk_ssp_pic`, or `integrate_rk_ssp_pic_charge_conserving` with `current_weighting_model = conserving`; other RK schemes are refused |
 
 ### `compute_fluxes_Maxwell` pointer
 
@@ -177,16 +175,12 @@ selects:
 | `EXTRAPOLATION` | Copy from interior: `q(ghost) = q(interior)` |
 | `NEUMANN` | Mirror: `q(ghost) = q(mirror)` |
 | `Silver_Müller` | 1st-order absorbing (Barbas notation): face-direction-dependent `α,β,γ` indices; `q_D_α = s₁ C₀ q_B_β ε₀`, `q_D_β = −s₁ C₀ q_B_α ε₀`, `q_D_γ = q_D_γ`, `q_B_α = −s₁/C₀ q_D_β/ε₀`, `q_B_β = s₁/C₀ q_D_α/ε₀`, `q_B_γ = q_B_γ`; particle variables extrapolated |
+| `PEC` | Mirror about the face: normal D and tangential B even, tangential D and normal B odd |
 | `DIRICHLET` | Set all variables to zero |
-| `PERIODIC` | Wrap-around: `q(ghost) = q(interior + N)` per face direction |
-| `BC_radiative` | RK-BC absorbing: `q(ghost) = 2 q_bc_rk(stage) − q(interior)` |
 
-#### Radiative BC residuals (`compute_residuals_BC`)
-First-order upwind along the outward normal:
-
-$$\frac{\partial q}{\partial t} = -C_0 \frac{q_\text{bc} - q_\text{interior}}{\Delta s}$$
-
-with an additional damping term `−χ C₀ / Δs` applied to the divergence-cleaning variables.
+`periodic` faces are not boundary rows: the library's ghost exchange fills them (library periodicity, `BC_PERIODIC =
+-1`). `radiative` is refused at load (issue #57); its `compute_residuals_BC` is commented out. Edge and corner crown
+rows (`fec > 6`) receive no BC.
 
 ### Spatial discretization
 
@@ -276,7 +270,7 @@ Strong Stability Preserving RK. Each stage `s`:
 3. `compute_residuals` — Maxwell RHS.
 4. `rk%assign_stage` — store stage residuals.
 
-After all stages: `rk%update_q`, `update_q_BC` (radiative BC), `compute_coils_current`. Supports external fields via `sub_external_fields` / `add_external_fields`.
+After all stages: `rk%update_q`, `compute_coils_current`. Supports external fields via `sub_external_fields` / `add_external_fields`.
 
 #### SSP RK-PIC (`integrate_rk_ssp_pic`)
 Same as SSP RK but co-integrates field (`rk`) and particle (`rk_pic`) stages:
