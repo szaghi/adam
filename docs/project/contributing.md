@@ -30,6 +30,9 @@ ADAM is developed trunk-based on `develop`: there are no long-lived feature bran
    ```
    A change to a numerical result must also update the affected goldens, with the reason in the commit message.
 3. Check for unnecessary whitespace: `git diff --check`
+   A change to the documentation ships with the code it describes. When it names build modes, check them:
+   `python3 scripts/check_docs_modes.py` (CI runs it); a change to the fobos files regenerates the
+   [build-modes page](/reference/build-modes) with `python3 scripts/make_build_modes_page.py`.
 4. Open a pull request against `develop`, with a [Conventional Commits](#commit-style) message
 
 ## Fortran Coding Style

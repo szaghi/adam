@@ -156,3 +156,21 @@ jobs:
         python3 -m venv exe/.regression-venv
         exe/.regression-venv/bin/pip install --quiet h5py numpy
         ./src/tests/ripple/check.sh --legs r1,r2,r3,r5
+
+  docs-modes:
+    # Every `fobis ... --mode X` in the documentation must be a mode the fobos files define (issue #60, P8): commands in
+    # a page are not compiled, and the #60 audit found 38 references to modes that did not exist.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
+
+    - name: Check the build modes named in the docs
+      run: python3 scripts/check_docs_modes.py
