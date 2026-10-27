@@ -716,6 +716,10 @@ contains
 			call self%electrons_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'e')
 		endif
 		call self%neutrals_velocity_injection(field=field, grid=grid, pic=pic, q_pic=q_pic, particle_type = 'n')
+		! macroparticles: charge and mass times the weight, after the thermal velocities (sampled with the mass of one
+		! real particle); q/m is unchanged
+		if (pic%particle_weight /= 1.0_R8P) &
+			q_pic(7:8,1:pic%particle_number) = pic%particle_weight*q_pic(7:8,1:pic%particle_number)
 		!Definisci neighbour list
 		call pic%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic, owned_only=.true.)
 
@@ -820,7 +824,7 @@ contains
    desc = desc//NL//mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
 	desc = desc//NL//mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
 	desc = desc//NL//mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
-	desc = desc//NL//mpih%myrankstr//'    	Effective plasma density: '//trim(str(real(np)/domain_volume))
+	desc = desc//NL//mpih%myrankstr//'    	Effective plasma density: '//trim(str(pic%particle_weight*real(np,R8P)/domain_volume))
 	print '(A)', desc
 	endassociate
 	endsubroutine uniform_domain_space_injection
@@ -903,7 +907,7 @@ contains
    desc = desc//NL//mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
 	desc = desc//NL//mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
 	desc = desc//NL//mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
-	desc = desc//NL//mpih%myrankstr//'    	Effective plasma density: '//trim(str(real(np)/domain_volume))
+	desc = desc//NL//mpih%myrankstr//'    	Effective plasma density: '//trim(str(pic%particle_weight*real(np,R8P)/domain_volume))
 	print '(A)', desc
 	endassociate
    endsubroutine uniform_cilinder_space_injection
@@ -986,7 +990,7 @@ contains
    desc = desc//NL//mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
 	desc = desc//NL//mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
 	desc = desc//NL//mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
-	desc = desc//NL//mpih%myrankstr//'    	Effective plasma density: '//trim(str(real(np)/domain_volume))
+	desc = desc//NL//mpih%myrankstr//'    	Effective plasma density: '//trim(str(pic%particle_weight*real(np,R8P)/domain_volume))
 	print '(A)', desc
 	endassociate
    endsubroutine uniform_region_space_injection
@@ -1139,7 +1143,7 @@ contains
 	desc = desc//NL//mpih%myrankstr//'		Effective particle total number: ' &
 													//trim(str((n_e_4c*n_cells+n_i_4c*n_cells+n_n_4c*n_cells)))
 	desc = desc//NL//mpih%myrankstr//'		Effective plasma density: ' &
-													//trim(str(real(n_e_4c*n_cells+n_i_4c*n_cells+n_n_4c*n_cells)/domain_volume))
+													//trim(str(pic%particle_weight*real(n_e_4c*n_cells+n_i_4c*n_cells+n_n_4c*n_cells,R8P)/domain_volume))
 	print '(A)', desc
 	endassociate
 	endsubroutine uniform_cell_space_injection

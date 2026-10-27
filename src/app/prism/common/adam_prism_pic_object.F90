@@ -124,6 +124,7 @@ character(len=11), parameter :: ESIRKEPOV_MODIFIED_CURRENT_CONSERVING_SOLVER = '
 type :: prism_pic_object
    real(R8P)                 :: plasma_density              !< Plasma density
    real(R8P)                 :: neutral_fraction = 0.0_R8P  !< Neutral fraction
+   real(R8P)                 :: particle_weight = 1.0_R8P   !< Real particles per macroparticle.
    real(R8P)		           :: cilinder_length = 0.0_R8P   !<
    real(R8P)		           :: cilinder_radius = 0.0_R8P   !<
    real(R8P)                 :: cilinder_center(3)          !<
@@ -438,6 +439,8 @@ contains
       desc = desc//NL//mpih%myrankstr//'    Plasma initial domain: '//trim(self%plasma_domain)
       desc = desc//NL//mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
       desc = desc//NL//mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
+      desc = desc//NL//mpih%myrankstr//'    Particle weight (real particles per macroparticle): '// &
+                                       trim(str(self%particle_weight))
       if (self%plasma_domain == UNIFORM_CILINDER) then
 			desc = desc//NL//mpih%myrankstr//'    	Cilinder radius: '//trim(str(self%cilinder_radius))
          desc = desc//NL//mpih%myrankstr//'    	Cilinder length: '//trim(str(self%cilinder_length))
@@ -533,7 +536,7 @@ contains
       else
          call mpih%error_stop(msg=': invalid plasma_domain for particle number computation')
       endif
-      self%particle_number = nint(self%plasma_density*domain_volume)
+      self%particle_number = nint(self%plasma_density*domain_volume/self%particle_weight)
       self%n_neutrals = nint(self%neutral_fraction*real(self%particle_number,R8P))
 	   self%n_ions = nint(real(self%particle_number-self%n_neutrals, R8P)/2.0_R8P)
 	   self%n_electrons = self%n_ions
@@ -808,6 +811,17 @@ contains
       val=self%neutral_fraction, error=error)
       if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
+
+      ! optional, 1 by default (one particle per real particle, the model before the key existed: no input changes).
+      ! A macroparticle carries w times the charge and the mass of its species, so q/m and the push are unchanged and
+      ! the deposit gives the input density with w times fewer particles; only the sampling noise grows (~ w^(1/2))
+      self%particle_weight = 1.0_R8P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weight', &
+                               val=self%particle_weight, error=error)
+      if (error > 0) self%particle_weight = 1.0_R8P
+      if (.not.(self%particle_weight > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(particle_weight) must be > 0, got '// &
+                              trim(str(self%particle_weight)))
    endif
 
    buff = COHERENT_INITIALIZATION

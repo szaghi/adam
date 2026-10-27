@@ -235,7 +235,8 @@ See the [PML hazards](#pml).
 | `slab_normal` | string | `slab` | — | `x`, `y`, `z` (either case); other values are fatal | Slab normal. |
 | `slab_thickness`, `slab_center` | real | `slab` | — | thickness `> 0`, otherwise fatal | Slab along its normal. |
 | `box_length_x`, `box_length_y`, `box_length_z`, `box_x_center`, `box_y_center`, `box_z_center` | real | `box` | — | — | Box. |
-| `plasma_density` | real | `plasma` | — | — | Macro-particles per unit volume: the particle count is `nint(plasma_density × volume)` of the plasma region. |
+| `plasma_density` | real | `plasma` | — | — | Total density (ions + electrons + neutrals) per unit volume: the particle count is `nint(plasma_density × volume / particle_weight)` of the plasma region. |
+| `particle_weight` | real | no | `1` | `> 0`, otherwise fatal | Real particles per macroparticle: each particle carries `particle_weight` times the charge and the mass of its species (q/m unchanged). |
 | `neutral_fraction` | real | `plasma` | — | — | Fraction of neutrals; the rest is split evenly into ions and electrons. |
 | `initialization` | string | no | `coherent` | `coherent` only; other values are fatal | Field initialization. |
 | `electric_field_elliptic_initialization` | logical | no | `.true.` | logical | Solve D(G) φ = −ρ/ε at t0 and correct D, so div D = ρ to round-off. |

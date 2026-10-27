@@ -11,12 +11,14 @@ Each particle carries `q_pic(8, n)`: position $(x, y, z)$, velocity $(v_x, v_y, 
 field gathered at it is `pic_fields(6, n)`, $\mathbf D$ and $\mathbf B$.
 
 - **`problem_type = plasma`.** The particles fill `plasma_domain`: the whole domain (`uniform`), a cylinder
-  (`cilinder`, note the spelling), a slab or a box. Their number is `nint(plasma_density × volume)` of that region, split
+  (`cilinder`, note the spelling), a slab or a box. Their number is `nint(plasma_density × volume / particle_weight)` of that region, split
   into neutrals (`neutral_fraction`) and, evenly, ions (H⁺) and electrons. Positions are sampled by
   `space_random_number_generator` (`random` or `layered`), optionally pairing each electron with an ion
   (`space_pairing`); velocities follow, per species, a uniform or a per-axis Maxwellian at the given temperature, or a
   pure drift, plus the drift velocity; `v_av_correction` removes the sampled mean velocity. `random_seed` makes the
-  plasma reproducible.
+  plasma reproducible. With `particle_weight` w (default 1) each particle is a macroparticle of w real ones: charge
+  and mass are multiplied by w after the thermal velocities are sampled, so q/m and the push are those of one real
+  particle and the deposit gives `plasma_density`; the sampling noise grows as w^(1/2) at fixed density.
 - **`problem_type = single_particle`.** One test particle with the given position, charge, mass and velocity; its
   trajectory and fields go to `single_particle_output.dat` at every step.
 
