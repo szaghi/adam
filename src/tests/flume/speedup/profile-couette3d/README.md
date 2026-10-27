@@ -182,13 +182,13 @@ cd profile-couette3d
 
 Every run goes to `runs/<leg>-<size>[-uniform][-<scheme>]-np<N>-<tool>[-<tag>]/` (a previous one is renamed, not
 overwritten; the scheme is in the name only when it is not the default `weno-u-5`). `--scheme` sets the WENO scheme of
-the input, `weno-u-1` to `weno-u-9` (half-width S = 1 to 5), and the ghost cells with it, `ngc = max(3, S)`: WENO-7
-and WENO-9 runs have wider blocks in memory, so their loops do not price the stencil alone. The run writes
-`input.ini`, `log.txt`, `wall.txt`, `run.info` (host, job, scheme, command, executable and its digest, commit,
-`src_modified`) and the profiler files, one per rank. `ADAM_SEAM_TIMING=1` is always set, so the end of `log.txt` carries the forest
-timing report (loop, steps, reflux, seam fills; max over the ranks), which `profile.sh` prints. `--dry-run` prints the
-command without running it. The default launcher is `mpirun -x ADAM_SEAM_TIMING -np`; give `--launcher` when another
-variable must reach the ranks (Open MPI forwards only the ones `-x` names) or under Slurm (`srun` forwards all).
+the input, `weno-u-1` to `weno-u-9` (half-width S = 1 to 5), and the ghost cells with it, `ngc = max(3, S)`: WENO-7 and
+WENO-9 runs have wider blocks in memory, so their loops do not price the stencil alone. The run writes `input.ini`,
+`log.txt`, `wall.txt`, `run.info` (host, job, scheme, command, executable and its digest, commit, `src_modified`) and
+the profiler files, one per rank. `ADAM_SEAM_TIMING=1` is always set, so the end of `log.txt` carries the forest timing
+report (loop, steps, reflux, seam fills; max over the ranks), which `profile.sh` prints. `--dry-run` prints the command
+without running it. The default launcher is `mpirun -x ADAM_SEAM_TIMING -np`; give `--launcher` when another variable
+must reach the ranks (Open MPI forwards only the ones `-x` names) or under Slurm (`srun` forwards all).
 
 ### Tool limits on medooza
 
@@ -232,6 +232,9 @@ adds nothing there. The leg of the results below, without LTO, is `--varset "iac
   and spills of each kernel.
 - `rocprof-r<N>/`: the `*_stats.csv` files rank the kernels by total time; the trace files hold every launch.
 - `perf report -i perf-r<N>.data`: the CPU hot spots with their call graphs.
+- `./make_figures.py idle runs/<run>/` (an nsys run): where the GPU is idle inside the loop, by gap length, by the GPU
+  operation that ends each gap, and the CPU samples that fall in the gaps; see
+  [Time with no kernel running](#time-with-no-kernel-running).
 - The forest timing line: the wall time of the loop and of the steps; their difference is the regrid and post-step
   share, the reflux and seam entries price the AMR machinery.
 
@@ -256,9 +259,10 @@ agree to 0.6% in loop time and kernel means; the wall time, start-up included, v
 
 The two flux kernels are the whole cost of the uniform run. On the refined walls 8 s of the loop (22%) have no kernel
 running (a lower bound: the kernel total includes the start-up kernels). At most 1.9 s of it is the regrid and
-post-step share (loop minus steps); the other 6 s fall inside the steps and are not attributed yet. The 3708 launches
-of `blend_inadmissible_ghosts_dev` (22 µs each on average, 82 ms in all) cannot fill them; an Nsight Systems timeline of
-one refined step would locate them.
+post-step share (loop minus steps); the other 6 s fall inside the steps. The 3708 launches of
+`blend_inadmissible_ghosts_dev` (22 µs each on average, 82 ms in all) cannot fill them. Those 6 s were a host loop over
+the AMR seam faces, once per Runge–Kutta stage, since cut from 59 ms to 3.6 ms per stage (see
+[Time with no kernel running](#time-with-no-kernel-running)).
 
 **CPU** (Nsight Systems sampling on WSL, 2 ranks; shares only, WSL is not a benchmark machine): the WENO weights 31%,
 the dissipative fluxes about 20%, `malloc`/`free` 10.5% and the integer power `__powidf2` 2.9%, both inside the WENO
@@ -317,7 +321,8 @@ which is job 1357635 alone, by at most 0.2%:
   inlines after the OpenACC lowering, and does not have this problem.
 - **On the refined walls the time outside the kernels stays.** The loop minus the kernel time is 7.95 s for the leg
   and 8.04 s for `B0-lto`; as the kernels shrink from 27.7 s to 13.2 s, that share grows from 22% to 38% of the loop.
-  Most of it is not attributed yet (see above).
+  Most of it was the host update of the AMR flux register, since cut (see
+  [Time with no kernel running](#time-with-no-kernel-running)).
 
 **Correctness of the variants.** Every variant but `B0` (timed only) ran `small`, refined walls, 10 steps with
 checkpoints at steps 0 and 10 (`--steps 10 --io`); `h5diff` found every checkpoint bitwise identical to the leg's, and
@@ -378,7 +383,7 @@ the generic kernel for every width (`select case (-S)`, a temporary edit, revert
 - **WENO-5 reproduces B0.** 56.0 ms per launch against 56.3 ms for `B0-lto`, and the generic kernel's 103.4 ms against
   103.1 ms for `lto`: the generic path is the code before this change, built with LTO.
 - **The refined walls gain less in the loop** (11% to 21%) for the reason given above: the time with no kernel
-  running does not shrink with the kernels.
+  running does not shrink with the kernels (these runs predate the seam-skin fix below).
 - **The build is slower.** Five more face kernels and five more edge kernels per flux-splitting model: the `fnl-nvf`
   leg took 1006 s on 16 cores of a GPU node (job 1357834), against about 830 s before; on WSL 462 s against 377 s (a
   planning figure).
@@ -393,6 +398,51 @@ bitwise identical to the build before the change (`-gpu=lto`, commit `dcdc49c1`)
 build before the change bitwise, so the difference is the constant `S` changing the order of the floating-point
 operations of the inlined code (round-off), not a non-deterministic run.
 
+### Time with no kernel running
+
+On the refined walls the GPU waits for the host for 8 s of the loop: 22% of the leg's 35.6 s, 38% of the 21.1 s with LTO
+and the per-width kernels. `./make_figures.py idle` locates it in the Nsight Systems trace: it takes the time from the
+first to the last face-flux kernel (the steps, without start-up; it ends before the last stage's flux difference and the
+final regrid), marks the GPU idle where no kernel, copy or memset runs, and attributes each idle gap to the GPU
+operation that ends it and to the CPU samples that fall in it.
+
+**One host loop per stage.** At commit `421cd773` (job 1357849, refined walls, 20 steps) the GPU is idle for 6.99 s of
+the 19.97 s window, and 5.86 s of it in 99 gaps of 59 ms each, one per Runge–Kutta stage (5 stages, 20 steps: the 100th
+falls after the window), each ending at `compute_flux_difference_dev`. Only one call runs there:
+`accumulate_seam_fluxes` packs the skins of the 640 seam faces (128 coarse, 512 fine) on the device in one launch,
+copies them to the host in one transfer, and loops on the host over the faces (`accumulate_seam_skin`, shared with the
+CPU backend), which add them to the AMR flux register; the GPU waits. The CPU samples of the trace have broken call
+stacks (the builds keep no frame pointers); a second trace with `nsys profile --backtrace=dwarf` (job 1357848, 4 steps)
+completes them: 24% of the samples in the gaps have `pghpf_reshape_i8` in their stack under `accumulate_seam_skin`, and
+nearly half end in the C allocator (`malloc`, `free`, `malloc_consolidate`: 48%). The source is one line, `fine_face =
+weight * reshape(skin, [nv, inner_n, outer_n])`, for each of the 512 fine faces: nvfortran runs that `reshape` of a
+contiguous skin through its general array runtime (`pghpf_reshape_i8`, `__fort_copy_i8`, `__fort_genlist`, ...), which
+allocates and frees on every call. A test program on WSL times it at 30 µs per face, against 0.4 µs for the same copy
+written as a loop over the two tangential axes.
+
+**The fix.** That loop replaces the `reshape` (`adam_flume_common_object.F90`, `accumulate_seam_skin`); it forms the
+same products, and the FLUME CPU and FNL regression suites stay bitwise identical. Two runs each (jobs 1357849 and
+1357850, one A30, `medium` refined walls, 20 steps):
+
+| | Before (`421cd773`) | After (`421cd773` and the fix) |
+|---|---|---|
+| Host gap before `compute_flux_difference_dev` | 59.2 ms per stage, 5.86 s | 3.6 ms per stage, 0.36 s |
+| GPU idle in the window (`idle`) | 6.99 s of 19.97 s | 1.50 s of 14.52 s |
+| Kernel time | 13.05 s, 13.07 s | 13.09 s, 13.11 s |
+| Forest loop | 21.09 s, 21.12 s | 15.57 s, 15.60 s (−26%) |
+| Loop minus kernel time | 8.03 s, 8.05 s | 2.47 s, 2.49 s |
+
+![The refined-walls loop before and after the seam-skin fix, split by kernel](figures/a30-seam.png)
+
+**What is left.** 1.5 s of idle in the window: 0.93 s in gaps of 10 ms or more, the host work of the regrid at step 10
+(the CPU samples fall in `mpi_redistribute`, the ghost maps, `copy_blocks_transposed`); 0.37 s in gaps of 0.1 to 10 ms,
+almost all the 99 remaining host updates of the flux register (3.6 ms each); 0.20 s in gaps shorter than 0.1 ms, most
+of them ending at a copy or a memset of the reflux and the seam fill (in 20 steps, 8376 gaps end at a copy and 4308 at a
+memset). Outside the window lie 1.09 s before and 1.04 s after: the last stage's gap and the final regrid (the
+regrid at step 10 is the 0.93 s above; loop minus steps, 1.94 s, counts both regrids). Moving the flux register to the
+device would remove about 0.36 s of host updates, 2% of the loop. The CPU backend runs the same routine;
+its timing was not measured.
+
 ### Reproducing the results
 
 The measurements are `results/runs.csv`, one row per run directory (variant, size, Slurm job, date, commit, executable,
@@ -402,6 +452,7 @@ are drawn from it and from the checkpoints of the correctness runs:
 ```bash
 ./make_figures.py collect runs/            # runs/ here or a copy of the profiling machine's; -> results/runs.csv
 ./make_figures.py figures runs/            # -> figures/*.png (needs numpy, matplotlib, h5py)
+./make_figures.py idle runs/<run>/         # the idle gaps of one nsys run (its nsys*.sqlite, exported if missing)
 ```
 
 On medooza, one A30 of a `dev-gn` node held exclusively, every run with `--launcher "srun --mpi=pmix -n"`:
@@ -422,8 +473,16 @@ generic`, from the tree with the temporary `select case (-S)`, reverted after th
 job 1357834 from the same tree without the edit, `./profile.sh fnl-nvf --size medium [--uniform] --np 1 --tool nsys
 --scheme weno-u-<1|3|5|7|9>`; job 1357836 timed `generic` the same way (`--tag generic`).
 
+The idle time: job 1357848 profiled the leg at `421cd773` with DWARF call stacks (`nsys profile
+--trace=cuda,openacc,osrt --sample=cpu --backtrace=dwarf`, `medium` refined walls, 4 steps; `profile.sh` has no option
+for it); job 1357849 timed that leg twice (`./profile.sh fnl-nvf --size medium --np 1 --tool nsys --tag seam-before
+--exe ../exe/fnl-nvf/adam_flume_fnl`, each run directory then renamed `-r1`, `-r2`), and job 1357850 built the leg with
+the fix (`../build.sh fnl-nvf --varset iac_nvf --jobs 16`) and timed it twice the same way without `--tag`. The kernel
+summaries of these runs and the sqlite exports were written afterwards on the login node (`nsys stats --report
+cuda_gpu_kern_sum --format csv -o kern`, `nsys export --type sqlite`).
+
 The CPU before/after runs (job 1357589) are `./profile.sh cpu --size medium --uniform --np 16 --tool none --exe
 <exe>`, alternated, three each. The figures take the nsys runs of one rank and 20 steps (`FIG_NP`, `FIG_STEPS` in
 `make_figures.py`) of the Slurm jobs of their experiment: the variants figure averages the WENO-5 runs of jobs 1357614,
 1357619 and 1357635 (`VARIANT_JOBS`) and warns when a bar mixes commits, the widths figure takes jobs 1357835 and
-1357836 (`WIDTH_JOBS`), the CPU figure job 1357589.
+1357836 (`WIDTH_JOBS`), the seam figure jobs 1357849 and 1357850 (`SEAM_JOBS`), the CPU figure job 1357589.

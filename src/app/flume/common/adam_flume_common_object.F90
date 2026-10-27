@@ -703,6 +703,7 @@ contains
    integer(I4P)                               :: ioff, joff          !< Fine-block quadrant offset.
    integer(I4P)                               :: nv                  !< Skin variables number.
    integer(I4P)                               :: ratios(2)           !< Refinement ratios of the tangential axes.
+   integer(I4P)                               :: i, o                !< Inner and outer tangential counters.
 
    sgn_idx = self%adam%maps%inter_realm_face_register_index(b, fec)
    if (sgn_idx == 0_I4P) return
@@ -744,7 +745,15 @@ contains
          joff = self%adam%maps%amr_seam_quadrant(2, b, fec)
       endif
       allocate(fine_face(nv, inner_n, outer_n))
-      fine_face = weight * reshape(skin, [nv, inner_n, outer_n])
+      ! the skin is (nv, inner_n*outer_n), inner fastest: copied by a loop, not `reshape`, which nvfortran runs through
+      ! its general array runtime with heap traffic on every call (FNL on an A30: the device waited 59 ms per RK stage
+      ! for this host loop, 3.6 ms with the loop; src/tests/flume/speedup/profile-couette3d/README.md, "Time with no
+      ! kernel running")
+      do o=1, outer_n
+         do i=1, inner_n
+            fine_face(:, i, o) = weight * skin(:, i + (o - 1_I4P) * inner_n)
+         enddo
+      enddo
       ratios = face_tangential_ratios(fec=fec, refine_ratio=self%adam%maps%refine_ratio)
       call restrict_fine_face_to_quadrant(fine_face=fine_face, inner_n=inner_n, outer_n=outer_n, ioff=ioff, joff=joff, &
                                           slab=slab, inner_ratio=ratios(1), outer_ratio=ratios(2))

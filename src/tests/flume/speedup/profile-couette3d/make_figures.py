@@ -13,17 +13,26 @@ number of a figure can be traced to a run directory and redrawn after new runs.
   kernel, the other kernels and the time with no kernel running (uniform and refined walls).
 - `figures/a30-widths.png`: the face-flux kernel and the loop of each WENO order, the per-width kernels against the
   generic one.
+- `figures/a30-seam.png`: the refined-walls loop before and after the seam-skin fix (the reshape of every fine seam
+  face replaced by a loop), split like the variants figure.
 - `figures/cpu-weno.png`: the CPU runs before and after the WENO hot-path fix (commit f46b56fb).
 - `figures/fields.png`: u and T of the correctness runs against the exact Couette solution, their error, and the
   largest difference of every variant from the leg.
 
+`idle` reads the Nsight Systems trace of one run (its sqlite export) and prints where the GPU is idle inside the time
+loop: the idle gaps by length, by the GPU operation (kernel, copy, memset) that ends each gap, and the CPU
+samples that fall in the gaps (their leaf symbol, and every symbol of their call stack: an inclusive count).
+
 Usage:
     make_figures.py collect <runs-dir> [--out results/runs.csv]
     make_figures.py figures <runs-dir> [--results results/runs.csv] [--out figures]
+    make_figures.py idle <run-dir> [--top N]
 
 `<runs-dir>` is `runs/` of this directory, or a copy of the one on the machine that ran the profiles. `collect` needs
 the kernel summary `kern_cuda_gpu_kern_sum.csv` of an nsys run, and writes it (`nsys stats`) when nsys is on PATH and
-the file is missing. `figures` needs numpy, matplotlib and, for the fields, h5py.
+the file is missing. `figures` needs numpy, matplotlib and, for the fields, h5py. `idle` needs the sqlite export of the trace
+(`nsys export --type sqlite -o nsys-r0.sqlite nsys-r0.nsys-rep`, which it runs when nsys is on PATH); the call stacks of
+the CPU samples are complete only with `nsys profile --backtrace=dwarf` (the builds keep no frame pointers).
 """
 
 from __future__ import annotations
@@ -33,6 +42,7 @@ import configparser
 import csv
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -79,6 +89,10 @@ WIDTH_JOBS, WIDTH_SCHEMES = (
     ("1357835", "1357836"),
     ("weno-u-1", "weno-u-3", "weno-u-5", "weno-u-7", "weno-u-9"),
 )
+# the seam-skin fix: the variant "seam-before" (the 421cd773 leg) of job 1357849 and the untagged runs (the leg with
+# the uncommitted fix, committed afterwards: run.info records the HEAD of the time, 421cd773) of job 1357850, refined
+# walls
+SEAM_JOBS = ("1357849", "1357850")
 # the Couette constants of make_profile.py (and of regression/couette, verification/viscous/profiles.py)
 GAMMA, MU, PRANDTL, U, TW, H = 1.4, 0.01, 0.75, 1.0, 1.0, 1.0
 
@@ -362,6 +376,70 @@ def fig_widths(rows: list[dict[str, str]], out: Path) -> None:
     plt.close(fig)
 
 
+def fig_seam(rows: list[dict[str, str]], out: Path) -> None:
+    """Draw the refined-walls loop before and after the seam-skin fix, split by kernel, one bar per run."""
+    import matplotlib.pyplot as plt  # noqa: PLC0415
+
+    sel = [
+        r
+        for r in rows
+        if r["slurm_job"] in SEAM_JOBS
+        and r["size"] == "medium"
+        and r["np"] == FIG_NP
+        and r["steps"] == FIG_STEPS
+        and r["face_s"]
+    ]
+    if not sel:
+        print("figures: no seam-fix run, a30-seam.png skipped")
+        return
+    fig, ax = plt.subplots(figsize=(10.0, 3.4), constrained_layout=True)
+    parts = (
+        ("face-flux kernel", "C0"),
+        ("dissipative kernel", "C1"),
+        ("other kernels", "C2"),
+        ("no kernel running", "0.75"),
+    )
+    names, stacks, loops = [], [], []
+    count: dict[str, int] = {}
+    for r in sel:
+        loop, kern = float(r["loop_s"]), float(r["kernels_s"])
+        face, diss = float(r["face_s"]), float(r["dissipative_s"])
+        label = (
+            "before (421cd773)" if r["variant"] == "seam-before" else "after (the fix)"
+        )
+        count[label] = count.get(label, 0) + 1
+        names.append(f"{label}, run {count[label]}")
+        stacks.append((face, diss, max(kern - face - diss, 0.0), max(loop - kern, 0.0)))
+        loops.append(loop)
+    left = [0.0] * len(names)
+    for k, (label, color) in enumerate(parts):
+        widths = [st[k] for st in stacks]
+        ax.barh(
+            list(range(len(names))),
+            widths,
+            left=left,
+            color=color,
+            label=label,
+            edgecolor="k",
+            lw=0.4,
+        )
+        left = [a + b for a, b in zip(left, widths, strict=True)]
+    for i, loop in enumerate(loops):
+        ax.text(max(left[i], loop) + 0.3, i, f"{loop:.1f} s", va="center", fontsize=8)
+    ax.set_yticks(list(range(len(names))), names)
+    ax.invert_yaxis()
+    ax.set_xlim(0, max(loops) * 1.15)
+    ax.set_xlabel("forest loop, 20 steps (s)")
+    ax.grid(axis="x", alpha=0.3)
+    ax.legend(fontsize=8, loc="lower right")
+    ax.set_title(
+        f"one A30, medium refined walls, before and after the seam-skin fix (Slurm {' and '.join(SEAM_JOBS)})",
+        fontsize=9,
+    )
+    fig.savefig(out / "a30-seam.png", dpi=110)
+    plt.close(fig)
+
+
 def fig_cpu(rows: list[dict[str, str]], out: Path) -> None:
     """Draw the alternated CPU runs before and after the WENO hot-path fix."""
     import matplotlib.pyplot as plt  # noqa: PLC0415
@@ -576,6 +654,101 @@ def fig_fields(runs: Path, out: Path) -> None:
     plt.close(fig)
 
 
+def idle(run: Path, top: int) -> None:
+    """Print where the GPU is idle in the time loop of an nsys run (from the first to the last face-flux kernel)."""
+    trace = next(iter(sorted(run.glob("nsys*.sqlite"))), None)
+    if trace is None:
+        rep = next(iter(sorted(run.glob("nsys*.nsys-rep"))), None)
+        if rep is None or not shutil.which("nsys"):
+            sys.exit(
+                f"idle: no nsys*.sqlite in {run}, and no nsys-rep or nsys to export one"
+            )
+        trace = rep.with_suffix(".sqlite")
+        subprocess.run(
+            ["nsys", "export", "--type", "sqlite", "-o", str(trace), str(rep)],
+            check=True,
+            capture_output=True,
+        )
+    db = sqlite3.connect(trace)
+    name = dict(db.execute("select id, value from StringIds"))
+    ops = []  # GPU operations: start, end, correlation id, label
+    for st, en, cid, nm in db.execute(
+        "select start, end, correlationId, shortName from CUPTI_ACTIVITY_KIND_KERNEL"
+    ):
+        ops.append((st, en, cid, name[nm]))
+    for table, label in (
+        ("CUPTI_ACTIVITY_KIND_MEMCPY", "memcpy"),
+        ("CUPTI_ACTIVITY_KIND_MEMSET", "memset"),
+    ):
+        ops += [
+            (st, en, cid, label)
+            for st, en, cid in db.execute(
+                f"select start, end, correlationId from {table}"
+            )
+        ]
+    face = [o for o in ops if FACE.search(o[3])]
+    w0, w1 = min(o[0] for o in face), max(o[1] for o in face)
+    ops = sorted(o for o in ops if o[1] > w0 and o[0] < w1)
+    gaps, cur, busy = [], w0, 0
+    for st, en, cid, label in ops:
+        st, en = max(st, w0), min(en, w1)
+        if st > cur:
+            gaps.append((cur, st, cid, label))
+        busy += max(0, en - max(st, cur))
+        cur = max(cur, en)
+    total = sum(b - a for a, b, _, _ in gaps)
+    print(
+        f"{run.name}: loop window {1e-9 * (w1 - w0):.3f} s (first to last face-flux kernel), GPU busy "
+        f"{1e-9 * busy:.3f} s, idle {1e-9 * total:.3f} s in {len(gaps)} gaps"
+    )
+    bins = {"< 0.1 ms": 0, "0.1-10 ms": 0, ">= 10 ms": 0}
+    for a, b, _, _ in gaps:
+        bins[
+            "< 0.1 ms" if b - a < 1e5 else "0.1-10 ms" if b - a < 1e7 else ">= 10 ms"
+        ] += b - a
+    print(
+        "idle by gap length: "
+        + ", ".join(f"{k} {1e-9 * v:.3f} s" for k, v in bins.items())
+    )
+    by_op: dict[str, list[float]] = {}
+    for a, b, _, label in gaps:
+        by_op.setdefault(label, []).append(b - a)
+    print(
+        f"\nidle before the next GPU operation (top {top}): seconds, gaps, mean ms, operation"
+    )
+    for key, d in sorted(by_op.items(), key=lambda kv: -sum(kv[1]))[:top]:
+        print(
+            f"  {1e-9 * sum(d):7.3f} {len(d):6d} {1e-6 * sum(d) / len(d):8.2f}  {key}"
+        )
+    # the CPU samples in the gaps: leaf symbol and inclusive symbol counts
+    stacks: dict[int, list[str]] = {}
+    for sid, sym in db.execute(
+        "select id, symbol from SAMPLING_CALLCHAINS order by id, stackDepth"
+    ):
+        stacks.setdefault(sid, []).append(name.get(sym, "?"))
+    starts = sorted((a, b) for a, b, _, _ in gaps)
+    leaf, incl, n, g = {}, {}, 0, 0
+    for sid, t in db.execute("select id, start from COMPOSITE_EVENTS order by start"):
+        while g < len(starts) and starts[g][1] < t:
+            g += 1
+        if g == len(starts):
+            break
+        if starts[g][0] <= t:
+            n += 1
+            frames = stacks.get(sid, ["?"])
+            leaf[frames[0]] = leaf.get(frames[0], 0) + 1
+            for f in set(frames):
+                incl[f] = incl.get(f, 0) + 1
+    print(f"\nCPU samples inside the gaps: {n}")
+    for title, counts in (
+        ("leaf symbol", leaf),
+        ("inclusive (the symbol anywhere in the call stack)", incl),
+    ):
+        print(f"{title} (top {top}):")
+        for f, v in sorted(counts.items(), key=lambda kv: -kv[1])[:top]:
+            print(f"  {v:6d} {100 * v / max(n, 1):5.1f}%  {f}")
+
+
 def main() -> int:
     """Run the subcommand."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -587,9 +760,15 @@ def main() -> int:
     p.add_argument("runs", type=Path)
     p.add_argument("--results", type=Path, default=HERE / "results" / "runs.csv")
     p.add_argument("--out", type=Path, default=HERE / "figures")
+    p = sub.add_parser("idle")
+    p.add_argument("run", type=Path)
+    p.add_argument("--top", type=int, default=15)
     args = parser.parse_args()
     if args.cmd == "collect":
         collect(args.runs, args.out)
+        return 0
+    if args.cmd == "idle":
+        idle(args.run, args.top)
         return 0
     import matplotlib as mpl  # noqa: PLC0415
 
@@ -598,6 +777,7 @@ def main() -> int:
     rows = read_rows(args.results)
     fig_variants(rows, args.out)
     fig_widths(rows, args.out)
+    fig_seam(rows, args.out)
     fig_cpu(rows, args.out)
     fig_fields(args.runs, args.out)
     print(f"figures: written to {args.out}")
