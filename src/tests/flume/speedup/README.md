@@ -147,8 +147,10 @@ window only per step):
 
 `build.sh` cleans the mode, builds it, and copies the executable to `exe/<leg>/`, because both FNL legs build
 `exe/adam_flume_fnl`. It writes `builds/<leg>/build.txt` (the full fobis log) and `builds/<leg>/toolchain.md`
-(compiler, MPI and fobis versions, varset, first compile line, commit, executable digest), which every case README
-embeds.
+(compiler, MPI and fobis versions, varset, compile and link flags, commit, executable digest), which every case README
+embeds. `--jobs N` compiles N files at a time. `--tag NAME` (with `--gpu OPTS` for extra nvfortran `-gpu=` options)
+builds a variant into `exe/<leg>-<NAME>/` for profiling experiments; a variant is never a matrix leg (see
+[profile-couette3d](profile-couette3d/README.md#build-variants)).
 
 ```bash
 cd src/tests/flume/speedup
@@ -313,7 +315,7 @@ build.sh           build one leg from clean, keep its executable, record its too
 run.sh             warmup + windows (data/) and full simulations (full/) of one leg
 analyze.sh/.py     step costs, throughputs and every comparison -> results/summary.{md,csv}
 jobs/              medooza Slurm templates (CPU, FNL)
-builds/<leg>/      build.txt, toolchain.md
+builds/<leg>/      build.txt, toolchain.md (builds/<leg>-<tag>/ for a variant)
 results/           summary.md, summary.csv
 profile-couette3d/ the profiling case (not a speedup case): a 3-D Couette channel, see its README.md
 ```

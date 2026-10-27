@@ -1,0 +1,55 @@
+Experiment B0 of the profiling case (October 2026): the WENO half-width S as a compile-time constant (SC = 3) in
+compute_face_fluxes_dev, the face kernel of every FLUME model, so the stencil loops have constant bounds.
+
+NOT a fix: the kernel then ignores the [weno] scheme of the input and is right only for WENO-5 (S = 3), the scheme of
+the profiling case. Apply it to a clean tree for a variant build, revert it right after, never commit it:
+
+  git apply src/tests/flume/speedup/profile-couette3d/patches/face-kernel-s3.patch
+  cd src/tests/flume/speedup && ./build.sh fnl-nvf --varset iac_nvf --jobs 16 --tag B0-lto --gpu lto && cd -
+  git apply -R src/tests/flume/speedup/profile-couette3d/patches/face-kernel-s3.patch
+
+The results and what they mean are in ../README.md, "Results".
+
+diff --git a/src/app/flume/fnl/adam_flume_fnl_face_kernels_agnostic.INC b/src/app/flume/fnl/adam_flume_fnl_face_kernels_agnostic.INC
+index fa180b69..e7e06128 100644
+--- a/src/app/flume/fnl/adam_flume_fnl_face_kernels_agnostic.INC
++++ b/src/app/flume/fnl/adam_flume_fnl_face_kernels_agnostic.INC
+@@ -41,6 +41,7 @@
+    real(R8P)                   :: vr(2,NV_K)                              !< Private reconstructed split fields.
+    real(R8P)                   :: flux(NV_K)                              !< Private face flux.
+    integer(I4P)                :: b, i, j, k, m, f, w                     !< Counters.
++    integer(I4P), parameter     :: SC = 3                                  !< EXPERIMENT: compile-time S.
+ 
+    !$acc parallel loop independent gang vector collapse(4)                                                        &
+    !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu)                                       &
+@@ -54,7 +55,7 @@
+    do i=1-di, ni
+    do b=1, blocks_number
+       !$acc loop seq
+-      do m=1-S, S
++      do m=1-SC, SC
+          !$acc loop seq
+          do w=1, NV_K
+             qs(w,m) = q_gpu(b,i+m*di,j+m*dj,k+m*dk,w)
+@@ -64,16 +65,16 @@
+             qas(w,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,w)
+          enddo
+       enddo
+-      call face_split_fluxes(gamma=gamma, ch=ch, d=d, S=S, is_characteristic=is_characteristic, qs=qs, qas=qas, &
++      call face_split_fluxes(gamma=gamma, ch=ch, d=d, S=SC, is_characteristic=is_characteristic, qs=qs, qas=qas, &
+                              fsplit=fsplit, er=er, mu=mu)
+       !$acc loop seq
+       do f=1, NV_K
+          !$acc loop seq
+-         do m=1-S, S-1
+-            v(1,m+S) = fsplit(1,m,f)
+-            v(2,m+S) = fsplit(2,m,f)
++         do m=1-SC, SC-1
++            v(1,m+SC) = fsplit(1,m,f)
++            v(2,m+SC) = fsplit(2,m,f)
+          enddo
+-         call weno_reconstruct_upwind_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
++         call weno_reconstruct_upwind_dev(S=SC, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
+                                           weno_zeps=weno_zeps, weno_rmu=weno_sigma / mu(f) + (1._R8P - weno_sigma), &
+                                           V=v, VR=vr_)
+          vr(1,f) = vr_(1)

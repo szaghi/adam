@@ -12,7 +12,7 @@
 # a barrier before the reflux reduction to separate the load imbalance, a small perturbation.
 #
 # Usage: ./profile.sh <leg> [--size small|medium|large] [--np N] [--tool T] [--steps N] [--io]
-#                     [--launcher "CMD"] [--exe PATH] [--dry-run]
+#                     [--launcher "CMD"] [--exe PATH] [--tag NAME] [--dry-run]
 #   leg         cpu, fnl-nvf or fnl-amd; the executable is ../exe/<leg>/ (../build.sh <leg>)
 #   --size      small (default; WSL), medium (medooza), large (one AMD GPU, or 4 A30); see make_profile.py
 #   --uniform   the simplest variant: one realm on a uniform grid, no AMR marker, no regrid, no 2:1 seam
@@ -26,9 +26,13 @@
 #   --io        also write the first and last checkpoint (default: no output at all, a pure compute profile)
 #   --launcher  the launcher followed by the rank count (default "mpirun -x ADAM_SEAM_TIMING -np"; Open MPI
 #               forwards only the variables -x names; srun forwards the environment: "srun -n")
+#   --exe       the executable (default ../exe/<leg>/, or ../exe/<leg>-<tag>/ with --tag)
+#   --tag       a build variant of the leg (../build.sh <leg> --tag NAME): its executable, and a run directory of its
+#               own, so that the runs of two builds sit side by side
 #   --dry-run   print the command, run nothing
 #
-# Output: runs/<leg>-<size>[-uniform]-np<N>-<tool>/ with input.ini, log.txt, wall.txt (seconds), run.info and the profiler files.
+# Output: runs/<leg>-<size>[-uniform]-np<N>-<tool>[-<tag>]/ with input.ini, log.txt, wall.txt (seconds), run.info
+#         (host, job, command, executable, commit, whether src/ differs from it) and the profiler files.
 # WSL: one run at a time, FNL np <= 2 (two GPUs), and the UCX knobs of issue #12 (CLAUDE.md, WSL2 GPU+MPI caveats);
 # Nsight Compute there needs the GPU counters enabled in the Windows NVIDIA Control Panel.
 set -euo pipefail
@@ -46,6 +50,7 @@ IO=0
 UNIFORM=""
 LAUNCHER="mpirun -x ADAM_SEAM_TIMING -np"
 EXE=""
+TAG=""
 DRY=0
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -57,13 +62,14 @@ while [[ $# -gt 0 ]]; do
       --uniform)  UNIFORM="-uniform" ; shift ;;
       --launcher) LAUNCHER="$2" ; shift 2 ;;
       --exe)      EXE="$2" ; shift 2 ;;
+      --tag)      TAG="$2" ; shift 2 ;;
       --dry-run)  DRY=1 ; shift ;;
       *) echo "profile.sh: unknown argument '$1' (see the usage at the top of the script)" >&2 ; exit 2 ;;
    esac
 done
 case "$LEG" in
-   cpu)             EXE="${EXE:-$SPEEDUP_DIR/exe/cpu/adam_flume_cpu}" ;;
-   fnl-nvf|fnl-amd) EXE="${EXE:-$SPEEDUP_DIR/exe/$LEG/adam_flume_fnl}" ;;
+   cpu)             EXE="${EXE:-$SPEEDUP_DIR/exe/cpu${TAG:+-$TAG}/adam_flume_cpu}" ;;
+   fnl-nvf|fnl-amd) EXE="${EXE:-$SPEEDUP_DIR/exe/$LEG${TAG:+-$TAG}/adam_flume_fnl}" ;;
    *) echo "profile.sh: the leg must be cpu, fnl-nvf or fnl-amd, got '$LEG'" >&2 ; exit 2 ;;
 esac
 case "$SIZE" in small|medium|large) ;; *) echo "profile.sh: --size must be small, medium or large" >&2 ; exit 2 ;; esac
@@ -87,7 +93,7 @@ else
    WRAP='exec "$@"'
 fi
 
-WORK="$CASE_DIR/runs/$LEG-$SIZE$UNIFORM-np$NP-$TOOL"
+WORK="$CASE_DIR/runs/$LEG-$SIZE$UNIFORM-np$NP-$TOOL${TAG:+-$TAG}"
 CMD="$LAUNCHER $NP bash -c '$WRAP' rank $EXE input.ini"
 if [[ $DRY -eq 1 ]]; then
    echo "cd $WORK && ADAM_SEAM_TIMING=1 $CMD"
@@ -105,14 +111,23 @@ fi
    echo "host=$(hostname)"
    echo "slurm_job=${SLURM_JOB_ID:-}"
    echo "leg=$LEG"
+   echo "tag=$TAG"
    echo "size=$SIZE${UNIFORM}"
    echo "np=$NP"
    echo "tool=$TOOL"
    echo "steps=$STEPS"
    echo "io=$IO"
    echo "command=$CMD"
+   echo "exe=$EXE"
    echo "exe_sha256=$(sha256sum "$EXE" | cut -c1-16)"
    echo "commit=$(git -C "$REPO_ROOT" rev-parse HEAD 2> /dev/null || echo unknown)"
+   # the sources differ from that commit (a fix not committed yet, an experiment patch): the scripts under src/tests
+   # do not enter the executable
+   if git -C "$REPO_ROOT" diff --quiet HEAD -- src ':!src/tests' 2> /dev/null; then
+      echo "src_modified=no"
+   else
+      echo "src_modified=yes"
+   fi
 } > "$WORK/run.info"
 
 echo ">> profile: $LEG, size $SIZE${UNIFORM}, np $NP, tool $TOOL, $STEPS steps -> $WORK"
