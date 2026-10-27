@@ -5,6 +5,10 @@ AMD GPUs. The matrix also measures dynamic AMR against a fixed uniform grid, how
 timed over a window of at most 100 steps on a developed flow, so a measurement takes minutes. The method is designed
 so that start-up and output do not bias the window.
 
+**Leg**: one build of FLUME for one backend and compiler, named by a short word: `cpu` (gfortran + MPI), `fnl-nvf`
+(OpenACC on NVIDIA GPUs) and `fnl-amd` (OpenMP offload on AMD GPUs). Every case is measured on every leg; the table of
+the legs, with the command that builds each, is in [Legs and how to run them](#legs-and-how-to-run-them).
+
 ## Matrix
 
 Two flows, both the Mach 2 shock over a body of the V6 verification (`verification/shock-cylinder`): the incident

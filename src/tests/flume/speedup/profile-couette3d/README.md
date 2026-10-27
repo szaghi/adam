@@ -2,8 +2,9 @@
 
 A case for **profiling** FLUME and the ADAM library, not for speedup measurements or verification: one short,
 steady, reproducible run that goes through the main regions of the code, on WSL, on medooza and on the AMD node. It is
-outside the speedup matrix (`../run.sh` and `../analyze.sh` ignore it) and shares only its executables
-(`../build.sh <leg>`).
+outside the speedup matrix (`../run.sh` and `../analyze.sh` ignore it) and shares only its executables: the builds
+of FLUME that `../build.sh` makes, one per backend and compiler, called legs (`cpu`, `fnl-nvf`, `fnl-amd`; see
+[Run](#run)).
 
 ## The flow
 
@@ -67,42 +68,126 @@ rank 0.
 
 ## Run
 
-Build the leg first (`cd .. && ./build.sh <leg> --varset ...`), then from this directory:
+### Legs: which build of FLUME runs
+
+A **leg** is one build of FLUME for one backend and compiler, named by a short word. The speedup matrix (`..`) and
+this profiling case use the same three legs. The leg is the first argument of both scripts: `../build.sh <leg>` builds
+it and keeps its executable in `../exe/<leg>/`, and `./profile.sh <leg>` runs that executable.
+
+| Leg | What runs | fobis mode | Machines | Executable |
+|---|---|---|---|---|
+| `cpu` | CPU only, MPI ranks (gfortran + Open MPI) | `flume-cpu-gnu` | WSL, medooza CPU nodes | `../exe/cpu/adam_flume_cpu` |
+| `fnl-nvf` | NVIDIA GPUs, OpenACC (nvfortran), one MPI rank per GPU | `flume-fnl-nvf` | WSL (RTX 4070), medooza (A30) | `../exe/fnl-nvf/adam_flume_fnl` |
+| `fnl-amd` | AMD GPUs, OpenMP offload (amdflang), one MPI rank per GPU | `flume-fnl-omp-amd` | the AMD node | `../exe/fnl-amd/adam_flume_fnl` |
+
+`build.sh` also needs the **varset** of the machine (`--varset`, the HDF5 build and the GPU target of the repository
+`fobos`): `local_gnu` / `local_nvf` on WSL, `iac_gnu` / `iac_nvf` on medooza, `"thera_amd gfx942"` on the AMD node. A
+**variant** (`--tag NAME`, [below](#build-variants)) is a second build of the same leg with other flags or sources.
+
+### Step by step
+
+Every recipe starts at the repository root. A build cleans its mode first and takes minutes (`fnl-nvf` about 9 min on 16
+cores); a profile of `small` takes seconds on a GPU and minutes on 2 CPU ranks.
+
+**WSL, `cpu` leg** (2 ranks; Nsight Systems samples the CPU, perf is not installed):
+
+```bash
+module load gcc/16.2.0 openmpi/5.0.11-gnu16.2.0
+export PATH=$PATH:/opt/nvidia/hpc_sdk/Linux_x86_64/26.9/compilers/bin   # nsys, after the gnu mpirun
+cd src/tests/flume/speedup
+./build.sh cpu --varset local_gnu --jobs 8           # -> exe/cpu/adam_flume_cpu and builds/cpu/toolchain.md
+cd profile-couette3d
+./profile.sh cpu --size small --np 2 --tool nsys     # -> runs/cpu-small-np2-nsys/
+nsys stats runs/cpu-small-np2-nsys/nsys-r0.nsys-rep  # MPI and OS-runtime summaries only
+```
+
+The CPU hot spots (the samples) are not in `nsys stats`: open `runs/cpu-small-np2-nsys/nsys-r0.nsys-rep` in the Nsight
+Systems GUI (Bottom-Up view), or export it (`nsys export --type sqlite`) and query its sample tables.
+
+**WSL, `fnl-nvf` leg** (one rank on the second GPU: the first drives the display and Windows silently pages the
+device memory of a run that fills it, which makes kernels 4-10 times slower; the `nvhpc` module sets the UCX
+workarounds of issue #12):
+
+```bash
+module load nvhpc/26.9
+cd src/tests/flume/speedup
+./build.sh fnl-nvf --varset local_nvf --jobs 8       # -> exe/fnl-nvf/adam_flume_fnl
+cd profile-couette3d
+export CUDA_VISIBLE_DEVICES=1
+./profile.sh fnl-nvf --size small --np 1 --tool nsys --launcher "mpirun -x ADAM_SEAM_TIMING -x CUDA_VISIBLE_DEVICES -np"
+nsys stats --report cuda_gpu_kern_sum runs/fnl-nvf-small-np1-nsys/nsys-r0.nsys-rep   # time per kernel
+```
+
+Nsight Compute on WSL (`--tool ncu`) needs the GPU performance counters enabled in the Windows NVIDIA Control Panel
+(`ERR_NVGPUCTRPERM` otherwise); compute-sanitizer is blind there. WSL times are for planning, not benchmarks.
+
+**medooza, `fnl-nvf` leg, one A30** (build on the login node: `iac_nvf` pins CUDA 12.9, which the A30 nodes run; then
+an allocation on `dev-gn`, whose limit is one hour; `srun` forwards the environment):
+
+```bash
+source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh
+cd ~/adam/src/tests/flume/speedup
+./build.sh fnl-nvf --varset iac_nvf --jobs 16
+salloc -A iacroma -p dev-gn -N 1 --gres=gpu:4 --ntasks-per-node=4 --mem=96G --exclusive -t 00:59:00
+cd profile-couette3d
+./profile.sh fnl-nvf --size medium --np 1 --tool nsys --launcher "srun --mpi=pmix -n"            # refined walls
+./profile.sh fnl-nvf --size medium --uniform --np 1 --tool nsys --launcher "srun --mpi=pmix -n"  # uniform
+./profile.sh fnl-nvf --size large --np 4 --tool nsys --launcher "srun --mpi=pmix -n"             # the 4 A30
+```
+
+The same as a batch job (`sbatch profile-a30.slurm`, run from `profile-couette3d/` after the build):
+
+```bash
+#!/bin/bash
+#SBATCH -A iacroma
+#SBATCH -p dev-gn
+#SBATCH -N 1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:4
+#SBATCH --mem=96G
+#SBATCH --exclusive
+#SBATCH -t 00:59:00
+source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh
+./profile.sh fnl-nvf --size medium --np 1 --tool nsys --launcher "srun --mpi=pmix -n"
+```
+
+**medooza, `cpu` leg** (16 ranks of a node, as in the results below; `gnu.sh` already turns hcoll off, which crashes
+in `MPI_Finalize` there):
+
+```bash
+source /ifs/hpc/home/szaghi/gnu/gnu.sh
+cd ~/adam/src/tests/flume/speedup
+./build.sh cpu --varset iac_gnu --jobs 16
+salloc -A iacroma -p prod-gn -N 1 --ntasks=16 --mem=64G -t 01:00:00
+cd profile-couette3d
+./profile.sh cpu --size medium --uniform --np 16 --tool none --launcher "srun --mpi=pmix --cpu-bind=cores -n"
+```
+
+**AMD node, `fnl-amd` leg** (one rank per GPU; rocprofv3 from ROCm 6.2 or later):
+
+```bash
+cd src/tests/flume/speedup
+./build.sh fnl-amd --varset "thera_amd gfx942" --jobs 16
+cd profile-couette3d
+./profile.sh fnl-amd --size large --np 1 --tool rocprof   # per-kernel statistics in runs/fnl-amd-large-np1-rocprof/
+./profile.sh fnl-amd --size large --np 8 --tool rocprof   # the same split over the node: communication shows up
+```
+
+### What a run writes
 
 ```bash
 ./profile.sh <leg> --size <small|medium|large> [--uniform] --np <N> --tool <none|nsys|ncu|rocprof|perf> [--steps N] [--io]
-             [--tag NAME] [--exe PATH]
+             [--tag NAME] [--exe PATH] [--launcher "CMD"] [--dry-run]
 ```
-
-For example, the uniform variant on WSL: `./profile.sh cpu --size small --uniform --np 2 --tool perf`.
 
 Every run goes to `runs/<leg>-<size>[-uniform]-np<N>-<tool>[-<tag>]/` (a previous one is renamed, not overwritten):
 `input.ini`, `log.txt`, `wall.txt`, `run.info` (host, job, command, executable and its digest, commit, `src_modified`)
 and the profiler files, one per rank. `ADAM_SEAM_TIMING=1` is always set, so the end of `log.txt` carries the forest
 timing report (loop, steps, reflux, seam fills; max over the ranks), which `profile.sh` prints. `--dry-run` prints the
-command without running it.
+command without running it. The default launcher is `mpirun -x ADAM_SEAM_TIMING -np`; give `--launcher` when another
+variable must reach the ranks (Open MPI forwards only the ones `-x` names) or under Slurm (`srun` forwards all).
 
-**WSL** (one run at a time; FNL at most np 2, the two GPUs; the UCX knobs of issue #12, as in
-`regression/run-fnl-local.sh`):
-
-```bash
-./profile.sh cpu     --size small --np 2 --tool perf      # then: perf report -i runs/cpu-small-np2-perf/perf-r0.data
-./profile.sh fnl-nvf --size small --np 1 --tool nsys      # then: nsys stats runs/fnl-nvf-small-np1-nsys/nsys-r0.nsys-rep
-```
-
-Nsight Compute on WSL needs the GPU performance counters enabled in the Windows NVIDIA Control Panel
-(`ERR_NVGPUCTRPERM` otherwise); compute-sanitizer is blind there.
-
-**medooza** (inside an allocation, the toolchain sourced; `srun` forwards the environment):
-
-```bash
-source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh
-salloc -A iacroma -p dev-gn --gres=gpu:4 --ntasks-per-node=4 --mem=96G -t 00:30:00
-./profile.sh fnl-nvf --size medium --np 1 --tool nsys --launcher "srun --mpi=pmix -n"
-./profile.sh fnl-nvf --size large  --np 4 --tool nsys --launcher "srun --mpi=pmix -n"
-# CPU node: source /ifs/hpc/home/szaghi/gnu/gnu.sh; export OMPI_MCA_coll_hcoll_enable=0
-./profile.sh cpu     --size medium --np 64 --tool none --launcher "srun --mpi=pmix --cpu-bind=cores -n"
-```
+### Tool limits on medooza
 
 Two tools do not run on medooza (October 2026): **Nsight Compute** stops with `ERR_NVGPUCTRPERM` (no permission to
 access the GPU performance counters: the driver reserves them to the administrators, presumably through its
@@ -119,9 +204,9 @@ A profiling experiment that changes how the code is compiled builds a **variant*
 executable and toolchain record stay as they are and the two can be profiled side by side:
 
 ```bash
-cd .. && ./build.sh fnl-nvf --varset iac_nvf --jobs 16 --tag lto --gpu lto   # -> exe/fnl-nvf-lto/, builds/fnl-nvf-lto/
+cd .. && ./build.sh fnl-nvf --varset iac_nvf --jobs 16 --tag r128 --gpu maxregcount:128   # -> exe/fnl-nvf-r128/
 cd profile-couette3d
-./profile.sh fnl-nvf --size medium --np 1 --tool nsys --tag lto --launcher "srun --mpi=pmix -n"
+./profile.sh fnl-nvf --size medium --np 1 --tool nsys --tag r128 --launcher "srun --mpi=pmix -n"
 ```
 
 `--gpu OPTS` (the `fnl-nvf` leg only, with `--tag` and a clean build) appends `-gpu=OPTS` to the compile and link flags
@@ -131,12 +216,6 @@ The fobos files and the default build do not change; removing the variant is `rm
 speedup case READMEs. A source experiment (a patch) is built the same way, from a tree with the patch applied:
 `toolchain.md` then marks the commit `src/ modified`.
 
-**AMD node** (one rank per GPU; rocprofv3 from ROCm 6.2 or later):
-
-```bash
-./profile.sh fnl-amd --size large --np 1 --tool rocprof   # per-kernel statistics in runs/.../rocprof-r0/
-./profile.sh fnl-amd --size large --np 8 --tool rocprof   # the same split over the node: communication shows up
-```
 
 ## Reading the results
 
@@ -159,7 +238,7 @@ agree to 0.6% in loop time and kernel means; the wall time, start-up included, v
 
 ### Where the time goes
 
-**FNL, A30, the build of the `fnl-nvf` leg:**
+**FNL, A30, the `fnl-nvf` leg as built at `f46b56fb` (called "leg" or "base" below):**
 
 | | Refined walls | Uniform |
 |---|---|---|
@@ -272,8 +351,8 @@ On medooza, one A30 of a `dev-gn` node held exclusively, every run with `--launc
 - job 1357614: the leg built (`../build.sh fnl-nvf --varset iac_nvf`) and timed, `./profile.sh fnl-nvf --size medium
   [--uniform] --np 1 --tool nsys`;
 - job 1357619: `B0` built from the patch (applied, built with `fobis build --mode flume-fnl-nvf --varset iac_nvf`, kept
-  as `../exe/fnl-nvf-B0/`, reverted), then the leg and `B0` timed twice each, alternated (`--exe`; `--tag` did not
-  exist yet);
+  as `../exe/fnl-nvf-B0/`, reverted), then the leg and `B0` timed twice each, alternated (`--exe`; `--tag` did not exist
+  yet);
 - job 1357634: the variants built, `../build.sh fnl-nvf --varset iac_nvf --jobs 16 --tag T --gpu G` for `lto`, `r128`
   (`maxregcount:128`), `lto-r128` and, with `patches/face-kernel-s3.patch` applied and then reverted, `B0-lto`;
 - job 1357635: for the leg and each of the four, `./profile.sh fnl-nvf --size small --np 1 --steps 10 --io [--tag T]`
