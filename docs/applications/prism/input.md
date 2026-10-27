@@ -128,7 +128,7 @@ Every key is required.
 | `vacuum` | — | Every variable zero. |
 | `plane_wave` | `kx`, `ky`, `kz` (direction components), `lambda` (wavelength), `B0` (amplitude, T) | A plane wave of wavelength `lambda` along `(kx, ky, kz)`, D = B0 c0 ε0. |
 | `gaussian_pulse` | `B0`, `k0` (carrier wavenumber), `r0` (centre along the direction), `sigma` (`> 0`, width), `pulse_direction` (string) | A Gaussian-enveloped wave packet. |
-| `gaussian_derivative_pulse` | `B0`, `r0`, `sigma` (`> 0`), `pulse_direction` (string) | A single-cycle pulse with no zero-frequency content. |
+| `gaussian_derivative_pulse` | `B0`, `r0`, `sigma` (`> 0`), `pulse_direction` (string); optional `k0` (carrier wavenumber, default 0) | A pulse with no zero-frequency content: single-cycle with `k0 = 0`, a packet around `k0` otherwise. |
 | `rmf_field` | `[external_fields]` `RMF_frequency`, `RMF_B_amplitude`, `RMF_rotation_axis` (`X`, `Y`, `Z`, either case; other values are fatal) | A rotating magnetic field. |
 | `uniform_field` | `B_x`, `B_y`, `B_z` | A uniform magnetic field. |
 | `riemann-problem` | — | **Refused**: its regions were read but never applied ([#56](https://github.com/szaghi/adam/issues/56)). |

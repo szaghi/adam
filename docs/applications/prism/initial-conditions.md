@@ -17,7 +17,7 @@ After the initial condition, the t0 elliptic solves add the field of the initial
 | `vacuum` | every variable zero |
 | `plane_wave` | $\mathbf D$, $\mathbf B$ of a plane wave: phase $\cos\!\big(\tfrac{2\pi}{\lambda}(k_x x + k_y y + k_z z)\big)$, $\mathbf D = D_w\,(k_z, k_x, k_y)\cos(\cdot)$, $\mathbf B = B_0\,(k_y, k_z, k_x)\cos(\cdot)$, $D_w = B_0 c_0\varepsilon_0$ |
 | `gaussian_pulse` | a linearly polarized Gaussian wave packet (below) |
-| `gaussian_derivative_pulse` | a single-cycle pulse with no zero-frequency content (below) |
+| `gaussian_derivative_pulse` | a pulse with no zero-frequency content, single-cycle or with a carrier (below) |
 | `rmf_field` | the rotating magnetic field at t = 0 (below) |
 | `uniform_field` | $\mathbf B = (B_x, B_y, B_z)$, $\mathbf D = 0$ |
 
@@ -41,12 +41,18 @@ $D = \varepsilon_0 E$ and $B = \sigma_v E/c_0$.
 
 ### Gaussian-derivative pulse
 
-The derivative of a Gaussian vector potential $A = B_0\sigma e^{1/2} e^{-s^2/(2\sigma^2)}$, same polarization:
+The derivative of a Gaussian vector potential with an optional carrier (`k0`, default 0),
+$A = A_0\, e^{-s^2/(2\sigma^2)}\cos(k_0 s)$, $A_0 = B_0/\sqrt{k_0^2 + 1/(e\,\sigma^2)}$, same polarization:
 
-$$E(s) = -B_0 c_0\, e^{1/2}\,\frac{s}{\sigma}\, e^{-s^2/(2\sigma^2)}, \qquad \max|B| = B_0\ \text{at}\ s = \mp\sigma .$$
+$$E(s) = -c_0 A_0\, e^{-s^2/(2\sigma^2)}\left[\frac{s}{\sigma^2}\cos(k_0 s) + k_0\sin(k_0 s)\right].$$
 
-$A$ vanishes on both sides, so the profile has zero area: no zero-frequency content, no net momentum to free particles,
-no quasi-static field left in an absorbing layer. It is not truncated.
+With $k_0 = 0$ it is the single-cycle pulse $E = -B_0 c_0\, e^{1/2} (s/\sigma)\, e^{-s^2/(2\sigma^2)}$, $\max|B| = B_0$ at
+$s = \mp\sigma$, whose spectrum peaks at $k\sigma = 1$ with a relative width of order one. With a carrier the spectrum
+is $k\,[G(k-k_0) + G(k+k_0)]$, $G$ a Gaussian of width $1/\sigma$: a packet around $k_0$ of relative width
+$\sim 1/(k_0\sigma)$, with $B_0$ its envelope amplitude for $k_0\sigma \gg 1$.
+
+$A$ vanishes on both sides, so the profile has zero area for any $k_0$: no zero-frequency content, no net momentum to
+free particles, no quasi-static field left in an absorbing layer. It is not truncated.
 
 ### Rotating magnetic field
 

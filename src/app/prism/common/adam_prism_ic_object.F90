@@ -95,7 +95,7 @@ contains
             desc = desc//NL//mpih%myrankstr//'    emax: '//trim(str(self%emax(:,r)))
       enddo
    endif
-   if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE) then
+   if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE .or. self%ic_type == IC_TYPE_GAUSSIAN_DERIVATIVE_PULSE) then
       desc = desc//NL//mpih%myrankstr//'  B0: '//trim(str(self%B0))
       desc = desc//NL//mpih%myrankstr//'  r0: '//trim(str(self%r0))
       desc = desc//NL//mpih%myrankstr//'  k0: '//trim(str(self%k0))
@@ -217,10 +217,14 @@ contains
    if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE .or. self%ic_type == IC_TYPE_GAUSSIAN_DERIVATIVE_PULSE) then
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
-      ! the Gaussian-derivative pulse has no carrier: k0 is not read
-      if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE) then
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='k0', val=self%k0, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(k0)')
+      ! k0: required by the Gaussian pulse; optional carrier of the Gaussian-derivative pulse, 0 by default (the
+      ! single-cycle pulse before the key existed: no input changes)
+      self%k0 = 0.0_R8P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='k0', val=self%k0, error=error)
+      if (error > 0) then
+         self%k0 = 0.0_R8P
+         if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE .and. .not.go_on_fail_) &
+            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(k0)')
       endif
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='r0', val=self%r0, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(r0)')
@@ -393,8 +397,8 @@ contains
                                                   sigma=pulse_sigma, &
                                                   q=q(1:6,i,j,k,b))
                   else
-                     call set_gaussian_derivative_pulse(x=cell_coord, i_dir=i_dir, x0=pulse_r0, B0=self%B0, &
-                                                        sigma=pulse_sigma, q=q(1:6,i,j,k,b))
+                     call set_gaussian_derivative_pulse(x=cell_coord, i_dir=i_dir, k0=pulse_k0, x0=pulse_r0, &
+                                                        B0=self%B0, sigma=pulse_sigma, q=q(1:6,i,j,k,b))
                   endif
                   if (is_adim_model(physics%physical_model)) then
                      q(1:3,i,j,k,b) = q(1:3,i,j,k,b)/physics%D0
@@ -490,33 +494,47 @@ contains
    end select
    endsubroutine set_gaussian_wave_pulse
 
-   subroutine set_gaussian_derivative_pulse(x, i_dir, x0, B0, sigma, q)
-   !< Set a linearly polarized single-cycle pulse, the derivative of a Gaussian vector potential.
+   subroutine set_gaussian_derivative_pulse(x, i_dir, k0, x0, B0, sigma, q)
+   !< Set a linearly polarized pulse, the derivative of a Gaussian vector potential, with an optional carrier.
    !<
-   !< Along +x: `A_y = B0 sigma e^(1/2) exp(-s^2/(2 sigma^2))`, `s = x - x0`, and `B_z = dA_y/dx`, `E_y = c B_z`:
+   !< Along +x: `A_y = A0 exp(-s^2/(2 sigma^2)) cos(k0 s)`, `s = x - x0`, and `B_z = dA_y/dx`, `E_y = c B_z`:
    !<
-   !< `B_z = -B0 e^(1/2) (s/sigma) exp(-s^2/(2 sigma^2))`, so `max|B| = B0` (at `s = -/+sigma`) and `max|E| = c B0`.
+   !< `B_z = -A0 exp(-s^2/(2 sigma^2)) [(s/sigma^2) cos(k0 s) + k0 sin(k0 s)]`, `A0 = B0/sqrt(k0^2 + 1/(e sigma^2))`.
    !<
-   !< A_y vanishes on both sides, so the profile has zero area and no zero-frequency content: no net momentum to free
-   !< particles, no quasi-static field in an absorbing layer; its power spectrum peaks at `k sigma = 1`. The sampled
-   !< area is zero to round-off for sigma above a couple of cells (Poisson summation), so the profile is not truncated:
-   !< a cut would leave a jump and an area of the order of the cut tail.
+   !< Without carrier (k0 = 0) it is the single-cycle pulse, `A0 = B0 sigma e^(1/2)`, `max|B| = B0` at `s = -/+sigma`;
+   !< its power spectrum peaks at `k sigma = 1` with a relative width of order one. With a carrier the spectrum is
+   !< `k [G(k - k0) + G(k + k0)]`, G Gaussian of width 1/sigma: a packet around k0 of relative width ~1/(k0 sigma), and
+   !< `A0 -> B0/k0` makes B0 the envelope amplitude for k0 sigma >> 1; max|B|/B0 is 1 at k0 = 0, 0.79 at k0 sigma = 1,
+   !< 0.93 at 4, 0.98 at 8.
+   !<
+   !< A_y vanishes on both sides, so the profile has zero area and no zero-frequency content for any k0: no net
+   !< momentum to free particles, no quasi-static field in an absorbing layer. The sampled area is zero to round-off for
+   !< sigma above a couple of cells (Poisson summation), so the profile is not truncated: a cut would leave a jump and an
+   !< area of the order of the cut tail.
    real(R8P),    intent(in)    :: x(3)   !< Spatial coordinates.
    integer(I4P), intent(in)    :: i_dir  !< Propagation direction: +/-1, +/-2, +/-3.
+   real(R8P),    intent(in)    :: k0     !< Carrier wave number (0: no carrier).
    real(R8P),    intent(in)    :: x0     !< Initial pulse center along the propagation direction.
-   real(R8P),    intent(in)    :: B0     !< Peak magnetic field.
+   real(R8P),    intent(in)    :: B0     !< Peak (k0 = 0) or envelope (k0 sigma >> 1) magnetic field.
    real(R8P),    intent(in)    :: sigma  !< Standard deviation of the Gaussian vector potential.
    real(R8P),    intent(inout) :: q(6)   !< Electromagnetic state: D(1:3), B(1:3).
    integer(I4P)                :: i_axis !< Propagation axis.
    real(R8P)                   :: verse  !< Propagation orientation.
    real(R8P)                   :: s      !< Coordinate relative to the pulse center, in sigma units.
    real(R8P)                   :: E_wave !< Electric-field profile.
+   real(R8P)                   :: a      !< A0/(sigma B0): e^(1/2) without carrier.
 
    q = 0.0_R8P
    i_axis = abs(i_dir)
    verse  = sign(1.0_R8P, real(i_dir, R8P))
    s = (x(i_axis) - x0) / sigma
-   E_wave = -B0*C0*exp(0.5_R8P)*s*exp(-0.5_R8P*s**2)
+   ! k0 = 0: cos = 1, sin = 0 and a = e^(1/2), the single-cycle expression bit for bit
+   if (k0 == 0.0_R8P) then
+      a = exp(0.5_R8P)
+   else
+      a = 1.0_R8P/sqrt((k0*sigma)**2 + exp(-1.0_R8P))
+   endif
+   E_wave = -B0*C0*a*(s*cos(k0*sigma*s) + k0*sigma*sin(k0*sigma*s))*exp(-0.5_R8P*s**2)
    select case(i_axis) ! the same polarization and E/B pairing as set_gaussian_wave_pulse
    case(1) !< Propagation along +/-x: E_y, B_z.
       q(2) = EPS0*E_wave
