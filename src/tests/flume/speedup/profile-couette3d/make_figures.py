@@ -11,6 +11,8 @@ number of a figure can be traced to a run directory and redrawn after new runs.
   steps, the mean time per launch of the two flux kernels, the total kernel time).
 - `figures/a30-variants.png`: the A30 loop of each build variant split into the face-flux kernel, the dissipative
   kernel, the other kernels and the time with no kernel running (uniform and refined walls).
+- `figures/a30-widths.png`: the face-flux kernel and the loop of each WENO order, the per-width kernels against the
+  generic one.
 - `figures/cpu-weno.png`: the CPU runs before and after the WENO hot-path fix (commit f46b56fb).
 - `figures/fields.png`: u and T of the correctness runs against the exact Couette solution, their error, and the
   largest difference of every variant from the leg.
@@ -37,10 +39,14 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 KERN = "kern_cuda_gpu_kern_sum.csv"
-FACE, DISSIPATIVE = "compute_face_fluxes_dev", "add_dissipative_fluxes_o4_dev"
+# the two flux kernels, matched in the kernel names of nsys: the face-flux kernel is one kernel per stencil width since
+# the per-width kernels (compute_face_fluxes_s<N>_dev, the generic compute_face_fluxes_sn_dev), one before
+FACE = re.compile(r"compute_face_fluxes_(s[0-9n]_)?dev")
+DISSIPATIVE = re.compile(r"add_dissipative_fluxes_o4_dev")
 FIELDS = (
     "variant",
     "size",
+    "scheme",
     "tool",
     "np",
     "steps",
@@ -63,8 +69,16 @@ VARIANTS = ("leg", "r128", "lto", "lto-r128", "B0", "B0-lto")
 # the CPU A/B of the WENO fix (Slurm 1357589): the "before" executable was built in this worktree, the "after" one
 # from the uncommitted fix, committed afterwards as f46b56fb (run.info records the HEAD of the time, ff80d8da)
 CPU_AB_JOB, CPU_BEFORE = "1357589", "weno-before"
-# the runs the variants figure averages: one rank (the kernel summary is rank 0's), the 20 steps of profile.sh
-FIG_NP, FIG_STEPS = "1", "20"
+# the runs the figures average: one rank (the kernel summary is rank 0's), the 20 steps of profile.sh; the variants
+# figure is WENO-5 and the Slurm jobs of that experiment (the leg there is the build before LTO became the default)
+FIG_NP, FIG_STEPS, FIG_SCHEME = "1", "20", "weno-u-5"
+VARIANT_JOBS = ("1357614", "1357619", "1357635")
+# the per-width kernels against the generic one: the untagged runs (the fnl-nvf leg with the per-width kernels) of job
+# 1357835 and the variant "generic" (every width through compute_face_fluxes_sn_dev) of job 1357836
+WIDTH_JOBS, WIDTH_SCHEMES = (
+    ("1357835", "1357836"),
+    ("weno-u-1", "weno-u-3", "weno-u-5", "weno-u-7", "weno-u-9"),
+)
 # the Couette constants of make_profile.py (and of regression/couette, verification/viscous/profiles.py)
 GAMMA, MU, PRANDTL, U, TW, H = 1.4, 0.01, 0.75, 1.0, 1.0, 1.0
 
@@ -122,7 +136,11 @@ def kernel_summary(run: Path) -> list[dict[str, str]]:
 def collect(runs: Path, out: Path) -> None:
     """Write one CSV row per run directory of `runs` (directories without run.info are skipped)."""
     rows = []
-    for run in sorted(p for p in runs.iterdir() if (p / "run.info").is_file() and (p / "wall.txt").is_file()):
+    for run in sorted(
+        p
+        for p in runs.iterdir()
+        if (p / "run.info").is_file() and (p / "wall.txt").is_file()
+    ):
         info = read_info(run)
         timing = re.search(
             r"forest timing.*?loop\s+([\d.]+), steps\s+([\d.]+)",
@@ -131,6 +149,9 @@ def collect(runs: Path, out: Path) -> None:
         row = {
             "variant": variant_of(info),
             "size": info["size"],
+            "scheme": info.get(
+                "scheme", "weno-u-5"
+            ),  # runs before --scheme existed are WENO-5
             "tool": info["tool"],
             "np": info["np"],
             "steps": info.get("steps", ""),
@@ -144,10 +165,14 @@ def collect(runs: Path, out: Path) -> None:
             "steps_s": timing.group(2) if timing else "",
         }
         kernels = kernel_summary(run)
-        row["kernels_s"] = f"{sum(float(k['Total Time (ns)']) for k in kernels) / 1e9:.4f}" if kernels else ""
+        row["kernels_s"] = (
+            f"{sum(float(k['Total Time (ns)']) for k in kernels) / 1e9:.4f}"
+            if kernels
+            else ""
+        )
         for key, name in (("face", FACE), ("dissipative", DISSIPATIVE)):
             # every kernel of that name (one per model or per stencil width): total time, and mean per launch
-            hit = [k for k in kernels if name in k["Name"]]
+            hit = [k for k in kernels if name.search(k["Name"])]
             total = sum(float(k["Total Time (ns)"]) for k in hit)
             launches = sum(int(k["Instances"]) for k in hit)
             row[f"{key}_ms"] = f"{total / launches / 1e6:.4f}" if hit else ""
@@ -197,7 +222,9 @@ def fig_variants(rows: list[dict[str, str]], out: Path) -> None:
                 and r["size"] == size
                 and r["tool"] == "nsys"
                 and r["np"] == FIG_NP
+                and r["scheme"] == FIG_SCHEME
                 and r["steps"] == FIG_STEPS
+                and r["slurm_job"] in VARIANT_JOBS
                 and r["face_s"]
             ]
             if not sel:
@@ -209,7 +236,9 @@ def fig_variants(rows: list[dict[str, str]], out: Path) -> None:
             face = mean([float(r["face_s"]) for r in sel])
             diss = mean([float(r["dissipative_s"]) for r in sel])
             names.append(f"{v} ({len(sel)} run{'s' if len(sel) > 1 else ''})")
-            stacks.append((face, diss, max(kern - face - diss, 0.0), max(loop - kern, 0.0)))
+            stacks.append(
+                (face, diss, max(kern - face - diss, 0.0), max(loop - kern, 0.0))
+            )
             loops.append(loop)
         y = range(len(names))
         left = [0.0] * len(names)
@@ -229,7 +258,9 @@ def fig_variants(rows: list[dict[str, str]], out: Path) -> None:
             ax.text(
                 max(left[i], loop) + 0.6,
                 i,
-                f"{loop:.1f} s ({100 * (loop / loops[0] - 1):+.0f}%)" if i else f"{loop:.1f} s",
+                f"{loop:.1f} s ({100 * (loop / loops[0] - 1):+.0f}%)"
+                if i
+                else f"{loop:.1f} s",
                 va="center",
                 fontsize=8,
             )
@@ -248,11 +279,98 @@ def fig_variants(rows: list[dict[str, str]], out: Path) -> None:
     plt.close(fig)
 
 
+def fig_widths(rows: list[dict[str, str]], out: Path) -> None:
+    """Draw the face-flux kernel and the loop of each WENO order, per-width kernels against the generic kernel."""
+    import matplotlib.pyplot as plt  # noqa: PLC0415
+
+    def pick(variant: str, size: str, scheme: str) -> dict[str, str] | None:
+        sel = [
+            r
+            for r in rows
+            if r["slurm_job"] in WIDTH_JOBS
+            and r["variant"] == variant
+            and r["size"] == size
+            and r["scheme"] == scheme
+            and r["np"] == FIG_NP
+            and r["steps"] == FIG_STEPS
+            and r["face_ms"]
+        ]
+        return sel[-1] if sel else None
+
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 7.0), constrained_layout=True)
+    x = range(len(WIDTH_SCHEMES))
+    for col, (size, title) in enumerate(
+        (
+            ("medium-uniform", "uniform, 16.8 M cells"),
+            ("medium", "refined walls, 5.8 M cells"),
+        )
+    ):
+        for row, (key, ylabel, fmt) in enumerate(
+            (
+                ("face_ms", "face-flux kernel, mean per launch (ms)", "{:.0f}"),
+                ("loop_s", "forest loop, 20 steps (s)", "{:.1f}"),
+            )
+        ):
+            ax = axs[row][col]
+            for shift, variant, label, color in (
+                (-0.2, "generic", "generic kernel (S a dummy argument)", "C7"),
+                (0.2, "leg", "per-width kernel (S a named constant)", "C0"),
+            ):
+                vals = []
+                for sc in WIDTH_SCHEMES:
+                    r = pick(variant, size, sc)
+                    vals.append(float(r[key]) if r else 0.0)
+                ax.bar(
+                    [i + shift for i in x],
+                    vals,
+                    width=0.4,
+                    color=color,
+                    edgecolor="k",
+                    lw=0.4,
+                    label=label,
+                )
+                if variant == "leg":
+                    for i, sc in enumerate(WIDTH_SCHEMES):
+                        g = pick("generic", size, sc)
+                        if g and vals[i]:
+                            change = 100.0 * (vals[i] / float(g[key]) - 1.0)
+                            ax.text(
+                                i + shift,
+                                vals[i],
+                                f"{change:+.0f}%",
+                                ha="center",
+                                va="bottom",
+                                fontsize=7,
+                            )
+            ax.set_xticks(
+                list(x),
+                [
+                    f"WENO-{sc.rsplit('-', 1)[1]}\nS = {(int(sc.rsplit('-', 1)[1]) + 1) // 2}"
+                    for sc in WIDTH_SCHEMES
+                ],
+            )
+            ax.set_ylabel(ylabel)
+            ax.grid(axis="y", alpha=0.3)
+            ax.set_title(f"one A30, medium {title}", fontsize=9)
+    axs[0][0].legend(fontsize=8, loc="upper left")
+    fig.suptitle(
+        "FLUME FNL on one A30, -gpu=lto: one face-flux kernel per stencil width against the generic kernel "
+        f"(Slurm {' and '.join(WIDTH_JOBS)})",
+        fontsize=10,
+    )
+    fig.savefig(out / "a30-widths.png", dpi=110)
+    plt.close(fig)
+
+
 def fig_cpu(rows: list[dict[str, str]], out: Path) -> None:
     """Draw the alternated CPU runs before and after the WENO hot-path fix."""
     import matplotlib.pyplot as plt  # noqa: PLC0415
 
-    sel = [r for r in rows if r["slurm_job"] == CPU_AB_JOB and r["size"] == "medium-uniform"]
+    sel = [
+        r
+        for r in rows
+        if r["slurm_job"] == CPU_AB_JOB and r["size"] == "medium-uniform"
+    ]
     if not sel:
         print("figures: no CPU A/B run, cpu-weno.png skipped")
         return
@@ -261,7 +379,11 @@ def fig_cpu(rows: list[dict[str, str]], out: Path) -> None:
         ("before", "C3", "before (ff80d8da)"),
         ("leg", "C0", "after (the fix, committed as f46b56fb)"),
     ):
-        pts = [(i, float(r["wall_s"])) for i, r in enumerate(sel, start=1) if r["variant"] == v]
+        pts = [
+            (i, float(r["wall_s"]))
+            for i, r in enumerate(sel, start=1)
+            if r["variant"] == v
+        ]
         ax.plot(
             [p[0] for p in pts],
             [p[1] for p in pts],
@@ -272,7 +394,9 @@ def fig_cpu(rows: list[dict[str, str]], out: Path) -> None:
         )
         m = mean([p[1] for p in pts])
         ax.axhline(m, color=color, lw=1, ls="--")
-        below = v == "before"  # the before line runs along the top of the axes: label it underneath
+        below = (
+            v == "before"
+        )  # the before line runs along the top of the axes: label it underneath
         ax.text(
             0.6,
             m - 2.0 if below else m + 2.0,
@@ -311,11 +435,15 @@ def checkpoint_cells(run: Path, it: int):  # noqa: ANN201
     ys, us, ts = [], [], []
     for path in sorted(run.glob(f"couette3d-{it:09d}-proc*.h5")):
         with h5py.File(path, "r") as h5:
-            for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+            for blk in sorted(
+                {k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}
+            ):
                 # stored (z, y, x) with the ghosts: reverse to (x, y, z) and strip them
                 origin, d = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
                 f = {
-                    v: h5[f"{blk}-{v}"][()].transpose(2, 1, 0)[ngc:-ngc, ngc:-ngc, ngc:-ngc]
+                    v: h5[f"{blk}-{v}"][()].transpose(2, 1, 0)[
+                        ngc:-ngc, ngc:-ngc, ngc:-ngc
+                    ]
                     for v in ("r", "ru", "rv", "rw", "rE")
                 }
                 u = f["ru"] / f["r"]
@@ -435,7 +563,10 @@ def fig_fields(runs: Path, out: Path) -> None:
             fontsize=8,
         )
     ax.set_yticks([])
-    ax.set_title(f"largest |difference| from the leg, u and T, step {last}, every cell", fontsize=8)
+    ax.set_title(
+        f"largest |difference| from the leg, u and T, step {last}, every cell",
+        fontsize=8,
+    )
     fig.suptitle(
         f"Correctness of the variants: small refined walls (1.2 M cells), one A30, {last} steps (the regrid at step 10 "
         "leaves the grid unchanged)",
@@ -466,6 +597,7 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     rows = read_rows(args.results)
     fig_variants(rows, args.out)
+    fig_widths(rows, args.out)
     fig_cpu(rows, args.out)
     fig_fields(args.runs, args.out)
     print(f"figures: written to {args.out}")

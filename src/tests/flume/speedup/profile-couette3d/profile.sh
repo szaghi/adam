@@ -11,7 +11,7 @@
 # wall time of its loop, of the steps and of the reflux, and per realm of the seam fills (max over the ranks); it puts
 # a barrier before the reflux reduction to separate the load imbalance, a small perturbation.
 #
-# Usage: ./profile.sh <leg> [--size small|medium|large] [--np N] [--tool T] [--steps N] [--io]
+# Usage: ./profile.sh <leg> [--size small|medium|large] [--np N] [--tool T] [--steps N] [--io] [--scheme S]
 #                     [--launcher "CMD"] [--exe PATH] [--tag NAME] [--dry-run]
 #   leg         cpu, fnl-nvf or fnl-amd; the executable is ../exe/<leg>/ (../build.sh <leg>)
 #   --size      small (default; WSL), medium (medooza), large (one AMD GPU, or 4 A30); see make_profile.py
@@ -24,6 +24,8 @@
 #               perf     Linux perf record with call graphs, every rank (cpu; host side of the FNL legs)
 #   --steps     time steps (default 20: two runtime regrids, at steps 10 and 20)
 #   --io        also write the first and last checkpoint (default: no output at all, a pure compute profile)
+#   --scheme    the WENO scheme, weno-u-1 ... weno-u-9 (default weno-u-5, the committed inputs); another one is
+#               appended to the run directory name
 #   --launcher  the launcher followed by the rank count (default "mpirun -x ADAM_SEAM_TIMING -np"; Open MPI
 #               forwards only the variables -x names; srun forwards the environment: "srun -n")
 #   --exe       the executable (default ../exe/<leg>/, or ../exe/<leg>-<tag>/ with --tag)
@@ -31,8 +33,8 @@
 #               own, so that the runs of two builds sit side by side
 #   --dry-run   print the command, run nothing
 #
-# Output: runs/<leg>-<size>[-uniform]-np<N>-<tool>[-<tag>]/ with input.ini, log.txt, wall.txt (seconds), run.info
-#         (host, job, command, executable, commit, whether src/ differs from it) and the profiler files.
+# Output: runs/<leg>-<size>[-uniform][-<scheme>]-np<N>-<tool>[-<tag>]/ with input.ini, log.txt, wall.txt (seconds),
+#         run.info (host, job, command, executable, commit, whether src/ differs from it) and the profiler files.
 # WSL: one run at a time, FNL np <= 2 (two GPUs), and the UCX knobs of issue #12 (CLAUDE.md, WSL2 GPU+MPI caveats);
 # Nsight Compute there needs the GPU counters enabled in the Windows NVIDIA Control Panel.
 set -euo pipefail
@@ -48,6 +50,7 @@ TOOL=none
 STEPS=20
 IO=0
 UNIFORM=""
+SCHEME=weno-u-5
 LAUNCHER="mpirun -x ADAM_SEAM_TIMING -np"
 EXE=""
 TAG=""
@@ -60,6 +63,7 @@ while [[ $# -gt 0 ]]; do
       --steps)    STEPS="$2" ; shift 2 ;;
       --io)       IO=1 ; shift ;;
       --uniform)  UNIFORM="-uniform" ; shift ;;
+      --scheme)   SCHEME="$2" ; shift 2 ;;
       --launcher) LAUNCHER="$2" ; shift 2 ;;
       --exe)      EXE="$2" ; shift 2 ;;
       --tag)      TAG="$2" ; shift 2 ;;
@@ -93,7 +97,8 @@ else
    WRAP='exec "$@"'
 fi
 
-WORK="$CASE_DIR/runs/$LEG-$SIZE$UNIFORM-np$NP-$TOOL${TAG:+-$TAG}"
+WSUFFIX="" ; [[ $SCHEME == weno-u-5 ]] || WSUFFIX="-$SCHEME"
+WORK="$CASE_DIR/runs/$LEG-$SIZE$UNIFORM$WSUFFIX-np$NP-$TOOL${TAG:+-$TAG}"
 CMD="$LAUNCHER $NP bash -c '$WRAP' rank $EXE input.ini"
 if [[ $DRY -eq 1 ]]; then
    echo "cd $WORK && ADAM_SEAM_TIMING=1 $CMD"
@@ -102,7 +107,7 @@ fi
 [[ -x $EXE ]] || { echo "profile.sh: executable '$EXE' not found (../build.sh $LEG, or --exe)" >&2 ; exit 2 ; }
 if [[ -d $WORK ]]; then mv "$WORK" "$WORK.old-$(date +%Y%m%d-%H%M%S)"; fi
 mkdir -p "$WORK"
-python3 "$CASE_DIR/make_profile.py" "$SIZE" "$WORK/input.ini" --steps "$STEPS" ${UNIFORM:+--uniform}
+python3 "$CASE_DIR/make_profile.py" "$SIZE" "$WORK/input.ini" --steps "$STEPS" ${UNIFORM:+--uniform} --scheme "$SCHEME"
 if [[ $IO -eq 1 ]]; then
    python3 "$SPEEDUP_DIR/make_inputs.py" set "$WORK/input.ini" "IO.it_save=$STEPS"
 fi
@@ -113,6 +118,7 @@ fi
    echo "leg=$LEG"
    echo "tag=$TAG"
    echo "size=$SIZE${UNIFORM}"
+   echo "scheme=$SCHEME"
    echo "np=$NP"
    echo "tool=$TOOL"
    echo "steps=$STEPS"

@@ -33,7 +33,7 @@ Sizes (blocks = 8^L + 14 4^L: the base level L, its two wall layers refined once
     large   NI 32, level 4: 4096 blocks,  134 M cells, ~117 GB   one AMD 192 GB GPU
 
 Usage:
-    make_profile.py <small|medium|large> <out.ini> [--uniform] [--steps N] [--frequency N]
+    make_profile.py <small|medium|large> <out.ini> [--uniform] [--steps N] [--frequency N] [--scheme weno-u-<2S-1>]
 """
 
 from __future__ import annotations
@@ -42,11 +42,14 @@ import argparse
 from pathlib import Path
 
 SIZES = {"small": (16, 2), "medium": (16, 3), "large": (32, 3)}  # NI, base level
+SCHEMES = ("weno-u-1", "weno-u-3", "weno-u-5", "weno-u-7", "weno-u-9")  # FLUME's upwind WENO, S = 1 ... 5
 UNIFORM_SIZES = {"small": (16, 3), "medium": (32, 3), "large": (32, 4)}  # NI, level
 
 
-def profile_ini(size: str, steps: int, frequency: int, uniform: bool = False) -> str:
-    """Return the input of one size: the refined-walls variant, or the uniform one."""
+def profile_ini(size: str, steps: int, frequency: int, uniform: bool = False, scheme: str = "weno-u-5") -> str:
+    """Return the input of one size: the refined-walls variant, or the uniform one, with the WENO scheme `scheme`."""
+    half_width = (int(scheme.rsplit("-", 1)[1]) + 1) // 2  # weno-u-<2S-1>
+    ngc = max(3, half_width)  # the stencil reaches S cells beyond a face; 3 (WENO-5) is the committed inputs' ngc
     ni, base = (UNIFORM_SIZES if uniform else SIZES)[size]
     layer = 1.0 / 2**base  # the height of a base block: the wall layer is the first block row along y
     if uniform:
@@ -63,7 +66,7 @@ def profile_ini(size: str, steps: int, frequency: int, uniform: bool = False) ->
         "save_memory_status     = .false.", "save_residual_fields   = .false.", "save_auxiliary_fields  = .false.",
         "save_curl_fields       = .false.", "save_divergence_fields = .false.", "save_gradient_fields   = .false.",
         "save_laplacian_fields  = .false.",
-        "", "[grid]", f"ni     = {ni}", f"nj     = {ni}", f"nk     = {ni}", "ngc    = 3",
+        "", "[grid]", f"ni     = {ni}", f"nj     = {ni}", f"nk     = {ni}", f"ngc    = {ngc}",
         "emin_x = 0.0", "emin_y = 0.0", "emin_z = 0.0", "emax_x = 1.0", "emax_y = 1.0", "emax_z = 1.0",
         "null_x = .false.", "null_y = .false.", "null_z = .false.",
         "", "[amr]", f"max_level      = {base if uniform else base + 1}", "ratio          = 8",
@@ -80,7 +83,7 @@ def profile_ini(size: str, steps: int, frequency: int, uniform: bool = False) ->
         ]
     lines += [
         "", "[field]", "nv = 5", "", "[runge_kutta]", "scheme = runge-kutta-ssp-54",
-        "", "[weno]", "scheme              = weno-u-5", "ror_number          = 0", "ror_threshold       = 0.9",
+        "", "[weno]", f"scheme              = {scheme}", "ror_number          = 0", "ror_threshold       = 0.9",
         "ror_vars_number     = 0", "enable_ror_stats    = .false.", "ib_reduction_extent = 0", "ib_reduced_order    = 2",
         "", "[fdv]", "fdv_scheme = fd", "fdv_order  = 2", "", "[solids]", "number    = 0", "n_eikonal = 0",
         "", "[slices]", "slices_number = 0",
@@ -109,8 +112,10 @@ def main() -> None:
     parser.add_argument("--uniform", action="store_true", help="one realm, uniform grid, no AMR marker, no regrid")
     parser.add_argument("--steps", type=int, default=20, help="time steps of the run (default 20)")
     parser.add_argument("--frequency", type=int, default=10, help="runtime regrid cadence in steps (default 10)")
+    parser.add_argument("--scheme", default="weno-u-5", choices=SCHEMES,
+                        help="the WENO scheme (default weno-u-5); ngc follows its stencil half-width")
     args = parser.parse_args()
-    args.out.write_text(profile_ini(args.size, args.steps, args.frequency, args.uniform))
+    args.out.write_text(profile_ini(args.size, args.steps, args.frequency, args.uniform, args.scheme))
 
 
 if __name__ == "__main__":

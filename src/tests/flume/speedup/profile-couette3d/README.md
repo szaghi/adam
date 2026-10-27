@@ -177,12 +177,15 @@ cd profile-couette3d
 
 ```bash
 ./profile.sh <leg> --size <small|medium|large> [--uniform] --np <N> --tool <none|nsys|ncu|rocprof|perf> [--steps N] [--io]
-             [--tag NAME] [--exe PATH] [--launcher "CMD"] [--dry-run]
+             [--scheme weno-u-<2S-1>] [--tag NAME] [--exe PATH] [--launcher "CMD"] [--dry-run]
 ```
 
-Every run goes to `runs/<leg>-<size>[-uniform]-np<N>-<tool>[-<tag>]/` (a previous one is renamed, not overwritten):
-`input.ini`, `log.txt`, `wall.txt`, `run.info` (host, job, command, executable and its digest, commit, `src_modified`)
-and the profiler files, one per rank. `ADAM_SEAM_TIMING=1` is always set, so the end of `log.txt` carries the forest
+Every run goes to `runs/<leg>-<size>[-uniform][-<scheme>]-np<N>-<tool>[-<tag>]/` (a previous one is renamed, not
+overwritten; the scheme is in the name only when it is not the default `weno-u-5`). `--scheme` sets the WENO scheme of
+the input, `weno-u-1` to `weno-u-9` (half-width S = 1 to 5), and the ghost cells with it, `ngc = max(3, S)`: WENO-7
+and WENO-9 runs have wider blocks in memory, so their loops do not price the stencil alone. The run writes
+`input.ini`, `log.txt`, `wall.txt`, `run.info` (host, job, scheme, command, executable and its digest, commit,
+`src_modified`) and the profiler files, one per rank. `ADAM_SEAM_TIMING=1` is always set, so the end of `log.txt` carries the forest
 timing report (loop, steps, reflux, seam fills; max over the ranks), which `profile.sh` prints. `--dry-run` prints the
 command without running it. The default launcher is `mpirun -x ADAM_SEAM_TIMING -np`; give `--launcher` when another
 variable must reach the ranks (Open MPI forwards only the ones `-x` names) or under Slurm (`srun` forwards all).
@@ -304,8 +307,8 @@ which is job 1357635 alone, by at most 0.2%:
   half-width `S` a constant, `SC = 3`, in `compute_face_fluxes_dev`: alone it saves 5%, because the arrays are still
   passed to calls; with LTO the calls are inlined, the constant bounds presumably let the stencil loops unroll (not
   checked in the SASS), and the face kernel drops to a third of the leg's. The patch is **valid only for WENO-5 inputs**
-  and is not in the code: making it a feature means one kernel per supported `S`, chosen on the host (one `select case`,
-  no configuration branch inside a kernel).
+  and was never committed; the code now does the same for every width, see
+  [One face-flux kernel per stencil width](#one-face-flux-kernel-per-stencil-width).
 - **The compiler's own inlining does not work here.** `-Minline` inlines only routines of the same file (cross-file
   inlining needs extracted libraries and still refuses `weno_reconstruct_upwind_dev`: "missing prototype during
   crossing files"). With the library bodies included into the kernel file and `-Minline=reshape` everything inlines, but
@@ -339,6 +342,57 @@ fewer instructions. Its duration changes by less than 10%: the RTX 4070 runs FP6
 full Nsight Compute set of the leg's kernel names FP64 as its busiest pipeline (83%); the A30 runs FP64 at 1/2 of the
 FP32 rate.
 
+### One face-flux kernel per stencil width
+
+Experiment B0 made into code. The two flux-splitting face routines of the FNL backend, `compute_face_fluxes_dev` and
+`add_gravity_edge_correction_dev` (`src/app/flume/fnl/adam_flume_fnl_face_kernels_agnostic.INC`), are host dispatchers:
+one `select case (S)` calls the kernel compiled for that half-width, `compute_face_fluxes_s<N>_dev` with `S` a named
+constant, N = 1 to 5 (WENO-1 to WENO-9; `S_MAX = 5`), and the `case default` calls the generic kernel
+`compute_face_fluxes_sn_dev`, `S` a dummy argument, as before. No width FLUME accepts today reaches the generic kernel;
+it is there for a width added later, which runs on it until it gets its own case. Every kernel includes the same body
+(`adam_flume_fnl_face_fluxes_kernel_body.INC`, `adam_flume_fnl_gravity_edge_kernel_body.INC`) after its declaration of
+`S`, so the kernel has one source. Nsight Systems now lists the face kernel under the name of its width
+(`..._compute_face_fluxes_s3_dev_...` for WENO-5); `make_figures.py` sums every face kernel of a run. The Riemann face
+kernels (`weno-riemann`) and the CPU backend are unchanged.
+
+Measured at commit `dcdc49c1` with this change applied (`run.info`: `src_modified=yes`), the `fnl-nvf` leg as built by
+default since that commit (with `-gpu=lto`), against the variant `generic`: the same tree with both dispatchers calling
+the generic kernel for every width (`select case (-S)`, a temporary edit, reverted after the build). One A30, one rank,
+`medium`, 20 steps, `--scheme weno-u-1 ... weno-u-9`; Slurm job 1357835 (the per-width kernels) and 1357836 (`generic`):
+
+| WENO (S) | Face kernel, uniform: per-width / generic | Loop, uniform | Face kernel, refined walls | Loop, refined walls |
+|---|---|---|---|---|
+| 1 (1) | 17.3 / 38.4 ms (−55%) | 21.5 / 28.4 s (−24%) | 6.4 / 13.5 ms (−53%) | 16.9 / 19.1 s (−11%) |
+| 3 (2) | 23.5 / 67.3 ms (−65%) | 23.4 / 36.6 s (−36%) | 8.6 / 24.1 ms (−64%) | 17.6 / 22.4 s (−21%) |
+| 5 (3) | 56.0 / 103.4 ms (−46%) | 33.1 / 47.4 s (−30%) | 20.1 / 37.4 ms (−46%) | 21.2 / 26.4 s (−20%) |
+| 7 (4) | 89.3 / 140.4 ms (−36%) | 44.7 / 60.1 s (−26%) | 31.9 / 49.8 ms (−36%) | 26.1 / 31.4 s (−17%) |
+| 9 (5) | 135.8 / 203.6 ms (−33%) | 59.9 / 79.6 s (−25%) | 45.9 / 73.2 ms (−37%) | 32.0 / 40.3 s (−21%) |
+
+![The face-flux kernel and the loop of each WENO order, per-width kernels against the generic one](figures/a30-widths.png)
+
+- **Every width gains, so every width keeps its kernel.** Per launch the face kernel is 33% to 65% faster; the loop 11%
+  to 36%. `cuobjdump --dump-resource-usage` of the leg gives the kernels of S = 4 and 5 255 registers (the most a
+  thread can have) and 2.7 KB of stack, against 148 registers and 2.7 KB for the generic kernel: they presumably spill
+  (not measured: Nsight Compute does not run on medooza), and still win by a third. S = 1, 2 and 3 use 156, 212 and
+  210 registers.
+- **WENO-5 reproduces B0.** 56.0 ms per launch against 56.3 ms for `B0-lto`, and the generic kernel's 103.4 ms against
+  103.1 ms for `lto`: the generic path is the code before this change, built with LTO.
+- **The refined walls gain less in the loop** (11% to 21%) for the reason given above: the time with no kernel
+  running does not shrink with the kernels.
+- **The build is slower.** Five more face kernels and five more edge kernels per flux-splitting model: the `fnl-nvf`
+  leg took 1006 s on 16 cores of a GPU node (job 1357834), against about 830 s before; on WSL 462 s against 377 s (a
+  planning figure).
+
+**Correctness.** On WSL (`small` refined walls, 10 steps with checkpoints, `ngc` 3 to 5; runs compared with `h5diff`
+and not kept) the per-width kernels and the generic one give bitwise identical checkpoints for WENO-1, 3, 5, 7 and 9.
+The FLUME FNL regression suite with the per-width build (job 1357845) passes 54 of 54, and 169 of its 172 outputs are
+bitwise identical to the build before the change (`-gpu=lto`, commit `dcdc49c1`). The three others are `noh-de`
+(dual-energy Noh, WENO-5): its O(1) values differ by about 4e-11 relative (the total energy at the last step,
+2.19999999997 against 2.20000000006) and its near-zero conservation drifts change sign (-3.3e-12 against 5.1e-11). Job
+1357846 settled the cause: the per-width build reproduces itself bitwise, and the generic variant reproduces the
+build before the change bitwise, so the difference is the constant `S` changing the order of the floating-point
+operations of the inlined code (round-off), not a non-deterministic run.
+
 ### Reproducing the results
 
 The measurements are `results/runs.csv`, one row per run directory (variant, size, Slurm job, date, commit, executable,
@@ -363,6 +417,13 @@ On medooza, one A30 of a `dev-gn` node held exclusively, every run with `--launc
 - job 1357635: for the leg and each of the four, `./profile.sh fnl-nvf --size small --np 1 --steps 10 --io [--tag T]`
   (correctness, compared with `h5diff`) and the two timings above `[--tag T]`.
 
+The per-width kernels: job 1357835 built the variant `generic` (`../build.sh fnl-nvf --varset iac_nvf --jobs 16 --tag
+generic`, from the tree with the temporary `select case (-S)`, reverted after the build) and timed the leg, built by
+job 1357834 from the same tree without the edit, `./profile.sh fnl-nvf --size medium [--uniform] --np 1 --tool nsys
+--scheme weno-u-<1|3|5|7|9>`; job 1357836 timed `generic` the same way (`--tag generic`).
+
 The CPU before/after runs (job 1357589) are `./profile.sh cpu --size medium --uniform --np 16 --tool none --exe
-<exe>`, alternated, three each. The figures average the nsys runs of one rank and 20 steps (`FIG_NP`, `FIG_STEPS` in
-`make_figures.py`) and warn when a bar mixes commits; the CPU figure is the runs of job 1357589.
+<exe>`, alternated, three each. The figures take the nsys runs of one rank and 20 steps (`FIG_NP`, `FIG_STEPS` in
+`make_figures.py`) of the Slurm jobs of their experiment: the variants figure averages the WENO-5 runs of jobs 1357614,
+1357619 and 1357635 (`VARIANT_JOBS`) and warns when a bar mixes commits, the widths figure takes jobs 1357835 and
+1357836 (`WIDTH_JOBS`), the CPU figure job 1357589.
