@@ -18,7 +18,7 @@ module adam_prism_probes_object
 !< ranks: no ghost cell is read. The weights are normalised by their global sum, so within half a cell of the domain
 !< boundary, periodic faces included, the interpolation uses the interior cells only.
 !< The stencils (local cells and weights) are built once on the current grid by `build_stencils`; a regrid must
-!< rebuild them. Output: one file per probe, `<basename>-probe_NN.dat`, rank 0 only.
+!< rebuild them. Output: one file per probe, `<basename>-probe_NN.dat` (more digits beyond 99 probes), rank 0 only.
 
 use :: adam_common_library, only : field_object, grid_object
 use :: adam_mpih_global, only : mpih
@@ -94,7 +94,7 @@ contains
                do i=1, ni
                   if (wx(i) <= 0._R8P) cycle
                   entries = entries + 1_I4P
-                  if (entries > size(weight)) call grow
+                  if (entries > size(weight)) call grow(cell=cell, weight=weight)
                   cell(:,entries) = [b, i, j, k]
                   weight(entries) = wx(i) * wy(j) * wz(k)
                enddo
@@ -121,10 +121,15 @@ contains
    allocate(self%weight(entries), source=weight(1:entries))
    self%is_built = .true.
    contains
-      subroutine grow
+      subroutine grow(cell, weight)
       !< Double the capacity of the local stencil buffers.
-      integer(I4P), allocatable :: cell_(:,:)  !< Cells, enlarged.
-      real(R8P),    allocatable :: weight_(:)  !< Weights, enlarged.
+      !<
+      !< The buffers are explicit dummies, not host-associated: with host association nvfortran 26.9 (also at -O0)
+      !< keeps the old `size(weight)` in the caller after `move_alloc`, so every later entry doubles them again.
+      integer(I4P), allocatable, intent(inout) :: cell(:,:) !< Local cells.
+      real(R8P),    allocatable, intent(inout) :: weight(:) !< Local weights.
+      integer(I4P), allocatable                :: cell_(:,:)  !< Cells, enlarged.
+      real(R8P),    allocatable                :: weight_(:)  !< Weights, enlarged.
 
       allocate(cell_(4,2*size(weight)), weight_(2*size(weight)))
       cell_(:,1:size(weight)) = cell
@@ -201,6 +206,7 @@ contains
    type(string),               intent(in)    :: q_name(:) !< Names of the sampled variables.
    character(:), allocatable                 :: header    !< Variables header.
    integer(I4P)                              :: p, v      !< Counters.
+   integer(I4P)                              :: nz        !< Digits of the file numbers.
 
    self%nv = size(q_name, kind=I4P)
    if (allocated(self%value)) deallocate(self%value)
@@ -210,12 +216,14 @@ contains
    call self%close_files
    if (allocated(self%unit)) deallocate(self%unit)
    allocate(self%unit(self%probes_number))
+   ! strz keeps the last nz digits: at least 2, as many as the largest probe number
+   nz = max(2_I4P, len_trim(str(self%probes_number, .true.), kind=I4P))
    header = '%VARIABLES="it" "time"'
    do v=1, self%nv
       header = header//' "'//q_name(v)%chars()//'"'
    enddo
    do p=1, self%probes_number
-      open(newunit=self%unit(p), file=self%output_basename//'-probe_'//trim(strz(p, 2))//'.dat')
+      open(newunit=self%unit(p), file=self%output_basename//'-probe_'//trim(strz(p, nz))//'.dat')
       write(self%unit(p), '(A)') '% probe '//trim(str(p, .true.))//' at x y z = '//trim(str(self%point_input(:,p)))
       write(self%unit(p), '(A)') header
       flush(self%unit(p))
