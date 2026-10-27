@@ -46,6 +46,12 @@ paths =  fobos.d/templates.fobos
 # of the [varset:gfx*] sections below, e.g.
 #   fobis build --mode nasto-fnl-omp-amd --varset "local_amd gfx1100"
 $GPU_ARCH = gfx942
+# Device link-time optimisation of the optimized NVF OpenACC modes (`-gpu=$NVF_CC$NVF_LTO`): `,lto` inlines the device
+# routines across modules at the device link (profile-couette3d README, "Results": the FLUME FNL loop on an A30 -35%
+# uniform, -27% refined walls). Off by default; a varset turns it on once its nvfortran is known to accept it (26.9:
+# local_nvf, iac_nvf); the overlay varset `nolto` turns it off again, e.g. --varset "iac_nvf nolto". The NVF templates
+# keep their compile flags (cflags_heritage), so switching it recompiles everything instead of mixing objects.
+$NVF_LTO =
 
 [varsets]
 default = local_gnu
@@ -61,6 +67,7 @@ $HDF5_PREFIX = lib/hdf5/develop/gnu/14.2.0
 [varset:local_nvf]
 $HDF5_PREFIX = lib/hdf5/develop/nvf/26.9
 $NVF_CC      = cc89
+$NVF_LTO     = ,lto
 
 [varset:local_amd]
 $HDF5_PREFIX = lib/hdf5/develop/amd/latest
@@ -98,6 +105,10 @@ $GPU_ARCH = gfx1100
 $HDF5_PREFIX = /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/nvhpc-24.5/hdf5-1.14.3-2soj72l4cjp6mx7chrqu3h2qxzmrugnc
 $NVF_CC      = cc80
 
+[varset:nolto]
+# overlay (after an NVF varset): the optimized NVF modes without device link-time optimisation, the build before it
+$NVF_LTO =
+
 [varset:iac_gnu]
 $HDF5_PREFIX = lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11
 
@@ -106,6 +117,7 @@ $HDF5_PREFIX = lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11
 # login node); the A30 nodes' driver 575 runs CUDA 12.9 at most, so a login-node build failed at the first GPU call.
 $HDF5_PREFIX = lib/hdf5/develop/iac/nvf/26.9
 $NVF_CC      = cc80,cuda12.9
+$NVF_LTO     = ,lto
 
 [varset:spacehpc]
 $HDF5_PREFIX = /opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3

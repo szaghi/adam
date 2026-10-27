@@ -327,8 +327,8 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
   - Requires ZLIB and SZIP for compression support
   - The library path is the fobos variable **`$HDF5_PREFIX`**, defined per
     `[varset:*]` in the repo `fobos` (there are no per-compiler
-    `$HDF5_gnu`/`$HDF5_nvf` variables; the only `[common-variables]` entry is
-    `$GPU_ARCH` for the AMD modes). Selecting a varset selects the HDF5 build:
+    `$HDF5_gnu`/`$HDF5_nvf` variables; the `[common-variables]` entries are `$GPU_ARCH` for the AMD modes and
+    `$NVF_LTO`, empty there). Selecting a varset selects the HDF5 build:
 
     | Varset | Machine and toolchain | `$HDF5_PREFIX` | `$NVF_CC` |
     |---|---|---|---|
@@ -339,6 +339,16 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
     | `iac_gnu` | medooza: gfortran 16.2.0 + Open MPI 5.0.11 (`source /ifs/hpc/home/szaghi/gnu/gnu.sh`) | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — |
     | `iac_nvf` | medooza: nvfortran 26.9, CUDA 12.9 (`source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh`) | `lib/hdf5/develop/iac/nvf/26.9` | `cc80,cuda12.9` |
     | `spacehpc` | Cray PE | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` |
+
+  - **`$NVF_LTO`**: device link-time optimisation of the optimized NVF OpenACC modes, `-gpu=$NVF_CC$NVF_LTO`
+    (`template-nvf` and the cuFFT modes that override `lflags`; never the debug modes). `,lto` in `local_nvf` and
+    `iac_nvf` (nvfortran 26.9, which accepts `-gpu=lto` though `nvfortran -help` does not list it), empty elsewhere
+    until checked; the overlay varset `nolto` (`--varset "iac_nvf nolto"`) builds without it. It inlines device routines
+    across modules at the device link: the FLUME FNL loop on an A30 -35% uniform, -27% refined walls
+    (`src/tests/flume/speedup/profile-couette3d/README.md`, "Results"); the build is slower (~830 s vs ~540 s for
+    `flume-fnl-nvf`). `template-nvf` sets `cflags_heritage`, so switching it recompiles everything. nvfortran's own
+    `-Minline` is NOT a substitute: it does not inline across files, and forcing it (`-Minline=reshape` on included
+    library bodies) leaves the inlined arrays out of the OpenACC `private` clauses (implicit copies, launch fault).
 
   - **The toolchain must match the varset exactly** (since 2026-10-16, HDF5 2.3.0 develop `ab5df552` for the
     `local_*`/`iac_*` rows): Fortran `.mod` files work only with the compiler version that wrote them. A mismatch

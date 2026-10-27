@@ -23,6 +23,9 @@ fobis build --mode flume-fnl-omp-amd --varset <an AMD varset>   # FLUME, OpenMP 
   the same nvfortran. Without one, the build stops at the first nvfortran call on an unexpanded `-gpu=$NVF_CC`.
   `local_nvf` is the workstation's; add a `[varset:*]` block in `fobos` for a new machine
   ([install](/start/install#varsets-one-per-machine-and-toolchain)).
+- The optimized NVF OpenACC modes add `$NVF_LTO` (`,lto` in `local_nvf` and `iac_nvf`): device link-time
+  optimisation, which inlines device routines across modules. A new varset leaves it empty until its nvfortran is
+  known to accept `-gpu=lto` ([install](/start/install#varsets-one-per-machine-and-toolchain)).
 - Build clean after switching compilers: `.mod` files work only with the compiler that wrote them.
 - The macros the modes set: `_FNL` (the FNL backend), `_MPI_`, and `DEV_OAC` + `COMPILER_NVF` (OpenACC on nvfortran) or
   `DEV_OMP` + `DEV_HIP` (OpenMP offload on amdflang). Code tests them only to select the backend.

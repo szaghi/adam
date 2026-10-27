@@ -43,7 +43,7 @@ template = template-nvf
 mod_dir  = ./mod/prism/nvf/
 obj_dir  = ./obj/prism/nvf/
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
-lflags   = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
+lflags   = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft
 target   = adam_prism_fnl.F90
 
 [prism-fnl-nvf-debug]
@@ -59,7 +59,7 @@ template  = template-nvf
 mod_dir   = ./mod/prism/nvf-spacehpc/
 obj_dir   = ./obj/prism/nvf-spacehpc/
 preproc   = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
-lflags    = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
+lflags    = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft
 target    = adam_prism_fnl.F90
 libs      =
 ext_libs  = hdf5_fortran hdf5 z

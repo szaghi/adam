@@ -86,8 +86,8 @@ it and keeps its executable in `../exe/<leg>/`, and `./profile.sh <leg>` runs th
 
 ### Step by step
 
-Every recipe starts at the repository root. A build cleans its mode first and takes minutes (`fnl-nvf` about 9 min on 16
-cores); a profile of `small` takes seconds on a GPU and minutes on 2 CPU ranks.
+Every recipe starts at the repository root. A build cleans its mode first and takes minutes (`fnl-nvf` with LTO about
+14 min on 16 cores); a profile of `small` takes seconds on a GPU and minutes on 2 CPU ranks.
 
 **WSL, `cpu` leg** (2 ranks; Nsight Systems samples the CPU, perf is not installed):
 
@@ -216,6 +216,10 @@ The fobos files and the default build do not change; removing the variant is `rm
 speedup case READMEs. A source experiment (a patch) is built the same way, from a tree with the patch applied:
 `toolchain.md` then marks the commit `src/ modified`.
 
+Since the `lto` result below, the varsets `local_nvf` and `iac_nvf` build every optimized OpenACC mode with
+`-gpu=...,lto` (the fobos variable `$NVF_LTO`): the `fnl-nvf` leg is now what the variant `lto` was, and `--gpu lto`
+adds nothing there. The leg of the results below, without LTO, is `--varset "iac_nvf nolto"`.
+
 
 ## Reading the results
 
@@ -238,7 +242,7 @@ agree to 0.6% in loop time and kernel means; the wall time, start-up included, v
 
 ### Where the time goes
 
-**FNL, A30, the `fnl-nvf` leg as built at `f46b56fb` (called "leg" or "base" below):**
+**FNL, A30, the `fnl-nvf` leg as built at `f46b56fb` (before LTO became the default; called "leg" or "base" below):**
 
 | | Refined walls | Uniform |
 |---|---|---|
@@ -348,13 +352,14 @@ are drawn from it and from the checkpoints of the correctness runs:
 
 On medooza, one A30 of a `dev-gn` node held exclusively, every run with `--launcher "srun --mpi=pmix -n"`:
 
-- job 1357614: the leg built (`../build.sh fnl-nvf --varset iac_nvf`) and timed, `./profile.sh fnl-nvf --size medium
-  [--uniform] --np 1 --tool nsys`;
-- job 1357619: `B0` built from the patch (applied, built with `fobis build --mode flume-fnl-nvf --varset iac_nvf`, kept
-  as `../exe/fnl-nvf-B0/`, reverted), then the leg and `B0` timed twice each, alternated (`--exe`; `--tag` did not exist
-  yet);
-- job 1357634: the variants built, `../build.sh fnl-nvf --varset iac_nvf --jobs 16 --tag T --gpu G` for `lto`, `r128`
-  (`maxregcount:128`), `lto-r128` and, with `patches/face-kernel-s3.patch` applied and then reverted, `B0-lto`;
+- job 1357614: the leg built (`../build.sh fnl-nvf --varset iac_nvf`, before LTO became the default: today `--varset
+  "iac_nvf nolto"`) and timed, `./profile.sh fnl-nvf --size medium [--uniform] --np 1 --tool nsys`;
+- job 1357619: `B0` built from the patch (applied, built with `fobis build --mode flume-fnl-nvf --varset iac_nvf`, today
+  `--varset "iac_nvf nolto"`, kept as `../exe/fnl-nvf-B0/`, reverted), then the leg and `B0` timed twice each,
+  alternated (`--exe`; `--tag` did not exist yet);
+- job 1357634: the variants built, `../build.sh fnl-nvf --varset iac_nvf --jobs 16 --tag T --gpu G` (today `--varset
+  "iac_nvf nolto"`, else every variant is also built with LTO) for `lto`, `r128` (`maxregcount:128`), `lto-r128` and,
+  with `patches/face-kernel-s3.patch` applied and then reverted, `B0-lto`;
 - job 1357635: for the leg and each of the four, `./profile.sh fnl-nvf --size small --np 1 --steps 10 --io [--tag T]`
   (correctness, compared with `h5diff`) and the two timings above `[--tag T]`.
 

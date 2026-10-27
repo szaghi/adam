@@ -52,7 +52,7 @@ template = template-nvf
 mod_dir  = ./mod/flume/nvf-fft/
 obj_dir  = ./obj/flume/nvf-fft/
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
-lflags   = -acc -gpu=$NVF_CC -fast -Minfo=all -cudalib=cufft
+lflags   = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft
 target   = adam_flume_fnl.F90
 output   = adam_flume_fnl_fft
 

@@ -156,19 +156,28 @@ The HDF5 path is the fobos variable `$HDF5_PREFIX`, defined per `[varset:*]` in 
 variable, not a shell environment variable: exporting it has no effect. NVF varsets also set `$NVF_CC`, the
 `-gpu=ccXX` compute capability. Selecting a varset selects the HDF5 build:
 
-| Varset | Machine and toolchain | `$HDF5_PREFIX` | `$NVF_CC` |
-|---|---|---|---|
-| `local_gnu` (default) | workstation: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/gnu/16.2.0` | — |
-| `local_nvf` | workstation: nvfortran 26.9 | `lib/hdf5/develop/nvf/26.9` | `cc89` |
-| `ci_gnu` | GitHub Actions: Ubuntu 24.04 gfortran 14 + Open MPI | `lib/hdf5/develop/gnu/14.2.0` | — |
-| `iac_gnu` | medooza cluster: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — |
-| `iac_nvf` | medooza cluster: nvfortran 26.9, CUDA 12.9 | `lib/hdf5/develop/iac/nvf/26.9` | `cc80,cuda12.9` |
-| `leonardo` | Leonardo, Spack NVHPC 24.5 | Spack path | `cc80` |
-| `spacehpc` | Cray PE | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` |
+| Varset | Machine and toolchain | `$HDF5_PREFIX` | `$NVF_CC` | `$NVF_LTO` |
+|---|---|---|---|---|
+| `local_gnu` (default) | workstation: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/gnu/16.2.0` | — | — |
+| `local_nvf` | workstation: nvfortran 26.9 | `lib/hdf5/develop/nvf/26.9` | `cc89` | `,lto` |
+| `ci_gnu` | GitHub Actions: Ubuntu 24.04 gfortran 14 + Open MPI | `lib/hdf5/develop/gnu/14.2.0` | — | — |
+| `iac_gnu` | medooza cluster: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — | — |
+| `iac_nvf` | medooza cluster: nvfortran 26.9, CUDA 12.9 | `lib/hdf5/develop/iac/nvf/26.9` | `cc80,cuda12.9` | `,lto` |
+| `leonardo` | Leonardo, Spack NVHPC 24.5 | Spack path | `cc80` | (off) |
+| `spacehpc` | Cray PE | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` | (off) |
 
 `$NVF_CC` can also pin the CUDA toolkit, as `iac_nvf` does (`cc80,cuda12.9`, issue #102). nvfortran otherwise targets
 the CUDA of the build machine's driver, and on a node with no driver (a login node) its newest bundled CUDA: a binary
 built there for a newer CUDA than the compute nodes' driver supports fails at the first GPU call ("Invalid image").
+
+`$NVF_LTO` turns on the device link-time optimisation of the optimized OpenACC modes (`-gpu=$NVF_CC$NVF_LTO`):
+`,lto` lets the device link inline the device routines across modules, which removes calls that kept the kernels'
+private arrays in local memory. On an A30 it takes 35% (uniform grid) and 27% (refined walls) off the FLUME FNL loop
+and 40% off its face-flux kernel
+([profiling results](https://github.com/szaghi/adam/tree/develop/src/tests/flume/speedup/profile-couette3d#results)),
+at the cost of a longer build. It is empty (off) by default and in the varsets whose nvfortran has not been checked
+with it; the debug modes never use it. The overlay varset `nolto` turns it off (`--varset "iac_nvf nolto"`), and a
+change of it recompiles every file (`cflags_heritage`).
 
 The AMD builds use `local_amd` or `thera_amd` together with a GPU-architecture varset (`gfx90a`, `gfx942`, ...), e.g.
 `--varset "thera_amd gfx942"`.

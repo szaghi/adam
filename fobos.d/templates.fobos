@@ -77,8 +77,12 @@ template = template-base
 mod_dir  = ./mod/nvf/
 obj_dir  = ./obj/nvf/
 compiler = nvfortran
-cflags   = -cpp -c -acc -gpu=$NVF_CC -fast -Minfo=all
-lflags   =         -acc -gpu=$NVF_CC -fast -Minfo=all
+# $NVF_LTO (fobos [common-variables]): device link-time optimisation where the varset enables it; the modes that
+# override lflags (the cuFFT links) repeat it, the debug modes leave it out. cflags_heritage: a change of the flags
+# (switching $NVF_LTO) recompiles every file, so LTO never links objects compiled without it
+cflags_heritage = True
+cflags   = -cpp -c -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all
+lflags   =         -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all
 
 [template-nvf-debug]
 template = template-nvf
