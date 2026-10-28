@@ -4,13 +4,19 @@ module test_flume_weno_interpolation_fnl_kernels
 !<
 !< Module-level (not a `contains`-internal procedure): device routines must be module procedures.
 
-use :: adam_fnl_weno_kernels, only : weno_reconstruct_upwind_dev
+use :: adam_fnl_weno_kernels,       only : weno_reconstruct_upwind_dev, weno_reconstruct_upwind_wratio_dev
+use :: adam_fnl_weno_width_kernels, only : weno_reconstruct_upwind_s1_dev, weno_reconstruct_upwind_s2_dev,    &
+                                           weno_reconstruct_upwind_s3_dev, weno_reconstruct_upwind_s4_dev,    &
+                                           weno_reconstruct_upwind_s5_dev, weno_reconstruct_upwind_wratio_s1_dev, &
+                                           weno_reconstruct_upwind_wratio_s2_dev, weno_reconstruct_upwind_wratio_s3_dev, &
+                                           weno_reconstruct_upwind_wratio_s4_dev, weno_reconstruct_upwind_wratio_s5_dev
 use :: adam_weno_object,      only : weno_descaling
 use :: penf,                  only : I4P, R8P
 
 implicit none
 private
 public :: interpolate
+public :: interpolate_width
 
 contains
    subroutine interpolate(S, a, p, d, zeps, sigma, v, vr)
@@ -29,6 +35,53 @@ contains
    call weno_reconstruct_upwind_dev(S=S, weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps,                      &
                                     weno_rmu=weno_descaling(S=S, weno_sigma=sigma, v=v), V=v, VR=vr)
    endsubroutine interpolate
+
+   subroutine interpolate_width(S, a, p, d, zeps, sigma, v, vr, wr)
+   !< Interpolate one packed stencil with the generic and with the per-width device WENO routines, plain and with the weights
+   !< ratio: `vr(:,1)` generic, `vr(:,2)` per-width, `vr(:,3)` generic with ratio, `vr(:,4)` per-width with ratio, and
+   !< `wr(:,1)`, `wr(:,2)` the ratio of the last two. A width without a routine (S > 5) leaves NaN in the per-width outputs.
+   integer(I4P), intent(in)  :: S              !< Number of stencils used.
+   real(R8P),    intent(in)  :: a(1:,0:,1:)    !< Interpolation optimal weights.
+   real(R8P),    intent(in)  :: p(1:,0:,0:,1:) !< Interpolation polynomials coefficients.
+   real(R8P),    intent(in)  :: d(0:,0:,0:,1:) !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)  :: zeps           !< Parameter avoiding division by zero.
+   real(R8P),    intent(in)  :: sigma          !< Descaler switch: 0 Jiang-Shu, 1 scale-invariant.
+   real(R8P),    intent(in)  :: v(1:2,1-S:S-1) !< Packed stencil.
+   real(R8P),    intent(out) :: vr(1:2,1:4)    !< Interface values, see above.
+   real(R8P),    intent(out) :: wr(1:2,1:2)    !< Weights ratios, generic and per-width.
+   real(R8P)                 :: rmu            !< Inverse of the descaler.
+   !$acc routine seq
+   !$omp declare target
+
+   rmu = weno_descaling(S=S, weno_sigma=sigma, v=v)
+   vr(:,2:4) = huge(1._R8P)
+   wr = huge(1._R8P)
+   call weno_reconstruct_upwind_dev(S=S, weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, VR=vr(:,1))
+   call weno_reconstruct_upwind_wratio_dev(S=S, weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, &
+                                           VR=vr(:,3), WRATIO=wr(:,1))
+   select case(S)
+   case(1)
+      call weno_reconstruct_upwind_s1_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, VR=vr(:,2))
+      call weno_reconstruct_upwind_wratio_s1_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, &
+                                                 VR=vr(:,4), WRATIO=wr(:,2))
+   case(2)
+      call weno_reconstruct_upwind_s2_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, VR=vr(:,2))
+      call weno_reconstruct_upwind_wratio_s2_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, &
+                                                 VR=vr(:,4), WRATIO=wr(:,2))
+   case(3)
+      call weno_reconstruct_upwind_s3_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, VR=vr(:,2))
+      call weno_reconstruct_upwind_wratio_s3_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, &
+                                                 VR=vr(:,4), WRATIO=wr(:,2))
+   case(4)
+      call weno_reconstruct_upwind_s4_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, VR=vr(:,2))
+      call weno_reconstruct_upwind_wratio_s4_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, &
+                                                 VR=vr(:,4), WRATIO=wr(:,2))
+   case(5)
+      call weno_reconstruct_upwind_s5_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, VR=vr(:,2))
+      call weno_reconstruct_upwind_wratio_s5_dev(weno_a=a, weno_p=p, weno_d=d, weno_zeps=zeps, weno_rmu=rmu, V=v, &
+                                                 VR=vr(:,4), WRATIO=wr(:,2))
+   endselect
+   endsubroutine interpolate_width
 endmodule test_flume_weno_interpolation_fnl_kernels
 
 program test_flume_weno_interpolation_fnl
@@ -45,7 +98,7 @@ program test_flume_weno_interpolation_fnl
 use :: adam_globals,                              only : mpih
 use :: adam_weno_object,                          only : weno_descaling, weno_object, weno_reconstruct_upwind
 use :: penf,                                      only : I4P, R8P, str
-use :: test_flume_weno_interpolation_fnl_kernels, only : interpolate
+use :: test_flume_weno_interpolation_fnl_kernels, only : interpolate, interpolate_width
 
 implicit none
 
@@ -61,6 +114,9 @@ real(R8P), allocatable  :: vr_dev(:,:)      !< Interface values, device.
 real(R8P), allocatable  :: vr_host(:,:)     !< Interface values, host.
 real(R8P), allocatable  :: v_scal(:,:,:)    !< Packed stencils times LAMBDA.
 real(R8P), allocatable  :: vr_scal(:,:)     !< Interface values of the scaled stencils, device.
+real(R8P), allocatable  :: vr_all(:,:,:)    !< Generic and per-width interface values, plain and with the ratio, device.
+real(R8P), allocatable  :: wr_all(:,:,:)    !< Generic and per-width weights ratios, device.
+integer(I4P)            :: nbad             !< Stencils where a per-width routine differs from the generic one.
 real(R8P)               :: sigma            !< Descaler switch.
 real(R8P), parameter    :: LAMBDA=2._R8P**(-40) !< Scaling of the device covariance check.
 real(R8P)               :: zeps             !< Parameter avoiding division by zero.
@@ -82,8 +138,8 @@ do c=1, size(SCHEMES)
    call weno(c)%initialize_interpolation
    S = weno(c)%S
    a = weno(c)%a_interp ; p = weno(c)%p_interp ; d = weno(c)%d ; zeps = weno(c)%zeps
-   if (allocated(v)) deallocate(v, v_scal, vr_dev, vr_host, vr_scal)
-   allocate(v(2,1-S:S-1,N), v_scal(2,1-S:S-1,N), vr_dev(2,N), vr_host(2,N), vr_scal(2,N))
+   if (allocated(v)) deallocate(v, v_scal, vr_dev, vr_host, vr_scal, vr_all, wr_all)
+   allocate(v(2,1-S:S-1,N), v_scal(2,1-S:S-1,N), vr_dev(2,N), vr_host(2,N), vr_scal(2,N), vr_all(2,4,N), wr_all(2,2,N))
    do n_=1, N
       call random_number(x)
       if (x < 0.5_R8P) then ! smooth: samples of a random quadratic
@@ -121,11 +177,23 @@ do c=1, size(SCHEMES)
       print '(A)', SCHEMES(c)//': FAILED, the scale-invariant weights are not scale-covariant on device'
       test_passed = .false.
    endif
+   !$acc parallel loop gang vector copyin(a, p, d, v) copyout(vr_all, wr_all)
+   !$omp target teams distribute parallel do map(to:a, p, d, v) map(from:vr_all, wr_all)
+   do n_=1, N
+      call interpolate_width(S=S, a=a, p=p, d=d, zeps=zeps, sigma=sigma, v=v(:,:,n_), vr=vr_all(:,:,n_), wr=wr_all(:,:,n_))
+   enddo
+   ! the per-width routines are the generic ones with S a constant: bit for bit, plain and with the weights ratio
+   nbad = count(any(vr_all(:,2,:) /= vr_all(:,1,:), dim=1) .or. any(vr_all(:,3,:) /= vr_all(:,1,:), dim=1) .or. &
+                any(vr_all(:,4,:) /= vr_all(:,3,:), dim=1) .or. any(wr_all(:,2,:) /= wr_all(:,1,:), dim=1))
+   print '(A)', SCHEMES(c)//merge(' Jiang-Shu      ', ' scale-invariant', wt == 1)//': per-width vs generic routines, '// &
+                'stencils not bit for bit identical (plain, ratio) '//trim(str(n=nbad, no_sign=.true.))
+   if (nbad > 0) test_passed = .false.
    enddo
 enddo
 if (test_passed) then
    print '(A)', 'TEST PASSED: WENO interpolation, device vs host ('//trim(str(n=N, no_sign=.true.))// &
-                ' stencils x 5 schemes x 2 weights), scale-invariant weights scale-covariant on device'
+                ' stencils x 5 schemes x 2 weights), scale-invariant weights scale-covariant on device, per-width routines'// &
+                ' bit for bit the generic ones'
 else
    print '(A)', 'TEST FAILED: WENO interpolation, device vs host'
 endif
