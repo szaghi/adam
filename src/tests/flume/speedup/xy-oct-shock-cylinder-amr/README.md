@@ -48,7 +48,20 @@ Not built yet (`./build.sh fnl-nvf`).
 
 ### fnl-amd
 
-Not built yet (`./build.sh fnl-amd`).
+| Item | Value |
+|---|---|
+| Built | 2026-10-27T03:33:22-05:00 on `TheraC18`, 995 s |
+| Mode | `fobis build --mode flume-fnl-omp-amd --varset thera_amd gfx942` (clean: 1) |
+| Commit | `8cb8d339c60c060cea3272cfb91f03af150f82ef` |
+| FoBiS | FoBiS.py 3.8.12 |
+| `amdflang` | AMD AFAR drop #23.2.0 04/18/26 flang version 23.0.0git (https://github.com/ROCm/llvm-project.git 35849413f758a222a8094acf1ec81eb80f601335+PATCHED:440716f8b87be9d8e20ed910e10e5b6d14d57cf6) |
+| `mpif90` | AMD AFAR drop #23.2.0 04/18/26 flang version 23.0.0git (https://github.com/ROCm/llvm-project.git 35849413f758a222a8094acf1ec81eb80f601335+PATCHED:440716f8b87be9d8e20ed910e10e5b6d14d57cf6) |
+| `mpirun` | mpirun (Open MPI) 5.0.10 |
+| Compile flags | `-cpp -c -O2 -fopenmp --offload-arch=gfx942 -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w` |
+| Link flags | `-O2 -fopenmp --offload-arch=gfx942 -lamdhip64 -Wl,-rpath,/mnt/thera/data/incoming/mbycklin/spack/install/linux-zen4/hdf5-1.14.6-zwo77eq6dyjllcapikwnnc7v4lrjknik/lib -Wl,-z,execstack` |
+| Executable | `exe/fnl-amd/adam_flume_fnl`, sha256 `18271fcc0939e5c6` |
+
+Full build log: [build.txt](../builds/fnl-amd/build.txt).
 
 ## Results
 

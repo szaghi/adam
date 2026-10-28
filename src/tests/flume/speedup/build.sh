@@ -22,7 +22,11 @@
 # --gpu maxregcount:128: the fobos files and the default build stay as they are. --gpu refuses --no-clean (objects
 # keep the flags they were compiled with). The options of this script are checked before the clean.
 #
-# Usage: ./build.sh <leg> [--varset "V ..."] [--no-clean] [--jobs N] [--tag NAME [--gpu OPTS]]
+# --flags "OPTS" is the compiler-agnostic form, for any leg: OPTS is appended verbatim to both the compile and the
+# link line. It is how an AMD variant gets its knobs, amdflang having no -gpu= umbrella to prepend, e.g.
+# --flags "-mllvm -amdgpu-spill-vgpr-to-agpr=0". Same rules as --gpu: it needs --tag and a clean build.
+#
+# Usage: ./build.sh <leg> [--varset "V ..."] [--no-clean] [--jobs N] [--tag NAME [--gpu OPTS] [--flags "OPTS"]]
 set -euo pipefail
 
 SPEEDUP_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -34,6 +38,7 @@ CLEAN=1
 JOBS=""
 TAG=""
 GPU_OPTS=""
+EXTRA_FLAGS=""
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --varset)   VARSET="$2" ; shift 2 ;;
@@ -41,6 +46,7 @@ while [[ $# -gt 0 ]]; do
       --jobs)     JOBS="$2" ; shift 2 ;;
       --tag)      TAG="$2" ; shift 2 ;;
       --gpu)      GPU_OPTS="$2" ; shift 2 ;;
+      --flags)    EXTRA_FLAGS="$2" ; shift 2 ;;
       *)          echo "build.sh: unknown argument '$1' (see the usage at the top of the script)" >&2 ; exit 2 ;;
    esac
 done
@@ -67,6 +73,14 @@ if [[ -n $GPU_OPTS && $CLEAN -eq 0 ]]; then
    echo "build.sh: --gpu needs a clean build (the objects keep the flags they were compiled with)" >&2
    exit 2
 fi
+if [[ -n $EXTRA_FLAGS && -z $TAG ]]; then
+   echo "build.sh: --flags needs --tag: a variant must not replace the executable of the $LEG leg" >&2
+   exit 2
+fi
+if [[ -n $EXTRA_FLAGS && $CLEAN -eq 0 ]]; then
+   echo "build.sh: --flags needs a clean build (the objects keep the flags they were compiled with)" >&2
+   exit 2
+fi
 if [[ -n $JOBS && ! $JOBS =~ ^[1-9][0-9]*$ ]]; then
    echo "build.sh: --jobs takes a positive integer, got '$JOBS'" >&2
    exit 2
@@ -82,7 +96,10 @@ LOG="$OUT/build.txt"
 fobis_opt=()
 [[ -n $VARSET ]] && fobis_opt+=(--varset "$VARSET")
 [[ -n $JOBS ]] && fobis_opt+=(-j "$JOBS")
-[[ -n $GPU_OPTS ]] && fobis_opt+=(--cflags "-gpu=$GPU_OPTS" --lflags "-gpu=$GPU_OPTS")
+extra=""
+if [[ -n $GPU_OPTS ]]; then extra="-gpu=$GPU_OPTS"; fi
+if [[ -n $EXTRA_FLAGS ]]; then extra="${extra:+$extra }$EXTRA_FLAGS"; fi
+if [[ -n $extra ]]; then fobis_opt+=(--cflags "$extra" --lflags "$extra"); fi
 
 cd "$REPO_ROOT"
 start=$(date +%s)
@@ -105,7 +122,7 @@ first_line() { "$@" 2>&1 | grep -m1 -v '^\s*$' || true; }
    echo "|---|---|"
    echo "| Built | $(date -Is) on \`$(hostname)\`, ${seconds} s |"
    cmd="fobis build --mode $MODE${VARSET:+ --varset $VARSET}"
-   [[ -z $GPU_OPTS ]] || cmd+=" --cflags -gpu=$GPU_OPTS --lflags -gpu=$GPU_OPTS"
+   [[ -z $extra ]] || cmd+=" --cflags '$extra' --lflags '$extra'"
    echo "| Mode | \`$cmd\` (clean: $CLEAN) |"
    if [[ -n $TAG ]]; then echo "| Variant | \`$TAG\` (not a matrix leg) |"; fi
    # the sources of the executable: the scripts and inputs under src/tests do not enter it
