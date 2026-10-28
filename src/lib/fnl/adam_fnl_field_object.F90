@@ -252,7 +252,7 @@ contains
    call mpih_fnl%print_message('field_fnl_object%initialize finish')
    endsubroutine initialize
 
-   subroutine update_ghost_local_gpu(self, q_gpu)
+   subroutine update_ghost_local_gpu(self, q_gpu, seam_guard)
    !< Update (local) ghost cells.
    class(field_fnl_object), intent(in)    :: self      !< The field.
    real(R8P),               intent(inout) :: q_gpu(1:,                    &
@@ -260,12 +260,21 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1:) !< Field component to be updated.
+   logical, intent(in), optional          :: seam_guard !< Apply the seam fill guard of maps%seam_density_var (default):
+                                                        !< .false. for a field that is not the state.
+   integer(I4P)                           :: density_var !< The guard's density index for this field (0: off).
+
+   density_var = self%maps%seam_density_var
+   if (present(seam_guard)) then
+      if (.not.seam_guard) density_var = 0_I4P
+   endif
    call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%ngc,&
                                    seam_ghost_fill=self%maps%seam_ghost_fill,                         &
                                    seam_restriction=self%maps%seam_restriction,                       &
                                    ri=self%maps%refine_ratio(1),                                      &
                                    rj=self%maps%refine_ratio(2),                                      &
-                                   rk=self%maps%refine_ratio(3),q_gpu=q_gpu)
+                                   rk=self%maps%refine_ratio(3),q_gpu=q_gpu,                          &
+                                   seam_density_var=density_var)
    endsubroutine update_ghost_local_gpu
 
    subroutine reduce_ghost_local_gpu(self, q_gpu, v_first, v_last)
@@ -335,7 +344,7 @@ contains
    endassociate
    endsubroutine reduce_ghost_mpi_gpu
 
-   subroutine update_ghost_mpi_gpu(self, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu, step)
+   subroutine update_ghost_mpi_gpu(self, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu, step, seam_guard)
    !< Update ghost cells within other processes.
    !<
    !< GPU-direct path: the device-resident send/recv buffers are handed straight to `MPI_Isend`/`MPI_Irecv`. On a
@@ -353,11 +362,18 @@ contains
                                                           1-self%ngc:,&
                                                           1:)          !< Field component to be updated.
    integer(I4P),            intent(in), optional :: step               !< Step to be perfordmed in asyncronous comp.
+   logical,                 intent(in), optional :: seam_guard         !< Apply the seam fill guard (default):
+                                                                       !< .false. for a field that is not the state.
+   integer(I4P)                                  :: density_var        !< The guard's density index (0: off).
    logical                                       :: do_step(3)         !< Steps performed in async comp.
    integer(I4P)                                  :: p                  !< Counter.
    integer(I4P)                                  :: ptr_start, ptr_end !< Counter.
    integer(I4P)                                  :: n_recv, n_send     !< Counter.
 
+   density_var = self%maps%seam_density_var
+   if (present(seam_guard)) then
+      if (.not.seam_guard) density_var = 0_I4P
+   endif
    associate(procs_number=>mpih_fnl%procs_number,                                 &
              error=>mpih_fnl%error,                                               &
              req_send_recv=>mpih_fnl%req_send_recv,                               &
@@ -382,7 +398,7 @@ contains
                                               rk=self%maps%refine_ratio(3),                                        &
                                               comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
                                               send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu,               &
-                                              q_gpu=q_gpu)
+                                              q_gpu=q_gpu, seam_density_var=density_var)
    endif
 
    if (do_step(2)) then

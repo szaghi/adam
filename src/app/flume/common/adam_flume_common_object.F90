@@ -1000,6 +1000,11 @@ contains
    ! the unknown crown row, the FNL BC kernel skipped it and left the periodic ghosts stale (a silently wrong solution)
    call self%adam%tree%rebuild_neighborhood(grid=self%adam%grid)
    call self%adam%make_comm_local_maps_ghost_bc
+   ! issue #101: the density and momenta (IQ_RU..IQ_RW follow IQ_R) of a coarse->fine seam ghost are clamped to the MP
+   ! bound of the coarse cells around it, and a ghost whose clamped density is below 0.1 times its coarse anchor's takes
+   ! the anchor's state (the injection value): the tricubic overshoots made the corner cells of a refined region run
+   ! away (the Boss-Bodenheimer cloud, 23 c0)
+   self%adam%maps%seam_density_var = IQ_R
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%diagnostics%initialize(file_parameters=file_parameters)

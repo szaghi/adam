@@ -101,6 +101,13 @@ type :: maps_object
                                                          !< `[amr] seam_ghost_fill` INI key by `adam_object%initialize`
                                                          !< BEFORE any ghost-map build; default injection so that map builds
                                                          !< predating the parse (or tests bypassing it) keep legacy behavior.
+   integer(I4P) :: seam_density_var = 0_I4P !< Guard of the coarse->fine seam fill (issue #101): the index of the
+                                            !< density in the field, the three momenta at the next indices; 0 for no guard
+                                            !< (the default: PRISM and every app that does not set it). With it, the
+                                            !< density and the momenta of a fine seam ghost are clamped to the MP bound of
+                                            !< the coarse cells around it (seam_mp_bound), and a ghost whose clamped
+                                            !< density is below SEAM_DENSITY_GUARD (0.1) times its coarse anchor cell's
+                                            !< takes in every variable the anchor's value (the injection value).
    integer(I4P) :: seam_restriction = SEAM_RESTRICT_MEAN !< Fine->coarse seam ghost restriction (issue #68 C1, C3): the
                                                          !< mean (meta 0 on the restriction rows), the 6-point Lagrange or
                                                          !< the WENO (codes and regime packed in the meta column, see

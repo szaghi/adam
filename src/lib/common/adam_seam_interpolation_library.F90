@@ -49,6 +49,7 @@ use penf, only : I4P, R8P
 implicit none
 private
 public :: SEAM_FILL_INJECTION, SEAM_FILL_COMPATIBLE, SEAM_FILL_TRICUBIC, SEAM_FILL_QUINTIC
+public :: SEAM_DENSITY_GUARD, seam_mp_bound, seam_bracket_nodes, seam_bracket_range
 public :: SEAM_W_QUINTIC, seam_quintic_centered_pos, seam_interpolate_quintic, seam_quintic_weight
 public :: SEAM_FILL_WENO6, seam_fill_weno6_1d, seam_interpolate_weno6
 public :: SEAM_FILL_QUINTIC_MP, seam_fill_quintic_mp_1d, seam_interpolate_quintic_mp
@@ -67,6 +68,9 @@ integer(I4P), parameter :: SEAM_FILL_TRICUBIC   = 2_I4P !< Regime: plain tensor 
 integer(I4P), parameter :: SEAM_FILL_QUINTIC    = 3_I4P !< Regime: tensor 6-point quintic, q=6 (issue #68 D1).
 integer(I4P), parameter :: SEAM_FILL_WENO6      = 4_I4P !< Regime: WENO on the quintic footprint (issue #68 D2).
 integer(I4P), parameter :: SEAM_FILL_QUINTIC_MP = 5_I4P !< Regime: quintic clamped to an MP bound (issue #68 D2).
+real(R8P),    parameter :: SEAM_DENSITY_GUARD = 0.1_R8P !< The density guard of the coarse->fine fill (issue #101): a fine
+                                                        !< ghost whose interpolated density is below this fraction of its
+                                                        !< anchor's (the coarse cell holding it) takes the anchor's state.
 integer(I4P), parameter :: SEAM_SUB_COINCIDENT  = 3_I4P !< Sub-position of an unrefined direction (eta = 0, issue #46).
 
 real(R8P), parameter :: SEAM_W_TRICUBIC(1:4,1:3,1:4) = reshape([ &
@@ -854,4 +858,153 @@ contains
 
    w = SEAM_W_LAGRANGE6(node, code)
    endfunction seam_restriction_weight
+
+   pure subroutine seam_mp_bound(footprint, sub, anchor_pos, lo, hi)
+   !< The monotonicity-preserving bound of a coarse->fine fill (issue #101), from the 4x4x4 tricubic footprint of the
+   !< ghost (`footprint(i,j,k)` at node offsets `(i,j,k) - anchor_pos`, the conventions of `seam_interpolate_tricubic`),
+   !< built direction by direction as `seam_fill_quintic_mp_1d` (Suresh-Huynh 1997). Along each refined direction the
+   !< ghost centre lies at eta = (-1)^sub/4 from the anchor:
+   !< - inside the footprint, it is a quarter of the way from the anchor to its neighbour on the ghost's side: those two
+   !<   nodes bracket it, and the widening is |th (th - 1)/2 dM| (th = 1/4, 3/32 |dM|), dM the M4 minmod of the second
+   !<   differences at the two nodes (the one available when the other is the footprint's edge node);
+   !< - at the footprint's edge (the anchor is the donor block's last real cell on that side), it is a quarter of a cell
+   !<   beyond the anchor: the anchor and its inner neighbour bracket the interval it extrapolates from, and the widening
+   !<   is the extrapolation's, (1/4) |slope| + (|c| + 1/4) |d2|, c = th (th - 1)/2 at th = 5/4, d2 the second difference
+   !<   at the inner neighbour.
+   !< The bound is the range of the bracketing cells (2 per refined direction, the tensor product) widened by the sum over
+   !< the directions of the largest widening among the direction's bracketing lines (the curvature of a smooth field
+   !< changes from line to line: the anchor line alone misses saddles), plus 64 ulps of the range's magnitude (round-off
+   !< of a flat field). The caller clamps the interpolant to it: smooth data, which may graze it near an inflection,
+   !< moves by its O(h^3) excess at most; an interpolant overshooting a jump is brought back to the coarse cells' range.
+   real(R8P),    intent(in)  :: footprint(1:4,1:4,1:4) !< Coarse donor values.
+   integer(I4P), intent(in)  :: sub(1:3)               !< Octant sub-position per direction (1|2|3).
+   integer(I4P), intent(in)  :: anchor_pos(1:3)        !< Anchor position per direction (1..4).
+   real(R8P),    intent(out) :: lo                     !< Lower bound.
+   real(R8P),    intent(out) :: hi                     !< Upper bound.
+   integer(I4P)              :: n2(1:3)                !< The other bracketing node per direction (the anchor's if none).
+   integer(I4P)              :: b_lo(1:3), b_hi(1:3)   !< Bracketing node range per direction.
+   logical                   :: edge(1:3)              !< The ghost extrapolates beyond the anchor along the direction.
+   integer(I4P)              :: base(1:3)              !< A bracketing line (its nodes along the direction vary).
+   integer(I4P)              :: lm(1:3), lc(1:3), lp(1:3) !< Nodes of a second difference.
+   real(R8P)                 :: d2(1:2)                !< Second differences at the anchor's node (1) and at n2 (2).
+   logical                   :: has(1:2)               !< Second difference available.
+   real(R8P)                 :: dm                     !< M4 minmod curvature.
+   real(R8P)                 :: w_line                 !< Widening of one bracketing line.
+   real(R8P)                 :: w_dir                  !< Widening of one direction (largest over its lines).
+   real(R8P)                 :: widen                  !< Bound widening.
+   integer(I4P)              :: d, i, j, k, m          !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   call seam_bracket_nodes(sub=sub, anchor_pos=anchor_pos, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
+   call seam_bracket_range(footprint=footprint, anchor_pos=anchor_pos, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
+   widen = 0._R8P
+   do d=1, 3
+      if (sub(d) == SEAM_SUB_COINCIDENT) cycle
+      has(1) = anchor_pos(d) >= 2_I4P .and. anchor_pos(d) <= 3_I4P
+      has(2) = n2(d) /= anchor_pos(d) .and. n2(d) >= 2_I4P .and. n2(d) <= 3_I4P
+      w_dir = 0._R8P
+      ! the bracketing lines along d: every combination of the other directions' bracketing nodes
+      do k=merge(anchor_pos(3), b_lo(3), d == 3), merge(anchor_pos(3), b_hi(3), d == 3)
+         do j=merge(anchor_pos(2), b_lo(2), d == 2), merge(anchor_pos(2), b_hi(2), d == 2)
+            do i=merge(anchor_pos(1), b_lo(1), d == 1), merge(anchor_pos(1), b_hi(1), d == 1)
+               base = [i, j, k]
+               d2 = 0._R8P
+               do m=1, 2
+                  if (.not.has(m)) cycle
+                  lc = base
+                  lc(d) = merge(anchor_pos(d), n2(d), m == 1)
+                  lm = lc
+                  lm(d) = lc(d) - 1_I4P
+                  lp = lc
+                  lp(d) = lc(d) + 1_I4P
+                  d2(m) = footprint(lm(1),lm(2),lm(3)) - 2._R8P * footprint(lc(1),lc(2),lc(3)) + &
+                          footprint(lp(1),lp(2),lp(3))
+               enddo
+               if (edge(d)) then
+                  lc = base
+                  lc(d) = anchor_pos(d)
+                  lm = base
+                  lm(d) = n2(d)
+                  w_line = 0.25_R8P * abs(footprint(lc(1),lc(2),lc(3)) - footprint(lm(1),lm(2),lm(3))) + &
+                           0.40625_R8P * abs(d2(2)) ! |c| + 1/4 = 5/32 + 1/4 at th = 5/4
+               else
+                  if (has(1) .and. has(2)) then
+                     dm = seam_minmod4(4._R8P * d2(1) - d2(2), 4._R8P * d2(2) - d2(1), d2(1), d2(2))
+                  elseif (has(1)) then
+                     dm = d2(1)
+                  else
+                     dm = d2(2)
+                  endif
+                  w_line = 0.09375_R8P * abs(dm) ! |th (th - 1)/2| = 3/32 at th = 1/4
+               endif
+               if (.not.(w_line <= w_dir)) w_dir = w_line ! a NaN widening propagates, alike everywhere
+            enddo
+         enddo
+      enddo
+      widen = widen + w_dir
+   enddo
+   widen = widen + 64._R8P * epsilon(1._R8P) * max(abs(lo), abs(hi))
+   lo = lo - widen
+   hi = hi + widen
+   endsubroutine seam_mp_bound
+
+   pure subroutine seam_bracket_nodes(sub, anchor_pos, n2, edge, b_lo, b_hi)
+   !< The coarse nodes that bracket a coarse->fine ghost in its 4x4x4 tricubic footprint (issue #101, `seam_mp_bound`):
+   !< per refined direction, the anchor and its neighbour on the ghost's side (eta = (-1)^sub/4), or, when that
+   !< neighbour is outside the footprint (the donor block's edge: the ghost extrapolates), the anchor's inner neighbour;
+   !< the anchor alone along an unrefined direction.
+   integer(I4P), intent(in)  :: sub(1:3)        !< Octant sub-position per direction (1|2|3).
+   integer(I4P), intent(in)  :: anchor_pos(1:3) !< Anchor position per direction (1..4).
+   integer(I4P), intent(out) :: n2(1:3)         !< The other bracketing node per direction (the anchor's if none).
+   logical,      intent(out) :: edge(1:3)       !< The ghost extrapolates beyond the anchor along the direction.
+   integer(I4P), intent(out) :: b_lo(1:3)       !< First bracketing node per direction.
+   integer(I4P), intent(out) :: b_hi(1:3)       !< Last bracketing node per direction.
+   integer(I4P)              :: d, m, s         !< Counter, node, side.
+   !$acc routine seq
+   !$omp declare target
+
+   do d=1, 3
+      n2(d) = anchor_pos(d)
+      edge(d) = .false.
+      if (sub(d) /= SEAM_SUB_COINCIDENT) then
+         s = merge(1_I4P, -1_I4P, sub(d) == 2_I4P)
+         m = anchor_pos(d) + s
+         if (m >= 1_I4P .and. m <= 4_I4P) then
+            n2(d) = m
+         else
+            n2(d) = anchor_pos(d) - s
+            edge(d) = .true.
+         endif
+      endif
+      b_lo(d) = min(anchor_pos(d), n2(d))
+      b_hi(d) = max(anchor_pos(d), n2(d))
+   enddo
+   endsubroutine seam_bracket_nodes
+
+   pure subroutine seam_bracket_range(footprint, anchor_pos, b_lo, b_hi, lo, hi)
+   !< The range of the bracketing coarse cells of a ghost (`seam_bracket_nodes`): the unwidened part of `seam_mp_bound`,
+   !< contained in it. A value inside it is never clamped, so a caller may skip the full bound (issue #101). Explicit
+   !< comparisons: a NaN is handled alike by every compiler (min/max differ).
+   real(R8P),    intent(in)  :: footprint(1:4,1:4,1:4) !< Coarse donor values.
+   integer(I4P), intent(in)  :: anchor_pos(1:3)        !< Anchor position per direction (1..4).
+   integer(I4P), intent(in)  :: b_lo(1:3)              !< First bracketing node per direction.
+   integer(I4P), intent(in)  :: b_hi(1:3)              !< Last bracketing node per direction.
+   real(R8P),    intent(out) :: lo                     !< Lower end.
+   real(R8P),    intent(out) :: hi                     !< Upper end.
+   integer(I4P)              :: i, j, k                !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   lo = footprint(anchor_pos(1), anchor_pos(2), anchor_pos(3))
+   hi = lo
+   do k=b_lo(3), b_hi(3)
+      do j=b_lo(2), b_hi(2)
+         do i=b_lo(1), b_hi(1)
+            if (footprint(i,j,k) < lo) lo = footprint(i,j,k)
+            if (footprint(i,j,k) > hi) hi = footprint(i,j,k)
+         enddo
+      enddo
+   enddo
+   endsubroutine seam_bracket_range
 endmodule adam_seam_interpolation_library

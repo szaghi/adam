@@ -1174,8 +1174,9 @@ contains
       call mpih%error_stop(msg=': no CPU positivity limiter for physical model "'//self%physics%physical_model//'"')
    endselect
    if (seam) call self%seam_sync_factors(q=q, dbad=counts(1), dnonfinite=counts(5))
-   call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%lam)
-   call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%lam)
+   ! lam is not the state: no seam fill guard (issue #101; its lam(1) = 0 is a legitimate limiter factor)
+   call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%lam, seam_guard=.false.)
+   call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%lam, seam_guard=.false.)
    if (seam) call self%seam_sync_theta
    do d=1, 3
       if (is_null(d)) cycle
@@ -2345,11 +2346,11 @@ contains
    if (self%stage_active > 0_I4P) then
       call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
                           row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
-                          q=self%rk%q_rk(:,:,:,:,:,self%stage_active), buf=buf)
+                          q=self%rk%q_rk(:,:,:,:,:,self%stage_active), buf=buf, density_var=maps%seam_density_var)
    else
       call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
                           row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
-                          q=self%q, buf=buf)
+                          q=self%q, buf=buf, density_var=maps%seam_density_var)
    endif
    endassociate
    endsubroutine pack_seam_cells_forest

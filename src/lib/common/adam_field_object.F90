@@ -71,8 +71,9 @@ use :: adam_grid_object, only : grid_object
 use :: adam_tree_object, only : tree_object
 use :: adam_maps_object, only : maps_object
 use :: adam_mpih_global, only : mpih
-use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_QUINTIC, SEAM_SUB_COINCIDENT, &
-                                               SEAM_FILL_WENO6, seam_interpolate_weno6, &
+use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_QUINTIC, SEAM_SUB_COINCIDENT, SEAM_DENSITY_GUARD, &
+                                               SEAM_FILL_WENO6, seam_interpolate_weno6, seam_mp_bound, &
+                                               seam_bracket_nodes, seam_bracket_range, &
                                                SEAM_FILL_QUINTIC_MP, seam_interpolate_quintic_mp, &
                                                seam_meta_unpack, seam_interpolate_quintic, &
                                                seam_interpolate_tricubic, seam_interpolate_compatible, &
@@ -90,6 +91,7 @@ implicit none
 private
 public :: field_object
 public :: interp_seam_ghost
+public :: seam_guard_t, seam_guard_prepare, seam_guard_value
 public :: restrict_seam_high_order
 
 character(len=5), parameter :: INI_SECTION_NAME="field" !< INI (config) file section name containing configs.
@@ -167,6 +169,20 @@ type :: field_object
       procedure, pass(self), private :: refine_conservative_state !< Refine blocks, conservative, limited per state.
       procedure, pass(self), private :: update_coordinates !< Update coordinates using the updated data in maps.
 endtype field_object
+
+
+type :: seam_guard_t
+   !< The ghost's part of the seam fill guard of issue #101 (`seam_guard_prepare`), shared by its variables.
+   real(R8P)    :: rho=0._R8P           !< Interpolated density, clamped to its MP bound.
+   real(R8P)    :: fp_rho(1:4,1:4,1:4)  !< Density on the tricubic footprint (the nodes in g_lo..g_hi; 0 elsewhere).
+   integer(I4P) :: sub(1:3)=0_I4P       !< Octant sub-position per direction.
+   integer(I4P) :: p4(1:3)=0_I4P        !< Tricubic anchor position per direction.
+   integer(I4P) :: g_lo(1:3)=0_I4P      !< First footprint node read per direction.
+   integer(I4P) :: g_hi(1:3)=0_I4P      !< Last footprint node read per direction.
+   integer(I4P) :: b_lo(1:3)=0_I4P      !< First bracketing node per direction (seam_bracket_nodes).
+   integer(I4P) :: b_hi(1:3)=0_I4P      !< Last bracketing node per direction.
+   logical      :: inject=.false.       !< The ghost takes the anchor's state in every variable.
+endtype seam_guard_t
 
 contains
    ! public methods
@@ -897,7 +913,7 @@ contains
    close(file_unit)
    endsubroutine save_blocks
 
-   subroutine update_ghost_local(self, grid, maps, q)
+   subroutine update_ghost_local(self, grid, maps, q, seam_guard)
    !< Update (local) ghost cells.
    class(field_object), intent(in)    :: self              !< The base backend.
    type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
@@ -907,6 +923,11 @@ contains
                                            1-grid%ngc:,&
                                            1-grid%ngc:,&
                                            1:)             !< Field component to be updated.
+   logical, intent(in), optional      :: seam_guard        !< Apply the seam fill guard of maps%seam_density_var
+                                                           !< (default): .false. for a field that is not the state.
+   integer(I4P)                       :: density_var       !< The guard's density index for this field (0: off).
+   type(seam_guard_t)                 :: guard             !< The ghost's part of the seam fill guard.
+   real(R8P)                          :: value_            !< A seam ghost value.
    integer(I4P)                       :: ic, jc, kc, mf, v !< Counter.
    integer(I4P)                       :: b_recv            !< Index of receiving block.
    integer(I4P)                       :: b_send            !< Index of sending block.
@@ -920,30 +941,43 @@ contains
    integer(I4P)                       :: r(1:3)            !< Refinement ratio per axis (1 on an unrefined axis, #46).
    real(R8P)                          :: mean_factor       !< 1 / (r(1) r(2) r(3)), exact (a power of two).
 
+   density_var = maps%seam_density_var
+   if (present(seam_guard)) then
+      if (.not.seam_guard) density_var = 0_I4P
+   endif
    if (.not.allocated(maps%local_map_ghost_cell)) return
    r = maps%refine_ratio
    mean_factor = 1._R8P / real(product(r), R8P)
    associate(local_map_ghost_cell=>maps%local_map_ghost_cell)
    do mf=1, size(local_map_ghost_cell, dim=1)
+      b_send       = local_map_ghost_cell(mf,1)
+      b_recv       = local_map_ghost_cell(mf,2)
+      i_send       = local_map_ghost_cell(mf,3)
+      j_send       = local_map_ghost_cell(mf,4)
+      k_send       = local_map_ghost_cell(mf,5)
+      i_recv       = local_map_ghost_cell(mf,6)
+      j_recv       = local_map_ghost_cell(mf,7)
+      k_recv       = local_map_ghost_cell(mf,8)
+      one_or_eight = local_map_ghost_cell(mf,9)
+      ! the seam fill guard (#101): the ghost's part once, before its variables (it reads only real donor cells)
+      if (one_or_eight==4 .and. density_var > 0_I4P) &
+         call seam_guard_prepare(regime=maps%seam_ghost_fill, meta=int(local_map_ghost_cell(mf,10), I4P), ngc=grid%ngc, &
+                                 q=q, i_send=i_send, j_send=j_send, k_send=k_send, b_send=b_send,                       &
+                                 density_var=density_var, guard=guard)
       do v=1, size(q, dim=1)
-         b_send       = local_map_ghost_cell(mf,1)
-         b_recv       = local_map_ghost_cell(mf,2)
-         i_send       = local_map_ghost_cell(mf,3)
-         j_send       = local_map_ghost_cell(mf,4)
-         k_send       = local_map_ghost_cell(mf,5)
-         i_recv       = local_map_ghost_cell(mf,6)
-         j_recv       = local_map_ghost_cell(mf,7)
-         k_recv       = local_map_ghost_cell(mf,8)
-         one_or_eight = local_map_ghost_cell(mf,9)
          if (one_or_eight==1) then
             q(v,i_recv,j_recv,k_recv,b_recv) = q(v,i_send,j_send,k_send,b_send)
          elseif (one_or_eight==4) then
             ! coarse->fine seam interpolation (issue #21 N2); metadata in column 10
-            q(v,i_recv,j_recv,k_recv,b_recv) = interp_seam_ghost(regime=maps%seam_ghost_fill,                   &
-                                                                 meta=int(local_map_ghost_cell(mf,10), I4P),    &
-                                                                 ngc=grid%ngc, q=q, v=v,                        &
-                                                                 i_send=i_send, j_send=j_send, k_send=k_send,   &
-                                                                 b_send=b_send)
+            value_ = 0._R8P ! the guarded density row takes the prepared value: its interpolant is not needed
+            if (v /= density_var) &
+               value_ = interp_seam_value(regime=maps%seam_ghost_fill, meta=int(local_map_ghost_cell(mf,10), I4P), &
+                                          ngc=grid%ngc, q=q, v=v, i_send=i_send, j_send=j_send, k_send=k_send,     &
+                                          b_send=b_send)
+            if (density_var > 0_I4P) value_ = seam_guard_value(guard=guard, ngc=grid%ngc, q=q, v=v, i_send=i_send, &
+                                                                j_send=j_send, k_send=k_send, b_send=b_send,       &
+                                                                density_var=density_var, value_in=value_)
+            q(v,i_recv,j_recv,k_recv,b_recv) = value_
          elseif (maps%seam_restriction /= SEAM_RESTRICT_MEAN .and. local_map_ghost_cell(mf,10) /= 0) then
             ! fine->coarse restriction, 6-point Lagrange or WENO (issue #68 C1, C3); codes and regime in column 10
             q(v,i_recv,j_recv,k_recv,b_recv) = restrict_seam_high_order(meta=int(local_map_ghost_cell(mf,10), I4P), &
@@ -1118,7 +1152,147 @@ contains
                                                     'than one map row: their deposits would be folded twice')
    endsubroutine check_reduce_ghost_maps
 
-   pure function interp_seam_ghost(regime, meta, ngc, q, v, i_send, j_send, k_send, b_send) result(value_)
+   pure function interp_seam_ghost(regime, meta, ngc, q, v, i_send, j_send, k_send, b_send, density_var) result(value_)
+   !< The coarse->fine seam ghost value of one (variable, fine ghost) pair: the interpolant of `interp_seam_value`, with
+   !< the guard of issue #101 when `density_var > 0` (`seam_guard_prepare`, `seam_guard_value`). This per-row form
+   !< recomputes the ghost's part of the guard; the loops that fill every variable of a ghost call the two parts
+   !< themselves and prepare once per ghost (the same arithmetic: the result is bitwise the same).
+   integer(I4P), intent(in) :: regime          !< Active fill regime (SEAM_FILL_*).
+   integer(I4P), intent(in) :: meta            !< Packed interpolation metadata (see seam_meta_pack).
+   integer(I4P), intent(in) :: ngc             !< Ghost cells number (bounds of q).
+   real(R8P),    intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
+   integer(I4P), intent(in) :: v               !< Variable index.
+   integer(I4P), intent(in) :: i_send          !< Anchor donor cell, i.
+   integer(I4P), intent(in) :: j_send          !< Anchor donor cell, j.
+   integer(I4P), intent(in) :: k_send          !< Anchor donor cell, k.
+   integer(I4P), intent(in) :: b_send          !< Donor block index.
+   integer(I4P), intent(in) :: density_var     !< Density index for the guard, 0 for none (`maps%seam_density_var`).
+   real(R8P)                :: value_          !< Fine-ghost value.
+   type(seam_guard_t)       :: guard           !< The ghost's part of the guard.
+
+   value_ = interp_seam_value(regime=regime, meta=meta, ngc=ngc, q=q, v=v, i_send=i_send, j_send=j_send, &
+                              k_send=k_send, b_send=b_send)
+   if (density_var > 0_I4P) then
+      call seam_guard_prepare(regime=regime, meta=meta, ngc=ngc, q=q, i_send=i_send, j_send=j_send, k_send=k_send, &
+                              b_send=b_send, density_var=density_var, guard=guard)
+      value_ = seam_guard_value(guard=guard, ngc=ngc, q=q, v=v, i_send=i_send, j_send=j_send, k_send=k_send, &
+                                b_send=b_send, density_var=density_var, value_in=value_)
+   endif
+   endfunction interp_seam_ghost
+
+   pure subroutine seam_guard_prepare(regime, meta, ngc, q, i_send, j_send, k_send, b_send, density_var, guard)
+   !< The ghost's part of the seam fill guard of issue #101 (on when `density_var > 0`: the density, followed by the
+   !< three momenta, the conservative layout rho, rho u, rho v, rho w), the same for every variable of the ghost: its
+   !< interpolated density clamped to the monotonicity-preserving bound of the coarse cells' densities around it
+   !< (`seam_mp_bound`, Suresh-Huynh), the density footprint (for the velocities) and the injection decision (the
+   !< clamped density below `SEAM_DENSITY_GUARD`, 0.1, times the anchor's). `seam_guard_value` applies it to a variable.
+   !< At the corners of a refined region the tricubic overshoots of density and momentum made the ghosts' velocity, and
+   !< the corner cells', run away (clamping density and momentum apart left the ratio free); on smooth data the clamps
+   !< move a value by its O(h^3) excess at most. It reads only the donor's real cells (the tricubic footprint), never a
+   !< ghost being filled, so it may be computed once per ghost, before its variables, or again for each.
+   integer(I4P),       intent(in)  :: regime          !< Active fill regime (SEAM_FILL_*).
+   integer(I4P),       intent(in)  :: meta            !< Packed interpolation metadata (see seam_meta_pack).
+   integer(I4P),       intent(in)  :: ngc             !< Ghost cells number (bounds of q).
+   real(R8P),          intent(in)  :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
+   integer(I4P),       intent(in)  :: i_send          !< Anchor donor cell, i.
+   integer(I4P),       intent(in)  :: j_send          !< Anchor donor cell, j.
+   integer(I4P),       intent(in)  :: k_send          !< Anchor donor cell, k.
+   integer(I4P),       intent(in)  :: b_send          !< Donor block index.
+   integer(I4P),       intent(in)  :: density_var     !< Density index (> 0).
+   type(seam_guard_t), intent(out) :: guard           !< The ghost's part of the guard.
+   integer(I4P)                    :: p3(1:3)         !< Compatible anchor position per direction (unused).
+   integer(I4P)                    :: p6(1:3)         !< Quintic anchor position per direction (unused).
+   real(R8P)                       :: lo, hi          !< MP bound.
+   integer(I4P)                    :: n2(1:3)         !< Bracketing nodes (unused here).
+   logical                         :: edge(1:3)       !< Edge flags (unused here).
+   integer(I4P)                    :: ii, jj, kk      !< Footprint counters.
+
+   call seam_meta_unpack(meta=meta, sub=guard%sub, p4=guard%p4, p3=p3, p6=p6)
+   ! the footprint nodes seam_mp_bound reads: all 4 along a refined direction, the anchor along an unrefined one
+   guard%g_lo = merge(guard%p4, 1_I4P, guard%sub == SEAM_SUB_COINCIDENT)
+   guard%g_hi = merge(guard%p4, 4_I4P, guard%sub == SEAM_SUB_COINCIDENT)
+   guard%fp_rho = 0._R8P
+   guard%rho = interp_seam_value(regime=regime, meta=meta, ngc=ngc, q=q, v=density_var, i_send=i_send, j_send=j_send, &
+                                 k_send=k_send, b_send=b_send)
+   do kk=guard%g_lo(3), guard%g_hi(3)
+      do jj=guard%g_lo(2), guard%g_hi(2)
+         do ii=guard%g_lo(1), guard%g_hi(1)
+            guard%fp_rho(ii,jj,kk) = q(density_var, i_send+ii-guard%p4(1), j_send+jj-guard%p4(2), &
+                                       k_send+kk-guard%p4(3), b_send)
+         enddo
+      enddo
+   enddo
+   call seam_bracket_nodes(sub=guard%sub, anchor_pos=guard%p4, n2=n2, edge=edge, b_lo=guard%b_lo, b_hi=guard%b_hi)
+   ! the bracketing cells' range lies inside the MP bound: a density inside it is never clamped (the full bound skipped)
+   call seam_bracket_range(footprint=guard%fp_rho, anchor_pos=guard%p4, b_lo=guard%b_lo, b_hi=guard%b_hi, lo=lo, hi=hi)
+   if (.not.(guard%rho >= lo .and. guard%rho <= hi)) then
+      call seam_mp_bound(footprint=guard%fp_rho, sub=guard%sub, anchor_pos=guard%p4, lo=lo, hi=hi)
+      ! explicit comparisons, not min/max: a NaN is kept alike by every compiler (gfortran and nvfortran differ)
+      if (guard%rho < lo) guard%rho = lo
+      if (guard%rho > hi) guard%rho = hi
+   endif
+   guard%inject = .not.(guard%rho > SEAM_DENSITY_GUARD * q(density_var, i_send, j_send, k_send, b_send))
+   endsubroutine seam_guard_prepare
+
+   pure function seam_guard_value(guard, ngc, q, v, i_send, j_send, k_send, b_send, density_var, value_in) result(value_)
+   !< The seam fill guard of issue #101 applied to variable `v` of a ghost (`value_in`, its interpolant), from the
+   !< ghost's part `guard` (`seam_guard_prepare`): the anchor's value if the ghost injects; the clamped density for the
+   !< density; for a momentum, the clamped density times the velocity value_in/rho clamped to the MP bound of the coarse
+   !< cells' velocities; any other variable unchanged.
+   type(seam_guard_t), intent(in) :: guard           !< The ghost's part of the guard.
+   integer(I4P),       intent(in) :: ngc             !< Ghost cells number (bounds of q).
+   real(R8P),          intent(in) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
+   integer(I4P),       intent(in) :: v               !< Variable index.
+   integer(I4P),       intent(in) :: i_send          !< Anchor donor cell, i.
+   integer(I4P),       intent(in) :: j_send          !< Anchor donor cell, j.
+   integer(I4P),       intent(in) :: k_send          !< Anchor donor cell, k.
+   integer(I4P),       intent(in) :: b_send          !< Donor block index.
+   integer(I4P),       intent(in) :: density_var     !< Density index (> 0).
+   real(R8P),          intent(in) :: value_in        !< The interpolant of variable v.
+   real(R8P)                      :: value_          !< Fine-ghost value.
+   real(R8P)                      :: fp_u(1:4,1:4,1:4) !< Tricubic footprint of the velocity component of v.
+   real(R8P)                      :: lo, hi          !< MP bound.
+   real(R8P)                      :: u               !< Velocity component of v (clamped).
+   integer(I4P)                   :: ii, jj, kk      !< Footprint counters.
+
+   value_ = value_in
+   if (guard%inject) then
+      value_ = q(v, i_send, j_send, k_send, b_send)
+   elseif (v == density_var) then
+      value_ = guard%rho
+   elseif (v > density_var .and. v <= density_var + 3_I4P) then
+      u = value_in / guard%rho
+      ! the bracketing cells' velocity range lies inside the MP bound: a velocity inside it is never clamped
+      fp_u = 0._R8P
+      do kk=guard%b_lo(3), guard%b_hi(3)
+         do jj=guard%b_lo(2), guard%b_hi(2)
+            do ii=guard%b_lo(1), guard%b_hi(1)
+               fp_u(ii,jj,kk) = q(v, i_send+ii-guard%p4(1), j_send+jj-guard%p4(2), k_send+kk-guard%p4(3), b_send) / &
+                                guard%fp_rho(ii,jj,kk)
+            enddo
+         enddo
+      enddo
+      call seam_bracket_range(footprint=fp_u, anchor_pos=guard%p4, b_lo=guard%b_lo, b_hi=guard%b_hi, lo=lo, hi=hi)
+      if (u >= lo .and. u <= hi) then
+         value_ = guard%rho * u
+         return
+      endif
+      do kk=guard%g_lo(3), guard%g_hi(3)
+         do jj=guard%g_lo(2), guard%g_hi(2)
+            do ii=guard%g_lo(1), guard%g_hi(1)
+               fp_u(ii,jj,kk) = q(v, i_send+ii-guard%p4(1), j_send+jj-guard%p4(2), k_send+kk-guard%p4(3), b_send) / &
+                                guard%fp_rho(ii,jj,kk)
+            enddo
+         enddo
+      enddo
+      call seam_mp_bound(footprint=fp_u, sub=guard%sub, anchor_pos=guard%p4, lo=lo, hi=hi)
+      if (u < lo) u = lo
+      if (u > hi) u = hi
+      value_ = guard%rho * u
+   endif
+   endfunction seam_guard_value
+
+   pure function interp_seam_value(regime, meta, ngc, q, v, i_send, j_send, k_send, b_send) result(value_)
    !< Evaluate the coarse->fine seam ghost interpolant for one (variable, fine
    !< ghost) pair (issue #21 N2): gather the donor footprint around the anchor
    !< `(i_send,j_send,k_send)` of block `b_send` and compose the 1D weights of
@@ -1187,7 +1361,7 @@ contains
       enddo
       value_ = seam_interpolate_tricubic(footprint=fp4, sub=sub, anchor_pos=p4)
    endif
-   endfunction interp_seam_ghost
+   endfunction interp_seam_value
 
    pure function restrict_seam_high_order(meta, ngc, q, v, i_send, j_send, k_send, b_send) result(value_)
    !< Evaluate the high-order restriction of one (variable, coarse ghost) pair to the coarse centre, which sits midway
@@ -1246,7 +1420,7 @@ contains
    enddo
    endfunction restrict_seam_high_order
 
-   subroutine update_ghost_mpi(self, grid, maps, q, step)
+   subroutine update_ghost_mpi(self, grid, maps, q, step, seam_guard)
    !< Update ghost cells within other processes.
    class(field_object), intent(inout)        :: self                               !< The base backend.
    type(grid_object),            intent(in)           :: grid !< Grid (sibling realm component, threaded in).
@@ -1257,6 +1431,13 @@ contains
                                                   1-grid%ngc:,&
                                                   1:)                              !< Field component to be updated.
    integer(I4P),        intent(in), optional :: step                               !< Step to be perfordmed in asyncronous comp.
+   logical,             intent(in), optional :: seam_guard                         !< Apply the seam fill guard (default):
+                                                                                   !< .false. for a field that is not the state.
+   integer(I4P)                              :: density_var                        !< The guard's density index (0: off).
+   type(seam_guard_t)                        :: guard                              !< The ghost's part of the guard.
+   integer(I4P)                              :: guard_key(1:5)                     !< Donor cell and meta of a row.
+   integer(I4P)                              :: guard_last(1:5)                    !< Those of the prepared guard.
+   real(R8P)                                 :: value_                             !< A seam ghost value.
    logical                                   :: do_step(3)                         !< Steps performed in async comp.
    integer(I4P)                              :: p                                  !< Counter.
    integer(I4P)                              :: ptr_start, ptr_end                 !< Counter.
@@ -1271,6 +1452,10 @@ contains
    integer(I4P)                              :: b_recv,i_recv,j_recv,k_recv,v_recv !< Receive indexes.
    integer(I4P)                              :: c_send                             !< Counter.
 
+   density_var = maps%seam_density_var
+   if (present(seam_guard)) then
+      if (.not.seam_guard) density_var = 0_I4P
+   endif
    associate(procs_number=>mpih%procs_number,                       &
              error=>mpih%error,                                     &
              req_send_recv=>self%req_send_recv,                     &
@@ -1290,6 +1475,7 @@ contains
       if (allocated(maps%comm_map_send_ghost_cell)) then
          r = maps%refine_ratio
          mean_factor = 1._R8P / real(product(r), R8P)
+         guard_last = -huge(1_I4P) ! no guard prepared yet
          do sf=1, size(maps%comm_map_send_ghost_cell, dim=1)
             b_send       = maps%comm_map_send_ghost_cell(sf,1)
             i_send       = maps%comm_map_send_ghost_cell(sf,2)
@@ -1302,11 +1488,25 @@ contains
                send_buffer_ghost(c_recv) = q(v_send,i_send,j_send,k_send,b_send)
             elseif (one_or_eight==4) then
                ! coarse->fine seam interpolation, pack-side (issue #21 N2, G5); metadata in column 8
-               send_buffer_ghost(c_recv) = interp_seam_ghost(regime=maps%seam_ghost_fill,                        &
-                                                             meta=int(maps%comm_map_send_ghost_cell(sf,8), I4P), &
-                                                             ngc=ngc, q=q, v=v_send,                             &
-                                                             i_send=i_send, j_send=j_send, k_send=k_send,        &
-                                                             b_send=b_send)
+               value_ = 0._R8P ! the guarded density row takes the prepared value: its interpolant is not needed
+               if (v_send /= density_var) &
+                  value_ = interp_seam_value(regime=maps%seam_ghost_fill,                                         &
+                                             meta=int(maps%comm_map_send_ghost_cell(sf,8), I4P), ngc=ngc, q=q,     &
+                                             v=v_send, i_send=i_send, j_send=j_send, k_send=k_send, b_send=b_send)
+               if (density_var > 0_I4P) then
+                  ! the seam fill guard (#101): the ghost's part is reused while the rows (one per variable) keep the
+                  ! same donor cell and metadata
+                  guard_key = [b_send, i_send, j_send, k_send, int(maps%comm_map_send_ghost_cell(sf,8), I4P)]
+                  if (.not.all(guard_key == guard_last)) then
+                     call seam_guard_prepare(regime=maps%seam_ghost_fill, meta=guard_key(5), ngc=ngc, q=q,         &
+                                             i_send=i_send, j_send=j_send, k_send=k_send, b_send=b_send,           &
+                                             density_var=density_var, guard=guard)
+                     guard_last = guard_key
+                  endif
+                  value_ = seam_guard_value(guard=guard, ngc=ngc, q=q, v=v_send, i_send=i_send, j_send=j_send,     &
+                                            k_send=k_send, b_send=b_send, density_var=density_var, value_in=value_)
+               endif
+               send_buffer_ghost(c_recv) = value_
             elseif (maps%seam_restriction /= SEAM_RESTRICT_MEAN .and. maps%comm_map_send_ghost_cell(sf,8) /= 0) then
                ! fine->coarse restriction, 6-point Lagrange or WENO, pack-side (issue #68 C1, C3); meta in column 8
                send_buffer_ghost(c_recv) = restrict_seam_high_order(meta=int(maps%comm_map_send_ghost_cell(sf,8), I4P), &

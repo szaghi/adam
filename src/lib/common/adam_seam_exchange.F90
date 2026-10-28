@@ -23,7 +23,8 @@ module adam_seam_exchange
 !< (`unpack_seam_cells_forest`). Each rank calls it for the same pairs in the same order (the peer slots come from the
 !< manifest, not from the rows a rank holds); a rank with no rows of a pair returns at once, so the exchange is not
 !< collective, but a rank that skipped a pair it has rows for would leave its partners waiting.
-use :: adam_field_object, only : interp_seam_ghost, restrict_seam_high_order
+use :: adam_field_object, only : interp_seam_ghost, restrict_seam_high_order, seam_guard_t, seam_guard_prepare, &
+                                 seam_guard_value
 use :: adam_mpih_global,  only : mpih
 use :: adam_realm_object, only : realm_object, realm_pointer
 use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION
@@ -274,7 +275,7 @@ contains
    enddo
    endsubroutine seam_fill_all
 
-   subroutine pack_seam_rows(rows, row_start, row_count, regime, ngc, q, buf)
+   subroutine pack_seam_rows(rows, row_start, row_count, regime, ngc, q, buf, density_var)
    !< Pack the ghost values of the send rows `[rank, b, i, j, k, kind, meta]` `row_start..row_start+row_count-1` from
    !< the field `q` (the cells' owner active buffer), `nv` values per row in row order (issue #40, #52): a copy of the
    !< cell, the coarse->fine interpolant of `interp_seam_ghost` (the intra-realm fill; injection copies the anchor) or the
@@ -288,10 +289,13 @@ contains
    integer(I4P), intent(in)  :: ngc                             !< Ghost cells number.
    real(R8P),    intent(in)  :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field (v, i, j, k, b).
    real(R8P),    intent(out) :: buf(1:)                         !< Packed values.
+   integer(I4P), intent(in)  :: density_var                     !< Seam fill density guard (`maps%seam_density_var`).
    integer(I4P)              :: c, row, v, nv                   !< Counters.
    integer(I4P)              :: b, i, j, k                      !< Cell.
    integer(I4P)              :: ic, jc, kc                      !< 2x2x2 counters.
    real(R8P)                 :: total                           !< Restriction sum.
+   type(seam_guard_t)        :: guard                           !< The ghost's part of the seam fill guard.
+   real(R8P)                 :: value_                          !< A seam ghost interpolant.
 
    nv = int(size(q, dim=1), I4P)
    do c=1_I4P, row_count
@@ -299,12 +303,23 @@ contains
       b = rows(row,2) ; i = rows(row,3) ; j = rows(row,4) ; k = rows(row,5)
       select case(rows(row,6))
       case(SEAM_ROW_INTERPOLATE)
+         ! the seam fill guard (#101): the ghost's part once, before its variables
+         if (regime /= SEAM_FILL_INJECTION .and. density_var > 0_I4P) &
+            call seam_guard_prepare(regime=regime, meta=rows(row,7), ngc=ngc, q=q, i_send=i, j_send=j, k_send=k, &
+                                    b_send=b, density_var=density_var, guard=guard)
          do v=1_I4P, nv
             if (regime == SEAM_FILL_INJECTION) then
                buf(nv*(c-1)+v) = q(v,i,j,k,b)
+            elseif (density_var > 0_I4P) then
+               value_ = 0._R8P ! the guarded density row takes the prepared value: its interpolant is not needed
+               if (v /= density_var) value_ = interp_seam_ghost(regime=regime, meta=rows(row,7), ngc=ngc, q=q, v=v, &
+                                                                i_send=i, j_send=j, k_send=k, b_send=b, density_var=0_I4P)
+               buf(nv*(c-1)+v) = seam_guard_value(guard=guard, ngc=ngc, q=q, v=v, i_send=i, j_send=j, k_send=k, &
+                                                  b_send=b, density_var=density_var, value_in=value_)
             else
                buf(nv*(c-1)+v) = interp_seam_ghost(regime=regime, meta=rows(row,7), ngc=ngc, q=q, v=v, &
-                                                   i_send=i, j_send=j, k_send=k, b_send=b)
+                                                   i_send=i, j_send=j, k_send=k, b_send=b,       &
+                                                   density_var=density_var)
             endif
          enddo
       case(SEAM_ROW_RESTRICT)

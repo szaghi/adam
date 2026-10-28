@@ -617,7 +617,21 @@ one level (2:1 balance). At a coarse–fine face:
   ([#100](https://github.com/szaghi/adam/issues/100) P4): a ghost with $\rho \le 0$ makes the segment extrapolate the
   velocity $\rho\mathbf{u}/\rho$, up to $1/\kappa$ times the anchor's at the density floor. The internal-energy chord
   rejects that kinetic energy for the other models, but the density alone does not. On the Boss–Bodenheimer cloud the
-  blended ghosts at the corners of the refined cube raised the velocity by a factor per step, until $dt \to 0$;
+  blended ghosts at the corners of the refined cube raised the velocity by a factor per step, until $dt \to 0$.
+  Before the blend, the fill itself is bounded ([#101](https://github.com/szaghi/adam/issues/101)), with a
+  monotonicity-preserving clamp in the manner of Suresh and Huynh: the interpolated density is clamped to the range of
+  the coarse cells that bracket the ghost, widened by the curvature of the data ($\tfrac{3}{32}$ of the M4 minmod of the
+  second differences, the largest over the bracketing lines; at the edge of the donor block, the widening of a
+  quarter-cell extrapolation), and so is the velocity $\rho\mathbf{u}/\rho$, against the coarse cells' velocities; the
+  momentum is that density times that velocity. A ghost whose clamped density is still below a tenth of the coarse
+  cell's that holds it (`SEAM_DENSITY_GUARD`) takes, in every variable, that cell's state (the injection value). The
+  energy and the other variables are interpolated unchanged. On smooth data the clamp moves nothing (the order across a
+  2:1 corner is unchanged, AO `euler-l6`); FLUME turns it on for every model (`maps%seam_density_var`, the density
+  index, the momenta following it). Without it, at the corners of a refined region the tricubic overshoots of density
+  and momentum across the envelope of the Boss–Bodenheimer cloud gave ghosts whose velocity the blend extrapolated, and
+  the corner cells ran away for about 150 steps, to 23 times the sound speed. Clamping the density and the momenta
+  apart is not enough (the corner cells still reached 2.9 times the speed around them): the velocity, their ratio, is
+  what must be bounded;
 - **conservation** is restored by the Berger–Colella **reflux**: the fluxes of every Runge–Kutta stage through the seam
   are accumulated in a flux register, weighted by the stage's coefficient in the step, and at the end of the step the
   coarse cells next to the seam are corrected by the difference between the fine fluxes and their own

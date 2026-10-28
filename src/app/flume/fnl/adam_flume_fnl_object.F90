@@ -1613,10 +1613,11 @@ contains
       call mpih_fnl%error_stop(msg=': no FNL positivity limiter for physical model "'//self%physics%physical_model//'"')
    endselect
    if (seam) call self%seam_sync_factors_dev(q_gpu=q_gpu, dbad=counts(1), dnonfinite=counts(5))
-   call self%field_fnl%update_ghost_local_gpu(q_gpu=self%lam_gpu)
+   ! lam is not the state: no seam fill guard (issue #101; its lam(1) = 0 is a legitimate limiter factor)
+   call self%field_fnl%update_ghost_local_gpu(q_gpu=self%lam_gpu, seam_guard=.false.)
    call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
                                             comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
-                                            q_gpu=self%lam_gpu)
+                                            q_gpu=self%lam_gpu, seam_guard=.false.)
    if (seam) call self%seam_sync_theta_dev
    do d=1, 3
       if (is_null(d)) cycle
@@ -2761,11 +2762,13 @@ contains
       call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
                               regime=self%adam%maps%seam_ghost_fill,                                          &
                               rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu,                            &
-                              q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active), buf_gpu=buf_gpu)
+                              q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active), buf_gpu=buf_gpu,       &
+                              density_var=self%adam%maps%seam_density_var)
    else
       call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
                               regime=self%adam%maps%seam_ghost_fill,                                          &
-                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=self%q_gpu, buf_gpu=buf_gpu)
+                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=self%q_gpu, buf_gpu=buf_gpu, &
+                              density_var=self%adam%maps%seam_density_var)
    endif
    call dev_memcpy_from_device(dst=buf, src=buf_gpu)
    call dev_free(buf_gpu, mydev)

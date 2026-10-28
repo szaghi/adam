@@ -41,7 +41,11 @@
 #        least 0.1 of the mean step) and a sink formed. Its envelope, expanding into an ambient 100 times thinner, meets
 #        the 2:1 seams at the corners of the refined cube; a limiter that extrapolates the velocity m / rho of a cell or
 #        ghost it takes to the density floor drives dt to 0 there: the seam ghost blend stalled the run at t = 1.3721,
-#        the cell limiter without its kinetic chord at 1.46 (0 and 0.007 of the mean step; 0.37 now).
+#        the cell limiter without its kinetic chord at 1.46 (0 and 0.007 of the mean step; 0.37 now). And, from the
+#        checkpoints every 20 steps, the corners stay like the gas around (issue #101): in the shell 1.55 < r < 1.85
+#        the cells near an edge of the refined cube at most twice as fast and at least half as dense as the others
+#        (the tricubic seam ghosts of non-positive density, made zero-gradient copies by the blend, drove them to
+#        23 c0 and 1/25 of the density while the run kept advancing).
 #
 # Usage: ./gravity.sh [--legs LIST]   (legs eg1..eg10, all; default all but eg9)
 #
@@ -204,8 +208,9 @@ for leg in $LEGS; do
          agree_runs eg6-collapse "$SINKS" agree -- --mass-only ;;
       eg10)
          echo "-- eg10: the Boss-Bodenheimer cloud still advances after 300 steps"
-         make_case eg10-bb bb --cells 32 --amr 2 --it-max 300
-         check "$W" "$NP" "$EOS" advancing "$W" --last 50 --min-ratio 0.1 ;;
+         make_case eg10-bb bb --cells 32 --amr 2 --it-max 300 --it-save 20
+         check "$W" "$NP" "$EOS" advancing "$W" --last 50 --min-ratio 0.1
+         "$VENV_PY" "$EOS" corners "$W" --max-speed-ratio 2 --min-density-ratio 0.5 || FAILED=1 ;;
    esac
 done
 if [[ $FAILED -ne 0 ]]; then echo "EO P4 FAILED ($TAG, legs: $LEGS)" ; exit 1 ; fi

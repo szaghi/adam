@@ -898,6 +898,69 @@ def compare_advancing(work: Path, last: int, min_ratio: float) -> bool:
     return check("sinks", n_sinks >= 1, f"{work.name}: {n_sinks} sinks formed") and ok
 
 
+def compare_corners(work: Path, max_speed_ratio: float, min_density_ratio: float, csv_out: Path | None = None) -> bool:
+    """P4, the Boss-Bodenheimer cloud (issue #101): the corners of the refined cube [-1, 1]^3 stay like the gas around.
+
+    Where a rarefaction crossed the 2:1 seams at the corners of the refined cube, the tricubic seam fill gave ghosts of
+    non-positive density, the blend made them zero-gradient copies of the fine interior, and the corner cells ran away
+    for about 150 steps: 23 c0 and 1/25 of the density of the gas at the same radius, while the run kept advancing (so
+    `advancing` cannot see it). At every checkpoint, the cells of the shell 1.55 < r < 1.85 (the cube's corners sit at
+    r = sqrt 3) near an edge of the cube (two coordinates within 0.1 of |x| = 1) against the other cells of the shell:
+    the largest speed at most `max_speed_ratio` times theirs, the smallest density at least `min_density_ratio` times
+    theirs (tricubic without the guard: 5.1 and 0.10 by step 140, 15 and 0.04 later; injection fill: 1.06 and 2.3).
+    `csv_out` writes, per checkpoint: the step, the largest speed (in c0) and smallest density near the edges and in the
+    rest of the shell, and their two ratios (corner_figure.py draws them)."""
+    import h5py  # noqa: PLC0415 (only the run comparisons need it)
+
+    ngc = run_ngc(work)
+    c0 = run_c0(work)
+    its = checkpoints(work)
+    worst_u, worst_r, at_u, at_r = 0.0, np.inf, -1, -1
+    rows = []
+    for it in its:
+        xs, rs, us = [], [], []
+        for path in sorted(work.glob(f"*-{it:09d}-proc*.h5")):
+            with h5py.File(path, "r") as h5:
+                for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                    # stored (z, y, x) with the ghosts: reverse to (x, y, z) and strip them
+                    origin, d = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                    f = {v: h5[f"{blk}-{v}"][()].transpose(2, 1, 0)[ngc:-ngc, ngc:-ngc, ngc:-ngc]
+                         for v in ("r", "ru", "rv", "rw")}
+                    c = [origin[a] + (np.arange(f["r"].shape[a]) + ngc + 0.5) * d[a] for a in range(3)]
+                    g = np.meshgrid(*c, indexing="ij")
+                    xs.append(np.stack([a.ravel() for a in g], axis=1))
+                    rs.append(f["r"].ravel())
+                    us.append(np.sqrt(f["ru"] ** 2 + f["rv"] ** 2 + f["rw"] ** 2).ravel() / f["r"].ravel())
+        x, r, u = np.concatenate(xs), np.concatenate(rs), np.concatenate(us)
+        rad = np.linalg.norm(x, axis=1)
+        shell = (rad > 1.55) & (rad < 1.85)
+        edge = shell & (np.sum(np.abs(np.abs(x) - 1.0) < 0.1, axis=1) >= 2)
+        rest = shell & ~edge
+        if not (edge.any() and rest.any()):
+            continue
+        ratio_r = float(r[edge].min() / r[rest].min())
+        rows.append((it, u[edge].max() / c0, u[rest].max() / c0, r[edge].min(), r[rest].min(),
+                     u[edge].max() / u[rest].max() if u[rest].max() > 0.0 else 1.0, ratio_r))
+        if u[rest].max() > 0.0:  # the initial condition is at rest there
+            ratio_u = float(u[edge].max() / u[rest].max())
+            if ratio_u > worst_u:
+                worst_u, at_u = ratio_u, it
+        if ratio_r < worst_r:
+            worst_r, at_r = ratio_r, it
+    if csv_out is not None:
+        with csv_out.open("w") as f:
+            f.write("step,edge_speed_c0,rest_speed_c0,edge_rho_min,rest_rho_min,speed_ratio,density_ratio\n")
+            for row in rows:
+                f.write(",".join(f"{v:.6g}" for v in row) + "\n")
+    ok_u = check("corner speed", len(its) > 1 and worst_u <= max_speed_ratio,
+                 f"{work.name}: {len(its)} checkpoints; the edge cells' largest speed at most {worst_u:.2f} times the "
+                 f"rest of the shell's (step {at_u}; bound {max_speed_ratio:g})")
+    ok_r = check("corner density", len(its) > 1 and worst_r >= min_density_ratio,
+                 f"{work.name}: the edge cells' smallest density at least {worst_r:.2f} times the rest of the shell's "
+                 f"(step {at_r}; bound {min_density_ratio:g})")
+    return ok_u and ok_r
+
+
 def last_blocks(work: Path) -> dict[tuple[float, ...], dict[str, np.ndarray]]:
     """Every field (r, ru, rv, rw, rE) of every block of the last checkpoint, interior cells, keyed by block origin."""
     import h5py  # noqa: PLC0415 (only the run comparisons need it)
@@ -975,6 +1038,11 @@ def main() -> int:
     p.add_argument("work", type=Path)
     p.add_argument("--last", type=int, default=50)
     p.add_argument("--min-ratio", type=float, default=0.1)
+    p = sub.add_parser("corners", help="the corners of the refined cube stay like the gas around (P4, issue #101)")
+    p.add_argument("work", type=Path)
+    p.add_argument("--max-speed-ratio", type=float, default=2.0)
+    p.add_argument("--min-density-ratio", type=float, default=0.5)
+    p.add_argument("--csv", type=Path, default=None, help="write the ratios per checkpoint (corner_figure.py)")
     args = ap.parse_args()
     if args.cmd == "selftest":
         return 0 if selftest() else 1
@@ -996,6 +1064,8 @@ def main() -> int:
         return 0 if compare_refined(args.work, args.expect == "yes") else 1
     if args.cmd == "advancing":
         return 0 if compare_advancing(args.work, args.last, args.min_ratio) else 1
+    if args.cmd == "corners":
+        return 0 if compare_corners(args.work, args.max_speed_ratio, args.min_density_ratio, args.csv) else 1
     return 2
 
 

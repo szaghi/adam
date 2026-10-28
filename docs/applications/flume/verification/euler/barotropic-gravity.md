@@ -35,7 +35,7 @@ What the legs catch:
 | Gravity | the momentum sources of the ideal gas, the energy residual cleared (`clear_inert_energy`), no fourth-order energy correction, no seam gravity work | `adam_flume_cpu_object.F90`, `adam_flume_fnl_object.F90`, `adam_flume_fnl_kernels.F90` |
 | Self-gravity | FFT (periodic, isolated) and multigrid (AMR) Poisson solvers, the potential path | [self-gravity](../self-gravity/) |
 | Sinks | threshold $\pi c_s^2/(4G r_\mathrm{acc}^2)$ with $c_s^2 = dP/d\rho$; Jeans test with $E_\mathrm{th} = \tfrac32\int P\,dV$ | `adam_flume_common_object.F90` (`accrete_cells`, `create_sinks`) |
-| Positivity | the cell limiter on the density, plus a kinetic chord (`internal_energy` = $\rho$ and `kinetic_sound_speed2` in the models' kernels; the reflux limiter's `cs2_inert`); a seam ghost with $\rho \le 0$ takes its interior cell | `adam_flume_cpu_euler_{iso,baro}_kernels.F90`, `adam_flume_common_object.F90` (`reflux_positivity_theta`) |
+| Positivity | the cell limiter on the density, plus a kinetic chord (`internal_energy` = $\rho$ and `kinetic_sound_speed2` in the models' kernels; the reflux limiter's `cs2_inert`); the seam fill clamps the density and the velocity of a fine ghost to an MP bound of the coarse cells (#101) | `adam_flume_cpu_euler_{iso,baro}_kernels.F90`, `adam_flume_common_object.F90` (`reflux_positivity_theta`), `adam_seam_interpolation_library.F90` (`seam_mp_bound`), `adam_field_object.F90` (`interp_seam_ghost`) |
 | Space, time | WENO5 characteristic flux splitting, SSP-RK(3,3), CFL 0.4 | — |
 
 ## Initial and boundary conditions
@@ -101,6 +101,7 @@ density along $z$, with the sinks.*
 | eg8 | the 4 invalid inputs | refused | refused | refused |
 | eg9 | FNL against CPU | $10^{-10}$, $10^{-6}$ of the amplitude, $10^{-8}$ | (the same comparison) | free fall $6.7\cdot10^{-17}$; Jeans $2.0\cdot10^{-9}$, $1.4\cdot10^{-9}$, collapse $2.9\cdot10^{-13}$; sinks $8\cdot10^{-11}$, $4\cdot10^{-16}$ |
 | eg10 | the time advanced over the last 50 steps, over 50 mean steps; sinks formed | $\ge 0.1$; $\ge 1$ | 0.372 ($t = 1.649$); 1 | 0.372 ($t = 1.649$); 1 |
+| eg10 | the edge cells of the shell against the rest: largest speed; smallest density ([#101](https://github.com/szaghi/adam/issues/101)) | $\le 2$; $\ge 0.5$ | 1.42; 1.00 (8 ranks) | 1.42; 1.00 (2 ranks) |
 
 Related cases: the [Jeans modes](../self-gravity/jeans) and the [sink particles](../self-gravity/sink-particles) of the
 ideal gas.
@@ -130,11 +131,24 @@ ideal gas.
   ambient beside the corners drained to $10^{-5}$ at $|u|$ up to 365. The cell and reflux limiters now add a kinetic
   chord on $\rho W - |\mathbf{m}|^2/(2\rho)$, $W = (4|\mathbf{u}_b|^2 + c^2)/2$ of the backbone
   ([numerics](../../numerics#isothermal-and-barotropic-equations-of-state)): the cloud runs 400 steps to $t = 1.83$
-  ($1.65\,t_\mathrm{ff}$), still advancing (eg10): the corner cells peak at $|u| = 3.6$ (365 before), the ambient dips
-  once to $1.4\cdot10^{-4}$ and ends above $6.6\cdot10^{-4}$, and the fastest gas at the end, $|u| = 4.4$, falls into
-  the sink. The chord's factor 4 matters for cold gas: with $W = (|\mathbf{u}_b|^2 + c^2)/2$ the cold accretion of eg6
-  drifted its momentum by 13 % of the exchange. The inadmissible corner ghosts remain, harmless now
-  ([#101](https://github.com/szaghi/adam/issues/101)).
+  ($1.65\,t_\mathrm{ff}$), still advancing (eg10): the ambient dips once to $1.4\cdot10^{-4}$ and ends above
+  $6.6\cdot10^{-4}$, and the fastest gas at the end, $|u| = 4.4$, falls into the sink. The chord's factor 4 matters for cold gas: with $W = (|\mathbf{u}_b|^2 + c^2)/2$ the cold accretion of eg6
+  drifted its momentum by 13 % of the exchange.
+- **The seam fill must bound the velocity at the corners of a refined region** ([#101](https://github.com/szaghi/adam/issues/101)).
+  The chord keeps the run going, it does not keep the corner ghosts sound. eg10 compares, every 20 steps, the cells of
+  the shell $1.55 < r < 1.85$ near the edges of the refined cube (3680 cells) with the rest of the shell (42216): their
+  largest speed (bound: twice the rest's) and their smallest density (bound: half the rest's). With the tricubic ghosts
+  unbounded the edge cells reach $|u| = 22.7\,c_0$, 14.8 times the rest (step 200), and their density falls to 0.04
+  times the rest's (step 240). Three fills were measured before the one adopted (400 steps, 8 ranks):
+  a density guard (a ghost below 0.1 times its anchor's density takes the anchor's state) holds the density (0.90) but
+  not the speed (2.95); clamping the density and the momenta to a monotonicity-preserving bound holds the density
+  (1.00) but not the speed either (2.93): the velocity, their ratio, stays free; injection everywhere passes (1.07,
+  1.00) at first order. The fill adopted clamps the density and the **velocity** to the MP bound of the coarse cells
+  around the ghost ([numerics](../../numerics#adaptive-mesh-refinement)): **1.42 and 1.00**, the same on CPU (400 steps)
+  and FNL (eg10, 300 steps, 2 GPUs), while the order across a 2:1 corner on smooth data is unchanged (AO `euler-l6`:
+  L1 8.548e-8 at $N = 256$, orders 5.33 and 5.53, CPU and FNL to every printed digit).
+
+![Corner cells against the rest of the shell, five seam fills](/flume/eos-corner-guard.png)
 - **A Bonnor–Ebert sphere in a cube is no equilibrium, but its stability is testable.** See above; sub-critical
   spheres ring within 15 % of their central density (0.147 at $\xi = 3$, 0.136 at $\xi = 6$) below Mach 0.15,
   the super-critical one departs by 70 % (0.695; $-0.67$ at $t = 4$).

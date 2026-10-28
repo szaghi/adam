@@ -6,9 +6,10 @@ module adam_fnl_field_kernels
 !< ADAM, field class FNL kernels (FNL backend of [[field_object]]).
 
 ! ADAM objects
-use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_INJECTION, seam_meta_unpack, &
+use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_INJECTION, seam_meta_unpack, SEAM_DENSITY_GUARD, &
                                                SEAM_FILL_QUINTIC, SEAM_SUB_COINCIDENT, seam_quintic_weight, &
-                                               SEAM_FILL_WENO6, seam_fill_weno6_1d, &
+                                               SEAM_FILL_WENO6, seam_fill_weno6_1d, seam_mp_bound, &
+                                               seam_bracket_nodes, seam_bracket_range, &
                                                SEAM_FILL_QUINTIC_MP, seam_fill_quintic_mp_1d, &
                                                seam_interpolate_compatible, seam_interpolate_tricubic, &
                                                SEAM_RESTRICT_MEAN, SEAM_RESTRICT_WENO6, SEAM_RESTRICT_IDENTITY, &
@@ -89,7 +90,7 @@ contains
    enddo
    endsubroutine unpack_blocks_transposed_dev
 
-   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu)
+   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu, density_var)
    !< Pack the ghost values of the seam send rows `[rank, b, i, j, k, kind, meta]` `row_start..row_start+row_count-1`
    !< from `q_gpu` into `buf_gpu`, `nv` values per row in row order (issues #40, #52), the device twin of
    !< `adam_seam_exchange%pack_seam_rows`: kind 1 copies the cell, kind 4 interpolates the fine ghost around the coarse
@@ -104,14 +105,16 @@ contains
    integer(I4P), intent(in)    :: rows_gpu(1:,1:)                   !< Rows [rank, b, i, j, k, kind, meta].
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field (b, i, j, k, v).
    real(R8P),    intent(inout) :: buf_gpu(1:)                       !< Packed values.
+   integer(I4P), intent(in)    :: density_var                       !< Seam fill density guard (`maps%seam_density_var`).
    integer(I4P)                :: c, v, row                         !< Counters.
    integer(I4P)                :: b, i, j, k                        !< Cell.
    integer(I4P)                :: ic, jc, kc                        !< 2x2x2 counters.
    real(R8P)                   :: total                             !< Restriction sum.
 
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(rows_gpu,q_gpu,buf_gpu) &
-   !$acc& firstprivate(row_start,row_count,nv,ngc,regime) private(row,b,i,j,k,total)
-   !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu,q_gpu,buf_gpu) firstprivate(row_start,row_count,nv,ngc,regime) &
+   !$acc& firstprivate(row_start,row_count,nv,ngc,regime,density_var) private(row,b,i,j,k,total)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu,q_gpu,buf_gpu)                                                &
+   !$omp& firstprivate(row_start,row_count,nv,ngc,regime,density_var)                                           &
    !$omp& private(row,b,i,j,k,total)
    do c=1, row_count
    do v=1, nv
@@ -119,7 +122,8 @@ contains
       b = rows_gpu(row,2) ; i = rows_gpu(row,3) ; j = rows_gpu(row,4) ; k = rows_gpu(row,5)
       if (rows_gpu(row,6) == 4 .and. regime /= SEAM_FILL_INJECTION) then
          buf_gpu(nv*(c-1)+v) = interp_seam_ghost_gpu_dev(regime=regime, meta=rows_gpu(row,7), ngc=ngc, q_gpu=q_gpu, &
-                                                         v=v, b_send=b, i_send=i, j_send=j, k_send=k)
+                                                         v=v, b_send=b, i_send=i, j_send=j, k_send=k,           &
+                                                         density_var=density_var)
       elseif (rows_gpu(row,6) == 8 .and. rows_gpu(row,7) /= 0) then
          ! high-order restriction (#68 C2, C3): the fine owner packed its codes and regime in the meta; 0 is the mean
          buf_gpu(nv*(c-1)+v) = restrict_seam_high_order_gpu_dev(meta=rows_gpu(row,7), ngc=ngc, q_gpu=q_gpu, v=v, &
@@ -225,7 +229,8 @@ contains
    endsubroutine compute_normL2_residuals_dev
 
    subroutine populate_send_buffer_ghost_gpu_dev(ngc, seam_ghost_fill, seam_restriction, ri, rj, rk,              &
-                                                 comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu)
+                                                 comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu,     &
+                                                 seam_density_var)
    !< Polulate send buffer ghost GPU.
    !<
    !< A fine->coarse row averages the `ri*rj*rk` fine cells of its coarse ghost: 2 per refined axis, 1 on an axis the
@@ -236,6 +241,7 @@ contains
    integer(I4P),          intent(in)    :: ri, rj, rk                             !< Per-axis refinement factor.
    integer(I8P), pointer, intent(in)    :: comm_map_send_ghost_cell_gpu(:,:)      !< Comm map, cell information.
    real(R8P),    pointer, intent(inout) :: send_buffer_ghost_gpu(:)               !< Send buffer of ghost cells.
+   integer(I4P),          intent(in)    :: seam_density_var                       !< Seam fill density guard (#101).
    real(R8P),             intent(inout) :: q_gpu(1:,    &
                                                  1-ngc:,&
                                                  1-ngc:,&
@@ -264,7 +270,8 @@ contains
             send_buffer_ghost_gpu(c_recv) = interp_seam_ghost_gpu_dev(regime=seam_ghost_fill,                          &
                                                                       meta=int(comm_map_send_ghost_cell_gpu(sf,8), I4P), &
                                                                       ngc=ngc, q_gpu=q_gpu, v=v_send, b_send=b_send,   &
-                                                                      i_send=i_send, j_send=j_send, k_send=k_send)
+                                                                      i_send=i_send, j_send=j_send, k_send=k_send,     &
+                                                                      density_var=seam_density_var)
          elseif (seam_restriction /= SEAM_RESTRICT_MEAN .and. comm_map_send_ghost_cell_gpu(sf,8) /= 0) then
             ! fine->coarse restriction, 6-point Lagrange or WENO, pack-side (#68 C2, C3); meta in column 8
             send_buffer_ghost_gpu(c_recv) = restrict_seam_high_order_gpu_dev(                                         &
@@ -311,7 +318,8 @@ contains
    endif
    endsubroutine receive_recv_buffer_ghost_gpu_dev
 
-   subroutine update_ghost_local_gpu_dev(ngc, seam_ghost_fill, seam_restriction, ri, rj, rk, l_map_ghost_cell_gpu, q_gpu)
+   subroutine update_ghost_local_gpu_dev(ngc, seam_ghost_fill, seam_restriction, ri, rj, rk, l_map_ghost_cell_gpu, q_gpu, &
+                                         seam_density_var)
    !< Update (local) ghost cells.
    !<
    !< A fine->coarse row averages the `ri*rj*rk` fine cells of its coarse ghost: 2 per refined axis, 1 on an axis the
@@ -321,6 +329,7 @@ contains
    integer(I4P), intent(in)          :: seam_restriction          !< Seam restriction regime (flag-8 rows).
    integer(I4P), intent(in)          :: ri, rj, rk                !< Per-axis refinement factor.
    integer(I8P), intent(in), pointer :: l_map_ghost_cell_gpu(:,:) !< Local map of ghost cells.
+   integer(I4P), intent(in)          :: seam_density_var          !< Seam fill density guard (#101).
    real(R8P),    intent(inout)       :: q_gpu(1:,    &
                                               1-ngc:,&
                                               1-ngc:,&
@@ -362,7 +371,8 @@ contains
                                                                              meta=int(l_map_ghost_cell_gpu(mf,10), I4P), &
                                                                              ngc=ngc, q_gpu=q_gpu, v=v,             &
                                                                              b_send=b_send, i_send=i_send,          &
-                                                                             j_send=j_send, k_send=k_send)
+                                                                             j_send=j_send, k_send=k_send,          &
+                                                                             density_var=seam_density_var)
          elseif (seam_restriction /= SEAM_RESTRICT_MEAN .and. l_map_ghost_cell_gpu(mf,10) /= 0) then
             ! fine->coarse restriction, 6-point Lagrange or WENO (#68 C2, C3); meta in column 10
             q_gpu(b_recv,i_recv,j_recv,k_recv,v) = restrict_seam_high_order_gpu_dev(                                 &
@@ -512,8 +522,106 @@ contains
    endsubroutine fold_reduce_ghost_mpi_gpu_dev
 
    ! private procedures
-   pure function interp_seam_ghost_gpu_dev(regime, meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send) result(value_)
-   !< Device twin of `field_object%interp_seam_ghost` (issue #22 F3): evaluate
+   pure function interp_seam_ghost_gpu_dev(regime, meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send, density_var) &
+      result(value_)
+   !< Device twin of `field_object%interp_seam_ghost`: the interpolant of `interp_seam_value_gpu_dev`, with the guard of
+   !< issue #101 (the density, followed by the three momenta: the density clamped to the MP bound of the coarse cells'
+   !< densities, `seam_mp_bound`, the velocity m/rho to the MP bound of their velocities, the momentum rho times it; a
+   !< ghost whose clamped density is still below `SEAM_DENSITY_GUARD` times the anchor's takes in every variable the
+   !< anchor cell's value, the injection value). Each thread recomputes the density of its ghost, so the rows of one
+   !< ghost decide alike whatever their order; the guard reads only the tricubic donor footprint, real cells. The
+   !< footprint buffers are constant-bound locals (see `interp_seam_value_gpu_dev`).
+   integer(I4P), intent(in) :: regime           !< Active fill regime (SEAM_FILL_*).
+   integer(I4P), intent(in) :: meta             !< Packed interpolation metadata (see seam_meta_pack).
+   integer(I4P), intent(in) :: ngc              !< Ghost cells number (bounds of q_gpu).
+   real(R8P),    intent(in) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables, FNL layout (b,i,j,k,v).
+   integer(I4P), intent(in) :: v                !< Variable index.
+   integer(I4P), intent(in) :: b_send           !< Donor block index.
+   integer(I4P), intent(in) :: i_send           !< Anchor donor cell, i.
+   integer(I4P), intent(in) :: j_send           !< Anchor donor cell, j.
+   integer(I4P), intent(in) :: k_send           !< Anchor donor cell, k.
+   integer(I4P), intent(in) :: density_var      !< Density index for the guard, 0 for none (`maps%seam_density_var`).
+   real(R8P)                :: value_           !< Fine-ghost value.
+   real(R8P)                :: rho              !< Interpolated (then clamped) density of the ghost.
+   real(R8P)                :: fp_rho(1:4,1:4,1:4) !< Tricubic footprint of the density.
+   real(R8P)                :: fp_u(1:4,1:4,1:4) !< Tricubic footprint of the velocity component of v.
+   real(R8P)                :: lo, hi           !< MP bound.
+   real(R8P)                :: u                !< Velocity component of v (clamped).
+   integer(I4P)             :: sub(1:3)         !< Octant sub-position per direction.
+   integer(I4P)             :: p4(1:3)          !< Tricubic anchor position per direction.
+   integer(I4P)             :: p3(1:3)          !< Compatible anchor position per direction (unused).
+   integer(I4P)             :: p6(1:3)          !< Quintic anchor position per direction (unused).
+   integer(I4P)             :: ii, jj, kk       !< Footprint counters.
+   integer(I4P)             :: g_lo(1:3), g_hi(1:3) !< Footprint nodes gathered per direction.
+   integer(I4P)             :: b_lo(1:3), b_hi(1:3) !< Bracketing nodes per direction (seam_bracket_nodes).
+   integer(I4P)             :: n2(1:3)          !< Bracketing nodes (unused here).
+   logical                  :: edge(1:3)        !< Edge flags (unused here).
+   !$acc routine seq
+   !$omp declare target
+
+   value_ = interp_seam_value_gpu_dev(regime=regime, meta=meta, ngc=ngc, q_gpu=q_gpu, v=v, b_send=b_send, &
+                                      i_send=i_send, j_send=j_send, k_send=k_send)
+   if (density_var > 0_I4P) then
+      call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
+      ! the footprint nodes seam_mp_bound reads: all 4 along a refined direction, the anchor along an unrefined one
+      g_lo = merge(p4, 1_I4P, sub == SEAM_SUB_COINCIDENT)
+      g_hi = merge(p4, 4_I4P, sub == SEAM_SUB_COINCIDENT)
+      fp_rho = 0._R8P
+      fp_u = 0._R8P
+      rho = value_
+      if (v /= density_var) rho = interp_seam_value_gpu_dev(regime=regime, meta=meta, ngc=ngc, q_gpu=q_gpu,          &
+                                                            v=density_var, b_send=b_send, i_send=i_send, j_send=j_send, &
+                                                            k_send=k_send)
+      do kk=g_lo(3), g_hi(3)
+         do jj=g_lo(2), g_hi(2)
+            do ii=g_lo(1), g_hi(1)
+               fp_rho(ii,jj,kk) = q_gpu(b_send, i_send+ii-p4(1), j_send+jj-p4(2), k_send+kk-p4(3), density_var)
+            enddo
+         enddo
+      enddo
+      call seam_bracket_nodes(sub=sub, anchor_pos=p4, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
+      ! the bracketing cells' range lies inside the MP bound: a value inside it is never clamped (the bound skipped)
+      call seam_bracket_range(footprint=fp_rho, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
+      if (.not.(rho >= lo .and. rho <= hi)) then
+         call seam_mp_bound(footprint=fp_rho, sub=sub, anchor_pos=p4, lo=lo, hi=hi)
+         ! explicit comparisons, not min/max: a NaN is kept alike by every compiler (gfortran and nvfortran differ)
+         if (rho < lo) rho = lo
+         if (rho > hi) rho = hi
+      endif
+      if (.not.(rho > SEAM_DENSITY_GUARD * q_gpu(b_send, i_send, j_send, k_send, density_var))) then
+         value_ = q_gpu(b_send, i_send, j_send, k_send, v)
+      elseif (v == density_var) then
+         value_ = rho
+      elseif (v > density_var .and. v <= density_var + 3_I4P) then
+         u = value_ / rho
+         do kk=b_lo(3), b_hi(3)
+            do jj=b_lo(2), b_hi(2)
+               do ii=b_lo(1), b_hi(1)
+                  fp_u(ii,jj,kk) = q_gpu(b_send, i_send+ii-p4(1), j_send+jj-p4(2), k_send+kk-p4(3), v) / fp_rho(ii,jj,kk)
+               enddo
+            enddo
+         enddo
+         call seam_bracket_range(footprint=fp_u, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
+         if (.not.(u >= lo .and. u <= hi)) then
+            do kk=g_lo(3), g_hi(3)
+               do jj=g_lo(2), g_hi(2)
+                  do ii=g_lo(1), g_hi(1)
+                     fp_u(ii,jj,kk) = q_gpu(b_send, i_send+ii-p4(1), j_send+jj-p4(2), k_send+kk-p4(3), v) / &
+                                      fp_rho(ii,jj,kk)
+                  enddo
+               enddo
+            enddo
+            call seam_mp_bound(footprint=fp_u, sub=sub, anchor_pos=p4, lo=lo, hi=hi)
+            if (u < lo) u = lo
+            if (u > hi) u = hi
+         endif
+         value_ = rho * u
+      endif
+   endif
+   endfunction interp_seam_ghost_gpu_dev
+
+   pure function interp_seam_value_gpu_dev(regime, meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send) result(value_)
+   !< Device twin of `field_object%interp_seam_value` (issue #22 F3): evaluate
    !< the coarse->fine seam ghost interpolant for one (variable, fine ghost)
    !< pair on the FNL layout `q_gpu(b,i,j,k,v)`, calling the single-source
    !< evaluators of `adam_seam_interpolation_library` (device-pinned by
@@ -623,7 +731,7 @@ contains
       enddo
       value_ = seam_interpolate_tricubic(footprint=fp4, sub=sub, anchor_pos=p4)
    endif
-   endfunction interp_seam_ghost_gpu_dev
+   endfunction interp_seam_value_gpu_dev
 
    pure function restrict_seam_high_order_gpu_dev(meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send) result(value_)
    !< Device twin of `field_object%restrict_seam_high_order` (issue #68 C2, C3): the 6-point Lagrange or the WENO
