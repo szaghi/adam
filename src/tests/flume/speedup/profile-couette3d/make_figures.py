@@ -3,14 +3,16 @@
 
 Why this script exists: the README of the profiling case reports measurements, and a measurement written into a
 README by hand drifts from the runs it came from. `collect` reads every run directory that `profile.sh` wrote
-(`run.info`, `wall.txt`, the forest timing line of `log.txt`, the Nsight Systems kernel summary) into one CSV row per
+(`run.info`, `wall.txt`, the forest timing line of `log.txt`, the kernel summary of the profiler) into one CSV row per
 run; `figures` draws the README figures from that CSV and from the checkpoints of the correctness runs, so every
 number of a figure can be traced to a run directory and redrawn after new runs.
 
-- `results/runs.csv`: one row per run (variant, size, Slurm job, date, commit, executable, wall time, forest loop and
-  steps, the mean time per launch of the two flux kernels, the total kernel time).
-- `figures/a30-variants.png`: the A30 loop of each build variant split into the face-flux kernel, the dissipative
-  kernel, the other kernels and the time with no kernel running (uniform and refined walls).
+- `results/runs.csv` (NVIDIA) and `results/runs-amd.csv` (AMD): one row per run (variant, size, Slurm job, date,
+  commit, executable, wall time, forest loop and steps, the mean time per launch of the two flux kernels, the total
+  kernel time, and on AMD the registers and the scratch of each flux kernel).
+- `figures/a30-variants.png`, `figures/mi300x-variants.png`: the loop of each build variant split into the face-flux
+  kernel, the dissipative kernel, the other kernels and the time with no kernel running (uniform and refined walls).
+- `figures/mi300x-ranks.png`: the same split for the leg on one GPU and on the eight of the AMD node.
 - `figures/a30-widths.png`: the face-flux kernel and the loop of each WENO order, the per-width kernels against the
   generic one.
 - `figures/a30-seam.png`: the refined-walls loop before and after the seam-skin fix (the reshape of every fine seam
@@ -24,13 +26,17 @@ loop: the idle gaps by length, by the GPU operation (kernel, copy, memset) that 
 samples that fall in the gaps (their leaf symbol, and every symbol of their call stack: an inclusive count).
 
 Usage:
-    make_figures.py collect <runs-dir> [--out results/runs.csv]
-    make_figures.py figures <runs-dir> [--results results/runs.csv] [--out figures]
+    make_figures.py collect <runs-dir> [--out results/runs.csv] [--force]
+    make_figures.py figures <runs-dir> [--results results/runs.csv ...] [--out figures]
     make_figures.py idle <run-dir> [--top N]
 
-`<runs-dir>` is `runs/` of this directory, or a copy of the one on the machine that ran the profiles. `collect` needs
-the kernel summary `kern_cuda_gpu_kern_sum.csv` of an nsys run, and writes it (`nsys stats`) when nsys is on PATH and
-the file is missing. `figures` needs numpy, matplotlib and, for the fields, h5py. `idle` needs the sqlite export of the trace
+`<runs-dir>` is `runs/` of this directory, or a copy of the one on the machine that ran the profiles. The kernel
+summary comes from `kern_cuda_gpu_kern_sum.csv` on an nsys run, written (`nsys stats`) when nsys is on PATH and the
+file is missing, and from `rocprof-r0/<host>/<pid>_kernel_stats.csv` on a rocprof run, which rocprofv3 already wrote.
+There is one results CSV per profiling machine because `collect` rewrites the whole file from the run directories it
+can see and `runs/` is gitignored: collecting over another machine's rows is refused unless `--force`. `figures` reads
+every `--results` given (by default both committed ones) and needs numpy, matplotlib and, for the fields, h5py.
+`idle` needs the sqlite export of the trace
 (`nsys export --type sqlite -o nsys-r0.sqlite nsys-r0.nsys-rep`, which it runs when nsys is on PATH); the call stacks of
 the CPU samples are complete only with `nsys profile --backtrace=dwarf` (the builds keep no frame pointers).
 """
@@ -48,11 +54,20 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# the kernel summary of rank 0, per profiler: Nsight Systems writes it on demand (`nsys stats`), rocprofv3 writes it
+# at collection time (profile.sh passes --stats) into one directory per rank, one subdirectory per host and one file
+# per process id -- the pid is not predictable, hence the globs
 KERN = "kern_cuda_gpu_kern_sum.csv"
-# the two flux kernels, matched in the kernel names of nsys: the face-flux kernel is one kernel per stencil width since
-# the per-width kernels (compute_face_fluxes_s<N>_dev, the generic compute_face_fluxes_sn_dev), one before
+# the two flux kernels, matched in the kernel names of the profiler: the face-flux kernel is one kernel per stencil width
+# since the per-width kernels (compute_face_fluxes_s<N>_dev, the generic compute_face_fluxes_sn_dev), one before
 FACE = re.compile(r"compute_face_fluxes_(s[0-9n]_)?dev")
 DISSIPATIVE = re.compile(r"add_dissipative_fluxes_o4_dev")
+ROCPROF_STATS, ROCPROF_TRACE = "rocprof-r0/*/*_kernel_stats.csv", "rocprof-r0/*/*_kernel_trace.csv"
+# the columns of a rocprofv3 kernel summary, renamed to the Nsight Systems ones the collection already reads
+ROCPROF_COLUMNS = (("Name", "Name"), ("Total Time (ns)", "TotalDurationNs"), ("Instances", "Calls"))
+# the per-dispatch resources rocprofv3 records (AMD's answer to `cuobjdump --dump-resource-usage`); SGPR_Count and
+# LDS_Block_Size are the same for every offload kernel of this app, so only these three are worth a column
+RESOURCES = (("vgpr", "VGPR_Count"), ("agpr", "Accum_VGPR_Count"), ("scratch_b", "Scratch_Size"))
 FIELDS = (
     "variant",
     "size",
@@ -73,14 +88,29 @@ FIELDS = (
     "dissipative_ms",
     "dissipative_s",
     "kernels_s",
+    # appended, so that every column above keeps its index and the committed A30 CSV stays valid input: it predates
+    # them and a DictReader simply leaves them out (they are blank for an nsys run anyway)
+    "face_vgpr",
+    "face_agpr",
+    "face_scratch_b",
+    "dissipative_vgpr",
+    "dissipative_agpr",
+    "dissipative_scratch_b",
 )
+# one results CSV per profiling machine: `collect` rewrites the whole file from the run directories it can see, and
+# runs/ is gitignored, so a machine cannot regenerate another's rows (see `dropped_runs`). `figures` reads them all
+DEFAULT_RESULTS = (HERE / "results" / "runs.csv", HERE / "results" / "runs-amd.csv")
 # the variants of the A30 experiment, in the order of the figures; "leg" is the build of the fnl-nvf leg
 VARIANTS = ("leg", "r128", "lto", "lto-r128", "B0", "B0-lto")
+# the variants of the MI300X experiment; there is no lto row, amdflang already LTO-links the device bitcode of every
+# translation unit by default (its device job is -emit-llvm-bc and the link runs through clang-linker-wrapper)
+AMD_VARIANTS = ("leg", "B0")
 # the CPU A/B of the WENO fix (Slurm 1357589): the "before" executable was built in this worktree, the "after" one
 # from the uncommitted fix, committed afterwards as f46b56fb (run.info records the HEAD of the time, ff80d8da)
 CPU_AB_JOB, CPU_BEFORE = "1357589", "weno-before"
-# the runs the figures average: one rank (the kernel summary is rank 0's), the 20 steps of profile.sh; the variants
-# figure is WENO-5 and the Slurm jobs of that experiment (the leg there is the build before LTO became the default)
+# the runs the figures average: one rank (the kernel summary is rank 0's), the 20 steps of profile.sh. The A30 variants
+# figure is WENO-5 and the Slurm jobs of that experiment (the leg there is the build before LTO became the default);
+# the MI300X figures are not restricted by scheme or job (see `loop_bars`)
 FIG_NP, FIG_STEPS, FIG_SCHEME = "1", "20", "weno-u-5"
 VARIANT_JOBS = ("1357614", "1357619", "1357635")
 # the per-width kernels against the generic one: the untagged runs (the fnl-nvf leg with the per-width kernels) of job
@@ -93,6 +123,13 @@ WIDTH_JOBS, WIDTH_SCHEMES = (
 # the uncommitted fix, committed afterwards: run.info records the HEAD of the time, 421cd773) of job 1357850, refined
 # walls
 SEAM_JOBS = ("1357849", "1357850")
+# the four parts of a loop bar, in stacking order
+PARTS = (
+    ("face-flux kernel", "C0"),
+    ("dissipative kernel", "C1"),
+    ("other kernels", "C2"),
+    ("no kernel running", "0.75"),
+)
 # the Couette constants of make_profile.py (and of regression/couette, verification/viscous/profiles.py)
 GAMMA, MU, PRANDTL, U, TW, H = 1.4, 0.01, 0.75, 1.0, 1.0, 1.0
 
@@ -117,7 +154,54 @@ def variant_of(info: dict[str, str]) -> str:
     return "before" if CPU_BEFORE in exe else "leg"
 
 
-def kernel_summary(run: Path) -> list[dict[str, str]]:
+def kernel_summary(run: Path, info: dict[str, str]) -> list[dict[str, str]]:
+    """Return the kernel summary of a run, from rocprofv3 or from Nsight Systems, in the nsys column names.
+
+    The profiler comes from run.info, not from which files exist: a directory copied from another machine can hold
+    both, and `tool` is the field profile.sh writes for exactly this. Any other tool (none, ncu, perf) has no kernel
+    summary and falls through to the nsys reader, which returns [].
+    """
+    if info.get("tool") == "rocprof":
+        return rocprof_summary(run)
+    return nsys_summary(run)
+
+
+def rocprof_summary(run: Path) -> list[dict[str, str]]:
+    """Return the rocprofv3 kernel statistics of rank 0, renamed to the nsys columns, with the per-kernel resources.
+
+    Rank 0 only, as the nsys summary is: summing every rank would make the kernel total a multiple of the loop time,
+    which is the max over the ranks. rocprofv3 wrote the file at collection time, so there is nothing to regenerate.
+    """
+    stats = sorted(run.glob(ROCPROF_STATS))
+    if not stats:
+        return []
+    if len(stats) > 1:
+        print(f"collect: warning, {run.name} has several rank-0 rocprof summaries, reading {stats[0].name}")
+    resources = rocprof_resources(run)
+    rows = []
+    for row in csv.DictReader(stats[0].read_text().splitlines()):
+        kernel = {nsys: row[rocprof] for nsys, rocprof in ROCPROF_COLUMNS}
+        kernel.update(resources.get(row["Name"], {}))
+        rows.append(kernel)
+    return rows
+
+
+def rocprof_resources(run: Path) -> dict[str, dict[str, str]]:
+    """Return the registers and the scratch of every kernel of a rocprofv3 trace, by kernel name.
+
+    Every dispatch of one kernel carries the same values, so the first wins; a kernel whose resources varied between
+    dispatches would go unnoticed here.
+    """
+    traces = sorted(run.glob(ROCPROF_TRACE))
+    if not traces:
+        return {}
+    resources: dict[str, dict[str, str]] = {}
+    for row in csv.DictReader(traces[0].read_text().splitlines()):
+        resources.setdefault(row["Kernel_Name"], {key: row[column] for key, column in RESOURCES})
+    return resources
+
+
+def nsys_summary(run: Path) -> list[dict[str, str]]:
     """Return the rows of the nsys kernel summary of a run, written first with `nsys stats` if it is missing."""
     path = run / KERN
     rep = run / "nsys-r0.nsys-rep"
@@ -147,13 +231,23 @@ def kernel_summary(run: Path) -> list[dict[str, str]]:
     return list(csv.DictReader(lines))
 
 
-def collect(runs: Path, out: Path) -> None:
+def dropped_runs(out: Path, rows: list[dict[str, str]]) -> list[str]:
+    """Return the runs of an existing results CSV that `rows` would not rewrite, identified by host and date."""
+    if not out.is_file():
+        return []
+    keys = {(r["host"], r["date"]) for r in rows}
+    return [f"{r['host']} {r['date']}" for r in read_rows(out) if (r["host"], r["date"]) not in keys]
+
+
+def collect(runs: Path, out: Path, *, force: bool = False) -> int:
     """Write one CSV row per run directory of `runs` (directories without run.info are skipped)."""
     rows = []
+    # a run profile.sh superseded keeps its run.info and wall.txt under <dir>.old-<timestamp> (profile.sh:103):
+    # collecting it too would average a replaced measurement into the same figure bar as the one that replaced it
     for run in sorted(
         p
         for p in runs.iterdir()
-        if (p / "run.info").is_file() and (p / "wall.txt").is_file()
+        if ".old-" not in p.name and (p / "run.info").is_file() and (p / "wall.txt").is_file()
     ):
         info = read_info(run)
         timing = re.search(
@@ -178,12 +272,8 @@ def collect(runs: Path, out: Path) -> None:
             "loop_s": timing.group(1) if timing else "",
             "steps_s": timing.group(2) if timing else "",
         }
-        kernels = kernel_summary(run)
-        row["kernels_s"] = (
-            f"{sum(float(k['Total Time (ns)']) for k in kernels) / 1e9:.4f}"
-            if kernels
-            else ""
-        )
+        kernels = kernel_summary(run, info)
+        row["kernels_s"] = f"{sum(float(k['Total Time (ns)']) for k in kernels) / 1e9:.4f}" if kernels else ""
         for key, name in (("face", FACE), ("dissipative", DISSIPATIVE)):
             # every kernel of that name (one per model or per stencil width): total time, and mean per launch
             hit = [k for k in kernels if name.search(k["Name"])]
@@ -191,14 +281,30 @@ def collect(runs: Path, out: Path) -> None:
             launches = sum(int(k["Instances"]) for k in hit)
             row[f"{key}_ms"] = f"{total / launches / 1e6:.4f}" if hit else ""
             row[f"{key}_s"] = f"{total / 1e9:.4f}" if hit else ""
+            # the registers and the scratch of the kernel that spent the time: averaging them over several kernels
+            # of one name would mean nothing. Only rocprofv3 records them, so an nsys run leaves these blank
+            busiest = max(hit, key=lambda k: float(k["Total Time (ns)"]), default=None) if hit else None
+            for name_key, _ in RESOURCES:
+                row[f"{key}_{name_key}"] = (busiest or {}).get(name_key, "")
         rows.append(row)
     rows.sort(key=lambda r: r["date"])
+    dropped = dropped_runs(out, rows)
+    if dropped and not force:
+        print(f"collect: refusing to write {out}: it holds {len(dropped)} run(s) that {runs} does not, and collect")
+        print("  rewrites the whole file. runs/ is gitignored, so another machine's runs are not visible here.")
+        print(f"  Write your own file (--out {out.parent.name}/runs-<machine>.csv), or --force to drop them:")
+        for run_key in dropped[:5]:
+            print(f"    {run_key}")
+        if len(dropped) > 5:
+            print(f"    ... and {len(dropped) - 5} more")
+        return 1
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(rows)
     print(f"collect: {len(rows)} runs -> {out}")
+    return 0
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
@@ -212,84 +318,100 @@ def mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
-def fig_variants(rows: list[dict[str, str]], out: Path) -> None:
-    """Draw the A30 loop of each variant, split by kernel, for the uniform and the refined-walls runs."""
+def loop_bars(
+    rows: list[dict[str, str]],
+    *,
+    tool: str,
+    size: str,
+    bars: tuple[tuple[str, dict[str, str]], ...],
+    jobs: tuple[str, ...] | None = None,
+) -> tuple[list[str], list[tuple[float, float, float, float]], list[float]]:
+    """Return the name, the four-part stack and the loop time of each bar that has runs of one size.
+
+    `jobs` restricts the runs to the Slurm jobs of one experiment (all of them when None).
+    """
+    names, stacks, loops = [], [], []
+    for label, match in bars:
+        sel = [
+            r
+            for r in rows
+            if r["size"] == size
+            and r["tool"] == tool
+            and r["steps"] == FIG_STEPS
+            and r["face_s"]
+            and (jobs is None or r["slurm_job"] in jobs)
+            and all(r[key] == value for key, value in match.items())
+        ]
+        if not sel:
+            continue
+        if len({r["commit"] for r in sel}) > 1:
+            print(f"figures: warning, {label} {size} averages runs of several commits")
+        loop = mean([float(r["loop_s"]) for r in sel])
+        kern = mean([float(r["kernels_s"]) for r in sel])
+        face = mean([float(r["face_s"]) for r in sel])
+        diss = mean([float(r["dissipative_s"]) for r in sel])
+        names.append(f"{label} ({len(sel)} run{'s' if len(sel) > 1 else ''})")
+        stacks.append((face, diss, max(kern - face - diss, 0.0), max(loop - kern, 0.0)))
+        loops.append(loop)
+    return names, stacks, loops
+
+
+def draw_loop_axis(
+    ax,  # noqa: ANN001
+    names: list[str],
+    stacks: list[tuple[float, float, float, float]],
+    loops: list[float],
+    title: str,
+) -> None:
+    """Draw one stacked bar per group: where the forest loop goes, against the first bar."""
+    y = range(len(names))
+    left = [0.0] * len(names)
+    for k, (label, color) in enumerate(PARTS):
+        widths = [s[k] for s in stacks]
+        ax.barh(list(y), widths, left=left, color=color, label=label, edgecolor="k", lw=0.4)
+        left = [a + b for a, b in zip(left, widths, strict=True)]
+    for i, loop in enumerate(loops):
+        ax.text(
+            max(left[i], loop) + 0.6,
+            i,
+            f"{loop:.1f} s ({100 * (loop / loops[0] - 1):+.0f}%)" if i else f"{loop:.1f} s",
+            va="center",
+            fontsize=8,
+        )
+    ax.set_yticks(list(y), names)
+    ax.invert_yaxis()
+    # default=: one panel of a figure can have no run yet while the other has, and an empty panel must still draw
+    ax.set_xlim(0, max(loops, default=1.0) * 1.28)
+    ax.set_xlabel("forest loop, 20 steps (s)")
+    ax.set_title(title, fontsize=9)
+    ax.grid(axis="x", alpha=0.3)
+
+
+def fig_loop_split(
+    rows: list[dict[str, str]],
+    out: Path,
+    *,
+    tool: str,
+    device: str,
+    sizes: tuple[tuple[str, str], ...],
+    bars: tuple[tuple[str, dict[str, str]], ...],
+    fname: str,
+    suptitle: str,
+    jobs: tuple[str, ...] | None = None,
+) -> None:
+    """Draw where the forest loop goes, per bar, for the uniform and the refined-walls runs of one device."""
     import matplotlib.pyplot as plt  # noqa: PLC0415
 
+    panels = [(title, *loop_bars(rows, tool=tool, size=size, bars=bars, jobs=jobs)) for size, title in sizes]
+    if not any(names for _, names, _, _ in panels):
+        print(f"figures: no {tool} run to draw, {fname} skipped")
+        return
     fig, axs = plt.subplots(1, 2, figsize=(13.5, 4.6), constrained_layout=True)
-    parts = (
-        ("face-flux kernel", "C0"),
-        ("dissipative kernel", "C1"),
-        ("other kernels", "C2"),
-        ("no kernel running", "0.75"),
-    )
-    for ax, size, title in (
-        (axs[0], "medium-uniform", "uniform, 16.8 M cells"),
-        (axs[1], "medium", "refined walls, 5.8 M cells, a regrid every 10 steps"),
-    ):
-        names, stacks, loops = [], [], []
-        for v in VARIANTS:
-            sel = [
-                r
-                for r in rows
-                if r["variant"] == v
-                and r["size"] == size
-                and r["tool"] == "nsys"
-                and r["np"] == FIG_NP
-                and r["scheme"] == FIG_SCHEME
-                and r["steps"] == FIG_STEPS
-                and r["slurm_job"] in VARIANT_JOBS
-                and r["face_s"]
-            ]
-            if not sel:
-                continue
-            if len({r["commit"] for r in sel}) > 1:
-                print(f"figures: warning, {v} {size} averages runs of several commits")
-            loop = mean([float(r["loop_s"]) for r in sel])
-            kern = mean([float(r["kernels_s"]) for r in sel])
-            face = mean([float(r["face_s"]) for r in sel])
-            diss = mean([float(r["dissipative_s"]) for r in sel])
-            names.append(f"{v} ({len(sel)} run{'s' if len(sel) > 1 else ''})")
-            stacks.append(
-                (face, diss, max(kern - face - diss, 0.0), max(loop - kern, 0.0))
-            )
-            loops.append(loop)
-        y = range(len(names))
-        left = [0.0] * len(names)
-        for k, (label, color) in enumerate(parts):
-            widths = [s[k] for s in stacks]
-            ax.barh(
-                list(y),
-                widths,
-                left=left,
-                color=color,
-                label=label,
-                edgecolor="k",
-                lw=0.4,
-            )
-            left = [a + b for a, b in zip(left, widths, strict=True)]
-        for i, loop in enumerate(loops):
-            ax.text(
-                max(left[i], loop) + 0.6,
-                i,
-                f"{loop:.1f} s ({100 * (loop / loops[0] - 1):+.0f}%)"
-                if i
-                else f"{loop:.1f} s",
-                va="center",
-                fontsize=8,
-            )
-        ax.set_yticks(list(y), names)
-        ax.invert_yaxis()
-        ax.set_xlim(0, max(loops) * 1.28)
-        ax.set_xlabel("forest loop, 20 steps (s)")
-        ax.set_title(f"one A30, medium {title}", fontsize=9)
-        ax.grid(axis="x", alpha=0.3)
+    for ax, (title, names, stacks, loops) in zip(axs, panels, strict=True):
+        draw_loop_axis(ax, names, stacks, loops, f"{device}, {title}")
     axs[0].legend(fontsize=8, loc="lower right")
-    fig.suptitle(
-        "FLUME FNL on one A30: where the loop goes, per build variant (Nsight Systems; mean over the runs)",
-        fontsize=10,
-    )
-    fig.savefig(out / "a30-variants.png", dpi=110)
+    fig.suptitle(suptitle, fontsize=10)
+    fig.savefig(out / fname, dpi=110)
     plt.close(fig)
 
 
@@ -438,6 +560,65 @@ def fig_seam(rows: list[dict[str, str]], out: Path) -> None:
     )
     fig.savefig(out / "a30-seam.png", dpi=110)
     plt.close(fig)
+
+
+def fig_variants(rows: list[dict[str, str]], out: Path) -> None:
+    """Draw the A30 loop of each build variant, split by kernel, for the uniform and the refined-walls runs."""
+    fig_loop_split(
+        rows,
+        out,
+        tool="nsys",
+        device="one A30",
+        sizes=(
+            ("medium-uniform", "medium uniform, 16.8 M cells"),
+            ("medium", "medium refined walls, 5.8 M cells, a regrid every 10 steps"),
+        ),
+        bars=tuple((v, {"variant": v, "np": FIG_NP, "scheme": FIG_SCHEME}) for v in VARIANTS),
+        jobs=VARIANT_JOBS,
+        fname="a30-variants.png",
+        suptitle="FLUME FNL on one A30: where the loop goes, per build variant "
+        "(Nsight Systems; mean over the runs)",
+    )
+
+
+def fig_amd_variants(rows: list[dict[str, str]], out: Path) -> None:
+    """Draw the MI300X loop of each build variant, split by kernel, for the uniform and the refined-walls runs."""
+    fig_loop_split(
+        rows,
+        out,
+        tool="rocprof",
+        device="one MI300X",
+        sizes=(
+            ("large-uniform", "large uniform, 134 M cells"),
+            ("large", "large refined walls, 46 M cells, a regrid every 10 steps"),
+        ),
+        bars=tuple((v, {"variant": v, "np": FIG_NP}) for v in AMD_VARIANTS),
+        fname="mi300x-variants.png",
+        suptitle="FLUME FNL on one MI300X: where the loop goes, per build variant "
+        "(rocprofv3; mean over the runs)",
+    )
+
+
+def fig_amd_ranks(rows: list[dict[str, str]], out: Path) -> None:
+    """Draw the MI300X loop of the leg on one GPU and on the whole node, split by kernel.
+
+    The kernel segments are rank 0's (rocprofv3 summarises per rank) while the loop is the max over the ranks, so at
+    np 8 the grey band carries the MPI wait and the rank imbalance as well as the unattributed host time.
+    """
+    fig_loop_split(
+        rows,
+        out,
+        tool="rocprof",
+        device="MI300X",
+        sizes=(
+            ("large-uniform", "large uniform, 134 M cells"),
+            ("large", "large refined walls, 46 M cells, a regrid every 10 steps"),
+        ),
+        bars=(("np 1", {"variant": "leg", "np": "1"}), ("np 8", {"variant": "leg", "np": "8"})),
+        fname="mi300x-ranks.png",
+        suptitle="FLUME FNL on MI300X: the loop on one GPU and on the eight of the node "
+        "(rocprofv3 on rank 0; loop is the max over the ranks)",
+    )
 
 
 def fig_cpu(rows: list[dict[str, str]], out: Path) -> None:
@@ -756,17 +937,17 @@ def main() -> int:
     p = sub.add_parser("collect")
     p.add_argument("runs", type=Path)
     p.add_argument("--out", type=Path, default=HERE / "results" / "runs.csv")
+    p.add_argument("--force", action="store_true", help="write even if runs of the existing --out would be dropped")
     p = sub.add_parser("figures")
     p.add_argument("runs", type=Path)
-    p.add_argument("--results", type=Path, default=HERE / "results" / "runs.csv")
+    p.add_argument("--results", type=Path, nargs="+", default=None)
     p.add_argument("--out", type=Path, default=HERE / "figures")
     p = sub.add_parser("idle")
     p.add_argument("run", type=Path)
     p.add_argument("--top", type=int, default=15)
     args = parser.parse_args()
     if args.cmd == "collect":
-        collect(args.runs, args.out)
-        return 0
+        return collect(args.runs, args.out, force=args.force)
     if args.cmd == "idle":
         idle(args.run, args.top)
         return 0
@@ -774,10 +955,13 @@ def main() -> int:
 
     mpl.use("Agg")
     args.out.mkdir(parents=True, exist_ok=True)
-    rows = read_rows(args.results)
+    results = args.results if args.results else [p for p in DEFAULT_RESULTS if p.is_file()]
+    rows = [row for path in results for row in read_rows(path)]
     fig_variants(rows, args.out)
     fig_widths(rows, args.out)
     fig_seam(rows, args.out)
+    fig_amd_variants(rows, args.out)
+    fig_amd_ranks(rows, args.out)
     fig_cpu(rows, args.out)
     fig_fields(args.runs, args.out)
     print(f"figures: written to {args.out}")

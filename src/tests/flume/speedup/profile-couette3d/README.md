@@ -223,6 +223,47 @@ Since the `lto` result below, the varsets `local_nvf` and `iac_nvf` build every 
 `-gpu=...,lto` (the fobos variable `$NVF_LTO`): the `fnl-nvf` leg is now what the variant `lto` was, and `--gpu lto`
 adds nothing there. The leg of the results below, without LTO, is `--varset "iac_nvf nolto"`.
 
+**On the `fnl-amd` leg** a *source* variant needs nothing new — `--tag` is not leg-restricted, and
+`patches/face-kernel-s3.patch` touches `src/app/flume/fnl/adam_flume_fnl_face_kernels_agnostic.INC`, which every FNL
+backend compiles:
+
+```bash
+git apply src/tests/flume/speedup/profile-couette3d/patches/face-kernel-s3.patch   # from the repository root
+cd src/tests/flume/speedup && ./build.sh fnl-amd --varset "thera_amd gfx942" --jobs 32 --tag B0
+git -C ../../.. apply -R src/tests/flume/speedup/profile-couette3d/patches/face-kernel-s3.patch
+```
+
+A *compiler-flag* variant has no AMD form yet: `--gpu` prepends nvfortran's `-gpu=` umbrella and stays
+`fnl-nvf`-only, and amdflang's knobs are plain flags with no umbrella to prepend. **There is deliberately no `lto`
+variant on AMD: device LTO is already the default there.** A driver dry-run with no LTO flag at all already shows the
+device job as `-emit-llvm-bc` and the link going through `clang-linker-wrapper` with `--device-compiler=` /
+`--device-linker=`, i.e. the device link is already a full-LTO link over every translation unit's bitcode —
+`-foffload-lto` and `--offload-lto` are rejected because there is nothing to enable, and plain `-flto` only adds host
+LTO plus a redundant `-flto=full` to a device compile that was already emitting bitcode. There is likewise no
+`maxregcount` analogue: `amdgpu-waves-per-eu` is a function attribute, not a driver flag. The occupancy lever that
+costs no rebuild is `OMP_NUM_TEAMS` / `OMP_TEAMS_THREAD_LIMIT`, because FUNDAL's `OMPLOOP`
+(`src/third_party/FUNDAL/src/lib/fundal.H`) emits a bare `target teams distribute parallel do` with neither clause —
+pass them through with `--launcher "mpirun -x ADAM_SEAM_TIMING -x OMP_NUM_TEAMS -x OMP_TEAMS_THREAD_LIMIT -np"`,
+since the default launcher forwards only the variables it names.
+
+**AMD node** (one rank per GPU; `mpirun` is the default launcher and needs no `--launcher` there):
+
+```bash
+export PATH=/opt/rocm-7.2.1/bin:$PATH                     # see the rocprofv3 note below -- not optional on thera
+./profile.sh fnl-amd --size large            --np 1 --tool rocprof   # per-kernel statistics in runs/.../rocprof-r0/
+./profile.sh fnl-amd --size large --uniform  --np 1 --tool rocprof
+./profile.sh fnl-amd --size large            --np 8 --tool rocprof   # over the node: communication shows up
+./profile.sh fnl-amd --size large --uniform  --np 8 --tool rocprof
+```
+
+**Which `rocprofv3`.** `profile.sh` calls it by name, so PATH decides, and on thera the first one on PATH is the
+rocprofv3 **1.2.3** bundled with the therock compiler drop — which **aborts this executable** under `--kernel-trace`:
+the run dies mid-step with `OFFLOAD ERROR: memory access fault by GPU N ... at virtual address (nil)`, then
+`rocprofv3 caught signal 6`. It is specific to kernel-dispatch interception on this binary: the same build runs to
+completion with `--tool none`, with `AMD_SERIALIZE_KERNEL=3`, and under the same rocprofv3 with `--hip-trace` only,
+and rocprofv3 1.2.3 traces a minimal amdflang offload program fine. The rocprofv3 **1.1.0** of `/opt/rocm-7.2.1`
+traces it correctly, so prepend that directory. Only the profiler changes: the application's own HIP, HSA and OpenMP
+runtimes come from the compiler drop through the executable's RPATH either way.
 
 ## Reading the results
 
@@ -230,7 +271,13 @@ adds nothing there. The leg of the results below, without LTO, is `--varset "iac
   MPI ranges; the timeline shows where the steps wait.
 - `ncu-r0.ncu-rep` (Nsight Compute GUI or `ncu --import ... --page details`): occupancy, memory throughput, registers
   and spills of each kernel.
-- `rocprof-r<N>/`: the `*_stats.csv` files rank the kernels by total time; the trace files hold every launch.
+- `rocprof-r<N>/<host>/<pid>_*.csv`: `_kernel_stats.csv` ranks the kernels by total time and `_kernel_trace.csv`
+  holds every dispatch — including, per kernel, `VGPR_Count`, `Accum_VGPR_Count`, `SGPR_Count`, `Scratch_Size` and
+  `LDS_Block_Size`, so on AMD the registers and the scratch come with the trace where on NVIDIA they need a separate
+  `cuobjdump --dump-resource-usage` run. `make_figures.py collect` records the three that vary between kernels here
+  (VGPR, AGPR, scratch; SGPR is 112 and LDS 2048 for every offload kernel of this app). `_memory_copy_stats.csv` has
+  the device-to-device copies, which are **not** in the figures' stack: they overlap kernels, so adding them as a
+  segment would double-count.
 - `perf report -i perf-r<N>.data`: the CPU hot spots with their call graphs.
 - `./make_figures.py idle runs/<run>/` (an nsys run): where the GPU is idle inside the loop, by gap length, by the GPU
   operation that ends each gap, and the CPU samples that fall in the gaps; see
@@ -445,15 +492,25 @@ its timing was not measured.
 
 ### Reproducing the results
 
-The measurements are `results/runs.csv`, one row per run directory (variant, size, Slurm job, date, commit, executable,
-wall time, forest loop and steps, the mean per launch of the two flux kernels, the total kernel time), and the figures
-are drawn from it and from the checkpoints of the correctness runs:
+The measurements are `results/runs.csv` (NVIDIA) and `results/runs-amd.csv` (AMD), one row per run directory (variant,
+size, Slurm job, date, commit, executable, wall time, forest loop and steps, the mean per launch of the two flux
+kernels, the total kernel time, and on AMD the registers and the scratch of each flux kernel), and the figures are
+drawn from them and from the checkpoints of the correctness runs:
 
 ```bash
 ./make_figures.py collect runs/            # runs/ here or a copy of the profiling machine's; -> results/runs.csv
 ./make_figures.py figures runs/            # -> figures/*.png (needs numpy, matplotlib, h5py)
 ./make_figures.py idle runs/<run>/         # the idle gaps of one nsys run (its nsys*.sqlite, exported if missing)
 ```
+
+**One results file per profiling machine, on purpose.** `collect` rewrites the whole output file from the run
+directories it can see, and `runs/` is gitignored — so a `collect` on the AMD node cannot see medooza's run
+directories and would replace its 33 rows with its own. It refuses instead: if the existing output holds runs that
+this `runs/` does not, it names them and writes nothing, and `--force` is the deliberate override. `figures` reads
+both files (or whichever `--results` paths are given) and skips, with a message, any figure whose runs are absent —
+so either machine can redraw without the other's data. A run that `profile.sh` superseded, kept as
+`<dir>.old-<timestamp>`, is not collected: it still has a `run.info` and a `wall.txt`, and averaging a replaced
+measurement into the same bar as its replacement would be silent.
 
 On medooza, one A30 of a `dev-gn` node held exclusively, every run with `--launcher "srun --mpi=pmix -n"`:
 
