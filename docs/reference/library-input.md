@@ -119,6 +119,7 @@ regrids (`frequency > 0`).
 | `3` total variation (`AMR_TV`) | fatal ("not supported by FLUME") | yes: the total variation of the coils' current density |
 | `4` Löhner (`AMR_LOHNER`) | yes, at runtime regrids only (it reads ghost cells the initial AMR does not fill) | **does nothing** (no branch) |
 | `5` Jeans length (`AMR_JEANS`) | yes, needs `[gravity] self_gravity = .true.` | **does nothing** (no branch) |
+| `6` registered criterion (`AMR_USER`) | yes, at runtime regrids only: the criterion the program registered under `name` ([#110](https://github.com/szaghi/adam/issues/110)); an unregistered name is fatal at the first regrid | **does nothing** (no branch) |
 
 An unknown mode reads no further keys and stops nothing in the library; FLUME stops on it at the first AMR pass.
 
@@ -141,6 +142,7 @@ An unknown mode reads no further keys and stops nothing in the library; FLUME st
 | `floor` | real | no (mode 4) | `>= 0`, default 0 | 4 | Absolute noise filter, for a variable that vanishes in quiet regions. |
 | `buffer` | int | no (mode 4) | `>= 0`, default 1 (FLUME: also `<= ngc - 1`) | 4 | Ghost layers the estimator reads. |
 | `jeans_cells` | real | no (mode 5) | `> 0`, default 8 | 5 | Refine where some interior cell resolves its Jeans length with fewer cells. |
+| `name` | string | mode 6 | the name a criterion was registered under; empty is fatal at load, unregistered at the first regrid | 6 | The registered criterion (`adam_amr_criterion_object`). |
 | `jeans_cells_derefine` | real | no (mode 5) | `> jeans_cells`, default `2 * jeans_cells`; otherwise fatal | 5 | Coarsen where every interior cell has more cells per Jeans length; keep between. |
 
 FLUME's page lists its variable indices and the [runtime AMR setup](/applications/flume/input#setting-up-runtime-amr).

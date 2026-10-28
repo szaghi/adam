@@ -1,5 +1,5 @@
 [modes]
-modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-cpu-gnu-fft flume-cpu-gnu-fft-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-nvf-fft flume-fnl-nvf-fft-debug flume-fnl-omp-amd flume-fnl-omp-amd-debug test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf test-flume-euler-library-fnl-omp-amd test-flume-mhd-library-gnu test-flume-mhd-library-fnl-nvf test-flume-mhd-library-fnl-omp-amd test-flume-mhd-riemann-gnu test-flume-mhd-riemann-fnl-nvf test-flume-mhd-riemann-fnl-omp-amd test-flume-positivity-gnu test-flume-weno-interpolation-gnu test-flume-weno-weights-gnu test-flume-weno-interpolation-fnl-nvf test-flume-weno-interpolation-fnl-omp-amd
+modes = flume-cpu-gnu flume-cpu-gnu-omp flume-cpu-gnu-debug flume-cpu-gnu-fft flume-cpu-gnu-fft-debug flume-fnl-nvf flume-fnl-nvf-debug flume-fnl-nvf-fft flume-fnl-nvf-fft-debug flume-fnl-omp-amd flume-fnl-omp-amd-debug test-flume-euler-library-gnu test-flume-euler-library-fnl-nvf test-flume-euler-library-fnl-omp-amd test-flume-mhd-library-gnu test-flume-mhd-library-fnl-nvf test-flume-mhd-library-fnl-omp-amd test-flume-mhd-riemann-gnu test-flume-mhd-riemann-fnl-nvf test-flume-mhd-riemann-fnl-omp-amd test-flume-positivity-gnu test-flume-weno-interpolation-gnu test-flume-weno-weights-gnu test-flume-weno-interpolation-fnl-nvf test-flume-weno-interpolation-fnl-omp-amd test-flume-user-criterion-cpu-gnu
 
 # Every application mode has its own mod_dir/obj_dir, ./mod/flume/<toolchain>/ (issue #72): PRISM and FLUME compile the
 # same library sources, and with one directory per compiler an incremental build of one app left the other's modules
@@ -10,6 +10,15 @@ mod_dir  = ./mod/flume/gnu/
 obj_dir  = ./obj/flume/gnu/
 preproc  = -D_MPI_ -w
 target   = adam_flume_cpu.F90
+
+[test-flume-user-criterion-cpu-gnu]
+; issue #110 P4: the FLUME CPU driver plus a registered refinement criterion (multirealm/check.sh leg 10); FLUME's objects
+template = template-gnu
+mod_dir  = ./mod/flume/gnu/
+obj_dir  = ./obj/flume/gnu/
+preproc  = -D_MPI_ -w
+target   = test_flume_user_criterion.F90
+output   = test_flume_user_criterion
 
 [flume-cpu-gnu-omp]
 template = template-gnu

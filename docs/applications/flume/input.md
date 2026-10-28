@@ -162,6 +162,14 @@ How the pieces combine, and what to expect:
   the step's output and restart files).
 - **Log.** Each regrid prints `flume: regrid at step N: blocks a -> b, R refined, C coarsened, S sweeps` (plus its wall
   time on FNL); a state with non-positive density or pressure after a regrid stops the run with its location.
+- **Your own criterion** ([#110](https://github.com/szaghi/adam/issues/110)). Extend `amr_criterion_object`
+  (`adam_amr_criterion_object`) with a `vote(realm, b)` returning `TO_BE_REFINED`, `TO_NOT_TOUCH` or `TO_BE_DEREFINED`
+  for block `b`, register an instance on every realm in a copy of the driver (`call realm(i)%register_amr_criterion(c)`,
+  before `simulate`; `c` a TARGET variable of the main program, since the realm keeps a pointer to it; an unregistered
+  name stops the run at initialisation), and select it with `[amr_marker_N] mode = 6` and `name = <its name>`; its votes combine with the
+  other markers' as theirs do, at runtime regrids. The example `src/tests/flume/verification/regrid/test_flume_user_criterion.F90`
+  is the CPU driver plus a criterion that reproduces the built-in box marker (bitwise the same run, `multirealm/check.sh`
+  leg 10).
 
 ---
 

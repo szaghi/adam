@@ -79,7 +79,16 @@
 # seam stays a mirror (never logged as a 2:1 seam), and the mass of the two realms is conserved to round-off while
 # the waves stay inside the box (t = 0.2).
 #
-# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg9 or all (default all); leg4 compares against
+# Leg 10 (issue #110, P4): a refinement criterion the program registers (`register_amr_criterion`), selected by
+# `[amr_marker_1] mode = 6, name = box-criterion`. The test driver exe/test_flume_user_criterion (fobis mode
+# test-flume-user-criterion-cpu-gnu; CRIT_EXE overrides it) is the FLUME CPU driver plus a criterion that votes as the
+# built-in primitive-box marker does. The initial grid is not refined (amr_iterations = 0), so the first runtime regrid
+# refines the box: the registered criterion must give the same run as the built-in marker, bit for bit, on one realm
+# (sod-amr) and on the 2-realm forest of leg 2 (the box in realm 2). The same input with the plain FLUME driver, which
+# registers nothing, must stop at initialisation. Not covered: a derefine vote of a criterion (with these inputs every
+# derefine vote falls on the base level) and its combination with another marker; leg 8 covers that path with Loehner.
+#
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg10 or all (default all); leg4 compares against
 #        the sod-amr run of leg2, leg5 against the sod-x and sod-z runs of leg1 and leg3, so they require those legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -94,7 +103,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
 source "$VERIF_DIR/legs.sh"
-legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9"
+legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9 leg10"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -352,5 +361,54 @@ print(f"   mass of the 2 realms over {len(steps)} steps: largest relative drift 
 sys.exit(0 if ok else 1)
 PYEOF
    echo "   $(basename "$multi"): $n_regrid regrid log lines, the seam stayed a mirror"
+fi
+if has_leg leg10; then
+   echo "== leg 10: a registered refinement criterion against the built-in box marker it reproduces (#110)"
+   crit_exe="${CRIT_EXE:-$REPO_ROOT/exe/test_flume_user_criterion}"
+   if [[ ! -x "$crit_exe" ]]; then
+      echo "check.sh: $crit_exe not found (fobis build --mode test-flume-user-criterion-cpu-gnu, or CRIT_EXE)" >&2 ; exit 2
+   fi
+   l10_dir="$CASE_DIR/work-$TAG-l10-src" ; rm -rf "$l10_dir" ; mkdir -p "$l10_dir/builtin" "$l10_dir/criterion"
+   for f in sod-amr.ini sod-amr-2realm-r2.ini; do
+      # runtime AMR every 4 steps from an unrefined grid: the box marker acts at the first regrid
+      sed -e 's/^frequency *= *0/frequency      = 4/' -e 's/^amr_iterations *= *[0-9]*/amr_iterations = 0/' \
+          "$CASE_DIR/$f" > "$l10_dir/builtin/$f"
+      python3 - "$l10_dir/builtin/$f" "$l10_dir/criterion/$f" <<'PYEOF'
+import re
+import sys
+
+s = open(sys.argv[1]).read()
+crit = ("[amr_marker_1]\nmode         = 6\nname         = box-criterion\ndelta_type   = max\ndelta_fine   = 0.0\n"
+        "delta_coarse = 0.0\n\n")
+s, n = re.subn(r"\[amr_marker_1\][^\[]*", crit, s, count=1)
+assert n == 1
+open(sys.argv[2], "w").write(s)
+PYEOF
+   done
+   for d in builtin criterion; do
+      cp "$CASE_DIR/sod-amr-2realm.ini" "$CASE_DIR/sod-amr-2realm-r1.ini" "$l10_dir/$d/"
+   done
+   exe_save="$EXE"
+   for case in single 2realm; do
+      if [[ $case == single ]]; then inp=sod-amr.ini ; files=("sod-amr.ini") ; else
+         inp=sod-amr-2realm.ini ; files=("sod-amr-2realm.ini" "sod-amr-2realm-r1.ini" "sod-amr-2realm-r2.ini") ; fi
+      EXE="$exe_save"
+      run "$CASE_DIR/work-$TAG-l10-$case-builtin" "$inp" "${files[@]/#/$l10_dir/builtin/}"
+      EXE="$crit_exe"
+      run "$CASE_DIR/work-$TAG-l10-$case-criterion" "$inp" "${files[@]/#/$l10_dir/criterion/}"
+      EXE="$exe_save"
+      if ! grep -aq "regrid at step" "$CASE_DIR/work-$TAG-l10-$case-criterion/log.txt"; then
+         echo "check.sh: leg10 ($case) never regridded" >&2 ; exit 1
+      fi
+      "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$CASE_DIR/work-$TAG-l10-$case-criterion" \
+         "$CASE_DIR/work-$TAG-l10-$case-builtin" --ngc 3 --tol 0
+   done
+   # the plain FLUME driver registers nothing: the same input must stop at initialisation, naming the criterion
+   work="$CASE_DIR/work-$TAG-l10-unregistered"
+   RUN_MUST_FAIL=1 run "$work" sod-amr.ini "$l10_dir/criterion/sod-amr.ini"
+   if ! grep -aq 'name = "box-criterion" is not a registered criterion' "$work/log.txt"; then
+      echo "check.sh: an unregistered criterion was not refused, see $work/log.txt" >&2 ; exit 1
+   fi
+   echo "   $(basename "$work"): refused as expected"
 fi
 echo "multi-realm verification PASSED (legs: $LEGS) ($TAG)"

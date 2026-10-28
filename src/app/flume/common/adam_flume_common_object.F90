@@ -11,7 +11,8 @@ module adam_flume_common_object
 ! ADAM classes, libraries, parameters
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
                                              AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD, &
-                                             AMR_JEANS, AMR_LOHNER, prolongation_name
+                                             AMR_JEANS, AMR_LOHNER, AMR_USER, prolongation_name
+use :: adam_amr_criterion_object,     only : amr_criterion_object, amr_criterion_pointer
 use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
                                              SEAM_KIND_INTER_REALM, SEAM_KIND_INTRA_REALM_AMR
@@ -91,6 +92,7 @@ type, extends(realm_object) :: flume_common_object
    ! AMR
    logical                        :: amr_locked_=.false. !< Runtime AMR locked after initialization.
    type(regrid_phases_t)          :: regrid_phase        !< The state of the current runtime regrid (issue #110).
+   type(amr_criterion_pointer), allocatable :: amr_criteria(:) !< Registered refinement criteria (issue #110, P4).
    ! IO
    logical                        :: save_auxiliary_fields=.false. !< Save the auxiliary variables with the fields.
    ! GLM and div(B) monitors
@@ -126,6 +128,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: mark_by_lohner   !< Mark blocks by the Loehner estimator of a variable (issue #74).
       procedure, pass(self) :: mark_by_jeans    !< Mark blocks by the cells per Jeans length (issue #91).
       procedure, pass(self) :: mark_runtime     !< Combine the markers into the flags of a runtime regrid (issue #74).
+      procedure, pass(self) :: register_amr_criterion !< Register a refinement criterion by name (issue #110, P4).
       procedure, pass(self) :: check_regridded_state !< Stop on an inadmissible state after a regrid (issue #74).
       procedure, pass(self) :: is_regrid_step   !< Whether the step just closed is a runtime regrid step (issue #74).
       ! public methods
@@ -236,6 +239,9 @@ contains
          case(AMR_LOHNER)
             ! runtime regrids only (mark_runtime): the estimator also reads the ghosts of the physical faces, which the
             ! host cannot fill here (the boundary conditions are the backends')
+            cycle
+         case(AMR_USER)
+            ! runtime regrids only (mark_runtime), like the Loehner marker: a registered criterion may read any field
             cycle
          case(AMR_JEANS)
             ! cell-local (no ghosts): it refines the initial grid too, never derefines it
@@ -591,6 +597,8 @@ contains
       case(AMR_JEANS)
          call self%mark_by_jeans(jeans_cells=amr_marker%jeans_cells, jeans_cells_derefine=amr_marker%jeans_cells_derefine, &
                                  delta_type=amr_marker%delta_type)
+      case(AMR_USER)
+         call mark_by_criterion(name=amr_marker%criterion)
       case default
          call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
       endselect
@@ -609,6 +617,33 @@ contains
    enddo
    endassociate
    contains
+      subroutine mark_by_criterion(name)
+      !< The votes of the registered criterion `name` (issue #110, P4), one per block of this rank; a name nobody
+      !< registered, or a vote that is not a mark, stops the run.
+      character(*), intent(in)  :: name  !< Criterion name.
+      character(:), allocatable :: known !< Registered names, for the message.
+      integer(I4P)              :: c, bb !< Counters.
+
+      known = ''
+      if (allocated(self%amr_criteria)) then
+         do c=1, size(self%amr_criteria)
+            if (self%amr_criteria(c)%ptr%name == name) exit
+            known = known//' '//self%amr_criteria(c)%ptr%name
+         enddo
+         if (c > size(self%amr_criteria)) c = 0
+      else
+         c = 0
+      endif
+      if (c == 0) call mpih%error_stop(msg=': [amr_marker] name = "'//name//'" is not a registered criterion '// &
+                                           '(registered:'//known//'); register it with register_amr_criterion')
+      do bb=1, self%blocks_number
+         self%adam%field%refinements_needed(bb) = self%amr_criteria(c)%ptr%vote(realm=self, b=bb)
+         if (all(self%adam%field%refinements_needed(bb) /= [TO_BE_REFINED, TO_NOT_TOUCH, TO_BE_DEREFINED])) &
+            call mpih%error_stop(msg=': the criterion "'//name//'" voted '//                                  &
+                                     trim(str(self%adam%field%refinements_needed(bb)))//' (a vote is -1, 0 or 1)')
+      enddo
+      endsubroutine mark_by_criterion
+
       subroutine sink_region(refine, derefine)
       !< Keep the neighbourhood of every sink on the finest level (issue #94): a block within `r_acc + (frequency / 2 +
       !< 2)` cells of the finest level of a sink (its accretion radius, the half cell a sink may move per step until the
@@ -641,6 +676,28 @@ contains
       enddo
       endsubroutine sink_region
    endsubroutine mark_runtime
+
+   subroutine register_amr_criterion(self, criterion)
+   !< Register a refinement criterion (issue #110, P4): `[amr_marker_N] mode = 6, name = <criterion%name>` selects it
+   !< at runtime regrids. The realm keeps a pointer: the program owns the instance, which must have the TARGET attribute
+   !< and outlive the simulation (a variable of the main program, or a SAVEd one; not a local of a procedure that returns
+   !< before the run); a second criterion with the same name stops the run.
+   class(flume_common_object),           intent(inout) :: self      !< The equation.
+   class(amr_criterion_object), pointer, intent(in)    :: criterion !< The criterion (a TARGET actual is pointed to).
+   type(amr_criterion_pointer), allocatable           :: grown(:)  !< The list, one longer.
+   integer(I4P)                                       :: c         !< Counter.
+
+   if (.not.allocated(criterion%name)) call mpih%error_stop(msg=': register_amr_criterion: the criterion has no name')
+   if (.not.allocated(self%amr_criteria)) allocate(self%amr_criteria(0))
+   do c=1, size(self%amr_criteria)
+      if (self%amr_criteria(c)%ptr%name == criterion%name) &
+         call mpih%error_stop(msg=': register_amr_criterion: "'//criterion%name//'" is registered twice')
+   enddo
+   allocate(grown(size(self%amr_criteria) + 1))
+   grown(1:size(self%amr_criteria)) = self%amr_criteria
+   grown(size(grown))%ptr => criterion
+   call move_alloc(grown, self%amr_criteria)
+   endsubroutine register_amr_criterion
 
    subroutine check_regridded_state(self)
    !< Stop on an inadmissible state after a runtime regrid (issue #74): density or pressure not positive on an interior
@@ -2747,6 +2804,9 @@ contains
          call mpih%error_stop(msg=': [amr_marker_'//trim(str(i_marker, .true.))//'].(buffer)='//trim(str(m%buffer, .true.))//&
                                   ' exceeds [grid].(ngc) - 1 = '//trim(str(self%adam%grid%ngc - 1_I4P, .true.))//         &
                                   ' (the estimator reads one cell beyond the buffer)')
+      ! a registered criterion (issue #110): the program registers before `initialize`, so a name nobody registered is
+      ! reported here, whatever the cadence, not at the first regrid
+      if (m%mode == AMR_USER) call check_criterion_registered(name=m%criterion, sname='amr_marker_'//trim(str(i_marker, .true.)))
       if (m%mode == AMR_JEANS .and. .not.self%physics%gravity%self_gravity) &
          call mpih%error_stop(msg=': [amr_marker_'//trim(str(i_marker, .true.))//'] is a Jeans marker (mode 5): it '// &
                                   'needs [gravity].(self_gravity) = .true. (the Jeans length depends on G)')
@@ -2756,6 +2816,24 @@ contains
    if (self%amr%markers_number == 0_I4P) &
       call mpih%error_stop(msg=': [amr].(frequency)='//trim(str(self%amr%frequency, .true.))//' asks for runtime '// &
                                'regridding, but [amr].(markers_number) = 0: nothing would mark a block')
+   contains
+      subroutine check_criterion_registered(name, sname)
+      !< Stop if no criterion was registered under `name` (issue #110).
+      character(*), intent(in)  :: name  !< Criterion name.
+      character(*), intent(in)  :: sname !< Marker section, for the message.
+      character(:), allocatable :: known !< Registered names.
+      integer(I4P)              :: c     !< Counter.
+
+      known = ''
+      if (allocated(self%amr_criteria)) then
+         do c=1, size(self%amr_criteria)
+            if (self%amr_criteria(c)%ptr%name == name) return
+            known = known//' '//self%amr_criteria(c)%ptr%name
+         enddo
+      endif
+      call mpih%error_stop(msg=': ['//sname//'] name = "'//name//'" is not a registered criterion (registered:'// &
+                               known//'); the program registers it with register_amr_criterion before the run')
+      endsubroutine check_criterion_registered
    endsubroutine check_runtime_amr
 
    subroutine check_divb_flux(self)

@@ -21,6 +21,7 @@ public :: AMR_GRAD
 public :: AMR_TV
 public :: AMR_LOHNER
 public :: AMR_JEANS
+public :: AMR_USER
 public :: AMR_GEO_SOLID
 public :: AMR_GEO_PRIMITIVE_BOX
 public :: AMR_GEO_STL
@@ -38,6 +39,7 @@ integer(I4P), parameter :: AMR_GRAD              = 2_I4P   !< Field gradient mar
 integer(I4P), parameter :: AMR_TV                = 3_I4P   !< Field total variation marker.
 integer(I4P), parameter :: AMR_LOHNER            = 4_I4P   !< Loehner normalized second derivative marker (issue #74).
 integer(I4P), parameter :: AMR_JEANS             = 5_I4P   !< Jeans length resolution marker (issue #91).
+integer(I4P), parameter :: AMR_USER              = 6_I4P   !< A criterion the program registers, by name (issue #110).
 integer(I4P), parameter :: AMR_GEO_SOLID         = 101_I4P !< AMR_GEO geometry kind: solid/IB index (legacy default).
 integer(I4P), parameter :: AMR_GEO_PRIMITIVE_BOX = 102_I4P !< AMR_GEO geometry kind: primitive axis-aligned box.
 integer(I4P), parameter :: AMR_GEO_STL           = 103_I4P !< AMR_GEO geometry kind: STL surface file.
@@ -68,6 +70,7 @@ type :: amr_marker_object
    integer(I4P)              :: buffer=1_I4P           !< Ghost layers the estimator reads (AMR_LOHNER).
    real(R8P)                 :: jeans_cells=8._R8P     !< Refine below this many cells per Jeans length (AMR_JEANS).
    real(R8P)                 :: jeans_cells_derefine=16._R8P !< Derefine above this many cells per Jeans length (AMR_JEANS).
+   character(:), allocatable :: criterion              !< Name of the registered criterion (AMR_USER, issue #110).
 endtype amr_marker_object
 
 type :: amr_object
@@ -246,6 +249,14 @@ contains
          if (m%floor < 0._R8P) call mpih%error_stop(msg=': ['//sname//'].(floor) must be >= 0')
          if (m%buffer < 0_I4P) call mpih%error_stop(msg=': ['//sname//'].(buffer) must be >= 0')
          endassociate
+      case(AMR_USER)
+         ! a criterion the program registered with its realm (adam_amr_criterion_object, issue #110): the app finds it
+         ! by name when it marks, and stops on a name nobody registered
+         buff_c = ''
+         call file_parameters%get(section_name=sname, option_name='name', val=buff_c, error=error)
+         if (error > 0 .or. len_trim(buff_c) == 0) call mpih%error_stop(msg=': ['//sname//'] mode = 6 (a registered '// &
+                                                                       'criterion) needs a name')
+         self%markers(i_marker)%criterion = trim(adjustl(buff_c))
       case(AMR_JEANS)
          ! Jeans length resolution (Truelove et al. 1997): refine where a block resolves the local Jeans length with
          ! fewer than jeans_cells cells, derefine where every cell has more than jeans_cells_derefine (the hysteresis
