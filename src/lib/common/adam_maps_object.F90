@@ -718,6 +718,7 @@ contains
    integer(I4P)                             :: fec_bc_corners_number  !< BC corners number.
    integer(I4P)                             :: fec_bc_type            !< BC type.
    integer(I4P), allocatable                :: c_crown(:), c          !< Counter.
+   integer(I4P)                             :: crown                  !< Crown layer counter.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('maps_object%make_local_maps_bc start')
@@ -799,6 +800,19 @@ contains
                                                                                 local_map_bc_crown=self%local_map_bc_crown, &
                                                                                 c_crown=c_crown)
       deallocate(c_crown)
+      ! issue #110: the face rows of an inter-realm seam face keep BC_SEAM through every rebuild (a runtime regrid
+      ! rebuilds the crown before the forest rebuilds the seams), so no boundary condition overwrites the seam ghosts in
+      ! between; `seam_face` is set by the forest, and is all false when the crown is first built, at initialisation
+      if (any(self%seam_face)) then
+         do crown=1, grid%ngc
+            do c=1, size(self%local_map_bc_crown, dim=1)
+               if (self%local_map_bc_crown(c,1,crown) <= 0_I8P) cycle
+               fec = int(self%local_map_bc_crown(c,9,crown), I4P)
+               if (fec < 1 .or. fec > 6) cycle
+               if (self%seam_face(fec)) self%local_map_bc_crown(c,8,crown) = int(BC_SEAM, I8P)
+            enddo
+         enddo
+      endif
    endif
    if (verbose_) call mpih%print_message('tree_object%make_local_maps_bc finish')
    endsubroutine make_local_maps_bc

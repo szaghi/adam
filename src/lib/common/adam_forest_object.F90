@@ -66,6 +66,12 @@ type :: forest_object
    ! seam fills (F3): the wait at a barrier put before their posts (load imbalance) and their single wait.
    logical                    :: timing   = .false.
    real(R8P)                  :: wtime(7) = 0._R8P
+   ! Runtime AMR on a multi-realm forest (issue #110): the manifest of `initialize_from_manifest`, kept to rebuild the
+   ! inter-realm topology after a regrid; and the test hook ADAM_FOREST_REBUILD_TOPOLOGY=1, which rebuilds it after
+   ! every step whether or not a realm regridded (a run must then stay bitwise identical: the rebuild is idempotent).
+   type(forest_manifest_t)    :: manifest
+   logical                    :: has_manifest     = .false.
+   logical                    :: rebuild_topology = .false.
    contains
       ! public methods
       ! initialize/finalize
@@ -79,7 +85,7 @@ type :: forest_object
       ! substage (Phase 2), α seams once at end-of-step (Phase 5).
       procedure, pass(self) :: is_done                !< AND-reduce each realm's is_done_forest across the forest.
       procedure, pass(self) :: post_step              !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
-      procedure, pass(self) :: regrid                 !< Iterate realm(:)%regrid_forest, rebuild the register on a change (#74).
+      procedure, pass(self) :: regrid                 !< Iterate realm(:)%regrid_forest, rebuild the topology on a change.
       procedure, pass(self) :: simulate               !< Main entry point (single shared INI): drive the full simulation.
       procedure, pass(self) :: simulate_from_manifest !< Main entry point (per-realm INIs via forest manifest).
       ! private methods
@@ -88,6 +94,7 @@ type :: forest_object
          !< register.
       procedure, pass(self), private :: apply_reflux_corrections        !< Apply Berger-Colella reflux to coarse-side.
       procedure, pass(self), private :: share_flux_register             !< Copy the register into every realm (#68 A2).
+      procedure, pass(self), private :: fill_all_seams                  !< Fill every seam on committed q (issue #110).
       procedure, pass(self), private :: start_timing                    !< Arm the timing report (issue #53).
       procedure, pass(self), private :: report_timing                   !< Print the timing report (issue #53).
 endtype forest_object
@@ -120,7 +127,6 @@ contains
       realm(is)%ptr%realm_index = is
       call realm(is)%ptr%initialize_forest(filename=filename, realms_number=self%n)
    enddo
-   call check_runtime_amr(realm=realm)
    ! Register intra-realm AMR coarse-fine faces. In the manifest-less (N=1) path
    ! there is no inter-realm seam pass, so this also owns the flux-register
    ! initialization (sizing it to the intra-realm AMR face count, or to zero when
@@ -154,7 +160,20 @@ contains
       realm(is)%ptr%realm_index = is
       call realm(is)%ptr%initialize_forest(filename=trim(manifest%realm_ini(is)), realms_number=self%n)
    enddo
-   call check_runtime_amr(realm=realm)
+   self%manifest = manifest
+   self%has_manifest = .true.
+   block
+      character(len=8) :: val  !< Environment value.
+      integer          :: stat !< Environment status.
+      integer          :: ierr !< MPI error.
+
+      call get_environment_variable('ADAM_FOREST_REBUILD_TOPOLOGY', value=val, status=stat)
+      self%rebuild_topology = (stat == 0 .and. trim(val) == '1')
+      ! every rank must agree, or the ranks that rebuild would post seam fills the others never match
+      call MPI_ALLREDUCE(MPI_IN_PLACE, self%rebuild_topology, 1, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, ierr)
+      if (self%rebuild_topology) call mpih%print_message('forest: ADAM_FOREST_REBUILD_TOPOLOGY=1, the inter-realm '// &
+                                                         'topology is rebuilt after every step (test hook, issue #110)')
+   endblock
    call self%populate_inter_realm_topology(realm, manifest)
    call check_beta_admissibility(realm=realm, manifest=manifest)
    endsubroutine initialize_from_manifest
@@ -441,28 +460,59 @@ contains
    !< continues exactly as the uninterrupted one (saved before the regrid, the restart held the old grid and the
    !< restarted run diverged from the regrid step on). A realm that regrids changes its tree, so the
    !< intra-realm 2:1 faces of the flux register (and the per-block register index the positivity seam sync and the
-   !< div(B) seam band read) describe the old grid: the register is rebuilt from the new trees. Runtime regridding is
-   !< single-realm (refused on a multi-realm forest at initialisation, `check_runtime_amr`), so no inter-realm seam row
-   !< or register face needs rebuilding. The fused fast path is chosen per step from `flux_register%nfaces`, so a run
-   !< that gains or loses 2:1 faces switches path with the rebuilt register.
+   !< div(B) seam band read) describe the old grid: the register is rebuilt from the new trees. The fused fast path is
+   !< chosen per step from `flux_register%nfaces`, so a run that gains or loses 2:1 faces switches path with the rebuilt
+   !< register.
+   !<
+   !< On a multi-realm forest (issue #110) the whole inter-realm topology depends on the block layout too: the register
+   !< faces of the seams, the seam ghost rows (local, MPI send and receive), the BC_SEAM rows of the boundary crown and
+   !< their device copies. After any realm regridded, `populate_inter_realm_topology` rebuilds all of it from the
+   !< manifest kept at initialisation (it is idempotent: every structure it builds is deallocated first), then every
+   !< seam is filled from its peer on the committed state, both cadences: a new seam block has no seam ghost yet, and an
+   !< end-of-step seam would otherwise enter the next step with the ghosts of the old layout. Before the realms mark,
+   !< the seams are filled too, so markers that read ghosts (gradient, Löhner) see the peer realm across a seam. Both
+   !< fills run only when a realm regrids at runtime (or under the rebuild hook): a checkpoint holds the ghost cells, so
+   !< a run without runtime AMR must not see an extra fill.
    class(forest_object), intent(inout) :: self          !< The forest.
    type(realm_pointer),  intent(inout) :: realm(:)      !< The realms.
    logical                             :: regridded     !< One realm's tree changed.
    logical                             :: any_regridded !< Some realm's tree changed, on any rank.
+   logical                             :: runtime_amr   !< Some realm regrids at runtime.
    integer(I4P)                        :: is            !< Realm index.
    integer(I4P)                        :: ierr          !< MPI error code.
 
+   runtime_amr = .false.
+   do is = 1, int(size(realm), I4P)
+      runtime_amr = runtime_amr .or. realm(is)%ptr%runtime_amr_forest()
+   enddo
+   if (runtime_amr .and. self%has_manifest) call self%fill_all_seams(realm=realm)
    any_regridded = .false.
    do is = 1, int(size(realm), I4P)
       call realm(is)%ptr%regrid_forest(regridded=regridded)
       any_regridded = any_regridded .or. regridded
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, any_regridded, 1, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, ierr)
+   if (self%rebuild_topology) any_regridded = .true.
    if (any_regridded) then
-      call self%register_intra_realm_amr_seams(realm=realm)
-      call self%share_flux_register(realm=realm)
+      if (self%has_manifest) then
+         call self%populate_inter_realm_topology(realm, self%manifest)
+         call self%fill_all_seams(realm=realm)
+      else
+         call self%register_intra_realm_amr_seams(realm=realm)
+         call self%share_flux_register(realm=realm)
+      endif
    endif
    endsubroutine regrid
+
+   subroutine fill_all_seams(self, realm)
+   !< Fill every inter-realm seam from its peer on the committed state, whatever its cadence (issue #110: around a
+   !< regrid). The fills read the peer's committed `q`, since no stage is active between steps.
+   class(forest_object), intent(inout) :: self     !< The forest.
+   type(realm_pointer),  intent(inout) :: realm(:) !< The realms.
+
+   call seam_fill_batch(realm=realm, cadence=CADENCE_END_OF_STEP, wtime=self%wtime(6:7))
+   call seam_fill_batch(realm=realm, cadence=CADENCE_STAGE_COINCIDENT, wtime=self%wtime(6:7))
+   endsubroutine fill_all_seams
 
    subroutine simulate(self, realm, filename)
    !< Drive the full simulation: initialize, time-loop, finalize.
@@ -574,23 +624,6 @@ contains
       if (mpih%myrank == 0) call mpih%print_message(trim(line))
    enddo
    endsubroutine report_timing
-
-   subroutine check_runtime_amr(realm)
-   !< Refuse runtime regridding on a multi-realm forest (issue #74, D-M5-4).
-   !<
-   !< The inter-realm topology (seam rows, BC_SEAM crown overrides, inter-realm register faces) is built once, at
-   !< initialisation; a realm that regrids would leave it describing the old grid, silently. Until it is rebuilt per
-   !< regrid, a realm that regrids must be the only one.
-   type(realm_pointer), intent(in) :: realm(:) !< Initialized realms.
-   integer(I4P)                    :: is       !< Realm index.
-
-   if (size(realm) < 2) return
-   do is = 1, int(size(realm), I4P)
-      if (realm(is)%ptr%runtime_amr_forest()) call mpih%error_stop(msg='forest_object: realm '//trim(str(is, .true.))// &
-         ' regrids during the run ([amr] frequency > 0), which is supported on a single-realm forest only (issue #74):'//&
-         ' the inter-realm seams are built once; set frequency = 0 or run one realm')
-   enddo
-   endsubroutine check_runtime_amr
 
    subroutine check_beta_admissibility(realm, manifest)
    !< Enforce β admissibility contract on every `stage_coincident` seam.

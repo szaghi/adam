@@ -67,9 +67,10 @@ toolchain), its `input.ini`, `data/<leg>-np<N>/` (the measurement after the warm
   67 M cells; sphere 16.8 M, 134 M cells): where each backend saturates, and a direct measure of how far the
   equal-resolution AMR estimate (which assumes a size-independent throughput) is from the truth.
 
-**Dropped:** the forward-facing step (EV-step). It is a three-realm forest, and FLUME refuses runtime regridding on a
-multi-realm forest (`forest_object%check_runtime_amr`, issue #74 D-M5-4; refined blocks along an inter-realm seam are
-refused too), so it has no dynamic-AMR variant. Owner decision 2026-10-21: drop every step case for now.
+**Dropped:** the forward-facing step (EV-step). It is a three-realm forest; FLUME refused runtime regridding on a
+multi-realm forest until issue #110 (the refusal of #74, D-M5-4, is gone, but the cross-realm 2:1 balance its refined
+regions need is #110 P2), so it had no dynamic-AMR variant. Owner decision 2026-10-21: drop every step case for now;
+#110 P6 brings it back.
 
 ## Grid
 

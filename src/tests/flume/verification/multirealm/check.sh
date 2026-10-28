@@ -48,7 +48,18 @@
 # so the unions must still reproduce the single-realm runs bit for bit (the shock crosses the seam: another operator
 # on either side differs).
 #
-# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg6 or all (default all); leg4 compares against
+# Leg 7 (issue #110, P1): runtime AMR on a multi-realm forest. Leg 2's inputs with [amr] frequency = 4 in realm 2 (realm
+# 1 has no marker, and FLUME refuses runtime regridding without one): its box marker re-marks the same blocks, so every
+# regrid leaves the grid as it is, while the forest fills the seams
+# before marking and, under ADAM_FOREST_REBUILD_TOPOLOGY=1, rebuilds the inter-realm topology after every step. The
+# union must still reproduce the single-realm sod-amr of leg 2 bit for bit (the refusal of issue #74, D-M5-4, is gone).
+#
+# The rebuild itself is tested by running legs 1-6 again with ADAM_FOREST_REBUILD_TOPOLOGY=1 exported (a single-node
+# mpirun or srun passes it to the ranks; across nodes Open MPI needs `-x ADAM_FOREST_REBUILD_TOPOLOGY`; the forest
+# OR-reduces it, so one rank seeing it is enough): the forest then rebuilds the seam rows, the register faces, the BC_SEAM crown rows and their device
+# copies after every step and refills every seam, and every leg must still reproduce its single-realm run bit for bit.
+#
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg7 or all (default all); leg4 compares against
 #        the sod-amr run of leg2, leg5 against the sod-x and sod-z runs of leg1 and leg3, so they require those legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -63,7 +74,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
 source "$VERIF_DIR/legs.sh"
-legs_declare "leg1 leg2 leg3 leg4 leg5 leg6"
+legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -229,5 +240,19 @@ if has_leg leg6; then
       "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
    done
    done
+fi
+if has_leg leg7 && ! has_leg leg2; then
+   echo "check.sh: leg7 compares against the sod-amr run of leg2: select leg2 too" >&2 ; exit 2
+fi
+if has_leg leg7; then
+   echo "== leg 7: leg 2 with runtime AMR in realm 2 ([amr] frequency = 4, issue #110): unchanged grid, bitwise"
+   rt_dir="$CASE_DIR/work-$TAG-runtime-amr-src" ; rm -rf "$rt_dir" ; mkdir -p "$rt_dir"
+   cp "$CASE_DIR/sod-amr-2realm-r1.ini" "$rt_dir/"
+   sed 's/^frequency *= *0/frequency      = 4/' "$CASE_DIR/sod-amr-2realm-r2.ini" > "$rt_dir/sod-amr-2realm-r2.ini"
+   grep -q '^frequency *= *4' "$rt_dir/sod-amr-2realm-r2.ini" || { echo "check.sh: no [amr] frequency" >&2 ; exit 1 ; }
+   multi="$CASE_DIR/work-$TAG-runtime-amr"
+   run "$multi" sod-amr-2realm.ini "$CASE_DIR/sod-amr-2realm.ini" "$rt_dir/sod-amr-2realm-r1.ini" \
+       "$rt_dir/sod-amr-2realm-r2.ini"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-amr-single" --ngc 3 --tol 0
 fi
 echo "multi-realm verification PASSED (legs: $LEGS) ($TAG)"
