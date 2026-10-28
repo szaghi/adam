@@ -13,11 +13,12 @@ module adam_ripple_common_object
 !< backends own the residuals and the integration.
 
 ! ADAM classes, libraries, parameters
-use :: adam_amr_object,           only : amr_marker_object, AMR_GEO, AMR_GEO_PRIMITIVE_BOX
+use :: adam_amr_criterion_object, only : amr_criterion_object, amr_criterion_pointer
+use :: adam_amr_object,           only : amr_marker_object, AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_USER
 use :: adam_flux_register_object, only : flux_register_object, face_tangential_ratios, restrict_fine_face_to_quadrant, &
                                          SEAM_KIND_INTRA_REALM_AMR
 use :: adam_maps_object,          only : face_axis_sign
-use :: adam_parameters,           only : BC_PERIODIC, TO_BE_REFINED, TO_NOT_TOUCH
+use :: adam_parameters,           only : BC_PERIODIC, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,         only : realm_object, realm_pointer
 use :: adam_rk_object,            only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 use :: adam_weno_object,          only : WENO_WEIGHTS_JS
@@ -46,12 +47,14 @@ type, extends(realm_object) :: ripple_common_object
    integer(I4P)           :: it=0_I4P                !< Current iteration.
    integer(I4P)           :: it_max=0_I4P            !< Iterations number; <= 0: run to time_max.
    integer(I4P)           :: history_unit=0_I4P      !< Unit of the history file (rank 0).
+   type(amr_criterion_pointer), allocatable :: amr_criteria(:) !< Registered refinement criteria (issue #110).
    contains
       ! common methods
       procedure, pass(self) :: initialize_ripple        !< Initialize the common data.
       procedure, pass(self) :: check_input              !< Refuse the inputs RIPPLE cannot honour.
       procedure, pass(self) :: set_initial_conditions   !< Set the initial profile on the interior cells.
-      procedure, pass(self) :: amr_update               !< Initial AMR: box markers only.
+      procedure, pass(self) :: amr_update               !< Initial AMR: box markers and registered criteria.
+      procedure, pass(self) :: register_amr_criterion   !< Register a refinement criterion by name (issue #110).
       procedure, pass(self) :: compute_total            !< Total of u dV on this rank.
       procedure, pass(self) :: save_output              !< Save one history row and the state (XH5F).
       procedure, pass(self) :: advance_time             !< Count the step and cap dt on time_max.
@@ -116,6 +119,7 @@ contains
    !< Refuse the inputs RIPPLE cannot honour, at initialization: a library key that the app silently ignored would run
    !< a different scheme than the input asks for.
    class(ripple_common_object), intent(in) :: self !< The realm.
+   integer(I4P)                            :: m, c !< Counters.
 
    select case(self%rk%scheme)
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -132,6 +136,32 @@ contains
                                                             'initialization only')
    if (self%ib%solids_number > 0_I4P) call mpih%error_stop(msg=': [solids].(number) must be 0: RIPPLE has no '// &
                                                                'immersed boundary')
+   do m=1, self%amr%markers_number
+      associate(marker=>self%amr%markers(m))
+      if (marker%mode == AMR_GEO .and. marker%geo_type == AMR_GEO_PRIMITIVE_BOX) cycle
+      if (marker%mode /= AMR_USER) call mpih%error_stop(msg=': RIPPLE supports the primitive-box AMR marker and the '// &
+                                                            'registered criteria (mode 6) only')
+      c = criterion_index(marker%criterion)
+      if (c == 0) call mpih%error_stop(msg=': [amr_marker_'//trim(str(m, .true.))//'] name = "'//marker%criterion//'"'// &
+                                           ' is not a registered criterion: register it before the run')
+      if (self%amr_criteria(c)%ptr%runtime_only) &
+         call mpih%error_stop(msg=': the criterion "'//marker%criterion//'" acts at runtime regrids only, and RIPPLE '// &
+                                  'refines at initialization only: set its runtime_only to .false.')
+      endassociate
+   enddo
+   contains
+      function criterion_index(name) result(c)
+      !< The index of the criterion registered under `name`, 0 if none.
+      character(*), intent(in) :: name !< Criterion name.
+      integer(I4P)             :: c    !< Its index.
+
+      if (allocated(self%amr_criteria)) then
+         do c=1, size(self%amr_criteria, kind=I4P)
+            if (self%amr_criteria(c)%ptr%name == name) return
+         enddo
+      endif
+      c = 0_I4P
+      endfunction criterion_index
    endsubroutine check_input
 
    subroutine set_initial_conditions(self)
@@ -154,26 +184,40 @@ contains
    endsubroutine set_initial_conditions
 
    subroutine amr_update(self)
-   !< Initial AMR: refine the blocks whose centroid lies in a `[amr_marker_N]` box (mode 1, `primitive-box`) until they
-   !< reach its `target_level`, `[amr] iters` sweeps. Other markers are refused.
-   class(ripple_common_object), intent(inout) :: self    !< The realm.
-   type(amr_marker_object)                    :: marker  !< Current marker.
-   real(R8P)                                  :: c(3)    !< Block centroid.
-   logical                                    :: changed !< The grid changed.
-   integer(I4P)                               :: it, m, b !< Counters.
+   !< Initial AMR, `[amr] iters` sweeps over the `[amr_marker_N]` sections: a box (mode 1, `primitive-box`) refines the
+   !< blocks whose centroid lies in it until they reach its `target_level`; a registered criterion (mode 6, issue #110)
+   !< marks with its own votes (`mark` with `initial = .true.`). Other markers are refused by `check_input`.
+   class(ripple_common_object), intent(inout) :: self     !< The realm.
+   type(amr_marker_object)                    :: marker   !< Current marker.
+   real(R8P)                                  :: c(3)     !< Block centroid.
+   logical                                    :: changed  !< The grid changed.
+   integer(I4P), allocatable                  :: votes(:) !< A criterion's votes, one per local block.
+   integer(I4P)                               :: it, m, b, k !< Counters.
 
    do it=1, self%amr%iters
       do m=1, self%amr%markers_number
          marker = self%amr%markers(m)
-         if (marker%mode /= AMR_GEO .or. marker%geo_type /= AMR_GEO_PRIMITIVE_BOX) &
-            call mpih%error_stop(msg=': RIPPLE supports only the primitive-box AMR marker')
          associate(field=>self%adam%field, tree=>self%adam%tree)
             field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
-            do b=1, self%blocks_number
-               c = 0.5_R8P * (field%emin(:,b) + field%emax(:,b))
-               if (all(c >= marker%box_emin) .and. all(c <= marker%box_emax) .and. &
-                   tree%level(field%code(b)) < marker%target_level) field%refinements_needed(b) = TO_BE_REFINED
-            enddo
+            if (marker%mode == AMR_USER) then
+               ! a registered criterion: its votes, checked
+               do k=1, size(self%amr_criteria, kind=I4P)
+                  if (self%amr_criteria(k)%ptr%name == marker%criterion) exit
+               enddo
+               allocate(votes(self%blocks_number))
+               call self%amr_criteria(k)%ptr%mark(realm=self, votes=votes, initial=.true.)
+               if (any(votes /= TO_BE_REFINED .and. votes /= TO_NOT_TOUCH .and. votes /= TO_BE_DEREFINED)) &
+                  call mpih%error_stop(msg=': the criterion "'//marker%criterion//'" voted something that is not '// &
+                                           '-1, 0 or 1')
+               field%refinements_needed(1:self%blocks_number) = votes
+               deallocate(votes)
+            else
+               do b=1, self%blocks_number
+                  c = 0.5_R8P * (field%emin(:,b) + field%emax(:,b))
+                  if (all(c >= marker%box_emin) .and. all(c <= marker%box_emax) .and. &
+                      tree%level(field%code(b)) < marker%target_level) field%refinements_needed(b) = TO_BE_REFINED
+               enddo
+            endif
          endassociate
          call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=changed, &
                                    q=self%q)
@@ -181,6 +225,27 @@ contains
    enddo
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine amr_update
+
+   subroutine register_amr_criterion(self, criterion)
+   !< Register a refinement criterion (issue #110): `[amr_marker_N] mode = 6, name = <criterion%name>` selects it. RIPPLE
+   !< refines at initialization only, so the criterion must act there (`runtime_only = .false.`). The realm keeps a
+   !< pointer: the program owns the instance (a TARGET of the main program, outliving the run).
+   class(ripple_common_object),          intent(inout) :: self      !< The realm.
+   class(amr_criterion_object), pointer, intent(in)    :: criterion !< The criterion (a TARGET actual is pointed to).
+   type(amr_criterion_pointer), allocatable           :: grown(:)  !< The list, one longer.
+   integer(I4P)                                       :: c         !< Counter.
+
+   if (.not.allocated(criterion%name)) call mpih%error_stop(msg=': register_amr_criterion: the criterion has no name')
+   if (.not.allocated(self%amr_criteria)) allocate(self%amr_criteria(0))
+   do c=1, size(self%amr_criteria, kind=I4P)
+      if (self%amr_criteria(c)%ptr%name == criterion%name) &
+         call mpih%error_stop(msg=': register_amr_criterion: "'//criterion%name//'" is registered twice')
+   enddo
+   allocate(grown(size(self%amr_criteria) + 1))
+   grown(1:size(self%amr_criteria)) = self%amr_criteria
+   grown(size(grown))%ptr => criterion
+   call move_alloc(grown, self%amr_criteria)
+   endsubroutine register_amr_criterion
 
    function compute_total(self) result(total)
    !< Return the total of u dV over the interior cells of this rank's blocks (host `q`).

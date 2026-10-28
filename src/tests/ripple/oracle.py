@@ -11,6 +11,8 @@ Subcommands:
                        volume, bounded by --tol
   compare WORK WORK    the largest difference of u between two runs' last checkpoints, block by block (keyed by the
                        block origin), bounded by --tol
+  refined WORK         the base blocks a static AMR run refined (those holding blocks finer than the coarsest) must be
+                       those where u0 at the base resolution rises above --threshold (issue #110: the crest criterion)
 """
 
 from __future__ import annotations
@@ -147,6 +149,36 @@ def compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def refined(args: argparse.Namespace) -> int:
+    """The base blocks the run refined against those where u0 rises above the threshold at the base resolution."""
+    work = Path(args.work)
+    ini = read_input(work)
+    _, emin, emax, null = domain(work)
+    nb = args.base_blocks
+    ncell = [int(ini["grid"][f"n{c}"]) for c in "ij"]
+    size = (emax - emin) / nb
+    blks = blocks(work)
+    coarsest = max(float(v[0][0]) for v in blks.values())
+    actual = set()
+    for dxyz, _, origin in blks.values():
+        if float(dxyz[0]) < coarsest:
+            actual.add(tuple(int(np.floor((origin[d] - emin[d]) / size[d] + 1e-9)) for d in range(2)))
+    expected = set()
+    for ix in range(nb):
+        for iy in range(nb):
+            xs = emin[0] + size[0] * (ix + (np.arange(ncell[0]) + 0.5) / ncell[0])
+            ys = emin[1] + size[1] * (iy + (np.arange(ncell[1]) + 0.5) / ncell[1])
+            u0 = np.outer(np.sin(2.0 * math.pi * (xs - emin[0]) / (emax[0] - emin[0])),
+                          np.sin(2.0 * math.pi * (ys - emin[1]) / (emax[1] - emin[1])))
+            if u0.max() > args.threshold:
+                expected.add((ix, iy))
+    print(f"refined base blocks: {sorted(actual)}; expected (u0 > {args.threshold}): {sorted(expected)}")
+    if actual != expected:
+        print("FAIL: the refined blocks are not those where u0 rises above the threshold")
+        return 1
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -164,6 +196,11 @@ def main() -> int:
     p.add_argument("work", nargs=2)
     p.add_argument("--tol", type=float, default=1e-12)
     p.set_defaults(func=compare)
+    p = sub.add_parser("refined")
+    p.add_argument("work")
+    p.add_argument("--threshold", type=float, required=True)
+    p.add_argument("--base-blocks", type=int, default=4, help="base blocks per non-null axis")
+    p.set_defaults(func=refined)
     args = parser.parse_args()
     return args.func(args)
 

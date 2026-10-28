@@ -160,7 +160,10 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
       allocate(self%flx(1,0:ni,1:nj,1:nk,nb), self%fly(1,1:ni,0:nj,1:nk,nb), self%flz(1,1:ni,1:nj,0:nk,nb), source=0._R8P)
    endassociate
-   if (self%amr%markers_number > 0) call self%amr_update
+   if (self%amr%markers_number > 0) then
+      call self%set_initial_conditions ! a registered criterion may mark on the initial state (issue #110)
+      call self%amr_update
+   endif
    call self%set_initial_conditions
    call self%save_output(fields=.true.)
    endsubroutine initialize_forest

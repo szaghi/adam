@@ -1,5 +1,5 @@
 [modes]
-modes = ripple-cpu-gnu ripple-cpu-gnu-debug ripple-fnl-nvf ripple-fnl-nvf-debug
+modes = ripple-cpu-gnu ripple-cpu-gnu-debug ripple-fnl-nvf ripple-fnl-nvf-debug test-ripple-crest-criterion-cpu-gnu
 
 # RIPPLE (issue #59): scalar linear advection, the worked example of the "build your own solver" tutorial. Own mod/obj
 # directories, as every application (issue #72).
@@ -30,3 +30,12 @@ mod_dir  = ./mod/ripple/nvf/debug/
 obj_dir  = ./obj/ripple/nvf/debug/
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_ripple_fnl.F90
+
+# The RIPPLE CPU driver plus a registered refinement criterion (issue #110, P4.5), the worked example of the
+# build-your-own tutorial: src/tests/ripple/test_ripple_crest_criterion.F90 (oracle r6).
+[test-ripple-crest-criterion-cpu-gnu]
+template = template-gnu
+mod_dir  = ./mod/ripple/gnu/
+obj_dir  = ./obj/ripple/gnu/
+preproc  = -D_MPI_ -w
+target   = test_ripple_crest_criterion.F90

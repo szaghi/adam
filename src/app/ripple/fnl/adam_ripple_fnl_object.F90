@@ -249,7 +249,10 @@ contains
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
-   if (self%amr%markers_number > 0) call self%amr_update
+   if (self%amr%markers_number > 0) then
+      call self%set_initial_conditions ! a registered criterion may mark on the initial state (issue #110)
+      call self%amr_update
+   endif
    call self%set_initial_conditions
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%copy_state(to_device=.true.)

@@ -180,11 +180,95 @@ PASS [r3]
   volume: the register and the reflux make both sides of each 2:1 face exchange the same flux.
 - **r3: rank invariance.** The AMR run on 1 and on 2 ranks gives bitwise identical fields (28 blocks).
 
+## A refinement criterion of your own
+
+The box above is a library marker, selected by a number. A criterion can also be code you write, without editing the
+library or RIPPLE ([issue #110](https://github.com/szaghi/adam/issues/110)): a type that extends the library's abstract
+`amr_criterion_object` and gives a vote for each block. `src/tests/ripple/test_ripple_crest_criterion.F90` refines the
+blocks where the profile rises above a threshold:
+
+```fortran
+type, extends(amr_criterion_object) :: crest_criterion
+   real(R8P)    :: threshold=0.9_R8P  !< Refine the blocks where some cell holds u above it.
+   integer(I4P) :: target_level=3_I4P !< Refine up to this level.
+   contains
+      procedure, pass(self) :: vote
+endtype crest_criterion
+
+contains
+   function vote(self, realm, b) result(mark)
+   class(crest_criterion), intent(inout) :: self  !< The criterion.
+   class(realm_object),    intent(in)    :: realm !< The realm.
+   integer(I4P),           intent(in)    :: b     !< Local block index.
+   integer(I4P)                          :: mark  !< The vote.
+
+   mark = TO_NOT_TOUCH
+   select type(realm)
+   class is(ripple_common_object)
+      if (realm%adam%tree%level(realm%adam%field%code(b)) >= self%target_level) return
+      if (any(realm%q(1, 1:realm%ni, 1:realm%nj, 1:realm%nk, b) > self%threshold)) mark = TO_BE_REFINED
+   endselect
+   endfunction vote
+```
+
+- **The vote** is `TO_BE_REFINED`, `TO_NOT_TOUCH` or `TO_BE_DEREFINED` for one block of the rank. The library hands
+  the realm as `class(realm_object)`; `select type` reaches RIPPLE's state `q`.
+- **Several blocks at once.** `vote` is enough for a criterion local to a block. One that compares neighbours or
+  dilates its marks overrides `mark(realm, votes, initial)`, which gives the votes of every block of the rank at once;
+  the library's default asks `vote` block by block. FLUME's built-in markers are criteria of that kind.
+
+The program owns the criterion and registers it with the realm before the run: the RIPPLE driver of
+[chapter 1](./core) plus three lines.
+
+```fortran
+type(crest_criterion), target :: crest !< The criterion (the program owns it).
+crest%name = 'crest'
+crest%runtime_only = .false. ! RIPPLE refines at initialization only
+call realm(1)%register_amr_criterion(crest)
+```
+
+`runtime_only` is the library's default for a registered criterion: it acts at the runtime regrids. RIPPLE refines at
+initialization only, so the criterion opts in there; `check_input` refuses one that would never act. The realm keeps a
+pointer, so the instance must outlive the run (the `target` variable of the main program). The input selects it by
+name, `src/tests/ripple/crest.ini` (excerpt):
+
+```ini
+[amr_marker_1]
+mode         = 6             ; a registered criterion (AMR_USER), selected by name
+name         = crest
+```
+
+The initial condition is set before the initial AMR, so a criterion can read the state (`initialize_forest` of each
+backend), and again after it, on the refined grid. In RIPPLE, `register_amr_criterion` and the `mode = 6` branch of
+`amr_update` are about twenty lines of the common object, the same as in FLUME.
+
+```bash
+fobis build --mode test-ripple-crest-criterion-cpu-gnu
+./src/tests/ripple/check.sh --legs r6
+```
+
+```text
+refined base blocks: [(0, 0), (0, 1), (1, 0), (1, 1), (2, 2), (2, 3), (3, 2), (3, 3)]; expected (u0 > 0.9): [(0, 0), (0, 1), (1, 0), (1, 1), (2, 2), (2, 3), (3, 2), (3, 3)]
+PASS [r6]
+total of u dV: 482 rows, largest drift 1.934e-16 of max|u0| times the volume
+PASS [r6 conservation]
+PASS [r6 unregistered]
+```
+
+- **r6: the blocks it refines.** $u_0 = \sin 2\pi x \, \sin 2\pi y$ rises above 0.9 only around its two positive
+  crests, $(0.25, 0.25)$ and $(0.75, 0.75)$: the oracle computes, block by block, where $u_0$ at the base resolution
+  exceeds the threshold, and the run refines exactly those 8 base blocks.
+- **Conservation** holds across the new 2:1 faces, as in r2.
+- **A name nobody registered** is refused at initialization: the plain driver, which registers no criterion, stops on
+  `crest.ini`.
+
 ::: tip What you learned
 - A 2:1 face sends the forest down the staged path; the application then splits its step at the stage boundaries.
 - `stage_active` is set and reset by the realm; the flux register is filled during the stages and emptied by the
   reflux after the step.
 - Across 2:1 faces the scheme is second order and conservative to round-off.
+- A refinement criterion is a type with a `vote`, registered by the program and selected by `mode = 6, name = ...`;
+  the library and the application stay untouched.
 :::
 
 Previous: [2. The library's numerics](./numerics). Next: [4. The GPU twin](./gpu).

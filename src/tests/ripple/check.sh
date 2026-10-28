@@ -16,13 +16,19 @@
 #   r5  CRLF input: the periodic case at N = 64 on 1 rank with LF and with CR+LF line endings, bitwise identical, on
 #       RIPPLE_R5_EXE (default the CPU executable; the leg that matters runs the FNL one: nvfortran keeps the CR at the
 #       end of a formatted record, gfortran drops it; FiNeR drops every CR since c55f8d3);
+#   r6  crest.ini, a refinement criterion of one's own (issue #110, P4.5, the build-your-own tutorial's example): the
+#       test driver test_ripple_crest_criterion (RIPPLE_CRIT_EXE) registers "crest", which refines the base blocks where
+#       u0 rises above 0.9; at N = 64 on 2 ranks the refined blocks must be exactly those (oracle refined: the 8 around
+#       the two positive crests) and the total of u dV constant to 1e-14, as in r2; a crest.ini run by the plain driver,
+#       where nothing registered "crest", must be refused at initialization;
 #   r4  CPU and FNL agree: the periodic and the AMR cases at N = 64 on 2 ranks with the FNL executable, against the
 #       CPU runs of r1 and r2 (run those first, in the CPU environment: the two executables need their own MPI), within
 #       1e-12; the FNL total of u dV constant as in r2.
 #
-# Usage: ./check.sh [--legs LIST]   (legs r1 r2 r3 r4 r5, comma-separated; default r1,r2,r3,r5)
+# Usage: ./check.sh [--legs LIST]   (legs r1 r2 r3 r4 r5 r6, comma-separated; default r1,r2,r3,r5,r6)
 #
-# RIPPLE_CPU_EXE, RIPPLE_FNL_EXE override the executables (default exe/adam_ripple_cpu, exe/adam_ripple_fnl), MPIRUN
+# RIPPLE_CPU_EXE, RIPPLE_FNL_EXE, RIPPLE_CRIT_EXE override the executables (default exe/adam_ripple_cpu,
+# exe/adam_ripple_fnl, exe/test_ripple_crest_criterion), MPIRUN
 # the launcher (default "mpirun"), PYTHON the interpreter (default the regression venv, which has h5py); the caller owns
 # the matching environment.
 set -euo pipefail
@@ -31,9 +37,10 @@ CASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$CASE_DIR/../../.." && pwd)"
 CPU_EXE="${RIPPLE_CPU_EXE:-$REPO_ROOT/exe/adam_ripple_cpu}"
 FNL_EXE="${RIPPLE_FNL_EXE:-$REPO_ROOT/exe/adam_ripple_fnl}"
+CRIT_EXE="${RIPPLE_CRIT_EXE:-$REPO_ROOT/exe/test_ripple_crest_criterion}"
 MPIRUN="${MPIRUN:-mpirun}"
 PYTHON="${PYTHON:-$REPO_ROOT/exe/.regression-venv/bin/python}"
-LEGS="r1,r2,r3,r5"
+LEGS="r1,r2,r3,r5,r6"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) LEGS="$2" ; shift 2 ;;
@@ -42,8 +49,8 @@ while [[ $# -gt 0 ]]; do
 done
 for leg in ${LEGS//,/ }; do
    case "$leg" in
-      r1|r2|r3|r4|r5) ;;
-      *) echo "check.sh: unknown leg '$leg' (accepted: r1 r2 r3 r4 r5)" >&2 ; exit 2 ;;
+      r1|r2|r3|r4|r5|r6) ;;
+      *) echo "check.sh: unknown leg '$leg' (accepted: r1 r2 r3 r4 r5 r6)" >&2 ; exit 2 ;;
    esac
 done
 ORACLE=("$PYTHON" "$CASE_DIR/oracle.py")
@@ -100,6 +107,19 @@ if has_leg r5; then
       echo "FAIL: $R5_EXE on the CRLF input exited non-zero (see $WORK/r5-crlf/log.txt)" ; FAILED=1
    fi
    verdict r5 "${ORACLE[@]}" compare "$WORK/r5-lf" "$WORK/r5-crlf" --tol 0
+fi
+if has_leg r6; then
+   run "$CRIT_EXE" crest.ini 16 2 "$WORK/r6" || FAILED=1
+   verdict r6 "${ORACLE[@]}" refined "$WORK/r6" --threshold 0.9
+   verdict "r6 conservation" "${ORACLE[@]}" conservation "$WORK/r6" --tol 1e-14
+   rm -rf "$WORK/r6-unregistered" && mkdir -p "$WORK/r6-unregistered" && cp "$WORK/r6/input.ini" "$WORK/r6-unregistered/"
+   if (cd "$WORK/r6-unregistered" && $MPIRUN -np 2 "$CPU_EXE" input.ini > log.txt 2>&1); then
+      echo "FAIL [r6 unregistered]: the plain driver ran crest.ini (see $WORK/r6-unregistered/log.txt)" ; FAILED=1
+   elif grep -aq 'name = "crest" is not a registered criterion' "$WORK/r6-unregistered/log.txt"; then
+      echo "PASS [r6 unregistered]"
+   else
+      echo "FAIL [r6 unregistered]: refused without the expected message (see $WORK/r6-unregistered/log.txt)" ; FAILED=1
+   fi
 fi
 if [[ $FAILED -eq 0 ]]; then echo "RIPPLE oracles ($LEGS) PASSED" ; else echo "RIPPLE oracles ($LEGS) FAILED" ; fi
 exit $FAILED

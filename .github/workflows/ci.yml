@@ -130,7 +130,8 @@ jobs:
 
   ripple-cpu:
     # RIPPLE, the toy app of the "build your own solver" tutorial (issue #59): the CPU build and its oracles against the
-    # exact translated profile (uniform order 5, AMR order 2 with conservation, rank invariance). The FNL leg r4 runs
+    # exact translated profile (uniform order 5, AMR order 2 with conservation, rank invariance, a registered refinement
+    # criterion, issue #110). The FNL leg r4 runs
     # on medooza: the hosted runners have no GPU.
     runs-on: ubuntu-24.04
     permissions:
@@ -149,13 +150,15 @@ jobs:
       run: fobis fetch
 
     - name: Build RIPPLE (CPU)
-      run: fobis build --mode ripple-cpu-gnu --varset ci_gnu
+      run: |
+        fobis build --mode ripple-cpu-gnu --varset ci_gnu
+        fobis build --mode test-ripple-crest-criterion-cpu-gnu --varset ci_gnu
 
     - name: Run the RIPPLE oracles
       run: |
         python3 -m venv exe/.regression-venv
         exe/.regression-venv/bin/pip install --quiet h5py numpy
-        ./src/tests/ripple/check.sh --legs r1,r2,r3,r5
+        ./src/tests/ripple/check.sh --legs r1,r2,r3,r5,r6
 
   docs-modes:
     # Every `fobis ... --mode X` in the documentation must be a mode the fobos files define (issue #60, P8): commands in
