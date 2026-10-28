@@ -276,7 +276,7 @@ type :: tree_object
       procedure, pass(self), private :: empty            !< Empty tree, i.e. remove all nodes, without destroy the tree.
       procedure, pass(self), private :: refine           !< Refine nodes.
       procedure, pass(self), private :: remove_node      !< Remove a node from the tree, given the key.
-      procedure, pass(self), private :: sanitize         !< Sanitize the tree.
+      procedure, pass(self)          :: sanitize         !< Sanitize the tree (public: the forest's seam balance, #110).
 endtype tree_object
 
 abstract interface

@@ -36,13 +36,13 @@ use :: adam_realm_object,         only : realm_object, realm_pointer
 use :: adam_maps_object,          only : inter_realm_neighbor_t,                                                  &
                                          FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
                                          CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT,                          &
-                                         COUPLING_MIRROR, COUPLING_REFINED, face_axis_sign
-use :: adam_tree_object,          only : tree_iterator_object, NODE_MORE_REFINED, NODE_LESS_REFINED
+                                         COUPLING_MIRROR, COUPLING_REFINED, COUPLING_AUTO, face_axis_sign
+use :: adam_tree_object,          only : tree_object, tree_iterator_object, NODE_MORE_REFINED, NODE_LESS_REFINED
 use :: adam_tree_node_object,     only : tree_node_object
 use :: adam_forest_manifest,      only : forest_manifest_t, forest_face_pair_t
 use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_REALM, SEAM_KIND_INTER_REALM_REFINED, &
                                          SEAM_KIND_INTRA_REALM_AMR
-use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY
+use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, TO_BE_REFINED, TO_BE_DEREFINED, TO_NOT_TOUCH
 use :: adam_seam_exchange,        only : seam_fill_batch, SEAM_ROW_COPY, SEAM_ROW_INTERPOLATE, SEAM_ROW_RESTRICT
 use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, seam_tricubic_centered_pos, &
                                                seam_quintic_centered_pos, SEAM_FILL_QUINTIC, &
@@ -95,6 +95,8 @@ type :: forest_object
       procedure, pass(self), private :: apply_reflux_corrections        !< Apply Berger-Colella reflux to coarse-side.
       procedure, pass(self), private :: share_flux_register             !< Copy the register into every realm (#68 A2).
       procedure, pass(self), private :: fill_all_seams                  !< Fill every seam on committed q (issue #110).
+      procedure, pass(self), private :: regrid_realms                   !< The phased multi-realm regrid (issue #110).
+      procedure, pass(self), private :: balance_seam_marks              !< Balance the marks across the seams (#110).
       procedure, pass(self), private :: start_timing                    !< Arm the timing report (issue #53).
       procedure, pass(self), private :: report_timing                   !< Print the timing report (issue #53).
 endtype forest_object
@@ -478,6 +480,7 @@ contains
    logical                             :: regridded     !< One realm's tree changed.
    logical                             :: any_regridded !< Some realm's tree changed, on any rank.
    logical                             :: runtime_amr   !< Some realm regrids at runtime.
+   logical                             :: rebuilt       !< The phased regrid rebuilt the topology after its last change.
    integer(I4P)                        :: is            !< Realm index.
    integer(I4P)                        :: ierr          !< MPI error code.
 
@@ -485,15 +488,19 @@ contains
    do is = 1, int(size(realm), I4P)
       runtime_amr = runtime_amr .or. realm(is)%ptr%runtime_amr_forest()
    enddo
-   if (runtime_amr .and. self%has_manifest) call self%fill_all_seams(realm=realm)
-   any_regridded = .false.
-   do is = 1, int(size(realm), I4P)
-      call realm(is)%ptr%regrid_forest(regridded=regridded)
-      any_regridded = any_regridded .or. regridded
-   enddo
+   rebuilt = .false.
+   if (runtime_amr .and. self%has_manifest) then
+      call self%regrid_realms(realm=realm, any_regridded=any_regridded, rebuilt=rebuilt)
+   else
+      any_regridded = .false.
+      do is = 1, int(size(realm), I4P)
+         call realm(is)%ptr%regrid_forest(regridded=regridded)
+         any_regridded = any_regridded .or. regridded
+      enddo
+   endif
    call MPI_ALLREDUCE(MPI_IN_PLACE, any_regridded, 1, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, ierr)
    if (self%rebuild_topology) any_regridded = .true.
-   if (any_regridded) then
+   if (any_regridded .and. .not.rebuilt) then
       if (self%has_manifest) then
          call self%populate_inter_realm_topology(realm, self%manifest)
          call self%fill_all_seams(realm=realm)
@@ -503,6 +510,370 @@ contains
       endif
    endif
    endsubroutine regrid
+
+   subroutine regrid_realms(self, realm, any_regridded, rebuilt)
+   !< The regrid of a multi-realm forest (issue #110): every realm marks, the forest balances the marks across the
+   !< seams, every realm adapts; sweep after sweep, until no realm marks or no tree changes.
+   !<
+   !< `regrid_forest` marks and adapts a realm in one call, so the realm adapting first could not see its peers' marks.
+   !< Here each sweep runs the realm phases one realm after the other: `regrid_mark_forest` (the marks gathered on the
+   !< replicated tree; a realm that does not mark has its tree marks cleared), `balance_seam_marks` (on the replicated
+   !< trees, identical on every rank), then `regrid_apply_forest` for every realm whose tree carries a mark, a realm a
+   !< peer forces to refine included. After a sweep that changed a tree the inter-realm topology is rebuilt and the
+   !< seams refilled, so the next sweep marks, and the next step runs, on the new grid (`rebuilt`).
+   class(forest_object), intent(inout) :: self          !< The forest.
+   type(realm_pointer),  intent(inout) :: realm(:)      !< The realms.
+   logical,              intent(out)   :: any_regridded !< Some realm's tree changed.
+   logical,              intent(out)   :: rebuilt       !< The topology was rebuilt after the last change.
+   integer(I4P), parameter             :: SWEEPS_MAX=64 !< Bound on the sweeps (each realm stops at its [amr] iters).
+   logical                             :: active        !< One realm's cadence asks for a regrid.
+   logical                             :: any_active    !< Some realm's cadence asks for a regrid.
+   logical                             :: marked        !< One realm marked in this sweep.
+   logical                             :: any_marked    !< Some realm marked in this sweep.
+   logical                             :: changed       !< One realm's tree changed in this sweep.
+   logical                             :: any_changed   !< Some realm's tree changed in this sweep.
+   logical                             :: regridded     !< One realm's tree changed in some sweep.
+   integer(I4P)                        :: is, sweep     !< Counters.
+   character(:), allocatable           :: line          !< Log line of a sweep.
+
+   call self%fill_all_seams(realm=realm) ! the markers that read ghosts see the peer realm across a seam
+   any_active = .false.
+   do is = 1, int(size(realm), I4P)
+      call realm(is)%ptr%regrid_begin_forest(active=active)
+      any_active = any_active .or. active
+   enddo
+   any_regridded = .false. ; rebuilt = .false.
+   if (.not.any_active) return
+   do sweep = 1, SWEEPS_MAX
+      any_marked = .false.
+      do is = 1, int(size(realm), I4P)
+         call realm(is)%ptr%regrid_mark_forest(sweep=sweep, marked=marked)
+         if (.not.marked) call clear_tree_marks(realm(is)%ptr%adam%tree)
+         any_marked = any_marked .or. marked
+      enddo
+      if (.not.any_marked) exit
+      line = 'forest: regrid sweep '//trim(str(sweep, .true.))//', marks (refine/derefine) per realm:'
+      do is = 1, int(size(realm), I4P)
+         line = line//' '//trim(tree_marks_text(realm(is)%ptr%adam%tree))
+      enddo
+      call self%balance_seam_marks(realm=realm)
+      call check_marks_agree(realm=realm)
+      line = line//'; balanced:'
+      do is = 1, int(size(realm), I4P)
+         line = line//' '//trim(tree_marks_text(realm(is)%ptr%adam%tree))
+      enddo
+      if (mpih%myrank == 0) print '(A)', line
+      any_changed = .false.
+      do is = 1, int(size(realm), I4P)
+         if (.not.tree_has_marks(realm(is)%ptr%adam%tree)) cycle
+         call realm(is)%ptr%regrid_apply_forest(changed=changed)
+         any_changed = any_changed .or. changed
+      enddo
+      rebuilt = .false.
+      if (.not.any_changed) exit
+      call self%populate_inter_realm_topology(realm, self%manifest)
+      call self%fill_all_seams(realm=realm)
+      rebuilt = .true.
+   enddo
+   do is = 1, int(size(realm), I4P)
+      call realm(is)%ptr%regrid_end_forest(regridded=regridded)
+      any_regridded = any_regridded .or. regridded
+   enddo
+   endsubroutine regrid_realms
+
+   subroutine balance_seam_marks(self, realm)
+   !< Balance the marks of the realms across their seams, on the replicated trees (issue #110).
+   !<
+   !< Each realm's 2:1 `sanitize` first, then, seam by seam:
+   !<   * one level per seam side: a refine vote on a leaf along the seam refines the whole side; the side derefines only
+   !<     when every leaf along it agrees, otherwise its derefine votes are dropped (the seams join one cell size per
+   !<     side);
+   !<   * the levels across the seam: equal for `coupling = mirror`, the declared 2:1 jump for `refined`, at most one
+   !<     level apart for `auto`;
+   !< a side below what the rule asks is raised (its derefinement dropped, or refined if below `[amr] max_level`), else
+   !< the refinement of the side above is dropped. Repeated with `sanitize` until nothing changes: the trees are
+   !< replicated, so every rank reaches the same marks.
+   class(forest_object), intent(inout) :: self              !< The forest.
+   type(realm_pointer),  intent(inout) :: realm(:)          !< The realms.
+   integer(I4P), parameter             :: PASSES_MAX=64     !< Bound on the balancing passes.
+   integer(I4P)                        :: pass, f, is       !< Counters.
+   integer(I4P)                        :: ra, rb, fa, fb    !< Realms and faces of a pair.
+   integer(I4P)                        :: la, lb, pa, pb    !< Current and predicted levels of the two sides.
+   integer(I4P)                        :: d0                !< Declared level jump, a minus b, of a refined pair.
+   integer(I4P)                        :: lo, hi            !< Allowed range of pa - pb.
+   integer(I4P)                        :: off               !< The level jump pa - pb of equal seam cells.
+   logical                             :: changed           !< A pass changed some mark.
+   logical                             :: ok                !< A side could be raised or lowered.
+
+   if (.not.allocated(self%manifest%face_pairs)) return
+   do pass = 1, PASSES_MAX
+      changed = .false.
+      do is = 1, int(size(realm), I4P)
+         call realm(is)%ptr%adam%tree%sanitize
+      enddo
+      do f = 1, int(size(self%manifest%face_pairs), I4P)
+         associate(pair => self%manifest%face_pairs(f))
+         ra = pair%realm_a ; fa = pair%face_a ; rb = pair%realm_b ; fb = pair%face_b
+         call side_uniform(realm(ra)%ptr, fa, la, pa, changed)
+         call side_uniform(realm(rb)%ptr, fb, lb, pb, changed)
+         ! the rules are on cell sizes, not on levels: the levels of two realms count from different roots, so equal
+         ! cells may sit at different levels. off = the level jump pa - pb that keeps the current ratio of the seam cell
+         ! sizes, minus log2 of that ratio: pa - pb = off gives equal cells.
+         off = (la - lb) + cell_ratio_log2(realm(ra)%ptr, fa, realm(rb)%ptr, fb)
+         select case(pair%coupling)
+         case(COUPLING_MIRROR)
+            lo = off ; hi = off
+         case(COUPLING_REFINED)
+            d0 = la - lb ; lo = d0 ; hi = d0 ! the jump the seam has, whichever side is fine
+         case default ! auto: equal cells, or a ratio of 2 either way
+            lo = off - 1_I4P ; hi = off + 1_I4P
+         endselect
+         do while (pa - pb < lo .or. pa - pb > hi)
+            if (pa - pb < lo) then
+               call side_raise(realm(ra)%ptr, fa, la, pa, changed, ok)
+               if (.not.ok) call side_lower(realm(rb)%ptr, fb, lb, pb, changed, ok)
+            else
+               call side_raise(realm(rb)%ptr, fb, lb, pb, changed, ok)
+               if (.not.ok) call side_lower(realm(ra)%ptr, fa, la, pa, changed, ok)
+            endif
+            if (.not.ok) call mpih%error_stop(msg='forest_object%balance_seam_marks: face_pair '//                  &
+                                              trim(str(f, .true.))//' cannot be balanced (levels '//               &
+                                              trim(str(la, .true.))//' and '//trim(str(lb, .true.))//')')
+         enddo
+         endassociate
+      enddo
+      if (.not.changed) return
+   enddo
+   call mpih%error_stop(msg='forest_object%balance_seam_marks: the seam marks did not settle in '//              &
+                        trim(str(PASSES_MAX, .true.))//' passes: a refinement next to a seam needs the peer realm '// &
+                        'finer than its [amr] max_level allows (raise the peer''s max_level, or lower this realm''s)')
+   contains
+      subroutine side_uniform(this_realm, face, level, predicted, changed)
+      !< One level per seam side: the current level of the leaves along `face` (one level, error_stop otherwise) and
+      !< the predicted one, after making the marks along the side agree (any refine refines all, else derefine only if
+      !< all derefine).
+      class(realm_object), intent(inout) :: this_realm !< Realm.
+      integer(I4P),        intent(in)    :: face       !< Seam face (FACE_* code).
+      integer(I4P),        intent(out)   :: level      !< Current level of the side.
+      integer(I4P),        intent(out)   :: predicted  !< Level of the side after the marks.
+      logical,             intent(inout) :: changed    !< Some mark changed.
+      logical                            :: any_refine !< Some leaf along the side refines.
+      logical                            :: all_deref  !< Every leaf along the side derefines.
+      integer(I4P)                       :: mark_all   !< The mark every leaf takes.
+
+      call side_scan(this_realm, face, level, any_refine, all_deref)
+      if (any_refine) then
+         mark_all = TO_BE_REFINED ; predicted = level + 1_I4P
+      elseif (all_deref) then
+         mark_all = TO_BE_DEREFINED ; predicted = level - 1_I4P
+      else
+         mark_all = TO_NOT_TOUCH ; predicted = level
+      endif
+      call side_set(this_realm, face, mark_all, changed)
+      endsubroutine side_uniform
+
+      subroutine side_raise(this_realm, face, level, predicted, changed, ok)
+      !< Raise the predicted level of a seam side by one: drop its derefinement, or refine it below max_level.
+      class(realm_object), intent(inout) :: this_realm !< Realm.
+      integer(I4P),        intent(in)    :: face       !< Seam face (FACE_* code).
+      integer(I4P),        intent(in)    :: level      !< Current level of the side.
+      integer(I4P),        intent(inout) :: predicted  !< Level of the side after the marks.
+      logical,             intent(inout) :: changed    !< Some mark changed.
+      logical,             intent(out)   :: ok         !< The side was raised.
+
+      ok = .true.
+      if (predicted == level - 1_I4P) then
+         call side_set(this_realm, face, TO_NOT_TOUCH, changed) ; predicted = level
+      elseif (predicted == level .and. level < this_realm%adam%tree%max_level) then
+         call side_set(this_realm, face, TO_BE_REFINED, changed) ; predicted = level + 1_I4P
+      else
+         ok = .false.
+      endif
+      endsubroutine side_raise
+
+      subroutine side_lower(this_realm, face, level, predicted, changed, ok)
+      !< Lower the predicted level of a seam side by one, only by dropping its refinement (never a forced derefinement).
+      class(realm_object), intent(inout) :: this_realm !< Realm.
+      integer(I4P),        intent(in)    :: face       !< Seam face (FACE_* code).
+      integer(I4P),        intent(in)    :: level      !< Current level of the side.
+      integer(I4P),        intent(inout) :: predicted  !< Level of the side after the marks.
+      logical,             intent(inout) :: changed    !< Some mark changed.
+      logical,             intent(out)   :: ok         !< The side was lowered.
+
+      ok = predicted == level + 1_I4P
+      if (.not.ok) return
+      call side_set(this_realm, face, TO_NOT_TOUCH, changed) ; predicted = level
+      endsubroutine side_lower
+   endsubroutine balance_seam_marks
+
+   function seam_leaf_codes(this_realm, face) result(codes)
+   !< The codes of the leaves of a realm along a seam face, in tree order (issue #110). The balance works on this list
+   !< (`tree%node(code)`), not on a face test inside the tree traversal: that loop shape was miscompiled by nvfortran
+   !< 26.9 (-fast, -gpu=lto) in this routine, which then found no leaf on the face, at random, run after run.
+   class(realm_object), intent(in) :: this_realm !< Realm.
+   integer(I4P),        intent(in) :: face       !< Seam face (FACE_* code).
+   integer(I8P), allocatable       :: codes(:)   !< Codes of the leaves along the face.
+   integer(I8P), allocatable       :: leaves(:)  !< Codes of every leaf.
+   logical,      allocatable       :: on(:)      !< The leaf lies on the face.
+   type(tree_iterator_object)      :: iter       !< Tree traversal cursor.
+   integer(I8P)                    :: code       !< Current code.
+   integer(I4P)                    :: axis, sgn  !< Face axis and side.
+   integer(I4P)                    :: n, c       !< Counters.
+
+   call face_axis_sign(face, axis, sgn)
+   n = 0_I4P
+   iter%b = 1_I4P ; iter%p => null()
+   do while (this_realm%adam%tree%loop(iter, code=code))
+      n = n + 1_I4P
+   enddo
+   allocate(leaves(n), on(n))
+   n = 0_I4P
+   iter%b = 1_I4P ; iter%p => null()
+   do while (this_realm%adam%tree%loop(iter, code=code))
+      n = n + 1_I4P
+      leaves(n) = code
+   enddo
+   do c = 1_I4P, n
+      on(c) = leaf_on_realm_face(this_realm, leaves(c), axis, sgn)
+   enddo
+   codes = pack(leaves, on)
+   endfunction seam_leaf_codes
+
+   function cell_ratio_log2(realm_a, face_a, realm_b, face_b) result(k)
+   !< log2 of the ratio of the seam cell sizes of two sides, a over b, along a tangential axis (issue #110): 0 for equal
+   !< cells, 1 when side a is twice as coarse.
+   class(realm_object), intent(in) :: realm_a, realm_b !< Realms.
+   integer(I4P),        intent(in) :: face_a, face_b   !< Seam faces (FACE_* codes).
+   integer(I4P)                    :: k                !< log2(d_a / d_b).
+   real(R8P)                       :: d_a(3), d_b(3)   !< Seam cell sizes.
+   real(R8P)                       :: e(3)             !< Leaf origin (unused).
+   integer(I8P), allocatable       :: codes(:)         !< Codes of the leaves along a seam face.
+   integer(I4P)                    :: axis, sgn, t     !< Face axis and side, tangential axis.
+
+   ! one leaf per side is enough: `side_scan` has checked that a seam side holds one level (the code list, not a face
+   ! test inside the tree traversal: see `seam_leaf_codes`)
+   codes = seam_leaf_codes(realm_a, face_a)
+   call leaf_metrics(realm_a, codes(1), e, d_a)
+   codes = seam_leaf_codes(realm_b, face_b)
+   call leaf_metrics(realm_b, codes(1), e, d_b)
+   call face_axis_sign(face_a, axis, sgn)
+   t = mod(axis, 3_I4P) + 1_I4P
+   k = nint(log(d_a(t) / d_b(t)) / log(2._R8P), I4P)
+   endfunction cell_ratio_log2
+
+   subroutine side_scan(this_realm, face, level, any_refine, all_deref)
+   !< Scan the leaves of a realm along a seam face: their level (one level, error_stop otherwise) and their marks.
+   class(realm_object), intent(inout) :: this_realm !< Realm.
+   integer(I4P),        intent(in)    :: face       !< Seam face (FACE_* code).
+   integer(I4P),        intent(out)   :: level      !< Level of the leaves along the face.
+   logical,             intent(out)   :: any_refine !< Some leaf refines.
+   logical,             intent(out)   :: all_deref  !< Every leaf derefines.
+   integer(I8P), allocatable          :: codes(:)   !< Codes of the leaves along the face.
+   type(tree_node_object), pointer    :: node_ptr   !< Current leaf.
+   integer(I4P)                       :: c, l       !< Counter, leaf level.
+
+   codes = seam_leaf_codes(this_realm, face)
+   if (size(codes) == 0) call mpih%error_stop(msg='forest_object%balance_seam_marks: realm '//                   &
+                                              trim(str(this_realm%realm_index, .true.))//' has no leaf on its '// &
+                                              'seam face '//trim(str(face, .true.)))
+   level = this_realm%adam%tree%level(code=codes(1))
+   any_refine = .false. ; all_deref = .true.
+   do c = 1, size(codes)
+      l = this_realm%adam%tree%level(code=codes(c))
+      if (l /= level) call mpih%error_stop(msg='forest_object%balance_seam_marks: realm '//                    &
+                                           trim(str(this_realm%realm_index, .true.))//' has seam leaves at '// &
+                                           'levels '//trim(str(level, .true.))//' and '//trim(str(l, .true.))// &
+                                           ' (a seam side holds one level)')
+      node_ptr => this_realm%adam%tree%node(code=codes(c))
+      any_refine = any_refine .or. node_ptr%refinement_needed == TO_BE_REFINED
+      all_deref = all_deref .and. node_ptr%refinement_needed == TO_BE_DEREFINED
+   enddo
+   endsubroutine side_scan
+
+   subroutine side_set(this_realm, face, mark, changed)
+   !< Give every leaf of a realm along a seam face the mark `mark`; `changed` if any leaf had another.
+   class(realm_object), intent(inout) :: this_realm !< Realm.
+   integer(I4P),        intent(in)    :: face       !< Seam face (FACE_* code).
+   integer(I4P),        intent(in)    :: mark       !< TO_BE_REFINED, TO_NOT_TOUCH or TO_BE_DEREFINED.
+   logical,             intent(inout) :: changed    !< Some mark changed.
+   integer(I8P), allocatable          :: codes(:)   !< Codes of the leaves along the face.
+   type(tree_node_object), pointer    :: node_ptr   !< Current leaf.
+   integer(I4P)                       :: c          !< Counter.
+
+   codes = seam_leaf_codes(this_realm, face)
+   do c = 1, size(codes)
+      node_ptr => this_realm%adam%tree%node(code=codes(c))
+      if (node_ptr%refinement_needed == mark) cycle
+      node_ptr%refinement_needed = mark
+      changed = .true.
+   enddo
+   endsubroutine side_set
+
+   subroutine clear_tree_marks(tree)
+   !< Clear every mark of a replicated tree (a realm that does not mark in a sweep, issue #110).
+   type(tree_object), intent(inout) :: tree     !< Tree.
+   type(tree_iterator_object)       :: iter     !< Tree traversal cursor.
+   type(tree_node_object), pointer  :: node_ptr !< Current leaf.
+
+   iter%b = 1_I4P ; iter%p => null()
+   do while (tree%loop(iter, node_ptr=node_ptr))
+      node_ptr%refinement_needed = TO_NOT_TOUCH
+   enddo
+   endsubroutine clear_tree_marks
+
+   subroutine check_marks_agree(realm)
+   !< Stop if the ranks reached different marks (issue #110): every rank balances its own copy of the replicated trees,
+   !< so a rank that disagreed would adapt another tree than its peers, silently, and the next exchange would deadlock or
+   !< mix grids. One checksum per realm, its smallest and largest over the ranks compared.
+   type(realm_pointer), intent(in)  :: realm(:)     !< The realms.
+   type(tree_iterator_object)       :: iter         !< Tree traversal cursor.
+   type(tree_node_object), pointer  :: node_ptr     !< Current leaf.
+   integer(I8P)                     :: sums(2)      !< Checksum: its minimum, minus its maximum, over the ranks.
+   integer(I4P)                     :: is, ierr     !< Realm counter, MPI error.
+
+   do is = 1, int(size(realm), I4P)
+      sums(1) = 0_I8P
+      iter%b = 1_I4P ; iter%p => null()
+      do while (realm(is)%ptr%adam%tree%loop(iter, node_ptr=node_ptr))
+         sums(1) = sums(1) + (mod(node_ptr%code, 1000003_I8P) + 1_I8P) * int(node_ptr%refinement_needed + 2, I8P)
+      enddo
+      sums(2) = -sums(1)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 2, MPI_INTEGER8, MPI_MIN, MPI_COMM_WORLD, ierr)
+      if (sums(1) /= -sums(2)) call mpih%error_stop(msg='forest_object%regrid_realms: the ranks balanced the marks of '// &
+                                                    'realm '//trim(str(is, .true.))//' differently')
+   enddo
+   endsubroutine check_marks_agree
+
+   function tree_marks_text(tree) result(text)
+   !< The refine/derefine mark counts of a replicated tree, `r/d` (the regrid log of a multi-realm forest, issue #110).
+   type(tree_object), intent(in)   :: tree     !< Tree.
+   character(len=32)               :: text     !< Counts.
+   type(tree_iterator_object)      :: iter     !< Tree traversal cursor.
+   type(tree_node_object), pointer :: node_ptr !< Current leaf.
+   integer(I4P)                    :: nr, nd   !< Refine and derefine marks.
+
+   nr = 0_I4P ; nd = 0_I4P
+   iter%b = 1_I4P ; iter%p => null()
+   do while (tree%loop(iter, node_ptr=node_ptr))
+      if (node_ptr%refinement_needed == TO_BE_REFINED)   nr = nr + 1_I4P
+      if (node_ptr%refinement_needed == TO_BE_DEREFINED) nd = nd + 1_I4P
+   enddo
+   text = trim(str(nr, .true.))//'/'//trim(str(nd, .true.))
+   endfunction tree_marks_text
+
+   function tree_has_marks(tree) result(yes)
+   !< Whether some leaf of a replicated tree is marked to refine or derefine (issue #110).
+   type(tree_object), intent(in)   :: tree     !< Tree.
+   logical                         :: yes      !< Some leaf is marked.
+   type(tree_iterator_object)      :: iter     !< Tree traversal cursor.
+   type(tree_node_object), pointer :: node_ptr !< Current leaf.
+
+   yes = .false.
+   iter%b = 1_I4P ; iter%p => null()
+   do while (tree%loop(iter, node_ptr=node_ptr))
+      if (node_ptr%refinement_needed /= TO_NOT_TOUCH) yes = .true.
+   enddo
+   endfunction tree_has_marks
 
    subroutine fill_all_seams(self, realm)
    !< Fill every inter-realm seam from its peer on the committed state, whatever its cadence (issue #110: around a
@@ -677,7 +1048,7 @@ contains
    enddo
    endsubroutine check_beta_admissibility
 
-   subroutine populate_inter_realm_topology(self, realm, manifest)
+   subroutine populate_inter_realm_topology(self, realm, manifest_in)
    !< Translate manifest face-pairs into per-realm maps%inter_realm_neighbors.
    !<
    !< Each manifest face-pair becomes TWO entries — one in realm_a's
@@ -692,13 +1063,16 @@ contains
    !< state not known at INI parse time.
    class(forest_object),     intent(inout) :: self                !< The forest.
    type(realm_pointer),      intent(inout) :: realm(:)            !< Initialized realms whose adam%maps gets populated.
-   type(forest_manifest_t),  intent(in)    :: manifest            !< Parsed manifest.
+   type(forest_manifest_t),  intent(in)    :: manifest_in         !< Parsed manifest.
+   type(forest_manifest_t)                 :: manifest            !< The manifest with every `auto` coupling resolved.
    integer(I4P), allocatable               :: per_realm_count(:)  !< How many neighbour entries each realm gets.
    integer(I4P), allocatable               :: per_realm_cursor(:) !< Write cursor per realm.
    integer(I4P)                            :: f, is               !< Face-pair and realm index counters.
    integer(I4P)                            :: n_intra             !< Intra-realm AMR faces in the flux register.
    type(forest_face_pair_t)                :: pair                !< Loop alias.
 
+   manifest = manifest_in
+   call resolve_auto_couplings(realm=realm, manifest=manifest)
    if (.not. allocated(manifest%face_pairs)) then
       ! No inter-realm topology: the flux register holds the intra-realm AMR faces only.
       call self%register_intra_realm_amr_seams(realm=realm)
@@ -1303,6 +1677,51 @@ contains
       endassociate
    enddo
    endsubroutine check_couplings
+
+   subroutine resolve_auto_couplings(realm, manifest)
+   !< Resolve every `coupling = auto` face pair into `mirror` or `refined` from the cell sizes of its two seam sides
+   !< (issue #110): equal sizes join as a mirror seam, a ratio of 2 as a refined one. Runtime AMR may switch a seam from
+   !< one kind to the other, so what `refined` requires whatever side is fine is checked every time: the same block cell
+   !< counts along the seam, the same `[amr] seam_ghost_fill` and `seam_restriction`, even block cell counts in both
+   !< realms. `check_couplings` then checks the resolved kind as a declared one.
+   type(realm_pointer),     intent(in)    :: realm(:)        !< Forest realms.
+   type(forest_manifest_t), intent(inout) :: manifest        !< Manifest, `auto` couplings resolved on return.
+   integer(I4P)                           :: f               !< Face-pair counter.
+   real(R8P)                              :: d_a(3), d_b(3)  !< Seam cell sizes of the two sides.
+   integer(I4P)                           :: axis, sgn       !< Seam face axis and side of realm_a.
+   integer(I4P)                           :: n_a(3), n_b(3)  !< Block cell counts, the normal one zeroed.
+   character(:), allocatable              :: pfx             !< Error message prefix.
+
+   if (.not. allocated(manifest%face_pairs)) return
+   do f = 1_I4P, int(size(manifest%face_pairs), I4P)
+      associate(pair => manifest%face_pairs(f))
+      if (pair%coupling /= COUPLING_AUTO) cycle
+      pfx = 'forest_object%populate_inter_realm_topology: face_pair '//trim(str(f, .true.))//' (coupling = auto): '
+      associate(r_a => realm(pair%realm_a)%ptr, r_b => realm(pair%realm_b)%ptr)
+      call face_axis_sign(pair%face_a, axis, sgn)
+      n_a = [r_a%adam%grid%ni, r_a%adam%grid%nj, r_a%adam%grid%nk] ; n_a(axis) = 0_I4P
+      n_b = [r_b%adam%grid%ni, r_b%adam%grid%nj, r_b%adam%grid%nk] ; n_b(axis) = 0_I4P
+      if (any(n_a /= n_b)) call mpih%error_stop(msg=pfx//'needs the same block cell counts along the seam')
+      if (r_a%adam%maps%seam_ghost_fill /= r_b%adam%maps%seam_ghost_fill .or.                 &
+          r_a%adam%maps%seam_restriction /= r_b%adam%maps%seam_restriction)                   &
+         call mpih%error_stop(msg=pfx//'needs the same [amr] seam_ghost_fill and seam_restriction in both realms')
+      if (any(mod([r_a%adam%grid%ni, r_a%adam%grid%nj, r_a%adam%grid%nk], 2_I4P) /= 0_I4P) .or. &
+          any(mod([r_b%adam%grid%ni, r_b%adam%grid%nj, r_b%adam%grid%nk], 2_I4P) /= 0_I4P))    &
+         call mpih%error_stop(msg=pfx//'needs even block cell counts (ni, nj, nk) in both realms')
+      d_a = seam_cell_size(r_a, pair%face_a, pfx//'realm '//trim(str(pair%realm_a, .true.)))
+      d_b = seam_cell_size(r_b, pair%face_b, pfx//'realm '//trim(str(pair%realm_b, .true.)))
+      endassociate
+      if (all(abs(d_a - d_b) <= 1.0e-6_R8P * d_a)) then
+         pair%coupling = COUPLING_MIRROR
+      elseif (all(abs(d_a - 2._R8P * d_b) <= 1.0e-6_R8P * d_a) .or. all(abs(d_b - 2._R8P * d_a) <= 1.0e-6_R8P * d_b)) then
+         pair%coupling = COUPLING_REFINED
+      else
+         call mpih%error_stop(msg=pfx//'the seam cells are neither equal nor in a ratio of 2 ('//trim(str(d_a))// &
+                                  ' and '//trim(str(d_b))//')')
+      endif
+      endassociate
+   enddo
+   endsubroutine resolve_auto_couplings
 
    subroutine seam_sides(realm, pair, rc, fc, rf, ff, refined)
    !< The coarse and fine sides of a face pair: for a `refined` seam the realm with the larger seam cells is the coarse

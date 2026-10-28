@@ -26,7 +26,7 @@ private
 public :: maps_object
 public :: inter_realm_neighbor_t
 public :: FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN
-public :: COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE, COUPLING_REFINED
+public :: COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE, COUPLING_REFINED, COUPLING_AUTO
 public :: CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT
 public :: face_axis_sign
 
@@ -53,6 +53,9 @@ integer(I4P), parameter :: COUPLING_PERIODIC    = 2_I4P
                                                          !< implemented).
 integer(I4P), parameter :: COUPLING_INTERPOLATE = 3_I4P  !< Interpolate across mismatched grids (reserved, not implemented).
 integer(I4P), parameter :: COUPLING_REFINED     = 4_I4P  !< 2:1 resolution jump across the seam, nested blocks (issue #52).
+integer(I4P), parameter :: COUPLING_AUTO        = 5_I4P  !< Mirror or refined, from the levels of the two sides at every
+                                                         !< topology build: the kind of a seam runtime AMR may change
+                                                         !< (issue #110); the refined requirements are checked always.
 
 !< Inter-realm seam-coupling cadence.
 !<

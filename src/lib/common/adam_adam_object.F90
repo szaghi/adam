@@ -42,6 +42,7 @@ type :: adam_object
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
       procedure, pass(self) :: amr_update                    !< Update AMR status.
+      procedure, pass(self) :: amr_update_apply              !< Adapt to the gathered marks, redistribute, maps (#110).
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks (for asyncrhonous MPI)
       procedure, pass(self) :: check_blocks_number           !< Check if blocks number is groving too much.
       procedure, pass(self) :: compute_blocks_number         !< Compute maximum blocks number allocatable on memory available.
@@ -109,18 +110,37 @@ contains
 
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
 
+   call self%amr_update_apply(q=q, do_mpi_redistribute=do_mpi_redistribute_, do_blocks_reorder=do_blocks_reorder_, &
+                              is_grid_changed=is_grid_changed, prolongation=prolongation)
+   call mpih%print_message('adam_object%amr_update finish')
+   endsubroutine amr_update
+
+   subroutine amr_update_apply(self, q, do_mpi_redistribute, do_blocks_reorder, is_grid_changed, prolongation)
+   !< The second half of `amr_update`: adapt the tree and the field to the marks already on the replicated tree
+   !< (`mpi_gather_refinement_needed`), redistribute, rebuild the maps. Split out so that a multi-realm forest can
+   !< balance the marks of the realms across their seams between the two halves (issue #110).
+   class(adam_object), intent(inout)         :: self                !< ADAM.
+   real(R8P),          intent(inout)         :: q(1:,              &
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1:)               !< Field cell centered variables.
+   logical,            intent(in)            :: do_mpi_redistribute !< Redistribute the blocks over the ranks.
+   logical,            intent(in)            :: do_blocks_reorder   !< Reorder the blocks.
+   logical,            intent(out), optional :: is_grid_changed     !< The grid changed.
+   integer(I4P),       intent(in),  optional :: prolongation        !< Prolongation kind, AMR_PROLONGATION_*.
+
    call self%adapt(q=q, prolongation=prolongation)
 
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
-   if (do_mpi_redistribute_) call self%mpi_redistribute(q=q)
+   if (do_mpi_redistribute) call self%mpi_redistribute(q=q)
 
-   if (do_blocks_reorder_) call self%blocks_reorder(q=q)
+   if (do_blocks_reorder) call self%blocks_reorder(q=q)
 
    call self%make_comm_local_maps_ghost_bc
-   call mpih%print_message('adam_object%amr_update finish')
-   endsubroutine amr_update
+   endsubroutine amr_update_apply
 
    subroutine blocks_reorder(self, q)
    !< Reorder blocks (for asyncrhonous MPI)

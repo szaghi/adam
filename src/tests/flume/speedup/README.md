@@ -68,9 +68,9 @@ toolchain), its `input.ini`, `data/<leg>-np<N>/` (the measurement after the warm
   equal-resolution AMR estimate (which assumes a size-independent throughput) is from the truth.
 
 **Dropped:** the forward-facing step (EV-step). It is a three-realm forest; FLUME refused runtime regridding on a
-multi-realm forest until issue #110 (the refusal of #74, D-M5-4, is gone, but the cross-realm 2:1 balance its refined
-regions need is #110 P2), so it had no dynamic-AMR variant. Owner decision 2026-10-21: drop every step case for now;
-#110 P6 brings it back.
+multi-realm forest until issue #110 (the refusal of #74, D-M5-4, is gone and the forest balances the realms' levels
+across the seams since #110 P2), so it had no dynamic-AMR variant. Owner decision 2026-10-21: drop every step case for
+now; #110 P6 brings it back.
 
 ## Grid
 

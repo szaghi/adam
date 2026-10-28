@@ -57,7 +57,7 @@ module adam_forest_manifest
 
 ! ADAM classes, libraries, parameters
 use :: adam_maps_object, only : FACE_X_MAX, FACE_X_MIN, FACE_Y_MAX, FACE_Y_MIN, FACE_Z_MAX, FACE_Z_MIN, &
-                                 COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE, COUPLING_REFINED,             &
+                                 COUPLING_MIRROR, COUPLING_PERIODIC, COUPLING_INTERPOLATE, COUPLING_REFINED, COUPLING_AUTO, &
                                  CADENCE_END_OF_STEP, CADENCE_STAGE_COINCIDENT
 ! third party modules
 use :: finer, only : file_ini
@@ -217,7 +217,7 @@ contains
    endfunction parse_face
 
    function parse_coupling(text, section_name, context) result(code)
-   !< Translate "mirror" / "refined" / "periodic" / "interpolate" to the coupling code constant.
+   !< Translate "mirror" / "refined" / "auto" / "periodic" / "interpolate" to the coupling code constant.
    character(*), intent(in) :: text         !< Coupling spec from the INI.
    character(*), intent(in) :: section_name !< Section name (for error message).
    character(*), intent(in) :: context      !< Manifest filename (for error message).
@@ -228,6 +228,7 @@ contains
    case ('periodic',    'Periodic',    'PERIODIC'   ); code = COUPLING_PERIODIC
    case ('interpolate', 'Interpolate', 'INTERPOLATE'); code = COUPLING_INTERPOLATE
    case ('refined',     'Refined',     'REFINED'    ); code = COUPLING_REFINED
+   case ('auto',        'Auto',        'AUTO'       ); code = COUPLING_AUTO
    case default
       error stop 'adam_forest_manifest: ['//trim(section_name)//'] unknown coupling "'//trim(text)//'" in '//trim(context)
    endselect

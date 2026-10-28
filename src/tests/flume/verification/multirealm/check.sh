@@ -59,7 +59,27 @@
 # OR-reduces it, so one rank seeing it is enough): the forest then rebuilds the seam rows, the register faces, the BC_SEAM crown rows and their device
 # copies after every step and refills every seam, and every leg must still reproduce its single-realm run bit for bit.
 #
-# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg7 or all (default all); leg4 compares against
+# Leg 8 (issue #110, P2): runtime AMR moving refined regions across an inter-realm seam. The single-realm Sod with a
+# Loehner marker on the density (refine 0.3, derefine 0.1, a regrid every 4 steps, levels 2 to 3), against the same
+# Sod split at the diaphragm x = 0.5 into two realms glued by `coupling = auto`, both regridding by the same marker.
+# The realms use blocks of 48 x 8 x 8 cells one level lower (levels 1 to 2): the same x-slabs and the same cells as the
+# single run (48 x 4 x 4), so the block-wise marks, the sibling families and every cell agree, and Sod is uniform in y
+# and z, so every leaf along the seam votes alike. The forest balances the marks across the seam (one level per side,
+# at most one level apart), which the seam switches between mirror and refined as the shock and the rarefaction cross
+# it. With `[amr] seam_ghost_fill = injection` in every input the union reproduces the single-realm run bit for bit
+# (measured: 221184 cells at step 330, regrids at steps 4, 216 and 240 in both). With the default tricubic fill the two
+# differ by round-off (6e-14 to 2e-13 relative next to the 2:1 face at x = 0.25): one level lower, the realms' coarse
+# blocks are twice as large in y and z, so the 4-point footprints of the 2:1 face sit elsewhere in their block and the
+# same constant-in-y data is summed with other weights; that variant is checked to 1e-12 with the same regrid steps.
+#
+# Leg 9 (issue #110, P2): a mirror seam between realms whose equal cells sit at different levels (leg 5's forest, with
+# 24 x 4 x 4 cells per block at levels 2 to 3 in realm 1 and 48 x 8 x 8 at levels 1 to 2 in realm 2: dx = 0.5/96 and
+# dy = 1/16 on both sides), both regridding by the Loehner marker of leg 8. The balance must keep the seam cells equal
+# (it compares cell sizes, not levels, which count from each realm's own root): the run completes with regrids, the
+# seam stays a mirror (never logged as a 2:1 seam), and the mass of the two realms is conserved to round-off while
+# the waves stay inside the box (t = 0.2).
+#
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg9 or all (default all); leg4 compares against
 #        the sod-amr run of leg2, leg5 against the sod-x and sod-z runs of leg1 and leg3, so they require those legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -74,7 +94,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
 source "$VERIF_DIR/legs.sh"
-legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7"
+legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -125,6 +145,27 @@ run() { # run <work-dir> <input> <files...>; RUN_NP overrides the rank count, RU
       echo "check.sh: run failed, see $work/log.txt" >&2
       exit 1
    fi
+}
+
+# l8_input <in> <out> <ni> <nj> <nk> <base level> <max level>: runtime AMR by a Loehner marker on the density in
+# place of the input's markers, no initial AMR
+l8_input() {
+   python3 - "$@" <<'PYEOF'
+import re
+import sys
+
+src, out, ni, nj, nk, base, top = sys.argv[1:8]
+s = open(src).read()
+s = re.sub(r"\n\[amr_marker_\d+\][^\[]*", "\n", s)  # drop the input's markers
+lohner = ("[amr_marker_1]\nmode         = 4\ndelta_type   = max\ndelta_fine   = 0.0\ndelta_coarse = 0.0\n"
+       "field        = 1\nvar          = 1\nrefine_tol   = 0.3\nderefine_tol = 0.1\nfloor        = 0.0\nbuffer       = 2\n\n")
+s = s.replace("\n[field]", "\n" + lohner + "[field]", 1)
+for key, val in (("ni", ni), ("nj", nj), ("nk", nk), ("iu_ref_levels", base), ("max_level", top),
+              ("frequency", "4"), ("markers_number", "1"), ("amr_iterations", "0")):
+ s, n = re.subn(rf"^{key}\s*=.*$", f"{key} = {val}", s, count=1, flags=re.M)
+ assert n == 1, (src, key)
+open(out, "w").write(s)
+PYEOF
 }
 
 if has_leg leg1; then
@@ -254,5 +295,62 @@ if has_leg leg7; then
    run "$multi" sod-amr-2realm.ini "$CASE_DIR/sod-amr-2realm.ini" "$rt_dir/sod-amr-2realm-r1.ini" \
        "$rt_dir/sod-amr-2realm-r2.ini"
    "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$CASE_DIR/work-$TAG-amr-single" --ngc 3 --tol 0
+fi
+if has_leg leg8; then
+   echo "== leg 8: runtime AMR across a coupling = auto seam (Loehner marker in both realms) vs the single realm (#110)"
+   l8_dir="$CASE_DIR/work-$TAG-l8-src" ; rm -rf "$l8_dir" ; mkdir -p "$l8_dir"
+   for fill in injection tricubic; do
+   echo "   [amr] seam_ghost_fill = $fill"
+   src="$l8_dir/$fill" ; mkdir -p "$src"
+   l8_input "$CASE_DIR/sod-amr.ini" "$src/sod-amr.ini" 48 4 4 2 3
+   l8_input "$CASE_DIR/sod-amr-2realm-r1.ini" "$src/sod-amr-2realm-r1.ini" 48 8 8 1 2
+   l8_input "$CASE_DIR/sod-amr-2realm-r2.ini" "$src/sod-amr-2realm-r2.ini" 48 8 8 1 2
+   sed -i "/^\[amr\]/a seam_ghost_fill = $fill" "$src/sod-amr.ini" "$src/sod-amr-2realm-r1.ini" "$src/sod-amr-2realm-r2.ini"
+   sed 's/^coupling *= *mirror/coupling         = auto/' "$CASE_DIR/sod-amr-2realm.ini" > "$src/sod-amr-2realm.ini"
+   grep -q '^coupling *= *auto' "$src/sod-amr-2realm.ini" || { echo "check.sh: no coupling in the manifest" >&2 ; exit 1 ; }
+   single="$CASE_DIR/work-$TAG-l8-$fill-single"
+   run "$single" sod-amr.ini "$src/sod-amr.ini"
+   multi="$CASE_DIR/work-$TAG-l8-$fill-2realm"
+   run "$multi" sod-amr-2realm.ini "$src/sod-amr-2realm.ini" "$src/sod-amr-2realm-r1.ini" "$src/sod-amr-2realm-r2.ini"
+   # the same regrid steps (each realm logs its own regrids; the single run, every one)
+   steps_single=$(grep -ao 'regrid at step [0-9]*' "$single/log.txt" | sort -u | tr '\n' ' ')
+   steps_multi=$(grep -ao 'regrid at step [0-9]*' "$multi/log.txt" | sort -u | tr '\n' ' ')
+   if [[ -z "$steps_single" || "$steps_single" != "$steps_multi" ]]; then
+      echo "check.sh: regrid steps differ: single [$steps_single], 2 realms [$steps_multi]" >&2 ; exit 1
+   fi
+   echo "   the same regrid steps: ${steps_single//regrid at step /}"
+   tol=0 ; [[ $fill == tricubic ]] && tol=1e-12
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol $tol
+   done
+fi
+if has_leg leg9; then
+   echo "== leg 9: runtime AMR across a mirror seam between realms at different levels, equal cells (#110)"
+   l9_dir="$CASE_DIR/work-$TAG-l9-src" ; rm -rf "$l9_dir" ; mkdir -p "$l9_dir"
+   l8_input "$CASE_DIR/sod-2realm-blocks-r1.ini" "$l9_dir/sod-2realm-blocks-r1.ini" 24 4 4 2 3
+   l8_input "$CASE_DIR/sod-2realm-blocks-r2.ini" "$l9_dir/sod-2realm-blocks-r2.ini" 48 8 8 1 2
+   cp "$CASE_DIR/sod-2realm-blocks.ini" "$l9_dir/"
+   multi="$CASE_DIR/work-$TAG-l9-2realm"
+   run "$multi" sod-2realm-blocks.ini "$l9_dir/sod-2realm-blocks.ini" "$l9_dir/sod-2realm-blocks-r1.ini" \
+       "$l9_dir/sod-2realm-blocks-r2.ini"
+   n_regrid=$(grep -ac 'regrid at step' "$multi/log.txt" || true)
+   if [[ $n_regrid -eq 0 ]]; then echo "check.sh: leg9 never regridded, see $multi/log.txt" >&2 ; exit 1 ; fi
+   if grep -aq 'is a 2:1 seam' "$multi/log.txt"; then echo "check.sh: leg9's mirror seam turned 2:1" >&2 ; exit 1 ; fi
+   python3 - "$multi" <<'PYEOF'
+import glob
+import sys
+
+rows = []
+for path in sorted(glob.glob(sys.argv[1] + "/*conservation_history*")):
+    data = [line.split() for line in open(path).read().splitlines()[1:] if line.strip()]
+    rows.append({int(r[0]): float(r[2]) for r in data})
+steps = sorted(set.intersection(*(set(r) for r in rows)))
+mass = [sum(r[s] for r in rows) for s in steps]
+drift = max(abs(m - mass[0]) for m in mass) / abs(mass[0])
+ok = len(rows) == 2 and drift < 1e-12
+print(f"   mass of the 2 realms over {len(steps)} steps: largest relative drift {drift:.2e} (bound 1e-12) "
+      f"{'PASS' if ok else 'FAIL'}")
+sys.exit(0 if ok else 1)
+PYEOF
+   echo "   $(basename "$multi"): $n_regrid regrid log lines, the seam stayed a mirror"
 fi
 echo "multi-realm verification PASSED (legs: $LEGS) ($TAG)"

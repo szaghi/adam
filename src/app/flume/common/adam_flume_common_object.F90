@@ -66,6 +66,7 @@ use :: stringifor,                    only : string
 implicit none
 private
 public :: flume_common_object
+public :: regrid_phases_t
 public :: ib_cut_spacing
 public :: reflux_positivity_theta
 public :: seam_skin_cell
@@ -73,10 +74,23 @@ public :: seam_skin_cell
 character(len=11), parameter :: SCHEME_TIME_TAG="runge_kutta" !< Time-integration family tag (forest admissibility).
 character(len=4),  parameter :: MHD_DERIVED_NAME(4)=['pt  ', 'beta', 'bmag', 'divb'] !< MHD derived fields names.
 
+type :: regrid_phases_t
+   !< The state of one runtime regrid across its phases, `regrid_begin/mark/apply/end_forest` (issue #110): a
+   !< single-realm regrid runs them in a row (`regrid_forest`), a multi-realm forest one realm after the other.
+   logical      :: active=.false.  !< The cadence asks for a regrid at this step.
+   logical      :: marked=.false.  !< The realm marked its blocks (and refreshed its ghosts) in the current sweep.
+   integer(I4P) :: sweeps=0_I4P    !< Sweeps that changed the grid.
+   integer(I4P) :: refined=0_I4P   !< Blocks refined over the sweeps (replicated tree).
+   integer(I4P) :: coarsened=0_I4P !< Families of children merged into their parent.
+   integer(I4P) :: blocks=0_I4P    !< Blocks of this rank before the regrid.
+   real(R8P)    :: seconds=0._R8P  !< Wall time at the start of the regrid (the FNL log).
+endtype regrid_phases_t
+
 type, extends(realm_object) :: flume_common_object
    !< FLUME common object: data and methods shared by all backends.
    ! AMR
    logical                        :: amr_locked_=.false. !< Runtime AMR locked after initialization.
+   type(regrid_phases_t)          :: regrid_phase        !< The state of the current runtime regrid (issue #110).
    ! IO
    logical                        :: save_auxiliary_fields=.false. !< Save the auxiliary variables with the fields.
    ! GLM and div(B) monitors

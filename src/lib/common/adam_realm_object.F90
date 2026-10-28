@@ -168,6 +168,10 @@ type :: realm_object
       procedure, pass(self) :: post_step_forest                  !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: runtime_amr_forest                !< Whether this realm regrids during the run (#74).
       procedure, pass(self) :: regrid_forest                     !< Invoked by forest%regrid per realm per timestep (#74).
+      procedure, pass(self) :: regrid_begin_forest               !< Multi-realm regrid, phase 1: is it a regrid step (#110).
+      procedure, pass(self) :: regrid_mark_forest                !< Phase 2: mark one sweep, marks on the tree (#110).
+      procedure, pass(self) :: regrid_apply_forest               !< Phase 3: adapt to the (balanced) tree marks (#110).
+      procedure, pass(self) :: regrid_end_forest                 !< Phase 4: refresh the grid-dependent state (#110).
       procedure, pass(self) :: is_done_forest                    !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
       procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize; forest calls it ONCE after all.
@@ -833,9 +837,9 @@ contains
    function runtime_amr_forest(self) result(yes)
    !< Return whether this realm regrids during the time loop (issue #74, runtime AMR).
    !<
-   !< The forest asks it at initialisation to refuse what it does not support yet (a multi-realm forest with a realm
-   !< that regrids: the inter-realm seam rows and registers are built once). Default: no runtime regridding, the
-   !< behaviour of every app before #74; an app that regrids overrides it.
+   !< The forest asks it before every regrid: with a realm that regrids, a multi-realm forest fills its seams before the
+   !< realms mark and balances their marks across the seams (issue #110). Default: no runtime regridding, the behaviour
+   !< of every app before #74; an app that regrids overrides it.
    class(realm_object), intent(in) :: self !< The realm.
    logical                         :: yes  !< True if the realm regrids during the run.
 
@@ -855,6 +859,54 @@ contains
    regridded = .false.
    if (.false. .and. associated(self%ngc)) continue
    endsubroutine regrid_forest
+
+   ! The multi-realm regrid (issue #110): `regrid_forest` marks and adapts a realm in one call, so on a multi-realm forest
+   ! the realm adapting first could not see the marks of its peers. There the forest calls these four phases instead,
+   ! for every realm in turn: begin (is it a regrid step), then per sweep mark (the marks gathered on the replicated
+   ! tree, `adam%mpi_gather_refinement_needed`) and, after the forest balanced the marks across the seams, apply
+   ! (`adam%amr_update_apply` and what the app recomputes on a new grid), and end (the refresh of the new state). A
+   ! realm that does not regrid now still applies: a peer can force the blocks along its seam to refine. Defaults: never
+   ! regrid, the behaviour of every app before #110.
+
+   subroutine regrid_begin_forest(self, active)
+   !< Start a multi-realm regrid of this realm: `active` if its cadence asks for a regrid now (issue #110).
+   class(realm_object), intent(inout) :: self   !< The realm.
+   logical,             intent(out)   :: active !< This realm marks its blocks at this step.
+
+   active = .false.
+   if (.false. .and. associated(self%ngc)) continue
+   endsubroutine regrid_begin_forest
+
+   subroutine regrid_mark_forest(self, sweep, marked)
+   !< Mark the blocks of this realm for sweep `sweep` and gather the marks on its replicated tree (issue #110).
+   !<
+   !< `marked` is false when the realm does not mark in this sweep (no regrid step, or more sweeps than its `[amr] iters`);
+   !< the forest then clears its tree marks before balancing the seams.
+   class(realm_object), intent(inout) :: self   !< The realm.
+   integer(I4P),        intent(in)    :: sweep  !< Sweep of the regrid, from 1.
+   logical,             intent(out)   :: marked !< The realm marked its blocks.
+
+   marked = .false.
+   if (.false. .and. associated(self%ngc) .and. sweep > 0_I4P) continue
+   endsubroutine regrid_mark_forest
+
+   subroutine regrid_apply_forest(self, changed)
+   !< Adapt this realm to the marks on its replicated tree, as the forest balanced them (issue #110).
+   class(realm_object), intent(inout) :: self    !< The realm.
+   logical,             intent(out)   :: changed !< The tree changed.
+
+   changed = .false.
+   if (.false. .and. associated(self%ngc)) continue
+   endsubroutine regrid_apply_forest
+
+   subroutine regrid_end_forest(self, regridded)
+   !< End a multi-realm regrid of this realm: refresh the state of the new grid, `regridded` if any sweep changed it.
+   class(realm_object), intent(inout) :: self      !< The realm.
+   logical,             intent(out)   :: regridded !< The tree changed in some sweep.
+
+   regridded = .false.
+   if (.false. .and. associated(self%ngc)) continue
+   endsubroutine regrid_end_forest
 
    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
    !< Apply the Berger-Colella reflux correction to THIS realm's stage-`stage`
