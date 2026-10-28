@@ -9,6 +9,12 @@ module adam_amr_criterion_object
 !< by name, `[amr_marker_N] mode = 6` (`AMR_USER`) and `name = <its name>`. The app combines its votes with those of the
 !< other markers as it combines theirs. `vote` receives the realm as `class(realm_object)`: a criterion selects the
 !< app's concrete type (`select type`) to read its fields. It is called on the host, for the blocks this rank owns.
+!<
+!< `mark` gives the votes of all the blocks of the rank at once; its default asks `vote` block by block. A criterion that
+!< is not local to a block (it compares neighbours, dilates its marks, refreshes ghosts first) overrides it: the
+!< built-in markers of an app are criteria of this kind, so built-in and registered criteria share one list. `mark` is
+!< called with `initial = .true.` by the AMR of the initial condition, unless `runtime_only` (the default: a
+!< registered criterion acts at the runtime regrids only).
 use :: adam_realm_object, only : realm_object
 use :: penf
 
@@ -19,9 +25,11 @@ public :: amr_criterion_pointer
 
 type, abstract :: amr_criterion_object
    !< A refinement criterion: one vote per block.
-   character(:), allocatable :: name !< The name an input selects it by (`[amr_marker_N] name`).
+   character(:), allocatable :: name                !< The name an input selects it by (`[amr_marker_N] name`).
+   logical                   :: runtime_only=.true. !< Skipped by the AMR of the initial condition.
    contains
       procedure(vote_interface), pass(self), deferred :: vote !< The vote of one block.
+      procedure,                 pass(self)           :: mark !< The votes of every block of the rank.
 endtype amr_criterion_object
 
 type :: amr_criterion_pointer
@@ -40,4 +48,20 @@ abstract interface
    integer(I4P)                               :: mark  !< The vote.
    endfunction vote_interface
 endinterface
+
+contains
+   subroutine mark(self, realm, votes, initial)
+   !< The votes of every block of this rank (`votes(b)` for local block `b`), by default `vote` block by block. An
+   !< override may read and update the realm (ghost refreshes, auxiliary fields), and may act differently for the AMR of
+   !< the initial condition (`initial`).
+   class(amr_criterion_object), intent(inout) :: self     !< The criterion.
+   class(realm_object),         intent(inout) :: realm    !< The realm.
+   integer(I4P),                intent(out)   :: votes(:) !< One vote per local block.
+   logical,                     intent(in)    :: initial  !< The AMR of the initial condition (the default votes alike).
+   integer(I4P)                               :: b        !< Counter.
+
+   do b=1, size(votes, kind=I4P)
+      votes(b) = self%vote(realm=realm, b=b)
+   enddo
+   endsubroutine mark
 endmodule adam_amr_criterion_object

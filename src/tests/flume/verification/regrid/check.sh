@@ -28,13 +28,15 @@
 #        trip, so the grid decisions are the host's in both; the fields differ only by the device arithmetic.
 #   rg7  (#91) the Jeans marker contract on sod-x: a Jeans marker (mode 5) without self-gravity is refused, and so is
 #        a hysteresis band with jeans_cells_derefine <= jeans_cells (the positive case is selfgravity/star.sh SV-16);
+#   rg8  (#110 P4.2) the markers FLUME does not implement are refused at initialisation, whatever the cadence: a total
+#        variation marker (mode 3) on sod-x, with runtime regridding off (frequency 0) and on (frequency 5);
 #
 # rg0 runs the library unit test (a host program) and rg6 compares the two backends: both run once, with any EXE.
 #
 # The P1 legs of rg0 also cover the conservative prolongation: the round trip exact and the integral unchanged on
 # every field, linear data reproduced, a steep front kept in the range of its data (no negative child).
 #
-# Usage: ./check.sh [--legs LIST]   (legs rg0 to rg7, all; default all but rg6;
+# Usage: ./check.sh [--legs LIST]   (legs rg0 to rg8, all; default all but rg6;
 #                                    --leg L, repeatable, is an older spelling of --legs)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -47,7 +49,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 UNIT="$REPO_ROOT/exe/test_amr_regrid_roundtrip"
 source "$VERIF_DIR/legs.sh"
-legs_declare "rg0 rg1 rg2 rg3 rg4 rg5 rg6 rg7" "rg0 rg1 rg2 rg3 rg4 rg5 rg7"
+legs_declare "rg0 rg1 rg2 rg3 rg4 rg5 rg6 rg7 rg8" "rg0 rg1 rg2 rg3 rg4 rg5 rg7 rg8"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --legs) legs_select "$2" ; shift 2 ;;
@@ -130,6 +132,17 @@ for leg in $LEGS; do
             else
                expect_refused "$work" "needs 0 < jeans_cells < jeans_cells_derefine"
             fi
+         done ;;
+      rg8)
+         base="$REPO_ROOT/src/tests/flume/regression/sod-x/input.ini"
+         for f in 0 5; do
+            echo "-- rg8: total variation marker (mode 3), [amr] frequency = $f"
+            work="$CASE_DIR/work-$TAG-tv-frequency$f" ; rm -rf "$work" ; mkdir -p "$work"
+            sed -E "s/^(\s*markers_number\s*=).*/\1 1/; s/^(\s*frequency\s*=\s*)0\b/\1$f/; s/^(\s*time_max\s*=).*/\1 0.002/" \
+               "$base" > "$work/input.ini"
+            printf '%b\n' "[amr_marker_1]\nmode = 3\nfield = 1\nvar = 1\ntol = 0.1" \
+               "delta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0" >> "$work/input.ini"
+            expect_refused "$work" "mode = 3 \(total variation\) is not implemented in FLUME"
          done ;;
       rg2)
          base="$REPO_ROOT/src/tests/flume/regression/sod-x/input.ini"

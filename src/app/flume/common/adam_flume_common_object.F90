@@ -11,7 +11,7 @@ module adam_flume_common_object
 ! ADAM classes, libraries, parameters
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
                                              AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD, &
-                                             AMR_JEANS, AMR_LOHNER, AMR_USER, prolongation_name
+                                             AMR_JEANS, AMR_LOHNER, AMR_TV, AMR_USER, prolongation_name
 use :: adam_amr_criterion_object,     only : amr_criterion_object, amr_criterion_pointer
 use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
@@ -93,6 +93,8 @@ type, extends(realm_object) :: flume_common_object
    logical                        :: amr_locked_=.false. !< Runtime AMR locked after initialization.
    type(regrid_phases_t)          :: regrid_phase        !< The state of the current runtime regrid (issue #110).
    type(amr_criterion_pointer), allocatable :: amr_criteria(:) !< Registered refinement criteria (issue #110, P4).
+   type(amr_criterion_pointer), allocatable :: amr_marker_list(:) !< The `[amr_marker_N]` criteria, in input order:
+                                                                  !< built-in and registered (issue #110, P4.2).
    ! IO
    logical                        :: save_auxiliary_fields=.false. !< Save the auxiliary variables with the fields.
    ! GLM and div(B) monitors
@@ -180,6 +182,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_dissipation     !< Refuse the dissipative terms not implemented yet.
       procedure, pass(self), private :: check_runtime_amr     !< Check [amr] frequency, default the prolongation (#74).
+      procedure, pass(self), private :: build_amr_marker_list !< The [amr_marker_N] criteria, in input order (#110).
       procedure, pass(self), private :: check_divb_flux       !< Check [diagnostics] divb_flux (#68 A2).
       procedure, pass(self), private :: check_positivity_limiter !< Refuse the limiter where it cannot work.
       procedure, pass(self), private :: check_gravity !< Refuse gravity where it is not defined (issue #73).
@@ -192,65 +195,72 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: io_initialize    !< Build the variables names.
 endtype flume_common_object
 
+! The built-in markers of `[amr_marker_N]` as refinement criteria (issue #110, P4.2): each holds its section's parameters
+! and calls the FLUME marking method it wraps, unchanged, so the built-in and the registered criteria share one list
+! (`amr_marker_list`) and one combination (`amr_update`, `mark_runtime`).
+type, extends(amr_criterion_object) :: flume_box_marker
+   !< Geometric box (`mode = 1`, `geo_type = box`): a block-local vote.
+   type(amr_marker_object) :: m !< Its `[amr_marker_N]` parameters.
+   contains
+      procedure, pass(self) :: vote => box_vote
+      procedure, pass(self) :: mark => box_mark
+endtype flume_box_marker
+
+type, abstract, extends(amr_criterion_object) :: flume_sweep_marker
+   !< A built-in marker that marks every block at once (it compares neighbours, dilates its marks or needs the realm's
+   !< auxiliaries): it overrides `mark`; a per-block `vote` does not exist for it.
+   type(amr_marker_object) :: m !< Its `[amr_marker_N]` parameters.
+   contains
+      procedure, pass(self) :: vote => sweep_vote
+endtype flume_sweep_marker
+
+type, extends(flume_sweep_marker) :: flume_solid_marker
+   !< Solid distance (`mode = 1`, `geo_type = solid`).
+   contains
+      procedure, pass(self) :: mark => solid_mark
+endtype flume_solid_marker
+
+type, extends(flume_sweep_marker) :: flume_gradient_marker
+   !< Field gradient (`mode = 2`).
+   contains
+      procedure, pass(self) :: mark => gradient_mark
+endtype flume_gradient_marker
+
+type, extends(flume_sweep_marker) :: flume_lohner_marker
+   !< Loehner estimator (`mode = 4`), runtime regrids only.
+   contains
+      procedure, pass(self) :: mark => lohner_mark
+endtype flume_lohner_marker
+
+type, extends(flume_sweep_marker) :: flume_jeans_marker
+   !< Jeans length resolution (`mode = 5`).
+   contains
+      procedure, pass(self) :: mark => jeans_mark
+endtype flume_jeans_marker
+
 contains
    ! AMR methods
    subroutine amr_update(self)
    !< Do AMR update: `amr%iters` sweeps over the markers until the grid stabilizes (initialization-time only). The
-   !< gradient marker reads the ghosts of the internal block faces, refreshed on the host before it (issue #76); the
-   !< Loehner marker is skipped: it also reads the ghosts of the physical faces, whose boundary conditions only the
-   !< backends apply; it acts at the runtime regrids (`mark_runtime`, issue #74).
+   !< markers are the criteria of `amr_marker_list` (issue #110, P4.2), each marking with `initial = .true.` and followed
+   !< by an AMR update; a criterion that acts at runtime regrids only (`runtime_only`: the Loehner marker, which also
+   !< reads the ghosts of the physical faces the backends fill, and every registered criterion) is skipped here.
    class(flume_common_object), intent(inout) :: self                !< The equation.
    logical                                   :: is_grid_changed     !< Flag to check grid changes for each marker.
    logical                                   :: is_grid_changed_all !< Flag to check grid changes for each iter.
    integer(I4P)                              :: i, i_marker         !< Counters.
-   type(amr_marker_object)                   :: amr_marker          !< Current AMR marker.
+   integer(I4P), allocatable                 :: votes(:)            !< One vote per local block.
 
    if (self%amr_locked_) &
       call mpih%error_stop(msg=': runtime AMR regrid is not supported, AMR is initialization-time only')
    amr: do i=1, self%amr%iters
       is_grid_changed_all = .false.
-      do i_marker=1, self%amr%markers_number
-         amr_marker = self%amr%markers(i_marker)
-         select case(amr_marker%mode)
-         case(AMR_GEO)
-            select case(amr_marker%geo_type)
-            case(AMR_GEO_PRIMITIVE_BOX)
-               call self%mark_by_geometry(box_emin=amr_marker%box_emin, box_emax=amr_marker%box_emax, &
-                                          target_level=amr_marker%target_level)
-            case(AMR_GEO_SOLID)
-               call self%compute_phi
-               call self%mark_by_solid(solid=amr_marker%solid, delta_type=amr_marker%delta_type, &
-                                       delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
-            case(AMR_GEO_STL)
-               call mpih%error_stop(msg=': AMR marker geo_type STL is not supported by FLUME')
-            case default
-               call mpih%error_stop(msg=': unknown AMR marker geo_type '//trim(str(amr_marker%geo_type)))
-            endselect
-         case(AMR_GRAD)
-            ! the marker reads the ghosts across internal block faces (issue #76): the IC sets the interior only, so the
-            ! host ghosts are refreshed first (local copies and MPI exchange; the physical faces are not read); without a
-            ! uniform refinement (iu_ref_levels = 0) no ghost map is built before the first initial AMR update
-            if (.not.allocated(self%adam%maps%local_map_ghost_cell)) call self%adam%make_comm_local_maps_ghost_bc
-            call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q)
-            call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%q)
-            call self%mark_by_gradient(field=amr_marker%field, ivar=amr_marker%ivar, tol=amr_marker%tol,           &
-                                       delta_type=amr_marker%delta_type, delta_fine=amr_marker%delta_fine, &
-                                       delta_coarse=amr_marker%delta_coarse)
-         case(AMR_LOHNER)
-            ! runtime regrids only (mark_runtime): the estimator also reads the ghosts of the physical faces, which the
-            ! host cannot fill here (the boundary conditions are the backends')
-            cycle
-         case(AMR_USER)
-            ! runtime regrids only (mark_runtime), like the Loehner marker: a registered criterion may read any field
-            cycle
-         case(AMR_JEANS)
-            ! cell-local (no ghosts): it refines the initial grid too, never derefines it
-            call self%mark_by_jeans(jeans_cells=amr_marker%jeans_cells,                   &
-                                    jeans_cells_derefine=amr_marker%jeans_cells_derefine, &
-                                    delta_type=amr_marker%delta_type, refine_only=.true.)
-         case default
-            call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
-         endselect
+      do i_marker=1, size(self%amr_marker_list)
+         if (self%amr_marker_list(i_marker)%ptr%runtime_only) cycle
+         if (allocated(votes)) deallocate(votes)
+         allocate(votes(self%blocks_number))
+         call self%amr_marker_list(i_marker)%ptr%mark(realm=self, votes=votes, initial=.true.)
+         self%adam%field%refinements_needed(1:self%blocks_number) = votes
          call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, &
                                    q=self%q)
          is_grid_changed_all = is_grid_changed_all .or. is_grid_changed
@@ -549,59 +559,24 @@ contains
    class(flume_common_object), intent(inout) :: self         !< The equation.
    logical, allocatable                      :: refine(:)    !< Some marker asks to refine the block.
    logical, allocatable                      :: derefine(:)  !< Every marker so far agrees to derefine the block.
-   real(R8P)                                 :: centroid(3)  !< Block centroid.
+   integer(I4P), allocatable                 :: votes(:)     !< One marker's votes, one per local block.
    integer(I4P)                              :: base_level   !< Level below which no block derefines.
    integer(I4P)                              :: i_marker, b  !< Counters.
-   type(amr_marker_object)                   :: amr_marker   !< Current AMR marker.
 
-   allocate(refine(self%blocks_number), derefine(self%blocks_number))
+   allocate(refine(self%blocks_number), derefine(self%blocks_number), votes(self%blocks_number))
    refine = .false. ; derefine = .true.
    base_level = max(0_I4P, self%adam%tree%iu_ref_levels)
    associate(field=>self%adam%field, tree=>self%adam%tree)
    field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
-   do i_marker=1, self%amr%markers_number
-      amr_marker = self%amr%markers(i_marker)
-      select case(amr_marker%mode)
-      case(AMR_GEO)
-         select case(amr_marker%geo_type)
-         case(AMR_GEO_PRIMITIVE_BOX)
-            do b=1, self%blocks_number
-               centroid = 0.5_R8P * (field%emin(:,b) + field%emax(:,b))
-               if (all(centroid >= amr_marker%box_emin) .and. all(centroid <= amr_marker%box_emax)) then
-                  if (tree%level(field%code(b)) < amr_marker%target_level) then
-                     field%refinements_needed(b) = TO_BE_REFINED
-                  elseif (tree%level(field%code(b)) == amr_marker%target_level) then
-                     field%refinements_needed(b) = TO_NOT_TOUCH
-                  else
-                     field%refinements_needed(b) = TO_BE_DEREFINED
-                  endif
-               else
-                  field%refinements_needed(b) = TO_BE_DEREFINED
-               endif
-            enddo
-         case(AMR_GEO_SOLID)
-            call self%mark_by_solid(solid=amr_marker%solid, delta_type=amr_marker%delta_type, &
-                                    delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
-         case default
-            call mpih%error_stop(msg=': AMR marker geo_type '//trim(str(amr_marker%geo_type))// &
-                                     ' is not supported by FLUME runtime regridding')
-         endselect
-      case(AMR_GRAD)
-         call self%mark_by_gradient(field=amr_marker%field, ivar=amr_marker%ivar, tol=amr_marker%tol,           &
-                                    delta_type=amr_marker%delta_type, delta_fine=amr_marker%delta_fine, &
-                                    delta_coarse=amr_marker%delta_coarse)
-      case(AMR_LOHNER)
-         call self%mark_by_lohner(field=amr_marker%field, ivar=amr_marker%ivar, refine_tol=amr_marker%refine_tol, &
-                                  derefine_tol=amr_marker%derefine_tol, epsilon=amr_marker%epsilon,             &
-                                  floor=amr_marker%floor, buffer=amr_marker%buffer)
-      case(AMR_JEANS)
-         call self%mark_by_jeans(jeans_cells=amr_marker%jeans_cells, jeans_cells_derefine=amr_marker%jeans_cells_derefine, &
-                                 delta_type=amr_marker%delta_type)
-      case(AMR_USER)
-         call mark_by_criterion(name=amr_marker%criterion)
-      case default
-         call mpih%error_stop(msg=': AMR marker mode '//trim(str(amr_marker%mode))//' is not supported by FLUME')
-      endselect
+   do i_marker=1, size(self%amr_marker_list)
+      ! the criteria of [amr_marker_N], built-in or registered (issue #110, P4.2), in input order
+      call self%amr_marker_list(i_marker)%ptr%mark(realm=self, votes=votes, initial=.false.)
+      do b=1, self%blocks_number
+         if (all(votes(b) /= [TO_BE_REFINED, TO_NOT_TOUCH, TO_BE_DEREFINED])) &
+            call mpih%error_stop(msg=': the criterion "'//self%amr_marker_list(i_marker)%ptr%name//'" voted '// &
+                                     trim(str(votes(b)))//' (a vote is -1, 0 or 1)')
+      enddo
+      field%refinements_needed(1:self%blocks_number) = votes
       refine   = refine   .or.  field%refinements_needed(1:self%blocks_number) == TO_BE_REFINED
       derefine = derefine .and. field%refinements_needed(1:self%blocks_number) == TO_BE_DEREFINED
    enddo
@@ -617,33 +592,6 @@ contains
    enddo
    endassociate
    contains
-      subroutine mark_by_criterion(name)
-      !< The votes of the registered criterion `name` (issue #110, P4), one per block of this rank; a name nobody
-      !< registered, or a vote that is not a mark, stops the run.
-      character(*), intent(in)  :: name  !< Criterion name.
-      character(:), allocatable :: known !< Registered names, for the message.
-      integer(I4P)              :: c, bb !< Counters.
-
-      known = ''
-      if (allocated(self%amr_criteria)) then
-         do c=1, size(self%amr_criteria)
-            if (self%amr_criteria(c)%ptr%name == name) exit
-            known = known//' '//self%amr_criteria(c)%ptr%name
-         enddo
-         if (c > size(self%amr_criteria)) c = 0
-      else
-         c = 0
-      endif
-      if (c == 0) call mpih%error_stop(msg=': [amr_marker] name = "'//name//'" is not a registered criterion '// &
-                                           '(registered:'//known//'); register it with register_amr_criterion')
-      do bb=1, self%blocks_number
-         self%adam%field%refinements_needed(bb) = self%amr_criteria(c)%ptr%vote(realm=self, b=bb)
-         if (all(self%adam%field%refinements_needed(bb) /= [TO_BE_REFINED, TO_NOT_TOUCH, TO_BE_DEREFINED])) &
-            call mpih%error_stop(msg=': the criterion "'//name//'" voted '//                                  &
-                                     trim(str(self%adam%field%refinements_needed(bb)))//' (a vote is -1, 0 or 1)')
-      enddo
-      endsubroutine mark_by_criterion
-
       subroutine sink_region(refine, derefine)
       !< Keep the neighbourhood of every sink on the finest level (issue #94): a block within `r_acc + (frequency / 2 +
       !< 2)` cells of the finest level of a sink (its accretion radius, the half cell a sink may move per step until the
@@ -676,6 +624,145 @@ contains
       enddo
       endsubroutine sink_region
    endsubroutine mark_runtime
+
+   ! the built-in markers as refinement criteria (issue #110, P4.2)
+   function box_vote(self, realm, b) result(mark)
+   !< The geometric box's vote for block `b` at a runtime regrid: refine inside the box below its target level, keep
+   !< inside at the target level, derefine elsewhere (outside the box, or inside above the target); as a vote it must not
+   !< pin the grid outside its box, as it would if "untouched" vetoed the other markers there.
+   class(flume_box_marker), intent(inout) :: self        !< The marker.
+   class(realm_object),     intent(in)    :: realm       !< The realm.
+   integer(I4P),            intent(in)    :: b           !< Local block index.
+   integer(I4P)                           :: mark        !< The vote.
+   real(R8P)                              :: centroid(3) !< Block centroid.
+
+   associate(field=>realm%adam%field, tree=>realm%adam%tree)
+   centroid = 0.5_R8P * (field%emin(:,b) + field%emax(:,b))
+   if (all(centroid >= self%m%box_emin) .and. all(centroid <= self%m%box_emax)) then
+      if (tree%level(field%code(b)) < self%m%target_level) then
+         mark = TO_BE_REFINED
+      elseif (tree%level(field%code(b)) == self%m%target_level) then
+         mark = TO_NOT_TOUCH
+      else
+         mark = TO_BE_DEREFINED
+      endif
+   else
+      mark = TO_BE_DEREFINED
+   endif
+   endassociate
+   endfunction box_vote
+
+   subroutine box_mark(self, realm, votes, initial)
+   !< The geometric box: at the initial AMR the additive `mark_by_geometry` (refine inside below the target, leave the
+   !< rest untouched), at a runtime regrid the per-block vote (`box_vote`).
+   class(flume_box_marker), intent(inout) :: self     !< The marker.
+   class(realm_object),     intent(inout) :: realm    !< The realm.
+   integer(I4P),            intent(out)   :: votes(:) !< One vote per local block.
+   logical,                 intent(in)    :: initial  !< The AMR of the initial condition.
+   integer(I4P)                           :: b        !< Counter.
+
+   if (initial) then
+      select type(realm)
+      class is(flume_common_object)
+         call realm%mark_by_geometry(box_emin=self%m%box_emin, box_emax=self%m%box_emax, target_level=self%m%target_level)
+      endselect
+      votes = realm%adam%field%refinements_needed(1:size(votes))
+   else
+      do b=1, size(votes, kind=I4P)
+         votes(b) = self%vote(realm=realm, b=b)
+      enddo
+   endif
+   endsubroutine box_mark
+
+   function sweep_vote(self, realm, b) result(mark)
+   !< A marker that marks every block at once has no per-block vote: `mark` is the only entry.
+   class(flume_sweep_marker), intent(inout) :: self  !< The marker.
+   class(realm_object),       intent(in)    :: realm !< The realm.
+   integer(I4P),              intent(in)    :: b     !< Local block index.
+   integer(I4P)                             :: mark  !< The vote.
+
+   mark = TO_NOT_TOUCH
+   call mpih%error_stop(msg=': the built-in marker "'//self%name//'" marks every block at once (`mark`), it has no '// &
+                            'per-block vote (block '//trim(str(b, .true.))//' of a realm of '//                     &
+                            trim(str(realm%adam%field%blocks_number, .true.))//')')
+   endfunction sweep_vote
+
+   subroutine solid_mark(self, realm, votes, initial)
+   !< The solid marker (`mark_by_solid`); at the initial AMR the distance function is computed first.
+   class(flume_solid_marker), intent(inout) :: self     !< The marker.
+   class(realm_object),       intent(inout) :: realm    !< The realm.
+   integer(I4P),              intent(out)   :: votes(:) !< One vote per local block.
+   logical,                   intent(in)    :: initial  !< The AMR of the initial condition.
+
+   select type(realm)
+   class is(flume_common_object)
+      if (initial) call realm%compute_phi
+      call realm%mark_by_solid(solid=self%m%solid, delta_type=self%m%delta_type, delta_fine=self%m%delta_fine, &
+                               delta_coarse=self%m%delta_coarse)
+   endselect
+   votes = realm%adam%field%refinements_needed(1:size(votes))
+   endsubroutine solid_mark
+
+   subroutine gradient_mark(self, realm, votes, initial)
+   !< The gradient marker (`mark_by_gradient`). It reads the ghosts across internal block faces (issue #76): at the
+   !< initial AMR the IC sets the interior only, so the host ghosts are refreshed first (local copies and MPI exchange;
+   !< the physical faces are not read); without a uniform refinement (iu_ref_levels = 0) no ghost map is built before
+   !< the first initial AMR update. At a runtime regrid the caller has refreshed them.
+   class(flume_gradient_marker), intent(inout) :: self     !< The marker.
+   class(realm_object),          intent(inout) :: realm    !< The realm.
+   integer(I4P),                 intent(out)   :: votes(:) !< One vote per local block.
+   logical,                      intent(in)    :: initial  !< The AMR of the initial condition.
+
+   select type(realm)
+   class is(flume_common_object)
+      if (initial) then
+         if (.not.allocated(realm%adam%maps%local_map_ghost_cell)) call realm%adam%make_comm_local_maps_ghost_bc
+         call realm%adam%field%update_ghost_local(grid=realm%adam%grid, maps=realm%adam%maps, q=realm%q)
+         call realm%adam%field%update_ghost_mpi(grid=realm%adam%grid, maps=realm%adam%maps, q=realm%q)
+      endif
+      call realm%mark_by_gradient(field=self%m%field, ivar=self%m%ivar, tol=self%m%tol, delta_type=self%m%delta_type, &
+                                  delta_fine=self%m%delta_fine, delta_coarse=self%m%delta_coarse)
+   endselect
+   votes = realm%adam%field%refinements_needed(1:size(votes))
+   endsubroutine gradient_mark
+
+   subroutine lohner_mark(self, realm, votes, initial)
+   !< The Loehner marker (`mark_by_lohner`), runtime regrids only (`runtime_only`): the estimator also reads the ghosts
+   !< of the physical faces, which the host cannot fill at the initial AMR (the boundary conditions are the backends').
+   class(flume_lohner_marker), intent(inout) :: self     !< The marker.
+   class(realm_object),        intent(inout) :: realm    !< The realm.
+   integer(I4P),               intent(out)   :: votes(:) !< One vote per local block.
+   logical,                    intent(in)    :: initial  !< The AMR of the initial condition (never: runtime only).
+
+   if (initial) call mpih%error_stop(msg=': the Loehner marker "'//self%name//'" acts at runtime regrids only')
+   select type(realm)
+   class is(flume_common_object)
+      call realm%mark_by_lohner(field=self%m%field, ivar=self%m%ivar, refine_tol=self%m%refine_tol,          &
+                                derefine_tol=self%m%derefine_tol, epsilon=self%m%epsilon, floor=self%m%floor, &
+                                buffer=self%m%buffer)
+   endselect
+   votes = realm%adam%field%refinements_needed(1:size(votes))
+   endsubroutine lohner_mark
+
+   subroutine jeans_mark(self, realm, votes, initial)
+   !< The Jeans marker (`mark_by_jeans`): cell-local (no ghosts); at the initial AMR it refines only, never derefines.
+   class(flume_jeans_marker), intent(inout) :: self     !< The marker.
+   class(realm_object),       intent(inout) :: realm    !< The realm.
+   integer(I4P),              intent(out)   :: votes(:) !< One vote per local block.
+   logical,                   intent(in)    :: initial  !< The AMR of the initial condition.
+
+   select type(realm)
+   class is(flume_common_object)
+      if (initial) then
+         call realm%mark_by_jeans(jeans_cells=self%m%jeans_cells, jeans_cells_derefine=self%m%jeans_cells_derefine, &
+                                  delta_type=self%m%delta_type, refine_only=.true.)
+      else
+         call realm%mark_by_jeans(jeans_cells=self%m%jeans_cells, jeans_cells_derefine=self%m%jeans_cells_derefine, &
+                                  delta_type=self%m%delta_type)
+      endif
+   endselect
+   votes = realm%adam%field%refinements_needed(1:size(votes))
+   endsubroutine jeans_mark
 
    subroutine register_amr_criterion(self, criterion)
    !< Register a refinement criterion (issue #110, P4): `[amr_marker_N] mode = 6, name = <criterion%name>` selects it
@@ -1095,6 +1182,7 @@ contains
    if (self%sinks%is_active) print '(A)', self%sinks%description()
    call self%check_barotropic
    call self%check_runtime_amr
+   call self%build_amr_marker_list
    call self%check_divb_flux
    call self%check_ngc_number
    call self%allocate_common
@@ -2835,6 +2923,74 @@ contains
                                known//'); the program registers it with register_amr_criterion before the run')
       endsubroutine check_criterion_registered
    endsubroutine check_runtime_amr
+
+   subroutine build_amr_marker_list(self)
+   !< Build `amr_marker_list`, the criteria of the `[amr_marker_N]` sections in input order (issue #110, P4.2): a built-in
+   !< marker becomes its FLUME criterion (box, solid, gradient, Loehner, Jeans), holding its section's parameters; `mode =
+   !< 6` points to the criterion the program registered under that name (`check_runtime_amr` has checked it exists). A
+   !< marker FLUME does not implement stops the run here, at initialisation: total variation (`mode = 3`), an STL
+   !< geometry, an unknown mode or geometry kind.
+   class(flume_common_object), intent(inout) :: self      !< The equation.
+   class(amr_criterion_object), pointer      :: criterion !< The criterion of a section.
+   character(:), allocatable                 :: sname     !< Section name.
+   integer(I4P)                              :: i_marker  !< Counter.
+   integer(I4P)                              :: c         !< Counter.
+
+   if (allocated(self%amr_marker_list)) deallocate(self%amr_marker_list)
+   allocate(self%amr_marker_list(self%amr%markers_number))
+   do i_marker=1, self%amr%markers_number
+      sname = 'amr_marker_'//trim(str(i_marker, .true.))
+      associate(m=>self%amr%markers(i_marker))
+      criterion => null()
+      select case(m%mode)
+      case(AMR_GEO)
+         select case(m%geo_type)
+         case(AMR_GEO_PRIMITIVE_BOX)
+            allocate(flume_box_marker :: criterion)
+         case(AMR_GEO_SOLID)
+            allocate(flume_solid_marker :: criterion)
+         case(AMR_GEO_STL)
+            call mpih%error_stop(msg=': ['//sname//'] geo_type STL is not supported by FLUME')
+         case default
+            call mpih%error_stop(msg=': ['//sname//'] unknown geo_type '//trim(str(m%geo_type)))
+         endselect
+      case(AMR_GRAD)
+         allocate(flume_gradient_marker :: criterion)
+      case(AMR_TV)
+         call mpih%error_stop(msg=': ['//sname//'] mode = 3 (total variation) is not implemented in FLUME; the '// &
+                                  'gradient (2) and Loehner (4) markers are')
+      case(AMR_LOHNER)
+         allocate(flume_lohner_marker :: criterion)
+      case(AMR_JEANS)
+         allocate(flume_jeans_marker :: criterion)
+      case(AMR_USER)
+         if (allocated(self%amr_criteria)) then
+            do c=1, size(self%amr_criteria)
+               if (self%amr_criteria(c)%ptr%name == m%criterion) criterion => self%amr_criteria(c)%ptr
+            enddo
+         endif
+      case default
+         call mpih%error_stop(msg=': ['//sname//'] mode '//trim(str(m%mode))//' is not supported by FLUME')
+      endselect
+      if (.not.associated(criterion)) &
+         call mpih%error_stop(msg=': ['//sname//'] name = "'//m%criterion//'" is not a registered criterion')
+      ! the built-ins: their parameters, their name, and whether they act at the initial AMR
+      select type(criterion)
+      type is(flume_box_marker)
+         criterion%m = m ; criterion%name = sname ; criterion%runtime_only = .false.
+      class is(flume_sweep_marker)
+         criterion%m = m ; criterion%name = sname
+         select type(criterion)
+         type is(flume_lohner_marker)
+            criterion%runtime_only = .true.
+         class default
+            criterion%runtime_only = .false.
+         endselect
+      endselect
+      self%amr_marker_list(i_marker)%ptr => criterion
+      endassociate
+   enddo
+   endsubroutine build_amr_marker_list
 
    subroutine check_divb_flux(self)
    !< Check `[diagnostics] divb_flux` (issue #68 A2): D_flux is the divergence of the interface field the cleaning acts
