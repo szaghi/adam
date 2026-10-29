@@ -63,9 +63,13 @@ type :: forest_object
    ! Timing report (issue #53), on when the environment sets ADAM_SEAM_TIMING=1; wall time on this rank of: the time
    ! loop, evolve_one_step, the end-of-step reflux fine-sum reduction, the wait at a barrier put before it when timing
    ! (load imbalance, which the collective reduction would otherwise absorb), the reflux correction, and of the batched
-   ! seam fills (F3): the wait at a barrier put before their posts (load imbalance) and their single wait.
+   ! seam fills (F3): the wait at a barrier put before their posts (load imbalance) and their single wait; and of the
+   ! runtime regrid (issue #110 P6): the whole `regrid`, the cross-realm balance of the marks, the rebuilds of the
+   ! inter-realm topology and the seam refills after them, with the count of rebuilds; and the phases of a rebuild
+   ! (the coupling checks, the flux register, the seam ghost rows with the boundary crown, the backend hook).
    logical                    :: timing   = .false.
-   real(R8P)                  :: wtime(7) = 0._R8P
+   real(R8P)                  :: wtime(15) = 0._R8P
+   integer(I4P)               :: rebuilds  = 0_I4P
    ! Runtime AMR on a multi-realm forest (issue #110): the manifest of `initialize_from_manifest`, kept to rebuild the
    ! inter-realm topology after a regrid; and the test hook ADAM_FOREST_REBUILD_TOPOLOGY=1, which rebuilds it after
    ! every step whether or not a realm regridded (a run must then stay bitwise identical: the rebuild is idempotent).
@@ -96,6 +100,7 @@ type :: forest_object
       procedure, pass(self), private :: share_flux_register             !< Copy the register into every realm (#68 A2).
       procedure, pass(self), private :: fill_all_seams                  !< Fill every seam on committed q (issue #110).
       procedure, pass(self), private :: regrid_realms                   !< The phased multi-realm regrid (issue #110).
+      procedure, pass(self), private :: rebuild_topology_timed          !< Rebuild the topology, refill the seams (#110).
       procedure, pass(self), private :: balance_seam_marks              !< Balance the marks across the seams (#110).
       procedure, pass(self), private :: start_timing                    !< Arm the timing report (issue #53).
       procedure, pass(self), private :: report_timing                   !< Print the timing report (issue #53).
@@ -494,6 +499,7 @@ contains
    integer(I4P)                        :: is            !< Realm index.
    integer(I4P)                        :: ierr          !< MPI error code.
 
+   if (self%timing) self%wtime(8) = self%wtime(8) - MPI_Wtime()
    runtime_amr = .false.
    do is = 1, int(size(realm), I4P)
       runtime_amr = runtime_amr .or. realm(is)%ptr%runtime_amr_forest()
@@ -512,14 +518,29 @@ contains
    if (self%rebuild_topology) any_regridded = .true.
    if (any_regridded .and. .not.rebuilt) then
       if (self%has_manifest) then
-         call self%populate_inter_realm_topology(realm, self%manifest)
-         call self%fill_all_seams(realm=realm)
+         call self%rebuild_topology_timed(realm=realm)
       else
          call self%register_intra_realm_amr_seams(realm=realm)
          call self%share_flux_register(realm=realm)
       endif
    endif
+   if (self%timing) self%wtime(8) = self%wtime(8) + MPI_Wtime()
    endsubroutine regrid
+
+   subroutine rebuild_topology_timed(self, realm)
+   !< Rebuild the inter-realm topology from the kept manifest and refill every seam from its peer, timing both when
+   !< `ADAM_SEAM_TIMING=1` (issue #110 P6).
+   class(forest_object), intent(inout) :: self     !< The forest.
+   type(realm_pointer),  intent(inout) :: realm(:) !< The realms.
+
+   if (self%timing) self%wtime(10) = self%wtime(10) - MPI_Wtime()
+   call self%populate_inter_realm_topology(realm, self%manifest)
+   if (self%timing) self%wtime(10) = self%wtime(10) + MPI_Wtime()
+   if (self%timing) self%wtime(11) = self%wtime(11) - MPI_Wtime()
+   call self%fill_all_seams(realm=realm)
+   if (self%timing) self%wtime(11) = self%wtime(11) + MPI_Wtime()
+   self%rebuilds = self%rebuilds + 1_I4P
+   endsubroutine rebuild_topology_timed
 
    subroutine regrid_realms(self, realm, any_regridded, rebuilt)
    !< The regrid of a multi-realm forest (issue #110): every realm marks, the forest balances the marks across the
@@ -546,7 +567,6 @@ contains
    integer(I4P)                        :: is, sweep     !< Counters.
    character(:), allocatable           :: line          !< Log line of a sweep.
 
-   call self%fill_all_seams(realm=realm) ! the markers that read ghosts see the peer realm across a seam
    any_active = .false.
    do is = 1, int(size(realm), I4P)
       call realm(is)%ptr%regrid_begin_forest(active=active)
@@ -554,6 +574,9 @@ contains
    enddo
    any_regridded = .false. ; rebuilt = .false.
    if (.not.any_active) return
+   ! the markers that read ghosts see the peer realm across a seam; only on a regrid step (issue #110 P6: it used to
+   ! run before this test, a full seam exchange on every step)
+   call self%fill_all_seams(realm=realm)
    do sweep = 1, SWEEPS_MAX
       any_marked = .false.
       do is = 1, int(size(realm), I4P)
@@ -566,8 +589,10 @@ contains
       do is = 1, int(size(realm), I4P)
          line = line//' '//trim(tree_marks_text(realm(is)%ptr%adam%tree))
       enddo
+      if (self%timing) self%wtime(9) = self%wtime(9) - MPI_Wtime()
       call self%balance_seam_marks(realm=realm)
       call check_marks_agree(realm=realm)
+      if (self%timing) self%wtime(9) = self%wtime(9) + MPI_Wtime()
       line = line//'; balanced:'
       do is = 1, int(size(realm), I4P)
          line = line//' '//trim(tree_marks_text(realm(is)%ptr%adam%tree))
@@ -581,8 +606,7 @@ contains
       enddo
       rebuilt = .false.
       if (.not.any_changed) exit
-      call self%populate_inter_realm_topology(realm, self%manifest)
-      call self%fill_all_seams(realm=realm)
+      call self%rebuild_topology_timed(realm=realm)
       rebuilt = .true.
    enddo
    do is = 1, int(size(realm), I4P)
@@ -1086,7 +1110,8 @@ contains
    ! private methods
    subroutine start_timing(self, realm)
    !< Arm the timing report when the environment sets ADAM_SEAM_TIMING=1 (issue #53): the forest times its loop, steps
-   !< and reflux, every realm the phases of the seam fills of its ghosts. Off by default, the output unchanged.
+   !< and reflux, every realm the phases of the seam fills of its ghosts; the forest also times the runtime regrid, its
+   !< balance and topology rebuilds (issue #110 P6). Off by default, the output unchanged.
    class(forest_object), intent(inout) :: self     !< The forest.
    type(realm_pointer),  intent(inout) :: realm(:) !< The realms.
    character(len=8)                    :: val      !< Environment value.
@@ -1105,18 +1130,26 @@ contains
    !< fill phases (local copy, buffers, pack, MPI, unpack) and of their sum; fills and rows summed over the ranks.
    class(forest_object), intent(in) :: self     !< The forest.
    type(realm_pointer),  intent(in) :: realm(:) !< The realms.
-   real(R8P)                        :: w(7)     !< Timers reduced over the ranks.
+   real(R8P)                        :: w(15)    !< Timers reduced over the ranks.
    integer(I8P)                     :: c(3)     !< Counters reduced over the ranks.
    integer(I4P)                     :: is       !< Realm index.
    integer                          :: ierr     !< MPI error.
    character(len=256)               :: line     !< Report line.
 
-   w(1:7) = self%wtime
-   call MPI_ALLREDUCE(MPI_IN_PLACE, w, 7, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
+   w(1:15) = self%wtime
+   call MPI_ALLREDUCE(MPI_IN_PLACE, w, 15, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, ierr)
    write(line, '(A,7(F11.4,A),I0,A)') 'forest timing (max over ranks, s): loop', w(1), ', steps', w(2),               &
                                       ', imbalance before reflux', w(4), ', reflux reduce', w(3), ', reflux apply', w(5), &
                                       ', seam imbalance', w(6), ', seam wait', w(7),                                      &
                                       '; ', self%flux_register%nfaces, ' register faces'
+   if (mpih%myrank == 0) call mpih%print_message(trim(line))
+   write(line, '(A,4(F11.4,A),I0,A)') 'forest regrid timing (max over ranks, s): regrid', w(8), ', balance', w(9), &
+                                      ', topology rebuild', w(10), ', seam refill', w(11), '; ', self%rebuilds,     &
+                                      ' rebuilds'
+   if (mpih%myrank == 0) call mpih%print_message(trim(line))
+   write(line, '(A,4(F11.4,A),I0,A)') 'forest rebuild phases (max over ranks, s): coupling checks', w(12),           &
+                                      ', flux register', w(13), ', seam rows and crown', w(14), ', backend hook',   &
+                                      w(15), '; ', self%flux_register%nfaces, ' register faces'
    if (mpih%myrank == 0) call mpih%print_message(trim(line))
    do is = 1_I4P, int(size(realm), I4P)
       associate(r => realm(is)%ptr)
@@ -1208,10 +1241,12 @@ contains
    integer(I4P)                            :: n_intra             !< Intra-realm AMR faces in the flux register.
    type(forest_face_pair_t)                :: pair                !< Loop alias.
 
+   if (self%timing) self%wtime(12) = self%wtime(12) - MPI_Wtime()
    manifest = manifest_in
    call resolve_auto_couplings(realm=realm, manifest=manifest)
    if (.not. allocated(manifest%face_pairs)) then
       ! No inter-realm topology: the flux register holds the intra-realm AMR faces only.
+      if (self%timing) self%wtime(12) = self%wtime(12) + MPI_Wtime()
       call self%register_intra_realm_amr_seams(realm=realm)
       call self%share_flux_register(realm=realm)
       return
@@ -1231,6 +1266,7 @@ contains
    enddo
    ! Validate every coupling against the realm geometry before any seam data is built (issue #52).
    call check_couplings(realm=realm, manifest=manifest)
+   if (self%timing) self%wtime(12) = self%wtime(12) + MPI_Wtime()
    do is = 1_I4P, self%n
       if (allocated(realm(is)%ptr%adam%maps%inter_realm_neighbors)) deallocate(realm(is)%ptr%adam%maps%inter_realm_neighbors)
       if (per_realm_count(is) > 0_I4P) allocate(realm(is)%ptr%adam%maps%inter_realm_neighbors(per_realm_count(is)))
@@ -1262,15 +1298,18 @@ contains
    ! exercise these accumulators non-trivially in follow-up commits.
    ! Flux register: the intra-realm AMR faces first (cursors 1..n_intra), then the inter-realm seam faces after them
    ! (issue #37); both lists are walked on the replicated trees, the same on every rank (issue #40).
+   if (self%timing) self%wtime(13) = self%wtime(13) - MPI_Wtime()
    call self%register_intra_realm_amr_seams(realm=realm, extra_faces=count_inter_realm_seam_faces(realm, manifest), &
                                             nfaces_intra=n_intra)
    call register_inter_realm_seams(realm=realm, manifest=manifest, flux_register=self%flux_register, first_cursor=n_intra)
    call self%share_flux_register(realm=realm)
+   if (self%timing) self%wtime(13) = self%wtime(13) + MPI_Wtime()
    ! Build the seam ghost rows of every realm (issue #40): from the replicated trees, every rank enumerates every seam
    ! ghost of every realm in one canonical order and keeps the rows it takes part in: local rows (ghost and peer cell on
    ! this rank, `seam_local_map_ghost_cell`), receive rows (ghost here, cell on another rank, `seam_mpi_recv_cell`) and
    ! send rows (cell here, ghost on another rank, `seam_mpi_send_cell`). The peer slots and their cadence come from the
    ! manifest, so they are the same on every rank. `adam_seam_exchange` consumes them.
+   if (self%timing) self%wtime(14) = self%wtime(14) - MPI_Wtime()
    call build_seam_rows(realm=realm, manifest=manifest)
    ! Override the BC crown's bc_type column to BC_SEAM for entries that
    ! lie on an inter-realm seam face.
@@ -1299,15 +1338,18 @@ contains
    ! topology; this override applies that authority over the realm's
    ! own INI declarations at the right semantic layer.
    call override_seam_bc_in_crown(realm=realm, manifest=manifest)
+   if (self%timing) self%wtime(14) = self%wtime(14) + MPI_Wtime()
    ! Backend hook: each realm propagates the freshly-built host seam maps
    ! to whatever device-side / backend-specific structures it owns. CPU
    ! realms no-op; FNL realms refresh maps_fnl%seam_local_* device pointers.
+   if (self%timing) self%wtime(15) = self%wtime(15) - MPI_Wtime()
    block
       integer(I4P) :: is_tb
       do is_tb = 1_I4P, int(size(realm), I4P)
          call realm(is_tb)%ptr%after_topology_build_forest
       enddo
    endblock
+   if (self%timing) self%wtime(15) = self%wtime(15) + MPI_Wtime()
    contains
       subroutine set_neighbor(slot, my_realm, my_face, peer_realm, peer_face, coupling)
       !< Set inter-realm neighbor.

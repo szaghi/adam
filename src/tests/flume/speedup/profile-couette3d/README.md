@@ -28,16 +28,31 @@ size sees the same work, whatever the step.
 | Output (optional) | HDF5 checkpoint (`save_xh5f`) | `--io`: the first and last step |
 
 **Not exercised:** the immersed boundary (distance function, eikonal extrapolation, wall inversion), the prolongation
-of a regrid that changes the grid, inter-realm (multi-realm) seams, MHD, gravity, the positivity limiter. Profile
+of a regrid that changes the grid, inter-realm (multi-realm) seams (but see the two-realm variant below), MHD, gravity,
+the positivity limiter. Profile
 those on the speedup cases (`../xyz-shock-sphere-amr`, for example, has the immersed boundary and real regrids).
 
-## Two variants
+## Three variants
 
 - **Refined walls** (default): everything in the table above.
 - **Uniform** (`--uniform`): the simplest run, one realm on a uniform grid with no AMR marker, no regrid and no 2:1
   seam. It keeps the convective and dissipative residuals, the stages, the boundaries, the ghost exchange and the
   reductions, so its profile is the solver alone; set against the refined-walls profile of a similar size, the
   difference prices the AMR machinery (seam fills, reflux, regrids).
+- **Two realms** (`--realms 2`, [#110](https://github.com/szaghi/adam/issues/110) P6): the refined walls as a forest of
+  two realms, the channel split at x = 0.5 (each realm NI/2 cells along x, so the cells are those of one realm), x
+  extrapolated outside (the Couette flow does not vary along x, so it stays steady; a seam cannot wrap the periodic x
+  axis), one `coupling = auto`, `stage_coincident` seam across both refined wall layers. The seam has mixed levels:
+  equal cells face by face, finer along the walls. Set against the refined walls of the same size it is not a clean
+  price of the seam: the forest also has twice the blocks, each half as thick along x (a larger ghost share), and
+  extrapolated x faces in place of periodic ones. The seam's own cost is in its timing lines
+  (`forest seam timing`). The box markers keep the grid, so a regrid never rebuilds
+  the inter-realm topology; `--rebuild` rebuilds it after every step (`ADAM_FOREST_REBUILD_TOPOLOGY=1`), which prices
+  the rebuild a regrid that changes the grid pays. With `ADAM_SEAM_TIMING=1` (always on in `profile.sh`) the log
+  times the regrid, the cross-realm balance, the topology rebuilds and the seam refills
+  (`forest regrid timing`), the phases of a rebuild (`forest rebuild phases`: coupling checks, flux register, seam ghost
+  rows and boundary crown, backend hook), next to the seam fill phases (`forest seam timing`). The candidates these
+  timers should rank are listed, by code reading, in issue #110 P6 (night notes of 2026-10-29).
 
 | Uniform size | Grid | Cells | Memory (estimate) | For |
 |---|---|---|---|---|

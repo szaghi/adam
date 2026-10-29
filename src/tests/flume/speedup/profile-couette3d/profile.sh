@@ -11,11 +11,15 @@
 # wall time of its loop, of the steps and of the reflux, and per realm of the seam fills (max over the ranks); it puts
 # a barrier before the reflux reduction to separate the load imbalance, a small perturbation.
 #
-# Usage: ./profile.sh <leg> [--size small|medium|large] [--np N] [--tool T] [--steps N] [--io] [--scheme S]
-#                     [--launcher "CMD"] [--exe PATH] [--tag NAME] [--dry-run]
+# Usage: ./profile.sh <leg> [--size small|medium|large] [--uniform | --realms 2 [--rebuild]] [--np N] [--tool T]
+#                     [--steps N] [--io] [--scheme S] [--launcher "CMD"] [--exe PATH] [--tag NAME] [--dry-run]
 #   leg         cpu, fnl-nvf or fnl-amd; the executable is ../exe/<leg>/ (../build.sh <leg>)
 #   --size      small (default; WSL), medium (medooza), large (one AMD GPU, or 4 A30); see make_profile.py
 #   --uniform   the simplest variant: one realm on a uniform grid, no AMR marker, no regrid, no 2:1 seam
+#   --realms 2  the refined walls as a two-realm forest split at x = 0.5 (issue #110 P6): an inter-realm seam with
+#               mixed levels across the wall layers, filled every stage (make_profile.py --realms 2)
+#   --rebuild   with --realms 2: rebuild the inter-realm topology after every step (ADAM_FOREST_REBUILD_TOPOLOGY=1),
+#               to price the rebuild a regrid that changes the grid pays (the box markers never change it)
 #   --np        MPI ranks (default 2, or $SLURM_NTASKS); FNL: one rank per GPU
 #   --tool      none (default: wall time and the forest timing report only)
 #               nsys     NVIDIA Nsight Systems timeline, every rank (fnl-nvf; CPU ranges too)
@@ -33,7 +37,8 @@
 #               own, so that the runs of two builds sit side by side
 #   --dry-run   print the command, run nothing
 #
-# Output: runs/<leg>-<size>[-uniform][-<scheme>]-np<N>-<tool>[-<tag>]/ with input.ini, log.txt, wall.txt (seconds),
+# Output: runs/<leg>-<size>[-uniform|-2realm[-rebuild]][-<scheme>]-np<N>-<tool>[-<tag>]/ with input.ini (the
+#         manifest of a forest, next to input-r1.ini and input-r2.ini), log.txt, wall.txt (seconds),
 #         run.info (host, job, command, executable, commit, whether src/ differs from it) and the profiler files.
 # WSL: one run at a time, FNL np <= 2 (two GPUs), and the UCX knobs of issue #12 (CLAUDE.md, WSL2 GPU+MPI caveats);
 # Nsight Compute there needs the GPU counters enabled in the Windows NVIDIA Control Panel.
@@ -50,6 +55,8 @@ TOOL=none
 STEPS=20
 IO=0
 UNIFORM=""
+REALMS=1
+REBUILD=0
 SCHEME=weno-u-5
 LAUNCHER="mpirun -x ADAM_SEAM_TIMING -np"
 EXE=""
@@ -63,6 +70,8 @@ while [[ $# -gt 0 ]]; do
       --steps)    STEPS="$2" ; shift 2 ;;
       --io)       IO=1 ; shift ;;
       --uniform)  UNIFORM="-uniform" ; shift ;;
+      --realms)   REALMS="$2" ; shift 2 ;;
+      --rebuild)  REBUILD=1 ; shift ;;
       --scheme)   SCHEME="$2" ; shift 2 ;;
       --launcher) LAUNCHER="$2" ; shift 2 ;;
       --exe)      EXE="$2" ; shift 2 ;;
@@ -77,6 +86,21 @@ case "$LEG" in
    *) echo "profile.sh: the leg must be cpu, fnl-nvf or fnl-amd, got '$LEG'" >&2 ; exit 2 ;;
 esac
 case "$SIZE" in small|medium|large) ;; *) echo "profile.sh: --size must be small, medium or large" >&2 ; exit 2 ;; esac
+case "$REALMS" in 1|2) ;; *) echo "profile.sh: --realms must be 1 or 2" >&2 ; exit 2 ;; esac
+if [[ $REALMS -eq 2 && -n $UNIFORM ]]; then
+   echo "profile.sh: --realms 2 is a variant of the refined walls, not of --uniform" >&2 ; exit 2
+fi
+[[ $REBUILD -eq 1 && $REALMS -ne 2 ]] && { echo "profile.sh: --rebuild needs --realms 2" >&2 ; exit 2 ; }
+VARIANT="$UNIFORM"
+[[ $REALMS -eq 2 ]] && VARIANT="-2realm"
+[[ $REBUILD -eq 1 ]] && VARIANT="$VARIANT-rebuild"
+# a value inherited from the shell would rebuild a run that its directory name says does not
+unset ADAM_FOREST_REBUILD_TOPOLOGY
+if [[ $REBUILD -eq 1 ]]; then
+   export ADAM_FOREST_REBUILD_TOPOLOGY=1
+   # Open MPI forwards only the variables -x names; srun forwards the whole environment
+   [[ $LAUNCHER == mpirun* ]] && LAUNCHER="${LAUNCHER/mpirun/mpirun -x ADAM_FOREST_REBUILD_TOPOLOGY}"
+fi
 
 # the profiler command each rank runs in front of the executable; RANK is set per rank by the wrapper below, so the
 # single quotes are deliberate: $RANK and "$@" expand in each rank's shell, not here
@@ -98,18 +122,23 @@ else
 fi
 
 WSUFFIX="" ; [[ $SCHEME == weno-u-5 ]] || WSUFFIX="-$SCHEME"
-WORK="$CASE_DIR/runs/$LEG-$SIZE$UNIFORM$WSUFFIX-np$NP-$TOOL${TAG:+-$TAG}"
+WORK="$CASE_DIR/runs/$LEG-$SIZE$VARIANT$WSUFFIX-np$NP-$TOOL${TAG:+-$TAG}"
 CMD="$LAUNCHER $NP bash -c '$WRAP' rank $EXE input.ini"
 if [[ $DRY -eq 1 ]]; then
-   echo "cd $WORK && ADAM_SEAM_TIMING=1 $CMD"
+   echo "cd $WORK && ADAM_SEAM_TIMING=1${ADAM_FOREST_REBUILD_TOPOLOGY:+ ADAM_FOREST_REBUILD_TOPOLOGY=1} $CMD"
    exit 0
 fi
 [[ -x $EXE ]] || { echo "profile.sh: executable '$EXE' not found (../build.sh $LEG, or --exe)" >&2 ; exit 2 ; }
 if [[ -d $WORK ]]; then mv "$WORK" "$WORK.old-$(date +%Y%m%d-%H%M%S)"; fi
 mkdir -p "$WORK"
-python3 "$CASE_DIR/make_profile.py" "$SIZE" "$WORK/input.ini" --steps "$STEPS" ${UNIFORM:+--uniform} --scheme "$SCHEME"
+python3 "$CASE_DIR/make_profile.py" "$SIZE" "$WORK/input.ini" --steps "$STEPS" ${UNIFORM:+--uniform} \
+        --scheme "$SCHEME" --realms "$REALMS"
 if [[ $IO -eq 1 ]]; then
-   python3 "$SPEEDUP_DIR/make_inputs.py" set "$WORK/input.ini" "IO.it_save=$STEPS"
+   if [[ $REALMS -eq 2 ]]; then
+      for ini in "$WORK"/input-r[12].ini; do python3 "$SPEEDUP_DIR/make_inputs.py" set "$ini" "IO.it_save=$STEPS"; done
+   else
+      python3 "$SPEEDUP_DIR/make_inputs.py" set "$WORK/input.ini" "IO.it_save=$STEPS"
+   fi
 fi
 {
    echo "date=$(date -Is)"
@@ -117,7 +146,7 @@ fi
    echo "slurm_job=${SLURM_JOB_ID:-}"
    echo "leg=$LEG"
    echo "tag=$TAG"
-   echo "size=$SIZE${UNIFORM}"
+   echo "size=$SIZE${VARIANT}"
    echo "scheme=$SCHEME"
    echo "np=$NP"
    echo "tool=$TOOL"
@@ -136,7 +165,7 @@ fi
    fi
 } > "$WORK/run.info"
 
-echo ">> profile: $LEG, size $SIZE${UNIFORM}, np $NP, tool $TOOL, $STEPS steps -> $WORK"
+echo ">> profile: $LEG, size $SIZE${VARIANT}, np $NP, tool $TOOL, $STEPS steps -> $WORK"
 export ADAM_SEAM_TIMING=1
 t0=$(date +%s.%N)
 status=0
@@ -144,7 +173,9 @@ status=0
 t1=$(date +%s.%N)
 awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.3f\n", b - a}' > "$WORK/wall.txt"
 echo "   wall $(cat "$WORK/wall.txt") s, exit $status"
-grep -a "forest timing\|forest seam timing\|regrid at step" "$WORK/log.txt" | sed 's/^/   /' || true
+grep -a "forest timing\|forest regrid timing\|forest rebuild phases\|forest seam timing\|regrid at step" \
+   "$WORK/log.txt" | \
+   sed 's/^/   /' || true
 if [[ $status -ne 0 ]]; then
    echo "profile.sh: the run exited $status, see $WORK/log.txt" >&2
    exit 1
