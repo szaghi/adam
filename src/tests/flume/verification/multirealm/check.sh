@@ -88,7 +88,24 @@
 # registers nothing, must stop at initialisation. Not covered: a derefine vote of a criterion (with these inputs every
 # derefine vote falls on the base level) and its combination with another marker; leg 8 covers that path with Loehner.
 #
-# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg10 or all (default all); leg4 compares against
+#   leg11  (issue #110 P3) mixed levels along a seam: leg 8's grids, the markers two boxes next to the seam, one in each
+#          realm over half of it (realm 2: x in [0.5, 0.75], y < 0.5; realm 1: x in [0.25, 0.5], y > 0.5), so the
+#          seam holds 2:1 faces in both directions (realm 2 fine below y = 0.5, realm 1 fine above), and runtime
+#          regridding on (frequency 4: the box votes keep the grid, the per-face balance and the mixed-seam topology
+#          run every 4 steps). Against the single realm with the same boxes: bitwise with seam_ghost_fill = injection,
+#          within 1e-12 with tricubic (as leg 8); and with the topology rebuilt every step (the hook), bitwise.
+#   leg12  (issue #110 P3) a feature moving along part of a seam, the balance face by face: the isentropic vortex of
+#          the vortex-periodic regression case (radius 0.07) started at (0.47, 0.3), across the seam, in a free stream
+#          (0, 1) along it to t = 0.3, the box [0, 1]^2 x [0, 0.5] split at x = 0.5 into two coupling = auto realms (an
+#          octree: inter-realm 2:1 faces need even block cell counts on every axis, so a quadtree is refused; 8x16x8
+#          cells per block, cubic cells of 1/32 at base level 1, max_level 3, y periodic, x inviscid walls, z
+#          extrapolated with w = 0: a closed box), a Loehner marker on the density in both, a regrid every 5 steps. The
+#          refined patch covers part of the seam and moves along it, so the seam turns mixed. No single realm
+#          reproduces these blocks (the realm roots are not square), so the leg asserts invariants: the seam mixed at
+#          some regrid, the grid refined and coarsened, the mass of the two realms constant to 1e-12, the run on 1 and
+#          on 2 ranks bitwise, and the run with the topology rebuilt every step (the hook) bitwise.
+#
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg12 or all (default all); leg4 compares against
 #        the sod-amr run of leg2, leg5 against the sod-x and sod-z runs of leg1 and leg3, so they require those legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -103,7 +120,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
 source "$VERIF_DIR/legs.sh"
-legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9 leg10"
+legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9 leg10 leg11 leg12"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -174,6 +191,67 @@ for key, val in (("ni", ni), ("nj", nj), ("nk", nk), ("iu_ref_levels", base), ("
  s, n = re.subn(rf"^{key}\s*=.*$", f"{key} = {val}", s, count=1, flags=re.M)
  assert n == 1, (src, key)
 open(out, "w").write(s)
+PYEOF
+}
+
+# l11_input <in> <out> <ni> <nj> <nk> <base level> <max level> <target level>: two box markers next to the seam
+# (leg 11), runtime regridding every 4 steps.
+l11_input() {
+   python3 - "$@" <<'PYEOF'
+import re
+import sys
+
+src, out, ni, nj, nk, base, top, target = sys.argv[1:9]
+s = open(src).read()
+s = re.sub(r"\n\[amr_marker_\d+\][^\[]*", "\n", s)  # drop the input's markers
+box = ("[amr_marker_{m}]\nmode         = 1\ngeo_type     = primitive-box\ndelta_type   = max\ndelta_fine   = 0.0\n"
+       "delta_coarse = 0.0\nbox_xmin     = {x0}\nbox_ymin     = {y0}\nbox_zmin     = 0.0\nbox_xmax     = {x1}\n"
+       "box_ymax     = {y1}\nbox_zmax     = 1.0\ntarget_level = {t}\n\n")
+boxes = (box.format(m=1, x0=0.5, x1=0.75, y0=0.0, y1=0.5, t=target) +
+         box.format(m=2, x0=0.25, x1=0.5, y0=0.5, y1=1.0, t=target))
+s = s.replace("\n[field]", "\n" + boxes + "[field]", 1)
+for key, val in (("ni", ni), ("nj", nj), ("nk", nk), ("iu_ref_levels", base), ("max_level", top),
+                 ("frequency", "4"), ("markers_number", "2"), ("amr_iterations", "1")):
+    s, n = re.subn(rf"^{key}\s*=.*$", f"{key} = {val}", s, count=1, flags=re.M)
+    assert n == 1, (src, key)
+open(out, "w").write(s)
+PYEOF
+}
+
+# l12_inputs <dir>: the manifest and the two realm inputs of leg 12 (the vortex moving along part of the seam).
+l12_inputs() {
+   python3 - "$1" "$REPO_ROOT" <<'PYEOF'
+import sys
+from pathlib import Path
+
+out, repo = Path(sys.argv[1]), Path(sys.argv[2])
+sys.path.insert(0, str(repo / "src/tests/flume/verification/regrid"))
+import make_regrid as mr  # noqa: E402
+
+base = mr.VORTEX.read_text()
+for name, x0, x1, bmin, bmax in (("r1", "0.0", "0.5", "wall-inviscid", "extrapolation"),
+                                 ("r2", "0.5", "1.0", "extrapolation", "wall-inviscid")):
+    text = base
+    # an octree (inter-realm 2:1 faces need even block cell counts on every axis: a quadtree's nk = 1 is refused)
+    for key, value in (("ni", "8"), ("nj", "16"), ("nk", "8"), ("ratio", "8"), ("emax_z", "0.5"), ("null_z", ".false."),
+                       ("emin_x", x0), ("emax_x", x1), ("iu_ref_levels", "1"),
+                       ("max_level", "3"), ("iters", "2"), ("frequency", "5"), ("markers_number", "1"),
+                       ("x0", "0.47"), ("y0", "0.3"), ("u", "0.0"), ("v", "1.0"), ("output_basename", f"vortex-{name}"),
+                       ("restart_basename", f"vortex-{name}-restart"), ("it_max", "-1"), ("time_max", "0.3"),
+                       ("CFL", "0.4")):
+        text = mr.setkey(text, key, value)
+    text = text.replace("[bc_x_min]\ntype = periodic", f"[bc_x_min]\ntype = {bmin}", 1)
+    text = text.replace("[bc_x_max]\ntype = periodic", f"[bc_x_max]\ntype = {bmax}", 1)
+    assert text.count("type = periodic") == 2, name  # y only
+    text = text.replace("[field]", mr.LOHNER.format(n=1, field=1, var=1, refine="0.3", derefine="0.1", floor="0.0")
+                        + "[field]", 1)
+    (out / f"vortex-{name}.ini").write_text(text)
+(out / "vortex-2realm.ini").write_text(
+    "; leg 12 of multirealm/check.sh (issue #110 P3): the vortex moving along part of a coupling = auto seam\n"
+    "[forest]\nrealms_number = 2\n\n[realm.1]\nini = vortex-r1.ini\n\n[realm.2]\nini = vortex-r2.ini\n\n"
+    "[forest.topology]\ninter_realm_faces_number = 1\n\n[forest.topology.face_1]\nrealm_a          = 1\n"
+    "face_a           = +x\nrealm_b          = 2\nface_b           = -x\ncoupling         = auto\n"
+    "coupling_cadence = stage_coincident\n")
 PYEOF
 }
 
@@ -410,5 +488,76 @@ PYEOF
       echo "check.sh: an unregistered criterion was not refused, see $work/log.txt" >&2 ; exit 1
    fi
    echo "   $(basename "$work"): refused as expected"
+fi
+if has_leg leg11; then
+   echo "== leg 11: mixed levels along a coupling = auto seam (a box next to it in each realm) vs the single realm (#110 P3)"
+   l11_dir="$CASE_DIR/work-$TAG-l11-src" ; rm -rf "$l11_dir" ; mkdir -p "$l11_dir"
+   for fill in injection tricubic hook; do
+   echo "   [amr] seam_ghost_fill = ${fill/hook/injection, topology rebuilt every step}"
+   src="$l11_dir/$fill" ; mkdir -p "$src"
+   l11_input "$CASE_DIR/sod-amr.ini" "$src/sod-amr.ini" 48 4 4 2 3 3
+   l11_input "$CASE_DIR/sod-amr-2realm-r1.ini" "$src/sod-amr-2realm-r1.ini" 48 8 8 1 2 2
+   l11_input "$CASE_DIR/sod-amr-2realm-r2.ini" "$src/sod-amr-2realm-r2.ini" 48 8 8 1 2 2
+   sed -i "/^\[amr\]/a seam_ghost_fill = ${fill/hook/injection}" "$src/sod-amr.ini" "$src/sod-amr-2realm-r1.ini" \
+       "$src/sod-amr-2realm-r2.ini"
+   sed 's/^coupling *= *mirror/coupling         = auto/' "$CASE_DIR/sod-amr-2realm.ini" > "$src/sod-amr-2realm.ini"
+   grep -q '^coupling *= *auto' "$src/sod-amr-2realm.ini" || { echo "check.sh: no coupling in the manifest" >&2 ; exit 1 ; }
+   single="$CASE_DIR/work-$TAG-l11-$fill-single"
+   run "$single" sod-amr.ini "$src/sod-amr.ini"
+   multi="$CASE_DIR/work-$TAG-l11-$fill-2realm"
+   if [[ $fill == hook ]]; then
+      ADAM_FOREST_REBUILD_TOPOLOGY=1 run "$multi" sod-amr-2realm.ini "$src/sod-amr-2realm.ini" \
+         "$src/sod-amr-2realm-r1.ini" "$src/sod-amr-2realm-r2.ini"
+   else
+      run "$multi" sod-amr-2realm.ini "$src/sod-amr-2realm.ini" "$src/sod-amr-2realm-r1.ini" "$src/sod-amr-2realm-r2.ini"
+   fi
+   if ! grep -aq 'mixed levels along the seam' "$multi/log.txt"; then
+      echo "check.sh: the seam is not mixed: see $multi/log.txt" >&2 ; exit 1
+   fi
+   grep -a -m1 'mixed levels along the seam' "$multi/log.txt" | sed 's/^[^f]*forest: /   /'
+   tol=0 ; [[ $fill == tricubic ]] && tol=1e-12
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol $tol
+   done
+fi
+if has_leg leg12; then
+   echo "== leg 12: a vortex moving along part of a coupling = auto seam, both realms regridding (#110 P3)"
+   l12_dir="$CASE_DIR/work-$TAG-l12-src" ; rm -rf "$l12_dir" ; mkdir -p "$l12_dir"
+   l12_inputs "$l12_dir"
+   l12_files=("$l12_dir/vortex-2realm.ini" "$l12_dir/vortex-r1.ini" "$l12_dir/vortex-r2.ini")
+   for variant in np2 np1 hook; do
+      multi="$CASE_DIR/work-$TAG-l12-$variant"
+      case $variant in
+         np1)  RUN_NP=1 run "$multi" vortex-2realm.ini "${l12_files[@]}" ;;
+         hook) ADAM_FOREST_REBUILD_TOPOLOGY=1 run "$multi" vortex-2realm.ini "${l12_files[@]}" ;;
+         *)    run "$multi" vortex-2realm.ini "${l12_files[@]}" ;;
+      esac
+   done
+   multi="$CASE_DIR/work-$TAG-l12-np2"
+   n_mixed=$(grep -ac 'mixed levels along the seam' "$multi/log.txt" || true)
+   n_regrid=$(grep -ac 'regrid at step' "$multi/log.txt" || true)
+   n_coarsened=$(grep -aEc 'regrid at step .* [1-9][0-9]* coarsened' "$multi/log.txt" || true)
+   if [[ $n_mixed -eq 0 ]]; then echo "check.sh: leg12's seam never turned mixed, see $multi/log.txt" >&2 ; exit 1 ; fi
+   if [[ $n_regrid -eq 0 ]]; then echo "check.sh: leg12 never regridded, see $multi/log.txt" >&2 ; exit 1 ; fi
+   if [[ $n_coarsened -eq 0 ]]; then echo "check.sh: leg12 never coarsened, see $multi/log.txt" >&2 ; exit 1 ; fi
+   echo "   $n_regrid regrid log lines ($n_coarsened coarsening), the seam mixed at $n_mixed topology builds"
+   python3 - "$multi" <<'PYEOF'
+import glob
+import sys
+
+rows = []
+for path in sorted(glob.glob(sys.argv[1] + "/*conservation_history*")):
+    data = [line.split() for line in open(path).read().splitlines()[1:] if line.strip()]
+    rows.append({int(r[0]): float(r[2]) for r in data})
+steps = sorted(set.intersection(*(set(r) for r in rows)))
+mass = [sum(r[s] for r in rows) for s in steps]
+drift = max(abs(m - mass[0]) for m in mass) / abs(mass[0])
+ok = len(rows) == 2 and drift < 1e-12
+print(f"   mass of the 2 realms over {len(steps)} steps: largest relative drift {drift:.2e} (bound 1e-12) "
+      f"{'PASS' if ok else 'FAIL'}")
+sys.exit(0 if ok else 1)
+PYEOF
+   for variant in np1 hook; do
+      "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$CASE_DIR/work-$TAG-l12-$variant" "$multi" --ngc 3 --tol 0
+   done
 fi
 echo "multi-realm verification PASSED (legs: $LEGS) ($TAG)"

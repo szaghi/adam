@@ -107,6 +107,16 @@ type :: seam_rows_t
    integer(I4P)              :: n = 0    !< Rows in use.
 endtype seam_rows_t
 
+type :: seam_register_face_t
+   !< One inter-realm register face (issue #110 P3, `seam_register_faces`): its coarse and fine sides and the coarse leaf.
+   integer(I4P) :: rc=0_I4P          !< Coarse-side realm.
+   integer(I4P) :: fc=0_I4P          !< Coarse-side face (FACE_* code).
+   integer(I4P) :: rf=0_I4P          !< Fine-side realm.
+   integer(I4P) :: ff=0_I4P          !< Fine-side face (FACE_* code).
+   integer(I8P) :: code_c=0_I8P      !< The coarse seam leaf.
+   logical      :: refined=.false.   !< A 2:1 face (else equal cells, realm_a coarse by convention).
+endtype seam_register_face_t
+
 contains
    ! public methods
 
@@ -593,6 +603,10 @@ contains
    !< a side below what the rule asks is raised (its derefinement dropped, or refined if below `[amr] max_level`), else
    !< the refinement of the side above is dropped. Repeated with `sanitize` until nothing changes: the trees are
    !< replicated, so every rank reaches the same marks.
+   !<
+   !< A `coupling = auto` pair is balanced face by face instead (issue #110 P3, `balance_mixed_pair`): each seam leaf
+   !< against the leaves of the peer realm facing it, their predicted cells equal or in a ratio of 2, so the levels may
+   !< differ along the seam as they do inside a realm.
    class(forest_object), intent(inout) :: self              !< The forest.
    type(realm_pointer),  intent(inout) :: realm(:)          !< The realms.
    integer(I4P), parameter             :: PASSES_MAX=64     !< Bound on the balancing passes.
@@ -614,6 +628,10 @@ contains
       do f = 1, int(size(self%manifest%face_pairs), I4P)
          associate(pair => self%manifest%face_pairs(f))
          ra = pair%realm_a ; fa = pair%face_a ; rb = pair%realm_b ; fb = pair%face_b
+         if (pair%coupling == COUPLING_AUTO) then
+            call balance_mixed_pair(realm(ra)%ptr, fa, realm(rb)%ptr, fb, f, changed)
+            cycle
+         endif
          call side_uniform(realm(ra)%ptr, fa, la, pa, changed)
          call side_uniform(realm(rb)%ptr, fb, lb, pb, changed)
          ! the rules are on cell sizes, not on levels: the levels of two realms count from different roots, so equal
@@ -623,10 +641,8 @@ contains
          select case(pair%coupling)
          case(COUPLING_MIRROR)
             lo = off ; hi = off
-         case(COUPLING_REFINED)
-            d0 = la - lb ; lo = d0 ; hi = d0 ! the jump the seam has, whichever side is fine
-         case default ! auto: equal cells, or a ratio of 2 either way
-            lo = off - 1_I4P ; hi = off + 1_I4P
+         case default ! refined: the jump the seam has, whichever side is fine
+            d0 = la - lb ; lo = d0 ; hi = d0
          endselect
          do while (pa - pb < lo .or. pa - pb > hi)
             if (pa - pb < lo) then
@@ -705,6 +721,127 @@ contains
       call side_set(this_realm, face, TO_NOT_TOUCH, changed) ; predicted = level
       endsubroutine side_lower
    endsubroutine balance_seam_marks
+
+   subroutine balance_mixed_pair(realm_a, face_a, realm_b, face_b, f, changed)
+   !< Balance a `coupling = auto` seam face by face (issue #110 P3): for every seam leaf of realm_a and every seam leaf
+   !< of realm_b next to it (their seam faces overlap or touch at an edge or a corner, also across a tangential axis
+   !< periodic on both realms: the seam slab's edge and corner ghosts read those cells too), their predicted cells (a
+   !< refine mark halves a leaf's cells, a derefine mark doubles them) must be equal or in a ratio of 2. The coarser of a
+   !< pair too far apart
+   !< is raised (its derefinement dropped, or refined below its `[amr] max_level`), else the finer is lowered (its
+   !< refinement dropped); the caller repeats with each realm's `sanitize` until nothing changes. The overlaps are those
+   !< of the current leaves: a derefinement is a family's, and the family's other leaves on the seam are checked too.
+   class(realm_object), intent(inout) :: realm_a, realm_b !< Realms of the pair.
+   integer(I4P),        intent(in)    :: face_a, face_b   !< Seam faces.
+   integer(I4P),        intent(in)    :: f                !< Face pair (for the message).
+   logical,             intent(inout) :: changed          !< Some mark changed.
+   integer(I8P), allocatable          :: codes_a(:), codes_b(:) !< Seam leaves of the two sides.
+   real(R8P)                          :: ea(3), eea(3), da(3), eb(3), eeb(3), db(3) !< Leaf extents and cell sizes.
+   integer(I4P)                       :: axis, sgn, t(2), ia, ib, k !< Face axis and side, tangential axes, counters.
+   logical                            :: ok               !< A leaf could be raised or lowered.
+
+   call face_axis_sign(face_a, axis, sgn)
+   t = pack([1_I4P, 2_I4P, 3_I4P], [1_I4P, 2_I4P, 3_I4P] /= axis)
+   codes_a = seam_leaf_codes(realm_a, face_a)
+   codes_b = seam_leaf_codes(realm_b, face_b)
+   do ia = 1_I4P, int(size(codes_a), I4P)
+      call leaf_metrics(realm_a, codes_a(ia), ea, da, eea)
+      do ib = 1_I4P, int(size(codes_b), I4P)
+         call leaf_metrics(realm_b, codes_b(ib), eb, db, eeb)
+         ! neighbours across the seam: faces that overlap or only touch (an edge or a corner), as a realm's own 2:1
+         ! balance counts them, also one period away along a tangential axis periodic on both realms: the seam slab's
+         ! tangential edge and corner ghosts read those cells too (wrap_periodic_tangential)
+         if (.not.seam_neighbours()) cycle
+         do
+            k = nint(log(predicted_size(realm_a, codes_a(ia), da(t(1))) / &
+                         predicted_size(realm_b, codes_b(ib), db(t(1)))) / log(2._R8P), I4P)
+            if (abs(k) <= 1_I4P) exit
+            if (k > 1_I4P) then ! the realm_a leaf too coarse
+               call leaf_raise(realm_a, codes_a(ia), ok)
+               if (.not.ok) call leaf_lower(realm_b, codes_b(ib), ok)
+            else
+               call leaf_raise(realm_b, codes_b(ib), ok)
+               if (.not.ok) call leaf_lower(realm_a, codes_a(ia), ok)
+            endif
+            if (.not.ok) call mpih%error_stop(msg='forest_object%balance_seam_marks: face_pair '//                    &
+                                              trim(str(f, .true.))//' cannot be balanced at the seam block of realm '// &
+                                              trim(str(realm_a%realm_index, .true.))//' at '//trim(str(ea(1)))//' '//   &
+                                              trim(str(ea(2)))//' '//trim(str(ea(3)))//' (a refinement next to the '//  &
+                                              'seam needs the peer realm finer than its [amr] max_level allows)')
+            changed = .true.
+         enddo
+      enddo
+   enddo
+   contains
+      function seam_neighbours() result(yes)
+      !< The realm_a leaf (ea, eea, da) and the realm_b leaf (eb, eeb, db) touch or overlap tangentially, directly or one
+      !< period apart along the axes periodic on both realms.
+      logical      :: yes          !< They are neighbours.
+      real(R8P)    :: shift(2)     !< Tangential shift of the realm_b leaf.
+      integer(I4P) :: s1, s2       !< Shift counters (-1, 0, +1 periods).
+      real(R8P)    :: period(2)    !< Periods of the tangential axes (0 if not periodic on both realms).
+      integer(I4P) :: n            !< Tangential axis counter.
+
+      do n = 1_I4P, 2_I4P
+         period(n) = 0._R8P
+         if (realm_a%adam%grid%is_ijk_periodic(t(n)) .and. realm_b%adam%grid%is_ijk_periodic(t(n))) &
+            period(n) = realm_b%adam%grid%domain_emax(t(n)) - realm_b%adam%grid%domain_emin(t(n))
+      enddo
+      yes = .false.
+      do s2 = merge(-1_I4P, 0_I4P, period(2) > 0._R8P), merge(1_I4P, 0_I4P, period(2) > 0._R8P)
+         do s1 = merge(-1_I4P, 0_I4P, period(1) > 0._R8P), merge(1_I4P, 0_I4P, period(1) > 0._R8P)
+            shift = [real(s1, R8P) * period(1), real(s2, R8P) * period(2)]
+            yes = yes .or. all(min(eea(t), eeb(t) + shift) - max(ea(t), eb(t) + shift) >= &
+                               -1.0e-6_R8P * min(da(t), db(t)))
+         enddo
+      enddo
+      endfunction seam_neighbours
+
+      function predicted_size(this_realm, code, d) result(dp)
+      !< The cell size of a leaf after its mark.
+      class(realm_object), intent(in) :: this_realm !< Realm.
+      integer(I8P),        intent(in) :: code       !< Leaf.
+      real(R8P),           intent(in) :: d          !< Its current cell size.
+      real(R8P)                       :: dp         !< Its predicted cell size.
+      type(tree_node_object), pointer :: node_ptr   !< The leaf.
+
+      node_ptr => this_realm%adam%tree%node(code=code)
+      dp = d
+      if (node_ptr%refinement_needed == TO_BE_REFINED)   dp = 0.5_R8P * d
+      if (node_ptr%refinement_needed == TO_BE_DEREFINED) dp = 2._R8P * d
+      endfunction predicted_size
+
+      subroutine leaf_raise(this_realm, code, ok)
+      !< Make a leaf one level finer than its mark predicts: drop its derefinement, or refine it below max_level.
+      class(realm_object), intent(inout) :: this_realm !< Realm.
+      integer(I8P),        intent(in)    :: code       !< Leaf.
+      logical,             intent(out)   :: ok         !< Raised.
+      type(tree_node_object), pointer    :: node_ptr   !< The leaf.
+
+      node_ptr => this_realm%adam%tree%node(code=code)
+      ok = .true.
+      if (node_ptr%refinement_needed == TO_BE_DEREFINED) then
+         node_ptr%refinement_needed = TO_NOT_TOUCH
+      elseif (node_ptr%refinement_needed == TO_NOT_TOUCH .and. &
+              this_realm%adam%tree%level(code=code) < this_realm%adam%tree%max_level) then
+         node_ptr%refinement_needed = TO_BE_REFINED
+      else
+         ok = .false.
+      endif
+      endsubroutine leaf_raise
+
+      subroutine leaf_lower(this_realm, code, ok)
+      !< Make a leaf one level coarser than its mark predicts, only by dropping its refinement.
+      class(realm_object), intent(inout) :: this_realm !< Realm.
+      integer(I8P),        intent(in)    :: code       !< Leaf.
+      logical,             intent(out)   :: ok         !< Lowered.
+      type(tree_node_object), pointer    :: node_ptr   !< The leaf.
+
+      node_ptr => this_realm%adam%tree%node(code=code)
+      ok = node_ptr%refinement_needed == TO_BE_REFINED
+      if (ok) node_ptr%refinement_needed = TO_NOT_TOUCH
+      endsubroutine leaf_lower
+   endsubroutine balance_mixed_pair
 
    function seam_leaf_codes(this_realm, face) result(codes)
    !< The codes of the leaves of a realm along a seam face, in tree order (issue #110). The balance works on this list
@@ -1198,22 +1335,11 @@ contains
       type(forest_manifest_t), intent(in)    :: manifest     !< Parsed manifest.
       integer(I4P)                           :: nfaces       !< Inter-realm seam faces.
       integer(I4P)                           :: f            !< Face-pair counter.
-      integer(I4P)                           :: rc, fc       !< Coarse-side realm and face.
-      integer(I4P)                           :: rf, ff       !< Fine-side realm and face.
-      integer(I4P)                           :: axis, sgn    !< Coarse face axis and side.
-      logical                                :: refined      !< 2:1 seam.
-      type(tree_iterator_object)             :: iter         !< Tree traversal cursor.
-      type(tree_node_object), pointer        :: node_ptr     !< Current leaf.
 
       nfaces = 0_I4P
       if (.not. allocated(manifest%face_pairs)) return
       do f = 1_I4P, int(size(manifest%face_pairs), I4P)
-         call seam_sides(realm, manifest%face_pairs(f), rc, fc, rf, ff, refined)
-         call face_axis_sign(fc, axis, sgn)
-         iter%b = 1_I4P ; iter%p => null()
-         do while (realm(rc)%ptr%adam%tree%loop(iter, node_ptr=node_ptr))
-            if (leaf_on_realm_face(realm(rc)%ptr, node_ptr%code, axis, sgn)) nfaces = nfaces + 1_I4P
-         enddo
+         nfaces = nfaces + int(size(seam_register_faces(realm, manifest%face_pairs(f))), I4P)
       enddo
       endfunction count_inter_realm_seam_faces
 
@@ -1277,6 +1403,9 @@ contains
       real(R8P)                                 :: lo(2), hi(2)   !< Tangential overlap bounds.
       integer(I8P), allocatable                 :: codes_b(:)     !< Realm_b leaves on its seam face (mirror pairs).
       type(seam_rows_t), allocatable            :: ovl(:)         !< Per-realm overlap rows [b, fec, 8 columns].
+      type(seam_register_face_t), allocatable   :: reg_faces(:)   !< A face pair's register faces (issue #110 P3).
+      integer(I4P)                              :: i_reg          !< Register face counter.
+      integer(I4P)                              :: rf_leaves, ff_leaves !< The fine side `codes_b` holds.
       integer(I4P), allocatable                 :: fill(:,:)      !< Next row slot of each (block, fec).
 
       if (.not. allocated(manifest%face_pairs)) then
@@ -1320,20 +1449,29 @@ contains
       if (present(first_cursor)) cursor = first_cursor
       allocate(ovl(size(realm)))
       do f = 1_I4P, int(size(manifest%face_pairs), I4P)
-         call seam_sides(realm, manifest%face_pairs(f), rc, fc, rf, ff, refined)
-         call face_axis_sign(fc, c_axis, c_sign)
-         t1 = merge(2_I4P, 1_I4P, c_axis == 1_I4P)
-         t2 = merge(2_I4P, 3_I4P, c_axis == 3_I4P)
-         tt = [t1, t2]
-         nface_cells = tangential_cell_count(realm(rc)%ptr, c_axis)
-         reg_inner = realm(rc)%ptr%adam%grid%ni
-         if (t1 == 2_I4P) reg_inner = realm(rc)%ptr%adam%grid%nj
-         bc_fec_c = face_code_to_bc_fec(fc)
-         bc_fec_f = face_code_to_bc_fec(ff)
-         if (.not. refined) call realm_face_leaves(realm(rf)%ptr, ff, codes_b)
-         iter%b = 1_I4P ; iter%p => null()
-         do while (realm(rc)%ptr%adam%tree%loop(iter, node_ptr=node_c))
-            if (.not. leaf_on_realm_face(realm(rc)%ptr, node_c%code, c_axis, c_sign)) cycle
+         ! the pair's register faces, each with its own coarse and fine sides (issue #110 P3: a seam with mixed levels
+         ! has both kinds, and either realm may be the coarse side of a face); a mirror or refined pair keeps one coarse
+         ! side, its seam leaves in tree order, as before
+         reg_faces = seam_register_faces(realm, manifest%face_pairs(f))
+         rf_leaves = 0_I4P ; ff_leaves = 0_I4P
+         do i_reg = 1_I4P, int(size(reg_faces), I4P)
+            rc = reg_faces(i_reg)%rc ; fc = reg_faces(i_reg)%fc ; rf = reg_faces(i_reg)%rf ; ff = reg_faces(i_reg)%ff
+            refined = reg_faces(i_reg)%refined
+            call face_axis_sign(fc, c_axis, c_sign)
+            t1 = merge(2_I4P, 1_I4P, c_axis == 1_I4P)
+            t2 = merge(2_I4P, 3_I4P, c_axis == 3_I4P)
+            tt = [t1, t2]
+            nface_cells = tangential_cell_count(realm(rc)%ptr, c_axis)
+            reg_inner = realm(rc)%ptr%adam%grid%ni
+            if (t1 == 2_I4P) reg_inner = realm(rc)%ptr%adam%grid%nj
+            bc_fec_c = face_code_to_bc_fec(fc)
+            bc_fec_f = face_code_to_bc_fec(ff)
+            ! the fine side's seam leaves, rebuilt only when the fine side changes (a mirror or refined pair: once)
+            if (.not. refined .and. (rf /= rf_leaves .or. ff /= ff_leaves)) then
+               call realm_face_leaves(realm(rf)%ptr, ff, codes_b)
+               rf_leaves = rf ; ff_leaves = ff
+            endif
+            node_c => realm(rc)%ptr%adam%tree%node(code=reg_faces(i_reg)%code_c)
             cursor = cursor + 1_I4P
             ! `fine_block` deliberately omitted: nothing reads it, and passing an empty array literal
             ! `[integer(I4P) ::]` poisons the descriptor copy on nvfortran 26.x.
@@ -1622,9 +1760,13 @@ contains
               trim(str(pair%realm_a, .true.))//' and '//trim(str(pair%realm_b, .true.))//'): '
       select case(pair%coupling)
       case(COUPLING_MIRROR, COUPLING_REFINED)
+      case(COUPLING_AUTO)
+         ! mixed levels along the seam (resolve_auto_couplings left it auto, issue #110 P3): checked face by face
+         call check_mixed_seam(realm=realm, pair=pair, pfx=pfx)
+         cycle
       case default
-         call mpih%error_stop(msg=pfx//'only coupling = mirror or refined is implemented (periodic and interpolate '// &
-                              'are reserved)')
+         call mpih%error_stop(msg=pfx//'only coupling = mirror, refined or auto is implemented (periodic and '// &
+                              'interpolate are reserved)')
       endselect
       d_a = seam_cell_size(realm(pair%realm_a)%ptr, pair%face_a, pfx//'realm '//trim(str(pair%realm_a, .true.)))
       d_b = seam_cell_size(realm(pair%realm_b)%ptr, pair%face_b, pfx//'realm '//trim(str(pair%realm_b, .true.)))
@@ -1683,7 +1825,9 @@ contains
    !< (issue #110): equal sizes join as a mirror seam, a ratio of 2 as a refined one. Runtime AMR may switch a seam from
    !< one kind to the other, so what `refined` requires whatever side is fine is checked every time: the same block cell
    !< counts along the seam, the same `[amr] seam_ghost_fill` and `seam_restriction`, even block cell counts in both
-   !< realms. `check_couplings` then checks the resolved kind as a declared one.
+   !< realms. `check_couplings` then checks the resolved kind as a declared one. A side whose seam leaves hold several
+   !< cell sizes (mixed levels along the seam, P3) leaves the pair `auto`: its kind is then decided face by face
+   !< (`leaf_peer_relation`), checked by `check_mixed_seam` and registered by `seam_register_faces`.
    type(realm_pointer),     intent(in)    :: realm(:)        !< Forest realms.
    type(forest_manifest_t), intent(inout) :: manifest        !< Manifest, `auto` couplings resolved on return.
    integer(I4P)                           :: f               !< Face-pair counter.
@@ -1691,6 +1835,7 @@ contains
    integer(I4P)                           :: axis, sgn       !< Seam face axis and side of realm_a.
    integer(I4P)                           :: n_a(3), n_b(3)  !< Block cell counts, the normal one zeroed.
    character(:), allocatable              :: pfx             !< Error message prefix.
+   logical                                :: uni_a, uni_b    !< One cell size on each side.
 
    if (.not. allocated(manifest%face_pairs)) return
    do f = 1_I4P, int(size(manifest%face_pairs), I4P)
@@ -1708,10 +1853,12 @@ contains
       if (any(mod([r_a%adam%grid%ni, r_a%adam%grid%nj, r_a%adam%grid%nk], 2_I4P) /= 0_I4P) .or. &
           any(mod([r_b%adam%grid%ni, r_b%adam%grid%nj, r_b%adam%grid%nk], 2_I4P) /= 0_I4P))    &
          call mpih%error_stop(msg=pfx//'needs even block cell counts (ni, nj, nk) in both realms')
-      d_a = seam_cell_size(r_a, pair%face_a, pfx//'realm '//trim(str(pair%realm_a, .true.)))
-      d_b = seam_cell_size(r_b, pair%face_b, pfx//'realm '//trim(str(pair%realm_b, .true.)))
+      d_a = seam_cell_size(r_a, pair%face_a, pfx//'realm '//trim(str(pair%realm_a, .true.)), uniform=uni_a)
+      d_b = seam_cell_size(r_b, pair%face_b, pfx//'realm '//trim(str(pair%realm_b, .true.)), uniform=uni_b)
       endassociate
-      if (all(abs(d_a - d_b) <= 1.0e-6_R8P * d_a)) then
+      if (.not.(uni_a .and. uni_b)) then
+         ! mixed levels along the seam: the pair stays auto, decided face by face
+      elseif (all(abs(d_a - d_b) <= 1.0e-6_R8P * d_a)) then
          pair%coupling = COUPLING_MIRROR
       elseif (all(abs(d_a - 2._R8P * d_b) <= 1.0e-6_R8P * d_a) .or. all(abs(d_b - 2._R8P * d_a) <= 1.0e-6_R8P * d_b)) then
          pair%coupling = COUPLING_REFINED
@@ -1743,12 +1890,14 @@ contains
    endif
    endsubroutine seam_sides
 
-   function seam_cell_size(this_realm, face, pfx) result(dxyz)
-   !< The cell size of the leaves of a realm on its seam face: one size for all of them, error_stop otherwise.
-   class(realm_object), intent(in) :: this_realm !< Realm.
-   integer(I4P),        intent(in) :: face       !< Seam face (FACE_* code).
-   character(*),        intent(in) :: pfx      !< Error message prefix.
-   real(R8P)                       :: dxyz(3)    !< Seam cell size.
+   function seam_cell_size(this_realm, face, pfx, uniform) result(dxyz)
+   !< The cell size of the leaves of a realm on its seam face: one size for all of them, error_stop otherwise; with
+   !< `uniform` present, `uniform = .false.` instead of the stop when the sizes differ (a mixed-level side, issue #110).
+   class(realm_object), intent(in)            :: this_realm !< Realm.
+   integer(I4P),        intent(in)            :: face       !< Seam face (FACE_* code).
+   character(*),        intent(in)            :: pfx        !< Error message prefix.
+   logical,             intent(out), optional :: uniform    !< One cell size on the side.
+   real(R8P)                                  :: dxyz(3)    !< Seam cell size (the first leaf's when not uniform).
    type(tree_iterator_object)      :: iter       !< Tree traversal cursor.
    type(tree_node_object), pointer :: node_ptr   !< Current leaf.
    integer(I4P)                    :: axis, sgn  !< Face axis and side.
@@ -1759,6 +1908,7 @@ contains
    call face_axis_sign(face, axis, sgn)
    found = .false.
    dxyz = 0._R8P
+   if (present(uniform)) uniform = .true.
    iter%b = 1_I4P ; iter%p => null()
    do while (this_realm%adam%tree%loop(iter, node_ptr=node_ptr))
       if (.not. leaf_on_realm_face(this_realm, node_ptr%code, axis, sgn)) cycle
@@ -1766,8 +1916,13 @@ contains
       if (.not. found) then
          dxyz = d ; found = .true.
       elseif (any(abs(d - dxyz) > 1.0e-6_R8P * dxyz)) then
-         call mpih%error_stop(msg=pfx//' has seam cells of different sizes (refined blocks along the seam); a seam '// &
-                              'joins one cell size per side')
+         if (present(uniform)) then
+            uniform = .false.
+         else
+            call mpih%error_stop(msg=pfx//' has seam cells of different sizes (refined blocks along the seam); a '// &
+                                 'mirror or refined seam joins one cell size per side (coupling = auto takes mixed '// &
+                                 'levels, issue #110)')
+         endif
       endif
    enddo
    if (.not. found) call mpih%error_stop(msg=pfx//' has no block on its seam face')
@@ -1819,6 +1974,166 @@ contains
                                          'must cover a quarter of one coarse seam block face')
    enddo
    endsubroutine check_nested
+
+   subroutine leaf_peers(this_realm, face, code, peer, peer_codes, idx, n, k)
+   !< The leaves of the peer realm that face the seam leaf `code` of `this_realm` (issue #110, P3): `idx(1:n)`, indices
+   !< into `peer_codes` (the peer's seam leaves), those whose tangential extent overlaps the leaf's by more than half a
+   !< cell, and `k`, log2 of the leaf's cell size over theirs (0 equal, +1 the peers twice as fine, -1 twice as coarse).
+   !< Stops when the peers do not share one cell size, or when it is not the leaf's, half or twice it.
+   class(realm_object),       intent(in)  :: this_realm    !< Realm of the leaf.
+   integer(I4P),              intent(in)  :: face          !< Seam face of `this_realm` (FACE_* code).
+   integer(I8P),              intent(in)  :: code          !< Seam leaf.
+   class(realm_object),       intent(in)  :: peer          !< Peer realm.
+   integer(I8P),              intent(in)  :: peer_codes(:) !< Seam leaves of the peer (`seam_leaf_codes`).
+   integer(I4P), allocatable, intent(out) :: idx(:)        !< Overlapping peers.
+   integer(I4P),              intent(out) :: n             !< Number of overlapping peers.
+   integer(I4P),              intent(out) :: k             !< log2(leaf cell size / peer cell size).
+   real(R8P)                              :: e(3), ee(3), d(3)    !< Leaf extent and cell size.
+   real(R8P)                              :: pe(3), pee(3), pd(3) !< Peer extent and cell size.
+   integer(I4P)                           :: axis, sgn, t(2), m, kk !< Face axis and side, tangential axes, counters.
+
+   call face_axis_sign(face, axis, sgn)
+   t = pack([1_I4P, 2_I4P, 3_I4P], [1_I4P, 2_I4P, 3_I4P] /= axis)
+   call leaf_metrics(this_realm, code, e, d, ee)
+   allocate(idx(size(peer_codes)))
+   n = 0_I4P ; k = 0_I4P
+   do m = 1_I4P, int(size(peer_codes), I4P)
+      call leaf_metrics(peer, peer_codes(m), pe, pd, pee)
+      if (any(min(ee(t), pee(t)) - max(e(t), pe(t)) <= 0.5_R8P * min(d(t), pd(t)))) cycle
+      kk = nint(log(d(t(1)) / pd(t(1))) / log(2._R8P), I4P)
+      if (abs(kk) > 1_I4P .or. any(abs(d - pd * 2._R8P**kk) > 1.0e-6_R8P * d) .or. (n > 0_I4P .and. kk /= k)) &
+         call mpih%error_stop(msg='forest_object: the seam block of realm '//trim(str(this_realm%realm_index, .true.))//&
+                              ' at '//trim(str(e(1)))//' '//trim(str(e(2)))//' '//trim(str(e(3)))//' faces cells of '// &
+                              'realm '//trim(str(peer%realm_index, .true.))//' that are neither one size equal to, half '//&
+                              'or twice its own (a seam joins cells of the same size or of ratio 2, face by face)')
+      n = n + 1_I4P ; idx(n) = m ; k = kk
+   enddo
+   if (n == 0_I4P) call mpih%error_stop(msg='forest_object: the seam block of realm '//                              &
+                                        trim(str(this_realm%realm_index, .true.))//' at '//trim(str(e(1)))//' '//      &
+                                        trim(str(e(2)))//' '//trim(str(e(3)))//' faces no block of realm '//           &
+                                        trim(str(peer%realm_index, .true.)))
+   endsubroutine leaf_peers
+
+   subroutine check_mixed_seam(realm, pair, pfx)
+   !< Check a seam with mixed levels along it (`coupling = auto` left unresolved, issue #110 P3), face by face: every
+   !< seam leaf of each side faces cells of one size, equal to its own, half or twice it (`leaf_peers`); equal cells
+   !< cover its face exactly; finer peers are its 2:1 quadrants (half its tangential extent, starting at its origin or
+   !< at its midpoint) and cover it; a coarser peer holds it as one of its quadrants. The requirements of a 2:1 face that
+   !< do not depend on the levels (block cell counts, seam fill and restriction) are checked by `resolve_auto_couplings`;
+   !< the stencil footprints are checked here, on the realms that are coarse or fine at some 2:1 face (as `check_couplings`
+   !< does for `coupling = refined`).
+   type(realm_pointer),      intent(in) :: realm(:) !< Forest realms.
+   type(forest_face_pair_t), intent(in) :: pair     !< Face pair (coupling = auto, mixed).
+   character(*),             intent(in) :: pfx      !< Error message prefix.
+   integer(I8P), allocatable            :: codes(:), peer_codes(:) !< Seam leaves of the side and of its peer.
+   integer(I4P), allocatable            :: idx(:)   !< Overlapping peers.
+   integer(I4P)                         :: side, rs, fs, rp, fp, c, m, n, k, axis, sgn, t(2) !< Counters and labels.
+   integer(I4P)                         :: n_mirror, n_refined !< Faces of each kind (from side a, and side b coarse).
+   real(R8P)                            :: e(3), ee(3), d(3), pe(3), pee(3), pd(3) !< Leaf and peer extents.
+   real(R8P)                            :: area, tol !< Covered tangential area, tolerance.
+   logical                              :: ok       !< Test.
+   logical                              :: coarse(2) !< Side coarse at some 2:1 face (the other side fine there).
+
+   n_mirror = 0_I4P ; n_refined = 0_I4P ; coarse = .false.
+   do side = 1_I4P, 2_I4P
+      if (side == 1_I4P) then
+         rs = pair%realm_a ; fs = pair%face_a ; rp = pair%realm_b ; fp = pair%face_b
+      else
+         rs = pair%realm_b ; fs = pair%face_b ; rp = pair%realm_a ; fp = pair%face_a
+      endif
+      call face_axis_sign(fs, axis, sgn)
+      t = pack([1_I4P, 2_I4P, 3_I4P], [1_I4P, 2_I4P, 3_I4P] /= axis)
+      codes = seam_leaf_codes(realm(rs)%ptr, fs)
+      peer_codes = seam_leaf_codes(realm(rp)%ptr, fp)
+      do c = 1_I4P, int(size(codes), I4P)
+         call leaf_peers(realm(rs)%ptr, fs, codes(c), realm(rp)%ptr, peer_codes, idx, n, k)
+         call leaf_metrics(realm(rs)%ptr, codes(c), e, d, ee)
+         tol = 1.0e-6_R8P * minval(d(t))
+         area = 0._R8P
+         ok = .true.
+         do m = 1_I4P, n
+            call leaf_metrics(realm(rp)%ptr, peer_codes(idx(m)), pe, pd, pee)
+            area = area + product(min(ee(t), pee(t)) - max(e(t), pe(t)))
+            if (k == 1_I4P) then ! a finer peer: one 2:1 quadrant of the leaf
+               ok = ok .and. all(abs(2._R8P * (pee(t) - pe(t)) - (ee(t) - e(t))) <= tol) .and.                         &
+                    all(abs(pe(t) - e(t)) <= tol .or. abs(pe(t) - 0.5_R8P * (e(t) + ee(t))) <= tol)
+            elseif (k == -1_I4P) then ! the coarser peer: the leaf is one of its 2:1 quadrants
+               ok = ok .and. n == 1_I4P .and. all(abs(2._R8P * (ee(t) - e(t)) - (pee(t) - pe(t))) <= tol) .and.       &
+                    all(abs(e(t) - pe(t)) <= tol .or. abs(e(t) - 0.5_R8P * (pe(t) + pee(t))) <= tol)
+            endif
+         enddo
+         if (k >= 0_I4P) ok = ok .and. abs(area - product(ee(t) - e(t))) <= tol * maxval(ee(t) - e(t))
+         if (.not.ok) call mpih%error_stop(msg=pfx//'the seam block of realm '//trim(str(rs, .true.))//' at '//       &
+                                           trim(str(e(1)))//' '//trim(str(e(2)))//' '//trim(str(e(3)))//' is not '//    &
+                                           'covered by nested blocks of realm '//trim(str(rp, .true.))//' (a seam '//   &
+                                           'with mixed levels needs every face to join equal cells or a 2:1 quadrant)')
+         if (side == 1_I4P .and. k == 0_I4P) n_mirror = n_mirror + 1_I4P
+         if (k == 1_I4P) n_refined = n_refined + 1_I4P
+         if (k == 1_I4P) coarse(side) = .true.
+      enddo
+   enddo
+   ! the 6-point coarse->fine and restriction footprints must fit a block (issue #68 D1 and C2)
+   do side = 1_I4P, 2_I4P
+      rs = merge(pair%realm_a, pair%realm_b, side == 1_I4P)
+      rp = merge(pair%realm_b, pair%realm_a, side == 1_I4P)
+      if (.not.coarse(side)) cycle
+      associate(r_c => realm(rs)%ptr, r_f => realm(rp)%ptr)
+      if (r_c%adam%maps%seam_ghost_fill >= SEAM_FILL_QUINTIC .and.                                                    &
+          any([r_c%adam%grid%ni, r_c%adam%grid%nj, r_c%adam%grid%nk] < 6_I4P))                                       &
+         call mpih%error_stop(msg=pfx//'[amr] seam_ghost_fill = quintic|weno6|quintic-mp needs ni, nj, nk >= 6 in '// &
+                              'realm '//trim(str(rs, .true.))//', coarse at a 2:1 face of the seam')
+      if (r_f%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN .and.                                                  &
+          any([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk] < 6_I4P))                                       &
+         call mpih%error_stop(msg=pfx//'[amr] seam_restriction = lagrange6|weno6 needs ni, nj, nk >= 6 in realm '//    &
+                              trim(str(rp, .true.))//', fine at a 2:1 face of the seam')
+      endassociate
+   enddo
+   call mpih%print_message('forest: '//pfx//'mixed levels along the seam, '//trim(str(n_mirror, .true.))//        &
+                           ' faces of equal cells and '//trim(str(n_refined, .true.))//' 2:1 faces (issue #110)')
+   endsubroutine check_mixed_seam
+
+   function seam_register_faces(realm, pair) result(faces)
+   !< The inter-realm register faces of a face pair (issue #110 P3), in a canonical order on the replicated trees: one
+   !< per seam leaf of the coarse side, in tree order, for a `mirror` or `refined` pair (the coarse side: `seam_sides`);
+   !< for a pair with mixed levels (`auto` left unresolved), one per seam leaf of realm_a facing equal cells (a mirror
+   !< face, realm_a coarse by convention) or finer cells (a 2:1 face, realm_a coarse), then one per seam leaf of realm_b
+   !< facing finer cells (a 2:1 face, realm_b coarse). Each face carries its own coarse and fine sides.
+   type(realm_pointer),      intent(in) :: realm(:)  !< Forest realms.
+   type(forest_face_pair_t), intent(in) :: pair      !< Face pair.
+   type(seam_register_face_t), allocatable :: faces(:) !< Register faces.
+   integer(I8P), allocatable            :: codes(:), peer_codes(:) !< Seam leaves of a side and of its peer.
+   integer(I4P), allocatable            :: idx(:)    !< Overlapping peers.
+   integer(I4P)                         :: rc, fc, rf, ff, c, n, k !< Sides, counters.
+   logical                              :: refined   !< 2:1 pair.
+
+   if (pair%coupling /= COUPLING_AUTO) then
+      call seam_sides(realm, pair, rc, fc, rf, ff, refined)
+      codes = seam_leaf_codes(realm(rc)%ptr, fc)
+      allocate(faces(size(codes)))
+      do c = 1_I4P, int(size(codes), I4P)
+         faces(c) = seam_register_face_t(rc=rc, fc=fc, rf=rf, ff=ff, code_c=codes(c), refined=refined)
+      enddo
+      return
+   endif
+   ! mixed levels: realm_a's leaves facing equal or finer cells, then realm_b's leaves facing finer cells
+   allocate(faces(0))
+   codes = seam_leaf_codes(realm(pair%realm_a)%ptr, pair%face_a)
+   peer_codes = seam_leaf_codes(realm(pair%realm_b)%ptr, pair%face_b)
+   do c = 1_I4P, int(size(codes), I4P)
+      call leaf_peers(realm(pair%realm_a)%ptr, pair%face_a, codes(c), realm(pair%realm_b)%ptr, peer_codes, idx, n, k)
+      if (k < 0_I4P) cycle
+      faces = [faces, seam_register_face_t(rc=pair%realm_a, fc=pair%face_a, rf=pair%realm_b, ff=pair%face_b, &
+                                           code_c=codes(c), refined=k == 1_I4P)]
+   enddo
+   codes = seam_leaf_codes(realm(pair%realm_b)%ptr, pair%face_b)
+   peer_codes = seam_leaf_codes(realm(pair%realm_a)%ptr, pair%face_a)
+   do c = 1_I4P, int(size(codes), I4P)
+      call leaf_peers(realm(pair%realm_b)%ptr, pair%face_b, codes(c), realm(pair%realm_a)%ptr, peer_codes, idx, n, k)
+      if (k /= 1_I4P) cycle
+      faces = [faces, seam_register_face_t(rc=pair%realm_b, fc=pair%face_b, rf=pair%realm_a, ff=pair%face_a, &
+                                           code_c=codes(c), refined=.true.)]
+   enddo
+   endfunction seam_register_faces
 
    subroutine build_seam_rows(realm, manifest)
    !< Build the seam ghost rows of every realm from the replicated trees (issue #40).
