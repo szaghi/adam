@@ -1132,3 +1132,68 @@ Trace 72.8 s, kernels 44.1 s, 6037 gaps totalling 28.6 s: one 15.9 s gap before 
 - The NVHPC/OpenACC build; the golden references; the 7 self-gravity cases; an FFT executable on AMD.
 - The origin of the two allocations in every kernel; the host gaps of §15.7; the gravity-edge kernels (still only compiled).
 - The `inl` variant is **not committed** (worktree `adam-inl`, 4 directive lines); the notes of §11–§15 and the stage scripts are in `~` and the repository root only.
+
+---
+
+## 16. Back to the original environment: the dissipative kernel's memory traffic, the split-flux experiments (per-width and lean), and corrections to §15
+
+From 2026-10-29 the work runs in the **original environment** (§8: `spack-setup-env.sh`, `rocm-afar-drop/23.2.1-gfx942`, `rocm-openmpi`, `rocm-hdf5-ompi-5.0.10/1.14.6`, amdflang **23.2.0**, `--varset "thera_amd gfx942"`),
+with the ROCm-aware UCX settings of §15.6 for any multi-rank run; the baseline of every comparison is `WENO_refactor` (`a622e71b`) built in that environment (worktree `adam-oldwref`, `exe/fnl-amd-oldenv`).
+Slurm job 76080 (04:44 to about 07:25, TheraC17; the runner released the node when its queue was empty); scripts `~/perf_queue`, results `~/perf_results2/`.
+
+### 16.1 Corrections to §15 (found while preparing this section)
+
+- **`shock-cylinder-ib` was never compared.** In every regression sweep of §15.4 (and in the 12-case lists before it) the case exits with code 137 and writes no checkpoint; my script printed "0 differences" for it
+  (no file compared is not a difference). The cause is **not** the 400 s timeout I assumed and **not** any change of this branch: the case dies with `Memory allocation failed` (`adam_ib_object.F90:467`, `ib_object%compute_phi`) **on origin/develop too**,
+  at 2 ranks (each rank holds 500–570 GB of host memory after a minute, 1443 GB of the node's 1511 GB in use within 90 s, then SIGKILL), alone, and at 8 ranks (peak 1488 GB). It cannot run on this node. The count of §15.4 is therefore
+  **42 bitwise identical, 4 non-deterministic baseline cases, 1 not run (`shock-cylinder-ib`), 7 skipped (self-gravity)**, not "43 of 47". The commit message of `a622e71b` (and section 15.4 as pushed) carry the old count.
+- The −2.9 % of the large loop that the flag-switched lean build (v5) first showed (§16.3, table) was inflated by a noisier baseline; the clean lean-only build measures **−0.3 %** (§16.3).
+- §14.5 (c) and §14.6 row 7 said the dissipative kernel "does not have the face kernel's problem": true of amdflang 24.0.0git (272 B of scratch, inlined), **not** of 23.2.0 (§16.2).
+
+### 16.2 The dissipative kernel and the face kernel: memory counters (amdflang 23.2.0, small case, 3 steps, 45 dispatches each, GPU 0, one counter per run)
+
+| | face kernel | dissipative kernel |
+|---|---|---|
+| scratch per thread (grid 311296 threads) | 2972 B (925 MB) | **21744 B (6.8 GB)** |
+| fetched / written per dispatch | 3.63 / 3.15 GB | 3.25 / 1.83 GB |
+| duration under counters | 3.78 ms | 1.14 ms |
+| achieved traffic | 1.8 TB/s | **4.4 TB/s** (MI300X peak ≈ 5.3 TB/s) |
+| bytes read / written per thread | 11.7 / 10.1 KB | 10.4 / 5.9 KB |
+| L2 hit rate (`TCC_HIT/(HIT+MISS)`) | 37.9 % | 40.3 % |
+| `VALUUtilization` | 97 % | 91 % |
+| `SQ_WAIT_INST_ANY` | 1.51 G | 0.12 G |
+
+The useful output of one dispatch is about 12.5 MB (40 B per thread): both kernels move two orders of magnitude more data, mostly scratch. **With 23.2.0 the dissipative kernel is memory-bound on its own spills** (21.7 KB of scratch per thread, 4.4 TB/s);
+with 24.0.0git it has 272 B and no calls (§14.5 c). `MemUnitBusy`, `L2CacheHit` and `TA_BUSY_sum` returned no values. The durations are those of the counter-collection runs (serialised dispatches), the bandwidths are estimates.
+Which private arrays make up the 21.7 KB (the stencil arrays of `add_dissipative_fluxes_o4_dev`, sized by their maxima) is **not** examined.
+
+### 16.3 Experiments 4 and 5 (Euler only; `compute_face_split_fluxes`)
+
+**4, per-width split:** the body of the Euler split routine in an include, instantiated for the generic routine and for S = 1 … 5 (S a named constant), per-width adapters, the `_s<N>` face kernels call their width.
+**5, lean:** `compute_face_split_fluxes_lean` reads each stencil cell from `q_gpu`/`q_aux_gpu` into one-cell buffers when needed (the stencil is walked twice) instead of receiving the gathered `qs`, `qas` (1040 B per thread);
+same operations in the same order. Both switched by build flags in one tree (`FNL_EXP_SPLIT_WIDTH`, `FNL_EXP_LEAN`; worktrees `adam-v4`, `adam-v5`, `adam-v45`), a clean lean-only version in `adam-lean` (4 files, +107 lines, additive).
+
+| | face kernel, small, 3 alternated rounds (ms) | mean | small loop (s) | large loop, 3 alternated rounds (s) | scratch |
+|---|---|---|---|---|---|
+| baseline | 3.683 / 3.681 / 3.855 | 3.74 | 3.466 / 3.416 / 3.398 | 56.49 / 56.03 / 54.44 (55.66) | 2972 B |
+| v4 per-width | 3.963 / 3.938 / 3.945 | 3.95 (**+5.6 %**) | 3.569 / 3.413 / 3.531 | 58.21 / 58.30 / 57.26 (57.92, **+4.1 %**) | 3260 B |
+| v5 lean | 3.287 / 3.119 / 3.256 | 3.22 (**−13.9 %**) | 3.359 / 3.260 / 3.349 | 54.54 / 54.75 / 52.84 (54.04, −2.9 %) | 2140 B |
+| v45 both | 3.048 / 3.072 / 3.079 | 3.07 (**−18.0 %**) | 3.247 / 3.299 / 3.222 | 54.95 / 52.36 / 52.46 (53.26, −4.3 %) | 2140 B |
+
+**Clean lean-only build** (alone on GPU 0, alternated with the baseline, bitwise identical at steps 0 and 10): face kernel, small, 3 rounds: baseline 3.621 / 3.637 / 3.637, lean 3.245 / 3.236 / 3.232 ms (**−10.8 %**); small loop 3.426 → 3.254 s (−5.0 %);
+**large loop, 4 rounds: baseline 54.243 / 54.333 / 54.368 / 54.275 s, lean 54.130 / 54.182 / 54.111 / 54.162 s: 54.30 → 54.15 s, −0.29 %** (−0.11 to −0.26 s per round, same sign every round).
+The baseline of the first large-loop comparison (55.66 s, rounds 56.5 / 56.0 / 54.4) was 2.5 % slower and noisier than that of the clean comparison (54.30 s, spread 0.2 %) twenty minutes of node time apart: the −2.9 % / −4.3 % of the table are partly that.
+
+**Reading.** Lean removes 11–14 % of the face-kernel time in the small case and 832 B of scratch, but about **0.3 % of the large loop**: at that size the face kernel is no longer where the time goes (the dissipative kernel under 23.2.0, §16.2, the ghost updates and the host gaps, §15.7).
+The per-width split is slower on its own (+5.6 % kernel, +4.1 % large loop) and on top of lean adds ≈ 1.4 % at the large size for five routines and five adapters. **Neither is committed.** The forceinline variant of §15.5 is in `stash@{0}` of the repository.
+Patches of the experiments: `~/perf_patches/lean.patch` (clean, the candidate), `~/perf_patches/split-width-and-lean.patch` (flag-switched, v4/v5/v45).
+
+**Bitwise checks.** Small case, 10 steps: v4, v5, v45 and the clean lean identical to the baseline at steps 0 and 10. Regression inputs, `mpirun -np 2` with the UCX settings, baseline against **v45**: of 54 case directories, 7 self-gravity skipped,
+**42 identical (every checkpoint and the residual and conservation logs)**, 4 differing (`baro-mhd-glm-hlld`, `iso-mhd-tube2`, `sod-amr`, `sod-amr-2realm`) that **also differ from a rerun of the baseline** (non-determinism), 1 not run (`shock-cylinder-ib`, §16.1);
+v4 and v5 alone identical on `couette`, `sod-x`, `vortex-periodic`. Clean lean, 12-case subset (`couette`, `sod-x`, `sod-y`, `sod-z`, `vortex-periodic`, `vortex-rk3`, `amr-periodic-reflux`, `becker-shock`, `blast-limiter`, `noh-de`, `brio-wu` and `shock-cylinder-ib`): the 11 compared cases identical, `shock-cylinder-ib` not run.
+
+### 16.4 Where this leaves the list of §14 / §15
+
+- Done: idea 3 (lean) and the per-width split of the split routine (14.5 b): **no worthwhile gain at the large size**, in either form. The kernel-level gain of lean (−11 %) does not reach the loop.
+- Open and now better targeted: the dissipative kernel's 21.7 KB of scratch under 23.2.0 (§16.2), the host gaps and regrids (§15.7), the unexplained allocations per kernel (§15.5), the parallel efficiency at 8 ranks (§15.6).
+- Not done: idea 5 (cell fluxes once per cell); the NVHPC build; the golden references; self-gravity cases; and `shock-cylinder-ib` (host-memory exhaustion of the case itself, origin/develop included).
