@@ -1018,3 +1018,117 @@ Also seen: **about 12 s of the `large` loop (56.6 s under rocprofv3, kernels 44.
 | 7 | cell fluxes once per cell (idea 5) | the largest | yes | only after the counters of row 3 | memory-bound → drop |
 
 **Protocol (what made the numbers of §11–§13 trustworthy, and what spoiled the others):** pin one GPU (`ROCR_VISIBLE_DEVICES`) and use the same one for every build; `small` rocprofv3 three rounds **alternated** build by build, one run at a time (the node otherwise idle: concurrent runs inflated the `small` loop ×1.6 and moved `large` by 13 %); `large` `--tool none`, alone, at least twice; bitwise check `h5diff -c` at steps 0 and 10 for every width; then the 12-case regression old against new (`~/perf_regr2.sh`: needs `mpirun --oversubscribe`, the Slurm step has one slot), remembering that `baro-mhd-glm-hlld` differs from itself between runs; the FLUME and PRISM FNL regression suites against their goldens are still to be run before any of this is adopted.
+
+---
+
+## 15. Follow-up (2026-10-28 evening, 2026-10-29 night): counters, the Riemann kernels, forceinline, and the MPI transport
+
+Same tree as §13 (`WENO_refactor`, `f8bca7e8`), run through two unattended Slurm jobs (74182 on TheraC17, 4 h; 76074 on TheraC17, 90 min) whose
+stage scripts are in `~/perf_queue/`, results in `~/perf_results/`, run directories under the worktrees (`runs/`). "Old" is `origin/develop`
+(`faa434ab`), "new" is `WENO_refactor`; unless said otherwise, one MI300X and the **system modules** of §11.2 (amdflang 24.0.0git).
+
+### 15.1 What happened to the machine
+
+- 2026-10-28 14:21:30: TheraC16–19 and most other nodes of the cluster went `Not responding` at the same second (cluster-wide event, not
+  mine). TheraC18 was then drained by root ("Kill task failed (JobId=74154)", the previous user's interactive job could not be killed) and stayed drained
+  until after 15:50. My job 74182 started at 16:27:41, on **TheraC17** (back in service with 8 GPUs), not on C18, and ran 16:27–20:04 (the runner
+  released the node when its queue was empty). Job 76074 ran from 02:50:46 (its last stage ended at 03:50).
+- Two mistakes of mine, both without consequence for the numbers: the CPU-lane runner exited at 17:14 when its queue was empty (a stage added later did not run until I restarted it),
+  and the first 8-rank retry (`G70`) never ran because I gave `profile.sh` a tag as if it were an executable (rc 2, no MPI at all). I also did not
+  watch the stages finish, so results sat unread for hours.
+
+### 15.2 Hardware counters (rocprofv3, small case, 3 steps, 45 dispatches each, GPU 0)
+
+| | face kernel old | face kernel new | dissipative kernel (both) |
+|---|---|---|---|
+| `MeanOccupancyPerActiveCU` | **1.00** | **1.97** | 1.92 |
+| `OccupancyPercent` | 11.7 % | 22.7 % | 21.4 % |
+| `GRBM_GUI_ACTIVE` (cycles per dispatch) | 927 M | **53 M** | 9.6 M |
+| `SQ_INSTS_VALU` | 521 M | **185 M** | 103 M |
+| `SQ_INSTS_VALU_{ADD,FMA,MUL}_F64` | 43.4 / 54.8 / 15.8 M | **the same** | 17.4 / 15.4 / 5.5 M |
+| `SQ_WAVE_CYCLES` | 33.1 G | 3.54 G | 0.63 G |
+| `SQ_WAIT_ANY` / `SQ_WAVE_CYCLES` | 96 % | 73 % | 58 % |
+
+The occupancy of §14.3 is now **measured**: 1 → 2 waves per SIMD (the device ELF record agrees: `vgpr_count` 346 → 210). The FP64 instructions are identical (the arithmetic
+is untouched), the other vector instructions fell from 407 M to 71 M (−83 %: the scratch and address traffic; the whole `SQ_INSTS_VALU` −65 %), and the waves wait 23 points less of their time (96 % → 73 %); the kernel is still latency-bound (73 % of the wave cycles waiting).
+
+### 15.3 The Riemann kernels (`weno-riemann`)
+
+Scaled-up `sod-hllc` (32³ cells per block, 512 blocks, 20 steps, rocprofv3, GPU 0, alternated), `compute_riemann_face_fluxes*` per dispatch (60 dispatches):
+
+| round | old | new |
+|---|---|---|
+| 1 | 743.5 ms | 43.2 ms |
+| 2 | 839.6 ms | 42.9 ms |
+| 3 | 841.3 ms | 41.7 ms |
+
+**17× to 20×**; registers 128/224 → 108/132, scratch 9616 → 3072 B. This is the first measurement of the Riemann path (§13.2 listed it as not measured).
+
+Other WENO orders in the Riemann kernels (`sod-hllc`, `rj2a-hlld`, `baro-collide-hllc` × `weno-u-1,3,7,9`, `ngc = 5`, old against new, bitwise): `rj2a-hlld` identical for the four orders; `sod-hllc` and
+`baro-collide-hllc` differ at their last checkpoint for the four orders. The **control** (old twice, new twice, old against new, `sod-hllc` u-1, u-7 and `baro-collide-hllc` u-3, GPUs 6,7): **old differs from its own rerun,
+and new from its own rerun, at the same checkpoints**: non-determinism of the baseline in those cases, not a difference between old and new.
+
+### 15.4 Regression inputs, all of them
+
+54 case directories; 7 self-gravity cases skipped (no FFT executable on AMD); of the 47 run, mpirun -np 2, old against new, every checkpoint (`h5diff -c`) and the residual and conservation logs (`cmp`):
+**43 bitwise identical**; 4 differ (`baro-mhd-glm-hlld`, `iso-mhd-tube2`, `sod-amr`, `sod-amr-2realm`) and **all four differ from their own old-executable rerun at the same checkpoint** (non-determinism of the baseline).
+The golden references of the suite (`golden/fnl`, nvfortran) were not compared.
+
+### 15.5 `!dir$ forceinline` (variant `inl`, 4 directive lines, worktree `adam-inl`, **not committed**)
+
+- The directive works **on the call statement** in this compiler: a toy with a large callee and 6 call sites keeps 6 calls by default and with `!dir$ inline`, and has 0 with `!dir$ forceinline` before each call; placed inside the callee it does nothing.
+- Placed before the call of the model adapter, the two WENO calls (plain and macro form) of the shared face-flux body, and the adapter's call of `compute_face_split_fluxes` (Euler only).
+- Checkpoints identical to old (step 0 and 10, small). Face kernel, small, 3 alternated rounds: 3.37 / 3.25 / 3.38 → **2.86 / 2.91 / 2.92 ms (−13 %)**. Large loop, alone, 3 alternated rounds, nothing else running:
+  new 52.63 / 52.66 / 51.36 s, inl 50.38 / 50.17 / 50.10 s (**−3.8 %**). (The first pair of large rounds of the same stage, run while a relink was going, was inconclusive.)
+- Registers 128 + 152; the ELF record says `vgpr_count` **276** (above 256): back to **1 wave per SIMD** (new: 210, 2 waves). It is faster in spite of that, so capping the registers of this variant at 256 is an idea not tried.
+
+Link-time inliner remarks (relink of `WENO_refactor` with `-Rpass-missed=inline`, 6.9 MB log): the device LTO threshold is **3712**; the per-width WENO routines cost **1730 (S=1, inlined), 4080 (S=2), 6960 (S=3), 10640 (S=4), 16140 (S=5)**:
+not inlined from S = 2, which is why a directive is needed. The **generic** `weno_reconstruct_upwind_dev` and `..._wratio_dev` carry, in the log, **6 `_FortranACopyInAssign`, 6 `_FortranACopyOutAssign` and 2 `__kmpc_alloc_shared`** each:
+Fortran array-section temporaries (copy-in / copy-out through the Fortran runtime, with the temporary allocated by the OpenMP device runtime, `malloc` → `gpu::allocate`).
+That is a mechanism for the heap allocations of §14.5 (a) **in the generic WENO routine** and a further reason why merging its helpers into one routine pays. **No such remark** exists for `compute_face_split_fluxes`, the dissipative kernel, the per-width kernels or the per-width routines, so the two
+`gpu::allocate` calls that every kernel of the image still has (255 of 512 kernels with exactly two call sites) are **not** explained by this; toys (a trivial kernel, `has_device_addr`, assumed-shape dummies, a private array passed to a non-inlined callee) did not reproduce them.
+
+### 15.6 Multi-rank, and the MPI transport (the larger finding of this section)
+
+**New (system-module) environment** (Open MPI 5.0.10-ucx1.22.0-ucc1.9.0): small case, 2–8 ranks, `profile.sh`: **2, 3, 4 ranks run, 5, 6, 7, 8 all abort** with `MPI_ERR_INTERN` in `MPI_Waitall`
+(after ~24 s, ranks all started and loaded); with the cluster's UCX settings (`OMPI_MCA_pml=ucx`, `UCX_TLS=self,sm,rocm`, `HSA_ENABLE_IPC_MODE_LEGACY=1`) and with `UCX_TLS=self,sm,rocm_copy,rocm_ipc` the same. The threshold is at the number of GPUs of one socket (4 of the 8; **hypothesis**, not tested).
+One run of the old tree on 2 ranks in that environment hung at start-up (killed by the 20-minute timeout), the same environment ran the new tree on 2 ranks.
+Where it runs, large case, GPUs 0–3: **4 ranks: new 15.08 s, old 173.47 s (11.5×)**; new, 2 ranks 27.31 s; new, 1 rank 52.6 s (speedups 1.9×, 3.5×).
+
+**Original environment** (`spack-setup-env.sh`; `rocm-afar-drop/23.2.1-gfx942`, `rocm-openmpi`, `rocm-hdf5-ompi-5.0.10/1.14.6`; both trees rebuilt there with `thera_amd`, executables `exe/fnl-amd-oldenv`, worktrees `adam-oldhead`, `adam-oldwref`): 8 ranks run.
+One rank, large: **old 483.2 s, new 53.8 s (9.0×)** (amdflang 23.2.0: the gain is not the property of one compiler).
+Eight ranks, large, Open MPI **default** transport: old 280.9 / 292.3 s, new **208.7 / 209.0 s**; the forest timing shows imbalance 0.67 s, reflux 0.35 + 0.14 s, seam 0: about 200 s of the 204 s of steps are in no reported category.
+Eight ranks with the **ROCm-aware UCX** transport (`OMPI_MCA_pml=ucx`, `OMPI_MCA_osc=ucx`, `UCX_TLS=self,sm,rocm`, `HSA_ENABLE_IPC_MODE_LEGACY=1`, `UCX_MAX_RNDV_RAILS=1`; or `UCX_TLS=self,sm,rocm_copy,rocm_ipc`):
+
+| 8 ranks, large | loop |
+|---|---|
+| new, default transport | 208.7 s, 209.0 s |
+| new, UCX, `rocm` | **9.20 s** |
+| new, UCX, `rocm_copy,rocm_ipc` | **9.23 s** |
+| new, default transport, `HSA_ENABLE_SDMA=0` | 212.7 s |
+| **old, UCX** (2 rounds) | **68.97 s, 68.99 s** |
+| **new, UCX** (2 more rounds) | **9.34 s, 9.25 s** |
+
+So **the default transport costs ~200 s of a 209 s loop (23×)**, in line with the README of the speedup matrix ("the FNL halo exchange posts MPI directly on device buffers ... the MPI must be ROCm-aware, Open MPI + UCX with ROCm"):
+without the UCX settings the run is correct and slow. With them, across the node the new tree is **7.4×** faster than the old one (69.0 → 9.3 s), and the parallel efficiency against one rank (original environment) is
+old 483 → 69 s (7.0×, 88 %), new 53.8 → 9.3 s (5.8×, 72 %): with 8 ranks each rank holds an eighth of the cells, so the kernel time per rank shrinks about eightfold while the host gaps between launches and the regrids (§15.7: about 12 s of the loop at one rank) are not expected to shrink as fast; that is a **hypothesis** for the 72 %, no 8-rank trace was taken.
+
+### 15.7 Where the large loop's time goes outside the kernels (rocprofv3 kernel trace of the large `wenow` run, one rank)
+
+Trace 72.8 s, kernels 44.1 s, 6037 gaps totalling 28.6 s: one 15.9 s gap before the first update_ghost (initialisation, outside the loop), two ~1.95 s gaps before `count_nonfinite_dev` (the regrids at steps 10 and 20), the rest
+**about 8.8 s in ~6000 small gaps** (4770 of 0.1–1 ms = 3.6 s, 1100 of 1–10 ms = 3.0 s, 161 of 10–100 ms = 2.0 s), before kernels such as `apply_reflux_face_dev`, `blend_inadmissible_ghosts_dev`, `set_boundary_conditions_dev`, `compute_flux_difference_dev`: host work between launches, 15 % of the loop now.
+
+### 15.8 What this changes in §14
+
+- §14.3 (occupancy): **settled**, the per-width WENO change already gave 2 waves per SIMD (1.97 measured); no launch-bounds attribute is needed for it. It reopens for the `inl` variant (276 registers, 1 wave).
+- §14.1 (inlining): the cause is the **cost against a threshold of 3712** and a directive on the call statement removes it (toy, and `inl` in the real kernel: −13 % small, −3.8 % large); textual inlining is not needed.
+- §14.5 (a) (allocations): partly explained (Fortran copy-in/out temporaries of the generic WENO routine); the two allocations every kernel still has are **not** explained.
+- §14.6 table: rows 1, 2, 3 (counters), 6 (partly), and the multi-rank question of §9.5 are done; rows 4 (per-width `compute_face_split_fluxes`), 5 (lean) and 7 (cell fluxes) are **not** done and are now second-order next to the host gaps (§15.7) and, at 8 ranks, the transport settings.
+
+### 15.9 Not done
+
+- The per-width `compute_face_split_fluxes`, the lean kernel, the cell-flux precomputation (ideas 3 and 5 of the five; no experiment was made).
+- Whether the socket boundary (4 GPUs) is the cause of the new environment's failure at 5+ ranks; whether a different Open MPI of the system tree runs 8 ranks.
+- The NVHPC/OpenACC build; the golden references; the 7 self-gravity cases; an FFT executable on AMD.
+- The origin of the two allocations in every kernel; the host gaps of §15.7; the gravity-edge kernels (still only compiled).
+- The `inl` variant is **not committed** (worktree `adam-inl`, 4 directive lines); the notes of §11–§15 and the stage scripts are in `~` and the repository root only.
