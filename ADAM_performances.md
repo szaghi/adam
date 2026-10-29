@@ -1197,3 +1197,39 @@ v4 and v5 alone identical on `couette`, `sod-x`, `vortex-periodic`. Clean lean, 
 - Done: idea 3 (lean) and the per-width split of the split routine (14.5 b): **no worthwhile gain at the large size**, in either form. The kernel-level gain of lean (−11 %) does not reach the loop.
 - Open and now better targeted: the dissipative kernel's 21.7 KB of scratch under 23.2.0 (§16.2), the host gaps and regrids (§15.7), the unexplained allocations per kernel (§15.5), the parallel efficiency at 8 ranks (§15.6).
 - Not done: idea 5 (cell fluxes once per cell); the NVHPC build; the golden references; self-gravity cases; and `shock-cylinder-ib` (host-memory exhaustion of the case itself, origin/develop included).
+
+---
+
+## 17. The dissipative kernel under amdflang 23.2.0: what its scratch is, and a per-direction specialisation that does not pay (2026-10-29)
+
+Original environment (§16), baseline `WENO_refactor` in that environment, job 76102 (stack frames) and 76104 (the experiment).
+
+### 17.1 What the 21744 B of scratch are
+
+Relink of the baseline objects with `-Rpass-analysis=stack-frame-layout` (30599 lines; for the device code the remark appears at link time): the **stack frame of `add_dissipative_fluxes_o4_dev` is 996 B** (13 slots: four of 96 B aligned to 128, two of 128 B, four of 48 B, two of 16 B, one of 4 B),
+and `compute_dissipative_flux` is inlined (its own frame is 8 B). The declared private arrays of the kernel (`ot`, `c`, `rdx`, `wm`, `dm`, `g`, `gm`, `wf`, `h`, `hc`) add up to 624 B. So the **21744 B that rocprofv3 reports as `Scratch_Size` are the kernel's frame plus a reservation for its callees**
+(the device allocator it calls twice, §15.5; the largest frames of the image are `_FortranAAssign` 7700 B and the Riemann/gravity-edge generic kernels 6072 B): about 20 KB are not arrays of the kernel. I could not trace the whole call tree of the allocator from this log, so the split of the 20 KB is not established.
+Other frames of the baseline image: `compute_face_split_fluxes` 432 to 2016 B (several inlined copies), the generic `weno_reconstruct_upwind_dev` 876 to 1836 B.
+
+### 17.2 Experiment: the 4th-order dissipative kernel specialised on the direction
+
+Hypothesis: the arrays of the kernel are indexed by the run-time direction `d` (`g(a,d)`, `g(d,i)`, `tau(d)`, `if (t == d)`, the cell offsets from `di, dj, dk`), which keeps the 996 B in scratch memory; with `d` a named constant (and `di, dj, dk` constants) the indices are static and the arrays can live in registers.
+Change (`~/perf_patches/dissipative-per-direction.patch`, 2 files): the body of `add_dissipative_fluxes_o4_dev` in an include, three kernels `..._dir1_dev`, `..._dir2_dev`, `..._dir3_dev` with `d, di, dj, dk` named constants, `add_dissipative_fluxes_o4_dev` a host dispatcher (`select case (d)`). It compiles in the original environment; incremental build (objects of the baseline tree, 34 min including the device link).
+
+| | baseline | per-direction |
+|---|---|---|
+| dissipative kernel, small, 3 alternated rounds | 1.148 / 1.148 / 1.150 ms | **1.243 / 1.245 / 1.246 ms (+8.4 %)** |
+| reported scratch | 21744 B | 21328 / 21488 B (the three kernels) |
+| data fetched / written per dispatch (small, 3 steps, 45 dispatches) | 3.245 / 1.832 GB | 2.931 / 1.577 GB (−9.7 % / −13.9 %) |
+| face kernel (not changed), small | 3.638 / 3.630 / 3.627 ms | 3.738 / 3.758 / 3.741 ms (+3 %) |
+| large loop, 3 alternated rounds | 54.273 / 54.294 / 54.258 s (54.28) | 56.548 / 56.617 / 56.701 s (56.62, **+4.3 %**) |
+| bitwise, small case, 10 steps | — | step 0 identical, **step 10 differs** (608 datasets) |
+
+Regression subset (baseline against the variant, 14 cases, `mpirun -np 2`): the viscous cases that use the kernel differ (`couette`, `becker-shock`, `shear-viscous`, `seam-viscous-amr`: checkpoints and residual logs), the others are identical (`sod-x`, `sod-y`, `sod-z`, `vortex-periodic`, `vortex-rk3`, `amr-periodic-reflux`, `radiative-shock`).
+The earlier variants of §16 were all bitwise identical, so the difference is the specialisation (with the direction a constant the compiler makes other contraction choices; the size of the differences was not measured in absolute terms, a relative tolerance is meaningless for the near-zero transverse momenta of Couette).
+
+**Reading.** The traffic did fall by 10–14 %, so part of the diagnosis holds (some arrays left memory), but the kernel got 8 % slower and the whole loop 4 % slower, and the results are no longer bitwise. **Not committed.** Which scratch accesses dominate the kernel (and why fewer bytes made it slower) would need its ISA, which was not read.
+
+### 17.3 What is left on the dissipative kernel and around it
+
+The ISA of `add_dissipative_fluxes_o4_dev` (scratch loads and stores by slot); the host gaps between launches (§15.7); the unexplained allocations per kernel (§15.5); the 8-rank efficiency (§15.6).
