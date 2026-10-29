@@ -104,8 +104,14 @@
 #          reproduces these blocks (the realm roots are not square), so the leg asserts invariants: the seam mixed at
 #          some regrid, the grid refined and coarsened, the mass of the two realms constant to 1e-12, the run on 1 and
 #          on 2 ranks bitwise, and the run with the topology rebuilt every step (the hook) bitwise.
+#   leg13  (issue #110 P5) restart across multi-realm regrids: leg 12's case, 195 steps against 155 + restart + 40. The
+#          restart is saved at step 155, a regrid that coarsens and leaves 2:1 faces on the seam, so the restarted run
+#          builds a mixed seam from the restored trees, and it regrids again into a new grid at step 190. The last
+#          fields bitwise and every history file identical (the rg4 pattern on two realms); a restart on fewer ranks
+#          than saved stops (issue #109). The seams are stage_coincident: an end_of_step seam carries the seam ghosts of
+#          the previous step's stage buffers, which the restart files do not hold, so it does not restart bitwise.
 #
-# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg12 or all (default all); leg4 compares against
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg13 or all (default all); leg4 compares against
 #        the sod-amr run of leg2, leg5 against the sod-x and sod-z runs of leg1 and leg3, so they require those legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -120,7 +126,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
 source "$VERIF_DIR/legs.sh"
-legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9 leg10 leg11 leg12"
+legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9 leg10 leg11 leg12 leg13"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -558,6 +564,58 @@ sys.exit(0 if ok else 1)
 PYEOF
    for variant in np1 hook; do
       "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$CASE_DIR/work-$TAG-l12-$variant" "$multi" --ngc 3 --tol 0
+   done
+fi
+
+if has_leg leg13; then
+   echo "== leg 13: restart across multi-realm regrids, 195 steps vs 155 + restart + 40 (#110 P5)"
+   l13_src="$CASE_DIR/work-$TAG-l13-src" ; rm -rf "$l13_src" ; mkdir -p "$l13_src"
+   l12_inputs "$l13_src"
+   # it_max > 0: the step count, not time_max, ends the runs
+   sed -i 's/^it_max *=.*/it_max   = 195/' "$l13_src"/vortex-r[12].ini
+   l13_files=("$l13_src/vortex-2realm.ini" "$l13_src/vortex-r1.ini" "$l13_src/vortex-r2.ini")
+   a="$CASE_DIR/work-$TAG-l13-A" ; b="$CASE_DIR/work-$TAG-l13-B"
+   run "$a" vortex-2realm.ini "${l13_files[@]}"
+   sed -i 's/^it_max *=.*/it_max   = 155/; s/^restart_save *=.*/restart_save           = 155/' "$l13_src"/vortex-r[12].ini
+   run "$b" vortex-2realm.ini "${l13_files[@]}"
+   # the topology line printed last before the step-155 regrid line is the one its rebuild built
+   seam155=$(awk '/mixed levels along the seam|is a 2:1 seam/ {t = $0} /flume: regrid at step 155:/ {print t ; exit}' \
+             "$b/log.txt")
+   if grep -aq 'flume: regrid at step 155: .* [1-9][0-9]* coarsened' "$b/log.txt" &&
+      [[ $seam155 =~ "and "[1-9][0-9]*" 2:1 faces" ]]; then
+      echo "   step 155 coarsens and leaves 2:1 faces on the seam"
+   else
+      echo "check.sh: leg13's step 155 does not coarsen or leaves no 2:1 face on the seam, see $b/log.txt" >&2
+      exit 1
+   fi
+   mv "$b/log.txt" "$b/log-1.txt"
+   sed -i -e 's/^restart *=.*/restart                = .true./' -e 's/^it_max *=.*/it_max   = 195/' \
+          -e 's/^restart_save *=.*/restart_save           = 0/' "$b"/vortex-r[12].ini
+   # a restart on fewer ranks than saved stops (issue #109); run on a copy, the restart files stay untouched
+   if [[ $NP -gt 1 ]]; then
+      fewer="$CASE_DIR/work-$TAG-l13-fewer" ; rm -rf "$fewer" ; cp -r "$b" "$fewer"
+      echo ">> $(basename "$fewer"): mpirun -np $((NP - 1)) $(basename "$EXE") vortex-2realm.ini (must stop)"
+      if (cd "$fewer" && mpirun -np $((NP - 1)) "$EXE" vortex-2realm.ini > log.txt 2>&1); then
+         echo "check.sh: leg13's restart on $((NP - 1)) ranks did not stop, see $fewer/log.txt" >&2 ; exit 1
+      fi
+      grep -aq 'saved on more ranks' "$fewer/log.txt" ||
+         { echo "check.sh: leg13's restart on fewer ranks stopped without the rank message, see $fewer/log.txt" >&2 ; exit 1 ; }
+      echo "   a restart on $((NP - 1)) ranks stops (saved on $NP)"
+   fi
+   echo ">> $(basename "$b"): mpirun -np $NP $(basename "$EXE") vortex-2realm.ini (restart)"
+   (cd "$b" && mpirun -np "$NP" "$EXE" vortex-2realm.ini > log.txt 2>&1) ||
+      { echo "check.sh: leg13's restarted run failed, see $b/log.txt" >&2 ; exit 1 ; }
+   # the first topology line of the restarted run is the build from the restored trees
+   seam0=$(grep -a -m1 'mixed levels along the seam\|is a 2:1 seam' "$b/log.txt" || true)
+   [[ $seam0 =~ "and "[1-9][0-9]*" 2:1 faces" ]] ||
+      { echo "check.sh: leg13's restarted run did not start on a mixed seam with 2:1 faces, see $b/log.txt" >&2 ; exit 1 ; }
+   grep -aq 'flume: regrid at step 1[6-9][05]: .* \([1-9][0-9]* refined\|[1-9][0-9]* coarsened\)' "$b/log.txt" ||
+      { echo "check.sh: leg13's restarted run never changed the grid, see $b/log.txt" >&2 ; exit 1 ; }
+   echo "   the restarted run starts on the mixed seam and changes the grid again"
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$b" "$a" --ngc 3 --tol 0
+   for f in $(cd "$a" && ls ./*.dat); do
+      if cmp -s "$a/$f" "$b/$f"; then echo "   ${f#./}: identical"
+      else echo "check.sh: leg13's ${f#./} differs between the uninterrupted and the restarted run" >&2 ; exit 1 ; fi
    done
 fi
 echo "multi-realm verification PASSED (legs: $LEGS) ($TAG)"

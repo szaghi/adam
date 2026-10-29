@@ -155,11 +155,16 @@ How the pieces combine, and what to expect:
   whose copies scale with the blocks in use, about 0.02 s per regrid on a 50-block grid on the development box
   ([#75](https://github.com/szaghi/adam/issues/75)).
 - **Limits.** On a multi-realm forest ([#110](https://github.com/szaghi/adam/issues/110)) the blocks along each side
-  of a seam keep one level: a refine vote on one refines the whole side (mixed levels along a seam are #110 P3); with
-  EGLM the 2:1 seams
-  raise the divergence error B_z well above its uniform-grid level ([#78](https://github.com/szaghi/adam/issues/78)).
+  of a `mirror` or `refined` seam keep one level: a refine vote on one refines the whole side. A `coupling = auto` seam
+  may hold different levels along it, face by face (equal cells or 2:1), on octrees only (a quadtree's `nk = 1` is
+  refused). With EGLM the 2:1 seams raise the divergence error B_z well above its uniform-grid level
+  ([#78](https://github.com/szaghi/adam/issues/78)).
 - **Restart.** A run restarted from any step regrids on the same steps and continues bitwise (the regrid happens before
-  the step's output and restart files).
+  the step's output and restart files). On a forest every realm restarts from its own files and the inter-realm seams
+  are rebuilt from the restored trees, mixed levels along a seam included (`multirealm/check.sh` leg 13); bitwise with
+  `coupling_cadence = stage_coincident` seams only (an `end_of_step` seam keeps stage-buffer ghosts of the previous
+  step that the restart files do not hold). Restart on the rank count the run was saved with: fewer ranks stop the
+  run.
 - **Log.** Each regrid prints `flume: regrid at step N: blocks a -> b, R refined, C coarsened, S sweeps` (plus its wall
   time on FNL); a state with non-positive density or pressure after a regrid stops the run with its location.
 - **Your own criterion** ([#110](https://github.com/szaghi/adam/issues/110)). Extend `amr_criterion_object`
@@ -636,8 +641,9 @@ Every key is required, and none has a range check.
 
 A multi-realm FLUME run reads a forest manifest, documented in the
 [library input reference](/reference/library-input#forest-manifest-multi-realm); every `[realm.N]` points at a full
-FLUME input of the form documented here. FLUME refuses runtime regridding (`[amr] frequency > 0`) in a multi-realm
-forest.
+FLUME input of the form documented here. Each realm regrids by its own `[amr]` section, balanced across the seams by
+the forest (see `[amr]` above and [the forest](/concepts/forest)); a forest restarts on the rank count it was saved
+with.
 
 ---
 
