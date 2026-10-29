@@ -72,6 +72,8 @@
 #           em-tube2-hll-400 (em6) (25 runs, about 30 min)
 #   multirealm sod-x, sod-2realm, sod-amr, sod-amr-refined: the Sod unions of multirealm/check.sh legs 1 and 4 and
 #           their single-realm twins (4 runs, about 4 min)
+#   multirealm-amr mr-vortex: the vortex moving along an auto seam of multirealm/check.sh leg 12 (#110 P3), both realms
+#           regridding, a checkpoint every 20 steps (1 run, about 6 min)
 #   seams   the Sod shock crossing a static 2:1 face at x = 0.75 (amr-shock/make_amr_shock.py, #68; issue #85 R2b):
 #           as-{c2f,f2c} (AS, today's operators), as-uniform-{200,400}; e0-{fill}-{restriction}-{on,off} for the fills
 #           tricubic and restriction-compatible, the restrictions mean and lagrange6, the reflux on and off, and
@@ -112,17 +114,17 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars] [cooling] [sinks] [eos] [eosgrav] [eosmhd]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [multirealm-amr] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars] [cooling] [sinks] [eos] [eosgrav] [eosmhd]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks eos eosgrav eosmhd}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm multirealm-amr seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks eos eosgrav eosmhd}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks|eos|eosgrav|eosmhd)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|multirealm-amr|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks|eos|eosgrav|eosmhd)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
-           "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, seams, blast77, divb," \
-           "rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks, eos, eosgrav, eosmhd)" >&2
+           "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, multirealm-amr, seams, blast77," \
+           "divb, rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks, eos, eosgrav, eosmhd)" >&2
       exit 2
    fi
 done
@@ -555,6 +557,10 @@ for g in $GROUPS_; do
          mr sod-2realm sod-2realm.ini sod-2realm-r1.ini sod-2realm-r2.ini
          mr sod-amr sod-amr.ini
          mr sod-amr-refined sod-amr-refined.ini sod-amr-refined-r1.ini sod-amr-refined-r2.ini ;;
+      multirealm-amr)
+         fresh mr-vortex
+         python3 "$VERIF_DIR/multirealm/make_vortex_forest.py" "$W" --it-save 20
+         run vortex-2realm.ini ;;
       seams)
          as_run() { # as_run <case dir> <make_amr_shock arguments>: one Sod crossing
             fresh "$1" ; shift

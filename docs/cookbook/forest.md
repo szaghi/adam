@@ -50,6 +50,7 @@ to round-off or to a tolerance, the recipe says so and why.
 | restart a forest | [R9](#r9-restart) |
 | build a split from an existing single-realm input | [R10](#r10-splitting-an-existing-input) |
 | run any of the above on the GPU | [R11](#r11-forest-on-fnl) |
+| let the realms regrid at runtime, across their seams | [R12](#r12-runtime-amr-on-a-forest) |
 
 ---
 
@@ -243,6 +244,13 @@ the trailing ones.
 single-realm golden within the digest tolerances), `rmf-2realm-fd-pulse` (β div-free, with α as the leaking negative
 control). Every FLUME forest test uses β.
 
+::: warning α in FLUME is not verified
+No FLUME test uses α. The end-of-step fill writes the committed state only, and the RK stages compute on stage
+buffers whose seam ghosts it never refreshes. On the case of `multirealm/check.sh` leg 12 the α and β runs differ by
+18–45 % next to the seam after four steps, far beyond a one-step lag
+([#110](https://github.com/szaghi/adam/issues/110) P5, measured 2026-10-29). Use β in FLUME.
+:::
+
 ## R5. Mirror seam between blocks that do not line up
 
 ![Misaligned blocks](/forest/mirror-misaligned.svg)
@@ -383,8 +391,17 @@ restart_basename = sod-2realm-r1-restart    ; DIFFERENT in every realm
 Give every realm its own `restart_basename` (and `output_basename`). Two realms writing to the same name overwrite each
 other's files.
 
+The restarted realms load their trees and fields, and the forest builds the seams from the restored trees, so a forest
+that regridded at runtime restarts on its current grid, mixed levels along a seam included. Restart on the rank count
+the run was saved with (fewer ranks stop the run, [#109](https://github.com/szaghi/adam/issues/109)). The restart is
+bitwise for β seams only: an α seam leaves the seam ghosts of the previous step in the stage buffers (R4), which the
+restart files do not hold.
+
 **Verified by** MV-14 legs 2 and 3: a 2-realm run stopped at half its steps and restarted equals the straight run
-bitwise, with byte-identical histories; leg 3 does the same on an AMR box with a non-zero psi.
+bitwise, with byte-identical histories; leg 3 does the same on an AMR box with a non-zero psi. `multirealm/check.sh`
+leg 13 ([#110](https://github.com/szaghi/adam/issues/110) P5) restarts a forest whose realms regrid, at a step that
+coarsens and leaves 2:1 faces on the seam, and runs past a later regrid that changes the grid: bitwise, histories
+identical, on CPU and FNL.
 
 ## R10. Splitting an existing input
 
@@ -431,6 +448,70 @@ verification legs run on CPU and FNL, and the regression suites hold FNL goldens
 
 ---
 
+## R12. Runtime AMR on a forest
+
+**Problem.** Let the realms of a forest refine and coarsen as the flow moves, a refined region crossing or running
+along a seam ([#110](https://github.com/szaghi/adam/issues/110)).
+
+**Input.** Each realm keeps its own `[amr]` section with `frequency > 0` and its markers, exactly as a single realm
+(the [FLUME runtime-AMR guide](/applications/flume/input#setting-up-runtime-amr)); the realms may use different
+markers, levels and cadences. The seam declares how its two sides may differ:
+
+```ini
+[forest.topology.face_1]
+realm_a          = 1
+face_a           = +x
+realm_b          = 2
+face_b           = -x
+coupling         = auto              ; mirror, refined, or auto: decided from the cells at every topology build
+coupling_cadence = stage_coincident  ; beta (R4)
+```
+
+**What the machinery does.** At a regrid step the forest runs the realm phases itself: every realm marks, the forest
+balances the marks across the seams on the replicated trees (the same on every rank, checked by a checksum), every
+realm adapts, and the inter-realm topology (register faces, seam ghost rows, boundary crown, device maps) is rebuilt
+from the new trees and every seam refilled from its peer, sweep after sweep. The balance rules compare cell sizes:
+
+| `coupling` | Along each seam side | Across the seam |
+|---|---|---|
+| `mirror` | one level (a refine vote on one seam block refines the whole side) | equal cells |
+| `refined` | one level | the declared 2:1 jump |
+| `auto` | levels may differ face by face, as inside a realm | every pair of neighbouring blocks (edge and corner neighbours included): equal cells or 2:1 |
+
+An `auto` seam whose two sides hold one cell size each resolves to `mirror` or `refined` at every topology build, so a
+seam may turn 2:1 and back; with several sizes on a side it stays `auto` and every structure is built face by face
+(a 2:1 face may have either realm coarse).
+
+**Requirements.** A 2:1 face across realms needs nested blocks (the fine blocks quadrants of the coarse one) and even
+block cell counts on every axis, so inter-realm 2:1 faces are octree-only: a quadtree's `nk = 1` is refused. The
+6-point seam fills and restrictions need `ni, nj, nk >= 6` on the realm they read.
+
+**Log.** `forest: regrid sweep S, marks (refine/derefine) per realm: ... ; balanced: ...` for every sweep (rank 0),
+`flume: regrid at step N: blocks a -> b, R refined, C coarsened, S sweeps` per realm, and at every topology build
+`forest: ...: mixed levels along the seam, E faces of equal cells and F 2:1 faces` for an `auto` seam with mixed levels.
+With `ADAM_SEAM_TIMING=1` the timing report adds `forest regrid timing` (the regrid, the balance, the topology rebuilds
+and the seam refills, with the count of rebuilds) and `forest rebuild phases` (the coupling checks, the flux register,
+the seam ghost rows with the boundary crown, the backend hook, and the register face count).
+
+**Verified by** `multirealm/check.sh` legs 7-12 on CPU, legs 8, 9, 11 and 12 on FNL (legs 7 and 10 on CPU only):
+- leg 7: a realm whose regrids keep its grid (the forest still fills the seams before marking), bitwise to the
+  single-realm run;
+- leg 8: Sod split at the diaphragm into two `auto` realms regridding by a Löhner marker, against the single realm with
+  the same marker: the seam turns 2:1 and back, bitwise with `seam_ghost_fill = injection`;
+- leg 9: a mirror seam between realms at different levels (equal cells), mass conserved to round-off;
+- leg 10: a registered refinement criterion against the built-in box marker it reproduces, on one realm and on a
+  forest, bitwise;
+- leg 11: a box next to the seam in each realm, so the seam holds 2:1 faces in both directions, against the single
+  realm, bitwise with injection, and with the topology rebuilt every step;
+- leg 12: a vortex moving along an `auto` seam in a closed box, both realms regridding: the seam turns mixed, the mass
+  is conserved to round-off, bitwise on 1 and 2 ranks and with the topology rebuilt every step;
+- leg 13 (R9): a restart across these regrids.
+
+**Reference.** [Forest concepts](/concepts/forest) (runtime regridding, cross-realm balance, mixed levels along a
+seam); [writing a refinement criterion](/applications/flume/input#setting-up-runtime-amr).
+
+---
+
 ## Diagnostics
 
 | Log line | Meaning |
@@ -439,17 +520,21 @@ verification legs run on CPU and FNL, and the regression suites hold FNL goldens
 | `forest: face_pair N is a 2:1 seam, realm C coarse, realm F fine` | a `refined` pair was accepted |
 | `forest: registered intra-realm AMR seam faces: +N` | 2:1 faces inside the realms (R2, R7) |
 | `forest: reflux max\|F_coarse-F_fine_sum\| = ...` | printed only when non-zero: expected on 2:1 faces, never on a mirror seam |
-| `forest timing (max over ranks, s): ...`, `forest seam timing realm R ...` | with `ADAM_SEAM_TIMING=1` |
+| `forest timing (max over ranks, s): ...`, `forest regrid timing ...`, `forest rebuild phases ...`, `forest seam timing realm R ...` | with `ADAM_SEAM_TIMING=1`; the regrid lines price the runtime regrid of a forest (R12) |
+| `forest: regrid sweep S, marks (refine/derefine) per realm: ...; balanced: ...` | a runtime regrid sweep, the marks before and after the cross-realm balance (R12) |
+| `forest: ...: mixed levels along the seam, E faces of equal cells and F 2:1 faces` | an `auto` seam with several levels on a side, built face by face (R12) |
 | `WARNING: seam div(B) ... exceeds [IO].seam_divB_tol` | PRISM, with the monitor armed (R2, R6) |
 
 ## Refusals and fixes
 
 | Message (abridged) | Cause | Fix |
 |---|---|---|
-| `only coupling = mirror or refined is implemented` | `periodic` / `interpolate` | reserved names; before #52 they silently ran as `mirror` |
+| `only coupling = mirror, refined or auto is implemented` | `periodic` / `interpolate` | reserved names; before #52 they silently ran as `mirror` |
 | `coupling = mirror joins cells of the same size, the seam cells differ` | different cell sizes on a mirror pair | equal cells, or `coupling = refined` for a 2:1 jump |
 | `coupling = refined needs ...` (a ratio of exactly 2, the same block cell counts along the seam, the same `seam_ghost_fill`, even counts, nested blocks) | an R6 requirement | see [R6](#r6-refined-seam-a-2-1-jump-between-realms) |
-| `realm R has seam cells of different sizes` | refinement reaches the seam face | keep refinement away from the seam (R7), or put the jump on the seam (R6) |
+| `realm R has seam cells of different sizes` | refinement reaches the face of a `mirror` or `refined` seam | keep refinement away from the seam (R7), put the jump on the seam (R6), or `coupling = auto` (R12) |
+| `the seam block of realm R at ... faces cells of realm P that are neither one size equal to, half or twice its own` / `is not covered by nested blocks` | an `auto` seam with a jump other than 1:1 or 2:1, or 2:1 faces that do not nest | let the forest balance it (runtime AMR), or align the realms' blocks |
+| `the seam marks did not settle in 64 passes: a refinement next to a seam needs the peer realm finer than its [amr] max_level allows` | the cross-realm balance hit a peer's `max_level` | raise the peer's `max_level`, or lower this realm's |
 | `the cells of realm A and realm B do not line up` / `faces N of its M seam cells` | misaligned cells, or faces that do not cover each other | align the extents to the cell size; make the seam faces coincide |
 | `the seam ghost (i,j,k) of block b of realm R does not match the cells of realm P ...; ghost centre ..., peer cell ...` | a peer cell of the wrong size or position | as above |
 | `stage_coincident requires equal scheme_time / rk_scheme / physics nv / K` | β on unlike realms | `end_of_step`, or align the integrators |
@@ -461,8 +546,10 @@ verification legs run on CPU and FNL, and the regression suites hold FNL goldens
 
 ## Current limits
 
-- **Topologies.** The schema takes any number of realms and face pairs, but the verified forests have two realms and
-  one face pair.
+- **Topologies.** The schema takes any number of realms and face pairs; the verified forests have two realms and one
+  face pair, and the three-realm forward-facing step (static refinement).
+- **Runtime AMR across seams.** Inter-realm 2:1 faces are octree-only; a seam cannot wrap a periodic axis (two faces of
+  the same two realms at opposite ends) is not supported, and not refused either; α seams are not verified in FLUME (R4).
 - **Time stepping.** There is no subcycling: one global time step, set by the most restrictive realm.
 - **FLUME limiter.** The positivity limiter is refused in a forest.
 - **FNL cost.** On FNL the cross-rank seam rows go through the host on every fill
@@ -483,7 +570,8 @@ verification legs run on CPU and FNL, and the regression suites hold FNL goldens
 | R6 refined 2:1 | leg 4, MV-14 leg 4, `sod-amr-refined` | `rmf-2realm-fd-pulse-refined` | bitwise |
 | R7 both families | leg 2, `sod-amr-2realm` | — | bitwise |
 | R8 many ranks | legs 1-5 at np 2-4, leg 3 (z split) | np 2 in every case | bitwise |
-| R9 restart | MV-14 legs 2-3 | — | bitwise, histories identical |
+| R9 restart | MV-14 legs 2-3, leg 13 (across regrids) | — | bitwise, histories identical |
+| R12 runtime AMR on a forest | legs 7-12 | — | legs 7, 8, 11 bitwise vs the single realm (8, 11 with injection); 9 conservation; 10 the registered criterion bitwise vs the built-in marker; 12 conservation, ranks and hook bitwise |
 
 "leg N" is `src/tests/flume/verification/multirealm/check.sh` (`--legs legN`; leg 4 needs leg 2, leg 5 needs legs 1
 and 3); "MV-14 leg N" is `src/tests/flume/verification/mhd/multirealm/check.sh` (`--legs mv14-N`; leg 2 needs leg 1).

@@ -35,6 +35,12 @@ The boxes are placed by hand on the features of the reference solution at $t = 4
 initialisation: FLUME had no runtime AMR when this case was written (milestone M5). A solution-driven marker could not
 place them either, since the tunnel starts uniform. The boxes therefore follow the flow only once it has settled, and
 the case verifies the seam machinery, not adaptivity.
+
+The realms of a forest now regrid at runtime ([#110](https://github.com/szaghi/adam/issues/110)), but this forest's
+seams are `mirror` seams between blocks that do not line up, and a mirror seam keeps one level per seam side. A
+Löhner marker tried on the octree at $N = 80$ (2026-10-29) refined whole seam sides at its first regrid, and every
+later sweep balanced to no mark, so the grid stayed fixed. A `coupling = auto` seam varies its levels face by face but
+needs the blocks of a 2:1 face to nest, which realm A (0.2 high) cannot offer realm B on an octree at this size.
 :::
 
 ## Models and numerics

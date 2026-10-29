@@ -109,6 +109,7 @@ round trip): a setup table documents it better than a plot of a difference that 
 | [Runtime regrids in FLUME](./runtime-amr/runtime-regrids) | RG (rg3 to rg6) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes |
 | [Accuracy of runtime AMR](./runtime-amr/accuracy) | AV (av2 to av8) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes |
 | [MHD blast symmetry on the flux-splitting path](./runtime-amr/mhd-blast-symmetry) | #77 study, bounded by av3c | M5 ([#74](https://github.com/szaghi/adam/issues/74)), [#77](https://github.com/szaghi/adam/issues/77) | CPU, FNL | yes |
+| [Runtime AMR on a forest](./runtime-amr/multi-realm) | multirealm legs 7–13 | [#110](https://github.com/szaghi/adam/issues/110) P1–P5 | CPU, FNL | yes |
 
 ## [Seam accuracy and divergence (M6)](./seams/)
 

@@ -2999,6 +2999,89 @@ def fig_multirealm(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_multirealm_amr(out: Path, runs: Path) -> None:
+    """Multi-realm runtime AMR (issue #110 P3, multirealm/check.sh leg 12): the vortex moving along a coupling = auto
+    seam in a closed box, both realms regridding by a Loehner marker. Top, the density of both realms with their blocks
+    at three checkpoints: the refined patch moves along the seam, whose two sides hold several levels. Bottom, the mass
+    of each realm and the drift of their sum (the box is closed), and the blocks of every level in each realm."""
+    work = runs / "mr-vortex"
+    if not work.is_dir():
+        raise FileNotFoundError(f"no run in {work} (make_doc_runs.sh <runs> multirealm-amr)")
+    ngc = int(read_ini(work / "vortex-r1.ini")["grid"]["ngc"])
+    steps = sorted({int(p.name.split("-")[-2]) for p in work.glob("vortex-r1-[0-9]*-proc*.h5")})
+    shown = (steps[0], steps[len(steps) // 2], steps[-1])
+    fig = plt.figure(figsize=(16, 9.6), constrained_layout=True)
+    grid = fig.add_gridspec(2, 6)
+    lo = hi = None
+    snaps = []
+    for it in shown:
+        bl = [b for prefix in ("vortex-r1-", "vortex-r2-") for b in first_plane(blocks(work, ngc, EULER, prefix, it))]
+        snaps.append((it, bl))
+        vals = [b["f"]["r"][:, :, 0] for b in bl]
+        lo = min(float(v.min()) for v in vals) if lo is None else min(lo, min(float(v.min()) for v in vals))
+        hi = max(float(v.max()) for v in vals) if hi is None else max(hi, max(float(v.max()) for v in vals))
+    for n, (it, bl) in enumerate(snaps):
+        ax = fig.add_subplot(grid[0, 2 * n : 2 * n + 2])
+        im = None
+        for b in bl:
+            v = b["f"]["r"][:, :, 0]
+            xe = b["lo"][0] + np.arange(v.shape[0] + 1) * b["d"][0]
+            ye = b["lo"][1] + np.arange(v.shape[1] + 1) * b["d"][1]
+            im = ax.pcolormesh(xe, ye, v.T, cmap="viridis", vmin=lo, vmax=hi, shading="flat")
+            ax.add_patch(Rectangle((xe[0], ye[0]), xe[-1] - xe[0], ye[-1] - ye[0], fill=False, lw=0.3, ec="w"))
+        ax.axvline(0.5, color="C3", ls="--", lw=1.0)
+        ax.set_aspect("equal")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_title(f"step {it}: {len(bl)} blocks in the z = 0 layer")
+        if n == 2:
+            fig.colorbar(im, ax=ax, label=r"$\rho$", shrink=0.85)
+    hist = [np.loadtxt(work / f"vortex-r{r}-conservation_history.dat", skiprows=1, ndmin=2) for r in (1, 2)]
+    nrow = min(len(h) for h in hist)
+    it_h, m1, m2 = hist[0][:nrow, 0], hist[0][:nrow, 2], hist[1][:nrow, 2]
+    total = m1 + m2
+    ax = fig.add_subplot(grid[1, 0:3])
+    ax.plot(it_h, m1 / total[0], label="realm 1 (x < 0.5)")
+    ax.plot(it_h, m2 / total[0], label="realm 2 (x > 0.5)")
+    ax.set_xlabel("step")
+    ax.set_ylabel("mass / initial mass of the forest")
+    ax.grid(alpha=0.3)
+    drift = np.abs(total - total[0]) / total[0]
+    ax2 = ax.twinx()
+    ax2.semilogy(it_h[1:], np.maximum(drift[1:], 1e-18), "k:", lw=0.8, label="|drift of the sum|")
+    ax2.set_ylabel("relative drift of the sum")
+    ax2.set_ylim(1e-18, 1e-10)
+    lines = ax.get_legend_handles_labels()
+    lines2 = ax2.get_legend_handles_labels()
+    ax.legend(lines[0] + lines2[0], lines[1] + lines2[1], fontsize=8, loc="center left")
+    ax.set_title(f"mass exchanged across the seam, the sum conserved (largest drift {drift.max():.1e})")
+    ax = fig.add_subplot(grid[1, 3:6])
+    base_d = None
+    counts: dict[tuple[int, int], list[int]] = {}
+    for it in steps:
+        for r in (1, 2):
+            bl = blocks(work, ngc, ("r",), f"vortex-r{r}-", it)
+            if base_d is None:
+                ini = read_ini(work / "vortex-r1.ini")
+                base_d = (float(ini["grid"]["emax_x"]) - float(ini["grid"]["emin_x"])) / int(ini["grid"]["ni"])
+                base_level = int(ini["amr"]["iu_ref_levels"])
+                base_d /= 2**base_level
+            for b in bl:
+                level = base_level + round(math.log2(base_d / b["d"][0]))
+                counts.setdefault((r, level), [0] * len(steps))[steps.index(it)] += 1
+    for (r, level), c in sorted(counts.items()):
+        ax.plot(steps, c, ("-o" if r == 1 else "--s"), ms=3, mfc="none", label=f"realm {r}, level {level}")
+    ax.set_xlabel("step")
+    ax.set_ylabel("blocks")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, ncol=2)
+    ax.set_title("blocks per level (a checkpoint every 20 steps)")
+    fig.suptitle("Runtime AMR on a forest: a vortex moving along a coupling = auto seam (x = 0.5), both realms "
+                 "regridding every 5 steps (CPU, 2 ranks)")
+    fig.savefig(out / "multirealm-amr.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_rotated_shock_tube(out: Path, runs: Path) -> None:
     """MV-8 (issue #85, R2a): the rotated shock tube at N = 256. Left, the deviation of the normal field from its exact
     uniform value 5/sqrt(4 pi); right, every cell's density and tangential field against s = n.x, over the 1-D
@@ -3674,6 +3757,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "viscous-ladders": fig_viscous_ladders, "seam-proto-b1": fig_seam_proto_b1,
            "seam-proto-b2": fig_seam_proto_b2, "seam-proto-b3": fig_seam_proto_b3,
            "capturing-error": fig_capturing_error, "multirealm": fig_multirealm,
+           "multirealm-amr": fig_multirealm_amr,
            "rotated-shock-tube": fig_rotated_shock_tube, "weno-riemann": fig_weno_riemann, "quadtree": fig_quadtree,
            "regrid-runtime": fig_regrid_runtime, "seam-conservation": fig_seam_conservation,
            "order-across-seams": fig_order_across_seams, "shock-crossing": fig_shock_crossing,

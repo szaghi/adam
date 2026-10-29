@@ -268,6 +268,7 @@ export default withMermaid({
                         { text: 'Runtime regrids in FLUME', link: '/applications/flume/verification/runtime-amr/runtime-regrids' },
                         { text: 'Accuracy of runtime AMR', link: '/applications/flume/verification/runtime-amr/accuracy' },
                         { text: 'MHD blast symmetry on the flux-splitting path', link: '/applications/flume/verification/runtime-amr/mhd-blast-symmetry' },
+                        { text: 'Runtime AMR on a forest', link: '/applications/flume/verification/runtime-amr/multi-realm' },
                       ],
                     },
                     {

@@ -21,6 +21,7 @@ The input keys are described in [setting up runtime AMR](../../input#setting-up-
 | [Runtime regrids in FLUME](./runtime-regrids) | RG (rg3 to rg6) | conservation through regrids, bitwise restart across regrids, the immersed solid, CPU against FNL |
 | [Accuracy of runtime AMR](./accuracy) | AV (av2 to av8) | tracked runs against uniform-fine runs on the vortex, Sod, the MHD blast, the field loop and the cylinder; rank and backend invariance |
 | [MHD blast symmetry on the flux-splitting path](./mhd-blast-symmetry) | #77, av3c | why the low-β blast loses its point symmetry on `weno` flux splitting, and the Riemann-flux path that keeps it |
+| [Runtime AMR on a forest](./multi-realm) | multirealm legs 7–13 | the realms of a forest regridding across their seams: the cross-realm balance, mixed levels along a seam, restart across regrids ([#110](https://github.com/szaghi/adam/issues/110)) |
 
 Run every leg:
 

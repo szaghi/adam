@@ -104,7 +104,8 @@ buffer       = 2
 `regrid_prolongation` (`conservative`: the children average to the parent). The Löhner marker does not act at
 initialization; add a gradient marker (mode 2) to refine the initial grid too, as in the
 [FLUME runtime-AMR guide](/applications/flume/input#setting-up-runtime-amr). Runtime regridding works on both FLUME
-backends; PRISM reads `frequency` and refines at initialization only. A multi-realm forest refuses a realm that regrids.
+backends; PRISM reads `frequency` and refines at initialization only. On a multi-realm forest each realm regrids by its
+own `[amr]` and the forest balances the levels across the seams ([forest cookbook R12](/cookbook/forest#r12-runtime-amr-on-a-forest)).
 
 **Reference.** [Setting up runtime AMR](/applications/flume/input#setting-up-runtime-amr);
 [runtime AMR verification](/applications/flume/verification/runtime-amr/).
