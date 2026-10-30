@@ -496,25 +496,27 @@ contains
    !< summed over the ranks, then scattered to every real cell (ghosts beyond a periodic face take the periodic image,
    !< physical ghosts 0). CPU twin: deposit_matched_charge_box. Used with periodic faces only.
    !<
-   !< Parallel mapping: one gang per particle, the three 1D factors P w computed sequentially (one column per axis), the
-   !< deposit one vector lane per cell, atomic.
+   !< P is linear and shift invariant, so it commutes with the sum over the particles: the base shape S rho^P is deposited
+   !< particle by particle, then P is applied once along every axis on the virtual block (box_filter_axis, circular along
+   !< the periodic axes). Parallel mapping: one gang per particle, the three 1D weights computed sequentially, the deposit
+   !< one vector lane per cell, atomic.
    class(prism_fnl_pic_conserving_object), intent(inout) :: self    !< Conserving current object.
    type(prism_fnl_pic_object),             intent(inout) :: pic_fnl !< Device PIC helper.
    real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real field.
    integer(I4P),                           intent(in)    :: nv      !< Charge density slot.
-   real(R8P),    pointer                                 :: pk(:), wa(:,:,:,:), q_pic(:,:)
+   real(R8P),    pointer                                 :: wa(:,:,:,:), wb(:,:,:,:), q_pic(:,:)
    integer(I4P), pointer                                 :: off(:,:)
-   real(R8P)                                             :: w(MAX_SPAN,3), xc(MAX_SPAN), pw(LP_SPAN,3)
-   real(R8P)                                             :: dxyz(3), x(3), emin(3), cutoff_limit, charge_density, sigma, acc
+   real(R8P)                                             :: w(MAX_SPAN,3), xc(MAX_SPAN)
+   real(R8P)                                             :: dxyz(3), x(3), emin(3), cutoff_limit, charge_density, sigma
    real(R8P)                                             :: value, e1, e2, e3, d1, d2, d3, s1, s2, s3
-   integer(I4P)                                          :: part, d, m, l, sm, li, lj, lk, perr, ierr, rad, radius, shp
+   integer(I4P)                                          :: part, d, m, li, lj, lk, perr, ierr, rad, radius, shp
    integer(I4P)                                          :: ni, nj, nk, nx, ny, nz, nbl, ngc, np, b, i, j, k, gi, gj, gk
    integer(I4P)                                          :: ii, jj, kk, ic(3), lo(3), rr(3), nn(3)
    logical                                               :: px, py, pz, per(3)
 
    nx = self%ni ; ny = self%nj ; nz = self%nk ; np = self%particle_number
    ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
-   pk => self%p_gpu ; wa => self%work_a_gpu ; off => self%off_gpu
+   wa => self%work_a_gpu ; wb => self%work_b_gpu ; off => self%off_gpu
    e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
    d1 = self%vdx(1)   ; d2 = self%vdx(2)   ; d3 = self%vdx(3)
    s1 = self%shift(1) ; s2 = self%shift(2) ; s3 = self%shift(3)
@@ -533,12 +535,12 @@ contains
    ierr = 0_I4P
    if (np > 0_I4P) then
       q_pic => pic_fnl%q_pic_gpu
-      !$acc parallel loop gang DEVICEVAR(q_pic,wa,pk) &
+      !$acc parallel loop gang DEVICEVAR(q_pic,wa) &
       !$acc& firstprivate(nx,ny,nz,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz) &
-      !$acc& private(nn,per,w,xc,pw,dxyz,x,emin,ic,lo,rr,perr,charge_density) reduction(max:ierr)
-      !$omp OMPLOOP DEVICEPTR(q_pic,wa,pk) &
+      !$acc& private(nn,per,w,xc,dxyz,x,emin,ic,lo,rr,perr,charge_density) reduction(max:ierr)
+      !$omp OMPLOOP DEVICEPTR(q_pic,wa) &
       !$omp& firstprivate(nx,ny,nz,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz) &
-      !$omp& private(nn,per,w,xc,pw,dxyz,x,emin,ic,lo,rr,perr,charge_density) reduction(max:ierr)
+      !$omp& private(nn,per,w,xc,dxyz,x,emin,ic,lo,rr,perr,charge_density) reduction(max:ierr)
       do part=1, np
          perr = 0_I4P
          nn(1) = nx ; nn(2) = ny ; nn(3) = nz
@@ -565,18 +567,6 @@ contains
                call shape_weights_dev(shp=shp, filter=.false., sigma=sigma, cutoff_limit=cutoff_limit, &
                                       radius=rad, x=x(d), ic=ic(d)-lo(d)+1_I4P, span=rr(d), dx=dxyz(d), xc=xc, &
                                       w=w(:,d), perr=perr)
-               ! P on the weights, cell lo-radius+l-1
-               !$acc loop seq
-               do l=1, rr(d)+2_I4P*radius
-                  acc = 0._R8P
-                  !$acc loop seq
-                  do sm=-radius, radius
-                     m = l - radius + sm
-                     if (m < 1_I4P .or. m > rr(d)) cycle
-                     acc = acc + pk(sm+8)*w(m,d)
-                  enddo
-                  pw(l,d) = acc
-               enddo
             enddo
          endif
          if (perr /= 0_I4P) then
@@ -584,14 +574,14 @@ contains
          else
             charge_density = q_pic(part,7) / (d1*d2*d3)
             !$acc loop vector collapse(3) private(value,ii,jj,kk)
-            do lk=1, rr(3)+2*radius
-            do lj=1, rr(2)+2*radius
-            do li=1, rr(1)+2*radius
-               value = charge_density*pw(li,1)*pw(lj,2)*pw(lk,3)
+            do lk=1, rr(3)
+            do lj=1, rr(2)
+            do li=1, rr(1)
+               value = charge_density*w(li,1)*w(lj,2)*w(lk,3)
                if (value /= 0._R8P) then
-                  ii = lo(1) - radius + li - 1_I4P
-                  jj = lo(2) - radius + lj - 1_I4P
-                  kk = lo(3) - radius + lk - 1_I4P
+                  ii = lo(1) + li - 1_I4P
+                  jj = lo(2) + lj - 1_I4P
+                  kk = lo(3) + lk - 1_I4P
                   if (px) ii = modulo(ii-1_I4P, nx) + 1_I4P
                   if (py) jj = modulo(jj-1_I4P, ny) + 1_I4P
                   if (pz) kk = modulo(kk-1_I4P, nz) + 1_I4P
@@ -608,10 +598,17 @@ contains
       enddo
    endif
    call check_particle_error(ierr)
-   call self%reduce_virtual(a=self%work_a_gpu)
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wa,off) &
+   ! P along every axis, on the grid
+   call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P, w=self%p_gpu, &
+                        woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+   call box_filter_axis(self=self, input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P, w=self%p_gpu, &
+                        woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+   call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P, w=self%p_gpu, &
+                        woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+   call self%reduce_virtual(a=self%work_b_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wb,off) &
    !$acc& firstprivate(nv,nx,ny,nz,px,py,pz) private(gi,gj,gk)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(q,wa,off) firstprivate(nv,nx,ny,nz,px,py,pz) private(gi,gj,gk)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(q,wb,off) firstprivate(nv,nx,ny,nz,px,py,pz) private(gi,gj,gk)
    do k=1-ngc, nk+ngc
    do j=1-ngc, nj+ngc
    do i=1-ngc, ni+ngc
@@ -621,7 +618,7 @@ contains
       if (py) gj = modulo(gj-1_I4P, ny) + 1_I4P
       if (pz) gk = modulo(gk-1_I4P, nz) + 1_I4P
       if (gi >= 1 .and. gi <= nx .and. gj >= 1 .and. gj <= ny .and. gk >= 1 .and. gk <= nz) then
-         q(b,i,j,k,nv) = wa(1,gi,gj,gk)
+         q(b,i,j,k,nv) = wb(1,gi,gj,gk)
       else
          q(b,i,j,k,nv) = 0._R8P
       endif
