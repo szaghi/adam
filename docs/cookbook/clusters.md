@@ -81,4 +81,18 @@ belong to a WSL2 workstation only.
 
 Timings measured on WSL2 are not benchmarks: its GPU and MPI stack is a correctness environment only.
 
+**AMD GPUs (OpenMP offload).** The FNL ghost exchange posts MPI directly on device buffers, so the MPI must be
+ROCm-aware. Without it a run is correct and very slow, with no warning. Measured on 8 MI300X, FLUME `profile-couette3d`
+large, Open MPI 5.0.10: 209 s with the default transport, 9.3 s with
+
+```bash
+export OMPI_MCA_pml=ucx OMPI_MCA_osc=ucx
+export UCX_TLS=self,sm,rocm          # or self,sm,rocm_copy,rocm_ipc: the same time
+export HSA_ENABLE_IPC_MODE_LEGACY=1
+export UCX_MAX_RNDV_RAILS=1
+```
+
+These settings come from one cluster (Thera, Open MPI built with UCX and ROCm): check them against your site's. If a
+multi-rank run is much slower than the kernels explain, check the transport first.
+
 **Reference.** [GPU5](/cookbook/gpu#gpu5-run-on-a-development-box-with-wsl2-not-on-a-cluster).

@@ -460,6 +460,44 @@ bitwise identical to the build before the change (`-gpu=lto`, commit `dcdc49c1`)
 build before the change bitwise, so the difference is the constant `S` changing the order of the floating-point
 operations of the inlined code (round-off), not a non-deterministic run.
 
+### One WENO reconstruction per stencil width
+
+The per-width kernels above make S a constant in the kernel; the callee sees it only if the compiler inlines it.
+`-gpu=lto` does; amdflang does not (device LTO inline threshold 3712, the WENO routine costs 6960 at S = 3), so on AMD
+the reconstruction stayed a chain of calls with a run-time S and the stencil in scratch memory. Hence
+`adam_fnl_weno_width_kernels`: one routine per width, S a named constant, no S argument, the three helpers of the
+generic routine merged in the same order of operations, the private arrays sized by S. The flux-splitting and Riemann
+kernels (face and gravity edge) of a width call the routine of that width; the Riemann kernels got their per-width
+kernels with it. Work and AMD measurements by Giacomo Rossi.
+
+One MI300X (Thera, amdflang), WENO-5, this case, `large`, refined walls, 20 steps:
+
+| | before | after |
+|---|---|---|
+| forest loop | 632.2 s | 50.7 s (12.5x) |
+| face kernel, `small`, per dispatch | 52.6 ms | 3.0 ms |
+| scratch per thread | 9088 B | 2784 B |
+| waves per SIMD | 1 | 2 (1.97 measured) |
+
+Eight MI300X with ROCm-aware UCX: loop 69.0 s to 9.3 s. Without that transport the same run takes 209 s
+([cookbook C3](/cookbook/clusters)). Riemann kernels on one MI300X, `sod-hllc` scaled to 512 blocks of 32^3: 744-841 ms
+to 42-43 ms per dispatch.
+
+On NVIDIA the flux-splitting kernels were already inlined, so nothing changes at WENO-5; the Riemann kernels had no
+per-width kernel and gain. One A30 (medooza gnode01), forest loop, 20 steps, two alternated rounds, the rounds within
+0.2 % for this case and within 3 % for the Riemann rows:
+
+| scheme | this case, `medium`, refined walls | this case, `medium`, uniform | `sod-hllc`, 512 blocks of 32^3 |
+|---|---|---|---|
+| WENO-1 | 12.86 -> 12.87 s | 21.83 -> 21.83 s | 13.05 -> 8.96 s (-31 %) |
+| WENO-3 | 13.63 -> 13.65 s | 23.78 -> 23.78 s | 16.31 -> 9.55 s (-41 %) |
+| WENO-5 | 17.17 -> 17.18 s | 33.40 -> 33.43 s | 22.62 -> 15.03 s (-34 %) |
+| WENO-7 | 22.60 -> 23.33 s (+3.2 %) | 44.95 -> 47.13 s (+4.9 %) | 29.21 -> 22.22 s (-24 %) |
+| WENO-9 | 29.71 -> 29.72 s | 57.09 -> 57.09 s | 39.00 -> 29.75 s (-24 %) |
+
+`rj2a-hlld`, 512 blocks of 32^3, WENO-5: 43.75 -> 30.32 s (-31 %). The WENO-7 cost is reproducible and not explained.
+The `flume-fnl-nvf` build on medooza goes from 1305 s to 2110 s.
+
 ### Time with no kernel running
 
 On the refined walls the GPU waits for the host for 8 s of the loop: 22% of the leg's 35.6 s, 38% of the 21.1 s with LTO

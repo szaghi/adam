@@ -67,40 +67,55 @@
                                          weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, weno_sigma, q_gpu, q_aux_gpu, &
                                          fl_gpu)
    !< `compute_face_fluxes_dev` for WENO-1: the stencil half-width S = 1 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s1_dev
    integer(I4P), parameter :: S = 1_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine compute_face_fluxes_s1_dev
 
    subroutine compute_face_fluxes_s2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
                                          weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, weno_sigma, q_gpu, q_aux_gpu, &
                                          fl_gpu)
    !< `compute_face_fluxes_dev` for WENO-3: the stencil half-width S = 2 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s2_dev
    integer(I4P), parameter :: S = 2_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine compute_face_fluxes_s2_dev
 
    subroutine compute_face_fluxes_s3_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
                                          weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, weno_sigma, q_gpu, q_aux_gpu, &
                                          fl_gpu)
    !< `compute_face_fluxes_dev` for WENO-5: the stencil half-width S = 3 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s3_dev
    integer(I4P), parameter :: S = 3_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine compute_face_fluxes_s3_dev
 
    subroutine compute_face_fluxes_s4_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
                                          weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, weno_sigma, q_gpu, q_aux_gpu, &
                                          fl_gpu)
    !< `compute_face_fluxes_dev` for WENO-7: the stencil half-width S = 4 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s4_dev
    integer(I4P), parameter :: S = 4_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine compute_face_fluxes_s4_dev
 
    subroutine compute_face_fluxes_s5_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
                                          weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, weno_sigma, q_gpu, q_aux_gpu, &
                                          fl_gpu)
    !< `compute_face_fluxes_dev` for WENO-9: the stencil half-width S = 5 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s5_dev
    integer(I4P), parameter :: S = 5_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine compute_face_fluxes_s5_dev
 
    subroutine compute_face_fluxes_sn_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch,                 &
@@ -163,40 +178,55 @@
                                                  is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps,    &
                                                  weno_sigma, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
    !< `add_gravity_edge_correction_dev` for WENO-1: the stencil half-width S = 1 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s1_dev
    integer(I4P), parameter :: S = 1_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine add_gravity_edge_correction_s1_dev
 
    subroutine add_gravity_edge_correction_s2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch,            &
                                                  is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps,    &
                                                  weno_sigma, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
    !< `add_gravity_edge_correction_dev` for WENO-3: the stencil half-width S = 2 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s2_dev
    integer(I4P), parameter :: S = 2_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine add_gravity_edge_correction_s2_dev
 
    subroutine add_gravity_edge_correction_s3_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch,            &
                                                  is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps,    &
                                                  weno_sigma, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
    !< `add_gravity_edge_correction_dev` for WENO-5: the stencil half-width S = 3 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s3_dev
    integer(I4P), parameter :: S = 3_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine add_gravity_edge_correction_s3_dev
 
    subroutine add_gravity_edge_correction_s4_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch,            &
                                                  is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps,    &
                                                  weno_sigma, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
    !< `add_gravity_edge_correction_dev` for WENO-7: the stencil half-width S = 4 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s4_dev
    integer(I4P), parameter :: S = 4_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine add_gravity_edge_correction_s4_dev
 
    subroutine add_gravity_edge_correction_s5_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch,            &
                                                  is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps,    &
                                                  weno_sigma, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
    !< `add_gravity_edge_correction_dev` for WENO-9: the stencil half-width S = 5 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_s5_dev
    integer(I4P), parameter :: S = 5_I4P !< WENO stencil half-width.
+#define FNL_WENO_WIDTH
 #include "adam_flume_fnl_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WIDTH
    endsubroutine add_gravity_edge_correction_s5_dev
 
    subroutine add_gravity_edge_correction_sn_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch,         &

@@ -5,6 +5,14 @@
    ! `NV_K`, `NV_AUX_K`, `S_MAX`, `weno_reconstruct_upwind_wratio_dev`, and the four device adapters
    ! `face_interpolation_fields`, `face_states`, `riemann_flux`, `cell_flux` (see the CPU twin). The host selects the
    ! module by `select case` on the model and the solver, outside the kernels.
+   !
+   ! One kernel per stencil width, as for the flux-splitting kernels (`adam_flume_fnl_face_kernels_agnostic.INC`): each
+   ! public routine is a host dispatcher that selects, by the WENO half-width S, the kernel compiled with S a named
+   ! constant (`_s1_dev` ... `_s5_dev`, WENO-1 to WENO-9, S_MAX = 5), or the generic kernel with S a run-time argument
+   ! (`_sn_dev`, for a width without a specialized kernel). Every kernel compiles the same body
+   ! (`adam_flume_fnl_riemann_face_fluxes_kernel_body.INC`, `adam_flume_fnl_riemann_gravity_edge_kernel_body.INC`) and the
+   ! kernels of a width call the WENO reconstruction of that width (`adam_fnl_weno_width_kernels`), the stencil loops and the
+   ! tables' stencil index being constants in it.
 
    subroutine compute_riemann_face_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch,        &
                                               is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
@@ -36,84 +44,92 @@
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)         !< Face fluxes of direction `d`.
    integer(I4P), intent(out)   :: fallbacks                               !< Faces whose Riemann solver fell back.
-   real(R8P)                   :: qs(NV_K,1-S_MAX:S_MAX)                  !< Private stencil conservative variables.
-   real(R8P)                   :: qas(NV_AUX_K,1-S_MAX:S_MAX)             !< Private stencil auxiliary variables.
-   real(R8P)                   :: fint(2,1-S_MAX:S_MAX-1,NV_K)            !< Private fields to interpolate.
-   real(R8P)                   :: er(NV_K,NV_K)                           !< Private right eigenvectors.
-   real(R8P)                   :: mu(NV_K)                                !< Private magnitude of each field.
-   real(R8P)                   :: v(2,2*S_MAX-1)                          !< Private packed stencil of one field.
-   real(R8P)                   :: vr_(2)                                  !< Private interpolation of one field.
-   real(R8P)                   :: wr(2)                                   !< Private WENO weights ratio of one field.
-   real(R8P)                   :: vr(2,NV_K)                              !< Private interpolated fields.
-   real(R8P)                   :: qL(NV_K), qR(NV_K)                      !< Private face states.
-   real(R8P)                   :: fr(NV_K)                                !< Private Riemann flux.
-   real(R8P)                   :: fc(NV_K,-1:2)                           !< Private physical fluxes of cells -1 ... 2.
-   real(R8P)                   :: wmin                                    !< Private minimum WENO weights ratio.
-   real(R8P)                   :: sensor                                  !< Private correction switch.
-   logical                     :: fallback                                !< Private Riemann solver fallback flag.
-   integer(I4P)                :: b, i, j, k, m, f, w                     !< Counters.
 
-   fallbacks = 0_I4P
-   !$acc parallel loop independent gang vector collapse(4) reduction(+:fallbacks)                                 &
-   !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu)                                       &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau) &
-   !$acc& private(qs,qas,fint,er,mu,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
-   !$omp OMPLOOP collapse(4) reduction(+:fallbacks) &
-   !$omp& DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,fl_gpu) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau) &
-   !$omp& private(qs,qas,fint,er,mu,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
-   do k=1-dk, nk
-   do j=1-dj, nj
-   do i=1-di, ni
-   do b=1, blocks_number
-      !$acc loop seq
-      do m=min(1-S,-1), max(S,2)
-         !$acc loop seq
-         do w=1, NV_K
-            qs(w,m) = q_gpu(b,i+m*di,j+m*dj,k+m*dk,w)
-         enddo
-         !$acc loop seq
-         do w=1, NV_AUX_K
-            qas(w,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,w)
-         enddo
-      enddo
-      call face_interpolation_fields(gamma=gamma, ch=ch, d=d, S=S, is_characteristic=is_characteristic, qs=qs, &
-                                     qas=qas, fint=fint, er=er, mu=mu)
-      wmin = 1._R8P
-      !$acc loop seq
-      do f=1, NV_K
-         !$acc loop seq
-         do m=1-S, S-1
-            v(1,m+S) = fint(1,m,f)
-            v(2,m+S) = fint(2,m,f)
-         enddo
-         call weno_reconstruct_upwind_wratio_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
-                                                 weno_zeps=weno_zeps, weno_rmu=weno_sigma / mu(f) + (1._R8P - weno_sigma), &
-                                                 V=v, VR=vr_, WRATIO=wr)
-         vr(1,f) = vr_(1)
-         vr(2,f) = vr_(2)
-         wmin = min(wmin, wr(1), wr(2))
-      enddo
-      call face_states(gamma=gamma, ch=ch, is_characteristic=is_characteristic, er=er, vr=vr, q0=qs(:,0), q1=qs(:,1), &
-                       qL=qL, qR=qR)
-      call riemann_flux(gamma=gamma, ch=ch, d=d, qL=qL, qR=qR, f=fr, fallback=fallback)
-      if (fallback) fallbacks = fallbacks + 1_I4P
-      !$acc loop seq
-      do m=-1, 2
-         call cell_flux(gamma=gamma, ch=ch, d=d, q=qs(:,m), qa=qas(:,m), f=fc(:,m))
-      enddo
-      sensor = 0._R8P
-      if (wmin >= tau) sensor = 1._R8P
-      !$acc loop seq
-      do w=1, NV_K
-         fl_gpu(b,i,j,k,w) = fr(w) + sensor * (cc(1) * fr(w) + cc(2) * (fc(w,0) + fc(w,1)) + &
-                                               cc(3) * (fc(w,-1) + fc(w,2)) - fr(w))
-      enddo
-   enddo
-   enddo
-   enddo
-   enddo
+   select case(S)
+   case(1) ; call compute_riemann_face_fluxes_s1_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   case(2) ; call compute_riemann_face_fluxes_s2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   case(3) ; call compute_riemann_face_fluxes_s3_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   case(4) ; call compute_riemann_face_fluxes_s4_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   case(5) ; call compute_riemann_face_fluxes_s5_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   case default ; call compute_riemann_face_fluxes_sn_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, &
+                                                    ch, is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, &
+                                                    weno_zeps, weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, &
+                                                    fallbacks)
+   endselect
    endsubroutine compute_riemann_face_fluxes_dev
+
+   subroutine compute_riemann_face_fluxes_s1_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   !< `compute_riemann_face_fluxes_dev` for WENO-1: the stencil half-width S = 1 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s1_dev
+   integer(I4P), parameter :: S = 1_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine compute_riemann_face_fluxes_s1_dev
+
+   subroutine compute_riemann_face_fluxes_s2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   !< `compute_riemann_face_fluxes_dev` for WENO-3: the stencil half-width S = 2 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s2_dev
+   integer(I4P), parameter :: S = 2_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine compute_riemann_face_fluxes_s2_dev
+
+   subroutine compute_riemann_face_fluxes_s3_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   !< `compute_riemann_face_fluxes_dev` for WENO-5: the stencil half-width S = 3 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s3_dev
+   integer(I4P), parameter :: S = 3_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine compute_riemann_face_fluxes_s3_dev
+
+   subroutine compute_riemann_face_fluxes_s4_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   !< `compute_riemann_face_fluxes_dev` for WENO-7: the stencil half-width S = 4 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s4_dev
+   integer(I4P), parameter :: S = 4_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine compute_riemann_face_fluxes_s4_dev
+
+   subroutine compute_riemann_face_fluxes_s5_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   !< `compute_riemann_face_fluxes_dev` for WENO-9: the stencil half-width S = 5 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s5_dev
+   integer(I4P), parameter :: S = 5_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_face_fluxes_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine compute_riemann_face_fluxes_s5_dev
+
+   subroutine compute_riemann_face_fluxes_sn_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, q_gpu, q_aux_gpu, fl_gpu, fallbacks)
+   !< `compute_riemann_face_fluxes_dev` for any width: the stencil half-width S is a run-time argument.
+   integer(I4P), intent(in) :: S !< WENO stencil half-width.
+#include "adam_flume_fnl_riemann_face_fluxes_kernel_body.INC"
+   endsubroutine compute_riemann_face_fluxes_sn_dev
 
    subroutine add_gravity_edge_correction_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch,        &
                                               is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
@@ -141,94 +157,88 @@
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Conservative variables.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Auxiliary variables.
    real(R8P),    intent(inout) :: gc_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Gravity energy correction [..., 1].
-   real(R8P)                   :: qs(NV_K,1-S_MAX:S_MAX)                  !< Private stencil conservative variables.
-   real(R8P)                   :: qas(NV_AUX_K,1-S_MAX:S_MAX)             !< Private stencil auxiliary variables.
-   real(R8P)                   :: fint(2,1-S_MAX:S_MAX-1,NV_K)            !< Private fields to interpolate.
-   real(R8P)                   :: er(NV_K,NV_K)                           !< Private right eigenvectors.
-   real(R8P)                   :: mu(NV_K)                                !< Private magnitude of each field.
-   real(R8P)                   :: v(2,2*S_MAX-1)                          !< Private packed stencil of one field.
-   real(R8P)                   :: vr_(2)                                  !< Private interpolation of one field.
-   real(R8P)                   :: wr(2)                                   !< Private WENO weights ratio of one field.
-   real(R8P)                   :: vr(2,NV_K)                              !< Private interpolated fields.
-   real(R8P)                   :: qL(NV_K), qR(NV_K)                      !< Private face states.
-   real(R8P)                   :: fr(NV_K)                                !< Private Riemann flux.
-   real(R8P)                   :: fc(NV_K,-1:2)                           !< Private physical fluxes of cells -1 ... 2.
-   real(R8P)                   :: wmin                                    !< Private minimum WENO weights ratio.
-   real(R8P)                   :: sensor                                  !< Private correction switch.
-   real(R8P)                   :: fm                                      !< Private mass flux of the face.
-   logical                     :: fallback                                !< Private Riemann solver fallback flag.
-   integer(I4P)                :: nd, n1, n2                              !< Cells along `d` and across it.
-   integer(I4P)                :: fd, cd                                  !< Private face and cell index along `d`.
-   integer(I4P)                :: b, i, j, k, m, f, w, t1, t2, side       !< Counters.
 
-   nd = di * ni + dj * nj + dk * nk
-   n1 = merge(nj, ni, di == 1_I4P)
-   n2 = merge(nj, nk, dk == 1_I4P)
-   !$acc parallel loop independent gang vector collapse(3)                                                        &
-   !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,gc_gpu)                                       &
-   !$acc& firstprivate(d,di,dj,dk,nd,n1,n2,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau, &
-   !$acc& ir,gd) private(qs,qas,fint,er,mu,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fm,fallback,fd,cd,i,j,k)
-   !$omp OMPLOOP collapse(3) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,gc_gpu) &
-   !$omp& firstprivate(d,di,dj,dk,nd,n1,n2,blocks_number,S,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau,ir,gd) &
-   !$omp& private(qs,qas,fint,er,mu,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fm,fallback,fd,cd,i,j,k)
-   do t2=1, n2
-   do t1=1, n1
-   do b=1, blocks_number
-      !$acc loop seq
-      do side=1, 2
-         fd = nd + 1_I4P
-         cd = nd
-         if (side == 1) then
-            fd = -1_I4P
-            cd = 1_I4P
-         endif
-         i = di * fd + (1 - di) * t1
-         j = dj * fd + di * t1 + dk * t2
-         k = dk * fd + (1 - dk) * t2
-         !$acc loop seq
-         do m=min(1-S,-1), max(S,2)
-            !$acc loop seq
-            do w=1, NV_K
-               qs(w,m) = q_gpu(b,i+m*di,j+m*dj,k+m*dk,w)
-            enddo
-            !$acc loop seq
-            do w=1, NV_AUX_K
-               qas(w,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,w)
-            enddo
-         enddo
-         call face_interpolation_fields(gamma=gamma, ch=ch, d=d, S=S, is_characteristic=is_characteristic, qs=qs, &
-                                        qas=qas, fint=fint, er=er, mu=mu)
-         wmin = 1._R8P
-         !$acc loop seq
-         do f=1, NV_K
-            !$acc loop seq
-            do m=1-S, S-1
-               v(1,m+S) = fint(1,m,f)
-               v(2,m+S) = fint(2,m,f)
-            enddo
-            call weno_reconstruct_upwind_wratio_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
-                                                    weno_zeps=weno_zeps, weno_rmu=weno_sigma / mu(f) + (1._R8P - weno_sigma), &
-                                                    V=v, VR=vr_, WRATIO=wr)
-            vr(1,f) = vr_(1)
-            vr(2,f) = vr_(2)
-            wmin = min(wmin, wr(1), wr(2))
-         enddo
-         call face_states(gamma=gamma, ch=ch, is_characteristic=is_characteristic, er=er, vr=vr, q0=qs(:,0), &
-                          q1=qs(:,1), qL=qL, qR=qR)
-         call riemann_flux(gamma=gamma, ch=ch, d=d, qL=qL, qR=qR, f=fr, fallback=fallback)
-         !$acc loop seq
-         do m=-1, 2
-            call cell_flux(gamma=gamma, ch=ch, d=d, q=qs(:,m), qa=qas(:,m), f=fc(:,m))
-         enddo
-         sensor = 0._R8P
-         if (wmin >= tau) sensor = 1._R8P
-         fm = fr(ir) + sensor * (cc(1) * fr(ir) + cc(2) * (fc(ir,0) + fc(ir,1)) + cc(3) * (fc(ir,-1) + fc(ir,2)) - fr(ir))
-         i = di * cd + (1 - di) * t1
-         j = dj * cd + di * t1 + dk * t2
-         k = dk * cd + (1 - dk) * t2
-         gc_gpu(b,i,j,k,1) = gc_gpu(b,i,j,k,1) - gd * fm / 24._R8P
-      enddo
-   enddo
-   enddo
-   enddo
+   select case(S)
+   case(1) ; call add_gravity_edge_correction_s1_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   case(2) ; call add_gravity_edge_correction_s2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   case(3) ; call add_gravity_edge_correction_s3_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   case(4) ; call add_gravity_edge_correction_s4_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   case(5) ; call add_gravity_edge_correction_s5_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                                    is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                                    weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   case default ; call add_gravity_edge_correction_sn_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, &
+                                                    ch, is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, &
+                                                    weno_zeps, weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   endselect
    endsubroutine add_gravity_edge_correction_dev
+
+   subroutine add_gravity_edge_correction_s1_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   !< `add_gravity_edge_correction_dev` for WENO-1: the stencil half-width S = 1 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s1_dev
+   integer(I4P), parameter :: S = 1_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine add_gravity_edge_correction_s1_dev
+
+   subroutine add_gravity_edge_correction_s2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   !< `add_gravity_edge_correction_dev` for WENO-3: the stencil half-width S = 2 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s2_dev
+   integer(I4P), parameter :: S = 2_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine add_gravity_edge_correction_s2_dev
+
+   subroutine add_gravity_edge_correction_s3_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   !< `add_gravity_edge_correction_dev` for WENO-5: the stencil half-width S = 3 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s3_dev
+   integer(I4P), parameter :: S = 3_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine add_gravity_edge_correction_s3_dev
+
+   subroutine add_gravity_edge_correction_s4_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   !< `add_gravity_edge_correction_dev` for WENO-7: the stencil half-width S = 4 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s4_dev
+   integer(I4P), parameter :: S = 4_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine add_gravity_edge_correction_s4_dev
+
+   subroutine add_gravity_edge_correction_s5_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   !< `add_gravity_edge_correction_dev` for WENO-9: the stencil half-width S = 5 is a compile-time constant.
+   use :: adam_fnl_weno_width_kernels, only : weno_width => weno_reconstruct_upwind_wratio_s5_dev
+   integer(I4P), parameter :: S = 5_I4P !< WENO stencil half-width.
+#define FNL_WENO_WRATIO_WIDTH
+#include "adam_flume_fnl_riemann_gravity_edge_kernel_body.INC"
+#undef FNL_WENO_WRATIO_WIDTH
+   endsubroutine add_gravity_edge_correction_s5_dev
+
+   subroutine add_gravity_edge_correction_sn_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, S, gamma, ch, &
+                                         is_characteristic, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, &
+                                         weno_sigma, cc, tau, ir, gd, q_gpu, q_aux_gpu, gc_gpu)
+   !< `add_gravity_edge_correction_dev` for any width: the stencil half-width S is a run-time argument.
+   integer(I4P), intent(in) :: S !< WENO stencil half-width.
+#include "adam_flume_fnl_riemann_gravity_edge_kernel_body.INC"
+   endsubroutine add_gravity_edge_correction_sn_dev

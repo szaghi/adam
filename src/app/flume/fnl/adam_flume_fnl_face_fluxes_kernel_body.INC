@@ -3,6 +3,9 @@
    ! device routines -gpu=lto inlines into it have constant bounds; measured faster, see the face kernels file) and
    ! `compute_face_fluxes_sn_dev` (S a dummy argument, any width) of `adam_flume_fnl_face_kernels_agnostic.INC`, after
    ! their declaration of `S`.
+   ! FNL_WENO_WIDTH (defined by the per-width kernels of `adam_flume_fnl_face_kernels_agnostic.INC` around this include):
+   ! the kernel `use`s the WENO reconstruction of its width, S a named constant, as `weno_width`, whose call has no S
+   ! argument. The generic kernel `_sn_dev` does not define it and calls `weno_reconstruct_upwind_dev` with S.
    ! `S` is not in the data clauses: a named constant cannot be, and a scalar is firstprivate by default in an
    ! OpenACC parallel and in an OpenMP target region.
    integer(I4P), intent(in)    :: d                                       !< Direction, 1=x, 2=y, 3=z.
@@ -62,9 +65,15 @@
             v(1,m+S) = fsplit(1,m,f)
             v(2,m+S) = fsplit(2,m,f)
          enddo
+#ifdef FNL_WENO_WIDTH
+         call weno_width(weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
+                         weno_zeps=weno_zeps, weno_rmu=weno_sigma / mu(f) + (1._R8P - weno_sigma), &
+                         V=v, VR=vr_)
+#else
          call weno_reconstruct_upwind_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
                                           weno_zeps=weno_zeps, weno_rmu=weno_sigma / mu(f) + (1._R8P - weno_sigma), &
                                           V=v, VR=vr_)
+#endif
          vr(1,f) = vr_(1)
          vr(2,f) = vr_(2)
       enddo
