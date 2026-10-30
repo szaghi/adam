@@ -971,17 +971,24 @@ contains
    endsubroutine esirkepov_displacement
 
    subroutine deposit_matched_current_box(self, q_ref, q_to, h, p_first, p_last, dt)
-   !< Matched current (totorica, esirkepov_Q<N>) of the trajectories q_ref -> q_to, built particle by particle on the box of
-   !< each trajectory and folded into the virtual block along the periodic axes: J_d = Q_d P_e1 P_e2 F_d^E. CPU twin:
-   !< deposit_matched_current (the separable factors are explained there). Used with periodic faces only: h receives the
-   !< stage current in place of the stage source, combined over the stages by combine_stage_source as the sources are (the
-   !< solve is linear) and written to the real blocks by store_box_current.
+   !< Matched current (totorica, esirkepov_Q<N>) of the trajectories q_ref -> q_to, J_d = Q_d P_e1 P_e2 F_d^E, folded into
+   !< the virtual block along the periodic axes. CPU twin: deposit_matched_current (the separable factors are explained
+   !< there). Used with periodic faces only: h receives the stage current in place of the stage source, combined over the
+   !< stages by combine_stage_source as the sources are (the solve is linear) and written to the real blocks by
+   !< store_box_current.
    !<
-   !< Parallel mapping: one gang per particle. The 1D factors (weights of both endpoints, face prefix sum + Q along d, P on
-   !< the transverse weights) are computed sequentially into gang-private arrays, one column per direction and written
-   !< once (the zero-flux closure past the last weight change is applied when the prefix sums are read: nvfortran 25.11
-   !< -fast can lose a second store into a private array). The deposit is one vector lane per cell of the widened box,
-   !< atomic (particles overlap). Cells are unwrapped, center emin+(i-1/2)dx, and folded modulo n along the periodic axes.
+   !< Q and P are finite shift-invariant stencils, so they commute with the sum over the particles: each particle deposits
+   !< only its Esirkepov current F_d^E (face prefix sum of the weight change along d, times the transverse weights), then
+   !< Q_d P_e1 P_e2 are applied once on the grid (box_filter_axis, circular along the periodic axes). The prefix sum stays
+   !< per particle, where it is compact (the weight change of one particle sums to zero) and keeps the net current through
+   !< a periodic face; a prefix sum on the grid would make J nonlocal and lose that k = 0 mode. The support of each
+   !< particle's current is unchanged, (rr+nq) x (rr+2 radius)^2 cells per direction.
+   !<
+   !< Parallel mapping: one gang per particle. The prefix sums are computed sequentially into a gang-private array, one
+   !< column per direction and written once (the zero-flux closure past the last weight change is applied when they are
+   !< read: nvfortran 25.11 -fast can lose a second store into a private array). The deposit is one vector lane per face
+   !< and transverse cell of the Esirkepov box, atomic (particles overlap). Cells are unwrapped, center emin+(i-1/2)dx,
+   !< and folded modulo n along the periodic axes; face f (between cells f and f+1) is stored at cell f.
    class(prism_fnl_pic_conserving_object), intent(inout) :: self              !< Conserving current object.
    real(R8P),                              intent(in)    :: q_ref(1:,1:)      !< Trajectory start [np,8].
    real(R8P),                              intent(in)    :: q_to(1:,1:)       !< Trajectory end [np,8].
@@ -989,14 +996,12 @@ contains
    integer(I4P),                           intent(in)    :: p_first           !< First particle.
    integer(I4P),                           intent(in)    :: p_last            !< Last particle.
    real(R8P),                              intent(in)    :: dt                !< Time step.
-   real(R8P), pointer                                    :: pk(:), qw(:)
    real(R8P)                                             :: wref(MAX_SPAN,3), wto(MAX_SPAN,3), xc(MAX_SPAN)
-   real(R8P)                                             :: g(0:MAX_SPAN,3), lq(LQ_SPAN,3)
-   real(R8P)                                             :: pt0(LP_SPAN,3), pdt(LP_SPAN,3), pu(LP_SPAN,3), pv(LP_SPAN,3)
+   real(R8P)                                             :: g(0:MAX_SPAN,3)
    real(R8P)                                             :: dxyz(3), xr(3), xt(3), emin(3)
-   real(R8P)                                             :: cutoff_limit, charge_density, sigma, res, acc, acd, value, w0, dw
+   real(R8P)                                             :: cutoff_limit, charge_density, sigma, res, value, w0, dw
    real(R8P)                                             :: e1, e2, e3, d1, d2, d3, s1, s2, s3
-   integer(I4P)                                          :: part, d, a, b, m, l, t, sm, li, lj, lk, perr, ierr
+   integer(I4P)                                          :: part, d, a, b, m, li, lj, lk, perr, ierr
    integer(I4P)                                          :: rad, radius, qfirst, nq, shp, ni, nj, nk, nli, nlj, nlk
    integer(I4P)                                          :: ci, cj, ck, ii, jj, kk
    integer(I4P)                                          :: cr(3), ct(3), lo(3), hi(3), rr(3), nn(3), last(3)
@@ -1004,7 +1009,6 @@ contains
 
    call zero_h(self=self, h=h)
    if (p_last < p_first) return
-   pk => self%p_gpu ; qw => self%qw_gpu
    ni = self%ni ; nj = self%nj ; nk = self%nk ; shp = self%shape
    e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
    d1 = self%vdx(1)   ; d2 = self%vdx(2)   ; d3 = self%vdx(3)
@@ -1014,14 +1018,13 @@ contains
    sigma = self%sigma
    cutoff_limit = self%cutoff_sigma + 64._R8P*epsilon(self%cutoff_sigma)*max(1._R8P, abs(self%cutoff_sigma))
    ierr = 0_I4P ; res = 0._R8P
-
-   !$acc parallel loop gang DEVICEVAR(q_ref,q_to,h,pk,qw) &
-   !$acc& firstprivate(ni,nj,nk,rad,radius,qfirst,nq,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz,dt) &
-   !$acc& private(nn,per,wref,wto,xc,g,lq,pt0,pdt,pu,pv,dxyz,xr,xt,emin,cr,ct,lo,hi,rr,last,perr,charge_density) &
+   !$acc parallel loop gang DEVICEVAR(q_ref,q_to,h) &
+   !$acc& firstprivate(ni,nj,nk,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz,dt) &
+   !$acc& private(nn,per,wref,wto,xc,g,dxyz,xr,xt,emin,cr,ct,lo,hi,rr,last,perr,charge_density) &
    !$acc& private(a,b,nli,nlj,nlk) reduction(max:ierr,res)
-   !$omp OMPLOOP DEVICEPTR(q_ref,q_to,h,pk,qw) &
-   !$omp& firstprivate(ni,nj,nk,rad,radius,qfirst,nq,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz,dt) &
-   !$omp& private(nn,per,wref,wto,xc,g,lq,pt0,pdt,pu,pv,dxyz,xr,xt,emin,cr,ct,lo,hi,rr,last,perr,charge_density) &
+   !$omp OMPLOOP DEVICEPTR(q_ref,q_to,h) &
+   !$omp& firstprivate(ni,nj,nk,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz,dt) &
+   !$omp& private(nn,per,wref,wto,xc,g,dxyz,xr,xt,emin,cr,ct,lo,hi,rr,last,perr,charge_density) &
    !$omp& private(a,b,nli,nlj,nlk) reduction(max:ierr,res)
    do part=p_first, p_last
       perr = 0_I4P
@@ -1071,7 +1074,7 @@ contains
          ierr = max(ierr, perr)
       else
          charge_density = q_ref(part,7) / (d1*d2*d3)
-         ! longitudinal factors: face prefix sum of the weight change (faces lo-1..hi, index m = face-(lo-1)), then Q
+         ! longitudinal factors: face prefix sum of the weight change (faces lo-1..hi, index m = face-(lo-1))
          !$acc loop seq
          do d=1, 3
             g(0,d) = 0._R8P
@@ -1082,66 +1085,24 @@ contains
                if (wto(m,d) /= wref(m,d)) last(d) = m
             enddo
             res = max(res, abs(g(rr(d),d)))
-            ! cell index of lq(l,d): lo(d)-1-qfirst-(nq-1)+l-1; its faces m = l-nq+t, zero past the last weight change
-            !$acc loop seq
-            do l=1, rr(d)+nq
-               acc = 0._R8P
-               !$acc loop seq
-               do t=0, nq-1
-                  m = l - nq + t
-                  if (m < 0_I4P .or. m > rr(d)) cycle
-                  if (last(d) > 0_I4P .and. m >= last(d)) cycle
-                  acc = acc + qw(t+1)*g(m,d)
-               enddo
-               lq(l,d) = acc
-            enddo
          enddo
-         ! transverse factors of direction d: P on t0, dt (axis a) and on s0+ds/2, s0/2+ds/3 (axis b); cell lo-radius+l-1
+         ! Esirkepov current of direction d on faces 1..last-1 (zero past the last weight change, g(0) = 0) times the
+         ! transverse weights t0, dt (axis a) and s0+ds/2, s0/2+ds/3 (axis b), one vector lane per face and cell
          !$acc loop seq
          do d=1, 3
             a = 1_I4P + merge(1_I4P, 0_I4P, d == 1_I4P)
             b = 3_I4P - merge(1_I4P, 0_I4P, d == 3_I4P)
-            !$acc loop seq
-            do l=1, rr(a)+2_I4P*radius
-               acc = 0._R8P ; acd = 0._R8P
-               !$acc loop seq
-               do sm=-radius, radius
-                  m = l - radius + sm
-                  if (m < 1_I4P .or. m > rr(a)) cycle
-                  acc = acc + pk(sm+8)*wref(m,a)
-                  acd = acd + pk(sm+8)*(wto(m,a) - wref(m,a))
-               enddo
-               pt0(l,d) = acc ; pdt(l,d) = acd
-            enddo
-            !$acc loop seq
-            do l=1, rr(b)+2_I4P*radius
-               acc = 0._R8P ; acd = 0._R8P
-               !$acc loop seq
-               do sm=-radius, radius
-                  m = l - radius + sm
-                  if (m < 1_I4P .or. m > rr(b)) cycle
-                  w0 = wref(m,b) ; dw = wto(m,b) - wref(m,b)
-                  acc = acc + pk(sm+8)*(w0 + 0.5_R8P*dw)
-                  acd = acd + pk(sm+8)*(0.5_R8P*w0 + dw/3._R8P)
-               enddo
-               pu(l,d) = acc ; pv(l,d) = acd
-            enddo
-         enddo
-         ! deposit, one vector lane per cell of the widened box, folded along the periodic axes
-         !$acc loop seq
-         do d=1, 3
-            a = 1_I4P + merge(1_I4P, 0_I4P, d == 1_I4P)
-            b = 3_I4P - merge(1_I4P, 0_I4P, d == 3_I4P)
-            nli = rr(d) + nq ; nlj = rr(a) + 2_I4P*radius ; nlk = rr(b) + 2_I4P*radius
-            !$acc loop vector collapse(3) private(value,ci,cj,ck,ii,jj,kk)
+            nli = max(0_I4P, last(d) - 1_I4P) ; nlj = rr(a) ; nlk = rr(b)
+            !$acc loop vector collapse(3) private(value,w0,dw,ci,cj,ck,ii,jj,kk)
             do lk=1, nlk
             do lj=1, nlj
             do li=1, nli
-               value = lq(li,d)*(pt0(lj,d)*pu(lk,d) + pdt(lj,d)*pv(lk,d))
+               w0 = wref(lk,b) ; dw = wto(lk,b) - wref(lk,b)
+               value = g(li,d)*(wref(lj,a)*(w0 + 0.5_R8P*dw) + (wto(lj,a) - wref(lj,a))*(0.5_R8P*w0 + dw/3._R8P))
                if (value /= 0._R8P) then
-                  ci = lo(d) - 1_I4P - qfirst - (nq - 1_I4P) + li - 1_I4P
-                  cj = lo(a) - radius + lj - 1_I4P
-                  ck = lo(b) - radius + lk - 1_I4P
+                  ci = lo(d) - 1_I4P + li
+                  cj = lo(a) + lj - 1_I4P
+                  ck = lo(b) + lk - 1_I4P
                   if (d == 1_I4P) then
                      ii = ci ; jj = cj ; kk = ck
                   elseif (d == 2_I4P) then
@@ -1166,6 +1127,17 @@ contains
    enddo
    call check_particle_error(ierr)
    self%residual_max = max(self%residual_max, res)
+   ! Q along d (faces to cells), then P along the two transverse axes, on the grid
+   do d=1, 3
+      a = 1_I4P + merge(1_I4P, 0_I4P, d == 1_I4P)
+      b = 3_I4P - merge(1_I4P, 0_I4P, d == 3_I4P)
+      call box_filter_axis(self=self, input=h(:,:,:,:,d), output=self%work_a_gpu, axis=d, w=self%qw_gpu, &
+                           woff=1_I4P, first=qfirst, ntaps=nq)
+      call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=a, w=self%p_gpu, &
+                           woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+      call box_filter_axis(self=self, input=self%work_b_gpu, output=h(:,:,:,:,d), axis=b, w=self%p_gpu, &
+                           woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+   enddo
    endsubroutine deposit_matched_current_box
 
    subroutine store_box_current(self, q, var_jx, hq)
@@ -2283,6 +2255,61 @@ contains
    enddo
    enddo
    endsubroutine filter_axis
+
+   subroutine box_filter_axis(self, input, output, axis, w, woff, first, ntaps)
+   !< Convolution along one axis of the box current, output_c = sum_{t=0}^{ntaps-1} w(woff+t) input_{c+first+t}: circular
+   !< along a periodic axis (the fold of deposit_matched_current_box), zero extension otherwise (no box reaches the
+   !< non-periodic faces, ERR_FILTER). Q: w = qw, woff = 1, first = qfirst, ntaps = nq (faces to cells, face f stored at
+   !< cell f); P: w = p, woff = 8-radius, first = -radius, ntaps = 2 radius+1.
+   class(prism_fnl_pic_conserving_object), intent(in)    :: self                !< Conserving current object.
+   real(R8P),                              intent(in)    :: input(1:,1:,1:,1:)  !< Input [nb,ni,nj,nk].
+   real(R8P),                              intent(inout) :: output(1:,1:,1:,1:) !< Output [nb,ni,nj,nk].
+   integer(I4P),                           intent(in)    :: axis                !< Filter axis.
+   real(R8P), pointer,                     intent(in)    :: w(:)                !< Taps (device).
+   integer(I4P),                           intent(in)    :: woff                !< Index in w of the first tap.
+   integer(I4P),                           intent(in)    :: first               !< Offset of the first tap.
+   integer(I4P),                           intent(in)    :: ntaps               !< Taps number.
+   real(R8P), pointer                                    :: wk(:)
+   real(R8P)                                             :: acc
+   integer(I4P)                                          :: b, i, j, k, t, ii, jj, kk, ni, nj, nk, nbl, n
+   logical                                               :: per
+
+   ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number
+   per = self%is_periodic(axis)
+   select case(axis)
+   case(1) ; n = ni
+   case(2) ; n = nj
+   case default ; n = nk
+   endselect
+   wk => w
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(input,output,wk) &
+   !$acc& firstprivate(axis,woff,first,ntaps,per,n) private(acc,ii,jj,kk)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(input,output,wk) firstprivate(axis,woff,first,ntaps,per,n) private(acc,ii,jj,kk)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, nbl
+      acc = 0._R8P
+      !$acc loop seq
+      do t=0, ntaps-1
+         ii = i ; jj = j ; kk = k
+         if (axis == 1) ii = i + first + t
+         if (axis == 2) jj = j + first + t
+         if (axis == 3) kk = k + first + t
+         if (per) then
+            if (axis == 1) ii = modulo(ii-1, n) + 1
+            if (axis == 2) jj = modulo(jj-1, n) + 1
+            if (axis == 3) kk = modulo(kk-1, n) + 1
+         endif
+         if (ii < 1 .or. ii > ni .or. jj < 1 .or. jj > nj .or. kk < 1 .or. kk > nk) cycle
+         acc = acc + wk(woff+t)*input(b,ii,jj,kk)
+      enddo
+      output(b,i,j,k) = acc
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine box_filter_axis
 
    subroutine transposed_filter_axis(self, input, output, axis)
    !< Transpose of filter_axis with the coherent gather kernel: output_m = sum_s p(s) input_{m-s}, zero extension (circular
