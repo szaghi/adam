@@ -42,7 +42,7 @@ def blocks(workdir, basename):
 
 
 def interior(a, ngc):
-    return a[(slice(ngc, a.shape[0] - ngc),) * 3]
+    return a[tuple(slice(ngc, n - ngc) for n in a.shape)]  # per axis: the blocks need not be cubic (issue #114)
 
 
 def gauss(workdir, basename, ngc):
