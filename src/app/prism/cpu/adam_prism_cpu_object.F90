@@ -5195,6 +5195,38 @@ contains
    enddo
    endsubroutine filter_modified_axis
 
+   subroutine filter_matched_box_axis(input, output, axis, w, first, periodic)
+   !< Convolution along one axis of the matched box current, output_c = sum_t w(t) input_{c+first+t}: circular along a
+   !< periodic axis (the fold of deposit_matched_current), zero extension otherwise (supports stay off the non-periodic
+   !< faces, check_matched_support). Q: w = qw(0:nq-1), first = qfirst (faces to cells, face f stored at cell f);
+   !< P: w = p(-radius:radius), first = -radius. FNL twin: box_filter_axis.
+   implicit none
+   real(R8P),    intent(in)  :: input(1:,1:,1:), w(0:)
+   real(R8P),    intent(out) :: output(1:,1:,1:)
+   integer(I4P), intent(in)  :: axis, first
+   logical,      intent(in)  :: periodic
+   integer(I4P)              :: i, j, k, t, ii, jj, kk, n(3)
+
+   n = shape(input)
+   output = 0._R8P
+   do k=1, n(3)
+      do j=1, n(2)
+         do i=1, n(1)
+            do t=0, size(w)-1
+               ii = i ; jj = j ; kk = k
+               select case(axis)
+               case(1) ; ii = i + first + t ; if (periodic) ii = modulo(ii-1_I4P, n(1)) + 1_I4P
+               case(2) ; jj = j + first + t ; if (periodic) jj = modulo(jj-1_I4P, n(2)) + 1_I4P
+               case(3) ; kk = k + first + t ; if (periodic) kk = modulo(kk-1_I4P, n(3)) + 1_I4P
+               endselect
+               if (ii < 1 .or. ii > n(1) .or. jj < 1 .or. jj > n(2) .or. kk < 1 .or. kk > n(3)) cycle
+               output(i,j,k) = output(i,j,k) + w(t)*input(ii,jj,kk)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine filter_matched_box_axis
+
    subroutine matched_shape_1d(self, axis, b, x, ic, radius, w)
    !< Base-shape weights of the matched current and charge along one axis, on the cells ic-radius..ic+radius: closed
    !< B-spline (bspline_closed_weights) or Gaussian normalized on the stencil, as compute_pic_esirkepov_displacement. Cell
@@ -5278,26 +5310,28 @@ contains
    endsubroutine fold_matched_cell
 
    subroutine deposit_matched_current(self, q_ref, q_to, jc)
-   !< Matched current (totorica, esirkepov_Q<N>) of the trajectories q_ref -> q_to, built particle by particle on the box of
-   !< each trajectory and folded into the block interior:
+   !< Matched current (totorica, esirkepov_Q<N>) of the trajectories q_ref -> q_to, folded into the block interior:
    !<   J_d = Q_d P_e1 P_e2 F_d^E,   F_d^E(f) = -dx_d/dt sum_{i<=f} W_d(i),
    !< W_d being Esirkepov's directional charge change. W_d = rho_q dL (x) [t0 (x) (s0 + ds/2) + dt (x) (s0/2 + ds/3)], with dL,
-   !< t0, dt, s0, ds the 1-D weights (and their changes) along d and the transverse axes e1 < e2, so every factor is 1-D:
-   !< the prefix sum and Q act on dL, P on the transverse weights. F_d^E vanishes past the box (sum of dL = 0, its roundoff
+   !< t0, dt, s0, ds the 1-D weights (and their changes) along d and the transverse axes e1 < e2. Q and P are finite
+   !< shift-invariant stencils, so they commute with the sum over the particles: each particle deposits only F_d^E on its
+   !< box (face f stored at cell f), then Q_d P_e1 P_e2 are applied once on the block (filter_matched_box_axis, circular
+   !< along the periodic axes). The prefix sum stays per particle: F_d^E vanishes past the box (sum of dL = 0, its roundoff
    !< residual cut as the zero-flux closure of the line solve did), so the current of a particle is exactly zero outside
-   !< its box widened by the P and Q taps: no tails between particles. Cells are unwrapped and folded modulo n along the
-   !< periodic axes on writing: a support across a periodic face deposits what leaves the domain on the opposite cells, the
-   !< current through the face included. In exact arithmetic it equals the line solve of the summed source
-   !< (solve_pic_charge_conserving_current_modified). Single block (check_conserving_single_block).
+   !< its box widened by the P and Q taps (no tails between particles) and the current through a periodic face is kept; a
+   !< prefix sum on the grid would make J nonlocal and lose that k = 0 mode. Cells are unwrapped and folded modulo n along
+   !< the periodic axes on writing. In exact arithmetic it equals the line solve of the summed source
+   !< (solve_pic_charge_conserving_current_modified). Single block (check_conserving_single_block). FNL twin:
+   !< deposit_matched_current_box.
    implicit none
    class(prism_cpu_object), intent(inout) :: self
    real(R8P),               intent(in)    :: q_ref(1:,1:), q_to(1:,1:)
    real(R8P),               intent(out)   :: jc(1:,1:,1:,1:,1:) !< Current (3, ni, nj, nk, nb), block interior.
    real(R8P), allocatable               :: w0(:,:), w1(:,:)    !< Endpoint weights (cell, axis).
-   real(R8P), allocatable               :: g(:), lq(:), pt0(:), pdt(:), pu(:), pv(:)
-   real(R8P)                            :: p(-7:7), qw(0:9), shift(3), xr(3), xt(3), rho_q, value
-   integer(I4P)                         :: radius, qfirst, nq, part, b, a, d, e1, e2, i, j, k, t, f, last, sm
-   integer(I4P)                         :: r(3), icr(3), ict(3), lo(3), hi(3), idx(3), ilo, ihi
+   real(R8P), allocatable               :: g(:), fa(:,:,:), fb(:,:,:)
+   real(R8P)                            :: p(-7:7), qw(0:9), shift(3), xr(3), xt(3), rho_q, value, s0, ds
+   integer(I4P)                         :: radius, qfirst, nq, part, b, a, d, e1, e2, j, k, f, last
+   integer(I4P)                         :: r(3), icr(3), ict(3), lo(3), hi(3), idx(3)
 
    call modified_kernels(self=self, p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
    shift = modified_position_shift(self)
@@ -5328,7 +5362,7 @@ contains
          case(2) ; e1 = 1_I4P ; e2 = 3_I4P
          case(3) ; e1 = 1_I4P ; e2 = 2_I4P
          endselect
-         ! longitudinal: face prefix sum of the weight change, zero-flux closure past the last change, then Q
+         ! longitudinal: face prefix sum of the weight change, zero-flux closure past the last change
          allocate(g(lo(d)-1:hi(d)))
          g(lo(d)-1) = 0._R8P
          last = lo(d) - 1_I4P
@@ -5338,51 +5372,40 @@ contains
          enddo
          ! closure residual (sum of the weight change): the current_solver_residual of the line solves
          self%current_solver_residual_max = max(self%current_solver_residual_max, abs(g(hi(d))))
-         g(max(last,lo(d)-1):hi(d)) = 0._R8P
-         ilo = lo(d) - 1_I4P - qfirst - (nq - 1_I4P) ; ihi = hi(d) - qfirst
-         allocate(lq(ilo:ihi))
-         lq = 0._R8P
-         do i=ilo, ihi
-            do t=0, nq-1
-               f = i + qfirst + t
-               if (f < lo(d)-1 .or. f > hi(d)) cycle
-               lq(i) = lq(i) + qw(t)*g(f)
-            enddo
-         enddo
-         ! transverse: P on t0, dt (e1) and on s0+ds/2, s0/2+ds/3 (e2)
-         allocate(pt0(lo(e1)-radius:hi(e1)+radius), pdt(lo(e1)-radius:hi(e1)+radius))
-         allocate(pu(lo(e2)-radius:hi(e2)+radius),  pv(lo(e2)-radius:hi(e2)+radius))
-         pt0 = 0._R8P ; pdt = 0._R8P ; pu = 0._R8P ; pv = 0._R8P
-         do j=lo(e1)-radius, hi(e1)+radius
-            do sm=-radius, radius
-               if (j+sm < lo(e1) .or. j+sm > hi(e1)) cycle
-               pt0(j) = pt0(j) + p(sm)*w0(j+sm,e1)
-               pdt(j) = pdt(j) + p(sm)*(w1(j+sm,e1) - w0(j+sm,e1))
-            enddo
-         enddo
-         do k=lo(e2)-radius, hi(e2)+radius
-            do sm=-radius, radius
-               if (k+sm < lo(e2) .or. k+sm > hi(e2)) cycle
-               pu(k) = pu(k) + p(sm)*(w0(k+sm,e2) + 0.5_R8P*(w1(k+sm,e2) - w0(k+sm,e2)))
-               pv(k) = pv(k) + p(sm)*(0.5_R8P*w0(k+sm,e2) + (w1(k+sm,e2) - w0(k+sm,e2))/3._R8P)
-            enddo
-         enddo
-         do k=lo(e2)-radius, hi(e2)+radius
-            do j=lo(e1)-radius, hi(e1)+radius
-               if (pt0(j) == 0._R8P .and. pdt(j) == 0._R8P) cycle
-               do i=ilo, ihi
-                  value = lq(i)*(pt0(j)*pu(k) + pdt(j)*pv(k))
+         ! Esirkepov current on the faces lo..last-1 times the transverse weights t0, dt (e1) and s0+ds/2, s0/2+ds/3 (e2)
+         do k=lo(e2), hi(e2)
+            s0 = w0(k,e2) ; ds = w1(k,e2) - w0(k,e2)
+            do j=lo(e1), hi(e1)
+               do f=lo(d), last-1
+                  value = g(f)*(w0(j,e1)*(s0 + 0.5_R8P*ds) + (w1(j,e1) - w0(j,e1))*(0.5_R8P*s0 + ds/3._R8P))
                   if (value == 0._R8P) cycle
-                  idx(d) = i ; idx(e1) = j ; idx(e2) = k
+                  idx(d) = f ; idx(e1) = j ; idx(e2) = k
                   call fold_matched_cell(self=self, idx=idx)
                   jc(d,idx(1),idx(2),idx(3),b) = jc(d,idx(1),idx(2),idx(3),b) + value
                enddo
             enddo
          enddo
-         deallocate(g, lq, pt0, pdt, pu, pv)
+         deallocate(g)
       enddo
       deallocate(w0, w1)
    enddo
+   ! Q along d (faces to cells), then P along the transverse axes, on the block
+   allocate(fa(self%ni,self%nj,self%nk), fb(self%ni,self%nj,self%nk))
+   do d=1, 3
+      select case(d)
+      case(1) ; e1 = 2_I4P ; e2 = 3_I4P
+      case(2) ; e1 = 1_I4P ; e2 = 3_I4P
+      case(3) ; e1 = 1_I4P ; e2 = 2_I4P
+      endselect
+      call filter_matched_box_axis(input=jc(d,:,:,:,b), output=fa, axis=d, w=qw(0:nq-1), first=qfirst, &
+                                   periodic=self%pic%bc%is_periodic(d))
+      call filter_matched_box_axis(input=fa, output=fb, axis=e1, w=p(-radius:radius), first=-radius, &
+                                   periodic=self%pic%bc%is_periodic(e1))
+      call filter_matched_box_axis(input=fb, output=fa, axis=e2, w=p(-radius:radius), first=-radius, &
+                                   periodic=self%pic%bc%is_periodic(e2))
+      jc(d,:,:,:,b) = fa
+   enddo
+   deallocate(fa, fb)
    endsubroutine deposit_matched_current
 
    subroutine store_matched_current(self, q, jc)
