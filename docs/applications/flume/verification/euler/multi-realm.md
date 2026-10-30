@@ -54,6 +54,8 @@ Every leg is the Sod problem of [Sod](./sod): $(\rho, u, p) = (1, 0, 1)$ for $x 
 | 4, refused | as leg 4 | the pair declared `mirror`; the pair with `positivity_limiter = cell` | — | must stop at initialization | 2 |
 | 5 | $x = 0.5$ and $z = 0.5$ | the same cells, seam blocks not lined up: one realm on 2 blocks per axis of twice the cells ($50 \times 8 \times 8$; along $z$ the register side, $8 \times 8 \times 50$), each of its seam blocks facing $2 \times 2$ blocks of the other | `mirror` | `sod-x`, `sod-z` | 2, 4 |
 | 6 | leg 4, along $x$ and $z$ | every input with `[amr] seam_restriction = lagrange6` or `weno6`, or `seam_ghost_fill = quintic`, `weno6` or `quintic-mp`; the null axes widened to 8 cells (the 6-point footprint needs them) | `refined` | `sod-amr`, `sod-amr-z` with the same option | 2 |
+| 15 | leg 4 on quadtrees (`[amr] ratio = 4`, $z$ not refined), along $x$, then turned to $y$ ([#71](https://github.com/szaghi/adam/issues/71)) | leg 4's realms: along $z$ the 2:1 seam ghosts copy the coincident cell, a coarse ghost is the mean of $2 \times 2$ fine cells, a register face holds two fine blocks | `refined` | `sod-amr` on a quadtree (21504 cells, 216 steps), and its $y$ twin | 2 |
+| 15, $z$ | leg 4's $z$ split on quadtrees; leg 3's $z$ split on quadtrees (`nk = 25`, odd) | a seam normal to the axis the quadtree does not refine | `refined`; `auto` | must stop at initialization; resolves to `mirror`, against `sod-z` on a quadtree | 2 |
 
 ## Input files
 
@@ -65,7 +67,7 @@ Every leg is the Sod problem of [Sod](./sod): $(\rho, u, p) = (1, 0, 1)$ for $x 
 | `src/tests/flume/verification/multirealm/sod-amr-refined{,-r1,-r2}.ini`, `sod-amr-z.ini`, `sod-amr-refined-z{,-r1,-r2}.ini` | legs 4 and 6 |
 | `src/tests/flume/verification/multirealm/sod-2realm-blocks{,-r1,-r2}.ini`, `sod-2realm-blocks-z{,-r1,-r2}.ini` | leg 5 |
 | `src/tests/flume/verification/sod/sod-{x,z}.ini` | the single-realm references of legs 1, 3 and 5 |
-| `src/tests/flume/verification/multirealm/check.sh` | runs the six legs and the refusals (`--np N`, `--legs LIST`: `leg1` .. `leg6`, the refusals with `leg4`; leg4 needs leg2, leg5 needs leg1 and leg3; `FLUME_EXE` selects the backend) |
+| `src/tests/flume/verification/multirealm/check.sh` | runs these legs and the refusals (`--np N`, `--legs LIST`: `leg1` .. `leg6` and `leg15`, the refusals with `leg4`; leg4 needs leg2, leg5 needs leg1 and leg3; leg 15 writes its quadtree inputs from leg 4's and leg 3's; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/make_doc_runs.sh <runs> multirealm`, `make_doc_figures.py --only multirealm` | re-runs legs 1 and 4 and their single-realm twins with checkpoints kept (4 runs, about 4 min) |
 | `src/tests/flume/verification/multirealm/multirealm_oracle.py` | the union against the single-realm run, cell by cell, tolerance 0, and the summed conservation histories |
 | `src/tests/flume/verification/mhd/multirealm/check.sh` | the MHD twin (MV-14; `--legs LIST`: `mv14-1` .. `mv14-6`, mv14-2 needs mv14-1) |
@@ -93,6 +95,9 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh               # FNL
 | 4 | `refined` pair declared `mirror`; limiter on | refused | refused | refused |
 | 5 | unions against `sod-x` and `sod-z` | bitwise | bitwise on 2, 4 ranks | bitwise on 2 ranks |
 | 6 | unions, every restriction and fill option | bitwise | bitwise | bitwise |
+| 15 | quadtree unions against the single quadtree, $x$ and $y$ splits, 21504 cells | bitwise | bitwise | bitwise |
+| 15 | summed conservation histories | round-off | within $2\cdot10^{-16}$ | within $4\cdot10^{-16}$ |
+| 15, $z$ | `refined` across the null axis; `auto` across it | refused; bitwise (12800 cells) | refused; bitwise | refused; bitwise |
 
 The MHD twin, `mhd/multirealm/check.sh` (MV-14):
 

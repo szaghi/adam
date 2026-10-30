@@ -314,13 +314,14 @@ contains
    enddo
    endsubroutine seam_ghosts_to_stages
 
-   subroutine pack_seam_rows(rows, row_start, row_count, regime, ngc, q, buf, density_var)
+   subroutine pack_seam_rows(rows, row_start, row_count, regime, ngc, q, buf, density_var, ratio)
    !< Pack the ghost values of the send rows `[rank, b, i, j, k, kind, meta]` `row_start..row_start+row_count-1` from
    !< the field `q` (the cells' owner active buffer), `nv` values per row in row order (issue #40, #52): a copy of the
    !< cell, the coarse->fine interpolant of `interp_seam_ghost` (the intra-realm fill; injection copies the anchor) or the
    !< restriction from the base cell: the mean of the 2x2x2 fine cells (summed in the intra-realm order, then scaled) when
    !< the meta is 0, otherwise the 6-point Lagrange or the WENO restriction of its packed codes and regime
-   !< (`[amr] seam_restriction`, #68 C2, C3).
+   !< (`[amr] seam_restriction`, #68 C2, C3). Along an axis the tree does not refine (`ratio` 1, #71) the mean covers one
+   !< cell: 2x2x1 on a quadtree.
    integer(I4P), intent(in)  :: rows(1:,1:)                     !< Send rows.
    integer(I4P), intent(in)  :: row_start                       !< First row.
    integer(I4P), intent(in)  :: row_count                       !< Number of rows.
@@ -329,14 +330,17 @@ contains
    real(R8P),    intent(in)  :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field (v, i, j, k, b).
    real(R8P),    intent(out) :: buf(1:)                         !< Packed values.
    integer(I4P), intent(in)  :: density_var                     !< Seam fill density guard (`maps%seam_density_var`).
+   integer(I4P), intent(in)  :: ratio(1:3)                      !< Refinement ratio per axis (`maps%refine_ratio`).
    integer(I4P)              :: c, row, v, nv                   !< Counters.
    integer(I4P)              :: b, i, j, k                      !< Cell.
    integer(I4P)              :: ic, jc, kc                      !< 2x2x2 counters.
    real(R8P)                 :: total                           !< Restriction sum.
    type(seam_guard_t)        :: guard                           !< The ghost's part of the seam fill guard.
    real(R8P)                 :: value_                          !< A seam ghost interpolant.
+   real(R8P)                 :: mean_factor                     !< 1 / product(ratio), exact.
 
    nv = int(size(q, dim=1), I4P)
+   mean_factor = 1._R8P / real(product(ratio), R8P)
    do c=1_I4P, row_count
       row = row_start + c - 1_I4P
       b = rows(row,2) ; i = rows(row,3) ; j = rows(row,4) ; k = rows(row,5)
@@ -372,10 +376,10 @@ contains
          endif
          do v=1_I4P, nv
             total = 0._R8P
-            do kc=0,1 ; do jc=0,1 ; do ic=0,1
+            do kc=0,ratio(3)-1 ; do jc=0,ratio(2)-1 ; do ic=0,ratio(1)-1
                total = total + q(v,i+ic,j+jc,k+kc,b)
             enddo ; enddo ; enddo
-            buf(nv*(c-1)+v) = total * 0.125_R8P
+            buf(nv*(c-1)+v) = total * mean_factor
          enddo
       case default
          buf(nv*(c-1)+1:nv*c) = q(:,i,j,k,b)

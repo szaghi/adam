@@ -488,9 +488,10 @@ An `auto` seam whose two sides hold one cell size each resolves to `mirror` or `
 seam may turn 2:1 and back; with several sizes on a side it stays `auto` and every structure is built face by face
 (a 2:1 face may have either realm coarse).
 
-**Requirements.** A 2:1 face across realms needs nested blocks (the fine blocks quadrants of the coarse one) and even
-block cell counts on every axis, so inter-realm 2:1 faces are octree-only: a quadtree's `nk = 1` is refused. The
-6-point seam fills and restrictions need `ni, nj, nk >= 6` on the realm they read.
+**Requirements.** A 2:1 face across realms needs nested blocks (the fine blocks quadrants of the coarse one, halves on
+a quadtree), even block cell counts along the axes the trees refine, the same tree kind (`[amr] ratio`) in both realms
+and a seam normal to a refined axis: on a quadtree any `nk` works, and a 2:1 seam across $z$ is refused
+([#71](https://github.com/szaghi/adam/issues/71)). The 6-point seam fills and restrictions need `ni, nj, nk >= 6` on the realm they read.
 
 **Log.** `forest: regrid sweep S, marks (refine/derefine) per realm: ... ; balanced: ...` for every sweep (rank 0),
 `flume: regrid at step N: blocks a -> b, R refined, C coarsened, S sweeps` per realm, and at every topology build
@@ -554,8 +555,10 @@ seam); [writing a refinement criterion](/applications/flume/input#setting-up-run
 
 - **Topologies.** The schema takes any number of realms and face pairs; the verified forests have two realms and one
   face pair, and the three-realm forward-facing step (static refinement).
-- **Runtime AMR across seams.** Inter-realm 2:1 faces are octree-only; a seam cannot wrap a periodic axis (two faces of
-  the same two realms at opposite ends) is not supported, and not refused either; α seams are not verified in FLUME (R4).
+- **Runtime AMR across seams.** Inter-realm 2:1 faces work on every tree kind since
+  [#71](https://github.com/szaghi/adam/issues/71), but the runtime-AMR legs (balance, mixed levels) run on octrees; a
+  seam cannot wrap a periodic axis (two faces of the same two realms at opposite ends) is not supported, and not
+  refused either; α seams are not verified in FLUME (R4).
 - **Time stepping.** There is no subcycling: one global time step, set by the most restrictive realm.
 - **FLUME limiter.** The positivity limiter is refused in a forest.
 - **FNL cost.** On FNL the cross-rank seam rows go through the host on every fill

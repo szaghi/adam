@@ -102,5 +102,5 @@ reflux                   = .true.
 - The GPU backend copies the coarse–fine seam faces to the host at every stage (the flux register is host-side), in
   one transfer for all the faces of a rank since [#90](https://github.com/szaghi/adam/issues/90).
 - Inter-realm seams join cells of the same size (`mirror`) or across a 2:1 jump (`refined`,
-  [#52](https://github.com/szaghi/adam/issues/52); octrees only, quadtrees are refused,
-  [#71](https://github.com/szaghi/adam/issues/71)); all realms advance with one time step (no subcycling).
+  [#52](https://github.com/szaghi/adam/issues/52); octrees, quadtrees and binary trees, the seam normal to a refined
+  axis, [#71](https://github.com/szaghi/adam/issues/71)); all realms advance with one time step (no subcycling).

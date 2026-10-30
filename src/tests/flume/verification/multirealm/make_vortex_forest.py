@@ -3,11 +3,11 @@
 
 The isentropic vortex of the vortex-periodic regression case (radius 0.07), started at (0.47, 0.3) across the seam in
 a free stream (0, 1) along it, in the box [0, 1]^2 x [0, 0.5] split at x = 0.5 into two `coupling = auto` realms.
-Each realm is an octree of 8x16x8 cells per block (inter-realm 2:1 faces need even block cell counts on every axis, so
-a quadtree is refused), cubic cells of 1/32 at base level 1, `max_level` 3. y is periodic, the x faces are inviscid
-walls (mirrored ghosts, no mass flux) and z is extrapolated with w = 0, so the box is closed and the mass of the two
-realms is conserved. Both realms regrid every 5 steps by a Loehner marker on the density (refine 0.3, derefine 0.1).
-The refined patch covers part of the seam and moves along it, so the seam turns mixed.
+Each realm is an octree of 8x16x8 cells per block (leg 15 covers the inter-realm 2:1 faces of quadtrees, issue #71),
+cubic cells of 1/32 at base level 1, `max_level` 3. y is periodic, the x faces are inviscid walls (mirrored ghosts, no
+mass flux) and z is extrapolated with w = 0, so the box is closed and the mass of the two realms is conserved. Both
+realms regrid every 5 steps by a Loehner marker on the density (refine 0.3, derefine 0.1). The refined patch covers
+part of the seam and moves along it, so the seam turns mixed.
 
 Leg 14 (issue #113) uses the same forest without regridding (--static: base level 1 only, the seam a 1:1 face
 everywhere) and with either seam cadence (--cadence), at a chosen CFL (--cfl).

@@ -43,7 +43,7 @@ What the case catches:
 |---|---|---|---|
 | refined box (`conserve-*-quadtree`) | quadtree, $4 \times 4$ blocks of $12^2$ cells (48 per side at the base level), the blocks whose centroid lies in $[0.25, 0.75]^2$ refined 2:1 (8 coarse-fine faces) | `periodic` in $x$ and $y$ | with reflux; without; without reflux and without the dissipative coefficients (the ideal twin) |
 | forest, `mirror` | the single realm split at $x = 0.5$ into two realms of $4 \times 4$ blocks of $6 \times 12$ cells, quadtree, glued 1:1 | `extrapolation` (outflow) in $x$, `periodic` in $y$ | single realm; forest |
-| forest, `refined` | the single run refines $x > 0.5$; realm 1 the coarse half, realm 2 the fine half at one more uniform level, glued 2:1; octree ($nk = 4$), because the `refined` coupling needs ratio 2 along every axis, null $z$ included | `extrapolation` in $x$, `periodic` in $y$ | single realm; forest |
+| forest, `refined` | the single run refines $x > 0.5$; realm 1 the coarse half, realm 2 the fine half at one more uniform level, glued 2:1; octree ($nk = 4$: the leg predates [#71](https://github.com/szaghi/adam/issues/71), which made the `refined` coupling per axis) | `extrapolation` in $x$, `periodic` in $y$ | single realm; forest |
 
 An octree with null $z$ gave the same drifts as the quadtree to the printed digits at four times the cells, so the
 refined-box leg keeps the quadtree; the octree's 2:1 seams are exercised by the refined forest.

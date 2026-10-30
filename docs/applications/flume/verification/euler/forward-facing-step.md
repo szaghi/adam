@@ -88,7 +88,8 @@ The boxes of the `full` leg, at $N = 80$:
 A refined block may not touch an inter-realm seam (C's seam is only its face $x = 0.6$; its face $y = 0.2$ is the step
 top, a wall). The strongest features, the Mach stem and the triple point at $x \approx 0.6$, therefore sit on the B–C
 seam and stay on the base grid. Refining across that seam would take the 2:1 inter-realm coupling
-(`coupling = refined`, [#52](https://github.com/szaghi/adam/issues/52)), which is available on octrees only.
+(`coupling = refined`, [#52](https://github.com/szaghi/adam/issues/52)), available on quadtrees too since
+[#71](https://github.com/szaghi/adam/issues/71) but not used by this case.
 
 ## Input files
 

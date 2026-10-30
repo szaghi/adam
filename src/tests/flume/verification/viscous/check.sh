@@ -25,7 +25,7 @@
 #        holds within MAX_DRIFT of int|q| (waves.py conserve); without reflux it drifts by at least MIN_DRIFT, and by
 #        at least MIN_DRIFT differently from the ideal twin's, so the dissipative fluxes do cross the seams unmatched.
 #        The forest: the same wave with outflow x faces split at x = 0.5 into two realms, mirror (1:1, quadtree) and
-#        refined (2:1, octree; the refined coupling needs ratio 2 along every axis), against the single realm:
+#        refined (2:1, octree), against the single realm:
 #        fields within FOREST_TOL (the sine is evaluated from each realm's block origins, one ulp apart at step 0).
 #   vv8  (P4) accuracy across 2:1 seams: the diagonal shear (mu) and Ohmic (eta, mhd-none) waves on the refined
 #        quadtree, order >= SEAM_ORDER_MIN: with the mean restriction and the Berger-Colella reflux of point-value

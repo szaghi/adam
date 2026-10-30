@@ -91,13 +91,13 @@ contains
    enddo
    endsubroutine unpack_blocks_transposed_dev
 
-   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu, density_var)
+   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu, density_var, ratio)
    !< Pack the ghost values of the seam send rows `[rank, b, i, j, k, kind, meta]` `row_start..row_start+row_count-1`
    !< from `q_gpu` into `buf_gpu`, `nv` values per row in row order (issues #40, #52), the device twin of
    !< `adam_seam_exchange%pack_seam_rows`: kind 1 copies the cell, kind 4 interpolates the fine ghost around the coarse
    !< anchor cell (`interp_seam_ghost_gpu_dev`, the intra-realm flag-4 fill; injection copies the anchor), kind 8 is the
-   !< mean of the 2x2x2 fine cells from the base cell (the intra-realm flag-8 order). The kinds are the values of
-   !< `adam_seam_exchange` SEAM_ROW_*.
+   !< mean of the 2x2x2 fine cells from the base cell (the intra-realm flag-8 order; 2x2x1 on a quadtree, #71). The kinds
+   !< are the values of `adam_seam_exchange` SEAM_ROW_*.
    integer(I4P), intent(in)    :: row_start                         !< First row.
    integer(I4P), intent(in)    :: row_count                         !< Number of rows.
    integer(I4P), intent(in)    :: nv                                !< Variables number.
@@ -107,15 +107,20 @@ contains
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field (b, i, j, k, v).
    real(R8P),    intent(inout) :: buf_gpu(1:)                       !< Packed values.
    integer(I4P), intent(in)    :: density_var                       !< Seam fill density guard (`maps%seam_density_var`).
+   integer(I4P), intent(in)    :: ratio(1:3)                        !< Refinement ratio per axis (`maps%refine_ratio`).
    integer(I4P)                :: c, v, row                         !< Counters.
    integer(I4P)                :: b, i, j, k                        !< Cell.
    integer(I4P)                :: ic, jc, kc                        !< 2x2x2 counters.
    real(R8P)                   :: total                             !< Restriction sum.
+   integer(I4P)                :: ri, rj, rk                        !< Refinement ratio per axis.
+   real(R8P)                   :: mean_factor                       !< 1 / (ri rj rk), exact.
 
+   ri = ratio(1) ; rj = ratio(2) ; rk = ratio(3)
+   mean_factor = 1._R8P / real(ri * rj * rk, R8P)
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(rows_gpu,q_gpu,buf_gpu) &
-   !$acc& firstprivate(row_start,row_count,nv,ngc,regime,density_var) private(row,b,i,j,k,total)
+   !$acc& firstprivate(row_start,row_count,nv,ngc,regime,density_var,ri,rj,rk,mean_factor) private(row,b,i,j,k,total)
    !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu,q_gpu,buf_gpu)                                                &
-   !$omp& firstprivate(row_start,row_count,nv,ngc,regime,density_var)                                           &
+   !$omp& firstprivate(row_start,row_count,nv,ngc,regime,density_var,ri,rj,rk,mean_factor)                    &
    !$omp& private(row,b,i,j,k,total)
    do c=1, row_count
    do v=1, nv
@@ -132,10 +137,10 @@ contains
       elseif (rows_gpu(row,6) == 8) then
          total = 0._R8P
          !$acc loop seq
-         do kc=0,1 ; do jc=0,1 ; do ic=0,1
+         do kc=0,rk-1 ; do jc=0,rj-1 ; do ic=0,ri-1
             total = total + q_gpu(b,i+ic,j+jc,k+kc,v)
          enddo ; enddo ; enddo
-         buf_gpu(nv*(c-1)+v) = total * 0.125_R8P
+         buf_gpu(nv*(c-1)+v) = total * mean_factor
       else
          buf_gpu(nv*(c-1)+v) = q_gpu(b,i,j,k,v)
       endif

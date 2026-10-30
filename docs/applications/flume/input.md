@@ -156,8 +156,8 @@ How the pieces combine, and what to expect:
   ([#75](https://github.com/szaghi/adam/issues/75)).
 - **Limits.** On a multi-realm forest ([#110](https://github.com/szaghi/adam/issues/110)) the blocks along each side
   of a `mirror` or `refined` seam keep one level: a refine vote on one refines the whole side. A `coupling = auto` seam
-  may hold different levels along it, face by face (equal cells or 2:1), on octrees only (a quadtree's `nk = 1` is
-  refused). With EGLM the 2:1 seams raise the divergence error B_z well above its uniform-grid level
+  may hold different levels along it, face by face (equal cells or 2:1); its checks are per axis since
+  [#71](https://github.com/szaghi/adam/issues/71), but the mixed-level legs run on octrees only. With EGLM the 2:1 seams raise the divergence error B_z well above its uniform-grid level
   ([#78](https://github.com/szaghi/adam/issues/78)).
 - **Restart.** A run restarted from any step regrids on the same steps and continues bitwise (the regrid happens before
   the step's output and restart files). On a forest every realm restarts from its own files and the inter-realm seams

@@ -2351,11 +2351,12 @@ contains
    if (self%stage_active > 0_I4P) then
       call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
                           row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
-                          q=self%rk%q_rk(:,:,:,:,:,self%stage_active), buf=buf, density_var=maps%seam_density_var)
+                          q=self%rk%q_rk(:,:,:,:,:,self%stage_active), buf=buf, density_var=maps%seam_density_var, &
+                          ratio=maps%refine_ratio)
    else
       call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
                           row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
-                          q=self%q, buf=buf, density_var=maps%seam_density_var)
+                          q=self%q, buf=buf, density_var=maps%seam_density_var, ratio=maps%refine_ratio)
    endif
    endassociate
    endsubroutine pack_seam_cells_forest

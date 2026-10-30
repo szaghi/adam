@@ -44,7 +44,7 @@ use :: adam_flux_register_object, only : flux_register_object, SEAM_KIND_INTER_R
                                          SEAM_KIND_INTRA_REALM_AMR
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, TO_BE_REFINED, TO_BE_DEREFINED, TO_NOT_TOUCH
 use :: adam_seam_exchange,        only : seam_fill_batch, SEAM_ROW_COPY, SEAM_ROW_INTERPOLATE, SEAM_ROW_RESTRICT
-use :: adam_seam_interpolation_library, only : seam_meta_pack, seam_shift_anchor_pos, seam_tricubic_centered_pos, &
+use :: adam_seam_interpolation_library, only : SEAM_SUB_COINCIDENT, seam_meta_pack, seam_shift_anchor_pos, seam_tricubic_centered_pos, &
                                                seam_quintic_centered_pos, SEAM_FILL_QUINTIC, &
                                                seam_compatible_centered_pos, SEAM_RESTRICT_MEAN, &
                                                seam_restriction_code, seam_restriction_meta_pack
@@ -893,15 +893,15 @@ contains
    endfunction seam_leaf_codes
 
    function cell_ratio_log2(realm_a, face_a, realm_b, face_b) result(k)
-   !< log2 of the ratio of the seam cell sizes of two sides, a over b, along a tangential axis (issue #110): 0 for equal
-   !< cells, 1 when side a is twice as coarse.
+   !< log2 of the ratio of the seam cell sizes of two sides, a over b, along the seam normal (issues #110, #71): 0 for
+   !< equal cells, 1 when side a is twice as coarse.
    class(realm_object), intent(in) :: realm_a, realm_b !< Realms.
    integer(I4P),        intent(in) :: face_a, face_b   !< Seam faces (FACE_* codes).
    integer(I4P)                    :: k                !< log2(d_a / d_b).
    real(R8P)                       :: d_a(3), d_b(3)   !< Seam cell sizes.
    real(R8P)                       :: e(3)             !< Leaf origin (unused).
    integer(I8P), allocatable       :: codes(:)         !< Codes of the leaves along a seam face.
-   integer(I4P)                    :: axis, sgn, t     !< Face axis and side, tangential axis.
+   integer(I4P)                    :: axis, sgn        !< Face axis and side.
 
    ! one leaf per side is enough: `side_scan` has checked that a seam side holds one level (the code list, not a face
    ! test inside the tree traversal: see `seam_leaf_codes`)
@@ -910,8 +910,8 @@ contains
    codes = seam_leaf_codes(realm_b, face_b)
    call leaf_metrics(realm_b, codes(1), e, d_b)
    call face_axis_sign(face_a, axis, sgn)
-   t = mod(axis, 3_I4P) + 1_I4P
-   k = nint(log(d_a(t) / d_b(t)) / log(2._R8P), I4P)
+   ! the normal axis: refined on every tree kind (`pair_refine_ratio`), unlike a tangential one on a quadtree (#71)
+   k = nint(log(d_a(axis) / d_b(axis)) / log(2._R8P), I4P)
    endfunction cell_ratio_log2
 
    subroutine side_scan(this_realm, face, level, any_refine, all_deref)
@@ -1412,6 +1412,7 @@ contains
       integer(I4P)                              :: c_axis, c_sign !< Coarse face axis and side.
       integer(I4P)                              :: t1, t2         !< Tangential axes (inner, outer: the skin order).
       integer(I4P)                              :: qi, qj         !< Quadrant offsets.
+      integer(I4P)                              :: rq(2)          !< Refinement ratios along (t1, t2) (#71).
       integer(I4P)                              :: nfaces_total   !< Total register entries.
       integer(I4P)                              :: cursor         !< Write cursor into the register.
       integer(I4P)                              :: nface_cells    !< Cell count on the coarse-face skin.
@@ -1555,12 +1556,14 @@ contains
                      trim(str(f, .true.))//'): the two seam faces must cover each other')
                cycle
             endif
-            do qj = 0_I4P, 1_I4P
-               do qi = 0_I4P, 1_I4P
+            ! one fine block per quadrant; along a tangential axis the tree does not refine, one (offset 0, #71)
+            rq = realm(rf)%ptr%adam%maps%refine_ratio([t1, t2])
+            do qj = 0_I4P, rq(2) - 1_I4P
+               do qi = 0_I4P, rq(1) - 1_I4P
                   ! lookup point: the fine-side cell centre across the face, in the quadrant (qi, qj)
                   xq = 0.5_R8P * (emin_c + emax_c)
-                  xq(t1) = emin_c(t1) + (real(qi, R8P) + 0.5_R8P) * 0.5_R8P * (emax_c(t1) - emin_c(t1))
-                  xq(t2) = emin_c(t2) + (real(qj, R8P) + 0.5_R8P) * 0.5_R8P * (emax_c(t2) - emin_c(t2))
+                  xq(t1) = emin_c(t1) + (real(qi, R8P) + 0.5_R8P) / real(rq(1), R8P) * (emax_c(t1) - emin_c(t1))
+                  xq(t2) = emin_c(t2) + (real(qj, R8P) + 0.5_R8P) / real(rq(2), R8P) * (emax_c(t2) - emin_c(t2))
                   xq(c_axis) = merge(emax_c(c_axis) + 0.25_R8P * d_c(c_axis), emin_c(c_axis) - 0.25_R8P * d_c(c_axis), &
                                      c_sign > 0_I4P)
                   code_f = realm(rf)%ptr%adam%tree%get_closest_block(grid=realm(rf)%ptr%adam%grid, point=xq)
@@ -1772,9 +1775,11 @@ contains
    !< Walks the seam leaves of both sides on the replicated trees (the same result on every rank):
    !<
    !<   * `mirror`: one cell size on each side's seam face, equal across the seam;
-   !<   * `refined`: one cell size per side with ratio exactly 2 (either side may be the coarse one), equal block cell
-   !<     counts along the seam, the same `[amr] seam_ghost_fill`, and nested blocks: every fine seam leaf covers one 2:1
-   !<     quadrant of the face of one coarse seam leaf, and even block cell counts in the fine realm;
+   !<   * `refined`: one cell size per side with ratio exactly 2 along the axes the trees refine and 1 along a null
+   !<     axis (a quadtree's z, issue #71; either side may be the coarse one), the same tree kind in both realms and a
+   !<     seam normal to a refined axis, equal block cell counts along the seam, the same `[amr] seam_ghost_fill`, and
+   !<     nested blocks: every fine seam leaf covers one 2:1 piece of the face of one coarse seam leaf (a quarter on an
+   !<     octree, a half on a quadtree), and even block cell counts along the refined axes in the fine realm;
    !<   * `periodic`, `interpolate`: schema-reserved, refused (before issue #52 they were accepted and run as `mirror`).
    type(realm_pointer),     intent(inout) :: realm(:)       !< Forest realms.
    type(forest_manifest_t), intent(in)    :: manifest       !< Parsed manifest.
@@ -1786,6 +1791,7 @@ contains
    integer(I4P)                           :: axis, sgn      !< Seam face axis and side of the fine realm.
    integer(I4P)                           :: ntan_c(3)      !< Coarse block cell counts, normal one zeroed.
    integer(I4P)                           :: ntan_f(3)      !< Fine block cell counts, normal one zeroed.
+   integer(I4P)                           :: r(3)           !< Refinement ratio per axis of the pair (2, or 1 if null).
 
    if (.not. allocated(manifest%face_pairs)) return
    do f = 1_I4P, int(size(manifest%face_pairs), I4P)
@@ -1811,16 +1817,17 @@ contains
                                  '(issue #52)')
          cycle
       endif
-      ! refined: identify the coarse side
-      if (all(abs(d_a - 2._R8P * d_b) <= 1.0e-6_R8P * d_a)) then
+      ! refined: identify the coarse side, ratio 2 along the refined axes and 1 along a null one (issue #71)
+      r = pair_refine_ratio(realm(pair%realm_a)%ptr, realm(pair%realm_b)%ptr, pair%face_a, pfx)
+      if (all(abs(d_a - real(r, R8P) * d_b) <= 1.0e-6_R8P * d_a)) then
          ic = pair%realm_a ; jf = pair%realm_b ; face_f = pair%face_b
-      elseif (all(abs(d_b - 2._R8P * d_a) <= 1.0e-6_R8P * d_b)) then
+      elseif (all(abs(d_b - real(r, R8P) * d_a) <= 1.0e-6_R8P * d_b)) then
          ic = pair%realm_b ; jf = pair%realm_a ; face_f = pair%face_a
       else
-         call mpih%error_stop(msg=pfx//'coupling = refined needs a cell-size ratio of exactly 2 along every axis ('// &
-                              trim(str(d_a))//' and '//trim(str(d_b))//')')
+         call mpih%error_stop(msg=pfx//'coupling = refined needs a cell-size ratio of exactly 2 along every axis the '// &
+                              'trees refine and 1 along a null one ('//trim(str(d_a))//' and '//trim(str(d_b))//')')
       endif
-      ! the coarse face skin and the four fine skins under it must index the same cells: equal block cell counts along
+      ! the coarse face skin and the fine skins under it must index the same cells: equal block cell counts along
       ! the two tangential axes (the normal count is free, the realms may have different extents across the seam)
       call face_axis_sign(face_f, axis, sgn)
       associate(r_c => realm(ic)%ptr, r_f => realm(jf)%ptr)
@@ -1834,20 +1841,23 @@ contains
          call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_ghost_fill in both realms')
       ! the 6-point coarse->fine footprint must fit a coarse block (issue #68 D1, as for the intra-realm rows)
       if (r_c%adam%maps%seam_ghost_fill >= SEAM_FILL_QUINTIC .and.                                                    &
-          any([r_c%adam%grid%ni, r_c%adam%grid%nj, r_c%adam%grid%nk] < 6_I4P))                                       &
+          any([r_c%adam%grid%ni, r_c%adam%grid%nj, r_c%adam%grid%nk] < 6_I4P .and. r == 2_I4P))                       &
          call mpih%error_stop(msg=pfx//'[amr] seam_ghost_fill = quintic|weno6|quintic-mp needs ni, nj, nk >= 6 in '// &
-                              'the coarse realm')
+                              'the coarse realm (along the refined axes)')
       if (r_c%adam%maps%seam_restriction /= r_f%adam%maps%seam_restriction)                                           &
          call mpih%error_stop(msg=pfx//'coupling = refined needs the same [amr] seam_restriction in both realms')
       ! the 6-point restriction footprint must fit a fine block (issue #68 C2, as for the intra-realm rows)
       if (r_f%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN .and.                                                  &
-          any([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk] < 6_I4P))                                       &
-         call mpih%error_stop(msg=pfx//'[amr] seam_restriction = lagrange6|weno6 needs ni, nj, nk >= 6 in the fine realm')
-      ! a coarse ghost is the mean of 2x2x2 fine cells: even fine block cell counts keep them in one fine block
-      if (any(mod([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk], 2_I4P) /= 0_I4P))                        &
-         call mpih%error_stop(msg=pfx//'coupling = refined needs even block cell counts (ni, nj, nk) in the fine realm')
+          any([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk] < 6_I4P .and. r == 2_I4P))                       &
+         call mpih%error_stop(msg=pfx//'[amr] seam_restriction = lagrange6|weno6 needs ni, nj, nk >= 6 in the fine '// &
+                              'realm (along the refined axes)')
+      ! a coarse ghost is the mean of the fine cells under it (2x2x2 on an octree, 2x2x1 on a quadtree): even fine block
+      ! cell counts along the refined axes keep them in one fine block
+      if (any(mod([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk], 2_I4P) /= 0_I4P .and. r == 2_I4P))        &
+         call mpih%error_stop(msg=pfx//'coupling = refined needs even block cell counts (ni, nj, nk) along the '//    &
+                              'refined axes in the fine realm')
       endassociate
-      call check_nested(coarse=realm(ic)%ptr, fine=realm(jf)%ptr, face_f=face_f, pfx=pfx)
+      call check_nested(coarse=realm(ic)%ptr, fine=realm(jf)%ptr, face_f=face_f, r=r, pfx=pfx)
       call mpih%print_message('forest: face_pair '//trim(str(f, .true.))//' is a 2:1 seam, realm '//               &
                               trim(str(ic, .true.))//' coarse, realm '//trim(str(jf, .true.))//' fine (issue #52)')
       endassociate
@@ -1870,6 +1880,7 @@ contains
    integer(I4P)                           :: n_a(3), n_b(3)  !< Block cell counts, the normal one zeroed.
    character(:), allocatable              :: pfx             !< Error message prefix.
    logical                                :: uni_a, uni_b    !< One cell size on each side.
+   integer(I4P)                           :: r(3)            !< Refinement ratio per axis of the pair.
 
    if (.not. allocated(manifest%face_pairs)) return
    do f = 1_I4P, int(size(manifest%face_pairs), I4P)
@@ -1884,17 +1895,23 @@ contains
       if (r_a%adam%maps%seam_ghost_fill /= r_b%adam%maps%seam_ghost_fill .or.                 &
           r_a%adam%maps%seam_restriction /= r_b%adam%maps%seam_restriction)                   &
          call mpih%error_stop(msg=pfx//'needs the same [amr] seam_ghost_fill and seam_restriction in both realms')
-      if (any(mod([r_a%adam%grid%ni, r_a%adam%grid%nj, r_a%adam%grid%nk], 2_I4P) /= 0_I4P) .or. &
-          any(mod([r_b%adam%grid%ni, r_b%adam%grid%nj, r_b%adam%grid%nk], 2_I4P) /= 0_I4P))    &
-         call mpih%error_stop(msg=pfx//'needs even block cell counts (ni, nj, nk) in both realms')
+      ! the even counts along the axes either tree refines; the 2:1 conditions (`pair_refine_ratio`) only where the pair is
+      ! not a mirror (a 1:1 seam between different tree kinds, or normal to a null axis, stays a valid mirror, #71)
+      r = max(r_a%adam%maps%refine_ratio, r_b%adam%maps%refine_ratio)
+      if (any(mod([r_a%adam%grid%ni, r_a%adam%grid%nj, r_a%adam%grid%nk], 2_I4P) /= 0_I4P .and. r == 2_I4P) .or. &
+          any(mod([r_b%adam%grid%ni, r_b%adam%grid%nj, r_b%adam%grid%nk], 2_I4P) /= 0_I4P .and. r == 2_I4P))    &
+         call mpih%error_stop(msg=pfx//'needs even block cell counts (ni, nj, nk) along the refined axes in both realms')
       d_a = seam_cell_size(r_a, pair%face_a, pfx//'realm '//trim(str(pair%realm_a, .true.)), uniform=uni_a)
       d_b = seam_cell_size(r_b, pair%face_b, pfx//'realm '//trim(str(pair%realm_b, .true.)), uniform=uni_b)
+      if (.not.(uni_a .and. uni_b .and. all(abs(d_a - d_b) <= 1.0e-6_R8P * d_a))) &
+         r = pair_refine_ratio(r_a, r_b, pair%face_a, pfx)
       endassociate
       if (.not.(uni_a .and. uni_b)) then
          ! mixed levels along the seam: the pair stays auto, decided face by face
       elseif (all(abs(d_a - d_b) <= 1.0e-6_R8P * d_a)) then
          pair%coupling = COUPLING_MIRROR
-      elseif (all(abs(d_a - 2._R8P * d_b) <= 1.0e-6_R8P * d_a) .or. all(abs(d_b - 2._R8P * d_a) <= 1.0e-6_R8P * d_b)) then
+      elseif (all(abs(d_a - real(r, R8P) * d_b) <= 1.0e-6_R8P * d_a) .or.                                             &
+              all(abs(d_b - real(r, R8P) * d_a) <= 1.0e-6_R8P * d_b)) then
          pair%coupling = COUPLING_REFINED
       else
          call mpih%error_stop(msg=pfx//'the seam cells are neither equal nor in a ratio of 2 ('//trim(str(d_a))// &
@@ -1962,12 +1979,14 @@ contains
    if (.not. found) call mpih%error_stop(msg=pfx//' has no block on its seam face')
    endfunction seam_cell_size
 
-   subroutine check_nested(coarse, fine, face_f, pfx)
-   !< Every fine seam leaf must cover one 2:1 quadrant of the seam face of one coarse leaf: half its tangential extent,
-   !< starting at its origin or at its midpoint along each tangential axis.
+   subroutine check_nested(coarse, fine, face_f, r, pfx)
+   !< Every fine seam leaf must cover one 2:1 piece of the seam face of one coarse leaf: half its tangential extent,
+   !< starting at its origin or at its midpoint, along each refined tangential axis, and the whole extent along a null
+   !< one (a quadtree's z, issue #71).
    class(realm_object), intent(inout) :: coarse     !< Coarse realm.
    class(realm_object), intent(inout) :: fine       !< Fine realm.
    integer(I4P),        intent(in)    :: face_f     !< Fine seam face.
+   integer(I4P),        intent(in)    :: r(3)       !< Refinement ratio per axis (2, or 1 along a null axis).
    character(*),        intent(in)    :: pfx      !< Error message prefix.
    type(tree_iterator_object)         :: iter       !< Tree traversal cursor.
    type(tree_node_object), pointer    :: node_f     !< Fine leaf.
@@ -1999,15 +2018,55 @@ contains
          ok = merge(abs(emin_c(axis) - emax_f(axis)), abs(emax_c(axis) - emin_f(axis)), sgn > 0_I4P) <= tol
          do d = 1_I4P, 3_I4P
             if (d == axis) cycle
-            ! half the coarse extent, starting at the coarse origin or at its midpoint (one 2:1 quadrant)
-            ok = ok .and. abs(2._R8P * (emax_f(d) - emin_f(d)) - (emax_c(d) - emin_c(d))) <= tol .and.        &
-                 (abs(emin_f(d) - emin_c(d)) <= tol .or. abs(emin_f(d) - 0.5_R8P * (emin_c(d) + emax_c(d))) <= tol)
+            if (r(d) == 1_I4P) then
+               ! a null axis: the same extent on both sides
+               ok = ok .and. abs((emax_f(d) - emin_f(d)) - (emax_c(d) - emin_c(d))) <= tol .and. &
+                    abs(emin_f(d) - emin_c(d)) <= tol
+            else
+               ! half the coarse extent, starting at the coarse origin or at its midpoint (one 2:1 piece)
+               ok = ok .and. abs(2._R8P * (emax_f(d) - emin_f(d)) - (emax_c(d) - emin_c(d))) <= tol .and.        &
+                    (abs(emin_f(d) - emin_c(d)) <= tol .or. abs(emin_f(d) - 0.5_R8P * (emin_c(d) + emax_c(d))) <= tol)
+            endif
          enddo
       endif
       if (.not. ok) call mpih%error_stop(msg=pfx//'coupling = refined needs nested blocks: every fine seam block '// &
-                                         'must cover a quarter of one coarse seam block face')
+                                         'must cover a quarter (a half on a quadtree) of one coarse seam block face')
    enddo
    endsubroutine check_nested
+
+   pure function is_2to1_piece(emin_c, emax_c, emin_f, emax_f, r, tol) result(yes)
+   !< Whether the tangential extent `[emin_f, emax_f]` of a fine seam leaf is one 2:1 piece of the coarse leaf's
+   !< `[emin_c, emax_c]` (issue #71): half the coarse extent, starting at its origin or at its midpoint, along a refined
+   !< axis (`r == 2`); the same extent along a null one (`r == 1`, a quadtree's z).
+   real(R8P),    intent(in) :: emin_c(:), emax_c(:) !< Coarse leaf extent along the tangential axes.
+   real(R8P),    intent(in) :: emin_f(:), emax_f(:) !< Fine leaf extent along the same axes.
+   integer(I4P), intent(in) :: r(:)                 !< Refinement ratio along the same axes.
+   real(R8P),    intent(in) :: tol                  !< Geometric tolerance.
+   logical                  :: yes                  !< Test result.
+
+   yes = all(merge(abs((emax_f - emin_f) - (emax_c - emin_c)) <= tol .and. abs(emin_f - emin_c) <= tol,           &
+                   abs(2._R8P * (emax_f - emin_f) - (emax_c - emin_c)) <= tol .and.                                &
+                   (abs(emin_f - emin_c) <= tol .or. abs(emin_f - 0.5_R8P * (emin_c + emax_c)) <= tol),             &
+                   r == 1_I4P))
+   endfunction is_2to1_piece
+
+   function pair_refine_ratio(r_a, r_b, face_a, pfx) result(r)
+   !< The refinement ratio per axis a 2:1 seam between two realms uses (issue #71): `maps%refine_ratio` of both, which
+   !< must agree (the same tree kind: octree, quadtree or binary tree), and 2 along the seam normal (a seam across a
+   !< null axis has no second level to join). Stops otherwise.
+   class(realm_object), intent(in) :: r_a, r_b !< The two realms.
+   integer(I4P),        intent(in) :: face_a   !< Seam face of `r_a` (FACE_* code).
+   character(*),        intent(in) :: pfx      !< Error message prefix.
+   integer(I4P)                    :: r(3)     !< Refinement ratio per axis.
+   integer(I4P)                    :: axis, sgn !< Seam axis and side.
+
+   r = r_a%adam%maps%refine_ratio
+   if (any(r /= r_b%adam%maps%refine_ratio)) call mpih%error_stop(msg=pfx//'a 2:1 seam needs the same tree kind in '// &
+      'both realms (octree, quadtree or binary tree: [tree] ratio)')
+   call face_axis_sign(face_a, axis, sgn)
+   if (r(axis) /= 2_I4P) call mpih%error_stop(msg=pfx//'a 2:1 seam must be normal to an axis the trees refine (not '// &
+      'a null axis)')
+   endfunction pair_refine_ratio
 
    subroutine leaf_peers(this_realm, face, code, peer, peer_codes, idx, n, k)
    !< The leaves of the peer realm that face the seam leaf `code` of `this_realm` (issue #110, P3): `idx(1:n)`, indices
@@ -2025,6 +2084,7 @@ contains
    real(R8P)                              :: e(3), ee(3), d(3)    !< Leaf extent and cell size.
    real(R8P)                              :: pe(3), pee(3), pd(3) !< Peer extent and cell size.
    integer(I4P)                           :: axis, sgn, t(2), m, kk !< Face axis and side, tangential axes, counters.
+   real(R8P)                              :: f(3)                 !< Expected cell-size factor per axis.
 
    call face_axis_sign(face, axis, sgn)
    t = pack([1_I4P, 2_I4P, 3_I4P], [1_I4P, 2_I4P, 3_I4P] /= axis)
@@ -2034,8 +2094,10 @@ contains
    do m = 1_I4P, int(size(peer_codes), I4P)
       call leaf_metrics(peer, peer_codes(m), pe, pd, pee)
       if (any(min(ee(t), pee(t)) - max(e(t), pe(t)) <= 0.5_R8P * min(d(t), pd(t)))) cycle
-      kk = nint(log(d(t(1)) / pd(t(1))) / log(2._R8P), I4P)
-      if (abs(kk) > 1_I4P .or. any(abs(d - pd * 2._R8P**kk) > 1.0e-6_R8P * d) .or. (n > 0_I4P .and. kk /= k)) &
+      ! the level step from the seam normal, refined by every tree a 2:1 seam joins (a null axis keeps its size, #71)
+      kk = nint(log(d(axis) / pd(axis)) / log(2._R8P), I4P)
+      f = merge(2._R8P**kk, 1._R8P, this_realm%adam%maps%refine_ratio == 2_I4P)
+      if (abs(kk) > 1_I4P .or. any(abs(d - pd * f) > 1.0e-6_R8P * d) .or. (n > 0_I4P .and. kk /= k)) &
          call mpih%error_stop(msg='forest_object: the seam block of realm '//trim(str(this_realm%realm_index, .true.))//&
                               ' at '//trim(str(e(1)))//' '//trim(str(e(2)))//' '//trim(str(e(3)))//' faces cells of '// &
                               'realm '//trim(str(peer%realm_index, .true.))//' that are neither one size equal to, half '//&
@@ -2088,12 +2150,11 @@ contains
          do m = 1_I4P, n
             call leaf_metrics(realm(rp)%ptr, peer_codes(idx(m)), pe, pd, pee)
             area = area + product(min(ee(t), pee(t)) - max(e(t), pe(t)))
-            if (k == 1_I4P) then ! a finer peer: one 2:1 quadrant of the leaf
-               ok = ok .and. all(abs(2._R8P * (pee(t) - pe(t)) - (ee(t) - e(t))) <= tol) .and.                         &
-                    all(abs(pe(t) - e(t)) <= tol .or. abs(pe(t) - 0.5_R8P * (e(t) + ee(t))) <= tol)
-            elseif (k == -1_I4P) then ! the coarser peer: the leaf is one of its 2:1 quadrants
-               ok = ok .and. n == 1_I4P .and. all(abs(2._R8P * (ee(t) - e(t)) - (pee(t) - pe(t))) <= tol) .and.       &
-                    all(abs(e(t) - pe(t)) <= tol .or. abs(e(t) - 0.5_R8P * (pe(t) + pee(t))) <= tol)
+            if (k == 1_I4P) then ! a finer peer: one 2:1 piece of the leaf
+               ok = ok .and. is_2to1_piece(e(t), ee(t), pe(t), pee(t), realm(rs)%ptr%adam%maps%refine_ratio(t), tol)
+            elseif (k == -1_I4P) then ! the coarser peer: the leaf is one of its 2:1 pieces
+               ok = ok .and. n == 1_I4P .and.                                                                          &
+                    is_2to1_piece(pe(t), pee(t), e(t), ee(t), realm(rs)%ptr%adam%maps%refine_ratio(t), tol)
             endif
          enddo
          if (k >= 0_I4P) ok = ok .and. abs(area - product(ee(t) - e(t))) <= tol * maxval(ee(t) - e(t))
@@ -2113,11 +2174,11 @@ contains
       if (.not.coarse(side)) cycle
       associate(r_c => realm(rs)%ptr, r_f => realm(rp)%ptr)
       if (r_c%adam%maps%seam_ghost_fill >= SEAM_FILL_QUINTIC .and.                                                    &
-          any([r_c%adam%grid%ni, r_c%adam%grid%nj, r_c%adam%grid%nk] < 6_I4P))                                       &
+          any([r_c%adam%grid%ni, r_c%adam%grid%nj, r_c%adam%grid%nk] < 6_I4P .and. r_c%adam%maps%refine_ratio == 2_I4P)) &
          call mpih%error_stop(msg=pfx//'[amr] seam_ghost_fill = quintic|weno6|quintic-mp needs ni, nj, nk >= 6 in '// &
                               'realm '//trim(str(rs, .true.))//', coarse at a 2:1 face of the seam')
       if (r_f%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN .and.                                                  &
-          any([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk] < 6_I4P))                                       &
+          any([r_f%adam%grid%ni, r_f%adam%grid%nj, r_f%adam%grid%nk] < 6_I4P .and. r_f%adam%maps%refine_ratio == 2_I4P)) &
          call mpih%error_stop(msg=pfx//'[amr] seam_restriction = lagrange6|weno6 needs ni, nj, nk >= 6 in realm '//    &
                               trim(str(rp, .true.))//', fine at a 2:1 face of the seam')
       endassociate
@@ -2241,9 +2302,11 @@ contains
    integer(I8P)                       :: code_m                     !< Memo: the last peer leaf found by a search.
    real(R8P)                          :: emin_m(3), emax_m(3), d_m(3) !< Memo: its origin, upper corner, cell size.
    integer(I4P)                       :: rank_m, b_m                !< Memo: its owner rank and owner-local block.
+   integer(I4P)                       :: r(3)                       !< Refinement ratio per axis of a 2:1 seam (#71).
 
    call face_axis_sign(face, axis, sgn)
    call ghost_slab_extents(realm(is)%ptr, axis, sgn, imin, imax, jmin, jmax, kmin, kmax)
+   r = realm(ip)%ptr%adam%maps%refine_ratio ! the same in both realms (`pair_refine_ratio`)
    ! consecutive ghosts mostly fall in the same peer leaf: the leaf of the last search is reused while the ghost centre
    ! is inside it by more than 0.1 of its cells on every axis (the leaf containing a point is unique, so the rows are
    ! the same; a centre on or near a leaf face searches), issue #110 P6. It relies on the tree holding leaves only (and
@@ -2285,14 +2348,22 @@ contains
                   ijk_c = nint((xg - emin_c) / d_c + 0.5_R8P, I4P)
                   xc = emin_c + (real(ijk_c, R8P) - 0.5_R8P) * d_c
                   ok = all(abs(xc - xg) <= 1.0e-6_R8P * d_g) .and. all(ijk_c >= 1_I4P) .and. all(ijk_c <= n_c)
-               elseif (all(abs(d_c - 2._R8P * d_g) <= 1.0e-6_R8P * d_c)) then
+               elseif (all(abs(d_c - real(r, R8P) * d_g) <= 1.0e-6_R8P * d_c)) then
                   ! fine ghost, coarse cells (issue #52): the intra-realm coarse->fine interpolant around the coarse
-                  ! cell containing the ghost centre, the octant from the half of it the centre falls in
+                  ! cell containing the ghost centre, the octant from the half of it the centre falls in; along an
+                  ! axis the tree does not refine (#71) the ghost and the cell coincide, identity weight at the anchor
                   kind = SEAM_ROW_INTERPOLATE
                   ijk_c = floor((xg - emin_c) / d_c, I4P) + 1_I4P
                   ok = all(ijk_c >= 1_I4P) .and. all(ijk_c <= n_c)
                   if (ok) then
                      do d = 1_I4P, 3_I4P
+                        if (r(d) == 1_I4P) then
+                           sub(d) = SEAM_SUB_COINCIDENT
+                           p4(d) = 2_I4P
+                           p3(d) = 2_I4P
+                           p6(d) = seam_quintic_centered_pos(sub(d)) ! only the anchor is read
+                           cycle
+                        endif
                         sub(d) = merge(1_I4P, 2_I4P, xg(d) < emin_c(d) + (real(ijk_c(d), R8P) - 0.5_R8P) * d_c(d))
                         p4(d) = seam_shift_anchor_pos(anchor=ijk_c(d), n_cells=n_c(d),                       &
                                                       p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4_I4P)
@@ -2303,21 +2374,22 @@ contains
                      enddo
                      meta = seam_meta_pack(sub=sub, p4=p4, p3=p3, p6=p6)
                   endif
-               elseif (all(abs(2._R8P * d_c - d_g) <= 1.0e-6_R8P * d_g)) then
+               elseif (all(abs(real(r, R8P) * d_c - d_g) <= 1.0e-6_R8P * d_g)) then
                   ! coarse ghost, fine cells (issue #52): the mean of the 2x2x2 fine cells under the ghost, from the
-                  ! base (lowest) one; nested blocks with even cell counts keep the eight in one fine block
+                  ! base (lowest) one; nested blocks with even cell counts keep the eight in one fine block. Along an
+                  ! axis the tree does not refine (#71) the ghost covers one cell: 2x2 on a quadtree, 2 on a binary tree
                   kind = SEAM_ROW_RESTRICT
-                  xc = xg - 0.5_R8P * d_c
+                  xc = xg - merge(0.5_R8P, 0._R8P, r == 2_I4P) * d_c
                   code_c = realm(ip)%ptr%adam%tree%get_closest_block(grid=realm(ip)%ptr%adam%grid, point=xc)
                   call leaf_metrics(realm(ip)%ptr, code_c, emin_c, d_c)
                   ijk_c = nint((xc - emin_c) / d_c + 0.5_R8P, I4P)
-                  ok = all(ijk_c >= 1_I4P) .and. all(ijk_c + 1_I4P <= n_c) .and. &
+                  ok = all(ijk_c >= 1_I4P) .and. all(ijk_c + r - 1_I4P <= n_c) .and. &
                        all(abs(emin_c + (real(ijk_c, R8P) - 0.5_R8P) * d_c - xc) <= 1.0e-6_R8P * d_c)
                   ! the 6-point restrictions (#68 C2, C3): the fine owner's codes and regime, the footprint inside its
                   ! block; the fine pair is inside it (checked above), so no row falls back to the mean (meta 0)
                   if (ok .and. realm(ip)%ptr%adam%maps%seam_restriction /= SEAM_RESTRICT_MEAN) then
                      do d = 1_I4P, 3_I4P
-                        sub(d) = seam_restriction_code(first=ijk_c(d), n_cells=n_c(d), ratio=2_I4P)
+                        sub(d) = seam_restriction_code(first=ijk_c(d), n_cells=n_c(d), ratio=r(d))
                      enddo
                      meta = seam_restriction_meta_pack(code=sub, regime=realm(ip)%ptr%adam%maps%seam_restriction)
                   endif

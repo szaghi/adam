@@ -97,9 +97,8 @@
 #   leg12  (issue #110 P3) a feature moving along part of a seam, the balance face by face: the isentropic vortex of
 #          the vortex-periodic regression case (radius 0.07) started at (0.47, 0.3), across the seam, in a free stream
 #          (0, 1) along it to t = 0.3, the box [0, 1]^2 x [0, 0.5] split at x = 0.5 into two coupling = auto realms (an
-#          octree: inter-realm 2:1 faces need even block cell counts on every axis, so a quadtree is refused; 8x16x8
-#          cells per block, cubic cells of 1/32 at base level 1, max_level 3, y periodic, x inviscid walls, z
-#          extrapolated with w = 0: a closed box), a Loehner marker on the density in both, a regrid every 5 steps. The
+#          octree, 8x16x8 cells per block, cubic cells of 1/32 at base level 1, max_level 3, y periodic, x inviscid
+#          walls, z extrapolated with w = 0: a closed box), a Loehner marker on the density in both, a regrid every 5 steps. The
 #          refined patch covers part of the seam and moves along it, so the seam turns mixed. No single realm
 #          reproduces these blocks (the realm roots are not square), so the leg asserts invariants: the seam mixed at
 #          some regrid, the grid refined and coarsened, the mass of the two realms constant to 1e-12, the run on 1 and
@@ -117,8 +116,15 @@
 #          difference between the alpha and the beta run is bounded (L14_BOUND at CFL 0.4) and halves with the time
 #          step (the CFL 0.4 / CFL 0.2 ratio in L14_RATIO). Alpha's restart is bitwise: 40 steps against 25 + restart
 #          + 15, the last fields and every history file. Before #113 the stages read seam ghosts no fill reached.
+#   leg15  (issue #71) inter-realm 2:1 seams on quadtrees: leg 4's inputs with [amr] ratio = 4 (z not refined), split
+#          along x, then turned to y (the Sod along y, the split at y = 0.75). Along z the 2:1 seam ghosts copy the
+#          coincident cell, the coarse ghosts are the mean of 2x2 fine cells, and the register face holds two fine
+#          blocks: each union must reproduce its single quadtree realm bit for bit. The z split (a seam normal to the
+#          axis the quadtree does not refine) must be refused at initialization as a 2:1 seam, and accepted as a 1:1
+#          one: leg 3's z split on quadtrees with coupling = auto resolves to a mirror (its 25 cells along z are odd,
+#          which an octree refuses) and must reproduce the single quadtree sod-z bit for bit.
 #
-# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg14 or all (default all); leg4 compares against
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg15 or all (default all); leg4 compares against
 #        the sod-amr run of leg2, leg5 against the sod-x and sod-z runs of leg1 and leg3, so they require those legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -133,7 +139,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
 source "$VERIF_DIR/legs.sh"
-legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9 leg10 leg11 leg12 leg13 leg14"
+legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9 leg10 leg11 leg12 leg13 leg14 leg15"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -646,5 +652,52 @@ PYEOF
       if cmp -s "$a/$f" "$b/$f"; then echo "   ${f#./}: identical"
       else echo "check.sh: leg14's ${f#./} differs between the uninterrupted and the restarted run" >&2 ; exit 1 ; fi
    done
+fi
+if has_leg leg15; then
+   echo "== leg 15: refined (2:1) 2-realm Sod on quadtrees vs the single quadtree realm (issue #71)"
+   qdir="$CASE_DIR/work-$TAG-l15-src" ; rm -rf "$qdir" ; mkdir -p "$qdir"/{x,y,z}
+   qfiles=(sod-amr.ini sod-amr-refined.ini sod-amr-refined-r1.ini sod-amr-refined-r2.ini)
+   for f in "${qfiles[@]}"; do
+      sed 's/^ratio *= *8/ratio          = 4/' "$CASE_DIR/$f" > "$qdir/x/$f"
+      # turned to y: x <-> y in every key, cell count, velocity and seam face
+      python3 - "$qdir/x/$f" "$qdir/y/$f" <<'PYEOF'
+import re
+import sys
+
+s = open(sys.argv[1]).read()
+swap = {"_x": "_y", "_y": "_x", "xmin": "ymin", "ymin": "xmin", "xmax": "ymax", "ymax": "xmax"}
+s = re.sub(r"_x|_y|xmin|ymin|xmax|ymax", lambda m: swap[m.group(0)], s)
+s = re.sub(r"^(ni|nj)(\s*=)", lambda m: ("nj" if m.group(1) == "ni" else "ni") + m.group(2), s, flags=re.M)
+s = re.sub(r"^(u|v)(\s*=)", lambda m: ("v" if m.group(1) == "u" else "u") + m.group(2), s, flags=re.M)
+s = re.sub(r"^(face_[ab]\s*=\s*[+-])x", r"\1y", s, flags=re.M)
+open(sys.argv[2], "w").write(s)
+PYEOF
+   done
+   for f in sod-amr-refined-z{,-r1,-r2}.ini; do
+      sed 's/^ratio *= *8/ratio          = 4/' "$CASE_DIR/$f" > "$qdir/z/$f"
+   done
+   for ax in x y; do
+      single="$CASE_DIR/work-$TAG-l15-$ax-single"
+      run "$single" sod-amr.ini "$qdir/$ax/sod-amr.ini"
+      multi="$CASE_DIR/work-$TAG-l15-$ax-refined"
+      run "$multi" sod-amr-refined.ini "$qdir/$ax"/sod-amr-refined{,-r1,-r2}.ini
+      "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
+   done
+   work="$CASE_DIR/work-$TAG-l15-z-refused"
+   RUN_MUST_FAIL=1 run "$work" sod-amr-refined-z.ini "$qdir/z"/sod-amr-refined-z{,-r1,-r2}.ini
+   if ! grep -aq 'a 2:1 seam must be normal to an axis the trees refine' "$work/log.txt"; then
+      echo "check.sh: the z split of the quadtrees was not refused, see $work/log.txt" >&2
+      exit 1
+   fi
+   echo "   $(basename "$work"): refused as expected"
+   for f in sod-2realm-z{,-r1,-r2}.ini; do
+      sed 's/^ratio *= *8/ratio          = 4/; s/^coupling *= *mirror/coupling         = auto/' "$CASE_DIR/$f" > "$qdir/z/$f"
+   done
+   sed 's/^ratio *= *8/ratio          = 4/' "$VERIF_DIR/sod/sod-z.ini" > "$qdir/z/sod-z.ini"
+   single="$CASE_DIR/work-$TAG-l15-z-single"
+   run "$single" sod-z.ini "$qdir/z/sod-z.ini"
+   multi="$CASE_DIR/work-$TAG-l15-z-auto"
+   run "$multi" sod-2realm-z.ini "$qdir/z"/sod-2realm-z{,-r1,-r2}.ini
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$multi" "$single" --ngc 3 --tol 0
 fi
 echo "multi-realm verification PASSED (legs: $LEGS) ($TAG)"

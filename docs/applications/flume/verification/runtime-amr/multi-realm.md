@@ -117,5 +117,6 @@ constant-in-y data is then summed with other weights.
   differed at the seam from its first step, and α and β differed by 18–45 % next to the seam after four steps. Fixed
   by [#113](https://github.com/szaghi/adam/issues/113): `multirealm/check.sh` leg 14 measures α against β and
   restarts an α forest bitwise ([cookbook R4](/cookbook/forest#r4-seam-cadence-α-or-β)).
-- **Inter-realm 2:1 faces are octree-only.** A 2:1 seam needs even block cell counts on every axis, and a quadtree's
-  $n_k = 1$ is refused.
+- **Inter-realm 2:1 faces need the same tree kind in both realms and a seam normal to a refined axis.** Quadtrees
+  and binary trees are accepted since [#71](https://github.com/szaghi/adam/issues/71) (static 2:1 seams checked by
+  `multirealm/check.sh` leg 15; this page's runtime legs run on octrees).

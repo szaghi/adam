@@ -6196,12 +6196,12 @@ contains
                               regime=self%adam%maps%seam_ghost_fill,                                          &
                               rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu,                            &
                               q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active), buf_gpu=buf_gpu,       &
-                              density_var=self%adam%maps%seam_density_var)
+                              density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio)
    else
       call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
                               regime=self%adam%maps%seam_ghost_fill,                                          &
                               rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=self%q_gpu, buf_gpu=buf_gpu, &
-                              density_var=self%adam%maps%seam_density_var)
+                              density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio)
    endif
    call dev_memcpy_from_device(dst=buf, src=buf_gpu)
    call dev_free(buf_gpu, mydev)
