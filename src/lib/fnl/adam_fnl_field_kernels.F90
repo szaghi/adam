@@ -29,6 +29,7 @@ public :: unpack_blocks_transposed_dev
 public :: unpack_seam_rows_dev
 public :: populate_send_buffer_ghost_gpu_dev
 public :: receive_recv_buffer_ghost_gpu_dev
+public :: seam_ghosts_to_stages_dev
 public :: update_ghost_local_gpu_dev
 public :: reduce_ghost_local_gpu_dev
 public :: pack_reduce_ghost_mpi_gpu_dev
@@ -164,6 +165,37 @@ contains
    enddo
    enddo
    endsubroutine unpack_seam_rows_dev
+
+   subroutine seam_ghosts_to_stages_dev(row_start, row_count, nv, ngc, ns, cols, rows_gpu, q_gpu, q_rk_gpu)
+   !< Copy the seam ghost cells of the rows `row_start..row_start+row_count-1` from `q_gpu` into every stage of
+   !< `q_rk_gpu` (issue #113, the device twin of `adam_seam_exchange%seam_ghosts_to_stages`). `cols` are the columns of
+   !< the rows holding the ghost cell (b, i, j, k): `[3, 7, 8, 9]` for the local rows, `[2, 3, 4, 5]` for the receive rows.
+   integer(I4P), intent(in)    :: row_start                                  !< First row.
+   integer(I4P), intent(in)    :: row_count                                  !< Number of rows.
+   integer(I4P), intent(in)    :: nv                                         !< Variables number.
+   integer(I4P), intent(in)    :: ngc                                        !< Ghost cells number.
+   integer(I4P), intent(in)    :: ns                                         !< Stages number.
+   integer(I4P), intent(in)    :: cols(4)                                    !< Columns of the ghost cell (b, i, j, k).
+   integer(I4P), intent(in)    :: rows_gpu(1:,1:)                            !< Seam rows.
+   real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< Committed state (b, i, j, k, v).
+   real(R8P),    intent(inout) :: q_rk_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:)    !< Stage buffers (b, i, j, k, v, s).
+   integer(I4P)                :: c, v, s, row, cb, ci, cj, ck               !< Counters, row, ghost cell columns.
+
+   cb = cols(1) ; ci = cols(2) ; cj = cols(3) ; ck = cols(4)
+   !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(rows_gpu,q_gpu,q_rk_gpu) &
+   !$acc& firstprivate(row_start,row_count,nv,ns,cb,ci,cj,ck) private(row)
+   !$omp OMPLOOP collapse(3) DEVICEPTR(rows_gpu,q_gpu,q_rk_gpu) firstprivate(row_start,row_count,nv,ns,cb,ci,cj,ck) &
+   !$omp& private(row)
+   do s=1, ns
+   do c=1, row_count
+   do v=1, nv
+      row = row_start + c - 1
+      q_rk_gpu(rows_gpu(row,cb),rows_gpu(row,ci),rows_gpu(row,cj),rows_gpu(row,ck),v,s) = &
+         q_gpu(rows_gpu(row,cb),rows_gpu(row,ci),rows_gpu(row,cj),rows_gpu(row,ck),v)
+   enddo
+   enddo
+   enddo
+   endsubroutine seam_ghosts_to_stages_dev
 
    subroutine compute_q_gradient_dev(b, ni, nj, nk, ngc, dx, dy, dz, q_gpu, ivar, gradient)
    !< Compute gradient of q(ivar).

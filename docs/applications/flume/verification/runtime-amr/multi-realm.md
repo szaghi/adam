@@ -112,10 +112,10 @@ constant-in-y data is then summed with other weights.
 - **A closed box for a conservation bound.** Leg 12 was first designed with extrapolated x faces and drifted by
   $2.7\cdot10^{-6}$: the vortex tail carried mass through the open boundaries. The net boundary flux of the final
   cells matched the measured mass change. A drift bound needs a closed box; inviscid walls give one.
-- **Restart and cadence (leg 13).** The restart is bitwise with β seams only. An `end_of_step` (α) seam is filled into
-  the committed state, never into the Runge–Kutta stage buffers, so the stages read the seam ghosts the previous step
-  left in those buffers, which the restart files do not hold. A restarted α forest differs at the seam from its first
-  step. On this case, α and β differ by 18–45 % next to the seam after four steps, far beyond a one-step lag: see the
-  warning in [cookbook R4](/cookbook/forest#r4-seam-cadence-α-or-β).
+- **Restart and cadence (leg 13).** Every leg here uses β seams. When this page was written an `end_of_step` (α) seam
+  was filled into the committed state only, never into the Runge–Kutta stage buffers, so a restarted α forest
+  differed at the seam from its first step, and α and β differed by 18–45 % next to the seam after four steps. Fixed
+  by [#113](https://github.com/szaghi/adam/issues/113): `multirealm/check.sh` leg 14 measures α against β and
+  restarts an α forest bitwise ([cookbook R4](/cookbook/forest#r4-seam-cadence-α-or-β)).
 - **Inter-realm 2:1 faces are octree-only.** A 2:1 seam needs even block cell counts on every axis, and a quadtree's
   $n_k = 1$ is refused.

@@ -226,7 +226,7 @@ across the seam).
 | `coupling_cadence` | Ghosts refreshed | Requires | Gives |
 |---|---|---|---|
 | `stage_coincident` (β) | before every RK stage's residual, from the peer's stage buffer | the same `scheme_time`, RK scheme, stage count and `nv` on both sides (checked) | the seam has the time order of the interior; the split reproduces the single realm (bitwise in every FLUME split) |
-| `end_of_step` (α, **default**) | once, after the step, from the peer's committed state | nothing | first-order seam coupling in time; the realms may use different RK schemes (asymmetric K) |
+| `end_of_step` (α, **default**) | once, at the top of the step, from the peer's committed state, for every stage of the step | nothing | first-order seam coupling in time; the realms may use different RK schemes (asymmetric K) |
 
 **Choose β** whenever both realms use the same time integrator. It is the cadence under which a split reproduces the
 single-realm run, and the only one that keeps a PRISM 1:1 seam divergence-free
@@ -242,13 +242,18 @@ the trailing ones.
 
 **Verified by** PRISM `rmf-2realm` (α), `rmf-2realm-asymK` (α, K = 3 and 5), `rmf-2realm-stagesync` (β, the
 single-realm golden within the digest tolerances), `rmf-2realm-fd-pulse` (β div-free, with α as the leaking negative
-control). Every FLUME forest test uses β.
+control). FLUME `multirealm/check.sh` leg 14 runs α against β; every other FLUME forest test uses β.
 
-::: warning α in FLUME is not verified
-No FLUME test uses α. The end-of-step fill writes the committed state only, and the RK stages compute on stage
-buffers whose seam ghosts it never refreshes. On the case of `multirealm/check.sh` leg 12 the α and β runs differ by
-18–45 % next to the seam after four steps, far beyond a one-step lag
-([#110](https://github.com/szaghi/adam/issues/110) P5, measured 2026-10-29). Use β in FLUME.
+**What α costs in FLUME** (`multirealm/check.sh` leg 14, [#113](https://github.com/szaghi/adam/issues/113)): a vortex
+moving along a 1:1 seam, 120 steps at CFL 0.4. The α run differs from the β run by $4.5\cdot10^{-2}$ at most (relative to
+each field's largest value, in the cells next to the seam), $1.5\cdot10^{-2}$ at CFL 0.2: the gap shrinks with the
+time step (ratio 3.05 for a halved step), the signature of the lagged coupling. Its restart is bitwise.
+
+::: warning α before #113
+Until [#113](https://github.com/szaghi/adam/issues/113) the α fill reached the committed state only, never the
+Runge–Kutta stage buffers the residuals are computed on: the stages read seam ghosts no fill wrote, and α and β
+differed by 18–45 % next to the seam after four steps. FLUME copies the α seam ghosts into every stage since #113;
+PRISM does not yet, so in PRISM keep β whenever both realms use the same integrator.
 :::
 
 ## R5. Mirror seam between blocks that do not line up
@@ -394,14 +399,15 @@ other's files.
 The restarted realms load their trees and fields, and the forest builds the seams from the restored trees, so a forest
 that regridded at runtime restarts on its current grid, mixed levels along a seam included. Restart on the rank count
 the run was saved with (fewer ranks stop the run, [#109](https://github.com/szaghi/adam/issues/109)). The restart is
-bitwise for β seams only: an α seam leaves the seam ghosts of the previous step in the stage buffers (R4), which the
-restart files do not hold.
+bitwise under either cadence (α since [#113](https://github.com/szaghi/adam/issues/113): the forest fills α seams at
+the top of every step, from the state the restart files hold).
 
 **Verified by** MV-14 legs 2 and 3: a 2-realm run stopped at half its steps and restarted equals the straight run
 bitwise, with byte-identical histories; leg 3 does the same on an AMR box with a non-zero psi. `multirealm/check.sh`
 leg 13 ([#110](https://github.com/szaghi/adam/issues/110) P5) restarts a forest whose realms regrid, at a step that
 coarsens and leaves 2:1 faces on the seam, and runs past a later regrid that changes the grid: bitwise, histories
-identical, on CPU and FNL.
+identical, on CPU and FNL. Leg 14 ([#113](https://github.com/szaghi/adam/issues/113)) restarts an α forest: bitwise,
+histories identical, on CPU and FNL.
 
 ## R10. Splitting an existing input
 
@@ -565,12 +571,12 @@ seam); [writing a refinement criterion](/applications/flume/input#setting-up-run
 |---|---|---|---|
 | R2 intra-realm 2:1 | `sod-amr`, `amr-periodic-reflux` (V3), MV-11 | `rmf-amr*` | goldens; conservation to round-off |
 | R3 mirror, lined up | leg 1, `sod-2realm`, `rj2a-2realm` | `rmf-2realm`, `rmf-2realm-fd-pulse` | bitwise; div-free |
-| R4 α / β / asymmetric K | (all β) | `rmf-2realm`, `-asymK`, `-stagesync`, `-fd-pulse` | goldens; β matches the single realm |
+| R4 α / β / asymmetric K | leg 14 (α vs β); the others β | `rmf-2realm`, `-asymK`, `-stagesync`, `-fd-pulse` | goldens; β matches the single realm; α within a lag-sized bound of β, halving with the step |
 | R5 misaligned blocks | leg 5, MV-14 leg 5, `sod-2realm-blocks` | `rmf-2realm-fv-pulse-blocks` | bitwise; register exact |
 | R6 refined 2:1 | leg 4, MV-14 leg 4, `sod-amr-refined` | `rmf-2realm-fd-pulse-refined` | bitwise |
 | R7 both families | leg 2, `sod-amr-2realm` | — | bitwise |
 | R8 many ranks | legs 1-5 at np 2-4, leg 3 (z split) | np 2 in every case | bitwise |
-| R9 restart | MV-14 legs 2-3, leg 13 (across regrids) | — | bitwise, histories identical |
+| R9 restart | MV-14 legs 2-3, leg 13 (across regrids), leg 14 (α) | — | bitwise, histories identical |
 | R12 runtime AMR on a forest | legs 7-12 | — | legs 7, 8, 11 bitwise vs the single realm (8, 11 with injection); 9 conservation; 10 the registered criterion bitwise vs the built-in marker; 12 conservation, ranks and hook bitwise |
 
 "leg N" is `src/tests/flume/verification/multirealm/check.sh` (`--legs legN`; leg 4 needs leg 2, leg 5 needs legs 1

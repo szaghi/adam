@@ -16,14 +16,14 @@ module adam_flume_fnl_object
 use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_flume_cooling_object, only : flume_cooling_object
 use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_BX, IQ_PSI, IQ_R, IQ_RE, IQ_RU
-use :: adam_maps_object,          only : face_axis_sign
+use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
 use :: adam_seam_exchange,        only : seam_fill_all
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM FNL classes, libraries
 use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev, pack_blocks_transposed_dev, pack_seam_rows_dev, &
-                                         unpack_blocks_transposed_dev, unpack_seam_rows_dev
+                                         seam_ghosts_to_stages_dev, unpack_blocks_transposed_dev, unpack_seam_rows_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 use :: adam_fnl_poisson_mg_object, only : poisson_mg_fnl_object
@@ -435,6 +435,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: destroy                 !< Free device and host data.
       procedure, pass(self) :: initialize_flume        !< Initialize the FNL backend.
       procedure, pass(self) :: limit_positivity_dev    !< Apply the positivity limiter to the stage face fluxes.
+      procedure, pass(self) :: seam_ghosts_to_stages   !< Copy the end_of_step seam ghosts into the stages (#113).
       procedure, pass(self) :: seam_lists              !< Host lists of the seam skin cells and faces (issue #50).
       procedure, pass(self) :: seam_sync_blend_dev     !< Set the seam face fluxes with the seam factors (issue #50).
       procedure, pass(self) :: seam_sync_factors_dev   !< Recompute the seam cells' factors (issue #50).
@@ -2897,7 +2898,34 @@ contains
    call self%log_gravity_regime
    call self%refresh_equilibrium_residual
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
+   call self%seam_ghosts_to_stages
    endsubroutine open_step_forest
+
+   subroutine seam_ghosts_to_stages(self)
+   !< Copy the ghosts of `q_gpu` of the end_of_step seams into every stage of `q_rk_gpu` (issue #113): every stage of the
+   !< step reads the peer state of the last exchange (the device twin of `adam_seam_exchange%seam_ghosts_to_stages`).
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: p    !< Peer slot.
+
+   associate(maps=>self%adam%maps, maps_fnl=>self%field_fnl%maps)
+   if (.not.allocated(maps%seam_local_cadence)) return
+   do p=1_I4P, int(size(maps%seam_local_cadence), I4P)
+      if (maps%seam_local_cadence(p) /= CADENCE_END_OF_STEP) cycle
+      if (maps%seam_local_peer_row_count(p) > 0_I4P)                                                                   &
+         call seam_ghosts_to_stages_dev(row_start=maps%seam_local_peer_row_start(p),                                  &
+                                        row_count=maps%seam_local_peer_row_count(p), nv=self%nv, ngc=self%ngc,        &
+                                        ns=int(size(self%rk_fnl%q_rk_gpu, dim=6), I4P), cols=[3_I4P, 7_I4P, 8_I4P, 9_I4P], &
+                                        rows_gpu=maps_fnl%seam_local_map_ghost_cell_gpu, q_gpu=self%q_gpu,            &
+                                        q_rk_gpu=self%rk_fnl%q_rk_gpu)
+      if (maps%seam_mpi_recv_row_count(p) > 0_I4P)                                                                     &
+         call seam_ghosts_to_stages_dev(row_start=maps%seam_mpi_recv_row_start(p),                                    &
+                                        row_count=maps%seam_mpi_recv_row_count(p), nv=self%nv, ngc=self%ngc,          &
+                                        ns=int(size(self%rk_fnl%q_rk_gpu, dim=6), I4P), cols=[2_I4P, 3_I4P, 4_I4P, 5_I4P], &
+                                        rows_gpu=maps_fnl%seam_mpi_recv_cell_gpu, q_gpu=self%q_gpu,                   &
+                                        q_rk_gpu=self%rk_fnl%q_rk_gpu)
+   enddo
+   endassociate
+   endsubroutine seam_ghosts_to_stages
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Post-step work: the non-finite state check, the GLM c_h check, the div(B) history (MHD), fields, restart and

@@ -161,10 +161,9 @@ How the pieces combine, and what to expect:
   ([#78](https://github.com/szaghi/adam/issues/78)).
 - **Restart.** A run restarted from any step regrids on the same steps and continues bitwise (the regrid happens before
   the step's output and restart files). On a forest every realm restarts from its own files and the inter-realm seams
-  are rebuilt from the restored trees, mixed levels along a seam included (`multirealm/check.sh` leg 13); bitwise with
-  `coupling_cadence = stage_coincident` seams only (an `end_of_step` seam keeps stage-buffer ghosts of the previous
-  step that the restart files do not hold). Restart on the rank count the run was saved with: fewer ranks stop the
-  run.
+  are rebuilt from the restored trees, mixed levels along a seam included (`multirealm/check.sh` leg 13), bitwise
+  under either `coupling_cadence` (`end_of_step` since [#113](https://github.com/szaghi/adam/issues/113), leg 14).
+  Restart on the rank count the run was saved with: fewer ranks stop the run.
 - **Log.** Each regrid prints `flume: regrid at step N: blocks a -> b, R refined, C coarsened, S sweeps` (plus its wall
   time on FNL); a state with non-positive density or pressure after a regrid stops the run with its location.
 - **Your own criterion** ([#110](https://github.com/szaghi/adam/issues/110)). Extend `amr_criterion_object`

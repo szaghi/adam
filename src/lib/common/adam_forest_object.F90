@@ -86,7 +86,7 @@ type :: forest_object
       procedure, pass(self) :: compute_global_dt      !< Min-reduce each realm's compute_local_dt_forest across the forest.
       procedure, pass(self) :: evolve_one_step        !< Iterate realm(:)%advance_one_step_forest(dt) for one global timestep.
       ! Inter-realm seam refresh runs inside evolve_one_step: β seams at every
-      ! substage (Phase 2), α seams once at end-of-step (Phase 5).
+      ! substage (Phase 2), α seams once at the top of the step (Phase 0).
       procedure, pass(self) :: is_done                !< AND-reduce each realm's is_done_forest across the forest.
       procedure, pass(self) :: post_step              !< Iterate realm(:)%post_step_forest for the per-step diagnostics/IO block.
       procedure, pass(self) :: regrid                 !< Iterate realm(:)%regrid_forest, rebuild the topology on a change.
@@ -264,17 +264,16 @@ contains
    !< (cached on the realm as `seam_local_cadence(p)`):
    !<
    !< α (CADENCE_END_OF_STEP, default; AMReX-aligned coarse-fine convention)
-   !<   Mid-step peer ghosts are INTENTIONALLY STALE-BY-ONE-STEP. During
-   !<   stages 1..K, each realm reads the peer ghosts established by the
-   !<   previous end-of-step exchange (or by the initial-condition seam
-   !<   fill at populate_inter_realm_topology time, for the first step).
-   !<   This is structurally identical to AMReX's `FillCoarsePatch`
-   !<   reading coarse `t^n` data during fine sub-steps (Berger-Oliger
-   !<   1984; AMReX_Amr.cpp::timeStep). Phase 5 (below) is the α seam
-   !<   coherence boundary: once per step, after `close_step_forest`,
-   !<   every realm's `stage_active == 0` and the receiver reads peer's
-   !<   committed `q`. α admits asymmetric per-realm K (the K-equality
-   !<   guard is removed). Cost: first-order seam coupling in time.
+   !<   Mid-step peer ghosts are INTENTIONALLY FROZEN AT t^n. Phase 0 (below)
+   !<   fills the seam ghosts of every realm's committed `q` from the peers'
+   !<   committed `q`, once per step before `open_step_forest`, and each
+   !<   realm's `open_step_forest` copies them into every stage buffer, so
+   !<   stages 1..K all read the peer state at the start of the step. This is
+   !<   structurally identical to AMReX's `FillCoarsePatch` reading coarse
+   !<   `t^n` data during fine sub-steps (Berger-Oliger 1984;
+   !<   AMReX_Amr.cpp::timeStep). α admits asymmetric per-realm K (the
+   !<   K-equality guard is removed). Cost: first-order seam coupling in time
+   !<   (issue #113: before it the stages read seam ghosts no fill reached).
    !<
    !< β (CADENCE_STAGE_COINCIDENT, opt-in)
    !<   Peer ghosts are refreshed once per RK substage, inside the K loop
@@ -286,10 +285,9 @@ contains
    !<   per-realm interior order. Spatial operator MAY differ per realm.
    !<
    !< Per-seam selection: the same forest may carry α seams and β seams
-   !< simultaneously. Phase 2 iterates seams and fires only for β; Phase 5
-   !< iterates seams and fires only for α. A seam is filled exactly once
-   !< per step under either cadence (Phase 2 may fire K times for β, but
-   !< at successive substages, never duplicating the same substage).
+   !< simultaneously. Phase 2 iterates seams and fires only for β; Phase 0
+   !< iterates seams and fires only for α. An α seam is filled once per
+   !< step; a β seam once per substage (Phase 2 fires K times).
    !<
    !< Reflux cadence (α.r1):
    !<
@@ -303,7 +301,9 @@ contains
    !<
    !< Phase outline:
    !<
-   !<   Phase 0 — open_step_forest (per-realm prologue)
+   !<   Phase 0 — fill_seam_from_peer_forest (per-seam, α-gated), then
+   !<             open_step_forest (per-realm prologue: the stages start from
+   !<             q, the α seam ghosts included)
    !<   For k = 1..K_max:
    !<     Phase 1 — begin_stage_forest (per-realm, gated by k <= K_realm(is))
    !<     Phase 2 — fill_seam_from_peer_forest (per-seam, β-gated)
@@ -311,7 +311,6 @@ contains
    !<               + reduce_fine_sums + apply_reflux_corrections
    !<               (reflux body is α.r1 end-of-step gated inside the realm)
    !<   Phase 4 — close_step_forest (per-realm epilogue)
-   !<   Phase 5 — fill_seam_from_peer_forest (per-seam, α-gated)
    !<
    !< LOAD-BEARING INVARIANT (β): Phase 2 must complete on ALL realms
    !< before Phase 3 starts on ANY realm. The orchestrator's serial inner
@@ -341,6 +340,13 @@ contains
    if (int(size(realm), I4P) == 1_I4P .and. self%flux_register%nfaces == 0_I4P) then
       call realm(1)%ptr%advance_one_step_forest(dt=dt)
    else
+      ! Phase 0 — the α seams' ghosts of the committed `q`, from the peers' committed `q` (every realm has
+      ! stage_active == 0 here). `open_step_forest` copies them into every stage buffer, so all the stages of the step
+      ! read the peer state the previous step committed, after its post-step work (dual-energy sync, cooling, sinks) and
+      ! whatever the diagnostics refilled since: the result does not depend on the output cadence, and a restart, which
+      ! starts here from the restored state, reproduces it (issue #113; the fill used to follow close_step_forest, and
+      ! the stages never read it).
+      call seam_fill_batch(realm=realm, cadence=CADENCE_END_OF_STEP, wtime=self%wtime(6:7))
       do is = 1_I4P, int(size(realm), I4P)
          call realm(is)%ptr%open_step_forest(dt=dt)
       enddo
@@ -415,22 +421,8 @@ contains
       call self%apply_reflux_corrections(realm=realm, dt=dt)
       if (self%timing) self%wtime(5) = self%wtime(5) + MPI_Wtime()
 
-      ! Phase 5 — end-of-step inter-realm seam fill (α coherence barrier).
-      !
-      ! After close_step_forest, every realm has stage_active == 0 and its
-      ! committed `q` is the peer-visible state. fill_seam_from_peer_forest's
-      ! buffer-selection logic reads peer%q when peer%stage_active == 0, so
-      ! no new TBP or call-site contract is needed. Same dispatch as the
-      ! former per-stage Phase 2: receiver walks its own seam map, copies
-      ! peer-INTERIOR cells into self's GHOST cells; backend dispatch via
-      ! `select type(peer)` inside the receiver's override.
-      !
-      ! Per-seam gating: only seams with `coupling_cadence ==
-      ! CADENCE_END_OF_STEP` (the α default) fire here. β seams
-      ! (`CADENCE_STAGE_COINCIDENT`) were already filled at every substage
-      ! in Phase 2 inside the K loop; firing again here would double-write
-      ! and waste work.
-      call seam_fill_batch(realm=realm, cadence=CADENCE_END_OF_STEP, wtime=self%wtime(6:7))
+      ! The α seams are filled at the top of the next step (Phase 0 above, issue #113), not here: the post-step work
+      ! of the realms still changes the committed state.
 
       deallocate(K_realm)
    endif

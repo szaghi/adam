@@ -106,9 +106,11 @@ interface
    !< Compute residuals of equation, space operator.
    !<
    !< Inter-realm seam ghost cells are filled by the forest BEFORE this
-   !< routine fires (Phase 2 of the forest's substage loop, for β seams;
-   !< Phase 5 of the previous step, for α seams), so the stencil reads
-   !< valid halo data without any peer-realm access here.
+   !< routine fires (Phase 2 of the forest's substage loop, for β seams),
+   !< so the stencil reads valid halo data without any peer-realm access
+   !< here. α seams are filled into the committed `q` at the top of the step
+   !< (Phase 0), which PRISM does not copy into its stage buffers: its α
+   !< stages read stale seam ghosts (FLUME copies them, issue #113).
    import :: prism_cpu_object, R8P, I4P, flux_register_object
    class(prism_cpu_object),     intent(inout)           :: self          !< The equation.
    real(R8P),                   intent(inout)           :: q(1:,         &

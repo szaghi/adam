@@ -10,10 +10,10 @@ module adam_flume_cpu_object
 
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_object, SEAM_KIND_INTRA_REALM_AMR
-use :: adam_maps_object,          only : face_axis_sign
+use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
-use :: adam_seam_exchange,        only : seam_fill_all, pack_seam_rows, unpack_seam_rows
+use :: adam_seam_exchange,        only : seam_fill_all, seam_ghosts_to_stages, pack_seam_rows, unpack_seam_rows
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
@@ -2469,6 +2469,8 @@ contains
    call self%log_gravity_regime
    call self%refresh_equilibrium_residual
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
+   ! the end_of_step seams: every stage reads the peer state of the last exchange, held by the ghosts of q (#113)
+   call seam_ghosts_to_stages(maps=self%adam%maps, cadence=CADENCE_END_OF_STEP, ngc=self%ngc, q=self%q, q_rk=self%rk%q_rk)
    endsubroutine open_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)

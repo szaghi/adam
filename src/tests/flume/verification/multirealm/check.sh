@@ -110,8 +110,15 @@
 #          fields bitwise and every history file identical (the rg4 pattern on two realms); a restart on fewer ranks
 #          than saved stops (issue #109). The seams are stage_coincident: an end_of_step seam carries the seam ghosts of
 #          the previous step's stage buffers, which the restart files do not hold, so it does not restart bitwise.
+#   leg14  (issue #113) the end_of_step (alpha) cadence: leg 12's forest without regridding (the base level only, the
+#          seam a 1:1 face everywhere), the vortex moving along the seam, 120 steps at CFL 0.4 (about t = 0.3) and
+#          240 at CFL 0.2. Alpha fills the seam ghosts at the top of every step and all the stages of the step read
+#          that state, so it lags the stage_coincident (beta) run by a first-order-in-time error: the largest relative
+#          difference between the alpha and the beta run is bounded (L14_BOUND at CFL 0.4) and halves with the time
+#          step (the CFL 0.4 / CFL 0.2 ratio in L14_RATIO). Alpha's restart is bitwise: 40 steps against 25 + restart
+#          + 15, the last fields and every history file. Before #113 the stages read seam ghosts no fill reached.
 #
-# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg13 or all (default all); leg4 compares against
+# Usage: ./check.sh [--build] [--np N] [--legs LIST]   LIST: leg1 ... leg14 or all (default all); leg4 compares against
 #        the sod-amr run of leg2, leg5 against the sod-x and sod-z runs of leg1 and leg3, so they require those legs
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
@@ -126,7 +133,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 BUILD=0
 source "$VERIF_DIR/legs.sh"
-legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9 leg10 leg11 leg12 leg13"
+legs_declare "leg1 leg2 leg3 leg4 leg5 leg6 leg7 leg8 leg9 leg10 leg11 leg12 leg13 leg14"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -587,6 +594,57 @@ if has_leg leg13; then
    for f in $(cd "$a" && ls ./*.dat); do
       if cmp -s "$a/$f" "$b/$f"; then echo "   ${f#./}: identical"
       else echo "check.sh: leg13's ${f#./} differs between the uninterrupted and the restarted run" >&2 ; exit 1 ; fi
+   done
+fi
+if has_leg leg14; then
+   echo "== leg 14: the end_of_step (alpha) cadence against stage_coincident (beta), and alpha's restart (#113)"
+   # measured on medooza (#113): 4.5e-2 at CFL 0.4, 1.5e-2 at CFL 0.2, ratio 3.05 (CPU); before #113 3.2 to 6.9
+   L14_BOUND=1e-1      # the largest relative alpha-beta difference at CFL 0.4
+   L14_RATIO="1.6 4.5" # the range of the CFL 0.4 / CFL 0.2 ratio: the gap must shrink with the step (first order: 2)
+   declare -A l14_diff
+   for cfl in 0.4 0.2; do
+      for cadence in stage_coincident end_of_step; do
+         src="$CASE_DIR/work-$TAG-l14-src-$cadence-$cfl" ; rm -rf "$src" ; mkdir -p "$src"
+         python3 "$CASE_DIR/make_vortex_forest.py" "$src" --static --cadence $cadence --cfl $cfl
+         # a step count, not time_max, ends the runs (about t = 0.3): alpha and beta keep a common last step even if
+         # their time steps differ (before #113 alpha took 140 steps to t = 0.3, beta 132)
+         sed -i "s/^it_max *=.*/it_max   = $([[ $cfl == 0.4 ]] && echo 120 || echo 240)/" "$src"/vortex-r[12].ini
+         run "$CASE_DIR/work-$TAG-l14-$cadence-$cfl" vortex-2realm.ini "$src"/vortex-{2realm,r1,r2}.ini
+      done
+      out=$("$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$CASE_DIR/work-$TAG-l14-end_of_step-$cfl" \
+            "$CASE_DIR/work-$TAG-l14-stage_coincident-$cfl" --ngc 3 --tol 1 --fields-only) ||
+         { echo "$out" ; echo "check.sh: leg14's alpha and beta runs at CFL $cfl differ by more than their largest" \
+                "values (or have no common step)" >&2 ; exit 1 ; }
+      echo "$out" | sed 's/  PASS$//; s/^/   alpha vs beta, CFL '"$cfl"': /'
+      l14_diff[$cfl]=$(echo "$out" | sed -n 's/.*max relative difference \([0-9.e+-]*\).*/\1/p' | sort -g | tail -1)
+   done
+   python3 - "${l14_diff[0.4]}" "${l14_diff[0.2]}" "$L14_BOUND" $L14_RATIO <<'PYEOF'
+import sys
+
+d4, d2, bound, lo, hi = (float(x) for x in sys.argv[1:6])
+ratio = d4 / d2 if d2 > 0.0 else float("inf")
+ok = d4 <= bound and lo <= ratio <= hi
+print(f"   largest alpha-beta difference {d4:.3e} at CFL 0.4 (bound {bound:.1e}), {d2:.3e} at CFL 0.2: ratio "
+      f"{ratio:.2f} (first order: in [{lo}, {hi}])  {'PASS' if ok else 'FAIL'}")
+sys.exit(0 if ok else 1)
+PYEOF
+   src="$CASE_DIR/work-$TAG-l14-src-restart" ; rm -rf "$src" ; mkdir -p "$src"
+   python3 "$CASE_DIR/make_vortex_forest.py" "$src" --static --cadence end_of_step
+   sed -i 's/^it_max *=.*/it_max   = 40/' "$src"/vortex-r[12].ini
+   a="$CASE_DIR/work-$TAG-l14-restart-A" ; b="$CASE_DIR/work-$TAG-l14-restart-B"
+   run "$a" vortex-2realm.ini "$src"/vortex-{2realm,r1,r2}.ini
+   sed -i 's/^it_max *=.*/it_max   = 25/; s/^restart_save *=.*/restart_save           = 25/' "$src"/vortex-r[12].ini
+   run "$b" vortex-2realm.ini "$src"/vortex-{2realm,r1,r2}.ini
+   mv "$b/log.txt" "$b/log-1.txt"
+   sed -i -e 's/^restart *=.*/restart                = .true./' -e 's/^it_max *=.*/it_max   = 40/' \
+          -e 's/^restart_save *=.*/restart_save           = 0/' "$b"/vortex-r[12].ini
+   echo ">> $(basename "$b"): mpirun -np $NP $(basename "$EXE") vortex-2realm.ini (restart)"
+   (cd "$b" && mpirun -np "$NP" "$EXE" vortex-2realm.ini > log.txt 2>&1) ||
+      { echo "check.sh: leg14's restarted run failed, see $b/log.txt" >&2 ; exit 1 ; }
+   "$VENV_PY" "$CASE_DIR/multirealm_oracle.py" "$b" "$a" --ngc 3 --tol 0
+   for f in $(cd "$a" && ls ./*.dat); do
+      if cmp -s "$a/$f" "$b/$f"; then echo "   ${f#./}: identical"
+      else echo "check.sh: leg14's ${f#./} differs between the uninterrupted and the restarted run" >&2 ; exit 1 ; fi
    done
 fi
 echo "multi-realm verification PASSED (legs: $LEGS) ($TAG)"

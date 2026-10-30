@@ -648,7 +648,7 @@ The fast path bypasses every per-stage TBP, but it is taken only by a single rea
 | `simulate(realm, filename)`                   | Top-level entry: `initialize` → time loop → `finalize`. |
 | `simulate_from_manifest(realm, manifest)`     | Top-level entry: manifest variant. |
 | `compute_global_dt(realm, dt)`                | Min-reduce per-realm CFL across realms (intra-process) and ranks (`MPI_ALLREDUCE`). |
-| `evolve_one_step(realm)`                      | One global timestep: Phase 0 → K-loop (Phases 1–3) → Phase 4 → Phase 5; per-seam cadence gating inside. |
+| `evolve_one_step(realm)`                      | One global timestep: Phase 0 (α seam fill, open) → K-loop (Phases 1–3) → Phase 4; per-seam cadence gating inside. |
 | `post_step(realm)`                            | Per-step diagnostics block across realms. |
 | `regrid(realm)`                               | Dispatch each realm's `regrid_forest`; rebuild the flux register when a tree changed (issue #74). |
 | `is_done(realm, done)`                        | AND-reduce per-realm termination across realms and ranks. |
@@ -682,16 +682,16 @@ realm(is)%adam%maps%seam_local_cadence(:)                 (CADENCE_END_OF_STEP |
 realm(is)%adam%maps%seam_local_send_buf / recv_buf        (per-peer pack/unpack buffers, allocated once)
 ```
 
-The orchestrator's per-step Phase 2 (β) and Phase 5 (α) loops consume the `seam_local_*` arrays directly; no manifest reads happen at step time.
+The orchestrator's per-step Phase 2 (β) and Phase 0 (α) loops consume the `seam_local_*` arrays directly; no manifest reads happen at step time.
 
 #### Per-seam coupling cadence
 
 Two integer parameters on `adam_maps_object` tag each peer slot:
 
-- `CADENCE_END_OF_STEP = 0` — α default: seam fill at the end of each global step, after `close_step_forest` (Phase 5).
+- `CADENCE_END_OF_STEP = 0` — α default: seam fill once per global step, at its top before `open_step_forest` (Phase 0); FLUME's `open_step_forest` copies the ghosts into every stage buffer (`seam_ghosts_to_stages`, #113).
 - `CADENCE_STAGE_COINCIDENT = 1` — β opt-in: seam fill at every RK substage, before `end_stage_forest` (Phase 2 inside the K loop).
 
-The orchestrator gates per-seam: Phase 2 fires only on `STAGE_COINCIDENT` seams; Phase 5 fires only on `END_OF_STEP` seams. A seam is filled exactly once per step under either cadence.
+The orchestrator gates per-seam: Phase 2 fires only on `STAGE_COINCIDENT` seams (once per substage); Phase 0 fires only on `END_OF_STEP` seams (once per step).
 
 β admissibility — same `scheme_time`, `rk_scheme`, `nv`, and K between both endpoint realms — is verified at `initialize_from_manifest` time via `check_beta_admissibility`. Mismatch → immediate `error_stop`; no silent downgrade.
 

@@ -92,7 +92,11 @@ Each inter-realm seam carries a `coupling_cadence` selected independently in the
 
 ### α — end_of_step (default)
 
-Mid-step peer ghosts are intentionally stale-by-one-step. Each realm reads peer ghosts established by the previous timestep's end-of-step exchange (or by the initial-condition seam fill, on the first step). At the end of every global timestep, after every realm has completed its `close_step_forest`, the forest fires one synchronized inter-realm exchange across all α seams.
+Mid-step peer ghosts are intentionally frozen at the start of the step. At the top of every global timestep, before any realm opens it, the forest fires one synchronized inter-realm exchange across all α seams, into each realm's committed state `q`; the realm's `open_step_forest` then copies those seam ghosts into every RK stage buffer, so all the stages of the step read the peers' state at `t^n`. Filling at the top of the step, not after `close_step_forest`, makes the stages read the peers' final committed state, after their post-step work (dual-energy sync, cooling, sinks): the result does not depend on the output cadence, and a restart reproduces the uninterrupted run bitwise ([#113](https://github.com/szaghi/adam/issues/113)).
+
+::: warning α before #113, and α in PRISM
+Before [#113](https://github.com/szaghi/adam/issues/113) the α fill reached the committed state only, never the stage buffers the residuals are computed on, so the α stages read seam ghosts that no fill wrote (zero). FLUME copies the ghosts into its stages since #113. PRISM does not yet: its α stages still read stale seam ghosts, which is part of why an α 1:1 seam leaks div(B) there ([#31](https://github.com/szaghi/adam/issues/31)).
+:::
 
 This is the **AMReX `FillCoarsePatch` convention** (Berger-Oliger 1984; AMReX `Amr.cpp::timeStep`). It is well-understood numerically and admits **asymmetric per-realm K**: a forest may mix SSP-RK-3 and SSP-RK-5 realms without restructuring.
 
@@ -148,8 +152,10 @@ sequenceDiagram
     participant F as forest_object
     participant Ra as realm A
     participant Rb as realm B
-    Note over F,Rb: Phase 0 — per-realm prologue
-    F->>Ra: open_step_forest(dt)
+    Note over F,Rb: Phase 0 — α seam fill (per-seam, end_of_step only), then per-realm prologue
+    F->>F: seam_fill_batch(α pairs): post (Ra, slot of Rb), (Rb, slot of Ra), one wait, unpack
+    Note over Ra: self's q ghosts<br/>from peer's committed q
+    F->>Ra: open_step_forest(dt): stages from q, α seam ghosts included
     F->>Rb: open_step_forest(dt)
     loop k = 1..K_max
         Note over F,Rb: Phase 1 — open stage k (per-realm, K-gated)
@@ -167,12 +173,9 @@ sequenceDiagram
     F->>Ra: close_step_forest(dt)
     F->>Rb: close_step_forest(dt)
     F->>F: apply_reflux_corrections (on the committed q)
-    Note over F,Rb: Phase 5 — α seam fill (per-seam, end_of_step only)
-    F->>F: seam_fill_batch(α pairs): post (Ra, slot of Rb), (Rb, slot of Ra), one wait, unpack
-    Note over Ra: self's q ghosts<br/>from peer's committed q
 ```
 
-Per-seam gating: Phase 2 fires only on seams declared `stage_coincident` (β); Phase 5 fires only on seams declared `end_of_step` (α). A seam is filled exactly once per step under either cadence — Phase 2 may execute K times per step but at successive substages, never duplicating the same substage.
+Per-seam gating: Phase 2 fires only on seams declared `stage_coincident` (β), once per substage; Phase 0 fires only on seams declared `end_of_step` (α), once per step.
 
 **Load-bearing invariant under β**: Phase 2 must complete on ALL realms before Phase 3 starts on ANY realm. Otherwise the read-after-overwrite race between `fill_seam_from_peer_forest` writes and `compute_residuals` reads returns. The serial inner loops within a rank give this for free under the current Phase-A replicated-forest layout.
 
