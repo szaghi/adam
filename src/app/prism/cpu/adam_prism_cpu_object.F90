@@ -5422,15 +5422,17 @@ contains
 
    subroutine deposit_matched_charge_box(self, q)
    !< Matched charge rho = P S rho^P of totorica and esirkepov_Q<N>: the unfiltered base shape (on the dual nodes x_c+dx/2 for
-   !< the odd esirkepov_Q<N>, i.e. the particle seen at x-dx/2) filtered by P along every axis. Separable, so built particle
-   !< by particle from the 1-D weights of matched_shape_1d (those of the matched current) and folded into the block interior
-   !< along the periodic axes, as deposit_matched_current (the deposit with periodic faces). Ghosts are zero.
+   !< the odd esirkepov_Q<N>, i.e. the particle seen at x-dx/2) filtered by P along every axis. P is a finite shift-invariant
+   !< stencil, so it commutes with the sum over the particles: each particle deposits only its base shape, from the 1-D
+   !< weights of matched_shape_1d (those of the matched current), folded into the block interior along the periodic axes as
+   !< deposit_matched_current (the deposit with periodic faces), then P is applied once on the block along every axis
+   !< (filter_matched_box_axis, circular along the periodic axes). Ghosts are zero. FNL twin: deposit_matched_charge_box.
    implicit none
    class(prism_cpu_object), intent(inout) :: self
    real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
-   real(R8P), allocatable                 :: w(:,:), pw(:,:)
+   real(R8P), allocatable                 :: w(:,:), fa(:,:,:), fb(:,:,:)
    real(R8P)                              :: p(-7:7), qw(0:9), shift(3), x(3), rho_q, value
-   integer(I4P)                           :: radius, qfirst, nq, part, b, a, i, j, k, sm
+   integer(I4P)                           :: radius, qfirst, nq, part, b, a, i, j, k
    integer(I4P)                           :: r(3), ic(3), lo(3), hi(3), idx(3)
 
    call modified_kernels(self=self, p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
@@ -5438,6 +5440,7 @@ contains
    b = 1_I4P
    call particle_weighting_radius(self=self, b=b, rx=r(1), ry=r(2), rz=r(3))
    q(self%nv,:,:,:,:) = 0._R8P
+   allocate(w(0:2*maxval(r),3))
    do part=1, self%pic%particle_number
       x = self%q_pic(1:3,part) - shift
       do a=1, 3
@@ -5445,22 +5448,14 @@ contains
          lo(a) = ic(a) - r(a) ; hi(a) = ic(a) + r(a)
       enddo
       call check_matched_support(self=self, lo=lo, hi=hi)
-      allocate(w(minval(lo):maxval(hi),3), pw(minval(lo)-radius:maxval(hi)+radius,3))
-      w = 0._R8P ; pw = 0._R8P
       do a=1, 3
-         call matched_shape_1d(self=self, axis=a, b=b, x=x(a), ic=ic(a), radius=r(a), w=w(lo(a):hi(a),a))
-         do i=lo(a)-radius, hi(a)+radius
-            do sm=-radius, radius
-               if (i+sm < lo(a) .or. i+sm > hi(a)) cycle
-               pw(i,a) = pw(i,a) + p(sm)*w(i+sm,a)
-            enddo
-         enddo
+         call matched_shape_1d(self=self, axis=a, b=b, x=x(a), ic=ic(a), radius=r(a), w=w(0:2*r(a),a))
       enddo
       rho_q = self%q_pic(7,part) / product(self%adam%field%dxyz(:,b))
-      do k=lo(3)-radius, hi(3)+radius
-         do j=lo(2)-radius, hi(2)+radius
-            do i=lo(1)-radius, hi(1)+radius
-               value = rho_q*pw(i,1)*pw(j,2)*pw(k,3)
+      do k=lo(3), hi(3)
+         do j=lo(2), hi(2)
+            do i=lo(1), hi(1)
+               value = rho_q*w(i-lo(1),1)*w(j-lo(2),2)*w(k-lo(3),3)
                if (value == 0._R8P) cycle
                idx = [i, j, k]
                call fold_matched_cell(self=self, idx=idx)
@@ -5468,8 +5463,16 @@ contains
             enddo
          enddo
       enddo
-      deallocate(w, pw)
    enddo
+   ! P along every axis, on the block
+   allocate(fa(self%ni,self%nj,self%nk), fb(self%ni,self%nj,self%nk))
+   call filter_matched_box_axis(input=q(self%nv,1:self%ni,1:self%nj,1:self%nk,b), output=fa, axis=1_I4P, &
+                                w=p(-radius:radius), first=-radius, periodic=self%pic%bc%is_periodic(1))
+   call filter_matched_box_axis(input=fa, output=fb, axis=2_I4P, w=p(-radius:radius), first=-radius, &
+                                periodic=self%pic%bc%is_periodic(2))
+   call filter_matched_box_axis(input=fb, output=fa, axis=3_I4P, w=p(-radius:radius), first=-radius, &
+                                periodic=self%pic%bc%is_periodic(3))
+   q(self%nv,1:self%ni,1:self%nj,1:self%nk,b) = fa
    endsubroutine deposit_matched_charge_box
 
    subroutine deposit_pic_modified_charge(self, q)
