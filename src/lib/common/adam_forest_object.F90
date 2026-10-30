@@ -2238,9 +2238,17 @@ contains
    integer(I4P)                       :: sub(3), p4(3), p3(3), p6(3) !< Octant and anchor positions.
    integer(I4P)                       :: d                          !< Axis counter.
    logical                            :: ok                         !< Cell match.
+   integer(I8P)                       :: code_m                     !< Memo: the last peer leaf found by a search.
+   real(R8P)                          :: emin_m(3), emax_m(3), d_m(3) !< Memo: its origin, upper corner, cell size.
+   integer(I4P)                       :: rank_m, b_m                !< Memo: its owner rank and owner-local block.
 
    call face_axis_sign(face, axis, sgn)
    call ghost_slab_extents(realm(is)%ptr, axis, sgn, imin, imax, jmin, jmax, kmin, kmax)
+   ! consecutive ghosts mostly fall in the same peer leaf: the leaf of the last search is reused while the ghost centre
+   ! is inside it by more than 0.1 of its cells on every axis (the leaf containing a point is unique, so the rows are
+   ! the same; a centre on or near a leaf face searches), issue #110 P6. It relies on the tree holding leaves only (and
+   ! the root): get_closest_block returns the deepest existing ancestor of the point's finest code, the memo leaf.
+   code_m = -2_I8P ; emin_m = 0._R8P ; emax_m = 0._R8P ; d_m = 0._R8P ; rank_m = -1_I4P ; b_m = 0_I4P
    iter%b = 1_I4P ; iter%p => null()
    do while (realm(is)%ptr%adam%tree%loop(iter, node_ptr=node_g))
       call leaf_metrics(realm(is)%ptr, node_g%code, emin_g, d_g, emax_g)
@@ -2259,8 +2267,14 @@ contains
                xg = emin_g + ([real(i, R8P), real(j, R8P), real(k, R8P)] - 0.5_R8P) * d_g
                call wrap_periodic_tangential(realm(is)%ptr, realm(ip)%ptr, axis, xg)
                if (.not.inside_domain(realm(ip)%ptr, xg, 0.25_R8P * d_g)) cycle ! a corner at a physical boundary
-               code_c = realm(ip)%ptr%adam%tree%get_closest_block(grid=realm(ip)%ptr%adam%grid, point=xg)
-               call leaf_metrics(realm(ip)%ptr, code_c, emin_c, d_c)
+               if (code_m /= -2_I8P .and. all(xg > emin_m + 0.1_R8P * d_m) .and. all(xg < emax_m - 0.1_R8P * d_m)) then
+                  code_c = code_m ; emin_c = emin_m ; d_c = d_m
+               else
+                  code_c = realm(ip)%ptr%adam%tree%get_closest_block(grid=realm(ip)%ptr%adam%grid, point=xg)
+                  call leaf_metrics(realm(ip)%ptr, code_c, emin_c, d_c, emax_m)
+                  node_c => realm(ip)%ptr%adam%tree%node(code=code_c)
+                  code_m = code_c ; emin_m = emin_c ; d_m = d_c ; rank_m = node_c%myrank ; b_m = int(node_c%block_index, I4P)
+               endif
                associate(r_p => realm(ip)%ptr)
                   n_c = [r_p%adam%grid%ni, r_p%adam%grid%nj, r_p%adam%grid%nk]
                endassociate
@@ -2317,9 +2331,13 @@ contains
                   trim(str(d_g(1)))//' '//trim(str(d_g(2)))//' '//trim(str(d_g(3)))//', peer cell size '//        &
                   trim(str(d_c(1)))//' '//trim(str(d_c(2)))//' '//trim(str(d_c(3)))//', peer cell '//             &
                   trim(str(ijk_c(1)))//' '//trim(str(ijk_c(2)))//' '//trim(str(ijk_c(3))))
-               node_c => realm(ip)%ptr%adam%tree%node(code=code_c)
-               rank_c = node_c%myrank
-               b_c    = int(node_c%block_index, I4P)
+               if (code_c == code_m) then
+                  rank_c = rank_m ; b_c = b_m
+               else ! the restriction's second search found another leaf
+                  node_c => realm(ip)%ptr%adam%tree%node(code=code_c)
+                  rank_c = node_c%myrank
+                  b_c    = int(node_c%block_index, I4P)
+               endif
                if (kind == SEAM_ROW_COPY .and. rank_g == mpih%myrank .and. rank_c == mpih%myrank) then
                   call push_row(local, [ip, b_c, b_g, ijk_c, i, j, k])
                else

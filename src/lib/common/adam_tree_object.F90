@@ -454,8 +454,7 @@ contains
    real(R8P),          intent(in)    :: point(3)    !< Point xyz coordinates.
    integer(I8P)                      :: code        !< The Morton code.
    integer(I4P)                      :: ijkl(4)     !< Indexes.
-   integer(I8P), allocatable         :: path(:)     !< Path codes from node to root.
-   integer(I4P)                      :: c           !< Counter.
+   integer(I8P)                      :: finest      !< The finest-level code of the point.
    logical                           :: block_found !< Flag to check if block has been found.
 
    ! find the block closest to the point in the finest refinement level; the Morton code interleaves as many coordinates
@@ -470,24 +469,26 @@ contains
       code = self%coordinates_to_morton(i=ijkl(1), j=ijkl(2), k=ijkl(3), l=self%max_level)
    endselect
    if (.not.self%has_code(code=code)) then
-      ! finest-level block does not exist, return the finest living into its parents-path
-      path = self%path(code=code)
+      ! finest-level block does not exist, return the finest living into its parents-path (the codes of `path` visited
+      ! in place, from the code up to level 1: no allocation, issue #110 P6)
+      finest = code
       block_found = .false.
-      do c=lbound(path, dim=1), ubound(path, dim=1)
-         code = path(c)
+      do
          if (self%has_code(code=code)) then
             block_found = .true.
             exit
-          endif
+         endif
+         if (self%level(code=code) <= 1_I4P) exit
+         code = self%parent(code=code)
       enddo
       ! the path stops at level 1: on a tree whose only block is the root (code -1, level 0) the root is the block
       if (.not.block_found .and. self%has_code(code=-1_I8P)) then
          code = -1_I8P
          block_found = .true.
       endif
-      if (.not.block_found) call mpih%abort(error_code=-111,                                               &
-                                                 msg='ERROR: tree%get_closest block failed, path: '//str(path)//&
-                                                     ' point: '//str(point))
+      if (.not.block_found) call mpih%abort(error_code=-111,                                                        &
+                                            msg='ERROR: tree%get_closest block failed, path: '//                   &
+                                                str(self%path(code=finest))//' point: '//str(point))
    endif
    endfunction get_closest_block
 
@@ -1554,19 +1555,22 @@ contains
    integer(I4P),       intent(out) :: j        !< J coordinate.
    integer(I4P),       intent(out) :: l        !< L coordinate.
    integer(I4P)                    :: ij(2)    !< IJ local coordinates.
-   integer(I8P), allocatable       :: path_(:) !< Path from code to root.
    integer(I4P)                    :: p        !< Counter.
-   integer(I8P)                    :: c        !< Counter.
+   integer(I8P)                    :: c        !< Code on the path to the root.
 
+   ! the codes of `path` (code, its parent, ... up to level 1) visited in place: no allocation (issue #110 P6)
    i = 0_I4P
    j = 0_I4P
    l = self%level(code=code)
-   path_ = self%path(code=code)
-   do p=1, size(path_, dim=1)
-      c = path_(p)
+   c = code
+   p = 0_I4P
+   do
+      p = p + 1_I4P
       call demorton2D(code=self%child_local(code=c), i=ij(1), j=ij(2))
       i = i + ij(1) * 2**(p-1)
       j = j + ij(2) * 2**(p-1)
+      if (self%level(code=c) <= 1_I4P) exit
+      c = self%parent(code=c)
    enddo
    endsubroutine morton_to_coordinates2D
 
@@ -1579,21 +1583,24 @@ contains
    integer(I4P),       intent(out) :: k        !< K coordinate.
    integer(I4P),       intent(out) :: l        !< L coordinate.
    integer(I4P)                    :: ijk(3)   !< IJK local coordinates.
-   integer(I8P), allocatable       :: path_(:) !< Path from code to root.
    integer(I4P)                    :: p        !< Counter.
-   integer(I8P)                    :: c        !< Counter.
+   integer(I8P)                    :: c        !< Code on the path to the root.
 
+   ! the codes of `path` (code, its parent, ... up to level 1) visited in place: no allocation (issue #110 P6)
    i = 0_I4P
    j = 0_I4P
    k = 0_I4P
    l = self%level(code=code)
-   path_ = self%path(code=code)
-   do p=1, size(path_, dim=1)
-      c = path_(p)
+   c = code
+   p = 0_I4P
+   do
+      p = p + 1_I4P
       call demorton3D(code=self%child_local(code=c), i=ijk(1), j=ijk(2), k=ijk(3))
       i = i + ijk(1) * 2**(p-1)
       j = j + ijk(2) * 2**(p-1)
       k = k + ijk(3) * 2**(p-1)
+      if (self%level(code=c) <= 1_I4P) exit
+      c = self%parent(code=c)
    enddo
    endsubroutine morton_to_coordinates3D
 

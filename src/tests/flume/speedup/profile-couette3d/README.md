@@ -505,6 +505,33 @@ regrid at step 10 is the 0.93 s above; loop minus steps, 1.94 s, counts both reg
 device would remove about 0.36 s of host updates, 2% of the loop. The CPU backend runs the same routine;
 its timing was not measured.
 
+### Two realms: the cost of a topology rebuild
+
+Measured 2026-10-29/30 on `gnode01`, four A30, one rank per GPU (`--np 4`), the `medium` size, 20 steps, no profiler,
+the forest timing lines (max over the ranks); two runs of each executable agree to 1 % in loop and regrid time
+([#110](https://github.com/szaghi/adam/issues/110) P6):
+
+| variant | loop | steps | regrid | topology rebuild |
+|---|---|---|---|---|
+| one realm (refined walls) | 4.69 s | 4.12 s | 0.57 s | - |
+| `--realms 2` (a mixed `auto` seam) | 4.95-5.00 s | 4.66-4.71 s | 0.29 s | none (the box markers keep the grid) |
+| `--realms 2 --rebuild`, commit 8a1137a0 | 13.9 s | 4.89 s | 9.0 s | 8.66-8.77 s / 20 |
+
+The second realm costs about 6 % of the loop. A rebuild cost 0.43 s, about two steps of the case; its phases
+(`forest rebuild phases`) and the two changes of P6 that cut it:
+
+| per 20 rebuilds | 8a1137a0 | Morton decodes in place | + peer-leaf reuse per seam ghost |
+|---|---|---|---|
+| topology rebuild | 8.66-8.77 s | 5.33-5.34 s | 2.70-2.71 s |
+| seam rows and crown | 5.84-5.95 s | 3.24 s | 0.60-0.61 s |
+| flux register | 1.34 s | 0.81 s | 0.80 s |
+| coupling checks | 0.39 s | 0.22 s | 0.22 s |
+| backend hook (FNL device copies of the maps) | 1.09 s | 1.08-1.09 s | 1.09 s |
+| run wall | 24.4-25.0 s | 20.9 s | 18.3-18.4 s |
+
+A rebuild now costs 0.135 s, 0.6 steps of the case; the backend hook is its largest phase. Both changes keep every
+regression output bitwise.
+
 ### Reproducing the results
 
 The measurements are `results/runs.csv` (NVIDIA) and `results/runs-amd.csv` (AMD), one row per run directory (variant,
