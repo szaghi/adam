@@ -46,6 +46,8 @@ def main() -> None:
     parser.add_argument("--it-save", type=int, default=100000)
     parser.add_argument("--hit-k0", type=float, default=0.0, help="> 0: isotropic turbulence of peak k0, Mach = M_t, Reynolds = Re_lambda")
     parser.add_argument("--hit-seed", type=int, default=1)
+    parser.add_argument("--sgs-model", default="none")
+    parser.add_argument("--sgs-constant", type=float, default=0.0, help="0: the model's default")
     parser.add_argument("--restart-save", type=int, default=0, help="cadence of the restart files")
     parser.add_argument("--restart", action="store_true", help="restart from them")
     parser.add_argument("--history", type=int, default=1, help="cadence of the conservation and turbulence histories")
@@ -92,6 +94,10 @@ def main() -> None:
     text = section(text, "time", {"it_max": str(args.it_max), "time_max": str(args.time_max), "CFL": str(args.cfl)})
     text = section(text, "diagnostics", {"conservation_history_save": str(args.history),
                                          "turbulence_history_save": str(args.history)})
+    if args.sgs_model != "none":
+        text += f"\n[turbulence]\nsgs_model = {args.sgs_model}\n"
+        if args.sgs_constant > 0.0:
+            text += f"sgs_constant = {args.sgs_constant}\n"
     args.out.write_text(text)
 
 

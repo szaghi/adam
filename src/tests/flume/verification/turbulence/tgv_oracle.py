@@ -86,7 +86,8 @@ def agree(args: argparse.Namespace) -> int:
         print(f"agree: shapes differ {a.shape} {b.shape}  FAIL")
         return 1
     ok = True
-    for c, name in enumerate(COLUMNS[1:], start=1):
+    names = [*COLUMNS, "eps_sgs"][: a.shape[1]]  # a run with a subgrid-scale model has one more column
+    for c, name in enumerate(names[1:], start=1):
         scale = max(np.max(np.abs(a[:, c])), np.max(np.abs(a[:, 2])) if name in ("eps_d", "pd") else 0.0, 1e-300)
         diff = float(np.max(np.abs(a[:, c] - b[:, c])) / scale)
         good = diff <= args.tol

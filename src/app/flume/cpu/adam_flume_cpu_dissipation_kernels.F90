@@ -45,6 +45,10 @@ public :: add_dissipative_fluxes_o2
 public :: add_dissipative_fluxes_o4
 public :: add_resistive_fluxes_o2
 public :: add_resistive_fluxes_o4
+public :: add_sgs_fluxes_o2
+public :: add_sgs_fluxes_o4
+public :: compute_lambda_sgs
+public :: compute_sgs_dissipation
 public :: compute_turbulence_integrals
 
 integer(I4P), parameter :: IW(4)=[IA_U, IA_V, IA_W, IA_T]  !< Auxiliary indexes of W = (u, v, w, T).
@@ -176,6 +180,208 @@ contains
    enddo
    !$omp end parallel do
    endsubroutine add_dissipative_fluxes_o4
+
+   subroutine add_sgs_fluxes_o2(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, cp_prt, dxyz, is_null, q_aux, &
+                             mu_t, fl)
+   !< Add to `fl` the subgrid-scale fluxes of direction `d` (2nd order), those of `add_dissipative_fluxes_o2` with `mu = mu_t` and
+   !< `k = mu_t cp / Pr_t` in place of the laws (issue #119, T1): the mean of the two cells at the face, whose stencil stays
+   !< positive, the cell value in the correction.
+   integer(I4P), intent(in)    :: d                                 !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                        !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)    :: cp_prt                            !< cp / Pr_t.
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
+   logical,      intent(in)    :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(in)    :: mu_t(1-ngc:,1-ngc:,1-ngc:,1:)     !< Eddy viscosity.
+   real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)       !< Face fluxes of direction `d`.
+   integer(I4P)                :: o(3,3)                            !< Steps o(:,t) along each direction.
+   real(R8P)                   :: w0(4), w1(4)                      !< Left and right cell states.
+   real(R8P)                   :: g(4,3)                            !< Face gradient.
+   real(R8P)                   :: h(4)                              !< Face flux.
+   real(R8P)                   :: mf                                !< Eddy viscosity of a face or cell.
+   real(R8P)                   :: rdx(3)                            !< Inverse steps, 0 along null directions.
+   integer(I4P)                :: c(3)                              !< Right cell index.
+   integer(I4P)                :: b, i, j, k, t                     !< Counters.
+
+   o = steps(is_null)
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q_aux, mu_t, fl)
+   do b=1, blocks_number
+      do k=1-dk, nk
+         do j=1-dj, nj
+            do i=1-di, ni
+               rdx = inverse_steps(dxyz(:,b), is_null)
+               c = [i+di, j+dj, k+dk]
+               w0 = q_aux(IW,i,j,k,b)
+               w1 = q_aux(IW,c(1),c(2),c(3),b)
+               do t=1, 3
+                  if (t == d) then
+                     g(:,t) = (w1 - w0) * rdx(t)
+                  else
+                     g(:,t) = 0.25_R8P * rdx(t) * (q_aux(IW,i+o(1,t),j+o(2,t),k+o(3,t),b)          - &
+                                                   q_aux(IW,i-o(1,t),j-o(2,t),k-o(3,t),b)          + &
+                                                   q_aux(IW,c(1)+o(1,t),c(2)+o(2,t),c(3)+o(3,t),b) - &
+                                                   q_aux(IW,c(1)-o(1,t),c(2)-o(2,t),c(3)-o(3,t),b))
+                  endif
+               enddo
+               mf = 0.5_R8P * (mu_t(i,j,k,b) + mu_t(i+di,j+dj,k+dk,b))
+               call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+                                             w=0.5_R8P * (w0 + w1), g=g, f=h)
+               fl(IQ_RU:IQ_RU+3,i,j,k,b) = fl(IQ_RU:IQ_RU+3,i,j,k,b) + h
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine add_sgs_fluxes_o2
+
+   subroutine add_sgs_fluxes_o4(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, cp_prt, dxyz, is_null, q_aux, &
+                             mu_t, fl)
+   !< Add to `fl` the subgrid-scale fluxes of direction `d` (4th order), those of `add_dissipative_fluxes_o4` with `mu = mu_t` and
+   !< `k = mu_t cp / Pr_t` in place of the laws (issue #119, T1): the mean of the two cells at the face, whose stencil stays
+   !< positive, the cell value in the correction.
+   integer(I4P), intent(in)    :: d                                 !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                        !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)    :: cp_prt                            !< cp / Pr_t.
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
+   logical,      intent(in)    :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(in)    :: mu_t(1-ngc:,1-ngc:,1-ngc:,1:)     !< Eddy viscosity.
+   real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)       !< Face fluxes of direction `d`.
+   integer(I4P)                :: o(3,3)                            !< Steps o(:,t) along each direction.
+   real(R8P)                   :: wm(4,-1:2)                        !< States of the cells -1 ... 2 along `d`.
+   real(R8P)                   :: dm(4,-1:2)                        !< 4th-order tangential derivative at those cells.
+   real(R8P)                   :: g(4,3)                            !< Face (or cell) gradient.
+   real(R8P)                   :: gm(4,-1:2)                        !< Cell fluxes of the correction.
+   real(R8P)                   :: wf(4)                             !< Face state.
+   real(R8P)                   :: h(4)                              !< Face flux.
+   real(R8P)                   :: mf                                !< Eddy viscosity of a face or cell.
+   real(R8P)                   :: rdx(3)                            !< Inverse steps, 0 along null directions.
+   integer(I4P)                :: c(3)                              !< Cell index.
+   integer(I4P)                :: b, i, j, k, m, t                  !< Counters.
+
+   o = steps(is_null)
+   !$omp parallel do collapse(4) default(firstprivate) shared(dxyz, q_aux, mu_t, fl)
+   do b=1, blocks_number
+      do k=1-dk, nk
+         do j=1-dj, nj
+            do i=1-di, ni
+               rdx = inverse_steps(dxyz(:,b), is_null)
+               do m=-1, 2
+                  wm(:,m) = q_aux(IW,i+m*di,j+m*dj,k+m*dk,b)
+               enddo
+               ! face flux from 4th-order face values and gradients
+               do t=1, 3
+                  if (t == d) then
+                     g(:,t) = (27._R8P * (wm(:,1) - wm(:,0)) - (wm(:,2) - wm(:,-1))) * rdx(t) / 24._R8P
+                  else
+                     do m=-1, 2
+                        c = [i+m*di, j+m*dj, k+m*dk]
+                        dm(:,m) = (8._R8P * (q_aux(IW,c(1)+o(1,t),c(2)+o(2,t),c(3)+o(3,t),b)        -  &
+                                             q_aux(IW,c(1)-o(1,t),c(2)-o(2,t),c(3)-o(3,t),b))       -  &
+                                   (q_aux(IW,c(1)+2*o(1,t),c(2)+2*o(2,t),c(3)+2*o(3,t),b)           -  &
+                                    q_aux(IW,c(1)-2*o(1,t),c(2)-2*o(2,t),c(3)-2*o(3,t),b))) * rdx(t) / 12._R8P
+                     enddo
+                     g(:,t) = (9._R8P * (dm(:,0) + dm(:,1)) - (dm(:,-1) + dm(:,2))) / 16._R8P
+                  endif
+               enddo
+               wf = (9._R8P * (wm(:,0) + wm(:,1)) - (wm(:,-1) + wm(:,2))) / 16._R8P
+               ! across a strong temperature jump the 4-point face value undershoots, possibly below zero, where a
+               ! power law (T / tref)^omega is NaN: there the face temperature is the mean of its two cells
+               if (.not.(wf(4) > 0._R8P)) wf(4) = 0.5_R8P * (wm(4,0) + wm(4,1))
+               mf = 0.5_R8P * (mu_t(i,j,k,b) + mu_t(i+di,j+dj,k+dk,b))
+               call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+                                             w=wf, g=g, f=h)
+               ! Shu-Osher correction from the cell fluxes, 2nd-order central gradients
+               do m=-1, 2
+                  c = [i+m*di, j+m*dj, k+m*dk]
+                  do t=1, 3
+                     g(:,t) = 0.5_R8P * rdx(t) * (q_aux(IW,c(1)+o(1,t),c(2)+o(2,t),c(3)+o(3,t),b) - &
+                                                  q_aux(IW,c(1)-o(1,t),c(2)-o(2,t),c(3)-o(3,t),b))
+                  enddo
+                  mf = mu_t(c(1),c(2),c(3),b)
+                  call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+                                                w=wm(:,m), g=g, f=gm(:,m))
+               enddo
+               h = h - (gm(:,2) - gm(:,1) - gm(:,0) + gm(:,-1)) / 48._R8P
+               fl(IQ_RU:IQ_RU+3,i,j,k,b) = fl(IQ_RU:IQ_RU+3,i,j,k,b) + h
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine add_sgs_fluxes_o4
+
+   subroutine compute_sgs_dissipation(ni, nj, nk, ngc, blocks_number, dxyz, is_null, q_aux, mu_t, eps)
+   !< Compute the volume integral of the subgrid-scale dissipation `tau_sgs_ij d u_i / d x_j` on this rank (issue #119, T1), as
+   !< `eps` of `compute_turbulence_integrals` with `mu = mu_t`; the column `eps_sgs` of the turbulence history.
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)  :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)  :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(in)  :: mu_t(1-ngc:,1-ngc:,1-ngc:,1:)     !< Eddy viscosity.
+   real(R8P),    intent(out) :: eps                               !< The integral.
+   integer(I4P)              :: s(3)                              !< Steps along x, y, z: 1 active, 0 null.
+   real(R8P)                 :: rdx(3)                            !< Inverse steps, 0 along null.
+   real(R8P)                 :: g(3,3)                            !< Velocity gradient.
+   real(R8P)                 :: f(6)                              !< Integrands.
+   integer(I4P)              :: b, i, j, k, a                     !< Counters.
+
+   s = merge(0_I4P, 1_I4P, is_null)
+   eps = 0._R8P
+   do b=1, blocks_number
+      rdx = real(s, R8P) / dxyz(:,b)
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               do a=1, 3
+                  g(a,1) = (8._R8P * (q_aux(IA_U+a-1,i+s(1),j,k,b) - q_aux(IA_U+a-1,i-s(1),j,k,b)) -     &
+                            (q_aux(IA_U+a-1,i+2*s(1),j,k,b) - q_aux(IA_U+a-1,i-2*s(1),j,k,b))) * rdx(1) / 12._R8P
+                  g(a,2) = (8._R8P * (q_aux(IA_U+a-1,i,j+s(2),k,b) - q_aux(IA_U+a-1,i,j-s(2),k,b)) -     &
+                            (q_aux(IA_U+a-1,i,j+2*s(2),k,b) - q_aux(IA_U+a-1,i,j-2*s(2),k,b))) * rdx(2) / 12._R8P
+                  g(a,3) = (8._R8P * (q_aux(IA_U+a-1,i,j,k+s(3),b) - q_aux(IA_U+a-1,i,j,k-s(3),b)) -     &
+                            (q_aux(IA_U+a-1,i,j,k+2*s(3),b) - q_aux(IA_U+a-1,i,j,k-2*s(3),b))) * rdx(3) / 12._R8P
+               enddo
+               call compute_turbulence_integrands(mu0=mu_t(i,j,k,b), tref=1._R8P, omega_mu=0._R8P, rho=q_aux(IA_R,i,j,k,b), &
+                                                  p=q_aux(IA_P,i,j,k,b), T=q_aux(IA_T,i,j,k,b),                        &
+                                                  u=q_aux(IA_U:IA_W,i,j,k,b), g=g, f=f)
+               eps = eps + f(5) * dxyz(1,b) * dxyz(2,b) * dxyz(3,b)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_sgs_dissipation
+
+   subroutine compute_lambda_sgs(ni, nj, nk, ngc, blocks_number, factor, dxyz, is_null, q_aux, mu_t, lambda_sgs)
+   !< Compute `max(2 factor mu_t / rho sum_d 1 / dx_d^2)` over the interior cells (issue #119, T1): the part of the time step limit
+   !< of the eddy viscosity, `factor = max(4/3, gamma / Pr_t)`.
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)  :: factor                            !< max(4/3, gamma / Pr_t).
+   real(R8P),    intent(in)  :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)  :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(in)  :: mu_t(1-ngc:,1-ngc:,1-ngc:,1:)     !< Eddy viscosity.
+   real(R8P),    intent(out) :: lambda_sgs                        !< The maximum.
+   real(R8P)                 :: r2                                !< sum_d 1 / dx_d^2.
+   integer(I4P)              :: b, i, j, k, d                     !< Counters.
+
+   lambda_sgs = 0._R8P
+   do b=1, blocks_number
+      r2 = sum([(1._R8P / dxyz(d,b)**2, d=1, 3)], mask=.not.is_null)
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               lambda_sgs = max(lambda_sgs, 2._R8P * factor * mu_t(i,j,k,b) / q_aux(IA_R,i,j,k,b) * r2)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_lambda_sgs
 
    subroutine compute_turbulence_integrals(ni, nj, nk, ngc, blocks_number, mu0, tref, omega_mu, dxyz, is_null, q_aux, &
                                            integrals)

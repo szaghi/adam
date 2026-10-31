@@ -13,6 +13,8 @@ use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_o
 use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
+use :: adam_turbulence_kernels, only : compute_mu_t_sigma, compute_mu_t_vreman, compute_mu_t_wale
+use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
 use :: adam_seam_exchange,        only : seam_fill_all, seam_ghosts_to_stages, pack_seam_rows, unpack_seam_rows
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
@@ -52,7 +54,8 @@ use :: adam_flume_cpu_euler_ps_llf_kernels,  only : add_gravity_edge_correction_
                                                  compute_riemann_face_fluxes_euler_ps_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_euler_de_ps_hll_kernels,  only : add_gravity_edge_correction_euler_de_ps_hll=>add_gravity_edge_correction, &
                                                  compute_riemann_face_fluxes_euler_de_ps_hll=>compute_riemann_face_fluxes
-use :: adam_flume_cpu_euler_de_ps_hllc_kernels, only : add_gravity_edge_correction_euler_de_ps_hllc=>add_gravity_edge_correction, &
+use :: adam_flume_cpu_euler_de_ps_hllc_kernels, &
+      only : add_gravity_edge_correction_euler_de_ps_hllc=>add_gravity_edge_correction, &
                                                  compute_riemann_face_fluxes_euler_de_ps_hllc=>compute_riemann_face_fluxes
 use :: adam_flume_cpu_euler_de_ps_llf_kernels,  only : add_gravity_edge_correction_euler_de_ps_llf=>add_gravity_edge_correction, &
                                                  compute_riemann_face_fluxes_euler_de_ps_llf=>compute_riemann_face_fluxes
@@ -118,6 +121,8 @@ use :: adam_flume_cpu_mhd_eglm_llf_kernels,     only : add_gravity_edge_correcti
                                                        compute_riemann_face_fluxes_mhd_eglm_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cooling_library,          only : cooled_internal_energy, cooling_function
 use :: adam_flume_cpu_dissipation_kernels, only : add_dissipative_fluxes_o2, add_dissipative_fluxes_o4, &
+                                                   add_sgs_fluxes_o2, add_sgs_fluxes_o4, compute_lambda_sgs, &
+                                                         compute_sgs_dissipation, &
                                                    compute_turbulence_integrals, &
                                               add_resistive_fluxes_o2, add_resistive_fluxes_o4
 use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>blend_inadmissible_ghosts,            &
@@ -291,6 +296,7 @@ endtype equilibrium_seam_face
 type, extends(flume_common_object) :: flume_cpu_object
    !< FLUME CPU backend object.
    ! fluxes data
+   real(R8P), allocatable :: mu_t(:,:,:,:)    !< Eddy viscosity [1-ngc:ni+ngc, ..., nb], with a subgrid-scale model.
    real(R8P), allocatable :: flx_f(:,:,:,:,:) !< X-face fluxes [nv, 0:ni, 1:nj, 1:nk, nb], face i = i+1/2.
    real(R8P), allocatable :: fly_f(:,:,:,:,:) !< Y-face fluxes [nv, 1:ni, 0:nj, 1:nk, nb], face j = j+1/2.
    real(R8P), allocatable :: flz_f(:,:,:,:,:) !< Z-face fluxes [nv, 1:ni, 1:nj, 0:nk, nb], face k = k+1/2.
@@ -320,6 +326,8 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_turbulence_history !< Compute and save the turbulence history (issue #119).
+      procedure, pass(self) :: compute_mu_t            !< Compute the eddy viscosity of the model (issue #119).
+      procedure, pass(self) :: update_sgs_lambda       !< Update the time step limit of the eddy viscosity (issue #119).
       procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: compute_gravity_correction !< Compute the fourth-order gravity energy correction.
@@ -513,6 +521,7 @@ contains
    real(R8P)                              :: omega_mu, omega_k !< Exponents of the laws.
    procedure(add_dissipative_fluxes_o4), pointer :: add_fluxes  !< Viscous kernel of the order.
    procedure(add_resistive_fluxes_o4),   pointer :: add_ohmic   !< Ohmic kernel of the order.
+   procedure(add_sgs_fluxes_o4),      pointer :: add_sgs     !< Subgrid-scale kernel of the order.
    integer(I4P)                           :: d                 !< Direction counter.
    integer(I4P)                           :: e(3)              !< Unit step along `d`.
 
@@ -557,6 +566,31 @@ contains
       endselect
    enddo
    endassociate
+   ! issue #119, T1: the fluxes are linear in mu and k, so the subgrid-scale ones add to the molecular ones, in kernels of their own
+   if (self%turbulence%is_active) then
+      call self%compute_mu_t
+      select case(self%numerics%dissipative_order)
+      case(2_I4P)
+         add_sgs => add_sgs_fluxes_o2
+      case(4_I4P)
+         add_sgs => add_sgs_fluxes_o4
+      endselect
+      associate(cp_prt=>self%physics%cp / self%turbulence%prandtl_t, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
+                nb=>self%blocks_number, is_null=>self%adam%grid%null_xyz)
+      if (.not.is_null(1)) call add_sgs(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+            blocks_number=nb, &
+                                        cp_prt=cp_prt, dxyz=self%adam%field%dxyz, is_null=is_null, q_aux=self%q_aux,   &
+                                        mu_t=self%mu_t, fl=self%flx_f)
+      if (.not.is_null(2)) call add_sgs(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+            blocks_number=nb, &
+                                        cp_prt=cp_prt, dxyz=self%adam%field%dxyz, is_null=is_null, q_aux=self%q_aux,   &
+                                        mu_t=self%mu_t, fl=self%fly_f)
+      if (.not.is_null(3)) call add_sgs(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+            blocks_number=nb, &
+                                        cp_prt=cp_prt, dxyz=self%adam%field%dxyz, is_null=is_null, q_aux=self%q_aux,   &
+                                        mu_t=self%mu_t, fl=self%flz_f)
+      endassociate
+   endif
    endsubroutine add_dissipative_fluxes
 
    subroutine apply_floors(self, q)
@@ -815,13 +849,57 @@ contains
                                                integrals=row)
    endsubroutine compute_conservation
 
+   subroutine compute_mu_t(self)
+   !< Compute the eddy viscosity from the auxiliary variables, ghost cells included in them (issue #119, T1): the kernel of the
+   !< model is selected here, never inside the loops.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+
+   select case(self%turbulence%model)
+   case(SGS_VREMAN_MODEL)
+      call compute_mu_t_vreman(ir=IA_R, iu=IA_U, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+            blocks_number=self%blocks_number, &
+                 c=self%turbulence%constant, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, &
+                       mu_t=self%mu_t)
+   case(SGS_WALE_MODEL)
+      call compute_mu_t_wale(ir=IA_R, iu=IA_U, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+            blocks_number=self%blocks_number, &
+                 c=self%turbulence%constant, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, &
+                       mu_t=self%mu_t)
+   case(SGS_SIGMA_MODEL)
+      call compute_mu_t_sigma(ir=IA_R, iu=IA_U, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+            blocks_number=self%blocks_number, &
+                 c=self%turbulence%constant, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, &
+                       mu_t=self%mu_t)
+   endselect
+   endsubroutine compute_mu_t
+
+   subroutine update_sgs_lambda(self, realm)
+   !< Update the local time step limit of the eddy viscosity from the committed state (issue #119, T1): `compute_local_dt_forest`
+   !< cannot refresh the ghost cells, and adds this limit to its own, which over-estimates the sum of the two per cell.
+   class(flume_cpu_object), intent(inout)                   :: self     !< The equation.
+   type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms.
+
+   if (.not.self%turbulence%is_active) return
+   call self%update_ghost(q=self%q)
+   if (present(realm)) call seam_fill_all(self=self, realm=realm)
+   call self%compute_q_aux(q=self%q)
+   call self%compute_mu_t
+   call compute_lambda_sgs(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number,                  &
+                           factor=max(4._R8P / 3._R8P, self%physics%gamma / self%turbulence%prandtl_t), &
+                                 dxyz=self%adam%field%dxyz, &
+                           is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, mu_t=self%mu_t, lambda_sgs=self%sgs_lambda)
+   ! the largest of all ranks: the cell maxima of the two limits lie in different cells, and their sum must not depend on the partition
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%sgs_lambda, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   endsubroutine update_sgs_lambda
+
    subroutine compute_turbulence_history(self, realm)
    !< Compute and save the turbulence history of the committed state on its cadence (issue #119, T0.1): the ghost cells are
    !< refreshed first and, with sibling realms, the inter-realm seam ghosts are refilled from the peers, as for the div(B)
    !< history; the auxiliary variables are recomputed from them.
    class(flume_cpu_object), intent(inout)                   :: self         !< The equation.
    type(realm_pointer),     intent(inout), optional, target :: realm(:)     !< Sibling realms.
-   real(R8P)                                                :: integrals(6) !< Integrals (K, Z, eps_s, eps_d, eps, pd).
+   real(R8P)                                                :: integrals(7) !< Integrals (K, Z, eps_s, eps_d, eps, pd, eps_sgs).
+   integer(I4P)                                             :: n            !< Columns.
    real(R8P)                                                :: tref         !< Reference temperature of the law.
    real(R8P)                                                :: omega_mu     !< Exponent of the law.
    real(R8P)                                                :: omega_k      !< Conductivity exponent (unused).
@@ -835,9 +913,17 @@ contains
    call compute_turbulence_integrals(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                     mu0=self%physics%dissipation%mu, tref=tref, omega_mu=omega_mu, &
                                     dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, &
-                                    integrals=integrals)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, 6, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
-   call self%diagnostics%save_turbulence_row(it=self%time%it, time=self%time%time, integrals=integrals)
+                                    integrals=integrals(1:6))
+   n = 6_I4P
+   if (self%turbulence%is_active) then
+      n = 7_I4P
+      call self%compute_mu_t
+      call compute_sgs_dissipation(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+            dxyz=self%adam%field%dxyz, &
+                                   is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, mu_t=self%mu_t, eps=integrals(7))
+   endif
+   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call self%diagnostics%save_turbulence_row(it=self%time%it, time=self%time%time, integrals=integrals(1:n))
    endsubroutine compute_turbulence_history
 
    subroutine compute_divb_history(self, realm)
@@ -1054,6 +1140,10 @@ contains
    call mpih%initialize(do_mpi_init=.true., verbose=.true.)
    call self%flume_common_object%initialize(filename=filename, memory_avail=mpih%memory_avail/realms_number_, &
                                             verbose=.true.)
+   if (self%turbulence%is_active) then
+      allocate(self%mu_t(1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc,1:self%nb))
+      self%mu_t = 0._R8P
+   endif
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                'input and nothing yet checks that the realms share the references)')
@@ -2176,7 +2266,8 @@ contains
                               gamma=self%physics%gamma, R=self%physics%R, cp=self%physics%cp,                       &
                               mu0=self%physics%dissipation%mu, k0=self%physics%dissipation%k,                       &
                               eta=self%physics%dissipation%eta, t_wall=self%wall_temperature_bound(), tref=tref,   &
-                              omega_mu=omega_mu, omega_k=omega_k, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz,     &
+                              omega_mu=omega_mu, omega_k=omega_k, dxyz=self%adam%field%dxyz, &
+                                    is_null=self%adam%grid%null_xyz, &
                               q=self%q, lambda_max=lambda_max, lambda_hyp=lambda_hyp, lambda_dif=lambda_dif,      &
                               re_cell_min=re_cell_min)
       if (self%time%it == 0_I4P) call self%log_dt_limit(lambda_hyp=lambda_hyp, lambda_dif=lambda_dif, &
@@ -2255,6 +2346,7 @@ contains
          call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
       endselect
    endif
+   lambda_max = lambda_max + self%sgs_lambda ! zero without a subgrid-scale model (issue #119, T1)
    dt_local = huge(1._R8P)
    if (lambda_max > 0._R8P) dt_local = self%time%CFL / lambda_max
    if (self%physics%cooling%is_active .and. self%physics%cooling%dt_factor > 0._R8P) &
@@ -2462,11 +2554,12 @@ contains
    call self%update_ghost(q=self%q)
    call self%compute_q_aux(q=self%q)
    call self%check_glm_ch
+   call self%update_sgs_lambda
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
                                    is_restart=self%io%restart, with_divb=.not.is_hydrodynamic(self%physics%model), &
                                    with_self_gravity=self%physics%gravity%self_gravity,                            &
                                    with_cooling=self%physics%cooling%is_active,                                    &
-                                   with_sinks=self%sinks%is_active)
+                                   with_sinks=self%sinks%is_active, with_sgs=self%turbulence%is_active)
    call self%sinks%open_history(output_basename=self%io%output_basename, is_restart=self%io%restart)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
@@ -2541,6 +2634,7 @@ contains
    endif
    call self%check_nonfinite
    call self%check_glm_ch
+   call self%update_sgs_lambda(realm=realm)
    call self%compute_divb_history(realm=realm)
    call self%compute_turbulence_history(realm=realm)
    call self%save_simulation_data(realm=realm)

@@ -20,6 +20,7 @@ use :: adam_parameters,               only : AMR_PROLONGATION_CONSERVATIVE, TO_B
 use :: adam_flail_object,             only : FLAIL_BACKEND_AUTO, FLAIL_BACKEND_FFT, FLAIL_BACKEND_MULTIGRID
 use :: adam_poisson_mg_object,        only : MG_SEAM_GHOST_SCALE
 use :: adam_realm_object,             only : realm_object
+use :: adam_turbulence_object,        only : turbulence_object
 use :: adam_tree_node_object,         only : tree_node_object
 use :: adam_grid_object,              only : grid_object
 use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
@@ -105,6 +106,8 @@ type, extends(realm_object) :: flume_common_object
    real(R8P),         allocatable :: q(:,:,:,:,:)        !< Conservative variables [nv, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: dq(:,:,:,:,:)       !< Residuals [nv, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: q_aux(:,:,:,:,:)    !< Auxiliary variables [nv_aux, 1-ngc:ni+ngc, ..., nb].
+   type(turbulence_object)        :: turbulence          !< Subgrid-scale model (`[turbulence]`, issue #119, T1).
+   real(R8P)                      :: sgs_lambda=0._R8P   !< Local time step limit of the eddy viscosity.
    real(R8P),         allocatable :: phi_grav(:,:,:,:)   !< Gravitational potential [1-ngc:ni+ngc, ..., nb] (issue #81);
                                                          !< a one-cell placeholder without a potential.
    real(R8P)                      :: poisson_wall=0._R8P !< Wall time of the last Poisson solve (s).
@@ -1063,7 +1066,8 @@ contains
    !< `q_aux` (nv_aux), the three face fluxes (3 nv, counted as full block fields) and the Runge-Kutta stages
    !< (`rk_stored_stages_number` nv), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange),
    !< the fourth-order gravity energy correction (1, every run, issue #73 M7-G2a), the equilibrium residual of the
-   !< well-balanced mode (nv, M7-G2b) and the gravitational potential (1, issue #81). Requires `physics` and `numerics`
+   !< well-balanced mode (nv, M7-G2b), the gravitational potential (1, issue #81) and the eddy viscosity (1, issue #119).
+   !< Requires `physics`, `numerics` and `turbulence`
    !< initialized.
    class(flume_common_object), intent(inout) :: self            !< The equation.
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
@@ -1082,6 +1086,7 @@ contains
    fields_number = fields_number + 1_I4P
    if (self%physics%gravity%is_balanced) fields_number = fields_number + self%physics%nv
    if (self%physics%gravity%has_potential) fields_number = fields_number + 1_I4P
+   if (self%turbulence%is_active) fields_number = fields_number + 1_I4P ! the eddy viscosity (issue #119, T1)
    endsubroutine compute_fields_number
 
    subroutine destroy_common(self)
@@ -1140,6 +1145,9 @@ contains
    associate(file_parameters=>self%io%file_parameters)
    call self%numerics%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters)
+   ! issue #119, T1: a subgrid-scale model runs the dissipative path, also with no viscosity
+   call self%turbulence%load_from_file(file_parameters=file_parameters)
+   if (self%turbulence%is_active) self%physics%dissipation%is_active = .true.
    if (present(fields_number)) then
       fields_number_ = fields_number
    else
@@ -1180,6 +1188,7 @@ contains
                                   domain_emin=self%adam%grid%domain_emin, domain_emax=self%adam%grid%domain_emax, &
                                   ngc=self%ngc)
    if (self%sinks%is_active) print '(A)', self%sinks%description()
+   if (self%turbulence%is_active) print '(A)', self%turbulence%description()
    call self%check_barotropic
    call self%check_runtime_amr
    call self%build_amr_marker_list
@@ -2867,6 +2876,12 @@ contains
       call mpih%error_stop(msg=': the dissipative terms are not supported with immersed solids (inviscid walls)')
    if (self%numerics%dissipative_order == 4_I4P .and. self%ngc < 3_I4P) &
       call mpih%error_stop(msg=': [numerics].(dissipative_order)=4 needs [grid].(ngc) >= 3, got '//trim(str(self%ngc)))
+   if (self%turbulence%is_active) then
+      if (self%physics%model /= MODEL_EULER .and. self%physics%model /= MODEL_EULER_DE) &
+         call mpih%error_stop(msg=': [turbulence].(sgs_model) requires [physics].(physical_model) = euler or euler-de')
+      if (self%ngc < 3_I4P) call mpih%error_stop(msg=': [turbulence].(sgs_model) needs [grid].(ngc) >= 3, &
+            got '//trim(str(self%ngc)))
+   endif
    endsubroutine check_dissipation
 
    subroutine check_runtime_amr(self)

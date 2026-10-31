@@ -15,6 +15,7 @@ module adam_flume_diagnostics_object
 !< With radiative cooling (issue #93) two more follow: the energy radiated since the start of the run and `E` plus it.
 !< With sinks (issue #94) five more: their total mass, momentum and kinetic energy (`W` then includes the sinks).
 !<
+!< With a subgrid-scale model (#119, T1) the turbulence history gains a last column, `eps_sgs`.
 !< `turbulence_history_save = N` (issue #119, T0.1; optional, 0 by default) writes `<output_basename>-turbulence_history.dat`:
 !< iteration, time and the volume integrals of the kinetic energy `K`, the enstrophy `Z = rho |omega|^2 / 2`, the solenoidal
 !< and dilatational dissipations `eps_s = mu |omega|^2` and `eps_d = 4/3 mu theta^2`, the viscous work `eps = tau_ij
@@ -127,7 +128,8 @@ contains
    if (error > 0) self%turbulence_history_save = 0_I4P
    endsubroutine load_from_file
 
-   subroutine open_file(self, output_basename, q_name, is_restart, with_divb, with_self_gravity, with_cooling, with_sinks)
+   subroutine open_file(self, output_basename, q_name, is_restart, with_divb, with_self_gravity, with_cooling, with_sinks, &
+                        with_sgs)
    !< Open the history files and write their headers (append, without header, on restart).
    class(flume_diagnostics_object), intent(inout)        :: self              !< Diagnostics.
    character(*),                    intent(in)           :: output_basename   !< Output files base name.
@@ -137,10 +139,13 @@ contains
    logical,                         intent(in), optional :: with_self_gravity !< Add the W and E + W columns.
    logical,                         intent(in), optional :: with_cooling      !< Add the radiated and E + radiated columns.
    logical,                         intent(in), optional :: with_sinks        !< Add the sinks' mass, momentum, kinetic energy.
+   logical,                         intent(in), optional :: with_sgs          !< Add eps_sgs to the turbulence history (#119).
    character(:), allocatable                      :: header          !< File header.
    integer(I4P)                                   :: v               !< Counter.
+   logical                                        :: with_sgs_       !< Add eps_sgs, local variable.
 
    if (mpih%myrank /= 0) return
+   with_sgs_ = .false. ; if (present(with_sgs)) with_sgs_ = with_sgs
    if (self%turbulence_history_save > 0_I4P) then
       if (is_restart) then
          open(newunit=self%turbulence_unit, file=trim(output_basename)//'-turbulence_history.dat', &
@@ -148,7 +153,8 @@ contains
       else
          open(newunit=self%turbulence_unit, file=trim(output_basename)//'-turbulence_history.dat', status='replace', &
               action='write')
-         write(self%turbulence_unit, '(A)') 'VARIABLES="it" "time" "K" "Z" "eps_s" "eps_d" "eps" "pd"'
+         write(self%turbulence_unit, '(A)') 'VARIABLES="it" "time" "K" "Z" "eps_s" "eps_d" "eps" "pd"'//   &
+                                            trim(merge(' "eps_sgs"', '          ', with_sgs_))
       endif
    endif
    if (self%conservation_history_save <= 0_I4P) return
@@ -203,7 +209,7 @@ contains
    class(flume_diagnostics_object), intent(in) :: self         !< Diagnostics.
    integer(I4P),                    intent(in) :: it           !< Time iteration.
    real(R8P),                       intent(in) :: time         !< Time.
-   real(R8P),                       intent(in) :: integrals(6) !< K, Z, eps_s, eps_d, eps, pd.
+   real(R8P),                       intent(in) :: integrals(:) !< K, Z, eps_s, eps_d, eps, pd (and eps_sgs).
 
    if (mpih%myrank /= 0 .or. self%turbulence_unit == 0_I4P) return
    write(self%turbulence_unit, '(I10,*(1X,ES24.16E3))') it, time, integrals

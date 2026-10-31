@@ -24,6 +24,9 @@ use :: adam_mpih_object
 use :: adam_parameters
 use :: adam_refinement_plan_object
 use :: adam_rk_object
+use :: adam_turbulence_kernels
+use :: adam_turbulence_library
+use :: adam_turbulence_object
 use :: adam_seam_exchange
 use :: adam_riemann_euler_library
 use :: adam_slices_object

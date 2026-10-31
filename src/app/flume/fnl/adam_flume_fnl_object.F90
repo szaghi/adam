@@ -19,6 +19,8 @@ use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_BX, IQ_PSI, IQ_R,
 use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
+use :: adam_fnl_turbulence_kernels, only : compute_mu_t_sigma_dev, compute_mu_t_vreman_dev, compute_mu_t_wale_dev
+use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
 use :: adam_seam_exchange,        only : seam_fill_all
 use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM FNL classes, libraries
@@ -148,6 +150,8 @@ use :: adam_flume_fnl_mhd_eglm_llf_kernels,     only : &
                                                    add_gravity_edge_correction_mhd_eglm_llf_dev=>add_gravity_edge_correction_dev, &
                                                    compute_riemann_face_fluxes_mhd_eglm_llf_dev=>compute_riemann_face_fluxes_dev
 use :: adam_flume_fnl_dissipation_kernels, only : add_dissipative_fluxes_o2_dev, add_dissipative_fluxes_o4_dev, &
+                                                   add_sgs_fluxes_o2_dev, add_sgs_fluxes_o4_dev, compute_lambda_sgs_dev, &
+                                                         compute_sgs_dissipation_dev, &
                                                    compute_turbulence_integrals_dev, &
                                               add_resistive_fluxes_o2_dev, add_resistive_fluxes_o4_dev
 use :: adam_flume_eos_tables_library, only : eos_tables_breaks, eos_tables_exponents, eos_tables_k, eos_tables_segments
@@ -377,6 +381,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null()     !< Conservative variables [nb, i, j, k, nv].
    real(R8P), pointer     :: dq_gpu(:,:,:,:,:)=>null()    !< Residuals [nb, i, j, k, nv].
    real(R8P), pointer     :: q_aux_gpu(:,:,:,:,:)=>null() !< Auxiliary variables [nb, i, j, k, nv_aux].
+   real(R8P), pointer     :: mu_t_gpu(:,:,:,:,:)=>null()  !< Eddy viscosity [nb, i, j, k, 1], with a subgrid-scale model.
    real(R8P), pointer     :: flx_f_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, nv].
    real(R8P), pointer     :: fly_f_gpu(:,:,:,:,:)=>null() !< Y-face fluxes [nb, 1:ni, 0:nj, 1:nk, nv].
    real(R8P), pointer     :: flz_f_gpu(:,:,:,:,:)=>null() !< Z-face fluxes [nb, 1:ni, 1:nj, 0:nk, nv].
@@ -419,6 +424,8 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_turbulence_history !< Compute and save the turbulence history (issue #119).
+      procedure, pass(self) :: compute_mu_t            !< Compute the eddy viscosity of the model (issue #119).
+      procedure, pass(self) :: update_sgs_lambda       !< Update the time step limit of the eddy viscosity (issue #119).
       procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: compute_gravity_correction !< Compute the fourth-order gravity energy correction.
@@ -677,6 +684,7 @@ contains
    real(R8P)                              :: omega_mu, omega_k !< Exponents of the laws.
    procedure(add_dissipative_fluxes_o4_dev), pointer :: add_fluxes  !< Viscous kernel of the order.
    procedure(add_resistive_fluxes_o4_dev),   pointer :: add_ohmic   !< Ohmic kernel of the order.
+   procedure(add_sgs_fluxes_o4_dev),      pointer :: add_sgs     !< Subgrid-scale kernel of the order.
    integer(I4P)                           :: d                 !< Direction counter.
    integer(I4P)                           :: e(3)              !< Unit step along `d`.
 
@@ -721,6 +729,34 @@ contains
       endselect
    enddo
    endassociate
+   ! issue #119, T1: the fluxes are linear in mu and k, so the subgrid-scale ones add to the molecular ones, in kernels of their own
+   if (self%turbulence%is_active) then
+      call self%compute_mu_t
+      select case(self%numerics%dissipative_order)
+      case(2_I4P)
+         add_sgs => add_sgs_fluxes_o2_dev
+      case(4_I4P)
+         add_sgs => add_sgs_fluxes_o4_dev
+      endselect
+      associate(cp_prt=>self%physics%cp / self%turbulence%prandtl_t, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
+                nb=>self%blocks_number, is_null=>self%adam%grid%null_xyz)
+      if (.not.is_null(1)) call add_sgs(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+            blocks_number=nb, &
+                                        cp_prt=cp_prt, dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, &
+                                              q_aux_gpu=self%q_aux_gpu, &
+                                        mu_t_gpu=self%mu_t_gpu, fl_gpu=self%flx_f_gpu)
+      if (.not.is_null(2)) call add_sgs(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+            blocks_number=nb, &
+                                        cp_prt=cp_prt, dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, &
+                                              q_aux_gpu=self%q_aux_gpu, &
+                                        mu_t_gpu=self%mu_t_gpu, fl_gpu=self%fly_f_gpu)
+      if (.not.is_null(3)) call add_sgs(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+            blocks_number=nb, &
+                                        cp_prt=cp_prt, dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=is_null, &
+                                              q_aux_gpu=self%q_aux_gpu, &
+                                        mu_t_gpu=self%mu_t_gpu, fl_gpu=self%flz_f_gpu)
+      endassociate
+   endif
    endsubroutine add_dissipative_fluxes_dev
 
    subroutine apply_floors(self, q_gpu)
@@ -810,6 +846,11 @@ contains
    call dev_alloc(fptr_dev=self%q_aux_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv_aux], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_aux_gpu in flume_fnl_object%allocate_gpu')
+   if (self%turbulence%is_active) then
+      call dev_alloc(fptr_dev=self%mu_t_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,1], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
+                     init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mu_t_gpu in flume_fnl_object%allocate_gpu')
+   endif
    call dev_alloc(fptr_dev=self%flx_f_gpu, ubounds=[nb,ni,nj,nk,nv], lbounds=[1,0,1,1,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flx_f_gpu in flume_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%fly_f_gpu, ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,0,1,1], init_value=0._R8P, ierr=ierr)
@@ -1021,13 +1062,59 @@ contains
                                                integrals=row)
    endsubroutine compute_conservation
 
+   subroutine compute_mu_t(self)
+   !< Compute the eddy viscosity from the auxiliary variables, ghost cells included in them (issue #119, T1): the kernel of the
+   !< model is selected here, never inside the loops.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   select case(self%turbulence%model)
+   case(SGS_VREMAN_MODEL)
+      call compute_mu_t_vreman_dev(ir=IA_R, iu=IA_U, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+            blocks_number=self%blocks_number, &
+                 c=self%turbulence%constant, dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz, &
+                       q_aux_gpu=self%q_aux_gpu, mu_t_gpu=self%mu_t_gpu)
+   case(SGS_WALE_MODEL)
+      call compute_mu_t_wale_dev(ir=IA_R, iu=IA_U, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+            blocks_number=self%blocks_number, &
+                 c=self%turbulence%constant, dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz, &
+                       q_aux_gpu=self%q_aux_gpu, mu_t_gpu=self%mu_t_gpu)
+   case(SGS_SIGMA_MODEL)
+      call compute_mu_t_sigma_dev(ir=IA_R, iu=IA_U, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+            blocks_number=self%blocks_number, &
+                 c=self%turbulence%constant, dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz, &
+                       q_aux_gpu=self%q_aux_gpu, mu_t_gpu=self%mu_t_gpu)
+   endselect
+   endsubroutine compute_mu_t
+
+   subroutine update_sgs_lambda(self, realm)
+   !< Update the local time step limit of the eddy viscosity from the committed state (issue #119, T1): `compute_local_dt_forest`
+   !< cannot refresh the ghost cells, and adds this limit to its own, which over-estimates the sum of the two per cell.
+   class(flume_fnl_object), intent(inout)                   :: self     !< The equation.
+   type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms.
+
+   if (.not.self%turbulence%is_active) return
+   call self%update_ghost(q_gpu=self%q_gpu)
+   if (present(realm)) call seam_fill_all(self=self, realm=realm)
+   call self%compute_q_aux(q_gpu=self%q_gpu)
+   call self%compute_mu_t
+   call compute_lambda_sgs_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+         blocks_number=self%blocks_number, &
+                           factor=max(4._R8P / 3._R8P, self%physics%gamma / self%turbulence%prandtl_t), &
+                                 dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                           is_null=self%adam%grid%null_xyz, q_aux_gpu=self%q_aux_gpu, mu_t_gpu=self%mu_t_gpu, &
+                                 lambda_sgs=self%sgs_lambda)
+   ! the largest of all ranks: the cell maxima of the two limits lie in different cells, and their sum must not depend on the partition
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%sgs_lambda, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   endsubroutine update_sgs_lambda
+
    subroutine compute_turbulence_history(self, realm)
    !< Compute and save the turbulence history of the committed state on its cadence (issue #119, T0.1): the ghost cells are
    !< refreshed first and, with sibling realms, the inter-realm seam ghosts are refilled from the peers, as for the div(B)
    !< history; the auxiliary variables are recomputed from them.
    class(flume_fnl_object), intent(inout)                   :: self         !< The equation.
    type(realm_pointer),     intent(inout), optional, target :: realm(:)     !< Sibling realms.
-   real(R8P)                                                :: integrals(6) !< Integrals (K, Z, eps_s, eps_d, eps, pd).
+   real(R8P)                                                :: integrals(7) !< Integrals (K, Z, eps_s, eps_d, eps, pd, eps_sgs).
+   integer(I4P)                                             :: n            !< Columns.
    real(R8P)                                                :: tref         !< Reference temperature of the law.
    real(R8P)                                                :: omega_mu     !< Exponent of the law.
    real(R8P)                                                :: omega_k      !< Conductivity exponent (unused).
@@ -1041,9 +1128,18 @@ contains
    call compute_turbulence_integrals_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                                     mu0=self%physics%dissipation%mu, tref=tref, omega_mu=omega_mu, &
                                     dxyz_gpu=self%field_fnl%dxyz_gpu, is_null=self%adam%grid%null_xyz, q_aux_gpu=self%q_aux_gpu, &
-                                    integrals=integrals)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, 6, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call self%diagnostics%save_turbulence_row(it=self%time%it, time=self%time%time, integrals=integrals)
+                                    integrals=integrals(1:6))
+   n = 6_I4P
+   if (self%turbulence%is_active) then
+      n = 7_I4P
+      call self%compute_mu_t
+      call compute_sgs_dissipation_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+            dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                                   is_null=self%adam%grid%null_xyz, q_aux_gpu=self%q_aux_gpu, mu_t_gpu=self%mu_t_gpu, &
+                                         eps=integrals(7))
+   endif
+   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call self%diagnostics%save_turbulence_row(it=self%time%it, time=self%time%time, integrals=integrals(1:n))
    endsubroutine compute_turbulence_history
 
    subroutine compute_divb_history(self, realm)
@@ -1400,6 +1496,7 @@ contains
    call free_gpu(self%q_gpu)
    call free_gpu(self%dq_gpu)
    call free_gpu(self%q_aux_gpu)
+   call free_gpu(self%mu_t_gpu)
    call free_gpu(self%flx_f_gpu)
    call free_gpu(self%fly_f_gpu)
    call free_gpu(self%flz_f_gpu)
@@ -2654,6 +2751,7 @@ contains
          call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
       endselect
    endif
+   lambda_max = lambda_max + self%sgs_lambda ! zero without a subgrid-scale model (issue #119, T1)
    dt_local = huge(1._R8P)
    if (lambda_max > 0._R8P) dt_local = self%time%CFL / lambda_max
    if (self%physics%cooling%is_active .and. self%physics%cooling%dt_factor > 0._R8P) &
@@ -2890,11 +2988,12 @@ contains
    call self%update_ghost(q_gpu=self%q_gpu)
    call self%compute_q_aux(q_gpu=self%q_gpu)
    call self%check_glm_ch
+   call self%update_sgs_lambda
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
                                    is_restart=self%io%restart, with_divb=.not.is_hydrodynamic(self%physics%model), &
                                    with_self_gravity=self%physics%gravity%self_gravity,                            &
                                    with_cooling=self%physics%cooling%is_active,                                    &
-                                   with_sinks=self%sinks%is_active)
+                                   with_sinks=self%sinks%is_active, with_sgs=self%turbulence%is_active)
    call self%sinks%open_history(output_basename=self%io%output_basename, is_restart=self%io%restart)
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
@@ -2996,6 +3095,7 @@ contains
    endif
    call self%check_nonfinite
    call self%check_glm_ch
+   call self%update_sgs_lambda(realm=realm)
    call self%compute_divb_history(realm=realm)
    call self%compute_turbulence_history(realm=realm)
    call self%save_simulation_data(realm=realm)

@@ -507,6 +507,18 @@ Restart files carry `<restart_basename>.sinks`. A sink that leaves a closed doma
 
 ---
 
+## [turbulence] (optional: algebraic subgrid-scale model)
+
+A library section ([#119](https://github.com/szaghi/adam/issues/119), T1). Without it, or with `sgs_model = none`, nothing changes.
+
+| Key | Type | Required | Values | Meaning |
+|---|---|---|---|---|
+| `sgs_model` | string | no (`none`) | `none`, `vreman`, `wale`, `sigma`. Other → fatal. | Eddy viscosity of the model ([numerics](./numerics#subgrid-scale-models)). |
+| `sgs_constant` | real | no | `> 0`, otherwise fatal; defaults 0.07 (Vreman: $c = 2.5 C_s^2$), 0.5 (WALE), 1.35 (Sigma) | Model constant. Taken from other discretizations, not calibrated on WENO. |
+| `prandtl_t` | real | no (0.9) | `> 0`, otherwise fatal | Turbulent Prandtl number. |
+
+A model needs `physical_model = euler` or `euler-de` (fatal otherwise) and `ngc >= 3` (fatal otherwise). It runs without a viscosity (`viscosity = 0`). It counts as a dissipative term, so the positivity limiter and immersed solids are refused with it. The turbulence history gains a last column, `eps_sgs`.
+
 ## [numerics]
 
 | Key | Type | Req. | Accepted / invalid | Meaning |

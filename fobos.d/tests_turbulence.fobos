@@ -1,0 +1,10 @@
+[modes]
+modes = test-sgs-gnu
+
+# The pointwise subgrid-scale formulas of the library against an independent computation (issue #119, T1): verification/turbulence
+# leg sg1. No MPI, no HDF5: the program reads the tensors on stdin.
+[test-sgs-gnu]
+template = template-gnu
+mod_dir  = ./mod/gnu-sgs/
+obj_dir  = ./obj/gnu-sgs/
+target   = test_sgs.F90

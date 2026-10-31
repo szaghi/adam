@@ -581,6 +581,22 @@ restriction of the coarse ghosts and the reflux of point-value fluxes each cap t
 the reflux the dissipative flux at the face is first order
 ([VV-8](./verification/dissipative/seam-accuracy)).
 
+## Subgrid-scale models
+
+`[turbulence] sgs_model` ([input](./input#turbulence-optional-algebraic-subgrid-scale-model)) adds an eddy viscosity $\mu_t = \rho\nu_t$ to the [dissipative fluxes](#dissipative-fluxes-navier–stokes) (issue #119, T1), with $\mathbf{g}$ the velocity gradient and $\Delta$ the geometric mean of the active steps of the block:
+
+| Model | $\nu_t$ | Vanishes in |
+|---|---|---|
+| Vreman (2004) | $c\sqrt{B_\beta/(\alpha_{ij}\alpha_{ij})}$, $\alpha_{ij} = \partial_i u_j$, $\beta_{ij} = \sum_m \Delta_m^2 \alpha_{mi}\alpha_{mj}$ | $\alpha_{ij}$ of rank 1, pure shear among them |
+| WALE (Nicoud & Ducros 1999) | $(c\Delta)^2 (S^d_{ij}S^d_{ij})^{3/2} / \left((S_{ij}S_{ij})^{5/2} + (S^d_{ij}S^d_{ij})^{5/4}\right)$ | pure shear |
+| Sigma (Nicoud et al. 2011) | $(c\Delta)^2 \varsigma_3(\varsigma_1-\varsigma_2)(\varsigma_2-\varsigma_3)/\varsigma_1^2$, $\varsigma_i$ the singular values of $\mathbf{g}$ | pure shear, 2-D flow, solid rotation |
+
+**Where it enters.** Once per stage, from the auxiliary variables with 2nd-order central gradients, on the interior cells and 2 ghost layers: the fluxes read it up to the second ghost. The kernels of the order then add to the face fluxes $\tau$ and the heat flux with $\mu = \mu_t$, $k = \mu_t c_p/Pr_t$, on top of the molecular ones (the flux is linear in both): the mean of the two cells at the face, whose stencil cannot go negative where a 4-point interpolant could, the cell value in the 4th-order correction. The isotropic part of the subgrid stress is dropped. So the reflux and the inter-realm register see the total flux and conservation is unchanged.
+
+**Time step.** The largest $2\max(4/3, \gamma/Pr_t)\,\nu_t\sum_d 1/\Delta x_d^2$ of the domain is added to the limit of every cell (an over-estimate, independent of the partition), from the committed state of the end of the previous step; the growth of $\nu_t$ during a step is not bounded.
+
+**Limits.** $\Delta$ is per block, so $\mu_t$ jumps at a 2:1 face. The first time step of a multi-realm run takes its limit from seam ghosts not filled yet. MHD is refused.
+
 ## Turbulence diagnostics
 
 `[diagnostics] turbulence_history_save = N` ([input](./input)) writes every $N$ steps the volume integrals of the kinetic
