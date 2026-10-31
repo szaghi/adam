@@ -15,6 +15,9 @@
 #   tt4  spectra.py on the initial field: Parseval to 1e-12, the energy of the single-mode field in shell 2.
 #   tt6  the pressure work: at M 0.8, n = 64, pd is large against what the scheme dissipates, and the budget to t = 2 must close
 #        better with it than without it or with its sign flipped (at M 0.1 neither tt1, zero by symmetry, nor tt3 sees it).
+#   ht1  the isotropic turbulence initial field (T0.5), M_t 0.6, k_0 4, n = 32, 64: every shell against E(k) within 1e-10 of the
+#        peak, the mean K exact, the dilatation falling with n (hit_oracle.py).
+#   ht2  10 steps of it, n = 32, on one rank and on N: unlike tt2 the blocks differ, so this does compare sums across ranks.
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -28,7 +31,7 @@ NP=2
 AGREE=""
 BUDGET_LADDER="32 64"
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -51,6 +54,11 @@ run() { # run <name> <np> <make_tgv options>: echo the work directory
    echo "$work"
 }
 
+loaded() { # loaded <work>: stop unless the last rank holds cells (one root block is not split on an unrefined one-level grid)
+   local last ; last=$(ls "$1"/tgv-000000000-proc*.h5 | tail -1)
+   (( $(stat -c %s "$last") > 1000 )) || { echo "check.sh: $last holds no block: the comparison across ranks would be vacuous" >&2 ; exit 1 ; }
+}
+
 if has_leg tt1; then
    for mach in 0.1 1.25; do
       echo "== tt1: first history row against the exact integrals, M $mach"
@@ -64,8 +72,9 @@ if has_leg tt1; then
 fi
 if has_leg tt2; then
    echo "== tt2: one rank against $NP"
-   a=$(run tt2-np1 1 --n 32 --levels 1 --it-max 10)
-   b=$(run tt2-npN "$NP" --n 32 --levels 1 --it-max 10)
+   a=$(run tt2-np1 1 --n 32 --levels 2 --it-max 10)
+   b=$(run tt2-npN "$NP" --n 32 --levels 2 --it-max 10)
+   loaded "$b"
    "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$a" "$b"
 fi
 if has_leg tt3; then
@@ -87,8 +96,26 @@ if has_leg tt6; then
    w=$(run tt6 "$NP" --n 64 --levels 2 --mach 0.8 --time-max 2.0)
    "$VENV_PY" "$CASE_DIR/tgv_oracle.py" pd "$w" --time 2.0
 fi
+HIT=(--mach 0.6 --hit-k0 4 --reynolds 100)
+if has_leg ht1; then
+   echo "== ht1: isotropic turbulence, the initial field"
+   ladder=()
+   for n in 32 64; do
+      w=$(run "ht1-n$n" "$NP" --n $n --levels 1 "${HIT[@]}" --it-max 1 --it-save 1 --cfl 0.1)
+      ladder+=("$n:$w")
+   done
+   "$VENV_PY" "$CASE_DIR/hit_oracle.py" "${ladder[@]}" --k0 4
+fi
+if has_leg ht2; then
+   echo "== ht2: isotropic turbulence, one rank against $NP"
+   a=$(run ht2-np1 1 --n 32 --levels 2 "${HIT[@]}" --it-max 10)
+   b=$(run ht2-npN "$NP" --n 32 --levels 2 "${HIT[@]}" --it-max 10)
+   loaded "$b"
+   "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$a" "$b"
+fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
    "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-tt2-npN" "$CASE_DIR/work-$AGREE-tt2-npN"
+   [[ -d "$CASE_DIR/work-$AGREE-ht2-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-ht2-npN" "$CASE_DIR/work-$AGREE-ht2-npN"
 fi
 echo "turbulence verification PASSED (legs: $LEGS) ($TAG)"

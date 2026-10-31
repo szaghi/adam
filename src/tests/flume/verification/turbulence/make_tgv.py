@@ -44,6 +44,10 @@ def main() -> None:
     parser.add_argument("--time-max", type=float, default=20.0)
     parser.add_argument("--it-max", type=int, default=-1)
     parser.add_argument("--it-save", type=int, default=100000)
+    parser.add_argument("--hit-k0", type=float, default=0.0, help="> 0: isotropic turbulence of peak k0, Mach = M_t, Reynolds = Re_lambda")
+    parser.add_argument("--hit-seed", type=int, default=1)
+    parser.add_argument("--restart-save", type=int, default=0, help="cadence of the restart files")
+    parser.add_argument("--restart", action="store_true", help="restart from them")
     parser.add_argument("--history", type=int, default=1, help="cadence of the conservation and turbulence histories")
     args = parser.parse_args()
 
@@ -54,7 +58,8 @@ def main() -> None:
     text = re.sub(r"\A(?:;.*\n)+", "", text)  # the template's own header
     text = re.sub(r"^\[initial_conditions_region_\d+\][^\[]*", "", text, flags=re.M)
     box = 2.0 * math.pi
-    text = section(text, "IO", {"output_basename": "tgv", "it_save": str(args.it_save)})
+    text = section(text, "IO", {"output_basename": "tgv", "it_save": str(args.it_save), "restart_basename": "tgv-restart",
+                                 "restart_save": str(args.restart_save), "restart": ".true." if args.restart else ".false."})
     grid = {"ni": str(args.n // blocks), "nj": str(args.n // blocks), "nk": str(args.n // blocks),
             "ngc": str(max(3, (int(args.scheme.rsplit("-", 1)[1]) + 1) // 2))}
     grid |= {f"emin_{a}": "0.0" for a in "xyz"} | {f"emax_{a}": f"{box:.16e}" for a in "xyz"}
@@ -64,17 +69,25 @@ def main() -> None:
                                  "frequency": "0", "markers_number": "0"})
     text = section(text, "weno", {"scheme": args.scheme, "weights": "si"})
     physics = {"cp": "3.5", "cv": "2.5"}
-    if args.reynolds > 0.0:
+    if args.hit_k0 > 0.0:
+        # Johnsen et al. (2010): u_rms = rho_0 = 1, lambda_0 = 2 / k_0, mu = (T / T_0)^0.76, Pr 0.7; code T = p / rho (R = 1)
+        physics |= {"reynolds": str(args.reynolds * args.hit_k0 / 2.0), "prandtl": "0.7", "viscosity_law": "power-law",
+                    "viscosity_exponent": "0.76", "reference_temperature": str((3.0**0.5 / args.mach) ** 2 / 1.4)}
+    elif args.reynolds > 0.0:
         physics |= {"reynolds": str(args.reynolds), "prandtl": "0.71"}
     text = section(text, "physics", physics)
     numerics = {"scheme_space": args.scheme_space}
     if args.scheme_space == "weno-riemann":
         numerics["riemann_solver"] = args.riemann
+        numerics |= {"flux_correction": "6th", "flux_correction_sensor": "weno"}
     text = section(text, "numerics", numerics)
     for face in ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max"):
         text = section(text, f"bc_{face}", {"type": "periodic"})
     ic = {"type": "taylor-green", "amr_iterations": "0", "tg_density": "1.0", "tg_velocity": "1.0",
           "tg_mach": str(args.mach)}
+    if args.hit_k0 > 0.0:
+        ic = {"type": "isotropic-turbulence", "amr_iterations": "0", "hit_density": "1.0", "hit_urms": "1.0",
+              "hit_mach": str(args.mach), "hit_k0": str(args.hit_k0), "hit_seed": str(args.hit_seed)}
     text = section(text, "initial_conditions", ic)
     text = section(text, "time", {"it_max": str(args.it_max), "time_max": str(args.time_max), "CFL": str(args.cfl)})
     text = section(text, "diagnostics", {"conservation_history_save": str(args.history),

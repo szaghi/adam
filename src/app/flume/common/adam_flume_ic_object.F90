@@ -72,6 +72,15 @@ module adam_flume_ic_object
 !<   `p = p_0 + rho_0 V_0^2 / 16 (cos(2x/L) + cos(2y/L)) (cos(2z/L) + 2)`, `p_0 = rho_0 V_0^2 / (gamma M_0^2)`, at uniform
 !<   temperature, `rho = rho_0 p / p_0`. The box is `[0, 2 pi L]^3`, periodic; the initial condition does not check it.
 !<
+!< * `isotropic-turbulence` (issue #119, T0.5; euler, euler-de): the decaying compressible isotropic turbulence of Johnsen et
+!<   al. (2010), `hit_density` (rho_0), `hit_urms` (u_rms), `hit_mach` (M_t = sqrt(3) u_rms / c_0), `hit_k0` (k_0), `hit_seed`
+!<   (default 1), no regions: uniform density and pressure, `p_0 = rho_0 c_0^2 / gamma`, and a solenoidal velocity
+!<   `u = sum 2 Re(a_k exp(i k.x))` over the integer wavevectors of a half space with `|k| <= 3 k_0`, of random phases
+!<   (Rogallo 1981), each shell `s = nint(|k|)` holding `E(s) = 16 sqrt(2/pi) u_rms^2 / k_0 (s/k_0)^4 exp(-2 (s/k_0)^2)`, the sum
+!<   rescaled so that the mean of `|u|^2` is exactly `3 u_rms^2`. The sequence depends on the seed alone (MINSTD, its own
+!<   state), so the field is the same on any rank count, block layout and resolution. The box is `[0, 2 pi]^3`, periodic;
+!<   the initial condition does not check it, nor that `3 k_0` is below the Nyquist wavenumber of the grid.
+!<
 !< * `shu-osher` (Euler only, issue #47, RV-3; Shu & Osher 1989, J. Comput. Phys. 83, example 8): a shock running into
 !<   a density wave along `axis` (x, y or z), coordinate `s`: the state of region 1 for `s <= interface`, else the
 !<   state of region 2 with density `r + rho_amplitude sin(rho_wavenumber s)` (the classic problem: region 1
@@ -195,6 +204,8 @@ character(len=14), parameter :: LOOP_KEY(4)=['x0            ', 'y0            ',
 character(len=15), parameter :: IC_ROTATED_RIEMANN_STR="rotated-riemann" !< Rotated periodic Riemann problem.
 character(len=12), parameter :: IC_TAYLOR_GREEN_STR="taylor-green"      !< Compressible Taylor-Green vortex (issue #119).
 character(len=11), parameter :: TG_KEY(3)=['tg_density ', 'tg_velocity', 'tg_mach    '] !< Taylor-Green required keys.
+character(len=20), parameter :: IC_ISOTROPIC_TURB_STR="isotropic-turbulence" !< Decaying isotropic turbulence (issue #119).
+character(len=11), parameter :: HIT_KEY(4)=['hit_density', 'hit_urms   ', 'hit_mach   ', 'hit_k0     '] !< Its required keys.
 character(len=9),  parameter :: IC_SHU_OSHER_STR="shu-osher"             !< Shock-density wave interaction (Euler).
 character(len=6),  parameter :: IC_LINEAR_STR="linear"                   !< Linear field (verification of ghost fills).
 character(len=10), parameter :: IC_POLYNOMIAL_STR="polynomial"           !< Polynomial field (verification, #68 D1).
@@ -270,6 +281,8 @@ type :: flume_ic_object
    real(R8P)                 :: prim_1(8)=0._R8P     !< Primitive state of region 1, the free stream (first nprim used).
    real(R8P)                 :: s=0._R8P             !< Uniform: relative amplitude of the seeded perturbation.
    real(R8P)                 :: tg(4)=0._R8P         !< Taylor-Green: density, velocity, Mach number, length.
+   real(R8P)                 :: hit(4)=0._R8P        !< Isotropic turbulence: density, u_rms, turbulent Mach number, k_0.
+   integer(I4P)              :: hit_seed=1_I4P       !< Isotropic turbulence: seed of the random phases.
    real(R8P)                 :: vortex(4)=0._R8P     !< Isentropic vortex: x0, y0, radius, strength.
    integer(I4P)              :: pulse_axis=0_I4P     !< GLM pulse: axis, 1=x, 2=y, 3=z.
    real(R8P)                 :: pulse(3)=0._R8P      !< GLM pulse: center, width, amplitude.
@@ -321,6 +334,7 @@ type :: flume_ic_object
       procedure, pass(self) :: is_barotropic_safe     !< True if the IC type builds its density without gamma (#100).
       ! private methods
       procedure, pass(self), private :: atmosphere_state !< Primitive state of the atmosphere at a point.
+      procedure, pass(self), private :: set_isotropic_turbulence !< Set the isotropic turbulence field (#119).
 endtype flume_ic_object
 
 contains
@@ -358,6 +372,8 @@ contains
    desc = desc//mpih%myrankstr//'  regions_number: '//trim(str(self%regions_number))
    if (self%ic_type == IC_UNIFORM_STR) &
    desc = desc//NL//mpih%myrankstr//'  s:              '//trim(str(self%s))
+   if (self%ic_type == IC_ISOTROPIC_TURB_STR) &
+   desc = desc//NL//mpih%myrankstr//'  isotropic-turbulence: '//trim(str(self%hit))//', seed '//trim(str(self%hit_seed))
    if (self%ic_type == IC_TAYLOR_GREEN_STR) &
    desc = desc//NL//mpih%myrankstr//'  taylor-green:   '//trim(str(self%tg))
    if (self%ic_type == IC_ISENTROPIC_VORTEX_STR) &
@@ -473,6 +489,21 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='tg_length', val=self%tg(4), error=error)
       if (error > 0) self%tg(4) = 1._R8P
       if (.not.(self%tg(4) > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(tg_length) must be positive')
+   case(IC_ISOTROPIC_TURB_STR)
+      if (self%model /= MODEL_EULER .and. self%model /= MODEL_EULER_DE) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_ISOTROPIC_TURB_STR//' requires '// &
+                                  '[physics].(physical_model) = euler or euler-de')
+      self%regions_number = 0_I4P
+      do k=1, 4
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(HIT_KEY(k)), val=self%hit(k), error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(HIT_KEY(k))//')')
+         if (.not.(self%hit(k) > 0._R8P)) &
+            call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(HIT_KEY(k))//') must be positive')
+      enddo
+      self%hit_seed = 1_I4P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hit_seed', val=self%hit_seed, error=error)
+      if (error > 0) self%hit_seed = 1_I4P
+      if (self%hit_seed <= 0_I4P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(hit_seed) must be positive')
    case(IC_ISENTROPIC_VORTEX_STR)
       if (.not.is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_ISENTROPIC_VORTEX_STR//' requires '// &
@@ -847,7 +878,7 @@ contains
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
                                IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
                                IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR//', '// &
-                               IC_TAYLOR_GREEN_STR//', '//IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
+                               IC_TAYLOR_GREEN_STR//', '//IC_ISOTROPIC_TURB_STR//', '//IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
                                IC_SINE_WAVE_STR//', '// &
                                IC_COUETTE_STR//', '//IC_BECKER_STR//', '//IC_ISOTHERMAL_ATM_STR//', '// &
                                IC_POLYTROPIC_ATM_STR//', '//IC_RAYLEIGH_TAYLOR_STR//', '//IC_POLYTROPE_STR//', '// &
@@ -1244,6 +1275,8 @@ contains
             enddo
          enddo
       enddo
+   case(IC_ISOTROPIC_TURB_STR)
+      call self%set_isotropic_turbulence(field=field, q=q)
    case(IC_ISENTROPIC_VORTEX_STR)
       do b=1, field%blocks_number
          do k=1, field%nk
@@ -1797,6 +1830,145 @@ contains
       prim(7) = a * n(2) + b * n(1)
    endif
    endsubroutine rotate_to_global
+
+   subroutine set_isotropic_turbulence(self, field, q)
+   !< Set the isotropic turbulence field (formulas in the module header): every block sums the modes on its own cells, the
+   !< exponentials tabulated per axis.
+   class(flume_ic_object), intent(in)    :: self                 !< The initial conditions.
+   type(field_object),     intent(in)    :: field                !< Field (cell centres).
+   real(R8P),              intent(inout) :: q(1:,1-field%ngc:,1-field%ngc:,1-field%ngc:,1:) !< Conservative variables.
+   integer(I4P), allocatable             :: mode_k(:,:)          !< Wavevectors of the modes.
+   complex(R8P), allocatable             :: mode_a(:,:)          !< Complex amplitudes of the modes.
+   complex(R8P), allocatable             :: ex(:,:), ey(:,:), ez(:,:) !< exp(i k x) per axis, (cell, k).
+   real(R8P),    allocatable             :: u(:,:,:,:)           !< Velocity of a block.
+   real(R8P)                             :: prim(size(q,dim=1))  !< Primitive state of a cell.
+   real(R8P)                             :: p0                   !< Uniform pressure.
+   complex(R8P)                          :: phase                !< exp(i k.x) without its x factor.
+   integer(I4P)                          :: kmax                 !< Largest wavenumber.
+   integer(I4P)                          :: b, i, j, k, m, d, w  !< Counters.
+
+   kmax = floor(3._R8P * self%hit(4))
+   call isotropic_turbulence_modes(hit=self%hit, seed=self%hit_seed, kmax=kmax, mode_k=mode_k, mode_a=mode_a)
+   p0 = self%hit(1) * (sqrt(3._R8P) * self%hit(2) / self%hit(3))**2 / self%gamma
+   allocate(ex(field%ni,0:kmax), ey(field%nj,-kmax:kmax), ez(field%nk,-kmax:kmax), u(3,field%ni,field%nj,field%nk))
+   prim = 0._R8P
+   prim(1) = self%hit(1)
+   prim(5) = p0
+   do b=1, field%blocks_number
+      do w=0, kmax
+         do i=1, field%ni
+            ex(i,w) = exp(cmplx(0._R8P, real(w, R8P) * field%x_cell(i,b), R8P))
+         enddo
+      enddo
+      do w=-kmax, kmax
+         do j=1, field%nj
+            ey(j,w) = exp(cmplx(0._R8P, real(w, R8P) * field%y_cell(j,b), R8P))
+         enddo
+         do k=1, field%nk
+            ez(k,w) = exp(cmplx(0._R8P, real(w, R8P) * field%z_cell(k,b), R8P))
+         enddo
+      enddo
+      u = 0._R8P
+      do m=1, size(mode_k, dim=2)
+         do k=1, field%nk
+            do j=1, field%nj
+               phase = ey(j,mode_k(2,m)) * ez(k,mode_k(3,m))
+               do i=1, field%ni
+                  do d=1, 3
+                     u(d,i,j,k) = u(d,i,j,k) + 2._R8P * real(mode_a(d,m) * phase * ex(i,mode_k(1,m)), R8P)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      do k=1, field%nk
+         do j=1, field%nj
+            do i=1, field%ni
+               prim(2:4) = u(:,i,j,k)
+               call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine set_isotropic_turbulence
+
+   subroutine isotropic_turbulence_modes(hit, seed, kmax, mode_k, mode_a)
+   !< Return the modes of the isotropic turbulence field (formulas in the module header): the half space `kx > 0`, or `kx = 0`
+   !< and `ky > 0`, or `kx = ky = 0` and `kz > 0`, swept in one order on every rank.
+   real(R8P),    intent(in)               :: hit(4)        !< Density, u_rms, turbulent Mach number, k_0.
+   integer(I4P), intent(in)               :: seed          !< Seed of the phases.
+   integer(I4P), intent(in)               :: kmax          !< Largest wavenumber.
+   integer(I4P), intent(out), allocatable :: mode_k(:,:)   !< Wavevectors, (3, mode).
+   complex(R8P), intent(out), allocatable :: mode_a(:,:)   !< Complex amplitudes, (3, mode).
+   real(R8P), parameter                   :: TWO_PI = 8._R8P * atan(1._R8P) !< 2 pi.
+   integer(I8P)                           :: state         !< State of the generator.
+   integer(I4P), allocatable              :: shell_count(:)!< Modes per shell.
+   real(R8P)                              :: e1(3), e2(3)  !< Unit vectors normal to the wavevector.
+   real(R8P)                              :: rk(3)         !< Wavevector.
+   real(R8P)                              :: amp           !< Modulus of a mode.
+   real(R8P)                              :: x             !< Shell over k_0.
+   real(R8P)                              :: th1, th2, phi !< Random angles.
+   real(R8P)                              :: total         !< Sum of the mode energies.
+   integer(I4P)                           :: pass          !< 1: count, 2: fill.
+   integer(I4P)                           :: m, s, kx, ky, kz !< Counters.
+
+   allocate(shell_count(0:2*kmax)) ; shell_count = 0_I4P
+   do pass=1, 2
+      m = 0_I4P
+      state = int(seed, I8P)
+      do kx=0, kmax
+         do ky=-kmax, kmax
+            do kz=-kmax, kmax
+               if (kx == 0_I4P .and. (ky < 0_I4P .or. (ky == 0_I4P .and. kz <= 0_I4P))) cycle
+               if (kx*kx + ky*ky + kz*kz > kmax*kmax) cycle
+               m = m + 1_I4P
+               rk = real([kx, ky, kz], R8P)
+               s = nint(norm2(rk))
+               if (pass == 1_I4P) then
+                  shell_count(s) = shell_count(s) + 1_I4P
+                  cycle
+               endif
+               ! the first axis is the one most normal to k, so that the cross product does not degenerate
+               e1 = 0._R8P
+               e1(minloc(abs(rk), dim=1)) = 1._R8P
+               e1 = cross(rk, e1)
+               e1 = e1 / norm2(e1)
+               e2 = cross(rk, e1) / norm2(rk)
+               th1 = TWO_PI * next_uniform(state)
+               th2 = TWO_PI * next_uniform(state)
+               phi = TWO_PI * next_uniform(state)
+               x = real(s, R8P) / hit(4)
+               amp = sqrt(16._R8P * sqrt(4._R8P / TWO_PI) * hit(2)**2 / hit(4) * x**4 * exp(-2._R8P * x**2) &
+                          / real(shell_count(s), R8P))
+               mode_a(:,m) = amp * (exp(cmplx(0._R8P, th1, R8P)) * cos(phi) * e1 + exp(cmplx(0._R8P, th2, R8P)) * sin(phi) * e2)
+               mode_k(:,m) = [kx, ky, kz]
+            enddo
+         enddo
+      enddo
+      if (pass == 1_I4P) allocate(mode_k(3,m), mode_a(3,m))
+   enddo
+   ! the mean of |u|^2 / 2 is the sum of |a_k|^2 over the half space
+   total = sum(real(mode_a * conjg(mode_a), R8P))
+   mode_a = mode_a * sqrt(1.5_R8P * hit(2)**2 / total)
+
+   contains
+      pure function cross(a, b) result(c)
+      !< Cross product.
+      real(R8P), intent(in) :: a(3), b(3) !< Operands.
+      real(R8P)             :: c(3)       !< Product.
+
+      c = [a(2)*b(3) - a(3)*b(2), a(3)*b(1) - a(1)*b(3), a(1)*b(2) - a(2)*b(1)]
+      endfunction cross
+
+      function next_uniform(r) result(v)
+      !< MINSTD (Park & Miller 1993): the next value in (0, 1), portable, no overflow in 64 bits.
+      integer(I8P), intent(inout) :: r !< State.
+      real(R8P)                   :: v !< Value.
+
+      r = mod(48271_I8P * r, 2147483647_I8P)
+      v = real(r, R8P) / 2147483647._R8P
+      endfunction next_uniform
+   endsubroutine isotropic_turbulence_modes
 
    pure subroutine taylor_green(gamma, tg, x, y, z, prim)
    !< Return the primitive state (r, u, v, w, p) of the compressible Taylor-Green vortex at `(x, y, z)` (formulas in the
