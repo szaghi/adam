@@ -51,6 +51,7 @@ def main() -> None:
     parser.add_argument("--amr-box", type=float, default=0.0, help="> 0: one more level on the centred box of this side over 2 pi")
     parser.add_argument("--seam-fill", default="")
     parser.add_argument("--seam-restriction", default="")
+    parser.add_argument("--contact", type=float, default=0.0, help="> 0: instead, a contact of this density ratio advected on a periodic square")
     parser.add_argument("--restart-save", type=int, default=0, help="cadence of the restart files")
     parser.add_argument("--restart", action="store_true", help="restart from them")
     parser.add_argument("--history", type=int, default=1, help="cadence of the conservation and turbulence histories")
@@ -97,6 +98,28 @@ def main() -> None:
     text = section(text, "time", {"it_max": str(args.it_max), "time_max": str(args.time_max), "CFL": str(args.cfl)})
     text = section(text, "diagnostics", {"conservation_history_save": str(args.history),
                                          "turbulence_history_save": str(args.history)})
+    if args.contact > 0.0:
+        text = section(text, "grid", {"nk": "1", "emax_x": "1.0", "emax_y": "1.0", "emax_z": "1.0", "null_z": ".true."})
+        for face in ("z_min", "z_max"):
+            text = section(text, f"bc_{face}", {"type": "extrapolation"})
+        for key in ("tg_density", "tg_velocity", "tg_mach"):
+            text = re.sub(rf"^{key} = .*\n", "", text, flags=re.M)
+        text = section(text, "initial_conditions", {"type": "riemann-problem", "regions_number": "3"})
+        for i, (rho, lo, hi) in enumerate(((1.0, 0.0, 0.25), (args.contact, 0.25, 0.75), (1.0, 0.75, 1.0)), start=1):
+            text += f"""
+[initial_conditions_region_{i}]
+r = {rho}
+u = 1.0
+v = 0.0
+w = 0.0
+p = 1.0
+emin_x = {lo}
+emin_y = 0.0
+emin_z = 0.0
+emax_x = {hi}
+emax_y = 1.0
+emax_z = 1.0
+"""
     if args.amr_box > 0.0:
         lo, hi = 0.5 * box * (1.0 - args.amr_box), 0.5 * box * (1.0 + args.amr_box)
         amr = {"max_level": str(args.levels + 1), "markers_number": "1"}

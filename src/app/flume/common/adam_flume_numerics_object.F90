@@ -51,6 +51,10 @@ type :: flume_numerics_object
    character(:), allocatable :: reflux_policy            !< Reflux policy (with reflux on): always or troubled (#68 E1).
    character(:), allocatable :: reflux_cadence           !< Reflux cadence (with reflux on): step or stage (#81 P5c).
    integer(I4P)              :: dissipative_order=4_I4P  !< Order of the dissipative face fluxes, 2 or 4 (issue #65).
+   logical                   :: is_hybrid=.false.        !< Hybrid central/WENO on the `weno` operator (issue #119, T2).
+   real(R8P)                 :: hybrid_threshold=0.2_R8P !< Hybrid: Ducros sensor threshold.
+   real(R8P)                 :: hybrid_floor=1.e-8_R8P   !< Hybrid: floor of the sensor denominator over (a / dx)^2.
+   real(R8P)                 :: hybrid_jump=0.1_R8P      !< Hybrid: largest relative density jump of a central cell.
    contains
       ! public methods
       procedure, pass(self) :: correction_coefficients !< Return the face flux correction coefficients.
@@ -99,6 +103,8 @@ contains
 
    desc =       mpih%myrankstr//'Numerics main data'//NL
    desc = desc//mpih%myrankstr//'  scheme_space:             '//self%scheme_space//NL
+   if (self%is_hybrid) desc = desc//mpih%myrankstr//'  hybrid-kep-weno, threshold, floor: '//trim(str(self%hybrid_threshold))//', '// &
+                              trim(str(self%hybrid_floor))//NL
    desc = desc//mpih%myrankstr//'  reconstruction_variables: '//self%reconstruction_variables//NL
    desc = desc//mpih%myrankstr//'  reflux:                   '//trim(merge('.true. ', '.false.', self%reflux))
    if (self%reflux) desc = desc//NL//mpih%myrankstr//'  reflux_policy:            '//self%reflux_policy
@@ -133,11 +139,24 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_space', val=buff, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
    self%scheme_space = trim(adjustl(strip_control(buff)))
+   ! issue #119, T2: the central flux overwrites the `weno` one, which every other path goes on seeing
+   if (self%scheme_space == 'hybrid-kep-weno') then
+      self%is_hybrid = .true.
+      self%scheme_space = SCHEME_SPACE_WENO
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_threshold', val=self%hybrid_threshold, error=error)
+      if (error > 0) self%hybrid_threshold = 0.2_R8P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_floor', val=self%hybrid_floor, error=error)
+      if (error > 0) self%hybrid_floor = 1.e-8_R8P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_jump', val=self%hybrid_jump, error=error)
+      if (error > 0) self%hybrid_jump = 0.1_R8P
+      if (.not.(self%hybrid_threshold > 0._R8P .and. self%hybrid_floor > 0._R8P .and. self%hybrid_jump > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(hybrid_threshold), (hybrid_floor) and (hybrid_jump) must be positive')
+   endif
    select case(self%scheme_space)
    case(SCHEME_SPACE_WENO, SCHEME_SPACE_WENO_RIEMANN)
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(scheme_space) "'//self%scheme_space// &
-                               '"; expected one of '//SCHEME_SPACE_WENO//', '//SCHEME_SPACE_WENO_RIEMANN)
+                               '"; expected one of '//SCHEME_SPACE_WENO//', '//SCHEME_SPACE_WENO_RIEMANN//', hybrid-kep-weno')
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff, error=error)

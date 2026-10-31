@@ -597,6 +597,25 @@ the reflux the dissipative flux at the face is first order
 
 **Limits.** $\Delta$ is per block, so $\mu_t$ jumps at a 2:1 face. The first time step of a multi-realm run takes its limit from seam ghosts not filled yet. MHD is refused.
 
+## Hybrid central/WENO
+
+`scheme_space = hybrid-kep-weno` ([input](./input#numerics), issue #119, T2) computes the WENO flux splitting as `weno` does, then replaces the flux by a non-dissipative one at the faces away from shocks.
+
+**Sensor.** Ducros et al. (1999), per cell from 2nd-order central velocity gradients: $\Psi = \theta^2 / (\theta^2 + |\boldsymbol\omega|^2 + \varepsilon)$, $\varepsilon = 10^{-8}(a/\Delta x_\min)^2$ (`hybrid_floor`, not calibrated). A cell also counts as flagged where the relative density jump across it exceeds `hybrid_jump` (0.1, not calibrated): the Ducros ratio is zero at a contact. A face takes the central flux when $\Psi$ < `hybrid_threshold` (0.2) in the 4 cells $-1\ldots2$ along its direction.
+
+**Central flux.** 6th-order kinetic-energy- and pressure-equilibrium-preserving, conservative form (Pirozzoli 2011) with the two-point flux of Shima et al. (2021), with $\langle a\rangle = (a_l+a_r)/2$:
+
+$$
+F_{i+1/2} = 2\sum_{l=1}^{3} a_l \sum_{m=0}^{l-1} f(i-m,\,i-m+l),\quad a = (3/4,\,-3/20,\,1/60),
+$$
+$$
+f^\rho = \langle\rho\rangle\langle u_n\rangle,\quad f^{\rho u_i} = \langle\rho\rangle\langle u_n\rangle\langle u_i\rangle + \langle p\rangle\delta_{ni},\quad f^{E} = \langle\rho\rangle\langle u_n\rangle\frac{\mathbf{u}_l\cdot\mathbf{u}_r}{2} + \frac{\langle p\rangle\langle u_n\rangle}{\gamma-1} + \frac{u_{n,l}p_r+u_{n,r}p_l}{2}.
+$$
+
+One flux per face, so conservation holds whichever kernel set it; computing WENO everywhere costs what `weno` costs, plus the overwrite. The two kernel sets are not fused.
+
+**Limits.** Refused on a 2:1 grid, on a forest and at a physical face: the central stencil would read interpolated or boundary ghost cells (T2.4).
+
 ## Turbulence diagnostics
 
 `[diagnostics] turbulence_history_save = N` ([input](./input)) writes every $N$ steps the volume integrals of the kinetic

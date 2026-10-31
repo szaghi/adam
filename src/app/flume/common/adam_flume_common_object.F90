@@ -184,6 +184,8 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: block_spacing    !< Return the spacing of a block by a delta criterion.
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_dissipation     !< Refuse the dissipative terms not implemented yet.
+      procedure, pass(self), private :: check_hybrid          !< Refuse what the hybrid scheme does not handle yet.
+      procedure, pass(self), private :: check_hybrid_grid     !< Refuse a refined grid a restart loaded for the hybrid scheme.
       procedure, pass(self), private :: check_runtime_amr     !< Check [amr] frequency, default the prolongation (#74).
       procedure, pass(self), private :: build_amr_marker_list !< The [amr_marker_N] criteria, in input order (#110).
       procedure, pass(self), private :: check_divb_flux       !< Check [diagnostics] divb_flux (#68 A2).
@@ -1087,6 +1089,7 @@ contains
    if (self%physics%gravity%is_balanced) fields_number = fields_number + self%physics%nv
    if (self%physics%gravity%has_potential) fields_number = fields_number + 1_I4P
    if (self%turbulence%is_active) fields_number = fields_number + 1_I4P ! the eddy viscosity (issue #119, T1)
+   if (self%numerics%is_hybrid) fields_number = fields_number + 1_I4P   ! the sensor (issue #119, T2)
    endsubroutine compute_fields_number
 
    subroutine destroy_common(self)
@@ -1182,6 +1185,7 @@ contains
    call self%initialize_riemann_scheme
    call self%check_positivity_limiter
    call self%check_dissipation
+   call self%check_hybrid
    call self%check_gravity
    call self%sinks%load_from_file(file_parameters=file_parameters, model=self%physics%model,                        &
                                   self_gravity=self%physics%gravity%self_gravity,                                   &
@@ -1417,6 +1421,7 @@ contains
 
    call self%units%check_restart(basename=self%io%restart_basename)
    call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
+   if (self%numerics%is_hybrid) call self%check_hybrid_grid
    if (self%sinks%is_active) call self%sinks%load_restart(basename=self%io%restart_basename)
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
@@ -2883,6 +2888,41 @@ contains
             got '//trim(str(self%ngc)))
    endif
    endsubroutine check_dissipation
+
+   subroutine check_hybrid(self)
+   !< Refuse what `scheme_space = hybrid-kep-weno` does not handle yet (issue #119, T2.4): the central stencil would read interpolated
+   !< ghost cells at a 2:1 seam and boundary ghost cells at a physical face. Euler on a uniform, fully periodic grid only.
+   class(flume_common_object), intent(in) :: self !< The equation.
+   integer(I4P)                           :: d    !< Direction counter.
+
+   if (.not.self%numerics%is_hybrid) return
+   if (self%physics%model /= MODEL_EULER) &
+      call mpih%error_stop(msg=': [numerics].(scheme_space)=hybrid-kep-weno requires [physics].(physical_model) = euler')
+   if (self%ngc < 3_I4P) call mpih%error_stop(msg=': [numerics].(scheme_space)=hybrid-kep-weno needs [grid].(ngc) >= 3')
+   if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL .or. self%ib%solids_number > 0_I4P) &
+      call mpih%error_stop(msg=': [numerics].(scheme_space)=hybrid-kep-weno refuses the positivity limiter and immersed solids')
+   do d=1, 3
+      if (.not.self%adam%grid%null_xyz(d) .and. .not.self%adam%grid%is_ijk_periodic(d)) &
+         call mpih%error_stop(msg=': [numerics].(scheme_space)=hybrid-kep-weno needs periodic faces (issue #119, T2.4)')
+   enddo
+   if (self%amr%markers_number > 0_I4P .or. self%amr%frequency > 0_I4P) &
+      call mpih%error_stop(msg=': [numerics].(scheme_space)=hybrid-kep-weno needs a uniform grid (issue #119, T2.4)')
+   endsubroutine check_hybrid
+
+   subroutine check_hybrid_grid(self)
+   !< Refuse a refined grid under the hybrid scheme: a restart loads its grid from the files, whatever `[amr]` says now.
+   class(flume_common_object), intent(in) :: self     !< The equation.
+   real(R8P)                              :: step(2)  !< Largest step along x and largest inverse step along x of this rank.
+
+   step = 0._R8P
+   if (self%blocks_number > 0_I4P) then
+      step(1) = maxval(self%adam%field%dxyz(1,1:self%blocks_number))
+      step(2) = 1._R8P / minval(self%adam%field%dxyz(1,1:self%blocks_number))
+   endif
+   call MPI_ALLREDUCE(MPI_IN_PLACE, step, 2, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (step(1) * step(2) > 1.5_R8P) & ! a step along x is the same on every block, or differs by a factor 2 at least
+      call mpih%error_stop(msg=': [numerics].(scheme_space)=hybrid-kep-weno needs a uniform grid; the restart files hold a refined one')
+   endsubroutine check_hybrid_grid
 
    subroutine check_runtime_amr(self)
    !< Check `[amr] frequency`, the runtime regrid cadence (issue #74, M5): 0 disables runtime regridding (the AMR of the

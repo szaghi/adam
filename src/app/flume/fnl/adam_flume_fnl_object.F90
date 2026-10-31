@@ -19,6 +19,7 @@ use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_BX, IQ_PSI, IQ_R,
 use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
+use :: adam_flume_fnl_hybrid_kernels, only : compute_hybrid_sensor_dev, overwrite_central_fluxes_dev
 use :: adam_fnl_turbulence_kernels, only : compute_mu_t_sigma_dev, compute_mu_t_vreman_dev, compute_mu_t_wale_dev
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
 use :: adam_seam_exchange,        only : seam_fill_all
@@ -381,6 +382,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null()     !< Conservative variables [nb, i, j, k, nv].
    real(R8P), pointer     :: dq_gpu(:,:,:,:,:)=>null()    !< Residuals [nb, i, j, k, nv].
    real(R8P), pointer     :: q_aux_gpu(:,:,:,:,:)=>null() !< Auxiliary variables [nb, i, j, k, nv_aux].
+   real(R8P), pointer     :: psi_gpu(:,:,:,:,:)=>null()   !< Hybrid sensor [nb, i, j, k, 1], with the hybrid scheme.
    real(R8P), pointer     :: mu_t_gpu(:,:,:,:,:)=>null()  !< Eddy viscosity [nb, i, j, k, 1], with a subgrid-scale model.
    real(R8P), pointer     :: flx_f_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, nv].
    real(R8P), pointer     :: fly_f_gpu(:,:,:,:,:)=>null() !< Y-face fluxes [nb, 1:ni, 0:nj, 1:nk, nv].
@@ -424,6 +426,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_turbulence_history !< Compute and save the turbulence history (issue #119).
+      procedure, pass(self) :: overwrite_hybrid_fluxes !< Central flux where the sensor allows it (issue #119, T2).
       procedure, pass(self) :: compute_mu_t            !< Compute the eddy viscosity of the model (issue #119).
       procedure, pass(self) :: update_sgs_lambda       !< Update the time step limit of the eddy viscosity (issue #119).
       procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
@@ -846,6 +849,11 @@ contains
    call dev_alloc(fptr_dev=self%q_aux_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv_aux], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_aux_gpu in flume_fnl_object%allocate_gpu')
+   if (self%numerics%is_hybrid) then
+      call dev_alloc(fptr_dev=self%psi_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,1], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
+                     init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate psi_gpu in flume_fnl_object%allocate_gpu')
+   endif
    if (self%turbulence%is_active) then
       call dev_alloc(fptr_dev=self%mu_t_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,1], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                      init_value=0._R8P, ierr=ierr)
@@ -1061,6 +1069,23 @@ contains
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
                                                integrals=row)
    endsubroutine compute_conservation
+
+   subroutine overwrite_hybrid_fluxes(self)
+   !< Compute the sensor and replace the WENO flux by the central one where it allows it (issue #119, T2).
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+             thr=>self%numerics%hybrid_threshold, is_null=>self%adam%grid%null_xyz)
+   call compute_hybrid_sensor_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, floor=self%numerics%hybrid_floor, jump_max=self%numerics%hybrid_jump, dxyz_gpu=self%field_fnl%dxyz_gpu, &
+                              is_null=is_null, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu)
+   if (.not.is_null(1)) call overwrite_central_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                 blocks_number=nb, gamma=gamma, threshold=thr, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu, fl_gpu=self%flx_f_gpu)
+   if (.not.is_null(2)) call overwrite_central_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                 blocks_number=nb, gamma=gamma, threshold=thr, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu, fl_gpu=self%fly_f_gpu)
+   if (.not.is_null(3)) call overwrite_central_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                 blocks_number=nb, gamma=gamma, threshold=thr, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu, fl_gpu=self%flz_f_gpu)
+   endassociate
+   endsubroutine overwrite_hybrid_fluxes
 
    subroutine compute_mu_t(self)
    !< Compute the eddy viscosity from the auxiliary variables, ghost cells included in them (issue #119, T1): the kernel of the
@@ -1497,6 +1522,7 @@ contains
    call free_gpu(self%dq_gpu)
    call free_gpu(self%q_aux_gpu)
    call free_gpu(self%mu_t_gpu)
+   call free_gpu(self%psi_gpu)
    call free_gpu(self%flx_f_gpu)
    call free_gpu(self%fly_f_gpu)
    call free_gpu(self%flz_f_gpu)
@@ -1575,6 +1601,8 @@ contains
    ! whole registry, so after the last realm every realm's table is on the device
    !$acc update device(eos_tables_segments, eos_tables_breaks, eos_tables_exponents, eos_tables_k)
    !$omp target update to(eos_tables_segments, eos_tables_breaks, eos_tables_exponents, eos_tables_k)
+   if (realms_number_ > 1_I4P .and. self%numerics%is_hybrid) &
+      call mpih_fnl%error_stop(msg=': [numerics].(scheme_space)=hybrid-kep-weno is not supported on a forest (issue #119, T2.4)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')
@@ -3833,6 +3861,7 @@ contains
    endselect
    if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
       call self%compute_gravity_correction(q_gpu=q_gpu)
+   if (self%numerics%is_hybrid) call self%overwrite_hybrid_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes_dev
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
                                                                                              flux_register=flux_register)

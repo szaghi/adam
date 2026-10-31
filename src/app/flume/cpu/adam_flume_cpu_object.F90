@@ -13,6 +13,7 @@ use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_o
 use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
+use :: adam_flume_cpu_hybrid_kernels, only : compute_hybrid_sensor, overwrite_central_fluxes
 use :: adam_turbulence_kernels, only : compute_mu_t_sigma, compute_mu_t_vreman, compute_mu_t_wale
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
 use :: adam_seam_exchange,        only : seam_fill_all, seam_ghosts_to_stages, pack_seam_rows, unpack_seam_rows
@@ -296,6 +297,7 @@ endtype equilibrium_seam_face
 type, extends(flume_common_object) :: flume_cpu_object
    !< FLUME CPU backend object.
    ! fluxes data
+   real(R8P), allocatable :: psi(:,:,:,:)     !< Hybrid sensor [1-ngc:ni+ngc, ..., nb], with the hybrid scheme.
    real(R8P), allocatable :: mu_t(:,:,:,:)    !< Eddy viscosity [1-ngc:ni+ngc, ..., nb], with a subgrid-scale model.
    real(R8P), allocatable :: flx_f(:,:,:,:,:) !< X-face fluxes [nv, 0:ni, 1:nj, 1:nk, nb], face i = i+1/2.
    real(R8P), allocatable :: fly_f(:,:,:,:,:) !< Y-face fluxes [nv, 1:ni, 0:nj, 1:nk, nb], face j = j+1/2.
@@ -326,6 +328,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_turbulence_history !< Compute and save the turbulence history (issue #119).
+      procedure, pass(self) :: overwrite_hybrid_fluxes !< Central flux where the sensor allows it (issue #119, T2).
       procedure, pass(self) :: compute_mu_t            !< Compute the eddy viscosity of the model (issue #119).
       procedure, pass(self) :: update_sgs_lambda       !< Update the time step limit of the eddy viscosity (issue #119).
       procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
@@ -849,6 +852,23 @@ contains
                                                integrals=row)
    endsubroutine compute_conservation
 
+   subroutine overwrite_hybrid_fluxes(self)
+   !< Compute the sensor and replace the WENO flux by the central one where it allows it (issue #119, T2).
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
+             thr=>self%numerics%hybrid_threshold, is_null=>self%adam%grid%null_xyz)
+   call compute_hybrid_sensor(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, floor=self%numerics%hybrid_floor, jump_max=self%numerics%hybrid_jump, dxyz=self%adam%field%dxyz, &
+                              is_null=is_null, q_aux=self%q_aux, psi=self%psi)
+   if (.not.is_null(1)) call overwrite_central_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                 blocks_number=nb, gamma=gamma, threshold=thr, q_aux=self%q_aux, psi=self%psi, fl=self%flx_f)
+   if (.not.is_null(2)) call overwrite_central_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                 blocks_number=nb, gamma=gamma, threshold=thr, q_aux=self%q_aux, psi=self%psi, fl=self%fly_f)
+   if (.not.is_null(3)) call overwrite_central_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                 blocks_number=nb, gamma=gamma, threshold=thr, q_aux=self%q_aux, psi=self%psi, fl=self%flz_f)
+   endassociate
+   endsubroutine overwrite_hybrid_fluxes
+
    subroutine compute_mu_t(self)
    !< Compute the eddy viscosity from the auxiliary variables, ghost cells included in them (issue #119, T1): the kernel of the
    !< model is selected here, never inside the loops.
@@ -1140,10 +1160,16 @@ contains
    call mpih%initialize(do_mpi_init=.true., verbose=.true.)
    call self%flume_common_object%initialize(filename=filename, memory_avail=mpih%memory_avail/realms_number_, &
                                             verbose=.true.)
+   if (self%numerics%is_hybrid) then
+      allocate(self%psi(1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc,1:self%nb))
+      self%psi = 0._R8P
+   endif
    if (self%turbulence%is_active) then
       allocate(self%mu_t(1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc,1:self%nb))
       self%mu_t = 0._R8P
    endif
+   if (realms_number_ > 1_I4P .and. self%numerics%is_hybrid) &
+      call mpih%error_stop(msg=': [numerics].(scheme_space)=hybrid-kep-weno is not supported on a forest (issue #119, T2.4)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                'input and nothing yet checks that the realms share the references)')
@@ -3629,6 +3655,7 @@ contains
    endselect
    if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
       call self%compute_gravity_correction(q=q)
+   if (self%numerics%is_hybrid) call self%overwrite_hybrid_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
                                                                                          flux_register=flux_register)

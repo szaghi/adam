@@ -23,6 +23,14 @@
 #        and the budget closes better with eps_sgs than without it or flipped. WALE and Sigma on 64^3 for the sign check.
 #   sg3  no viscosity with each model, 32^3 to t = 1: eps zero, eps_sgs positive, mass and energy conserved.
 #   sg4  one rank against N with a model on the random field (the same history, within 1e-11).
+#   hy1  the hybrid central/WENO scheme (T2), inviscid Taylor-Green, M 0.1, to t = 2.5, n = 32 (--hy-n; 64 takes 100 minutes on two CPU ranks):
+#        K less the pressure work against plain WENO, which must dissipate at least 10 times more; mass and energy conserved.
+#   hy2  one rank against N with the hybrid scheme on the random field, where the sensor fires.
+#   hy3  the central flux itself (test_kep, mode test-kep-gnu, KEP_TEST_EXE): order, kinetic energy identity, pressure equilibrium. hy1 cannot
+#        tell a KEP flux from a non-KEP one: at 32^3 the plain central flux loses less K than this one.
+#   hy4  a contact of density ratio 8 and 100 advected on a periodic square, t = 0.3: finite, with u and p within 1e-3 of 1. The Ducros ratio cannot
+#        see it, the density jump in the sensor does.
+#   hy5  a refined grid loaded from restart files under the hybrid scheme stops the run (the [amr] keys of the restart say nothing about it).
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -36,8 +44,9 @@ NP=2
 AGREE=""
 BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
+HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -45,6 +54,7 @@ while [[ $# -gt 0 ]]; do
       --agree) AGREE="$2" ; shift 2 ;;
       --budget-ladder) BUDGET_LADDER="$2" ; shift 2 ;;
       --sgs-ladder) SGS_LADDER="$2" ; shift 2 ;;
+      --hy-n) HY_N="$2" ; shift 2 ;;
       *)       echo "check.sh: unknown argument '$1' (accepted: --np N, --legs LIST, --agree EXE-NAME)" >&2 ; exit 2 ;;
    esac
 done
@@ -151,9 +161,42 @@ if has_leg sg4; then
    loaded "$b"
    "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$a" "$b"
 fi
+if has_leg hy1; then
+   echo "== hy1: inviscid kinetic energy, hybrid against WENO"
+   a=$(run hy1-hybrid "$NP" --n $HY_N --levels 2 --reynolds 0 --scheme-space hybrid-kep-weno --time-max 2.5)
+   b=$(run hy1-weno "$NP" --n $HY_N --levels 2 --reynolds 0 --time-max 2.5)
+   "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" "$a" "$b"
+fi
+if has_leg hy2; then
+   echo "== hy2: one rank against $NP with the hybrid scheme"
+   a=$(run hy2-np1 1 --n 32 --levels 2 "${HIT[@]}" --scheme-space hybrid-kep-weno --it-max 10)
+   b=$(run hy2-npN "$NP" --n 32 --levels 2 "${HIT[@]}" --scheme-space hybrid-kep-weno --it-max 10)
+   loaded "$b"
+   "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$a" "$b"
+fi
+if has_leg hy3; then
+   echo "== hy3: the central flux"
+   "${KEP_TEST_EXE:-$REPO_ROOT/exe/test_kep}"
+fi
+if has_leg hy4; then
+   for r in 8 100; do
+      echo "== hy4: contact, density ratio $r"
+      w=$(run "hy4-$r" "$NP" --n 64 --levels 2 --reynolds 0 --scheme-space hybrid-kep-weno --contact $r --cfl 0.3 --time-max 0.3 --it-save 100000)
+      "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --contact "$w"
+   done
+fi
+if has_leg hy5; then
+   echo "== hy5: a refined restart refused"
+   w=$(run hy5 "$NP" --n 32 --levels 2 --amr-box 0.5 --it-max 5 --restart-save 5)
+   python3 -I "$CASE_DIR/make_tgv.py" "$w/restart.ini" --n 32 --levels 2 --scheme-space hybrid-kep-weno --restart --it-max 10
+   if (cd "$w" && mpirun -np "$NP" "$EXE" restart.ini > restart.log 2>&1); then echo "check.sh: hy5 ran" >&2 ; exit 1 ; fi
+   grep -a -q "the restart files hold a refined one" "$w/restart.log" || { echo "check.sh: hy5 stopped for another reason" >&2 ; exit 1 ; }
+   echo "refused  PASS"
+fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
    "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-tt2-npN" "$CASE_DIR/work-$AGREE-tt2-npN"
+   [[ -d "$CASE_DIR/work-$AGREE-hy2-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-hy2-npN" "$CASE_DIR/work-$AGREE-hy2-npN"
    [[ -d "$CASE_DIR/work-$AGREE-sg4-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-sg4-npN" "$CASE_DIR/work-$AGREE-sg4-npN"
    [[ -d "$CASE_DIR/work-$AGREE-ht2-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-ht2-npN" "$CASE_DIR/work-$AGREE-ht2-npN"
 fi

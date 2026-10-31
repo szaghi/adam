@@ -1,0 +1,10 @@
+# The hybrid central/WENO scheme of #119 T2, against the ILES baseline: a case file of tgv_campaign.sh.
+m0.1-hybrid-n64 64 0.1 hybrid-kep-weno weno-u-5
+m1.25-hybrid-n64 64 1.25 hybrid-kep-weno weno-u-5
+hit-hybrid-n64 64 0.6 hybrid-kep-weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0
+m0.1-hybrid-vreman-n64 64 0.1 hybrid-kep-weno weno-u-5 --sgs-model vreman
+m0.1-hybrid-n128 128 0.1 hybrid-kep-weno weno-u-5
+m1.25-hybrid-n128 128 1.25 hybrid-kep-weno weno-u-5
+hit-hybrid-n128 128 0.6 hybrid-kep-weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0
+m0.1-hybrid-vreman-n128 128 0.1 hybrid-kep-weno weno-u-5 --sgs-model vreman
+m1.25-hybrid-n256 256 1.25 hybrid-kep-weno weno-u-5
