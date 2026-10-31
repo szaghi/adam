@@ -48,6 +48,7 @@
 #           (#88); sv16-{jeans,control}: SV-16, the smaller star with and without the Jeans marker (#91); a
 #           checkpoint every 2 steps, with the FFT executable (JEANS_EXE); the conservative and control runs go
 #           non-finite by design and are kept; sv17-de: SV-17, the SV-15 star with euler-de (#91 P2) (5 runs, 6 min)
+#   tgv     the Taylor-Green and isotropic turbulence runs of #119 are not here: turbulence/tgv_campaign.sh, into <runs-dir>/tgv
 #   dualenergy noh-{euler,euler-de}: the cold planar Noh shock of dualenergy/check.sh de2 (#91 P2) (2 runs, 1 min)
 #   scalars ps-sod (Sod with two scalars, scalars/check.sh ps1) and ps-vortex (the regridded vortex with a uniform
 #           scalar, ps4, a checkpoint every 5 steps) (#92 P3) (2 runs, 2 min)

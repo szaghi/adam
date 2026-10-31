@@ -48,6 +48,9 @@ def main() -> None:
     parser.add_argument("--hit-seed", type=int, default=1)
     parser.add_argument("--sgs-model", default="none")
     parser.add_argument("--sgs-constant", type=float, default=0.0, help="0: the model's default")
+    parser.add_argument("--amr-box", type=float, default=0.0, help="> 0: one more level on the centred box of this side over 2 pi")
+    parser.add_argument("--seam-fill", default="")
+    parser.add_argument("--seam-restriction", default="")
     parser.add_argument("--restart-save", type=int, default=0, help="cadence of the restart files")
     parser.add_argument("--restart", action="store_true", help="restart from them")
     parser.add_argument("--history", type=int, default=1, help="cadence of the conservation and turbulence histories")
@@ -94,6 +97,29 @@ def main() -> None:
     text = section(text, "time", {"it_max": str(args.it_max), "time_max": str(args.time_max), "CFL": str(args.cfl)})
     text = section(text, "diagnostics", {"conservation_history_save": str(args.history),
                                          "turbulence_history_save": str(args.history)})
+    if args.amr_box > 0.0:
+        lo, hi = 0.5 * box * (1.0 - args.amr_box), 0.5 * box * (1.0 + args.amr_box)
+        amr = {"max_level": str(args.levels + 1), "markers_number": "1"}
+        amr |= {"seam_ghost_fill": args.seam_fill} if args.seam_fill else {}
+        amr |= {"seam_restriction": args.seam_restriction} if args.seam_restriction else {}
+        text = section(text, "amr", amr)
+        text = section(text, "numerics", {"reflux": ".true."})
+        text = section(text, "initial_conditions", {"amr_iterations": "1"})  # 0 would leave the box unrefined
+        text += f"""
+[amr_marker_1]
+mode = 1
+geo_type = primitive-box
+delta_type = max
+delta_fine = 0.0
+delta_coarse = 0.0
+box_xmin = {lo:.16e}
+box_ymin = {lo:.16e}
+box_zmin = {lo:.16e}
+box_xmax = {hi:.16e}
+box_ymax = {hi:.16e}
+box_zmax = {hi:.16e}
+target_level = {args.levels + 1}
+"""
     if args.sgs_model != "none":
         text += f"\n[turbulence]\nsgs_model = {args.sgs_model}\n"
         if args.sgs_constant > 0.0:

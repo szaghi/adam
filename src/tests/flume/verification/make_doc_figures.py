@@ -2145,6 +2145,102 @@ def fig_isothermal_eos(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def _turbulence_history(work: Path) -> np.ndarray:
+    """Return the turbulence history per unit volume, rows run twice by a restart kept once, the last copy."""
+    rows = np.loadtxt(work / "tgv-turbulence_history.dat", comments="VARIABLES", ndmin=2)
+    _, last = np.unique(rows[::-1, 0], return_index=True)
+    rows = rows[::-1][last]
+    rows[:, 2:] /= (2.0 * np.pi) ** 3
+    return rows
+
+
+def _turbulence_panels(axs, runs: Path, cases: list[tuple[str, str]], tscale: float = 1.0) -> None:
+    """Draw -dK/dt and the enstrophy of the cases (name, label) on the two axes; a case not run yet is left out."""
+    for name, label in cases:
+        work = runs / name
+        if not (work / "tgv-turbulence_history.dat").exists():
+            continue
+        h = _turbulence_history(work)
+        axs[0].plot(h[:, 1] / tscale, -np.gradient(h[:, 2], h[:, 1]), label=label, lw=1.2)
+        axs[1].plot(h[:, 1] / tscale, h[:, 3], label=label, lw=1.2)
+    axs[0].set_ylabel(r"$-dK/dt$")
+    axs[1].set_ylabel(r"$Z$")
+    for ax in axs:
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8)
+
+
+def fig_tgv_iles(out: Path, runs: Path) -> None:
+    """T0.3, T0.4 (issue #119): the ILES baseline on the Taylor-Green vortex, Re 1600, from verification/turbulence/tgv_campaign.sh
+    (`runs/tgv/<case>`). Rows: M 0.1 on the WENO-5 flux splitting at 64, 128, 256; M 0.1 at 128 by scheme and order; M 1.25 at 64, 128, 256.
+    Left the total dissipation -dK/dt, right the enstrophy, both per unit volume; the dotted line is the enstrophy peak about 10.3 quoted
+    for the incompressible reference by Svard (2022). The DNS curves themselves are not available to this tree."""
+    root = runs / "tgv"
+    if not (root / "m0.1-weno-5-n64").exists():
+        raise FileNotFoundError(root / "m0.1-weno-5-n64")
+    fig, axs = plt.subplots(3, 2, figsize=(11.0, 10.0), constrained_layout=True, sharex=True)
+    _turbulence_panels(axs[0], root, [(f"m0.1-weno-5-n{n}", f"WENO-5, ${n}^3$") for n in (64, 128, 256)])
+    _turbulence_panels(axs[1], root, [("m0.1-weno-5-n128", "WENO-5"), ("m0.1-riemann-5-n128", "WENO-5 HLLC"),
+                                      ("m0.1-weno-7-n128", "WENO-7"), ("m0.1-weno-9-n128", "WENO-9")])
+    _turbulence_panels(axs[2], root, [(f"m1.25-weno-5-n{n}", f"$M_0$ 1.25, ${n}^3$") for n in (64, 128, 256)])
+    for r in (0, 1):
+        axs[r, 1].axhline(10.3, color="k", ls=":", lw=0.8)
+    axs[2, 0].set_xlabel("t")
+    axs[2, 1].set_xlabel("t")
+    fig.savefig(out / "tgv-iles.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_tgv_models(out: Path, runs: Path) -> None:
+    """T1, T0.6 (issue #119): M 0.1, Re 1600. Rows: the subgrid-scale models against no model at 64^3; the same at 128^3; a 2:1 box on the
+    centre of the 64^3 grid against the uniform 64^3 and 128^3. Left -dK/dt, right the enstrophy."""
+    root = runs / "tgv"
+    if not (root / "m0.1-vreman-5-n64").exists():
+        raise FileNotFoundError(root / "m0.1-vreman-5-n64")
+    fig, axs = plt.subplots(3, 2, figsize=(11.0, 10.0), constrained_layout=True, sharex=True)
+    for row, n in ((0, 64), (1, 128)):
+        _turbulence_panels(axs[row], root, [(f"m0.1-weno-5-n{n}", f"no model, ${n}^3$"), (f"m0.1-vreman-5-n{n}", "Vreman"),
+                                            (f"m0.1-wale-5-n{n}", "WALE"), (f"m0.1-sigma-5-n{n}", "Sigma")])
+    _turbulence_panels(axs[2], root, [("m0.1-weno-5-n64", "uniform $64^3$"), ("m0.1-box-5-n64", "2:1 box, tricubic, mean"),
+                                      ("m0.1-box-q6-5-n64", "2:1 box, quintic, lagrange6"), ("m0.1-weno-5-n128", "uniform $128^3$")])
+    axs[2, 0].set_xlabel("t")
+    axs[2, 1].set_xlabel("t")
+    fig.savefig(out / "tgv-models.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_hit(out: Path, runs: Path) -> None:
+    """T0.5 (issue #119): decaying compressible isotropic turbulence, M_t 0.6, Re_lambda 100, k_0 4, tau = lambda_0 / u_rms = 0.5. Left the
+    enstrophy against t / tau, right the spectrum of sqrt(rho) u at t / tau = 4 with the initial one."""
+    root = runs / "tgv"
+    if not (root / "hit-iles-5-n64").exists():
+        raise FileNotFoundError(root / "hit-iles-5-n64")
+    fig, axs = plt.subplots(1, 2, figsize=(11.0, 4.2), constrained_layout=True)
+    cases = [("hit-iles-5-n64", "no model, $64^3$"), ("hit-vreman-5-n64", "Vreman, $64^3$"), ("hit-iles-5-n128", "no model, $128^3$"),
+             ("hit-vreman-5-n128", "Vreman, $128^3$"), ("hit-iles-5-n256", "no model, $256^3$")]
+    for name, label in cases:
+        work = root / name
+        if (work / "tgv-turbulence_history.dat").exists():
+            h = _turbulence_history(work)
+            axs[0].plot(h[:, 1] / 0.5, h[:, 3], label=label, lw=1.2)
+        files = sorted(work.glob("spectrum-*.dat"))
+        if files:
+            sp = np.loadtxt(files[-1])
+            axs[1].loglog(sp[1:, 0], sp[1:, 1], label=label, lw=1.2)
+    k = np.arange(1, 129)
+    axs[1].loglog(k, 16.0 * np.sqrt(2.0 / np.pi) / 4.0 * (k / 4.0) ** 4 * np.exp(-2.0 * (k / 4.0) ** 2), "k:", lw=0.8, label="initial")
+    axs[1].set_ylim(1e-7, 2.0)
+    axs[0].set_xlabel(r"$t/\tau$")
+    axs[0].set_ylabel(r"$Z$")
+    axs[1].set_xlabel("k")
+    axs[1].set_ylabel("E(k)")
+    for ax in axs:
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8)
+    fig.savefig(out / "hit.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_barotropic_eos(out: Path, runs: Path) -> None:
     """EO barotropic (issue #100, P3): the piecewise polytrope (CPU). Top left: the eb1 tube on the convex table POLY
     (densities 2, 8; exponents 1, 1.4, 5/3) at t = 0.15, 1600 cells, against the exact solution (eos_oracle.py): the
@@ -3751,6 +3847,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "passive-scalars": fig_passive_scalars,
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
+           "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

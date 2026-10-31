@@ -1,0 +1,15 @@
+# The go/no-go of #119 T1 and the runs of T0.5, T0.6: a case file of tgv_campaign.sh.
+m0.1-vreman-5-n64 64 0.1 weno weno-u-5 --sgs-model vreman
+m0.1-wale-5-n64 64 0.1 weno weno-u-5 --sgs-model wale
+m0.1-sigma-5-n64 64 0.1 weno weno-u-5 --sgs-model sigma
+m0.1-box-5-n64 64 0.1 weno weno-u-5 --amr-box 0.5
+m0.1-box-q6-5-n64 64 0.1 weno weno-u-5 --amr-box 0.5 --seam-fill quintic --seam-restriction lagrange6
+hit-iles-5-n64 64 0.6 weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0
+hit-vreman-5-n64 64 0.6 weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0 --sgs-model vreman
+hit-iles-5-n128 128 0.6 weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0
+hit-vreman-5-n128 128 0.6 weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0 --sgs-model vreman
+hit-iles-5-n256 256 0.6 weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0
+m0.1-vreman-5-n128 128 0.1 weno weno-u-5 --sgs-model vreman
+m0.1-wale-5-n128 128 0.1 weno weno-u-5 --sgs-model wale
+m0.1-sigma-5-n128 128 0.1 weno weno-u-5 --sgs-model sigma
+m1.25-vreman-5-n128 128 1.25 weno weno-u-5 --sgs-model vreman
