@@ -66,6 +66,7 @@ FLUME has no output-format selector. It always writes these files:
 | Restart | `<restart_basename>.time`, `.tnd`, `-procNNNNNN.fbd` + an XH5F snapshot `<restart_basename>.xdmf/.h5` | `restart_save` |
 | Residuals history (ASCII, Tecplot header) | `<output_basename>-residuals.dat` | `residuals_save` |
 | Conservation history (ASCII) | `<output_basename>-conservation_history.dat` | `[diagnostics].conservation_history_save` |
+| Turbulence history (ASCII, optional) | `<output_basename>-turbulence_history.dat` | `[diagnostics].turbulence_history_save` |
 | div(B) history (MHD only) | `<output_basename>-divb_history.dat` | `[diagnostics].conservation_history_save` |
 | Slices (MPI-IO binary) | `<output_basename>-slice_NN-<it:9>.mat` | `[slices]`, `[slice_N]` |
 
@@ -576,6 +577,7 @@ selected type uses is required** (fatal "failed to load" otherwise).
 |--------|-------|--------------|-----------------------------------------------------------------------|
 | `uniform` | any | 1 | `s`: signed relative amplitude of a deterministic hashed perturbation of `rho` and `p`. |
 | `isentropic-vortex` | **euler** (fatal otherwise) | 1 (free stream) | `x0`, `y0`, `radius` (`> 0`), `strength`. |
+| `taylor-green` | **euler, euler-de** (fatal otherwise) | 0 | `tg_density`, `tg_velocity`, `tg_mach` (all `> 0`), `tg_length` (default 1). The compressible Taylor–Green vortex of DeBonis (2013), at uniform temperature. The box $[0, 2\pi L]^3$ and its periodicity are the input's: not checked ([#119](https://github.com/szaghi/adam/issues/119)). |
 | `riemann-problem` | any | `regions_number` | `regions_number`. Each region also needs extents (see the next section). Every cell must be covered by a region (fatal otherwise, at set time), and the **first** matching region wins. |
 | `glm-pulse` | **mhd-ideal** | 1 | `pulse_axis` (string `x`/`y`/`z`, fatal otherwise), `pulse_center`, `pulse_width` (`> 0`), `pulse_amplitude`. |
 | `divb-peak` | **mhd-ideal** | 1 | `peak_x0`, `peak_y0`, `peak_radius` (`> 0`), `peak_amplitude`. |
@@ -633,6 +635,7 @@ Every key is required, and none has a range check.
 | `conservation_history_save` | int | yes | Cadence (steps) of `<output_basename>-conservation_history.dat` (volume integrals of every conservative variable). For MHD it is also the cadence of `-divb_history.dat` and of the `divb_tol` monitor. `<= 0` disables them. |
 | `ghost_poison` | logical | no (`.false.`) | Verification instrument (issue #65): before each field write every ghost cell is set to NaN and refilled in the order of a stage (seams, exchange, boundary conditions), so a ghost the fill misses, or reads before its donor is written, is written as NaN instead of a stale value. Used by the ghost probe GP; it costs one pass over the ghosts per write. |
 | `divb_flux` | logical | no (`.false.`) | MHD with GLM or EGLM ([#68](https://github.com/szaghi/adam/issues/68) A2): adds four columns to `-divb_history.dat` (`max_dflux`, `l1_dflux`, `seam_max_dflux`, `max_h_dflux_over_bmax`). D_flux is the divergence the cleaning acts on: that of the interface normal field $B_n = F_\psi/s$ read from the scheme's own $\psi$ face fluxes ($s = c_h^2$ GLM, $c_h$ EGLM), the coarse 2:1 faces taking the fine fluxes (the reflux), so its integral over a composite periodic domain is round-off. The last column is the scale-free $\max(h\,|D_\text{flux}|)/\max|\mathbf B|$. Each history row costs one residual evaluation of the committed state, on the idle RK stage buffers: fatal without GLM/EGLM or with a one-stage scheme. An inter-realm seam keeps each side's own flux; the step-0 row, written before the forest builds its register, has no reflux substitution and no seam column (as the centred one). |
+| `turbulence_history_save` | int | no (0, disabled) | Cadence (steps) of `<output_basename>-turbulence_history.dat`: volume integrals `K` ($\rho\lvert u\rvert^2/2$), `Z` ($\rho\lvert\omega\rvert^2/2$), `eps_s` ($\mu\lvert\omega\rvert^2$), `eps_d` ($\tfrac43\mu\theta^2$), `eps` ($\tau_{ij}\partial_j u_i$), `pd` ($p\theta$), from 4th-order central velocity gradients, in code units, not divided by the volume. In a periodic box $dK/dt = $ `pd` $-$ `eps`, up to the scheme's numerical dissipation. Needs `ngc >= 2`. On a forest of several realms there is no step-0 row: the seams are not built yet. Each row refreshes the ghosts and the auxiliary variables of the committed state ([#119](https://github.com/szaghi/adam/issues/119)). |
 
 ---
 

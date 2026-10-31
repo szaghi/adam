@@ -7,6 +7,7 @@
 #   golden/<backend>/digest.txt                     per-variable field digest of every checkpoint (digest.py)
 #   golden/<backend>/*-residuals.dat                per-iteration residuals log
 #   golden/<backend>/*-conservation_history.dat     per-iteration volume integrals of the conservative variables
+#   golden/<backend>/*-turbulence_history.dat       the same for the turbulence integrals, when a case writes them (#119)
 # The two logs are compared with digest.py compare-residuals (header verbatim, integer columns exact, float columns
 # within the digest tolerances).
 #
@@ -89,6 +90,8 @@
 #   sinks-shu                sink particles: the overdense singular isothermal sphere with a seed sink, 16^3, 30 steps:
 #                            the deposit, the gather, threshold accretion, the kick-drift-kick (#94, P4); per-backend
 #                            goldens
+#   tgv-small                the compressible Taylor-Green vortex with the turbulence history, 16^3, M 0.4, 20 steps
+#                            (#119, T0.2); per-backend goldens
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 
@@ -370,7 +373,8 @@ for case_dir in "$REGRESSION_DIR"/*/; do
          fi
       fi
       shopt -s nullglob
-      for log_golden in "$golden_dir"/*-residuals.dat "$golden_dir"/*-conservation_history.dat; do
+      for log_golden in "$golden_dir"/*-residuals.dat "$golden_dir"/*-conservation_history.dat \
+                        "$golden_dir"/*-turbulence_history.dat; do
          fname="$(basename "$log_golden")"
          produced="$workdir/$fname"
          if [[ ! -f "$produced" ]]; then

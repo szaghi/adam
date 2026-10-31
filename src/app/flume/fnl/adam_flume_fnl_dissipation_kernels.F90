@@ -10,8 +10,9 @@ module adam_flume_fnl_dissipation_kernels
 !< Separate kernels, never fused with the WENO face kernels (FNL register pressure, issue #47 R-4).
 
 ! FLUME modules
-use :: adam_flume_dissipation_library, only : compute_dissipative_flux, compute_resistive_flux
-use :: adam_flume_parameters,          only : IA_BX, IA_BY, IA_BZ, IA_T, IA_U, IA_V, IA_W, IQ_BX, IQ_RE, IQ_RU
+use :: adam_flume_dissipation_library, only : compute_dissipative_flux, compute_resistive_flux, &
+                                          compute_turbulence_integrands
+use :: adam_flume_parameters,          only : IA_BX, IA_BY, IA_BZ, IA_P, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_BX, IQ_RE, IQ_RU
 ! third party modules
 use :: penf,                           only : I4P, R8P
 
@@ -21,6 +22,7 @@ public :: add_dissipative_fluxes_o2_dev
 public :: add_dissipative_fluxes_o4_dev
 public :: add_resistive_fluxes_o2_dev
 public :: add_resistive_fluxes_o4_dev
+public :: compute_turbulence_integrals_dev
 
 contains
    ! public procedures
@@ -223,6 +225,62 @@ contains
    enddo
    enddo
    endsubroutine add_dissipative_fluxes_o4_dev
+
+   subroutine compute_turbulence_integrals_dev(ni, nj, nk, ngc, blocks_number, mu0, tref, omega_mu, dxyz_gpu, is_null, &
+                                               q_aux_gpu, integrals)
+   !< Device twin of `adam_flume_cpu_dissipation_kernels%compute_turbulence_integrals` (issue #119, T0.1).
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                       !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                         !< Actual blocks number.
+   real(R8P),    intent(in)  :: mu0, tref, omega_mu                   !< Viscosity law.
+   real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Blocks space steps [nb, 3].
+   logical,      intent(in)  :: is_null(3)                            !< Null directions.
+   real(R8P),    intent(in)  :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(out) :: integrals(6)                          !< Integrals (`compute_turbulence_integrands`).
+   integer(I4P)              :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
+   real(R8P)                 :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
+   real(R8P)                 :: rdx(3)                                !< Private inverse steps, 0 along null.
+   real(R8P)                 :: g(3,3)                                !< Private velocity gradient.
+   real(R8P)                 :: u(3)                                  !< Private velocity.
+   real(R8P)                 :: f(6)                                  !< Private integrands.
+   real(R8P)                 :: volume                                !< Private cell volume.
+   real(R8P)                 :: i1, i2, i3, i4, i5, i6                !< Reduction accumulators.
+   integer(I4P)              :: b, i, j, k, a                         !< Counters.
+
+   s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
+   w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
+   i1 = 0._R8P ; i2 = 0._R8P ; i3 = 0._R8P ; i4 = 0._R8P ; i5 = 0._R8P ; i6 = 0._R8P
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu)                               &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,mu0,tref,omega_mu,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
+   !$acc& reduction(+:i1,i2,i3,i4,i5,i6)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu)                                                              &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,mu0,tref,omega_mu,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
+   !$omp& reduction(+:i1,i2,i3,i4,i5,i6)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
+      volume = dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
+      !$acc loop seq
+      do a=1, 3
+         u(a)   = q_aux_gpu(b,i,j,k,IA_U+a-1)
+         g(a,1) = (8._R8P * (q_aux_gpu(b,i+s1,j,k,IA_U+a-1) - q_aux_gpu(b,i-s1,j,k,IA_U+a-1)) -     &
+                   (q_aux_gpu(b,i+2*s1,j,k,IA_U+a-1) - q_aux_gpu(b,i-2*s1,j,k,IA_U+a-1))) * rdx(1) / 12._R8P
+         g(a,2) = (8._R8P * (q_aux_gpu(b,i,j+s2,k,IA_U+a-1) - q_aux_gpu(b,i,j-s2,k,IA_U+a-1)) -     &
+                   (q_aux_gpu(b,i,j+2*s2,k,IA_U+a-1) - q_aux_gpu(b,i,j-2*s2,k,IA_U+a-1))) * rdx(2) / 12._R8P
+         g(a,3) = (8._R8P * (q_aux_gpu(b,i,j,k+s3,IA_U+a-1) - q_aux_gpu(b,i,j,k-s3,IA_U+a-1)) -     &
+                   (q_aux_gpu(b,i,j,k+2*s3,IA_U+a-1) - q_aux_gpu(b,i,j,k-2*s3,IA_U+a-1))) * rdx(3) / 12._R8P
+      enddo
+      call compute_turbulence_integrands(mu0=mu0, tref=tref, omega_mu=omega_mu, rho=q_aux_gpu(b,i,j,k,IA_R),            &
+                                         p=q_aux_gpu(b,i,j,k,IA_P), T=q_aux_gpu(b,i,j,k,IA_T), u=u, g=g, f=f)
+      i1 = i1 + f(1) * volume ; i2 = i2 + f(2) * volume ; i3 = i3 + f(3) * volume
+      i4 = i4 + f(4) * volume ; i5 = i5 + f(5) * volume ; i6 = i6 + f(6) * volume
+   enddo
+   enddo
+   enddo
+   enddo
+   integrals = [i1, i2, i3, i4, i5, i6]
+   endsubroutine compute_turbulence_integrals_dev
 
    subroutine add_resistive_fluxes_o2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, eta, dxyz_gpu, is_null, &
                                           q_aux_gpu, fl_gpu)

@@ -14,6 +14,13 @@ module adam_flume_diagnostics_object
 !< `W = 1/2 sum rho Phi dV` (Phi solved from the committed state) and `E + W`, the energy the scheme conserves.
 !< With radiative cooling (issue #93) two more follow: the energy radiated since the start of the run and `E` plus it.
 !< With sinks (issue #94) five more: their total mass, momentum and kinetic energy (`W` then includes the sinks).
+!<
+!< `turbulence_history_save = N` (issue #119, T0.1; optional, 0 by default) writes `<output_basename>-turbulence_history.dat`:
+!< iteration, time and the volume integrals of the kinetic energy `K`, the enstrophy `Z = rho |omega|^2 / 2`, the solenoidal
+!< and dilatational dissipations `eps_s = mu |omega|^2` and `eps_d = 4/3 mu theta^2`, the viscous work `eps = tau_ij
+!< du_i/dx_j` and the pressure dilatation `pd = p theta`, from 4th-order central velocity gradients (code units, not divided
+!< by the volume). In a periodic box `dK/dt = pd - eps` up to the scheme's numerical dissipation. Each row refreshes the
+!< ghosts and the auxiliary variables of the committed state.
 
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
@@ -35,6 +42,8 @@ type :: flume_diagnostics_object
    logical      :: divb_flux=.false.               !< Add the D_flux columns to the div(B) history (issue #68 A2).
    integer(I4P) :: conservation_unit=0_I4P         !< Conservation history file unit.
    integer(I4P) :: divb_unit=0_I4P                 !< div(B) history file unit (MHD only).
+   integer(I4P) :: turbulence_history_save=0_I4P   !< Turbulence history save cadence (<= 0: disabled, issue #119).
+   integer(I4P) :: turbulence_unit=0_I4P           !< Turbulence history file unit.
    contains
       ! public methods
       procedure, pass(self) :: close_file            !< Close the history file.
@@ -44,6 +53,7 @@ type :: flume_diagnostics_object
       procedure, pass(self) :: open_file             !< Open the history file and write its header.
       procedure, pass(self) :: save_conservation_row !< Write one conservation history row.
       procedure, pass(self) :: save_divb_row         !< Write one div(B) history row.
+      procedure, pass(self) :: save_turbulence_row   !< Write one turbulence history row.
 endtype flume_diagnostics_object
 
 contains
@@ -54,6 +64,11 @@ contains
    logical                                        :: is_open !< Unit status.
 
    if (mpih%myrank /= 0) return
+   if (self%turbulence_unit /= 0_I4P) then
+      inquire(unit=self%turbulence_unit, opened=is_open)
+      if (is_open) close(self%turbulence_unit)
+      self%turbulence_unit = 0_I4P
+   endif
    if (self%conservation_unit /= 0_I4P) then
       inquire(unit=self%conservation_unit, opened=is_open)
       if (is_open) close(self%conservation_unit)
@@ -106,6 +121,10 @@ contains
    ! residual evaluation of the committed state (about one RK stage)
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divb_flux', val=self%divb_flux, error=error)
    if (error > 0) self%divb_flux = .false.
+   ! optional (default 0, disabled): the turbulence history (issue #119, T0.1)
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='turbulence_history_save', &
+                            val=self%turbulence_history_save, error=error)
+   if (error > 0) self%turbulence_history_save = 0_I4P
    endsubroutine load_from_file
 
    subroutine open_file(self, output_basename, q_name, is_restart, with_divb, with_self_gravity, with_cooling, with_sinks)
@@ -121,7 +140,18 @@ contains
    character(:), allocatable                      :: header          !< File header.
    integer(I4P)                                   :: v               !< Counter.
 
-   if (mpih%myrank /= 0 .or. self%conservation_history_save <= 0_I4P) return
+   if (mpih%myrank /= 0) return
+   if (self%turbulence_history_save > 0_I4P) then
+      if (is_restart) then
+         open(newunit=self%turbulence_unit, file=trim(output_basename)//'-turbulence_history.dat', &
+              status='unknown', position='append', action='write')
+      else
+         open(newunit=self%turbulence_unit, file=trim(output_basename)//'-turbulence_history.dat', status='replace', &
+              action='write')
+         write(self%turbulence_unit, '(A)') 'VARIABLES="it" "time" "K" "Z" "eps_s" "eps_d" "eps" "pd"'
+      endif
+   endif
+   if (self%conservation_history_save <= 0_I4P) return
    if (with_divb) then
       if (is_restart) then
          open(newunit=self%divb_unit, file=trim(output_basename)//'-divb_history.dat', &
@@ -167,6 +197,18 @@ contains
    write(self%conservation_unit, '(I10,*(1X,ES24.16E3))') it, time, integrals
    flush(self%conservation_unit)
    endsubroutine save_conservation_row
+
+   subroutine save_turbulence_row(self, it, time, integrals)
+   !< Write one turbulence history row (rank 0 only; integrals already MPI-reduced).
+   class(flume_diagnostics_object), intent(in) :: self         !< Diagnostics.
+   integer(I4P),                    intent(in) :: it           !< Time iteration.
+   real(R8P),                       intent(in) :: time         !< Time.
+   real(R8P),                       intent(in) :: integrals(6) !< K, Z, eps_s, eps_d, eps, pd.
+
+   if (mpih%myrank /= 0 .or. self%turbulence_unit == 0_I4P) return
+   write(self%turbulence_unit, '(I10,*(1X,ES24.16E3))') it, time, integrals
+   flush(self%turbulence_unit)
+   endsubroutine save_turbulence_row
 
    subroutine save_divb_row(self, it, time, norms)
    !< Write one div(B) history row (rank 0 only; norms already MPI-reduced).

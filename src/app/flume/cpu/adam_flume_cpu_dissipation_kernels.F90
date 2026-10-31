@@ -33,8 +33,9 @@ module adam_flume_cpu_dissipation_kernels
 !< and energy fluxes: the kernels `add_resistive_fluxes_o2/o4`, called by the host only when the resistivity is on.
 
 ! FLUME modules
-use :: adam_flume_dissipation_library, only : compute_dissipative_flux, compute_resistive_flux
-use :: adam_flume_parameters,          only : IA_BX, IA_BY, IA_BZ, IA_T, IA_U, IA_V, IA_W, IQ_BX, IQ_RE, IQ_RU
+use :: adam_flume_dissipation_library, only : compute_dissipative_flux, compute_resistive_flux, &
+                                          compute_turbulence_integrands
+use :: adam_flume_parameters,          only : IA_BX, IA_BY, IA_BZ, IA_P, IA_R, IA_T, IA_U, IA_V, IA_W, IQ_BX, IQ_RE, IQ_RU
 ! third party modules
 use :: penf,                           only : I4P, R8P
 
@@ -44,6 +45,7 @@ public :: add_dissipative_fluxes_o2
 public :: add_dissipative_fluxes_o4
 public :: add_resistive_fluxes_o2
 public :: add_resistive_fluxes_o4
+public :: compute_turbulence_integrals
 
 integer(I4P), parameter :: IW(4)=[IA_U, IA_V, IA_W, IA_T]  !< Auxiliary indexes of W = (u, v, w, T).
 integer(I4P), parameter :: IB(3)=[IA_BX, IA_BY, IA_BZ]     !< Auxiliary indexes of the magnetic field.
@@ -174,6 +176,48 @@ contains
    enddo
    !$omp end parallel do
    endsubroutine add_dissipative_fluxes_o4
+
+   subroutine compute_turbulence_integrals(ni, nj, nk, ngc, blocks_number, mu0, tref, omega_mu, dxyz, is_null, q_aux, &
+                                           integrals)
+   !< Compute the volume integrals of the turbulence history over the interior cells of this rank (issue #119, T0.1), from
+   !< 4th-order central velocity gradients; the volume includes the null directions, whose gradients are zero (issue #37).
+   integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)  :: mu0, tref, omega_mu               !< Viscosity law.
+   real(R8P),    intent(in)  :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
+   logical,      intent(in)  :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)  :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(out) :: integrals(6)                      !< Integrals (`compute_turbulence_integrands`).
+   integer(I4P)              :: s(3)                              !< Steps along x, y, z: 1 active, 0 null.
+   real(R8P)                 :: rdx(3)                            !< Inverse steps, 0 along null.
+   real(R8P)                 :: g(3,3)                            !< Velocity gradient.
+   real(R8P)                 :: f(6)                              !< Integrands.
+   integer(I4P)              :: b, i, j, k, a                     !< Counters.
+
+   s = merge(0_I4P, 1_I4P, is_null)
+   integrals = 0._R8P
+   do b=1, blocks_number
+      rdx = real(s, R8P) / dxyz(:,b)
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               do a=1, 3
+                  g(a,1) = (8._R8P * (q_aux(IA_U+a-1,i+s(1),j,k,b) - q_aux(IA_U+a-1,i-s(1),j,k,b)) -     &
+                            (q_aux(IA_U+a-1,i+2*s(1),j,k,b) - q_aux(IA_U+a-1,i-2*s(1),j,k,b))) * rdx(1) / 12._R8P
+                  g(a,2) = (8._R8P * (q_aux(IA_U+a-1,i,j+s(2),k,b) - q_aux(IA_U+a-1,i,j-s(2),k,b)) -     &
+                            (q_aux(IA_U+a-1,i,j+2*s(2),k,b) - q_aux(IA_U+a-1,i,j-2*s(2),k,b))) * rdx(2) / 12._R8P
+                  g(a,3) = (8._R8P * (q_aux(IA_U+a-1,i,j,k+s(3),b) - q_aux(IA_U+a-1,i,j,k-s(3),b)) -     &
+                            (q_aux(IA_U+a-1,i,j,k+2*s(3),b) - q_aux(IA_U+a-1,i,j,k-2*s(3),b))) * rdx(3) / 12._R8P
+               enddo
+               call compute_turbulence_integrands(mu0=mu0, tref=tref, omega_mu=omega_mu, rho=q_aux(IA_R,i,j,k,b),       &
+                                                  p=q_aux(IA_P,i,j,k,b), T=q_aux(IA_T,i,j,k,b),                        &
+                                                  u=q_aux(IA_U:IA_W,i,j,k,b), g=g, f=f)
+               integrals = integrals + f * dxyz(1,b) * dxyz(2,b) * dxyz(3,b)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_turbulence_integrals
 
    subroutine add_resistive_fluxes_o2(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, eta, dxyz, is_null, q_aux, fl)
    !< Add the 2nd-order Ohmic face fluxes of direction `d` to `fl` (MHD).

@@ -32,6 +32,7 @@ implicit none
 private
 public :: compute_dissipative_flux
 public :: compute_resistive_flux
+public :: compute_turbulence_integrands
 public :: dissipative_diffusivity
 
 contains
@@ -81,6 +82,39 @@ contains
    enddo
    f(4) = eta * (b(1) * (g(d,1) - g(1,d)) + b(2) * (g(d,2) - g(2,d)) + b(3) * (g(d,3) - g(3,d)))
    endsubroutine compute_resistive_flux
+
+   pure subroutine compute_turbulence_integrands(mu0, tref, omega_mu, rho, p, T, u, g, f)
+   !< Return the integrands of the turbulence history at a cell (issue #119, T0.1), per unit volume: `f(1)` kinetic energy
+   !< `rho |u|^2 / 2`, `f(2)` enstrophy `rho |omega|^2 / 2`, `f(3)` solenoidal dissipation `mu |omega|^2`, `f(4)` dilatational
+   !< dissipation `4/3 mu theta^2`, `f(5)` the viscous work `tau_ij du_i/dx_j`, `f(6)` the pressure dilatation `p theta`.
+   real(R8P), intent(in)  :: mu0, tref, omega_mu !< Viscosity law, as in `compute_dissipative_flux`.
+   real(R8P), intent(in)  :: rho, p, T           !< Density, pressure, temperature.
+   real(R8P), intent(in)  :: u(3)                !< Velocity.
+   real(R8P), intent(in)  :: g(3,3)              !< Velocity gradient, g(a,b) = d u_a / d x_b.
+   real(R8P), intent(out) :: f(6)                !< Integrands.
+   real(R8P)              :: mu                  !< Viscosity at the temperature.
+   real(R8P)              :: theta               !< Velocity divergence.
+   real(R8P)              :: w1, w2, w3          !< Vorticity.
+   real(R8P)              :: w_sq                !< Vorticity squared.
+   !$acc routine seq
+   !$omp declare target
+
+   mu    = mu0 * (T / tref)**omega_mu
+   theta = g(1,1) + g(2,2) + g(3,3)
+   w1    = g(3,2) - g(2,3)
+   w2    = g(1,3) - g(3,1)
+   w3    = g(2,1) - g(1,2)
+   w_sq  = w1 * w1 + w2 * w2 + w3 * w3
+   f(1)  = 0.5_R8P * rho * (u(1) * u(1) + u(2) * u(2) + u(3) * u(3))
+   f(2)  = 0.5_R8P * rho * w_sq
+   f(3)  = mu * w_sq
+   f(4)  = 4._R8P / 3._R8P * mu * theta * theta
+   f(5)  = mu * ((g(1,2) + g(2,1)) * (g(1,2) + g(2,1)) + (g(1,3) + g(3,1)) * (g(1,3) + g(3,1)) +    &
+                 (g(2,3) + g(3,2)) * (g(2,3) + g(3,2)) +                                             &
+                 2._R8P * (g(1,1) * g(1,1) + g(2,2) * g(2,2) + g(3,3) * g(3,3))) -                   &
+           2._R8P / 3._R8P * mu * theta * theta
+   f(6)  = p * theta
+   endsubroutine compute_turbulence_integrands
 
    pure function dissipative_diffusivity(rho, T, t_wall, gamma, cp, mu0, k0, eta, tref, omega_mu, omega_k) result(nu)
    !< Return the largest diffusivity of a cell, `max(4/3 mu / rho, gamma k / (rho cp), eta)`, the one of the diffusive

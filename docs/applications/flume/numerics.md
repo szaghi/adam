@@ -581,6 +581,28 @@ restriction of the coarse ghosts and the reflux of point-value fluxes each cap t
 the reflux the dissipative flux at the face is first order
 ([VV-8](./verification/dissipative/seam-accuracy)).
 
+## Turbulence diagnostics
+
+`[diagnostics] turbulence_history_save = N` ([input](./input)) writes every $N$ steps the volume integrals of the kinetic
+energy budget of a compressible flow (issue #119), to measure how much the scheme dissipates. It does not change the
+solution; 0, the default, computes nothing.
+
+$$
+K = \int \tfrac12 \rho\,|\mathbf{u}|^2\,dV,\quad
+Z = \int \tfrac12 \rho\,|\boldsymbol{\omega}|^2\,dV,\quad
+\varepsilon_s = \int \mu\,|\boldsymbol{\omega}|^2\,dV,\quad
+\varepsilon_d = \int \tfrac43 \mu\,\theta^2\,dV,\quad
+\varepsilon = \int \tau_{ij}\,\frac{\partial u_i}{\partial x_j}\,dV,\quad
+p_d = \int p\,\theta\,dV,
+$$
+
+with $\theta = \nabla\cdot\mathbf{u}$ and $\tau$ and $\mu$ as above. The gradients are 4th-order central differences of the
+auxiliary variables, whatever `dissipative_order` is. The integrals are sums, not divided by the volume.
+
+The exact equation is $dK/dt = p_d - \varepsilon$, so what is left of the measured $K$ drop after the integral of
+$\varepsilon - p_d$ is the numerical dissipation of the scheme, plus the truncation error of the integrals. On a periodic
+box with constant $\mu$, $\varepsilon = \varepsilon_s + \varepsilon_d$ in the limit of exact integration only.
+
 ## Time integration
 
 The library Runge–Kutta schemes (`[runge_kutta] scheme`, listed in the [input reference](./input)) integrate the

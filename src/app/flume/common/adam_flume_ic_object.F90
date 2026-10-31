@@ -66,6 +66,12 @@ module adam_flume_ic_object
 !<   field, `w, bz` along z) and rotated to x, y. With integer normal components on a square periodic domain of side
 !<   `period`, the state is periodic in x and in y (Toth's shifted-periodic strip is not needed).
 !<
+!< * `taylor-green` (issue #119, T0.2; euler, euler-de): the compressible Taylor-Green vortex of DeBonis (2013), `tg_density`
+!<   (rho_0), `tg_velocity` (V_0), `tg_mach` (M_0), `tg_length` (L, default 1), no regions:
+!<   `u = V_0 sin(x/L) cos(y/L) cos(z/L)`, `v = -V_0 cos(x/L) sin(y/L) cos(z/L)`, `w = 0`,
+!<   `p = p_0 + rho_0 V_0^2 / 16 (cos(2x/L) + cos(2y/L)) (cos(2z/L) + 2)`, `p_0 = rho_0 V_0^2 / (gamma M_0^2)`, at uniform
+!<   temperature, `rho = rho_0 p / p_0`. The box is `[0, 2 pi L]^3`, periodic; the initial condition does not check it.
+!<
 !< * `shu-osher` (Euler only, issue #47, RV-3; Shu & Osher 1989, J. Comput. Phys. 83, example 8): a shock running into
 !<   a density wave along `axis` (x, y or z), coordinate `s`: the state of region 1 for `s <= interface`, else the
 !<   state of region 2 with density `r + rho_amplitude sin(rho_wavenumber s)` (the classic problem: region 1
@@ -187,6 +193,8 @@ character(len=10), parameter :: IC_FIELD_LOOP_STR="field-loop"           !< Adve
 character(len=14), parameter :: LOOP_KEY(4)=['x0            ', 'y0            ', &
                                              'loop_radius   ', 'loop_amplitude'] !< Field loop keys.
 character(len=15), parameter :: IC_ROTATED_RIEMANN_STR="rotated-riemann" !< Rotated periodic Riemann problem.
+character(len=12), parameter :: IC_TAYLOR_GREEN_STR="taylor-green"      !< Compressible Taylor-Green vortex (issue #119).
+character(len=11), parameter :: TG_KEY(3)=['tg_density ', 'tg_velocity', 'tg_mach    '] !< Taylor-Green required keys.
 character(len=9),  parameter :: IC_SHU_OSHER_STR="shu-osher"             !< Shock-density wave interaction (Euler).
 character(len=6),  parameter :: IC_LINEAR_STR="linear"                   !< Linear field (verification of ghost fills).
 character(len=10), parameter :: IC_POLYNOMIAL_STR="polynomial"           !< Polynomial field (verification, #68 D1).
@@ -261,6 +269,7 @@ type :: flume_ic_object
                                                     !< the table id (physics%eos_arg).
    real(R8P)                 :: prim_1(8)=0._R8P     !< Primitive state of region 1, the free stream (first nprim used).
    real(R8P)                 :: s=0._R8P             !< Uniform: relative amplitude of the seeded perturbation.
+   real(R8P)                 :: tg(4)=0._R8P         !< Taylor-Green: density, velocity, Mach number, length.
    real(R8P)                 :: vortex(4)=0._R8P     !< Isentropic vortex: x0, y0, radius, strength.
    integer(I4P)              :: pulse_axis=0_I4P     !< GLM pulse: axis, 1=x, 2=y, 3=z.
    real(R8P)                 :: pulse(3)=0._R8P      !< GLM pulse: center, width, amplitude.
@@ -349,6 +358,8 @@ contains
    desc = desc//mpih%myrankstr//'  regions_number: '//trim(str(self%regions_number))
    if (self%ic_type == IC_UNIFORM_STR) &
    desc = desc//NL//mpih%myrankstr//'  s:              '//trim(str(self%s))
+   if (self%ic_type == IC_TAYLOR_GREEN_STR) &
+   desc = desc//NL//mpih%myrankstr//'  taylor-green:   '//trim(str(self%tg))
    if (self%ic_type == IC_ISENTROPIC_VORTEX_STR) &
    desc = desc//NL//mpih%myrankstr//'  vortex:         '//trim(str(self%vortex))
    if (self%ic_type == IC_GLM_PULSE_STR) &
@@ -447,6 +458,21 @@ contains
       self%regions_number = 1_I4P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='s', val=self%s, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(s)')
+   case(IC_TAYLOR_GREEN_STR)
+      if (self%model /= MODEL_EULER .and. self%model /= MODEL_EULER_DE) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_TAYLOR_GREEN_STR//' requires '// &
+                                  '[physics].(physical_model) = euler or euler-de')
+      self%regions_number = 0_I4P
+      do k=1, 3
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(TG_KEY(k)), val=self%tg(k), error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(TG_KEY(k))//')')
+         if (.not.(self%tg(k) > 0._R8P)) &
+            call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(TG_KEY(k))//') must be positive')
+      enddo
+      self%tg(4) = 1._R8P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='tg_length', val=self%tg(4), error=error)
+      if (error > 0) self%tg(4) = 1._R8P
+      if (.not.(self%tg(4) > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(tg_length) must be positive')
    case(IC_ISENTROPIC_VORTEX_STR)
       if (.not.is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_ISENTROPIC_VORTEX_STR//' requires '// &
@@ -821,7 +847,7 @@ contains
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
                                IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
                                IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR//', '// &
-                               IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
+                               IC_TAYLOR_GREEN_STR//', '//IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
                                IC_SINE_WAVE_STR//', '// &
                                IC_COUETTE_STR//', '//IC_BECKER_STR//', '//IC_ISOTHERMAL_ATM_STR//', '// &
                                IC_POLYTROPIC_ATM_STR//', '//IC_RAYLEIGH_TAYLOR_STR//', '//IC_POLYTROPE_STR//', '// &
@@ -1200,6 +1226,19 @@ contains
                   prim    = self%prim_1
                   prim(1) = self%prim_1(1) * (1._R8P + self%s * h(1))
                   prim(5) = self%prim_1(5) * (1._R8P + self%s * h(2))
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_TAYLOR_GREEN_STR)
+      prim = 0._R8P
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               do i=1, field%ni
+                  call taylor_green(gamma=self%gamma, tg=self%tg, x=field%x_cell(i,b), y=field%y_cell(j,b), &
+                                    z=field%z_cell(k,b), prim=prim(1:5))
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo
@@ -1758,6 +1797,25 @@ contains
       prim(7) = a * n(2) + b * n(1)
    endif
    endsubroutine rotate_to_global
+
+   pure subroutine taylor_green(gamma, tg, x, y, z, prim)
+   !< Return the primitive state (r, u, v, w, p) of the compressible Taylor-Green vortex at `(x, y, z)` (formulas in the
+   !< module header).
+   real(R8P), intent(in)  :: gamma      !< Specific heats ratio.
+   real(R8P), intent(in)  :: tg(4)      !< Density, velocity, Mach number, length.
+   real(R8P), intent(in)  :: x, y, z    !< Cell centre.
+   real(R8P), intent(out) :: prim(5)    !< Primitive state.
+   real(R8P)              :: p0         !< Mean pressure.
+   real(R8P)              :: sx, sy, sz !< Scaled coordinates.
+
+   sx = x / tg(4) ; sy = y / tg(4) ; sz = z / tg(4)
+   p0 = tg(1) * tg(2)**2 / (gamma * tg(3)**2)
+   prim(5) = p0 + tg(1) * tg(2)**2 / 16._R8P * (cos(2._R8P * sx) + cos(2._R8P * sy)) * (cos(2._R8P * sz) + 2._R8P)
+   prim(1) = tg(1) * prim(5) / p0
+   prim(2) =  tg(2) * sin(sx) * cos(sy) * cos(sz)
+   prim(3) = -tg(2) * cos(sx) * sin(sy) * cos(sz)
+   prim(4) = 0._R8P
+   endsubroutine taylor_green
 
    pure subroutine isentropic_vortex(gamma, prim, vortex, x, y, q)
    !< Return the conservative state of the isentropic vortex at `(x, y)` (formulas in the module documentation).

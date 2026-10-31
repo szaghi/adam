@@ -118,6 +118,7 @@ use :: adam_flume_cpu_mhd_eglm_llf_kernels,     only : add_gravity_edge_correcti
                                                        compute_riemann_face_fluxes_mhd_eglm_llf=>compute_riemann_face_fluxes
 use :: adam_flume_cooling_library,          only : cooled_internal_energy, cooling_function
 use :: adam_flume_cpu_dissipation_kernels, only : add_dissipative_fluxes_o2, add_dissipative_fluxes_o4, &
+                                                   compute_turbulence_integrals, &
                                               add_resistive_fluxes_o2, add_resistive_fluxes_o4
 use :: adam_flume_cpu_euler_kernels,   only : blend_inadmissible_ghosts_euler=>blend_inadmissible_ghosts,            &
                                               blend_positivity_fluxes_euler=>blend_positivity_fluxes,                &
@@ -318,6 +319,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: check_glm_ch            !< Check the GLM c_h against the fastest wave.
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
+      procedure, pass(self) :: compute_turbulence_history !< Compute and save the turbulence history (issue #119).
       procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
       procedure, pass(self) :: compute_q_aux           !< Compute the auxiliary variables.
       procedure, pass(self) :: compute_gravity_correction !< Compute the fourth-order gravity energy correction.
@@ -812,6 +814,31 @@ contains
    call self%diagnostics%save_conservation_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
                                                integrals=row)
    endsubroutine compute_conservation
+
+   subroutine compute_turbulence_history(self, realm)
+   !< Compute and save the turbulence history of the committed state on its cadence (issue #119, T0.1): the ghost cells are
+   !< refreshed first and, with sibling realms, the inter-realm seam ghosts are refilled from the peers, as for the div(B)
+   !< history; the auxiliary variables are recomputed from them.
+   class(flume_cpu_object), intent(inout)                   :: self         !< The equation.
+   type(realm_pointer),     intent(inout), optional, target :: realm(:)     !< Sibling realms.
+   real(R8P)                                                :: integrals(6) !< Integrals (K, Z, eps_s, eps_d, eps, pd).
+   real(R8P)                                                :: tref         !< Reference temperature of the law.
+   real(R8P)                                                :: omega_mu     !< Exponent of the law.
+   real(R8P)                                                :: omega_k      !< Conductivity exponent (unused).
+
+   if (.not.self%time%is_to_save(cadence=self%diagnostics%turbulence_history_save)) return
+   if (self%ngc < 2_I4P) call mpih%error_stop(msg=': the turbulence history stencil needs 2 ghost cells')
+   call self%update_ghost(q=self%q)
+   if (present(realm)) call seam_fill_all(self=self, realm=realm)
+   call self%compute_q_aux(q=self%q)
+   call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+   call compute_turbulence_integrals(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                    mu0=self%physics%dissipation%mu, tref=tref, omega_mu=omega_mu, &
+                                    dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, &
+                                    integrals=integrals)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, 6, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call self%diagnostics%save_turbulence_row(it=self%time%it, time=self%time%time, integrals=integrals)
+   endsubroutine compute_turbulence_history
 
    subroutine compute_divb_history(self, realm)
    !< Compute and save the div(B) norms of the committed state on the diagnostics cadence (issue #41, D-10); a no-op
@@ -2444,6 +2471,12 @@ contains
    ! a restarted run starts from a step its predecessor already saved: saving it again would duplicate the history rows
    if (.not.self%io%restart) then
       call self%compute_divb_history
+      ! with sibling realms the seam ghosts do not exist yet: the stencils would read them unfilled
+      if (.not.present(realms_number)) then
+         call self%compute_turbulence_history
+      elseif (realms_number <= 1_I4P) then
+         call self%compute_turbulence_history
+      endif
       call self%save_simulation_data
    endif
    call self%io%open_file_residuals(nv=self%nv, is_restart=self%io%restart)
@@ -2509,6 +2542,7 @@ contains
    call self%check_nonfinite
    call self%check_glm_ch
    call self%compute_divb_history(realm=realm)
+   call self%compute_turbulence_history(realm=realm)
    call self%save_simulation_data(realm=realm)
    endsubroutine post_step_forest
 
