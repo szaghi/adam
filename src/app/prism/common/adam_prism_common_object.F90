@@ -35,6 +35,23 @@ private
 public :: prism_common_object
 public :: initialize_single_particle_output
 public :: write_single_particle_output
+public :: estimate_backend_memory_interface
+
+abstract interface
+   subroutine estimate_backend_memory_interface(physics, file_parameters, extra_fields, reserved_memory)
+   !< Estimate the backend allocations that `compute_fields_number` does not count, before the grid exists (issue #112):
+   !< `extra_fields`, block-sized fields of the backend only, joins `fields_number`; `reserved_memory` (GB per process),
+   !< the allocations that are not block-sized (particle arrays, whole-domain buffers), is taken off the memory of the
+   !< blocks budget, so the block slots no longer take the memory those allocations need. A procedure pointer the
+   !< backend sets before `initialize`, not a type-bound override: the backend calls the parent `initialize` through its
+   !< parent component, whose dynamic type is the parent, so an override would never be dispatched.
+   import :: prism_physics_object, file_ini, I4P, R8P
+   type(prism_physics_object), intent(in)    :: physics         !< Physics (initialized).
+   type(file_ini),             intent(inout) :: file_parameters !< Simulation parameters ini file handler.
+   integer(I4P),               intent(out)   :: extra_fields    !< Block-sized backend fields per block.
+   real(R8P),                  intent(out)   :: reserved_memory !< Memory of the allocations not block-sized (GB).
+   endsubroutine estimate_backend_memory_interface
+endinterface
 
 type, extends(realm_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
@@ -42,6 +59,9 @@ type, extends(realm_object) :: prism_common_object
    logical :: amr_locked_ = .false. !< AMR regrid lock (issue #22 GA6): set .true. by backends whose device/topology
                                     !< state cannot follow a regrid after initialization (FNL sets it at the end of
                                     !< initialize_forest); `amr_update` error_stops when locked. CPU never sets it.
+   procedure(estimate_backend_memory_interface), pointer, nopass :: estimate_backend_memory=>null() !< Backend memory
+                                    !< outside the block fields, estimated before the blocks budget (issue #112); set by
+                                    !< the backend before initialize, none when null (CPU).
    ! physics data replica for easy handling
    integer(I4P), pointer :: nv_c=>null()  !< Number of conservative variables in q vector.
    integer(I4P), pointer :: nv_s=>null()  !< Number of source variables in q vector.
@@ -140,6 +160,7 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: compute_helicon_current_flux_segments !< Precompute helicon segment-current fluxes.
       procedure, pass(self) :: coupling_descriptor_forest !< Report (scheme_time, rk_scheme, nv) for β admissibility.
 endtype prism_common_object
+
 
 contains
    ! AMR methods (issue #22 F0: promoted verbatim from prism_cpu_object; host-side only —
@@ -335,15 +356,18 @@ contains
    !< Compute the block-sized fields PRISM allocates per block, the `fields_number` of the blocks budget.
    !<
    !< Both backends allocate the same nb-sized arrays, on the host (CPU) or on the device (FNL), so one count serves
-   !< both: `q`, `dq`, `curl`, `divergence` (4 nv), the cell fluxes `flxyz_c` (9 nv), the face fluxes (3 nv, counted
-   !< as full block fields), the Runge-Kutta stages (`rk_stored_stages_number` nv) and the coils current density
-   !< (3 per coil). Face-local PML storage and PIC particle arrays are not block-sized and are not counted.
-   !< Requires `physics` initialized; loads the coils number (it needs no grid or field).
+   !< both: `q`, `dq`, `curl`, `divergence` (4 nv), the Runge-Kutta stages (`rk_stored_stages_number` nv), the coils
+   !< current density (3 per coil), the two PIC charge-continuity accumulators, and the flux arrays of the scheme in use:
+   !< the cell fluxes `flxyz_c` (9 nv) for FV and WENO, the face fluxes (3 nv, counted as full block fields) for FV only,
+   !< none for centered FD (issue #112). Backend-only arrays are added by the backend estimate of `initialize`; face-local PML
+   !< storage is not block-sized and is not counted.
+   !< Requires `physics` and `numerics` initialized; loads the coils number (it needs no grid or field).
    class(prism_common_object), intent(inout) :: self            !< The equation.
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),               intent(out)   :: fields_number   !< Block-sized fields allocated per block.
    character(99)                             :: rk_scheme       !< Runge-Kutta scheme name.
    integer(I4P)                              :: stages_number   !< Runge-Kutta stage fields.
+   integer(I4P)                              :: flux_fields     !< Flux fields per variable of the space scheme.
    integer(I4P)                              :: error           !< Error status.
 
    call file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
@@ -352,7 +376,13 @@ contains
    if (stages_number < 0_I4P) &
       call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//trim(adjustl(rk_scheme))//'" in [runge_kutta].(scheme)')
    call self%coil%load_coils_number(file_parameters=file_parameters)
-   fields_number = self%physics%nv * (4_I4P + 9_I4P + 3_I4P + stages_number) + 3_I4P * self%coil%total_coils_number
+   select case(self%numerics%scheme_space)
+   case(NUM_SCHEME_SPACE_FV_CENTERED) ; flux_fields = 9_I4P + 3_I4P
+   case(NUM_SCHEME_SPACE_WENO)        ; flux_fields = 9_I4P
+   case default                       ; flux_fields = 0_I4P
+   endselect
+   fields_number = self%physics%nv * (4_I4P + flux_fields + stages_number) + 3_I4P * self%coil%total_coils_number
+   if (is_pic_model(self%physics%physical_model)) fields_number = fields_number + 2_I4P
    endsubroutine compute_fields_number
 
    subroutine initialize(self, filename, memory_avail, nv, fields_number, verbose, L0)
@@ -366,6 +396,9 @@ contains
    real(R8P),                  intent(in), optional  :: L0             !< Adimensionalization parameter.
    logical                                           :: verbose_       !< Trigger verbose output, local variable.
    integer(I4P)                                      :: fields_number_ !< Block-sized fields per block, local variable.
+   integer(I4P)                                      :: extra_fields   !< Block-sized backend fields per block.
+   real(R8P)                                         :: reserved       !< Memory of the allocations not block-sized (GB).
+   real(R8P)                                         :: memory_blocks  !< Memory left to the blocks budget (GB).
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call mpih%initialize(verbose=verbose_)
@@ -391,12 +424,27 @@ contains
    else
       call self%compute_fields_number(file_parameters=file_parameters, fields_number=fields_number_)
    endif
+   ! the memory the backend needs outside the block slots, taken off the budget before the slots fill it (issue #112)
+   extra_fields = 0_I4P ; reserved = 0._R8P
+   if (associated(self%estimate_backend_memory)) &
+      call self%estimate_backend_memory(physics=self%physics, file_parameters=file_parameters, extra_fields=extra_fields, &
+                                   reserved_memory=reserved)
+   if (.not.present(fields_number)) fields_number_ = fields_number_ + extra_fields
+   memory_blocks = memory_avail
+   if (reserved > 0._R8P) then
+      call mpih%print_message('prism_common_object%initialize memory reserved outside the blocks: '// &
+                              trim(str(reserved))//' GB of '//trim(str(memory_avail))//' GB')
+      if (reserved >= memory_avail) &
+         call mpih%error_stop(msg=': the allocations outside the blocks need '//trim(str(reserved))//' GB, more than '// &
+                                  'the '//trim(str(memory_avail))//' GB available per process: use more processes')
+      memory_blocks = memory_avail - reserved
+   endif
    if (verbose_) call mpih%print_message('prism_common_object%initialize fields_number: '//trim(str(fields_number_)))
    if (is_adim_model(self%physics%physical_model)) then
-      call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
+      call self%realm_object%initialize(filename=filename, memory_avail=memory_blocks, nv=self%physics%nv, &
                                        fields_number=fields_number_, verbose=verbose_, L0=self%physics%L0)
    else
-      call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
+      call self%realm_object%initialize(filename=filename, memory_avail=memory_blocks, nv=self%physics%nv, &
                                        fields_number=fields_number_, verbose=verbose_)
    endif
    call self%bc%initialize(file_parameters=file_parameters)

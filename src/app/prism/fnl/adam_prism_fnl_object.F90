@@ -15,6 +15,7 @@ use :: adam_prism_fnl_library
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 #endif
 ! third party modules
+use :: finer, only : file_ini
 use :: fundal, save_memory_status_gpu=>save_memory_status
 use :: penf,   save_memory_status_cpu=>save_memory_status
 ! sdk modules
@@ -385,6 +386,97 @@ contains
    endsubroutine free_prism_core_gpu
 
    ! auxiliary methods
+   subroutine estimate_backend_memory_fnl(physics, file_parameters, extra_fields, reserved_memory)
+   !< Device memory of the PIC that the block fields of compute_fields_number do not count, estimated from the input before
+   !< the grid exists (issue #112), so that the blocks budget leaves it free. Set as prism_common_object%estimate_backend_memory
+   !< before the common initialize.
+   !<
+   !< `extra_fields`: the gather fields of the conserving current allocated on the block slots (`gq_gpu`, 6, coherent
+   !< gather; `gather_gpu`, nv, with external fields). `reserved_memory`: the particle arrays, sized on the global particle
+   !< number on every rank (`q_pic_gpu`, `pic_fields_gpu`, `neighbour_list_gpu`, the time scheme stages, the migration
+   !< buffers, the conserving histories), and the virtual block of the conserving current, the whole domain at the
+   !< finest uniform level (`h_gpu`, `work_a/b_gpu`, `line_gpu`, `jv_gpu`, the tail-cleanup arrays). Each term mirrors an
+   !< allocation of pic_fnl, rk_pic_fnl, leapfrog_pic_fnl and conserving_fnl: keep them in step. PML storage and the
+   !< runtime context are left to the `[amr].(memory_fraction)` headroom.
+   type(prism_physics_object), intent(in) :: physics         !< Physics (initialized).
+   type(file_ini),          intent(inout) :: file_parameters !< Simulation parameters ini file handler.
+   integer(I4P),            intent(out)   :: extra_fields    !< Block-sized backend fields per block.
+   real(R8P),               intent(out)   :: reserved_memory !< Memory of the allocations not block-sized (GB).
+   type(grid_object)                      :: grid            !< Grid read from the input (domain and block cells only).
+   type(prism_pic_object)                 :: pic             !< PIC read from the input.
+   type(prism_external_fields_object)     :: external_fields !< External fields read from the input.
+   character(99)                          :: rk_scheme       !< Runge-Kutta scheme name.
+   integer(I4P)                           :: nrk             !< Runge-Kutta stages.
+   integer(I4P)                           :: ratio           !< AMR ratio.
+   integer(I4P)                           :: levels          !< Initial uniform refinement levels.
+   integer(I4P)                           :: n(3)            !< Virtual block cells (whole domain, finest level).
+   integer(I4P)                           :: ngc             !< Ghost cells.
+   integer(I4P)                           :: error           !< Error status.
+   logical                                :: conserving      !< Conserving current.
+   real(R8P)                              :: per_particle    !< Device bytes per particle.
+   real(R8P)                              :: cells           !< Virtual block interior cells.
+   real(R8P)                              :: cells_ghost     !< Virtual block cells with ghosts.
+   real(R8P)                              :: virtual_bytes   !< Device bytes of the virtual block.
+   ! per-particle widths of the device particle arrays (PIC_*_NUMBER of prism_fnl_pic_object, private there)
+   real(R8P), parameter                   :: PARTICLE_VARIABLES  = 8._R8P !< q_pic_gpu, stages, migration, histories.
+   real(R8P), parameter                   :: PARTICLE_FIELDS     = 6._R8P !< pic_fields_gpu.
+   real(R8P), parameter                   :: PARTICLE_NEIGHBOURS = 4._R8P !< neighbour_list_gpu (4-byte integers).
+
+   extra_fields = 0_I4P
+   reserved_memory = 0._R8P
+   if (.not.is_pic_model(physics%physical_model)) return
+   if (is_adim_model(physics%physical_model)) then
+      call grid%initialize(file_parameters=file_parameters, L0=physics%L0)
+   else
+      call grid%initialize(file_parameters=file_parameters)
+   endif
+   call pic%load_from_file(file_parameters=file_parameters)
+   call pic%set_particle_number(emin=grid%domain_emin, emax=grid%domain_emax, physics=physics)
+   call file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
+   nrk = 1_I4P ; if (error == 0) nrk = max(1_I4P, rk_stored_stages_number(scheme=rk_scheme))
+   conserving = trim(pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL
+
+   ! particle arrays (bytes per particle of capacity)
+   per_particle = 8._R8P*(PARTICLE_VARIABLES + PARTICLE_FIELDS) + 4._R8P*PARTICLE_NEIGHBOURS
+   if (mpih_fnl%procs_number > 1_I4P) per_particle = per_particle + 4._R8P*2 + 8._R8P*PARTICLE_VARIABLES ! migration
+   if (pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*nrk
+   if (pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG)    per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*2
+   if (conserving) then
+      per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*(2 + nrk)                       ! q_next, q_ref, q_hist
+      if (mod(pic%esirkepov_q, 2_I4P) == 1_I4P) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES ! q_mixed
+      if (pic%matched_gather() .and. mod(pic%gather_q, 2_I4P) == 1_I4P) &
+         per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES                              ! q_dual
+   endif
+   reserved_memory = per_particle*real(pic%particle_number_global, R8P)
+
+   if (conserving) then
+      ! virtual block: the whole domain at the finest uniform level, on every rank
+      call file_parameters%get(section_name='amr', option_name='ratio', val=ratio, error=error)
+      if (error /= 0) ratio = 8_I4P
+      call file_parameters%get(section_name='amr', option_name='iu_ref_levels', val=levels, error=error)
+      if (error /= 0) levels = 0_I4P
+      levels = max(0_I4P, levels)
+      n = [grid%ni, grid%nj, grid%nk]
+      n(1) = n(1)*2**levels
+      if (ratio >= 4_I4P) n(2) = n(2)*2**levels
+      if (ratio >= 8_I4P) n(3) = n(3)*2**levels
+      ngc = grid%ngc
+      cells = product(real(n, R8P))
+      cells_ghost = product(real(n + 2*ngc, R8P))
+      virtual_bytes = 8._R8P*((3._R8P*nrk + 2._R8P)*cells + product(real(n + 1, R8P)) + 3._R8P*cells_ghost)
+      if (pic%esirkepov_tail_cleanup) virtual_bytes = virtual_bytes + 8._R8P*(3._R8P*cells_ghost + 3._R8P*(1 + nrk)*cells)
+      reserved_memory = reserved_memory + virtual_bytes
+      ! gather fields on the block slots
+      if (pic%matched_gather()) extra_fields = extra_fields + 6_I4P
+      call external_fields%load_from_file(file_parameters=file_parameters)
+      if (external_fields%ef_type /= EF_TYPE_NONE) extra_fields = extra_fields + physics%nv
+   endif
+   reserved_memory = reserved_memory/1e9_R8P
+   call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(pic%particle_number_global, .true.))// &
+                               ' particles x '//trim(str(per_particle))//' B, total '//trim(str(reserved_memory))// &
+                               ' GB reserved, '//trim(str(extra_fields, .true.))//' extra block fields')
+   endsubroutine estimate_backend_memory_fnl
+
    subroutine allocate_gpu(self)
    !< Allocate GPU data.
    implicit none
@@ -402,18 +494,23 @@ contains
    call dev_alloc(fptr_dev=self%dq_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate dq_gpu in prism_fnl_object%allocate_gpu')
-   call dev_alloc(fptr_dev=self%flxyz_c_gpu, &
-                  ubounds=[nb,3,3,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1,1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flxyz_c_gpu in prism_fnl_object%allocate_gpu')
-   call dev_alloc(fptr_dev=self%flx_f_gpu, &
-                  ubounds=[nb,ni,nj,nk,nv], lbounds=[1,0,1,1,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flx_f_gpu in prism_fnl_object%allocate_gpu')
-   call dev_alloc(fptr_dev=self%fly_f_gpu, &
-                  ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,0,1,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate fly_f_gpu in prism_fnl_object%allocate_gpu')
-   call dev_alloc(fptr_dev=self%flz_f_gpu, &
-                  ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,1,0,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flz_f_gpu in prism_fnl_object%allocate_gpu')
+   ! the FV fluxes only with the FV scheme, the only one that uses them (WENO is not ported): with centered FD they were
+   ! 12 nv of the 21 nv block fields, never touched (issue #112); compute_fields_number counts the same
+   if (self%numerics%scheme_space == NUM_SCHEME_SPACE_FV_CENTERED) then
+      call dev_alloc(fptr_dev=self%flxyz_c_gpu, &
+                     ubounds=[nb,3,3,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1,1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, &
+                     ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flxyz_c_gpu in prism_fnl_object%allocate_gpu')
+      call dev_alloc(fptr_dev=self%flx_f_gpu, &
+                     ubounds=[nb,ni,nj,nk,nv], lbounds=[1,0,1,1,1], init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flx_f_gpu in prism_fnl_object%allocate_gpu')
+      call dev_alloc(fptr_dev=self%fly_f_gpu, &
+                     ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,0,1,1], init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate fly_f_gpu in prism_fnl_object%allocate_gpu')
+      call dev_alloc(fptr_dev=self%flz_f_gpu, &
+                     ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,1,0,1], init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flz_f_gpu in prism_fnl_object%allocate_gpu')
+   endif
    call dev_alloc(fptr_dev=self%curl_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate curl_gpu in prism_fnl_object%allocate_gpu')
@@ -539,6 +636,7 @@ contains
    ! Split among the realms and among the ranks bound to the same device (#96).
    ! Bytes -> GB via 1e9 to match compute_blocks_number's memory_avail*1e9.
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P)/1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
+   self%estimate_backend_memory => estimate_backend_memory_fnl
    call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
    if (is_pic_model(self%physics%physical_model)) then
       ! CPU-parity validation (prism_cpu_object%initialize)

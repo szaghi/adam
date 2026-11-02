@@ -179,6 +179,7 @@ contains
    procedure, pass(self) :: set_coherent_gather           !< Set the coherent gather kernels, warn on a deposit mismatch.
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
+   procedure, pass(self) :: set_particle_number           !< Scale the plasma inputs, set the particle number at t0.
    procedure, pass(self) :: set_plasma_region             !< Set and check the slab/box region of the plasma at t0.
    procedure, pass(self) :: particle_cartesian_grid_index !< Compute the grid index corresponding to a particle position.
    procedure, pass(self) :: halo_margin_cells             !< Cells a particle may lie outside its block interior.
@@ -496,8 +497,6 @@ contains
    type(grid_object),       intent(in)    :: grid            !< Grid (sibling realm component, threaded in).
    type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(prism_physics_object), intent(in) :: physics
-   real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
-                                                             !< present at t0
 	character(len=:),        allocatable   :: desc
    character(len=1),        parameter     :: NL=new_line('a')
 
@@ -505,49 +504,8 @@ contains
 
    call self%load_from_file(file_parameters=file_parameters)
    call self%bc%initialize(grid=grid)
-   if (is_adim_model(physics%physical_model)) then
-      if (self%problem_type == PLASMA_TYPE_PROBLEM) then
-         self%plasma_density = self%plasma_density*physics%L0**3
-         if (self%plasma_domain == UNIFORM_CILINDER) then
-            self%cilinder_radius = self%cilinder_radius/physics%L0
-            self%cilinder_length = self%cilinder_length/physics%L0
-            self%cilinder_center = self%cilinder_center/physics%L0
-         elseif (self%plasma_domain == UNIFORM_SLAB) then
-            self%slab_thickness = self%slab_thickness/physics%L0
-            self%slab_center = self%slab_center/physics%L0
-         elseif (self%plasma_domain == UNIFORM_BOX) then
-            self%box_length = self%box_length/physics%L0
-            self%box_center = self%box_center/physics%L0
-         endif
-      endif
-      if (self%sigma > 0._R8P) self%sigma = self%sigma/physics%L0
-   endif
-   associate(blocks_number=>field%blocks_number, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, &
-               emin=>grid%domain_emin, emax=>grid%domain_emax)
-
-   if (self%problem_type == PLASMA_TYPE_PROBLEM) then
-      if (self%plasma_domain==UNIFORM_DOMAIN) then
-         domain_volume = (emax(1)-emin(1))*(emax(2)-emin(2))*(emax(3)-emin(3))
-      elseif (self%plasma_domain==UNIFORM_CILINDER) then
-         domain_volume = PI*self%cilinder_radius**2*self%cilinder_length
-      elseif (self%plasma_domain==UNIFORM_SLAB .or. self%plasma_domain==UNIFORM_BOX) then
-         call self%set_plasma_region(emin=emin, emax=emax)
-         domain_volume = product(self%plasma_region_max-self%plasma_region_min)
-      else
-         call mpih%error_stop(msg=': invalid plasma_domain for particle number computation')
-      endif
-      self%particle_number = nint(self%plasma_density*domain_volume/self%particle_weight)
-      self%n_neutrals = nint(self%neutral_fraction*real(self%particle_number,R8P))
-	   self%n_ions = nint(real(self%particle_number-self%n_neutrals, R8P)/2.0_R8P)
-	   self%n_electrons = self%n_ions
-	   self%n_neutrals = self%particle_number - self%n_ions - self%n_electrons
-   elseif (self%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
-      self%particle_number = 1_I4P
-   endif
-   ! every rank holds the whole set until distribute_particles keeps its own ones; the arrays keep the global capacity
-   self%particle_number_global = self%particle_number
+   call self%set_particle_number(emin=grid%domain_emin, emax=grid%domain_emax, physics=physics)
    ! the automatic Gaussian support depends on the final cell size: set_gaussian_support_cells, after the uniform refinement
-   endassociate
 
    print '(A)', self%description()
 
@@ -641,6 +599,59 @@ contains
 
    print '(A)', mpih%myrankstr//'prism_pic_object%initialize finish'
    endsubroutine initialize
+
+   subroutine set_particle_number(self, emin, emax, physics)
+   !< Scale the plasma inputs of a non-dimensional model and set the particle number from the plasma volume at t0.
+   !<
+   !< Needs only the input (`load_from_file`) and the domain corners, so it also serves the memory estimate made before
+   !< the grid exists (issue #112). Every rank holds the whole set until `distribute_particles` keeps its own ones.
+   implicit none
+   class(prism_pic_object),    intent(inout) :: self          !< PIC object.
+   real(R8P),                  intent(in)    :: emin(3)       !< Domain minimum corner.
+   real(R8P),                  intent(in)    :: emax(3)       !< Domain maximum corner.
+   type(prism_physics_object), intent(in)    :: physics       !< Physics.
+   real(R8P)                                 :: domain_volume !< Volume where plasma is present at t0.
+
+   if (is_adim_model(physics%physical_model)) then
+      if (self%problem_type == PLASMA_TYPE_PROBLEM) then
+         self%plasma_density = self%plasma_density*physics%L0**3
+         if (self%plasma_domain == UNIFORM_CILINDER) then
+            self%cilinder_radius = self%cilinder_radius/physics%L0
+            self%cilinder_length = self%cilinder_length/physics%L0
+            self%cilinder_center = self%cilinder_center/physics%L0
+         elseif (self%plasma_domain == UNIFORM_SLAB) then
+            self%slab_thickness = self%slab_thickness/physics%L0
+            self%slab_center = self%slab_center/physics%L0
+         elseif (self%plasma_domain == UNIFORM_BOX) then
+            self%box_length = self%box_length/physics%L0
+            self%box_center = self%box_center/physics%L0
+         endif
+      endif
+      if (self%sigma > 0._R8P) self%sigma = self%sigma/physics%L0
+   endif
+
+   if (self%problem_type == PLASMA_TYPE_PROBLEM) then
+      if (self%plasma_domain==UNIFORM_DOMAIN) then
+         domain_volume = (emax(1)-emin(1))*(emax(2)-emin(2))*(emax(3)-emin(3))
+      elseif (self%plasma_domain==UNIFORM_CILINDER) then
+         domain_volume = PI*self%cilinder_radius**2*self%cilinder_length
+      elseif (self%plasma_domain==UNIFORM_SLAB .or. self%plasma_domain==UNIFORM_BOX) then
+         call self%set_plasma_region(emin=emin, emax=emax)
+         domain_volume = product(self%plasma_region_max-self%plasma_region_min)
+      else
+         call mpih%error_stop(msg=': invalid plasma_domain for particle number computation')
+      endif
+      self%particle_number = nint(self%plasma_density*domain_volume/self%particle_weight)
+      self%n_neutrals = nint(self%neutral_fraction*real(self%particle_number,R8P))
+	   self%n_ions = nint(real(self%particle_number-self%n_neutrals, R8P)/2.0_R8P)
+	   self%n_electrons = self%n_ions
+	   self%n_neutrals = self%particle_number - self%n_ions - self%n_electrons
+   elseif (self%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      self%particle_number = 1_I4P
+   endif
+   ! every rank holds the whole set until distribute_particles keeps its own ones; the arrays keep the global capacity
+   self%particle_number_global = self%particle_number
+   endsubroutine set_particle_number
 
    subroutine set_plasma_region(self, emin, emax)
    !< Set the slab/box region of the plasma at t0, stop if it leaves the domain.

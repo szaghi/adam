@@ -216,21 +216,27 @@ contains
    call mpih%print_message('prism_cpu_object%allocate_cpu start')
    msg_ = mpih%myrankstr//'prism_cpu_object%allocate_cpu '
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
-   msg = msg_//' flxyz_c '
-   call allocate_variable(var=self%flxyz_c,ulb=reshape([1,nv, &
-                                                        1,3,  & ! f at center, f positive at center, f negative at center
-                                                        1,3,  & ! direction x, y, z
-                                                        1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,7]),msg=msg)
-   self%flxyz_c = 0._R8P
-   msg = msg_//' flx_f '
-   call allocate_variable(var=self%flx_f,ulb=reshape([1,nv,0,ni,1,nj,1,nk,1,nb],[2,5]),msg=msg)
-   self%flx_f = 0._R8P
-   msg = msg_//' fly_f '
-   call allocate_variable(var=self%fly_f,ulb=reshape([1,nv,1,ni,0,nj,1,nk,1,nb],[2,5]),msg=msg)
-   self%fly_f = 0._R8P
-   msg = msg_//' flz_f '
-   call allocate_variable(var=self%flz_f,ulb=reshape([1,nv,1,ni,1,nj,0,nk,1,nb],[2,5]),msg=msg)
-   self%flz_f = 0._R8P
+   ! flux arrays only for the schemes that use them, as compute_fields_number counts them (issue #112): the cell fluxes
+   ! for FV and WENO, the face fluxes for FV; centered FD uses neither
+   if (self%numerics%scheme_space /= NUM_SCHEME_SPACE_FD_CENTERED) then
+      msg = msg_//' flxyz_c '
+      call allocate_variable(var=self%flxyz_c,ulb=reshape([1,nv, &
+                                                           1,3,  & ! f at center, f positive at center, f negative at center
+                                                           1,3,  & ! direction x, y, z
+                                                           1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,7]),msg=msg)
+      self%flxyz_c = 0._R8P
+   endif
+   if (self%numerics%scheme_space == NUM_SCHEME_SPACE_FV_CENTERED) then
+      msg = msg_//' flx_f '
+      call allocate_variable(var=self%flx_f,ulb=reshape([1,nv,0,ni,1,nj,1,nk,1,nb],[2,5]),msg=msg)
+      self%flx_f = 0._R8P
+      msg = msg_//' fly_f '
+      call allocate_variable(var=self%fly_f,ulb=reshape([1,nv,1,ni,0,nj,1,nk,1,nb],[2,5]),msg=msg)
+      self%fly_f = 0._R8P
+      msg = msg_//' flz_f '
+      call allocate_variable(var=self%flz_f,ulb=reshape([1,nv,1,ni,1,nj,0,nk,1,nb],[2,5]),msg=msg)
+      self%flz_f = 0._R8P
+   endif
    if (is_pic_model(self%physics%physical_model)) then
       msg = msg_//' charge_conservation_acc '
       call allocate_variable(var=self%charge_conservation_acc, &
