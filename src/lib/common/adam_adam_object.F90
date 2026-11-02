@@ -187,18 +187,23 @@ contains
    call mpih%print_message('largest blocks number per rank after AMR update: '//str(max_nb_all)//'/'//str(self%field%nb))
    endsubroutine check_blocks_number
 
-   subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
+   subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number, memory_fraction)
    !< Compute maximum blocks number allocatable on memory available.
-   class(adam_object), intent(in)  :: self          !< ADAM.
-   real(R8P),          intent(in)  :: memory_avail  !< Memory available for single MPI process (GBytes).
-   integer(I4P),       intent(in)  :: fields_number !< Fields number.
-   integer(I4P),       intent(out) :: nb            !< Maximum blocks number for single MPI process.
-   integer(I8P),       intent(out) :: nodes_number  !< Maximum blocks number for all MPI processes (nodes).
-   real(R8P)                       :: size_of_block !< Size (bytes) of (one) block.
-   real(R8P)                       :: save_factor   !< Factor to avoid memory completely full.
+   !<
+   !< `nb = memory_fraction * memory_avail / (fields_number * block_bytes)`. The fraction (default 0.85) leaves headroom
+   !< for what `fields_number` does not count: runtime context, maps, buffers. An app whose allocations that are not
+   !< block-sized are large (particles, say) estimates them and passes the memory left after them as `memory_avail`.
+   class(adam_object), intent(in)           :: self            !< ADAM.
+   real(R8P),          intent(in)           :: memory_avail    !< Memory available for single MPI process (GBytes).
+   integer(I4P),       intent(in)           :: fields_number   !< Fields number.
+   integer(I4P),       intent(out)          :: nb              !< Maximum blocks number for single MPI process.
+   integer(I8P),       intent(out)          :: nodes_number    !< Maximum blocks number for all MPI processes (nodes).
+   real(R8P),          intent(in), optional :: memory_fraction !< Fraction of memory_avail given to blocks (default 0.85).
+   real(R8P)                                :: size_of_block   !< Size (bytes) of (one) block.
+   real(R8P)                                :: save_factor     !< Factor to avoid memory completely full.
 
    size_of_block = (storage_size(1._R8P)/8._R8P) * self%grid%block_weight
-   save_factor = 0.85_R8P ! headroom for what fields_number does not count: runtime context, maps, buffers
+   save_factor = 0.85_R8P ; if (present(memory_fraction)) save_factor = memory_fraction
    nb = nint(save_factor * memory_avail*1e9 / (fields_number * size_of_block))
    nodes_number  = nb * mpih%procs_number
    endsubroutine compute_blocks_number
@@ -238,7 +243,8 @@ contains
    !< `fields_number` is the number of block-sized fields the calling app allocates per block (conservative
    !< variables, residuals, RK stages, fluxes, ...) in the memory space being budgeted: it sizes the per-process
    !< blocks budget, `nb = 0.85 * memory / (fields_number * block_bytes)`. Absent, it defaults to 170, which gives
-   !< exactly the budget of the historical `0.4 / 80` pair (0.85/170 = 0.4/80).
+   !< exactly the budget of the historical `0.4 / 80` pair (0.85/170 = 0.4/80). The optional `[amr].(memory_fraction)`
+   !< key, in (0, 1], replaces the 0.85 (issue #112).
    class(adam_object),     intent(inout)        :: self            !< ADAM.
    type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
    real(R8P),              intent(in), value    :: memory_avail    !< Memory available for single MPI process.
@@ -251,6 +257,7 @@ contains
    integer(I4P)                                 :: fields_number_  !< Block-sized fields allocated per block, local variable.
    integer(I8P)                                 :: nodes_number    !< Nodes number to be stored in the tree.
    integer(I4P)                                 :: nb              !< Number of all blocks that can be stored in field.
+   real(R8P)                                    :: memory_fraction !< Fraction of memory_avail given to blocks.
    character(99)                                :: buff            !< Character buffer.
    integer(I4P)                                 :: error           !< Error status.
 
@@ -264,10 +271,18 @@ contains
    else
       call self%grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%grid%set_bc_type
    endif
-   call self%compute_blocks_number(memory_avail=memory_avail,   &
-                                   fields_number=fields_number_,&
-                                   nb=nb,                       &
-                                   nodes_number=nodes_number)
+   call file_parameters%get(section_name='amr', option_name='memory_fraction', val=memory_fraction, error=error)
+   if (error > 0) memory_fraction = 0.85_R8P
+   if (.not.(memory_fraction > 0._R8P .and. memory_fraction <= 1._R8P)) &
+      call mpih%error_stop(msg=': [amr].(memory_fraction) must be in (0, 1], got '//trim(str(memory_fraction)))
+   call self%compute_blocks_number(memory_avail=memory_avail,      &
+                                   fields_number=fields_number_,   &
+                                   nb=nb,                          &
+                                   nodes_number=nodes_number,      &
+                                   memory_fraction=memory_fraction)
+   call mpih%print_message('blocks budget: '//trim(str(nb, .true.))//' blocks per process ('// &
+                           trim(str(memory_fraction))//' x '//trim(str(memory_avail))//' GB, '// &
+                           trim(str(fields_number_, .true.))//' fields per block)')
    call self%tree%initialize(grid=self%grid,                 &
                              file_parameters=file_parameters,&
                              nodes_number=nodes_number,      &
