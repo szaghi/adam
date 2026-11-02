@@ -52,6 +52,10 @@ public :: prism_fnl_pic_conserving_object
 public :: CONSERVING_SOLVER_LONDRILLO
 public :: CONSERVING_SOLVER_MODIFIED
 
+! host staging of reduce_virtual, kept between the calls and grown to the largest virtual array (issue #112: 46 calls per
+! SSP54 step used to allocate and free a whole-domain host buffer each); one per process, the calls are sequential
+real(R8P), allocatable, target, save :: virtual_host_buffer(:)
+
 integer(I4P), parameter :: CONSERVING_SOLVER_LONDRILLO = 2_I4P !< Esirkepov face fluxes + inverse reconstruction.
 integer(I4P), parameter :: CONSERVING_SOLVER_MODIFIED  = 3_I4P !< Matched current, totorica or esirkepov_Q<N> (P/Q kernels).
 
@@ -350,9 +354,12 @@ contains
    call alloc_r6(self%h_gpu, [1,ni,nj,nk,3,nrk], [1,1,1,1,1,1], 'h_gpu')
    call alloc_r4(self%work_a_gpu, [1,ni,nj,nk], 'work_a_gpu')
    call alloc_r4(self%work_b_gpu, [1,ni,nj,nk], 'work_b_gpu')
-   nl = (ni+1)*(nj+1)*(nk+1)
-   call dev_alloc(fptr_dev=self%line_gpu, ubounds=[nl], lbounds=[1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate line_gpu in prism_fnl_pic_conserving_object')
+   ! the line scratch serves the line solves and scans of the non-periodic path only (issue #112)
+   if (.not.self%box_current) then
+      nl = (ni+1)*(nj+1)*(nk+1)
+      call dev_alloc(fptr_dev=self%line_gpu, ubounds=[nl], lbounds=[1], init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate line_gpu in prism_fnl_pic_conserving_object')
+   endif
    if (np > 0_I4P) then
       call alloc_r2(self%q_next_gpu,  [np,8], 'q_next_gpu')
       call alloc_r2(self%q_ref_gpu,   [np,8], 'q_ref_gpu')
@@ -1913,10 +1920,11 @@ contains
    !< Collective.
    class(prism_fnl_pic_conserving_object), intent(in)    :: self       !< Conserving current object.
    real(R8P),                              intent(inout) :: a(:,:,:,:) !< Device array.
-   real(R8P), allocatable                                :: buf(:,:,:,:)
+   real(R8P), pointer                                    :: buf(:,:,:,:)
 
    if (mpih%procs_number == 1_I4P) return
-   allocate(buf(size(a,1),size(a,2),size(a,3),size(a,4)))
+   call grow_virtual_host_buffer(n=size(a, kind=I8P))
+   buf(1:size(a,1),1:size(a,2),1:size(a,3),1:size(a,4)) => virtual_host_buffer(1:size(a, kind=I8P))
    call dev_memcpy_from_device(dst=buf, src=a)
    call MPI_ALLREDUCE(MPI_IN_PLACE, buf, size(buf), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call dev_memcpy_to_device(dst=a, src=buf)
@@ -1926,14 +1934,26 @@ contains
    !< Rank-5 twin of reduce_virtual4.
    class(prism_fnl_pic_conserving_object), intent(in)    :: self         !< Conserving current object.
    real(R8P),                              intent(inout) :: a(:,:,:,:,:) !< Device array.
-   real(R8P), allocatable                                :: buf(:,:,:,:,:)
+   real(R8P), pointer                                    :: buf(:,:,:,:,:)
 
    if (mpih%procs_number == 1_I4P) return
-   allocate(buf(size(a,1),size(a,2),size(a,3),size(a,4),size(a,5)))
+   call grow_virtual_host_buffer(n=size(a, kind=I8P))
+   buf(1:size(a,1),1:size(a,2),1:size(a,3),1:size(a,4),1:size(a,5)) => virtual_host_buffer(1:size(a, kind=I8P))
    call dev_memcpy_from_device(dst=buf, src=a)
    call MPI_ALLREDUCE(MPI_IN_PLACE, buf, size(buf), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call dev_memcpy_to_device(dst=a, src=buf)
    endsubroutine reduce_virtual5
+
+   subroutine grow_virtual_host_buffer(n)
+   !< Grow the host staging buffer of reduce_virtual to n values at least (it never shrinks).
+   integer(I8P), intent(in) :: n !< Values needed.
+
+   if (allocated(virtual_host_buffer)) then
+      if (size(virtual_host_buffer, kind=I8P) >= n) return
+      deallocate(virtual_host_buffer)
+   endif
+   allocate(virtual_host_buffer(n))
+   endsubroutine grow_virtual_host_buffer
 
    ! private methods
    subroutine build_virtual_geometry(self, field, grid)
