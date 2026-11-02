@@ -21,7 +21,7 @@ use :: adam_flail_object,             only : FLAIL_BACKEND_AUTO, FLAIL_BACKEND_F
 use :: adam_poisson_mg_object,        only : MG_SEAM_GHOST_SCALE
 use :: adam_realm_object,             only : realm_object
 use :: adam_turbulence_object,        only : turbulence_object
-use :: adam_tree_object,              only : NODE_STANDARD
+use :: adam_tree_object,              only : NODE_BOUNDARY_CONDITION, NODE_STANDARD
 use :: adam_tree_node_object,         only : tree_node_object
 use :: adam_grid_object,              only : grid_object
 use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
@@ -1540,15 +1540,21 @@ contains
 
    if (.not.allocated(self%hybrid_faces)) allocate(self%hybrid_faces(self%nb,6))
    self%hybrid_faces = 0_I4P
+   self%hybrid_has_faces = .false. ! whatever `hybrid_skin` relaxes: the sensor must stay single-valued
    do b=1, self%blocks_number
       node => self%adam%tree%node(code=self%adam%field%code(b))
       do f=1, 6
          d = (f + 1_I4P) / 2_I4P
          if (self%adam%grid%null_xyz(d)) cycle
-         if (node%neighbor(f)%ntype /= NODE_STANDARD) self%hybrid_faces(b,f) = 1_I4P
+         if (node%neighbor(f)%ntype == NODE_STANDARD) cycle
+         self%hybrid_has_faces = .true.
+         if (node%neighbor(f)%ntype == NODE_BOUNDARY_CONDITION) then
+            if (self%numerics%hybrid_skin_bcs) self%hybrid_faces(b,f) = 1_I4P
+         else
+            if (self%numerics%hybrid_skin_seams) self%hybrid_faces(b,f) = 1_I4P
+         endif
       enddo
    enddo
-   self%hybrid_has_faces = any(self%hybrid_faces /= 0_I4P)
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%hybrid_has_faces, 1, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, mpih%error)
    endsubroutine set_hybrid_faces
 

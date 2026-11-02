@@ -55,6 +55,8 @@ type :: flume_numerics_object
    real(R8P)                 :: hybrid_threshold=0.2_R8P !< Hybrid: Ducros sensor threshold.
    real(R8P)                 :: hybrid_floor=1.e-8_R8P   !< Hybrid: floor of the sensor denominator over (a / dx)^2.
    real(R8P)                 :: hybrid_jump=0.1_R8P      !< Hybrid: largest relative density jump of a central cell.
+   logical                   :: hybrid_skin_seams=.true. !< Hybrid: WENO on the skin of resolution jumps (T2.4).
+   logical                   :: hybrid_skin_bcs=.true.   !< Hybrid: WENO on the skin of boundary faces, forest seams included (T2.4).
    contains
       ! public methods
       procedure, pass(self) :: correction_coefficients !< Return the face flux correction coefficients.
@@ -149,6 +151,20 @@ contains
       if (error > 0) self%hybrid_floor = 1.e-8_R8P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_jump', val=self%hybrid_jump, error=error)
       if (error > 0) self%hybrid_jump = 0.1_R8P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_skin', val=buff, error=error)
+      if (error > 0) buff = 'weno'
+      select case(trim(adjustl(strip_control(buff))))
+      case('weno')
+      case('central-seams')
+         self%hybrid_skin_seams = .false.
+      case('central-bcs')
+         self%hybrid_skin_bcs = .false.
+      case('central')
+         self%hybrid_skin_seams = .false.
+         self%hybrid_skin_bcs = .false.
+      case default
+         call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(hybrid_skin); expected weno, central-seams, central-bcs or central')
+      endselect
       if (.not.(self%hybrid_threshold > 0._R8P .and. self%hybrid_floor > 0._R8P .and. self%hybrid_jump > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(hybrid_threshold), (hybrid_floor) and (hybrid_jump) must be positive')
    endif

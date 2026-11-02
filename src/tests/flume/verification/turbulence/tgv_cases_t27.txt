@@ -1,0 +1,9 @@
+# The validation of #119 T2.7 not covered by tgv_cases_t2.txt: a case file of tgv_campaign.sh. The models act only where the scheme is central
+# (T2.6); a 2:1 box, with WENO on its skin and without (T2.4).
+m0.1-hybrid-box-n64 64 0.1 hybrid-kep-weno weno-u-5 --amr-box 0.5
+m0.1-hybrid-box-central-n64 64 0.1 hybrid-kep-weno weno-u-5 --amr-box 0.5 --hybrid-skin central-seams
+m0.1-hybrid-vreman-n64 64 0.1 hybrid-kep-weno weno-u-5 --sgs-model vreman
+hit-hybrid-vreman-n64 64 0.6 hybrid-kep-weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0 --sgs-model vreman
+m1.25-hybrid-vreman-n64 64 1.25 hybrid-kep-weno weno-u-5 --sgs-model vreman
+m0.1-hybrid-vreman-n128 128 0.1 hybrid-kep-weno weno-u-5 --sgs-model vreman
+hit-hybrid-vreman-n128 128 0.6 hybrid-kep-weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0 --sgs-model vreman

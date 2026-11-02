@@ -35,6 +35,14 @@
 #   hy7  T2.4, the regression inputs of runtime regridding (vortex-regrid, closed: 1e-11) and of a forest (sod-2realm) on the hybrid scheme: they
 #        run and conserve. sod-2realm has open ends and the central flux sends a ripple ahead of the waves that reaches them (|u| 3e-8 there, 0 on WENO), so
 #        real mass leaves: the bound is 1e-8, and the sum of the realms must drift as the single realm of hy6 does, within 1 %.
+#   hy8  T2.5, a density wave of relative amplitude 0.2 advected once around, n = 32, 64, 128: pressure and velocity stay uniform; WENO reported.
+#   hy9  T2.6, the model only where the scheme is central: on the random field, every cell flagged gives eps_sgs exactly 0, the default threshold
+#        does not; one rank against N with a model on a 2:1 box.
+#   hy10 T2.4 measure, no bound: the skin relaxed on 2:1 seams (hy5 case, central-seams) and on physical faces (hy6 case, central-bcs). Prints what
+#        conservation and the distance from the skin-on run do, or that the run failed; never fails the script.
+#   hy11 T2.4, positive test of the skin (the conservation legs pass with no flag at all): on a 2:1 box and with waves at open ends, relaxing the
+#        skin must change the density.
+#   hy12 T2.4, restart on a refined grid: from step 10 to 20 against the straight run, density within 1e-13.
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -50,7 +58,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -214,10 +222,70 @@ if has_leg hy7; then
       w="$CASE_DIR/work-$TAG-hy7-$c" ; regression_run "$c" "$w"
       if [[ $c == sod-2realm ]]; then tol=1e-8 ; else tol=1e-11 ; fi
       "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --conserve "$w"/*-conservation_history.dat --conserve-tol $tol
-      if [[ $c == sod-2realm && -f "$CASE_DIR/work-$TAG-hy6/sod-x-conservation_history.dat" ]]; then
+      if [[ $c == sod-2realm ]]; then
+         [[ -f "$CASE_DIR/work-$TAG-hy6/sod-x-conservation_history.dat" ]] || { echo "check.sh: hy7 sod-2realm needs hy6 in the same legs" >&2 ; exit 1 ; }
          "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --same-drift "$CASE_DIR/work-$TAG-hy6/sod-x-conservation_history.dat" "$w"
       fi
    done
+fi
+if has_leg hy8; then
+   for n in 32 64 128; do
+      echo "== hy8: density wave, $n cells"
+      a=$(run "hy8-$n" "$NP" --n $n --levels 2 --reynolds 0 --density-wave 0.2 --scheme-space hybrid-kep-weno --cfl 0.3 --time-max 1.0 --it-save 100000)
+      b=$(run "hy8-$n-weno" "$NP" --n $n --levels 2 --reynolds 0 --density-wave 0.2 --cfl 0.3 --time-max 1.0 --it-save 100000)
+      "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --density-wave "$a" "$b"
+   done
+fi
+if has_leg hy9; then
+   echo "== hy9: the model only where the scheme is central"
+   a=$(run hy9-flagged "$NP" --n 32 --levels 2 "${HIT[@]}" --scheme-space hybrid-kep-weno --sgs-model vreman --hybrid-threshold 1e-30 --it-max 10)
+   b=$(run hy9-free "$NP" --n 32 --levels 2 "${HIT[@]}" --scheme-space hybrid-kep-weno --sgs-model vreman --it-max 10)
+   "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --masked "$a" "$b"
+   a=$(run hy9-np1 1 --n 32 --levels 2 --amr-box 0.5 --scheme-space hybrid-kep-weno --sgs-model vreman --it-max 10)
+   b=$(run hy9-npN "$NP" --n 32 --levels 2 --amr-box 0.5 --scheme-space hybrid-kep-weno --sgs-model vreman --it-max 10)
+   loaded "$b"
+   "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$a" "$b"
+fi
+if has_leg hy10; then
+   echo "== hy10: the skin relaxed on 2:1 seams"
+   w="$CASE_DIR/work-$TAG-hy10-seams" ; rm -rf "${w:?}" ; mkdir -p "$w"
+   python3 -I "$CASE_DIR/make_tgv.py" "$w/input.ini" --n 32 --levels 2 --amr-box 0.5 --scheme-space hybrid-kep-weno --hybrid-skin central-seams --time-max 1.0
+   if (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
+      "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --conserve "$w/tgv-conservation_history.dat" || true
+      tail -1 "$w/tgv-turbulence_history.dat"; [[ -f "$CASE_DIR/work-$TAG-hy5/tgv-turbulence_history.dat" ]] && tail -1 "$CASE_DIR/work-$TAG-hy5/tgv-turbulence_history.dat"
+   else echo "hy10: central-seams run FAILED, see $w/log.txt"; fi
+   echo "== hy10: the skin relaxed on physical faces"
+   w="$CASE_DIR/work-$TAG-hy10-bcs" ; rm -rf "${w:?}" ; mkdir -p "$w"
+   cp "$CASE_DIR/../../regression/sod-x/input.ini" "$w"/
+   sed -i -E 's/^(scheme_space\s*=\s*)weno\s*$/\1hybrid-kep-weno\nhybrid_skin = central-bcs/' "$w/input.ini"
+   if (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
+      "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --compare "$w" "$CASE_DIR/work-$TAG-hy6-weno" || true
+      tail -1 "$w/sod-x-conservation_history.dat"
+   else echo "hy10: central-bcs run FAILED, see $w/log.txt"; fi
+fi
+if has_leg hy11; then
+   echo "== hy11: the skin is really WENO: relaxing it must change the result"
+   a=$(run hy11-seams-on "$NP" --n 32 --levels 2 --amr-box 0.5 --scheme-space hybrid-kep-weno --it-max 20)
+   b=$(run hy11-seams-off "$NP" --n 32 --levels 2 --amr-box 0.5 --scheme-space hybrid-kep-weno --hybrid-skin central-seams --it-max 20)
+   "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --differ "$a" "$b"
+   for s in weno central-bcs; do
+      w="$CASE_DIR/work-$TAG-hy11-bcs-$s" ; rm -rf "${w:?}" ; mkdir -p "$w"
+      cp "$CASE_DIR/../../regression/sod-x/input.ini" "$w"/
+      # past t = 0.2 the waves reach the open ends, where the skin acts
+      sed -i -E "s/^(scheme_space\s*=\s*)weno\s*$/\1hybrid-kep-weno\nhybrid_skin = $s/; s/^(time_max\s*=\s*).*/\11.0/" "$w/input.ini"
+      (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) || { echo "check.sh: hy11 $s failed, see $w/log.txt" >&2 ; exit 1 ; }
+   done
+   "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --differ "$CASE_DIR/work-$TAG-hy11-bcs-weno" "$CASE_DIR/work-$TAG-hy11-bcs-central-bcs"
+fi
+if has_leg hy12; then
+   echo "== hy12: restart of the hybrid scheme on a refined grid"
+   # one restart file, overwritten: step 10 of a first run, continued to 20, against 20 straight
+   A=(--n 32 --levels 2 --amr-box 0.5 --scheme-space hybrid-kep-weno)
+   a=$(run hy12-straight "$NP" "${A[@]}" --it-max 20)
+   b=$(run hy12-restart "$NP" "${A[@]}" --it-max 10 --restart-save 10)
+   python3 -I "$CASE_DIR/make_tgv.py" "$b/input.ini" "${A[@]}" --it-max 20 --restart-save 10 --restart
+   (cd "$b" && mpirun -np "$NP" "$EXE" input.ini > log2.txt 2>&1) || { echo "check.sh: hy12 restart failed, see $b/log2.txt" >&2 ; exit 1 ; }
+   "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --compare --compare-tol 1e-13 "$b" "$a"
 fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"

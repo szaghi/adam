@@ -52,6 +52,9 @@ def main() -> None:
     parser.add_argument("--seam-fill", default="")
     parser.add_argument("--seam-restriction", default="")
     parser.add_argument("--contact", type=float, default=0.0, help="> 0: instead, a contact of this density ratio advected on a periodic square")
+    parser.add_argument("--density-wave", type=float, default=0.0, help="> 0: instead, a density wave of this relative amplitude advected at u = p = 1")
+    parser.add_argument("--hybrid-threshold", type=float, default=0.0, help="> 0: [numerics] hybrid_threshold")
+    parser.add_argument("--hybrid-skin", default="", help="[numerics] hybrid_skin")
     parser.add_argument("--restart-save", type=int, default=0, help="cadence of the restart files")
     parser.add_argument("--restart", action="store_true", help="restart from them")
     parser.add_argument("--history", type=int, default=1, help="cadence of the conservation and turbulence histories")
@@ -83,6 +86,8 @@ def main() -> None:
         physics |= {"reynolds": str(args.reynolds), "prandtl": "0.71"}
     text = section(text, "physics", physics)
     numerics = {"scheme_space": args.scheme_space}
+    numerics |= {"hybrid_threshold": str(args.hybrid_threshold)} if args.hybrid_threshold > 0.0 else {}
+    numerics |= {"hybrid_skin": args.hybrid_skin} if args.hybrid_skin else {}
     if args.scheme_space == "weno-riemann":
         numerics["riemann_solver"] = args.riemann
         numerics |= {"flux_correction": "6th", "flux_correction_sensor": "weno"}
@@ -117,6 +122,28 @@ emin_x = {lo}
 emin_y = 0.0
 emin_z = 0.0
 emax_x = {hi}
+emax_y = 1.0
+emax_z = 1.0
+"""
+    if args.density_wave > 0.0:
+        text = section(text, "grid", {"nk": "1", "emax_x": "1.0", "emax_y": "1.0", "emax_z": "1.0", "null_z": ".true."})
+        for face in ("z_min", "z_max"):
+            text = section(text, f"bc_{face}", {"type": "extrapolation"})
+        for key in ("tg_density", "tg_velocity", "tg_mach"):
+            text = re.sub(rf"^{key} = .*\n", "", text, flags=re.M)
+        text = section(text, "initial_conditions", {"type": "sine-wave", "wave_mode": "entropy", "wave_angle": "0.0",
+                                                     "wave_amplitude": str(args.density_wave), "wavelength": "1.0"})
+        text += """
+[initial_conditions_region_1]
+r = 1.0
+u = 1.0
+v = 0.0
+w = 0.0
+p = 1.0
+emin_x = 0.0
+emin_y = 0.0
+emin_z = 0.0
+emax_x = 1.0
 emax_y = 1.0
 emax_z = 1.0
 """

@@ -100,6 +100,46 @@ def contact(work: str, tol: float) -> int:
     return 0 if ok else 1
 
 
+def differ(a: str, b: str) -> int:
+    """Two runs with a different skin: the density must differ, or the skin does nothing."""
+    pa, pb = Path(a), Path(b)
+    na, nb = basenames(pa), basenames(pb)
+    va, ca = load_cells(pa, na, last_step(pa, na), 3)
+    vb, cb = load_cells(pb, nb, last_step(pb, nb), 3)
+    keys = sorted(ca)
+    d = np.abs(np.array([ca[k][va.index("r")] for k in keys]) - np.array([cb[k][vb.index("r")] for k in keys]))
+    ok = float(d.max()) > 1e-13
+    print(f"{len(keys)} cells, skin on against off, largest density difference {d.max():.3e} (min 1e-13)  {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
+def density_wave(hybrid: str, weno: str, tol: float) -> int:
+    """Pressure and velocity of an advected density wave, hybrid against WENO (T2.5): the exact ones are uniform, 1."""
+    out = []
+    for work in (hybrid, weno):
+        path = Path(work)
+        names = basenames(path)
+        variables, cells = load_cells(path, names, last_step(path, names), 3)
+        q = np.array(list(cells.values()))
+        r, u, e = (q[:, variables.index(n)] for n in ("r", "ru", "rE"))
+        u = u / r
+        p = 0.4 * (e - 0.5 * r * u**2)
+        out.append((float(np.max(np.abs(p - 1.0))), float(np.max(np.abs(u - 1.0))), float(np.max(r))))
+    ok = out[0][0] < tol
+    print(f"max|p-1|, max|u-1|, max rho: hybrid {out[0][0]:.3e}, {out[0][1]:.3e}, {out[0][2]:.6f}; WENO {out[1][0]:.3e}, {out[1][1]:.3e}, "
+          f"{out[1][2]:.6f} (hybrid p bound {tol:.0e})  {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
+def masked(all_flagged: str, free: str) -> int:
+    """T2.6: with every cell flagged the model dissipates exactly nothing, with the default threshold it dissipates (column eps_sgs)."""
+    a = np.loadtxt(Path(all_flagged) / "tgv-turbulence_history.dat", skiprows=1, ndmin=2)[:, 8]
+    b = np.loadtxt(Path(free) / "tgv-turbulence_history.dat", skiprows=1, ndmin=2)[:, 8]
+    ok = float(np.max(np.abs(a))) == 0.0 and float(np.max(np.abs(b))) > 0.0
+    print(f"eps_sgs largest: all cells flagged {np.max(np.abs(a)):.3e}, default threshold {np.max(np.abs(b)):.3e}  {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Check."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -114,7 +154,17 @@ def main() -> int:
     parser.add_argument("--compare-tol", type=float, default=5e-3)
     parser.add_argument("--factor", type=float, default=10.0)
     parser.add_argument("--tol", type=float, default=1e-12)
+    parser.add_argument("--density-wave", action="store_true", help="the two directories hold an advected density wave")
+    parser.add_argument("--wave-tol", type=float, default=1e-6)
+    parser.add_argument("--differ", action="store_true", help="two runs that must differ in density")
+    parser.add_argument("--masked", action="store_true", help="the directories of a run with every cell flagged and one with the default")
     args = parser.parse_args()
+    if args.density_wave:
+        return density_wave(args.hybrid, args.weno, args.wave_tol)
+    if args.differ:
+        return differ(args.hybrid, args.weno)
+    if args.masked:
+        return masked(args.hybrid, args.weno)
     if args.same_drift:
         return same_drift(args.hybrid, args.weno, 0.01)
     if args.conserve:

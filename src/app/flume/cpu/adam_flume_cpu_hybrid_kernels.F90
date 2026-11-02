@@ -17,6 +17,7 @@ use :: penf,                      only : I4P, R8P
 implicit none
 private
 public :: compute_hybrid_sensor
+public :: mask_mu_t
 public :: overwrite_central_fluxes
 
 contains
@@ -64,6 +65,31 @@ contains
    enddo
    !$omp end parallel do
    endsubroutine compute_hybrid_sensor
+
+   subroutine mask_mu_t(ni, nj, nk, ngc, blocks_number, threshold, is_null, psi, mu_t)
+   !< Zero the eddy viscosity of the cells the sensor flags (issue #119, T2.6): there WENO supplies the dissipation.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)    :: threshold                         !< Sensor threshold.
+   logical,      intent(in)    :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)    :: psi(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Sensor, component 1, q-shaped.
+   real(R8P),    intent(inout) :: mu_t(1-ngc:,1-ngc:,1-ngc:,1:)     !< Eddy viscosity.
+   integer(I4P)                :: s(3)                              !< Steps along x, y, z: 1 active, 0 null.
+   integer(I4P)                :: b, i, j, k                        !< Counters.
+
+   s = merge(0_I4P, 1_I4P, is_null)
+   !$omp parallel do collapse(4) default(firstprivate) shared(psi, mu_t)
+   do b=1, blocks_number
+      do k=1-2*s(3), nk+2*s(3)
+         do j=1-2*s(2), nj+2*s(2)
+            do i=1-2*s(1), ni+2*s(1)
+               if (psi(1,i,j,k,b) >= threshold) mu_t(i,j,k,b) = 0._R8P
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine mask_mu_t
 
    subroutine overwrite_central_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, threshold, faces, q_aux, psi, &
                                        fl)

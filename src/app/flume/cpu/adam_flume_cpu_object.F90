@@ -13,7 +13,7 @@ use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_o
 use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
-use :: adam_flume_cpu_hybrid_kernels, only : compute_hybrid_sensor, overwrite_central_fluxes
+use :: adam_flume_cpu_hybrid_kernels, only : compute_hybrid_sensor, mask_mu_t, overwrite_central_fluxes
 use :: adam_turbulence_kernels, only : compute_mu_t_sigma, compute_mu_t_vreman, compute_mu_t_wale
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
 use :: adam_seam_exchange,        only : seam_fill_all, seam_ghosts_to_stages, pack_seam_rows, unpack_seam_rows
@@ -328,6 +328,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_turbulence_history !< Compute and save the turbulence history (issue #119).
+      procedure, pass(self) :: update_hybrid_sensor    !< Compute the sensor, single-valued on the ghost cells (issue #119, T2).
       procedure, pass(self) :: overwrite_hybrid_fluxes !< Central flux where the sensor allows it (issue #119, T2).
       procedure, pass(self) :: update_hybrid_faces     !< Flag the block faces of the sensor (issue #119, T2.4).
       procedure, pass(self) :: compute_mu_t            !< Compute the eddy viscosity of the model (issue #119).
@@ -853,18 +854,25 @@ contains
                                                integrals=row)
    endsubroutine compute_conservation
 
+   subroutine update_hybrid_sensor(self)
+   !< Compute the sensor; exchanged where the realm has flagged faces, its ghost cells then exact copies.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+
+   call compute_hybrid_sensor(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, floor=self%numerics%hybrid_floor, &
+                              jump_max=self%numerics%hybrid_jump, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, psi=self%psi)
+   if (self%hybrid_has_faces) then
+      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%psi, seam_guard=.false.)
+      call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%psi, seam_guard=.false.)
+   endif
+   endsubroutine update_hybrid_sensor
+
    subroutine overwrite_hybrid_fluxes(self)
    !< Compute the sensor and replace the WENO flux by the central one where it allows it (issue #119, T2).
    class(flume_cpu_object), intent(inout) :: self !< The equation.
 
+   call self%update_hybrid_sensor
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, gamma=>self%physics%gamma, &
              thr=>self%numerics%hybrid_threshold, is_null=>self%adam%grid%null_xyz)
-   call compute_hybrid_sensor(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, floor=self%numerics%hybrid_floor, jump_max=self%numerics%hybrid_jump, dxyz=self%adam%field%dxyz, &
-                              is_null=is_null, q_aux=self%q_aux, psi=self%psi)
-   if (self%hybrid_has_faces) then
-      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%psi)
-      call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%psi)
-   endif
    if (.not.is_null(1)) call overwrite_central_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
                                  blocks_number=nb, gamma=gamma, threshold=thr, faces=self%hybrid_faces, q_aux=self%q_aux, psi=self%psi, fl=self%flx_f)
    if (.not.is_null(2)) call overwrite_central_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
@@ -904,6 +912,12 @@ contains
                  c=self%turbulence%constant, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, &
                        mu_t=self%mu_t)
    endselect
+   ! issue #119, T2.6: the model acts only where the scheme is central; callers outside the flux path need the sensor of this state too
+   if (self%numerics%is_hybrid) then
+      call self%update_hybrid_sensor
+      call mask_mu_t(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                     threshold=self%numerics%hybrid_threshold, is_null=self%adam%grid%null_xyz, psi=self%psi, mu_t=self%mu_t)
+   endif
    endsubroutine compute_mu_t
 
    subroutine update_sgs_lambda(self, realm)
