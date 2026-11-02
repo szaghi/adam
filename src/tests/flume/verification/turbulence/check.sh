@@ -30,7 +30,11 @@
 #        tell a KEP flux from a non-KEP one: at 32^3 the plain central flux loses less K than this one.
 #   hy4  a contact of density ratio 8 and 100 advected on a periodic square, t = 0.3: finite, with u and p within 1e-3 of 1. The Ducros ratio cannot
 #        see it, the density jump in the sensor does.
-#   hy5  a refined grid loaded from restart files under the hybrid scheme stops the run (the [amr] keys of the restart say nothing about it).
+#   hy5  T2.4, 2:1 box on the Taylor-Green vortex, 32^3 base, M 0.1, to t = 1, reflux on: conserved to round-off.
+#   hy6  T2.4, physical faces and a shock: the regression sod-x input on the hybrid scheme against plain WENO: density within --hy-sod-tol L1, same shock.
+#   hy7  T2.4, the regression inputs of runtime regridding (vortex-regrid, closed: 1e-11) and of a forest (sod-2realm) on the hybrid scheme: they
+#        run and conserve. sod-2realm has open ends and the central flux sends a ripple ahead of the waves that reaches them (|u| 3e-8 there, 0 on WENO), so
+#        real mass leaves: the bound is 1e-8, and the sum of the realms must drift as the single realm of hy6 does, within 1 %.
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -46,7 +50,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -186,12 +190,34 @@ if has_leg hy4; then
    done
 fi
 if has_leg hy5; then
-   echo "== hy5: a refined restart refused"
-   w=$(run hy5 "$NP" --n 32 --levels 2 --amr-box 0.5 --it-max 5 --restart-save 5)
-   python3 -I "$CASE_DIR/make_tgv.py" "$w/restart.ini" --n 32 --levels 2 --scheme-space hybrid-kep-weno --restart --it-max 10
-   if (cd "$w" && mpirun -np "$NP" "$EXE" restart.ini > restart.log 2>&1); then echo "check.sh: hy5 ran" >&2 ; exit 1 ; fi
-   grep -a -q "the restart files hold a refined one" "$w/restart.log" || { echo "check.sh: hy5 stopped for another reason" >&2 ; exit 1 ; }
-   echo "refused  PASS"
+   echo "== hy5: a 2:1 box with the hybrid scheme"
+   w=$(run hy5 "$NP" --n 32 --levels 2 --amr-box 0.5 --scheme-space hybrid-kep-weno --time-max 1.0)
+   "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --conserve "$w/tgv-conservation_history.dat"
+fi
+regression_run() { # regression_run <case> <work>: the case's inputs on the hybrid scheme, in <work>
+   local src="$CASE_DIR/../../regression/$1" w="$2" ; rm -rf "${w:?}" ; mkdir -p "$w"
+   cp "$src"/*.ini "$w"/
+   sed -i -E 's/^(scheme_space\s*=\s*)weno\s*$/\1hybrid-kep-weno/' "$w"/*.ini
+   grep -q "hybrid-kep-weno" "$w"/*.ini || { echo "check.sh: no weno scheme_space in $1" >&2 ; exit 1 ; }
+   (cd "$w" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) || { echo "check.sh: $1 failed on the hybrid scheme, see $w/log.txt" >&2 ; exit 1 ; }
+}
+if has_leg hy6; then
+   echo "== hy6: Sod on the hybrid scheme against WENO"
+   w="$CASE_DIR/work-$TAG-hy6" ; regression_run sod-x "$w"
+   u="$CASE_DIR/work-$TAG-hy6-weno" ; rm -rf "${u:?}" ; mkdir -p "$u" ; cp "$CASE_DIR/../../regression/sod-x/input.ini" "$u"/
+   (cd "$u" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) || { echo "check.sh: sod-x failed, see $u/log.txt" >&2 ; exit 1 ; }
+   "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --compare "$w" "$u"
+fi
+if has_leg hy7; then
+   for c in vortex-regrid sod-2realm; do
+      echo "== hy7: $c on the hybrid scheme"
+      w="$CASE_DIR/work-$TAG-hy7-$c" ; regression_run "$c" "$w"
+      if [[ $c == sod-2realm ]]; then tol=1e-8 ; else tol=1e-11 ; fi
+      "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --conserve "$w"/*-conservation_history.dat --conserve-tol $tol
+      if [[ $c == sod-2realm && -f "$CASE_DIR/work-$TAG-hy6/sod-x-conservation_history.dat" ]]; then
+         "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --same-drift "$CASE_DIR/work-$TAG-hy6/sod-x-conservation_history.dat" "$w"
+      fi
+   done
 fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"

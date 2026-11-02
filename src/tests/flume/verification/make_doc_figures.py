@@ -2241,6 +2241,27 @@ def fig_hit(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_tgv_hybrid(out: Path, runs: Path) -> None:
+    """T2 (issue #119): the hybrid central/WENO scheme on the Taylor-Green vortex. Rows: M 0.1 at 64 and 128 against WENO-5, 128 and 256; with Vreman; M_0 1.25.
+    Left -dK/dt, right the enstrophy; the dotted line as in `fig_tgv_iles`."""
+    root = runs / "tgv"
+    if not (root / "m0.1-hybrid-n64").exists():
+        raise FileNotFoundError(root / "m0.1-hybrid-n64")
+    fig, axs = plt.subplots(3, 2, figsize=(11.0, 10.0), constrained_layout=True, sharex=True)
+    _turbulence_panels(axs[0], root, [("m0.1-hybrid-n64", "hybrid, $64^3$"), ("m0.1-hybrid-n128", "hybrid, $128^3$"), ("m0.1-weno-5-n128", "WENO-5, $128^3$"),
+                                      ("m0.1-weno-5-n256", "WENO-5, $256^3$")])
+    _turbulence_panels(axs[1], root, [("m0.1-hybrid-n64", "hybrid, $64^3$"), ("m0.1-hybrid-vreman-n64", "hybrid + Vreman, $64^3$"), ("m0.1-hybrid-n128", "hybrid, $128^3$"),
+                                      ("m0.1-hybrid-vreman-n128", "hybrid + Vreman, $128^3$")])
+    _turbulence_panels(axs[2], root, [("m1.25-hybrid-n128", "hybrid, $128^3$"), ("m1.25-hybrid-n256", "hybrid, $256^3$"), ("m1.25-weno-5-n128", "WENO-5, $128^3$"),
+                                      ("m1.25-weno-5-n256", "WENO-5, $256^3$")])
+    for r in (0, 1):
+        axs[r, 1].axhline(10.3, color="k", ls=":", lw=0.8)
+    axs[2, 0].set_xlabel("t")
+    axs[2, 1].set_xlabel("t")
+    fig.savefig(out / "tgv-hybrid.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_barotropic_eos(out: Path, runs: Path) -> None:
     """EO barotropic (issue #100, P3): the piecewise polytrope (CPU). Top left: the eb1 tube on the convex table POLY
     (densities 2, 8; exponents 1, 1.4, 5/3) at t = 0.15, 1600 cells, against the exact solution (eos_oracle.py): the
@@ -3847,7 +3868,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "passive-scalars": fig_passive_scalars,
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
-           "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit,
+           "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

@@ -56,9 +56,13 @@ contains
          g(a,2) = 0.5_R8P * rdx(2) * (q_aux_gpu(b,i,j+s2,k,IA_U+a-1) - q_aux_gpu(b,i,j-s2,k,IA_U+a-1))
          g(a,3) = 0.5_R8P * rdx(3) * (q_aux_gpu(b,i,j,k+s3,IA_U+a-1) - q_aux_gpu(b,i,j,k-s3,IA_U+a-1))
       enddo
-      jump = max(abs(q_aux_gpu(b,i+s1,j,k,IA_R) - q_aux_gpu(b,i-s1,j,k,IA_R)) / (q_aux_gpu(b,i+s1,j,k,IA_R) + q_aux_gpu(b,i-s1,j,k,IA_R)), &
-                 abs(q_aux_gpu(b,i,j+s2,k,IA_R) - q_aux_gpu(b,i,j-s2,k,IA_R)) / (q_aux_gpu(b,i,j+s2,k,IA_R) + q_aux_gpu(b,i,j-s2,k,IA_R)), &
-                 abs(q_aux_gpu(b,i,j,k+s3,IA_R) - q_aux_gpu(b,i,j,k-s3,IA_R)) / (q_aux_gpu(b,i,j,k+s3,IA_R) + q_aux_gpu(b,i,j,k-s3,IA_R)))
+      jump = 0._R8P
+      jump = max(jump, abs(q_aux_gpu(b,i+s1,j,k,IA_R) - q_aux_gpu(b,i-s1,j,k,IA_R)) / &
+                       (q_aux_gpu(b,i+s1,j,k,IA_R) + q_aux_gpu(b,i-s1,j,k,IA_R)))
+      jump = max(jump, abs(q_aux_gpu(b,i,j+s2,k,IA_R) - q_aux_gpu(b,i,j-s2,k,IA_R)) / &
+                       (q_aux_gpu(b,i,j+s2,k,IA_R) + q_aux_gpu(b,i,j-s2,k,IA_R)))
+      jump = max(jump, abs(q_aux_gpu(b,i,j,k+s3,IA_R) - q_aux_gpu(b,i,j,k-s3,IA_R)) / &
+                       (q_aux_gpu(b,i,j,k+s3,IA_R) + q_aux_gpu(b,i,j,k-s3,IA_R)))
       call compute_ducros(eps=floor * (q_aux_gpu(b,i,j,k,IA_A) * rmax)**2, jump=jump, jump_max=jump_max, g=g, psi=p)
       psi_gpu(b,i,j,k,1) = p
    enddo
@@ -67,8 +71,8 @@ contains
    enddo
    endsubroutine compute_hybrid_sensor_dev
 
-   subroutine overwrite_central_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, threshold, q_aux_gpu, psi_gpu, &
-                                           fl_gpu)
+   subroutine overwrite_central_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, threshold, faces_gpu, q_aux_gpu, &
+                                           psi_gpu, fl_gpu)
    !< Device twin of `overwrite_central_fluxes`.
    integer(I4P), intent(in)    :: d                                     !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)    :: di, dj, dk                            !< Unit step along `d`.
@@ -76,22 +80,27 @@ contains
    integer(I4P), intent(in)    :: blocks_number                         !< Actual blocks number.
    real(R8P),    intent(in)    :: gamma                                 !< Specific heats ratio.
    real(R8P),    intent(in)    :: threshold                             !< Sensor threshold.
+   integer(I4P), intent(in)    :: faces_gpu(1:,1:)                      !< Block faces not to read across [nb, 6].
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(in)    :: psi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Sensor, [nb, i, j, k, 1].
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)       !< Face fluxes of direction `d`.
    real(R8P)                   :: w(5,-2:3)                             !< Private cell states.
    real(R8P)                   :: f(5)                                  !< Private central flux.
+   integer(I4P)                :: nd, l, lo, hi                         !< Cells along `d`, private face index, its flag indexes.
    integer(I4P)                :: b, i, j, k, m, n                      !< Counters.
 
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_aux_gpu,psi_gpu,fl_gpu)  &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,threshold) private(w,f)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(q_aux_gpu,psi_gpu,fl_gpu)                                 &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,threshold) private(w,f)
+   nd = ni * di + nj * dj + nk * dk ; lo = 2_I4P * d - 1_I4P ; hi = 2_I4P * d
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,q_aux_gpu,psi_gpu,fl_gpu)  &
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,nd,lo,hi,blocks_number,gamma,threshold) private(w,f,l)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,q_aux_gpu,psi_gpu,fl_gpu)                                 &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,nd,lo,hi,blocks_number,gamma,threshold) private(w,f,l)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
-      if (psi_gpu(b,i-di,j-dj,k-dk,1) < threshold .and. psi_gpu(b,i,j,k,1) < threshold .and.     &
+      l = i * di + j * dj + k * dk
+      if (.not.((l <= 2_I4P .and. faces_gpu(b,lo) /= 0_I4P) .or. (l >= nd - 2_I4P .and. faces_gpu(b,hi) /= 0_I4P)) .and. &
+          psi_gpu(b,i-di,j-dj,k-dk,1) < threshold .and. psi_gpu(b,i,j,k,1) < threshold .and.                                  &
           psi_gpu(b,i+di,j+dj,k+dk,1) < threshold .and. psi_gpu(b,i+2*di,j+2*dj,k+2*dk,1) < threshold) then
          !$acc loop seq
          do m=-2, 3

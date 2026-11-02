@@ -87,9 +87,9 @@ round trip): a setup table documents it better than a plot of a difference that 
 | [Ranks without blocks](./infrastructure/ranks-without-blocks) | DV-1 | — ([#82](https://github.com/szaghi/adam/issues/82)) | CPU, FNL | yes |
 | [Non-finite state guard](./infrastructure/nonfinite) | — (`nonfinite`) | — ([#45](https://github.com/szaghi/adam/issues/45)) | CPU, FNL | no |
 
-## [Turbulence (T0, T1)](./turbulence/)
+## [Turbulence (T0, T1, T2)](./turbulence/)
 
-Contract legs, the ILES baseline on the Taylor-Green vortex, the subgrid-scale models, a 2:1 box and decaying isotropic turbulence ([#119](https://github.com/szaghi/adam/issues/119)). CPU, FNL; figures.
+Contract legs, the ILES baseline on the Taylor-Green vortex, the subgrid-scale models, a 2:1 box, decaying isotropic turbulence and the hybrid central/WENO scheme ([#119](https://github.com/szaghi/adam/issues/119)). CPU, FNL; figures.
 
 ## [Dissipative terms (M4)](./dissipative/)
 

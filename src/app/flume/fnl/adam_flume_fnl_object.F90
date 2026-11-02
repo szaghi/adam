@@ -382,7 +382,8 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null()     !< Conservative variables [nb, i, j, k, nv].
    real(R8P), pointer     :: dq_gpu(:,:,:,:,:)=>null()    !< Residuals [nb, i, j, k, nv].
    real(R8P), pointer     :: q_aux_gpu(:,:,:,:,:)=>null() !< Auxiliary variables [nb, i, j, k, nv_aux].
-   real(R8P), pointer     :: psi_gpu(:,:,:,:,:)=>null()   !< Hybrid sensor [nb, i, j, k, 1], with the hybrid scheme.
+   integer(I4P), pointer  :: hybrid_faces_gpu(:,:)=>null() !< Hybrid scheme: block faces it must not read across [nb, 6].
+   real(R8P), pointer     :: psi_gpu(:,:,:,:,:)=>null()   !< Hybrid sensor [nb, i, j, k, nv], component 1, q-shaped.
    real(R8P), pointer     :: mu_t_gpu(:,:,:,:,:)=>null()  !< Eddy viscosity [nb, i, j, k, 1], with a subgrid-scale model.
    real(R8P), pointer     :: flx_f_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, nv].
    real(R8P), pointer     :: fly_f_gpu(:,:,:,:,:)=>null() !< Y-face fluxes [nb, 1:ni, 0:nj, 1:nk, nv].
@@ -427,6 +428,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_turbulence_history !< Compute and save the turbulence history (issue #119).
       procedure, pass(self) :: overwrite_hybrid_fluxes !< Central flux where the sensor allows it (issue #119, T2).
+      procedure, pass(self) :: update_hybrid_faces     !< Flag the block faces of the sensor (issue #119, T2.4).
       procedure, pass(self) :: compute_mu_t            !< Compute the eddy viscosity of the model (issue #119).
       procedure, pass(self) :: update_sgs_lambda       !< Update the time step limit of the eddy viscosity (issue #119).
       procedure, pass(self) :: compute_dflux_norms     !< Compute the D_flux norms of the committed state (#68 A2).
@@ -850,7 +852,7 @@ contains
                   init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_aux_gpu in flume_fnl_object%allocate_gpu')
    if (self%numerics%is_hybrid) then
-      call dev_alloc(fptr_dev=self%psi_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,1], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
+      call dev_alloc(fptr_dev=self%psi_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                      init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate psi_gpu in flume_fnl_object%allocate_gpu')
    endif
@@ -1078,14 +1080,33 @@ contains
              thr=>self%numerics%hybrid_threshold, is_null=>self%adam%grid%null_xyz)
    call compute_hybrid_sensor_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, floor=self%numerics%hybrid_floor, jump_max=self%numerics%hybrid_jump, dxyz_gpu=self%field_fnl%dxyz_gpu, &
                               is_null=is_null, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu)
+   if (self%hybrid_has_faces) then
+      call self%field_fnl%update_ghost_local_gpu(q_gpu=self%psi_gpu, seam_guard=.false.)
+      call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                               comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                               q_gpu=self%psi_gpu, seam_guard=.false.)
+   endif
    if (.not.is_null(1)) call overwrite_central_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-                                 blocks_number=nb, gamma=gamma, threshold=thr, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu, fl_gpu=self%flx_f_gpu)
+                                 blocks_number=nb, gamma=gamma, threshold=thr, faces_gpu=self%hybrid_faces_gpu, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu, fl_gpu=self%flx_f_gpu)
    if (.not.is_null(2)) call overwrite_central_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-                                 blocks_number=nb, gamma=gamma, threshold=thr, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu, fl_gpu=self%fly_f_gpu)
+                                 blocks_number=nb, gamma=gamma, threshold=thr, faces_gpu=self%hybrid_faces_gpu, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu, fl_gpu=self%fly_f_gpu)
    if (.not.is_null(3)) call overwrite_central_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-                                 blocks_number=nb, gamma=gamma, threshold=thr, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu, fl_gpu=self%flz_f_gpu)
+                                 blocks_number=nb, gamma=gamma, threshold=thr, faces_gpu=self%hybrid_faces_gpu, q_aux_gpu=self%q_aux_gpu, psi_gpu=self%psi_gpu, fl_gpu=self%flz_f_gpu)
    endassociate
    endsubroutine overwrite_hybrid_fluxes
+
+   subroutine update_hybrid_faces(self)
+   !< Flag the block faces for the sensor (issue #119, T2.4), at the start and after each step, so after any regrid.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%numerics%is_hybrid) return
+   call self%set_hybrid_faces
+   if (associated(self%hybrid_faces_gpu)) then
+      call dev_free(self%hybrid_faces_gpu, mydev)
+      nullify(self%hybrid_faces_gpu)
+   endif
+   call dev_assign_to_device(src=self%hybrid_faces, dst=self%hybrid_faces_gpu)
+   endsubroutine update_hybrid_faces
 
    subroutine compute_mu_t(self)
    !< Compute the eddy viscosity from the auxiliary variables, ghost cells included in them (issue #119, T1): the kernel of the
@@ -1523,6 +1544,10 @@ contains
    call free_gpu(self%q_aux_gpu)
    call free_gpu(self%mu_t_gpu)
    call free_gpu(self%psi_gpu)
+   if (associated(self%hybrid_faces_gpu)) then
+      call dev_free(self%hybrid_faces_gpu, mydev)
+      nullify(self%hybrid_faces_gpu)
+   endif
    call free_gpu(self%flx_f_gpu)
    call free_gpu(self%fly_f_gpu)
    call free_gpu(self%flz_f_gpu)
@@ -1601,8 +1626,6 @@ contains
    ! whole registry, so after the last realm every realm's table is on the device
    !$acc update device(eos_tables_segments, eos_tables_breaks, eos_tables_exponents, eos_tables_k)
    !$omp target update to(eos_tables_segments, eos_tables_breaks, eos_tables_exponents, eos_tables_k)
-   if (realms_number_ > 1_I4P .and. self%numerics%is_hybrid) &
-      call mpih_fnl%error_stop(msg=': [numerics].(scheme_space)=hybrid-kep-weno is not supported on a forest (issue #119, T2.4)')
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
       call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')
@@ -3016,6 +3039,7 @@ contains
    call self%update_ghost(q_gpu=self%q_gpu)
    call self%compute_q_aux(q_gpu=self%q_gpu)
    call self%check_glm_ch
+   call self%update_hybrid_faces
    call self%update_sgs_lambda
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
                                    is_restart=self%io%restart, with_divb=.not.is_hydrodynamic(self%physics%model), &
@@ -3123,6 +3147,7 @@ contains
    endif
    call self%check_nonfinite
    call self%check_glm_ch
+   call self%update_hybrid_faces
    call self%update_sgs_lambda(realm=realm)
    call self%compute_divb_history(realm=realm)
    call self%compute_turbulence_history(realm=realm)

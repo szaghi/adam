@@ -614,7 +614,7 @@ $$
 
 One flux per face, so conservation holds whichever kernel set it; computing WENO everywhere costs what `weno` costs, plus the overwrite. The two kernel sets are not fused.
 
-**Limits.** Refused on a 2:1 grid, on a forest and at a physical face: the central stencil would read interpolated or boundary ghost cells (T2.4).
+**Seams and boundaries.** The central stencil must not read ghost cells that are not a same-level copy: a face along $d$ whose stencil reaches the ghost cells of a 2:1 face, a physical face or a forest seam normal to $d$ keeps the WENO flux (T2.4). So a seam and its reflux stay what they are under `weno`. A flag acts along its own normal only, and on such grids the sensor is exchanged like a state, one more halo exchange per stage: otherwise the two blocks of a same-level interface could take different fluxes at their common face, and conservation is lost (measured: $2\cdot10^{-7}$ on a 2:1 box). Whether this could be relaxed has not been measured.
 
 ## Turbulence diagnostics
 

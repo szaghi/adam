@@ -243,7 +243,7 @@ export default withMermaid({
                         { text: 'Non-finite state guard', link: '/applications/flume/verification/infrastructure/nonfinite' },
                       ],
                     },
-                    { text: 'Turbulence (T0, T1)', link: '/applications/flume/verification/turbulence/' },
+                    { text: 'Turbulence (T0, T1, T2)', link: '/applications/flume/verification/turbulence/' },
                     {
                       text: 'Dissipative terms (M4)',
                       link: '/applications/flume/verification/dissipative/',
