@@ -2260,6 +2260,14 @@ def fig_tgv_hybrid(out: Path, runs: Path) -> None:
     axs[2, 1].set_xlabel("t")
     fig.savefig(out / "tgv-hybrid.png", dpi=DPI)
     plt.close(fig)
+    fig, axs = plt.subplots(1, 2, figsize=(11.0, 3.6), constrained_layout=True)
+    _turbulence_panels(axs, root, [("m0.1-hybrid-n64", "hybrid, uniform $64^3$"), ("m0.1-hybrid-box-n64", "hybrid, 2:1 box, WENO skin"),
+                                   ("m0.1-hybrid-box-central-n64", "hybrid, 2:1 box, central skin"), ("m0.1-box-5-n64", "WENO-5, 2:1 box"),
+                                   ("m0.1-hybrid-n128", "hybrid, uniform $128^3$")])
+    axs[0].set_xlabel("t")
+    axs[1].set_xlabel("t")
+    fig.savefig(out / "tgv-hybrid-box.png", dpi=DPI)
+    plt.close(fig)
 
 
 def fig_barotropic_eos(out: Path, runs: Path) -> None:

@@ -19,6 +19,17 @@ diagnostics, the keys and the models are in [input](../../input) and [numerics](
 | sg2 | budget with the model, M 0.4: Vreman 36 %, 5.7 %, 0.27 % left at $32^3$, $64^3$, $128^3$ | at $128^3$: 21.6 % without $\varepsilon_\mathrm{sgs}$, 43 % flipped |
 | sg3 | no viscosity with each model | $\varepsilon = 0$, mass and energy $3.3\cdot10^{-16}$ |
 | sg4 | one rank against 2 with a model | $10^{-14}$ |
+| hy1 | inviscid Taylor-Green: dissipated $K$, hybrid against WENO | 47 times less on FNL |
+| hy3 | the central flux: order, kinetic energy identity, pressure equilibrium | order 5.96–5.99; $4\cdot10^{-16}$; $dp/dt$ $9\cdot10^{-15}$ across 100:1 |
+| hy4 | contact of density ratio 8 and 100 | $u$, $p$ within $9\cdot10^{-14}$ |
+| hy5 | 2:1 box, conservation; passes with any skin | mass $10^{-16}$ |
+| hy6 | Sod against WENO | L1 $8.3\cdot10^{-5}$ |
+| hy7 | runtime regridding; a forest with open ends | $10^{-16}$; $5.7\cdot10^{-10}$, the single realm's drift |
+| hy8 | density wave, amplitude 0.2; WENO holds it too, so this does not separate them | $p$, $u$ $10^{-14}$ |
+| hy9 | model only off flagged cells; one rank against 2; conservation (does not prove the mask on ghost cells) | $\varepsilon_\mathrm{sgs}$ exactly 0 with all flagged; $7\cdot10^{-14}$; $2.3\cdot10^{-16}$ with a model on a 2:1 box; whether a flagged cell faces a free one at an interface is not checked |
+| hy11 | relaxing the skin changes the density: seams, open ends (does not catch a shifted band) | $1.6\cdot10^{-4}$, $6.4\cdot10^{-5}$ |
+| hy12 | restart on a refined grid, every cell | 0 |
+| hy13 | against WENO, L1: a vortex through a shock (2-D), Shu-Osher and a shock through 2:1 seams (1-D, no vorticity, so the Ducros ratio flags any varying flow): robustness, no accuracy claim | $1.0\cdot10^{-4}$, $1.7\cdot10^{-5}$, $3.4\cdot10^{-5}$ |
 
 ## Taylor-Green vortex: the ILES baseline
 
@@ -125,30 +136,50 @@ $K$ keeps changing with the resolution by 7 % from $128^3$ to $256^3$, so $256^3
 |---|---|---|---|---|---|---|
 | WENO-5, $64^3$ | 0.01377 | 0.01357 | 5.09 | 0.3 % | 1.71 | 77 % |
 | hybrid, $64^3$ | 0.01591 | 0.01334 | 8.09 | 7.2 % | 3.82 | 50 % |
-| hybrid + Vreman, $64^3$ | 0.01255 | 0.01159 | 8.45 | 3.5 % | 2.94 | |
+| hybrid + Vreman, $64^3$ | 0.01347 | 0.01173 | 8.21 | 3.5 % | 2.92 | |
 | WENO-5, $128^3$ | 0.01242 | 0.01216 | 8.29 | 0.5 % | 3.40 | 58 % |
 | hybrid, $128^3$ | 0.01389 | 0.01317 | 8.48 | 2.0 % | 6.86 | 18 % |
-| hybrid + Vreman, $128^3$ | 0.01271 | 0.01230 | 8.56 | 0.8 % | 5.53 | |
+| hybrid + Vreman, $128^3$ | 0.01258 | 0.01226 | 8.58 | 0.8 % | 5.53 | |
 | WENO-5, $256^3$ | 0.01272 | 0.01261 | 8.72 | 0.7 % | 6.18 | 27 % |
 
-The flicker is the rms of $-dK/dt$ about its running mean, over the smoothed peak. The share with Vreman is left out: it does not separate the model from the scheme.
+The flicker is the rms of $-dK/dt$ about its running mean, over the smoothed peak. The share with Vreman is left out: it does not separate the model from the scheme. The model acts off flagged cells only (T2.6); against the same runs with the model everywhere, $Z$ moves under 1 % at M 0.1, where the sensor rarely fires.
 
 | Case, $M_0 = 1.25$ | Peak $-dK/dt$ | Peak $Z$ | Numerical share |
 |---|---|---|---|
 | WENO-5, $64^3$ / $128^3$ / $256^3$ | 0.01383 / 0.01081 / 0.01101 | 1.81 / 3.34 / 5.95 | 80 % / 46 % / 20 % |
 | hybrid, $64^3$ / $128^3$ / $256^3$ | 0.01266 / 0.01057 / 0.01112 | 2.20 / 4.83 / 7.21 | 73 % / 36 % / 10 % |
 
-Isotropic turbulence: peak $Z$ 41.0 and 57.4 at $64^3$, $128^3$ against 34.5 and 51.0 on WENO-5 (60.5 at $256^3$); $K(t/\tau=4)$ 0.367 and 0.408 against 0.303 and 0.384 (0.413 at $256^3$).
+Isotropic turbulence: peak $Z$ 41.0 and 57.4 at $64^3$, $128^3$ against 34.5 and 51.0 on WENO-5 (60.5 at $256^3$), 37.8 and 54.1 with Vreman; $K(t/\tau=4)$ 0.367 and 0.408 against 0.303 and 0.384 (0.413 at $256^3$).
 
 **What it shows.**
 - At M 0.1 the hybrid reaches at $128^3$ a higher enstrophy peak than WENO-5 at $256^3$, and at $64^3$ more than WENO-5 at $128^3$, with the dissipation peak where the finer runs have it. $Z$ is still below the quoted 10.3.
 - At $M_0 = 1.25$ the gain is smaller, as the sensor keeps WENO around the shocklets.
 - **The raw peak of $-dK/dt$ is not a measure on the hybrid:** it flickers, 7 % at $64^3$, 2 % at $128^3$. The source is not established; the sensor switching on and off is the first candidate. Smoothed, the hybrid is 4–6 % above WENO-5 at $256^3$.
-- **Vreman on the hybrid** removes half of the flicker and lowers $Z$ by 20 %. At $64^3$ it lands below the finer runs (0.0116). Whether a model helps the hybrid is not settled by these peaks: it needs the DNS curves.
+- **Vreman on the hybrid** removes half of the flicker and lowers $Z$ by 20 %. At $64^3$ it lands below the finer runs (0.0117). Whether a model helps the hybrid is not settled by these peaks: it needs the DNS curves.
 - The thresholds (0.2, 0.1) and the floor are not calibrated.
+
+### On a 2:1 box, and what the skin costs
+
+![The hybrid scheme on a 2:1 box](/flume/tgv-hybrid-box.png)
+
+*M 0.1, a box of half the side refined once on $64^3$. Left $-dK/dt$, right the enstrophy.*
+
+| Case | Smoothed peak $-dK/dt$ | Peak $Z$ |
+|---|---|---|
+| WENO-5, box | 0.01304 | 1.87 |
+| hybrid, box, WENO skin (default) | 0.01239 | 3.69 |
+| hybrid, box, central skin | 0.01319 | 4.13 |
+| hybrid, uniform $64^3$ | 0.01333 | 3.82 |
+
+With the WENO skin the box ends below the uniform run in $Z$: the skin takes more than the extra cells give. The central skin is stable to $t = 20$ and above it. Neither is shown more accurate, without a reference curve. A vortex after Jiang & Shu (the code's profile, same strength and radius, unit square) through a Mach 1.1 shock crossing the box seams also runs with the central skin; it differs from the WENO skin by at most $2.8\cdot10^{-4}$ in density at $t = 0.35$.
+
+### Cost
+
+200 steps on $128^3$, two A30, three samples: WENO 24.1–24.6 s, every cell flagged 24.2–24.7 s, every cell central 26.7–26.9 s. The sensor costs under 1 %, the central flux about 10 % on top of WENO, startup included. A single kernel with a mask was not tried, so what skipping WENO would save is not measured.
 
 ## Not done
 
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Comparison with DNS curves and spectra, which needs the reference files.
+- Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.

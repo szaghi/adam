@@ -912,7 +912,8 @@ contains
                  c=self%turbulence%constant, dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, &
                        mu_t=self%mu_t)
    endselect
-   ! issue #119, T2.6: the model acts only where the scheme is central; callers outside the flux path need the sensor of this state too
+   ! issue #119, T2.6: no model on flagged cells, so not on every WENO face (next to a flagged cell, on a skin); callers outside the flux path need
+   ! the sensor of this state too
    if (self%numerics%is_hybrid) then
       call self%update_hybrid_sensor
       call mask_mu_t(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &

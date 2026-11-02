@@ -8,7 +8,8 @@ module adam_flume_ic_object
 !<   `rho (1 + s h1)`, `p (1 + s h2)`, with `h1, h2` in [-1, 1) hashed from the block Morton code and the cell indexes:
 !<   the same on every rank decomposition and on every backend (no random generator state);
 !< * `isentropic-vortex`: the free stream of region 1 plus an isentropic vortex of axis z centred at `(x0, y0)`, of
-!<   radius `radius` and velocity strength `strength` (Shu 1998, ICASE 97-65, section 5.1, written for any free stream):
+!<   radius `radius` and velocity strength `strength` (Shu 1998, ICASE 97-65, section 5.1, written for any free stream); optional
+!<   `shock_x`: past it the Rankine-Hugoniot state of a stationary shock, region 1 upstream and supersonic:
 !<   `du = -strength/(2 pi) (y-y0)/radius exp((1-r^2)/2)`, `dv = strength/(2 pi) (x-x0)/radius exp((1-r^2)/2)`,
 !<   `d(p/rho) = -(gamma-1)/gamma strength^2/(8 pi^2) exp(1-r^2)`, isentropic, `r = |x-x0| / radius`; an exact steady
 !<   solution convected by the free stream;
@@ -284,6 +285,8 @@ type :: flume_ic_object
    real(R8P)                 :: hit(4)=0._R8P        !< Isotropic turbulence: density, u_rms, turbulent Mach number, k_0.
    integer(I4P)              :: hit_seed=1_I4P       !< Isotropic turbulence: seed of the random phases.
    real(R8P)                 :: vortex(4)=0._R8P     !< Isentropic vortex: x0, y0, radius, strength.
+   logical                   :: has_shock=.false.    !< Isentropic vortex: a stationary shock at `shock_x` (issue #119, T2.7).
+   real(R8P)                 :: shock_x=0._R8P       !< Isentropic vortex: position of the stationary shock.
    integer(I4P)              :: pulse_axis=0_I4P     !< GLM pulse: axis, 1=x, 2=y, 3=z.
    real(R8P)                 :: pulse(3)=0._R8P      !< GLM pulse: center, width, amplitude.
    real(R8P)                 :: peak(4)=0._R8P       !< div(B) peak: x0, y0, radius, amplitude.
@@ -441,6 +444,7 @@ contains
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    type(flume_physics_object), intent(in)    :: physics         !< Physics (for the regions state conversion).
    character(999)                            :: buff            !< Option value buffer.
+   integer(I4P)                              :: ios             !< Status of the conversion of a value.
    character(:), allocatable                 :: sname           !< Region section name.
    real(R8P)                                 :: prim(8)         !< Region primitive state (first nprim used).
    real(R8P)                                 :: extent(6)       !< Region extents.
@@ -515,6 +519,14 @@ contains
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(VORTEX_KEY(k))//')')
       enddo
       if (self%vortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
+      ! issue #119, T2.7: optional, a stationary shock normal to x; region 1 is its supersonic upstream state, the vortex meant to lie in it
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='shock_x', val=buff, error=error)
+      self%has_shock = error == 0
+      if (self%has_shock) then
+         ios = verify(trim(adjustl(strip_control(buff))), '0123456789+-.eEdD')
+         if (ios == 0) read(buff, *, iostat=ios) self%shock_x
+         if (ios /= 0) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(shock_x) is not a number')
+      endif
    case(IC_GLM_PULSE_STR)
       if (is_hydrodynamic(self%model)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_GLM_PULSE_STR//' requires '// &
@@ -998,6 +1010,7 @@ contains
    real(R8P)                             :: h(2)          !< Seeded perturbations, in [-1, 1), or the Rayleigh-Taylor
                                                           !< seed's cos and sin terms.
    real(R8P)                             :: prim(8)       !< Perturbed primitive state of one cell.
+   real(R8P)                             :: post_shock(5) !< Isentropic vortex: Rankine-Hugoniot state past the shock.
    real(R8P)                             :: s_            !< Pulse axis coordinate, scaled peak distance, phase, or
                                                           !< height above the Rayleigh-Taylor interface.
    real(R8P)                             :: ca, sa        !< cos, sin of the CPAW normal angle.
@@ -1278,12 +1291,25 @@ contains
    case(IC_ISOTROPIC_TURB_STR)
       call self%set_isotropic_turbulence(field=field, q=q)
    case(IC_ISENTROPIC_VORTEX_STR)
+      if (self%has_shock) then
+         s_ = self%prim_1(2)**2 * self%prim_1(1) / (self%gamma * self%prim_1(5)) ! the upstream Mach number squared
+         if (.not.(s_ > 1._R8P .and. self%prim_1(2) > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(shock_x) needs a supersonic u > 0 in region 1')
+         post_shock = self%prim_1(1:5)
+         post_shock(1) = self%prim_1(1) * (self%gamma + 1._R8P) * s_ / ((self%gamma - 1._R8P) * s_ + 2._R8P)
+         post_shock(2) = self%prim_1(2) * self%prim_1(1) / post_shock(1)
+         post_shock(5) = self%prim_1(5) * (1._R8P + 2._R8P * self%gamma / (self%gamma + 1._R8P) * (s_ - 1._R8P))
+      endif
       do b=1, field%blocks_number
          do k=1, field%nk
             do j=1, field%nj
                do i=1, field%ni
                   call isentropic_vortex(gamma=self%gamma, prim=self%prim_1, vortex=self%vortex, x=field%x_cell(i,b), &
                                          y=field%y_cell(j,b), q=q(:,i,j,k,b))
+                  if (self%has_shock) then
+                     if (field%x_cell(i,b) > self%shock_x) &
+                        call primitive_to_conservative(gamma=self%gamma, r=post_shock(1), u=post_shock(2), v=post_shock(3), &
+                                                       w=post_shock(4), p=post_shock(5), q=q(:,i,j,k,b))
+                  endif
                enddo
             enddo
          enddo

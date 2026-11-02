@@ -55,6 +55,7 @@ def main() -> None:
     parser.add_argument("--density-wave", type=float, default=0.0, help="> 0: instead, a density wave of this relative amplitude advected at u = p = 1")
     parser.add_argument("--hybrid-threshold", type=float, default=0.0, help="> 0: [numerics] hybrid_threshold")
     parser.add_argument("--hybrid-skin", default="", help="[numerics] hybrid_skin")
+    parser.add_argument("--shock-vortex", action="store_true", help="instead, a vortex after Jiang & Shu (1996), the code's profile, through a stationary Mach 1.1 shock, on the unit square")
     parser.add_argument("--restart-save", type=int, default=0, help="cadence of the restart files")
     parser.add_argument("--restart", action="store_true", help="restart from them")
     parser.add_argument("--history", type=int, default=1, help="cadence of the conservation and turbulence histories")
@@ -137,6 +138,30 @@ emax_z = 1.0
 [initial_conditions_region_1]
 r = 1.0
 u = 1.0
+v = 0.0
+w = 0.0
+p = 1.0
+emin_x = 0.0
+emin_y = 0.0
+emin_z = 0.0
+emax_x = 1.0
+emax_y = 1.0
+emax_z = 1.0
+"""
+    if args.shock_vortex:
+        box = 1.0  # for --amr-box too
+        text = section(text, "amr", {"ratio": "4"})  # a quadtree: seams cannot refine the one cell along z
+        text = section(text, "grid", {"nk": "1", "emax_x": "1.0", "emax_y": "1.0", "emax_z": "1.0", "null_z": ".true."})
+        for face, kind in (("x_min", "extrapolation"), ("x_max", "extrapolation"), ("z_min", "extrapolation"), ("z_max", "extrapolation")):
+            text = section(text, f"bc_{face}", {"type": kind})
+        for key in ("tg_density", "tg_velocity", "tg_mach"):
+            text = re.sub(rf"^{key} = .*\n", "", text, flags=re.M)
+        text = section(text, "initial_conditions", {"type": "isentropic-vortex", "x0": "0.25", "y0": "0.5", "radius": "0.05",
+                                                     "strength": "1.885", "shock_x": "0.5"})
+        text += f"""
+[initial_conditions_region_1]
+r = 1.0
+u = {1.1 * 1.4**0.5:.16e}
 v = 0.0
 w = 0.0
 p = 1.0

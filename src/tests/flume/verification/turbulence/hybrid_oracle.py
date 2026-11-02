@@ -33,8 +33,8 @@ def drift(work: str, tol: float) -> tuple[bool, str]:
     return max(vals) < tol, f"mass {vals[0]:.2e}, energy {vals[1]:.2e}"
 
 
-def compare(a: str, b: str, tol: float) -> int:
-    """L1 density difference of two runs of the same grid, per cell, at their last checkpoints."""
+def compare(a: str, b: str, tol: float, largest: bool = False) -> int:
+    """L1 density difference of two runs of the same grid, per cell, at their last checkpoints; with `largest` the bound is on the worst cell."""
     pa, pb = Path(a), Path(b)
     na, nb = basenames(pa), basenames(pb)
     va, ca = load_cells(pa, na, last_step(pa, na), 3)
@@ -43,7 +43,7 @@ def compare(a: str, b: str, tol: float) -> int:
     ra = np.array([ca[k][va.index("r")] for k in keys])
     rb = np.array([cb[k][vb.index("r")] for k in keys])
     err = float(np.mean(np.abs(ra - rb)))
-    ok = err < tol
+    ok = (float(np.max(np.abs(ra - rb))) if largest else err) < tol
     print(f"{len(keys)} cells, density L1 difference {err:.3e} (bound {tol:.0e}), largest {np.max(np.abs(ra - rb)):.3e}  {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 
@@ -151,6 +151,7 @@ def main() -> int:
     parser.add_argument("--conserve-tol", type=float, default=1e-12)
     parser.add_argument("--same-drift", action="store_true", help="a history and the directory of a forest")
     parser.add_argument("--compare", action="store_true", help="the density of the two directories")
+    parser.add_argument("--compare-max", action="store_true", help="the bound is on the largest difference, not the mean")
     parser.add_argument("--compare-tol", type=float, default=5e-3)
     parser.add_argument("--factor", type=float, default=10.0)
     parser.add_argument("--tol", type=float, default=1e-12)
@@ -170,7 +171,7 @@ def main() -> int:
     if args.conserve:
         return conserve([args.hybrid, *([args.weno] if args.weno else [])], args.conserve_tol)
     if args.compare:
-        return compare(args.hybrid, args.weno, args.compare_tol)
+        return compare(args.hybrid, args.weno, args.compare_tol, args.compare_max)
     if args.contact:
         return contact(args.hybrid, args.contact_tol)
     lh, lw = lost(args.hybrid), lost(args.weno)
