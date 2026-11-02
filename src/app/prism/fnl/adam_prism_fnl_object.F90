@@ -5957,9 +5957,30 @@ contains
       endif
    endif
 
+   call report_device_memory
    ! Lock AMR (issue #22 GA6): the FNL device state cannot follow a regrid past this point —
    ! any later amr_update call error_stops instead of computing on stale device maps.
    self%amr_locked_ = .true.
+   contains
+      subroutine report_device_memory
+      !< Device memory in use at the end of the initialization against the blocks budget (issue #112): the block slots,
+      !< the reserve estimated for the allocations outside them, and the rest that neither counts (runtime context,
+      !< maps, buffers, FFT plans). The used memory counts every process sharing the device. The migration buffers are
+      !< allocated at the first migration, after this report.
+      integer(I8P) :: mem_free, mem_total !< Device memory, bytes.
+      real(R8P)    :: slots               !< Block slots, GB.
+      real(R8P)    :: used                !< Device memory in use, GB.
+
+      call dev_get_device_memory_info(mem_free=mem_free, mem_total=mem_total)
+      used = real(mem_total - mem_free, R8P)/1e9_R8P
+      slots = real(self%nb, R8P)*real(self%blocks_fields_number, R8P)*8._R8P*real(self%adam%grid%block_weight, R8P)/1e9_R8P
+      call mpih_fnl%print_message('device memory after initialization: '//trim(str(used, .true.))//' GB used of '// &
+                                  trim(str(real(mem_total, R8P)/1e9_R8P, .true.))//' GB; block slots '//          &
+                                  trim(str(self%nb, .true.))//' x '//trim(str(self%blocks_fields_number, .true.))// &
+                                  ' fields = '//trim(str(slots, .true.))//' GB, reserve estimate '//              &
+                                  trim(str(self%reserved_memory, .true.))//' GB, rest '//                         &
+                                  trim(str(used - slots - self%reserved_memory, .true.))//' GB')
+      endsubroutine report_device_memory
    endsubroutine initialize_forest
 
    subroutine compute_local_dt_forest(self, dt_local)

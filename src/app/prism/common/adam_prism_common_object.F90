@@ -59,6 +59,8 @@ type, extends(realm_object) :: prism_common_object
    logical :: amr_locked_ = .false. !< AMR regrid lock (issue #22 GA6): set .true. by backends whose device/topology
                                     !< state cannot follow a regrid after initialization (FNL sets it at the end of
                                     !< initialize_forest); `amr_update` error_stops when locked. CPU never sets it.
+   integer(I4P) :: blocks_fields_number = 0_I4P !< Block-sized fields per block of the blocks budget (issue #112).
+   real(R8P)    :: reserved_memory = 0._R8P     !< Memory reserved outside the blocks by the budget, GB (issue #112).
    procedure(estimate_backend_memory_interface), pointer, nopass :: estimate_backend_memory=>null() !< Backend memory
                                     !< outside the block fields, estimated before the blocks budget (issue #112); set by
                                     !< the backend before initialize, none when null (CPU).
@@ -399,6 +401,8 @@ contains
    integer(I4P)                                      :: extra_fields   !< Block-sized backend fields per block.
    real(R8P)                                         :: reserved       !< Memory of the allocations not block-sized (GB).
    real(R8P)                                         :: memory_blocks  !< Memory left to the blocks budget (GB).
+   real(R8P)                                         :: fraction       !< [amr].(memory_fraction) of the blocks budget.
+   integer(I4P)                                      :: error          !< Error status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call mpih%initialize(verbose=verbose_)
@@ -430,15 +434,26 @@ contains
       call self%estimate_backend_memory(physics=self%physics, file_parameters=file_parameters, extra_fields=extra_fields, &
                                    reserved_memory=reserved)
    if (.not.present(fields_number)) fields_number_ = fields_number_ + extra_fields
+   ! the library gives the blocks fraction*memory: passing memory - reserved/fraction leaves them fraction*memory -
+   ! reserved, so the headroom stays (1 - fraction)*memory however large the reserve (issue #112); the fraction is the
+   ! library's [amr].(memory_fraction) key, read here with the same default
+   call file_parameters%get(section_name='amr', option_name='memory_fraction', val=fraction, error=error)
+   if (error > 0) fraction = 0.85_R8P
+   if (.not.(fraction > 0._R8P .and. fraction <= 1._R8P)) &
+      call mpih%error_stop(msg=': [amr].(memory_fraction) must be in (0, 1], got '//trim(str(fraction)))
    memory_blocks = memory_avail
    if (reserved > 0._R8P) then
       call mpih%print_message('prism_common_object%initialize memory reserved outside the blocks: '// &
                               trim(str(reserved))//' GB of '//trim(str(memory_avail))//' GB')
-      if (reserved >= memory_avail) &
+      if (fraction*memory_avail - reserved <= 0._R8P) &
          call mpih%error_stop(msg=': the allocations outside the blocks need '//trim(str(reserved))//' GB, more than '// &
-                                  'the '//trim(str(memory_avail))//' GB available per process: use more processes')
-      memory_blocks = memory_avail - reserved
+                                  'the '//trim(str(fraction*memory_avail))//' GB of '//trim(str(memory_avail))// &
+                                  ' GB the budget can give ([amr].(memory_fraction) '//trim(str(fraction))// &
+                                  '): use more processes')
+      memory_blocks = memory_avail - reserved/fraction
    endif
+   self%blocks_fields_number = fields_number_
+   self%reserved_memory = reserved
    if (verbose_) call mpih%print_message('prism_common_object%initialize fields_number: '//trim(str(fields_number_)))
    if (is_adim_model(self%physics%physical_model)) then
       call self%realm_object%initialize(filename=filename, memory_avail=memory_blocks, nv=self%physics%nv, &
