@@ -1,4 +1,4 @@
-# Turbulence (T0, T1, T2)
+# Turbulence (T0, T1, T2, T3)
 
 [#119](https://github.com/szaghi/adam/issues/119) measures what the scheme does to turbulence before anything is built on it. The
 diagnostics, the keys and the models are in [input](../../input) and [numerics](../../numerics#subgrid-scale-models).
@@ -20,6 +20,10 @@ diagnostics, the keys and the models are in [input](../../input) and [numerics](
 | sg3 | no viscosity with each model | $\varepsilon = 0$, mass and energy $3.3\cdot10^{-16}$ |
 | sg4 | one rank against 2 with a model | $10^{-14}$ |
 | hy1 | inviscid Taylor-Green: dissipated $K$, hybrid against WENO | 47 times less on FNL |
+| wm1 | laminar channel, isothermal walls, Re 100: force against $3/Re$; one rank against 2 | order 1.99, $4.8\cdot10^{-4}$ at 64 across; $4\cdot10^{-11}$ |
+| wm2 | `test_wall_model`; laminar channel on modelled walls | see [numerics](../../numerics#wall-model); order 1.84, 1.9 % at 64 |
+| wm3 | half the wall refined, 2:1: force between the coarse and the fine uniform runs | 0.03 % from their mean, mass $10^{-16}$ |
+| wm4 | hot wall, modelled against resolved: energy change; one rank against 2 on modelled walls | 6.5 % (bound 15 %); $4\cdot10^{-11}$ |
 | hy3 | the central flux: order, kinetic energy identity, pressure equilibrium | order 5.96–5.99; $4\cdot10^{-16}$; $dp/dt$ $9\cdot10^{-15}$ across 100:1 |
 | hy4 | contact of density ratio 8 and 100 | $u$, $p$ within $9\cdot10^{-14}$ |
 | hy5 | 2:1 box, conservation; passes with any skin | mass $10^{-16}$ |
@@ -206,9 +210,44 @@ M 0.1 against the 512³ DNS, from `turbulence/tgv_dns.py`. Peak $-dK/dt$ over a 
 
 200 steps on $128^3$, two A30, three samples: WENO 24.1–24.6 s, every cell flagged 24.2–24.7 s, every cell central 26.7–26.9 s. The sensor costs under 1 %, the central flux about 10 % on top of WENO, startup included. A single kernel with a mask was not tried, so what skipping WENO would save is not measured.
 
+## Plane channel and the wall model (T3)
+
+Coleman, Kim & Moser (1995): bulk Mach 1.5, bulk Re 3000 on the half height and the wall viscosity, isothermal walls, viscosity $(T/T_w)^{0.7}$,
+Pr 0.7; $4\pi\times2\times\frac43\pi$, mass-flow forcing; $Re_\tau$ about 220–222 for the DNS, as cited by Qi et al. (2022), Cao et al. (2024),
+Alberti et al. (2025b). From `turbulence/channel_campaign.sh` with `channel_cases_t3.txt`, 4 A30. $\tau_w$ is the mean force per unit volume times
+$h$; $Re_\tau$ uses $\rho_w = 1.30$, the reference run's wall density estimated from its mean pressure, so about ±2 %.
+
+![The plane channel](/flume/channel-wm.png)
+
+*$\tau_w$ against time; dashed: $Re_\tau$ 220 and 222; dotted: the laminar value.*
+
+| Case | Cells | $\tau_w$, $50<t\le100$ | $100<t\le150$ | $Re_\tau$ | Mass |
+|---|---|---|---|---|---|
+| resolved walls, hybrid | $256\times192\times128$, $\Delta y^+\approx2.3$ | 3.88e-3 | 3.81e-3 (to $t=144$) | 213, 211 | +1.3 % |
+| modelled, hybrid | $64\times32\times32$ | 4.36e-3 | 4.43e-3 | 226, 228 | 0 |
+| modelled, hybrid | $96\times48\times48$ | 4.24e-3 | 4.50e-3 | 223, 229 | 0 |
+| modelled, hybrid | $128\times64\times64$ | 4.65e-3 | 4.65e-3 | 233, 233 | 0 |
+| resolved walls, hybrid | $64\times32\times32$ | 2.24e-3 | 2.08e-3 | 162, 156 | +11 % |
+| modelled, WENO-5 | $96\times48\times48$ (and $64\times32\times32$) | 1.36e-3 | 1.29e-3 | 126, 123 | 0 |
+
+**What it shows.**
+- **The model works on the hybrid:** 2–5 % above the DNS $Re_\tau$ on grids 50–200 times coarser than the resolved run; without it, the coarse grid is
+  27 % low. The finest modelled grid is the furthest (233). With the sample at $2.5\Delta$ the matching height falls as the grid refines; whether that
+  explains the trend is not tested here (a run with a fixed matching height would).
+- **Not converged in time:** the modelled $\tau_w$ still creeps up after $t=80$ on the two coarse grids; the windows bracket it.
+- **WENO-5 relaminarises** on these grids, modelled or not: $\tau_w$ falls to near the laminar $10^{-3}$. Its numerical dissipation kills the
+  turbulence, as in T0; the model cannot help.
+- **The resolved isothermal wall leaks mass:** +11 % over the run on the coarse grid, +1.3 % on the reference. The no-slip mirror of #65 lets a mass flux
+  through the wall face at $O(h^3)$ (wm1 measures it laminar). This biases the reference, and probably part of its 4 % shortfall from the DNS; the
+  modelled wall sets that flux to zero. Not fixed here.
+- Only $\tau_w$ is compared: no mean profiles were saved, and the DNS profiles are not in this tree. The reference stopped at $t=144$ (the scheduler
+  refused the last job).
+
 ## Not done
 
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
+- T3: Mach 3 (Re 4880), a compressible boundary layer and SBLI (it needs a turbulent inflow); the compressibility transformation (T3.5); runtime regridding
+  along a modelled wall; mean profiles against the DNS.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.

@@ -2278,6 +2278,36 @@ def fig_tgv_hybrid(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_channel_wm(out: Path, runs: Path) -> None:
+    """T3 (issue #119): the plane channel at bulk Mach 1.5, Re 3000 (Coleman, Kim & Moser 1995). The wall shear stress, the mean driving force per unit
+    volume times the half height, against time: wall-modelled on three coarse grids (hybrid), wall-modelled with WENO-5, resolved walls on the coarse grid,
+    and the wall-resolved hybrid reference. The dashed band: Re_tau 220-222 as cited for the DNS, with the wall density of the reference run."""
+    root = runs / "channel"
+    if not (root / "wm-hybrid-g1").exists():
+        raise FileNotFoundError(root / "wm-hybrid-g1")
+    fig, ax = plt.subplots(1, 1, figsize=(8.0, 4.2), constrained_layout=True)
+    for name, label in (("resolved-hybrid", "resolved walls, hybrid, $256\\times192\\times128$"), ("wm-hybrid-g1", "modelled, hybrid, $64\\times32\\times32$"),
+                        ("wm-hybrid-g2", "modelled, hybrid, $96\\times48\\times48$"), ("wm-hybrid-g3", "modelled, hybrid, $128\\times64\\times64$"),
+                        ("wm-weno-g2", "modelled, WENO-5, $96\\times48\\times48$"), ("nowm-hybrid-g1", "resolved walls, hybrid, $64\\times32\\times32$")):
+        f = np.loadtxt(root / name / "channel-forcing_history.dat", ndmin=2)
+        _, last = np.unique(f[::-1, 0], return_index=True)
+        f = f[::-1][last]
+        w = max(1, len(f) // 300)
+        sm = np.convolve(f[:, 2], np.ones(w) / w, "valid")  # no padding: a padded end would dip
+        ax.plot(f[w // 2 : w // 2 + len(sm), 1][::w], sm[::w], label=label, lw=1.1)
+    rhow = 1.30
+    for ret in (220.0, 222.0):
+        ax.axhline((ret / 3000.0) ** 2 / rhow, color="k", ls="--", lw=0.8)
+    ax.axhline(3.0 / 3000.0, color="k", ls=":", lw=0.8)
+    ax.set_xlabel("t ($h / U_b$)")
+    ax.set_ylabel(r"$\tau_w$")
+    ax.set_ylim(0.0, 7.0e-3)
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, loc="upper right")
+    fig.savefig(out / "channel-wm.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_barotropic_eos(out: Path, runs: Path) -> None:
     """EO barotropic (issue #100, P3): the piecewise polytrope (CPU). Top left: the eb1 tube on the convex table POLY
     (densities 2, 8; exponents 1, 1.4, 5/3) at t = 0.15, 1600 cells, against the exact solution (eos_oracle.py): the
@@ -3884,7 +3914,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "passive-scalars": fig_passive_scalars,
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
-           "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid,
+           "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

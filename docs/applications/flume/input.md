@@ -225,6 +225,7 @@ replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 | `viscosity` | $\rho_0 u_0 L_0$ |
 | `conductivity` | $\rho_0 u_0 L_0 R$ |
 | `resistivity` | $u_0 L_0$ |
+| `wall_temperature` with `wall-modelled` | real | yes | `> 0`, otherwise fatal | An isothermal wall whose face flux comes from the equilibrium wall model ([numerics](./numerics#wall-model)), sampled at the 3rd cell off the wall; the ghosts mirror as `wall-inviscid`. Euler with a viscosity and a `prandtl` only, 3 cells per block along the normal. |
 | `wall_u`, `wall_v`, `wall_w` | $u_0$ |
 | `wall_temperature`, `reference_temperature` | $u_0^2 / R$ |
 | `reynolds`, `prandtl`, `magnetic_reynolds`, `viscosity_exponent` | — (dimensionless) |
@@ -519,6 +520,16 @@ A library section ([#119](https://github.com/szaghi/adam/issues/119), T1). Witho
 
 A model needs `physical_model = euler` or `euler-de` (fatal otherwise) and `ngc >= 3` (fatal otherwise). It runs without a viscosity (`viscosity = 0`). It counts as a dissipative term, so the positivity limiter and immersed solids are refused with it. The turbulence history gains a last column, `eps_sgs`.
 
+## [forcing] (optional: mass-flow forcing of a periodic channel)
+
+| Key | Type | Required | Accepted | Meaning |
+|---|---|---|---|---|
+| `type` | string | no (`none`) | `none`, `mass-flow`; other → fatal | Once per step a uniform momentum is added along `axis` so that the volume mean of the momentum is `bulk_momentum`; the total energy gains the change of kinetic energy. Euler only. |
+| `axis` | string | with `mass-flow` | `x`, `y`, `z` | Direction of the flow. |
+| `bulk_momentum` | real | with `mass-flow` | | Target mean of the momentum along the axis. |
+
+The force per unit volume, the added momentum over the step, goes to `<output_basename>-forcing_history.dat` (it, time, f) on the conservation history cadence: at a statistically steady state its mean times the half height is the wall shear stress (issue #119, T3.1).
+
 ## [numerics]
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
@@ -547,7 +558,7 @@ All six sections are required, even along null directions.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `type` | string | yes (every face) | `extrapolation`, `inflow`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
+| `type` | string | yes (every face) | `extrapolation`, `inflow`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `wall-modelled`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
 | `r`, `u`, `v`, `w`, `p` | real | `type = inflow` | no range check | Prescribed primitive inflow state. |
 | `bx`, `by`, `bz` | real | `type = inflow` **and** `mhd-ideal` | no range check | Prescribed inflow magnetic field. `psi` is set to 0. |
 | `s1` .. `sN` | real | no (`type = inflow` with `passive_scalars = N`) | default 0, no range check | Specific values (mass fractions) of the passive scalars of the inflow. |
@@ -592,6 +603,7 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `type` | Model | Regions read | Extra `[initial_conditions]` keys (all real unless stated) and checks |
 |--------|-------|--------------|-----------------------------------------------------------------------|
 | `uniform` | any | 1 | `s`: signed relative amplitude of a deterministic hashed perturbation of `rho` and `p`. |
+| `channel` | **euler** | 0 | `ch_rho`, `ch_ub` (bulk velocity), `ch_mach` (on the wall sound speed), `ch_h` (half height; the walls at $y=\pm h$), `ch_lx`, `ch_lz`, `ch_pert` (amplitude over `ch_ub`): the laminar profile $\tfrac32U_b(1-\eta^2)$, uniform density and pressure, and a deterministic perturbation vanishing at the walls (issue #119, T3.1). |
 | `isentropic-vortex` | **euler** (fatal otherwise) | 1 (free stream) | `x0`, `y0`, `radius` (`> 0`), `strength`; optional `shock_x`: past it the post-shock state of a stationary shock, region 1 its supersonic upstream state with $u > 0$. |
 | `isotropic-turbulence` | **euler, euler-de** (fatal otherwise) | 0 | `hit_density`, `hit_urms`, `hit_mach`, `hit_k0` (all `> 0`), `hit_seed` (default 1). Decaying compressible isotropic turbulence (Johnsen et al. 2010): uniform density and pressure, $M_t = \sqrt3 u_\mathrm{rms}/c_0$, a solenoidal velocity of spectrum $E(k) \propto (k/k_0)^4 e^{-2(k/k_0)^2}$ on the integer wavevectors up to $3k_0$, random phases from the seed: the same field on any rank count or resolution. The box $[0, 2\pi]^3$, its periodicity and that $3k_0$ is resolved are the input's: not checked ([#119](https://github.com/szaghi/adam/issues/119)). |
 | `taylor-green` | **euler, euler-de** (fatal otherwise) | 0 | `tg_density`, `tg_velocity`, `tg_mach` (all `> 0`), `tg_length` (default 1). The compressible Taylor–Green vortex of DeBonis (2013), at uniform temperature. The box $[0, 2\pi L]^3$ and its periodicity are the input's: not checked ([#119](https://github.com/szaghi/adam/issues/119)). |

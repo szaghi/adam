@@ -620,6 +620,31 @@ One flux per face, so conservation holds whichever kernel set it; computing WENO
 
 **With a subgrid-scale model.** The eddy viscosity is zero on flagged cells (T2.6). The rule is per cell: a WENO face next to a flagged cell, or on a skin, can still carry the model. The sensor and its exchange then run twice per stage.
 
+## Wall model
+
+`wall-modelled` faces ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), issue #119, T3.3–T3.4) mirror their ghosts as `wall-inviscid`
+and replace the flux through the wall face, after every other dissipative flux: no mass, the parallel momentum by $\tau_w$ along the parallel velocity
+of the sample, the energy by the wall heat flux $q_w$; the normal momentum keeps the mirrored pressure. The sample is the 3rd cell off the wall,
+$h = 2.5\,\Delta$ (Kawai & Larsson 2012, as cited in #119, place it off the first cell).
+
+The model is the equilibrium thin layer between the wall and the sample, pressure uniform across it:
+
+$$
+\frac{d}{dy}\Big[(\mu+\mu_t)\frac{dU}{dy}\Big]=0,\qquad
+\frac{d}{dy}\Big[(\mu+\mu_t)U\frac{dU}{dy}+c_p\Big(\frac{\mu}{Pr}+\frac{\mu_t}{Pr_t}\Big)\frac{dT}{dy}\Big]=0,
+$$
+
+$\mu_t=\kappa y\sqrt{\rho\tau_w}\,\big(1-e^{-y^+/A^+}\big)^2$ with the local density, $y^+=y\sqrt{\tau_w\rho_w}/\mu_w$, $\kappa=0.41$, $A^+=17$,
+$Pr_t=0.9$; $T=T_w$ and $U=0$ at the wall, the sample values at $y=h$. Integrated once, $\tau_w$ and $q_w$ follow from two quadratures for a given
+temperature profile: 40 intervals stretched by 1.3, a rule exact for a coefficient linear on each interval, 8 iterations with an Aitken step on
+$\ln\tau_w$ every second one (capped at a factor $e$), the temperature iterate under-relaxed and kept positive, the laminar stress if all else fails.
+A fixed cost per wall face, on the device too. Measured (`test_wall_model`): $\tau_w$ within 0.6 % of a fine quadrature for $h^+=10^2$–$10^5$
+(5.5 % at $10^6$), the Crocco relation to $8\cdot10^{-4}$, a hot compressible layer against an independent solver to $3\cdot10^{-3}$, and no
+non-finite result in $2\cdot10^5$ random samples up to 4.5 wall sound speeds.
+
+Limits: isothermal walls only; no compressibility transformation (T3.5); the wall faces are rebuilt each step, so after a regrid, but no test regrids
+along a wall.
+
 ## Turbulence diagnostics
 
 `[diagnostics] turbulence_history_save = N` ([input](./input)) writes every $N$ steps the volume integrals of the kinetic
