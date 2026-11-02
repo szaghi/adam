@@ -353,7 +353,8 @@ contains
    if (np > 0_I4P) then
       call alloc_r2(self%q_next_gpu,  [np,8], 'q_next_gpu')
       call alloc_r2(self%q_ref_gpu,   [np,8], 'q_ref_gpu')
-      call alloc_r3(self%q_hist_gpu,  [np,8,nrk], 'q_hist_gpu')
+      ! stage targets history: read only by the tail cleanup (issue #112: 8 nrk doubles per particle otherwise unused)
+      if (self%tail_cleanup) call alloc_r3(self%q_hist_gpu,  [np,8,nrk], 'q_hist_gpu')
       ! odd esirkepov_Q: shifted positions of the rho deposit
       if (any(self%shift /= 0._R8P)) call alloc_r2(self%q_mixed_gpu, [np,8], 'q_mixed_gpu')
    endif

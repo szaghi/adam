@@ -442,7 +442,8 @@ contains
    if (pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*nrk
    if (pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG)    per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*2
    if (conserving) then
-      per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*(2 + nrk)                       ! q_next, q_ref, q_hist
+      per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*2                               ! q_next, q_ref
+      if (pic%esirkepov_tail_cleanup) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*nrk ! q_hist
       if (mod(pic%esirkepov_q, 2_I4P) == 1_I4P) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES ! q_mixed
       if (pic%matched_gather() .and. mod(pic%gather_q, 2_I4P) == 1_I4P) &
          per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES                              ! q_dual
