@@ -30,6 +30,7 @@ use :: adam_mpih_global,              only : mpih
 ! FLUME modules
 use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, flume_bc_object
 use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
+use :: adam_flume_forcing_object,      only : flume_forcing_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_euler_baro_library, only : conservative_to_auxiliary_baro=>conservative_to_auxiliary
 use :: adam_flume_euler_iso_library,  only : conservative_to_auxiliary_iso=>conservative_to_auxiliary
@@ -108,6 +109,9 @@ type, extends(realm_object) :: flume_common_object
    real(R8P),         allocatable :: dq(:,:,:,:,:)       !< Residuals [nv, 1-ngc:ni+ngc, ..., nb].
    real(R8P),         allocatable :: q_aux(:,:,:,:,:)    !< Auxiliary variables [nv_aux, 1-ngc:ni+ngc, ..., nb].
    type(turbulence_object)        :: turbulence          !< Subgrid-scale model (`[turbulence]`, issue #119, T1).
+   type(flume_forcing_object) :: forcing !< Mass-flow forcing (`[forcing]`, issue #119, T3.1).
+   integer(I4P),      allocatable :: wm_faces(:,:)       !< Wall model: block faces it holds [nb, 6] (issue #119, T3.3).
+   logical                        :: has_wall_model=.false. !< Some face of the domain is modelled.
    integer(I4P),      allocatable :: hybrid_faces(:,:)   !< Hybrid scheme: block faces it must not read across [nb, 6].
    logical                        :: hybrid_has_faces=.false. !< Hybrid scheme: some block of the realm has such a face.
    real(R8P)                      :: sgs_lambda=0._R8P   !< Local time step limit of the eddy viscosity.
@@ -188,6 +192,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self), private :: check_ngc_number      !< Check the ghost cells number against the stencils.
       procedure, pass(self), private :: check_dissipation     !< Refuse the dissipative terms not implemented yet.
       procedure, pass(self), private :: check_hybrid          !< Refuse what the hybrid scheme does not handle.
+      procedure, pass(self) :: set_wall_model_faces !< Flag the block faces of the wall model.
       procedure, pass(self) :: set_hybrid_faces      !< Flag the block faces the central flux must not read across.
       procedure, pass(self), private :: check_runtime_amr     !< Check [amr] frequency, default the prolongation (#74).
       procedure, pass(self), private :: build_amr_marker_list !< The [amr_marker_N] criteria, in input order (#110).
@@ -1153,6 +1158,7 @@ contains
    call self%physics%initialize(file_parameters=file_parameters)
    ! issue #119, T1: a subgrid-scale model runs the dissipative path, also with no viscosity
    call self%turbulence%load_from_file(file_parameters=file_parameters)
+   call self%forcing%load_from_file(file_parameters=file_parameters, model=self%physics%model)
    if (self%turbulence%is_active) self%physics%dissipation%is_active = .true.
    if (present(fields_number)) then
       fields_number_ = fields_number
@@ -1189,6 +1195,14 @@ contains
    call self%check_positivity_limiter
    call self%check_dissipation
    call self%check_hybrid
+   self%has_wall_model = any(self%bc%wall_modelled)
+   if (self%has_wall_model) then
+      if (self%physics%model /= MODEL_EULER .or. .not.self%physics%dissipation%has_viscosity .or. self%physics%dissipation%prandtl <= 0._R8P) &
+         call mpih%error_stop(msg=': wall-modelled faces need [physics].(physical_model) = euler, a viscosity and a prandtl number')
+      if (self%ngc < 3_I4P) call mpih%error_stop(msg=': wall-modelled faces need [grid].(ngc) >= 3')
+      if (any(self%bc%wall_modelled(1:2)) .and. self%ni < 3_I4P .or. any(self%bc%wall_modelled(3:4)) .and. self%nj < 3_I4P .or. &
+          any(self%bc%wall_modelled(5:6)) .and. self%nk < 3_I4P) call mpih%error_stop(msg=': wall-modelled faces need 3 cells per block along the normal')
+   endif
    call self%check_gravity
    call self%sinks%load_from_file(file_parameters=file_parameters, model=self%physics%model,                        &
                                   self_gravity=self%physics%gravity%self_gravity,                                   &
@@ -1527,6 +1541,22 @@ contains
       call self%io%save_field(xh5f=xh5f, grid=self%adam%grid, block_name=bn, ijk=ijk, nijk=nijk, q=q_out, q_name=q_name)
       endsubroutine save_block
    endsubroutine save_xh5f
+
+   subroutine set_wall_model_faces(self)
+   !< Flag the block faces on a `wall-modelled` domain face; at the start and after each step, so after a regrid (T3.6). Sized by the block capacity.
+   class(flume_common_object), intent(inout) :: self    !< The equation.
+   type(tree_node_object), pointer           :: node    !< A node.
+   integer(I4P)                              :: b, f    !< Counters.
+
+   if (.not.allocated(self%wm_faces)) allocate(self%wm_faces(self%nb,6))
+   self%wm_faces = 0_I4P
+   do b=1, self%blocks_number
+      node => self%adam%tree%node(code=self%adam%field%code(b))
+      do f=1, 6
+         if (self%bc%wall_modelled(f) .and. node%neighbor(f)%ntype == NODE_BOUNDARY_CONDITION) self%wm_faces(b,f) = 1_I4P
+      enddo
+   enddo
+   endsubroutine set_wall_model_faces
 
    subroutine set_hybrid_faces(self)
    !< Flag the block faces whose ghost cells are not a same-level copy (issue #119, T2.4): a 2:1 seam, a physical face, a forest seam. The

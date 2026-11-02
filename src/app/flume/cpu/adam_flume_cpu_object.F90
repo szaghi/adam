@@ -13,6 +13,7 @@ use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_o
 use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
+use :: adam_flume_cpu_forcing_kernels, only : overwrite_wall_fluxes, add_uniform_momentum, sum_momentum
 use :: adam_flume_cpu_hybrid_kernels, only : compute_hybrid_sensor, mask_mu_t, overwrite_central_fluxes
 use :: adam_turbulence_kernels, only : compute_mu_t_sigma, compute_mu_t_vreman, compute_mu_t_wale
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
@@ -328,8 +329,11 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: compute_conservation    !< Compute and save the conservation integrals.
       procedure, pass(self) :: compute_divb_history    !< Compute and save the div(B) norms (MHD).
       procedure, pass(self) :: compute_turbulence_history !< Compute and save the turbulence history (issue #119).
+      procedure, pass(self) :: apply_forcing           !< Hold the bulk momentum of a channel (issue #119, T3.1).
       procedure, pass(self) :: update_hybrid_sensor    !< Compute the sensor, single-valued on the ghost cells (issue #119, T2).
       procedure, pass(self) :: overwrite_hybrid_fluxes !< Central flux where the sensor allows it (issue #119, T2).
+      procedure, pass(self) :: update_wall_model_faces !< Flag the block faces of the wall model (issue #119, T3.3).
+      procedure, pass(self) :: overwrite_wall_model_fluxes !< The wall-face fluxes of the wall model (issue #119, T3.3).
       procedure, pass(self) :: update_hybrid_faces     !< Flag the block faces of the sensor (issue #119, T2.4).
       procedure, pass(self) :: compute_mu_t            !< Compute the eddy viscosity of the model (issue #119).
       procedure, pass(self) :: update_sgs_lambda       !< Update the time step limit of the eddy viscosity (issue #119).
@@ -596,6 +600,7 @@ contains
                                         mu_t=self%mu_t, fl=self%flz_f)
       endassociate
    endif
+   if (self%has_wall_model) call self%overwrite_wall_model_fluxes
    endsubroutine add_dissipative_fluxes
 
    subroutine apply_floors(self, q)
@@ -854,6 +859,22 @@ contains
                                                integrals=row)
    endsubroutine compute_conservation
 
+   subroutine apply_forcing(self)
+   !< Hold the bulk momentum on the committed state, once per step (see `adam_flume_forcing_object`).
+   class(flume_cpu_object), intent(inout) :: self    !< The equation.
+   real(R8P)                              :: sums(2) !< Momentum times volume, volume.
+   real(R8P)                              :: dm      !< Momentum added.
+
+   if (.not.self%forcing%is_active) return
+   call sum_momentum(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, axis=self%forcing%axis, dxyz=self%adam%field%dxyz, q=self%q, sums=sums)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 2, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   dm = self%forcing%bulk_momentum - sums(1) / sums(2)
+   call add_uniform_momentum(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, axis=self%forcing%axis, dm=dm, q=self%q)
+   if (self%time%dt > 0._R8P) self%forcing%f = dm / self%time%dt
+   if (self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) &
+      call self%forcing%save_row(output_basename=self%io%output_basename, it=self%time%it, time=self%time%time)
+   endsubroutine apply_forcing
+
    subroutine update_hybrid_sensor(self)
    !< Compute the sensor; exchanged where the realm has flagged faces, its ghost cells then exact copies.
    class(flume_cpu_object), intent(inout) :: self !< The equation.
@@ -881,6 +902,32 @@ contains
                                  blocks_number=nb, gamma=gamma, threshold=thr, faces=self%hybrid_faces, q_aux=self%q_aux, psi=self%psi, fl=self%flz_f)
    endassociate
    endsubroutine overwrite_hybrid_fluxes
+
+   subroutine update_wall_model_faces(self)
+   !< Flag the block faces of the wall model (issue #119, T3.3), at the start and after each step, so after a regrid.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%has_wall_model) return
+   call self%set_wall_model_faces
+   endsubroutine update_wall_model_faces
+
+   subroutine overwrite_wall_model_fluxes(self)
+   !< The wall-face fluxes of the wall model, after every other dissipative flux (issue #119, T3.3).
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+   real(R8P)                              :: tref, omega_mu, omega_k, mu0 !< Laws.
+
+   call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+   mu0 = self%physics%dissipation%mu
+   if (.not.self%adam%grid%null_xyz(1)) call overwrite_wall_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
+        faces=self%wm_faces, tw=self%bc%wall_temperature, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flx_f)
+   if (.not.self%adam%grid%null_xyz(2)) call overwrite_wall_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
+        faces=self%wm_faces, tw=self%bc%wall_temperature, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%fly_f)
+   if (.not.self%adam%grid%null_xyz(3)) call overwrite_wall_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
+        faces=self%wm_faces, tw=self%bc%wall_temperature, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flz_f)
+   endsubroutine overwrite_wall_model_fluxes
 
    subroutine update_hybrid_faces(self)
    !< Flag the block faces for the sensor (issue #119, T2.4), at the start and after each step, so after any regrid.
@@ -2606,6 +2653,7 @@ contains
    call self%update_ghost(q=self%q)
    call self%compute_q_aux(q=self%q)
    call self%check_glm_ch
+   call self%update_wall_model_faces
    call self%update_hybrid_faces
    call self%update_sgs_lambda
    call self%diagnostics%open_file(output_basename=self%io%output_basename, q_name=self%q_name,                     &
@@ -2667,6 +2715,7 @@ contains
    type(realm_pointer),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
 
    if (has_entropy(self%physics%model)) call self%sync_dual_energy
+   call self%apply_forcing
    if (self%physics%cooling%is_active) call self%apply_cooling(dt=self%time%dt) ! the forest passes no dt (0)
    if (self%sinks%is_active) then
       ! sinks (issue #94): creation (the ghost cells and the potential of the committed state), accretion, mergers,
@@ -2687,6 +2736,7 @@ contains
    endif
    call self%check_nonfinite
    call self%check_glm_ch
+   call self%update_wall_model_faces
    call self%update_hybrid_faces
    call self%update_sgs_lambda(realm=realm)
    call self%compute_divb_history(realm=realm)

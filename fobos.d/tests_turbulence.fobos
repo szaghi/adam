@@ -1,5 +1,5 @@
 [modes]
-modes = test-sgs-gnu test-kep-gnu
+modes = test-sgs-gnu test-kep-gnu test-wm-gnu
 
 # The pointwise subgrid-scale formulas of the library against an independent computation (issue #119, T1): verification/turbulence
 # leg sg1. No MPI, no HDF5: the program reads the tensors on stdin.
@@ -15,3 +15,10 @@ template = template-gnu
 mod_dir  = ./mod/gnu-kep/
 obj_dir  = ./obj/gnu-kep/
 target   = test_kep.F90
+
+# The equilibrium wall model (issue #119, T3.4), leg wm2: laminar limit, log law against a fine quadrature, Crocco.
+[test-wm-gnu]
+template = template-gnu
+mod_dir  = ./mod/gnu-wm/
+obj_dir  = ./obj/gnu-wm/
+target   = test_wall_model.F90

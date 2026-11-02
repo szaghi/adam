@@ -46,6 +46,13 @@
 #   hy13 T2.7 robustness, hybrid against WENO, density L1: a vortex after Jiang & Shu through a shock and sod-amr within 5e-3, Shu-Osher within 2e-4 (set
 #        after the 1.7e-5 result). In 1-D there is no vorticity, so the Ducros ratio flags any varying flow: only the 2-D case exercises the sensor. A vortex
 #        through a shock with a 2:1 box, skin on and off, runs and reports the difference.
+#   wm1  T3.1 laminar channel, isothermal walls, Re 100, M 0.1, from the laminar profile: the driving force against 3 mu U / h^2 with order. Mass within 1e-6 only:
+#        the no-slip isothermal wall of #65 lets mass through its face at O(h^3) (1.6e-7, 2.1e-8, 2.0e-9 at 16, 32, 64), the modelled wall sets it to 0;
+#        one rank against N on the perturbed flow.
+#   wm2  T3.3, T3.4: test_wall_model (laminar limit, log law, Crocco); the laminar channel on modelled walls: the force with order above 1.5 (the mirror cell and the linear profile are second order), mass conserved. The time 2 is before the diffusive steady state, t about 40, so the same transient on both sides.
+#   wm3  T3.6: the same with 2:1 faces along the walls, half the wall refined: mass conserved, the force strictly between those of the uniform base and of the
+#        uniform grid with the fine wall spacing (the flow does not depend on x, z). Runtime regridding is not run.
+#   wm4  T3.3: the energy flux: a wall hotter than the gas, modelled against resolved isothermal walls: the same change of the total energy within 15 %; one rank against N on modelled walls.
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -61,7 +68,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -307,6 +314,47 @@ if has_leg hy13; then
    a=$(run hy13-box-on "$NP" "${SV[@]}" --scheme-space hybrid-kep-weno --amr-box 0.5)
    b=$(run hy13-box-off "$NP" "${SV[@]}" --scheme-space hybrid-kep-weno --amr-box 0.5 --hybrid-skin central-seams)
    "$VENV_PY" "$CASE_DIR/hybrid_oracle.py" --differ "$a" "$b"
+fi
+channel_run() { # channel_run <name> <np> <make_channel options>: echo the work directory
+   local name="$1" np="$2" work="$CASE_DIR/work-$TAG-$1" ; shift 2
+   rm -rf "${work:?}" ; mkdir -p "$work"
+   python3 -I "$CASE_DIR/make_channel.py" "$work/input.ini" "$@"
+   (cd "$work" && mpirun -np "$np" "$EXE" input.ini > log.txt 2>&1) || { echo "check.sh: $name failed, see $work/log.txt" >&2 ; exit 1 ; }
+   echo "$work"
+}
+if has_leg wm1; then
+   echo "== wm1: laminar channel"
+   a=$(channel_run wm1-16 "$NP" --ny 16 --time-max 2.0)
+   b=$(channel_run wm1-32 "$NP" --ny 32 --time-max 2.0)
+   c=$(channel_run wm1-64 "$NP" --ny 64 --time-max 2.0)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" laminar --mass-tol 1e-6 "$a" "$b" "$c"
+   a=$(channel_run wm1-np1 1 --ny 32 --perturbation 0.1 --it-max 10)
+   b=$(channel_run wm1-npN "$NP" --ny 32 --perturbation 0.1 --it-max 10)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+fi
+if has_leg wm2; then
+   echo "== wm2: the wall model"
+   [[ "${WM_TEST_EXE:-}" == skip ]] || "${WM_TEST_EXE:-$REPO_ROOT/exe/test_wall_model}"  # a host program: WM_TEST_EXE=skip on the GPU side
+   a=$(channel_run wm2-16 "$NP" --ny 16 --wall wall-modelled --time-max 2.0)
+   b=$(channel_run wm2-32 "$NP" --ny 32 --wall wall-modelled --time-max 2.0)
+   c=$(channel_run wm2-64 "$NP" --ny 64 --wall wall-modelled --time-max 2.0)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" laminar --min-order 1.5 --tol 0.05 "$a" "$b" "$c"
+fi
+if has_leg wm3; then
+   echo "== wm3: 2:1 faces along the wall"
+   a=$(channel_run wm3 "$NP" --nx 32 --ny 32 --nz 32 --wall wall-modelled --amr-box --time-max 0.5)
+   b=$(channel_run wm3-coarse "$NP" --nx 32 --ny 32 --nz 32 --wall wall-modelled --time-max 0.5)
+   c=$(channel_run wm3-fine "$NP" --nx 32 --ny 64 --nz 32 --wall wall-modelled --time-max 0.5)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" between "$a" "$b" "$c"
+fi
+if has_leg wm4; then
+   echo "== wm4: wall heat flux and ranks on modelled walls"
+   a=$(channel_run wm4-model "$NP" --ny 64 --wall wall-modelled --wall-heat 1.5 --time-max 1.0)
+   b=$(channel_run wm4-resolved "$NP" --ny 64 --wall-heat 1.5 --time-max 1.0)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" energy --tol 0.15 "$a" "$b"
+   a=$(channel_run wm4-np1 1 --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10)
+   b=$(channel_run wm4-npN "$NP" --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
 fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
