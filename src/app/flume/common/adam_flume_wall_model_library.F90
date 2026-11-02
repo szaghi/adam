@@ -94,17 +94,22 @@ contains
          dy = (y(n) - y(n-1)) * log_mean_inverse(a(n-1), a(n))
          i2 = i2 + dy
          i3 = i3 + 0.5_R8P * dy * (u(n) + u(n-1))
-         t(n) = tw + (q * i2 - tnew * i3) / cp
+         ! under-relaxed and kept positive: with a poor tau the frictional heating term can drive the iterate below zero (NaN in a sweep at Mach 2 samples)
+         t(n) = max(0.5_R8P * t(n) + 0.5_R8P * (tw + (q * i2 - tnew * i3) / cp), 0.1_R8P * min(tw, ts))
       enddo
       ! Aitken on log(tau) every second iteration: tau = g(tau) is a power law in the log layer
       x2 = log(tnew)
       if (mod(it, 2_I4P) == 0_I4P .and. abs(x2 - 2._R8P * x1 + x0) > 1.e-12_R8P) then
-         x2 = x0 - (x1 - x0)**2 / (x2 - 2._R8P * x1 + x0)
+         x2 = min(max(x0 - (x1 - x0)**2 / (x2 - 2._R8P * x1 + x0), x1 - 1._R8P), x1 + 1._R8P) ! at most a factor e per extrapolation
       endif
       x0 = x1 ; x1 = x2
       if (mod(it, 2_I4P) == 0_I4P) x0 = x2
       tau = exp(x2)
    enddo
+   if (.not.(tau < huge(1._R8P) .and. tau >= 0._R8P .and. abs(q) < huge(1._R8P))) then ! a last resort, never seen after the guards above
+      tau = muw * us / h
+      q = muw * cp / pr * (ts - tw) / h
+   endif
    endsubroutine wall_model_solve
 
    pure function log_mean_inverse(a, b) result(r)

@@ -1,0 +1,10 @@
+# Coleman, Kim & Moser: bulk Mach 1.5, bulk Re 3000 (on the half height, the wall viscosity), isothermal walls; Re_tau about 220 (as cited by Qi 2022,
+# Cao 2024, Alberti 2025b). Wall-modelled on three coarse grids, WENO-5 and the hybrid; a wall-resolved hybrid reference (T3.2); the coarse grid with
+# resolved walls, to see what the model buys. 4 pi x 2 x 4/3 pi.
+wm-hybrid-g1 64 32 32 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150
+wm-weno-g1 64 32 32 1.5 3000 --wall wall-modelled --perturbation 0.2 --time-max 150
+nowm-hybrid-g1 64 32 32 1.5 3000 --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150
+wm-hybrid-g2 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150
+wm-weno-g2 96 48 48 1.5 3000 --wall wall-modelled --perturbation 0.2 --time-max 150
+wm-hybrid-g3 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150
+resolved-hybrid 256 192 128 1.5 3000 --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150

@@ -4,11 +4,14 @@ program test_wall_model
 !< Laminar limit, log layer against a fine quadrature, and the Crocco relation with Pr = Pr_t.
 
 use :: adam_flume_wall_model_library, only : wall_model_solve
-use :: penf,                          only : I4P, R8P
+use :: penf,                          only : I4P, I8P, R8P
 
 implicit none
 real(R8P), parameter :: CP=3.5_R8P, GAS=1._R8P, KAPPA=0.41_R8P, APLUS=17._R8P
-real(R8P)            :: tau, q, us, hplus, err, ref, mu, dy, y1, y2, f1, f2, tauf
+real(R8P)            :: tau, q, us, hplus, err, ref, mu, dy, y1, y2, f1, f2, tauf, hh, uu, tt, pp
+real(R8P), parameter :: tw15=1._R8P / (1.4_R8P * 2.25_R8P)
+integer(I8P)         :: seed
+integer(I4P)         :: nbad
 integer(I4P)         :: n
 integer(I4P), parameter :: NF=4000000_I4P
 logical              :: ok
@@ -54,6 +57,15 @@ call reference(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, pr=0.7_R8P
 call wall_model_solve(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, omega_mu=0.7_R8P, tau=tau, q=q)
 print '(A,2ES10.2,A)', 'compressible, tau and q relative ', abs(tau - tauf) / tauf, abs(q - ref) / abs(ref), ' (bound 2e-2)'
 ok = ok .and. abs(tau - tauf) / tauf < 2.e-2_R8P .and. abs(q - ref) / abs(ref) < 2.e-2_R8P
+! robustness: 200000 pseudo-random samples about a Mach 1.5 channel wall, parallel speed up to 4.5 wall sound speeds, sample 0.5-3.5 times the wall temperature
+nbad = 0 ; seed = 12345_I8P
+do n=1, 200000
+   hh = 0.01_R8P + 0.3_R8P * lcg(seed) ; uu = 3._R8P * lcg(seed) ; tt = tw15 * (0.5_R8P + 3._R8P * lcg(seed)) ; pp = (0.5_R8P + lcg(seed)) * tw15
+   call wall_model_solve(h=hh, us=uu, ts=tt, ps=pp, tw=tw15, R=GAS, cp=CP, pr=0.7_R8P, mu0=1._R8P / 3000._R8P, tref=tw15, omega_mu=0.7_R8P, tau=tau, q=q)
+   if (.not.(tau >= 0._R8P .and. tau < huge(1._R8P) .and. abs(q) < huge(1._R8P))) nbad = nbad + 1
+enddo
+print '(A,I0,A)', 'robustness, non-finite or negative results: ', nbad, ' of 200000 (bound 0)'
+ok = ok .and. nbad == 0
 if (ok) then
    print '(A)', 'test_wall_model: PASS'
 else
@@ -61,6 +73,15 @@ else
    stop 1
 endif
 contains
+   function lcg(s) result(x)
+   !< A linear congruential generator in (0, 1): the same samples everywhere.
+   integer(I8P), intent(inout) :: s !< State.
+   real(R8P)                   :: x !< Sample.
+
+   s = modulo(s * 48271_I8P, 2147483647_I8P) ! MINSTD: no overflow in 64 bits
+   x = real(s, R8P) / 2147483647._R8P
+   endfunction lcg
+
    subroutine reference(h, us, ts, ps, tw, pr, mu0, tref, omega, tau, q)
    !< The layer on 200000 intervals uniform in sqrt(y), by trapezoids and 400 under-relaxed iterations: no code shared with the library.
    real(R8P), intent(in)  :: h, us, ts, ps, tw, pr, mu0, tref, omega !< As `wall_model_solve`.
