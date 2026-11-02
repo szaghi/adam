@@ -280,7 +280,7 @@ contains
    class(prism_common_object), intent(inout) :: self !< The equation.
 
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
-             particle_number=>self%pic%particle_number)
+             particle_number=>self%pic%particle_capacity)
    call allocate_variable(var=self%q,                &
                           ulb=reshape([1,nv,         &
                                        1-ngc,ni+ngc, &
@@ -618,29 +618,24 @@ contains
    subroutine initialize_pic_time_zero(self)
    !< Initialize PIC particles and deposit host-side charge/current sources at t=0.
    implicit none
-   class(prism_common_object), intent(inout) :: self !< The equation.
+   class(prism_common_object), intent(inout) :: self       !< The equation.
+   real(R8P), allocatable                    :: q_all(:,:) !< Whole injected set, when the capacity is smaller.
 
    if (.not. is_pic_model(self%physics%physical_model)) return
 
-   call self%particle_injection%set_particle_initial_injection(field=self%adam%field, grid=self%adam%grid, &
-                                                               pic=self%pic, q_pic=self%q_pic)
-   ! the random sequence may differ between processes (gfortran seeds each one differently): the set of rank 0 is the set
-   if (mpih%procs_number > 1_I4P) &
-      call MPI_BCAST(self%q_pic, size(self%q_pic), MPI_REAL8, 0, MPI_COMM_WORLD, mpih%error)
-   if (is_adim_model(self%physics%physical_model)) then
-      ! Positions are already in grid units; thermal velocities, charges and masses come from SI input.
-      self%q_pic(4:6,:) = self%q_pic(4:6,:)/C0
-      self%q_pic(7,:) = self%q_pic(7,:)/self%physics%Q0
-      self%q_pic(8,:) = self%q_pic(8,:)/self%physics%M0
+   if (self%pic%particle_capacity < self%pic%particle_number_global) then
+      ! the arrays of a rank hold particle_capacity particles (issue #112): the whole set is injected into a temporary,
+      ! the same sequence as with the global capacity, and the rank keeps its own ones
+      allocate(q_all(size(self%q_pic, dim=1), self%pic%particle_number_global)) ; q_all = 0._R8P
+      call self%pic%resize_neighbour_list(n=self%pic%particle_number_global)
+      call inject_and_distribute(q=q_all)
+      self%q_pic = 0._R8P
+      self%q_pic(:,1:self%pic%particle_number) = q_all(:,1:self%pic%particle_number)
+      deallocate(q_all)
+      call self%pic%resize_neighbour_list(n=self%pic%particle_capacity)
+   else
+      call inject_and_distribute(q=self%q_pic)
    endif
-   if (mpih%myrank == 0_I4P) then
-      ! the whole injected set (every rank holds it until the distribution below)
-      call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
-      call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list, R8P), &
-                                       np=self%pic%particle_number)
-   endif
-   call self%adam%field%check_reduce_ghost_maps(grid=self%adam%grid, maps=self%adam%maps)
-   call self%pic%distribute_particles(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
 
    if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
       ! The CPU backend deposits the conserving current from a centered virtual trajectory.
@@ -655,6 +650,32 @@ contains
                                                check_current=trim(self%pic%current_weighting_model) /= &
                                                              CONSERVING_CURRENT_WEIGHTING_MODEL, check_charge=.true., &
                                                context='initialize_pic_time_zero')
+   contains
+      subroutine inject_and_distribute(q)
+      !< Inject the whole set (rank 0's sequence on every rank), scale it, write the injection tables and keep the
+      !< particles owned by this rank in q(:,1:particle_number).
+      real(R8P), intent(inout), contiguous :: q(1:,1:) !< Particles, the whole set on entry.
+
+      call self%particle_injection%set_particle_initial_injection(field=self%adam%field, grid=self%adam%grid, &
+                                                                  pic=self%pic, q_pic=q)
+      ! the random sequence may differ between processes (gfortran seeds each one differently): the set of rank 0 is the set
+      if (mpih%procs_number > 1_I4P) &
+         call MPI_BCAST(q, size(q), MPI_REAL8, 0, MPI_COMM_WORLD, mpih%error)
+      if (is_adim_model(self%physics%physical_model)) then
+         ! Positions are already in grid units; thermal velocities, charges and masses come from SI input.
+         q(4:6,:) = q(4:6,:)/C0
+         q(7,:) = q(7,:)/self%physics%Q0
+         q(8,:) = q(8,:)/self%physics%M0
+      endif
+      if (mpih%myrank == 0_I4P) then
+         ! the whole injected set (every rank holds it until the distribution below)
+         call write_initial_injection_tab(filename='particle_injection.dat', q_pic=q, np=self%pic%particle_number)
+         call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list, R8P), &
+                                          np=self%pic%particle_number)
+      endif
+      call self%adam%field%check_reduce_ghost_maps(grid=self%adam%grid, maps=self%adam%maps)
+      call self%pic%distribute_particles(field=self%adam%field, grid=self%adam%grid, q_pic=q)
+      endsubroutine inject_and_distribute
    endsubroutine initialize_pic_time_zero
 
    subroutine fold_deposited_ghosts(self, q, v_first, v_last)

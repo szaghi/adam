@@ -105,6 +105,7 @@ type :: prism_fnl_pic_conserving_object
    integer(I4P) :: nv = 0_I4P            !< Field variables number.
    integer(I4P) :: particle_number = 0_I4P !< Particles number owned by this rank.
    integer(I4P) :: particle_number_global = 0_I4P !< Particles number, all ranks.
+   integer(I4P) :: particle_capacity = 0_I4P !< Particle arrays capacity of this rank (issue #112).
    integer(I4P) :: nrk = 0_I4P           !< RK stages number.
    integer(I4P) :: esirkepov_q = 0_I4P   !< Q filter coefficients of esirkepov_Q<N>.
    character(len=:), allocatable :: solver_name !< Input name of the solver (messages).
@@ -298,9 +299,11 @@ contains
    self%bnb = nb ; self%nv = nv ; self%nrk = nrk
    self%nb = 1_I4P ; self%blocks_number = 1_I4P
    call self%build_virtual_geometry(field=field, grid=grid)
-   self%particle_number = pic%particle_number
+   ! per-particle arrays at the capacity of the rank (issue #112); the particles in them are set by sync_particle_number
+   self%particle_capacity = pic%particle_capacity
+   self%particle_number = min(pic%particle_number, self%particle_capacity)
    self%particle_number_global = pic%particle_number_global
-   np = self%particle_number ; ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc
+   np = self%particle_capacity ; ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc
 
    if (self%tail_cleanup .and. self%solver /= CONSERVING_SOLVER_MODIFIED) &
       call mpih%error_stop(msg=': esirkepov_tail_cleanup requires totorica or an esirkepov_Q<N> solver')
@@ -486,8 +489,9 @@ contains
    call dev_alloc(fptr_dev=self%gq_gpu, ubounds=[self%bnb,self%bni+self%ngc,self%bnj+self%ngc,self%bnk+self%ngc,6], &
                   lbounds=[1,1-self%ngc,1-self%ngc,1-self%ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gq_gpu in prism_fnl_pic_conserving_object')
-   if (self%particle_number > 0_I4P .and. any(self%gshift /= 0._R8P)) then
-      call dev_alloc(fptr_dev=self%q_dual_gpu, ubounds=[self%particle_number,8], lbounds=[1,1], init_value=0._R8P, ierr=ierr)
+   if (self%particle_capacity > 0_I4P .and. any(self%gshift /= 0._R8P)) then
+      call dev_alloc(fptr_dev=self%q_dual_gpu, ubounds=[self%particle_capacity,8], lbounds=[1,1], init_value=0._R8P, &
+                     ierr=ierr)
       if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_dual_gpu in prism_fnl_pic_conserving_object')
    endif
    endsubroutine initialize_coherent_gather

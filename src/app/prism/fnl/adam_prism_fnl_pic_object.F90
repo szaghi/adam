@@ -262,11 +262,14 @@ contains
    real(R8P),                   intent(in), target :: q_pic(1:,1:)      !< PIC variables on host.
    real(R8P),                   intent(in), target :: pic_fields(1:,1:) !< Fields at particle locations on host.
    integer(I4P)                                :: ierr              !< Error status.
+   integer(I4P)                                :: capacity          !< Particle arrays capacity of the rank.
 
    call mpih_fnl%print_message('prism_fnl_pic_object%initialize start')
    call self%destroy()
 
-   self%particle_number = pic%particle_number
+   ! the arrays hold the capacity of the rank (issue #112); the particles in them are set by sync_particle_number
+   capacity             = pic%particle_capacity
+   self%particle_number = min(pic%particle_number, capacity)
    self%n_ions          = pic%n_ions
    self%n_electrons     = pic%n_electrons
    self%n_neutrals      = pic%n_neutrals
@@ -373,39 +376,39 @@ contains
       endselect
    endselect
 
-   if (self%particle_number == 0) then
+   if (capacity == 0) then
       call mpih_fnl%print_message('prism_fnl_pic_object%initialize finish (no particles: nothing on device)')
       return
    endif
 
-   call dev_alloc(fptr_dev=self%q_pic_gpu,          ubounds=[self%particle_number, PIC_VARIABLES_NUMBER ], &
+   call dev_alloc(fptr_dev=self%q_pic_gpu,          ubounds=[capacity, PIC_VARIABLES_NUMBER ], &
                   lbounds=[1,1], ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_pic_gpu in prism_fnl_pic_object%initialize')
-   call dev_alloc(fptr_dev=self%pic_fields_gpu,     ubounds=[self%particle_number, PIC_FIELDS_NUMBER    ], &
+   call dev_alloc(fptr_dev=self%pic_fields_gpu,     ubounds=[capacity, PIC_FIELDS_NUMBER    ], &
                   lbounds=[1,1], ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate pic_fields_gpu in prism_fnl_pic_object%initialize')
-   call dev_alloc(fptr_dev=self%neighbour_list_gpu, ubounds=[self%particle_number, PIC_NEIGHBOURS_NUMBER], &
+   call dev_alloc(fptr_dev=self%neighbour_list_gpu, ubounds=[capacity, PIC_NEIGHBOURS_NUMBER], &
                   lbounds=[1,1], ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate neighbour_list_gpu in prism_fnl_pic_object%initialize')
-   allocate(self%buf_q_pic_R8P(1:self%particle_number,1:PIC_VARIABLES_NUMBER), stat=ierr)
+   allocate(self%buf_q_pic_R8P(1:capacity,1:PIC_VARIABLES_NUMBER), stat=ierr)
    if (ierr /= 0) call mpih_fnl%error_stop(msg=': failed host allocation of buf_q_pic_R8P in prism_fnl_pic_object%initialize')
-   allocate(self%buf_pic_fields_R8P(1:self%particle_number,1:PIC_FIELDS_NUMBER), stat=ierr)
+   allocate(self%buf_pic_fields_R8P(1:capacity,1:PIC_FIELDS_NUMBER), stat=ierr)
    if (ierr /= 0) call mpih_fnl%error_stop(msg=': failed host allocation of buf_pic_fields_R8P in prism_fnl_pic_object%initialize')
-   allocate(self%buf_neighbour_list_I4P(1:self%particle_number,1:PIC_NEIGHBOURS_NUMBER), stat=ierr)
+   allocate(self%buf_neighbour_list_I4P(1:capacity,1:PIC_NEIGHBOURS_NUMBER), stat=ierr)
    if (ierr /= 0) &
       call mpih_fnl%error_stop(msg=': failed host allocation of buf_neighbour_list_I4P in prism_fnl_pic_object%initialize')
    self%db2_q_pic(1,:)          = [1_I4P, 1_I4P]
-   self%db2_q_pic(2,:)          = [self%particle_number, PIC_VARIABLES_NUMBER]
+   self%db2_q_pic(2,:)          = [capacity, PIC_VARIABLES_NUMBER]
    self%hb2_q_pic(1,:)          = [1_I4P, 1_I4P]
-   self%hb2_q_pic(2,:)          = [PIC_VARIABLES_NUMBER, self%particle_number]
+   self%hb2_q_pic(2,:)          = [PIC_VARIABLES_NUMBER, capacity]
    self%db2_pic_fields(1,:)     = [1_I4P, 1_I4P]
-   self%db2_pic_fields(2,:)     = [self%particle_number, PIC_FIELDS_NUMBER]
+   self%db2_pic_fields(2,:)     = [capacity, PIC_FIELDS_NUMBER]
    self%hb2_pic_fields(1,:)     = [1_I4P, 1_I4P]
-   self%hb2_pic_fields(2,:)     = [PIC_FIELDS_NUMBER, self%particle_number]
+   self%hb2_pic_fields(2,:)     = [PIC_FIELDS_NUMBER, capacity]
    self%db2_neighbour_list(1,:) = [1_I4P, 1_I4P]
-   self%db2_neighbour_list(2,:) = [self%particle_number, PIC_NEIGHBOURS_NUMBER]
+   self%db2_neighbour_list(2,:) = [capacity, PIC_NEIGHBOURS_NUMBER]
    self%hb2_neighbour_list(1,:) = [1_I4P, 1_I4P]
-   self%hb2_neighbour_list(2,:) = [PIC_NEIGHBOURS_NUMBER, self%particle_number]
+   self%hb2_neighbour_list(2,:) = [PIC_NEIGHBOURS_NUMBER, capacity]
    call self%copy_cpu_gpu(pic=pic, q_pic=q_pic, pic_fields=pic_fields)
    call mpih_fnl%print_message('prism_fnl_pic_object%initialize finish')
    endsubroutine initialize
@@ -494,7 +497,8 @@ contains
    endif
    n_keep = np - n_dep
    if (n_keep + n_arrived > capacity) &
-      call mpih_fnl%error_stop(msg=': PIC migration: local particles exceed the particle arrays capacity')
+      call mpih_fnl%error_stop(msg=': PIC migration: local particles exceed the particle arrays capacity '// &
+                                   trim(str(capacity,.true.))//': raise [PIC].(particle_capacity_factor) (or remove it)')
    ! append the arrived particles, zero the slots left free
    if (n_arrived > 0_I4P) then
       call dev_memcpy_to_device(dst=self%mig_buffer_gpu(1:PIC_VARIABLES_NUMBER*n_arrived), &

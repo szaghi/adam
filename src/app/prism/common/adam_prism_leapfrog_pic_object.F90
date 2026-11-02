@@ -93,7 +93,7 @@ contains
    if (present(file_parameters)) then
       call self%load_from_file(file_parameters=file_parameters)
    endif
-   associate(particle_number=>self%particle_number)
+   associate(particle_number=>pic%particle_capacity) ! the arrays capacity of the rank (issue #112)
                                                    !, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv,
                                                    !nb=>self%nb)
    call allocate_variable(var=self%q_pic_old,        					 &

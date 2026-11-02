@@ -392,9 +392,10 @@ contains
    !< before the common initialize.
    !<
    !< `extra_fields`: the gather fields of the conserving current allocated on the block slots (`gq_gpu`, 6, coherent
-   !< gather; `gather_gpu`, nv, with external fields). `reserved_memory`: the particle arrays, sized on the global particle
-   !< number on every rank (`q_pic_gpu`, `pic_fields_gpu`, `neighbour_list_gpu`, the time scheme stages, the migration
-   !< buffers, the conserving histories), and the virtual block of the conserving current, the whole domain at the
+   !< gather; `gather_gpu`, nv, with external fields). `reserved_memory`: the particle arrays, sized on the particle
+   !< capacity of a rank, `[PIC].(particle_capacity_factor)` (`q_pic_gpu`, `pic_fields_gpu`, `neighbour_list_gpu`, the
+   !< time scheme stages, the migration buffers, the conserving histories), and the virtual block of the conserving
+   !< current, the whole domain at the
    !< finest uniform level (`h_gpu`, `work_a/b_gpu`, `line_gpu`, `jv_gpu`, the tail-cleanup arrays). Each term mirrors an
    !< allocation of pic_fnl, rk_pic_fnl, leapfrog_pic_fnl and conserving_fnl: keep them in step. PML storage and the
    !< runtime context are left to the `[amr].(memory_fraction)` headroom.
@@ -448,7 +449,7 @@ contains
       if (pic%matched_gather() .and. mod(pic%gather_q, 2_I4P) == 1_I4P) &
          per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES                              ! q_dual
    endif
-   reserved_memory = per_particle*real(pic%particle_number_global, R8P)
+   reserved_memory = per_particle*real(pic%particle_capacity, R8P) ! the arrays capacity of a rank
 
    if (conserving) then
       ! virtual block: the whole domain at the finest uniform level, on every rank
@@ -473,8 +474,8 @@ contains
       if (external_fields%ef_type /= EF_TYPE_NONE) extra_fields = extra_fields + physics%nv
    endif
    reserved_memory = reserved_memory/1e9_R8P
-   call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(pic%particle_number_global, .true.))// &
-                               ' particles x '//trim(str(per_particle))//' B, total '//trim(str(reserved_memory))// &
+   call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(pic%particle_capacity, .true.))// &
+                               ' particles (capacity) x '//trim(str(per_particle))//' B, total '//trim(str(reserved_memory))// &
                                ' GB reserved, '//trim(str(extra_fields, .true.))//' extra block fields')
    endsubroutine estimate_backend_memory_fnl
 
@@ -5443,7 +5444,7 @@ contains
 
    subroutine sync_particle_number(self)
    !< Copy the number of particles owned by this rank (host pic, after injection/distribution, restart or migration) into
-   !< the device helpers, whose kernels loop on it. The particle arrays keep their global capacity.
+   !< the device helpers, whose kernels loop on it. The particle arrays keep the capacity of the rank (issue #112).
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    self%pic_fnl%particle_number = self%pic%particle_number

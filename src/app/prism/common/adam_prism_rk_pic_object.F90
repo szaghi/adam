@@ -137,7 +137,7 @@ contains
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
       call allocate_variable(var=self%q_pic_rk,         		 &
                              ulb=reshape([1,8, 					 &
-                                          1,particle_number, &
+                                          1,pic%particle_capacity, &
                                           1,nrk+1],[2,3]),   &
                              msg=mpih%myrankstr//'rk_pic_object%initialize allocate q_pic_rk')
    endselect

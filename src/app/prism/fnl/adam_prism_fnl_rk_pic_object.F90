@@ -61,15 +61,15 @@ contains
    integer(I4P)                                  :: ierr   !< Error status.
 
    call self%destroy()
-   self%particle_number = pic%particle_number
+   self%particle_number = min(pic%particle_number, pic%particle_capacity) ! set by sync_particle_number afterwards
    self%nrk             = rk_pic%nrk
    self%inv_eps_scale   = rk_pic%inv_eps_scale
 
-   if (self%particle_number == 0 .or. self%nrk == 0) return
+   if (pic%particle_capacity == 0 .or. self%nrk == 0) return
 
    if (allocated(rk_pic%alph)) call dev_assign_to_device(src=rk_pic%alph, dst=self%alph_gpu)
    if (allocated(rk_pic%beta)) call dev_assign_to_device(src=rk_pic%beta, dst=self%beta_gpu)
-   call dev_alloc(fptr_dev=self%q_pic_rk_gpu, ubounds=[self%particle_number, PIC_VARIABLES_NUMBER, self%nrk], &
+   call dev_alloc(fptr_dev=self%q_pic_rk_gpu, ubounds=[pic%particle_capacity, PIC_VARIABLES_NUMBER, self%nrk], &
                   lbounds=[1,1,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_pic_rk_gpu in prism_fnl_rk_pic_object%initialize')
    endsubroutine initialize

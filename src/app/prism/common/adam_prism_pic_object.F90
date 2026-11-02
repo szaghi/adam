@@ -141,6 +141,8 @@ type :: prism_pic_object
    integer(I4P)              :: gaussian_support_cells = -1_I4P !< Gaussian support radius; negative selects automatic.
    integer(I4P)              :: particle_number  = 0_I4P    !< Number of particles owned by this rank.
    integer(I4P)              :: particle_number_global = 0_I4P !< Total number of particles (all ranks).
+   integer(I4P)              :: particle_capacity = 0_I4P   !< Particle arrays capacity of every rank (issue #112).
+   real(R8P)                 :: particle_capacity_factor = 0._R8P !< Capacity in units of global/ranks; 0: global.
 	integer(I4P)				  :: n_ions = 0_I4P              !< Total ions number
 	integer(I4P)				  :: n_electrons = 0_I4P         !< Total electrons number
 	integer(I4P)				  :: n_neutrals = 0_I4P          !< Total neutrals number
@@ -180,6 +182,7 @@ contains
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
    procedure, pass(self) :: set_particle_number           !< Scale the plasma inputs, set the particle number at t0.
+   procedure, pass(self) :: resize_neighbour_list         !< Reallocate the neighbour list, keeping its first columns.
    procedure, pass(self) :: set_plasma_region             !< Set and check the slab/box region of the plasma at t0.
    procedure, pass(self) :: particle_cartesian_grid_index !< Compute the grid index corresponding to a particle position.
    procedure, pass(self) :: halo_margin_cells             !< Cells a particle may lie outside its block interior.
@@ -442,6 +445,8 @@ contains
       desc = desc//NL//mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
       desc = desc//NL//mpih%myrankstr//'    Particle weight (real particles per macroparticle): '// &
                                        trim(str(self%particle_weight))
+      desc = desc//NL//mpih%myrankstr//'    Particle arrays capacity per rank: '// &
+                                       trim(str(self%particle_capacity,.true.))
       if (self%plasma_domain == UNIFORM_CILINDER) then
 			desc = desc//NL//mpih%myrankstr//'    	Cilinder radius: '//trim(str(self%cilinder_radius))
          desc = desc//NL//mpih%myrankstr//'    	Cilinder length: '//trim(str(self%cilinder_length))
@@ -509,7 +514,7 @@ contains
 
    print '(A)', self%description()
 
-   allocate(self%neighbour_list(4, self%particle_number))
+   allocate(self%neighbour_list(4, self%particle_capacity))
 
    select case(self%particle_weighting_model)
    case(CIC_WEIGHTING_MODEL)
@@ -649,9 +654,32 @@ contains
    elseif (self%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
       self%particle_number = 1_I4P
    endif
-   ! every rank holds the whole set until distribute_particles keeps its own ones; the arrays keep the global capacity
+   ! every rank holds the whole set until distribute_particles keeps its own ones
    self%particle_number_global = self%particle_number
+   ! the particle arrays of every rank hold particle_capacity particles: the global number, or capacity_factor times the
+   ! global number over the ranks (issue #112); fixed for the whole run, like the block slots
+   self%particle_capacity = self%particle_number_global
+   if (self%particle_capacity_factor > 0._R8P .and. mpih%procs_number > 1_I4P .and. self%particle_number_global > 0_I4P) &
+      self%particle_capacity = min(self%particle_number_global,                                                       &
+                                   max(1_I4P, ceiling(self%particle_capacity_factor*real(self%particle_number_global, R8P)/&
+                                                      real(mpih%procs_number, R8P), I4P)))
    endsubroutine set_particle_number
+
+   subroutine resize_neighbour_list(self, n)
+   !< Reallocate the neighbour list to n particles, keeping its first min(n, old) columns (issue #112): the injection and
+   !< the distribution index the whole injected set, the run the capacity of the rank.
+   class(prism_pic_object), intent(inout) :: self    !< PIC object.
+   integer(I4P),            intent(in)    :: n       !< New number of particles.
+   integer(I4P), allocatable              :: list(:,:) !< New list.
+   integer(I4P)                           :: m       !< Columns kept.
+
+   allocate(list(4, n)) ; list = 0_I4P
+   if (allocated(self%neighbour_list)) then
+      m = min(n, size(self%neighbour_list, dim=2))
+      list(:,1:m) = self%neighbour_list(:,1:m)
+   endif
+   call move_alloc(from=list, to=self%neighbour_list)
+   endsubroutine resize_neighbour_list
 
    subroutine set_plasma_region(self, emin, emax)
    !< Set the slab/box region of the plasma at t0, stop if it leaves the domain.
@@ -902,6 +930,17 @@ contains
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(elliptic_initialization_closure) = '//              &
                            ELLIPTIC_CLOSURE_ISOLATED//' sets the mean fields of the t0 solves of D and B: it needs '// &
                            'electric_field_elliptic_initialization and magnetic_field_elliptic_initialization = .true.')
+
+   ! optional (issue #112): the particle arrays capacity of every rank, in units of global particles/ranks; absent (0),
+   ! every rank keeps the global capacity, the model before the key existed. Like the block slots it is fixed at
+   ! initialization and never reallocated: a rank that has to hold more particles stops the run.
+   self%particle_capacity_factor = 0._R8P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_capacity_factor', &
+                            val=self%particle_capacity_factor, error=error)
+   if (error > 0) self%particle_capacity_factor = 0._R8P
+   if (error == 0 .and. .not.(self%particle_capacity_factor >= 1._R8P)) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(particle_capacity_factor) must be >= 1, got '// &
+                               trim(str(self%particle_capacity_factor)))
 
    self%esirkepov_tail_cleanup = .false.
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_cleanup', &
@@ -1175,6 +1214,7 @@ contains
    real(R8P),               intent(inout) :: q_pic(1:,1:) !< PIC variables.
    integer(I4P)                           :: n, kept      !< Counters.
    integer(I4P)                           :: total        !< Particles owned by all ranks.
+   integer(I4P)                           :: kept_max     !< Largest number of particles owned by one rank.
 
    self%particle_number = self%particle_number_global
    call self%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic, owned_only=.true.)
@@ -1189,6 +1229,13 @@ contains
    if (total /= self%particle_number_global) &
       call mpih%error_stop(msg=': PIC particles owned by the ranks '//trim(str(total,.true.))//' instead of '// &
                                trim(str(self%particle_number_global,.true.))//' (particle outside the domain?)')
+   call MPI_ALLREDUCE(kept, kept_max, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (kept_max > self%particle_capacity) &
+      call mpih%error_stop(msg=': PIC distribution: a rank owns '//trim(str(kept_max,.true.))//' particles, more than '// &
+                               'the capacity '//trim(str(self%particle_capacity,.true.))//' of its arrays: raise ['// &
+                               INI_SECTION_NAME//'].(particle_capacity_factor) to at least '//                       &
+                               trim(str(real(kept_max,R8P)*real(mpih%procs_number,R8P)/                               &
+                                        real(self%particle_number_global,R8P)))//' (or remove it)')
    self%particle_number = kept
    call self%particle_cartesian_grid_index(field=field, grid=grid, q_pic=q_pic)
    endsubroutine distribute_particles
@@ -1276,7 +1323,9 @@ contains
    enddo
    self%particle_number = self%particle_number - n_dep
    if (self%particle_number + n_arrived > size(q_pic, dim=2)) &
-      call mpih%error_stop(msg=': PIC migration: local particles exceed the particle arrays capacity')
+      call mpih%error_stop(msg=': PIC migration: local particles exceed the particle arrays capacity '// &
+                               trim(str(size(q_pic, dim=2),.true.))//': raise ['//INI_SECTION_NAME//               &
+                               '].(particle_capacity_factor) (or remove it)')
    do n=1, n_arrived
       q_pic(:,self%particle_number+n) = arrived(:,n)
    enddo

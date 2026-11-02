@@ -54,18 +54,18 @@ contains
    integer(I4P)                                        :: ierr         !< Error status.
 
    call self%destroy()
-   self%particle_number = pic%particle_number
+   self%particle_number = min(pic%particle_number, pic%particle_capacity) ! set by sync_particle_number afterwards
    self%nu              = leapfrog_pic%nu
    self%alpha           = leapfrog_pic%alpha
    self%is_filtered     = leapfrog_pic%is_filtered
 
-   if (self%particle_number == 0) return
+   if (pic%particle_capacity == 0) return
 
-   call allocate_variable(var=self%buf_q_pic_old_R8P, ulb=reshape([1_I4P, self%particle_number, &
+   call allocate_variable(var=self%buf_q_pic_old_R8P, ulb=reshape([1_I4P, pic%particle_capacity, &
                                                                    1_I4P, PIC_VARIABLES_NUMBER, &
                                                                    1_I4P, 2_I4P], [2,3]),       &
                           msg=mpih%myrankstr//'prism_fnl_leapfrog_pic_object%initialize allocate buf_q_pic_old_R8P')
-   call dev_alloc(fptr_dev=self%q_pic_old_gpu, ubounds=[self%particle_number, PIC_VARIABLES_NUMBER, 2_I4P], &
+   call dev_alloc(fptr_dev=self%q_pic_old_gpu, ubounds=[pic%particle_capacity, PIC_VARIABLES_NUMBER, 2_I4P], &
                   lbounds=[1,1,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_pic_old_gpu in prism_fnl_leapfrog_pic_object%initialize')
    endsubroutine initialize
