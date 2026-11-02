@@ -616,7 +616,7 @@ One flux per face, so conservation holds whichever kernel set it; computing WENO
 
 **Seams and boundaries.** The central stencil must not read ghost cells that are not a same-level copy: a face along $d$ whose stencil reaches the ghost cells of a 2:1 face, a physical face or a forest seam normal to $d$ keeps the WENO flux (T2.4). So a seam and its reflux stay what they are under `weno`. A flag acts along its own normal only, and on such grids the sensor is exchanged like a state, one more halo exchange per stage: otherwise the two blocks of a same-level interface could take different fluxes at their common face, and conservation is lost (measured: $2\cdot10^{-7}$ on a 2:1 box). Whether this could be relaxed has not been measured.
 
-`hybrid_skin` relaxes this for measurement ([input](./input#numerics)); the default stays WENO, as the runs have no reference curve to prefer another.
+`hybrid_skin` relaxes this for measurement ([input](./input#numerics)); the default stays WENO: on a smooth flow the central skin is closer to the DNS, but with a shock at a seam there is no reference ([verification](./verification/turbulence/#against-the-dns)).
 
 **With a subgrid-scale model.** The eddy viscosity is zero on flagged cells (T2.6). The rule is per cell: a WENO face next to a flagged cell, or on a skin, can still carry the model. The sensor and its exchange then run twice per stage.
 

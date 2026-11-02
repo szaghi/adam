@@ -2154,8 +2154,20 @@ def _turbulence_history(work: Path) -> np.ndarray:
     return rows
 
 
-def _turbulence_panels(axs, runs: Path, cases: list[tuple[str, str]], tscale: float = 1.0) -> None:
+def _dns_curve(axs) -> None:
+    """Draw the 512^3 spectral DNS of the High-Order CFD Workshop, C3.5, if its file is in the repository root."""
+    path = Path(__file__).resolve().parents[4] / "spectral_Re1600_512.gdiag"
+    if not path.exists():
+        return
+    t, _, d, z = np.loadtxt(path, comments="#").T
+    axs[0].plot(t, d, color="k", ls="--", lw=1.0, label="DNS $512^3$")
+    axs[1].plot(t, z, color="k", ls="--", lw=1.0, label="DNS $512^3$")
+
+
+def _turbulence_panels(axs, runs: Path, cases: list[tuple[str, str]], tscale: float = 1.0, dns: bool = False) -> None:
     """Draw -dK/dt and the enstrophy of the cases (name, label) on the two axes; a case not run yet is left out."""
+    if dns:
+        _dns_curve(axs)
     for name, label in cases:
         work = runs / name
         if not (work / "tgv-turbulence_history.dat").exists():
@@ -2179,12 +2191,10 @@ def fig_tgv_iles(out: Path, runs: Path) -> None:
     if not (root / "m0.1-weno-5-n64").exists():
         raise FileNotFoundError(root / "m0.1-weno-5-n64")
     fig, axs = plt.subplots(3, 2, figsize=(11.0, 10.0), constrained_layout=True, sharex=True)
-    _turbulence_panels(axs[0], root, [(f"m0.1-weno-5-n{n}", f"WENO-5, ${n}^3$") for n in (64, 128, 256)])
+    _turbulence_panels(axs[0], root, [(f"m0.1-weno-5-n{n}", f"WENO-5, ${n}^3$") for n in (64, 128, 256)], dns=True)
     _turbulence_panels(axs[1], root, [("m0.1-weno-5-n128", "WENO-5"), ("m0.1-riemann-5-n128", "WENO-5 HLLC"),
-                                      ("m0.1-weno-7-n128", "WENO-7"), ("m0.1-weno-9-n128", "WENO-9")])
+                                      ("m0.1-weno-7-n128", "WENO-7"), ("m0.1-weno-9-n128", "WENO-9")], dns=True)
     _turbulence_panels(axs[2], root, [(f"m1.25-weno-5-n{n}", f"$M_0$ 1.25, ${n}^3$") for n in (64, 128, 256)])
-    for r in (0, 1):
-        axs[r, 1].axhline(10.3, color="k", ls=":", lw=0.8)
     axs[2, 0].set_xlabel("t")
     axs[2, 1].set_xlabel("t")
     fig.savefig(out / "tgv-iles.png", dpi=DPI)
@@ -2200,9 +2210,9 @@ def fig_tgv_models(out: Path, runs: Path) -> None:
     fig, axs = plt.subplots(3, 2, figsize=(11.0, 10.0), constrained_layout=True, sharex=True)
     for row, n in ((0, 64), (1, 128)):
         _turbulence_panels(axs[row], root, [(f"m0.1-weno-5-n{n}", f"no model, ${n}^3$"), (f"m0.1-vreman-5-n{n}", "Vreman"),
-                                            (f"m0.1-wale-5-n{n}", "WALE"), (f"m0.1-sigma-5-n{n}", "Sigma")])
+                                            (f"m0.1-wale-5-n{n}", "WALE"), (f"m0.1-sigma-5-n{n}", "Sigma")], dns=True)
     _turbulence_panels(axs[2], root, [("m0.1-weno-5-n64", "uniform $64^3$"), ("m0.1-box-5-n64", "2:1 box, tricubic, mean"),
-                                      ("m0.1-box-q6-5-n64", "2:1 box, quintic, lagrange6"), ("m0.1-weno-5-n128", "uniform $128^3$")])
+                                      ("m0.1-box-q6-5-n64", "2:1 box, quintic, lagrange6"), ("m0.1-weno-5-n128", "uniform $128^3$")], dns=True)
     axs[2, 0].set_xlabel("t")
     axs[2, 1].set_xlabel("t")
     fig.savefig(out / "tgv-models.png", dpi=DPI)
@@ -2249,13 +2259,11 @@ def fig_tgv_hybrid(out: Path, runs: Path) -> None:
         raise FileNotFoundError(root / "m0.1-hybrid-n64")
     fig, axs = plt.subplots(3, 2, figsize=(11.0, 10.0), constrained_layout=True, sharex=True)
     _turbulence_panels(axs[0], root, [("m0.1-hybrid-n64", "hybrid, $64^3$"), ("m0.1-hybrid-n128", "hybrid, $128^3$"), ("m0.1-weno-5-n128", "WENO-5, $128^3$"),
-                                      ("m0.1-weno-5-n256", "WENO-5, $256^3$")])
+                                      ("m0.1-weno-5-n256", "WENO-5, $256^3$")], dns=True)
     _turbulence_panels(axs[1], root, [("m0.1-hybrid-n64", "hybrid, $64^3$"), ("m0.1-hybrid-vreman-n64", "hybrid + Vreman, $64^3$"), ("m0.1-hybrid-n128", "hybrid, $128^3$"),
-                                      ("m0.1-hybrid-vreman-n128", "hybrid + Vreman, $128^3$")])
+                                      ("m0.1-hybrid-vreman-n128", "hybrid + Vreman, $128^3$")], dns=True)
     _turbulence_panels(axs[2], root, [("m1.25-hybrid-n128", "hybrid, $128^3$"), ("m1.25-hybrid-n256", "hybrid, $256^3$"), ("m1.25-weno-5-n128", "WENO-5, $128^3$"),
                                       ("m1.25-weno-5-n256", "WENO-5, $256^3$")])
-    for r in (0, 1):
-        axs[r, 1].axhline(10.3, color="k", ls=":", lw=0.8)
     axs[2, 0].set_xlabel("t")
     axs[2, 1].set_xlabel("t")
     fig.savefig(out / "tgv-hybrid.png", dpi=DPI)
@@ -2263,7 +2271,7 @@ def fig_tgv_hybrid(out: Path, runs: Path) -> None:
     fig, axs = plt.subplots(1, 2, figsize=(11.0, 3.6), constrained_layout=True)
     _turbulence_panels(axs, root, [("m0.1-hybrid-n64", "hybrid, uniform $64^3$"), ("m0.1-hybrid-box-n64", "hybrid, 2:1 box, WENO skin"),
                                    ("m0.1-hybrid-box-central-n64", "hybrid, 2:1 box, central skin"), ("m0.1-box-5-n64", "WENO-5, 2:1 box"),
-                                   ("m0.1-hybrid-n128", "hybrid, uniform $128^3$")])
+                                   ("m0.1-hybrid-n128", "hybrid, uniform $128^3$")], dns=True)
     axs[0].set_xlabel("t")
     axs[1].set_xlabel("t")
     fig.savefig(out / "tgv-hybrid-box.png", dpi=DPI)

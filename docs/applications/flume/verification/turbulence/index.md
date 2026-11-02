@@ -38,8 +38,7 @@ Re 1600, $[0, 2\pi]^3$, `runge-kutta-ssp-54`, CFL 0.5, `weights = si`, 4 ranks o
 
 ![The ILES baseline on the Taylor-Green vortex](/flume/tgv-iles.png)
 
-*Top: M 0.1, WENO-5 by resolution; middle: M 0.1 at $128^3$ by scheme and order; bottom: $M_0 = 1.25$ by resolution. Left $-dK/dt$, right the enstrophy; dotted: the
-enstrophy peak about 10.3 quoted for the incompressible reference by Svärd (2022).*
+*Top: M 0.1, WENO-5 by resolution; middle: M 0.1 at $128^3$ by scheme and order; bottom: $M_0 = 1.25$ by resolution. Left $-dK/dt$, right the enstrophy; dashed: the 512³ spectral DNS, at M 0.1.*
 
 | Case | Peak $-dK/dt$ | at $t$ | Peak $Z$ | at $t$ | Numerical share to the peak | $K(20)$ |
 |---|---|---|---|---|---|---|
@@ -59,8 +58,7 @@ enstrophy peak about 10.3 quoted for the incompressible reference by Svärd (202
 
 The share is that of the energy lost until the peak of $-dK/dt$ not accounted for by $\varepsilon - p_d$.
 
-**Reference.** The 512³ pseudo-spectral DNS of the High-Order CFD Workshop (case C3.5, `spectral_Re1600_512.gdiag`) is not available to this tree, so no curve is compared,
-only the quoted peak. The incompressible reference has its dissipation peak near $t = 9$. Compressible Mach 1.25 is compared with nothing here.
+**Reference.** The 512³ pseudo-spectral DNS of the High-Order CFD Workshop (case C3.5, `spectral_Re1600_512.gdiag`), incompressible, so compared at M 0.1 only: peak $-dK/dt$ 0.01286 and peak $Z$ 10.29, both at $t = 8.97$. The table in [Against the DNS](#against-the-dns) gives the errors. Compressible Mach 1.25 is compared with nothing here.
 
 **What it shows.**
 - Numerical dissipation dominates: up to the peak of $-dK/dt$ it is 77 % of the energy lost at $64^3$ and 58 % at $128^3$ with WENO-5 at M 0.1. At $128^3$ the enstrophy peak is a third of the
@@ -89,7 +87,7 @@ Here the share leaves out the model's own dissipation, so it is not a pure numer
 
 **No model beats no model on this measure.** On a dissipative scheme each one lowers the enstrophy peak further from the reference (1.59 against 1.71 at $64^3$, 3.18 against 3.40 at $128^3$), and the three are nearly the same.
 The eddy viscosity adds to a numerical dissipation that already dominates; in the laminar phase, to $t = 2$ at M 0.4, it takes 21–53 % of the energy lost. Under the rule of #119 this makes the hybrid central/WENO scheme (T2) necessary before any model is
-recommended. The constants come from other discretizations and were not tuned. Only peaks are compared: a spectral comparison with filtered DNS could rank the models differently.
+recommended. The constants come from other discretizations and were not tuned. A spectral comparison with filtered DNS could still rank the models differently; on the integrals, [the DNS](#against-the-dns) confirms this.
 
 ## The effect of a 2:1 box (T0.6)
 
@@ -130,7 +128,7 @@ $K$ keeps changing with the resolution by 7 % from $128^3$ to $256^3$, so $256^3
 
 ![The hybrid scheme on the Taylor-Green vortex](/flume/tgv-hybrid.png)
 
-*Top: M 0.1, the hybrid against WENO-5; middle: with Vreman; bottom: $M_0 = 1.25$. Left $-dK/dt$, right the enstrophy; dotted: the enstrophy peak about 10.3 quoted for the incompressible reference.*
+*Top: M 0.1, the hybrid against WENO-5; middle: with Vreman; bottom: $M_0 = 1.25$. Left $-dK/dt$, right the enstrophy; dashed: the 512³ spectral DNS, on the M 0.1 rows.*
 
 | Case, M 0.1 | Peak $-dK/dt$, raw | Over $\Delta t = 0.5$ | at $t$ | Flicker, $7<t<10$ | Peak $Z$ | Numerical share to the peak |
 |---|---|---|---|---|---|---|
@@ -155,7 +153,7 @@ Isotropic turbulence: peak $Z$ 41.0 and 57.4 at $64^3$, $128^3$ against 34.5 and
 - At M 0.1 the hybrid reaches at $128^3$ a higher enstrophy peak than WENO-5 at $256^3$, and at $64^3$ more than WENO-5 at $128^3$, with the dissipation peak where the finer runs have it. $Z$ is still below the quoted 10.3.
 - At $M_0 = 1.25$ the gain is smaller, as the sensor keeps WENO around the shocklets.
 - **The raw peak of $-dK/dt$ is not a measure on the hybrid:** it flickers, 7 % at $64^3$, 2 % at $128^3$. The source is not established; the sensor switching on and off is the first candidate. Smoothed, the hybrid is 4–6 % above WENO-5 at $256^3$.
-- **Vreman on the hybrid** removes half of the flicker and lowers $Z$ by 20 %. At $64^3$ it lands below the finer runs (0.0117). Whether a model helps the hybrid is not settled by these peaks: it needs the DNS curves.
+- **Vreman on the hybrid** removes half of the flicker and lowers $Z$ by 20 %. At $64^3$ it lands below the finer runs (0.0117). Against the DNS it makes the hybrid worse at both resolutions (below).
 - The thresholds (0.2, 0.1) and the floor are not calibrated.
 
 ### On a 2:1 box, and what the skin costs
@@ -171,7 +169,38 @@ Isotropic turbulence: peak $Z$ 41.0 and 57.4 at $64^3$, $128^3$ against 34.5 and
 | hybrid, box, central skin | 0.01319 | 4.13 |
 | hybrid, uniform $64^3$ | 0.01333 | 3.82 |
 
-With the WENO skin the box ends below the uniform run in $Z$: the skin takes more than the extra cells give. The central skin is stable to $t = 20$ and above it. Neither is shown more accurate, without a reference curve. A vortex after Jiang & Shu (the code's profile, same strength and radius, unit square) through a Mach 1.1 shock crossing the box seams also runs with the central skin; it differs from the WENO skin by at most $2.8\cdot10^{-4}$ in density at $t = 0.35$.
+With the WENO skin the box ends below the uniform run in $Z$: the skin takes more than the extra cells give. The central skin is stable to $t = 20$ and above it. Against the DNS the central skin is the closer one (table below), on this smooth flow; the case with a shock has no reference. A vortex after Jiang & Shu (the code's profile, same strength and radius, unit square) through a Mach 1.1 shock crossing the box seams also runs with the central skin; it differs from the WENO skin by at most $2.8\cdot10^{-4}$ in density at $t = 0.35$.
+
+### Against the DNS
+
+M 0.1 against the 512³ DNS, from `turbulence/tgv_dns.py`. Peak $-dK/dt$ over a window of 0.5; L2 errors over $0.3 < t < 19.7$ relative to the DNS, $-dK/dt$ over the same window.
+
+| Case | Peak $-dK/dt$ | at $t$ | Peak $Z$ | at $t$ | L2 $-dK/dt$ | L2 $Z$ | L2 $K$ |
+|---|---|---|---|---|---|---|---|
+| DNS | 0.01286 | 8.97 | 10.29 | 8.97 | | | |
+| WENO-5, $64^3$ | 0.01357 | 5.09 | 1.709 | 6.25 | 0.660 | 0.844 | 0.187 |
+| WENO-5, $128^3$ | 0.01216 | 8.29 | 3.400 | 8.11 | 0.278 | 0.643 | 0.083 |
+| WENO-5, $256^3$ | 0.01260 | 8.72 | 6.182 | 8.56 | 0.090 | 0.331 | 0.020 |
+| HLLC, $128^3$ | 0.01235 | 8.32 | 3.585 | 8.11 | 0.260 | 0.623 | 0.070 |
+| WENO-7, $128^3$ | 0.01215 | 8.11 | 3.171 | 8.14 | 0.291 | 0.688 | 0.101 |
+| WENO-9, $128^3$ | 0.01274 | 8.27 | 4.454 | 8.03 | 0.177 | 0.539 | 0.037 |
+| Vreman, $64^3$ | 0.01373 | 5.11 | 1.591 | 6.23 | 0.671 | 0.854 | 0.200 |
+| Vreman, $128^3$ | 0.01193 | 8.28 | 3.177 | 8.15 | 0.295 | 0.662 | 0.092 |
+| WALE, $128^3$ | 0.01183 | 8.26 | 3.164 | 8.16 | 0.296 | 0.660 | 0.091 |
+| Sigma, $128^3$ | 0.01192 | 8.29 | 3.184 | 8.14 | 0.293 | 0.660 | 0.091 |
+| WENO-5, 2:1 box | 0.01304 | 6.41 | 1.865 | 6.39 | 0.617 | 0.829 | 0.178 |
+| hybrid, $64^3$ | 0.01333 | 8.09 | 3.822 | 7.86 | 0.237 | 0.615 | 0.057 |
+| **hybrid, $128^3$** | 0.01317 | 8.47 | 6.856 | 8.25 | 0.067 | 0.271 | 0.014 |
+| hybrid + Vreman, $64^3$ | 0.01173 | 8.21 | 2.917 | 8.09 | 0.283 | 0.678 | 0.086 |
+| hybrid + Vreman, $128^3$ | 0.01226 | 8.58 | 5.529 | 8.33 | 0.114 | 0.400 | 0.029 |
+| hybrid, 2:1 box, WENO skin | 0.01239 | 8.14 | 3.688 | 7.88 | 0.269 | 0.618 | 0.063 |
+| hybrid, 2:1 box, central skin | 0.01319 | 8.11 | 4.134 | 7.91 | 0.236 | 0.580 | 0.059 |
+
+- **The hybrid at $128^3$ is closer than WENO-5 at $256^3$** on all three errors, with one eighth of the cells. At $64^3$ it is closer than WENO-5 at $128^3$.
+- Its peak of $-dK/dt$ is 2.4 % above the DNS and comes at $t = 8.47$ rather than 8.97; $Z$ at $128^3$ reaches two thirds of the DNS peak, so the gradients are not converged.
+- **A model makes it worse:** Vreman takes the $-dK/dt$ error from 0.067 to 0.114 and the $Z$ error from 0.27 to 0.40 at $128^3$. All three models also worsen WENO-5. This flow at Re 1600 is not a case where the subgrid scales are far from resolved, and the constants were not tuned; on these integrals no model is recommended here.
+- **WENO-9** at $128^3$ (0.177) is much closer than WENO-5 (0.278); **WENO-7** is further (0.291), still unexplained.
+- **The skin:** on the 2:1 box the WENO skin (0.269) is further than uniform $64^3$ (0.237); the central skin ties it on $-dK/dt$ (0.236) and beats it on $Z$ (0.580 against 0.615). Smooth flow only.
 
 ### Cost
 
@@ -180,6 +209,6 @@ With the WENO skin the box ends below the uniform run in $Z$: the skin takes mor
 ## Not done
 
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
-- Comparison with DNS curves and spectra, which needs the reference files.
+- Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.
