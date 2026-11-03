@@ -5537,7 +5537,7 @@ contains
                                         h=cc%h_gpu(:,:,:,:,:,s), p_first=1_I4P, p_last=cc%particle_number)
       endif
       ! the source of the particles of all the ranks
-      call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,s))
+      call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,s), boxed=cc%box_current)
       call cc%combine_stage_source(h=cc%h_gpu, s=s, coeff=coeff)
 
       ! stage current
@@ -5647,7 +5647,7 @@ contains
                                      h=cc%h_gpu(:,:,:,:,:,1), p_first=1_I4P, p_last=cc%particle_number)
    endif
    ! the source of the particles of all the ranks
-   call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,1))
+   call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,1), boxed=cc%box_current)
    if (cc%box_current) then
       call cc%store_box_current(q=self%q_gpu, var_jx=self%physics%var_jx, hq=cc%h_gpu(:,:,:,:,:,1))
    elseif (cc%tail_cleanup) then

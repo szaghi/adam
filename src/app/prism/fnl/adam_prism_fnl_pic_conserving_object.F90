@@ -55,6 +55,8 @@ public :: CONSERVING_SOLVER_MODIFIED
 ! host staging of reduce_virtual, kept between the calls and grown to the largest virtual array (issue #112: 46 calls per
 ! SSP54 step used to allocate and free a whole-domain host buffer each); one per process, the calls are sequential
 real(R8P), allocatable, target, save :: virtual_host_buffer(:)
+! device packing of a boxed reduce_virtual (issue #111), grown to the largest box like the host staging
+real(R8P), pointer, save :: virtual_pack_gpu(:) => null()
 
 integer(I4P), parameter :: CONSERVING_SOLVER_LONDRILLO = 2_I4P !< Esirkepov face fluxes + inverse reconstruction.
 integer(I4P), parameter :: CONSERVING_SOLVER_MODIFIED  = 3_I4P !< Matched current, totorica or esirkepov_Q<N> (P/Q kernels).
@@ -121,6 +123,9 @@ type :: prism_fnl_pic_conserving_object
    logical      :: coherent = .false.    !< Coherent matched gather (field_weighting_model totorica or esirkepov_Q<N>).
    integer(I4P) :: gradius = 0_I4P       !< Coherent gather: taps of its P kernel.
    real(R8P)    :: gshift(3) = 0._R8P    !< Coherent gather: dx/2 for the odd esirkepov_Q<N> (dual nodes), 0 otherwise.
+   integer(I4P) :: vbox_lo(3) = 1_I4P    !< Particle box of the boxed reduce_virtual, lower virtual cells (issue #111).
+   integer(I4P) :: vbox_hi(3) = 0_I4P    !< Particle box of the boxed reduce_virtual, upper virtual cells.
+   logical      :: vbox_empty = .true.   !< No rank holds particles: a boxed reduce_virtual has nothing to sum.
    ! device data
    integer(I4P), pointer :: off_gpu(:,:)              => null() !< Real block origin in the virtual block, cells [bnb,3].
    real(R8P),    pointer :: vx_gpu(:)                 => null() !< Virtual x cell centers [NX].
@@ -175,6 +180,7 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self) :: reduce_virtual4             !< Sum a rank-4 virtual-block array over the ranks.
       procedure, pass(self) :: reduce_virtual5             !< Sum a rank-5 virtual-block array over the ranks.
       generic               :: reduce_virtual => reduce_virtual4, reduce_virtual5 !< Sum a virtual-block array over the ranks.
+      procedure, pass(self) :: set_particle_box            !< Global box of the virtual cells the particles reach.
       ! private methods
       procedure, pass(self), private :: build_virtual_geometry  !< Virtual block of the whole domain.
       procedure, pass(self), private :: scatter_current         !< Real q(J) = virtual J, ghosts included.
@@ -617,7 +623,9 @@ contains
                         woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
    call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P, w=self%p_gpu, &
                         woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
-   call self%reduce_virtual(a=self%work_b_gpu)
+   ! outside the particle box every rank holds zero
+   call self%set_particle_box(qa=pic_fnl%q_pic_gpu, np=np)
+   call self%reduce_virtual(a=self%work_b_gpu, boxed=.true.)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q,wb,off) &
    !$acc& firstprivate(nv,nx,ny,nz,px,py,pz) private(gi,gj,gk)
    !$omp OMPLOOP collapse(4) DEVICEPTR(q,wb,off) firstprivate(nv,nx,ny,nz,px,py,pz) private(gi,gj,gk)
@@ -671,6 +679,8 @@ contains
    ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
    nx = self%ni ; ny = self%nj ; nz = self%nk ; np = self%particle_number
    off => self%off_gpu ; wa => self%work_a_gpu ; wb => self%work_b_gpu ; gq => self%gq_gpu
+   ! the fields are summed only on the particle box: beyond it each rank keeps its own blocks, which no particle gathers
+   call self%set_particle_box(qa=q_pic_gpu, np=np)
    do v=1, 6
       !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(wa)
       !$omp OMPLOOP collapse(3) DEVICEPTR(wa)
@@ -692,7 +702,7 @@ contains
       enddo
       enddo
       enddo
-      call self%reduce_virtual(a=self%work_a_gpu)
+      call self%reduce_virtual(a=self%work_a_gpu, boxed=.true.)
       call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P)
       call self%transposed_filter_axis(input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P)
       call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P)
@@ -1017,6 +1027,8 @@ contains
    logical                                               :: px, py, pz, per(3)
 
    call zero_h(self=self, h=h)
+   ! the box of the boxed reduce of h that follows (collective: before the early return of a rank without particles)
+   call self%set_particle_box(qa=q_ref, qb=q_to, np=max(0_I4P, p_last))
    if (p_last < p_first) return
    ni = self%ni ; nj = self%nj ; nk = self%nk ; shp = self%shape
    e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
@@ -1913,16 +1925,30 @@ contains
    enddo
    endsubroutine impose_current_ghosts
 
-   subroutine reduce_virtual4(self, a)
+   subroutine reduce_virtual4(self, a, boxed)
    !< Sum a rank-4 virtual-block device array over the ranks, in place: every rank adds the sources of its own particles,
    !< the sum is the source of all the particles. Staged through the host: an MPI_Allreduce on device buffers is not
    !< portable (the UCC/UCX collectives of HPC-X read device memory as host memory on WSL, SIGSEGV). No-op on one rank.
    !< Collective.
-   class(prism_fnl_pic_conserving_object), intent(in)    :: self       !< Conserving current object.
-   real(R8P),                              intent(inout) :: a(:,:,:,:) !< Device array.
-   real(R8P), pointer                                    :: buf(:,:,:,:)
+   !<
+   !< `boxed` (issue #111): sum only the particle box of the last set_particle_box, packed on the device. The caller
+   !< guarantees that outside the box either every rank holds zero (sources: the sum is zero there too) or the values are
+   !< never read (gathered fields). A box larger than half the array takes the whole-array path.
+   class(prism_fnl_pic_conserving_object), intent(in)           :: self       !< Conserving current object.
+   real(R8P),                              intent(inout)        :: a(:,:,:,:) !< Device array [1,NX,NY,NZ].
+   logical,                                intent(in), optional :: boxed      !< Sum only the particle box.
+   real(R8P), pointer                                           :: buf(:,:,:,:)
+   logical                                                      :: boxed_
 
    if (mpih%procs_number == 1_I4P) return
+   boxed_ = .false. ; if (present(boxed)) boxed_ = boxed
+   if (boxed_) then
+      if (self%vbox_empty) return
+      if (2_I8P*product(int(self%vbox_hi - self%vbox_lo + 1_I4P, I8P)) <= size(a, kind=I8P)) then
+         call reduce_virtual_box(lo=self%vbox_lo, hi=self%vbox_hi, a=a)
+         return
+      endif
+   endif
    call grow_virtual_host_buffer(n=size(a, kind=I8P))
    buf(1:size(a,1),1:size(a,2),1:size(a,3),1:size(a,4)) => virtual_host_buffer(1:size(a, kind=I8P))
    call dev_memcpy_from_device(dst=buf, src=a)
@@ -1930,19 +1956,144 @@ contains
    call dev_memcpy_to_device(dst=a, src=buf)
    endsubroutine reduce_virtual4
 
-   subroutine reduce_virtual5(self, a)
-   !< Rank-5 twin of reduce_virtual4.
-   class(prism_fnl_pic_conserving_object), intent(in)    :: self         !< Conserving current object.
-   real(R8P),                              intent(inout) :: a(:,:,:,:,:) !< Device array.
-   real(R8P), pointer                                    :: buf(:,:,:,:,:)
+   subroutine reduce_virtual5(self, a, boxed)
+   !< Rank-5 twin of reduce_virtual4 (a boxed sum runs component by component).
+   class(prism_fnl_pic_conserving_object), intent(in)           :: self         !< Conserving current object.
+   real(R8P),                              intent(inout)        :: a(:,:,:,:,:) !< Device array [1,NX,NY,NZ,nc].
+   logical,                                intent(in), optional :: boxed        !< Sum only the particle box.
+   real(R8P), pointer                                           :: buf(:,:,:,:,:)
+   integer(I4P)                                                 :: c
+   logical                                                      :: boxed_
 
    if (mpih%procs_number == 1_I4P) return
+   boxed_ = .false. ; if (present(boxed)) boxed_ = boxed
+   if (boxed_) then
+      if (self%vbox_empty) return
+      if (2_I8P*product(int(self%vbox_hi - self%vbox_lo + 1_I4P, I8P)) <= size(a, kind=I8P)/size(a, 5, kind=I8P)) then
+         do c=1, size(a, 5)
+            call reduce_virtual_box(lo=self%vbox_lo, hi=self%vbox_hi, a=a(:,:,:,:,c))
+         enddo
+         return
+      endif
+   endif
    call grow_virtual_host_buffer(n=size(a, kind=I8P))
    buf(1:size(a,1),1:size(a,2),1:size(a,3),1:size(a,4),1:size(a,5)) => virtual_host_buffer(1:size(a, kind=I8P))
    call dev_memcpy_from_device(dst=buf, src=a)
    call MPI_ALLREDUCE(MPI_IN_PLACE, buf, size(buf), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call dev_memcpy_to_device(dst=a, src=buf)
    endsubroutine reduce_virtual5
+
+   subroutine set_particle_box(self, qa, qb, np)
+   !< Global box of the virtual cells that the sources and the gathers of the particles of every rank can reach (issue
+   !< #111), for the boxed reduce_virtual: the cells of qa (and qb, the other end of the trajectories) widened by the
+   !< base-shape support, the widest P/Q tap and a margin of three cells (the dual-node shift, the face storage), clamped
+   !< to the domain; along a periodic axis a box that would cross the face takes the whole axis. Empty when no rank holds
+   !< particles. Collective.
+   class(prism_fnl_pic_conserving_object), intent(inout)        :: self      !< Conserving current object.
+   real(R8P),                              intent(in)           :: qa(1:,1:) !< Particles [np,8].
+   real(R8P),                              intent(in), optional :: qb(1:,1:) !< Other trajectory ends [np,8].
+   integer(I4P),                           intent(in)           :: np        !< Particles of this rank.
+   integer(I4P)                                                 :: lo1, lo2, lo3, hi1, hi2, hi3, c, part, d
+   integer(I4P)                                                 :: ext(6), halo, lo, hi, nn(3)
+   real(R8P)                                                    :: e1, e2, e3, d1, d2, d3
+
+   e1 = self%vemin(1) ; e2 = self%vemin(2) ; e3 = self%vemin(3)
+   d1 = self%vdx(1)   ; d2 = self%vdx(2)   ; d3 = self%vdx(3)
+   lo1 = huge(1_I4P) ; lo2 = huge(1_I4P) ; lo3 = huge(1_I4P)
+   hi1 = -huge(1_I4P) ; hi2 = -huge(1_I4P) ; hi3 = -huge(1_I4P)
+   if (np > 0_I4P) then
+      !$acc parallel loop gang vector DEVICEVAR(qa) firstprivate(e1,e2,e3,d1,d2,d3) private(c) &
+      !$acc& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3)
+      !$omp OMPLOOP DEVICEPTR(qa) firstprivate(e1,e2,e3,d1,d2,d3) private(c) &
+      !$omp& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3)
+      do part=1, np
+         c = ceiling((qa(part,1) - e1) / d1, kind=I4P) ; lo1 = min(lo1, c) ; hi1 = max(hi1, c)
+         c = ceiling((qa(part,2) - e2) / d2, kind=I4P) ; lo2 = min(lo2, c) ; hi2 = max(hi2, c)
+         c = ceiling((qa(part,3) - e3) / d3, kind=I4P) ; lo3 = min(lo3, c) ; hi3 = max(hi3, c)
+      enddo
+      if (present(qb)) then
+         !$acc parallel loop gang vector DEVICEVAR(qb) firstprivate(e1,e2,e3,d1,d2,d3) private(c) &
+         !$acc& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3)
+         !$omp OMPLOOP DEVICEPTR(qb) firstprivate(e1,e2,e3,d1,d2,d3) private(c) &
+         !$omp& reduction(min:lo1,lo2,lo3) reduction(max:hi1,hi2,hi3)
+         do part=1, np
+            c = ceiling((qb(part,1) - e1) / d1, kind=I4P) ; lo1 = min(lo1, c) ; hi1 = max(hi1, c)
+            c = ceiling((qb(part,2) - e2) / d2, kind=I4P) ; lo2 = min(lo2, c) ; hi2 = max(hi2, c)
+            c = ceiling((qb(part,3) - e3) / d3, kind=I4P) ; lo3 = min(lo3, c) ; hi3 = max(hi3, c)
+         enddo
+      endif
+   endif
+   ! one MPI_MIN for both ends: the upper cells negated
+   ext = [lo1, lo2, lo3, -hi1, -hi2, -hi3]
+   if (mpih%procs_number > 1_I4P) &
+      call MPI_ALLREDUCE(MPI_IN_PLACE, ext, 6, MPI_INTEGER, MPI_MIN, MPI_COMM_WORLD, mpih%error)
+   self%vbox_empty = ext(1) > -ext(4)
+   if (self%vbox_empty) return
+   halo = support_radius(self) + max(self%radius, self%gradius, abs(self%qfirst), abs(self%qfirst + self%nq - 1_I4P)) &
+          + 3_I4P
+   nn = [self%ni, self%nj, self%nk]
+   do d=1, 3
+      lo = ext(d) - halo
+      hi = -ext(d+3) + halo
+      if (self%is_periodic(d) .and. (lo < 1_I4P .or. hi > nn(d))) then
+         lo = 1_I4P ; hi = nn(d)
+      endif
+      self%vbox_lo(d) = max(1_I4P, lo)
+      self%vbox_hi(d) = min(nn(d), hi)
+   enddo
+   endsubroutine set_particle_box
+
+   subroutine reduce_virtual_box(lo, hi, a)
+   !< Sum the box lo:hi of a rank-4 virtual-block device array over the ranks, in place: packed on the device, staged
+   !< through the host as reduce_virtual4, unpacked. Collective.
+   integer(I4P), intent(in)    :: lo(3)      !< Box lower virtual cells.
+   integer(I4P), intent(in)    :: hi(3)      !< Box upper virtual cells.
+   real(R8P),    intent(inout) :: a(:,:,:,:) !< Device array [1,NX,NY,NZ].
+   real(R8P),    pointer       :: pk(:)
+   integer(I4P)                :: i, j, k, l1, l2, l3, n1, n2, n3, n
+
+   l1 = lo(1) ; l2 = lo(2) ; l3 = lo(3)
+   n1 = hi(1) - lo(1) + 1_I4P ; n2 = hi(2) - lo(2) + 1_I4P ; n3 = hi(3) - lo(3) + 1_I4P
+   n = n1*n2*n3
+   call grow_virtual_pack_buffer(n=n)
+   call grow_virtual_host_buffer(n=int(n, I8P))
+   pk => virtual_pack_gpu
+   !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(a,pk) firstprivate(l1,l2,l3,n1,n2)
+   !$omp OMPLOOP collapse(3) DEVICEPTR(a,pk) firstprivate(l1,l2,l3,n1,n2)
+   do k=1, n3
+   do j=1, n2
+   do i=1, n1
+      pk(i + n1*((j-1) + n2*(k-1))) = a(1,l1+i-1,l2+j-1,l3+k-1)
+   enddo
+   enddo
+   enddo
+   call dev_memcpy_from_device(dst=virtual_host_buffer(1:n), src=pk(1:n))
+   call MPI_ALLREDUCE(MPI_IN_PLACE, virtual_host_buffer, n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call dev_memcpy_to_device(dst=pk(1:n), src=virtual_host_buffer(1:n))
+   !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(a,pk) firstprivate(l1,l2,l3,n1,n2)
+   !$omp OMPLOOP collapse(3) DEVICEPTR(a,pk) firstprivate(l1,l2,l3,n1,n2)
+   do k=1, n3
+   do j=1, n2
+   do i=1, n1
+      a(1,l1+i-1,l2+j-1,l3+k-1) = pk(i + n1*((j-1) + n2*(k-1)))
+   enddo
+   enddo
+   enddo
+   endsubroutine reduce_virtual_box
+
+   subroutine grow_virtual_pack_buffer(n)
+   !< Grow the device packing buffer of reduce_virtual_box to n values at least (it never shrinks).
+   integer(I4P), intent(in) :: n    !< Values needed.
+   integer(I4P)             :: ierr !< Error status.
+
+   if (associated(virtual_pack_gpu)) then
+      if (size(virtual_pack_gpu) >= n) return
+      call dev_free(virtual_pack_gpu, mydev)
+      nullify(virtual_pack_gpu)
+   endif
+   call dev_alloc(fptr_dev=virtual_pack_gpu, ubounds=[n], lbounds=[1], ierr=ierr)
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate the reduce_virtual packing buffer')
+   endsubroutine grow_virtual_pack_buffer
 
    subroutine grow_virtual_host_buffer(n)
    !< Grow the host staging buffer of reduce_virtual to n values at least (it never shrinks).
