@@ -50,6 +50,7 @@ def main() -> int:
     ap.add_argument("--wm-edge-heat", type=float, default=1.0, help="[bc] wall_model_edge_temperature (inverse model) over the gas temperature of the start")
     ap.add_argument("--amr-box", action="store_true", help="one more level on the middle half along x, over the whole height: 2:1 faces along the walls")
     ap.add_argument("--sgs-model", default="none")
+    ap.add_argument("--gas", default="cp-cv", choices=["cp-cv", "gamma"], help="the gas as cp, cv (R = 1) or as gamma = 1.4 (the reference-layer legs: a cp, cv input is not bitwise across it)")
     ap.add_argument("--cfl", type=float, default=0.5)
     ap.add_argument("--time-max", type=float, default=1.0)
     ap.add_argument("--it-max", type=int, default=-1)
@@ -75,9 +76,11 @@ def main() -> int:
     text = section(text, "grid", grid)
     text = section(text, "amr", {"max_level": str(args.levels), "ratio": "8", "iu_ref_levels": str(args.levels), "frequency": "0", "markers_number": "0"})
     text = section(text, "weno", {"scheme": "weno-u-5", "weights": "si"})
-    physics = {"cp": "3.5", "cv": "2.5", "reynolds": str(args.reynolds), "prandtl": "0.7"}
+    physics = {"cp": "3.5", "cv": "2.5", "reynolds": str(args.reynolds), "prandtl": "0.7"} if args.gas == "cp-cv" else {"gamma": "1.4", "reynolds": str(args.reynolds), "prandtl": "0.7"}
     if args.power_law > 0.0:
         physics |= {"viscosity_law": "power-law", "viscosity_exponent": str(args.power_law), "reference_temperature": repr(t_wall)}
+    if args.gas == "gamma":  # the template's cp, cv go: the physics refuses gamma with them
+        text = re.sub(r"^(cp|cv)\s*=.*\n", "", text, flags=re.M)
     text = section(text, "physics", physics)
     text = section(text, "numerics", {"scheme_space": args.scheme_space})
     for face in ("x_min", "x_max", "z_min", "z_max"):

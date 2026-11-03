@@ -2289,7 +2289,7 @@ def fig_channel_wm(out: Path, runs: Path) -> None:
     for name, label in (("resolved-hybrid", "resolved walls, hybrid, $256\\times192\\times128$"), ("wm-hybrid-g1", "modelled, hybrid, $64\\times32\\times32$"),
                         ("wm-hybrid-g2", "modelled, hybrid, $96\\times48\\times48$"), ("wm-hybrid-g3", "modelled, hybrid, $128\\times64\\times64$"),
                         ("wm-weno-g2", "modelled, WENO-5, $96\\times48\\times48$"), ("nowm-hybrid-g1", "resolved walls, hybrid, $64\\times32\\times32$")):
-        f = np.loadtxt(root / name / "channel-forcing_history.dat", ndmin=2)
+        f = np.loadtxt(root / name / "channel-forcing_history.dat", ndmin=2, comments="VARIABLES")  # header since #119 follow-up
         _, last = np.unique(f[::-1, 0], return_index=True)
         f = f[::-1][last]
         w = max(1, len(f) // 300)

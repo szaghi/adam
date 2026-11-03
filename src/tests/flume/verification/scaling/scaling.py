@@ -76,7 +76,9 @@ IC_KEYS = {"type": NONE, "amr_iterations": NONE, "regions_number": NONE, "axis":
            "wall_velocity": VELOCITY,
            # the polytrope (issue #81): radius and centre, central density; the pressure factor f is a pure number
            "star_radius": LENGTH, "star_x0": LENGTH, "star_y0": LENGTH, "star_z0": LENGTH, "star_density": DENSITY,
-           "star_pressure_factor": NONE}
+           "star_pressure_factor": NONE,
+           # the plane channel (issue #119): density, bulk velocity, half height and lengths; wall Mach and perturbation are numbers
+           "ch_rho": DENSITY, "ch_ub": VELOCITY, "ch_h": LENGTH, "ch_lx": LENGTH, "ch_lz": LENGTH, "ch_mach": NONE, "ch_pert": NONE}
 MHD_KEYS = {"divergence_control": NONE, "divb_error": NONE, "glm_alpha": NONE, "glm_ch_check": NONE,
             "glm_ch": VELOCITY, "glm_damping_length": LENGTH, "rho_floor": DENSITY, "p_floor": PRESSURE,
             "divb_tol": NONE}  # the normalised D_flux, dimensionless (#68 G1)
@@ -92,7 +94,7 @@ DIFFUSIVITY = (1, 1, 0)    # run multiplies T by 1/R, so R cancels (issue #65); 
 STATE_KEYS = {"r": DENSITY, "u": VELOCITY, "v": VELOCITY, "w": VELOCITY, "p": PRESSURE, "bx": FIELD, "by": FIELD,
               "bz": FIELD}
 DIMENSIONLESS_SECTIONS = ("numerics", "runge_kutta", "weno", "linear-algebra", "fdv", "field", "amr", "solids",
-                          "slices", "diagnostics")
+                          "slices", "diagnostics", "turbulence")
 FULL_KEYS = {
     "physics": {"physical_model": NONE, "gamma": NONE, "cp": NONE, "cv": NONE,  # cp, cv: the layer makes gamma
                 "viscosity": VISCOSITY, "conductivity": VISCOSITY, "resistivity": DIFFUSIVITY, "reynolds": NONE,
@@ -116,6 +118,7 @@ FULL_KEYS = {
     # value
     "cooling": {"temperatures": VELOCITY2, "lambdas": (5, 3, 1), "particle_mass": (3, 0, 1), "dt_factor": NONE},
     "grid": {**{key: NONE for key in ("ni", "nj", "nk", "ngc", "null_x", "null_y", "null_z")}, **GRID_KEYS},
+    "forcing": {"type": NONE, "axis": NONE, "bulk_momentum": MOMENTUM},  # issue #119: a momentum density
 }
 BC_SECTIONS = tuple(f"bc_{x}_{e}" for x in "xyz" for e in ("min", "max"))
 MARKER_NONE = ("mode", "delta_type", "geo_type", "solid", "target_level", "stl_filename", "field", "var",
@@ -209,7 +212,10 @@ def classify(ini: configparser.ConfigParser, section: str, key: str) -> tuple[fl
         return NONE
     elif section in BC_SECTIONS:
         table = {"type": NONE, **STATE_KEYS, "wall_u": VELOCITY, "wall_v": VELOCITY, "wall_w": VELOCITY,
-                 "wall_temperature": VELOCITY2}
+                 "wall_temperature": VELOCITY2,
+                 # the wall model (issue #119): a length, a time, the edge state; the model and damping names
+                 "wall_model": NONE, "wall_model_damping": NONE, "wall_model_height": LENGTH, "wall_model_filter": TIME,
+                 "wall_model_edge_velocity": VELOCITY, "wall_model_edge_temperature": VELOCITY2}
     elif section == "initial_conditions":
         table = dict(IC_KEYS)
         ic_type = ic.get("type", "").split(";")[0].strip()
@@ -288,7 +294,7 @@ def check_log(args: argparse.Namespace) -> int:
             if classify(ini, section, key) == NONE or (key == "glm_damping_length" and text == "min-cell"):
                 continue
             base = float(text)
-            if key in ("wall_temperature", "reference_temperature"):
+            if key in ("wall_temperature", "reference_temperature", "wall_model_edge_temperature"):
                 base = base * gas
             elif key == "conductivity":
                 base = base / gas
@@ -349,6 +355,8 @@ def history_scale(file: str, column: str, psi: str, j: int, k: int, m: int) -> f
     if column.startswith("int_"):
         dim = field_dim(column[4:], psi)
         return factor((dim[0] + 3, dim[1], dim[2]), j, k, m)
+    if column == "f":  # the driving force per unit volume of [forcing] (issue #119): rho u^2 / L
+        return factor((-1, 2, 1), j, k, m)
     if column in ("max_divb", "seam_max_divb"):
         return factor(FIELD_PER_LENGTH, j, k, m)
     if column == "l1_divb":

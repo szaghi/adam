@@ -229,6 +229,11 @@ replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 | `[bc_*]` `wall_model_filter` | $L_0 / u_0$ |
 | `[bc_*]` `wall_model_edge_velocity` | $u_0$ |
 | `[bc_*]` `wall_model_edge_temperature` | $u_0^2 / R$ |
+| `[forcing]` `bulk_momentum` | $\rho_0 u_0$ |
+| `[initial_conditions]` `ch_rho` | $\rho_0$ |
+| `[initial_conditions]` `ch_ub` | $u_0$ |
+| `[initial_conditions]` `ch_h`, `ch_lx`, `ch_lz` | $L_0$ |
+| `[initial_conditions]` `ch_mach`, `ch_pert`; every `[turbulence]` key; `[forcing]` `type`, `axis` | — (dimensionless) |
 | `wall_u`, `wall_v`, `wall_w` | $u_0$ |
 | `wall_temperature`, `reference_temperature` | $u_0^2 / R$ |
 | `reynolds`, `prandtl`, `magnetic_reynolds`, `viscosity_exponent` | — (dimensionless) |
@@ -531,7 +536,7 @@ A model needs `physical_model = euler` or `euler-de` (fatal otherwise) and `ngc 
 | `axis` | string | with `mass-flow` | `x`, `y`, `z` | Direction of the flow. |
 | `bulk_momentum` | real | with `mass-flow` | | Target mean of the momentum along the axis. |
 
-The force per unit volume, the added momentum over the step, goes to `<output_basename>-forcing_history.dat` (it, time, f) on the conservation history cadence: at a statistically steady state its mean times the half height is the wall shear stress (issue #119, T3.1).
+The force per unit volume, the added momentum over the step, goes to `<output_basename>-forcing_history.dat` (header `VARIABLES="it" "time" "f"`, then one row per save) on the conservation history cadence, in the output units of `[reference]`: at a statistically steady state its mean times the half height is the wall shear stress (issue #119, T3.1). A restart appends to it. Files written before the header existed have none.
 
 ## [numerics]
 

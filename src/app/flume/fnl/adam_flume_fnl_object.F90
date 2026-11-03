@@ -453,6 +453,8 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: accrete_sinks_gpu       !< Threshold accretion of the committed device state (issue #94).
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
+      procedure, pass(self) :: wm_filter_to_host       !< Copy the wall-model filter averages from the device to the host arrays (issue #119).
+      procedure, pass(self) :: wm_filter_to_device     !< Copy the host wall-model filter averages to the device (issue #119).
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
       procedure, pass(self) :: refresh_potential       !< Set the gravitational potential and copy it to the device.
       procedure, pass(self) :: copy_potential_gpu      !< Copy the gravitational potential to the device.
@@ -1108,7 +1110,8 @@ contains
    call add_uniform_momentum_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, axis=self%forcing%axis, dm=dm, q_gpu=self%q_gpu)
    if (self%time%dt > 0._R8P) self%forcing%f = dm / self%time%dt
    if (self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) &
-      call self%forcing%save_row(output_basename=self%io%output_basename, it=self%time%it, time=self%time%time)
+      call self%forcing%save_row(output_basename=self%io%output_basename, it=self%time%it, &
+                                 time=self%time%time*self%units%time_output(), force=self%units%force_density_output(), is_restart=self%io%restart)
    endsubroutine apply_forcing
 
    subroutine update_hybrid_sensor(self)
@@ -1533,6 +1536,56 @@ contains
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    call self%build_bc_pass_rows
    endsubroutine copy_cpu_gpu
+
+   subroutine wm_filter_to_host(self)
+   !< Copy the wall-model filter averages from the device `(b, i, j, k, v)` to the host arrays `(v, i, j, k, b)` of the checkpoint (issue #119):
+   !< a whole-array copy into a host buffer of the device shape (no staging buffer of another extent, issue #31), transposed on the host.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%has_wm_filter) return
+   call one(self%wm_avg_x_gpu, self%wm_avg_x)
+   call one(self%wm_avg_y_gpu, self%wm_avg_y)
+   call one(self%wm_avg_z_gpu, self%wm_avg_z)
+   contains
+      subroutine one(a_gpu, a)
+      !< One direction.
+      real(R8P), pointer, intent(in)    :: a_gpu(:,:,:,:,:) !< Device averages (b, i, j, k, v).
+      real(R8P),          intent(inout) :: a(:,:,:,:,:)     !< Host averages (v, i, j, k, b).
+      real(R8P), allocatable            :: h(:,:,:,:,:)     !< Host buffer of the device shape.
+      integer(I4P)                      :: v                !< Counter.
+
+      allocate(h(size(a_gpu, 1), size(a_gpu, 2), size(a_gpu, 3), size(a_gpu, 4), size(a_gpu, 5)))
+      call dev_memcpy_from_device(dst=h, src=a_gpu)
+      do v=1, size(a, 1)
+         a(v,:,:,:,:) = reshape(h(:,:,:,:,v), shape(a(v,:,:,:,:)), order=[4, 1, 2, 3])
+      enddo
+      endsubroutine one
+   endsubroutine wm_filter_to_host
+
+   subroutine wm_filter_to_device(self)
+   !< Copy the host wall-model filter averages `(v, i, j, k, b)` to the device `(b, i, j, k, v)` (issue #119): transposed on the host into a
+   !< buffer of the device shape, then a whole-array copy.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%has_wm_filter) return
+   call one(self%wm_avg_x, self%wm_avg_x_gpu)
+   call one(self%wm_avg_y, self%wm_avg_y_gpu)
+   call one(self%wm_avg_z, self%wm_avg_z_gpu)
+   contains
+      subroutine one(a, a_gpu)
+      !< One direction.
+      real(R8P),          intent(in)    :: a(:,:,:,:,:)     !< Host averages (v, i, j, k, b).
+      real(R8P), pointer, intent(inout) :: a_gpu(:,:,:,:,:) !< Device averages (b, i, j, k, v).
+      real(R8P), allocatable            :: h(:,:,:,:,:)     !< Host buffer of the device shape.
+      integer(I4P)                      :: v                !< Counter.
+
+      allocate(h(size(a_gpu, 1), size(a_gpu, 2), size(a_gpu, 3), size(a_gpu, 4), size(a_gpu, 5)))
+      do v=1, size(a, 1)
+         h(:,:,:,:,v) = reshape(a(v,:,:,:,:), shape(h(:,:,:,:,v)), order=[2, 3, 4, 1])
+      enddo
+      call dev_memcpy_to_device(dst=a_gpu, src=h)
+      endsubroutine one
+   endsubroutine wm_filter_to_device
 
    subroutine copy_gpu_cpu(self)
    !< Copy state and residuals from device to host, the blocks in use only (issue #75: the outputs, the restart files

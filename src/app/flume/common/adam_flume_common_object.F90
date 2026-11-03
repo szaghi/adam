@@ -118,7 +118,7 @@ type, extends(realm_object) :: flume_common_object
    real(R8P),         allocatable :: wm_avg_y(:,:,:,:,:) !< The same on the y faces [5, ni, 2, nk, nb].
    real(R8P),         allocatable :: wm_avg_z(:,:,:,:,:) !< The same on the z faces [5, ni, nj, 2, nb].
    logical                        :: has_wm_filter=.false. !< Some modelled face filters its samples (`wall_model_filter` > 0).
-   logical                        :: wm_filter_fresh=.true. !< The averages hold no history (start, restart, regrid): the next commit takes the sample.
+   logical                        :: wm_filter_fresh=.true. !< The averages hold no history (start, regrid, a checkpoint without them): the next commit takes the sample.
    integer(I4P)                   :: wm_filter_it=-1_I4P !< The iteration whose sample the averages hold.
    integer(I4P),      allocatable :: hybrid_faces(:,:)   !< Hybrid scheme: block faces it must not read across [nb, 6].
    logical                        :: hybrid_has_faces=.false. !< Hybrid scheme: some block of the realm has such a face.
@@ -174,6 +174,10 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: stop_nonfinite        !< Stop on a non-finite state, locating it on every rank.
       procedure, pass(self) :: load_restart_files    !< Load restart files.
       procedure, pass(self) :: save_restart_files    !< Save restart files.
+      procedure, pass(self) :: load_wm_filter        !< Load the wall-model input filter averages of a restart (issue #119).
+      procedure, pass(self) :: save_wm_filter        !< Save the wall-model input filter averages (issue #119).
+      procedure, pass(self) :: wm_filter_to_host     !< Bring the filter averages to the host arrays (FNL: from the device).
+      procedure, pass(self) :: wm_filter_to_device   !< Send the host filter averages where the backend reads them (FNL: the device).
       procedure, pass(self) :: save_slices           !< Save the slices on their cadence.
       procedure, pass(self) :: save_xh5f             !< Save fields in XH5F format.
       procedure, pass(self) :: set_divb_seam         !< Set the seam faces flags of the div(B) history.
@@ -1460,8 +1464,75 @@ contains
    call self%units%check_restart(basename=self%io%restart_basename)
    call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
    if (self%sinks%is_active) call self%sinks%load_restart(basename=self%io%restart_basename)
+   if (self%has_wm_filter) call self%load_wm_filter(basename=self%io%restart_basename)
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
+
+   subroutine load_wm_filter(self, basename)
+   !< Load the wall-model input filter averages of this rank from `<basename>-proc<rank>.wmf` (issue #119), so a restart continues the
+   !< run bit for bit. The blocks must be the restart's own, in the same order (checked by their Morton codes: fatal otherwise). A checkpoint
+   !< without the file (written before the averages were saved, or by a run without the filter) restarts the averages from the next sample.
+   class(flume_common_object), intent(inout) :: self         !< The equation.
+   character(*),               intent(in)    :: basename     !< Restart files basename.
+   character(:), allocatable                 :: filename     !< File name.
+   integer(I4P)                              :: unit, ios, b !< File unit, I/O status, counter.
+   integer(I4P)                              :: n(4), fresh  !< Blocks number and block sizes, fresh flag.
+   integer(I8P)                              :: code         !< Morton code of a block.
+   logical                                   :: is_present   !< File presence.
+
+   filename = trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank, 6))//'.wmf'
+   inquire(file=filename, exist=is_present)
+   if (.not.is_present) then
+      call mpih%print_message('warning: '//filename//' is missing: the wall-model input filter restarts from the next sample')
+      self%wm_filter_fresh = .true.
+      return
+   endif
+   open(newunit=unit, file=filename, form='unformatted', access='stream', action='read', iostat=ios)
+   if (ios == 0) read(unit, iostat=ios) n, fresh
+   if (ios /= 0) call mpih%error_stop(msg=': cannot read '//filename)
+   if (any(n /= [self%blocks_number, self%ni, self%nj, self%nk])) &
+      call mpih%error_stop(msg=': '//filename//' holds '//trim(str(n(1), .true.))//' blocks of '//trim(str(n(2:4), .true.))// &
+                               ' cells, the restart '//trim(str(self%blocks_number, .true.))//' of '//                       &
+                               trim(str([self%ni, self%nj, self%nk], .true.)))
+   do b=1, n(1)
+      read(unit, iostat=ios) code
+      if (ios == 0 .and. code /= self%adam%field%code(b)) &
+         call mpih%error_stop(msg=': '//filename//', block '//trim(str(b, .true.))//' is not the restart''s (Morton code)')
+      if (ios == 0) read(unit, iostat=ios) self%wm_avg_x(:,:,:,:,b), self%wm_avg_y(:,:,:,:,b), self%wm_avg_z(:,:,:,:,b)
+      if (ios /= 0) call mpih%error_stop(msg=': cannot read block '//trim(str(b, .true.))//' of '//filename)
+   enddo
+   close(unit)
+   self%wm_filter_fresh = fresh /= 0_I4P
+   call self%wm_filter_to_device
+   endsubroutine load_wm_filter
+
+   subroutine save_wm_filter(self, basename)
+   !< Save the wall-model input filter averages of this rank to `<basename>-proc<rank>.wmf` (issue #119): every rank writes its file, with
+   !< zero blocks if it owns none (as `save_blocks`), the Morton code of each block before its averages.
+   class(flume_common_object), intent(inout) :: self     !< The equation.
+   character(*),               intent(in)    :: basename !< Restart files basename.
+   integer(I4P)                              :: unit, b  !< File unit, counter.
+
+   call self%wm_filter_to_host
+   open(newunit=unit, file=trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank, 6))//'.wmf', form='unformatted', &
+        access='stream', status='replace', action='write')
+   write(unit) self%blocks_number, self%ni, self%nj, self%nk, merge(1_I4P, 0_I4P, self%wm_filter_fresh)
+   do b=1, self%blocks_number
+      write(unit) self%adam%field%code(b)
+      write(unit) self%wm_avg_x(:,:,:,:,b), self%wm_avg_y(:,:,:,:,b), self%wm_avg_z(:,:,:,:,b)
+   enddo
+   close(unit)
+   endsubroutine save_wm_filter
+
+   subroutine wm_filter_to_host(self)
+   !< Bring the wall-model filter averages to the host arrays: there already on the CPU backend (FNL overrides it).
+   class(flume_common_object), intent(inout) :: self !< The equation.
+   endsubroutine wm_filter_to_host
+
+   subroutine wm_filter_to_device(self)
+   !< Send the host wall-model filter averages where the backend reads them: nothing to do on the CPU backend (FNL overrides it).
+   class(flume_common_object), intent(inout) :: self !< The equation.
+   endsubroutine wm_filter_to_device
 
    subroutine save_restart_files(self)
    !< Save restart files.
@@ -1473,6 +1544,7 @@ contains
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
    call self%units%save_restart(basename=self%io%restart_basename)
    if (self%sinks%is_active) call self%sinks%save_restart(basename=self%io%restart_basename)
+   if (self%has_wm_filter) call self%save_wm_filter(basename=self%io%restart_basename)
    call self%save_xh5f(output_basename=self%io%restart_basename)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files

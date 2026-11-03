@@ -28,6 +28,8 @@ diagnostics, the keys and the models are in [input](../../input) and [numerics](
 | wm6 | semi-local against classical damping on a hot wall, Re 100 | force 0.7 % apart (min 0.01 %) |
 | wm7 | input filter: $T_f\to0$ against no filter; $T_f=0.05$ near the steady state; $T_f=1$ over a transient; one rank against 2 | 0 (bit for bit); $3.0\cdot10^{-4}$ (bound $10^{-3}$); $1.4\cdot10^{-2}$ (min $10^{-3}$); $4\cdot10^{-11}$ (CPU), $10^{-13}$ (FNL); CPU against FNL $5\cdot10^{-11}$ |
 | wm8 | inverse-transformation model: laminar channel against the equilibrium model; hot wall; one rank against 2 with the filter | $1.0\cdot10^{-4}$, the heat flux of the Reynolds analogy moving the energy by $2.3\cdot10^{-3}$ (bound $10^{-4}$); $9.8\cdot10^{-3}$ (min $10^{-3}$); $4\cdot10^{-11}$ (CPU), 0 (FNL); CPU against FNL $4\cdot10^{-11}$ |
+| wm9 | restart with the filter averages (`.wmf`, one per rank): 10 steps + restart to 20 against 20 straight, inverse-transformation model, $T_f=0.01$; control with the `.wmf` removed | fields and histories bit for bit (CPU and FNL); the control differs and warns |
+| wm10 | dimensional units on a Vreman channel with the wall model and the forcing: input bit for bit (NV-5), output against `scaling.py dimensionalize` (NV-9), forcing history `f` included | bit for bit; bit for bit, 3 histories |
 | hy3 | the central flux: order, kinetic energy identity, pressure equilibrium | order 5.96–5.99; $4\cdot10^{-16}$; $dp/dt$ $9\cdot10^{-15}$ across 100:1 |
 | hy4 | contact of density ratio 8 and 100 | $u$, $p$ within $9\cdot10^{-14}$ |
 | hy5 | 2:1 box, conservation; passes with any skin | mass $10^{-16}$ |

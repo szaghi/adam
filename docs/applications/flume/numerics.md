@@ -677,12 +677,13 @@ on a laminar flow ($h^+\approx1$) and departs from it on a hot wall.
 $\bar a\leftarrow(1-e)\,\bar a+e\,a$, $e=\min(\Delta t/T_f,1)$, as Kawai & Larsson (2012, cited in llm-wiki) recommend against the noise of a
 single LES sample. The average takes the sample once per step, at the first stage (from $q^n$); every stage uses $(1-e)\bar a+e\,a$ with its own
 sample, so $T_f\to0$ is the unfiltered model bit for bit (leg wm7); the residual of a balanced gravity equilibrium, a steady state, uses the
-unfiltered model and leaves the averages alone. The averages restart from the next sample at the start, on a restart (they are not
-in the checkpoint) and after a regrid. Leg wm7: near the steady state of a laminar channel, $T_f=0.05$ moves the force by $3\cdot10^{-4}$ (the lag
+unfiltered model and leaves the averages alone. The averages restart from the next sample at the start and after a regrid; a checkpoint
+carries them (`<restart_basename>-proc<rank>.wmf`, each block's averages after its Morton code, checked on load), so a restart continues
+the run bit for bit (leg wm9); a checkpoint without the file, written before it existed, restarts them with a warning. Leg wm7: near the steady state of a laminar channel, $T_f=0.05$ moves the force by $3\cdot10^{-4}$ (the lag
 $T_f\,|df/dt|/f$), and over an early transient $T_f=1$ by $1.4\cdot10^{-2}$.
 
-Limits: isothermal walls only; the inverse model takes a fixed edge state; the filter state is not restarted; the wall faces are rebuilt each step, so
-after a regrid, but no test regrids along a wall.
+Limits: isothermal walls only; the inverse model takes a fixed edge state; a restart needs the same ranks (as every FLUME checkpoint); the wall faces
+are rebuilt each step, so after a regrid, but no test regrids along a wall.
 
 ## Turbulence diagnostics
 

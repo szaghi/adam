@@ -101,6 +101,7 @@ type :: flume_reference_object
       procedure, pass(self) :: save_units    !< Record the output units and the factor of every written variable.
       procedure, pass(self) :: scale         !< Return the reference of a dimension.
       procedure, pass(self) :: time_output   !< Return the output factor of the time.
+      procedure, pass(self) :: force_density_output !< Return the output factor of a force per unit volume.
       procedure, pass(self) :: variable_output !< Return the output factor of a written variable.
       ! private methods
       procedure, pass(self), private :: classify         !< Return the kind and dimension of an option.
@@ -275,6 +276,16 @@ contains
    if (self%dimensional_output) s = self%scale(DIM_TIME)
    endfunction time_output
 
+   pure function force_density_output(self) result(s)
+   !< Return the output factor of a force per unit volume (the driving force of `[forcing]`, issue #119): `rho0 u0^2 / L0` with dimensional output
+   !< units, 1 otherwise.
+   class(flume_reference_object), intent(in) :: self !< Reference layer.
+   real(R8P)                                 :: s    !< Output factor.
+
+   s = 1._R8P
+   if (self%dimensional_output) s = self%scale(DIM_PRESSURE - DIM_LENGTH)
+   endfunction force_density_output
+
    function variable_output(self, name) result(s)
    !< Return the output factor of a written variable: the reference of its dimension with dimensional output units, 1
    !< otherwise. `dq_<name>` is the time derivative of `<name>`. An unknown name is fatal: no variable may be written in
@@ -386,10 +397,17 @@ contains
    select case(section_name)
    case(INI_SECTION_NAME)
       kind = KIND_NONE
-   case('numerics', 'runge_kutta', 'weno', 'linear-algebra', 'fdv', 'field', 'amr', 'solids', 'slices', 'diagnostics')
+   case('numerics', 'runge_kutta', 'weno', 'linear-algebra', 'fdv', 'field', 'amr', 'solids', 'slices', 'diagnostics', 'turbulence')
       ! dimensionless sections (every option a count, a flag, a name or a dimensionless number); linear-algebra is no
       ! longer read (issue #84, E4) and stays here so that an old input carrying it is not refused as unclassified
       kind = KIND_NONE
+   case('forcing') ! issue #119: the target bulk momentum, a momentum density
+      select case(option_name)
+      case('type', 'axis')
+         kind = KIND_NONE
+      case('bulk_momentum')
+         kind = KIND_SCALED ; dim = DIM_MOMENTUM
+      endselect
    case('physics')
       select case(option_name)
       case('physical_model', 'gamma', 'reynolds', 'prandtl', 'magnetic_reynolds', 'viscosity_law', 'viscosity_exponent', &
@@ -517,17 +535,17 @@ contains
       select case(option_name)
       case('amr_iterations', 'type', 's', 'pulse_axis', 'wave', 'wave_angle', 'polarisation', 'axis', 'regions_number', &
            'normal_x', 'normal_y', 'wave_mode', 'mach', 'polytropic_gamma', &
-           'star_pressure_factor')
+           'star_pressure_factor', 'ch_mach', 'ch_pert')
          kind = KIND_NONE
       case('x0', 'y0', 'radius', 'r0', 'r1', 'pulse_center', 'pulse_width', 'peak_x0', 'peak_y0', 'peak_radius', &
            'wavelength', 'loop_radius', 'interface_1', 'interface_2', 'period', 'interface_2_width', 'interface', &
-           'wall_y0', 'height', 'shock_x0', 'star_radius', 'star_x0', 'star_y0', 'star_z0')
+           'wall_y0', 'height', 'shock_x0', 'star_radius', 'star_x0', 'star_y0', 'star_z0', 'ch_h', 'ch_lx', 'ch_lz')
          kind = KIND_SCALED ; dim = DIM_LENGTH
-      case('strength', 'kappa', 'v0', 'wall_velocity')
+      case('strength', 'kappa', 'v0', 'wall_velocity', 'ch_ub')
          kind = KIND_SCALED ; dim = DIM_VELOCITY
       case('wall_temperature')
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
-      case('rho_in', 'rho_amplitude', 'star_density')
+      case('rho_in', 'rho_amplitude', 'star_density', 'ch_rho')
          kind = KIND_SCALED ; dim = DIM_DENSITY
       case('pulse_amplitude', 'peak_amplitude', 'b_par', 'mu', 'loop_amplitude')
          kind = KIND_SCALED ; dim = DIM_FIELD

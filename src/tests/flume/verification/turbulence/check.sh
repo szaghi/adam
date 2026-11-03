@@ -66,6 +66,16 @@
 #        not the laminar conduction, so the gas gains 2.8 times the energy (total 2.3e-3 apart at t = 5) and the force moves by 1e-4 (measured 9.97e-5; my
 #        first bound, 1e-4, ignored the heat flux); `energy` asserts that gap, more than 1e-3, so this leg keeps exercising the analogy. (b) on wm6's hot wall,
 #        Re 100, the force differs from the equilibrium model's by more than 1e-3; (c) one rank against N, with the input filter too.
+#   wm9  the input filter across a restart (its averages in <restart_basename>-proc<rank>.wmf): 20 steps straight against 10, a checkpoint, a restart to 20,
+#        both with the filter (T_f = 0.01) and the inverse model on a perturbed channel: the conservative fields of step 20 bit for bit (scaling.py compare)
+#        and every history byte for byte. Control: the same restart with the .wmf files removed (the averages restart from the sample, as a checkpoint
+#        written before them) must NOT be bit for bit, so the file is what carries the state.
+#   wm10 the channel in dimensional units (the reference layer, issue #49): a channel with every #119 option ([forcing], the channel initial
+#        condition, Vreman, wall-modelled walls with height, filter and the inverse model), its gas given as gamma. NV-5 (scaling/reference.sh --inputs):
+#        the dimensional input runs bit for bit as its code-unit twin, fields and every history, each conversion exact. NV-9 (scaling.py compare
+#        --output): with output_units = dimensional every field and history is the base one times its power of two, the forcing history's f as rho u^2 / L
+#        (the turbulence history is written in code units, documented, so it is off here). A cp, cv gas is not bit for bit across the layer (the layer's
+#        gamma gives cp = gamma cv one ulp off the input cp, which k = mu cp / Pr and the subgrid heat flux read): a defect of the layer, not of #119.
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -81,7 +91,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -410,6 +420,43 @@ if has_leg wm8; then
    a=$(channel_run wm8-np1 1 --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10 --wm-model inverse-transformation --wm-filter 0.01)
    b=$(channel_run wm8-npN "$NP" --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10 --wm-model inverse-transformation --wm-filter 0.01)
    "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+fi
+if has_leg wm9; then
+   echo "== wm9: the input filter across a restart"
+   R=(--ny 32 --wall wall-modelled --perturbation 0.1 --wm-filter 0.01 --wm-model inverse-transformation --it-save 10)
+   a=$(channel_run wm9-straight "$NP" "${R[@]}" --it-max 20)
+   for v in restart control; do
+      b=$(channel_run "wm9-$v" "$NP" "${R[@]}" --it-max 10 --restart-save 10)
+      [[ $(ls "$b"/*.wmf 2>/dev/null | wc -l) -eq $NP ]] || { echo "check.sh: wm9 wrote no .wmf per rank" >&2 ; exit 1 ; }
+      [[ $v == control ]] && rm -f "$b"/*.wmf
+      python3 -I "$CASE_DIR/make_channel.py" "$b/input.ini" "${R[@]}" --it-max 20 --restart
+      (cd "$b" && mpirun -np "$NP" "$EXE" input.ini > log2.txt 2>&1) || { echo "check.sh: wm9 $v failed, see $b/log2.txt" >&2 ; exit 1 ; }
+      result="$("$VENV_PY" "$VERIF_DIR/scaling/scaling.py" compare "$a" "$b" --ngc 3 --conservative --psi glm)" && bitwise=1 || bitwise=0
+      for h in "$a"/*_history.dat; do cmp -s "$h" "$b/$(basename "$h")" || { bitwise=0 ; result="$result; $(basename "$h") differs" ; } ; done
+      if [[ $v == restart ]]; then
+         [[ $bitwise -eq 1 ]] && echo "restart with the averages: $result  PASS" || { echo "restart with the averages: $result  FAIL" ; exit 1 ; }
+      else
+         grep -q "wall-model input filter restarts" "$b/log2.txt" || { echo "control: no warning of the missing .wmf  FAIL" ; exit 1 ; }
+         [[ $bitwise -eq 0 ]] && echo "control, the averages removed: not bit for bit (as it must)  PASS" || { echo "control: bit for bit without the averages: the leg cannot see them  FAIL" ; exit 1 ; }
+      fi
+   done
+fi
+if has_leg wm10; then
+   echo "== wm10: the channel in dimensional units"
+   D=(--ny 32 --wall wall-modelled --perturbation 0.1 --wm-filter 0.01 --wm-model inverse-transformation --wm-height 0.3 --sgs-model vreman --gas gamma --it-max 10 --it-save 10)
+   w="$CASE_DIR/work-$TAG-wm10" ; rm -rf "${w:?}" ; mkdir -p "$w"
+   python3 -I "$CASE_DIR/make_channel.py" "$w/channel.ini" "${D[@]}"
+   FLUME_EXE="$EXE" "$VERIF_DIR/scaling/reference.sh" --np "$NP" --inputs "$w/channel.ini" > "$w/nv5.log" 2>&1 || true
+   grep -a "channel \|NV-5" "$w/nv5.log" || true
+   grep -aq "reference layer NV-5 FAILED" "$w/nv5.log" && { echo "wm10: NV-5 FAILED" ; exit 1 ; }
+   grep -aq "BITWISE" "$w/nv5.log" || { echo "wm10: NV-5 did not report the case bitwise" ; exit 1 ; }
+   base="$w/base" ; dim="$w/dimensional" ; mkdir -p "$base" "$dim"
+   sed '/^turbulence_history_save/d' "$w/channel.ini" > "$base/input.ini"
+   "$VENV_PY" "$VERIF_DIR/scaling/scaling.py" dimensionalize "$base/input.ini" "$dim/input.ini" --j 2 --k -1 --m -2 > /dev/null
+   sed -i 's/^\[reference\]$/[reference]\noutput_units = dimensional/' "$dim/input.ini"
+   for x in "$base" "$dim"; do (cd "$x" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) || { echo "check.sh: wm10 failed, see $x/log.txt" >&2 ; exit 1 ; } ; done
+   "$VENV_PY" "$VERIF_DIR/scaling/scaling.py" compare "$base" "$dim" --ngc 3 --psi glm --output --temperature-rtol 2e-15 --j 2 --k -1 --m -2 \
+      && echo "NV-9 dimensional output  PASS" || { echo "NV-9 dimensional output  FAIL" ; exit 1 ; }
 fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"

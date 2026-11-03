@@ -873,7 +873,8 @@ contains
    call add_uniform_momentum(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, axis=self%forcing%axis, dm=dm, q=self%q)
    if (self%time%dt > 0._R8P) self%forcing%f = dm / self%time%dt
    if (self%time%is_to_save(cadence=self%diagnostics%conservation_history_save)) &
-      call self%forcing%save_row(output_basename=self%io%output_basename, it=self%time%it, time=self%time%time)
+      call self%forcing%save_row(output_basename=self%io%output_basename, it=self%time%it, &
+                                 time=self%time%time*self%units%time_output(), force=self%units%force_density_output(), is_restart=self%io%restart)
    endsubroutine apply_forcing
 
    subroutine update_hybrid_sensor(self)

@@ -13,7 +13,7 @@ import numpy as np
 
 def force(work: Path, last: float = 0.25) -> tuple[float, float]:
     """Return the mean driving force over the last part of the history, and the drift of the mass over the run."""
-    f = np.loadtxt(work / "channel-forcing_history.dat", ndmin=2)
+    f = np.loadtxt(work / "channel-forcing_history.dat", ndmin=2, comments="VARIABLES")  # with or without the header (#119, later runs have it)
     tail = f[int(len(f) * (1.0 - last)) :, 2]
     path = work / "channel-conservation_history.dat"
     with open(path) as fh:
@@ -40,8 +40,8 @@ def laminar(works: list[str], reynolds: float, tol: float, min_order: float, mas
 
 
 def history(path: Path, skip: int) -> np.ndarray:
-    """Load a history."""
-    return np.loadtxt(path, skiprows=skip, ndmin=2)
+    """Load a history; a VARIABLES header line is skipped whether or not `skip` counts it."""
+    return np.loadtxt(path, skiprows=skip, ndmin=2, comments="VARIABLES")
 
 
 def agree(a: str, b: str) -> int:
