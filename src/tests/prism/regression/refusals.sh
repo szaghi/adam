@@ -46,6 +46,9 @@ LEGS=(
    "t0-elliptic-amr|cpu fnl|s/^type = Neumann/type = PEC/;s/^time_delay = .*/time_delay = 0.0/;s/^amr_iterations = 0/amr_iterations = 1/;s/^iu_ref_levels  = 2/iu_ref_levels  = 1/;s/^markers_number = 0/markers_number = 1\n[amr_marker_1]\nmode = 1\ngeo_type = primitive-box\ndelta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0\nbox_xmin = -0.06\nbox_ymin = -0.06\nbox_zmin = -0.06\nbox_xmax = 0.0\nbox_ymax = 0.06\nbox_zmax = 0.06\ntarget_level = 2/|needs a uniform grid"
    # issue #84 E3d: [PIC] elliptic_correction is removed; .true. must stop (a PIC input: the PIC section is read)
    "elliptic-correction|cpu fnl|s/^\\[PIC\\]$/[PIC]\\nelliptic_correction = .true./|elliptic_correction) is removed|pic-pec-t0"
+   # issue #111: the former [probes] input (probes_number and one [probe_N] section per probe) is refused, not ignored
+   "probes-sections|cpu fnl|s/^\\[grid\\]$/[probe_1]\nx = 0.0\ny = 0.0\nz = 0.0\n\n[grid]/|[probe_N] sections are no longer read"
+   "probes-number|cpu fnl|s/^\\[grid\\]$/[probes]\nprobes_number = 1\nsave_every = 1\n\n[grid]/|(probes_number) is no longer read"
    "ib-axis|cpu fnl|s/^number    = 0/number    = 1/;s/^n_eikonal = 2/&\n[solid_1]\nname = s\nbc_type = 1\ndefinition = analytical_circle\ncircle_center_x = 0.0\ncircle_center_y = 0.0\ncircle_center_z = 0.0\ncircle_radius = 0.01\ncircle_axis = w/|(circle_axis) \"w\""
 )
 

@@ -305,16 +305,34 @@ refused at initialization: the section has no working use.
 | `save_history` | logical | no | `.false.` | Write the history of B at the domain centre. |
 | `history_save` | int | no | 10 | Its cadence in steps. |
 
-### [probes] and [probe_N]
+### [probes]
 
-Optional: without a `[probes]` section there are no probes. Each probe samples the whole state at a point by trilinear
-interpolation; one file per probe, `<output_basename>-probe_NN.dat`.
+Optional: without a `[probes]` section, or with neither `point_N` nor `plane_N` keys, there are no probes. Each probe
+samples the whole state at a point by trilinear interpolation.
 
-| Section | Key | Type | Req. | Accepted / invalid | Meaning |
-|---------|-----|------|------|--------------------|---------|
-| `[probes]` | `probes_number` | int | yes (section present) | `>= 0`, otherwise fatal; `0`: no probes | Number of probes. |
-| | `save_every` | int | yes (probes on) | `> 0`, otherwise fatal | Cadence in steps; the last step is always saved. |
-| `[probe_N]` | `x`, `y`, `z` | real | yes (the section too) | inside the domain, otherwise fatal | Probe point, in the grid's units (divided by `L0` non-dimensional). |
+```ini
+[probes]
+save_every = 4
+point_1 = -0.04 0.0 0.0       ; one probe at x y z
+plane_1 = x 0.4364 48 48      ; a plane of probes normal to x at x = 0.4364: 48 x 48 points over y and z
+```
+
+| Key | Type | Req. | Accepted / invalid | Meaning |
+|-----|------|------|--------------------|---------|
+| `save_every` | int | yes (probes on) | `> 0`, otherwise fatal | Cadence in steps; the last step is always saved. |
+| `point_N` | 3 reals | no | inside the domain, otherwise fatal | A probe at `x y z`. |
+| `plane_N` | axis, real, 2 ints | no | axis `x`/`y`/`z`, abscissa inside the domain, `n1 n2 >= 1`, otherwise fatal | A plane of `n1 x n2` probes normal to the axis at the abscissa, on the cell centres of a uniform lattice spanning the domain along the other two axes (normal `x`: y then z; `y`: x then z; `z`: x then y). With `n` equal to the cells of the grid along an axis the probes sit on the cell centres. |
+
+Coordinates are in the grid's units (divided by `L0` non-dimensional). `point_N` and `plane_N` are numbered from 1
+without gaps: the first missing number ends the list. The former input, `probes_number` and one `[probe_N]` section
+(`x`, `y`, `z`) per probe, is refused at initialization: write each former probe as a `point_N`, or a full lattice
+of them as one `plane_N`.
+
+Output (rank 0): `<output_basename>-probe_NN.dat` per point (one row per save: `it time` and the variables) and
+`<output_basename>-plane_NN.dat` per plane (per save, `n1 x n2` rows `it time i j` and the variables, `i` fastest).
+The rows are not flushed at every save (a flush per file is a file-system round trip; on a shared file system it
+stalled every rank for seconds): they reach the files when the runtime buffers fill and at the end of the run, so after
+a crash the last rows may be missing.
 
 ---
 

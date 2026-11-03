@@ -53,6 +53,7 @@ Without an argument the executable reads `input.ini` in the working directory. A
 | `<basename>-charge_conservation_history.dat` | PIC: particle and deposited charge, continuity and Gauss residuals | PIC models |
 | `<basename>-grms_history.dat`, `<basename>-magnetic_field_at_center_domain.dat` | RMS of the field over a region; $\mathbf B$ at the domain centre | `[grms]`, `[magnetic_field_at_center_domain]` |
 | `<basename>-probe_NN.dat` | The state at a fixed point, trilinear | `[probes]` |
+| `<basename>-plane_NN.dat` | The state on a plane of probes (per save one row per probe), trilinear | `[probes]` |
 | `rectangular_current_coil_N.dat`, `helicon_current_coil_N.dat` | The current of rectangular and helicon coils | every step, when such a coil exists |
 | `single_particle_output.dat` | Position, velocity and fields of the test particle | `problem_type = single_particle` |
 
