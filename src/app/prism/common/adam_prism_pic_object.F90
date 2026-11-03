@@ -143,6 +143,7 @@ type :: prism_pic_object
    integer(I4P)              :: particle_number_global = 0_I4P !< Total number of particles (all ranks).
    integer(I4P)              :: particle_capacity = 0_I4P   !< Particle arrays capacity of every rank (issue #112).
    real(R8P)                 :: particle_capacity_factor = 0._R8P !< Capacity in units of global/ranks; 0: global.
+   integer(I4P)              :: charge_conservation_save = 0_I4P !< Charge-conservation history every N steps; 0: none.
 	integer(I4P)				  :: n_ions = 0_I4P              !< Total ions number
 	integer(I4P)				  :: n_electrons = 0_I4P         !< Total electrons number
 	integer(I4P)				  :: n_neutrals = 0_I4P          !< Total neutrals number
@@ -941,6 +942,16 @@ contains
    if (error == 0 .and. .not.(self%particle_capacity_factor >= 1._R8P)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(particle_capacity_factor) must be >= 1, got '// &
                                trim(str(self%particle_capacity_factor)))
+
+   ! optional (issue #111): the charge-conservation history (<output_basename>-charge_conservation_history.dat) every N
+   ! steps; absent or 0, no history, no diagnostic arrays and no stage div(J) (it costs a ghost exchange per RK stage).
+   self%charge_conservation_save = 0_I4P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='charge_conservation_save', &
+                            val=self%charge_conservation_save, error=error)
+   if (error > 0) self%charge_conservation_save = 0_I4P
+   if (self%charge_conservation_save < 0_I4P) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(charge_conservation_save) must be >= 0, got '// &
+                               trim(str(self%charge_conservation_save)))
 
    self%esirkepov_tail_cleanup = .false.
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_cleanup', &

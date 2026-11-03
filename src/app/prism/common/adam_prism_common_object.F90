@@ -359,7 +359,8 @@ contains
    !<
    !< Both backends allocate the same nb-sized arrays, on the host (CPU) or on the device (FNL), so one count serves
    !< both: `q`, `dq`, `curl`, `divergence` (4 nv), the Runge-Kutta stages (`rk_stored_stages_number` nv), the coils
-   !< current density (3 per coil), the two PIC charge-continuity accumulators, and the flux arrays of the scheme in use:
+   !< current density (3 per coil), the two PIC charge-continuity accumulators (only with a charge-conservation history), and
+   !< the flux arrays of the scheme in use:
    !< the cell fluxes `flxyz_c` (9 nv) for FV and WENO, the face fluxes (3 nv, counted as full block fields) for FV only,
    !< none for centered FD (issue #112). Backend-only arrays are added by the backend estimate of `initialize`; face-local PML
    !< storage is not block-sized and is not counted.
@@ -370,6 +371,7 @@ contains
    character(99)                             :: rk_scheme       !< Runge-Kutta scheme name.
    integer(I4P)                              :: stages_number   !< Runge-Kutta stage fields.
    integer(I4P)                              :: flux_fields     !< Flux fields per variable of the space scheme.
+   integer(I4P)                              :: save_cc         !< [PIC].(charge_conservation_save).
    integer(I4P)                              :: error           !< Error status.
 
    call file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
@@ -384,7 +386,12 @@ contains
    case default                       ; flux_fields = 0_I4P
    endselect
    fields_number = self%physics%nv * (4_I4P + flux_fields + stages_number) + 3_I4P * self%coil%total_coils_number
-   if (is_pic_model(self%physics%physical_model)) fields_number = fields_number + 2_I4P
+   if (is_pic_model(self%physics%physical_model)) then
+      ! the two charge-continuity accumulators exist only with [PIC].(charge_conservation_save) > 0 (issue #111)
+      call file_parameters%get(section_name='PIC', option_name='charge_conservation_save', val=save_cc, error=error)
+      if (error > 0) save_cc = 0_I4P
+      if (save_cc > 0_I4P) fields_number = fields_number + 2_I4P
+   endif
    endsubroutine compute_fields_number
 
    subroutine initialize(self, filename, memory_avail, nv, fields_number, verbose, L0)

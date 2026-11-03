@@ -102,6 +102,7 @@ type, extends(prism_common_object) :: prism_fnl_object
    real(R8P), pointer :: charge_conservation_divj_gpu(:,:,:,:)=>null() !< PIC temporary div(J) for charge diagnostic.
    real(R8P)             :: charge_conservation_error_max = 0._R8P          !< Max PIC charge-continuity residual.
    logical               :: charge_conservation_ready = .false.             !< True when current step PIC diagnostic is ready.
+   logical               :: charge_conservation_step = .false.              !< True when this PIC step feeds the history.
    logical               :: stage_ghosts_fresh = .false. !< update_ghost skips the exchange (boundary conditions and coil
                                                        !< re-stamp kept): the caller refreshed the ghosts and changed only
                                                        !< pointwise sources since. Set around one call, then cleared.
@@ -522,7 +523,7 @@ contains
    call dev_alloc(fptr_dev=self%divergence_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate divergence_gpu in prism_fnl_object%allocate_gpu')
-   if (is_pic_model(self%physics%physical_model)) then
+   if (is_pic_model(self%physics%physical_model) .and. self%pic%charge_conservation_save > 0_I4P) then
       call dev_alloc(fptr_dev=self%charge_conservation_acc_gpu, &
                      ubounds=[nb,ni+ngc,nj+ngc,nk+ngc], lbounds=[1,1-ngc,1-ngc,1-ngc], init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) &
@@ -5797,8 +5798,11 @@ contains
          if (is_open) close(self%magnetic_field_at_center_domain%history_unit)
       endif
       call self%probes%close_files
-      inquire(unit=self%io%charge_conservation_history_unit, opened=is_open)
-      if (is_open) close(self%io%charge_conservation_history_unit)
+      ! unit 0 (stderr): no history was opened (no PIC, or [PIC].(charge_conservation_save) absent)
+      if (self%io%charge_conservation_history_unit /= 0_I4P) then
+         inquire(unit=self%io%charge_conservation_history_unit, opened=is_open)
+         if (is_open) close(self%io%charge_conservation_history_unit)
+      endif
       inquire(unit=self%io%divergence_history_unit, opened=is_open)
       if (is_open) close(self%io%divergence_history_unit)
    endif
@@ -5945,7 +5949,7 @@ contains
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(is_to_open=.true., div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
                                      div_J=self%max_divergence_J)
-   if (is_pic_model(self%physics%physical_model)) &
+   if (is_pic_model(self%physics%physical_model) .and. self%pic%charge_conservation_save > 0_I4P) &
       call self%io%save_charge_conservation_history(time=0._R8P, Q_particles=0._R8P, Q_deposited=0._R8P, &
                                                     Q_deposition_error=0._R8P, R_cont_L1=0._R8P, R_cont_L2=0._R8P, &
                                                     R_cont_Linf=0._R8P, dQ_num_net=0._R8P, dQ_num_abs=0._R8P, &
@@ -6561,10 +6565,15 @@ contains
 
    self%charge_conservation_error_max = 0._R8P
    self%charge_conservation_ready = .false.
+   self%charge_conservation_step = .false.
    if (.not. is_pic_model(self%physics%physical_model)) return
    if (.not. associated(self%charge_conservation_acc_gpu)) return
    if (.not. associated(self%charge_conservation_divj_gpu)) return
+   ! [PIC].(charge_conservation_save): only the steps written to the history accumulate (time%it is this step)
+   if (self%pic%charge_conservation_save <= 0_I4P) return
+   if (mod(self%time%it, self%pic%charge_conservation_save) /= 0_I4P) return
    if (self%time%dt <= 0._R8P) return
+   self%charge_conservation_step = .true.
 
    call initialize_charge_conservation_diagnostic_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                                              blocks_number=self%blocks_number, nv=self%nv,     &
@@ -6607,6 +6616,7 @@ contains
    integer(I4P)                           :: crown
 
    if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. self%charge_conservation_step) return
    if (.not. associated(self%charge_conservation_acc_gpu)) return
    if (.not. associated(self%charge_conservation_divj_gpu)) return
 
@@ -6712,6 +6722,7 @@ contains
    real(R8P)                              :: local_error
 
    if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. self%charge_conservation_step) return
    if (.not. associated(self%charge_conservation_acc_gpu)) return
    if (self%time%dt <= 0._R8P) return
 

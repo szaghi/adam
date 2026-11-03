@@ -51,6 +51,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P)             :: charge_conservation_error_max = 0._R8P !< Max continuity-equation residual over one PIC step.
    real(R8P)             :: current_solver_residual_max = 0._R8P !< Max residual of the direct current line solves.
    logical               :: charge_conservation_ready = .false. !< True when the current PIC step has a finalized diagnostic.
+   logical               :: charge_conservation_step = .false. !< True when this PIC step feeds the history.
    logical               :: stage_ghosts_fresh = .false. !< update_ghost skips the exchange (boundary conditions and coil
                                                        !< re-stamp kept): the caller refreshed the ghosts and changed only
                                                        !< pointwise sources since. Set around one call, then cleared.
@@ -240,7 +241,7 @@ contains
       call allocate_variable(var=self%flz_f,ulb=reshape([1,nv,1,ni,1,nj,0,nk,1,nb],[2,5]),msg=msg)
       self%flz_f = 0._R8P
    endif
-   if (is_pic_model(self%physics%physical_model)) then
+   if (is_pic_model(self%physics%physical_model) .and. self%pic%charge_conservation_save > 0_I4P) then
       msg = msg_//' charge_conservation_acc '
       call allocate_variable(var=self%charge_conservation_acc, &
                              ulb=reshape([1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,4]), msg=msg)
@@ -1546,7 +1547,7 @@ contains
    call self%save_magnetic_field_at_center_domain_history(is_to_open=.true.)
    call self%save_probes_history(is_to_open=.true.)
    call self%save_divergence_history(is_to_open=.true., div_D=max_div_D, div_B=max_div_B, div_J=max_div_J)
-   if (is_pic_model(self%physics%physical_model)) &
+   if (is_pic_model(self%physics%physical_model) .and. self%pic%charge_conservation_save > 0_I4P) &
       call self%io%save_charge_conservation_history(time=0._R8P, Q_particles=0._R8P, Q_deposited=0._R8P, &
                                                     Q_deposition_error=0._R8P, R_cont_L1=0._R8P, R_cont_L2=0._R8P, &
                                                     R_cont_Linf=0._R8P, dQ_num_net=0._R8P, dQ_num_abs=0._R8P, &
@@ -2090,7 +2091,8 @@ contains
          if (is_open) close(self%magnetic_field_at_center_domain%history_unit)
       endif
       call self%probes%close_files
-      if (is_pic_model(self%physics%physical_model)) then
+      ! unit 0 (stderr): no history was opened ([PIC].(charge_conservation_save) absent)
+      if (is_pic_model(self%physics%physical_model) .and. self%io%charge_conservation_history_unit /= 0_I4P) then
          inquire(unit=self%io%charge_conservation_history_unit, opened=is_open)
          if (is_open) close(self%io%charge_conservation_history_unit)
       endif
@@ -4855,9 +4857,14 @@ contains
 
    self%charge_conservation_error_max = 0._R8P
    self%charge_conservation_ready = .false.
+   self%charge_conservation_step = .false.
    if (.not. is_pic_model(self%physics%physical_model)) return
    if (.not. allocated(self%charge_conservation_acc)) return
+   ! [PIC].(charge_conservation_save): only the steps written to the history accumulate (time%it is this step)
+   if (self%pic%charge_conservation_save <= 0_I4P) return
+   if (mod(self%time%it, self%pic%charge_conservation_save) /= 0_I4P) return
    if (self%time%dt <= 0._R8P) return
+   self%charge_conservation_step = .true.
 
    self%charge_conservation_acc = -self%q(self%nv,:,:,:,:) / self%time%dt
    self%charge_conservation_divj = 0._R8P
@@ -4871,6 +4878,7 @@ contains
    real(R8P),               intent(in)    :: weight
 
    if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. self%charge_conservation_step) return
    if (.not. allocated(self%charge_conservation_acc)) return
 
    call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
@@ -4893,6 +4901,7 @@ contains
    real(R8P)                              :: local_error
 
    if (.not. is_pic_model(self%physics%physical_model)) return
+   if (.not. self%charge_conservation_step) return
    if (.not. allocated(self%charge_conservation_acc)) return
    if (self%time%dt <= 0._R8P) return
 
