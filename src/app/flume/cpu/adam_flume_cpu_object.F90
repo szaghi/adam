@@ -928,18 +928,29 @@ contains
    !< The wall-face fluxes of the wall model, after every other dissipative flux (issue #119, T3.3).
    class(flume_cpu_object), intent(inout) :: self !< The equation.
    real(R8P)                              :: tref, omega_mu, omega_k, mu0 !< Laws.
+   logical                                :: commit !< The input filter takes this sample: the first evaluation of a step.
+   real(R8P)                              :: tf(6)  !< Filter times: none for the equilibrium residual (a steady state, no history).
 
    call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
    mu0 = self%physics%dissipation%mu
+   commit = self%time%it /= self%wm_filter_it .and. .not.self%equilibrium_computing
+   tf = merge(0._R8P, self%bc%wm_filter, self%equilibrium_computing)
    if (.not.self%adam%grid%null_xyz(1)) call overwrite_wall_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flx_f)
+        faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_x, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flx_f)
    if (.not.self%adam%grid%null_xyz(2)) call overwrite_wall_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%fly_f)
+        faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_y, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%fly_f)
    if (.not.self%adam%grid%null_xyz(3)) call overwrite_wall_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flz_f)
+        faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_z, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flz_f)
+   if (commit) then
+      self%wm_filter_it = self%time%it
+      self%wm_filter_fresh = .false.
+   endif
    endsubroutine overwrite_wall_model_fluxes
 
    subroutine update_hybrid_faces(self)
@@ -2989,6 +3000,7 @@ contains
    regridded = self%regrid_phase%sweeps > 0_I4P
    if (.not.regridded) return
    self%equilibrium_stale = .true. ! the equilibrium residual of the new grid (M7-G2b), at the next step
+   self%wm_filter_fresh = .true. ! the blocks moved: the wall-model averages restart from the next sample (#119)
    blocks = [self%regrid_phase%blocks, self%blocks_number]
    call MPI_ALLREDUCE(MPI_IN_PLACE, blocks, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call self%update_ghost(q=self%q)

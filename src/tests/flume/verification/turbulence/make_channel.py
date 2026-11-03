@@ -44,6 +44,10 @@ def main() -> int:
     ap.add_argument("--wall-heat", type=float, default=1.0, help="the wall temperature over the gas temperature of the start")
     ap.add_argument("--wm-height", type=float, default=0.0, help="[bc] wall_model_height, 0: the 3rd cell")
     ap.add_argument("--wm-damping", default="", help="[bc] wall_model_damping")
+    ap.add_argument("--wm-filter", type=float, default=0.0, help="[bc] wall_model_filter, the time scale of the input filter, 0: none")
+    ap.add_argument("--wm-model", default="", help="[bc] wall_model: equilibrium or inverse-transformation")
+    ap.add_argument("--wm-edge-velocity", type=float, default=1.5, help="[bc] wall_model_edge_velocity (inverse model), the bulk speed being 1")
+    ap.add_argument("--wm-edge-heat", type=float, default=1.0, help="[bc] wall_model_edge_temperature (inverse model) over the gas temperature of the start")
     ap.add_argument("--amr-box", action="store_true", help="one more level on the middle half along x, over the whole height: 2:1 faces along the walls")
     ap.add_argument("--sgs-model", default="none")
     ap.add_argument("--cfl", type=float, default=0.5)
@@ -85,6 +89,11 @@ def main() -> int:
         if args.wall == "wall-modelled":
             keys |= {"wall_model_height": str(args.wm_height)} if args.wm_height > 0.0 else {}
             keys |= {"wall_model_damping": args.wm_damping} if args.wm_damping else {}
+            keys |= {"wall_model_filter": repr(args.wm_filter)} if args.wm_filter > 0.0 else {}
+            if args.wm_model:
+                keys["wall_model"] = args.wm_model
+            if args.wm_model == "inverse-transformation":
+                keys |= {"wall_model_edge_velocity": repr(args.wm_edge_velocity), "wall_model_edge_temperature": repr(t_wall * args.wm_edge_heat)}
         text = section(text, f"bc_{face}", keys)
     text = section(text, "initial_conditions", {"type": "channel", "amr_iterations": "0", "ch_rho": "1.0", "ch_ub": "1.0", "ch_mach": str(args.mach), "ch_h": "1.0",
                                                  "ch_lx": repr(args.lx), "ch_lz": repr(args.lz), "ch_pert": str(args.perturbation)})

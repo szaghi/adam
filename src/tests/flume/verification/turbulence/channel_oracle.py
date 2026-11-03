@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check the channel runs of issue #119 T3. `laminar <work>...`, coarse to fine: the driving force against 3 mu U / h^2 and its order, the mass conserved; the bulk momentum is held by construction, so not checked.
-`same a b --tol`: the force of two runs. `agree a b`: the histories of two runs. `energy a b --tol`: the change of the total energy of two runs."""
+`same a b --tol`: the force of two runs. `energy-differ a b --tol`: their final total energies apart. `agree a b`: the histories of two runs. `energy a b --tol`: the change of the total energy of two runs."""
 
 from __future__ import annotations
 
@@ -101,10 +101,24 @@ def energy(a: str, b: str, tol: float) -> int:
     return 0 if ok else 1
 
 
+def energy_differ(a: str, b: str, tol: float) -> int:
+    """The total energies at the end of two runs from the same start must differ by more than tol, relative: an energy flux that acts."""
+    end = []
+    for w in (a, b):
+        path = Path(w) / "channel-conservation_history.dat"
+        with open(path) as fh:
+            names = [v.strip('"') for v in fh.readline().split("=")[1].split()]
+        end.append(float(np.loadtxt(path, skiprows=1, ndmin=2)[-1, names.index("int_rE")]))
+    rel = abs(end[0] - end[1]) / abs(end[1])
+    ok = rel > tol
+    print(f"total energy at the end {end[0]:.6e} against {end[1]:.6e}, relative {rel:.2e} (min {tol:.0e})  {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def main() -> int:
     """Check."""
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("what", choices=["laminar", "same", "agree", "energy", "between", "differ"])
+    ap.add_argument("what", choices=["laminar", "same", "agree", "energy", "between", "differ", "energy-differ"])
     ap.add_argument("works", nargs="+")
     ap.add_argument("--reynolds", type=float, default=100.0)
     ap.add_argument("--tol", type=float, default=0.02)
@@ -114,6 +128,8 @@ def main() -> int:
     args = ap.parse_args()
     if args.what == "same":
         return same_force(args.works[0], args.works[1], args.tol)
+    if args.what == "energy-differ":
+        return energy_differ(args.works[0], args.works[1], args.tol)
     if args.what == "differ":
         return differ_force(args.works[0], args.works[1], args.tol)
     if args.what == "between":

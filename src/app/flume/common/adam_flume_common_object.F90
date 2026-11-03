@@ -114,6 +114,12 @@ type, extends(realm_object) :: flume_common_object
    logical                        :: has_wall_model=.false. !< Some face of the domain is modelled.
    integer(I4P),      allocatable :: ns_faces(:,:)       !< No-slip walls: block faces on them [nb, 6] (issue #119, the #65 mass leak).
    logical                        :: has_noslip=.false.  !< Some face of the domain is a no-slip wall of a hydrodynamic model.
+   real(R8P),         allocatable :: wm_avg_x(:,:,:,:,:) !< Wall model input filter: the averaged u, v, w, p, rho on the x faces [5, 2, nj, nk, nb], side 1 low.
+   real(R8P),         allocatable :: wm_avg_y(:,:,:,:,:) !< The same on the y faces [5, ni, 2, nk, nb].
+   real(R8P),         allocatable :: wm_avg_z(:,:,:,:,:) !< The same on the z faces [5, ni, nj, 2, nb].
+   logical                        :: has_wm_filter=.false. !< Some modelled face filters its samples (`wall_model_filter` > 0).
+   logical                        :: wm_filter_fresh=.true. !< The averages hold no history (start, restart, regrid): the next commit takes the sample.
+   integer(I4P)                   :: wm_filter_it=-1_I4P !< The iteration whose sample the averages hold.
    integer(I4P),      allocatable :: hybrid_faces(:,:)   !< Hybrid scheme: block faces it must not read across [nb, 6].
    logical                        :: hybrid_has_faces=.false. !< Hybrid scheme: some block of the realm has such a face.
    real(R8P)                      :: sgs_lambda=0._R8P   !< Local time step limit of the eddy viscosity.
@@ -1207,6 +1213,16 @@ contains
       if (self%ngc < 3_I4P) call mpih%error_stop(msg=': wall-modelled faces need [grid].(ngc) >= 3')
       if (any(self%bc%wall_modelled(1:2)) .and. self%ni < 3_I4P .or. any(self%bc%wall_modelled(3:4)) .and. self%nj < 3_I4P .or. &
           any(self%bc%wall_modelled(5:6)) .and. self%nk < 3_I4P) call mpih%error_stop(msg=': wall-modelled faces need 3 cells per block along the normal')
+   endif
+   ! the input filter (#119): the host averages, sized by the block capacity; a placeholder of one element without a filter (the kernels take them anyway)
+   self%has_wm_filter = self%has_wall_model .and. any(self%bc%wall_modelled .and. self%bc%wm_filter > 0._R8P)
+   if (allocated(self%wm_avg_x)) deallocate(self%wm_avg_x, self%wm_avg_y, self%wm_avg_z)
+   if (self%has_wm_filter) then
+      allocate(self%wm_avg_x(5,2,self%nj,self%nk,self%nb), source=0._R8P)
+      allocate(self%wm_avg_y(5,self%ni,2,self%nk,self%nb), source=0._R8P)
+      allocate(self%wm_avg_z(5,self%ni,self%nj,2,self%nb), source=0._R8P)
+   else
+      allocate(self%wm_avg_x(5,1,1,1,1), self%wm_avg_y(5,1,1,1,1), self%wm_avg_z(5,1,1,1,1), source=0._R8P)
    endif
    call self%check_gravity
    call self%sinks%load_from_file(file_parameters=file_parameters, model=self%physics%model,                        &

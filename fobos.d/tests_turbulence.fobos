@@ -16,7 +16,7 @@ mod_dir  = ./mod/gnu-kep/
 obj_dir  = ./obj/gnu-kep/
 target   = test_kep.F90
 
-# The equilibrium wall model (issue #119, T3.4), leg wm2: laminar limit, log law against a fine quadrature, Crocco.
+# The wall models (issue #119, T3.4, T3.5), leg wm2: laminar limit, log law against a fine quadrature, Crocco; the inverse model against Eq. 2.2.
 [test-wm-gnu]
 template = template-gnu
 mod_dir  = ./mod/gnu-wm/

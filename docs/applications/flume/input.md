@@ -225,9 +225,10 @@ replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 | `viscosity` | $\rho_0 u_0 L_0$ |
 | `conductivity` | $\rho_0 u_0 L_0 R$ |
 | `resistivity` | $u_0 L_0$ |
-| `wall_temperature` with `wall-modelled` | real | yes | `> 0`, otherwise fatal | An isothermal wall whose face flux comes from the equilibrium wall model ([numerics](./numerics#wall-model)), sampled at the 3rd cell off the wall; the ghosts mirror as `wall-inviscid`. Euler with a viscosity and a `prandtl` only, 3 cells per block along the normal. |
-| `wall_model_height` with `wall-modelled` | real | no (0) | `>= 0` | Matching height, a length; 0 samples the 3rd cell. Otherwise interpolated between the cells around it, within the block (beyond it, its last cell). The literature matches at 0.1–0.3 of the boundary-layer thickness with at least 3 cells below ([numerics](./numerics#wall-model)). |
-| `wall_model_damping` with `wall-modelled` | string | no (`classical`) | `classical`, `semi-local`; other → fatal | Van Driest damping in wall units, or with the local density and viscosity. |
+| `[bc_*]` `wall_model_height` | $L_0$ |
+| `[bc_*]` `wall_model_filter` | $L_0 / u_0$ |
+| `[bc_*]` `wall_model_edge_velocity` | $u_0$ |
+| `[bc_*]` `wall_model_edge_temperature` | $u_0^2 / R$ |
 | `wall_u`, `wall_v`, `wall_w` | $u_0$ |
 | `wall_temperature`, `reference_temperature` | $u_0^2 / R$ |
 | `reynolds`, `prandtl`, `magnetic_reynolds`, `viscosity_exponent` | — (dimensionless) |
@@ -566,6 +567,12 @@ All six sections are required, even along null directions.
 | `s1` .. `sN` | real | no (`type = inflow` with `passive_scalars = N`) | default 0, no range check | Specific values (mass fractions) of the passive scalars of the inflow. |
 | `wall_u`, `wall_v`, `wall_w` | real | no (default 0) with `wall-noslip`, `wall-isothermal` | the component normal to the face must be 0 (fatal) | Velocity of the wall (tangential): a moving lid, a Couette wall. |
 | `wall_temperature` | real | `type = wall-isothermal` | `> 0`, otherwise fatal | Wall temperature, $T = p/(\rho R)$ in code units. |
+| `wall_temperature` with `wall-modelled` | real | yes | `> 0`, otherwise fatal | An isothermal wall whose face flux comes from a wall model ([numerics](./numerics#wall-model)), sampled at the 3rd cell off the wall; the ghosts mirror as `wall-inviscid`. Euler with a viscosity and a `prandtl` only, 3 cells per block along the normal. |
+| `wall_model` with `wall-modelled` | string | no (`equilibrium`) | `equilibrium`, `inverse-transformation`; other → fatal | The equilibrium thin-layer model, or the inverse-velocity-transformation model of Griffin, Fu & Moin (2023), which needs the two edge keys below. |
+| `wall_model_height` with `wall-modelled` | real | no (0) | `>= 0` | Matching height, a length; 0 samples the 3rd cell. Otherwise interpolated between the cells around it, within the block (beyond it, its last cell). The literature matches at 0.1–0.3 of the boundary-layer thickness with at least 3 cells below ([numerics](./numerics#wall-model)). |
+| `wall_model_damping` with `wall-modelled` | string | no (`classical`) | `classical`, `semi-local`; other → fatal; given with `wall_model = inverse-transformation` → fatal | Van Driest damping of the equilibrium model in wall units, or with the local density and viscosity. |
+| `wall_model_filter` with `wall-modelled` | real | no (0) | `>= 0` | Time scale $T_f$ of an exponential filter of the sampled velocity, pressure and density, updated once per step with weight $\min(\Delta t/T_f, 1)$; 0 for none ([numerics](./numerics#wall-model)). |
+| `wall_model_edge_velocity`, `wall_model_edge_temperature` | real | with `wall_model = inverse-transformation` | `> 0`, otherwise fatal | Speed and temperature at the edge of the layer (the free stream; the centreline of a channel), constants of the run. |
 
 What each `type` does:
 

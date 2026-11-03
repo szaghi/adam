@@ -23,7 +23,9 @@ module adam_flume_bc_object
 !<
 !< **Modelled wall** (issue #119, T3.3). `wall-modelled`, with `wall_temperature`: the ghosts mirror as `wall-inviscid`; the flux through the face comes from the wall model
 !< (`adam_flume_wall_model_library`), sampled at the 3rd cell off the wall or at `wall_model_height` (interpolated between cells), damping
-!< `wall_model_damping` classical (wall units) or semi-local (local density and viscosity). Euler with a viscosity only.
+!< `wall_model_damping` classical (wall units) or semi-local (local density and viscosity), the samples averaged in time over `wall_model_filter`
+!< (an exponential filter, 0 for none). `wall_model = inverse-transformation` (T3.5) takes the model of Griffin, Fu & Moin (2023) instead of the equilibrium
+!< one, with the state at the edge of the layer `wall_model_edge_velocity`, `wall_model_edge_temperature`. Euler with a viscosity only.
 !<
 !< **Hydrostatic** (issue #73, M7-G0). `hydrostatic` closes a stratified atmosphere under the constant gravity of
 !< `[gravity]`: the ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior
@@ -95,6 +97,10 @@ type :: flume_bc_object
    logical                :: wall_modelled(6)=.false.   !< Faces of a wall model (issue #119, T3.3).
    real(R8P)              :: wm_height(6)=0._R8P        !< Wall model: matching height per face, 0 for the 3rd cell.
    logical                :: wm_semilocal(6)=.false.    !< Wall model: semi-local damping per face.
+   real(R8P)              :: wm_filter(6)=0._R8P        !< Wall model: time scale of the input filter per face, 0 for none.
+   logical                :: wm_inverse(6)=.false.      !< Wall model: the inverse-transformation model (Griffin et al. 2023) per face, else the equilibrium one.
+   real(R8P)              :: wm_edge_u(6)=0._R8P        !< Inverse model: speed at the edge of the layer per face.
+   real(R8P)              :: wm_edge_t(6)=0._R8P        !< Inverse model: temperature at the edge of the layer per face.
    real(R8P)              :: wall_temperature(6)=0._R8P !< Isothermal walls: wall temperature of each face.
    contains
       ! public methods
@@ -204,7 +210,24 @@ contains
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_height', val=self%wm_height(f), error=error)
          if (error /= 0) self%wm_height(f) = 0._R8P
          if (self%wm_height(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_height) must be >= 0')
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model', val=buff, error=error)
+         if (error /= 0) buff = 'equilibrium'
+         select case(trim(adjustl(strip_control(buff))))
+         case('equilibrium')
+         case('inverse-transformation')
+            self%wm_inverse(f) = .true.
+            call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_edge_velocity', val=self%wm_edge_u(f), error=error)
+            if (error /= 0 .or. .not.(self%wm_edge_u(f) > 0._R8P)) &
+               call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_edge_velocity) must be given and positive with wall_model = inverse-transformation')
+            call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_edge_temperature', val=self%wm_edge_t(f), error=error)
+            if (error /= 0 .or. .not.(self%wm_edge_t(f) > 0._R8P)) &
+               call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_edge_temperature) must be given and positive with wall_model = inverse-transformation')
+         case default
+            call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(wall_model); expected equilibrium or inverse-transformation')
+         endselect
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_damping', val=buff, error=error)
+         if (error == 0 .and. self%wm_inverse(f)) &
+            call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_damping) belongs to wall_model = equilibrium (the inverse model has no damping choice)')
          if (error /= 0) buff = 'classical'
          select case(trim(adjustl(strip_control(buff))))
          case('classical')
@@ -213,6 +236,9 @@ contains
          case default
             call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(wall_model_damping); expected classical or semi-local')
          endselect
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_filter', val=self%wm_filter(f), error=error)
+         if (error /= 0) self%wm_filter(f) = 0._R8P
+         if (self%wm_filter(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_filter) must be >= 0')
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID
       case(BC_WALL_NOSLIP_STR, BC_WALL_ISOTHERMAL_STR)

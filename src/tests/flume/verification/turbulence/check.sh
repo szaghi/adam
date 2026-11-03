@@ -58,6 +58,14 @@
 #        semi-local damping, within 1e-6.
 #   wm6  semi-local damping is wired in: with a wall hotter than the gas at Re 100, h = 0.3 (h+ about 5, properties varying across the layer), the force must
 #        differ from the classical one by more than 1e-4 (wm5's 1e-6 agreement could not fail: uniform properties make the two dampings equal).
+#   wm7  the input filter (wall_model_filter): (a) T_f = 1e-12, so e = 1 at every stage, is the unfiltered wm5-32 run (wm7-base) bit for bit (force relative 0, bound 1e-14);
+#        (b) T_f = 0.05 on the same run, near its steady state at t = 5, within 1e-3 of it (the lag T_f |df/dt| / f, a few 1e-4 there); (c) T_f = 1 over the early
+#        transient to t = 0.5 differs from the unfiltered run by more than 1e-3 (the filter acts); (d) one rank against N with T_f = 0.01 (e about 0.3).
+#   wm8  the inverse-transformation model (T3.5; its stress in the constant-property limit is the equilibrium one to 2e-9: test_wall_model, leg wm2): (a) on wm5's
+#        laminar channel (h+ about 1) the force within 1e-3 of the equilibrium model's. Not closer: the heat flux is the Reynolds analogy s cp tau (Tr - Tw) / Ue,
+#        not the laminar conduction, so the gas gains 2.8 times the energy (total 2.3e-3 apart at t = 5) and the force moves by 1e-4 (measured 9.97e-5; my
+#        first bound, 1e-4, ignored the heat flux); `energy` asserts that gap, more than 1e-3, so this leg keeps exercising the analogy. (b) on wm6's hot wall,
+#        Re 100, the force differs from the equilibrium model's by more than 1e-3; (c) one rank against N, with the input filter too.
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -73,7 +81,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -376,8 +384,38 @@ if has_leg wm6; then
    b=$(channel_run wm6-cl "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --wall-heat 1.5 --time-max 0.5)
    "$VENV_PY" "$CASE_DIR/channel_oracle.py" differ --tol 1e-4 "$a" "$b"
 fi
+if has_leg wm7; then
+   echo "== wm7: the input filter"
+   b=$(channel_run wm7-base "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0) # wm5-32, run again: never a stale directory
+   a=$(channel_run wm7-e1 "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0 --wm-filter 1e-12)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" same --tol 1e-14 "$a" "$b"
+   a=$(channel_run wm7-f "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0 --wm-filter 0.05)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" same --tol 1e-3 "$a" "$b"
+   a=$(channel_run wm7-long "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 0.5 --wm-filter 1.0)
+   b=$(channel_run wm7-ref "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 0.5)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" differ --tol 1e-3 "$a" "$b"
+   a=$(channel_run wm7-np1 1 --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10 --wm-filter 0.01)
+   b=$(channel_run wm7-npN "$NP" --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10 --wm-filter 0.01)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+fi
+if has_leg wm8; then
+   echo "== wm8: the inverse-transformation model"
+   a=$(channel_run wm8-lam "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0 --wm-model inverse-transformation)
+   b=$(channel_run wm8-lam-eq "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" same --tol 1e-3 "$a" "$b"
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" energy-differ --tol 1e-3 "$a" "$b"
+   a=$(channel_run wm8-hot "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --wall-heat 1.5 --time-max 0.5 --wm-model inverse-transformation)
+   b=$(channel_run wm8-hot-eq "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --wall-heat 1.5 --time-max 0.5)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" differ --tol 1e-3 "$a" "$b"
+   a=$(channel_run wm8-np1 1 --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10 --wm-model inverse-transformation --wm-filter 0.01)
+   b=$(channel_run wm8-npN "$NP" --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10 --wm-model inverse-transformation --wm-filter 0.01)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
+   for c in wm4-npN wm7-npN wm8-npN; do # the channel legs run here: CPU against GPU on the same input
+      [[ -d "$CASE_DIR/work-$AGREE-$c" && -d "$CASE_DIR/work-$TAG-$c" ]] && "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$CASE_DIR/work-$TAG-$c" "$CASE_DIR/work-$AGREE-$c"
+   done
    "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-tt2-npN" "$CASE_DIR/work-$AGREE-tt2-npN"
    [[ -d "$CASE_DIR/work-$AGREE-hy2-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-hy2-npN" "$CASE_DIR/work-$AGREE-hy2-npN"
    [[ -d "$CASE_DIR/work-$AGREE-sg4-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-sg4-npN" "$CASE_DIR/work-$AGREE-sg4-npN"

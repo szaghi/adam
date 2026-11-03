@@ -651,8 +651,38 @@ A fixed cost per wall face, on the device too. Measured (`test_wall_model`): $\t
 (5.5 % at $10^6$), the Crocco relation to $8\cdot10^{-4}$, a hot compressible layer against an independent solver to $3\cdot10^{-3}$, and no
 non-finite result in $2\cdot10^5$ random samples up to 4.5 wall sound speeds.
 
-Limits: isothermal walls only; no compressibility transformation (T3.5); the wall faces are rebuilt each step, so after a regrid, but no test regrids
-along a wall.
+**Inverse-velocity-transformation model** (`wall_model = inverse-transformation`, T3.5). Griffin, Fu & Moin (2023, J. Fluid Mech. 970, A36; in
+llm-wiki) keep the constant-property layer above, at the same semi-local height, $S_t^+=1/(1+\kappa y^*D^2)$, $D=1-e^{-y^*/A^+}$, and map its strain to
+the compressible one by inverting the total-stress-based transformation (their Eq. 2.2),
+
+$$
+\frac{dU^+}{dy^*}=\left[\frac1{\mu^+S_t^+}-\frac1{\mu^+}+\sqrt{\rho^+}\left(1+\frac{y^+}{2\rho^+}\frac{d\rho^+}{dy^+}-\frac{y^+}{\mu^+}\frac{d\mu^+}{dy^+}\right)\right]^{-1},
+$$
+
+with the temperature from the Reynolds analogy anchored at the sample (Eq. 2.5),
+$T=T_w+s\,Pr\,(T_r-T_w)\frac{U}{U_e}\big(1-\frac{U}{U_s}\big)+\big(\frac{U}{U_s}\big)^2(T_s-T_w)$, $T_r=T_e+Pr^{1/3}U_e^2/(2c_p)$, $s=1.14$, so
+$q_w=s\,c_p\,\tau_w(T_r-T_w)/U_e$. The edge state $U_e$, $T_e$ is an input (`wall_model_edge_velocity`, `wall_model_edge_temperature`): the paper
+locates the edge in the flow, which a face kernel cannot. Here the property gradients follow from $T(U)$ (uniform pressure, power-law viscosity), so
+for the physical strain $g=dU/dy$ Eq. 2.2 is the quadratic $F\beta y\,g^2-(E+F+K\beta y)\,g+K=0$, $E=\kappa y^*D^2\mu_w/\mu$,
+$F=\sqrt{\rho/\rho_w}$, $K=\tau_wF/\mu$, $\beta=T'(U)(\tfrac12+\omega)/T$: its positive root when $\beta<0$ (the other is negative), else the
+root nearer $K/(E+F)$, the strain without the gradients, which is the exact laminar $\tau_w/\mu$ (the equation also holds the spurious root
+$1/(\beta y)$ of $dy^*/dy=0$). The layer is integrated from the wall on the same 40 stretched intervals, each exact for $1/g$ linear in $y$ and
+corrected twice, and shot on $\ln\tau_w$ (secant, 8 shots). Measured (`test_wall_model`): in the constant-property limit it is the equilibrium
+model to $2\cdot10^{-9}$; against Eq. 2.2 integrated as printed on $2\cdot10^5$ intervals (property gradients by differences, bisection on
+$\tau_w$) $3.9\cdot10^{-3}$ on a cold wall and $7.8\cdot10^{-3}$ on a hot one, falling to $3\cdot10^{-4}$ and $5\cdot10^{-5}$ with 160 and 640
+intervals (the grid, not the algebra); no non-finite result in $2\cdot10^5$ random samples. On a channel (leg wm8) it equals the equilibrium model
+on a laminar flow ($h^+\approx1$) and departs from it on a hot wall.
+
+**Input filter** (`wall_model_filter` $=T_f$). The sampled velocity, pressure and density of each wall face are averaged in time,
+$\bar a\leftarrow(1-e)\,\bar a+e\,a$, $e=\min(\Delta t/T_f,1)$, as Kawai & Larsson (2012, cited in llm-wiki) recommend against the noise of a
+single LES sample. The average takes the sample once per step, at the first stage (from $q^n$); every stage uses $(1-e)\bar a+e\,a$ with its own
+sample, so $T_f\to0$ is the unfiltered model bit for bit (leg wm7); the residual of a balanced gravity equilibrium, a steady state, uses the
+unfiltered model and leaves the averages alone. The averages restart from the next sample at the start, on a restart (they are not
+in the checkpoint) and after a regrid. Leg wm7: near the steady state of a laminar channel, $T_f=0.05$ moves the force by $3\cdot10^{-4}$ (the lag
+$T_f\,|df/dt|/f$), and over an early transient $T_f=1$ by $1.4\cdot10^{-2}$.
+
+Limits: isothermal walls only; the inverse model takes a fixed edge state; the filter state is not restarted; the wall faces are rebuilt each step, so
+after a regrid, but no test regrids along a wall.
 
 ## Turbulence diagnostics
 

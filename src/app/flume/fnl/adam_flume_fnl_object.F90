@@ -386,6 +386,9 @@ type, extends(flume_common_object) :: flume_fnl_object
    integer(I4P), pointer  :: hybrid_faces_gpu(:,:)=>null() !< Hybrid scheme: block faces it must not read across [nb, 6].
    integer(I4P), pointer  :: wm_faces_gpu(:,:)=>null()     !< Wall model: block faces [nb, 6].
    integer(I4P), pointer  :: ns_faces_gpu(:,:)=>null()     !< No-slip walls: block faces [nb, 6].
+   real(R8P), pointer     :: wm_avg_x_gpu(:,:,:,:,:)=>null() !< Wall model input filter, x faces [nb, 2, nj, nk, 5] (one element without a filter).
+   real(R8P), pointer     :: wm_avg_y_gpu(:,:,:,:,:)=>null() !< The same, y faces [nb, ni, 2, nk, 5].
+   real(R8P), pointer     :: wm_avg_z_gpu(:,:,:,:,:)=>null() !< The same, z faces [nb, ni, nj, 2, 5].
    real(R8P), pointer     :: psi_gpu(:,:,:,:,:)=>null()   !< Hybrid sensor [nb, i, j, k, nv], component 1, q-shaped.
    real(R8P), pointer     :: mu_t_gpu(:,:,:,:,:)=>null()  !< Eddy viscosity [nb, i, j, k, 1], with a subgrid-scale model.
    real(R8P), pointer     :: flx_f_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, nv].
@@ -892,6 +895,17 @@ contains
    endif
    call dev_assign_to_device(src=self%bc%q_inflow,  dst=self%q_inflow_gpu)
    call dev_assign_to_device(src=self%bc%wall_sign, dst=self%wall_sign_gpu)
+   ! the wall-model input filter (#119): the averages live on the device only (a placeholder of one element per variable without a filter)
+   if (self%has_wm_filter) then
+      call dev_alloc(fptr_dev=self%wm_avg_x_gpu, ubounds=[nb,2,nj,nk,5], init_value=0._R8P, ierr=ierr)
+      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_y_gpu, ubounds=[nb,ni,2,nk,5], init_value=0._R8P, ierr=ierr)
+      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_z_gpu, ubounds=[nb,ni,nj,2,5], init_value=0._R8P, ierr=ierr)
+   else
+      call dev_alloc(fptr_dev=self%wm_avg_x_gpu, ubounds=[1,1,1,1,5], init_value=0._R8P, ierr=ierr)
+      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_y_gpu, ubounds=[1,1,1,1,5], init_value=0._R8P, ierr=ierr)
+      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_z_gpu, ubounds=[1,1,1,1,5], init_value=0._R8P, ierr=ierr)
+   endif
+   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate wm_avg_*_gpu in flume_fnl_object%allocate_gpu')
    allocate(self%buf_5D_R8P(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv), stat=alloc_stat, errmsg=alloc_msg)
    if (alloc_stat /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_5D_R8P: '//trim(alloc_msg))
    self%db5(1,:) = [1 , 1-ngc , 1-ngc , 1-ngc , 1 ]
@@ -1166,18 +1180,32 @@ contains
    !< The wall-face fluxes of the wall model, after every other dissipative flux (issue #119, T3.3).
    class(flume_fnl_object), intent(inout) :: self !< The equation.
    real(R8P)                              :: tref, omega_mu, omega_k, mu0 !< Laws.
+   logical                                :: commit !< The input filter takes this sample: the first evaluation of a step.
+   real(R8P)                              :: tf(6)  !< Filter times: none for the equilibrium residual (a steady state, no history).
 
    call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
    mu0 = self%physics%dissipation%mu
+   commit = self%time%it /= self%wm_filter_it .and. .not.self%equilibrium_computing
+   tf = merge(0._R8P, self%bc%wm_filter, self%equilibrium_computing)
    if (.not.self%adam%grid%null_xyz(1)) call overwrite_wall_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
+        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg_gpu=self%wm_avg_x_gpu, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, &
+        fl_gpu=self%flx_f_gpu)
    if (.not.self%adam%grid%null_xyz(2)) call overwrite_wall_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
+        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg_gpu=self%wm_avg_y_gpu, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, &
+        fl_gpu=self%fly_f_gpu)
    if (.not.self%adam%grid%null_xyz(3)) call overwrite_wall_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg_gpu=self%wm_avg_z_gpu, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, &
+        fl_gpu=self%flz_f_gpu)
+   if (commit) then
+      self%wm_filter_it = self%time%it
+      self%wm_filter_fresh = .false.
+   endif
    endsubroutine overwrite_wall_model_fluxes
 
    subroutine update_hybrid_faces(self)
@@ -1636,6 +1664,9 @@ contains
    call free_gpu(self%q_aux_gpu)
    call free_gpu(self%mu_t_gpu)
    call free_gpu(self%psi_gpu)
+   call free_gpu(self%wm_avg_x_gpu)
+   call free_gpu(self%wm_avg_y_gpu)
+   call free_gpu(self%wm_avg_z_gpu)
    if (associated(self%wm_faces_gpu)) then
       call dev_free(self%wm_faces_gpu, mydev)
       nullify(self%wm_faces_gpu)
@@ -3448,6 +3479,7 @@ contains
    regridded = self%regrid_phase%sweeps > 0_I4P
    if (.not.regridded) return
    self%equilibrium_stale = .true. ! the equilibrium residual of the new grid (M7-G2b), at the next step
+   self%wm_filter_fresh = .true. ! the blocks moved: the wall-model averages restart from the next sample (#119)
    blocks = [self%regrid_phase%blocks, self%blocks_number]
    call MPI_ALLREDUCE(MPI_IN_PLACE, blocks, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
    call self%check_regridded_state

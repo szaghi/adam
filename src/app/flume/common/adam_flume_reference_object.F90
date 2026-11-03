@@ -482,6 +482,16 @@ contains
          kind = KIND_SCALED ; dim = DIM_VELOCITY
       case('wall_temperature')
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
+      case('wall_model_height')
+         kind = KIND_SCALED ; dim = DIM_LENGTH
+      case('wall_model_damping', 'wall_model')
+         kind = KIND_NONE
+      case('wall_model_edge_velocity')
+         kind = KIND_SCALED ; dim = DIM_VELOCITY
+      case('wall_model_edge_temperature')
+         kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
+      case('wall_model_filter')
+         kind = KIND_SCALED ; dim = DIM_TIME
       case('p')
          kind = KIND_SCALED ; dim = DIM_PRESSURE
       case('bx', 'by', 'bz')

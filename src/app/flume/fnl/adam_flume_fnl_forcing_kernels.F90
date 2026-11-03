@@ -6,7 +6,7 @@ module adam_flume_fnl_forcing_kernels
 !< ADAM, FLUME FNL kernels of the mass-flow forcing (issue #119, T3.1).
 
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve
+use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve, wall_model_solve_inverse
 use :: penf,                  only : I4P, R8P
 
 implicit none
@@ -71,9 +71,11 @@ contains
    enddo
    enddo
    endsubroutine add_uniform_momentum_dev
-   subroutine overwrite_wall_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces_gpu, tw, hwm, sl, dxyz_gpu, q_aux_gpu, fl_gpu)
+   subroutine overwrite_wall_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces_gpu, tw, hwm, sl, tf, dt, commit, &
+                                        fresh, avg_gpu, inv, ue, te, dxyz_gpu, q_aux_gpu, fl_gpu)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
+   !< With a filter time `tf` the sample is `(1 - e) a + e s`, `e = min(dt / tf, 1)` (1 when `fresh`), from the averages `a` of the face, which take it when `commit`.
    integer(I4P), intent(in)    :: d                               !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)    :: di, dj, dk                      !< Unit step along `d`.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                 !< Grid dimensions.
@@ -84,13 +86,20 @@ contains
    real(R8P),    intent(in)    :: tw(6)                           !< Wall temperature per face.
    real(R8P),    intent(in)    :: hwm(6)                          !< Matching height per face, 0 for the 3rd cell.
    logical,      intent(in)    :: sl(6)                           !< Semi-local damping per face.
+   real(R8P),    intent(in)    :: tf(6)                           !< Filter time per face, 0 for none.
+   real(R8P),    intent(in)    :: dt                              !< Time step.
+   logical,      intent(in)    :: commit                          !< The averages take this sample.
+   logical,      intent(in)    :: fresh                           !< The averages hold no history.
+   real(R8P),    intent(inout) :: avg_gpu(1:,1:,1:,1:,1:)         !< Averages of the faces of direction `d` [nb, ni or 2, nj or 2, nk or 2, 5].
+   logical,      intent(in)    :: inv(6)                          !< The inverse-transformation model per face (T3.5), else the equilibrium one.
+   real(R8P),    intent(in)    :: ue(6), te(6)                    !< Inverse model: speed and temperature at the edge of the layer per face.
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Blocks space steps.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)      !< Face fluxes of direction `d`.
-   real(R8P)                   :: u1, u2, u3, us, ts, ps, rs, tau, q, cp, h, s, t1, t2, t3, w !< Work.
-   integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, i0, i1, j0, j1, k0, k1 !< Counters.
-   real(R8P)                   :: twf, hwf                           !< Wall temperature and matching height of the face.
-   logical                     :: slf                                !< Semi-local damping of the face.
+   real(R8P)                   :: u1, u2, u3, us, ts, ps, rs, tau, q, cp, h, s, t1, t2, t3, w, e !< Work.
+   integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, i0, i1, j0, j1, k0, k1, ia, ja, ka !< Counters.
+   real(R8P)                   :: twf, hwf, tff, uef, tef            !< Wall temperature, matching height, filter time, edge speed and temperature of the face.
+   logical                     :: slf, ivf                           !< Semi-local damping, inverse model of the face.
 
    n = ni * di + nj * dj + nk * dk
    cp = gamma * R / (gamma - 1._R8P)
@@ -98,14 +107,18 @@ contains
       f = 2_I4P * d - 2_I4P + side
       l = merge(0_I4P, n, side == 1)
       s = merge(1._R8P, -1._R8P, side == 1)
-      twf = tw(f) ; hwf = hwm(f) ; slf = sl(f)
+      twf = tw(f) ; hwf = hwm(f) ; slf = sl(f) ; tff = tf(f) ; ivf = inv(f) ; uef = ue(f) ; tef = te(f)
+      e = 1._R8P
+      if (tff > 0._R8P .and. .not.fresh) e = min(dt / tff, 1._R8P)
       i0 = merge(l, 1_I4P, di == 1_I4P) ; i1 = merge(l, ni, di == 1_I4P)
       j0 = merge(l, 1_I4P, dj == 1_I4P) ; j1 = merge(l, nj, dj == 1_I4P)
       k0 = merge(l, 1_I4P, dk == 1_I4P) ; k1 = merge(l, nk, dk == 1_I4P)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu)      &
-      !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1) private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2)
-      !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu)                                     &
-      !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1) private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                 &
+      !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)                              &
+      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                                &
+      !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)                              &
+      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka)
       do k=k0, k1
       do j=j0, j1
       do i=i0, i1
@@ -126,9 +139,25 @@ contains
                rs = rs + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_R) - rs)
             endif
             u1 = u1 * (1._R8P - real(di, R8P)) ; u2 = u2 * (1._R8P - real(dj, R8P)) ; u3 = u3 * (1._R8P - real(dk, R8P))
+            if (tff > 0._R8P) then ! the input filter; e = 1 takes the sample exactly
+               ia = merge(side, i, di == 1_I4P) ; ja = merge(side, j, dj == 1_I4P) ; ka = merge(side, k, dk == 1_I4P)
+               u1 = (1._R8P - e) * avg_gpu(b,ia,ja,ka,1) + e * u1
+               u2 = (1._R8P - e) * avg_gpu(b,ia,ja,ka,2) + e * u2
+               u3 = (1._R8P - e) * avg_gpu(b,ia,ja,ka,3) + e * u3
+               ps = (1._R8P - e) * avg_gpu(b,ia,ja,ka,4) + e * ps
+               rs = (1._R8P - e) * avg_gpu(b,ia,ja,ka,5) + e * rs
+               if (commit) then
+                  avg_gpu(b,ia,ja,ka,1) = u1 ; avg_gpu(b,ia,ja,ka,2) = u2 ; avg_gpu(b,ia,ja,ka,3) = u3
+                  avg_gpu(b,ia,ja,ka,4) = ps ; avg_gpu(b,ia,ja,ka,5) = rs
+               endif
+            endif
             us = sqrt(u1 * u1 + u2 * u2 + u3 * u3)
             ts = ps / (R * rs)
-            call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=twf, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, semilocal=slf)
+            if (ivf) then
+               call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=twf, ue=uef, te=tef, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q)
+            else
+               call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=twf, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, semilocal=slf)
+            endif
             t1 = 0._R8P ; t2 = 0._R8P ; t3 = 0._R8P
             if (us > 0._R8P) then
                t1 = u1 / us ; t2 = u2 / us ; t3 = u3 / us
