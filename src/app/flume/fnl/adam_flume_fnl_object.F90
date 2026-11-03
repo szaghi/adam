@@ -19,7 +19,7 @@ use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_BX, IQ_PSI, IQ_R,
 use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
-use :: adam_flume_fnl_forcing_kernels, only : overwrite_wall_fluxes_dev, add_uniform_momentum_dev, sum_momentum_dev
+use :: adam_flume_fnl_forcing_kernels, only : close_wall_fluxes_dev, overwrite_wall_fluxes_dev, add_uniform_momentum_dev, sum_momentum_dev
 use :: adam_flume_fnl_hybrid_kernels, only : compute_hybrid_sensor_dev, mask_mu_t_dev, overwrite_central_fluxes_dev
 use :: adam_fnl_turbulence_kernels, only : compute_mu_t_sigma_dev, compute_mu_t_vreman_dev, compute_mu_t_wale_dev
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
@@ -385,6 +385,7 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: q_aux_gpu(:,:,:,:,:)=>null() !< Auxiliary variables [nb, i, j, k, nv_aux].
    integer(I4P), pointer  :: hybrid_faces_gpu(:,:)=>null() !< Hybrid scheme: block faces it must not read across [nb, 6].
    integer(I4P), pointer  :: wm_faces_gpu(:,:)=>null()     !< Wall model: block faces [nb, 6].
+   integer(I4P), pointer  :: ns_faces_gpu(:,:)=>null()     !< No-slip walls: block faces [nb, 6].
    real(R8P), pointer     :: psi_gpu(:,:,:,:,:)=>null()   !< Hybrid sensor [nb, i, j, k, nv], component 1, q-shaped.
    real(R8P), pointer     :: mu_t_gpu(:,:,:,:,:)=>null()  !< Eddy viscosity [nb, i, j, k, 1], with a subgrid-scale model.
    real(R8P), pointer     :: flx_f_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, nv].
@@ -434,6 +435,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: overwrite_hybrid_fluxes !< Central flux where the sensor allows it (issue #119, T2).
       procedure, pass(self) :: update_wall_model_faces !< Flag the block faces of the wall model (issue #119, T3.3).
       procedure, pass(self) :: overwrite_wall_model_fluxes !< The wall-face fluxes of the wall model (issue #119, T3.3).
+      procedure, pass(self) :: close_noslip_fluxes     !< Close the inviscid fluxes through no-slip wall faces (the #65 mass leak).
       procedure, pass(self) :: update_hybrid_faces     !< Flag the block faces of the sensor (issue #119, T2.4).
       procedure, pass(self) :: compute_mu_t            !< Compute the eddy viscosity of the model (issue #119).
       procedure, pass(self) :: update_sgs_lambda       !< Update the time step limit of the eddy viscosity (issue #119).
@@ -1130,14 +1132,35 @@ contains
    !< Flag the block faces of the wall model (issue #119, T3.3), at the start and after each step, so after a regrid.
    class(flume_fnl_object), intent(inout) :: self !< The equation.
 
-   if (.not.self%has_wall_model) return
+   if (.not.(self%has_wall_model .or. self%has_noslip)) return
    call self%set_wall_model_faces
    if (associated(self%wm_faces_gpu)) then
       call dev_free(self%wm_faces_gpu, mydev)
       nullify(self%wm_faces_gpu)
    endif
+   if (associated(self%ns_faces_gpu)) then
+      call dev_free(self%ns_faces_gpu, mydev)
+      nullify(self%ns_faces_gpu)
+   endif
    call dev_assign_to_device(src=self%wm_faces, dst=self%wm_faces_gpu)
+   if (associated(self%ns_faces_gpu)) then
+      call dev_free(self%ns_faces_gpu, mydev)
+      nullify(self%ns_faces_gpu)
+   endif
+   call dev_assign_to_device(src=self%ns_faces, dst=self%ns_faces_gpu)
    endsubroutine update_wall_model_faces
+
+   subroutine close_noslip_fluxes(self)
+   !< Zero the inviscid fluxes through no-slip wall faces but the normal momentum, before the dissipative ones are added: the wall is impermeable.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%adam%grid%null_xyz(1)) call close_wall_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv, &
+        blocks_number=self%blocks_number, faces_gpu=self%ns_faces_gpu, fl_gpu=self%flx_f_gpu)
+   if (.not.self%adam%grid%null_xyz(2)) call close_wall_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv, &
+        blocks_number=self%blocks_number, faces_gpu=self%ns_faces_gpu, fl_gpu=self%fly_f_gpu)
+   if (.not.self%adam%grid%null_xyz(3)) call close_wall_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv, &
+        blocks_number=self%blocks_number, faces_gpu=self%ns_faces_gpu, fl_gpu=self%flz_f_gpu)
+   endsubroutine close_noslip_fluxes
 
    subroutine overwrite_wall_model_fluxes(self)
    !< The wall-face fluxes of the wall model, after every other dissipative flux (issue #119, T3.3).
@@ -1148,13 +1171,13 @@ contains
    mu0 = self%physics%dissipation%mu
    if (.not.self%adam%grid%null_xyz(1)) call overwrite_wall_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
+        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
    if (.not.self%adam%grid%null_xyz(2)) call overwrite_wall_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
+        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
    if (.not.self%adam%grid%null_xyz(3)) call overwrite_wall_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+        faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    endsubroutine overwrite_wall_model_fluxes
 
    subroutine update_hybrid_faces(self)
@@ -1616,6 +1639,10 @@ contains
    if (associated(self%wm_faces_gpu)) then
       call dev_free(self%wm_faces_gpu, mydev)
       nullify(self%wm_faces_gpu)
+   endif
+   if (associated(self%ns_faces_gpu)) then
+      call dev_free(self%ns_faces_gpu, mydev)
+      nullify(self%ns_faces_gpu)
    endif
    if (associated(self%hybrid_faces_gpu)) then
       call dev_free(self%hybrid_faces_gpu, mydev)
@@ -3960,9 +3987,11 @@ contains
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
+   if (self%has_noslip) call self%close_noslip_fluxes ! before the gravity correction, which reads the face mass fluxes
    if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
       call self%compute_gravity_correction(q_gpu=q_gpu)
    if (self%numerics%is_hybrid) call self%overwrite_hybrid_fluxes
+   if (self%has_noslip) call self%close_noslip_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes_dev
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
                                                                                              flux_register=flux_register)
@@ -4216,8 +4245,10 @@ contains
          print '(A)', mpih_fnl%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
+   if (self%has_noslip) call self%close_noslip_fluxes ! before the gravity correction, which reads the face mass fluxes
    if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
       call self%compute_gravity_correction(q_gpu=q_gpu)
+   if (self%has_noslip) call self%close_noslip_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes_dev
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
                                                                                              flux_register=flux_register)

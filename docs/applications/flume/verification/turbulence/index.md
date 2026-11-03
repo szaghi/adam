@@ -62,7 +62,7 @@ Re 1600, $[0, 2\pi]^3$, `runge-kutta-ssp-54`, CFL 0.5, `weights = si`, 4 ranks o
 
 The share is that of the energy lost until the peak of $-dK/dt$ not accounted for by $\varepsilon - p_d$.
 
-**Reference.** The 512³ pseudo-spectral DNS of the High-Order CFD Workshop (case C3.5, `spectral_Re1600_512.gdiag`), incompressible, so compared at M 0.1 only: peak $-dK/dt$ 0.01286 and peak $Z$ 10.29, both at $t = 8.97$. The table in [Against the DNS](#against-the-dns) gives the errors. Compressible Mach 1.25 is compared with nothing here.
+**Reference.** The 512³ pseudo-spectral DNS of the High-Order CFD Workshop (case C3.5, `turbulence/reference/spectral_Re1600_512.gdiag`), incompressible, so compared at M 0.1 only: peak $-dK/dt$ 0.01286 and peak $Z$ 10.29, both at $t = 8.97$. The table in [Against the DNS](#against-the-dns) gives the errors. Compressible Mach 1.25 is compared with nothing here.
 
 **What it shows.**
 - Numerical dissipation dominates: up to the peak of $-dK/dt$ it is 77 % of the energy lost at $64^3$ and 58 % at $128^3$ with WENO-5 at M 0.1. At $128^3$ the enstrophy peak is a third of the
@@ -238,8 +238,9 @@ $h$; $Re_\tau$ uses $\rho_w = 1.30$, the reference run's wall density estimated 
 - **WENO-5 relaminarises** on these grids, modelled or not: $\tau_w$ falls to near the laminar $10^{-3}$. Its numerical dissipation kills the
   turbulence, as in T0; the model cannot help.
 - **The resolved isothermal wall leaks mass:** +11 % over the run on the coarse grid, +1.3 % on the reference. The no-slip mirror of #65 lets a mass flux
-  through the wall face at $O(h^3)$ (wm1 measures it laminar). This biases the reference, and probably part of its 4 % shortfall from the DNS; the
-  modelled wall sets that flux to zero. Not fixed here.
+  through the wall face at $O(h^3)$. This biased the reference, and probably part of its 4 % shortfall from the DNS. **Fixed since** (the inviscid
+  fluxes through no-slip faces are closed, only the pressure crosses; wm1 now conserves mass to $10^{-15}$, was $1.6\cdot10^{-7}$); the runs in this table
+  predate the fix and were not repeated (the GPU partition refused jobs; this workstation's GPUs are FP64-poor).
 - Only $\tau_w$ is compared: no mean profiles were saved, and the DNS profiles are not in this tree. The reference stopped at $t=144$ (the scheduler
   refused the last job).
 

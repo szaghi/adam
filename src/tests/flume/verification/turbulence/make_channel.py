@@ -42,6 +42,8 @@ def main() -> int:
     ap.add_argument("--scheme-space", default="weno")
     ap.add_argument("--wall", default="wall-isothermal")
     ap.add_argument("--wall-heat", type=float, default=1.0, help="the wall temperature over the gas temperature of the start")
+    ap.add_argument("--wm-height", type=float, default=0.0, help="[bc] wall_model_height, 0: the 3rd cell")
+    ap.add_argument("--wm-damping", default="", help="[bc] wall_model_damping")
     ap.add_argument("--amr-box", action="store_true", help="one more level on the middle half along x, over the whole height: 2:1 faces along the walls")
     ap.add_argument("--sgs-model", default="none")
     ap.add_argument("--cfl", type=float, default=0.5)
@@ -80,6 +82,9 @@ def main() -> int:
         keys = {"type": args.wall}
         if args.wall == "wall-isothermal" or args.wall == "wall-modelled":
             keys["wall_temperature"] = repr(t_wall * args.wall_heat)
+        if args.wall == "wall-modelled":
+            keys |= {"wall_model_height": str(args.wm_height)} if args.wm_height > 0.0 else {}
+            keys |= {"wall_model_damping": args.wm_damping} if args.wm_damping else {}
         text = section(text, f"bc_{face}", keys)
     text = section(text, "initial_conditions", {"type": "channel", "amr_iterations": "0", "ch_rho": "1.0", "ch_ub": "1.0", "ch_mach": str(args.mach), "ch_h": "1.0",
                                                  "ch_lx": repr(args.lx), "ch_lz": repr(args.lz), "ch_pert": str(args.perturbation)})

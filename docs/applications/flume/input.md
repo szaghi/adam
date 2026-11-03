@@ -226,6 +226,8 @@ replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 | `conductivity` | $\rho_0 u_0 L_0 R$ |
 | `resistivity` | $u_0 L_0$ |
 | `wall_temperature` with `wall-modelled` | real | yes | `> 0`, otherwise fatal | An isothermal wall whose face flux comes from the equilibrium wall model ([numerics](./numerics#wall-model)), sampled at the 3rd cell off the wall; the ghosts mirror as `wall-inviscid`. Euler with a viscosity and a `prandtl` only, 3 cells per block along the normal. |
+| `wall_model_height` with `wall-modelled` | real | no (0) | `>= 0` | Matching height, a length; 0 samples the 3rd cell. Otherwise interpolated between the cells around it, within the block (beyond it, its last cell). The literature matches at 0.1–0.3 of the boundary-layer thickness with at least 3 cells below ([numerics](./numerics#wall-model)). |
+| `wall_model_damping` with `wall-modelled` | string | no (`classical`) | `classical`, `semi-local`; other → fatal | Van Driest damping in wall units, or with the local density and viscosity. |
 | `wall_u`, `wall_v`, `wall_w` | $u_0$ |
 | `wall_temperature`, `reference_temperature` | $u_0^2 / R$ |
 | `reynolds`, `prandtl`, `magnetic_reynolds`, `viscosity_exponent` | — (dimensionless) |

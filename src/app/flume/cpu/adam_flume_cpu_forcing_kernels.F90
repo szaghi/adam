@@ -4,13 +4,14 @@ module adam_flume_cpu_forcing_kernels
 !< ADAM, FLUME CPU kernels of the mass-flow forcing (issue #119, T3.1).
 
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : wall_model_solve
+use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve
 use :: penf,                  only : I4P, R8P
 
 implicit none
 private
 public :: add_uniform_momentum
 public :: overwrite_wall_fluxes
+public :: close_wall_fluxes
 public :: sum_momentum
 
 contains
@@ -63,7 +64,7 @@ contains
    enddo
    !$omp end parallel do
    endsubroutine add_uniform_momentum
-   subroutine overwrite_wall_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces, tw, dxyz, q_aux, fl)
+   subroutine overwrite_wall_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces, tw, hwm, sl, dxyz, q_aux, fl)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
    integer(I4P), intent(in)    :: d                               !< Direction, 1=x, 2=y, 3=z.
@@ -74,11 +75,13 @@ contains
    real(R8P),    intent(in)    :: mu0, tref, omega_mu             !< Viscosity law.
    integer(I4P), intent(in)    :: faces(1:,1:)                   !< Modelled block faces [nb, 6].
    real(R8P),    intent(in)    :: tw(6)                           !< Wall temperature per face.
+   real(R8P),    intent(in)    :: hwm(6)                          !< Matching height per face, 0 for the 3rd cell.
+   logical,      intent(in)    :: sl(6)                           !< Semi-local damping per face.
    real(R8P),    intent(in)    :: dxyz(1:,1:)                    !< Blocks space steps.
    real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)      !< Face fluxes of direction `d`.
-   real(R8P)                   :: u(3), us, ts, ps, tau, q, cp, h, s !< Work.
-   integer(I4P)                :: n, side, f, b, i, j, k, l, is, js, ks !< Counters.
+   real(R8P)                   :: u(3), us, ts, ps, rs, tau, q, cp, h, s, w !< Work.
+   integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2 !< Counters.
 
    n = ni * di + nj * dj + nk * dk
    cp = gamma * R / (gamma - 1._R8P)
@@ -92,17 +95,22 @@ contains
             do j=merge(l, 1_I4P, dj == 1_I4P), merge(l, nj, dj == 1_I4P)
                do i=merge(l, 1_I4P, di == 1_I4P), merge(l, ni, di == 1_I4P)
                   if (faces(b,f) == 0_I4P) cycle
-                  ! 3rd cell off the wall: 3 on the low side, n - 2 on the high side, the face index being l
-                  is = i + di * merge(3_I4P, -2_I4P, side == 1)
-                  js = j + dj * merge(3_I4P, -2_I4P, side == 1)
-                  ks = k + dk * merge(3_I4P, -2_I4P, side == 1)
-                  u = q_aux(IA_U:IA_W,is,js,ks,b)
+                  ! the sample: the 3rd cell off the wall, or the matching height between cells m and m + 1 counted from the wall (centre of cell m at
+                  ! (m - 1/2) dx), within the block; cell m is i + m di on the low side, i - (m - 1) di on the high side, the face index being l
+                  call sample_cells(hwm=hwm(f), dx=dxyz(d,b), n=n, m=m, w=w, h=h)
+                  o1 = merge(m, 1_I4P - m, side == 1) ; o2 = merge(m + 1_I4P, -m, side == 1)
+                  u = q_aux(IA_U:IA_W,i+di*o1,j+dj*o1,k+dk*o1,b)
+                  ps = q_aux(IA_P,i+di*o1,j+dj*o1,k+dk*o1,b)
+                  rs = q_aux(IA_R,i+di*o1,j+dj*o1,k+dk*o1,b)
+                  if (w > 0._R8P) then
+                     u = u + w * (q_aux(IA_U:IA_W,i+di*o2,j+dj*o2,k+dk*o2,b) - u)
+                     ps = ps + w * (q_aux(IA_P,i+di*o2,j+dj*o2,k+dk*o2,b) - ps)
+                     rs = rs + w * (q_aux(IA_R,i+di*o2,j+dj*o2,k+dk*o2,b) - rs)
+                  endif
                   u(d) = 0._R8P
                   us = sqrt(dot_product(u, u))
-                  ps = q_aux(IA_P,is,js,ks,b)
-                  ts = ps / (R * q_aux(IA_R,is,js,ks,b))
-                  h = 2.5_R8P * dxyz(d,b)
-                  call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=tw(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q)
+                  ts = ps / (R * rs)
+                  call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=tw(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
                   if (us > 0._R8P) u = u / us
                   fl(IQ_R,i,j,k,b) = 0._R8P
                   fl(IQ_RU:IQ_RW,i,j,k,b) = merge(fl(IQ_RU:IQ_RW,i,j,k,b), -s * tau * u, [1,2,3] == d)
@@ -114,4 +122,35 @@ contains
       !$omp end parallel do
    enddo
    endsubroutine overwrite_wall_fluxes
+   subroutine close_wall_fluxes(d, di, dj, dk, ni, nj, nk, nv, blocks_number, faces, fl)
+   !< Zero every flux of direction `d` through the flagged block faces of that direction but the normal momentum (issue #119, the #65 mass leak).
+   integer(I4P), intent(in)    :: d                           !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                  !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, nv              !< Grid dimensions, variables.
+   integer(I4P), intent(in)    :: blocks_number               !< Actual blocks number.
+   integer(I4P), intent(in)    :: faces(1:,1:)                !< Flagged block faces [nb, 6].
+   real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:) !< Face fluxes of direction `d`.
+   real(R8P)                   :: keep                        !< The normal momentum flux.
+   integer(I4P)                :: n, side, f, b, i, j, k, l   !< Counters.
+
+   n = ni * di + nj * dj + nk * dk
+   do side=1, 2
+      f = 2_I4P * d - 2_I4P + side
+      l = merge(0_I4P, n, side == 1)
+      !$omp parallel do collapse(4) default(firstprivate) shared(faces, fl)
+      do b=1, blocks_number
+         do k=merge(l, 1_I4P, dk == 1_I4P), merge(l, nk, dk == 1_I4P)
+            do j=merge(l, 1_I4P, dj == 1_I4P), merge(l, nj, dj == 1_I4P)
+               do i=merge(l, 1_I4P, di == 1_I4P), merge(l, ni, di == 1_I4P)
+                  if (faces(b,f) == 0_I4P) cycle
+                  keep = fl(IQ_RU+d-1,i,j,k,b)
+                  fl(1:nv,i,j,k,b) = 0._R8P
+                  fl(IQ_RU+d-1,i,j,k,b) = keep
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   enddo
+   endsubroutine close_wall_fluxes
 endmodule adam_flume_cpu_forcing_kernels

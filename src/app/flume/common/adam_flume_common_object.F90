@@ -28,7 +28,7 @@ use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11,
 ! ADAM singleton objects
 use :: adam_mpih_global,              only : mpih
 ! FLUME modules
-use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, flume_bc_object
+use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, flume_bc_object
 use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
 use :: adam_flume_forcing_object,      only : flume_forcing_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
@@ -112,6 +112,8 @@ type, extends(realm_object) :: flume_common_object
    type(flume_forcing_object) :: forcing !< Mass-flow forcing (`[forcing]`, issue #119, T3.1).
    integer(I4P),      allocatable :: wm_faces(:,:)       !< Wall model: block faces it holds [nb, 6] (issue #119, T3.3).
    logical                        :: has_wall_model=.false. !< Some face of the domain is modelled.
+   integer(I4P),      allocatable :: ns_faces(:,:)       !< No-slip walls: block faces on them [nb, 6] (issue #119, the #65 mass leak).
+   logical                        :: has_noslip=.false.  !< Some face of the domain is a no-slip wall of a hydrodynamic model.
    integer(I4P),      allocatable :: hybrid_faces(:,:)   !< Hybrid scheme: block faces it must not read across [nb, 6].
    logical                        :: hybrid_has_faces=.false. !< Hybrid scheme: some block of the realm has such a face.
    real(R8P)                      :: sgs_lambda=0._R8P   !< Local time step limit of the eddy viscosity.
@@ -1196,6 +1198,9 @@ contains
    call self%check_dissipation
    call self%check_hybrid
    self%has_wall_model = any(self%bc%wall_modelled)
+   ! the inviscid fluxes through a no-slip wall face are closed (only the pressure crosses): the mirrored ghost of an isothermal wall has another density,
+   ! so the split flux carried mass, energy and scalars through it at O(h^3) (+11 % mass over a coarse channel run). MHD walls keep their fluxes.
+   self%has_noslip = any(self%bc%bc_type == BC_WALL_NOSLIP .or. self%bc%bc_type == BC_WALL_ISOTHERMAL) .and. is_hydrodynamic(self%physics%model)
    if (self%has_wall_model) then
       if (self%physics%model /= MODEL_EULER .or. .not.self%physics%dissipation%has_viscosity .or. self%physics%dissipation%prandtl <= 0._R8P) &
          call mpih%error_stop(msg=': wall-modelled faces need [physics].(physical_model) = euler, a viscosity and a prandtl number')
@@ -1549,11 +1554,15 @@ contains
    integer(I4P)                              :: b, f    !< Counters.
 
    if (.not.allocated(self%wm_faces)) allocate(self%wm_faces(self%nb,6))
+   if (.not.allocated(self%ns_faces)) allocate(self%ns_faces(self%nb,6))
    self%wm_faces = 0_I4P
+   self%ns_faces = 0_I4P
    do b=1, self%blocks_number
       node => self%adam%tree%node(code=self%adam%field%code(b))
       do f=1, 6
-         if (self%bc%wall_modelled(f) .and. node%neighbor(f)%ntype == NODE_BOUNDARY_CONDITION) self%wm_faces(b,f) = 1_I4P
+         if (node%neighbor(f)%ntype /= NODE_BOUNDARY_CONDITION .or. self%adam%maps%seam_face(f)) cycle ! a forest seam is no wall
+         if (self%bc%wall_modelled(f)) self%wm_faces(b,f) = 1_I4P
+         if (self%has_noslip .and. any(self%bc%bc_type(f) == [BC_WALL_NOSLIP, BC_WALL_ISOTHERMAL])) self%ns_faces(b,f) = 1_I4P
       enddo
    enddo
    endsubroutine set_wall_model_faces
@@ -2821,6 +2830,9 @@ contains
                                '[runge_kutta].(scheme)='//self%rk%scheme)
    if (self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported with immersed solids')
+   if (any(self%bc%bc_type == BC_WALL_NOSLIP .or. self%bc%bc_type == BC_WALL_ISOTHERMAL)) &
+      call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is refused with no-slip walls: its flux blend would reopen the closed wall faces '// &
+                               '(a mass leak, issue #119)')
    ! issue #65, D-M4-5: the first-order backbone with a central dissipative flux is not admissible without the modified
    ! bound of Zhang (2017, J. Comput. Phys. 328) and a further time step condition, neither of which is implemented
    if (self%physics%dissipation%is_active) &

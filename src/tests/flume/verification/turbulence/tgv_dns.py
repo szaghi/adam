@@ -2,7 +2,7 @@
 """The Taylor-Green campaign of issue #119 against the 512^3 spectral DNS (High-Order CFD Workshop, case C3.5, spectral_Re1600_512.gdiag): one row per case
 directory. Peak -dK/dt over a window of 0.5, as the page; L2 errors over 0.3 < t < 19.7, relative to the DNS: of -dK/dt (both over the window), of Z and of K.
 
-Usage: tgv_dns.py <gdiag> <directory holding the cases> <case>...
+Usage: tgv_dns.py <gdiag> <directory holding the cases> <case>...   (the DNS file: turbulence/reference/spectral_Re1600_512.gdiag)
 """
 
 from __future__ import annotations

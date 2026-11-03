@@ -3,7 +3,7 @@
 program test_wall_model
 !< Laminar limit, log layer against a fine quadrature, and the Crocco relation with Pr = Pr_t.
 
-use :: adam_flume_wall_model_library, only : wall_model_solve
+use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve
 use :: penf,                          only : I4P, I8P, R8P
 
 implicit none
@@ -11,7 +11,9 @@ real(R8P), parameter :: CP=3.5_R8P, GAS=1._R8P, KAPPA=0.41_R8P, APLUS=17._R8P
 real(R8P)            :: tau, q, us, hplus, err, ref, mu, dy, y1, y2, f1, f2, tauf, hh, uu, tt, pp
 real(R8P), parameter :: tw15=1._R8P / (1.4_R8P * 2.25_R8P)
 integer(I8P)         :: seed
-integer(I4P)         :: nbad
+integer(I4P)         :: nbad, mm
+real(R8P)            :: ww
+logical              :: ok1
 integer(I4P)         :: n
 integer(I4P), parameter :: NF=4000000_I4P
 logical              :: ok
@@ -57,11 +59,31 @@ call reference(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, pr=0.7_R8P
 call wall_model_solve(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, omega_mu=0.7_R8P, tau=tau, q=q)
 print '(A,2ES10.2,A)', 'compressible, tau and q relative ', abs(tau - tauf) / tauf, abs(q - ref) / abs(ref), ' (bound 2e-2)'
 ok = ok .and. abs(tau - tauf) / tauf < 2.e-2_R8P .and. abs(q - ref) / abs(ref) < 2.e-2_R8P
+! semi-local damping, the same hot layer, against the reference with the same damping
+call reference(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, omega=0.7_R8P, tau=tauf, q=ref, semilocal=.true.)
+call wall_model_solve(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, omega_mu=0.7_R8P, tau=tau, q=q, &
+                      semilocal=.true.)
+print '(A,2ES10.2,A)', 'semi-local, tau and q relative ', abs(tau - tauf) / tauf, abs(q - ref) / abs(ref), ' (bound 2e-2)'
+ok = ok .and. abs(tau - tauf) / tauf < 2.e-2_R8P .and. abs(q - ref) / abs(ref) < 2.e-2_R8P
+ref = tau
+call wall_model_solve(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, omega_mu=0.7_R8P, tau=tau, q=q)
+print '(A,ES10.2,A)', 'semi-local against classical on the hot layer, tau relative ', abs(ref - tau) / tau, ' (min 1e-2: the option acts)'
+ok = ok .and. abs(ref - tau) / tau > 1.e-2_R8P
+! the sample cells: the 3rd cell by default; a height between cells 3 and 4; a height beyond the block, its last cells
+call sample_cells(hwm=0._R8P, dx=0.1_R8P, n=8_I4P, m=mm, w=ww, h=hh)
+ok1 = mm == 3 .and. ww == 0._R8P .and. abs(hh - 0.25_R8P) < 1.e-15_R8P
+call sample_cells(hwm=0.3_R8P, dx=0.1_R8P, n=8_I4P, m=mm, w=ww, h=hh)
+ok1 = ok1 .and. mm == 3 .and. abs(ww - 0.5_R8P) < 1.e-12_R8P .and. abs(hh - 0.3_R8P) < 1.e-12_R8P
+call sample_cells(hwm=2._R8P, dx=0.1_R8P, n=8_I4P, m=mm, w=ww, h=hh)
+ok1 = ok1 .and. mm == 7 .and. ww == 1._R8P .and. abs(hh - 0.75_R8P) < 1.e-12_R8P
+print '(A,L1)', 'sample cells: ', ok1
+ok = ok .and. ok1
 ! robustness: 200000 pseudo-random samples about a Mach 1.5 channel wall, parallel speed up to 4.5 wall sound speeds, sample 0.5-3.5 times the wall temperature
 nbad = 0 ; seed = 12345_I8P
 do n=1, 200000
    hh = 0.01_R8P + 0.3_R8P * lcg(seed) ; uu = 3._R8P * lcg(seed) ; tt = tw15 * (0.5_R8P + 3._R8P * lcg(seed)) ; pp = (0.5_R8P + lcg(seed)) * tw15
-   call wall_model_solve(h=hh, us=uu, ts=tt, ps=pp, tw=tw15, R=GAS, cp=CP, pr=0.7_R8P, mu0=1._R8P / 3000._R8P, tref=tw15, omega_mu=0.7_R8P, tau=tau, q=q)
+   call wall_model_solve(h=hh, us=uu, ts=tt, ps=pp, tw=tw15, R=GAS, cp=CP, pr=0.7_R8P, mu0=1._R8P / 3000._R8P, tref=tw15, omega_mu=0.7_R8P, tau=tau, q=q, &
+                         semilocal=mod(n, 2) == 0)
    if (.not.(tau >= 0._R8P .and. tau < huge(1._R8P) .and. abs(q) < huge(1._R8P))) nbad = nbad + 1
 enddo
 print '(A,I0,A)', 'robustness, non-finite or negative results: ', nbad, ' of 200000 (bound 0)'
@@ -82,10 +104,12 @@ contains
    x = real(s, R8P) / 2147483647._R8P
    endfunction lcg
 
-   subroutine reference(h, us, ts, ps, tw, pr, mu0, tref, omega, tau, q)
+   subroutine reference(h, us, ts, ps, tw, pr, mu0, tref, omega, tau, q, semilocal)
    !< The layer on 200000 intervals uniform in sqrt(y), by trapezoids and 400 under-relaxed iterations: no code shared with the library.
    real(R8P), intent(in)  :: h, us, ts, ps, tw, pr, mu0, tref, omega !< As `wall_model_solve`.
    real(R8P), intent(out) :: tau, q                                   !< Results.
+   logical,   intent(in), optional :: semilocal                       !< Semi-local damping.
+   real(R8P)              :: dmp
    integer(I4P), parameter :: M=200000_I4P
    real(R8P), allocatable :: y(:), t(:), u(:), mt(:), a(:)
    real(R8P)              :: rhow, muw, d, i1, i2, i3
@@ -101,7 +125,11 @@ contains
    do it=1, 400
       d = 0._R8P
       do i=0, M
-         mt(i) = KAPPA * y(i) * sqrt(ps / (GAS * t(i)) * tau) * (1._R8P - exp(-y(i) * sqrt(tau * rhow) / (muw * APLUS)))**2
+         dmp = 1._R8P - exp(-y(i) * sqrt(tau * rhow) / (muw * APLUS))
+         if (present(semilocal)) then
+            if (semilocal) dmp = 1._R8P - exp(-y(i) * sqrt(tau * ps / (GAS * t(i))) / (mu0 * (t(i) / tref)**omega * APLUS))
+         endif
+         mt(i) = KAPPA * y(i) * sqrt(ps / (GAS * t(i)) * tau) * dmp**2
          a(i) = mu0 * (t(i) / tref)**omega / pr + mt(i) / 0.9_R8P
          mt(i) = mu0 * (t(i) / tref)**omega + mt(i)
       enddo

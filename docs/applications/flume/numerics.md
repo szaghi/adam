@@ -620,12 +620,20 @@ One flux per face, so conservation holds whichever kernel set it; computing WENO
 
 **With a subgrid-scale model.** The eddy viscosity is zero on flagged cells (T2.6). The rule is per cell: a WENO face next to a flagged cell, or on a skin, can still carry the model. The sensor and its exchange then run twice per stage.
 
+## No-slip walls: closed inviscid fluxes
+
+At a `wall-noslip` or `wall-isothermal` face of a hydrodynamic model every inviscid face flux but the normal momentum is set to zero before the
+dissipative fluxes are added (issue #119): the wall is impermeable. Before, the mirrored ghost of an isothermal wall, of another density, let the split
+flux carry mass, energy and scalars through the face at $O(h^3)$ (+11 % of the mass over a coarse turbulent channel run). MHD walls keep their fluxes.
+
 ## Wall model
 
 `wall-modelled` faces ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), issue #119, T3.3–T3.4) mirror their ghosts as `wall-inviscid`
 and replace the flux through the wall face, after every other dissipative flux: no mass, the parallel momentum by $\tau_w$ along the parallel velocity
 of the sample, the energy by the wall heat flux $q_w$; the normal momentum keeps the mirrored pressure. The sample is the 3rd cell off the wall,
-$h = 2.5\,\Delta$ (Kawai & Larsson 2012, as cited in #119, place it off the first cell).
+$h = 2.5\,\Delta$ (Kawai & Larsson 2012, as cited in #119, place it off the first cell), or at `wall_model_height`, interpolated linearly
+between the two cells around it. The literature collected in llm-wiki (equilibrium wall model, log-layer mismatch) matches at a fixed fraction of
+$\delta$, 0.1–0.3, with $\Delta/h_{\mathrm{wm}}\lesssim0.3$–0.4: the 3rd cell sits at that bound and moves with the grid.
 
 The model is the equilibrium thin layer between the wall and the sample, pressure uniform across it:
 
@@ -634,7 +642,8 @@ $$
 \frac{d}{dy}\Big[(\mu+\mu_t)U\frac{dU}{dy}+c_p\Big(\frac{\mu}{Pr}+\frac{\mu_t}{Pr_t}\Big)\frac{dT}{dy}\Big]=0,
 $$
 
-$\mu_t=\kappa y\sqrt{\rho\tau_w}\,\big(1-e^{-y^+/A^+}\big)^2$ with the local density, $y^+=y\sqrt{\tau_w\rho_w}/\mu_w$, $\kappa=0.41$, $A^+=17$,
+$\mu_t=\kappa y\sqrt{\rho\tau_w}\,\big(1-e^{-y^+/A^+}\big)^2$ with the local density, $y^+=y\sqrt{\tau_w\rho_w}/\mu_w$ (classical) or
+$y^*=y\sqrt{\tau_w\rho}/\mu$ with the local density and viscosity (`semi-local`, as Yang & Lv 2018 and Chen et al. 2022, cited in llm-wiki), $\kappa=0.41$, $A^+=17$,
 $Pr_t=0.9$; $T=T_w$ and $U=0$ at the wall, the sample values at $y=h$. Integrated once, $\tau_w$ and $q_w$ follow from two quadratures for a given
 temperature profile: 40 intervals stretched by 1.3, a rule exact for a coefficient linear on each interval, 8 iterations with an Aitken step on
 $\ln\tau_w$ every second one (capped at a factor $e$), the temperature iterate under-relaxed and kept positive, the laminar stress if all else fails.

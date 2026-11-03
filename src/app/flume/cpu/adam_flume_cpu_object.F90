@@ -13,7 +13,7 @@ use :: adam_flux_register_object, only : face_tangential_ratios, flux_register_o
 use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
-use :: adam_flume_cpu_forcing_kernels, only : overwrite_wall_fluxes, add_uniform_momentum, sum_momentum
+use :: adam_flume_cpu_forcing_kernels, only : close_wall_fluxes, overwrite_wall_fluxes, add_uniform_momentum, sum_momentum
 use :: adam_flume_cpu_hybrid_kernels, only : compute_hybrid_sensor, mask_mu_t, overwrite_central_fluxes
 use :: adam_turbulence_kernels, only : compute_mu_t_sigma, compute_mu_t_vreman, compute_mu_t_wale
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
@@ -334,6 +334,7 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: overwrite_hybrid_fluxes !< Central flux where the sensor allows it (issue #119, T2).
       procedure, pass(self) :: update_wall_model_faces !< Flag the block faces of the wall model (issue #119, T3.3).
       procedure, pass(self) :: overwrite_wall_model_fluxes !< The wall-face fluxes of the wall model (issue #119, T3.3).
+      procedure, pass(self) :: close_noslip_fluxes     !< Close the inviscid fluxes through no-slip wall faces (the #65 mass leak).
       procedure, pass(self) :: update_hybrid_faces     !< Flag the block faces of the sensor (issue #119, T2.4).
       procedure, pass(self) :: compute_mu_t            !< Compute the eddy viscosity of the model (issue #119).
       procedure, pass(self) :: update_sgs_lambda       !< Update the time step limit of the eddy viscosity (issue #119).
@@ -907,9 +908,21 @@ contains
    !< Flag the block faces of the wall model (issue #119, T3.3), at the start and after each step, so after a regrid.
    class(flume_cpu_object), intent(inout) :: self !< The equation.
 
-   if (.not.self%has_wall_model) return
+   if (.not.(self%has_wall_model .or. self%has_noslip)) return
    call self%set_wall_model_faces
    endsubroutine update_wall_model_faces
+
+   subroutine close_noslip_fluxes(self)
+   !< Zero the inviscid fluxes through no-slip wall faces but the normal momentum, before the dissipative ones are added: the wall is impermeable.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%adam%grid%null_xyz(1)) call close_wall_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv, &
+        blocks_number=self%blocks_number, faces=self%ns_faces, fl=self%flx_f)
+   if (.not.self%adam%grid%null_xyz(2)) call close_wall_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv, &
+        blocks_number=self%blocks_number, faces=self%ns_faces, fl=self%fly_f)
+   if (.not.self%adam%grid%null_xyz(3)) call close_wall_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv, &
+        blocks_number=self%blocks_number, faces=self%ns_faces, fl=self%flz_f)
+   endsubroutine close_noslip_fluxes
 
    subroutine overwrite_wall_model_fluxes(self)
    !< The wall-face fluxes of the wall model, after every other dissipative flux (issue #119, T3.3).
@@ -920,13 +933,13 @@ contains
    mu0 = self%physics%dissipation%mu
    if (.not.self%adam%grid%null_xyz(1)) call overwrite_wall_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces=self%wm_faces, tw=self%bc%wall_temperature, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flx_f)
+        faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flx_f)
    if (.not.self%adam%grid%null_xyz(2)) call overwrite_wall_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces=self%wm_faces, tw=self%bc%wall_temperature, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%fly_f)
+        faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%fly_f)
    if (.not.self%adam%grid%null_xyz(3)) call overwrite_wall_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
-        faces=self%wm_faces, tw=self%bc%wall_temperature, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flz_f)
+        faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flz_f)
    endsubroutine overwrite_wall_model_fluxes
 
    subroutine update_hybrid_faces(self)
@@ -3731,9 +3744,11 @@ contains
    case default
       call mpih%error_stop(msg=': no CPU kernels for physical model "'//self%physics%physical_model//'"')
    endselect
+   if (self%has_noslip) call self%close_noslip_fluxes ! before the gravity correction, which reads the face mass fluxes
    if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
       call self%compute_gravity_correction(q=q)
    if (self%numerics%is_hybrid) call self%overwrite_hybrid_fluxes
+   if (self%has_noslip) call self%close_noslip_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
                                                                                          flux_register=flux_register)
@@ -3967,8 +3982,10 @@ contains
          print '(A)', mpih%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
+   if (self%has_noslip) call self%close_noslip_fluxes ! before the gravity correction, which reads the face mass fluxes
    if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
       call self%compute_gravity_correction(q=q)
+   if (self%has_noslip) call self%close_noslip_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
                                                                                          flux_register=flux_register)

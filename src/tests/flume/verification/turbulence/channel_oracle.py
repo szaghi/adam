@@ -22,9 +22,10 @@ def force(work: Path, last: float = 0.25) -> tuple[float, float]:
     return float(tail.mean()), float(np.max(np.abs(c - c[0])) / abs(c[0]))
 
 
-def laminar(works: list[str], reynolds: float, tol: float, min_order: float, mass_tol: float) -> int:
-    """Laminar Poiseuille: f = 3 mu U / h^2, here 3 / Re."""
-    exact = 3.0 / reynolds
+def laminar(works: list[str], reynolds: float, tol: float, min_order: float, mass_tol: float, height: float = 0.0) -> int:
+    """Laminar Poiseuille: f = 3 mu U / h^2, here 3 / Re. With a wall model matched at a fixed height h (a laminar layer, linear below h: tau = mu u(h) / h),
+    the steady flow is a parabola A (1 - y^2) plus a slip U_s; tau = 2 mu A, U_s = A h^2 and the bulk U_s + 2A/3 = 1 give f = 3 / Re / (1 + 3 h^2 / 2)."""
+    exact = 3.0 / reynolds / (1.0 + 1.5 * height * height)
     errs = []
     ok = True
     for w in works:
@@ -65,6 +66,16 @@ def same_force(a: str, b: str, tol: float) -> int:
     return 0 if ok else 1
 
 
+def differ_force(a: str, b: str, tol: float) -> int:
+    """Two runs whose forces must differ by more than tol, relative: an option that acts."""
+    fa, _ = force(Path(a))
+    fb, _ = force(Path(b))
+    rel = abs(fa - fb) / abs(fb)
+    ok = rel > tol
+    print(f"force {fa:.6e} against {fb:.6e}, relative {rel:.2e} (min {tol:.0e})  {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def between(a: str, coarse: str, fine: str) -> int:
     """The force of a run with half the wall refined, strictly between those of the coarse and the fine uniform runs; its mass conserved."""
     fa, da = force(Path(a))
@@ -93,22 +104,25 @@ def energy(a: str, b: str, tol: float) -> int:
 def main() -> int:
     """Check."""
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("what", choices=["laminar", "same", "agree", "energy", "between"])
+    ap.add_argument("what", choices=["laminar", "same", "agree", "energy", "between", "differ"])
     ap.add_argument("works", nargs="+")
     ap.add_argument("--reynolds", type=float, default=100.0)
     ap.add_argument("--tol", type=float, default=0.02)
     ap.add_argument("--min-order", type=float, default=1.5)
     ap.add_argument("--mass-tol", type=float, default=1e-12)
+    ap.add_argument("--height", type=float, default=0.0)
     args = ap.parse_args()
     if args.what == "same":
         return same_force(args.works[0], args.works[1], args.tol)
+    if args.what == "differ":
+        return differ_force(args.works[0], args.works[1], args.tol)
     if args.what == "between":
         return between(args.works[0], args.works[1], args.works[2])
     if args.what == "agree":
         return agree(args.works[0], args.works[1])
     if args.what == "energy":
         return energy(args.works[0], args.works[1], args.tol)
-    return laminar(args.works, args.reynolds, args.tol, args.min_order, args.mass_tol)
+    return laminar(args.works, args.reynolds, args.tol, args.min_order, args.mass_tol, args.height)
 
 
 if __name__ == "__main__":

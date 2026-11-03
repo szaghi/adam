@@ -6,13 +6,14 @@ module adam_flume_fnl_forcing_kernels
 !< ADAM, FLUME FNL kernels of the mass-flow forcing (issue #119, T3.1).
 
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : wall_model_solve
+use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve
 use :: penf,                  only : I4P, R8P
 
 implicit none
 private
 public :: add_uniform_momentum_dev
 public :: overwrite_wall_fluxes_dev
+public :: close_wall_fluxes_dev
 public :: sum_momentum_dev
 
 contains
@@ -70,7 +71,7 @@ contains
    enddo
    enddo
    endsubroutine add_uniform_momentum_dev
-   subroutine overwrite_wall_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces_gpu, tw, dxyz_gpu, q_aux_gpu, fl_gpu)
+   subroutine overwrite_wall_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces_gpu, tw, hwm, sl, dxyz_gpu, q_aux_gpu, fl_gpu)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
    integer(I4P), intent(in)    :: d                               !< Direction, 1=x, 2=y, 3=z.
@@ -81,12 +82,15 @@ contains
    real(R8P),    intent(in)    :: mu0, tref, omega_mu             !< Viscosity law.
    integer(I4P), intent(in)    :: faces_gpu(1:,1:)                   !< Modelled block faces [nb, 6].
    real(R8P),    intent(in)    :: tw(6)                           !< Wall temperature per face.
+   real(R8P),    intent(in)    :: hwm(6)                          !< Matching height per face, 0 for the 3rd cell.
+   logical,      intent(in)    :: sl(6)                           !< Semi-local damping per face.
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Blocks space steps.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)      !< Face fluxes of direction `d`.
-   real(R8P)                   :: u1, u2, u3, us, ts, ps, tau, q, cp, h, s, t1, t2, t3 !< Work.
-   integer(I4P)                :: n, side, f, b, i, j, k, l, off, i0, i1, j0, j1, k0, k1 !< Counters.
-   real(R8P)                   :: twf                                !< Wall temperature of the face.
+   real(R8P)                   :: u1, u2, u3, us, ts, ps, rs, tau, q, cp, h, s, t1, t2, t3, w !< Work.
+   integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, i0, i1, j0, j1, k0, k1 !< Counters.
+   real(R8P)                   :: twf, hwf                           !< Wall temperature and matching height of the face.
+   logical                     :: slf                                !< Semi-local damping of the face.
 
    n = ni * di + nj * dj + nk * dk
    cp = gamma * R / (gamma - 1._R8P)
@@ -94,28 +98,37 @@ contains
       f = 2_I4P * d - 2_I4P + side
       l = merge(0_I4P, n, side == 1)
       s = merge(1._R8P, -1._R8P, side == 1)
-      off = merge(3_I4P, -2_I4P, side == 1)
-      twf = tw(f)
+      twf = tw(f) ; hwf = hwm(f) ; slf = sl(f)
       i0 = merge(l, 1_I4P, di == 1_I4P) ; i1 = merge(l, ni, di == 1_I4P)
       j0 = merge(l, 1_I4P, dj == 1_I4P) ; j1 = merge(l, nj, dj == 1_I4P)
       k0 = merge(l, 1_I4P, dk == 1_I4P) ; k1 = merge(l, nk, dk == 1_I4P)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu)      &
-      !$acc& firstprivate(d,di,dj,dk,f,off,s,twf,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1) private(u1,u2,u3,us,ts,ps,tau,q,h,t1,t2,t3)
+      !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1) private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2)
       !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu)                                     &
-      !$omp& firstprivate(d,di,dj,dk,f,off,s,twf,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1) private(u1,u2,u3,us,ts,ps,tau,q,h,t1,t2,t3)
+      !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1) private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2)
       do k=k0, k1
       do j=j0, j1
       do i=i0, i1
       do b=1, blocks_number
          if (faces_gpu(b,f) /= 0_I4P) then
-            u1 = q_aux_gpu(b,i+di*off,j+dj*off,k+dk*off,IA_U) * (1._R8P - real(di, R8P))
-            u2 = q_aux_gpu(b,i+di*off,j+dj*off,k+dk*off,IA_V) * (1._R8P - real(dj, R8P))
-            u3 = q_aux_gpu(b,i+di*off,j+dj*off,k+dk*off,IA_W) * (1._R8P - real(dk, R8P))
+            call sample_cells(hwm=hwf, dx=dxyz_gpu(b,d), n=n, m=m, w=w, h=h)
+            o1 = merge(m, 1_I4P - m, side == 1) ; o2 = merge(m + 1_I4P, -m, side == 1)
+            u1 = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_U)
+            u2 = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_V)
+            u3 = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_W)
+            ps = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_P)
+            rs = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_R)
+            if (w > 0._R8P) then
+               u1 = u1 + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_U) - u1)
+               u2 = u2 + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_V) - u2)
+               u3 = u3 + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_W) - u3)
+               ps = ps + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_P) - ps)
+               rs = rs + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_R) - rs)
+            endif
+            u1 = u1 * (1._R8P - real(di, R8P)) ; u2 = u2 * (1._R8P - real(dj, R8P)) ; u3 = u3 * (1._R8P - real(dk, R8P))
             us = sqrt(u1 * u1 + u2 * u2 + u3 * u3)
-            ps = q_aux_gpu(b,i+di*off,j+dj*off,k+dk*off,IA_P)
-            ts = ps / (R * q_aux_gpu(b,i+di*off,j+dj*off,k+dk*off,IA_R))
-            h = 2.5_R8P * dxyz_gpu(b,d)
-            call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=twf, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q)
+            ts = ps / (R * rs)
+            call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=twf, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, semilocal=slf)
             t1 = 0._R8P ; t2 = 0._R8P ; t3 = 0._R8P
             if (us > 0._R8P) then
                t1 = u1 / us ; t2 = u2 / us ; t3 = u3 / us
@@ -132,4 +145,39 @@ contains
       enddo
    enddo
    endsubroutine overwrite_wall_fluxes_dev
+   subroutine close_wall_fluxes_dev(d, di, dj, dk, ni, nj, nk, nv, blocks_number, faces_gpu, fl_gpu)
+   !< Zero every flux of direction `d` through the flagged block faces of that direction but the normal momentum (issue #119, the #65 mass leak).
+   integer(I4P), intent(in)    :: d                               !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                      !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, nv                  !< Grid dimensions, variables.
+   integer(I4P), intent(in)    :: blocks_number                   !< Actual blocks number.
+   integer(I4P), intent(in)    :: faces_gpu(1:,1:)                !< Flagged block faces [nb, 6].
+   real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:) !< Face fluxes of direction `d`.
+   integer(I4P)                :: n, side, f, b, i, j, k, l, v, vn, i0, i1, j0, j1, k0, k1 !< Counters.
+
+   n = ni * di + nj * dj + nk * dk
+   vn = IQ_RU + d - 1_I4P
+   do side=1, 2
+      f = 2_I4P * d - 2_I4P + side
+      l = merge(0_I4P, n, side == 1)
+      i0 = merge(l, 1_I4P, di == 1_I4P) ; i1 = merge(l, ni, di == 1_I4P)
+      j0 = merge(l, 1_I4P, dj == 1_I4P) ; j1 = merge(l, nj, dj == 1_I4P)
+      k0 = merge(l, 1_I4P, dk == 1_I4P) ; k1 = merge(l, nk, dk == 1_I4P)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,fl_gpu) firstprivate(f,vn,nv,blocks_number,i0,i1,j0,j1,k0,k1)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,fl_gpu) firstprivate(f,vn,nv,blocks_number,i0,i1,j0,j1,k0,k1)
+      do k=k0, k1
+      do j=j0, j1
+      do i=i0, i1
+      do b=1, blocks_number
+         if (faces_gpu(b,f) /= 0_I4P) then
+            do v=1, nv
+               if (v /= vn) fl_gpu(b,i,j,k,v) = 0._R8P
+            enddo
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+   enddo
+   endsubroutine close_wall_fluxes_dev
 endmodule adam_flume_fnl_forcing_kernels

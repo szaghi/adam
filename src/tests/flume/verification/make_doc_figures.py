@@ -2155,8 +2155,8 @@ def _turbulence_history(work: Path) -> np.ndarray:
 
 
 def _dns_curve(axs) -> None:
-    """Draw the 512^3 spectral DNS of the High-Order CFD Workshop, C3.5, if its file is in the repository root."""
-    path = Path(__file__).resolve().parents[4] / "spectral_Re1600_512.gdiag"
+    """Draw the 512^3 spectral DNS of the High-Order CFD Workshop, C3.5 (turbulence/reference/)."""
+    path = Path(__file__).resolve().parent / "turbulence" / "reference" / "spectral_Re1600_512.gdiag"
     if not path.exists():
         return
     t, _, d, z = np.loadtxt(path, comments="#").T

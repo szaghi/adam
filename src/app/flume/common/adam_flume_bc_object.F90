@@ -22,7 +22,8 @@ module adam_flume_bc_object
 !< the wall. The field follows the MHD wall rule of `wall-inviscid` (normal component odd), psi is even.
 !<
 !< **Modelled wall** (issue #119, T3.3). `wall-modelled`, with `wall_temperature`: the ghosts mirror as `wall-inviscid`; the flux through the face comes from the wall model
-!< (`adam_flume_wall_model_library`), sampled at the 3rd cell off the wall. Euler with a viscosity only.
+!< (`adam_flume_wall_model_library`), sampled at the 3rd cell off the wall or at `wall_model_height` (interpolated between cells), damping
+!< `wall_model_damping` classical (wall units) or semi-local (local density and viscosity). Euler with a viscosity only.
 !<
 !< **Hydrostatic** (issue #73, M7-G0). `hydrostatic` closes a stratified atmosphere under the constant gravity of
 !< `[gravity]`: the ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior
@@ -92,6 +93,8 @@ type :: flume_bc_object
    real(R8P), allocatable :: wall_sign(:,:)   !< Wall mirror sign of each variable per direction [nv, 3] (+1 or -1).
    real(R8P)              :: wall_velocity(3,6)=0._R8P !< No-slip walls: wall velocity of each face.
    logical                :: wall_modelled(6)=.false.   !< Faces of a wall model (issue #119, T3.3).
+   real(R8P)              :: wm_height(6)=0._R8P        !< Wall model: matching height per face, 0 for the 3rd cell.
+   logical                :: wm_semilocal(6)=.false.    !< Wall model: semi-local damping per face.
    real(R8P)              :: wall_temperature(6)=0._R8P !< Isothermal walls: wall temperature of each face.
    contains
       ! public methods
@@ -198,6 +201,18 @@ contains
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_temperature', val=self%wall_temperature(f), error=error)
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(wall_temperature)')
          if (.not.(self%wall_temperature(f) > 0._R8P)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_temperature) must be positive')
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_height', val=self%wm_height(f), error=error)
+         if (error /= 0) self%wm_height(f) = 0._R8P
+         if (self%wm_height(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_height) must be >= 0')
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_damping', val=buff, error=error)
+         if (error /= 0) buff = 'classical'
+         select case(trim(adjustl(strip_control(buff))))
+         case('classical')
+         case('semi-local')
+            self%wm_semilocal(f) = .true.
+         case default
+            call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(wall_model_damping); expected classical or semi-local')
+         endselect
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID
       case(BC_WALL_NOSLIP_STR, BC_WALL_ISOTHERMAL_STR)

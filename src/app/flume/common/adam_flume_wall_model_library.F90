@@ -15,6 +15,7 @@ use :: penf, only : I4P, R8P
 
 implicit none
 private
+public :: sample_cells
 public :: wall_model_solve
 public :: WM_ITERATIONS, WM_POINTS
 
@@ -26,13 +27,39 @@ real(R8P),    parameter :: WM_APLUS=17._R8P     !< Damping constant.
 real(R8P),    parameter :: WM_PRT=0.9_R8P       !< Turbulent Prandtl number.
 
 contains
-   pure subroutine wall_model_solve(h, us, ts, ps, tw, R, cp, pr, mu0, tref, omega_mu, tau, q)
+   pure subroutine sample_cells(hwm, dx, n, m, w, h)
+   !< The cells of a wall-model sample: from the matching height `hwm` (0: the 3rd cell), the cell m counted from the wall and the weight w of cell
+   !< m + 1, both within the `n` cells of the block, and the height of the sample actually taken.
+   real(R8P),    intent(in)  :: hwm, dx !< Matching height, spacing along the normal.
+   integer(I4P), intent(in)  :: n       !< Cells of the block along the normal.
+   integer(I4P), intent(out) :: m       !< Cell counted from the wall.
+   real(R8P),    intent(out) :: w       !< Weight of cell m + 1.
+   real(R8P),    intent(out) :: h       !< Height of the sample.
+   real(R8P)                 :: s       !< Height in cells, from the wall.
+   !$acc routine seq
+   !$omp declare target
+
+   if (hwm > 0._R8P) then
+      s = max(hwm / dx + 0.5_R8P, 1._R8P)
+      m = int(s, I4P) ; w = s - real(m, R8P)
+      if (m >= n) then
+         m = n - 1_I4P ; w = 1._R8P ! the block holds no farther cell: its last one
+      endif
+      h = (real(m, R8P) + w - 0.5_R8P) * dx
+   else
+      m = 3_I4P ; w = 0._R8P ; h = 2.5_R8P * dx
+   endif
+   endsubroutine sample_cells
+
+   pure subroutine wall_model_solve(h, us, ts, ps, tw, R, cp, pr, mu0, tref, omega_mu, tau, q, semilocal)
    !< Return the wall shear stress `tau` and the heat flux `q` (`k dT/dy` at the wall, positive when the gas is hotter than the wall) of an isothermal wall.
    real(R8P), intent(in)  :: h, us, ts, ps       !< Height, parallel speed, temperature and pressure of the sample.
    real(R8P), intent(in)  :: tw                  !< Wall temperature.
    real(R8P), intent(in)  :: R, cp, pr           !< Gas constant, specific heat, Prandtl number.
    real(R8P), intent(in)  :: mu0, tref, omega_mu !< Viscosity law, as `compute_dissipative_flux`.
    real(R8P), intent(out) :: tau, q              !< Wall shear stress, wall heat flux.
+   logical,   intent(in), optional :: semilocal  !< Semi-local damping, y* = y sqrt(rho tau) / mu with the local rho, mu (else wall units).
+   logical                :: sl                  !< Local copy.
    real(R8P)              :: y(0:WM_POINTS)      !< Heights.
    real(R8P)              :: t(0:WM_POINTS)      !< Temperature.
    real(R8P)              :: u(0:WM_POINTS)      !< Velocity.
@@ -43,6 +70,7 @@ contains
    !$acc routine seq
    !$omp declare target
 
+   sl = .false. ; if (present(semilocal)) sl = semilocal
    dy0 = h * (WM_STRETCH - 1._R8P) / (WM_STRETCH**WM_POINTS - 1._R8P)
    y(0) = 0._R8P
    t(0) = tw
@@ -69,7 +97,11 @@ contains
       do n=0, WM_POINTS
          mu = mu0 * (t(n) / tref)**omega_mu
          rho = ps / (R * t(n))
-         damp = 1._R8P - exp(-y(n) * ut * rhow / (muw * WM_APLUS))
+         if (sl) then
+            damp = 1._R8P - exp(-y(n) * sqrt(rho * tau) / (mu * WM_APLUS))
+         else
+            damp = 1._R8P - exp(-y(n) * ut * rhow / (muw * WM_APLUS))
+         endif
          mt(n) = WM_KAPPA * y(n) * sqrt(rho * tau) * damp * damp
          a(n) = mu / pr + mt(n) / WM_PRT
          mt(n) = mu + mt(n)

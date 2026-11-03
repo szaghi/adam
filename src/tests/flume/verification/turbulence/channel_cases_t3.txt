@@ -8,3 +8,9 @@ wm-hybrid-g2 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-we
 wm-weno-g2 96 48 48 1.5 3000 --wall wall-modelled --perturbation 0.2 --time-max 150
 wm-hybrid-g3 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150
 resolved-hybrid 256 192 128 1.5 3000 --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150
+# matching height 0.15 (h+ about 33) against the 3rd cell, classical against semi-local damping (issue #119, T3 follow-up, owner 2026-11-02)
+wm-hybrid-g2-h15 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150 --wm-height 0.15
+wm-hybrid-g3-h15 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150 --wm-height 0.15
+wm-hybrid-g2-h15-sl 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150 --wm-height 0.15 --wm-damping semi-local
+wm-hybrid-g3-h15-sl 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150 --wm-height 0.15 --wm-damping semi-local
+wm-hybrid-g3-sl 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150 --wm-damping semi-local

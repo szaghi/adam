@@ -46,13 +46,18 @@
 #   hy13 T2.7 robustness, hybrid against WENO, density L1: a vortex after Jiang & Shu through a shock and sod-amr within 5e-3, Shu-Osher within 2e-4 (set
 #        after the 1.7e-5 result). In 1-D there is no vorticity, so the Ducros ratio flags any varying flow: only the 2-D case exercises the sensor. A vortex
 #        through a shock with a 2:1 box, skin on and off, runs and reports the difference.
-#   wm1  T3.1 laminar channel, isothermal walls, Re 100, M 0.1, from the laminar profile: the driving force against 3 mu U / h^2 with order. Mass within 1e-6 only:
-#        the no-slip isothermal wall of #65 lets mass through its face at O(h^3) (1.6e-7, 2.1e-8, 2.0e-9 at 16, 32, 64), the modelled wall sets it to 0;
+#   wm1  T3.1 laminar channel, isothermal walls, Re 100, M 0.1, from the laminar profile: the driving force against 3 mu U / h^2 with order, mass conserved
+#        (the no-slip walls of #65 let mass through at O(h^3) before their inviscid face fluxes were closed: 1.6e-7, 2.1e-8, 2.0e-9 at 16, 32, 64);
 #        one rank against N on the perturbed flow.
 #   wm2  T3.3, T3.4: test_wall_model (laminar limit, log law, Crocco); the laminar channel on modelled walls: the force with order above 1.5 (the mirror cell and the linear profile are second order), mass conserved. The time 2 is before the diffusive steady state, t about 40, so the same transient on both sides.
 #   wm3  T3.6: the same with 2:1 faces along the walls, half the wall refined: mass conserved, the force strictly between those of the uniform base and of the
 #        uniform grid with the fine wall spacing (the flow does not depend on x, z). Runtime regridding is not run.
 #   wm4  T3.3: the energy flux: a wall hotter than the gas, modelled against resolved isothermal walls: the same change of the total energy within 15 %; one rank against N on modelled walls.
+#   wm5  the matching height: the laminar channel at Re 5 matched at h = 0.3, to t = 5 (a few diffusion times), tends to 3/Re / (1 + 3 h^2 / 2): a parabola
+#        with the slip the model allows, the layer below h linear; order above 1.5. At Re 5 h+ is about 1 and the model's own mu_t 0.2 % of mu; the same with
+#        semi-local damping, within 1e-6.
+#   wm6  semi-local damping is wired in: with a wall hotter than the gas at Re 100, h = 0.3 (h+ about 5, properties varying across the layer), the force must
+#        differ from the classical one by more than 1e-4 (wm5's 1e-6 agreement could not fail: uniform properties make the two dampings equal).
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -68,7 +73,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -327,7 +332,7 @@ if has_leg wm1; then
    a=$(channel_run wm1-16 "$NP" --ny 16 --time-max 2.0)
    b=$(channel_run wm1-32 "$NP" --ny 32 --time-max 2.0)
    c=$(channel_run wm1-64 "$NP" --ny 64 --time-max 2.0)
-   "$VENV_PY" "$CASE_DIR/channel_oracle.py" laminar --mass-tol 1e-6 "$a" "$b" "$c"
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" laminar "$a" "$b" "$c"
    a=$(channel_run wm1-np1 1 --ny 32 --perturbation 0.1 --it-max 10)
    b=$(channel_run wm1-npN "$NP" --ny 32 --perturbation 0.1 --it-max 10)
    "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
@@ -355,6 +360,21 @@ if has_leg wm4; then
    a=$(channel_run wm4-np1 1 --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10)
    b=$(channel_run wm4-npN "$NP" --ny 32 --wall wall-modelled --perturbation 0.1 --it-max 10)
    "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+fi
+if has_leg wm5; then
+   echo "== wm5: the matching height"
+   a=$(channel_run wm5-16 "$NP" --ny 16 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0)
+   b=$(channel_run wm5-32 "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0)
+   c=$(channel_run wm5-64 "$NP" --ny 64 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" laminar --height 0.3 --reynolds 5 --tol 0.02 "$a" "$b" "$c"
+   d=$(channel_run wm5-sl "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --wm-damping semi-local --reynolds 5 --time-max 5.0)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" same --tol 1e-6 "$d" "$b"
+fi
+if has_leg wm6; then
+   echo "== wm6: semi-local damping acts"
+   a=$(channel_run wm6-sl "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --wm-damping semi-local --wall-heat 1.5 --time-max 0.5)
+   b=$(channel_run wm6-cl "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --wall-heat 1.5 --time-max 0.5)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" differ --tol 1e-4 "$a" "$b"
 fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
