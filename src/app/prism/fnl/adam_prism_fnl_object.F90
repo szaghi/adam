@@ -102,6 +102,9 @@ type, extends(prism_common_object) :: prism_fnl_object
    real(R8P), pointer :: charge_conservation_divj_gpu(:,:,:,:)=>null() !< PIC temporary div(J) for charge diagnostic.
    real(R8P)             :: charge_conservation_error_max = 0._R8P          !< Max PIC charge-continuity residual.
    logical               :: charge_conservation_ready = .false.             !< True when current step PIC diagnostic is ready.
+   logical               :: stage_ghosts_fresh = .false. !< update_ghost skips the exchange (boundary conditions and coil
+                                                       !< re-stamp kept): the caller refreshed the ghosts and changed only
+                                                       !< pointwise sources since. Set around one call, then cleared.
    contains
       procedure, pass(self) :: save_charge_conservation_diagnostic       !< Save PIC charge-continuity diagnostic.
       procedure, pass(self) :: finalize_charge_conservation_diagnostic   !< Finalize PIC charge-continuity diagnostic.
@@ -2173,10 +2176,12 @@ contains
       if (step==3) do_set_bc       = .true.
    endif
 
-   if (do_local_update) call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
-                        call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
-                                                                 comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
-                                                                 q_gpu=q_gpu, step=step)
+   if (.not.self%stage_ghosts_fresh) then
+      if (do_local_update) call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+                           call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                                                    comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                                                    q_gpu=q_gpu, step=step)
+   endif
    if (do_set_bc) call self%set_boundary_conditions(q_gpu=q_gpu)
    ! Trailing coil re-stamp, CPU-parity (issue #26 G2): the CPU update_ghost ends with an
    ! unconditional compute_coils_current, so q's J rows are analytic-fresh over the FULL
@@ -5550,7 +5555,11 @@ contains
       call self%verify_no_pic_deposition_on_coils_dev(q_gpu=q_rk_gpu(:,:,:,:,:,s), check_current=.true., &
                                                       context='integrate_rk_ssp_pic_charge_conserving(stage current)')
       call self%compute_coils_current(q_gpu=q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
+      ! the field ghosts were exchanged before the gather and since then only the current changed, which the residual
+      ! reads pointwise: skip the residual's exchange (#111), keep its boundary conditions and coil re-stamp
+      self%stage_ghosts_fresh = .true.
       call self%compute_residuals_dev(q_gpu=q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+      self%stage_ghosts_fresh = .false.
       if (s==1) call self%save_residuals
 
       if (self%ib%solids_number>0) then

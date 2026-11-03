@@ -51,6 +51,9 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P)             :: charge_conservation_error_max = 0._R8P !< Max continuity-equation residual over one PIC step.
    real(R8P)             :: current_solver_residual_max = 0._R8P !< Max residual of the direct current line solves.
    logical               :: charge_conservation_ready = .false. !< True when the current PIC step has a finalized diagnostic.
+   logical               :: stage_ghosts_fresh = .false. !< update_ghost skips the exchange (boundary conditions and coil
+                                                       !< re-stamp kept): the caller refreshed the ghosts and changed only
+                                                       !< pointwise sources since. Set around one call, then cleared.
    !< Pointer (abstract) TBP.
    procedure(compute_residuals_interface), pass(self),pointer :: compute_residuals=>null()!< Compute residuals, space operator.
    procedure(integrate_interface),         pass(self),pointer :: integrate        =>null()!< Integrate, time operator.
@@ -1441,10 +1444,12 @@ contains
       if (step==1) do_local_update = .true.
       if (step==3) do_set_bc       = .true.
    endif
-   if (do_local_update) then
-      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+   if (.not.self%stage_ghosts_fresh) then
+      if (do_local_update) then
+         call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+      endif
+      call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, step=step)
    endif
-   call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q, step=step)
    if (do_set_bc) then
       call self%set_boundary_conditions(q=q, s=s)
    endif
@@ -4558,7 +4563,11 @@ contains
       call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
                                                   context='integrate_rk_ssp_pic_charge_conserving(stage current)')
       call self%compute_coils_current(q=q_stage, gamma=self%rk%gamm(s))
+      ! the field ghosts were exchanged before the gather and since then only the current changed, which the residual
+      ! reads pointwise: skip the residual's exchange (#111), keep its boundary conditions and coil re-stamp
+      self%stage_ghosts_fresh = .true.
       call self%compute_residuals(q=q_stage, dq=self%dq, s=s)
+      self%stage_ghosts_fresh = .false.
       if (s==1) call self%save_residuals
 
       if (self%ib%solids_number>0) then
