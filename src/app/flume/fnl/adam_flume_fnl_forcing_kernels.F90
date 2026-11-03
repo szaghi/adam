@@ -102,7 +102,7 @@ contains
    logical                     :: slf, ivf                           !< Semi-local damping, inverse model of the face.
 
    n = ni * di + nj * dj + nk * dk
-   cp = gamma * R / (gamma - 1._R8P)
+   cp = gamma * (R / (gamma - 1._R8P)) ! as the physics object derives it (cv = R / (gamma - 1), cp = gamma cv)
    do side=1, 2
       f = 2_I4P * d - 2_I4P + side
       l = merge(0_I4P, n, side == 1)

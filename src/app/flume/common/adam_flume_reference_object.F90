@@ -102,6 +102,7 @@ type :: flume_reference_object
       procedure, pass(self) :: scale         !< Return the reference of a dimension.
       procedure, pass(self) :: time_output   !< Return the output factor of the time.
       procedure, pass(self) :: force_density_output !< Return the output factor of a force per unit volume.
+      procedure, pass(self) :: turbulence_output    !< Return the output factors of the turbulence history columns.
       procedure, pass(self) :: variable_output !< Return the output factor of a written variable.
       ! private methods
       procedure, pass(self), private :: classify         !< Return the kind and dimension of an option.
@@ -254,6 +255,8 @@ contains
    write(unit, '(A)') '# conservation history: int_<q> = factor <q> * factor_length^3'
    write(unit, '(A)') '# div(B) history: max_divb, seam_max_divb = factor divb; l1_divb = factor bmag * factor_length^2'
    write(unit, '(A)') '# residuals history: residual of <q> = factor dq_<q>'
+   write(unit, '(A)') '# turbulence history: K = pressure * factor_length^3; Z = pressure * factor_length; eps_s, eps_d, '// &
+                      'eps, pd, eps_sgs = pressure * velocity * factor_length^2'
    close(unit)
    endsubroutine save_units
 
@@ -285,6 +288,19 @@ contains
    s = 1._R8P
    if (self%dimensional_output) s = self%scale(DIM_PRESSURE - DIM_LENGTH)
    endfunction force_density_output
+
+   pure function turbulence_output(self) result(s)
+   !< Return the output factors of the turbulence history columns (issue #119), volume integrals: `K` an energy
+   !< `rho0 u0^2 L0^3`, `Z` `rho0 u0^2 L0`, `eps_s, eps_d, eps, pd, eps_sgs` a power `rho0 u0^3 L0^2`; 1 in code units.
+   class(flume_reference_object), intent(in) :: self !< Reference layer.
+   real(R8P)                                 :: s(7) !< Output factors.
+
+   s = 1._R8P
+   if (.not.self%dimensional_output) return
+   s(1) = self%scale([3_I4P, 2_I4P, 2_I4P])
+   s(2) = self%scale([1_I4P, 2_I4P, 2_I4P])
+   s(3:7) = self%scale([2_I4P, 3_I4P, 2_I4P])
+   endfunction turbulence_output
 
    function variable_output(self, name) result(s)
    !< Return the output factor of a written variable: the reference of its dimension with dimensional output units, 1

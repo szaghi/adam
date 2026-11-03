@@ -1287,6 +1287,7 @@ contains
    real(R8P)                                                :: tref         !< Reference temperature of the law.
    real(R8P)                                                :: omega_mu     !< Exponent of the law.
    real(R8P)                                                :: omega_k      !< Conductivity exponent (unused).
+   real(R8P)                                                :: factors(7)   !< Output factors of the columns.
 
    if (.not.self%time%is_to_save(cadence=self%diagnostics%turbulence_history_save)) return
    if (self%ngc < 2_I4P) call mpih_fnl%error_stop(msg=': the turbulence history stencil needs 2 ghost cells')
@@ -1308,7 +1309,9 @@ contains
                                          eps=integrals(7))
    endif
    call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call self%diagnostics%save_turbulence_row(it=self%time%it, time=self%time%time, integrals=integrals(1:n))
+   factors = self%units%turbulence_output()
+   call self%diagnostics%save_turbulence_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
+                                             integrals=integrals(1:n)*factors(1:n))
    endsubroutine compute_turbulence_history
 
    subroutine compute_divb_history(self, realm)

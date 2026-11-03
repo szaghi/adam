@@ -323,8 +323,7 @@ contains
       if (.not.(self%gamma > 1._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] requires gamma > 1, got gamma='//trim(str(self%gamma)))
       self%R  = 1._R8P
-      self%cv = 1._R8P / (self%gamma - 1._R8P)
-      self%cp = self%gamma * self%cv
+      call derive_specific_heats
       self%eos_arg = self%gamma
       return
    endif
@@ -337,8 +336,17 @@ contains
                                ', cv='//trim(str(self%cv)))
    self%gamma = self%cp / self%cv
    self%R     = self%cp - self%cv
+   call derive_specific_heats
    self%eos_arg = self%gamma
    contains
+      subroutine derive_specific_heats
+      !< `cv = R / (gamma - 1)`, `cp = gamma cv` on both input paths (issue #119): the gas is gamma and R, so `cp, cv` and the
+      !< `gamma` that `[reference]` puts in their place (`R = 1`) give the same doubles; an input `cp` may move by an ulp.
+      self%cv = self%R / (self%gamma - 1._R8P)
+      self%cp = self%gamma * self%cv
+      endsubroutine derive_specific_heats
+
+
       function has(option_name) result(is_present)
       !< Return true if the option is in the section.
       character(*), intent(in) :: option_name !< Option name.

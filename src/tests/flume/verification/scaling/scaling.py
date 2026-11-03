@@ -357,6 +357,12 @@ def history_scale(file: str, column: str, psi: str, j: int, k: int, m: int) -> f
         return factor((dim[0] + 3, dim[1], dim[2]), j, k, m)
     if column == "f":  # the driving force per unit volume of [forcing] (issue #119): rho u^2 / L
         return factor((-1, 2, 1), j, k, m)
+    if column == "K":  # turbulence history (issue #119): volume integrals; the kinetic energy
+        return factor((3, 2, 1), j, k, m)
+    if column == "Z":  # enstrophy rho |omega|^2 / 2 integrated
+        return factor((1, 2, 1), j, k, m)
+    if column in ("eps_s", "eps_d", "eps", "pd", "eps_sgs"):  # dissipations and pressure dilatation: a power
+        return factor((2, 3, 1), j, k, m)
     if column in ("max_divb", "seam_max_divb"):
         return factor(FIELD_PER_LENGTH, j, k, m)
     if column == "l1_divb":

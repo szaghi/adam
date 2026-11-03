@@ -71,11 +71,11 @@
 #        and every history byte for byte. Control: the same restart with the .wmf files removed (the averages restart from the sample, as a checkpoint
 #        written before them) must NOT be bit for bit, so the file is what carries the state.
 #   wm10 the channel in dimensional units (the reference layer, issue #49): a channel with every #119 option ([forcing], the channel initial
-#        condition, Vreman, wall-modelled walls with height, filter and the inverse model), its gas given as gamma. NV-5 (scaling/reference.sh --inputs):
-#        the dimensional input runs bit for bit as its code-unit twin, fields and every history, each conversion exact. NV-9 (scaling.py compare
-#        --output): with output_units = dimensional every field and history is the base one times its power of two, the forcing history's f as rho u^2 / L
-#        (the turbulence history is written in code units, documented, so it is off here). A cp, cv gas is not bit for bit across the layer (the layer's
-#        gamma gives cp = gamma cv one ulp off the input cp, which k = mu cp / Pr and the subgrid heat flux read): a defect of the layer, not of #119.
+#        condition, Vreman, wall-modelled walls with height, filter and the inverse model), its gas given as cp, cv. NV-5 (scaling/reference.sh --inputs):
+#        the dimensional input runs bit for bit as its code-unit twin, fields and every history, each conversion exact (cp, cv bit for bit since cp is
+#        derived from gamma and R on both paths; before, the layer's gamma gave cp = gamma cv one ulp off the input cp, read by k and the subgrid heat
+#        flux). NV-9 (scaling.py compare --output): with output_units = dimensional every field and history is the base one times its power of two, the
+#        forcing history's f as rho u^2 / L, the turbulence history's K as rho u^2 L^3, Z as rho u^2 L, the dissipations and pd as rho u^3 L^2.
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -443,7 +443,8 @@ if has_leg wm9; then
 fi
 if has_leg wm10; then
    echo "== wm10: the channel in dimensional units"
-   D=(--ny 32 --wall wall-modelled --perturbation 0.1 --wm-filter 0.01 --wm-model inverse-transformation --wm-height 0.3 --sgs-model vreman --gas gamma --it-max 10 --it-save 10)
+   D=(--ny 32 --wall wall-modelled --perturbation 0.1 --wm-filter 0.01 --wm-model inverse-transformation --wm-height 0.3 --sgs-model vreman --it-max 10 --it-save 10)
+   # cp, cv gas (the template default): bit for bit across [reference] since cp is derived from gamma and R on both paths
    w="$CASE_DIR/work-$TAG-wm10" ; rm -rf "${w:?}" ; mkdir -p "$w"
    python3 -I "$CASE_DIR/make_channel.py" "$w/channel.ini" "${D[@]}"
    FLUME_EXE="$EXE" "$VERIF_DIR/scaling/reference.sh" --np "$NP" --inputs "$w/channel.ini" > "$w/nv5.log" 2>&1 || true
@@ -451,7 +452,7 @@ if has_leg wm10; then
    grep -aq "reference layer NV-5 FAILED" "$w/nv5.log" && { echo "wm10: NV-5 FAILED" ; exit 1 ; }
    grep -aq "BITWISE" "$w/nv5.log" || { echo "wm10: NV-5 did not report the case bitwise" ; exit 1 ; }
    base="$w/base" ; dim="$w/dimensional" ; mkdir -p "$base" "$dim"
-   sed '/^turbulence_history_save/d' "$w/channel.ini" > "$base/input.ini"
+   cp "$w/channel.ini" "$base/input.ini" # the turbulence history included: written in the output units
    "$VENV_PY" "$VERIF_DIR/scaling/scaling.py" dimensionalize "$base/input.ini" "$dim/input.ini" --j 2 --k -1 --m -2 > /dev/null
    sed -i 's/^\[reference\]$/[reference]\noutput_units = dimensional/' "$dim/input.ini"
    for x in "$base" "$dim"; do (cd "$x" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1) || { echo "check.sh: wm10 failed, see $x/log.txt" >&2 ; exit 1 ; } ; done

@@ -185,7 +185,8 @@ value is divided by the reference of its dimension (issue #49). With this sectio
 the loaded file, before any other section is parsed; without it nothing changes. References: density `rho0`, length
 `L0`, velocity `u0`; derived: time `L0/u0`, pressure and energy density `rho0 u0^2`, field `u0 sqrt(rho0)`, the GLM
 `psi` `u0^2 sqrt(rho0)` (the EGLM one as the field). `cp`, `cv` are replaced by `gamma = cp/cv` (the gas constant
-becomes 1, the temperature unit `u0^2/R`). Restart files and logs stay in code units; the other outputs follow
+becomes 1, the temperature unit `u0^2/R`); the physics derives `cv = R/(gamma-1)`, `cp = gamma cv` on both paths, so the
+conversion is bit for bit. Restart files and logs stay in code units; the other outputs follow
 `output_units`. Every restart save also writes `<restart_basename>.reference` (the three references, 1 without this section); a restart under different
 references is refused, and restart files without that record (written before it existed, so in code units) restart only
 when the references are all 1.
@@ -266,7 +267,7 @@ verification DC can check every converted value exactly.
 | `dual_energy_eta` | real | no (`euler-de`) | `(0, 1)`, default 0.05; otherwise fatal | Dual-energy switch: a cell whose internal energy is below `dual_energy_eta` times its total energy takes the entropy as the floor of its internal energy. |
 | `gamma` | real | cond. | `> 1`; with `cp` or `cv` → fatal | Specific heats ratio; the gas constant is 1 (code units). |
 | `cp` | real | cond. | `cp > cv > 0`, otherwise fatal; required without `gamma` | Specific heat at constant pressure. |
-| `cv` | real | cond. | as above | Specific heat at constant volume. `gamma = cp/cv`, `R = cp - cv`. |
+| `cv` | real | cond. | as above | Specific heat at constant volume. `gamma = cp/cv`, `R = cp - cv`; the physics then uses `cv = R/(gamma-1)`, `cp = gamma cv` (an input `cp` may move by an ulp). |
 
 ### Dissipative terms (issue #65, M4)
 
@@ -678,7 +679,7 @@ Every key is required, and none has a range check.
 | `conservation_history_save` | int | yes | Cadence (steps) of `<output_basename>-conservation_history.dat` (volume integrals of every conservative variable). For MHD it is also the cadence of `-divb_history.dat` and of the `divb_tol` monitor. `<= 0` disables them. |
 | `ghost_poison` | logical | no (`.false.`) | Verification instrument (issue #65): before each field write every ghost cell is set to NaN and refilled in the order of a stage (seams, exchange, boundary conditions), so a ghost the fill misses, or reads before its donor is written, is written as NaN instead of a stale value. Used by the ghost probe GP; it costs one pass over the ghosts per write. |
 | `divb_flux` | logical | no (`.false.`) | MHD with GLM or EGLM ([#68](https://github.com/szaghi/adam/issues/68) A2): adds four columns to `-divb_history.dat` (`max_dflux`, `l1_dflux`, `seam_max_dflux`, `max_h_dflux_over_bmax`). D_flux is the divergence the cleaning acts on: that of the interface normal field $B_n = F_\psi/s$ read from the scheme's own $\psi$ face fluxes ($s = c_h^2$ GLM, $c_h$ EGLM), the coarse 2:1 faces taking the fine fluxes (the reflux), so its integral over a composite periodic domain is round-off. The last column is the scale-free $\max(h\,|D_\text{flux}|)/\max|\mathbf B|$. Each history row costs one residual evaluation of the committed state, on the idle RK stage buffers: fatal without GLM/EGLM or with a one-stage scheme. An inter-realm seam keeps each side's own flux; the step-0 row, written before the forest builds its register, has no reflux substitution and no seam column (as the centred one). |
-| `turbulence_history_save` | int | no (0, disabled) | Cadence (steps) of `<output_basename>-turbulence_history.dat`: volume integrals `K` ($\rho\lvert u\rvert^2/2$), `Z` ($\rho\lvert\omega\rvert^2/2$), `eps_s` ($\mu\lvert\omega\rvert^2$), `eps_d` ($\tfrac43\mu\theta^2$), `eps` ($\tau_{ij}\partial_j u_i$), `pd` ($p\theta$), from 4th-order central velocity gradients, in code units, not divided by the volume. In a periodic box $dK/dt = $ `pd` $-$ `eps`, up to the scheme's numerical dissipation. Needs `ngc >= 2`. On a forest of several realms there is no step-0 row: the seams are not built yet. Each row refreshes the ghosts and the auxiliary variables of the committed state ([#119](https://github.com/szaghi/adam/issues/119)). |
+| `turbulence_history_save` | int | no (0, disabled) | Cadence (steps) of `<output_basename>-turbulence_history.dat`: volume integrals `K` ($\rho\lvert u\rvert^2/2$), `Z` ($\rho\lvert\omega\rvert^2/2$), `eps_s` ($\mu\lvert\omega\rvert^2$), `eps_d` ($\tfrac43\mu\theta^2$), `eps` ($\tau_{ij}\partial_j u_i$), `pd` ($p\theta$), from 4th-order central velocity gradients, not divided by the volume, in the output units of [`[reference]`](#reference-optional-dimensional-input) (`K` an energy $\rho_0u_0^2L_0^3$, `Z` $\rho_0u_0^2L_0$, the others a power $\rho_0u_0^3L_0^2$). In a periodic box $dK/dt = $ `pd` $-$ `eps`, up to the scheme's numerical dissipation. Needs `ngc >= 2`. On a forest of several realms there is no step-0 row: the seams are not built yet. Each row refreshes the ghosts and the auxiliary variables of the committed state ([#119](https://github.com/szaghi/adam/issues/119)). |
 
 ---
 
