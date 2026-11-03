@@ -5,28 +5,39 @@ function res = prism_fresnel_probes(case_dir, varargin)
 %   res = prism_fresnel_probes(case_dir)
 %   res = prism_fresnel_probes(case_dir, 'nu', 1e5, 'floor', 1e-3, 'window', 'auto', 'save', true)
 %
-%   Reads <case_dir>/input.ini and the probe files <output_basename>-probe_NN.dat written by [probes]; the number
+%   Reads <case_dir>/input.ini and the probe files written by [probes]: <output_basename>-probe_NN.dat for each
+%   point_N and <output_basename>-plane_NN.dat for each plane_N (and the former one-file-per-probe output of the
+%   [probe_N] sections, read the same way); the number
 %   and positions of the probes come from the input. It then
 %     1. plots E and B in time at every probe, with the analytic solution when it exists;
 %     2. splits the field into the forward and backward waves, F+- = (E +- s c B)/2, s = propagation verse;
 %     3. Fourier transforms the probe signals and compares the spectra with the analytic ones;
 %     4. measures R(w) (front probe) and T(w) (front and rear probes) and compares them with the Fresnel
-%        (Fabry-Perot) coefficients of a cold plasma slab, eps(w) = 1 - wp^2/(w (w + i nu)).
+%        (Fabry-Perot) coefficients of a cold plasma slab, eps(w) = 1 - wp^2/(w (w + i nu));
+%     5. for a packet with a carrier (gaussian_derivative_pulse with k0 > 0) measures the physics at w0 = c k0 with
+%        the same estimator on PRISM and on the linear reference, against the ideal cold plasma: amplitude, phase and
+%        group delay of E(w0) against the depth in the slab (slopes -kappa, Re k, 1/v_g), R(w0), T(w0) with their
+%        phases and group delays, and the energy fractions of the reflected and transmitted waves.
+%   Probes that share their abscissa along the pulse axis form a plane (one probe per transverse cell centre in the
+%   Fresnel cases): their mean is the exact k_perp = 0 mode of the grid and replaces them ('planes', true); a lone
+%   probe stays as it is.
 %
 %   References (S. J. Orfanidis, Electromagnetic Waves and Antennas, rev. 2016, freely distributed by the author;
 %   chapters 1, 5, 6 saved next to this script): plasma permittivity Eq. (1.15.1); single slab reflection and
 %   transmission Eqs. (5.4.3)-(5.4.6), propagation and matching matrices Secs. 5.1-5.2. Orfanidis uses exp(+j w t):
 %   his formulas map to the exp(-i w t) ones of this script with j -> -i.
 %
-%   Analytic solution (exists when [initial_conditions] type is gaussian_pulse or gaussian_derivative_pulse, the
+%   Analytic solution (exists when [initial_conditions] type is gaussian_pulse or gaussian_derivative_pulse, with or
+%   without its carrier k0, the
 %   pulse travels along the slab normal and the run is EM, or PIC with plasma_domain = slab): the incident pulse
 %   is the input profile, translated at c in vacuum; each frequency is propagated through the slab with the exact
 %   normal-incidence solution (transfer matrix), and the time signals are synthesised by inverse FFT: in frequency
 %   the solution is a closed formula evaluated exactly, in time it is the exact integral evaluated by quadrature
 %   (FFT: sampling, padding and the nu regularisation set its error). The domain is
 %   open in the analytic solution: wall reflections (PEC/PML) are not modelled. The dashed vertical line in the
-%   time plots is a lower bound of the arrival time of anything reflected by the x walls; with 'window','auto' the
-%   spectra are computed on the signal before that time.
+%   time plots is a lower bound of the arrival time of anything reflected by the x walls, with the pulse front at
+%   r0 + 5 sigma (the field is below 1e-4 of its peak beyond it); with 'window','auto' the spectra are computed on the
+%   signal before that time.
 %
 %   Plasma: plasma_density is the TOTAL density, electrons and H+ ions n_e = n_i = (1 - neutral_fraction) n/2;
 %   wp^2 = n_e e^2/eps0 (1/m_e + 1/m_i). The transverse cold-plasma response holds for a warm plasma too
@@ -38,9 +49,11 @@ function res = prism_fresnel_probes(case_dir, varargin)
 %     'floor'  relative spectral floor: R, T are not shown where |incident| < floor*max   (default 1e-3)
 %     'window' 'auto' (cut at the wall-reflection bound), 'none', or [t0 t1] in seconds  (default 'auto')
 %     'save'   save the figures as PNG in case_dir                                     (default false)
+%     'planes' replace the probes of each plane by their mean                           (default true)
 %     'selftest' check the Fresnel solution (energy, Born & Wolf matrix, continuity) and return, no case read
 %
-%   Returned struct res: probes (time, E, B, F+-, analytic), spectra, R, T, plasma and pulse parameters.
+%   Returned struct res: probes (time, E, B, F+-, analytic; planes when merged), spectra, R, T, carrier observables
+%   (packets), plasma and pulse parameters.
 
 if nargin < 1 || isempty(case_dir), case_dir = pwd; end
 opt = parse_options(varargin{:});
@@ -73,7 +86,8 @@ if isempty(opt.nu), opt.nu = 0; end
 
 % ---------------------------------------------------------------- probes
 basename = strtrim(ini_get(ini, 'IO', 'output_basename', ''));
-np = round(ini_num(ini, 'probes', 'probes_number', 0));
+Pin = probe_inputs(ini, case_dir, basename);             % points, then the lattices of the planes
+np = numel(Pin);
 if np < 1, error('prism_fresnel_probes: no [probes] in %s', opt.ini); end
 ax = pulse.axis; if isempty(ax), ax = 1; end              % sampled components follow the pulse polarization
 comp = {{'Dy', 'Bz'}, {'Dz', 'Bx'}, {'Dx', 'By'}};
@@ -82,11 +96,23 @@ names_axis = 'xyz';
 dom = [ini_num(ini, 'grid', ['emin_' names_axis(ax)]), ini_num(ini, 'grid', ['emax_' names_axis(ax)])];
 s = pulse.verse;                                           % x' = s x: the pulse travels along +x'
 P = struct([]);
+plane_cache = containers.Map();                            % a plane file is read once
 for p = 1:np
-   sec = sprintf('probe_%d', p);
-   P(p).xyz = [ini_num(ini, sec, 'x'), ini_num(ini, sec, 'y'), ini_num(ini, sec, 'z')];
-   P(p).file = fullfile(case_dir, sprintf('%s-probe_%02d.dat', basename, p));
-   [P(p).names, data] = read_probe(P(p).file);
+   P(p).xyz = Pin(p).xyz;
+   P(p).file = Pin(p).file;
+   if Pin(p).nq == 0
+      [P(p).names, data] = read_probe(P(p).file);
+   else
+      if ~isKey(plane_cache, P(p).file)
+         [nm, d] = read_probe(P(p).file);
+         keep = ~ismember(nm, {'i', 'j'});
+         nt = floor(size(d, 1)/Pin(p).nq);                   % complete saves only
+         plane_cache(P(p).file) = struct('names', {nm(keep)}, 'data', d(1:nt*Pin(p).nq, keep));
+      end
+      c = plane_cache(P(p).file);
+      P(p).names = c.names;
+      data = c.data(Pin(p).q:Pin(p).nq:end, :);             % per save, n1*n2 rows, i fastest
+   end
    cadence = data(min(2, end), 1) - data(1, 1);            % the last step is saved off cadence: drop it
    if cadence > 0, data = data(mod(data(:, 1) - data(1, 1), cadence) == 0, :); end
    P(p).it = data(:, 1);
@@ -98,8 +124,12 @@ for p = 1:np
    P(p).xa = P(p).xyz(ax);                                 % position along the pulse axis
    P(p).xp = s*P(p).xa;                                    % position along x'
    P(p).where = probe_region(P(p).xp, plasma);
+   P(p).n = 1;
+   P(p).label = sprintf('probe %d (%s, %.4g m)', p, P(p).where, P(p).xa);
 end
 dt = check_uniform_time(P);
+if opt.planes, P = plane_means(P, s, K.C0); end
+np = numel(P);
 
 % ---------------------------------------------------------------- wall-reflection bound and windows
 xw = sort(s*dom);                                          % domain walls along x'
@@ -126,28 +156,34 @@ end
 print_summary(P, pulse, plasma, has_analytic, opt, K);
 
 % ---------------------------------------------------------------- figures
-figs = [];
-figs(end+1) = plot_time(P, has_analytic, comp, 'E');
-figs(end+1) = plot_time(P, has_analytic, comp, 'F');
-[S, figs(end+1)] = plot_spectra(P, dt, has_analytic, plasma);
+figs = {}; tags = {};
+figs{end+1} = plot_time(P, has_analytic, comp, 'E'); tags{end+1} = 'time_EB';
+figs{end+1} = plot_time(P, has_analytic, comp, 'F'); tags{end+1} = 'time_Fpm';
+[S, figs{end+1}] = plot_spectra(P, dt, has_analytic, plasma); tags{end+1} = 'spectra';
 [RT, f] = fresnel_coefficients(P, S, plasma, opt, K.C0);
-if ~isempty(f), figs(end+1) = f; end
+if ~isempty(f), figs{end+1} = f; tags{end+1} = 'fresnel_RT'; end
+O = struct();
+if has_analytic
+   [O, f] = packet_observables(P, S, RT, pulse, plasma, K);
+   if ~isempty(f), figs{end+1} = f; tags{end+1} = 'carrier'; end
+end
 
 if opt.save
-   tags = {'time_EB', 'time_Fpm', 'spectra', 'fresnel_RT'};
    for k = 1:numel(figs)
-      print(figs(k), fullfile(case_dir, sprintf('%s-probes-%s.png', basename, tags{k})), '-dpng', '-r150');
+      print(figs{k}, fullfile(case_dir, sprintf('%s-probes-%s.png', basename, tags{k})), '-dpng', '-r150');
    end
 end
 
-res.probes = P; res.spectra = S; res.RT = RT; res.pulse = pulse; res.plasma = plasma; res.options = opt;
+res.probes = P; res.spectra = S; res.RT = RT; res.observables = O; res.pulse = pulse; res.plasma = plasma;
+res.options = opt;
 end
 
 % ===================================================================================================================
 % input
 % ===================================================================================================================
 function opt = parse_options(varargin)
-opt = struct('ini', 'input.ini', 'nu', [], 'floor', 1e-3, 'window', 'auto', 'save', false, 'selftest', false);
+opt = struct('ini', 'input.ini', 'nu', [], 'floor', 1e-3, 'window', 'auto', 'save', false, 'selftest', false, ...
+             'planes', true);
 for k = 1:2:numel(varargin)
    key = lower(varargin{k});
    if ~isfield(opt, key), error('prism_fresnel_probes: unknown option "%s"', varargin{k}); end
@@ -205,7 +241,8 @@ end
 
 function pulse = read_pulse(ini, K)
 pulse = struct('ok', false, 'type', lower(ini_get(ini, 'initial_conditions', 'type', 'vacuum')), ...
-               'axis', [], 'verse', 1, 'B0', 0, 'r0', 0, 'sigma', 0, 'k0', 0, 'length', 0, 'c', K.C0);
+               'axis', [], 'verse', 1, 'B0', 0, 'r0', 0, 'sigma', 0, 'k0', 0, 'length', 0, 'extent', 0, ...
+               'c', K.C0);
 if ~any(strcmp(pulse.type, {'gaussian_pulse', 'gaussian_derivative_pulse'}))
    warning('prism_fresnel_probes: IC "%s" has no analytic pulse: numerical results only', pulse.type);
    return
@@ -220,8 +257,10 @@ if strcmp(pulse.type, 'gaussian_pulse')
    pulse.k0 = ini_num(ini, 'initial_conditions', 'k0');
    pulse.length = 5*pulse.sigma;                          % the code cuts the profile at 5 sigma
 else
-   pulse.length = 8*pulse.sigma;                          % no cut: 8 sigma leaves e^-32
+   pulse.k0 = ini_num(ini, 'initial_conditions', 'k0', 0); % optional carrier, 0 by default (single cycle)
+   pulse.length = 8*pulse.sigma;                          % no cut: 8 sigma leaves e^-32 (support of the quadrature)
 end
+pulse.extent = 5*pulse.sigma;                              % front for the wall bound: |field| < 1e-4 of the peak
 pulse.ok = true;
 end
 
@@ -233,8 +272,10 @@ if strcmp(pulse.type, 'gaussian_pulse')
    E = pulse.B0*pulse.c*exp(-0.5*(sv/pulse.sigma).^2).*cos(pulse.k0*sv);
    E(abs(sv/pulse.sigma) > 5) = 0;
 else
-   u = sv/pulse.sigma;
-   E = -pulse.B0*pulse.c*exp(0.5)*u.*exp(-0.5*u.^2);
+   % A = A0 exp(-s^2/2 sigma^2) cos(k0 s), E = c dA/dx; A0/sigma = B0 e^(1/2) (k0 = 0), B0/sqrt((k0 sigma)^2 + 1/e)
+   u = sv/pulse.sigma; ks = pulse.k0*pulse.sigma;
+   if ks == 0, a = exp(0.5); else, a = 1/sqrt(ks^2 + exp(-1)); end
+   E = -pulse.B0*pulse.c*a*(u.*cos(ks*u) + ks*sin(ks*u)).*exp(-0.5*u.^2);
 end
 end
 
@@ -261,6 +302,63 @@ end
 c = ini_num(ini, 'PIC', 'slab_center'); w = ini_num(ini, 'PIC', 'slab_thickness');
 ab = sort(pulse.verse*[c - w/2, c + w/2]);                 % slab faces along x'
 plasma.a = ab(1); plasma.b = ab(2); plasma.slab = true;
+end
+
+function Pin = probe_inputs(ini, case_dir, basename)
+% Probe points and files in PRISM's global order: point_N (one file each), then the plane_N lattices (one file per
+% plane: per save n1*n2 rows, i fastest, over the cell centres of a uniform lattice spanning the domain along the two
+% axes of the plane). Former input: probes_number and one [probe_N] section per probe, one file per probe.
+Pin = struct('xyz', {}, 'file', {}, 'q', {}, 'nq', {});
+if isKey(ini, 'probes.probes_number')
+   n = round(ini_num(ini, 'probes', 'probes_number'));
+   fmt = sprintf('%%s-probe_%%0%dd.dat', max(2, numel(num2str(n))));
+   for p = 1:n
+      sec = sprintf('probe_%d', p);
+      Pin(p) = struct('xyz', [ini_num(ini, sec, 'x'), ini_num(ini, sec, 'y'), ini_num(ini, sec, 'z')], ...
+                      'file', fullfile(case_dir, sprintf(fmt, basename, p)), 'q', 0, 'nq', 0);
+   end
+   return
+end
+npt = 0; while isKey(ini, sprintf('probes.point_%d', npt+1)), npt = npt + 1; end
+npl = 0; while isKey(ini, sprintf('probes.plane_%d', npl+1)), npl = npl + 1; end
+fmt = sprintf('%%s-probe_%%0%dd.dat', max(2, numel(num2str(npt))));
+for p = 1:npt
+   v = sscanf(ini(sprintf('probes.point_%d', p)), '%f');
+   Pin(end+1) = struct('xyz', v(1:3).', 'file', fullfile(case_dir, sprintf(fmt, basename, p)), 'q', 0, 'nq', 0); %#ok<AGROW>
+end
+lo = [ini_num(ini, 'grid', 'emin_x'), ini_num(ini, 'grid', 'emin_y'), ini_num(ini, 'grid', 'emin_z')];
+hi = [ini_num(ini, 'grid', 'emax_x'), ini_num(ini, 'grid', 'emax_y'), ini_num(ini, 'grid', 'emax_z')];
+fmt = sprintf('%%s-plane_%%0%dd.dat', max(2, numel(num2str(npl))));
+for l = 1:npl
+   tok = strsplit(strtrim(ini(sprintf('probes.plane_%d', l))));
+   a = find('xyz' == lower(strrep(strrep(tok{1}, '"', ''), '''', '')), 1);
+   if isempty(a), error('prism_fresnel_probes: [probes] plane_%d axis "%s" is not x, y or z', l, tok{1}); end
+   ax = [a, setdiff(1:3, a)];                             % normal, first, second lattice axis
+   x = str2double(tok{2}); n1 = str2double(tok{3}); n2 = str2double(tok{4});
+   file = fullfile(case_dir, sprintf(fmt, basename, l));
+   q = 0;
+   for j = 1:n2
+      for i = 1:n1
+         q = q + 1;
+         xyz = zeros(1, 3);
+         xyz(ax(1)) = x;
+         xyz(ax(2)) = lo(ax(2)) + (i - 0.5)*(hi(ax(2)) - lo(ax(2)))/n1;
+         xyz(ax(3)) = lo(ax(3)) + (j - 0.5)*(hi(ax(3)) - lo(ax(3)))/n2;
+         Pin(end+1) = struct('xyz', xyz, 'file', file, 'q', q, 'nq', n1*n2); %#ok<AGROW>
+      end
+   end
+end
+% a finished run of the former output (one file per probe, numbered with the digits of the probe count) whose input
+% was converted afterwards: read the per-probe files
+fmt = sprintf('%%s-probe_%%0%dd.dat', max(2, numel(num2str(numel(Pin)))));
+if npl > 0 && ~isfile(fullfile(case_dir, sprintf('%s-plane_%02d.dat', basename, 1))) && ...
+   isfile(fullfile(case_dir, sprintf(fmt, basename, 1)))
+   for p = 1:numel(Pin)
+      Pin(p).file = fullfile(case_dir, sprintf(fmt, basename, p));
+      Pin(p).q = 0;
+      Pin(p).nq = 0;
+   end
+end
 end
 
 function [names, data] = read_probe(file)
@@ -298,6 +396,28 @@ else
 end
 end
 
+function Q = plane_means(P, s, c)
+% Transverse means of the probes that share their abscissa along the pulse axis: a y-z plane of probes, one per
+% transverse cell centre, averages to the exact k_perp = 0 mode of the grid. Planes are ordered along x'.
+xa = [P.xa];
+tol = 1e-9*(max(abs(xa)) + realmin);
+[~, ~, g] = unique(round(xa/tol));
+Q = P([]);
+for k = 1:max(g)
+   idx = find(g == k);
+   q = P(idx(1));
+   q.n = numel(idx);
+   q.E = mean([P(idx).E], 2);
+   q.B = mean([P(idx).B], 2);
+   q.Fp = 0.5*(q.E + s*c*q.B);
+   q.Fm = 0.5*(q.E - s*c*q.B);
+   if q.n > 1, q.label = sprintf('plane at %.4g m (%s, %d probes)', q.xa, q.where, q.n); end
+   Q(end+1) = q; %#ok<AGROW>
+end
+[~, o] = sort([Q.xp]);
+Q = Q(o);
+end
+
 function dt = check_uniform_time(P)
 dt = mean(diff(P(1).t));
 for p = 1:numel(P)
@@ -309,10 +429,10 @@ end
 end
 
 function tw = wall_time(xp, pulse, plasma, xw, c)
-% Lower bound of the arrival at xp of a wave reflected by a domain wall: the pulse front starts at x0' + length and
+% Lower bound of the arrival at xp of a wave reflected by a domain wall: the pulse front starts at x0' + extent and
 % nothing travels faster than c (the slab only delays).
 if ~pulse.ok, tw = Inf; return; end
-front = pulse.verse*pulse.r0 + pulse.length;
+front = pulse.verse*pulse.r0 + pulse.extent;
 right = (xw(2) - front) + (xw(2) - xp);                    % on to the far wall and back
 if plasma.slab
    left = (plasma.a - front) + (plasma.a - xw(1)) + (xp - xw(1)); % reflected by the slab, then by the near wall
@@ -415,7 +535,7 @@ for p = 1:np
    ylim_floor(abs(S(p).E));
    cutoff_line(plasma);
    grid on; ylabel('|E(\omega)|');
-   title(sprintf('probe %d (%s, %.4g m)', p, P(p).where, P(p).xa));
+   title(P(p).label);
    if has_analytic, legend('PRISM', 'linear ref. (Fresnel + IFFT)', 'Location', 'best'); end
    xlim([0 xw_max(xw, plasma)]);
 end
@@ -469,6 +589,125 @@ plot(xw, angle(RT.R), 'b-', xw, angle(RT.Ra), 'k--', 'LineWidth', 1.2); grid on;
 ylabel('arg R(\omega) [rad]'); xlabel(xl); xlim([0 xw_max(xw, plasma)]);
 end
 
+function [O, fig] = packet_observables(P, S, RT, pulse, plasma, K)
+% Narrow-band packet (k0 > 0): the physics at the carrier w0 = c k0, the same estimator on PRISM and on the linear
+% reference (spectra of the windowed signals, exp(-i w t)), against the ideal cold plasma n = sqrt(1 - wp^2/w0^2).
+%   inside the slab, against the depth x' - a: log |E(w0)| (slope -kappa), arg E(w0) (slope Re k, phase velocity
+%   w0/Re k) and the group delay d arg E/dw at w0 (slope 1/v_g, v_g = c sqrt(1 - wp^2/w0^2) above the cutoff);
+%   faces: R(w0), T(w0) with phases and group delays referred to the faces (R ones omitted above the cutoff, where
+%   the cases sit on a Fabry-Perot null of R), energy fractions sum F-^2/sum F+^2 (front), sum F+_rear^2/sum F+^2.
+%   Ideal: below the cutoff the half-space reflection phase -2 atan(kappa c/w0) and delay 2/(c kappa); above it one
+%   pass through the slab, phase Re k d and delay d/v_g (Orfanidis EWA eq. 1.15.2, sec. 5.4).
+O = struct(); fig = [];
+if pulse.k0 <= 0 || ~plasma.slab || plasma.wp <= 0, return; end
+c = K.C0; w0 = c*pulse.k0; half = 0.5*c/pulse.sigma;
+D = c/plasma.wpe; T0 = 1/plasma.wpe; E0 = pulse.B0*c;
+front = find(strcmp({P.where}, 'front')); rear = find(strcmp({P.where}, 'rear'));
+inside = find(strcmp({P.where}, 'inside'));
+if isempty(front) || isempty(rear) || numel(inside) < 2
+   warning('prism_fresnel_probes: carrier observables need a front, a rear and two inside probes or planes');
+   return
+end
+[~, k] = max([P(front).xp]); f = front(k);
+[~, k] = min([P(rear).xp]); r = rear(k);
+[~, o] = sort([P(inside).xp]); inside = inside(o);
+depth = ([P(inside).xp]' - plasma.a)/D;
+w = S(1).w; above = w0 > plasma.wp;
+n0 = sqrt(1 - plasma.wp^2/w0^2 + 0i); kid = n0*w0/c;
+O.ideal.kappa_delta = imag(kid)*D; O.ideal.Re_k_delta = real(kid)*D;
+O.ideal.v_phase_over_c = NaN; O.ideal.v_group_over_c = NaN;
+O.ideal.R_phase = NaN; O.ideal.R_delay_wpe = NaN; O.ideal.T_phase = NaN; O.ideal.T_delay_wpe = NaN;
+if above
+   O.ideal.v_phase_over_c = w0/(real(kid)*c); O.ideal.v_group_over_c = sqrt(1 - plasma.wp^2/w0^2);
+   O.ideal.T_phase = angle(exp(1i*real(kid)*(plasma.b - plasma.a)));
+   O.ideal.T_delay_wpe = (plasma.b - plasma.a)/(O.ideal.v_group_over_c*c)/T0;
+else
+   O.ideal.R_phase = -2*atan(imag(kid)*c/w0); O.ideal.R_delay_wpe = 2/(c*imag(kid))/T0;
+end
+tags = {'prism', 'ref'}; spec = {'E', 'Ea'}; Rn = {'R', 'Ra'}; Tn = {'T', 'Ta'};
+Fp = {'Fp', 'Fpa'}; Fm = {'Fm', 'Fma'};
+for j = 1:2
+   A = zeros(numel(inside), 1); ph = A; tau = A;
+   for m = 1:numel(inside)
+      [A(m), ph(m), tau(m)] = carrier_fit(w, S(inside(m)).(spec{j}), w0, half);
+   end
+   ph = unwrap(ph);
+   o = struct('depth_delta', depth, 'amp', A, 'phase', ph, 'group_delay_wpe', tau/T0);
+   pa = polyfit(depth, log(A), 1); pp = polyfit(depth, ph, 1); pt = polyfit(depth, tau/T0, 1);
+   o.kappa_delta = -pa(1); o.Re_k_delta = pp(1); o.inv_vg_c = pt(1);
+   o.v_phase_over_c = NaN; o.v_group_over_c = NaN;
+   if above && o.Re_k_delta > 0, o.v_phase_over_c = w0/plasma.wpe/o.Re_k_delta; end
+   if above && o.inv_vg_c > 0, o.v_group_over_c = 1/o.inv_vg_c; end
+   [o.R_abs, o.R_phase, o.R_delay_wpe] = carrier_fit(w, RT.(Rn{j}), w0, half);
+   [o.T_abs, o.T_phase, o.T_delay_wpe] = carrier_fit(w, RT.(Tn{j}), w0, half);
+   o.R_delay_wpe = o.R_delay_wpe/T0; o.T_delay_wpe = o.T_delay_wpe/T0;
+   if above, o.R_phase = NaN; o.R_delay_wpe = NaN; end
+   inc = sum(P(f).(Fp{j})(P(f).win).^2);
+   o.energy_R = sum(P(f).(Fm{j})(P(f).win).^2)/inc;
+   o.energy_T = sum(P(r).(Fp{j})(P(r).win).^2)/inc;
+   O.(tags{j}) = o;
+end
+
+fprintf('   carrier observables at w0 = %.4g w_p (PRISM, linear reference, ideal cold plasma):\n', w0/plasma.wp);
+rows = {'kappa c/w_pe', 'kappa_delta'; 'Re k c/w_pe', 'Re_k_delta'; 'v_phase/c', 'v_phase_over_c'; ...
+        'v_group/c', 'v_group_over_c'; '|R(w0)|', 'R_abs'; 'arg R(w0)', 'R_phase'; 'R delay w_pe', 'R_delay_wpe'; ...
+        '|T(w0)|', 'T_abs'; 'arg T(w0)', 'T_phase'; 'T delay w_pe (transit)', 'T_delay_wpe'; ...
+        'energy R', 'energy_R'; 'energy T', 'energy_T'};
+idm = struct('kappa_delta', O.ideal.kappa_delta, 'Re_k_delta', O.ideal.Re_k_delta, ...
+             'v_phase_over_c', O.ideal.v_phase_over_c, 'v_group_over_c', O.ideal.v_group_over_c, ...
+             'R_phase', O.ideal.R_phase, 'R_delay_wpe', O.ideal.R_delay_wpe, 'T_phase', O.ideal.T_phase, ...
+             'T_delay_wpe', O.ideal.T_delay_wpe);
+for m = 1:size(rows, 1)
+   key = rows{m, 2}; idv = NaN;
+   if isfield(idm, key), idv = idm.(key); end
+   fprintf('     %-24s %12.5g %12.5g %12.5g\n', rows{m, 1}, O.prism.(key), O.ref.(key), idv);
+end
+if above
+   fprintf('     (ideal T: one pass at the cold-plasma k and v_g, no Fabry-Perot)\n');
+else
+   fprintf('     (ideal R: semi-infinite plasma; T delay: tunnelling time through the slab)\n');
+end
+
+fig = figure('Name', 'Carrier observables', 'Color', 'w');
+subplot(2, 2, 1);
+semilogy(depth, O.prism.amp, 'bo', depth, O.ref.amp, 'k--', ...
+         depth, O.ref.amp(1)*exp(-O.ideal.kappa_delta*(depth - depth(1))), 'r:', 'LineWidth', 1.2);
+grid on; xlabel('depth (x - a) \omega_{pe}/c'); ylabel('|E(\omega_0)|');
+legend('PRISM', 'linear ref.', 'ideal e^{-\kappa x}', 'Location', 'best');
+subplot(2, 2, 2);
+plot(depth, O.prism.phase, 'bo', depth, O.ref.phase, 'k--', ...
+     depth, O.ref.phase(1) + O.ideal.Re_k_delta*(depth - depth(1)), 'r:', 'LineWidth', 1.2);
+grid on; xlabel('depth (x - a) \omega_{pe}/c'); ylabel('arg E(\omega_0) [rad]');
+legend('PRISM', 'linear ref.', 'ideal Re k', 'Location', 'best');
+subplot(2, 2, 3);
+plot(depth, O.prism.group_delay_wpe, 'bo', depth, O.ref.group_delay_wpe, 'k--', 'LineWidth', 1.2); hold on;
+if above
+   plot(depth, O.ref.group_delay_wpe(1) + (depth - depth(1))/O.ideal.v_group_over_c, 'r:', 'LineWidth', 1.2);
+   legend('PRISM', 'linear ref.', 'ideal 1/v_g', 'Location', 'best');
+else
+   legend('PRISM', 'linear ref.', 'Location', 'best');
+end
+grid on; xlabel('depth (x - a) \omega_{pe}/c'); ylabel('group delay \omega_{pe}\tau');
+subplot(2, 2, 4);
+band = abs(w - w0) <= 3*half; xw = w(band)/plasma.wp;
+plot(xw, abs(RT.R(band)).^2, 'b-', xw, abs(RT.Ra(band)).^2, 'b--', ...
+     xw, abs(RT.T(band)).^2, 'r-', xw, abs(RT.Ta(band)).^2, 'r--', 'LineWidth', 1.1); hold on;
+yl = [-0.05 1.1]; plot(w0/plasma.wp*[1 1], yl, 'g:'); ylim(yl);
+grid on; xlabel('\omega/\omega_p'); legend('|R|^2', '|R|^2 ref.', '|T|^2', '|T|^2 ref.', 'Location', 'best');
+end
+
+function [A, ph, tau] = carrier_fit(w, X, w0, half)
+% |X(w0)|, arg X(w0) and the group delay d arg X/dw at w0: |X|^2-weighted linear fit of the unwrapped phase over
+% w0 +- half (NaN samples, below the spectral floor, are skipped).
+sel = abs(w - w0) <= half & isfinite(X);
+ws = w(sel) - w0; x = X(sel);
+ph = unwrap(angle(x)); wt = abs(x).^2;
+M = [ones(size(ws)), ws];
+cf = (M'*(M.*wt))\(M'*(ph.*wt));
+A = interp1(w(isfinite(X)), abs(X(isfinite(X))), w0);
+ph = cf(1); tau = cf(2);
+end
+
 % ===================================================================================================================
 % plots and summary
 % ===================================================================================================================
@@ -495,7 +734,7 @@ for p = 1:np
       end
       grid on; ylabel(strrep(lab{j}, '[', ['[' sl]));
       if j == 1
-         t = sprintf('probe %d (%s, %.4g m)', p, P(p).where, P(p).xa);
+         t = P(p).label;
          if has_analytic && what == 'E', t = sprintf('%s, err_{L2}(E) = %.2e', t, P(p).err_E); end
          title(t);
       end
@@ -535,13 +774,13 @@ if m > 0, ylim([m*1e-6, m*2]); end
 end
 
 function print_summary(P, pulse, plasma, has_analytic, opt, K)
-fprintf('\n== PRISM probes: %d probes\n', numel(P));
+fprintf('\n== PRISM probes: %d probes\n', sum([P.n]));
 if pulse.ok
    sgn = '+'; if pulse.verse < 0, sgn = '-'; end
    axn = 'xyz';
    fprintf('   pulse %s along %s%s: B0 = %g T, r0 = %g m, sigma = %g m', pulse.type, sgn, axn(pulse.axis), ...
            pulse.B0, pulse.r0, pulse.sigma);
-   if strcmp(pulse.type, 'gaussian_pulse'), fprintf(', k0 = %g 1/m', pulse.k0); end
+   if pulse.k0 ~= 0, fprintf(', k0 = %g 1/m', pulse.k0); end
    fprintf('\n');
 end
 if plasma.wp > 0
@@ -551,12 +790,21 @@ if plasma.wp > 0
       fprintf(', slab [%g, %g] m along x'' (%g c/w_p)', plasma.a, plasma.b, (plasma.b - plasma.a)*plasma.wp/K.C0);
    end
    fprintf(', nu = %g rad/s\n', opt.nu);
-   if pulse.ok, fprintf('   sigma w_p/c = %g (spectral peak of the derivative pulse at w = c/sigma)\n', ...
-                        pulse.sigma*plasma.wp/K.C0); end
+   if pulse.ok && pulse.k0 > 0
+      fprintf('   carrier w0 = c k0 = %g w_p, k0 sigma = %g (relative spectral width ~ 1/(k0 sigma))\n', ...
+              K.C0*pulse.k0/plasma.wp, pulse.k0*pulse.sigma);
+   elseif pulse.ok
+      fprintf('   sigma w_p/c = %g (spectral peak of the derivative pulse at w = c/sigma)\n', pulse.sigma*plasma.wp/K.C0);
+   end
 end
 for p = 1:numel(P)
-   fprintf('   probe %d: (%g, %g, %g) m, %s, %d samples, window t < %g ns', p, P(p).xyz, P(p).where, ...
-           numel(P(p).t), max(P(p).t(P(p).win))*1e9);
+   if P(p).n > 1
+      fprintf('   plane %d: x = %g m (mean of %d probes), %s, %d samples, window t < %g ns', p, P(p).xa, P(p).n, ...
+              P(p).where, numel(P(p).t), max(P(p).t(P(p).win))*1e9);
+   else
+      fprintf('   probe %d: (%g, %g, %g) m, %s, %d samples, window t < %g ns', p, P(p).xyz, P(p).where, ...
+              numel(P(p).t), max(P(p).t(P(p).win))*1e9);
+   end
    if has_analytic
       fprintf(', L2 error of E vs linear reference = %.3e (reference quadrature, padding 4x vs 8x: %.1e)', ...
               P(p).err_E, P(p).ref_conv);
@@ -580,7 +828,7 @@ if plasma.slab
            warn_if(spread > 0.05));
 end
 w = K.C0/pulse.sigma;                                      % spectral peak of the derivative pulse (k sigma = 1)
-if strcmp(pulse.type, 'gaussian_pulse') && pulse.k0 > 0, w = K.C0*pulse.k0; end
+if pulse.k0 > 0, w = K.C0*pulse.k0; end                    % the carrier
 a0 = K.QE*K.C0*pulse.B0/(K.ME*w*K.C0);
 fprintf('     a0 = e E/(m_e w c) = %.2e at w = %.3g rad/s = %.3g w_p (linearity)%s\n', a0, w, w/plasma.wp, ...
         warn_if(a0 > 0.1));
