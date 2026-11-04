@@ -1,0 +1,6 @@
+# The Mach 3 runaway of channel_cases_t3_mach3.txt (m3-wm-g3-h15: tau_w and the core temperature still rising at t = 200): its final checkpoint
+# shows a drained first cell (u reversed on one wall, T below T_w, rho x5, the molecular + resolved stress at the cell 1/2 face 0.28 tau_w).
+# The same two inputs as there (the classical damping and the semi-local control at the same h = 0.15), with a checkpoint every 500 steps
+# (about 5 time units: the case line's --it-save comes after the campaign's), for channel_wall_cells.py to follow the wall cells in time.
+m3-wm-g3-h15 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --it-save 500
+m3-wm-g3-h15-sl 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-damping semi-local --it-save 500
