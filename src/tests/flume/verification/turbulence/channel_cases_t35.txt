@@ -1,0 +1,28 @@
+# Coleman, Kim & Moser channel (as channel_cases_t3.txt) after the no-slip leak fix (#119 T3), with the wall-model options of T3 and T3.5; the
+# hybrid scheme only (WENO-5 relaminarises on these grids), to t = 200 (tau_w still crept after t = 80 to 150). Campaign A: the baseline again and
+# the matching height and damping; campaign B (appended once A is read): the input filter on the best A setting, the inverse-transformation model
+# with the edge state measured on the A baseline, and the resolved reference.
+# A, J1: baseline (3rd cell, classical damping) and the coarse grid with resolved walls (mass now held)
+wm-hybrid-g1 64 32 32 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200
+wm-hybrid-g2 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200
+wm-hybrid-g3 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200
+nowm-hybrid-g1 64 32 32 1.5 3000 --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200
+# A, J2: matching height 0.15 (h+ about 33) against the 3rd cell, classical against semi-local damping
+wm-hybrid-g2-h15 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15
+wm-hybrid-g3-h15 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15
+wm-hybrid-g2-h15-sl 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-damping semi-local
+wm-hybrid-g3-h15-sl 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-damping semi-local
+wm-hybrid-g3-sl 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-damping semi-local
+# B (after A, 2026-11-03): A put the matching height 0.15 with semi-local damping at Re_tau 219-222 on g2 and g3, the DNS band; the filter goes on it.
+wm-hybrid-g2-h15-sl-f1 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-damping semi-local --wm-filter 1.0
+wm-hybrid-g3-h15-sl-f1 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-damping semi-local --wm-filter 1.0
+# the inverse-transformation model (no damping key), the edge state the centreline of A's h15-sl runs (Favre plane mean of the last checkpoint):
+# u_c / u_b 1.18, T_c / T_w 1.29 (the start temperature is T_w)
+wm-hybrid-g2-h15-inv 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-model inverse-transformation --wm-edge-velocity 1.18 --wm-edge-heat 1.29
+wm-hybrid-g3-h15-inv 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-model inverse-transformation --wm-edge-velocity 1.18 --wm-edge-heat 1.29
+wm-hybrid-g3-h15-inv-f1 128 64 64 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-model inverse-transformation --wm-edge-velocity 1.18 --wm-edge-heat 1.29 --wm-filter 1.0
+# the wall-resolved reference after the leak fix (about 5 dev-gn hours, restart chain)
+resolved-hybrid 256 192 128 1.5 3000 --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 150
+# the g2 relaminarisation of the inverse model (owner 2026-11-03: after the reference): the 3rd-cell sample, and a lower edge velocity
+wm-hybrid-g2-inv 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-model inverse-transformation --wm-edge-velocity 1.18 --wm-edge-heat 1.29
+wm-hybrid-g2-h15-inv-ue110 96 48 48 1.5 3000 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-model inverse-transformation --wm-edge-velocity 1.10 --wm-edge-heat 1.29

@@ -2279,31 +2279,40 @@ def fig_tgv_hybrid(out: Path, runs: Path) -> None:
 
 
 def fig_channel_wm(out: Path, runs: Path) -> None:
-    """T3 (issue #119): the plane channel at bulk Mach 1.5, Re 3000 (Coleman, Kim & Moser 1995). The wall shear stress, the mean driving force per unit
-    volume times the half height, against time: wall-modelled on three coarse grids (hybrid), wall-modelled with WENO-5, resolved walls on the coarse grid,
-    and the wall-resolved hybrid reference. The dashed band: Re_tau 220-222 as cited for the DNS, with the wall density of the reference run."""
+    """T3 (issue #119): the plane channel at bulk Mach 1.5, Re 3000 (Coleman, Kim & Moser 1995), after the no-slip leak fix (channel_cases_t35.txt). The
+    wall shear stress, the mean driving force per unit volume times the half height, against time; left the equilibrium model (3rd-cell sample on three
+    grids, matching height 0.15 with classical or semi-local damping) with resolved walls on the coarse grid and the wall-resolved reference, right the
+    inverse-transformation model. The dashed band: Re_tau 220-222 as cited for the DNS, with the wall density 1.30 of the first table."""
     root = runs / "channel"
     if not (root / "wm-hybrid-g1").exists():
         raise FileNotFoundError(root / "wm-hybrid-g1")
-    fig, ax = plt.subplots(1, 1, figsize=(8.0, 4.2), constrained_layout=True)
-    for name, label in (("resolved-hybrid", "resolved walls, hybrid, $256\\times192\\times128$"), ("wm-hybrid-g1", "modelled, hybrid, $64\\times32\\times32$"),
-                        ("wm-hybrid-g2", "modelled, hybrid, $96\\times48\\times48$"), ("wm-hybrid-g3", "modelled, hybrid, $128\\times64\\times64$"),
-                        ("wm-weno-g2", "modelled, WENO-5, $96\\times48\\times48$"), ("nowm-hybrid-g1", "resolved walls, hybrid, $64\\times32\\times32$")):
-        f = np.loadtxt(root / name / "channel-forcing_history.dat", ndmin=2, comments="VARIABLES")  # header since #119 follow-up
-        _, last = np.unique(f[::-1, 0], return_index=True)
-        f = f[::-1][last]
-        w = max(1, len(f) // 300)
-        sm = np.convolve(f[:, 2], np.ones(w) / w, "valid")  # no padding: a padded end would dip
-        ax.plot(f[w // 2 : w // 2 + len(sm), 1][::w], sm[::w], label=label, lw=1.1)
-    rhow = 1.30
-    for ret in (220.0, 222.0):
-        ax.axhline((ret / 3000.0) ** 2 / rhow, color="k", ls="--", lw=0.8)
-    ax.axhline(3.0 / 3000.0, color="k", ls=":", lw=0.8)
-    ax.set_xlabel("t ($h / U_b$)")
-    ax.set_ylabel(r"$\tau_w$")
-    ax.set_ylim(0.0, 7.0e-3)
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8, loc="upper right")
+    g1, g2, g3 = "$64\\times32\\times32$", "$96\\times48\\times48$", "$128\\times64\\times64$"
+    panels = ((("resolved-hybrid", "resolved walls, $256\\times192\\times128$"), ("nowm-hybrid-g1", f"resolved walls, {g1}"),
+               ("wm-hybrid-g1", f"3rd cell, {g1}"), ("wm-hybrid-g3", f"3rd cell, {g3}"), ("wm-hybrid-g3-h15", f"$h=0.15$, {g3}"),
+               ("wm-hybrid-g2-h15-sl", f"$h=0.15$ semi-local, {g2}"), ("wm-hybrid-g3-h15-sl", f"$h=0.15$ semi-local, {g3}")),
+              (("resolved-hybrid", "resolved walls, $256\\times192\\times128$"), ("wm-hybrid-g3-h15-inv", f"$h=0.15$, $u_e=1.18$, {g3}"),
+               ("wm-hybrid-g3-h15-inv-f1", f"$h=0.15$, $u_e=1.18$, $T_f=1$, {g3}"), ("wm-hybrid-g2-h15-inv", f"$h=0.15$, $u_e=1.18$, {g2}"),
+               ("wm-hybrid-g2-inv", f"3rd cell, $u_e=1.18$, {g2}"), ("wm-hybrid-g2-h15-inv-ue110", f"$h=0.15$, $u_e=1.10$, {g2}")))
+    fig, axs = plt.subplots(1, 2, figsize=(11.0, 4.2), constrained_layout=True, sharey=True)
+    for ax, cases, title in zip(axs, panels, ("equilibrium model", "inverse-transformation model"), strict=True):
+        for name, label in cases:
+            f = np.loadtxt(root / name / "channel-forcing_history.dat", ndmin=2, comments="VARIABLES")  # header since #119 follow-up
+            _, last = np.unique(f[::-1, 0], return_index=True)  # restarts repeat rows: keep the last of each step
+            f = f[::-1][last]
+            w = max(1, len(f) // 300)
+            sm = np.convolve(f[:, 2], np.ones(w) / w, "valid")  # no padding: a padded end would dip
+            ax.plot(f[w // 2 : w // 2 + len(sm), 1][::w], sm[::w], label=label, lw=1.6 if name == "resolved-hybrid" else 1.0,
+                    color="k" if name == "resolved-hybrid" else None)
+        rhow = 1.30
+        for ret in (220.0, 222.0):
+            ax.axhline((ret / 3000.0) ** 2 / rhow, color="k", ls="--", lw=0.8)
+        ax.axhline(3.0 / 3000.0, color="k", ls=":", lw=0.8)
+        ax.set_xlabel("t ($h / U_b$)")
+        ax.set_title(title, fontsize=9)
+        ax.set_ylim(0.0, 6.0e-3)
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7, loc="lower right")
+    axs[0].set_ylabel(r"$\tau_w$")
     fig.savefig(out / "channel-wm.png", dpi=DPI)
     plt.close(fig)
 

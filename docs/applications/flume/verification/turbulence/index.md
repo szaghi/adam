@@ -220,41 +220,58 @@ M 0.1 against the 512³ DNS, from `turbulence/tgv_dns.py`. Peak $-dK/dt$ over a 
 
 Coleman, Kim & Moser (1995): bulk Mach 1.5, bulk Re 3000 on the half height and the wall viscosity, isothermal walls, viscosity $(T/T_w)^{0.7}$,
 Pr 0.7; $4\pi\times2\times\frac43\pi$, mass-flow forcing; $Re_\tau$ about 220–222 for the DNS, as cited by Qi et al. (2022), Cao et al. (2024),
-Alberti et al. (2025b). From `turbulence/channel_campaign.sh` with `channel_cases_t3.txt`, 4 A30. $\tau_w$ is the mean force per unit volume times
-$h$; $Re_\tau$ uses $\rho_w = 1.30$, the reference run's wall density estimated from its mean pressure, so about ±2 %.
+Alberti et al. (2025b). The hybrid scheme throughout. From `turbulence/channel_campaign.sh` with `channel_cases_t35.txt`, 4 A30, after the no-slip
+leak fix. $\tau_w$ is the mean force per unit volume times $h$; $Re_\tau=3000\sqrt{\tau_w\rho_w}$ with $\rho_w = 1.30$ for every row, so the rows
+compare among themselves; the reference run's own wall density, extrapolated from its last checkpoint, is 1.25, which lowers every $Re_\tau$ by 2 %.
+$u_c$ and $T_c/T_w$ are the Favre plane means at the centreline of the last checkpoint (one snapshot).
 
 ![The plane channel](/flume/channel-wm.png)
 
 *$\tau_w$ against time; dashed: $Re_\tau$ 220 and 222; dotted: the laminar value.*
 
-| Case | Cells | $\tau_w$, $50<t\le100$ | $100<t\le150$ | $Re_\tau$ | Mass |
+| Case | Cells | $\tau_w$, $100<t\le150$ | $150<t\le200$ | $Re_\tau$ | $u_c$, $T_c/T_w$ |
 |---|---|---|---|---|---|
-| resolved walls, hybrid | $256\times192\times128$, $\Delta y^+\approx2.3$ | 3.88e-3 | 3.81e-3 (to $t=144$) | 213, 211 | +1.3 % |
-| modelled, hybrid | $64\times32\times32$ | 4.36e-3 | 4.43e-3 | 226, 228 | 0 |
-| modelled, hybrid | $96\times48\times48$ | 4.24e-3 | 4.50e-3 | 223, 229 | 0 |
-| modelled, hybrid | $128\times64\times64$ | 4.65e-3 | 4.65e-3 | 233, 233 | 0 |
-| resolved walls, hybrid | $64\times32\times32$ | 2.24e-3 | 2.08e-3 | 162, 156 | +11 % |
-| modelled, WENO-5 | $96\times48\times48$ (and $64\times32\times32$) | 1.36e-3 | 1.29e-3 | 126, 123 | 0 |
+| resolved walls | $256\times192\times128$, $\Delta y^+\approx2.3$ | 3.82e-3 | – | 211 ($50<t\le100$: 218) | 1.16, 1.26 |
+| resolved walls | $64\times32\times32$ | 2.35e-3 | 2.72e-3 | 166, 178 | 1.22, 1.26 |
+| equilibrium, 3rd cell | $64\times32\times32$ | 4.37e-3 | 4.49e-3 | 226, 229 | 1.21, 1.29 |
+| equilibrium, 3rd cell | $96\times48\times48$ | 4.36e-3 | 4.52e-3 | 226, 230 | 1.19, 1.30 |
+| equilibrium, 3rd cell | $128\times64\times64$ | 4.69e-3 | 4.66e-3 | 234, 234 | 1.18, 1.31 |
+| equilibrium, 3rd cell, semi-local | $128\times64\times64$ | 4.33e-3 | 4.33e-3 | 225, 225 | 1.18, 1.30 |
+| equilibrium, $h=0.15$ | $96\times48\times48$ | 4.71e-3 | 4.77e-3 | 235, 236 | 1.19, 1.30 |
+| equilibrium, $h=0.15$ | $128\times64\times64$ | 4.89e-3 | 4.90e-3 | 239, 239 | 1.19, 1.30 |
+| equilibrium, $h=0.15$, semi-local | $96\times48\times48$ | 4.15e-3 | 4.09e-3 | 220, 219 | 1.18, 1.29 |
+| equilibrium, $h=0.15$, semi-local | $128\times64\times64$ | 4.13e-3 | 4.21e-3 | 220, 222 | 1.17, 1.29 |
+| … and the filter $T_f=1$ | $96\times48\times48$ | 4.15e-3 | 4.03e-3 | 220, 217 | 1.18, 1.29 |
+| … and the filter $T_f=1$ | $128\times64\times64$ | 4.15e-3 | 4.16e-3 | 220, 221 | 1.19, 1.29 |
+| inverse, $h=0.15$, $u_e=1.18$ | $128\times64\times64$ | 4.13e-3 | 4.08e-3 | 220, 218 | 1.16, 1.21 |
+| … and the filter $T_f=1$ | $128\times64\times64$ | 4.04e-3 | 4.11e-3 | 217, 219 | 1.17, 1.21 |
+| inverse, $h=0.15$, $u_e=1.18$ | $96\times48\times48$ | 2.03e-3 | 1.62e-3 | 154, 138: relaminarises | 1.51, 1.11 |
+| inverse, 3rd cell, $u_e=1.18$ | $96\times48\times48$ | 1.61e-3 | 1.40e-3 | 137, 128: relaminarises | 1.44, 1.12 |
+| inverse, $h=0.15$, $u_e=1.10$ | $96\times48\times48$ | 3.61e-3 | 4.15e-3 | 206, 220 | 1.18, 1.21 |
+
+The inverse model's edge state is given ($u_e$, $T_e/T_w = 1.29$): the centreline of the $h=0.15$ semi-local runs. Every run conserves mass to $10^{-16}$
+(the wall-resolved ones gained 11 % and 1.3 % before the leak fix).
 
 **What it shows.**
-- **The model works on the hybrid:** 2–5 % above the DNS $Re_\tau$ on grids 50–200 times coarser than the resolved run; without it, the coarse grid is
-  27 % low. The finest modelled grid is the furthest (233). With the sample at $2.5\Delta$ the matching height falls as the grid refines; whether that
-  explains the trend is not tested here (a run with a fixed matching height would).
-- **Not converged in time:** the modelled $\tau_w$ still creeps up after $t=80$ on the two coarse grids; the windows bracket it.
-- **WENO-5 relaminarises** on these grids, modelled or not: $\tau_w$ falls to near the laminar $10^{-3}$. Its numerical dissipation kills the
-  turbulence, as in T0; the model cannot help.
-- **The resolved isothermal wall leaks mass:** +11 % over the run on the coarse grid, +1.3 % on the reference. The no-slip mirror of #65 lets a mass flux
-  through the wall face at $O(h^3)$. This biased the reference, and probably part of its 4 % shortfall from the DNS. **Fixed since** (the inviscid
-  fluxes through no-slip faces are closed, only the pressure crosses; wm1 now conserves mass to $10^{-15}$, was $1.6\cdot10^{-7}$); the runs in this table
-  predate the fix and were not repeated (the GPU partition refused jobs; this workstation's GPUs are FP64-poor).
-- Only $\tau_w$ is compared: no mean profiles were saved, and the DNS profiles are not in this tree. The reference stopped at $t=144$ (the scheduler
-  refused the last job).
+- **Matching height 0.15 with semi-local damping puts the equilibrium model in the DNS band on both grids** (219–222). Either change alone is worse:
+  the 3rd-cell sample is 226–234 and rises with the grid, $h=0.15$ with the classical damping 235–239, the semi-local damping at the 3rd cell 225.
+  The fixed height removes the grid trend; the semi-local damping removes the excess. This is one Mach and Reynolds number, single runs, and the band
+  sits within the $\pm2\%$ of the wall density.
+- **The input filter does not move the means** (within 1.5 %); on the coarser grid it slows the transient.
+- **The inverse model is in the band on the finer grid** with a cooler centreline ($T_c/T_w$ 1.21 against 1.29 for the equilibrium model, 1.26 for
+  the resolved run): its heat flux differs. **On $96\times48\times48$ it relaminarises with $u_e = 1.18$**, at $h=0.15$ and at the 3rd cell, but
+  not with $u_e=1.10$: the model is sensitive to the given edge velocity, which the flow does not set (the paper takes the edge from the flow; a face
+  kernel cannot). Why 1.18 drains the turbulence on that grid is not explained.
+- **The wall-resolved reference did not change with the leak fix** (211 against 211 before, $100<t\le150$), so its 4–5 % shortfall from the DNS was
+  not the leak: its resolution or the hybrid scheme's dissipation, not tested. The modelled rows in the band agree with the DNS, not with it.
+- **The coarse grid with resolved walls** still falls 20 % short: without a model the grid cannot carry the wall layer.
+- Only $\tau_w$ and the centreline are compared: no averaged profiles, and the DNS profiles are not in this tree.
 
 ## Not done
 
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
-- T3: Mach 3 (Re 4880), a compressible boundary layer and SBLI (it needs a turbulent inflow); the compressibility transformation (T3.5); runtime regridding
-  along a modelled wall; mean profiles against the DNS.
+- T3: Mach 3 (Re 4880), a compressible boundary layer and SBLI (it needs a turbulent inflow); runtime regridding along a modelled wall; mean profiles
+  against the DNS; the relaminarisation of the inverse model on $96\times48\times48$ with $u_e = 1.18$; an edge state taken from the flow.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.
