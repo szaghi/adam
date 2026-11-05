@@ -143,6 +143,7 @@ type :: prism_pic_object
    integer(I4P)              :: particle_number_global = 0_I4P !< Total number of particles (all ranks).
    integer(I4P)              :: particle_capacity = 0_I4P   !< Particle arrays capacity of every rank (issue #112).
    real(R8P)                 :: particle_capacity_factor = 0._R8P !< Capacity in units of global/ranks; 0: global.
+   real(R8P)                 :: omega_dt_max = 0.05_R8P         !< Accuracy threshold on omega_max dt (plasma frequencies).
    integer(I4P)              :: charge_conservation_save = 0_I4P !< Charge-conservation history every N steps; 0: none.
 	integer(I4P)				  :: n_ions = 0_I4P              !< Total ions number
 	integer(I4P)				  :: n_electrons = 0_I4P         !< Total electrons number
@@ -935,6 +936,12 @@ contains
    ! optional (issue #112): the particle arrays capacity of every rank, in units of global particles/ranks; absent (0),
    ! every rank keeps the global capacity, the model before the key existed. Like the block slots it is fixed at
    ! initialization and never reallocated: a rank that has to hold more particles stops the run.
+   ! threshold of the time-step limit set by the plasma frequencies (adam_prism_plasma_frequencies_object): optional
+   self%omega_dt_max = 0.05_R8P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='omega_dt_max', val=self%omega_dt_max, error=error)
+   if (error > 0) self%omega_dt_max = 0.05_R8P
+   if (.not.(self%omega_dt_max > 0._R8P)) &
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(omega_dt_max) must be > 0, got '//trim(str(self%omega_dt_max)))
    self%particle_capacity_factor = 0._R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_capacity_factor', &
                             val=self%particle_capacity_factor, error=error)

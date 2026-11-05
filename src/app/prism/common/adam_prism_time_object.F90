@@ -23,6 +23,8 @@ type :: prism_time_object
    integer(I4P)      :: it=0_I4P        !< Time steps counter.
    real(R8P)         :: time=0._R8P     !< Time.
    real(R8P)         :: dt=0.0001_R8P   !< Maximum time step accordingly to CFL criterion.
+   character(len=18) :: dt_source='CFL' !< Origin of dt: CFL (fields) or plasma_frequencies (PIC).
+   real(R8P)         :: omega_dt=0._R8P  !< PIC: highest plasma frequency times dt (0: not a PIC run).
    contains
       procedure, pass(self) :: description    !< Return pretty-printed object description.
       procedure, pass(self) :: initialize     !< Initialize time handler.
@@ -114,7 +116,12 @@ contains
       print '(A)', r//''
       print '(A)', r//'t:            '//trim(str(it,.true.))
       print '(A)', r//'nodes number: '//trim(str(nodes_number, .true.))
-      print '(A)', r//'time step:    '//trim(str(dt, .true.))
+      if (self%omega_dt > 0._R8P) then
+         print '(A)', r//'time step:    '//trim(str(dt, .true.))//' ('//trim(self%dt_source)//', omega_max dt = '// &
+                      trim(str(self%omega_dt, .true.))//')'
+      else
+         print '(A)', r//'time step:    '//trim(str(dt, .true.))//' ('//trim(self%dt_source)//')'
+      endif
       print '(A)', r//'time:         '//trim(str(time, .true.))
    if (it_max <= 0) then
       print '(A)', r//'progress:     '//trim(str(int(time/time_max * 100), .true.))//'%'

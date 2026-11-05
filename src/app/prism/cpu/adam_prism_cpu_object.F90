@@ -98,6 +98,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: save_charge_conservation_diagnostic !< Save PIC charge-conservation diagnostic history.
       ! numerical methods
       procedure, pass(self) :: compute_dt                   !< Compute time step.
+      procedure, pass(self) :: compute_plasma_frequencies   !< Plasma frequencies limiting the next PIC step.
       procedure, pass(self) :: compute_energy               !< Compute energy.
       procedure, pass(self) :: compute_energy_error         !< Compute energy error.
       procedure, pass(self) :: compute_grms                 !< Compute Grms of the rotating magnetic-field amplitude.
@@ -1554,6 +1555,10 @@ contains
                                                     Gauss_L1=0._R8P, Gauss_L2=0._R8P, Gauss_Linf=0._R8P, &
                                                     is_to_open=.true., do_write=.false.)
    call self%io%open_file_residuals(nv=self%nv)
+   if (self%plasma_freq%active) then
+      call self%compute_plasma_frequencies
+      call mpih%print_message(self%plasma_freq%description())
+   endif
 
    if (.not.self%io%restart .and. is_pic_model(self%physics%physical_model)) then
       if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
@@ -1608,6 +1613,8 @@ contains
    endassociate
    if (self%pml%enabled .and. self%pml%gamma_eff_max > 0._R8P) &
       dt_local = min(dt_local, self%pml%C_gamma / self%pml%gamma_eff_max)
+   ! PIC: the plasma frequencies of the previous step (or t0) may lower the step (adam_prism_plasma_frequencies_object)
+   dt_local = self%plasma_freq%dt_limit(dt_cfl=dt_local)
    endsubroutine compute_local_dt_forest
 
    subroutine advance_one_step_forest(self, dt)
@@ -1621,6 +1628,9 @@ contains
 
    self%time%it = self%time%it + 1
    dt_step = dt
+   self%time%dt_source = self%plasma_freq%dt_source(dt=dt)
+   self%time%omega_dt = self%plasma_freq%wmax*dt
+   call self%plasma_freq%check_step(dt=dt)
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
    self%time%dt = dt_step
    call self%integrate
@@ -2036,6 +2046,8 @@ contains
    call self%save_divergence_history(div_D=max_div_D, div_B=max_div_B, div_J=max_div_J, &
                                      current_solver_residual=current_residual)
    call self%save_charge_conservation_diagnostic
+   ! plasma frequencies of the state just reached: they limit the next step
+   if (self%plasma_freq%active) call self%compute_plasma_frequencies
    endsubroutine post_step_forest
 
    subroutine is_done_forest(self, done)
@@ -2119,6 +2131,18 @@ contains
    call self%compute_local_dt_forest(dt_local=self%time%dt)
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
    endsubroutine compute_dt
+
+   subroutine compute_plasma_frequencies(self)
+   !< Maxima of the plasma frequencies over the cells and the particles (collective): they limit the next PIC step.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   if (allocated(self%q_pic) .and. allocated(self%pic_fields)) then
+      call self%plasma_freq%compute_cpu(pic=self%pic, field=self%adam%field, q_pic=self%q_pic, pic_fields=self%pic_fields, &
+                                        blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk)
+   else
+      call self%plasma_freq%set_maxima(wpe2=0._R8P, wpi2=0._R8P, wce=0._R8P, wci=0._R8P, transit=0._R8P)
+   endif
+   endsubroutine compute_plasma_frequencies
 
    subroutine compute_energy(self)
    !< Compute energy.

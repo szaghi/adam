@@ -16,6 +16,7 @@ use :: adam_prism_numerics_object
 use :: adam_prism_parameters
 use :: adam_prism_physics_object
 use :: adam_prism_pic_object
+use :: adam_prism_plasma_frequencies_object
 use :: adam_prism_pml_object
 use :: adam_prism_particle_injection_object
 use :: adam_prism_probes_object
@@ -106,6 +107,7 @@ type, extends(realm_object) :: prism_common_object
    type(prism_particle_injection_object) :: particle_injection !< Particle injection.
    type(prism_physics_object)            :: physics            !< Physics configuration.
    type(prism_pic_object)                :: pic                !< PIC state.
+   type(prism_plasma_frequencies_object) :: plasma_freq        !< Plasma frequencies and the PIC time-step limit.
    type(prism_pml_object)                :: pml                !< Perfectly matched layer.
    type(prism_probes_object)             :: probes             !< Field probes.
    !type(prism_rk_bc_object)              :: rk_bc              !< Runge-Kutta BC handler.
@@ -483,6 +485,13 @@ contains
    if (is_pic_model(self%physics%physical_model)) &
       call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic, physics=self%physics)
    call self%time%initialize(file_parameters=file_parameters, physics=self%physics)
+   if (is_pic_model(self%physics%physical_model)) then
+      if (allocated(self%rk%scheme)) then
+         call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, rk_scheme=self%rk%scheme)
+      else
+         call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, rk_scheme='')
+      endif
+   endif
    call self%ic%initialize(file_parameters=file_parameters)
    call self%coil%initialize(field=self%adam%field, grid=self%adam%grid, physics=self%physics, file_parameters=file_parameters)
    call self%grms%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, verbose=verbose_)

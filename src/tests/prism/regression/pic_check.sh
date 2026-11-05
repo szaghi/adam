@@ -8,11 +8,13 @@
 #                  32x24x24 cells (dx = c/(16 w_pe)), 40 steps: periodic current fold and particle wrap on three axes.
 #   pic-slab-pulse the Fresnel pilot (src/tests/prism/fnl/fd/PIC/Fresnel_test/pilot/pulse) at dx = c/(8 w_pe): slab
 #                  3 c/w_pe thick, PEC along x, periodic y,z (closure isolated), gaussian_derivative_pulse through the
-#                  slab, 384x24x24 cells, 576 steps (t w_pe 18). Run to t w_pe 32 with three probe planes, the same
+#                  slab, 384x24x24 cells, 1152 steps at CFL 0.25 (t w_pe 18; CFL 0.5 would give omega_max dt ~0.07 and
+#                  the plasma_frequencies dt limit, see adam_prism_plasma_frequencies_object). Run to t w_pe 32 with
+#                  three probe planes, the same
 #                  input matches the exact cold slab like the pilot plane study at this dx (plane-mean L2 3.3 / 3.3 /
 #                  6.2 % reflected / inside / transmitted; study 2.7 / 4.2 / 7.0 %; second order in dx).
-# Times (pic-periodic / pic-slab-pulse): CPU np 1 ~2.5 / ~2 min, FNL np 1 ~35 s / ~5 min (RTX 4070 laptop), FNL np 2
-# ~1.5 / ~5 min (two A30, medooza).
+# Times (pic-periodic / pic-slab-pulse): CPU np 1 ~2.5 / ~2 min, FNL np 1 ~35 s / ~10 min (RTX 4070 laptop), FNL np 2
+# ~1.5 / ~10 min (two A30, medooza); pic-slab-pulse doubled its steps on 2026-11-05 (CFL 0.5 -> 0.25).
 #
 # The charge-conserving CPU current is single-block, single-rank (check_conserving_single_block), so a case runs as legs:
 #   cpu  np 1, input.ini (one block), the first CPU_STEPS steps only  -> golden-check/cpu

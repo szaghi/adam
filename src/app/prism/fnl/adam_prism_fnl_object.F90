@@ -57,6 +57,7 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(prism_fnl_pic_object)     :: pic_fnl     !< GPU PIC support state.
    type(prism_fnl_rk_pic_object)  :: rk_pic_fnl  !< GPU PIC RK integrator.
    type(prism_fnl_pic_conserving_object) :: conserving_fnl !< GPU charge-conserving PIC current.
+   type(prism_fnl_plasma_frequencies_object) :: plasma_freq_fnl !< GPU plasma frequencies (PIC time-step limit).
    type(prism_fnl_pml_object)     :: pml_fnl     !< GPU PML compact metadata/state.
    type(prism_fnl_probes_object)  :: probes_fnl  !< GPU field probes.
    type(prism_fnl_rk_pml_object)  :: rk_pml_fnl  !< GPU PML SSP RK support.
@@ -185,6 +186,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: apply_reflux_to_stage_forest  !< Apply Berger-Colella reflux to self's RK stage buffer (FNL no-op).
       ! numerical methods, miscellanea
       procedure, pass(self) :: compute_dt             !< Compute time step.
+      procedure, pass(self) :: compute_plasma_frequencies !< Plasma frequencies limiting the next PIC step.
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
       procedure, pass(self) :: compute_grms           !< Compute Grms of the rotating magnetic-field amplitude.
@@ -317,6 +319,7 @@ contains
    call self%pml_fnl%destroy()
    call self%probes_fnl%destroy()
    call self%conserving_fnl%destroy()
+   call self%plasma_freq_fnl%destroy()
    call self%rk_pic_fnl%destroy()
    call self%leapfrog_pic_fnl%destroy()
    call self%pic_fnl%destroy()
@@ -433,6 +436,7 @@ contains
    call amr%load_from_file(file_parameters=file_parameters)
    extra_fields = -2_I4P*physics%nv
    if (has_tv_marker(amr)) extra_fields = extra_fields + 1_I4P
+   if (is_pic_model(physics%physical_model)) extra_fields = extra_fields + 1_I4P ! plasma_freq_fnl%wp2_gpu: 2 interior fields
    if (.not.is_pic_model(physics%physical_model)) then
       call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(extra_fields))// &
                                   ' block fields with respect to compute_fields_number')
@@ -6008,6 +6012,11 @@ contains
       endif
    endif
 
+   if (self%plasma_freq%active) then
+      call self%plasma_freq_fnl%initialize(nb=self%nb, ni=self%adam%grid%ni, nj=self%adam%grid%nj, nk=self%adam%grid%nk)
+      call self%compute_plasma_frequencies
+      call mpih_fnl%print_message(self%plasma_freq%description())
+   endif
    call report_device_memory
    ! Lock AMR (issue #22 GA6): the FNL device state cannot follow a regrid past this point —
    ! any later amr_update call error_stops instead of computing on stale device maps.
@@ -6050,6 +6059,8 @@ contains
    if (self%physics%alpha > 0._R8P) dt_local = min(dt_local, 1._R8P / self%physics%alpha)
    if (self%pml%enabled .and. self%pml%gamma_eff_max > 0._R8P) &
       dt_local = min(dt_local, self%pml%C_gamma / self%pml%gamma_eff_max)
+   ! PIC: the plasma frequencies of the previous step (or t0) may lower the step (adam_prism_plasma_frequencies_object)
+   dt_local = self%plasma_freq%dt_limit(dt_cfl=dt_local)
    contains
       subroutine compute_dxyz_min_kernel(blocks_number, dxyz_gpu, dxyz_min)
       !< Compute minimum space step accordingly, kernel device.
@@ -6078,6 +6089,9 @@ contains
 
    self%time%it = self%time%it + 1
    dt_step = dt
+   self%time%dt_source = self%plasma_freq%dt_source(dt=dt)
+   self%time%omega_dt = self%plasma_freq%wmax*dt
+   call self%plasma_freq%check_step(dt=dt)
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
    self%time%dt = dt_step
    call self%integrate_dev
@@ -6577,9 +6591,21 @@ contains
    call self%save_divergence_history(div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
                                      div_J=self%max_divergence_J, current_solver_residual=current_residual)
    call self%save_charge_conservation_diagnostic
+   ! plasma frequencies of the state just reached: they limit the next step
+   if (self%plasma_freq%active) call self%compute_plasma_frequencies
    endsubroutine post_step_forest
 
    ! numerical methods
+   subroutine compute_plasma_frequencies(self)
+   !< Maxima of the plasma frequencies over the cells and the particles (collective): they limit the next PIC step.
+   class(prism_fnl_object), intent(inout) :: self                         !< The equation.
+   real(R8P)                              :: wpe2, wpi2, wce, wci, transit !< Local maxima.
+
+   call self%plasma_freq_fnl%compute(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, grid=self%adam%grid, &
+                                     inv_eps=self%plasma_freq%inv_eps, wpe2=wpe2, wpi2=wpi2, wce=wce, wci=wci, transit=transit)
+   call self%plasma_freq%set_maxima(wpe2=wpe2, wpi2=wpi2, wce=wce, wci=wci, transit=transit)
+   endsubroutine compute_plasma_frequencies
+
    subroutine compute_dt(self)
    !< Compute the global stability-limited dt and store it on `self%time%dt`.
    !<
