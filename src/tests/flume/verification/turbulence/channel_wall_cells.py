@@ -38,11 +38,11 @@ def history(path: Path) -> np.ndarray:
 
 
 def checkpoints(work: Path) -> list[tuple[float, str]]:
-    """Return (time, iteration tag) of every checkpoint of the run, in time order."""
+    """Return (time, iteration tag) of every checkpoint of the run, in time order; the restart file (`channel-restart`, other fields) is not one."""
     out = []
     for x in work.glob("channel-*.xdmf"):
         m = re.search(r'<Time Value="([^"]+)"', x.read_text()[:4000])
-        if m:
+        if m and x.stem.split("-")[1].isdigit():
             out.append((float(m.group(1)), x.stem.split("-")[1]))
     return sorted(out)
 
