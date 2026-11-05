@@ -1,0 +1,6 @@
+# The three runs of channel_cases_t3_mach3_ev.txt continued from their t = 200 restart to t = 800, for a thermal steady state (at t = 200 the
+# wall heat flux balanced 88-91 % of the forcing work and dE/dt halved every ~130 units). Same names: the campaign resumes from channel-restart once
+# the run's done marker is removed. A checkpoint every 1000 steps for channel_wall_cells.py.
+m3-wm-g3-h15-ev 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 800 --wm-height 0.15 --wm-eddy-viscosity --it-save 1000
+m3-wm-g3-h15-sl-ev 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 800 --wm-height 0.15 --wm-damping semi-local --wm-eddy-viscosity --it-save 1000
+m3-wm-g3-ev 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 800 --wm-eddy-viscosity --it-save 1000
