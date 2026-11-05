@@ -30,6 +30,7 @@ diagnostics, the keys and the models are in [input](../../input) and [numerics](
 | wm8 | inverse-transformation model: laminar channel against the equilibrium model; hot wall; one rank against 2 with the filter | $1.0\cdot10^{-4}$, the heat flux of the Reynolds analogy moving the energy by $2.3\cdot10^{-3}$ (bound $10^{-4}$); $9.8\cdot10^{-3}$ (min $10^{-3}$); $4\cdot10^{-11}$ (CPU), 0 (FNL); CPU against FNL $4\cdot10^{-11}$ |
 | wm9 | restart with the filter averages (`.wmf`, one per rank): 10 steps + restart to 20 against 20 straight, inverse-transformation model, $T_f=0.01$; control with the `.wmf` removed | fields and histories bit for bit (CPU and FNL); the control differs and warns |
 | wm10 | dimensional units on a Vreman channel with the wall model and the forcing, gas `cp, cv`: input bit for bit (NV-5), output against `scaling.py dimensionalize` (NV-9), forcing and turbulence histories included | bit for bit (CPU and FNL); bit for bit, 4 histories |
+| tb2 | wall-model history: $\tau_w$ of wm5's laminar channel against the driving force; one rank against 2 on the Mach 2.5 box; CPU against GPU | $3.9\cdot10^{-4}$ (bound $10^{-3}$); $4\cdot10^{-16}$; $1.1\cdot10^{-13}$ |
 | tb1 | digital-filter inflow: the generator's stresses, temporal and spanwise correlations, periodic span, plane restart (`test_inflow_df`); a Mach 2.5 box: the inflow ghosts carry the table; one rank against 2; restart with the `.dff` against straight, control without it | stresses 0.4–0.7 % (bound 3 %), correlation exact, integral length 5 % short (bound 10 %); $\langle u\rangle$ at $\delta/2$ 0.877 against 0.891; $2\cdot10^{-16}$; fields and histories bit for bit (CPU and FNL), the control differs; FNL against CPU $10^{-15}$ |
 | hy3 | the central flux: order, kinetic energy identity, pressure equilibrium | order 5.96–5.99; $4\cdot10^{-16}$; $dp/dt$ $9\cdot10^{-15}$ across 100:1 |
 | hy4 | contact of density ratio 8 and 100 | $u$, $p$ within $9\cdot10^{-14}$ |
@@ -341,51 +342,52 @@ forcing work in 50-unit windows, 1 at a thermal steady state.*
 The zero-pressure-gradient layer of the DNS of Zhang, Duan & Choudhari (2018, AIAA J 56(11)), case M2p5: Mach 2.5, adiabatic wall
 ($T_w/T_r=1$), $Re_\theta=2835$ and $Re_\tau=510$ at its station. The station profiles come from the NASA Turbulence Modeling Resource
 (`turbulence/reference/`). The layer is fed through the face `inflow-digital-filter` ([numerics](../../numerics.md)): the DNS station profile scaled
-to the inflow thickness $\delta_i$, with fluctuations that have the DNS Reynolds stresses.
+to the inflow thickness $\delta_i$, with fluctuations that have the DNS Reynolds stresses. $C_f$ is the wall model's own $\tau_w$, written by
+`[diagnostics] wall_history_save` (leg tb2).
 
 | Setup | |
 |---|---|
-| box, cells | $60\times6\times6\,\delta_i$, $720\times72\times72$, cubic $\delta_i/12$; periodic span, extrapolated top and outflow |
+| box, cells | $90\times6\times6\,\delta_i$, $1080\times72\times72$, cubic $\delta_i/12$; periodic span, extrapolated top and outflow |
 | gas | $Re=U_\infty\delta_i/\nu_\infty=19370$ (the DNS's 4 mm $\delta_i$), $\mu\propto T^{0.76}$ (the DNS uses Sutherland), $Pr=0.71$ |
 | wall | `wall-modelled`, $T_w=2.104\,T_\infty$, the 3rd cell, semi-local damping, its eddy viscosity below $h$ (the setting that matched the Mach 3 channel) |
 | inflow | integral lengths $0.8$, $0.3$, $0.3\,\delta_i$ (streamwise as a time scale $L_x/U_\infty$, wall-normal, spanwise) |
 | scheme | `hybrid-kep-weno`, no subgrid model |
-| run | `tbl_cases_t37.txt`, to $t=360\,\delta_i/U_\infty$ (6 flow-throughs); 33 checkpoints of $180<t\le360$ averaged over the span and in time (`tbl_oracle.py compare`) |
+| run | `tbl_cases_t37_l90.txt`, to $t=360\,\delta_i/U_\infty$ (4 flow-throughs); the wall history every 20 steps and 34 checkpoints of $180<t\le360$, averaged over the span and in time (`tbl_oracle.py compare`); 0.40 s per step on 4 A30 |
 
 ![The Mach 2.5 boundary layer against the DNS](/flume/tbl-m2p5.png)
 
-*Left: $C_f=2\,d\theta/dx$ (a quadratic fit of $\theta$ over $\pm3\,\delta_i$) and $Re_\theta$ against $x$; the square is the DNS at its
-$Re_\theta$. Middle: $u^+_{VD}$ at the station where $Re_\theta$ is the DNS's, scaled with the run's own $u_\tau$. Right: the rms over $u_\tau$ at the
-same station; dashed: the DNS.*
+*Left: $C_f$ from the wall model's $\tau_w$ (blue) and from the momentum integral $2\,d\theta/dx$ (grey), and $Re_\theta$ (right axis) against
+$x$; the square is the DNS at its $Re_\theta$. Middle: $u^+_{VD}$ at the station where $Re_\theta$ is the DNS's, scaled with the run's $u_\tau$. Right:
+the rms over $u_\tau$ at the same station; dashed: the DNS.*
 
-| At $Re_\theta=2830$ ($x=55\,\delta_i$) | LES | DNS |
+| At $Re_\theta=2836$ ($x=55\,\delta_i$) | LES | DNS |
 |---|---|---|
-| $C_f$, momentum integral at the station | 1.94e-3 | 2.31e-3 |
-| $C_f$, linear fit of $\theta$ over $40\le x\le57$ | 1.81e-3 | |
-| $H$ | 3.49 | 4.10 |
-| $u^+_{VD}$ at $y^+=100$, $200$ | 18.9, 21.5 | 16.7, 18.8 |
-| $u_{rms}$, $v_{rms}$, $w_{rms}$ over $u_\tau$ at $y/\delta=0.2$ | 2.18, 0.84, 1.22 | 1.49, 0.93, 1.12 |
-| $-\langle u'v'\rangle/u_\tau^2$ at $y/\delta=0.2$, $0.5$ | 0.79, 0.60 | 0.62, 0.37 |
+| $C_f$, the wall model's $\tau_w$ | **2.21e-3** (the two halves of the window 2.19e-3, 2.22e-3) | 2.31e-3 |
+| $C_f$, momentum integral | 1.56e-3 | |
+| $H$ | 3.54 | 4.10 |
+| $u^+_{VD}$ at $y^+=30$, $100$, $200$ | 13.1, 17.5, 19.8 | 13.6, 16.7, 18.8 |
+| $u_{rms}$, $v_{rms}$, $w_{rms}$ over $u_\tau$ at $y/\delta=0.2$ | 2.06, 0.81, 1.22 | 1.49, 0.93, 1.12 |
+| $-\langle u'v'\rangle/u_\tau^2$ at $y/\delta=0.2$, $0.5$ | 0.80, 0.50 | 0.62, 0.37 |
 
 **What it shows.**
-- **The inflow works.** The layer grows from $Re_\theta=1630$ at the inlet to the DNS's 2835 at $x=55\,\delta_i$, against 53 in the DNS. $C_f$ falls
-  from about $5\cdot10^{-3}$ near the inlet, the adaptation of the synthetic eddies, to a plateau after $x\approx18$.
-- **The wall model under-predicts $C_f$ by 16–28 %.** That is the range of linear fits of $\theta$ over $45\le x\le57$ and $30\le x\le57$ (1.93e-3,
-  1.67e-3 against 2.31e-3); the local values on the plateau, $18<x<50$, are 1.1–2.0e-3 at lower $Re_\theta$, where the DNS's $C_f$ would be
-  higher still. The log layer is
-  shifted up by about 2 in $u^+_{VD}$, the signature of a low $u_\tau$. $u_{rms}$ peaks too high and too far out, the usual near-wall streaks of a
-  coarse LES.
-- **The number is not tight.** $C_f$ rests on the momentum integral alone: the wall model's $\tau_w$ is not an output. The station of the DNS's
-  $Re_\theta$ lies $5\,\delta_i$ before the outflow, where $C_f$ rises back to the DNS value, and only $15\,\delta_i$ past the recovery length of a
-  digital filter at this Mach number ($40\,\delta_i$; Huang, Duan & Choudhari 2022). An estimate from the resolved total shear stress scaled by the
-  DNS's stress profile is no better: it gives $-48$ % at $0.1\,\delta$ to $+29$ % at $0.3\,\delta$, because below $h$ the stress is the wall model's.
+- **$C_f$ within 4.4 % of the DNS** at its $Re_\theta$, with the setting that matched the Mach 3 channel. The two halves of the averaging window
+  differ by 1.1 %.
+- **The inflow recovers by $x\approx50\,\delta_i$.** The layer reaches the DNS's $Re_\theta$ at $x=55$, against 53 in the DNS. $C_f$ falls from
+  $2.8\cdot10^{-3}$ at the inlet to $1.8\cdot10^{-3}$ at $x\approx25$, the adaptation of the synthetic eddies, then rises to a plateau of
+  $2.2\cdot10^{-3}$ from $x\approx50$. That matches the $40\,\delta_i$ recovery length of a digital filter at this Mach number (Huang, Duan &
+  Choudhari 2022).
+- **The momentum integral does not measure $C_f$ here.** Fitted over $\pm3\,\delta_i$, $2\,d\theta/dx$ swings between $0.9$ and $4\cdot10^{-3}$
+  along $x$ on the same averaged data, and is $-33$ % at the station. A first run on a $60\,\delta_i$ box had only this estimate, and it reported
+  $C_f$ 16–28 % low.
+- **The log layer sits 0.9–1.0 above the DNS in $u^+_{VD}$**, and the wake gives $H$ 14 % low. $u_{rms}$ peaks too high, the near-wall streaks of a
+  coarse LES. The resolved $-\langle u'v'\rangle$ in the outer layer is above the DNS's.
 
 ## Not done
 
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
-- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: the wall model's $\tau_w$ as an output, a longer box or a lower inflow $Re_\theta$ so the
-  DNS station falls mid-domain, a resolution ladder and the matching height, the Mach 5.86 cold-wall case (its DNS file is in `reference/`); SBLI; runtime regridding along a modelled wall; mean profiles
+- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: a resolution ladder and the matching height, the Mach 5.86 cold-wall case (its DNS file is
+  in `reference/`); SBLI; runtime regridding along a modelled wall; mean profiles
   against the DNS; the relaminarisation of the inverse model on $96\times48\times48$ with $u_e = 1.18$; an edge state taken from the flow.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.

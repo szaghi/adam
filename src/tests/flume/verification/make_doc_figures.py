@@ -2419,14 +2419,15 @@ def fig_channel_m3_ev(out: Path, runs: Path) -> None:
 
 
 def fig_tbl_m2p5(out: Path, runs: Path) -> None:
-    """T3.7 (issue #119): the Mach 2.5 boundary layer of the Zhang, Duan & Choudhari (2018) DNS (case M2p5), wall-modelled, digital-filter inflow,
-    tbl_cases_t37.txt, the checkpoints of 180 < t <= 360 averaged over the span and in time (tbl_oracle.py compare). Left C_f = 2 d theta / dx (a
-    quadratic fit of theta over +-3 delta_i) against Re_theta, the DNS at its station; middle u+_VD against y+ at the station of the DNS's Re_theta
+    """T3.7 (issue #119): the Mach 2.5 boundary layer of the Zhang, Duan & Choudhari (2018) DNS (case M2p5), wall-modelled, digital-filter inflow, on the
+    90 delta_i box of tbl_cases_t37_l90.txt, the checkpoints and the wall history of 180 < t <= 360 averaged over the span and in time (tbl_oracle.py
+    compare). Left C_f from the wall model's tau_w (wall_history_save) and, grey, from the momentum integral 2 d theta / dx (a quadratic fit of theta
+    over +-3 delta_i), the DNS at its station; middle u+_VD against y+ at the station of the DNS's Re_theta
     (with the run's own u_tau), the DNS and the log law (the left panel against x, Re_theta on the right axis); right the rms of u, v (wall-normal), w (spanwise) and -<u'v'> over u_tau against y / delta."""
     import json  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
 
-    work = runs / "tbl" / "m2p5-wm"
+    work = runs / "tbl" / "m2p5-wm-l90"
     if not work.exists():
         raise FileNotFoundError(work)
     sys.path.insert(0, str(HERE / "turbulence"))
@@ -2442,21 +2443,19 @@ def fig_tbl_m2p5(out: Path, runs: Path) -> None:
     fig, axs = plt.subplots(1, 3, figsize=(14.0, 4.0), constrained_layout=True)
     re_t = np.array(j["re_theta"])
     cf = np.array([np.nan if c is None else c for c in j["cf"]])
-    w = 9
-    cfs = np.convolve(np.nan_to_num(cf), np.ones(w) / w, "same")
-    ok = np.isfinite(cf)
-    ok[: w // 2] = ok[-(w // 2) :] = False
+    cfm = np.array([np.nan if c is None else c for c in j["cf_mom"]])
     ax = axs[0]
     x = np.array(j["x"])
-    ax.plot(x[ok], cf[ok] * 1e3, color="0.75", lw=0.6, label="local")
-    ax.plot(x[ok], cfs[ok] * 1e3, color="C0", lw=1.4, label=f"running mean of {w} cells")
+    ok = np.isfinite(cfm)
+    ax.plot(x[ok], cfm[ok] * 1e3, color="0.7", lw=0.6, label=r"momentum integral $2\,d\theta/dx$")
+    ax.plot(x, cf * 1e3, color="C0", lw=1.4, label=r"wall model's $\tau_w$")
     ax.plot([x[ist]], [j["cf_dns"] * 1e3], "ks", label=f"DNS at its $Re_\\theta$ {j['re_dns']:.0f}")
     ax.axvspan(40.0, x[-1], color="0.9", zorder=0, label="past the recovery length")
     tw = ax.twinx()
     tw.plot(x, re_t, color="C1", lw=0.8)
     tw.set_ylabel(r"$Re_\theta$", color="C1")
     ax.set_xlabel(r"$x/\delta_i$")
-    ax.set_ylabel(r"$C_f\times10^3 = 2\,d\theta/dx$")
+    ax.set_ylabel(r"$C_f\times10^3$")
     ax.set_ylim(0.0, 6.0)
     ax = axs[1]
     ax.semilogx(j["yplus"], j["uvd"], "o-", color="C0", ms=3, label="wall-modelled LES")

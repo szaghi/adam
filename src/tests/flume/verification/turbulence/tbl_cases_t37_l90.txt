@@ -1,0 +1,5 @@
+# The Mach 2.5 layer of tbl_cases_t37.txt on a box 90 delta_i long (1080 x 72 x 72 cells, the same delta_i / 12): the DNS's Re_theta, reached at x ~ 55, now
+# lies ~35 delta_i before the outflow, and the wall model's tau_w and q_w are written every 20 steps in 1080 bins along x ([diagnostics] wall_history_save),
+# so C_f is measured directly. Two phases as there: to t = 180 (2 flow-throughs of this box), then the line edited to `--time-max 360 --it-save 400` and the
+# done marker removed, for the averages of the last 180 time units.
+m2p5-wm-l90 1080 72 72 --lx 90 --ly 6 --lz 6 --levels 2 --wm-eddy-viscosity --wall-history 20 --time-max 360 --it-save 400
