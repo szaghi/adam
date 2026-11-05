@@ -267,11 +267,45 @@ The inverse model's edge state is given ($u_e$, $T_e/T_w = 1.29$): the centrelin
 - **The coarse grid with resolved walls** still falls 20 % short: without a model the grid cannot carry the wall layer.
 - Only $\tau_w$ and the centreline are compared: no averaged profiles, and the DNS profiles are not in this tree.
 
+### Mach 3
+
+Coleman, Kim & Moser's second case: bulk Mach 3, bulk Re 4880, $Re_\tau$ about 450 for the DNS; the rest as above, the equilibrium model only, to
+$t = 200$, `channel_cases_t3_mach3.txt`. The wall density changes with the run at this Mach number, so each row takes its own: $\rho_w$ is the
+first-cell mean pressure of the last checkpoint over $T_w$, and $Re_\tau = 4880\sqrt{\tau_w\rho_w}$. $T_1/T_w$ is the first cell (Favre, both walls).
+$Q_w/W$ is the wall heat flux over the forcing work for $180<t\le200$, from the total-energy budget (`channel_wall_cells.py budget`; $Q_w$ is the
+residual): 1 at a thermal steady state.
+
+![The plane channel at Mach 3](/flume/channel-m3.png)
+
+*Left: $\tau_w$ against time (dotted: the laminar value). Middle and right: the first cell of the two $h=0.15$ runs on $128\times64\times64$ against
+time, from a checkpoint every 500 steps (`channel_cases_t3_mach3_drain.txt`, the same runs, bitwise).*
+
+| Case | Cells | $\tau_w$, $100<t\le150$ | $150<t\le200$ | $\rho_w$ | $Re_\tau$ | $u_c$, $T_c/T_w$ | $T_1/T_w$ | $Q_w/W$ |
+|---|---|---|---|---|---|---|---|---|
+| equilibrium, 3rd cell | $96\times48\times48$ | 1.77e-3 | 1.43e-3 | 1.65 | 264, 238: relaminarises | 1.43, 1.63 | 0.86 | 0.71 |
+| equilibrium, $h=0.15$, semi-local | $96\times48\times48$ | 1.89e-3 | 1.59e-3 | 1.54 | 263, 241: relaminarises | 1.50, 1.53 | 0.64 | 0.67 |
+| equilibrium, 3rd cell | $128\times64\times64$ | 4.29e-3 | 4.44e-3 | 2.12 | 465, 473 | 1.25, 2.22 | 1.03 | 0.87 |
+| equilibrium, 3rd cell, semi-local | $128\times64\times64$ | 3.20e-3 | 3.03e-3 | 2.02 | 392, 381 | 1.20, 2.04 | 1.28 | 0.85 |
+| equilibrium, $h=0.15$, semi-local | $128\times64\times64$ | 3.58e-3 | 3.46e-3 | 1.91 | 404, 397 | 1.28, 2.01 | 0.81 | 0.83 |
+| equilibrium, $h=0.15$ | $128\times64\times64$ | 6.46e-3 | 7.49e-3 | 2.12 | 571, 615: still rising | 1.48, 2.63 | 0.41 | 0.88 |
+
+**What it shows.**
+- **No run is at a thermal steady state at $t=200$**: the total energy still rises in every run ($Q_w/W$ 0.67–0.88), so these $Re_\tau$ are values
+  on the way, not means.
+- **The Mach 1.5 setting does not carry over**: $h=0.15$ with semi-local damping is 12 % below the DNS; the 3rd-cell sample is 5 % above. The coarse
+  grid relaminarises with either setting.
+- **The first cell is drained.** The wall face takes the modelled $\tau_w$ and $q_w$ from the sample at $h$; the first cell's own state never enters,
+  and nothing below $h$ carries those fluxes (no subgrid model): the molecular plus resolved stress at the face between cells 1 and 2 is 0.54
+  $\tau_w$ with semi-local damping and 0.21–0.39 with the classical one (after $t=30$). With $h=0.15$ and the classical damping the first cell falls to $0.26\,T_w$,
+  reverses its flow and holds 17 % of the mass at $t\approx80$; $\tau_w$ follows it, also down ($t$ 80–110) and up again: the run does not settle.
+  With semi-local damping the drain is slower and $\tau_w$ stays flat, but the first cell is still below $T_w$ from $t\approx125$. A first cell colder
+  than an isothermal wall that takes heat out of it is not a boundary layer: the treatment below $h$, not the model's law, is what fails here.
+
 ## Not done
 
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
-- T3: Mach 3 (Re 4880), a compressible boundary layer and SBLI (it needs a turbulent inflow); runtime regridding along a modelled wall; mean profiles
+- T3: Mach 3 to a thermal steady state, with a flux path below $h$ (the drain above); a compressible boundary layer and SBLI (it needs a turbulent inflow); runtime regridding along a modelled wall; mean profiles
   against the DNS; the relaminarisation of the inverse model on $96\times48\times48$ with $u_e = 1.18$; an edge state taken from the flow.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.

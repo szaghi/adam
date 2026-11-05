@@ -1,0 +1,9 @@
+# Coleman, Kim & Moser: bulk Mach 3, bulk Re 4880 (on the half height, the wall viscosity), isothermal walls; Re_tau about 450. Does the Mach 1.5
+# result of channel_cases_t35.txt (matching height 0.15 with semi-local damping in the DNS band on two grids) hold? The equilibrium model only
+# (the inverse model's g2 relaminarisation is parked); the hybrid scheme, 4 pi x 2 x 4/3 pi, to t = 200. h = 0.15 is about 68 wall units here.
+m3-wm-g2 96 48 48 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200
+m3-wm-g3 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200
+m3-wm-g2-h15-sl 96 48 48 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-damping semi-local
+m3-wm-g3-h15-sl 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-damping semi-local
+m3-wm-g3-h15 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15
+m3-wm-g3-sl 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-damping semi-local

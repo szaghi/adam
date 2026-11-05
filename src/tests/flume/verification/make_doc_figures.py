@@ -2317,6 +2317,55 @@ def fig_channel_wm(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_channel_m3(out: Path, runs: Path) -> None:
+    """T3 (issue #119): the plane channel at bulk Mach 3, Re 4880 (Coleman, Kim & Moser 1995), channel_cases_t3_mach3.txt. Left the wall shear stress
+    against time of the equilibrium model on two grids; right the first cell of the two h = 0.15 runs on 128 x 64 x 64 against time, from the checkpoints
+    of channel_cases_t3_mach3_drain.txt (the same runs, bitwise, with a checkpoint every 500 steps): T / T_w per wall (Favre plane means) and the share
+    of the mass in the two first-cell layers."""
+    root = runs / "channel"
+    if not (root / "m3-wm-g3-h15").exists():
+        raise FileNotFoundError(root / "m3-wm-g3-h15")
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import channel_wall_cells as cw  # noqa: PLC0415
+
+    g2, g3 = "$96\\times48\\times48$", "$128\\times64\\times64$"
+    cases = (("m3-wm-g2", f"3rd cell, {g2}"), ("m3-wm-g2-h15-sl", f"$h=0.15$ semi-local, {g2}"), ("m3-wm-g3", f"3rd cell, {g3}"),
+             ("m3-wm-g3-sl", f"3rd cell semi-local, {g3}"), ("m3-wm-g3-h15", f"$h=0.15$, {g3}"), ("m3-wm-g3-h15-sl", f"$h=0.15$ semi-local, {g3}"))
+    fig, axs = plt.subplots(1, 3, figsize=(14.0, 4.0), constrained_layout=True)
+    for name, label in cases:
+        f = cw.history(root / name / "channel-forcing_history.dat")
+        w = max(1, len(f) // 300)
+        sm = np.convolve(f[:, 2], np.ones(w) / w, "valid")
+        axs[0].plot(f[w // 2 : w // 2 + len(sm), 1][::w], sm[::w], label=label, lw=1.0)
+    axs[0].axhline(3.0 / 4880.0, color="k", ls=":", lw=0.8)
+    axs[0].set_ylabel(r"$\tau_w$")
+    axs[0].set_title("equilibrium model", fontsize=9)
+    tw = 1.0 / (1.4 * 9.0)
+    for (name, label), color in zip((("m3-wm-g3-h15", "$h=0.15$"), ("m3-wm-g3-h15-sl", "$h=0.15$ semi-local")), ("C4", "C5"), strict=True):
+        rows = []
+        for t, tag in cw.checkpoints(root / name):
+            lay, side, dy, _ = cw.layers(root / name, tag)
+            d1 = min(lay)
+            fav = [float((z[0] * z[3]).mean() / z[0].mean()) / tw for z in (side[(-1.0, d1)], side[(1.0, d1)])]
+            rows.append((t, *fav, float(lay[d1][0].mean()) * dy))
+        a = np.array(rows)
+        axs[1].plot(a[:, 0], a[:, 1], color=color, label=f"{label}, $y_{{min}}$")
+        axs[1].plot(a[:, 0], a[:, 2], color=color, ls="--", label=f"{label}, $y_{{max}}$")
+        axs[2].plot(a[:, 0], a[:, 3], color=color, label=label)
+    axs[1].axhline(1.0, color="k", lw=0.6)
+    axs[1].set_ylabel(r"first cell $\tilde T / T_w$")
+    axs[1].set_title(f"first cell, {g3}", fontsize=9)
+    axs[2].axhline(axs[2].get_lines()[0].get_ydata()[0], color="k", ls=":", lw=0.8)
+    axs[2].set_ylabel("first-cell share of the mass")
+    axs[2].set_title(f"first cell, {g3} (dotted: uniform)", fontsize=9)
+    for ax in axs:
+        ax.set_xlabel("t ($h / U_b$)")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.savefig(out / "channel-m3.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_barotropic_eos(out: Path, runs: Path) -> None:
     """EO barotropic (issue #100, P3): the piecewise polytrope (CPU). Top left: the eb1 tube on the convex table POLY
     (densities 2, 8; exponents 1, 1.4, 5/3) at t = 0.15, 1600 cells, against the exact solution (eos_oracle.py): the
@@ -3924,6 +3973,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
+           "channel-m3": fig_channel_m3,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,
