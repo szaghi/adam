@@ -40,7 +40,8 @@ public :: estimate_backend_memory_interface
 abstract interface
    subroutine estimate_backend_memory_interface(physics, file_parameters, extra_fields, reserved_memory)
    !< Estimate the backend allocations that `compute_fields_number` does not count, before the grid exists (issue #112):
-   !< `extra_fields`, block-sized fields of the backend only, joins `fields_number`; `reserved_memory` (GB per process),
+   !< `extra_fields`, the backend's correction to the block-sized fields (its own arrays, minus those of
+   !< `compute_fields_number` it does not allocate: may be negative), joins `fields_number`; `reserved_memory` (GB per process),
    !< the allocations that are not block-sized (particle arrays, whole-domain buffers), is taken off the memory of the
    !< blocks budget, so the block slots no longer take the memory those allocations need. A procedure pointer the
    !< backend sets before `initialize`, not a type-bound override: the backend calls the parent `initialize` through its
@@ -48,7 +49,7 @@ abstract interface
    import :: prism_physics_object, file_ini, I4P, R8P
    type(prism_physics_object), intent(in)    :: physics         !< Physics (initialized).
    type(file_ini),             intent(inout) :: file_parameters !< Simulation parameters ini file handler.
-   integer(I4P),               intent(out)   :: extra_fields    !< Block-sized backend fields per block.
+   integer(I4P),               intent(out)   :: extra_fields    !< Correction to the block-sized fields per block.
    real(R8P),                  intent(out)   :: reserved_memory !< Memory of the allocations not block-sized (GB).
    endsubroutine estimate_backend_memory_interface
 endinterface
@@ -363,7 +364,8 @@ contains
    !< the flux arrays of the scheme in use:
    !< the cell fluxes `flxyz_c` (9 nv) for FV and WENO, the face fluxes (3 nv, counted as full block fields) for FV only,
    !< none for centered FD (issue #112). Backend-only arrays are added by the backend estimate of `initialize`; face-local PML
-   !< storage is not block-sized and is not counted.
+   !< storage is not block-sized and is not counted. The FNL estimate also takes `curl` and `divergence` off the count:
+   !< there they are host arrays only, recomputed from `q` at the saves (issue #112 C).
    !< Requires `physics` and `numerics` initialized; loads the coils number (it needs no grid or field).
    class(prism_common_object), intent(inout) :: self            !< The equation.
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
@@ -405,7 +407,7 @@ contains
    real(R8P),                  intent(in), optional  :: L0             !< Adimensionalization parameter.
    logical                                           :: verbose_       !< Trigger verbose output, local variable.
    integer(I4P)                                      :: fields_number_ !< Block-sized fields per block, local variable.
-   integer(I4P)                                      :: extra_fields   !< Block-sized backend fields per block.
+   integer(I4P)                                      :: extra_fields   !< Correction to the block-sized fields per block.
    real(R8P)                                         :: reserved       !< Memory of the allocations not block-sized (GB).
    real(R8P)                                         :: memory_blocks  !< Memory left to the blocks budget (GB).
    real(R8P)                                         :: fraction       !< [amr].(memory_fraction) of the blocks budget.

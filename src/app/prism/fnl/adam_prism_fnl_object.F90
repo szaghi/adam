@@ -67,8 +67,9 @@ type, extends(prism_common_object) :: prism_fnl_object
    real(R8P), pointer :: flx_f_gpu(:,:,:,:,:)=>null()       !< Fluxes along x at cell face.
    real(R8P), pointer :: fly_f_gpu(:,:,:,:,:)=>null()       !< Fluxes along y at cell face.
    real(R8P), pointer :: flz_f_gpu(:,:,:,:,:)=>null()       !< Fluxes along z at cell face.
-   real(R8P), pointer :: curl_gpu(:,:,:,:,:)=>null()        !< Curl fields.
-   real(R8P), pointer :: divergence_gpu(:,:,:,:,:)=>null()  !< Divergence fields.
+   ! no device curl/divergence fields (issue #112 C): the step never computes them on the device, the saved ones are
+   ! recomputed on the host from q (compute_auxiliary_fields) and the divergence history is reduced from q_gpu
+   real(R8P), pointer :: j_vec_tv_gpu(:,:,:,:)=>null()     !< Cell total variation of the coil j_vec (AMR_TV marker only).
    ! host-device data, transposing buffers
    integer(I4P)           :: db5(2,5)              !< Device data bounds (rank 5): bb(1,:)=lower, bb(2,:)=upper.
    integer(I4P)           :: hb5(2,5)              !< Host buffer data bounds (rank 5): bb(1,:)=lower, bb(2,:)=upper.
@@ -365,13 +366,9 @@ contains
       call dev_free(self%flz_f_gpu, mydev)
       nullify(self%flz_f_gpu)
    endif
-   if (associated(self%curl_gpu)) then
-      call dev_free(self%curl_gpu, mydev)
-      nullify(self%curl_gpu)
-   endif
-   if (associated(self%divergence_gpu)) then
-      call dev_free(self%divergence_gpu, mydev)
-      nullify(self%divergence_gpu)
+   if (associated(self%j_vec_tv_gpu)) then
+      call dev_free(self%j_vec_tv_gpu, mydev)
+      nullify(self%j_vec_tv_gpu)
    endif
    if (associated(self%charge_conservation_acc_gpu)) then
       call dev_free(self%charge_conservation_acc_gpu, mydev)
@@ -395,7 +392,9 @@ contains
    !< the grid exists (issue #112), so that the blocks budget leaves it free. Set as prism_common_object%estimate_backend_memory
    !< before the common initialize.
    !<
-   !< `extra_fields`: the gather fields of the conserving current allocated on the block slots (`gq_gpu`, 6, coherent
+   !< `extra_fields`: the correction to the block fields of compute_fields_number on the device, which may be negative:
+   !< -2 nv for `curl` and `divergence`, host arrays only in FNL (issue #112 C), +1 for `j_vec_tv_gpu` with an AMR_TV
+   !< marker; plus the gather fields of the conserving current allocated on the block slots (`gq_gpu`, 6, coherent
    !< gather; `gather_gpu`, nv, with external fields). `reserved_memory`: the particle arrays, sized on the particle
    !< capacity of a rank, `[PIC].(particle_capacity_factor)` (`q_pic_gpu`, `pic_fields_gpu`, `neighbour_list_gpu`, the
    !< time scheme stages, the migration buffers, the conserving histories), and the virtual block of the conserving
@@ -405,11 +404,12 @@ contains
    !< runtime context are left to the `[amr].(memory_fraction)` headroom.
    type(prism_physics_object), intent(in) :: physics         !< Physics (initialized).
    type(file_ini),          intent(inout) :: file_parameters !< Simulation parameters ini file handler.
-   integer(I4P),            intent(out)   :: extra_fields    !< Block-sized backend fields per block.
+   integer(I4P),            intent(out)   :: extra_fields    !< Correction to the block-sized fields per block.
    real(R8P),               intent(out)   :: reserved_memory !< Memory of the allocations not block-sized (GB).
    type(grid_object)                      :: grid            !< Grid read from the input (domain and block cells only).
    type(prism_pic_object)                 :: pic             !< PIC read from the input.
    type(prism_external_fields_object)     :: external_fields !< External fields read from the input.
+   type(amr_object)                       :: amr             !< AMR markers read from the input.
    character(99)                          :: rk_scheme       !< Runge-Kutta scheme name.
    integer(I4P)                           :: nrk             !< Runge-Kutta stages.
    integer(I4P)                           :: ratio           !< AMR ratio.
@@ -427,9 +427,17 @@ contains
    real(R8P), parameter                   :: PARTICLE_FIELDS     = 6._R8P !< pic_fields_gpu.
    real(R8P), parameter                   :: PARTICLE_NEIGHBOURS = 4._R8P !< neighbour_list_gpu (4-byte integers).
 
-   extra_fields = 0_I4P
    reserved_memory = 0._R8P
-   if (.not.is_pic_model(physics%physical_model)) return
+   ! compute_fields_number counts curl and divergence (nv each) for both backends: FNL keeps them on the host only, and
+   ! allocates one field of cell total variation for the coil AMR marker (issue #112 C)
+   call amr%load_from_file(file_parameters=file_parameters)
+   extra_fields = -2_I4P*physics%nv
+   if (has_tv_marker(amr)) extra_fields = extra_fields + 1_I4P
+   if (.not.is_pic_model(physics%physical_model)) then
+      call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(extra_fields))// &
+                                  ' block fields with respect to compute_fields_number')
+      return
+   endif
    if (is_adim_model(physics%physical_model)) then
       call grid%initialize(file_parameters=file_parameters, L0=physics%L0)
    else
@@ -480,8 +488,20 @@ contains
    reserved_memory = reserved_memory/1e9_R8P
    call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(pic%particle_capacity, .true.))// &
                                ' particles (capacity) x '//trim(str(per_particle))//' B, total '//trim(str(reserved_memory))// &
-                               ' GB reserved, '//trim(str(extra_fields, .true.))//' extra block fields')
+                               ' GB reserved, '//trim(str(extra_fields))//' block fields with respect to '// &
+                               'compute_fields_number')
    endsubroutine estimate_backend_memory_fnl
+
+   pure function has_tv_marker(amr) result(has)
+   !< True if an AMR marker is the coil total variation (AMR_TV, mark_by_j_vec_total_variation), the only user of
+   !< `j_vec_tv_gpu`.
+   type(amr_object), intent(in) :: amr !< AMR markers.
+   logical                      :: has !< An AMR_TV marker is configured.
+
+   has = .false.
+   if (amr%markers_number <= 0_I4P .or. .not.allocated(amr%markers)) return
+   has = any(amr%markers(1:amr%markers_number)%mode == AMR_TV)
+   endfunction has_tv_marker
 
    subroutine allocate_gpu(self)
    !< Allocate GPU data.
@@ -517,12 +537,13 @@ contains
                      ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,1,0,1], init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flz_f_gpu in prism_fnl_object%allocate_gpu')
    endif
-   call dev_alloc(fptr_dev=self%curl_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate curl_gpu in prism_fnl_object%allocate_gpu')
-   call dev_alloc(fptr_dev=self%divergence_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate divergence_gpu in prism_fnl_object%allocate_gpu')
+   ! the cell total variation of the coil AMR marker, one field, only when that marker is configured; counted in the blocks
+   ! budget by estimate_backend_memory_fnl
+   if (has_tv_marker(self%amr)) then
+      call dev_alloc(fptr_dev=self%j_vec_tv_gpu, &
+                     ubounds=[nb,ni+ngc,nj+ngc,nk+ngc], lbounds=[1,1-ngc,1-ngc,1-ngc], init_value=0._R8P, ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate j_vec_tv_gpu in prism_fnl_object%allocate_gpu')
+   endif
    if (is_pic_model(self%physics%physical_model) .and. self%pic%charge_conservation_save > 0_I4P) then
       call dev_alloc(fptr_dev=self%charge_conservation_acc_gpu, &
                      ubounds=[nb,ni+ngc,nj+ngc,nk+ngc], lbounds=[1,1-ngc,1-ngc,1-ngc], init_value=0._R8P, ierr=ierr)
@@ -571,11 +592,7 @@ contains
    logical,                 intent(in), optional :: verbose !< Trigger verbose output.
 
    call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q_gpu         ,src=self%q         ,buf=self%buf_5D_R8P)
-   ! call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%curl_gpu      ,src=self%curl      ,buf=self%buf_5D_R8P)
-   ! call dev_memcpy_to_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%divergence_gpu,src=self%divergence,buf=self%buf_5D_R8P)
    ! call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
-   ! call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
-   ! call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
    if (is_pic_model(self%physics%physical_model)) &
       call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
                                      verbose=verbose)
@@ -598,11 +615,14 @@ contains
 
    call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%q         ,src=self%q_gpu         ,buf=self%buf_5D_R8P)
    call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%dq        ,src=self%dq_gpu        ,buf=self%buf_5D_R8P)
-   call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%curl      ,src=self%curl_gpu      ,buf=self%buf_5D_R8P)
-   call dev_memcpy_from_device(bb=self%db5,ij=[1,5],tb=self%hb5,dst=self%divergence,src=self%divergence_gpu,buf=self%buf_5D_R8P)
+   ! curl and divergence have no device copy (issue #112 C). The former device arrays were never written (but for the
+   ! coil marker's total variation, row 4), so their copy left zeros here, and compute_auxiliary_fields then recomputes
+   ! curl(1:9) and divergence(1:3) from q when they are saved. Zeroing the blocks held keeps the saved files as they were
+   ! (the host divergence is also a work buffer of the t0 elliptic solves, whose leftovers must not reach the output).
+   self%curl(:,:,:,:,1:self%blocks_number) = 0._R8P
+   self%divergence(:,:,:,:,1:self%blocks_number) = 0._R8P
+   if (associated(self%j_vec_tv_gpu)) call copy_j_vec_tv
    ! call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,ij=[1,5])
-   ! call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
-   ! call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
    if (is_pic_model(self%physics%physical_model)) &
       call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
                                      verbose=verbose)
@@ -613,6 +633,21 @@ contains
    else
       call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid)
    endif
+   contains
+      subroutine copy_j_vec_tv
+      !< The coil marker's cell total variation into the host divergence row 4 (`totvar`), as the former copy did.
+      real(R8P), allocatable :: tv(:,:,:,:) !< Host copy, device layout [nb,i,j,k].
+      integer(I4P)           :: b           !< Counter.
+
+      allocate(tv(lbound(self%j_vec_tv_gpu,1):ubound(self%j_vec_tv_gpu,1), &
+                  lbound(self%j_vec_tv_gpu,2):ubound(self%j_vec_tv_gpu,2), &
+                  lbound(self%j_vec_tv_gpu,3):ubound(self%j_vec_tv_gpu,3), &
+                  lbound(self%j_vec_tv_gpu,4):ubound(self%j_vec_tv_gpu,4)))
+      call dev_memcpy_from_device(dst=tv, src=self%j_vec_tv_gpu)
+      do b=1, self%blocks_number
+         self%divergence(4,:,:,:,b) = tv(b,:,:,:)
+      enddo
+      endsubroutine copy_j_vec_tv
    endsubroutine copy_gpu_cpu
 
    subroutine initialize_prism(self, filename, realms_number)
@@ -721,7 +756,8 @@ contains
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
-   call self%weno_fnl%initialize(weno=self%weno)
+   ! no weno_fnl%initialize (issue #112 C): FNL refuses scheme_space = weno, and the copy of weno%cell_scheme (3 integers
+   ! per cell and block slot) was device memory outside the blocks budget that nothing read
    call self%initialize_pml_fnl
    call self%allocate_gpu
    if (allocated(self%buf_6D_R8P)) then
@@ -1319,9 +1355,8 @@ contains
    !<    reads components (ivar, ivar+1, ivar+2). The only call site passes ivar=1, so the kernel below gathers
    !<    components 1..3 of j_vec directly rather than carrying an offset through nine stencil gathers. Restore
    !<    the parameter here if a caller ever needs a vector field that does not start at component 1.
-   !< 2. `tot_var_field` is stamped into divergence row 4, matching the host verbatim. Row 4 is NOT a spare
-   !<    slot: divergence is allocated (nv,...) and div_name(v) = q_name(v), so this overwrites the divergence
-   !<    row of state variable 4 for the rest of the step. That trade is the host's, inherited unchanged.
+   !< 2. `tot_var_field` is stamped into `j_vec_tv_gpu` (one field, allocated only with an AMR_TV marker, issue #112
+   !<    C), which copy_gpu_cpu copies into the host divergence row 4 (`totvar`), the row the host marker fills.
    !<
    !< `j_vec_gpu` ghosts are valid without any exchange: set_*_coil_* writes J_vec over the full ghosted extent
    !< (1-ngc:n+ngc) with explicit face-slab ghost reconstruction, and set_initial_conditions pushes it to device
@@ -1368,9 +1403,11 @@ contains
                                                       'prism_fnl_object%mark_by_j_vec_total_variation')
       ! Coil 1 only, replicating the host marker's `do c=1, 1!self%coil%total_coils_number`. Reducing over every
       ! coil here would silently diverge from the CPU backend; widening it is a deliberate change for both.
+      if (.not.associated(self%j_vec_tv_gpu)) call mpih_fnl%error_stop(msg=': j_vec_tv_gpu not allocated in '// &
+         'prism_fnl_object%mark_by_j_vec_total_variation: allocate_gpu allocates it only with an AMR_TV marker')
       call mark_by_j_vec_total_variation_kernel(ni=ni, nj=nj, nk=nk, blocks_number=blocks_number, s1=hs,       &
                                                 icoil=1_I4P, dxyz_gpu=dxyz_gpu, j_vec_gpu=self%coil_fnl%j_vec_gpu, &
-                                                divergence_gpu=self%divergence_gpu, tv_gpu=tv_gpu)
+                                                j_vec_tv_gpu=self%j_vec_tv_gpu, tv_gpu=tv_gpu)
       call dev_memcpy_from_device(src=tv_gpu, dst=tv)
       do b=1, blocks_number
          max_total_variation = tv(b)
@@ -1402,17 +1439,17 @@ contains
       endfunction max_cell_delta_tv
 
       subroutine mark_by_j_vec_total_variation_kernel(ni, nj, nk, blocks_number, s1, icoil, dxyz_gpu, j_vec_gpu, &
-                                                      divergence_gpu, tv_gpu)
-      !< Reduce the per-block max total variation of j_vec on device, and stamp the TV field into the
-      !< `totvar` divergence row (index 4), which the host marker fills via its `tot_var_field` argument
-      !< and which io saves as a named output field.
+                                                      j_vec_tv_gpu, tv_gpu)
+      !< Reduce the per-block max total variation of j_vec on device, and stamp the TV field into `j_vec_tv_gpu`, which
+      !< copy_gpu_cpu brings to the host `totvar` divergence row (index 4), the row the host marker fills via its
+      !< `tot_var_field` argument and which io saves as a named output field.
       integer(I4P), intent(in)    :: ni, nj, nk              !< Grid sizes.
       integer(I4P), intent(in)    :: blocks_number           !< Blocks number.
       integer(I4P), intent(in)    :: s1                      !< FDV half stencil length.
       integer(I4P), intent(in)    :: icoil                   !< Coil index to reduce.
       real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)         !< Delta cells GPU [nb,3].
       real(R8P),    intent(in)    :: j_vec_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:,1:) !< Coil current versors.
-      real(R8P),    intent(inout) :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence fields.
+      real(R8P),    intent(inout) :: j_vec_tv_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:) !< Cell total variation.
       real(R8P),    intent(inout) :: tv_gpu(1:)              !< Per-block total variation.
       integer(I4P)                :: i,j,k,b,s               !< Counters.
       real(R8P)                   :: qs1x(1-s1:1+s1)         !< X stencil of j_vec component 1.
@@ -1428,10 +1465,10 @@ contains
       real(R8P)                   :: dxyz_b(3)               !< Per-block deltas, PRIVATE copy (issue #26 G1.b).
       real(R8P)                   :: tv                      !< Total variation buffer.
 
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,j_vec_gpu,divergence_gpu,tv_gpu) &
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,j_vec_gpu,j_vec_tv_gpu,tv_gpu) &
       !$acc& firstprivate(ni,nj,nk,blocks_number,icoil,s1)                                                        &
       !$acc& private(qs1x,qs1y,qs1z,qs2x,qs2y,qs2z,qs3x,qs3y,qs3z,gradient,dxyz_b,tv)
-      !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,j_vec_gpu,divergence_gpu,tv_gpu) &
+      !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,j_vec_gpu,j_vec_tv_gpu,tv_gpu) &
       !$omp& firstprivate(ni,nj,nk,blocks_number,icoil,s1) &
       !$omp& private(qs1x,qs1y,qs1z,qs2x,qs2y,qs2z,qs3x,qs3y,qs3z,gradient,dxyz_b,tv)
       do k=1,nk
@@ -1457,7 +1494,7 @@ contains
          tv = sqrt(gradient(1,1)*gradient(1,1) + gradient(2,1)*gradient(2,1) + gradient(3,1)*gradient(3,1) + &
                    gradient(1,2)*gradient(1,2) + gradient(2,2)*gradient(2,2) + gradient(3,2)*gradient(3,2) + &
                    gradient(1,3)*gradient(1,3) + gradient(2,3)*gradient(2,3) + gradient(3,3)*gradient(3,3))
-         divergence_gpu(b,i,j,k,4) = tv
+         j_vec_tv_gpu(b,i,j,k) = tv
          !$acc atomic update
          !$omp atomic update
          tv_gpu(b) = max(tv_gpu(b), tv)
