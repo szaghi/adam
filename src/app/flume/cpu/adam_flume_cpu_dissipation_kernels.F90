@@ -211,6 +211,8 @@ contains
       do k=1-dk, nk
          do j=1-dj, nj
             do i=1-di, ni
+               ! no eddy viscosity in the stencil: a zero flux, skipped (the wall model's alone, a masked model; #119)
+               if (mu_t(i,j,k,b) == 0._R8P .and. mu_t(i+di,j+dj,k+dk,b) == 0._R8P) cycle
                rdx = inverse_steps(dxyz(:,b), is_null)
                c = [i+di, j+dj, k+dk]
                w0 = q_aux(IW,i,j,k,b)
@@ -269,6 +271,9 @@ contains
       do k=1-dk, nk
          do j=1-dj, nj
             do i=1-di, ni
+               ! no eddy viscosity in the stencil: a zero flux, skipped (the wall model's alone, a masked model; #119)
+               if (mu_t(i-di,j-dj,k-dk,b) == 0._R8P .and. mu_t(i,j,k,b) == 0._R8P .and. mu_t(i+di,j+dj,k+dk,b) == 0._R8P .and. &
+                   mu_t(i+2*di,j+2*dj,k+2*dk,b) == 0._R8P) cycle
                rdx = inverse_steps(dxyz(:,b), is_null)
                do m=-1, 2
                   wm(:,m) = q_aux(IW,i+m*di,j+m*dj,k+m*dk,b)

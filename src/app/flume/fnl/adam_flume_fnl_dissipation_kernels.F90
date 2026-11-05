@@ -268,41 +268,44 @@ contains
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
-      rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
-      !$acc loop seq
-      do a=1, 4
-         wl(a) = q_aux_gpu(b,i,j,k,iw(a))
-         wr(a) = q_aux_gpu(b,i+di,j+dj,k+dk,iw(a))
-      enddo
-      !$acc loop seq
-      do t=1, 3
-         ot(1) = 0_I4P ; ot(2) = 0_I4P ; ot(3) = 0_I4P
-         if (t == 1) ot(1) = s1
-         if (t == 2) ot(2) = s2
-         if (t == 3) ot(3) = s3
+      ! no eddy viscosity in the stencil: a zero flux, skipped (the wall model's alone, a masked model; #119)
+      if (mu_t_gpu(b,i,j,k,1) /= 0._R8P .or. mu_t_gpu(b,i+di,j+dj,k+dk,1) /= 0._R8P) then
+         rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
          !$acc loop seq
          do a=1, 4
-            if (t == d) then
-               g(a,t) = (wr(a) - wl(a)) * rdx(t)
-            else
-               g(a,t) = 0.25_R8P * rdx(t) * (q_aux_gpu(b,i+ot(1),j+ot(2),k+ot(3),iw(a))          - &
-                                             q_aux_gpu(b,i-ot(1),j-ot(2),k-ot(3),iw(a))          + &
-                                             q_aux_gpu(b,i+di+ot(1),j+dj+ot(2),k+dk+ot(3),iw(a)) - &
-                                             q_aux_gpu(b,i+di-ot(1),j+dj-ot(2),k+dk-ot(3),iw(a)))
-            endif
+            wl(a) = q_aux_gpu(b,i,j,k,iw(a))
+            wr(a) = q_aux_gpu(b,i+di,j+dj,k+dk,iw(a))
          enddo
-      enddo
-      !$acc loop seq
-      do a=1, 4
-         wf(a) = 0.5_R8P * (wl(a) + wr(a))
-      enddo
-      mf = 0.5_R8P * (mu_t_gpu(b,i,j,k,1) + mu_t_gpu(b,i+di,j+dj,k+dk,1))
-      call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
-                                    w=wf, g=g, f=h)
-      !$acc loop seq
-      do a=1, 4
-         fl_gpu(b,i,j,k,IQ_RU+a-1) = fl_gpu(b,i,j,k,IQ_RU+a-1) + h(a)
-      enddo
+         !$acc loop seq
+         do t=1, 3
+            ot(1) = 0_I4P ; ot(2) = 0_I4P ; ot(3) = 0_I4P
+            if (t == 1) ot(1) = s1
+            if (t == 2) ot(2) = s2
+            if (t == 3) ot(3) = s3
+            !$acc loop seq
+            do a=1, 4
+               if (t == d) then
+                  g(a,t) = (wr(a) - wl(a)) * rdx(t)
+               else
+                  g(a,t) = 0.25_R8P * rdx(t) * (q_aux_gpu(b,i+ot(1),j+ot(2),k+ot(3),iw(a))          - &
+                                                q_aux_gpu(b,i-ot(1),j-ot(2),k-ot(3),iw(a))          + &
+                                                q_aux_gpu(b,i+di+ot(1),j+dj+ot(2),k+dk+ot(3),iw(a)) - &
+                                                q_aux_gpu(b,i+di-ot(1),j+dj-ot(2),k+dk-ot(3),iw(a)))
+               endif
+            enddo
+         enddo
+         !$acc loop seq
+         do a=1, 4
+            wf(a) = 0.5_R8P * (wl(a) + wr(a))
+         enddo
+         mf = 0.5_R8P * (mu_t_gpu(b,i,j,k,1) + mu_t_gpu(b,i+di,j+dj,k+dk,1))
+         call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+                                       w=wf, g=g, f=h)
+         !$acc loop seq
+         do a=1, 4
+            fl_gpu(b,i,j,k,IQ_RU+a-1) = fl_gpu(b,i,j,k,IQ_RU+a-1) + h(a)
+         enddo
+      endif
    enddo
    enddo
    enddo
@@ -351,86 +354,90 @@ contains
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
-      rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
-      !$acc loop seq
-      do m=-1, 2
+      ! no eddy viscosity in the stencil: a zero flux, skipped (the wall model's alone, a masked model; #119)
+      if (mu_t_gpu(b,i-di,j-dj,k-dk,1) /= 0._R8P .or. mu_t_gpu(b,i,j,k,1) /= 0._R8P .or. &
+          mu_t_gpu(b,i+di,j+dj,k+dk,1) /= 0._R8P .or. mu_t_gpu(b,i+2*di,j+2*dj,k+2*dk,1) /= 0._R8P) then
+         rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
          !$acc loop seq
-         do a=1, 4
-            wm(a,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,iw(a))
+         do m=-1, 2
+            !$acc loop seq
+            do a=1, 4
+               wm(a,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,iw(a))
+            enddo
          enddo
-      enddo
-      ! face flux from 4th-order face values and gradients
-      !$acc loop seq
-      do t=1, 3
-         ot(1) = 0_I4P ; ot(2) = 0_I4P ; ot(3) = 0_I4P
-         if (t == 1) ot(1) = s1
-         if (t == 2) ot(2) = s2
-         if (t == 3) ot(3) = s3
-         if (t == d) then
-            !$acc loop seq
-            do a=1, 4
-               g(a,t) = (27._R8P * (wm(a,1) - wm(a,0)) - (wm(a,2) - wm(a,-1))) * rdx(t) / 24._R8P
-            enddo
-         else
-            !$acc loop seq
-            do m=-1, 2
-               c(1) = i + m * di ; c(2) = j + m * dj ; c(3) = k + m * dk
-               !$acc loop seq
-               do a=1, 4
-                  dm(a,m) = (8._R8P * (q_aux_gpu(b,c(1)+ot(1),c(2)+ot(2),c(3)+ot(3),iw(a))        -  &
-                                       q_aux_gpu(b,c(1)-ot(1),c(2)-ot(2),c(3)-ot(3),iw(a)))       -  &
-                             (q_aux_gpu(b,c(1)+2*ot(1),c(2)+2*ot(2),c(3)+2*ot(3),iw(a))           -  &
-                              q_aux_gpu(b,c(1)-2*ot(1),c(2)-2*ot(2),c(3)-2*ot(3),iw(a)))) * rdx(t) / 12._R8P
-               enddo
-            enddo
-            !$acc loop seq
-            do a=1, 4
-               g(a,t) = (9._R8P * (dm(a,0) + dm(a,1)) - (dm(a,-1) + dm(a,2))) / 16._R8P
-            enddo
-         endif
-      enddo
-      !$acc loop seq
-      do a=1, 4
-         wf(a) = (9._R8P * (wm(a,0) + wm(a,1)) - (wm(a,-1) + wm(a,2))) / 16._R8P
-      enddo
-      ! as on the CPU: a non-positive face temperature (undershoot across a jump) takes the mean of its two cells
-      if (.not.(wf(4) > 0._R8P)) wf(4) = 0.5_R8P * (wm(4,0) + wm(4,1))
-      mf = 0.5_R8P * (mu_t_gpu(b,i,j,k,1) + mu_t_gpu(b,i+di,j+dj,k+dk,1))
-      call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
-                                    w=wf, g=g, f=h)
-      ! Shu-Osher correction from the cell fluxes, 2nd-order central gradients
-      !$acc loop seq
-      do m=-1, 2
-         c(1) = i + m * di ; c(2) = j + m * dj ; c(3) = k + m * dk
+         ! face flux from 4th-order face values and gradients
          !$acc loop seq
          do t=1, 3
             ot(1) = 0_I4P ; ot(2) = 0_I4P ; ot(3) = 0_I4P
             if (t == 1) ot(1) = s1
             if (t == 2) ot(2) = s2
             if (t == 3) ot(3) = s3
+            if (t == d) then
+               !$acc loop seq
+               do a=1, 4
+                  g(a,t) = (27._R8P * (wm(a,1) - wm(a,0)) - (wm(a,2) - wm(a,-1))) * rdx(t) / 24._R8P
+               enddo
+            else
+               !$acc loop seq
+               do m=-1, 2
+                  c(1) = i + m * di ; c(2) = j + m * dj ; c(3) = k + m * dk
+                  !$acc loop seq
+                  do a=1, 4
+                     dm(a,m) = (8._R8P * (q_aux_gpu(b,c(1)+ot(1),c(2)+ot(2),c(3)+ot(3),iw(a))        -  &
+                                          q_aux_gpu(b,c(1)-ot(1),c(2)-ot(2),c(3)-ot(3),iw(a)))       -  &
+                                (q_aux_gpu(b,c(1)+2*ot(1),c(2)+2*ot(2),c(3)+2*ot(3),iw(a))           -  &
+                                 q_aux_gpu(b,c(1)-2*ot(1),c(2)-2*ot(2),c(3)-2*ot(3),iw(a)))) * rdx(t) / 12._R8P
+                  enddo
+               enddo
+               !$acc loop seq
+               do a=1, 4
+                  g(a,t) = (9._R8P * (dm(a,0) + dm(a,1)) - (dm(a,-1) + dm(a,2))) / 16._R8P
+               enddo
+            endif
+         enddo
+         !$acc loop seq
+         do a=1, 4
+            wf(a) = (9._R8P * (wm(a,0) + wm(a,1)) - (wm(a,-1) + wm(a,2))) / 16._R8P
+         enddo
+         ! as on the CPU: a non-positive face temperature (undershoot across a jump) takes the mean of its two cells
+         if (.not.(wf(4) > 0._R8P)) wf(4) = 0.5_R8P * (wm(4,0) + wm(4,1))
+         mf = 0.5_R8P * (mu_t_gpu(b,i,j,k,1) + mu_t_gpu(b,i+di,j+dj,k+dk,1))
+         call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+                                       w=wf, g=g, f=h)
+         ! Shu-Osher correction from the cell fluxes, 2nd-order central gradients
+         !$acc loop seq
+         do m=-1, 2
+            c(1) = i + m * di ; c(2) = j + m * dj ; c(3) = k + m * dk
+            !$acc loop seq
+            do t=1, 3
+               ot(1) = 0_I4P ; ot(2) = 0_I4P ; ot(3) = 0_I4P
+               if (t == 1) ot(1) = s1
+               if (t == 2) ot(2) = s2
+               if (t == 3) ot(3) = s3
+               !$acc loop seq
+               do a=1, 4
+                  g(a,t) = 0.5_R8P * rdx(t) * (q_aux_gpu(b,c(1)+ot(1),c(2)+ot(2),c(3)+ot(3),iw(a)) - &
+                                               q_aux_gpu(b,c(1)-ot(1),c(2)-ot(2),c(3)-ot(3),iw(a)))
+               enddo
+            enddo
             !$acc loop seq
             do a=1, 4
-               g(a,t) = 0.5_R8P * rdx(t) * (q_aux_gpu(b,c(1)+ot(1),c(2)+ot(2),c(3)+ot(3),iw(a)) - &
-                                            q_aux_gpu(b,c(1)-ot(1),c(2)-ot(2),c(3)-ot(3),iw(a)))
+               wf(a) = wm(a,m)
+            enddo
+            mf = mu_t_gpu(b,c(1),c(2),c(3),1)
+            call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+                                          w=wf, g=g, f=hc)
+            !$acc loop seq
+            do a=1, 4
+               gm(a,m) = hc(a)
             enddo
          enddo
          !$acc loop seq
          do a=1, 4
-            wf(a) = wm(a,m)
+            h(a) = h(a) - (gm(a,2) - gm(a,1) - gm(a,0) + gm(a,-1)) / 48._R8P
+            fl_gpu(b,i,j,k,IQ_RU+a-1) = fl_gpu(b,i,j,k,IQ_RU+a-1) + h(a)
          enddo
-         mf = mu_t_gpu(b,c(1),c(2),c(3),1)
-         call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
-                                       w=wf, g=g, f=hc)
-         !$acc loop seq
-         do a=1, 4
-            gm(a,m) = hc(a)
-         enddo
-      enddo
-      !$acc loop seq
-      do a=1, 4
-         h(a) = h(a) - (gm(a,2) - gm(a,1) - gm(a,0) + gm(a,-1)) / 48._R8P
-         fl_gpu(b,i,j,k,IQ_RU+a-1) = fl_gpu(b,i,j,k,IQ_RU+a-1) + h(a)
-      enddo
+      endif
    enddo
    enddo
    enddo
