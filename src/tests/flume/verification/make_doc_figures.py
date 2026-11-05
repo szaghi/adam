@@ -2366,6 +2366,58 @@ def fig_channel_m3(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_channel_m3_ev(out: Path, runs: Path) -> None:
+    """T3 (issue #119): the plane channel at bulk Mach 3 with the wall model's eddy viscosity below h (wall_model_eddy_viscosity), 128 x 64 x 64,
+    channel_cases_t3_mach3_ev.txt to t = 200 then channel_cases_t3_mach3_ev800.txt to t = 800. Left Re_tau against time, with the wall density of
+    each checkpoint (first-cell mean pressure over T_w) interpolated in time; middle the first-cell T / T_w (Favre, both walls); right the wall heat
+    flux over the forcing work in 50-unit windows, from the total-energy budget of channel_wall_cells.py (1 at a thermal steady state)."""
+    root = runs / "channel"
+    if not (root / "m3-wm-g3-ev").exists():
+        raise FileNotFoundError(root / "m3-wm-g3-ev")
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import channel_wall_cells as cw  # noqa: PLC0415
+
+    tw = 1.0 / (1.4 * 9.0)
+    cases = (("m3-wm-g3-h15-sl-ev", "$h=0.15$, semi-local"), ("m3-wm-g3-ev", "3rd cell, classical"), ("m3-wm-g3-h15-ev", "$h=0.15$, classical"))
+    fig, axs = plt.subplots(1, 3, figsize=(14.0, 4.0), constrained_layout=True)
+    for (name, label), color in zip(cases, ("C0", "C1", "C2"), strict=True):
+        work = root / name
+        f, c = cw.history(work / "channel-forcing_history.dat"), cw.history(work / "channel-conservation_history.dat")
+        rows, ratio = [], 1.0
+        for t, tag in cw.checkpoints(work):
+            lay, _, _, _ = cw.layers(work, tag)
+            r1, _, _, t1 = lay[min(lay)]
+            rows.append((t, float((r1 * t1).mean()) / tw, float((r1 * t1).mean() / r1.mean()) / tw))
+            ratio = sum(float(u.sum()) for _, u, _, _ in lay.values()) / sum(float((r * u).sum()) for r, u, _, _ in lay.values())
+        a = np.array(rows)
+        w = max(1, len(f) // 400)
+        sm = np.convolve(f[:, 2], np.ones(w) / w, "valid")
+        ts = f[w // 2 : w // 2 + len(sm), 1]
+        axs[0].plot(ts[::w], 4880.0 * np.sqrt(sm[::w] * np.interp(ts[::w], a[:, 0], a[:, 1])), color=color, lw=1.0, label=label)
+        axs[1].plot(a[:, 0], a[:, 2], color=color, label=label)
+        work_rate = np.interp(c[:, 1], f[:, 1], f[:, 2]) * c[:, 3] * ratio  # int(u dV) from int(rho u dV), the ratio of the last checkpoint
+        win = []
+        for lo in range(0, int(c[-1, 1] + 1e-9), 50):
+            m = (c[:, 1] > lo) & (c[:, 1] <= lo + 50.0)
+            if m.sum() > 3:
+                wr = float(work_rate[m].mean())
+                win.append((lo + 25.0, (wr - np.polyfit(c[m, 1], c[m, 6], 1)[0]) / wr))
+        b = np.array(win)
+        axs[2].plot(b[:, 0], b[:, 1], "o-", color=color, ms=3, label=label)
+    axs[0].axhline(451.0, color="k", ls="--", lw=0.8, label="DNS")
+    axs[0].set_ylabel(r"$Re_\tau = Re\sqrt{\tau_w \rho_w}$")
+    axs[1].axhline(1.0, color="k", lw=0.6)
+    axs[1].set_ylabel(r"first cell $\tilde T / T_w$")
+    axs[2].axhline(1.0, color="k", lw=0.6)
+    axs[2].set_ylabel(r"$Q_w / W$, 50-unit windows")
+    for ax in axs:
+        ax.set_xlabel("t ($h / U_b$)")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.savefig(out / "channel-m3-ev.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_barotropic_eos(out: Path, runs: Path) -> None:
     """EO barotropic (issue #100, P3): the piecewise polytrope (CPU). Top left: the eb1 tube on the convex table POLY
     (densities 2, 8; exponents 1, 1.4, 5/3) at t = 0.15, 1600 cells, against the exact solution (eos_oracle.py): the
@@ -3973,7 +4025,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
-           "channel-m3": fig_channel_m3,
+           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

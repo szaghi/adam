@@ -269,6 +269,12 @@ The inverse model's edge state is given ($u_e$, $T_e/T_w = 1.29$): the centrelin
 
 ### Mach 3
 
+**Result first:** with the wall model's eddy viscosity below $h$ (`wall_model_eddy_viscosity`, below) and run to a thermal steady state at $t=800$,
+$h=0.15$ with semi-local damping gives $Re_\tau = 443$–$445$ against about 451 for the DNS; the classical damping overshoots by 13–21 %. The runs
+without it, to $t=200$ only, come first: they show why the key is needed, and their $Re_\tau$ are transient values, not means.
+
+#### Without a flux path below $h$, to $t = 200$
+
 Coleman, Kim & Moser's second case: bulk Mach 3, bulk Re 4880, $Re_\tau$ about 450 for the DNS; the rest as above, the equilibrium model only, to
 $t = 200$, `channel_cases_t3_mach3.txt`. The wall density changes with the run at this Mach number, so each row takes its own: $\rho_w$ is the
 first-cell mean pressure of the last checkpoint over $T_w$, and $Re_\tau = 4880\sqrt{\tau_w\rho_w}$. $T_1/T_w$ is the first cell (Favre, both walls).
@@ -301,11 +307,39 @@ time, from a checkpoint every 500 steps (`channel_cases_t3_mach3_drain.txt`, the
   With semi-local damping the drain is slower and $\tau_w$ stays flat, but the first cell is still below $T_w$ from $t\approx125$. A first cell colder
   than an isothermal wall that takes heat out of it is not a boundary layer: the treatment below $h$, not the model's law, is what fails here.
 
+#### With the eddy viscosity below $h$, to $t = 800$
+
+The face key `wall_model_eddy_viscosity = .true.` sets $\mu_t = \max(\mu_{t,\mathrm{SGS}},\ \kappa y\sqrt{\rho\tau_w}\,D^2)$ in the cells whose centre is below
+$h$ ([numerics](../../numerics.md)): the flux path that the drain above lacked. The three runs on $128\times64\times64$ are the inputs above plus the key, to
+$t=200$ (`channel_cases_t3_mach3_ev.txt`), then continued from the restart to $t=800$ (`channel_cases_t3_mach3_ev800.txt`). $\rho_w$ and $T_1/T_w$ are
+taken at the last checkpoint as above; $Q_w/W$ over $700<t\le800$.
+
+![The plane channel at Mach 3 with the eddy viscosity below h](/flume/channel-m3-ev.png)
+
+*Left: $Re_\tau$ against time, with the wall density of each checkpoint (dashed: the DNS). Middle: the first cell. Right: the wall heat flux over the
+forcing work in 50-unit windows, 1 at a thermal steady state.*
+
+| Case | $\tau_w$, $600<t\le700$ | $700<t\le800$ | $\rho_w$ | $Re_\tau$ | $u_c$, $T_c/T_w$ | $T_1/T_w$ | $Q_w/W$ |
+|---|---|---|---|---|---|---|---|
+| equilibrium, $h=0.15$, semi-local | 3.52e-3 | 3.48e-3 | 2.36 | **445, 443** | 1.17, 2.44 | 1.79 | 0.99 |
+| equilibrium, 3rd cell | 4.51e-3 | 4.35e-3 | 2.51 | 519, 510 | 1.21, 2.65 | 1.57 | 0.99 |
+| equilibrium, $h=0.15$ | 5.17e-3 | 5.15e-3 | 2.44 | 548, 547 | 1.21, 2.53 | 1.84 | 1.00 |
+
+**What it shows.**
+- **The drain is gone.** The first cell is $1.6$–$1.8\,T_w$ at every time after the transient, the two walls agree within 2 %, and the two first-cell
+  layers hold 4–5 % of the mass (3.1 % if uniform), against 16 % at $0.41\,T_w$ without the key.
+- **The runs are thermally steady at $t=800$**: $Q_w/W$ is 0.99–1.00 and $dE/dt$ about 60 times smaller than at $t=200$.
+- **$h=0.15$ with semi-local damping matches the DNS within 2 %.** With the classical damping $Re_\tau$ is 13 % (3rd cell) and 21 % ($h=0.15$) above.
+- **$Re_\tau$ needs the thermal steady state at this Mach number.** The bulk heats until $t\approx600$, $\rho_w$ rises from about 2.1 to 2.4–2.5, and
+  $Re_\tau$ rises with it: at $t=200$ the 3rd-cell run gave 438, 448, which looked like a match.
+- **Cost:** from the same $t=800$ state of the semi-local run to $t=810$ (medooza, 4 A30), the key on takes 1.69 times the wall time of the key off:
+  1.28 times the steps (the eddy viscosity enters the viscous time-step limit) and 1.32 times the time per step.
+
 ## Not done
 
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
-- T3: Mach 3 to a thermal steady state, with a flux path below $h$ (the drain above); a compressible boundary layer and SBLI (it needs a turbulent inflow); runtime regridding along a modelled wall; mean profiles
+- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; a compressible boundary layer and SBLI (it needs a turbulent inflow); runtime regridding along a modelled wall; mean profiles
   against the DNS; the relaminarisation of the inverse model on $96\times48\times48$ with $u_e = 1.18$; an edge state taken from the flow.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.
