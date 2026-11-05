@@ -76,6 +76,11 @@
 #        derived from gamma and R on both paths; before, the layer's gamma gave cp = gamma cv one ulp off the input cp, read by k and the subgrid heat
 #        flux). NV-9 (scaling.py compare --output): with output_units = dimensional every field and history is the base one times its power of two, the
 #        forcing history's f as rho u^2 / L, the turbulence history's K as rho u^2 L^3, Z as rho u^2 L, the dissipations and pd as rho u^3 L^2.
+#   wm11 the wall model's eddy viscosity below the matching height (wall_model_eddy_viscosity, the Mach 3 first-cell drain): on a perturbed channel at
+#        Re 1000, h = 0.3 (h+ about 15): (a) it acts, the force differs from the run without it by more than 1e-3; (b) the same cells in 2 or 4 blocks per
+#        direction agree within channel_oracle agree's bounds: mu_t is set on 2 ghost columns along the wall from the ghost cells, and a ghost column that
+#        disagreed with the neighbour's interior would make the two blocks' face fluxes differ (measured: with the ghost columns left out the leg fails,
+#        2.4e-6 against 1e-9); (c) one rank against N; (d) (b) with Vreman too (the larger of the two eddy viscosities).
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -91,7 +96,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -459,9 +464,24 @@ if has_leg wm10; then
    "$VENV_PY" "$VERIF_DIR/scaling/scaling.py" compare "$base" "$dim" --ngc 3 --psi glm --output --temperature-rtol 2e-15 --j 2 --k -1 --m -2 \
       && echo "NV-9 dimensional output  PASS" || { echo "NV-9 dimensional output  FAIL" ; exit 1 ; }
 fi
+if has_leg wm11; then
+   echo "== wm11: the wall model's eddy viscosity below h"
+   E=(--nx 32 --ny 32 --nz 32 --wall wall-modelled --wm-height 0.3 --reynolds 1000 --perturbation 0.1 --it-max 10)
+   a=$(channel_run wm11-on "$NP" "${E[@]}" --wm-eddy-viscosity)
+   b=$(channel_run wm11-off "$NP" "${E[@]}")
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" differ --tol 1e-3 "$a" "$b"
+   b=$(channel_run wm11-l1 "$NP" "${E[@]}" --wm-eddy-viscosity --levels 1)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+   a=$(channel_run wm11-np1 1 "${E[@]}" --wm-eddy-viscosity)
+   b=$(channel_run wm11-npN "$NP" "${E[@]}" --wm-eddy-viscosity)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+   a=$(channel_run wm11-vr-l2 "$NP" "${E[@]}" --wm-eddy-viscosity --sgs-model vreman)
+   b=$(channel_run wm11-vr-l1 "$NP" "${E[@]}" --wm-eddy-viscosity --sgs-model vreman --levels 1)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
-   for c in wm4-npN wm7-npN wm8-npN; do # the channel legs run here: CPU against GPU on the same input
+   for c in wm4-npN wm7-npN wm8-npN wm11-npN; do # the channel legs run here: CPU against GPU on the same input
       [[ -d "$CASE_DIR/work-$AGREE-$c" && -d "$CASE_DIR/work-$TAG-$c" ]] && "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$CASE_DIR/work-$TAG-$c" "$CASE_DIR/work-$AGREE-$c"
    done
    "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-tt2-npN" "$CASE_DIR/work-$AGREE-tt2-npN"

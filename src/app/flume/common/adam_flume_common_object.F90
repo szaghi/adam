@@ -118,6 +118,7 @@ type, extends(realm_object) :: flume_common_object
    real(R8P),         allocatable :: wm_avg_y(:,:,:,:,:) !< The same on the y faces [5, ni, 2, nk, nb].
    real(R8P),         allocatable :: wm_avg_z(:,:,:,:,:) !< The same on the z faces [5, ni, nj, 2, nb].
    logical                        :: has_wm_filter=.false. !< Some modelled face filters its samples (`wall_model_filter` > 0).
+   logical                        :: has_wm_viscosity=.false. !< Some modelled face puts its eddy viscosity below the matching height.
    logical                        :: wm_filter_fresh=.true. !< The averages hold no history (start, regrid, a checkpoint without them): the next commit takes the sample.
    integer(I4P)                   :: wm_filter_it=-1_I4P !< The iteration whose sample the averages hold.
    integer(I4P),      allocatable :: hybrid_faces(:,:)   !< Hybrid scheme: block faces it must not read across [nb, 6].
@@ -1097,6 +1098,9 @@ contains
    character(99)                             :: rk_scheme       !< Runge-Kutta scheme name.
    integer(I4P)                              :: stages_number   !< Runge-Kutta stage fields.
    integer(I4P)                              :: error           !< Error status.
+   logical                                   :: ev, has_ev      !< A face's wall-model eddy viscosity, any face's.
+   integer(I4P)                              :: f               !< Face counter.
+   character(len=8), parameter               :: BC_SECTIONS(6)=['bc_x_min', 'bc_x_max', 'bc_y_min', 'bc_y_max', 'bc_z_min', 'bc_z_max'] !< Face sections.
 
    call file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load [runge_kutta].(scheme)')
@@ -1108,7 +1112,13 @@ contains
    fields_number = fields_number + 1_I4P
    if (self%physics%gravity%is_balanced) fields_number = fields_number + self%physics%nv
    if (self%physics%gravity%has_potential) fields_number = fields_number + 1_I4P
-   if (self%turbulence%is_active) fields_number = fields_number + 1_I4P ! the eddy viscosity (issue #119, T1)
+   ! the eddy viscosity (issue #119, T1), also for the wall model's own below h alone (read here: the boundary conditions are loaded later)
+   has_ev = .false.
+   do f=1, 6
+      call file_parameters%get(section_name=BC_SECTIONS(f), option_name='wall_model_eddy_viscosity', val=ev, error=error)
+      if (error == 0) has_ev = has_ev .or. ev
+   enddo
+   if (self%turbulence%is_active .or. has_ev) fields_number = fields_number + 1_I4P
    if (self%numerics%is_hybrid) fields_number = fields_number + self%physics%nv ! the sensor, q-shaped for the ghost exchange (#119, T2)
    endsubroutine compute_fields_number
 
@@ -1220,6 +1230,8 @@ contains
    endif
    ! the input filter (#119): the host averages, sized by the block capacity; a placeholder of one element without a filter (the kernels take them anyway)
    self%has_wm_filter = self%has_wall_model .and. any(self%bc%wall_modelled .and. self%bc%wm_filter > 0._R8P)
+   ! the model's eddy viscosity below h (#119): mu_t on the cells and 2 ghost layers, as a subgrid-scale model's, through the same flux kernels
+   self%has_wm_viscosity = self%has_wall_model .and. any(self%bc%wall_modelled .and. self%bc%wm_viscosity)
    if (allocated(self%wm_avg_x)) deallocate(self%wm_avg_x, self%wm_avg_y, self%wm_avg_z)
    if (self%has_wm_filter) then
       allocate(self%wm_avg_x(5,2,self%nj,self%nk,self%nb), source=0._R8P)

@@ -578,6 +578,7 @@ All six sections are required, even along null directions.
 | `wall_model_height` with `wall-modelled` | real | no (0) | `>= 0` | Matching height, a length; 0 samples the 3rd cell. Otherwise interpolated between the cells around it, within the block (beyond it, its last cell). The literature matches at 0.1–0.3 of the boundary-layer thickness with at least 3 cells below ([numerics](./numerics#wall-model)). |
 | `wall_model_damping` with `wall-modelled` | string | no (`classical`) | `classical`, `semi-local`; other → fatal; given with `wall_model = inverse-transformation` → fatal | Van Driest damping of the equilibrium model in wall units, or with the local density and viscosity. |
 | `wall_model_filter` with `wall-modelled` | real | no (0) | `>= 0` | Time scale $T_f$ of an exponential filter of the sampled velocity, pressure and density, updated once per step with weight $\min(\Delta t/T_f, 1)$; 0 for none ([numerics](./numerics#wall-model)). |
+| `wall_model_eddy_viscosity` with `wall-modelled` | logical | no (`.false.`) | | The model's eddy viscosity in the cells below the matching height, so the resolved layer carries the modelled stress and heat flux to the face ([numerics](./numerics#wall-model)). |
 | `wall_model_edge_velocity`, `wall_model_edge_temperature` | real | with `wall_model = inverse-transformation` | `> 0`, otherwise fatal | Speed and temperature at the edge of the layer (the free stream; the centreline of a channel), constants of the run. |
 
 What each `type` does:

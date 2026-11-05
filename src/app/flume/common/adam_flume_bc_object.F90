@@ -26,6 +26,10 @@ module adam_flume_bc_object
 !< `wall_model_damping` classical (wall units) or semi-local (local density and viscosity), the samples averaged in time over `wall_model_filter`
 !< (an exponential filter, 0 for none). `wall_model = inverse-transformation` (T3.5) takes the model of Griffin, Fu & Moin (2023) instead of the equilibrium
 !< one, with the state at the edge of the layer `wall_model_edge_velocity`, `wall_model_edge_temperature`. Euler with a viscosity only.
+!< `wall_model_eddy_viscosity = .true.` (default `.false.`) adds in the cells below the matching height the model's own eddy viscosity,
+!< `kappa y sqrt(rho tau_w) D^2` from the instantaneous (unfiltered) sample's `tau_w`, the damping of the face (semi-local for the inverse model), the cell's
+!< density and viscosity, the larger of it and a subgrid-scale model's: the resolved layer then carries the modelled stress and heat flux to the face. Without
+!< it nothing below `h` does (issue #119, the Mach 3 first-cell drain).
 !<
 !< **Hydrostatic** (issue #73, M7-G0). `hydrostatic` closes a stratified atmosphere under the constant gravity of
 !< `[gravity]`: the ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior
@@ -98,6 +102,7 @@ type :: flume_bc_object
    real(R8P)              :: wm_height(6)=0._R8P        !< Wall model: matching height per face, 0 for the 3rd cell.
    logical                :: wm_semilocal(6)=.false.    !< Wall model: semi-local damping per face.
    real(R8P)              :: wm_filter(6)=0._R8P        !< Wall model: time scale of the input filter per face, 0 for none.
+   logical                :: wm_viscosity(6)=.false.    !< Wall model: its eddy viscosity in the cells below the matching height per face.
    logical                :: wm_inverse(6)=.false.      !< Wall model: the inverse-transformation model (Griffin et al. 2023) per face, else the equilibrium one.
    real(R8P)              :: wm_edge_u(6)=0._R8P        !< Inverse model: speed at the edge of the layer per face.
    real(R8P)              :: wm_edge_t(6)=0._R8P        !< Inverse model: temperature at the edge of the layer per face.
@@ -239,6 +244,8 @@ contains
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_filter', val=self%wm_filter(f), error=error)
          if (error /= 0) self%wm_filter(f) = 0._R8P
          if (self%wm_filter(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_filter) must be >= 0')
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_eddy_viscosity', val=self%wm_viscosity(f), error=error)
+         if (error /= 0) self%wm_viscosity(f) = .false.
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID
       case(BC_WALL_NOSLIP_STR, BC_WALL_ISOTHERMAL_STR)

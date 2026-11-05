@@ -16,6 +16,7 @@ use :: penf, only : I4P, R8P
 implicit none
 private
 public :: sample_cells
+public :: wall_eddy_viscosity
 public :: wall_model_solve
 public :: wall_model_solve_inverse
 public :: inverse_strain
@@ -32,6 +33,27 @@ integer(I4P), parameter :: WM_SHOTS=8_I4P       !< Shots of the inverse model, s
 integer(I4P), parameter :: WM_SUBITERATIONS=2_I4P !< Corrections of each step of the inverse model.
 
 contains
+   pure function wall_eddy_viscosity(y, rho, mu, tau, rhow, muw, semilocal) result(mt)
+   !< The eddy viscosity of the layer, `kappa y sqrt(rho tau_w) D^2`, `D = 1 - exp(-y+ / A+)` with `y+ = y sqrt(tau_w rho_w) / mu_w` (wall units) or, `semilocal`,
+   !< `y* = y sqrt(rho tau_w) / mu` (local density and viscosity): the `mu_t` of `wall_model_solve`, at the height `y` of a cell below the matching height with that
+   !< cell's density and viscosity (issue #119, `wall_model_eddy_viscosity`).
+   real(R8P), intent(in) :: y, rho, mu   !< Height, density and viscosity of the cell.
+   real(R8P), intent(in) :: tau          !< Wall shear stress.
+   real(R8P), intent(in) :: rhow, muw    !< Density and viscosity at the wall.
+   logical,   intent(in) :: semilocal    !< Semi-local damping.
+   real(R8P)             :: mt           !< Eddy viscosity.
+   real(R8P)             :: damp         !< Damping.
+   !$acc routine seq
+   !$omp declare target
+
+   if (semilocal) then
+      damp = 1._R8P - exp(-y * sqrt(rho * tau) / (mu * WM_APLUS))
+   else
+      damp = 1._R8P - exp(-y * sqrt(tau * rhow) / (muw * WM_APLUS))
+   endif
+   mt = WM_KAPPA * y * sqrt(rho * tau) * damp * damp
+   endfunction wall_eddy_viscosity
+
    pure subroutine sample_cells(hwm, dx, n, m, w, h)
    !< The cells of a wall-model sample: from the matching height `hwm` (0: the 3rd cell), the cell m counted from the wall and the weight w of cell
    !< m + 1, both within the `n` cells of the block, and the height of the sample actually taken.

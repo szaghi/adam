@@ -6,12 +6,14 @@ module adam_flume_fnl_forcing_kernels
 !< ADAM, FLUME FNL kernels of the mass-flow forcing (issue #119, T3.1).
 
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve, wall_model_solve_inverse
+use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse
 use :: penf,                  only : I4P, R8P
 
 implicit none
 private
 public :: add_uniform_momentum_dev
+public :: add_wall_mu_t_dev
+public :: zero_mu_t_dev
 public :: overwrite_wall_fluxes_dev
 public :: close_wall_fluxes_dev
 public :: sum_momentum_dev
@@ -174,6 +176,125 @@ contains
       enddo
    enddo
    endsubroutine overwrite_wall_fluxes_dev
+   subroutine zero_mu_t_dev(ni, nj, nk, ngc, blocks_number, mu_t_gpu)
+   !< Zero the eddy viscosity, ghost cells included: the wall model's eddy viscosity without a subgrid-scale model raises a zero field (issue #119).
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                      !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                        !< Actual blocks number.
+   real(R8P),    intent(inout) :: mu_t_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Eddy viscosity, [nb, i, j, k, 1].
+   integer(I4P)                :: b, i, j, k                           !< Counters.
+
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(mu_t_gpu) firstprivate(ni,nj,nk,ngc,blocks_number)
+   !$omp OMPLOOP collapse(4) DEVICEPTR(mu_t_gpu) firstprivate(ni,nj,nk,ngc,blocks_number)
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do b=1, blocks_number
+      mu_t_gpu(b,i,j,k,1) = 0._R8P
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine zero_mu_t_dev
+
+   subroutine add_wall_mu_t_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces_gpu, ev, tw, hwm, sl, inv, ue, te, &
+                                is_null, dxyz_gpu, q_aux_gpu, mu_t_gpu)
+   !< Device twin of `add_wall_mu_t` (issue #119, `wall_model_eddy_viscosity`).
+   integer(I4P), intent(in)    :: d                                     !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                            !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                       !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                         !< Actual blocks number.
+   real(R8P),    intent(in)    :: gamma, R, pr                          !< Specific heats ratio, gas constant, Prandtl number.
+   real(R8P),    intent(in)    :: mu0, tref, omega_mu                   !< Viscosity law.
+   integer(I4P), intent(in)    :: faces_gpu(1:,1:)                      !< Modelled block faces [nb, 6].
+   logical,      intent(in)    :: ev(6)                                 !< The eddy viscosity per face.
+   real(R8P),    intent(in)    :: tw(6)                                 !< Wall temperature per face.
+   real(R8P),    intent(in)    :: hwm(6)                                !< Matching height per face, 0 for the 3rd cell.
+   logical,      intent(in)    :: sl(6)                                 !< Semi-local damping per face.
+   logical,      intent(in)    :: inv(6)                                !< The inverse-transformation model per face.
+   real(R8P),    intent(in)    :: ue(6), te(6)                          !< Inverse model: edge speed and temperature per face.
+   logical,      intent(in)    :: is_null(3)                            !< Null directions.
+   real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                       !< Blocks space steps [nb, 3].
+   real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: mu_t_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Eddy viscosity, [nb, i, j, k, 1].
+   real(R8P)                   :: u1, u2, u3, us, ts, ps, rs, tau, q, cp, h, w, rhow, muw, rho, mu, mt, dx !< Work.
+   real(R8P)                   :: twf, hwf, uef, tef                    !< Wall temperature, matching height, edge speed and temperature of the face.
+   logical                     :: slf, ivf, dlf                         !< Semi-local damping, inverse model, the damping of the eddy viscosity of the face.
+   integer(I4P)                :: n, side, f, b, i, j, k, l, m, mc, c, o1, o2, oc, gi, gj, gk, ng, i0, i1, j0, j1, k0, k1 !< Counters.
+
+   n = ni * di + nj * dj + nk * dk
+   cp = gamma * (R / (gamma - 1._R8P))
+   gi = merge(0_I4P, 2_I4P, di == 1_I4P .or. is_null(1))
+   gj = merge(0_I4P, 2_I4P, dj == 1_I4P .or. is_null(2))
+   gk = merge(0_I4P, 2_I4P, dk == 1_I4P .or. is_null(3))
+   do side=1, 2
+      f = 2_I4P * d - 2_I4P + side
+      if (.not.ev(f)) cycle
+      l = merge(0_I4P, n, side == 1)
+      twf = tw(f) ; hwf = hwm(f) ; slf = sl(f) ; ivf = inv(f) ; uef = ue(f) ; tef = te(f) ; dlf = sl(f) .or. inv(f)
+      i0 = merge(l, 1_I4P - gi, di == 1_I4P) ; i1 = merge(l, ni + gi, di == 1_I4P)
+      j0 = merge(l, 1_I4P - gj, dj == 1_I4P) ; j1 = merge(l, nj + gj, dj == 1_I4P)
+      k0 = merge(l, 1_I4P - gk, dk == 1_I4P) ; k1 = merge(l, nk + gk, dk == 1_I4P)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,dxyz_gpu,q_aux_gpu,mu_t_gpu)                                          &
+      !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,f,n,side,twf,hwf,slf,ivf,uef,tef,dlf,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)       &
+      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,w,rhow,muw,rho,mu,mt,dx,m,mc,c,o1,o2,oc,ng)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,dxyz_gpu,q_aux_gpu,mu_t_gpu)                                                                    &
+      !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,f,n,side,twf,hwf,slf,ivf,uef,tef,dlf,R,cp,pr,mu0,tref,omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)       &
+      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,w,rhow,muw,rho,mu,mt,dx,m,mc,c,o1,o2,oc,ng)
+      do k=k0, k1
+      do j=j0, j1
+      do i=i0, i1
+      do b=1, blocks_number
+         ng = 0_I4P
+         if (di == 0_I4P .and. (i < 1_I4P .or. i > ni)) ng = ng + 1_I4P
+         if (dj == 0_I4P .and. (j < 1_I4P .or. j > nj)) ng = ng + 1_I4P
+         if (dk == 0_I4P .and. (k < 1_I4P .or. k > nk)) ng = ng + 1_I4P
+         if (faces_gpu(b,f) /= 0_I4P .and. ng <= 1_I4P) then
+            dx = dxyz_gpu(b,d)
+            call sample_cells(hwm=hwf, dx=dx, n=n, m=m, w=w, h=h)
+            o1 = merge(m, 1_I4P - m, side == 1) ; o2 = merge(m + 1_I4P, -m, side == 1)
+            u1 = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_U)
+            u2 = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_V)
+            u3 = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_W)
+            ps = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_P)
+            rs = q_aux_gpu(b,i+di*o1,j+dj*o1,k+dk*o1,IA_R)
+            if (w > 0._R8P) then
+               u1 = u1 + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_U) - u1)
+               u2 = u2 + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_V) - u2)
+               u3 = u3 + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_W) - u3)
+               ps = ps + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_P) - ps)
+               rs = rs + w * (q_aux_gpu(b,i+di*o2,j+dj*o2,k+dk*o2,IA_R) - rs)
+            endif
+            u1 = u1 * (1._R8P - real(di, R8P)) ; u2 = u2 * (1._R8P - real(dj, R8P)) ; u3 = u3 * (1._R8P - real(dk, R8P))
+            us = sqrt(u1 * u1 + u2 * u2 + u3 * u3)
+            tau = 0._R8P
+            if (us > 0._R8P) then
+               ts = ps / (R * rs)
+               if (ivf) then
+                  call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=twf, ue=uef, te=tef, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q)
+               else
+                  call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=twf, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, semilocal=slf)
+               endif
+            endif
+            if (tau > 0._R8P) then
+               rhow = ps / (R * twf)
+               muw = mu0 * (twf / tref)**omega_mu
+               mc = m - merge(1_I4P, 0_I4P, w == 0._R8P)
+               do c=1, mc
+                  oc = merge(c, 1_I4P - c, side == 1)
+                  rho = q_aux_gpu(b,i+di*oc,j+dj*oc,k+dk*oc,IA_R)
+                  mu = mu0 * (q_aux_gpu(b,i+di*oc,j+dj*oc,k+dk*oc,IA_P) / (R * rho) / tref)**omega_mu
+                  mt = wall_eddy_viscosity(y=(real(c, R8P) - 0.5_R8P) * dx, rho=rho, mu=mu, tau=tau, rhow=rhow, muw=muw, semilocal=dlf)
+                  mu_t_gpu(b,i+di*oc,j+dj*oc,k+dk*oc,1) = max(mu_t_gpu(b,i+di*oc,j+dj*oc,k+dk*oc,1), mt)
+               enddo
+            endif
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+   enddo
+   endsubroutine add_wall_mu_t_dev
+
    subroutine close_wall_fluxes_dev(d, di, dj, dk, ni, nj, nk, nv, blocks_number, faces_gpu, fl_gpu)
    !< Zero every flux of direction `d` through the flagged block faces of that direction but the normal momentum (issue #119, the #65 mass leak).
    integer(I4P), intent(in)    :: d                               !< Direction, 1=x, 2=y, 3=z.

@@ -682,6 +682,16 @@ carries them (`<restart_basename>-proc<rank>.wmf`, each block's averages after i
 the run bit for bit (leg wm9); a checkpoint without the file, written before it existed, restarts them with a warning. Leg wm7: near the steady state of a laminar channel, $T_f=0.05$ moves the force by $3\cdot10^{-4}$ (the lag
 $T_f\,|df/dt|/f$), and over an early transient $T_f=1$ by $1.4\cdot10^{-2}$.
 
+**Eddy viscosity below $h$** (`wall_model_eddy_viscosity = .true.`). The face takes $\tau_w$ and $q_w$ from the sample; nothing in the cells
+between the wall and $h$ carries them there unless a subgrid model does. At Mach 3 the first cell then drains: colder than the wall, dense,
+its flow reversed (the [channel at Mach 3](./verification/turbulence/#mach-3)). With the key, the cells whose centre lies below $h$ take the model's
+own eddy viscosity, $\mu_t=\kappa y\sqrt{\rho\tau_w}\,D^2$, $D = 1-e^{-y^+/A^+}$ with the damping of the face (semi-local for the inverse model), $y$ the
+cell centre, $\rho$ and $\mu$ the cell's, $\tau_w$ from the instantaneous sample (never the filtered one); the larger of it and a subgrid model's,
+after the hybrid mask. It goes through the subgrid flux kernels ($k_t=\mu_t c_p/Pr_t$) and the subgrid time-step limit. In a log layer
+$\mu_t\,dU/dy=\tau_w$, so the resolved layer carries the modelled stress. The columns of the two ghost layers along the wall are computed from
+their ghost cells, so the two blocks of a face agree on its flux (leg wm11: the same cells in 2 or 4 blocks per direction agree to round-off;
+with those columns left out they differ by $2\cdot10^{-6}$). Without the key nothing changes, bit for bit.
+
 Limits: isothermal walls only; the inverse model takes a fixed edge state; a restart needs the same ranks (as every FLUME checkpoint); the wall faces
 are rebuilt each step, so after a regrid, but no test regrids along a wall.
 

@@ -518,7 +518,7 @@ contains
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
       case('wall_model_height')
          kind = KIND_SCALED ; dim = DIM_LENGTH
-      case('wall_model_damping', 'wall_model')
+      case('wall_model_damping', 'wall_model', 'wall_model_eddy_viscosity')
          kind = KIND_NONE
       case('wall_model_edge_velocity')
          kind = KIND_SCALED ; dim = DIM_VELOCITY

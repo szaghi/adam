@@ -4,12 +4,13 @@ module adam_flume_cpu_forcing_kernels
 !< ADAM, FLUME CPU kernels of the mass-flow forcing (issue #119, T3.1).
 
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve, wall_model_solve_inverse
+use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse
 use :: penf,                  only : I4P, R8P
 
 implicit none
 private
 public :: add_uniform_momentum
+public :: add_wall_mu_t
 public :: overwrite_wall_fluxes
 public :: close_wall_fluxes
 public :: sum_momentum
@@ -146,6 +147,94 @@ contains
       !$omp end parallel do
    enddo
    endsubroutine overwrite_wall_fluxes
+   subroutine add_wall_mu_t(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces, ev, tw, hwm, sl, inv, ue, te, &
+                            is_null, dxyz, q_aux, mu_t)
+   !< Raise `mu_t` to the wall model's eddy viscosity in the cells below the matching height of the modelled faces of direction `d` that ask for it
+   !< (`wall_model_eddy_viscosity`, issue #119): `wall_eddy_viscosity` with the `tau_w` of the instantaneous sample (never the filtered one, which the ghost
+   !< columns do not hold), the damping of the face (semi-local for the inverse model), the cell's density and viscosity. The columns of the 2 ghost layers
+   !< along each active tangential direction are computed as well, from their ghost cells: the same inputs as the neighbour's interior column, so the same
+   !< value, and the face fluxes of the two blocks agree (the edge columns, which no flux reads, are skipped).
+   integer(I4P), intent(in)    :: d                                 !< Direction, 1=x, 2=y, 3=z.
+   integer(I4P), intent(in)    :: di, dj, dk                        !< Unit step along `d`.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
+   integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
+   real(R8P),    intent(in)    :: gamma, R, pr                      !< Specific heats ratio, gas constant, Prandtl number.
+   real(R8P),    intent(in)    :: mu0, tref, omega_mu               !< Viscosity law.
+   integer(I4P), intent(in)    :: faces(1:,1:)                      !< Modelled block faces [nb, 6].
+   logical,      intent(in)    :: ev(6)                             !< The eddy viscosity per face.
+   real(R8P),    intent(in)    :: tw(6)                             !< Wall temperature per face.
+   real(R8P),    intent(in)    :: hwm(6)                            !< Matching height per face, 0 for the 3rd cell.
+   logical,      intent(in)    :: sl(6)                             !< Semi-local damping per face.
+   logical,      intent(in)    :: inv(6)                            !< The inverse-transformation model per face.
+   real(R8P),    intent(in)    :: ue(6), te(6)                      !< Inverse model: edge speed and temperature per face.
+   logical,      intent(in)    :: is_null(3)                        !< Null directions.
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Blocks space steps.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: mu_t(1-ngc:,1-ngc:,1-ngc:,1:)     !< Eddy viscosity.
+   real(R8P)                   :: u(3), us, ts, ps, rs, tau, q, cp, h, w, rhow, muw, rho, mu, mt !< Work.
+   integer(I4P)                :: n, side, f, b, i, j, k, l, m, mc, c, o1, o2, oc, gi, gj, gk, ng !< Counters.
+
+   n = ni * di + nj * dj + nk * dk
+   cp = gamma * (R / (gamma - 1._R8P))
+   gi = merge(0_I4P, 2_I4P, di == 1_I4P .or. is_null(1))
+   gj = merge(0_I4P, 2_I4P, dj == 1_I4P .or. is_null(2))
+   gk = merge(0_I4P, 2_I4P, dk == 1_I4P .or. is_null(3))
+   do side=1, 2
+      f = 2_I4P * d - 2_I4P + side
+      if (.not.ev(f)) cycle
+      l = merge(0_I4P, n, side == 1)
+      !$omp parallel do collapse(4) default(firstprivate) shared(faces, dxyz, q_aux, mu_t)
+      do b=1, blocks_number
+         do k=merge(l, 1_I4P - gk, dk == 1_I4P), merge(l, nk + gk, dk == 1_I4P)
+            do j=merge(l, 1_I4P - gj, dj == 1_I4P), merge(l, nj + gj, dj == 1_I4P)
+               do i=merge(l, 1_I4P - gi, di == 1_I4P), merge(l, ni + gi, di == 1_I4P)
+                  if (faces(b,f) == 0_I4P) cycle
+                  ng = 0_I4P
+                  if (di == 0_I4P .and. (i < 1_I4P .or. i > ni)) ng = ng + 1_I4P
+                  if (dj == 0_I4P .and. (j < 1_I4P .or. j > nj)) ng = ng + 1_I4P
+                  if (dk == 0_I4P .and. (k < 1_I4P .or. k > nk)) ng = ng + 1_I4P
+                  if (ng > 1_I4P) cycle
+                  ! the sample, as overwrite_wall_fluxes takes it (without the filter)
+                  call sample_cells(hwm=hwm(f), dx=dxyz(d,b), n=n, m=m, w=w, h=h)
+                  o1 = merge(m, 1_I4P - m, side == 1) ; o2 = merge(m + 1_I4P, -m, side == 1)
+                  u = q_aux(IA_U:IA_W,i+di*o1,j+dj*o1,k+dk*o1,b)
+                  ps = q_aux(IA_P,i+di*o1,j+dj*o1,k+dk*o1,b)
+                  rs = q_aux(IA_R,i+di*o1,j+dj*o1,k+dk*o1,b)
+                  if (w > 0._R8P) then
+                     u = u + w * (q_aux(IA_U:IA_W,i+di*o2,j+dj*o2,k+dk*o2,b) - u)
+                     ps = ps + w * (q_aux(IA_P,i+di*o2,j+dj*o2,k+dk*o2,b) - ps)
+                     rs = rs + w * (q_aux(IA_R,i+di*o2,j+dj*o2,k+dk*o2,b) - rs)
+                  endif
+                  u(d) = 0._R8P
+                  us = sqrt(dot_product(u, u))
+                  if (.not.(us > 0._R8P)) cycle
+                  ts = ps / (R * rs)
+                  if (inv(f)) then
+                     call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=tw(f), ue=ue(f), te=te(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, &
+                                                   tau=tau, q=q)
+                  else
+                     call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=tw(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
+                  endif
+                  if (.not.(tau > 0._R8P)) cycle
+                  rhow = ps / (R * tw(f))
+                  muw = mu0 * (tw(f) / tref)**omega_mu
+                  ! the cells strictly below h: 1 .. m, without m when the sample is its centre (w = 0)
+                  mc = m - merge(1_I4P, 0_I4P, w == 0._R8P)
+                  do c=1, mc
+                     oc = merge(c, 1_I4P - c, side == 1)
+                     rho = q_aux(IA_R,i+di*oc,j+dj*oc,k+dk*oc,b)
+                     mu = mu0 * (q_aux(IA_P,i+di*oc,j+dj*oc,k+dk*oc,b) / (R * rho) / tref)**omega_mu
+                     mt = wall_eddy_viscosity(y=(real(c, R8P) - 0.5_R8P) * dxyz(d,b), rho=rho, mu=mu, tau=tau, rhow=rhow, muw=muw, semilocal=sl(f) .or. inv(f))
+                     mu_t(i+di*oc,j+dj*oc,k+dk*oc,b) = max(mu_t(i+di*oc,j+dj*oc,k+dk*oc,b), mt)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   enddo
+   endsubroutine add_wall_mu_t
+
    subroutine close_wall_fluxes(d, di, dj, dk, ni, nj, nk, nv, blocks_number, faces, fl)
    !< Zero every flux of direction `d` through the flagged block faces of that direction but the normal momentum (issue #119, the #65 mass leak).
    integer(I4P), intent(in)    :: d                           !< Direction, 1=x, 2=y, 3=z.

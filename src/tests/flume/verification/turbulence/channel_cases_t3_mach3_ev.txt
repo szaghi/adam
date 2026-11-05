@@ -1,0 +1,6 @@
+# The Mach 3 drain of channel_cases_t3_mach3_drain.txt with the wall model's eddy viscosity below the matching height (wall_model_eddy_viscosity):
+# the same inputs plus the key, a checkpoint every 500 steps for channel_wall_cells.py. If the first cell stops draining and the h = 0.15 classical run
+# settles, the drain was what drove its tau_w. The 3rd-cell run last (its cells below h: two).
+m3-wm-g3-h15-ev 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-eddy-viscosity --it-save 500
+m3-wm-g3-h15-sl-ev 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-height 0.15 --wm-damping semi-local --wm-eddy-viscosity --it-save 500
+m3-wm-g3-ev 128 64 64 3.0 4880 --wall wall-modelled --scheme-space hybrid-kep-weno --perturbation 0.2 --time-max 200 --wm-eddy-viscosity --it-save 500

@@ -19,7 +19,8 @@ use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_BX, IQ_PSI, IQ_R,
 use :: adam_maps_object,          only : CADENCE_END_OF_STEP, face_axis_sign
 use :: adam_parameters,           only : BC_SEAM, FEC_TO_DELTA
 use :: adam_realm_object,         only : realm_object, realm_pointer
-use :: adam_flume_fnl_forcing_kernels, only : close_wall_fluxes_dev, overwrite_wall_fluxes_dev, add_uniform_momentum_dev, sum_momentum_dev
+use :: adam_flume_fnl_forcing_kernels, only : add_wall_mu_t_dev, close_wall_fluxes_dev, overwrite_wall_fluxes_dev, add_uniform_momentum_dev, sum_momentum_dev, &
+                                              zero_mu_t_dev
 use :: adam_flume_fnl_hybrid_kernels, only : compute_hybrid_sensor_dev, mask_mu_t_dev, overwrite_central_fluxes_dev
 use :: adam_fnl_turbulence_kernels, only : compute_mu_t_sigma_dev, compute_mu_t_vreman_dev, compute_mu_t_wale_dev
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
@@ -747,8 +748,9 @@ contains
       endselect
    enddo
    endassociate
-   ! issue #119, T1: the fluxes are linear in mu and k, so the subgrid-scale ones add to the molecular ones, in kernels of their own
-   if (self%turbulence%is_active) then
+   ! issue #119, T1: the fluxes are linear in mu and k, so the subgrid-scale ones add to the molecular ones, in kernels of their own; the wall model's
+   ! eddy viscosity below h takes the same path
+   if (self%turbulence%is_active .or. self%has_wm_viscosity) then
       call self%compute_mu_t
       select case(self%numerics%dissipative_order)
       case(2_I4P)
@@ -870,7 +872,7 @@ contains
                      init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate psi_gpu in flume_fnl_object%allocate_gpu')
    endif
-   if (self%turbulence%is_active) then
+   if (self%turbulence%is_active .or. self%has_wm_viscosity) then
       call dev_alloc(fptr_dev=self%mu_t_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,1], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                      init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mu_t_gpu in flume_fnl_object%allocate_gpu')
@@ -1228,7 +1230,13 @@ contains
    !< Compute the eddy viscosity from the auxiliary variables, ghost cells included in them (issue #119, T1): the kernel of the
    !< model is selected here, never inside the loops.
    class(flume_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: d    !< Direction counter.
+   integer(I4P)                           :: e(3) !< Unit step along `d`.
+   real(R8P)                              :: tref, omega_mu, omega_k !< Viscosity and conductivity laws.
 
+   if (.not.self%turbulence%is_active) then ! the wall model's eddy viscosity alone (#119): it raises a zero field
+      call zero_mu_t_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, mu_t_gpu=self%mu_t_gpu)
+   else
    select case(self%turbulence%model)
    case(SGS_VREMAN_MODEL)
       call compute_mu_t_vreman_dev(ir=IA_R, iu=IA_U, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
@@ -1253,6 +1261,21 @@ contains
       call mask_mu_t_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                          threshold=self%numerics%hybrid_threshold, is_null=self%adam%grid%null_xyz, psi_gpu=self%psi_gpu, mu_t_gpu=self%mu_t_gpu)
    endif
+   endif
+   ! issue #119: the wall model's eddy viscosity below h, after the hybrid mask (a drained wall cell is often flagged, and it is the one that needs it)
+   if (self%has_wm_viscosity) then
+      call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+      do d=1, 3
+         if (self%adam%grid%null_xyz(d)) cycle
+         e = 0_I4P ; e(d) = 1_I4P
+         call add_wall_mu_t_dev(d=d, di=e(1), dj=e(2), dk=e(3), ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                                gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=self%physics%dissipation%mu, &
+                                tref=tref, omega_mu=omega_mu, faces_gpu=self%wm_faces_gpu,                                                          &
+                                ev=self%bc%wm_viscosity .and. self%bc%wall_modelled, tw=self%bc%wall_temperature, hwm=self%bc%wm_height,            &
+                                sl=self%bc%wm_semilocal, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t,                       &
+                                is_null=self%adam%grid%null_xyz, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, mu_t_gpu=self%mu_t_gpu)
+      enddo
+   endif
    endsubroutine compute_mu_t
 
    subroutine update_sgs_lambda(self, realm)
@@ -1261,7 +1284,7 @@ contains
    class(flume_fnl_object), intent(inout)                   :: self     !< The equation.
    type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms.
 
-   if (.not.self%turbulence%is_active) return
+   if (.not.(self%turbulence%is_active .or. self%has_wm_viscosity)) return
    call self%update_ghost(q_gpu=self%q_gpu)
    if (present(realm)) call seam_fill_all(self=self, realm=realm)
    call self%compute_q_aux(q_gpu=self%q_gpu)
