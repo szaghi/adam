@@ -28,7 +28,7 @@ use :: adam_flume_common_library,      only : flume_common_object, regrid_phases
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
                                               reflux_positivity_theta,                                                 &
                                               BC_EXTRAPOLATION,                                                        &
-                                              BC_INFLOW, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP,          &
+                                              BC_INFLOW, BC_INFLOW_DF, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP,          &
                                               realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
                                               BC_HYDROSTATIC, hydrostatic_ghost,                                        &
                                               MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS,           &
@@ -2058,6 +2058,16 @@ contains
    where (self%adam%maps%seam_face) face_kind = BC_SEAM
    associate(crown_map=>self%adam%maps%local_map_bc_crown, ni=>self%ni, nj=>self%nj, nk=>self%nk)
    do pass=1, 3
+      ! the digital-filter inflow (issue #119, T3.7): its face ghosts after the face pass, before the edge rows read them
+      if (pass == 2_I4P .and. self%bc%df%is_active) then
+         call self%bc%df%build_rows(crown_map=crown_map, x_cell=self%adam%field%x_cell, y_cell=self%adam%field%y_cell, &
+                                    z_cell=self%adam%field%z_cell)
+         do c=1, self%bc%df%nrows
+            associate(r=>self%bc%df%rows(:,c))
+            q(1:5,r(2),r(3),r(4),r(1)) = self%bc%df%q_rows(:,c)
+            endassociate
+         enddo
+      endif
       do crown=1, self%ngc
          do c=1, size(crown_map, dim=1)
             b = int(crown_map(c,1,crown), I4P)
@@ -2134,6 +2144,8 @@ contains
                call hydrostatic_ghost_cell
             case(BC_SEAM)
                ! inter-realm seam face: filled by the forest (fill_seam_from_peer_forest), nothing to do here
+            case(BC_INFLOW_DF)
+               ! digital-filter inflow: written after this pass (issue #119, T3.7)
             case default
                call mpih%error_stop(msg=': unexpected boundary condition type '//trim(str(bc_type))//' on the crown map')
             endselect
@@ -2247,6 +2259,7 @@ contains
       self%time%dt = self%time%time_max - self%time%time
    call self%log_gravity_regime
    call self%refresh_equilibrium_residual
+   call self%advance_inflow_df
    call self%integrate
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -2746,6 +2759,7 @@ contains
       self%time%dt = self%time%time_max - self%time%time
    call self%log_gravity_regime
    call self%refresh_equilibrium_residual
+   call self%advance_inflow_df
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    ! the end_of_step seams: every stage reads the peer state of the last exchange, held by the ghosts of q (#113)
    call seam_ghosts_to_stages(maps=self%adam%maps, cadence=CADENCE_END_OF_STEP, ngc=self%ngc, q=self%q, q_rk=self%rk%q_rk)

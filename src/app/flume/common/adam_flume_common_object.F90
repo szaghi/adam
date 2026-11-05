@@ -179,6 +179,8 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: save_wm_filter        !< Save the wall-model input filter averages (issue #119).
       procedure, pass(self) :: wm_filter_to_host     !< Bring the filter averages to the host arrays (FNL: from the device).
       procedure, pass(self) :: wm_filter_to_device   !< Send the host filter averages where the backend reads them (FNL: the device).
+      procedure, pass(self) :: advance_inflow_df     !< Move the digital-filter inflow on by the step (issue #119, T3.7).
+      procedure, pass(self) :: inflow_df_to_device   !< Send the inflow ghost rows where the backend reads them (FNL: the device).
       procedure, pass(self) :: save_slices           !< Save the slices on their cadence.
       procedure, pass(self) :: save_xh5f             !< Save fields in XH5F format.
       procedure, pass(self) :: set_divb_seam         !< Set the seam faces flags of the div(B) history.
@@ -1200,6 +1202,8 @@ contains
    ! the unknown crown row, the FNL BC kernel skipped it and left the periodic ghosts stale (a silently wrong solution)
    call self%adam%tree%rebuild_neighborhood(grid=self%adam%grid)
    call self%adam%make_comm_local_maps_ghost_bc
+   call self%bc%df%setup(emin=self%adam%grid%domain_emin, emax=self%adam%grid%domain_emax, &
+                         periodic=self%adam%grid%is_ijk_periodic) ! issue #119, T3.7 (nothing without the face)
    ! issue #101: the density and momenta (IQ_RU..IQ_RW follow IQ_R) of a coarse->fine seam ghost are clamped to the MP
    ! bound of the coarse cells around it, and a ghost whose clamped density is below 0.1 times its coarse anchor's takes
    ! the anchor's state (the injection value): the tricubic overshoots made the corner cells of a refined region run
@@ -1477,6 +1481,7 @@ contains
    call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
    if (self%sinks%is_active) call self%sinks%load_restart(basename=self%io%restart_basename)
    if (self%has_wm_filter) call self%load_wm_filter(basename=self%io%restart_basename)
+   call self%bc%df%load_state(basename=self%io%restart_basename)
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
 
@@ -1546,6 +1551,22 @@ contains
    class(flume_common_object), intent(inout) :: self !< The equation.
    endsubroutine wm_filter_to_device
 
+   subroutine advance_inflow_df(self)
+   !< Move the digital-filter inflow on by the step `time%dt` (issue #119, T3.7): once per step, before the first stage, on
+   !< every rank alike (the forest's step is global); then the backend refreshes its ghost rows.
+   class(flume_common_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%bc%df%is_active) return
+   call self%bc%df%advance(dt=self%time%dt)
+   call self%inflow_df_to_device
+   endsubroutine advance_inflow_df
+
+   subroutine inflow_df_to_device(self)
+   !< Send the inflow ghost rows where the backend reads them: nothing on the CPU backend, which lists them at every boundary
+   !< fill (FNL overrides it).
+   class(flume_common_object), intent(inout) :: self !< The equation.
+   endsubroutine inflow_df_to_device
+
    subroutine save_restart_files(self)
    !< Save restart files.
    class(flume_common_object), intent(inout) :: self !< The equation.
@@ -1557,6 +1578,7 @@ contains
    call self%units%save_restart(basename=self%io%restart_basename)
    if (self%sinks%is_active) call self%sinks%save_restart(basename=self%io%restart_basename)
    if (self%has_wm_filter) call self%save_wm_filter(basename=self%io%restart_basename)
+   call self%bc%df%save_state(basename=self%io%restart_basename)
    call self%save_xh5f(output_basename=self%io%restart_basename)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files

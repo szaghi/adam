@@ -17,7 +17,7 @@ module adam_flume_fnl_kernels
 use :: adam_parameters,           only : FEC_1_6_ARRAY, FEC_TO_DELTA
 ! FLUME modules
 use :: adam_flume_common_library, only : reflux_positivity_theta,                                                 &
-                                         ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID, &
+                                         ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_INFLOW_DF, BC_WALL_INVISCID, &
                                          BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, realm_edge_donor, realm_edge_face,           &
                                          wall_noslip_ghost, BC_HYDROSTATIC, hydrostatic_ghost
 use :: adam_flume_cooling_library, only : cooled_internal_energy, cooling_function
@@ -40,6 +40,7 @@ public :: add_gravity_limited_correction_dev
 public :: clear_inert_energy_dev
 public :: compute_dflux_norms_dev
 public :: copy_state_dev
+public :: set_inflow_df_dev
 public :: compute_flux_difference_ib_dev
 public :: compute_rk_ssp_residual_dev
 public :: fill_seam_copy_dev
@@ -109,6 +110,26 @@ contains
       endif
    enddo
    endsubroutine apply_reflux_face_dev
+
+   subroutine set_inflow_df_dev(ngc, nrows, df_rows_gpu, df_q_gpu, q_gpu)
+   !< Write the ghost states of the digital-filter inflow (issue #119, T3.7): row `r` is block and cell `df_rows_gpu(:,r)`,
+   !< its conservative state `df_q_gpu(:,r)`, built on the host (`adam_flume_inflow_df_object`).
+   integer(I4P), intent(in)    :: ngc                                 !< Ghost cells.
+   integer(I4P), intent(in)    :: nrows                               !< Rows (0: nothing to write).
+   integer(I4P), intent(in)    :: df_rows_gpu(1:,1:)                  !< Block and cell of each row [4, rows].
+   real(R8P),    intent(in)    :: df_q_gpu(1:,1:)                     !< State of each row [5, rows].
+   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Conservative variables.
+   integer(I4P)                :: r, v                                !< Counters.
+
+   !$acc parallel loop independent gang vector DEVICEVAR(df_rows_gpu,df_q_gpu,q_gpu) firstprivate(nrows) private(v)
+   !$omp OMPLOOP DEVICEPTR(df_rows_gpu,df_q_gpu,q_gpu) firstprivate(nrows) private(v)
+   do r=1, nrows
+      !$acc loop seq
+      do v=1, 5
+         q_gpu(df_rows_gpu(1,r),df_rows_gpu(2,r),df_rows_gpu(3,r),df_rows_gpu(4,r),v) = df_q_gpu(v,r)
+      enddo
+   enddo
+   endsubroutine set_inflow_df_dev
 
    subroutine copy_state_dev(ni, nj, nk, ngc, nv, blocks_number, src_gpu, dst_gpu)
    !< Copy blocks `1:blocks_number` of a device field, ghost cells included, into another (e.g. an idle RK stage buffer:
@@ -946,6 +967,8 @@ contains
             bc_type = BC_EXTRAPOLATION
             if (face > 0_I4P) then
                bc_type = face_kind(face)
+               ! the digital-filter inflow is extrapolated beyond its edges (issue #119, T3.7)
+               if (bc_type == BC_INFLOW_DF) bc_type = BC_EXTRAPOLATION
                call realm_edge_donor(face=face, face_kind=face_kind(face), ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
                                      iref=iref, jref=jref, kref=kref)
             endif

@@ -40,6 +40,10 @@ module adam_flume_bc_object
 !< is `wall-inviscid`). Without gravity along the normal it is a slip wall that copies the thermodynamic state of the
 !< first interior cell (Zingale et al. 2002, ApJS 143, 539: hydrostatic ghosts integrated at constant temperature,
 !< reflecting velocity).
+!<
+!< **Digital-filter inflow** (issue #119, T3.7). `inflow-digital-filter` feeds a turbulent boundary layer through the face:
+!< the keys and the method are in `adam_flume_inflow_df_object` (component `df`). The backends write its ghost states after
+!< the face pass; in the edge and corner passes it is extrapolated.
 
 ! ADAM classes, libraries, parameters
 use :: adam_parameters,           only : BC_PERIODIC, BC_SEAM, FEC_TO_DELTA
@@ -51,6 +55,7 @@ use :: adam_flume_parameters,     only : IQ_BX, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RW
                                         MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO, &
                                         MODEL_EULER_ISO, MODEL_EULER_BARO, has_inert_energy, strip_control
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
+use :: adam_flume_inflow_df_object, only : flume_inflow_df_object
 ! third party modules
 use :: finer,                     only : file_ini
 use :: penf,                      only : I4P, R8P, str
@@ -64,6 +69,7 @@ public :: BC_WALL_INVISCID
 public :: BC_WALL_NOSLIP
 public :: BC_WALL_ISOTHERMAL
 public :: BC_HYDROSTATIC
+public :: BC_INFLOW_DF
 public :: hydrostatic_ghost
 public :: wall_noslip_ghost
 public :: BC_PERIODIC
@@ -76,6 +82,7 @@ integer(I4P), parameter :: BC_WALL_INVISCID = 3_I4P !< Inviscid (slip) wall: mir
 integer(I4P), parameter :: BC_WALL_NOSLIP = 4_I4P   !< No-slip adiabatic wall: velocity reflected about the wall's.
 integer(I4P), parameter :: BC_WALL_ISOTHERMAL = 5_I4P !< No-slip isothermal wall: also the temperature set.
 integer(I4P), parameter :: BC_HYDROSTATIC = 6_I4P     !< Hydrostatic ghosts under gravity, mirrored velocity.
+integer(I4P), parameter :: BC_INFLOW_DF = 7_I4P       !< Digital-filter turbulent inflow (issue #119, T3.7).
 
 character(len=13), parameter :: BC_EXTRAPOLATION_STR="extrapolation"          !< Accepted spelling of BC_EXTRAPOLATION.
 character(len=6),  parameter :: BC_INFLOW_STR="inflow"                        !< Accepted spelling of BC_INFLOW.
@@ -85,6 +92,7 @@ character(len=8),  parameter :: BC_PERIODIC_STR="periodic"                    !<
 character(len=11), parameter :: BC_WALL_NOSLIP_STR="wall-noslip"              !< Accepted spelling of BC_WALL_NOSLIP.
 character(len=15), parameter :: BC_WALL_ISOTHERMAL_STR="wall-isothermal"      !< Accepted spelling of BC_WALL_ISOTHERMAL.
 character(len=11), parameter :: BC_HYDROSTATIC_STR="hydrostatic"              !< Accepted spelling of BC_HYDROSTATIC.
+character(len=21), parameter :: BC_INFLOW_DF_STR="inflow-digital-filter"      !< Accepted spelling of BC_INFLOW_DF.
 character(len=6),  parameter :: WALL_VELOCITY_KEY(3)=['wall_u', 'wall_v', 'wall_w'] !< Wall velocity keys.
 character(len=2),  parameter :: INFLOW_KEY(8)=['r ', 'u ', 'v ', 'w ', &
                                                'p ', 'bx', 'by', 'bz']       !< Inflow primitive state keys (MHD: all 8).
@@ -107,6 +115,7 @@ type :: flume_bc_object
    real(R8P)              :: wm_edge_u(6)=0._R8P        !< Inverse model: speed at the edge of the layer per face.
    real(R8P)              :: wm_edge_t(6)=0._R8P        !< Inverse model: temperature at the edge of the layer per face.
    real(R8P)              :: wall_temperature(6)=0._R8P !< Isothermal walls: wall temperature of each face.
+   type(flume_inflow_df_object) :: df                   !< Digital-filter inflow (issue #119, T3.7).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -158,6 +167,7 @@ contains
    if (allocated(self%wall_sign)) deallocate(self%wall_sign)
    allocate(self%q_inflow(physics%nv,6), self%wall_sign(physics%nv,3))
    self%q_inflow = 0._R8P
+   self%df = flume_inflow_df_object() ! a fresh inflow: load counts its faces
    ! wall rule (issue #41, section 3.6): the mirror state negates the wall-normal momentum; MHD (perfectly conducting
    ! reflecting wall, D-12) also negates the wall-normal magnetic field, psi stays even
    self%wall_sign = 1._R8P
@@ -274,6 +284,10 @@ contains
          endif
       case(BC_PERIODIC_STR)
          self%bc_type(f) = BC_PERIODIC
+      case(BC_INFLOW_DF_STR)
+         self%bc_type(f) = BC_INFLOW_DF
+         call self%df%load(file_parameters=file_parameters, section=SECTION_NAME(f), face=f, model=physics%model, &
+                           gamma=physics%gamma)
       case(BC_HYDROSTATIC_STR)
          ! the hydrostatic ghost extrapolates the temperature through the gamma-law energy (issue #73)
          if (has_inert_energy(physics%model)) &
@@ -284,7 +298,7 @@ contains
          call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(type) "'//bc_str//'"; expected one of '// &
                                   BC_EXTRAPOLATION_STR//', '//BC_INFLOW_STR//', '//BC_WALL_INVISCID_STR//', '// &
                                   BC_WALL_NOSLIP_STR//', '//BC_WALL_ISOTHERMAL_STR//', '//BC_WALL_MODELLED_STR//', '//BC_PERIODIC_STR//', '// &
-                                  BC_HYDROSTATIC_STR)
+                                  BC_HYDROSTATIC_STR//', '//BC_INFLOW_DF_STR)
       endselect
    enddo
    do f=1, 5, 2

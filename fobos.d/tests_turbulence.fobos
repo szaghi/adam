@@ -1,5 +1,5 @@
 [modes]
-modes = test-sgs-gnu test-kep-gnu test-wm-gnu
+modes = test-sgs-gnu test-kep-gnu test-wm-gnu test-df-gnu
 
 # The pointwise subgrid-scale formulas of the library against an independent computation (issue #119, T1): verification/turbulence
 # leg sg1. No MPI, no HDF5: the program reads the tensors on stdin.
@@ -22,3 +22,10 @@ template = template-gnu
 mod_dir  = ./mod/gnu-wm/
 obj_dir  = ./obj/gnu-wm/
 target   = test_wall_model.F90
+
+# The digital-filter inflow generator (issue #119, T3.7), leg df1: stresses, temporal and spanwise correlations, periodic span, bitwise restart.
+[test-df-gnu]
+template = template-gnu
+mod_dir  = ./mod/gnu-df/
+obj_dir  = ./obj/gnu-df/
+target   = test_inflow_df.F90

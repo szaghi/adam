@@ -357,7 +357,7 @@ use :: adam_flume_fnl_kernels,         only : apply_cooling_dev, apply_cooling_e
                                               gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skins_dev,    &
                                               pack_density_dev, unpack_potential_dev,                                  &
                                               scatter_seam_cells_dev, scatter_seam_faces_dev,                          &
-                                              poison_ghosts_dev, set_boundary_conditions_dev
+                                              poison_ghosts_dev, set_boundary_conditions_dev, set_inflow_df_dev
 ! third party modules
 use :: fundal,                    only : dev_alloc, dev_assign_to_device, dev_free, dev_memcpy_from_device,     &
                                          dev_memcpy_to_device, mydev
@@ -408,6 +408,8 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: lam_gpu(:,:,:,:,:)=>null()   !< Positivity limiter cell factors (component 1, q-shaped for
                                                           !< the ghost exchange) [nb, i, j, k, nv]; with the limiter.
    real(R8P), pointer     :: q_inflow_gpu(:,:)=>null()    !< Conservative inflow state of each face [nv, 6].
+   integer(I4P), pointer  :: df_rows_gpu(:,:)=>null()     !< Digital-filter inflow: block and cell of each ghost row [4, rows] (#119).
+   real(R8P), pointer     :: df_q_gpu(:,:)=>null()        !< Digital-filter inflow: state of each ghost row [5, rows] (#119).
    real(R8P), pointer     :: wall_sign_gpu(:,:)=>null()   !< Wall mirror sign per variable and direction [nv, 3].
    integer(I4P), pointer  :: divb_seam_gpu(:,:)=>null()   !< Seam faces flags of the div(B) history [nb, 6].
    integer(I4P), pointer  :: bc_rows_gpu(:,:)=>null()     !< BC crown map rows grouped by pass [rows, ngc] (#90 F-A').
@@ -456,6 +458,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: copy_gpu_cpu            !< Copy state from device to host.
       procedure, pass(self) :: wm_filter_to_host       !< Copy the wall-model filter averages from the device to the host arrays (issue #119).
       procedure, pass(self) :: wm_filter_to_device     !< Copy the host wall-model filter averages to the device (issue #119).
+      procedure, pass(self) :: inflow_df_to_device     !< Copy the digital-filter inflow ghost rows to the device (issue #119).
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
       procedure, pass(self) :: refresh_potential       !< Set the gravitational potential and copy it to the device.
       procedure, pass(self) :: copy_potential_gpu      !< Copy the gravitational potential to the device.
@@ -1769,6 +1772,7 @@ contains
       call dev_free(self%q_inflow_gpu, mydev)
       nullify(self%q_inflow_gpu)
    endif
+   call free_inflow_df_rows(self)
    if (associated(self%wall_sign_gpu)) then
       call dev_free(self%wall_sign_gpu, mydev)
       nullify(self%wall_sign_gpu)
@@ -2622,6 +2626,10 @@ contains
    face_kind = self%bc%bc_type
    where (self%adam%maps%seam_face) face_kind = BC_SEAM
    do pass=1, 3
+      ! the digital-filter inflow (issue #119, T3.7): its face ghosts after the face pass, before the edge rows read them
+      if (pass == 2_I4P .and. self%bc%df%is_active .and. associated(self%df_rows_gpu)) &
+         call set_inflow_df_dev(ngc=self%ngc, nrows=self%bc%df%nrows, df_rows_gpu=self%df_rows_gpu, df_q_gpu=self%df_q_gpu, &
+                                q_gpu=q_gpu)
       do crown=1, self%ngc
          if (self%bc_pass_range(2,pass,crown) < self%bc_pass_range(1,pass,crown)) cycle ! no row of this pass
          call set_boundary_conditions_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv,               &
@@ -2677,7 +2685,54 @@ contains
    enddo
    endassociate
    call dev_assign_to_device(src=rows, dst=self%bc_rows_gpu)
+   call self%inflow_df_to_device ! the digital-filter rows follow the map (issue #119, T3.7)
    endsubroutine build_bc_pass_rows
+
+   subroutine inflow_df_to_device(self)
+   !< List the digital-filter inflow ghost rows from the host map and copy them and their states to the device (issue #119,
+   !< T3.7): once per step (the states change) and after every copy of the map. The device arrays hold at least one column,
+   !< so a rank without rows copies no zero-size array (issue #82).
+   class(flume_fnl_object), intent(inout) :: self    !< The equation.
+   integer(I4P), allocatable              :: rows(:,:) !< Rows, padded to one column.
+   real(R8P),    allocatable              :: qr(:,:)   !< States, padded to one column.
+   integer(I4P)                           :: n       !< Columns.
+
+   if (.not.self%bc%df%is_active) return
+   if (.not.allocated(self%adam%maps%local_map_bc_crown)) return
+   call self%bc%df%build_rows(crown_map=self%adam%maps%local_map_bc_crown, x_cell=self%adam%field%x_cell, &
+                              y_cell=self%adam%field%y_cell, z_cell=self%adam%field%z_cell)
+   n = max(1_I4P, self%bc%df%nrows)
+   allocate(rows(4, n), source=1_I4P)
+   allocate(qr(5, n), source=0._R8P)
+   if (self%bc%df%nrows > 0_I4P) then
+      rows(:,1:self%bc%df%nrows) = self%bc%df%rows(:,1:self%bc%df%nrows)
+      qr(:,1:self%bc%df%nrows) = self%bc%df%q_rows(:,1:self%bc%df%nrows)
+   endif
+   if (associated(self%df_rows_gpu)) then
+      if (size(self%df_rows_gpu, dim=2) /= n) call free_inflow_df_rows(self)
+   endif
+   if (associated(self%df_rows_gpu)) then
+      call dev_memcpy_to_device(dst=self%df_rows_gpu, src=rows)
+      call dev_memcpy_to_device(dst=self%df_q_gpu, src=qr)
+   else
+      call dev_assign_to_device(src=rows, dst=self%df_rows_gpu)
+      call dev_assign_to_device(src=qr, dst=self%df_q_gpu)
+   endif
+   endsubroutine inflow_df_to_device
+
+   subroutine free_inflow_df_rows(self)
+   !< Free the device digital-filter inflow rows.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   if (associated(self%df_rows_gpu)) then
+      call dev_free(self%df_rows_gpu, mydev)
+      nullify(self%df_rows_gpu)
+   endif
+   if (associated(self%df_q_gpu)) then
+      call dev_free(self%df_q_gpu, mydev)
+      nullify(self%df_q_gpu)
+   endif
+   endsubroutine free_inflow_df_rows
 
    subroutine update_ghost(self, q_gpu)
    !< Update ghost cells on the device: intra-realm local copies, GPU-direct MPI exchange, boundary conditions, then the
@@ -2755,6 +2810,7 @@ contains
       self%time%dt = self%time%time_max - self%time%time
    call self%log_gravity_regime
    call self%refresh_equilibrium_residual
+   call self%advance_inflow_df
    call self%integrate_dev
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -3292,6 +3348,7 @@ contains
       self%time%dt = self%time%time_max - self%time%time
    call self%log_gravity_regime
    call self%refresh_equilibrium_residual
+   call self%advance_inflow_df
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    call self%seam_ghosts_to_stages
    endsubroutine open_step_forest

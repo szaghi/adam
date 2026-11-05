@@ -68,6 +68,8 @@ module adam_flume_ic_object
 !<   `period`, the state is periodic in x and in y (Toth's shifted-periodic strip is not needed).
 !<
 !< * `channel` (issue #119, T3.1; euler): a plane channel between y = +-`ch_h`, `ch_rho`, bulk velocity `ch_ub`, wall Mach `ch_mach`, `ch_lx`, `ch_lz`, perturbation `ch_pert`.
+!< * `boundary-layer` (issue #119, T3.7; euler): the mean profile of a table (the format of the digital-filter inflow, `adam_flume_inflow_df_object`)
+!<   over a wall at y = `bl_wall` (default 0), flow along +x: `bl_profile`, `bl_delta`, free stream `bl_rho`, `bl_u`, `bl_p`; uniform along x and z.
 !< * `taylor-green` (issue #119, T0.2; euler, euler-de): the compressible Taylor-Green vortex of DeBonis (2013), `tg_density`
 !<   (rho_0), `tg_velocity` (V_0), `tg_mach` (M_0), `tg_length` (L, default 1), no regions:
 !<   `u = V_0 sin(x/L) cos(y/L) cos(z/L)`, `v = -V_0 cos(x/L) sin(y/L) cos(z/L)`, `w = 0`,
@@ -171,6 +173,7 @@ use :: adam_flume_parameters,     only : has_entropy, is_hydrodynamic, has_inert
                                         NV_EULER, NV_MHD, &
                                         strip_control
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
+use :: adam_flume_inflow_df_object, only : load_profile, profile_mean
 ! third party modules
 use :: finer,                     only : file_ini
 use :: penf,                      only : I4P, I8P, R8P, str
@@ -205,6 +208,8 @@ character(len=14), parameter :: LOOP_KEY(4)=['x0            ', 'y0            ',
                                              'loop_radius   ', 'loop_amplitude'] !< Field loop keys.
 character(len=15), parameter :: IC_ROTATED_RIEMANN_STR="rotated-riemann" !< Rotated periodic Riemann problem.
 character(len=7),  parameter :: IC_CHANNEL_STR="channel"                 !< Plane channel, parabolic with a perturbation (issue #119, T3.1).
+character(len=14), parameter :: IC_BOUNDARY_LAYER_STR="boundary-layer"   !< Mean profile of a boundary layer (issue #119, T3.7).
+character(len=8),  parameter :: BL_KEY(4)=['bl_delta', 'bl_rho  ', 'bl_u    ', 'bl_p    '] !< Boundary-layer keys.
 character(len=12), parameter :: IC_TAYLOR_GREEN_STR="taylor-green"      !< Compressible Taylor-Green vortex (issue #119).
 character(len=7),  parameter :: CHANNEL_KEY(7)=['ch_rho ', 'ch_ub  ', 'ch_mach', 'ch_h   ', 'ch_lx  ', 'ch_lz  ', 'ch_pert'] !< Channel keys.
 character(len=11), parameter :: TG_KEY(3)=['tg_density ', 'tg_velocity', 'tg_mach    '] !< Taylor-Green required keys.
@@ -285,6 +290,8 @@ type :: flume_ic_object
    real(R8P)                 :: prim_1(8)=0._R8P     !< Primitive state of region 1, the free stream (first nprim used).
    real(R8P)                 :: s=0._R8P             !< Uniform: relative amplitude of the seeded perturbation.
    real(R8P)                 :: channel(7)=0._R8P    !< Channel: density, bulk velocity, wall Mach number, half height, Lx, Lz, perturbation.
+   real(R8P)                 :: bl(5)=0._R8P         !< Boundary layer: delta, free-stream density, speed, pressure, wall position.
+   real(R8P), allocatable    :: bl_prof(:,:)         !< Boundary layer: profile table [7, rows].
    real(R8P)                 :: tg(4)=0._R8P         !< Taylor-Green: density, velocity, Mach number, length.
    real(R8P)                 :: hit(4)=0._R8P        !< Isotropic turbulence: density, u_rms, turbulent Mach number, k_0.
    integer(I4P)              :: hit_seed=1_I4P       !< Isotropic turbulence: seed of the random phases.
@@ -491,6 +498,20 @@ contains
          if (k < 7 .and. .not.(self%channel(k) > 0._R8P)) &
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(CHANNEL_KEY(k))//') must be positive')
       enddo
+   case(IC_BOUNDARY_LAYER_STR)
+      if (self%model /= MODEL_EULER) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_BOUNDARY_LAYER_STR//' requires [physics].(physical_model) = euler')
+      self%regions_number = 0_I4P
+      do k=1, 4
+         buff = trim(BL_KEY(k))
+         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(buff), val=self%bl(k), error=error)
+         if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(buff)//')')
+         if (.not.(self%bl(k) > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(buff)//') must be positive')
+      enddo
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bl_wall', val=self%bl(5), error=error)
+      if (error /= 0) self%bl(5) = 0._R8P
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bl_profile', val=buff, error=error)
+      if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bl_profile)')
+      call load_profile(filename=trim(adjustl(strip_control(buff))), prof=self%bl_prof)
    case(IC_TAYLOR_GREEN_STR)
       if (self%model /= MODEL_EULER .and. self%model /= MODEL_EULER_DE) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_TAYLOR_GREEN_STR//' requires '// &
@@ -903,7 +924,7 @@ contains
                                IC_GLM_PULSE_STR//', '//IC_DIVB_PEAK_STR//', '//IC_MHD_LINEAR_WAVE_STR//', '// &
                                IC_MHD_CPAW_STR//', '//IC_MHD_VORTEX_STR//', '//IC_ORSZAG_TANG_STR//', '// &
                                IC_MHD_ROTOR_STR//', '//IC_FIELD_LOOP_STR//', '//IC_ROTATED_RIEMANN_STR//', '// &
-                               IC_CHANNEL_STR//', '//IC_TAYLOR_GREEN_STR//', '//IC_ISOTROPIC_TURB_STR//', '//IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
+                               IC_CHANNEL_STR//', '//IC_BOUNDARY_LAYER_STR//', '//IC_TAYLOR_GREEN_STR//', '//IC_ISOTROPIC_TURB_STR//', '//IC_SHU_OSHER_STR//', '//IC_LINEAR_STR//', '//IC_POLYNOMIAL_STR//', '// &
                                IC_SINE_WAVE_STR//', '// &
                                IC_COUETTE_STR//', '//IC_BECKER_STR//', '//IC_ISOTHERMAL_ATM_STR//', '// &
                                IC_POLYTROPIC_ATM_STR//', '//IC_RAYLEIGH_TAYLOR_STR//', '//IC_POLYTROPE_STR//', '// &
@@ -1023,6 +1044,7 @@ contains
    real(R8P)                             :: h(2)          !< Seeded perturbations, in [-1, 1), or the Rayleigh-Taylor
                                                           !< seed's cos and sin terms.
    real(R8P)                             :: prim(8)       !< Perturbed primitive state of one cell.
+   real(R8P)                             :: ub, tb, rb(4) !< Boundary layer: mean speed, temperature, stresses (issue #119).
    real(R8P)                             :: post_shock(5) !< Isentropic vortex: Rankine-Hugoniot state past the shock.
    real(R8P)                             :: s_            !< Pulse axis coordinate, scaled peak distance, phase, or
                                                           !< height above the Rayleigh-Taylor interface.
@@ -1296,6 +1318,19 @@ contains
                do i=1, field%ni
                   call channel_state(gamma=self%gamma, ch=self%channel, x=field%x_cell(i,b), y=field%y_cell(j,b), &
                                      z=field%z_cell(k,b), prim=prim(1:5))
+                  call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_BOUNDARY_LAYER_STR)
+      prim = 0._R8P
+      do b=1, field%blocks_number
+         do k=1, field%nk
+            do j=1, field%nj
+               call profile_mean(prof=self%bl_prof, eta=max(field%y_cell(j,b) - self%bl(5), 0._R8P) / self%bl(1), u=ub, t=tb, r=rb)
+               prim(1:5) = [self%bl(2) / tb, self%bl(3) * ub, 0._R8P, 0._R8P, self%bl(4)]
+               do i=1, field%ni
                   call primitive_state_to_conservative(model=self%model, gamma=self%gamma, prim=prim, q=q(:,i,j,k,b))
                enddo
             enddo

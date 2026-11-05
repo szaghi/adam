@@ -81,6 +81,11 @@
 #        direction agree within channel_oracle agree's bounds: mu_t is set on 2 ghost columns along the wall from the ghost cells, and a ghost column that
 #        disagreed with the neighbour's interior would make the two blocks' face fluxes differ (measured: with the ghost columns left out the leg fails,
 #        2.4e-6 against 1e-9); (c) one rank against N; (d) (b) with Vreman too (the larger of the two eddy viscosities).
+#   tb1  the digital-filter inflow (T3.7): (a) test_inflow_df, the generator alone: Reynolds stresses within 3 % of the table (summed over the layer), the
+#        temporal correlation exp(-pi t / 2T) within 0.03, the spanwise integral length within 10 % of 2 L / pi, a periodic span, a bitwise restart of the plane;
+#        (b) a Mach 2.5 box (make_tbl.py on the M2p5 table of the Zhang-Duan-Choudhari DNS), 20 steps: the inflow ghosts carry the table's mean u at delta / 2
+#        within 10 % and fluctuations (tbl_oracle.py inflow); (c) one rank against N (every rank builds the same plane); (d) a restart at step 10 continues
+#        bit for bit to 20 (fields and histories), the plane in <restart_basename>.dff; control: without the .dff it is not bit for bit.
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -96,7 +101,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11 tb1"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -479,6 +484,37 @@ if has_leg wm11; then
    b=$(channel_run wm11-vr-l1 "$NP" "${E[@]}" --wm-eddy-viscosity --sgs-model vreman --levels 1)
    "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
 fi
+tbl_run() { # tbl_run <name> <np> <make_tbl options>: echo the work directory
+   local name="$1" np="$2" work="$CASE_DIR/work-$TAG-$1" ; shift 2
+   rm -rf "${work:?}" ; mkdir -p "$work"
+   python3 -I "$CASE_DIR/make_tbl.py" "$work/input.ini" --profile "$CASE_DIR/reference/tbl_m2p5_profile.txt" "$@" 2> /dev/null
+   (cd "$work" && mpirun -np "$np" "$EXE" input.ini > log.txt 2>&1) || { echo "check.sh: $name failed, see $work/log.txt" >&2 ; exit 1 ; }
+   echo "$work"
+}
+if has_leg tb1; then
+   echo "== tb1: the digital-filter inflow"
+   [[ "${DF_TEST_EXE:-}" == skip ]] || (cd "$CASE_DIR" && "${DF_TEST_EXE:-$REPO_ROOT/exe/test_inflow_df}")  # a host program: DF_TEST_EXE=skip on the GPU side
+   B=(--it-save 10)
+   a=$(tbl_run tb1-np1 1 "${B[@]}" --it-max 20)
+   "$VENV_PY" "$CASE_DIR/tbl_oracle.py" inflow "$a"
+   b=$(tbl_run tb1-npN "$NP" "${B[@]}" --it-max 20)
+   "$VENV_PY" "$CASE_DIR/tbl_oracle.py" agree "$a" "$b"
+   for v in restart control; do
+      c=$(tbl_run "tb1-$v" "$NP" "${B[@]}" --it-max 10 --restart-save 10)
+      [[ -f "$c/tbl-restart.dff" ]] || { echo "check.sh: tb1 wrote no tbl-restart.dff" >&2 ; exit 1 ; }
+      [[ $v == control ]] && rm -f "$c/tbl-restart.dff"
+      python3 -I "$CASE_DIR/make_tbl.py" "$c/input.ini" --profile "$CASE_DIR/reference/tbl_m2p5_profile.txt" "${B[@]}" --it-max 20 --restart 2> /dev/null
+      (cd "$c" && mpirun -np "$NP" "$EXE" input.ini > log2.txt 2>&1) || { echo "check.sh: tb1 $v failed, see $c/log2.txt" >&2 ; exit 1 ; }
+      result="$("$VENV_PY" "$VERIF_DIR/scaling/scaling.py" compare "$b" "$c" --ngc 3 --conservative)" && bitwise=1 || bitwise=0
+      for h in "$b"/*_history.dat; do cmp -s "$h" "$c/$(basename "$h")" || { bitwise=0 ; result="$result; $(basename "$h") differs" ; } ; done
+      if [[ $v == restart ]]; then
+         [[ $bitwise -eq 1 ]] && echo "restart with the plane: $result  PASS" || { echo "restart with the plane: $result  FAIL" ; exit 1 ; }
+      else
+         grep -q "digital-filter inflow restarts" "$c/log2.txt" || { echo "control: no warning of the missing .dff  FAIL" ; exit 1 ; }
+         [[ $bitwise -eq 0 ]] && echo "control, the plane removed: not bit for bit (as it must)  PASS" || { echo "control: bit for bit without the plane: the leg cannot see it  FAIL" ; exit 1 ; }
+      fi
+   done
+fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
    for c in wm4-npN wm7-npN wm8-npN wm11-npN; do # the channel legs run here: CPU against GPU on the same input
@@ -488,5 +524,6 @@ if [[ -n "$AGREE" ]]; then
    [[ -d "$CASE_DIR/work-$AGREE-hy2-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-hy2-npN" "$CASE_DIR/work-$AGREE-hy2-npN"
    [[ -d "$CASE_DIR/work-$AGREE-sg4-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-sg4-npN" "$CASE_DIR/work-$AGREE-sg4-npN"
    [[ -d "$CASE_DIR/work-$AGREE-ht2-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-ht2-npN" "$CASE_DIR/work-$AGREE-ht2-npN"
+   [[ -d "$CASE_DIR/work-$AGREE-tb1-npN" && -d "$CASE_DIR/work-$TAG-tb1-npN" ]] && "$VENV_PY" "$CASE_DIR/tbl_oracle.py" agree "$CASE_DIR/work-$TAG-tb1-npN" "$CASE_DIR/work-$AGREE-tb1-npN"
 fi
 echo "turbulence verification PASSED (legs: $LEGS) ($TAG)"
