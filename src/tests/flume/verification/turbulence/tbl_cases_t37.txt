@@ -1,0 +1,7 @@
+# The Mach 2.5 adiabatic boundary layer of the Zhang, Duan & Choudhari (2018) DNS, case M2p5 (issue #119, T3.7), wall-modelled LES: the inflow thickness
+# delta_i = 1 (4 mm in the DNS), Re 19370 on it, 60 x 6 x 6 delta_i, delta_i / 12 cubic cells, the wall model at the 3rd cell with semi-local damping and its
+# eddy viscosity below h (the Mach 3 channel's setting), the digital-filter inflow from the DNS profile. Two phases: to t = 180 (3 flow-throughs, the start
+# washed out; a checkpoint every 4000 steps), then the line edited to `--time-max 360 --it-save 400` and the done marker removed: a checkpoint about every
+# 6 time units (3 boundary-layer turnovers at the station) over 3 more flow-throughs, averaged in time and span by tbl_oracle.py. (Slices were tried and
+# dropped: the library writes them point by point through MPI-IO, 14 minutes for one 720 x 72 slice on medooza's /ifs.)
+m2p5-wm 720 72 72 --lx 60 --ly 6 --lz 6 --levels 2 --wm-eddy-viscosity --time-max 360 --it-save 400
