@@ -2418,6 +2418,72 @@ def fig_channel_m3_ev(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_tbl_m2p5(out: Path, runs: Path) -> None:
+    """T3.7 (issue #119): the Mach 2.5 boundary layer of the Zhang, Duan & Choudhari (2018) DNS (case M2p5), wall-modelled, digital-filter inflow,
+    tbl_cases_t37.txt, the checkpoints of 180 < t <= 360 averaged over the span and in time (tbl_oracle.py compare). Left C_f = 2 d theta / dx (a
+    quadratic fit of theta over +-3 delta_i) against Re_theta, the DNS at its station; middle u+_VD against y+ at the station of the DNS's Re_theta
+    (with the run's own u_tau), the DNS and the log law (the left panel against x, Re_theta on the right axis); right the rms of u, v (wall-normal), w (spanwise) and -<u'v'> over u_tau against y / delta."""
+    import json  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    work = runs / "tbl" / "m2p5-wm"
+    if not work.exists():
+        raise FileNotFoundError(work)
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import tbl_oracle as to  # noqa: PLC0415
+
+    stat = HERE / "turbulence" / "reference" / "M2p5_Stat.txt"
+    with tempfile.TemporaryDirectory() as tmp:
+        js = Path(tmp) / "m2p5.json"
+        to.compare(str(work), str(stat), 180.0001, str(js))
+        j = json.loads(js.read_text())
+    _, d = to.read_stat(stat)
+    ist = j["station"]
+    fig, axs = plt.subplots(1, 3, figsize=(14.0, 4.0), constrained_layout=True)
+    re_t = np.array(j["re_theta"])
+    cf = np.array([np.nan if c is None else c for c in j["cf"]])
+    w = 9
+    cfs = np.convolve(np.nan_to_num(cf), np.ones(w) / w, "same")
+    ok = np.isfinite(cf)
+    ok[: w // 2] = ok[-(w // 2) :] = False
+    ax = axs[0]
+    x = np.array(j["x"])
+    ax.plot(x[ok], cf[ok] * 1e3, color="0.75", lw=0.6, label="local")
+    ax.plot(x[ok], cfs[ok] * 1e3, color="C0", lw=1.4, label=f"running mean of {w} cells")
+    ax.plot([x[ist]], [j["cf_dns"] * 1e3], "ks", label=f"DNS at its $Re_\\theta$ {j['re_dns']:.0f}")
+    ax.axvspan(40.0, x[-1], color="0.9", zorder=0, label="past the recovery length")
+    tw = ax.twinx()
+    tw.plot(x, re_t, color="C1", lw=0.8)
+    tw.set_ylabel(r"$Re_\theta$", color="C1")
+    ax.set_xlabel(r"$x/\delta_i$")
+    ax.set_ylabel(r"$C_f\times10^3 = 2\,d\theta/dx$")
+    ax.set_ylim(0.0, 6.0)
+    ax = axs[1]
+    ax.semilogx(j["yplus"], j["uvd"], "o-", color="C0", ms=3, label="wall-modelled LES")
+    ax.semilogx(d[1:, 2], d[1:, 24], "k-", lw=1.0, label="DNS")
+    yp = np.logspace(1.0, 3.0, 20)
+    ax.semilogx(yp, np.log(yp) / 0.41 + 5.2, "k:", lw=0.8, label="log law")
+    ax.set_xlim(1.0, 3000.0)
+    ax.set_xlabel(r"$y^+$")
+    ax.set_ylabel(r"$u^+_{VD}$")
+    ax = axs[2]
+    eta = np.array(j["y"]) / j["delta_station"]
+    for (k, col, lab), c in zip((("u", 8, "u"), ("v", 10, "v (normal)"), ("w", 9, "w (span)")), ("C0", "C1", "C2"), strict=True):
+        ax.plot(eta, j["rms"][k], color=c, label=rf"${lab.split()[0]}_{{rms}}$" + (" " + lab.split()[1] if " " in lab else ""))
+        ax.plot(d[:, 1], d[:, col], color=c, ls="--", lw=0.9)
+    ax.plot(eta, -np.array(j["uv"]), color="C3", label=r"$-\langle u'v'\rangle$")
+    ax.plot(d[:, 1], -d[:, 15], color="C3", ls="--", lw=0.9)
+    ax.set_xlim(0.0, 1.3)
+    ax.set_xlabel(r"$y/\delta$")
+    ax.set_ylabel(r"over $u_\tau$ ($u_\tau^2$); dashed: DNS")
+    for ax in axs:
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.suptitle(f"station x = {j['x'][ist]:.1f} $\\delta_i$, $Re_\\theta$ = {re_t[ist]:.0f}", fontsize=9)
+    fig.savefig(out / "tbl-m2p5.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_barotropic_eos(out: Path, runs: Path) -> None:
     """EO barotropic (issue #100, P3): the piecewise polytrope (CPU). Top left: the eb1 tube on the convex table POLY
     (densities 2, 8; exponents 1, 1.4, 5/3) at t = 0.15, 1600 cells, against the exact solution (eos_oracle.py): the
@@ -4025,7 +4091,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
-           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev,
+           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

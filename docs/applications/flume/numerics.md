@@ -695,6 +695,34 @@ with those columns left out they differ by $2\cdot10^{-6}$). Without the key not
 Limits: isothermal walls only; the inverse model takes a fixed edge state; a restart needs the same ranks (as every FLUME checkpoint); the wall faces
 are rebuilt each step, so after a regrid, but no test regrids along a wall.
 
+## Digital-filter inflow
+
+A face `inflow-digital-filter` ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), [#119](https://github.com/szaghi/adam/issues/119) T3.7) feeds a spatially
+developing turbulent boundary layer: the mean of a profile table plus fluctuations with its Reynolds stresses. The method is the digital filter of
+Klein, Sadiki & Janicka (2003) in the form of Touber & Sandham (2009) and Xie & Castro (2008):
+
+1. **Plane.** A uniform grid over the face, `df_spacing` apart (adjusted to divide the domain), periodic along a periodic span.
+2. **Filter.** Uniform random numbers of zero mean and unit variance are filtered along both plane axes with $b_k=\exp(-\pi|k|/n)$, normalised to
+   unit sum of squares, $n=L/\Delta$ the integral length in nodes, half-width $2n$. The filtered field has unit variance and integral length
+   $2L/\pi$, that of $\exp(-\pi r/2L)$; its correlation is $(1+\pi r/n)e^{-\pi r/n}$.
+3. **Time.** The streamwise correlation is a temporal one: $\psi \leftarrow \psi\,e^{-\pi\Delta t/2T} + \psi_\mathrm{new}\sqrt{1-e^{-\pi\Delta t/T}}$,
+   $T=L_x/U_\infty$, once per step. Unit variance is kept, and the correlation is $e^{-\pi t/2T}$.
+4. **Stresses.** The signals become velocity fluctuations by the Cholesky factor of the table's stress tensor (Lund, Wu & Squires 1998), with
+   $R_{13}=R_{23}=0$.
+5. **Thermodynamics.** The strong Reynolds analogy, $T'/\bar T=-(\gamma-1)\bar M^2u'/\bar U$, written $T'=-(\gamma-1)\bar U u'\bar\rho/(\gamma p_\infty)$ so that
+   it holds at the wall. The pressure is the free stream's, and $\rho'/\bar\rho=-T'/\bar T$.
+
+The plane lives on the host, and every rank builds the same one: one random stream, and the forest's global step. Once per step, each rank lists the
+ghost rows beyond the face and interpolates their states bilinearly in the plane. The CPU writes them after the face pass of every boundary fill. On
+FNL they are copied to the device and written by a small kernel. In the edge and corner passes the face is extrapolated. The plane is saved with the
+restart, so a restart continues bit for bit (leg tb1).
+
+Limits: Euler only, one face per realm, the wall on the minimum side of its axis.
+- **Periodic-span corners.** With a periodic span, the ghosts beyond the face and the span are filled by the periodic exchange, so they lag the plane
+  by one boundary fill.
+- **Recovery.** A digital filter needs a recovery length after the inlet, about $40\,\delta_i$ at Mach 2.5 against $20\,\delta_i$ for recycling
+  (Huang, Duan & Choudhari 2022).
+
 ## Turbulence diagnostics
 
 `[diagnostics] turbulence_history_save = N` ([input](./input)) writes every $N$ steps the volume integrals of the kinetic

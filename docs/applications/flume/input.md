@@ -567,7 +567,7 @@ All six sections are required, even along null directions.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `type` | string | yes (every face) | `extrapolation`, `inflow`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `wall-modelled`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
+| `type` | string | yes (every face) | `extrapolation`, `inflow`, `inflow-digital-filter`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `wall-modelled`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
 | `r`, `u`, `v`, `w`, `p` | real | `type = inflow` | no range check | Prescribed primitive inflow state. |
 | `bx`, `by`, `bz` | real | `type = inflow` **and** `mhd-ideal` | no range check | Prescribed inflow magnetic field. `psi` is set to 0. |
 | `s1` .. `sN` | real | no (`type = inflow` with `passive_scalars = N`) | default 0, no range check | Specific values (mass fractions) of the passive scalars of the inflow. |
@@ -579,12 +579,22 @@ All six sections are required, even along null directions.
 | `wall_model_damping` with `wall-modelled` | string | no (`classical`) | `classical`, `semi-local`; other → fatal; given with `wall_model = inverse-transformation` → fatal | Van Driest damping of the equilibrium model in wall units, or with the local density and viscosity. |
 | `wall_model_filter` with `wall-modelled` | real | no (0) | `>= 0` | Time scale $T_f$ of an exponential filter of the sampled velocity, pressure and density, updated once per step with weight $\min(\Delta t/T_f, 1)$; 0 for none ([numerics](./numerics#wall-model)). |
 | `wall_model_eddy_viscosity` with `wall-modelled` | logical | no (`.false.`) | | The model's eddy viscosity in the cells below the matching height, so the resolved layer carries the modelled stress and heat flux to the face ([numerics](./numerics#wall-model)). |
+| `r`, `u`, `p` with `inflow-digital-filter` | real | yes | `> 0`, otherwise fatal | Free-stream density, speed along the inward normal, pressure. **Euler** only, one such face per realm. |
+| `df_profile` | string | with `inflow-digital-filter` | file must exist, 7 numbers per row, $y$ increasing, $T > 0$ (fatal) | The layer table: `y / delta`, `U / U_inf`, `T / T_inf`, `R_uu`, `R_vv`, `R_ww`, `R_uv` in units of $U_\infty^2$ (v wall-normal, w spanwise), `#` comments; the free stream beyond its last row. `tbl_oracle.py profile` writes it from a DNS station file. |
+| `df_delta`, `df_spacing` | real | with `inflow-digital-filter` | `> 0` | Layer thickness (the table's unit of $y$); spacing of the filter plane, about the grid's. |
+| `df_wall_axis` | string | with `inflow-digital-filter` | `x`, `y`, `z`, not the face normal (fatal) | Wall-normal axis, the wall on its minimum side; the span is the third axis (wrapped when periodic). |
+| `df_length_streamwise`, `df_length_normal`, `df_length_spanwise` | real | with `inflow-digital-filter` | `> 0` | Integral lengths in units of `df_delta`; the streamwise one becomes the time scale $L_x / U_\infty$. |
+| `df_seed` | integer | no (1) | | Seed of the random stream (the same plane on every rank). |
 | `wall_model_edge_velocity`, `wall_model_edge_temperature` | real | with `wall_model = inverse-transformation` | `> 0`, otherwise fatal | Speed and temperature at the edge of the layer (the free stream; the centreline of a channel), constants of the run. |
 
 What each `type` does:
 
 - `extrapolation`: zeroth-order extrapolation.
 - `inflow`: prescribed state.
+- `inflow-digital-filter` ([#119](https://github.com/szaghi/adam/issues/119), T3.7): a turbulent boundary layer through the face, the table's mean
+  plus fluctuations of its Reynolds stresses from the digital filter of Klein, Sadiki & Janicka in the form of Touber & Sandham and Xie & Castro
+  ([numerics](./numerics#digital-filter-inflow)). The plane state is saved with the restart (`<restart_basename>.dff`), so a restart continues bit
+  for bit; without the file it starts a fresh field (warned).
 - `wall-inviscid`: slip wall (mirror state with the normal momentum negated; for MHD the normal B is negated too).
 - `wall-noslip`: adiabatic no-slip wall (the velocity reflected about the wall velocity, the temperature mirrored).
 - `wall-isothermal`: isothermal no-slip wall (the velocity as above, the ghost temperature $T_w^2/T$, the geometric mirror). See
@@ -619,6 +629,7 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `type` | Model | Regions read | Extra `[initial_conditions]` keys (all real unless stated) and checks |
 |--------|-------|--------------|-----------------------------------------------------------------------|
 | `uniform` | any | 1 | `s`: signed relative amplitude of a deterministic hashed perturbation of `rho` and `p`. |
+| `boundary-layer` | **euler** | 0 | `bl_profile` (the table of `df_profile`), `bl_delta`, `bl_rho`, `bl_u`, `bl_p` (free stream), `bl_wall` (default 0): the table's mean profile over a wall at $y$ = `bl_wall`, flow along $+x$, uniform along $x$ and $z$, the density $\rho_\infty T_\infty/T$ (issue #119, T3.7). |
 | `channel` | **euler** | 0 | `ch_rho`, `ch_ub` (bulk velocity), `ch_mach` (on the wall sound speed), `ch_h` (half height; the walls at $y=\pm h$), `ch_lx`, `ch_lz`, `ch_pert` (amplitude over `ch_ub`): the laminar profile $\tfrac32U_b(1-\eta^2)$, uniform density and pressure, and a deterministic perturbation vanishing at the walls (issue #119, T3.1). |
 | `isentropic-vortex` | **euler** (fatal otherwise) | 1 (free stream) | `x0`, `y0`, `radius` (`> 0`), `strength`; optional `shock_x`: past it the post-shock state of a stationary shock, region 1 its supersonic upstream state with $u > 0$. |
 | `isotropic-turbulence` | **euler, euler-de** (fatal otherwise) | 0 | `hit_density`, `hit_urms`, `hit_mach`, `hit_k0` (all `> 0`), `hit_seed` (default 1). Decaying compressible isotropic turbulence (Johnsen et al. 2010): uniform density and pressure, $M_t = \sqrt3 u_\mathrm{rms}/c_0$, a solenoidal velocity of spectrum $E(k) \propto (k/k_0)^4 e^{-2(k/k_0)^2}$ on the integer wavevectors up to $3k_0$, random phases from the seed: the same field on any rank count or resolution. The box $[0, 2\pi]^3$, its periodicity and that $3k_0$ is resolved are the input's: not checked ([#119](https://github.com/szaghi/adam/issues/119)). |
