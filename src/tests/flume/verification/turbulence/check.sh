@@ -86,6 +86,9 @@
 #        (b) a Mach 2.5 box (make_tbl.py on the M2p5 table of the Zhang-Duan-Choudhari DNS), 20 steps: the inflow ghosts carry the table's mean u at delta / 2
 #        within 10 % and fluctuations (tbl_oracle.py inflow); (c) one rank against N (every rank builds the same plane); (d) a restart at step 10 continues
 #        bit for bit to 20 (fields and histories), the plane in <restart_basename>.dff; control: without the .dff it is not bit for bit.
+#   tb2  the wall-model history (T3.7, [diagnostics] wall_history_save): (a) wm5's laminar channel (h = 0.3, Re 5, t = 5, near its steady state): tau_w of both
+#        walls equals the driving force within 1e-3 (tbl_oracle.py wall-force); (b) the Mach 2.5 box of tb1, one rank against N within 1e-12 (bin sums in
+#        another order); with --agree, CPU against GPU within 1e-10.
 #   tt5  (--agree TAG) this executable's tt2 history against the executable TAG (tt2 run): backends within 1e-11.
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--budget-ladder "32 64"] [--agree EXE-NAME]   FLUME_EXE overrides the executable.
@@ -101,7 +104,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11 tb1"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11 tb1 tb2"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -515,6 +518,14 @@ if has_leg tb1; then
       fi
    done
 fi
+if has_leg tb2; then
+   echo "== tb2: the wall-model history"
+   a=$(channel_run tb2-channel "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0 --wall-history 10)
+   "$VENV_PY" "$CASE_DIR/tbl_oracle.py" wall-force "$a"
+   b=$(tbl_run tb2-np1 1 --it-max 20 --wall-history 5)
+   c=$(tbl_run tb2-npN "$NP" --it-max 20 --wall-history 5)
+   "$VENV_PY" "$CASE_DIR/tbl_oracle.py" wall-agree "$b" "$c"
+fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
    for c in wm4-npN wm7-npN wm8-npN wm11-npN; do # the channel legs run here: CPU against GPU on the same input
@@ -525,5 +536,6 @@ if [[ -n "$AGREE" ]]; then
    [[ -d "$CASE_DIR/work-$AGREE-sg4-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-sg4-npN" "$CASE_DIR/work-$AGREE-sg4-npN"
    [[ -d "$CASE_DIR/work-$AGREE-ht2-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-ht2-npN" "$CASE_DIR/work-$AGREE-ht2-npN"
    [[ -d "$CASE_DIR/work-$AGREE-tb1-npN" && -d "$CASE_DIR/work-$TAG-tb1-npN" ]] && "$VENV_PY" "$CASE_DIR/tbl_oracle.py" agree "$CASE_DIR/work-$TAG-tb1-npN" "$CASE_DIR/work-$AGREE-tb1-npN"
+   [[ -d "$CASE_DIR/work-$AGREE-tb2-npN" && -d "$CASE_DIR/work-$TAG-tb2-npN" ]] && "$VENV_PY" "$CASE_DIR/tbl_oracle.py" wall-agree --tol 1e-10 "$CASE_DIR/work-$TAG-tb2-npN" "$CASE_DIR/work-$AGREE-tb2-npN"
 fi
 echo "turbulence verification PASSED (legs: $LEGS) ($TAG)"

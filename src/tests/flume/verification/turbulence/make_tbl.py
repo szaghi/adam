@@ -59,6 +59,7 @@ def main() -> int:
     ap.add_argument("--restart-save", type=int, default=0)
     ap.add_argument("--restart", action="store_true")
     ap.add_argument("--history", type=int, default=1)
+    ap.add_argument("--wall-history", type=int, default=0, help="[diagnostics] wall_history_save: the wall model's tau_w and q_w in nx bins along x")
     ap.add_argument("--slice-z", default="", help="x-y slices at these comma-separated z, cell-centre points every cell along x and y (trilinear)")
     ap.add_argument("--slice-every", type=int, default=0, help="steps between slice saves")
     args = ap.parse_args()
@@ -105,7 +106,10 @@ def main() -> int:
     text = section(text, "initial_conditions", {"type": "boundary-layer", "amr_iterations": "0", "bl_profile": "profile.txt", "bl_delta": "1.0",
                                                  "bl_rho": "1.0", "bl_u": "1.0", "bl_p": repr(p_inf)})
     text = section(text, "time", {"it_max": str(args.it_max), "time_max": str(args.time_max), "CFL": str(args.cfl)})
-    text = section(text, "diagnostics", {"conservation_history_save": str(args.history), "turbulence_history_save": "0"})
+    diag = {"conservation_history_save": str(args.history), "turbulence_history_save": "0"}
+    if args.wall_history > 0:
+        diag |= {"wall_history_save": str(args.wall_history), "wall_history_bins": str(args.nx), "wall_history_axis": "x"}
+    text = section(text, "diagnostics", diag)
     if args.sgs_model != "none":
         text += f"\n[turbulence]\nsgs_model = {args.sgs_model}\n"
     zs = [float(z) for z in args.slice_z.split(",")] if args.slice_z else []

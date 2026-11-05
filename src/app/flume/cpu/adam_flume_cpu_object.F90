@@ -2017,6 +2017,7 @@ contains
       if (is_slices) call self%save_slices
    endif
    call self%compute_conservation
+   call self%save_wall_history ! issue #119, T3.7 (nothing without the key)
    endsubroutine save_simulation_data
 
    subroutine set_boundary_conditions(self, q)

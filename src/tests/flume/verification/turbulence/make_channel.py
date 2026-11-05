@@ -59,6 +59,7 @@ def main() -> int:
     ap.add_argument("--restart-save", type=int, default=0)
     ap.add_argument("--restart", action="store_true")
     ap.add_argument("--history", type=int, default=1)
+    ap.add_argument("--wall-history", type=int, default=0, help="[diagnostics] wall_history_save: the wall model's tau_w and q_w in nx bins along x")
     args = ap.parse_args()
     blocks = 2**args.levels
     for n in (args.nx, args.ny, args.nz):
@@ -104,6 +105,8 @@ def main() -> int:
                                                  "ch_lx": repr(args.lx), "ch_lz": repr(args.lz), "ch_pert": str(args.perturbation)})
     text = section(text, "time", {"it_max": str(args.it_max), "time_max": str(args.time_max), "CFL": str(args.cfl)})
     text = section(text, "diagnostics", {"conservation_history_save": str(args.history), "turbulence_history_save": str(args.history)})
+    if args.wall_history > 0:
+        text = section(text, "diagnostics", {"wall_history_save": str(args.wall_history), "wall_history_bins": str(args.nx), "wall_history_axis": "x"})
     if args.amr_box:
         text = section(text, "amr", {"max_level": str(args.levels + 1), "markers_number": "1"})
         text = section(text, "initial_conditions", {"amr_iterations": "1"})

@@ -60,6 +60,7 @@ use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_reference_object,   only : flume_reference_object
 use :: adam_flume_sinks_object,       only : flume_sinks_object
 use :: adam_flume_time_object,        only : flume_time_object
+use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve, wall_model_solve_inverse
 ! third party modules
 use :: finer,                         only : file_ini
 use :: motion,                        only : xh5f_file_object
@@ -181,6 +182,8 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: wm_filter_to_device   !< Send the host filter averages where the backend reads them (FNL: the device).
       procedure, pass(self) :: advance_inflow_df     !< Move the digital-filter inflow on by the step (issue #119, T3.7).
       procedure, pass(self) :: inflow_df_to_device   !< Send the inflow ghost rows where the backend reads them (FNL: the device).
+      procedure, pass(self) :: save_wall_history     !< Save the wall-model history on its cadence (issue #119, T3.7).
+      procedure, pass(self) :: wall_history_to_host  !< Bring the state to the host for the wall-model history (FNL: from the device).
       procedure, pass(self) :: save_slices           !< Save the slices on their cadence.
       procedure, pass(self) :: save_xh5f             !< Save fields in XH5F format.
       procedure, pass(self) :: set_divb_seam         !< Set the seam faces flags of the div(B) history.
@@ -1566,6 +1569,118 @@ contains
    !< fill (FNL overrides it).
    class(flume_common_object), intent(inout) :: self !< The equation.
    endsubroutine inflow_df_to_device
+
+   subroutine save_wall_history(self)
+   !< Save the wall-model history on its cadence (`[diagnostics] wall_history_save`, issue #119, T3.7): for every modelled face, the wall shear stress along
+   !< `wall_history_axis` and the wall heat flux (`k dT/dy` at the wall, positive when the gas is hotter), area-averaged over the face cells in
+   !< `wall_history_bins` bins along that axis, to `<output_basename>-wall_<face>_history.dat` (code units; `it`, `time`, the bins' stress, then their
+   !< heat flux). The model is evaluated on the committed state at its sample, as `overwrite_wall_fluxes` takes it without the input filter: with
+   !< `wall_model_filter` the stress applied differs from this one by the filter's lag. The same host code on every backend.
+   class(flume_common_object), intent(inout) :: self                  !< The equation.
+   character(8), parameter                   :: FACE_NAME(6)=['x_min', 'x_max', 'y_min', 'y_max', 'z_min', 'z_max']
+   real(R8P), allocatable                    :: acc(:,:)              !< Per bin: stress times area, heat flux times area, area [3, bins].
+   real(R8P)                                 :: tref, omega_mu, omega_k, mu0, cp, h, w, us, ts, ps, rs, tau, q, area, lo, len !< Work.
+   real(R8P)                                 :: u(3), p1(5), p2(5), xyz(3) !< Work.
+   integer(I4P)                              :: f, d, a, side, n, m, b, i, j, k, c(3), o1, o2, ib, nbins, t1, t2 !< Counters.
+   integer(I4P)                              :: lb(3), ub(3)          !< Face cell ranges.
+   logical                                   :: is_present            !< File presence.
+
+   if (.not.self%has_wall_model) return
+   if (.not.self%time%is_to_save(cadence=self%diagnostics%wall_history_save)) return
+   call self%wall_history_to_host
+   call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+   mu0 = self%physics%dissipation%mu
+   cp = self%physics%gamma * (self%physics%R / (self%physics%gamma - 1._R8P))
+   nbins = self%diagnostics%wall_history_bins
+   a = self%diagnostics%wall_history_axis
+   lo = self%adam%grid%domain_emin(a)
+   len = self%adam%grid%domain_emax(a) - lo
+   allocate(acc(3, nbins))
+   do f=1, 6
+      if (.not.self%bc%wall_modelled(f)) cycle
+      d = (f + 1_I4P) / 2_I4P
+      if (a == d) call mpih%error_stop(msg=': [diagnostics].(wall_history_axis) is the normal of the modelled face '//trim(FACE_NAME(f)))
+      side = 2_I4P - mod(f, 2_I4P)
+      t1 = merge(2_I4P, 1_I4P, d == 1_I4P) ; t2 = 6_I4P - d - t1
+      ub = [self%ni, self%nj, self%nk]
+      n = ub(d)
+      acc = 0._R8P
+      do b=1, self%blocks_number
+         if (self%wm_faces(b,f) == 0_I4P) cycle
+         call sample_cells(hwm=self%bc%wm_height(f), dx=self%adam%field%dxyz(d,b), n=n, m=m, w=w, h=h)
+         lb = 1_I4P ; ub = [self%ni, self%nj, self%nk]
+         lb(d) = 0_I4P ; ub(d) = 0_I4P
+         area = self%adam%field%dxyz(t1,b) * self%adam%field%dxyz(t2,b)
+         do k=lb(3), ub(3)
+            do j=lb(2), ub(2)
+               do i=lb(1), ub(1)
+                  c = [i, j, k]
+                  ! the cell m counted from the wall and the next one, as overwrite_wall_fluxes samples them
+                  o1 = merge(m, n + 1_I4P - m, side == 1_I4P) ; o2 = merge(m + 1_I4P, n - m, side == 1_I4P)
+                  c(d) = o1
+                  p1 = primitive(c, b)
+                  c(d) = o2
+                  p2 = p1
+                  if (w > 0._R8P) p2 = primitive(c, b)
+                  p1 = p1 + w * (p2 - p1)
+                  u = p1(2:4) ; u(d) = 0._R8P
+                  us = sqrt(dot_product(u, u))
+                  rs = p1(1) ; ps = p1(5) ; ts = ps / (self%physics%R * rs)
+                  if (self%bc%wm_inverse(f)) then
+                     call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), ue=self%bc%wm_edge_u(f), &
+                                                   te=self%bc%wm_edge_t(f), R=self%physics%R, cp=cp, pr=self%physics%dissipation%prandtl, mu0=mu0, &
+                                                   tref=tref, omega_mu=omega_mu, tau=tau, q=q)
+                  else
+                     call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), R=self%physics%R, cp=cp, &
+                                           pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, &
+                                           semilocal=self%bc%wm_semilocal(f))
+                  endif
+                  if (us > 0._R8P) tau = tau * u(a) / us ! the component along the axis: the drag of a flow along +axis is positive
+                  xyz = [self%adam%field%x_cell(i,b), self%adam%field%y_cell(j,b), self%adam%field%z_cell(k,b)]
+                  ib = min(nbins, max(1_I4P, int((xyz(a) - lo) / len * real(nbins, R8P), I4P) + 1_I4P))
+                  acc(:,ib) = acc(:,ib) + [tau * area, q * area, area]
+               enddo
+            enddo
+         enddo
+      enddo
+      call MPI_ALLREDUCE(MPI_IN_PLACE, acc, size(acc), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+      if (mpih%myrank /= 0) cycle
+      if (self%diagnostics%wall_unit(f) == 0_I4P) then
+         inquire(file=trim(self%io%output_basename)//'-wall_'//trim(FACE_NAME(f))//'_history.dat', exist=is_present)
+         if (self%io%restart .and. is_present) then
+            open(newunit=self%diagnostics%wall_unit(f), file=trim(self%io%output_basename)//'-wall_'//trim(FACE_NAME(f))//'_history.dat', &
+                 status='old', position='append', action='write')
+         else
+            open(newunit=self%diagnostics%wall_unit(f), file=trim(self%io%output_basename)//'-wall_'//trim(FACE_NAME(f))//'_history.dat', &
+                 status='replace', action='write')
+            write(self%diagnostics%wall_unit(f), '(A,I0,A,I0,A,ES24.16,A,ES24.16)') '# wall model on face '//trim(FACE_NAME(f))//', axis ', a, &
+               ', bins ', nbins, ' of equal width from ', lo, ' to ', lo + len
+            write(self%diagnostics%wall_unit(f), '(A)') 'VARIABLES="it" "time" "tau(bins)" "q(bins)"'
+         endif
+      endif
+      where (acc(3,:) > 0._R8P)
+         acc(1,:) = acc(1,:) / acc(3,:)
+         acc(2,:) = acc(2,:) / acc(3,:)
+      endwhere
+      write(self%diagnostics%wall_unit(f), '(I0,*(1X,ES24.16))') self%time%it, self%time%time, acc(1,:), acc(2,:)
+      flush(self%diagnostics%wall_unit(f))
+   enddo
+   contains
+      function primitive(cc, bb) result(p)
+      !< Density, velocity and pressure of the committed state at a cell (gamma-law Euler: the wall model's only model).
+      integer(I4P), intent(in) :: cc(3), bb !< Cell, block.
+      real(R8P)                :: p(5)      !< Primitive state.
+
+      p(1) = self%q(IQ_R,cc(1),cc(2),cc(3),bb)
+      p(2:4) = self%q(IQ_RU:IQ_RW,cc(1),cc(2),cc(3),bb) / p(1)
+      p(5) = (self%physics%gamma - 1._R8P) * (self%q(IQ_RE,cc(1),cc(2),cc(3),bb) - 0.5_R8P * p(1) * dot_product(p(2:4), p(2:4)))
+      endfunction primitive
+   endsubroutine save_wall_history
+
+   subroutine wall_history_to_host(self)
+   !< Bring the committed state to the host for the wall-model history: there already on the CPU backend (FNL overrides it).
+   class(flume_common_object), intent(inout) :: self !< The equation.
+   endsubroutine wall_history_to_host
 
    subroutine save_restart_files(self)
    !< Save restart files.

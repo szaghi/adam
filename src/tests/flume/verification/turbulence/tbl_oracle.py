@@ -10,6 +10,9 @@ and displacement thicknesses (theta from the Favre mean rho u), H, Re_theta and 
 +-3 delta_i); at the station where Re_theta is the DNS's (or the nearest), C_f against the DNS's 2 (u_tau / U_inf)^2 rho_w / rho_inf, H against its H, the
 van Driest velocity u+_VD against y+ (with the run's own u_tau) and the rms of u, v (wall-normal), w (spanwise) and <u'v'> over u_tau against y / delta.
 Recorded, not judged: the result is the result.
+`wall-force <channel work>`: the wall-model history of a channel at a steady state: the mean tau_w of both walls (all bins, the last quarter of the rows)
+equals the driving force of the forcing history (per unit wall area, the half height 1) within 1e-3.
+`wall-agree <a> <b> [--tol T]`: two runs' wall-model histories (every face file) within T (default 1e-12) of each column's scale.
 `inflow <work>`: the ghost layer of the inflow face in the last checkpoint (saved with ghosts): the spanwise mean of u at y = delta / 2 within 10 % of the table,
 and fluctuations present (the rms of the spanwise and wall-normal velocity above 1e-3 U_inf below delta).
 
@@ -203,6 +206,16 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None) -> int:
     valid = np.isfinite(cf)
     ist = int(np.argmin(np.where(valid, np.abs(re_theta - re_dns), np.inf)))
     rho_w = 1.0 / (t_w / t_inf)  # p_inf / (R T_w) over rho_inf = T_inf / T_w
+    cf_mom = cf.copy()
+    wall = work / "tbl-wall_y_min_history.dat"
+    cf_wall = None
+    if wall.exists():  # the wall model's own tau_w (rho_inf U_inf^2 = 1), its bins mapped onto the cells along x, averaged over the same window
+        w = wall_rows(wall)
+        w = w[w[:, 1] >= t0]
+        nb = (w.shape[1] - 2) // 2
+        xb = (np.arange(nb) + 0.5) * lx / nb
+        cf_wall = 2.0 * np.interp(x, xb, w[:, 2 : 2 + nb].mean(axis=0))
+        cf = cf_wall
     ut = np.sqrt(0.5 * cf[ist] / rho_w)
     mu_w = (t_w / t_inf) ** power / reynolds
     yplus = y * ut * rho_w / mu_w
@@ -214,10 +227,13 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None) -> int:
     d_dns = delta[ist]
     print(f"== {work.name}: {len(cps)} checkpoints from t = {cps[0][0]:.1f} to {cps[-1][0]:.1f}, {nx} x {ny} cells")
     print(f"station x = {x[ist]:.2f}: Re_theta {re_theta[ist]:.0f} (DNS {re_dns:.0f}), delta {d_dns:.3f}, theta {theta[ist]:.4f}, H {shape[ist]:.2f} (DNS {float(text_h(stat)):.2f})")
-    print(f"C_f {cf[ist]:.4e} against the DNS {cf_dns:.4e}: {100.0 * (cf[ist] / cf_dns - 1.0):+.1f} %;  u_tau / U_inf {ut:.5f} (DNS {ut_dns:.5f})")
-    print(" x      Re_theta  delta   H      C_f")
+    source = "the wall model's tau_w" if cf_wall is not None else "the momentum integral"
+    print(f"C_f ({source}) {cf[ist]:.4e} against the DNS {cf_dns:.4e}: {100.0 * (cf[ist] / cf_dns - 1.0):+.1f} %;  u_tau / U_inf {ut:.5f} (DNS {ut_dns:.5f})")
+    if cf_wall is not None:
+        print(f"C_f (the momentum integral) {cf_mom[ist]:.4e}: {100.0 * (cf_mom[ist] / cf_dns - 1.0):+.1f} %")
+    print(" x      Re_theta  delta   H      C_f       C_f momentum")
     for i in range(half, nx - half, max(1, (nx - 2 * half) // 12)):
-        print(f" {x[i]:5.1f}  {re_theta[i]:7.0f}  {delta[i]:6.3f}  {shape[i]:5.2f}  {cf[i]:.4e}")
+        print(f" {x[i]:5.1f}  {re_theta[i]:7.0f}  {delta[i]:6.3f}  {shape[i]:5.2f}  {cf[i]:.4e}  {cf_mom[i]:.4e}")
     zp_dns, uvd_dns = d[:, 2], d[:, 24]
     for yp in (30.0, 100.0, 200.0):
         if yplus[0] <= yp <= yplus[-1]:
@@ -228,7 +244,8 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None) -> int:
     print(f"<u'v'> / u_tau^2 at y / delta = 0.2, 0.5: {np.interp(0.2, y / d_dns, uv):.2f}, {np.interp(0.5, y / d_dns, uv):.2f} "
           f"(DNS {np.interp(0.2, d[:, 1], d[:, 15]):.2f}, {np.interp(0.5, d[:, 1], d[:, 15]):.2f})")
     if json_out:
-        out = {"x": x.tolist(), "re_theta": re_theta.tolist(), "cf": [None if not np.isfinite(c) else float(c) for c in cf], "H": shape.tolist(),
+        out = {"x": x.tolist(), "re_theta": re_theta.tolist(), "cf": [None if not np.isfinite(c) else float(c) for c in cf],
+               "cf_mom": [None if not np.isfinite(c) else float(c) for c in cf_mom], "cf_source": source, "H": shape.tolist(),
                "delta": [None if not np.isfinite(c) else float(c) for c in delta], "station": int(ist), "cf_dns": cf_dns, "re_dns": re_dns,
                "y": y.tolist(), "yplus": yplus.tolist(), "uvd": uvd.tolist(), "rms": {k: v.tolist() for k, v in rms.items()}, "uv": uv.tolist(),
                "delta_station": float(d_dns), "t": [t for t, _ in cps]}
@@ -243,6 +260,48 @@ def text_h(stat: str) -> float:
     return float(text[i + 1].split()[7])
 
 
+def wall_rows(path: Path) -> np.ndarray:
+    """Load a wall-model history: it, time, the bins' tau, then their q."""
+    return np.loadtxt(path, comments=("#", "VARIABLES"), ndmin=2)
+
+
+def wall_force(work_s: str) -> int:
+    """tau_w of both walls against the channel's driving force at a steady state."""
+    work = Path(work_s)
+    taus = []
+    for face in ("y_min", "y_max"):
+        w = wall_rows(work / f"channel-wall_{face}_history.dat")
+        nb = (w.shape[1] - 2) // 2
+        taus.append(w[int(len(w) * 0.75) :, 2 : 2 + nb].mean())
+    f = np.loadtxt(work / "channel-forcing_history.dat", ndmin=2, comments="VARIABLES")
+    force = float(f[int(len(f) * 0.75) :, 2].mean())
+    tau = 0.5 * (taus[0] + taus[1])
+    rel = abs(tau - force) / abs(force)
+    ok = rel < 1e-3
+    print(f"wall history tau_w {tau:.6e} (y_min {taus[0]:.6e}, y_max {taus[1]:.6e}) against the force {force:.6e}: relative {rel:.2e} (bound 1e-3)  {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
+def wall_agree(a: str, b: str, tol: float) -> int:
+    """Every wall-model history of two runs within tol of each column's scale."""
+    ok = True
+    files = sorted(Path(a).glob("*-wall_*_history.dat"))
+    if not files:
+        print("wall-agree: no wall history  FAIL")
+        return 1
+    for fa in files:
+        x, y = wall_rows(fa), wall_rows(Path(b) / fa.name)
+        if x.shape != y.shape:
+            print(f"{fa.name}: shapes {x.shape} and {y.shape}  FAIL")
+            ok = False
+            continue
+        d = float(np.max(np.abs(x - y)[:, 1:] / np.maximum(np.abs(x[:, 1:]).max(axis=0), 1e-300)))
+        good = d < tol
+        ok = ok and good
+        print(f"{fa.name}: {d:.2e} (bound {tol:.0e})  {'PASS' if good else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="what", required=True)
@@ -254,6 +313,12 @@ def main() -> int:
     p.add_argument("b")
     p = sub.add_parser("inflow")
     p.add_argument("work")
+    p = sub.add_parser("wall-force")
+    p.add_argument("work")
+    p = sub.add_parser("wall-agree")
+    p.add_argument("a")
+    p.add_argument("b")
+    p.add_argument("--tol", type=float, default=1e-12)
     p = sub.add_parser("compare")
     p.add_argument("work")
     p.add_argument("stat")
@@ -264,6 +329,10 @@ def main() -> int:
         return profile(a.src, a.out)
     if a.what == "agree":
         return agree(a.a, a.b)
+    if a.what == "wall-force":
+        return wall_force(a.work)
+    if a.what == "wall-agree":
+        return wall_agree(a.a, a.b, a.tol)
     if a.what == "compare":
         return compare(a.work, a.stat, a.t0, a.json)
     return inflow(a.work)

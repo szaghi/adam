@@ -459,6 +459,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: wm_filter_to_host       !< Copy the wall-model filter averages from the device to the host arrays (issue #119).
       procedure, pass(self) :: wm_filter_to_device     !< Copy the host wall-model filter averages to the device (issue #119).
       procedure, pass(self) :: inflow_df_to_device     !< Copy the digital-filter inflow ghost rows to the device (issue #119).
+      procedure, pass(self) :: wall_history_to_host    !< Copy the state to the host for the wall-model history (issue #119).
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
       procedure, pass(self) :: refresh_potential       !< Set the gravitational potential and copy it to the device.
       procedure, pass(self) :: copy_potential_gpu      !< Copy the gravitational potential to the device.
@@ -2603,6 +2604,7 @@ contains
       if (is_slices) call self%save_slices
    endif
    call self%compute_conservation
+   call self%save_wall_history ! issue #119, T3.7 (nothing without the key)
    endsubroutine save_simulation_data
 
    subroutine set_boundary_conditions(self, q_gpu)
@@ -2719,6 +2721,14 @@ contains
       call dev_assign_to_device(src=qr, dst=self%df_q_gpu)
    endif
    endsubroutine inflow_df_to_device
+
+   subroutine wall_history_to_host(self)
+   !< Copy the committed state to the host for the wall-model history (issue #119, T3.7): the blocks in use only, the state only.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   call copy_blocks_transposed(blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                               nv=self%nv, a=self%q, a_gpu=self%q_gpu, to_device=.false.)
+   endsubroutine wall_history_to_host
 
    subroutine free_inflow_df_rows(self)
    !< Free the device digital-filter inflow rows.

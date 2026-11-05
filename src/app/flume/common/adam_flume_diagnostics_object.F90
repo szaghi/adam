@@ -45,6 +45,10 @@ type :: flume_diagnostics_object
    integer(I4P) :: divb_unit=0_I4P                 !< div(B) history file unit (MHD only).
    integer(I4P) :: turbulence_history_save=0_I4P   !< Turbulence history save cadence (<= 0: disabled, issue #119).
    integer(I4P) :: turbulence_unit=0_I4P           !< Turbulence history file unit.
+   integer(I4P) :: wall_history_save=0_I4P         !< Wall-model history save cadence (<= 0: disabled, issue #119, T3.7).
+   integer(I4P) :: wall_history_bins=0_I4P         !< Wall-model history: bins along its axis.
+   integer(I4P) :: wall_history_axis=1_I4P         !< Wall-model history: the axis of its bins (1 x, 2 y, 3 z).
+   integer(I4P) :: wall_unit(6)=0_I4P              !< Wall-model history file unit per face.
    contains
       ! public methods
       procedure, pass(self) :: close_file            !< Close the history file.
@@ -63,8 +67,16 @@ contains
    !< Close the history files.
    class(flume_diagnostics_object), intent(inout) :: self    !< Diagnostics.
    logical                                        :: is_open !< Unit status.
+   integer(I4P)                                   :: f       !< Face.
 
    if (mpih%myrank /= 0) return
+   do f=1, 6
+      if (self%wall_unit(f) /= 0_I4P) then
+         inquire(unit=self%wall_unit(f), opened=is_open)
+         if (is_open) close(self%wall_unit(f))
+         self%wall_unit(f) = 0_I4P
+      endif
+   enddo
    if (self%turbulence_unit /= 0_I4P) then
       inquire(unit=self%turbulence_unit, opened=is_open)
       if (is_open) close(self%turbulence_unit)
@@ -108,6 +120,7 @@ contains
    class(flume_diagnostics_object), intent(inout) :: self            !< Diagnostics.
    type(file_ini),                  intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P)                                   :: error           !< Error status.
+   character(999)                                 :: buff            !< Buffer.
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='conservation_history_save', &
                             val=self%conservation_history_save, error=error)
@@ -126,6 +139,26 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='turbulence_history_save', &
                             val=self%turbulence_history_save, error=error)
    if (error > 0) self%turbulence_history_save = 0_I4P
+   ! optional (default 0, disabled): the wall-model history (issue #119, T3.7): wall_history_bins (required with it) bins along wall_history_axis
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wall_history_save', val=self%wall_history_save, error=error)
+   if (error > 0) self%wall_history_save = 0_I4P
+   if (self%wall_history_save > 0_I4P) then
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wall_history_bins', val=self%wall_history_bins, error=error)
+      if (error > 0 .or. self%wall_history_bins < 1_I4P) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wall_history_bins) must be given and >= 1 with wall_history_save')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wall_history_axis', val=buff, error=error)
+      if (error > 0) buff = 'x'
+      select case(trim(adjustl(buff)))
+      case('x')
+         self%wall_history_axis = 1_I4P
+      case('y')
+         self%wall_history_axis = 2_I4P
+      case('z')
+         self%wall_history_axis = 3_I4P
+      case default
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wall_history_axis) must be x, y or z')
+      endselect
+   endif
    endsubroutine load_from_file
 
    subroutine open_file(self, output_basename, q_name, is_restart, with_divb, with_self_gravity, with_cooling, with_sinks, &
