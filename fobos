@@ -73,6 +73,12 @@ $NVF_LTO     = ,lto
 [varset:local_amd]
 $HDF5_PREFIX = lib/hdf5/develop/amd/latest
 
+[varset:thera_amd2]
+# thera, system module tree (rocm/10.1.0-afar-24.3.0, openmpi/5.0.10-ucx1.22.0-ucc1.9.0, hdf5/2.2.0): HDF5 2.2.0 installs
+# its libraries in lib64 and this fobos file reads $HDF5_PREFIX/lib, so the prefix is a directory of two symlinks
+# (include -> .../include, lib -> .../lib64). LOCAL, not for commit.
+$HDF5_PREFIX = /home/giarossi/hdf5-2.2.0-shim
+
 [varset:thera_amd]
 $HDF5_PREFIX = /mnt/thera/data/incoming/mbycklin/spack/install/linux-zen4/hdf5-1.14.6-zwo77eq6dyjllcapikwnnc7v4lrjknik
 

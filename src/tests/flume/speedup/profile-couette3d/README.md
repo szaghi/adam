@@ -238,15 +238,48 @@ Since the `lto` result below, the varsets `local_nvf` and `iac_nvf` build every 
 `-gpu=...,lto` (the fobos variable `$NVF_LTO`): the `fnl-nvf` leg is now what the variant `lto` was, and `--gpu lto`
 adds nothing there. The leg of the results below, without LTO, is `--varset "iac_nvf nolto"`.
 
-**On the `fnl-amd` leg** a *source* variant needs nothing new — `--tag` is not leg-restricted, and
-`patches/face-kernel-s3.patch` touches `src/app/flume/fnl/adam_flume_fnl_face_kernels_agnostic.INC`, which every FNL
-backend compiles:
+**On the `fnl-amd` leg** a *source* variant needs nothing new — `--tag` is not leg-restricted. Since commit 421cd773 the
+compile-time stencil width of experiment B0 is in the code (one face-flux kernel per WENO width, chosen by the host), so
+`patches/face-kernel-s3.patch` (B0) applies only to the trees before it and is kept as the record of that experiment. The
+patches that apply to the current tree are:
+
+- `patches/generic-kernel.patch`: both host dispatchers (`select case (-S)`) fall through to the generic kernel
+  `_sn_dev`, S a dummy argument, for every width: the tree as it was before 421cd773, the variant `generic`;
+- `patches/stencil-smax3.patch`: `S_MAX` 5 to 3 in `adam_flume_parameters.F90` and `adam_weno_object.F90`, which
+  shrinks every private stencil declaration (variant `smax3`; valid only up to WENO-5, **a measurement, never a fix**);
+- `patches/weno-width.patch`: the WENO upwind reconstruction of the face-flux kernels per stencil width, the next step of
+  421cd773 (variant `wenow`): a new module `adam_fnl_weno_width_kernels` with `weno_reconstruct_upwind_s1_dev` ...
+  `s5_dev`, S a named constant, the three helpers of `weno_reconstruct_upwind_dev` merged in the same order of
+  operations and the private arrays sized by S, called by the per-width face kernels (the generic `_sn_dev` keeps the
+  generic routine). The compiled `s3` kernel goes from 6 call sites and 9088 B of scratch to 14 and 2784 B, and the
+  face kernel on an MI300X from 52.6 to 3.0 ms per launch (`small`, rocprofv3, three alternated runs each) and the
+  `large` loop from 632 to 51 s (2026-10-28, Slurm job 74047, one rank on one GPU); the checkpoints are identical to the
+  tree without it, a weak check (the regrid of the profiling case moves no data): the FNL regression suites on AMD are
+  still to be run.
+
+Both touch sources every FNL backend compiles; apply one to a clean tree, build, and revert:
 
 ```bash
-git apply src/tests/flume/speedup/profile-couette3d/patches/face-kernel-s3.patch   # from the repository root
-cd src/tests/flume/speedup && ./build.sh fnl-amd --varset "thera_amd gfx942" --jobs 32 --tag B0
-git -C ../../.. apply -R src/tests/flume/speedup/profile-couette3d/patches/face-kernel-s3.patch
+git apply src/tests/flume/speedup/profile-couette3d/patches/generic-kernel.patch   # from the repository root
+cd src/tests/flume/speedup && ./build.sh fnl-amd --varset "thera_amd gfx942" --jobs 32 --tag generic
+git -C ../../.. apply -R src/tests/flume/speedup/profile-couette3d/patches/generic-kernel.patch
 ```
+
+On a machine where the tree is shared between builds, build each variant in its own `git worktree` instead (FoBiS does
+not follow symbolic links, so `src/third_party` has to be a copy there, not a link): two variants then compile at once.
+
+**The system-module toolchain of thera** (`rocm/10.1.0-afar-24.3.0 openmpi/5.0.10-ucx1.22.0-ucc1.9.0 openblas/0.3.34
+hdf5/2.2.0`, amdflang 24.0.0git) differs from the spack one of `thera_amd` in two ways that `fobos` and the link care
+about, and neither is in the repository yet:
+
+- HDF5 2.2.0 installs its libraries in `lib64`, and `fobos` reads `$HDF5_PREFIX/lib` and `/include`: the varset's
+  `$HDF5_PREFIX` is a directory of two symbolic links (`include` to the module's `include`, `lib` to its `lib64`);
+- the device link (`clang-linker-wrapper`) does not search `$ROCM_PATH/lib` and stops at `unable to find library
+  -lamdhip64` after a full compile: `export LIBRARY_PATH=$ROCM_PATH/lib` before `build.sh`. The objects survive that
+  failure, so `build.sh ... --no-clean` relinks (454 s, the device LTO) instead of recompiling.
+
+The compiler changed too (23.2.0 to 24.0.0), so an executable of this toolchain is not comparable with the runs recorded
+before it (the registers of the face kernel, for one, are 128 VGPR / 224 AGPR now and were 428 / 172).
 
 A *compiler-flag* variant has no AMD form yet: `--gpu` prepends nvfortran's `-gpu=` umbrella and stays
 `fnl-nvf`-only, and amdflang's knobs are plain flags with no umbrella to prepend. **There is deliberately no `lto`
@@ -278,7 +311,9 @@ the run dies mid-step with `OFFLOAD ERROR: memory access fault by GPU N ... at v
 completion with `--tool none`, with `AMD_SERIALIZE_KERNEL=3`, and under the same rocprofv3 with `--hip-trace` only,
 and rocprofv3 1.2.3 traces a minimal amdflang offload program fine. The rocprofv3 **1.1.0** of `/opt/rocm-7.2.1`
 traces it correctly, so prepend that directory. Only the profiler changes: the application's own HIP, HSA and OpenMP
-runtimes come from the compiler drop through the executable's RPATH either way.
+runtimes come from the compiler drop through the executable's RPATH either way. With the system modules of the previous
+paragraph the rocprofv3 on PATH is **1.4.1** (`rocm/10.1.0-afar-24.3.0`), and it traced the executable built with that
+toolchain to the end, so no `/opt/rocm-7.2.1` is needed there.
 
 ## Reading the results
 
