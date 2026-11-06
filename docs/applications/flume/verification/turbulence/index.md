@@ -371,7 +371,8 @@ the rms over $u_\tau$ at the same station; dashed: the DNS.*
 
 **What it shows.**
 - **$C_f$ within 4.4 % of the DNS** at its $Re_\theta$, with the setting that matched the Mach 3 channel. The two halves of the averaging window
-  differ by 1.1 %.
+  differ by 1.1 %. Most of the 4.4 % is the inflow's recovery, not the plateau: farther downstream, at $Re_\theta=3000$–$3350$, $C_f$ is within
+  1.6–0.4 % of the DNS's value scaled as $Re_\theta^{-1/4}$, and at $\delta_i/16$ it is 0.3 % at the station ([resolution](#resolution-mach-2-5-at-delta-i-16)).
 - **The inflow recovers by $x\approx50\,\delta_i$.** The layer reaches the DNS's $Re_\theta$ at $x=55$, against 53 in the DNS. $C_f$ falls from
   $2.8\cdot10^{-3}$ at the inlet to $1.8\cdot10^{-3}$ at $x\approx25$, the adaptation of the synthetic eddies, then rises to a plateau of
   $2.2\cdot10^{-3}$ from $x\approx50$. That matches the $40\,\delta_i$ recovery length of a digital filter at this Mach number (Huang, Duan &
@@ -380,7 +381,41 @@ the rms over $u_\tau$ at the same station; dashed: the DNS.*
   along $x$ on the same averaged data, and is $-33$ % at the station. A first run on a $60\,\delta_i$ box had only this estimate, and it reported
   $C_f$ 16–28 % low.
 - **The log layer sits 0.9–1.0 above the DNS in $u^+_{VD}$**, and the wake gives $H$ 14 % low. $u_{rms}$ peaks too high, the near-wall streaks of a
-  coarse LES. The resolved $-\langle u'v'\rangle$ in the outer layer is above the DNS's.
+  coarse LES. The resolved $-\langle u'v'\rangle$ in the outer layer is above the DNS's. At $\delta_i/16$ the log layer, $u_{rms}$ and
+  $-\langle u'v'\rangle$ move toward the DNS, $H$ does not.
+
+### Resolution: Mach 2.5 at $\delta_i/16$
+
+The Mach 2.5 case on the same $90\,\delta_i$ box at $\delta_i/16$: $1440\times96\times96$ cells, the matching point still the 3rd cell (so $h$
+shrinks with the grid, as in Kawai & Larsson 2012), the filter's node spacing the new $\Delta y$; everything else as at $\delta_i/12$. 30
+checkpoints of $180<t\le360$ (`tbl_cases_t37_r16.txt`, 35264 steps, 0.80 s per step on 4 A30).
+
+![The Mach 2.5 boundary layer at two resolutions against the DNS](/flume/tbl-m2p5-res.png)
+
+*Left: $C_f$ from the wall model's $\tau_w$ at $\delta_i/12$ (dashed) and $\delta_i/16$ (solid); the square is the DNS at its station. Middle:
+$u^+_{VD}$ at the station of each run. Right: the rms and $-\langle u'v'\rangle$ over $u_\tau$; dotted: the DNS.*
+
+| | $\delta_i/12$ | $\delta_i/16$ | DNS |
+|---|---|---|---|
+| $C_f$ at $Re_\theta=2835$ | 2.208e-3 (halves 2.195e-3, 2.220e-3) | **2.306e-3** (halves 2.299e-3, 2.312e-3) | 2.310e-3 |
+| $C_f$ against the DNS scaled as $Re_\theta^{-1/4}$, at $Re_\theta=2600$, 2835, 3000, 3200, 3350 | −12.0, −3.9, −1.6, −0.9, −0.4 % | −3.6, −0.3, +1.0, +0.7, −0.5 % | |
+| $H$ | 3.54 | 3.51 | 4.10 |
+| $u^+_{VD}$ at $y^+=30$, $100$, $200$ | 13.1, 17.5, 19.8 | 12.8, 17.3, 19.2 | 13.6, 16.7, 18.8 |
+| $u_{rms}$, $v_{rms}$, $w_{rms}$ over $u_\tau$ at $y/\delta=0.2$ | 2.06, 0.81, 1.22 | 1.79, 0.83, 1.16 | 1.49, 0.93, 1.12 |
+| $-\langle u'v'\rangle/u_\tau^2$ at $y/\delta=0.2$, $0.5$ | 0.80, 0.50 | 0.66, 0.43 | 0.62, 0.37 |
+
+**What it shows.**
+- **$C_f$ is grid-converged once the layer has recovered.** Downstream of $x\approx60$ ($Re_\theta\ge3000$) the two grids agree with each other and
+  with the DNS's $C_f$ scaled as $Re_\theta^{-1/4}$ within 1–2 %. The scaling is an approximation (the DNS file holds one station), so these
+  figures carry its error too.
+- **The finer grid shortens the inflow's recovery.** The $C_f$ dip after the inlet ends by $x\approx40$ at $\delta_i/16$, against $x\approx55$–$60$
+  at $\delta_i/12$: the $-4.4$ % at the DNS station of the $\delta_i/12$ run is mostly the layer still recovering. At $\delta_i/16$ the station is
+  past it, and $C_f$ is $-0.2$ %; the halves of the window differ by 0.6 %.
+- **The near-wall and log-layer statistics converge toward the DNS**: the $u_{rms}$ peak at $y/\delta=0.2$ from 2.06 to 1.79, $-\langle
+  u'v'\rangle$ from 0.80 to 0.66, the log-layer offset in $u^+_{VD}$ at $y^+=200$ from +1.0 to +0.4.
+- **$H$ does not move** (3.54, 3.51, against 4.10): its deficit is not the grid at these resolutions. Candidates are the inflow's outer-layer
+  content (the filter's integral lengths), the span of the box ($6\,\delta_i\approx3.4\,\delta$ at the station), and the dissipation of the hybrid
+  scheme in the intermittent outer layer, where the sensor (not calibrated) can switch WENO on.
 
 ### Mach 5.86, cold wall
 
@@ -420,7 +455,9 @@ $\tau_w$.
 - **The outer layer has the Mach 2.5 faults, larger.** $H$ is 30 % low and $\delta$ 6 % thin; $u_{rms}$ peaks at 1.7 times the DNS's at
   $y/\delta=0.2$, and $u^+_{VD}$ is 1.5 below the DNS at $y^+=30$ (the first
   cells under the matching point) and 0.7–1.3 above it at $y^+=100$–$200$. At $\delta_i/12$ the layer of $Re_\tau=453$ has about 20 cells across
-  $\delta$; the wall quantities do not depend on resolving it.
+  $\delta$. At Mach 2.5 a finer grid moves the log layer and the stresses toward the DNS but leaves $H$ where it is, so the $H$ deficit is not
+  resolution at these grids ([resolution](#resolution-mach-2-5-at-delta-i-16)). The viscosity, matched at the wall, is 1.41 times the DNS's in
+  the free stream: a confound of the outer layer here that Sutherland's law (`viscosity_law = sutherland`) removes.
 - **The momentum integral is useless here too** ($-62$ % at the station, negative in places).
 
 ## Not done
@@ -428,6 +465,6 @@ $\tau_w$.
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
-- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: a resolution ladder and the matching height, a longer window at Mach 5.86; SBLI; runtime regridding along a modelled wall; mean profiles
+- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: the matching height, the $H$ deficit (inflow lengths, span, sensor), a longer window at Mach 5.86, Mach 5.86 under Sutherland's law; SBLI; runtime regridding along a modelled wall; mean profiles
   against the DNS; the relaminarisation of the inverse model on $96\times48\times48$ with $u_e = 1.18$; an edge state taken from the flow.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.

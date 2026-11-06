@@ -1,0 +1,5 @@
+# The Mach 2.5 layer of tbl_cases_t37_l90.txt at delta_i / 16 (1440 x 96 x 96 cells, the second point of the resolution ladder): the same box, wall model
+# and inflow, the matching point still the 3rd cell (so h shrinks with the grid, as in Kawai & Larsson 2012), the digital filter's node spacing the new dy.
+# Does the outer layer (H 14 % low, u_rms high, u+_VD 1 high at delta_i / 12) move toward the DNS? Two phases: to t = 180, then the line edited to
+# `--time-max 360 --it-save 600` and the done marker removed.
+m2p5-wm-r16 1440 96 96 --lx 90 --ly 6 --lz 6 --levels 2 --wm-eddy-viscosity --wall-history 20 --time-max 180

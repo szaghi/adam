@@ -2499,6 +2499,64 @@ def fig_tbl_m6(out: Path, runs: Path) -> None:
     _fig_tbl(out, runs, "m6tw076-wm", "M6Tw076_Stat.txt", "tbl-m6.png", 50.0, 3.0, re_inf=137350.0, show_bq=True)
 
 
+def fig_tbl_m2p5_res(out: Path, runs: Path) -> None:
+    """T3.7 (issue #119): the Mach 2.5 boundary layer at delta_i / 12 (tbl_cases_t37_l90.txt) and delta_i / 16 (tbl_cases_t37_r16.txt), the
+    same box, wall model and inflow, the matching point the 3rd cell in both, against the DNS (tbl_oracle.py compare of each, 180 < t <= 360).
+    Left C_f from the wall model's tau_w against x, the DNS at its station; middle u+_VD at the station of the DNS's Re_theta, each with its own
+    u_tau; right the rms of u, v, w and -<u'v'> over u_tau against y / delta (solid delta_i / 16, dashed delta_i / 12, black the DNS)."""
+    import json  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import tbl_oracle as to  # noqa: PLC0415
+
+    stat = HERE / "turbulence" / "reference" / "M2p5_Stat.txt"
+    res = {}
+    for case, lab in (("m2p5-wm-l90", r"$\delta_i/12$"), ("m2p5-wm-r16", r"$\delta_i/16$")):
+        work = runs / "tbl" / case
+        if not work.exists():
+            raise FileNotFoundError(work)
+        with tempfile.TemporaryDirectory() as tmp:
+            js = Path(tmp) / "tbl.json"
+            to.compare(str(work), str(stat), 180.0001, str(js))
+            res[lab] = json.loads(js.read_text())
+    _, d = to.read_stat(stat)
+    fig, axs = plt.subplots(1, 3, figsize=(14.0, 4.0), constrained_layout=True)
+    for (lab, j), ls in zip(res.items(), ("--", "-"), strict=True):
+        x = np.array(j["x"])
+        cf = np.array([np.nan if c is None else c for c in j["cf"]])
+        ist = j["station"]
+        axs[0].plot(x, cf * 1e3, color="C0", ls=ls, lw=1.2, label=f"{lab}: {cf[ist] * 1e3:.3f} at x = {x[ist]:.1f}")
+        axs[1].semilogx(j["yplus"], j["uvd"], color="C0", ls=ls, marker="o", ms=2.5, label=lab)
+        eta = np.array(j["y"]) / j["delta_station"]
+        for k, c in zip(("u", "v", "w"), ("C0", "C1", "C2"), strict=True):
+            axs[2].plot(eta, j["rms"][k], color=c, ls=ls, lw=1.0)
+        axs[2].plot(eta, -np.array(j["uv"]), color="C3", ls=ls, lw=1.0)
+    j = next(iter(res.values()))
+    axs[0].plot([j["x"][j["station"]]], [j["cf_dns"] * 1e3], "ks", label=f"DNS {j['cf_dns'] * 1e3:.3f}")
+    axs[0].set_xlabel(r"$x/\delta_i$")
+    axs[0].set_ylabel(r"$C_f\times10^3$ (wall model's $\tau_w$)")
+    axs[0].set_ylim(0.0, 3.5)
+    axs[1].semilogx(d[1:, 2], d[1:, 24], "k-", lw=1.0, label="DNS")
+    axs[1].set_xlim(1.0, 3000.0)
+    axs[1].set_xlabel(r"$y^+$")
+    axs[1].set_ylabel(r"$u^+_{VD}$")
+    for col, c in ((8, "C0"), (10, "C1"), (9, "C2")):
+        axs[2].plot(d[:, 1], d[:, col], color=c, ls=":", lw=1.2)
+    axs[2].plot(d[:, 1], -d[:, 15], color="C3", ls=":", lw=1.2)
+    axs[2].plot([], [], "k-", label=r"$\delta_i/16$")
+    axs[2].plot([], [], "k--", label=r"$\delta_i/12$")
+    axs[2].plot([], [], "k:", label="DNS")
+    axs[2].set_xlim(0.0, 1.3)
+    axs[2].set_xlabel(r"$y/\delta$")
+    axs[2].set_ylabel(r"$u_{rms}, v_{rms}, w_{rms}$ (C0, C1, C2), $-\langle u'v'\rangle$ (C3) over $u_\tau$")
+    for ax in axs:
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.savefig(out / "tbl-m2p5-res.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_barotropic_eos(out: Path, runs: Path) -> None:
     """EO barotropic (issue #100, P3): the piecewise polytrope (CPU). Top left: the eb1 tube on the convex table POLY
     (densities 2, 8; exponents 1, 1.4, 5/3) at t = 0.15, 1600 cells, against the exact solution (eos_oracle.py): the
@@ -4106,7 +4164,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
-           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6,
+           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,
