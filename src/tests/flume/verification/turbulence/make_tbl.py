@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write a compressible turbulent boundary layer input of issue #119 T3.7, from make_channel.py's template: a wall at y = 0, inflow at x = 0 through the
 digital-filter face, extrapolated outflow and top, periodic z, the inflow thickness delta_i = 1 and rho = U = 1 in the free stream, so `reynolds` is
-U_inf delta_i / nu_inf (the viscosity a power law of the temperature with the free-stream reference) and T_inf = 1 / (gamma M^2) (R = 1)."""
+U_inf delta_i / nu_inf (the viscosity a power law of the temperature, or Sutherland's law, with the free-stream reference) and T_inf = 1 / (gamma M^2) (R = 1)."""
 
 from __future__ import annotations
 
@@ -43,6 +43,8 @@ def main() -> int:
     ap.add_argument("--mach", type=float, default=2.5)
     ap.add_argument("--reynolds", type=float, default=19370.0, help="U_inf delta_i / nu_inf (M2p5: 4.84e6 /m times delta_i 4 mm)")
     ap.add_argument("--power-law", type=float, default=0.76, help="viscosity (T / T_inf)^this")
+    ap.add_argument("--sutherland", type=float, default=0.0,
+                    help="Sutherland's law instead of the power law, S / T_inf (air: 110.4 K over T_inf in K; 0: the power law)")
     ap.add_argument("--wall-heat", type=float, default=2.1037, help="T_w / T_inf (M2p5: 568 / 270)")
     ap.add_argument("--wall", default="wall-modelled")
     ap.add_argument("--wm-height", type=float, default=0.0)
@@ -83,8 +85,11 @@ def main() -> int:
     text = section(text, "grid", grid)
     text = section(text, "amr", {"max_level": str(args.levels), "ratio": "8", "iu_ref_levels": str(args.levels), "frequency": "0", "markers_number": "0"})
     text = section(text, "weno", {"scheme": "weno-u-5", "weights": "si"})
-    text = section(text, "physics", {"cp": "3.5", "cv": "2.5", "reynolds": str(args.reynolds), "prandtl": "0.71", "viscosity_law": "power-law",
-                                     "viscosity_exponent": str(args.power_law), "reference_temperature": repr(t_inf)})
+    law = {"viscosity_law": "power-law", "viscosity_exponent": str(args.power_law)}
+    if args.sutherland > 0.0:
+        law = {"viscosity_law": "sutherland", "sutherland_temperature": repr(args.sutherland * t_inf)}
+    text = section(text, "physics", {"cp": "3.5", "cv": "2.5", "reynolds": str(args.reynolds), "prandtl": "0.71", **law,
+                                     "reference_temperature": repr(t_inf)})
     text = section(text, "numerics", {"scheme_space": args.scheme_space})
     dx = args.lx / args.nx
     dy = args.ly / args.ny

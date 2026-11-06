@@ -47,15 +47,35 @@ CASES: dict[str, tuple[str, str, dict[str, dict[str, str]], str]] = {
     "power-law-inviscid": ("refuse", "euler", {"physics": {"viscosity_law": "power-law"}},
                            "(viscosity_law)=power-law needs a viscosity"),
     "power-law-keys-alone": ("refuse", "euler", {"physics": {"viscosity": "0.01", "viscosity_exponent": "0.7"}},
-                             "(viscosity_exponent, reference_temperature) need [physics].(viscosity_law)=power-law"),
+                             "(viscosity_exponent, reference_temperature, sutherland_temperature) need [physics].(viscosity_law)=power-law or "
+                             "sutherland"),
     "power-law-no-temperature": ("refuse", "euler", {"physics": {"viscosity": "0.01", "viscosity_law": "power-law",
                                                                  "viscosity_exponent": "0.7"}},
                                  "failed to load [physics].(reference_temperature)"),
     "negative-exponent": ("refuse", "euler", {"physics": {"viscosity": "0.01", "viscosity_law": "power-law",
                                                           "viscosity_exponent": "-0.5", "reference_temperature": "1.0"}},
                           "(viscosity_exponent) must not be negative"),
-    "unknown-law": ("refuse", "euler", {"physics": {"viscosity": "0.01", "viscosity_law": "sutherland"}},
-                    'unknown [physics].(viscosity_law) "sutherland"'),
+    "unknown-law": ("refuse", "euler", {"physics": {"viscosity": "0.01", "viscosity_law": "sutherlands"}},
+                    'unknown [physics].(viscosity_law) "sutherlands"'),
+    "sutherland-inviscid": ("refuse", "euler", {"physics": {"viscosity_law": "sutherland"}},
+                            "(viscosity_law)=sutherland needs a viscosity"),
+    "sutherland-no-constant": ("refuse", "euler", {"physics": {"viscosity": "0.01", "viscosity_law": "sutherland",
+                                                               "reference_temperature": "1.0"}},
+                               "failed to load [physics].(sutherland_temperature)"),
+    "sutherland-exponent": ("refuse", "euler", {"physics": {"viscosity": "0.01", "viscosity_law": "sutherland",
+                                                            "viscosity_exponent": "0.7"}},
+                            "(viscosity_exponent) is fixed (3/2) by [physics].(viscosity_law)=sutherland"),
+    "sutherland-negative": ("refuse", "euler", {"physics": {"viscosity": "0.01", "viscosity_law": "sutherland",
+                                                            "reference_temperature": "1.0",
+                                                            "sutherland_temperature": "-0.4"}},
+                            "(sutherland_temperature) must be positive"),
+    "kelvin-negative": ("refuse", "euler", {"physics": {"temperature_unit_kelvin": "-1.0"}},
+                        "(temperature_unit_kelvin) must be positive"),
+    "power-law-sutherland-key": ("refuse", "euler", {"physics": {"viscosity": "0.01", "viscosity_law": "power-law",
+                                                                 "viscosity_exponent": "0.7",
+                                                                 "reference_temperature": "1.0",
+                                                                 "sutherland_temperature": "0.4"}},
+                                 "(sutherland_temperature) needs [physics].(viscosity_law)=sutherland"),
     "order-3": ("refuse", "euler", {"numerics": {"dissipative_order": "3"}}, "(dissipative_order) must be 2 or 4"),
     "limiter": ("refuse", "euler", {"physics": {"viscosity": "0.01"}, "numerics": {"positivity_limiter": "cell"}},
                 "(positivity_limiter)=cell is refused with dissipative terms"),
@@ -71,6 +91,10 @@ CASES: dict[str, tuple[str, str, dict[str, dict[str, str]], str]] = {
     "reynolds": ("log", "euler", {"physics": {"reynolds": "64.0", "prandtl": "0.75"}, "time": SHORT}, ""),
     "coefficients": ("log", "euler", {"physics": {"viscosity": "0.015625", "conductivity": "0.03125"},
                                       "time": SHORT}, ""),
+    # Sutherland's S from the kelvin anchor: 110.4 K over 1024 K per code temperature unit, logged exactly
+    "sutherland-kelvin": ("log", "euler", {"physics": {"viscosity": "0.015625", "viscosity_law": "sutherland",
+                                                       "reference_temperature": "0.25", "temperature_unit_kelvin": "1024.0"},
+                                           "time": SHORT}, ""),
     "magnetic-reynolds": ("log", "mhd", {"physics": {"magnetic_reynolds": "128.0", "reynolds": "32.0"},
                                          "time": SHORT}, ""),
     "zero": ("ideal", "euler", {"physics": {"viscosity": "0.0", "conductivity": "0.0"},
@@ -80,6 +104,20 @@ CASES: dict[str, tuple[str, str, dict[str, dict[str, str]], str]] = {
                                                    "reference_temperature": "1.5"},
                                        "bc_x_max": {"type": "wall-isothermal", "wall_temperature": "0.9",
                                                     "wall_v": "0.1"}, "time": SHORT}, ""),
+    # Sutherland's law with the Prandtl conductivity and an isothermal wall 1.2 times as hot as the gas (sod-x's right state is
+    # T = 0.8 / 297.144 in the units of its cp, cv); S / T_ref = 0.4 as air near 276 K. The power-law case's wall, 330 times
+    # hotter than the gas, goes non-finite at step 1 with a Prandtl conductivity under either law (also before Sutherland).
+    "reference-sutherland": ("convert", "euler", {"physics": {"viscosity": "0.015625", "prandtl": "0.75",
+                                                              "viscosity_law": "sutherland", "reference_temperature": "0.0025",
+                                                              "sutherland_temperature": "0.001"},
+                                                  "bc_x_max": {"type": "wall-isothermal", "wall_temperature": "0.00325"},
+                                                  "time": SHORT}, ""),
+    # the anchor through the layer: kelvin per input temperature unit, converted by u0^2 / R; S from it (no S key)
+    "reference-kelvin": ("convert", "euler", {"physics": {"viscosity": "0.015625", "prandtl": "0.75",
+                                                          "viscosity_law": "sutherland", "reference_temperature": "0.0025",
+                                                          "temperature_unit_kelvin": "110400.0"},
+                                              "bc_x_max": {"type": "wall-isothermal", "wall_temperature": "0.00325"},
+                                              "time": SHORT}, ""),
     "reference-mhd": ("convert", "mhd", {"physics": {"resistivity": "0.0078125", "viscosity": "0.03125"},
                                          "time": SHORT}, ""),
     "lundquist-reference": ("convert-refuse", "mhd", {"physics": {"lundquist": "50.0"}},
@@ -125,6 +163,14 @@ def check_log(log: Path, base: Path, name: str) -> int:
             if line.startswith("[mpi-00000]") and label in line:
                 logged[label] = float(line.split(label)[1].split()[0])
     status = 0
+    if keys.get("viscosity_law") == "sutherland":  # S logged exactly: the key, or 110.4 K over the kelvin anchor
+        s_exp = float(keys["sutherland_temperature"]) if "sutherland_temperature" in keys \
+            else 110.4 / float(keys["temperature_unit_kelvin"])
+        s_log = next((float(line.split("S ")[1].split(",")[0]) for line in log.read_text(errors="replace").splitlines()
+                      if line.startswith("[mpi-00000]") and "Sutherland law:" in line), None)
+        ok = s_log == s_exp
+        status |= int(not ok)
+        print(f"   {'Sutherland S:':18s} logged {s_log!r}, expected {s_exp!r}  {'PASS' if ok else 'FAIL'}")
     for label, expected in (("viscosity mu:", mu), ("conductivity k:", k), ("resistivity eta:", eta)):
         if label not in logged and expected == 0.0:
             continue  # Euler logs no resistivity

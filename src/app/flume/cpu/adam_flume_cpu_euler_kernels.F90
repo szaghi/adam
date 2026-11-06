@@ -71,7 +71,7 @@ contains
    !$omp end parallel do
    endsubroutine compute_lambda_max
 
-   subroutine compute_lambda_max_dissipative(ni, nj, nk, ngc, blocks_number, gamma, R, cp, mu0, k0, eta, t_wall, tref, &
+   subroutine compute_lambda_max_dissipative(ni, nj, nk, ngc, blocks_number, gamma, R, cp, mu0, k0, eta, t_wall, tref, suth, &
                                              omega_mu, omega_k, dxyz, is_null, q, lambda_max, lambda_hyp, lambda_dif,  &
                                              re_cell_min)
    !< Compute `max(sum_d (|u_d| + a) / dx_d + 2 nu sum_d 1 / dx_d^2)` over the interior cells (issue #65, D-M4-3), `nu`
@@ -82,7 +82,7 @@ contains
    real(R8P),    intent(in)  :: gamma, R, cp                  !< Specific heats ratio, gas constant, cp.
    real(R8P),    intent(in)  :: mu0, k0, eta                  !< Dissipative coefficients.
    real(R8P),    intent(in)  :: t_wall                        !< Hottest isothermal wall temperature, 0 if none.
-   real(R8P),    intent(in)  :: tref, omega_mu, omega_k       !< Temperature laws.
+   real(R8P),    intent(in)  :: tref, suth, omega_mu, omega_k       !< Temperature laws.
    real(R8P),    intent(in)  :: dxyz(1:,1:)                   !< Blocks space steps [3, nb].
    logical,      intent(in)  :: is_null(3)                    !< Null directions.
    real(R8P),    intent(in)  :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
@@ -105,7 +105,7 @@ contains
                call conservative_to_auxiliary(gamma=gamma, R=R, q=q(:,i,j,k,b), qa=qa)
                lh = sum([((abs(qa(IA_U+d-1)) + qa(IA_A)) / dxyz(d,b), d=1, 3)], mask=.not.is_null)
                ld = 2._R8P * dissipative_diffusivity(rho=qa(IA_R), T=qa(IA_T), t_wall=t_wall, gamma=gamma, cp=cp, mu0=mu0, k0=k0, &
-                                                     eta=eta, tref=tref, omega_mu=omega_mu, omega_k=omega_k) *     &
+                                                     eta=eta, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k) *     &
                     sum([(1._R8P / dxyz(d,b)**2, d=1, 3)], mask=.not.is_null)
                lambda_max = max(lambda_max, lh + ld)
                lambda_hyp = max(lambda_hyp, lh)

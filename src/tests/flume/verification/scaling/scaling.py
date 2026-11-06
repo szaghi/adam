@@ -87,6 +87,7 @@ NO_IC = ("orszag-tang",)
 # dimensions of the reference layer (dimensionalize), beyond the ones above
 MOMENTUM = (0, 1, 1)
 VELOCITY2 = (0, 2, 0)
+PER_TEMPERATURE = (0, -2, 0)  # temperature_unit_kelvin: kelvin per temperature unit, the inverse of a temperature
 PSI_GLM = (0, 2, 0.5)
 FIELD_PER_LENGTH = (-1, 1, 0.5)
 VISCOSITY = (1, 1, 1)      # dynamic viscosity rho u L; the conductivity too: the layer divides it by R and the base
@@ -99,7 +100,8 @@ FULL_KEYS = {
     "physics": {"physical_model": NONE, "gamma": NONE, "cp": NONE, "cv": NONE,  # cp, cv: the layer makes gamma
                 "viscosity": VISCOSITY, "conductivity": VISCOSITY, "resistivity": DIFFUSIVITY, "reynolds": NONE,
                 "prandtl": NONE, "magnetic_reynolds": NONE, "lundquist": NONE, "viscosity_law": NONE,
-                "viscosity_exponent": NONE, "reference_temperature": VELOCITY2},
+                "viscosity_exponent": NONE, "reference_temperature": VELOCITY2,
+                "sutherland_temperature": VELOCITY2, "temperature_unit_kelvin": PER_TEMPERATURE},
     "gravity": {"froude": NONE, "axis": NONE, "equilibrium": NONE, "potential": NONE,
                 "self_gravity": NONE, "G_star": NONE, "poisson_solver": NONE, "poisson_bc": NONE,
                 "G": GRAV_CONST,  # issue #81: G converts, G_star = G rho0 L0^2 / u0^2 does not
@@ -294,9 +296,9 @@ def check_log(args: argparse.Namespace) -> int:
             if classify(ini, section, key) == NONE or (key == "glm_damping_length" and text == "min-cell"):
                 continue
             base = float(text)
-            if key in ("wall_temperature", "reference_temperature", "wall_model_edge_temperature"):
+            if key in ("wall_temperature", "reference_temperature", "sutherland_temperature", "wall_model_edge_temperature"):
                 base = base * gas
-            elif key == "conductivity":
+            elif key in ("conductivity", "temperature_unit_kelvin"):
                 base = base / gas
             if (section, key) not in logged:
                 print(f"   [{section}] {key}: not converted")

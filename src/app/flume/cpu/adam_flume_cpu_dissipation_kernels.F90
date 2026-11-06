@@ -56,7 +56,7 @@ integer(I4P), parameter :: IB(3)=[IA_BX, IA_BY, IA_BZ]     !< Auxiliary indexes 
 
 contains
    ! public procedures
-   subroutine add_dissipative_fluxes_o2(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, mu0, k0, tref, omega_mu, omega_k, &
+   subroutine add_dissipative_fluxes_o2(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, mu0, k0, tref, suth, omega_mu, omega_k, &
                                         dxyz, is_null, q_aux, fl)
    !< Add the 2nd-order dissipative face fluxes of direction `d` to `fl`.
    integer(I4P), intent(in)    :: d                                 !< Direction, 1=x, 2=y, 3=z.
@@ -64,7 +64,7 @@ contains
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
    real(R8P),    intent(in)    :: mu0, k0                           !< Viscosity and conductivity.
-   real(R8P),    intent(in)    :: tref, omega_mu, omega_k           !< Temperature laws.
+   real(R8P),    intent(in)    :: tref, suth, omega_mu, omega_k           !< Temperature laws.
    real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
    logical,      intent(in)    :: is_null(3)                        !< Null directions.
    real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
@@ -97,7 +97,7 @@ contains
                                                    q_aux(IW,c(1)-o(1,t),c(2)-o(2,t),c(3)-o(3,t),b))
                   endif
                enddo
-               call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, &
+               call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k, &
                                              w=0.5_R8P * (w0 + w1), g=g, f=h)
                fl(IQ_RU:IQ_RU+3,i,j,k,b) = fl(IQ_RU:IQ_RU+3,i,j,k,b) + h
             enddo
@@ -107,7 +107,7 @@ contains
    !$omp end parallel do
    endsubroutine add_dissipative_fluxes_o2
 
-   subroutine add_dissipative_fluxes_o4(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, mu0, k0, tref, omega_mu, omega_k, &
+   subroutine add_dissipative_fluxes_o4(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, mu0, k0, tref, suth, omega_mu, omega_k, &
                                         dxyz, is_null, q_aux, fl)
    !< Add the 4th-order conservative dissipative face fluxes of direction `d` to `fl`.
    integer(I4P), intent(in)    :: d                                 !< Direction, 1=x, 2=y, 3=z.
@@ -115,7 +115,7 @@ contains
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
    real(R8P),    intent(in)    :: mu0, k0                           !< Viscosity and conductivity.
-   real(R8P),    intent(in)    :: tref, omega_mu, omega_k           !< Temperature laws.
+   real(R8P),    intent(in)    :: tref, suth, omega_mu, omega_k           !< Temperature laws.
    real(R8P),    intent(in)    :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
    logical,      intent(in)    :: is_null(3)                        !< Null directions.
    real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
@@ -160,7 +160,7 @@ contains
                ! across a strong temperature jump the 4-point face value undershoots, possibly below zero, where a
                ! power law (T / tref)^omega is NaN: there the face temperature is the mean of its two cells
                if (.not.(wf(4) > 0._R8P)) wf(4) = 0.5_R8P * (wm(4,0) + wm(4,1))
-               call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, &
+               call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k, &
                                              w=wf, g=g, f=h)
                ! Shu-Osher correction from the cell fluxes, 2nd-order central gradients
                do m=-1, 2
@@ -169,7 +169,7 @@ contains
                      g(:,t) = 0.5_R8P * rdx(t) * (q_aux(IW,c(1)+o(1,t),c(2)+o(2,t),c(3)+o(3,t),b) - &
                                                   q_aux(IW,c(1)-o(1,t),c(2)-o(2,t),c(3)-o(3,t),b))
                   enddo
-                  call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, &
+                  call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k, &
                                                 w=wm(:,m), g=g, f=gm(:,m))
                enddo
                h = h - (gm(:,2) - gm(:,1) - gm(:,0) + gm(:,-1)) / 48._R8P
@@ -228,7 +228,7 @@ contains
                   endif
                enddo
                mf = 0.5_R8P * (mu_t(i,j,k,b) + mu_t(i+di,j+dj,k+dk,b))
-               call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+               call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
                                              w=0.5_R8P * (w0 + w1), g=g, f=h)
                fl(IQ_RU:IQ_RU+3,i,j,k,b) = fl(IQ_RU:IQ_RU+3,i,j,k,b) + h
             enddo
@@ -298,7 +298,7 @@ contains
                ! power law (T / tref)^omega is NaN: there the face temperature is the mean of its two cells
                if (.not.(wf(4) > 0._R8P)) wf(4) = 0.5_R8P * (wm(4,0) + wm(4,1))
                mf = 0.5_R8P * (mu_t(i,j,k,b) + mu_t(i+di,j+dj,k+dk,b))
-               call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+               call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
                                              w=wf, g=g, f=h)
                ! Shu-Osher correction from the cell fluxes, 2nd-order central gradients
                do m=-1, 2
@@ -308,7 +308,7 @@ contains
                                                   q_aux(IW,c(1)-o(1,t),c(2)-o(2,t),c(3)-o(3,t),b))
                   enddo
                   mf = mu_t(c(1),c(2),c(3),b)
-                  call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+                  call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
                                                 w=wm(:,m), g=g, f=gm(:,m))
                enddo
                h = h - (gm(:,2) - gm(:,1) - gm(:,0) + gm(:,-1)) / 48._R8P
@@ -351,7 +351,7 @@ contains
                   g(a,3) = (8._R8P * (q_aux(IA_U+a-1,i,j,k+s(3),b) - q_aux(IA_U+a-1,i,j,k-s(3),b)) -     &
                             (q_aux(IA_U+a-1,i,j,k+2*s(3),b) - q_aux(IA_U+a-1,i,j,k-2*s(3),b))) * rdx(3) / 12._R8P
                enddo
-               call compute_turbulence_integrands(mu0=mu_t(i,j,k,b), tref=1._R8P, omega_mu=0._R8P, rho=q_aux(IA_R,i,j,k,b), &
+               call compute_turbulence_integrands(mu0=mu_t(i,j,k,b), tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, rho=q_aux(IA_R,i,j,k,b), &
                                                   p=q_aux(IA_P,i,j,k,b), T=q_aux(IA_T,i,j,k,b),                        &
                                                   u=q_aux(IA_U:IA_W,i,j,k,b), g=g, f=f)
                eps = eps + f(5) * dxyz(1,b) * dxyz(2,b) * dxyz(3,b)
@@ -388,13 +388,13 @@ contains
    enddo
    endsubroutine compute_lambda_sgs
 
-   subroutine compute_turbulence_integrals(ni, nj, nk, ngc, blocks_number, mu0, tref, omega_mu, dxyz, is_null, q_aux, &
+   subroutine compute_turbulence_integrals(ni, nj, nk, ngc, blocks_number, mu0, tref, suth, omega_mu, dxyz, is_null, q_aux, &
                                            integrals)
    !< Compute the volume integrals of the turbulence history over the interior cells of this rank (issue #119, T0.1), from
    !< 4th-order central velocity gradients; the volume includes the null directions, whose gradients are zero (issue #37).
    integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)  :: blocks_number                     !< Actual blocks number.
-   real(R8P),    intent(in)  :: mu0, tref, omega_mu               !< Viscosity law.
+   real(R8P),    intent(in)  :: mu0, tref, suth, omega_mu               !< Viscosity law.
    real(R8P),    intent(in)  :: dxyz(1:,1:)                       !< Blocks space steps [3, nb].
    logical,      intent(in)  :: is_null(3)                        !< Null directions.
    real(R8P),    intent(in)  :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
@@ -420,7 +420,7 @@ contains
                   g(a,3) = (8._R8P * (q_aux(IA_U+a-1,i,j,k+s(3),b) - q_aux(IA_U+a-1,i,j,k-s(3),b)) -     &
                             (q_aux(IA_U+a-1,i,j,k+2*s(3),b) - q_aux(IA_U+a-1,i,j,k-2*s(3),b))) * rdx(3) / 12._R8P
                enddo
-               call compute_turbulence_integrands(mu0=mu0, tref=tref, omega_mu=omega_mu, rho=q_aux(IA_R,i,j,k,b),       &
+               call compute_turbulence_integrands(mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, rho=q_aux(IA_R,i,j,k,b),       &
                                                   p=q_aux(IA_P,i,j,k,b), T=q_aux(IA_T,i,j,k,b),                        &
                                                   u=q_aux(IA_U:IA_W,i,j,k,b), g=g, f=f)
                integrals = integrals + f * dxyz(1,b) * dxyz(2,b) * dxyz(3,b)

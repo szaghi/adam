@@ -527,7 +527,7 @@ contains
    !< variables of the stage: the viscous and heat fluxes when a viscosity or a conductivity is on, the Ohmic ones
    !< (MHD) when the resistivity is; the kernel of the order is selected here, never inside the loops.
    class(flume_cpu_object), intent(inout) :: self              !< The equation.
-   real(R8P)                              :: tref              !< Reference temperature of the laws.
+   real(R8P)                              :: tref, suth        !< Reference temperature, Sutherland constant (0: power law).
    real(R8P)                              :: omega_mu, omega_k !< Exponents of the laws.
    procedure(add_dissipative_fluxes_o4), pointer :: add_fluxes  !< Viscous kernel of the order.
    procedure(add_resistive_fluxes_o4),   pointer :: add_ohmic   !< Ohmic kernel of the order.
@@ -535,7 +535,7 @@ contains
    integer(I4P)                           :: d                 !< Direction counter.
    integer(I4P)                           :: e(3)              !< Unit step along `d`.
 
-   call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+   call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k)
    select case(self%numerics%dissipative_order)
    case(2_I4P)
       add_fluxes => add_dissipative_fluxes_o2
@@ -557,19 +557,19 @@ contains
       select case(d)
       case(1)
          if (has_viscous) call add_fluxes(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
-                                          mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, dxyz=dxyz,     &
+                                          mu0=mu0, k0=k0, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k, dxyz=dxyz,     &
                                           is_null=is_null, q_aux=self%q_aux, fl=self%flx_f)
          if (has_ohmic) call add_ohmic(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,   &
                                        eta=eta, dxyz=dxyz, is_null=is_null, q_aux=self%q_aux, fl=self%flx_f)
       case(2)
          if (has_viscous) call add_fluxes(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
-                                          mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, dxyz=dxyz,     &
+                                          mu0=mu0, k0=k0, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k, dxyz=dxyz,     &
                                           is_null=is_null, q_aux=self%q_aux, fl=self%fly_f)
          if (has_ohmic) call add_ohmic(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,   &
                                        eta=eta, dxyz=dxyz, is_null=is_null, q_aux=self%q_aux, fl=self%fly_f)
       case(3)
          if (has_viscous) call add_fluxes(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, &
-                                          mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, dxyz=dxyz,     &
+                                          mu0=mu0, k0=k0, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k, dxyz=dxyz,     &
                                           is_null=is_null, q_aux=self%q_aux, fl=self%flz_f)
          if (has_ohmic) call add_ohmic(d=d, di=e(1), dj=e(2), dk=e(3), ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,   &
                                        eta=eta, dxyz=dxyz, is_null=is_null, q_aux=self%q_aux, fl=self%flz_f)
@@ -929,24 +929,24 @@ contains
    subroutine overwrite_wall_model_fluxes(self)
    !< The wall-face fluxes of the wall model, after every other dissipative flux (issue #119, T3.3).
    class(flume_cpu_object), intent(inout) :: self !< The equation.
-   real(R8P)                              :: tref, omega_mu, omega_k, mu0 !< Laws.
+   real(R8P)                              :: tref, suth, omega_mu, omega_k, mu0 !< Laws.
    logical                                :: commit !< The input filter takes this sample: the first evaluation of a step.
    real(R8P)                              :: tf(6)  !< Filter times: none for the equilibrium residual (a steady state, no history).
 
-   call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+   call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k)
    mu0 = self%physics%dissipation%mu
    commit = self%time%it /= self%wm_filter_it .and. .not.self%equilibrium_computing
    tf = merge(0._R8P, self%bc%wm_filter, self%equilibrium_computing)
    if (.not.self%adam%grid%null_xyz(1)) call overwrite_wall_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
-        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
+        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
         faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
         tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_x, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flx_f)
    if (.not.self%adam%grid%null_xyz(2)) call overwrite_wall_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
-        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
+        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
         faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
         tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_y, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%fly_f)
    if (.not.self%adam%grid%null_xyz(3)) call overwrite_wall_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
-        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, &
+        blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
         faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
         tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_z, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flz_f)
    if (commit) then
@@ -969,7 +969,7 @@ contains
    class(flume_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: d    !< Direction counter.
    integer(I4P)                           :: e(3) !< Unit step along `d`.
-   real(R8P)                              :: tref, omega_mu, omega_k !< Viscosity and conductivity laws.
+   real(R8P)                              :: tref, suth, omega_mu, omega_k !< Viscosity and conductivity laws.
 
    if (.not.self%turbulence%is_active) then ! the wall model's eddy viscosity alone (#119): it raises a zero field
       self%mu_t = 0._R8P
@@ -1001,13 +1001,13 @@ contains
    endif
    ! issue #119: the wall model's eddy viscosity below h, after the hybrid mask (a drained wall cell is often flagged, and it is the one that needs it)
    if (self%has_wm_viscosity) then
-      call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+      call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k)
       do d=1, 3
          if (self%adam%grid%null_xyz(d)) cycle
          e = 0_I4P ; e(d) = 1_I4P
          call add_wall_mu_t(d=d, di=e(1), dj=e(2), dk=e(3), ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                             gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=self%physics%dissipation%mu,     &
-                            tref=tref, omega_mu=omega_mu, faces=self%wm_faces,                                                                    &
+                            tref=tref, suth=suth, omega_mu=omega_mu, faces=self%wm_faces,                                                                    &
                             ev=self%bc%wm_viscosity .and. self%bc%wall_modelled, tw=self%bc%wall_temperature, hwm=self%bc%wm_height,                &
                             sl=self%bc%wm_semilocal, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t,                           &
                             is_null=self%adam%grid%null_xyz, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, mu_t=self%mu_t)
@@ -1042,7 +1042,7 @@ contains
    type(realm_pointer),     intent(inout), optional, target :: realm(:)     !< Sibling realms.
    real(R8P)                                                :: integrals(7) !< Integrals (K, Z, eps_s, eps_d, eps, pd, eps_sgs).
    integer(I4P)                                             :: n            !< Columns.
-   real(R8P)                                                :: tref         !< Reference temperature of the law.
+   real(R8P)                                                :: tref, suth   !< Reference temperature, Sutherland constant (0: power law).
    real(R8P)                                                :: omega_mu     !< Exponent of the law.
    real(R8P)                                                :: omega_k      !< Conductivity exponent (unused).
    real(R8P)                                                :: factors(7)   !< Output factors of the columns.
@@ -1052,9 +1052,9 @@ contains
    call self%update_ghost(q=self%q)
    if (present(realm)) call seam_fill_all(self=self, realm=realm)
    call self%compute_q_aux(q=self%q)
-   call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+   call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k)
    call compute_turbulence_integrals(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                                    mu0=self%physics%dissipation%mu, tref=tref, omega_mu=omega_mu, &
+                                    mu0=self%physics%dissipation%mu, tref=tref, suth=suth, omega_mu=omega_mu, &
                                     dxyz=self%adam%field%dxyz, is_null=self%adam%grid%null_xyz, q_aux=self%q_aux, &
                                     integrals=integrals(1:6))
    n = 6_I4P
@@ -2391,7 +2391,7 @@ contains
    real(R8P)                            :: lambda_hyp  !< Maximum of the hyperbolic part (dissipative runs).
    real(R8P)                            :: lambda_dif  !< Maximum of the diffusive part (dissipative runs).
    real(R8P)                            :: re_cell_min !< Minimum cell Reynolds number (dissipative runs).
-   real(R8P)                            :: tref        !< Reference temperature of the laws.
+   real(R8P)                            :: tref, suth  !< Reference temperature, Sutherland constant (0: power law).
    real(R8P)                            :: omega_mu    !< Viscosity law exponent.
    real(R8P)                            :: omega_k     !< Conductivity law exponent.
    procedure(compute_lambda_max_dissipative_euler), pointer :: lambda_dissipative !< Kernel of the model.
@@ -2424,11 +2424,11 @@ contains
          call mpih%error_stop(msg=': no dissipative time step kernels for physical model "'// &
                                   self%physics%physical_model//'"')
       endselect
-      call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+      call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k)
       call lambda_dissipative(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number,   &
                               gamma=self%physics%gamma, R=self%physics%R, cp=self%physics%cp,                       &
                               mu0=self%physics%dissipation%mu, k0=self%physics%dissipation%k,                       &
-                              eta=self%physics%dissipation%eta, t_wall=self%wall_temperature_bound(), tref=tref,   &
+                              eta=self%physics%dissipation%eta, t_wall=self%wall_temperature_bound(), tref=tref, suth=suth,   &
                               omega_mu=omega_mu, omega_k=omega_k, dxyz=self%adam%field%dxyz, &
                                     is_null=self%adam%grid%null_xyz, &
                               q=self%q, lambda_max=lambda_max, lambda_hyp=lambda_hyp, lambda_dif=lambda_dif,      &

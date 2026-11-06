@@ -30,7 +30,7 @@ public :: compute_turbulence_integrals_dev
 
 contains
    ! public procedures
-   subroutine add_dissipative_fluxes_o2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, mu0, k0, tref, omega_mu, &
+   subroutine add_dissipative_fluxes_o2_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, mu0, k0, tref, suth, omega_mu, &
                                             omega_k, dxyz_gpu, is_null, q_aux_gpu, fl_gpu)
    !< Add the 2nd-order dissipative face fluxes of direction `d` to `fl_gpu`.
    integer(I4P), intent(in)    :: d                                     !< Direction, 1=x, 2=y, 3=z.
@@ -38,7 +38,7 @@ contains
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                       !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                         !< Actual blocks number.
    real(R8P),    intent(in)    :: mu0, k0                               !< Viscosity and conductivity.
-   real(R8P),    intent(in)    :: tref, omega_mu, omega_k               !< Temperature laws.
+   real(R8P),    intent(in)    :: tref, suth, omega_mu, omega_k               !< Temperature laws.
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                       !< Blocks space steps [nb, 3].
    logical,      intent(in)    :: is_null(3)                            !< Null directions.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
@@ -58,10 +58,10 @@ contains
    s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,fl_gpu)                    &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
    !$acc& private(ot,rdx,wl,wr,g,wf,h)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu)                                                   &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
    !$omp& private(ot,rdx,wl,wr,g,wf,h)
    do k=1-dk, nk
    do j=1-dj, nj
@@ -95,7 +95,7 @@ contains
       do a=1, 4
          wf(a) = 0.5_R8P * (wl(a) + wr(a))
       enddo
-      call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, w=wf, g=g, f=h)
+      call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k, w=wf, g=g, f=h)
       !$acc loop seq
       do a=1, 4
          fl_gpu(b,i,j,k,IQ_RU+a-1) = fl_gpu(b,i,j,k,IQ_RU+a-1) + h(a)
@@ -106,7 +106,7 @@ contains
    enddo
    endsubroutine add_dissipative_fluxes_o2_dev
 
-   subroutine add_dissipative_fluxes_o4_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, mu0, k0, tref, omega_mu, &
+   subroutine add_dissipative_fluxes_o4_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, mu0, k0, tref, suth, omega_mu, &
                                             omega_k, dxyz_gpu, is_null, q_aux_gpu, fl_gpu)
    !< Add the 4th-order conservative dissipative face fluxes of direction `d` to `fl_gpu`.
    integer(I4P), intent(in)    :: d                                     !< Direction, 1=x, 2=y, 3=z.
@@ -114,7 +114,7 @@ contains
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                       !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                         !< Actual blocks number.
    real(R8P),    intent(in)    :: mu0, k0                               !< Viscosity and conductivity.
-   real(R8P),    intent(in)    :: tref, omega_mu, omega_k               !< Temperature laws.
+   real(R8P),    intent(in)    :: tref, suth, omega_mu, omega_k               !< Temperature laws.
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                       !< Blocks space steps [nb, 3].
    logical,      intent(in)    :: is_null(3)                            !< Null directions.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
@@ -138,10 +138,10 @@ contains
    s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,fl_gpu)                    &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
    !$acc& private(ot,c,rdx,wm,dm,g,gm,wf,h,hc)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu)                                                   &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
    !$omp& private(ot,c,rdx,wm,dm,g,gm,wf,h,hc)
    do k=1-dk, nk
    do j=1-dj, nj
@@ -191,7 +191,7 @@ contains
       enddo
       ! as on the CPU: a non-positive face temperature (undershoot across a jump) takes the mean of its two cells
       if (.not.(wf(4) > 0._R8P)) wf(4) = 0.5_R8P * (wm(4,0) + wm(4,1))
-      call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, w=wf, g=g, f=h)
+      call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k, w=wf, g=g, f=h)
       ! Shu-Osher correction from the cell fluxes, 2nd-order central gradients
       !$acc loop seq
       do m=-1, 2
@@ -212,7 +212,7 @@ contains
          do a=1, 4
             wf(a) = wm(a,m)
          enddo
-         call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, omega_mu=omega_mu, omega_k=omega_k, w=wf, g=g, &
+         call compute_dissipative_flux(d=d, mu0=mu0, k0=k0, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k, w=wf, g=g, &
                                        f=hc)
          !$acc loop seq
          do a=1, 4
@@ -299,7 +299,7 @@ contains
             wf(a) = 0.5_R8P * (wl(a) + wr(a))
          enddo
          mf = 0.5_R8P * (mu_t_gpu(b,i,j,k,1) + mu_t_gpu(b,i+di,j+dj,k+dk,1))
-         call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+         call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
                                        w=wf, g=g, f=h)
          !$acc loop seq
          do a=1, 4
@@ -402,7 +402,7 @@ contains
          ! as on the CPU: a non-positive face temperature (undershoot across a jump) takes the mean of its two cells
          if (.not.(wf(4) > 0._R8P)) wf(4) = 0.5_R8P * (wm(4,0) + wm(4,1))
          mf = 0.5_R8P * (mu_t_gpu(b,i,j,k,1) + mu_t_gpu(b,i+di,j+dj,k+dk,1))
-         call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+         call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
                                        w=wf, g=g, f=h)
          ! Shu-Osher correction from the cell fluxes, 2nd-order central gradients
          !$acc loop seq
@@ -425,7 +425,7 @@ contains
                wf(a) = wm(a,m)
             enddo
             mf = mu_t_gpu(b,c(1),c(2),c(3),1)
-            call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
+            call compute_dissipative_flux(d=d, mu0=mf, k0=mf * cp_prt, tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, omega_k=0._R8P, &
                                           w=wf, g=g, f=hc)
             !$acc loop seq
             do a=1, 4
@@ -488,7 +488,7 @@ contains
          g(a,3) = (8._R8P * (q_aux_gpu(b,i,j,k+s3,IA_U+a-1) - q_aux_gpu(b,i,j,k-s3,IA_U+a-1)) -     &
                    (q_aux_gpu(b,i,j,k+2*s3,IA_U+a-1) - q_aux_gpu(b,i,j,k-2*s3,IA_U+a-1))) * rdx(3) / 12._R8P
       enddo
-      call compute_turbulence_integrands(mu0=mu_t_gpu(b,i,j,k,1), tref=1._R8P, omega_mu=0._R8P, rho=q_aux_gpu(b,i,j,k,IA_R), &
+      call compute_turbulence_integrands(mu0=mu_t_gpu(b,i,j,k,1), tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, rho=q_aux_gpu(b,i,j,k,IA_R), &
                                          p=q_aux_gpu(b,i,j,k,IA_P), T=q_aux_gpu(b,i,j,k,IA_T), u=u, g=g, f=f)
       i5 = i5 + f(5) * volume
    enddo
@@ -531,12 +531,12 @@ contains
    lambda_sgs = l
    endsubroutine compute_lambda_sgs_dev
 
-   subroutine compute_turbulence_integrals_dev(ni, nj, nk, ngc, blocks_number, mu0, tref, omega_mu, dxyz_gpu, is_null, &
+   subroutine compute_turbulence_integrals_dev(ni, nj, nk, ngc, blocks_number, mu0, tref, suth, omega_mu, dxyz_gpu, is_null, &
                                                q_aux_gpu, integrals)
    !< Device twin of `adam_flume_cpu_dissipation_kernels%compute_turbulence_integrals` (issue #119, T0.1).
    integer(I4P), intent(in)  :: ni, nj, nk, ngc                       !< Grid dimensions.
    integer(I4P), intent(in)  :: blocks_number                         !< Actual blocks number.
-   real(R8P),    intent(in)  :: mu0, tref, omega_mu                   !< Viscosity law.
+   real(R8P),    intent(in)  :: mu0, tref, suth, omega_mu                   !< Viscosity law.
    real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                       !< Blocks space steps [nb, 3].
    logical,      intent(in)  :: is_null(3)                            !< Null directions.
    real(R8P),    intent(in)  :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
@@ -555,10 +555,10 @@ contains
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    i1 = 0._R8P ; i2 = 0._R8P ; i3 = 0._R8P ; i4 = 0._R8P ; i5 = 0._R8P ; i6 = 0._R8P
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu)                               &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,mu0,tref,omega_mu,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,mu0,tref,suth, omega_mu,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
    !$acc& reduction(+:i1,i2,i3,i4,i5,i6)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu)                                                              &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,mu0,tref,omega_mu,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,mu0,tref,suth, omega_mu,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
    !$omp& reduction(+:i1,i2,i3,i4,i5,i6)
    do k=1, nk
    do j=1, nj
@@ -576,7 +576,7 @@ contains
          g(a,3) = (8._R8P * (q_aux_gpu(b,i,j,k+s3,IA_U+a-1) - q_aux_gpu(b,i,j,k-s3,IA_U+a-1)) -     &
                    (q_aux_gpu(b,i,j,k+2*s3,IA_U+a-1) - q_aux_gpu(b,i,j,k-2*s3,IA_U+a-1))) * rdx(3) / 12._R8P
       enddo
-      call compute_turbulence_integrands(mu0=mu0, tref=tref, omega_mu=omega_mu, rho=q_aux_gpu(b,i,j,k,IA_R),            &
+      call compute_turbulence_integrands(mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, rho=q_aux_gpu(b,i,j,k,IA_R),            &
                                          p=q_aux_gpu(b,i,j,k,IA_P), T=q_aux_gpu(b,i,j,k,IA_T), u=u, g=g, f=f)
       i1 = i1 + f(1) * volume ; i2 = i2 + f(2) * volume ; i3 = i3 + f(3) * volume
       i4 = i4 + f(4) * volume ; i5 = i5 + f(5) * volume ; i6 = i6 + f(6) * volume

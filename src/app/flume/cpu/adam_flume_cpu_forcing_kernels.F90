@@ -3,6 +3,7 @@
 module adam_flume_cpu_forcing_kernels
 !< ADAM, FLUME CPU kernels of the mass-flow forcing (issue #119, T3.1).
 
+use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
 use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse
 use :: penf,                  only : I4P, R8P
@@ -65,7 +66,7 @@ contains
    enddo
    !$omp end parallel do
    endsubroutine add_uniform_momentum
-   subroutine overwrite_wall_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces, tw, hwm, sl, tf, dt, commit, fresh, &
+   subroutine overwrite_wall_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces, tw, hwm, sl, tf, dt, commit, fresh, &
                                     avg, inv, ue, te, dxyz, q_aux, fl)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
@@ -76,7 +77,7 @@ contains
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                 !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                   !< Actual blocks number.
    real(R8P),    intent(in)    :: gamma, R, pr                    !< Specific heats ratio, gas constant, Prandtl number.
-   real(R8P),    intent(in)    :: mu0, tref, omega_mu             !< Viscosity law.
+   real(R8P),    intent(in)    :: mu0, tref, suth, omega_mu             !< Viscosity law.
    integer(I4P), intent(in)    :: faces(1:,1:)                   !< Modelled block faces [nb, 6].
    real(R8P),    intent(in)    :: tw(6)                           !< Wall temperature per face.
    real(R8P),    intent(in)    :: hwm(6)                          !< Matching height per face, 0 for the 3rd cell.
@@ -131,10 +132,10 @@ contains
                   us = sqrt(dot_product(u, u))
                   ts = ps / (R * rs)
                   if (inv(f)) then
-                     call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=tw(f), ue=ue(f), te=te(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, &
+                     call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=tw(f), ue=ue(f), te=te(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
                                                    tau=tau, q=q)
                   else
-                     call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=tw(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
+                     call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=tw(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
                   endif
                   if (us > 0._R8P) u = u / us
                   fl(IQ_R,i,j,k,b) = 0._R8P
@@ -147,7 +148,7 @@ contains
       !$omp end parallel do
    enddo
    endsubroutine overwrite_wall_fluxes
-   subroutine add_wall_mu_t(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, omega_mu, faces, ev, tw, hwm, sl, inv, ue, te, &
+   subroutine add_wall_mu_t(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces, ev, tw, hwm, sl, inv, ue, te, &
                             is_null, dxyz, q_aux, mu_t)
    !< Raise `mu_t` to the wall model's eddy viscosity in the cells below the matching height of the modelled faces of direction `d` that ask for it
    !< (`wall_model_eddy_viscosity`, issue #119): `wall_eddy_viscosity` with the `tau_w` of the instantaneous sample (never the filtered one, which the ghost
@@ -159,7 +160,7 @@ contains
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                   !< Grid dimensions.
    integer(I4P), intent(in)    :: blocks_number                     !< Actual blocks number.
    real(R8P),    intent(in)    :: gamma, R, pr                      !< Specific heats ratio, gas constant, Prandtl number.
-   real(R8P),    intent(in)    :: mu0, tref, omega_mu               !< Viscosity law.
+   real(R8P),    intent(in)    :: mu0, tref, suth, omega_mu               !< Viscosity law.
    integer(I4P), intent(in)    :: faces(1:,1:)                      !< Modelled block faces [nb, 6].
    logical,      intent(in)    :: ev(6)                             !< The eddy viscosity per face.
    real(R8P),    intent(in)    :: tw(6)                             !< Wall temperature per face.
@@ -210,20 +211,20 @@ contains
                   if (.not.(us > 0._R8P)) cycle
                   ts = ps / (R * rs)
                   if (inv(f)) then
-                     call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=tw(f), ue=ue(f), te=te(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, &
+                     call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=tw(f), ue=ue(f), te=te(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
                                                    tau=tau, q=q)
                   else
-                     call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=tw(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
+                     call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=tw(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
                   endif
                   if (.not.(tau > 0._R8P)) cycle
                   rhow = ps / (R * tw(f))
-                  muw = mu0 * (tw(f) / tref)**omega_mu
+                  muw = mu0 * temperature_law(t=tw(f), tref=tref, suth=suth, omega=omega_mu)
                   ! the cells strictly below h: 1 .. m, without m when the sample is its centre (w = 0)
                   mc = m - merge(1_I4P, 0_I4P, w == 0._R8P)
                   do c=1, mc
                      oc = merge(c, 1_I4P - c, side == 1)
                      rho = q_aux(IA_R,i+di*oc,j+dj*oc,k+dk*oc,b)
-                     mu = mu0 * (q_aux(IA_P,i+di*oc,j+dj*oc,k+dk*oc,b) / (R * rho) / tref)**omega_mu
+                     mu = mu0 * temperature_law(t=q_aux(IA_P,i+di*oc,j+dj*oc,k+dk*oc,b) / (R * rho), tref=tref, suth=suth, omega=omega_mu)
                      mt = wall_eddy_viscosity(y=(real(c, R8P) - 0.5_R8P) * dxyz(d,b), rho=rho, mu=mu, tau=tau, rhow=rhow, muw=muw, semilocal=sl(f) .or. inv(f))
                      mu_t(i+di*oc,j+dj*oc,k+dk*oc,b) = max(mu_t(i+di*oc,j+dj*oc,k+dk*oc,b), mt)
                   enddo

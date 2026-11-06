@@ -17,7 +17,10 @@ module adam_flume_dissipation_object
 !< Alfven speed and `S` is `Rm`). The heat flux is `-k grad T` with `T = p / (rho R)`.
 !<
 !< `viscosity_law = power-law` makes the viscosity depend on the temperature, `mu (T / reference_temperature) **
-!< viscosity_exponent`; with `prandtl` the conductivity follows it, `k = mu(T) cp / Pr`.
+!< viscosity_exponent`; `viscosity_law = sutherland` is Sutherland's law, `mu (T / T_ref)^(3/2) (T_ref + S) / (T + S)`
+!< with `S = sutherland_temperature` (110.4 K for air), a temperature in the units of `reference_temperature` (both
+!< converted by the `[reference]` layer); with `[physics] temperature_unit_kelvin` it may be omitted, and is then
+!< 110.4 K (Sutherland's constant of air) in code units. With `prandtl` the conductivity follows either law, `k = mu(T) cp / Pr`.
 !<
 !< The viscous and heat-conduction kernels landed in issue #65 P2 (Euler), the MHD ones land in P3: until then a
 !< non-zero coefficient with an MHD model is refused at initialisation by the common object, so no coefficient is ever
@@ -36,10 +39,13 @@ private
 public :: flume_dissipation_object
 public :: VISCOSITY_LAW_CONSTANT
 public :: VISCOSITY_LAW_POWER
+public :: VISCOSITY_LAW_SUTHERLAND
 
 character(len=7), parameter :: INI_SECTION_NAME="physics"        !< INI section of the coefficients.
 character(len=8), parameter :: VISCOSITY_LAW_CONSTANT="constant" !< [physics].(viscosity_law): constant mu.
 character(len=9), parameter :: VISCOSITY_LAW_POWER="power-law"   !< [physics].(viscosity_law): mu (T / T_ref)^omega.
+character(len=10), parameter :: VISCOSITY_LAW_SUTHERLAND="sutherland" !< [physics].(viscosity_law): Sutherland's law.
+real(R8P),         parameter :: SUTHERLAND_AIR_KELVIN=110.4_R8P  !< Sutherland's constant of air [K].
 
 type :: flume_dissipation_object
    !< FLUME dissipative coefficients, code units.
@@ -47,9 +53,10 @@ type :: flume_dissipation_object
    real(R8P)                 :: k=0._R8P                     !< Thermal conductivity (with Prandtl: at mu).
    real(R8P)                 :: eta=0._R8P                   !< Magnetic diffusivity (Ohmic resistivity).
    real(R8P)                 :: prandtl=0._R8P               !< Prandtl number, 0 when k is given directly.
-   character(:), allocatable :: viscosity_law                !< Viscosity law: constant or power-law.
+   character(:), allocatable :: viscosity_law                !< Viscosity law: constant, power-law or sutherland.
    real(R8P)                 :: viscosity_exponent=0._R8P    !< Power-law exponent omega.
-   real(R8P)                 :: reference_temperature=0._R8P !< Power-law reference temperature.
+   real(R8P)                 :: reference_temperature=0._R8P !< Reference temperature of the power or Sutherland law.
+   real(R8P)                 :: sutherland_temperature=0._R8P !< Sutherland's constant S.
    logical                   :: has_viscosity=.false.        !< mu > 0.
    logical                   :: has_conduction=.false.       !< k > 0.
    logical                   :: has_resistivity=.false.      !< eta > 0.
@@ -73,6 +80,9 @@ contains
    if (self%viscosity_law == VISCOSITY_LAW_POWER) &
       desc = desc//mpih%myrankstr//'  power law:       exponent '//trim(str(self%viscosity_exponent))//            &
                                    ', reference temperature '//trim(str(self%reference_temperature))//NL
+   if (self%viscosity_law == VISCOSITY_LAW_SUTHERLAND) &
+      desc = desc//mpih%myrankstr//'  Sutherland law:  S '//trim(str(self%sutherland_temperature))//                &
+                                   ', reference temperature '//trim(str(self%reference_temperature))//NL
    if (self%prandtl > 0._R8P) then
       desc = desc//mpih%myrankstr//'  conductivity k:  '//trim(str(self%k))//' (mu cp / Pr, Pr '//               &
                                    trim(str(self%prandtl))//')'//NL
@@ -82,28 +92,36 @@ contains
    desc = desc//mpih%myrankstr//'  resistivity eta: '//trim(str(self%eta))
    endfunction description
 
-   pure subroutine laws(self, tref, omega_mu, omega_k)
-   !< Return the temperature laws as the kernels take them, `mu = mu0 (T / tref)^omega_mu`, `k = k0 (T / tref)^omega_k`:
-   !< the constant law is `tref = 1` with zero exponents; under the power law the conductivity follows the viscosity
-   !< only when it comes from the Prandtl number.
+   pure subroutine laws(self, tref, suth, omega_mu, omega_k)
+   !< Return the temperature laws as the kernels take them (`temperature_law` of `adam_flume_dissipation_library`),
+   !< `mu = mu0 L(T, omega_mu)`, `k = k0 L(T, omega_k)`, `L = (T / tref)^omega`, times `(tref + suth) / (T + suth)` when
+   !< `suth > 0`: the constant law is `tref = 1` with zero exponents, Sutherland's `omega = 3/2` with `suth = S`; under
+   !< either law the conductivity follows the viscosity only when it comes from the Prandtl number.
    class(flume_dissipation_object), intent(in)  :: self              !< Dissipation.
-   real(R8P),                       intent(out) :: tref              !< Reference temperature.
+   real(R8P),                       intent(out) :: tref, suth        !< Reference temperature.
    real(R8P),                       intent(out) :: omega_mu, omega_k !< Exponents.
 
-   tref = 1._R8P ; omega_mu = 0._R8P ; omega_k = 0._R8P
-   if (self%viscosity_law == VISCOSITY_LAW_POWER) then
+   tref = 1._R8P ; suth = 0._R8P ; omega_mu = 0._R8P ; omega_k = 0._R8P
+   select case(self%viscosity_law)
+   case(VISCOSITY_LAW_POWER)
       tref     = self%reference_temperature
       omega_mu = self%viscosity_exponent
       if (self%prandtl > 0._R8P) omega_k = self%viscosity_exponent
-   endif
+   case(VISCOSITY_LAW_SUTHERLAND)
+      tref     = self%reference_temperature
+      suth     = self%sutherland_temperature
+      omega_mu = 1.5_R8P
+      if (self%prandtl > 0._R8P) omega_k = 1.5_R8P
+   endselect
    endsubroutine laws
 
-   subroutine load_from_file(self, file_parameters, model, cp)
+   subroutine load_from_file(self, file_parameters, model, cp, kelvin)
    !< Load the coefficients: a coefficient or its number per term (two keys of a term are fatal, none is the ideal 0).
    class(flume_dissipation_object), intent(inout) :: self            !< Dissipation.
    type(file_ini),                  intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),                    intent(in)    :: model           !< Physical model id.
    real(R8P),                       intent(in)    :: cp              !< Specific heat at constant pressure, code units.
+   real(R8P),                       intent(in)    :: kelvin          !< Kelvin per code temperature unit, 0 if not given.
    character(999)                                 :: buff            !< Option value buffer.
    integer(I4P)                                   :: error           !< Error status.
 
@@ -127,10 +145,13 @@ contains
    if (error <= 0) self%viscosity_law = trim(adjustl(strip_control(buff)))
    select case(self%viscosity_law)
    case(VISCOSITY_LAW_CONSTANT)
-      if (has('viscosity_exponent') .or. has('reference_temperature')) &
-         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(viscosity_exponent, reference_temperature) need '// &
-                                  '[physics].(viscosity_law)='//VISCOSITY_LAW_POWER)
+      if (has('viscosity_exponent') .or. has('reference_temperature') .or. has('sutherland_temperature')) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(viscosity_exponent, reference_temperature, '// &
+                                  'sutherland_temperature) need [physics].(viscosity_law)='//VISCOSITY_LAW_POWER//' or '// &
+                                  VISCOSITY_LAW_SUTHERLAND)
    case(VISCOSITY_LAW_POWER)
+      if (has('sutherland_temperature')) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(sutherland_temperature) '// &
+                                                                'needs [physics].(viscosity_law)='//VISCOSITY_LAW_SUTHERLAND)
       if (.not.(self%mu > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(viscosity_law)='// &
                                                             VISCOSITY_LAW_POWER//' needs a viscosity')
       call required(key='viscosity_exponent', val=self%viscosity_exponent)
@@ -141,9 +162,28 @@ contains
       call required(key='reference_temperature', val=self%reference_temperature)
       if (.not.(self%reference_temperature > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(reference_temperature) must be positive')
+   case(VISCOSITY_LAW_SUTHERLAND)
+      if (has('viscosity_exponent')) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(viscosity_exponent) is fixed '// &
+                                                            '(3/2) by [physics].(viscosity_law)='//VISCOSITY_LAW_SUTHERLAND)
+      if (.not.(self%mu > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(viscosity_law)='// &
+                                                            VISCOSITY_LAW_SUTHERLAND//' needs a viscosity')
+      call required(key='reference_temperature', val=self%reference_temperature)
+      if (.not.(self%reference_temperature > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(reference_temperature) must be positive')
+      if (has('sutherland_temperature') .or. .not.(kelvin > 0._R8P)) then
+         if (.not.has('sutherland_temperature')) &
+            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sutherland_temperature) (or give '// &
+                                     '['//INI_SECTION_NAME//'].(temperature_unit_kelvin): S is then 110.4 K, air)')
+         call required(key='sutherland_temperature', val=self%sutherland_temperature)
+      else
+         self%sutherland_temperature = SUTHERLAND_AIR_KELVIN / kelvin
+      endif
+      if (.not.(self%sutherland_temperature > 0._R8P)) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(sutherland_temperature) must be positive')
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(viscosity_law) "'//self%viscosity_law// &
-                               '"; expected one of '//VISCOSITY_LAW_CONSTANT//', '//VISCOSITY_LAW_POWER)
+                               '"; expected one of '//VISCOSITY_LAW_CONSTANT//', '//VISCOSITY_LAW_POWER//', '// &
+                               VISCOSITY_LAW_SUTHERLAND)
    endselect
    self%has_viscosity   = self%mu > 0._R8P
    self%has_conduction  = self%k > 0._R8P

@@ -237,7 +237,8 @@ replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 | `[initial_conditions]` `ch_h`, `ch_lx`, `ch_lz` | $L_0$ |
 | `[initial_conditions]` `ch_mach`, `ch_pert`; every `[turbulence]` key; `[forcing]` `type`, `axis` | — (dimensionless) |
 | `wall_u`, `wall_v`, `wall_w` | $u_0$ |
-| `wall_temperature`, `reference_temperature` | $u_0^2 / R$ |
+| `wall_temperature`, `reference_temperature`, `sutherland_temperature` | $u_0^2 / R$ |
+| `temperature_unit_kelvin` | its inverse: kelvin per input temperature unit, times $u_0^2 / R$ |
 | `reynolds`, `prandtl`, `magnetic_reynolds`, `viscosity_exponent` | — (dimensionless) |
 | `lundquist` | — (refused unless `velocity = alfvenic`) |
 | `[gravity]` `g_x`, `g_y`, `g_z` | $u_0^2 / L_0$ |
@@ -283,13 +284,15 @@ the Navier–Stokes fluxes of every model, the resistivity the Ohmic ones of `mh
 | `viscosity` | real | `>= 0`; with `reynolds` → fatal | Dynamic viscosity $\mu$ (code units, or dimensional with [`[reference]`](#reference-optional-dimensional-input)). |
 | `reynolds` | real | `> 0` | $Re$: $\mu = 1/Re$. |
 | `conductivity` | real | `>= 0`; with `prandtl` → fatal | Thermal conductivity $k$; the heat flux is $-k\nabla T$ with $T = p/(\rho R)$. |
-| `prandtl` | real | `> 0`; needs `viscosity` or `reynolds` | $Pr$: $k = \mu c_p / Pr$ (follows $\mu(T)$ under the power law). |
+| `prandtl` | real | `> 0`; needs `viscosity` or `reynolds` | $Pr$: $k = \mu c_p / Pr$ (follows $\mu(T)$ under the power and Sutherland laws). |
 | `resistivity` | real | `>= 0`; MHD only; with a number → fatal | Magnetic diffusivity $\eta$ (Ohmic resistivity). |
 | `magnetic_reynolds` | real | `> 0`; MHD only | $Rm$: $\eta = 1/Rm$. |
 | `lundquist` | real | `> 0`; MHD only; with `[reference]` it needs `velocity = alfvenic` | $S$: $\eta = 1/S$, the magnetic Reynolds number at the Alfvén speed. |
-| `viscosity_law` | string | `constant` (default), `power-law`; other → fatal; `power-law` needs a viscosity | Temperature law of the viscosity. |
+| `viscosity_law` | string | `constant` (default), `power-law`, `sutherland`; other → fatal; `power-law` and `sutherland` need a viscosity | Temperature law of the viscosity. |
 | `viscosity_exponent` | real | `>= 0`; required by `power-law`, fatal without it | $\omega$ in $\mu(T) = \mu\,(T/T_\mathrm{ref})^\omega$ (non-negative: the diffusive time step bound evaluates the laws at the largest temperature a face can see). |
-| `reference_temperature` | real | `> 0`; required by `power-law`, fatal without it | $T_\mathrm{ref}$ (code temperature $p/(\rho R)$). |
+| `reference_temperature` | real | `> 0`; required by `power-law` and `sutherland`, fatal without it | $T_\mathrm{ref}$ (code temperature $p/(\rho R)$), where $\mu$ is the given viscosity. |
+| `temperature_unit_kelvin` | real | `> 0`; optional | The kelvin value of one temperature unit of the input (`p/(\rho R)`): the absolute-temperature anchor of a non-dimensional input, read by what needs kelvin (Sutherland's default $S$; the thermally perfect gas to come). With a dimensional `[reference]` input in kelvin it is 1, and the layer converts it to kelvin per code unit. |
+| `sutherland_temperature` | real | `> 0`; required by `sutherland` unless `temperature_unit_kelvin` is given (then $S$ = 110.4 K, air), fatal with another law; `viscosity_exponent` is fatal with `sutherland` | $S$ in Sutherland's law $\mu(T) = \mu\,(T/T_\mathrm{ref})^{3/2}\,(T_\mathrm{ref}+S)/(T+S)$, in the units of `reference_temperature` (110.4 K for air: with a dimensional `[reference]` input both are given in kelvin; in code units $S = 110.4\,T_\mathrm{ref}/T_\mathrm{ref,K}$). |
 
 `[numerics] positivity_limiter = cell` is refused with any non-zero coefficient: the limiter's first-order backbone
 with a central dissipative flux is not admissible without the extension of Zhang (2017, *J. Comput. Phys.* 328), which

@@ -52,6 +52,8 @@ type :: flume_physics_object
    real(R8P)                 :: cv=0._R8P      !< Specific heat at constant volume.
    real(R8P)                 :: gamma=0._R8P   !< Specific heats ratio, cp/cv.
    real(R8P)                 :: R=0._R8P       !< Gas constant, cp-cv.
+   real(R8P)                 :: temperature_unit_kelvin=0._R8P !< `[physics].(temperature_unit_kelvin)`: the kelvin value of
+                                                             !< one code temperature unit (`p / (rho R)`), 0 if not given.
    character(:), allocatable :: eos            !< `[eos].(type)`: ideal (default), isothermal or barotropic (#100).
    real(R8P)                 :: sound_speed=0._R8P !< `[eos].(sound_speed)`: c0, the isothermal speed sqrt(P/rho) at
                                                    !< the reference density (the sound speed of the isothermal gas).
@@ -109,6 +111,8 @@ contains
    desc = desc//NL
    desc = desc//mpih%myrankstr//'  cp, cv:         '//trim(str(self%cp))//', '//trim(str(self%cv))//NL
    desc = desc//mpih%myrankstr//'  gamma, R:       '//trim(str(self%gamma))//', '//trim(str(self%R))//NL
+   if (self%temperature_unit_kelvin > 0._R8P) &
+      desc = desc//mpih%myrankstr//'  temperature unit: '//trim(str(self%temperature_unit_kelvin))//' K'//NL
    desc = desc//mpih%myrankstr//'  nv, nv_aux:     '//trim(str(self%nv))//', '//trim(str(self%nv_aux))//NL
    if (has_entropy(self%model)) &
       desc = desc//mpih%myrankstr//'  dual energy:    eta '//trim(str(self%dual_energy_eta))//NL
@@ -161,6 +165,7 @@ contains
    !< Initialize physics.
    class(flume_physics_object), intent(inout) :: self            !< Physics.
    type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   integer(I4P)                               :: error           !< Error status.
 
    print '(A)', mpih%myrankstr//'flume_physics_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
@@ -226,7 +231,17 @@ contains
    self%nv_mhd = merge(self%nv, NV_EULER, self%physical_model == PHYSICAL_MODEL_MHD_IDEAL)
    self%iq_scalar1 = 0_I4P ; if (self%passive_scalars > 0_I4P) self%iq_scalar1 = self%nv - NS_MAX + 1_I4P
    self%nv_entropy = merge(IQ_S, self%nv_mhd, has_entropy(self%model))
-   call self%dissipation%load_from_file(file_parameters=file_parameters, model=self%model, cp=self%cp)
+   ! the absolute-temperature anchor: optional, what needs kelvin (Sutherland's default S) reads it
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='temperature_unit_kelvin', &
+                            val=self%temperature_unit_kelvin, error=error)
+   if (error > 0) then
+      self%temperature_unit_kelvin = 0._R8P
+   elseif (.not.(self%temperature_unit_kelvin > 0._R8P)) then
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(temperature_unit_kelvin) must be positive, got '// &
+                               trim(str(self%temperature_unit_kelvin)))
+   endif
+   call self%dissipation%load_from_file(file_parameters=file_parameters, model=self%model, cp=self%cp, &
+                                        kelvin=self%temperature_unit_kelvin)
    call self%gravity%load_from_file(file_parameters=file_parameters)
    call self%cooling%load_from_file(file_parameters=file_parameters, model=self%model, gamma=self%gamma, R=self%R)
    ! issue #100: the dissipative energy sources are not defined for a barotropic gas; gravity is (P4), on the momentum

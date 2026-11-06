@@ -72,6 +72,7 @@ integer(I4P), parameter :: KIND_GAS=2_I4P     !< `cp`, `cv`: replaced by `gamma`
 integer(I4P), parameter :: KIND_UNKNOWN=3_I4P !< Not classified: fatal.
 integer(I4P), parameter :: KIND_TEMPERATURE=4_I4P  !< A temperature: divided by `u0^2 / R` (issue #65).
 integer(I4P), parameter :: KIND_CONDUCTIVITY=5_I4P !< A thermal conductivity: divided by `rho0 u0 L0 R` (issue #65).
+integer(I4P), parameter :: KIND_PER_TEMPERATURE=6_I4P !< Per temperature unit (`temperature_unit_kelvin`): times `u0^2 / R`.
 
 type :: flume_reference_object
    !< FLUME reference layer class definition.
@@ -444,8 +445,10 @@ contains
          kind = KIND_CONDUCTIVITY ; dim = DIM_VISCOSITY
       case('resistivity')
          kind = KIND_SCALED ; dim = DIM_DIFFUSIVITY
-      case('reference_temperature')
+      case('reference_temperature', 'sutherland_temperature')
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
+      case('temperature_unit_kelvin') ! kelvin per input temperature unit, so kelvin per code unit is it times u0^2 / R
+         kind = KIND_PER_TEMPERATURE ; dim = DIM_VELOCITY2
       endselect
    case('gravity')
       ! issue #73: the acceleration converts, the Froude number (g L0 / u0^2 = 1 / Fr^2) and the names do not; issue
@@ -721,7 +724,7 @@ contains
                                      ') is not classified: its dimension is unknown, refusing to leave it unconverted')
          case(KIND_GAS)
             has_gas = .true.
-         case(KIND_SCALED, KIND_TEMPERATURE, KIND_CONDUCTIVITY)
+         case(KIND_SCALED, KIND_TEMPERATURE, KIND_CONDUCTIVITY, KIND_PER_TEMPERATURE)
             if (sname == 'mhd' .and. trim(names(o)) == 'glm_damping_length' .and. &
                 trim(adjustl(strip_control(opt_values(o)))) == 'min-cell') cycle
             ! a list (the cooling nodes, issue #93) converts value by value, each with the rule of a single value
@@ -737,6 +740,7 @@ contains
                ! the temperature unit is u0^2 / R and the conductivity carries 1 / R (issue #65): the reference first
                ! (a power of two in the verifications, exact), then R, so a single rounding
                converted = val / self%scale(dim)
+               if (kind == KIND_PER_TEMPERATURE) converted = val * self%scale(dim) / self%gas_constant
                if (kind == KIND_TEMPERATURE) converted = converted * self%gas_constant
                if (kind == KIND_CONDUCTIVITY) converted = converted / self%gas_constant
                converted_str = converted_str//' '//trim(format_value(converted))

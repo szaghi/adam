@@ -24,7 +24,7 @@ The keys are listed in [input](../../input#dissipative-terms-issue-65-m4).
 
 | Item | Choice | Code |
 |---|---|---|
-| Coefficients and numbers | `viscosity` or `reynolds`, `conductivity` or `prandtl`, `resistivity` or `magnetic_reynolds` or `lundquist`; `viscosity_law = power-law` with `viscosity_exponent`, `reference_temperature` | `load_from_file`, `laws`, [`adam_flume_dissipation_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_dissipation_object.F90) |
+| Coefficients and numbers | `viscosity` or `reynolds`, `conductivity` or `prandtl`, `resistivity` or `magnetic_reynolds` or `lundquist`; `viscosity_law = power-law` with `viscosity_exponent`, `reference_temperature`, or `sutherland` with `reference_temperature`, `sutherland_temperature` | `load_from_file`, `laws`, [`adam_flume_dissipation_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_dissipation_object.F90) |
 | Order of the dissipative fluxes | `[numerics] dissipative_order`, 2 or 4; 4 needs `ngc >= 3` | `load_from_file`, [`adam_flume_numerics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_numerics_object.F90); `check_dissipation`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
 | Positivity limiter | refused with any dissipative coefficient (D-M4-5) | `check_positivity_limiter`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
 | No-slip walls | `wall-noslip` (tangential `wall_u/v/w`, a normal component is fatal), `wall-isothermal` (`wall_temperature > 0`) | `load_from_file`, [`adam_flume_bc_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_bc_object.F90); [boundary conditions](../../boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls) |
@@ -43,21 +43,21 @@ The cases modify two regression inputs; the flow itself is not judged.
 | Steps | the `log` and `convert` cases stop after 10 steps (`it_max = 10`); the `ideal` case runs the base input to its end |
 | Dimensionalisation (`convert`) | `scaling.py dimensionalize --j 1 --k -1 --m 1`: $L_0 = 2$, $u_0 = 1/2$, $\rho_0 = 4$ |
 
-The 25 cases (`make_contract.py --list`):
+The 34 cases (`make_contract.py --list`):
 
 | Kind | Cases | Oracle |
 |---|---|---|
-| refuse (18) | both keys of a term (3: `viscosity` + `reynolds`, `conductivity` + `prandtl`, `magnetic_reynolds` + `lundquist`), `prandtl` without a viscosity, resistivity on Euler, a negative viscosity, a zero Reynolds number, the power law without a viscosity, its keys without the law, a missing reference temperature, an unknown law, `dissipative_order = 3`, the limiter with a viscosity, a normal wall velocity, an isothermal wall without (or with a negative) temperature, `dissipative_order = 4` with `ngc = 2`, a negative power-law exponent | the run stops with the expected message |
-| log (3) | `reynolds` + `prandtl` (64, 0.75); `viscosity` + `conductivity` (0.015625, 0.03125); `magnetic_reynolds` + `reynolds` (128, 32, MHD) | the logged $\mu$, $k$, $\eta$ equal $1/Re$, $\mu c_p/Pr$, $1/Rm$ exactly; every run takes ten steps and logs its diffusive time-step limit |
+| refuse (24) | both keys of a term (3: `viscosity` + `reynolds`, `conductivity` + `prandtl`, `magnetic_reynolds` + `lundquist`), `prandtl` without a viscosity, resistivity on Euler, a negative viscosity, a zero Reynolds number, the power law without a viscosity, its keys without the law, a missing reference temperature, an unknown law, `dissipative_order = 3`, the limiter with a viscosity, a normal wall velocity, an isothermal wall without (or with a negative) temperature, `dissipative_order = 4` with `ngc = 2`, a negative power-law exponent; Sutherland without a viscosity, without $S$, with an exponent, with a negative $S$, and $S$ under the power law, a negative kelvin anchor | the run stops with the expected message |
+| log (4) | `reynolds` + `prandtl` (64, 0.75); `viscosity` + `conductivity` (0.015625, 0.03125); Sutherland with $S$ from `temperature_unit_kelvin` (1024 K: $S$ = 110.4/1024 logged exactly); `magnetic_reynolds` + `reynolds` (128, 32, MHD) | the logged $\mu$, $k$, $\eta$ equal $1/Re$, $\mu c_p/Pr$, $1/Rm$ exactly; every run takes ten steps and logs its diffusive time-step limit |
 | ideal (1) | zero coefficients, `dissipative_order = 2` | the run equals the base run bit for bit |
-| convert (2) | the Euler case with viscosity, conductivity, the power law and an isothermal moving wall; the MHD case with resistivity; dimensionalised with $L_0 = 2$, $u_0 = 1/2$, $\rho_0 = 4$ | every dimensional key logged converted back exactly (`scaling.py check-log`), the conductivity and the temperatures with the gas constant |
+| convert (4) | the Euler case with viscosity, conductivity, the power law and an isothermal moving wall; the same with Sutherland's law (Prandtl conductivity, $S/T_\mathrm{ref}=0.4$) and an isothermal wall 1.2 times as hot as the gas; the same with $S$ from `temperature_unit_kelvin` (converted by $u_0^2/R$); the MHD case with resistivity; dimensionalised with $L_0 = 2$, $u_0 = 1/2$, $\rho_0 = 4$ | every dimensional key logged converted back exactly (`scaling.py check-log`), the conductivity and the temperatures with the gas constant |
 | convert-refuse (1) | `lundquist` under a `[reference]` without the Alfvénic preset | refused |
 
 ## Input files
 
 | File | Role |
 |---|---|
-| `src/tests/flume/verification/dissipation/make_contract.py` | the 25 cases (`--list`), writes each input, judges the logged coefficients (`--check-log`) |
+| `src/tests/flume/verification/dissipation/make_contract.py` | the 34 cases (`--list`), writes each input, judges the logged coefficients (`--check-log`) |
 | `src/tests/flume/verification/dissipation/check.sh` | runs every case and applies its oracle (`--np N`, `--legs LIST`: `dc-refuse`, `dc-log`, `dc-ideal`, `dc-convert`, `dc-convert-refuse`, each the cases of that kind, default all; `FLUME_EXE` selects the backend) |
 | `src/tests/flume/verification/scaling/scaling.py` | `dimensionalize` and `check-log` of the `convert` cases |
 | `src/tests/flume/regression/sod-x/input.ini`, `src/tests/flume/regression/uniform-amr-mhd/input.ini` | the base inputs |

@@ -1380,11 +1380,11 @@ contains
    !< without isothermal walls, and with constant laws (the coefficients then do not depend on the temperature).
    class(flume_common_object), intent(in) :: self   !< The equation.
    real(R8P)                              :: t_wall !< Hottest isothermal wall temperature, 0 if none.
-   real(R8P)                              :: tref   !< Reference temperature of the laws.
+   real(R8P)                              :: tref, suth   !< Reference temperature, Sutherland constant (0: power law).
    real(R8P)                              :: om(2)  !< Exponents of the laws.
 
    t_wall = 0._R8P
-   call self%physics%dissipation%laws(tref=tref, omega_mu=om(1), omega_k=om(2))
+   call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=om(1), omega_k=om(2))
    if (all(om == 0._R8P)) return
    if (any(self%bc%bc_type == BC_WALL_ISOTHERMAL)) &
       t_wall = maxval(self%bc%wall_temperature, mask=self%bc%bc_type == BC_WALL_ISOTHERMAL)
@@ -1579,7 +1579,7 @@ contains
    class(flume_common_object), intent(inout) :: self                  !< The equation.
    character(8), parameter                   :: FACE_NAME(6)=['x_min', 'x_max', 'y_min', 'y_max', 'z_min', 'z_max']
    real(R8P), allocatable                    :: acc(:,:)              !< Per bin: stress times area, heat flux times area, area [3, bins].
-   real(R8P)                                 :: tref, omega_mu, omega_k, mu0, cp, h, w, us, ts, ps, rs, tau, q, area, lo, len !< Work.
+   real(R8P)                                 :: tref, suth, omega_mu, omega_k, mu0, cp, h, w, us, ts, ps, rs, tau, q, area, lo, len !< Work.
    real(R8P)                                 :: u(3), p1(5), p2(5), xyz(3) !< Work.
    integer(I4P)                              :: f, d, a, side, n, m, b, i, j, k, c(3), o1, o2, ib, nbins, t1, t2 !< Counters.
    integer(I4P)                              :: lb(3), ub(3)          !< Face cell ranges.
@@ -1588,7 +1588,7 @@ contains
    if (.not.self%has_wall_model) return
    if (.not.self%time%is_to_save(cadence=self%diagnostics%wall_history_save)) return
    call self%wall_history_to_host
-   call self%physics%dissipation%laws(tref=tref, omega_mu=omega_mu, omega_k=omega_k)
+   call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k)
    mu0 = self%physics%dissipation%mu
    cp = self%physics%gamma * (self%physics%R / (self%physics%gamma - 1._R8P))
    nbins = self%diagnostics%wall_history_bins
@@ -1629,10 +1629,10 @@ contains
                   if (self%bc%wm_inverse(f)) then
                      call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), ue=self%bc%wm_edge_u(f), &
                                                    te=self%bc%wm_edge_t(f), R=self%physics%R, cp=cp, pr=self%physics%dissipation%prandtl, mu0=mu0, &
-                                                   tref=tref, omega_mu=omega_mu, tau=tau, q=q)
+                                                   tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q)
                   else
                      call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), R=self%physics%R, cp=cp, &
-                                           pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, omega_mu=omega_mu, tau=tau, q=q, &
+                                           pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, &
                                            semilocal=self%bc%wm_semilocal(f))
                   endif
                   if (us > 0._R8P) tau = tau * u(a) / us ! the component along the axis: the drag of a flow along +axis is positive

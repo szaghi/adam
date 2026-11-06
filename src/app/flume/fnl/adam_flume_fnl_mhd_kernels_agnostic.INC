@@ -81,7 +81,7 @@
    endsubroutine compute_lambda_max_dev
 
    subroutine compute_lambda_max_dissipative_dev(ni, nj, nk, ngc, blocks_number, gamma, R, cp, mu0, k0, eta, t_wall, &
-                                                 tref, omega_mu, omega_k, dxyz_gpu, is_null, q_gpu, lambda_max,     &
+                                                 tref, suth, omega_mu, omega_k, dxyz_gpu, is_null, q_gpu, lambda_max,     &
                                                  lambda_hyp, lambda_dif, re_cell_min)
    !< Device twin of the CPU MHD `compute_lambda_max_dissipative` (issue #65, D-M4-3).
    integer(I4P), intent(in)  :: ni, nj, nk, ngc                   !< Grid dimensions.
@@ -89,7 +89,7 @@
    real(R8P),    intent(in)  :: gamma, R, cp                      !< Specific heats ratio, gas constant, cp.
    real(R8P),    intent(in)  :: mu0, k0, eta                      !< Dissipative coefficients.
    real(R8P),    intent(in)  :: t_wall                            !< Hottest isothermal wall temperature, 0 if none.
-   real(R8P),    intent(in)  :: tref, omega_mu, omega_k           !< Temperature laws.
+   real(R8P),    intent(in)  :: tref, suth, omega_mu, omega_k           !< Temperature laws.
    real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Blocks space steps [nb, 3].
    logical,      intent(in)  :: is_null(3)                        !< Null directions.
    real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
@@ -108,10 +108,10 @@
    wz = merge(0._R8P, 1._R8P, is_null(3))
    lambda_max = 0._R8P ; lambda_hyp = 0._R8P ; lambda_dif = 0._R8P ; re_cell_min = huge(1._R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,omega_mu,omega_k,wx,wy,wz) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,suth, omega_mu,omega_k,wx,wy,wz) &
    !$acc& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,omega_mu,omega_k,wx,wy,wz) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,suth, omega_mu,omega_k,wx,wy,wz) &
    !$omp& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
    do k=1, nk
    do j=1, nj
@@ -126,7 +126,7 @@
            wy * (abs(qa_(IA_V)) + mhd_fast_speed(d=2_I4P, qa=qa_)) / dxyz_gpu(b,2) + &
            wz * (abs(qa_(IA_W)) + mhd_fast_speed(d=3_I4P, qa=qa_)) / dxyz_gpu(b,3)
       ld = 2._R8P * dissipative_diffusivity(rho=qa_(IA_R), T=qa_(IA_T), t_wall=t_wall, gamma=gamma, cp=cp, mu0=mu0, &
-                                            k0=k0, eta=eta, tref=tref, omega_mu=omega_mu, omega_k=omega_k) *    &
+                                            k0=k0, eta=eta, tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k) *    &
            (wx / dxyz_gpu(b,1)**2 + wy / dxyz_gpu(b,2)**2 + wz / dxyz_gpu(b,3)**2)
       lambda_max = max(lambda_max, lh + ld)
       lambda_hyp = max(lambda_hyp, lh)
