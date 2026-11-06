@@ -169,7 +169,7 @@ def averages(work: Path, tags: list[str]) -> dict[str, np.ndarray]:
     return {k: a / count for k, a in acc.items()}
 
 
-def compare(work_s: str, stat: str, t0: float, json_out: str | None) -> int:
+def compare(work_s: str, stat: str, t0: float, json_out: str | None, re_inf: float | None = None) -> int:
     """Print the comparison with the DNS (and write it as JSON)."""
     import json
 
@@ -180,6 +180,7 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None) -> int:
         return 1
     a = averages(work, [g for _, g in cps])
     reynolds, power = float(ini_value(work, "reynolds")), float(ini_value(work, "viscosity_exponent"))
+    re_theta_scale = re_inf if re_inf else reynolds  # Re_theta with the true free-stream viscosity when the power law is matched at the wall
     t_inf, t_w = float(ini_value(work, "reference_temperature")), float(ini_value(work, "wall_temperature"))
     lx, ly = float(ini_value(work, "emax_x")), float(ini_value(work, "emax_y"))
     nx, ny = a["u"].shape
@@ -193,7 +194,7 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None) -> int:
     theta = (a["r"] * uf * (1.0 - uf)).sum(axis=1) * dy
     dstar = (1.0 - a["r"] * uf).sum(axis=1) * dy
     shape = dstar / theta
-    re_theta = reynolds * theta
+    re_theta = re_theta_scale * theta
     cf = np.full(nx, np.nan)
     half = int(round(3.0 / dx))
     for i in range(half, nx - half):
@@ -215,6 +216,7 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None) -> int:
         nb = (w.shape[1] - 2) // 2
         xb = (np.arange(nb) + 0.5) * lx / nb
         cf_wall = 2.0 * np.interp(x, xb, w[:, 2 : 2 + nb].mean(axis=0))
+        q_wall = np.interp(x, xb, w[:, 2 + nb : 2 + 2 * nb].mean(axis=0))
         cf = cf_wall
     ut = np.sqrt(0.5 * cf[ist] / rho_w)
     mu_w = (t_w / t_inf) ** power / reynolds
@@ -229,8 +231,13 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None) -> int:
     print(f"station x = {x[ist]:.2f}: Re_theta {re_theta[ist]:.0f} (DNS {re_dns:.0f}), delta {d_dns:.3f}, theta {theta[ist]:.4f}, H {shape[ist]:.2f} (DNS {float(text_h(stat)):.2f})")
     source = "the wall model's tau_w" if cf_wall is not None else "the momentum integral"
     print(f"C_f ({source}) {cf[ist]:.4e} against the DNS {cf_dns:.4e}: {100.0 * (cf[ist] / cf_dns - 1.0):+.1f} %;  u_tau / U_inf {ut:.5f} (DNS {ut_dns:.5f})")
+    b_q = b_q_dns = None
     if cf_wall is not None:
         print(f"C_f (the momentum integral) {cf_mom[ist]:.4e}: {100.0 * (cf_mom[ist] / cf_dns - 1.0):+.1f} %")
+        cp = GAMMA / (GAMMA - 1.0)  # R = 1
+        b_q = -q_wall[ist] / (rho_w * cp * ut * t_w)  # the DNS's sign: B_q = q_w / (rho_w cp u_tau T_w), q_w into the gas, so negative at a cold wall
+        b_q_dns = -float(text_bq(stat))
+        print(f"B_q {b_q:+.4f} against the DNS {b_q_dns:+.4f}; wall heat flux {q_wall[ist]:.4e} (into the wall, code units)")
     print(" x      Re_theta  delta   H      C_f       C_f momentum")
     for i in range(half, nx - half, max(1, (nx - 2 * half) // 12)):
         print(f" {x[i]:5.1f}  {re_theta[i]:7.0f}  {delta[i]:6.3f}  {shape[i]:5.2f}  {cf[i]:.4e}  {cf_mom[i]:.4e}")
@@ -248,9 +255,16 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None) -> int:
                "cf_mom": [None if not np.isfinite(c) else float(c) for c in cf_mom], "cf_source": source, "H": shape.tolist(),
                "delta": [None if not np.isfinite(c) else float(c) for c in delta], "station": int(ist), "cf_dns": cf_dns, "re_dns": re_dns,
                "y": y.tolist(), "yplus": yplus.tolist(), "uvd": uvd.tolist(), "rms": {k: v.tolist() for k, v in rms.items()}, "uv": uv.tolist(),
-               "delta_station": float(d_dns), "t": [t for t, _ in cps]}
+               "delta_station": float(d_dns), "t": [t for t, _ in cps], "b_q": b_q, "b_q_dns": b_q_dns, "h_dns": float(text_h(stat))}
         Path(json_out).write_text(json.dumps(out))
     return 0
+
+
+def text_bq(stat: str) -> float:
+    """The -B_q of a station file's header."""
+    text = Path(stat).read_text().splitlines()
+    i = next(i for i, line in enumerate(text) if line.startswith("# x_a/delta_i"))
+    return float(text[i + 1].split()[11])
 
 
 def text_h(stat: str) -> float:
@@ -261,8 +275,11 @@ def text_h(stat: str) -> float:
 
 
 def wall_rows(path: Path) -> np.ndarray:
-    """Load a wall-model history: it, time, the bins' tau, then their q."""
-    return np.loadtxt(path, comments=("#", "VARIABLES"), ndmin=2)
+    """Load a wall-model history: it, time, the bins' tau, then their q, one row per step. A run resumed from a restart appends again the steps
+    after that restart (bitwise the same rows): the last of each step is kept, so a time mean does not weigh those stretches twice."""
+    w = np.loadtxt(path, comments=("#", "VARIABLES"), ndmin=2)
+    _, last = np.unique(w[::-1, 0], return_index=True)
+    return w[np.sort(len(w) - 1 - last)]
 
 
 def wall_force(work_s: str) -> int:
@@ -324,6 +341,7 @@ def main() -> int:
     p.add_argument("stat")
     p.add_argument("--t0", type=float, default=0.0)
     p.add_argument("--json", default=None)
+    p.add_argument("--re-inf", type=float, default=None, help="the free-stream Reynolds number per delta_i of Re_theta (default the input's)")
     a = ap.parse_args()
     if a.what == "profile":
         return profile(a.src, a.out)
@@ -334,7 +352,7 @@ def main() -> int:
     if a.what == "wall-agree":
         return wall_agree(a.a, a.b, a.tol)
     if a.what == "compare":
-        return compare(a.work, a.stat, a.t0, a.json)
+        return compare(a.work, a.stat, a.t0, a.json, a.re_inf)
     return inflow(a.work)
 
 

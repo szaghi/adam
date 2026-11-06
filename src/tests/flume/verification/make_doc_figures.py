@@ -2418,25 +2418,22 @@ def fig_channel_m3_ev(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
-def fig_tbl_m2p5(out: Path, runs: Path) -> None:
-    """T3.7 (issue #119): the Mach 2.5 boundary layer of the Zhang, Duan & Choudhari (2018) DNS (case M2p5), wall-modelled, digital-filter inflow, on the
-    90 delta_i box of tbl_cases_t37_l90.txt, the checkpoints and the wall history of 180 < t <= 360 averaged over the span and in time (tbl_oracle.py
-    compare). Left C_f from the wall model's tau_w (wall_history_save) and, grey, from the momentum integral 2 d theta / dx (a quadratic fit of theta
-    over +-3 delta_i), the DNS at its station; middle u+_VD against y+ at the station of the DNS's Re_theta
-    (with the run's own u_tau), the DNS and the log law (the left panel against x, Re_theta on the right axis); right the rms of u, v (wall-normal), w (spanwise) and -<u'v'> over u_tau against y / delta."""
+def _fig_tbl(out: Path, runs: Path, case: str, stat_name: str, png: str, recovery: float, cf_top: float, re_inf: float | None = None, show_bq: bool = False) -> None:
+    """A wall-modelled boundary layer of T3.7 against its Zhang, Duan & Choudhari (2018) station (fig_tbl_m2p5, fig_tbl_m6); show_bq adds the wall
+    heat-flux parameter to the title (a cold wall: near the recovery temperature it is ~0)."""
     import json  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
 
-    work = runs / "tbl" / "m2p5-wm-l90"
+    work = runs / "tbl" / case
     if not work.exists():
         raise FileNotFoundError(work)
     sys.path.insert(0, str(HERE / "turbulence"))
     import tbl_oracle as to  # noqa: PLC0415
 
-    stat = HERE / "turbulence" / "reference" / "M2p5_Stat.txt"
+    stat = HERE / "turbulence" / "reference" / stat_name
     with tempfile.TemporaryDirectory() as tmp:
-        js = Path(tmp) / "m2p5.json"
-        to.compare(str(work), str(stat), 180.0001, str(js))
+        js = Path(tmp) / "tbl.json"
+        to.compare(str(work), str(stat), 180.0001, str(js), re_inf)
         j = json.loads(js.read_text())
     _, d = to.read_stat(stat)
     ist = j["station"]
@@ -2450,13 +2447,13 @@ def fig_tbl_m2p5(out: Path, runs: Path) -> None:
     ax.plot(x[ok], cfm[ok] * 1e3, color="0.7", lw=0.6, label=r"momentum integral $2\,d\theta/dx$")
     ax.plot(x, cf * 1e3, color="C0", lw=1.4, label=r"wall model's $\tau_w$")
     ax.plot([x[ist]], [j["cf_dns"] * 1e3], "ks", label=f"DNS at its $Re_\\theta$ {j['re_dns']:.0f}")
-    ax.axvspan(40.0, x[-1], color="0.9", zorder=0, label="past the recovery length")
+    ax.axvspan(recovery, x[-1], color="0.9", zorder=0, label="past the recovery length")
     tw = ax.twinx()
     tw.plot(x, re_t, color="C1", lw=0.8)
     tw.set_ylabel(r"$Re_\theta$", color="C1")
     ax.set_xlabel(r"$x/\delta_i$")
     ax.set_ylabel(r"$C_f\times10^3$")
-    ax.set_ylim(0.0, 6.0)
+    ax.set_ylim(0.0, cf_top)
     ax = axs[1]
     ax.semilogx(j["yplus"], j["uvd"], "o-", color="C0", ms=3, label="wall-modelled LES")
     ax.semilogx(d[1:, 2], d[1:, 24], "k-", lw=1.0, label="DNS")
@@ -2478,9 +2475,28 @@ def fig_tbl_m2p5(out: Path, runs: Path) -> None:
     for ax in axs:
         ax.grid(alpha=0.3)
         ax.legend(fontsize=7)
-    fig.suptitle(f"station x = {j['x'][ist]:.1f} $\\delta_i$, $Re_\\theta$ = {re_t[ist]:.0f}", fontsize=9)
-    fig.savefig(out / "tbl-m2p5.png", dpi=DPI)
+    title = f"station x = {j['x'][ist]:.1f} $\\delta_i$, $Re_\\theta$ = {re_t[ist]:.0f}"
+    if show_bq:
+        title += f", $B_q$ = {j['b_q']:.4f} (DNS {j['b_q_dns']:.4f})"
+    fig.suptitle(title, fontsize=9)
+    fig.savefig(out / png, dpi=DPI)
     plt.close(fig)
+
+
+def fig_tbl_m2p5(out: Path, runs: Path) -> None:
+    """T3.7 (issue #119): the Mach 2.5 boundary layer of the Zhang, Duan & Choudhari (2018) DNS (case M2p5), wall-modelled, digital-filter inflow, on the
+    90 delta_i box of tbl_cases_t37_l90.txt, the checkpoints and the wall history of 180 < t <= 360 averaged over the span and in time (tbl_oracle.py
+    compare). Left C_f from the wall model's tau_w (wall_history_save) and, grey, from the momentum integral 2 d theta / dx (a quadratic fit of theta
+    over +-3 delta_i), the DNS at its station; middle u+_VD against y+ at the station of the DNS's Re_theta
+    (with the run's own u_tau), the DNS and the log law (the left panel against x, Re_theta on the right axis); right the rms of u, v (wall-normal), w (spanwise) and -<u'v'> over u_tau against y / delta."""
+    _fig_tbl(out, runs, "m2p5-wm-l90", "M2p5_Stat.txt", "tbl-m2p5.png", 40.0, 6.0)
+
+
+def fig_tbl_m6(out: Path, runs: Path) -> None:
+    """T3.7 (issue #119): the Mach 5.86 cold-wall layer of the same DNS (case M6Tw076, T_w / T_r = 0.76) on the 120 delta_i box of
+    tbl_cases_t37_m6.txt, the panels of fig_tbl_m2p5; Re_theta with the DNS's free-stream Reynolds number (the input's is lowered by the viscosity
+    matched at the wall), B_q from the wall model's q_w in the title."""
+    _fig_tbl(out, runs, "m6tw076-wm", "M6Tw076_Stat.txt", "tbl-m6.png", 50.0, 3.0, re_inf=137350.0, show_bq=True)
 
 
 def fig_barotropic_eos(out: Path, runs: Path) -> None:
@@ -4090,7 +4106,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
-           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5,
+           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

@@ -382,12 +382,52 @@ the rms over $u_\tau$ at the same station; dashed: the DNS.*
 - **The log layer sits 0.9–1.0 above the DNS in $u^+_{VD}$**, and the wake gives $H$ 14 % low. $u_{rms}$ peaks too high, the near-wall streaks of a
   coarse LES. The resolved $-\langle u'v'\rangle$ in the outer layer is above the DNS's.
 
+### Mach 5.86, cold wall
+
+Case M6Tw076 of the same DNS: Mach 5.86, a cold wall ($T_w/T_r=0.76$, $T_w=5.45\,T_\infty$), $Re_\theta=9455$ and $Re_\tau=453$ at its station
+($x=54\,\delta_i$), wall heat-flux parameter $B_q=q_w/(\rho_w c_p u_\tau T_w)=-0.02$ (heat into the wall). The wall history gives $q_w$ as well as
+$\tau_w$.
+
+| Setup | |
+|---|---|
+| box, cells | $120\times6\times6\,\delta_i$, $1440\times72\times72$, cubic $\delta_i/12$: the filter's recovery length grows with the Mach number (Huang, Duan & Choudhari 2022) |
+| gas | $\mu\propto T^{0.76}$ with $\mu_w$ matched to the DNS's Sutherland value at the wall, where the model acts ($\mu_w/\mu_\infty=5.13$ against $5.45^{0.76}=3.63$): $Re=97120$, the DNS's $137350$ per $\delta_i$ over $1.414$; $Re_\theta$ is reported with $137350$ (`tbl_oracle.py compare --re-inf`) |
+| wall, inflow, scheme | as at Mach 2.5 |
+| run | `tbl_cases_t37_m6.txt`, to $t=360$ (21604 steps); 29 checkpoints of $180<t\le360$ and the wall history every 20 steps; 0.54 s per step on 4 A30 |
+
+![The Mach 5.86 cold-wall boundary layer against the DNS](/flume/tbl-m6.png)
+
+*The panels of the Mach 2.5 figure; the title adds $B_q$ at the station.*
+
+| At $Re_\theta=9453$ ($x=55\,\delta_i$) | LES | DNS |
+|---|---|---|
+| $C_f$, the wall model's $\tau_w$ | **9.47e-4** (the two halves of the window 9.70e-4, 9.25e-4); $x=60$–$110$: 9.78e-4 | 9.84e-4 |
+| $B_q$, the wall model's $q_w$ | **−0.0189** (halves −0.0191, −0.0187); $x=60$–$110$: −0.0194 | −0.02 (one significant figure) |
+| $\delta/\delta_i$ | 1.61 | 1.72 |
+| $H$ | 9.56 | 13.6 |
+| $u^+_{VD}$ at $y^+=30$, $100$, $200$ | 12.4, 17.9, 20.8 | 13.9, 17.2, 19.5 |
+| $u_{rms}$, $v_{rms}$, $w_{rms}$ over $u_\tau$ at $y/\delta=0.2$ | 2.21, 0.56, 0.94 | 1.33, 0.82, 0.99 |
+| $-\langle u'v'\rangle/u_\tau^2$ at $y/\delta=0.2$, $0.5$ | 0.64, 0.39 | 0.49, 0.25 |
+
+**What it shows.**
+- **$C_f$ within 3.8 % of the DNS** at its $Re_\theta$, with no change of the wall-model setting from Mach 2.5; past $x=60$ the plateau is
+  0.7 % below. **$B_q$ agrees to the precision of the reference**: the DNS file gives $-B_q=0.02$, one significant figure, and the run gives
+  0.0189 at the station, 0.0194 on the plateau.
+- **$C_f$ drifts by 4.6 % between the two halves of the window; $q_w/\tau_w$ by 0.4 %.** The layer itself changes slowly over the window, and the
+  wall model's heat flux follows its friction. 180 time units are 1.5 flow-throughs of this box, so the $C_f$ figure carries about $\pm2$ %.
+- **The inflow recovers by $x\approx55$–$60\,\delta_i$**, farther than at Mach 2.5 (50): $C_f$ falls from $1.4\cdot10^{-3}$ at the inlet to
+  $0.8\cdot10^{-3}$ at $x\approx33$, then rises to its plateau. The layer reaches the DNS's $Re_\theta$ at $x=55$, against 54 in the DNS.
+- **The outer layer has the Mach 2.5 faults, larger.** $H$ is 30 % low and $\delta$ 6 % thin; $u_{rms}$ peaks at 1.7 times the DNS's at
+  $y/\delta=0.2$, and $u^+_{VD}$ is 1.5 below the DNS at $y^+=30$ (the first
+  cells under the matching point) and 0.7–1.3 above it at $y^+=100$–$200$. At $\delta_i/12$ the layer of $Re_\tau=453$ has about 20 cells across
+  $\delta$; the wall quantities do not depend on resolving it.
+- **The momentum integral is useless here too** ($-62$ % at the station, negative in places).
+
 ## Not done
 
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
-- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: a resolution ladder and the matching height, the Mach 5.86 cold-wall case (its DNS file is
-  in `reference/`); SBLI; runtime regridding along a modelled wall; mean profiles
+- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: a resolution ladder and the matching height, a longer window at Mach 5.86; SBLI; runtime regridding along a modelled wall; mean profiles
   against the DNS; the relaminarisation of the inverse model on $96\times48\times48$ with $u_e = 1.18$; an edge state taken from the flow.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.
