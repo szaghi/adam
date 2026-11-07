@@ -28,7 +28,7 @@ use :: adam_flume_common_library,      only : flume_common_object, regrid_phases
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
                                               reflux_positivity_theta,                                                 &
                                               BC_EXTRAPOLATION,                                                        &
-                                              BC_INFLOW, BC_INFLOW_DF, BC_NONREFLECTING, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL,        &
+                                              BC_INFLOW, BC_INFLOW_DF, BC_NONREFLECTING, BC_SHOCK_GENERATOR, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL,        &
                                               BC_WALL_NOSLIP, nonreflecting_ghost,                                                     &
                                               realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
                                               BC_HYDROSTATIC, hydrostatic_ghost,                                        &
@@ -2154,6 +2154,16 @@ contains
                                         dist=real(abs(i - iref) + abs(j - jref) + abs(k - kref), R8P) *                         &
                                              self%adam%field%dxyz((face+1)/2,b),                                                 &
                                         par=self%bc%nr_par(:,face), q1=q(1:5,iref,jref,kref,b), qg=q(1:5,i,j,k,b))
+            case(BC_SHOCK_GENERATOR)
+               ! the post-shock state where the shock enters, x in [x0, x1), extrapolation elsewhere (issue #121, S3)
+               if (self%adam%field%x_cell(i,b) >= self%bc%sg_par(6,face) .and. &
+                   self%adam%field%x_cell(i,b) < self%bc%sg_par(7,face)) then
+                  q(1:5,i,j,k,b) = self%bc%sg_par(1:5,face)
+               else
+                  call realm_edge_donor(face=face, face_kind=BC_EXTRAPOLATION, ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
+                                        iref=iref, jref=jref, kref=kref)
+                  q(:,i,j,k,b) = q(:,iref,jref,kref,b)
+               endif
             case(BC_INFLOW_DF)
                ! digital-filter inflow: written after this pass (issue #119, T3.7)
             case default

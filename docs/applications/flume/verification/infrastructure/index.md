@@ -10,7 +10,7 @@ equal bit for bit, np 2 equal to np 1 bit for bit), so the bounds sit at round-o
 | [Ghost probe](./ghost-probe) | GP | every face and edge ghost, on every fill path (copy, MPI, 2:1, inter-realm seams, physical boundaries), holds the value a stencil must read; a poison exposes reads before the fill |
 | [Scaling covariance and the reference layer](./scaling-covariance) | NV-0, NV-4, NV-5, NV-6, NV-8, NV-9 | rescaled inputs reproduce the base run bit for bit; dimensional input, restart and output through `[reference]` |
 | [Ranks without blocks](./ranks-without-blocks) | DV-1 | a rank that owns no block runs every model and option, and np 2 equals np 1 bit for bit |
-| [Non-reflecting boundary](./non-reflecting) | NR | the characteristic outflow: exact limits (extrapolation bit for bit), its reflection against `extrapolation` and `inflow`, the pressure it holds ([#121](https://github.com/szaghi/adam/issues/121) S2) |
+| [Non-reflecting boundary](./non-reflecting) | NR | the characteristic outflow: exact limits (extrapolation bit for bit), its reflection against `extrapolation` and `inflow`, the pressure it holds ([#121](https://github.com/szaghi/adam/issues/121) S2); the oblique-shock generator against the shock relations (S3) |
 | [Non-finite state guard](./nonfinite) | — (`nonfinite`) | a NaN planted in the Sod state stops the run at step 1 on the guard's message, on every rank, with the first non-finite value located |
 
 The two figures of the group are regenerated from kept runs:

@@ -2605,6 +2605,56 @@ def fig_tbl_hdef(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_shockgen(out: Path, runs: Path) -> None:
+    """#121 S3: the oblique-shock generator (boundary/check.sh leg sg1, Mach 2, deflection 10 degrees, 64 x 32 cells, t = 2.5). Left: p / p1
+    in the x-y plane, the shock line of the theory (dashed, beta 39.314 from the foot x = 0.5 at the top) and the streamline from its foot
+    (dotted). Right: p / p1 and rho / rho1 along the row nearest y = 0.5 against the step of Rankine-Hugoniot at the theory's shock."""
+    import math  # noqa: PLC0415
+
+    sys.path.insert(0, str(HERE / "boundary"))
+    import shockgen_oracle as so  # noqa: PLC0415
+
+    work = runs / "boundary" / "work-adam_flume_cpu-np2-sg1-def"
+    if not work.exists():
+        raise FileNotFoundError(work)
+    th = so.theory(2.0, 10.0, None)
+    c = so.cells(work)
+    tb, tt = math.tan(math.radians(th["beta"])), math.tan(math.radians(th["theta"]))
+    fig, axs = plt.subplots(1, 2, figsize=(12.0, 4.0), constrained_layout=True)
+    ax = axs[0]
+    xs, ys = np.unique(c["x"]), np.unique(c["y"])
+    grid = np.full((len(ys), len(xs)), np.nan)
+    ix, iy = np.searchsorted(xs, c["x"]), np.searchsorted(ys, c["y"])
+    grid[iy, ix] = c["p"] / so.P_INF
+    im = ax.pcolormesh(xs, ys, grid, shading="nearest", cmap="viridis")
+    fig.colorbar(im, ax=ax, label=r"$p/p_1$")
+    yy = np.linspace(0.0, 1.0, 50)
+    ax.plot(0.5 + (1.0 - yy) / tb, yy, "w--", lw=1.0, label=rf"theory, $\beta$ = {th['beta']:.3f}$^\circ$")
+    xx = np.linspace(0.5, 2.0, 50)
+    ax.plot(xx, 1.0 - (xx - 0.5) * tt, "w:", lw=1.0, label="streamline from the foot")
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$y$")
+    ax.set_aspect("equal")
+    ax.legend(fontsize=7, loc="lower left")
+    ax = axs[1]
+    y0 = ys[np.argmin(np.abs(ys - 0.5))]
+    m = np.isclose(c["y"], y0)
+    xr = np.unique(c["x"][m])
+    pr = np.array([c["p"][m][c["x"][m] == v].mean() for v in xr]) / so.P_INF
+    rr = np.array([c["r"][m][c["x"][m] == v].mean() for v in xr])
+    xshock = 0.5 + (1.0 - y0) / tb
+    ax.plot(xr, pr, "o", ms=3, color="C0", label=r"$p/p_1$")
+    ax.plot(xr, rr, "s", ms=3, color="C1", label=r"$\rho/\rho_1$")
+    for v, col in ((th["p21"], "C0"), (th["r21"], "C1")):
+        ax.plot([0.0, xshock, xshock, 2.0], [1.0, 1.0, v, v], color=col, lw=0.8)
+    ax.set_xlabel(rf"$x$ (row $y$ = {y0:.3f})")
+    ax.set_ylabel("over the free stream; lines: Rankine-Hugoniot")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7)
+    fig.savefig(out / "shockgen.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_nrbc(out: Path, runs: Path) -> None:
     """#121 S2: the non-reflecting boundary (boundary/check.sh). Left: |p - p_inf| along x once the packet of leg nr2 has left the box at
     rest, over its pressure amplitude: non-reflecting at sigma 0.28 and 0.07, extrapolation. Right: leg nr3, the box-mean overpressure
@@ -4268,7 +4318,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
-           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "nrbc": fig_nrbc,
+           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "nrbc": fig_nrbc, "shockgen": fig_shockgen,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

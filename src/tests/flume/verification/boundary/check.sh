@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# FLUME verification of the non-reflecting boundary (issue #121, S2): `[bc_*] type = non-reflecting`.
+# FLUME verification of the open boundaries of issue #121: the non-reflecting boundary (S2, `[bc_*] type = non-reflecting`, legs nr*)
+# and the oblique-shock generator (S3, `[bc_y_*] type = shock-generator`, legs sg*).
 #
 # What the kind is for, measured: in FLUME's characteristic-upwind WENO, extrapolation at an outflow and a prescribed state at an inflow
 # already let linear waves out (a packet leaving at rest: 1.2e-4 of its amplitude left behind by extrapolation; through a subsonic inflow
@@ -17,7 +18,15 @@
 #
 # Box [0, 2] x [0, 0.0625]^2, 256 x 8 x 8 cells (64 x 8 x 8 for nr3), 8 blocks over the ranks, periodic y and z (make_nrbc.py).
 #
-# Usage: ./check.sh [--np N] [--legs LIST]   LIST: nr1, nr2, nr3, nr4 or all (default all)
+# The shock generator: a Mach 2 free stream in [0, 2] x [0, 1] x [0, 0.25], 64 x 32 x 8 cells, inflow at x_min, extrapolation at x_max and
+# y_min, periodic z (make_shockgen.py); the shock of deflection 10 degrees (beta 39.314, p2/p1 1.70658) enters through y = 1 at x = 0.5.
+#   sg1  the uniform region behind the shock (16 cells off it, 4 below the streamline from its foot, above y = 0.2) against
+#        Rankine-Hugoniot at t = 2.5 (steady): p and rho within 3e-3 (measured 1.47e-3, 1.22e-3), the flow angle within 0.05 degrees
+#        (0.026); the shock angle fitted from the mid-pressure crossing of the rows within 0.3 degrees (39.322).
+#   sg2  the same shock given by its angle (shock_angle 39.313932): the same bounds (the same digits).
+#   sg3  a shock that enters beyond the box (shock_x 3) equals an extrapolated top bit for bit.
+#
+# Usage: ./check.sh [--np N] [--legs LIST]   LIST: nr1, nr2, nr3, nr4, sg1, sg2, sg3 or all (default all)
 # FLUME_EXE overrides the executable under test (the caller owns the environment, as in the other verifications).
 set -euo pipefail
 
@@ -27,7 +36,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 source "$VERIF_DIR/legs.sh"
-legs_declare "nr1 nr2 nr3 nr4"
+legs_declare "nr1 nr2 nr3 nr4 sg1 sg2 sg3"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -41,13 +50,16 @@ legs_resolve check.sh
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 TAG="$(basename "$EXE")-np$NP"
 ORACLE="$CASE_DIR/nrbc_oracle.py"
+SG_ORACLE="$CASE_DIR/shockgen_oracle.py"
+SG_BOUND=3e-3
+SG_ANGLE=0.05
 
-run() { # run <name> <make_nrbc options...>: a fresh work dir, the input, the run
+run() { # run <name> <make_nrbc options...>: a fresh work dir, the input, the run; MAKE overrides the generator
    local name=$1 ; shift
    local work="$CASE_DIR/work-$TAG-$name"
    rm -rf "${work:?}"
    mkdir -p "$work"
-   python3 -I "$CASE_DIR/make_nrbc.py" "$work/input.ini" "$@"
+   python3 -I "$CASE_DIR/${MAKE:-make_nrbc.py}" "$work/input.ini" "$@"
    echo ">> $name: mpirun -np $NP $(basename "$EXE")" >&2
    if ! (cd "$work" && mpirun -np "$NP" "$EXE" > log.txt 2>&1); then
       echo "check.sh: $name failed, see $work/log.txt" >&2
@@ -89,4 +101,22 @@ if has_leg nr4; then
    "$VENV_PY" "$ORACLE" residual "$a" --amplitude 1e-3 --bound 6e-3
    "$VENV_PY" "$ORACLE" residual "$b" --amplitude 1e-3
 fi
-echo "NR PASSED ($TAG, legs: $LEGS)"
+SG=(--mach 2 --shock-x 0.5)
+if has_leg sg1; then
+   echo "== sg1: the post-shock state and the shock angle"
+   a=$(MAKE=make_shockgen.py run sg1-def --nx 64 --deflection 10 --time-max 2.5)
+   "$VENV_PY" "$SG_ORACLE" post "$a" "${SG[@]}" --deflection 10 --bound "$SG_BOUND" --angle-bound "$SG_ANGLE"
+   "$VENV_PY" "$SG_ORACLE" angle "$a" "${SG[@]}" --deflection 10 --bound 0.3
+fi
+if has_leg sg2; then
+   echo "== sg2: the shock given by its angle"
+   a=$(MAKE=make_shockgen.py run sg2-ang --nx 64 --angle 39.313932 --time-max 2.5)
+   "$VENV_PY" "$SG_ORACLE" post "$a" "${SG[@]}" --angle 39.313932 --bound "$SG_BOUND" --angle-bound "$SG_ANGLE"
+fi
+if has_leg sg3; then
+   echo "== sg3: a shock beyond the box is an extrapolated top"
+   a=$(MAKE=make_shockgen.py run sg3-far --nx 64 --deflection 10 --shock-x 3.0 --time-max 0.5)
+   b=$(MAKE=make_shockgen.py run sg3-ex --nx 64 --top extrapolation --time-max 0.5)
+   "$VENV_PY" "$SG_ORACLE" bitwise "$a" "$b"
+fi
+echo "NR/SG PASSED ($TAG, legs: $LEGS)"

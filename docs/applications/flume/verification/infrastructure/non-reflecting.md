@@ -1,5 +1,8 @@
 # Non-reflecting boundary
 
+The open boundaries of [#121](https://github.com/szaghi/adam/issues/121): the non-reflecting outflow (S2, legs nr) and the
+[shock generator](#shock-generator) (S3, legs sg).
+
 `[bc_*] type = non-reflecting` ([#121](https://github.com/szaghi/adam/issues/121) S2) is a characteristic outflow and far-field
 boundary. It extrapolates the outgoing waves, relaxes the incoming acoustic wave toward a target pressure (Rudy & Strikwerda 1980,
 Poinsot & Lele 1992), and takes the target's entropy and tangential velocity where flow enters
@@ -38,3 +41,36 @@ the box integrals; dotted, $e^{-Kt}$.*
 
 Use it where a subsonic outflow or a far-field face must hold a pressure, with $\sigma$ as small as the transient allows. A supersonic
 outflow or a far field that needs no pressure is served as well by `extrapolation`.
+
+## Shock generator
+
+`[bc_y_max] type = shock-generator` ([#121](https://github.com/szaghi/adam/issues/121) S3,
+[boundary conditions](../../boundary-conditions#shock-generator-an-oblique-shock-through-a-y-face-121-s3)) brings an oblique shock in through
+the top face. The legs measure the shock it makes against the oblique-shock relations (`shockgen_oracle.py`, which solves them on its own).
+
+| Setup | |
+|---|---|
+| box, cells | $[0, 2]\times[0, 1]\times[0, 0.25]$, $64\times32\times8$, 8 blocks, periodic z |
+| gas | Euler, $\gamma = 1.4$, $\rho = 1$, $p = 1/\gamma$ ($c = 1$), Mach 2 along x |
+| boundary | `inflow` at $x = 0$; `extrapolation` at $x = 2$ and $y = 0$; `shock-generator` at $y = 1$, deflection $10^\circ$ from `shock_x` = 0.5 ($\beta = 39.314^\circ$, $p_2/p_1 = 1.70658$, $\rho_2/\rho_1 = 1.45843$) |
+| scheme | WENO-U-5 characteristic, SSP-54, CFL 0.5, 2 ranks, to $t = 2.5$ (steady) |
+
+| Leg | Case | Oracle | Measured (CPU; FNL the same to the digits shown) |
+|---|---|---|---|
+| sg1 | the shock by its deflection | the uniform region behind it (16 cells off the shock, 4 below the streamline from its foot, above $y = 0.2$): $p$ and $\rho$ within 3e-3 of Rankine–Hugoniot, the flow angle within $0.05^\circ$; the shock angle fitted from where $p$ crosses $(p_1 + p_2)/2$ along the rows within $0.3^\circ$ | $p$ 1.47e-3, $\rho$ 1.22e-3, angle $0.026^\circ$; $\beta$ $39.322^\circ$, the foot at $x = 0.496$ |
+| sg2 | the same shock by its angle (`shock_angle` 39.313932) | as sg1 | the same digits |
+| sg3 | a shock entering beyond the box (`shock_x` 3) | equal to an extrapolated top bit for bit | 0 of 64 datasets differ |
+
+![The shock generator at Mach 2](/flume/shockgen.png)
+
+*Left: $p/p_1$ in the x-y plane of leg sg1; dashed, the shock of the theory from its foot; dotted, the streamline from the foot. Right:
+$p/p_1$ and $\rho/\rho_1$ along the row $y = 0.484$ against the step of Rankine–Hugoniot at the theory's shock.*
+
+**What it shows.**
+- **The shock is where the relations put it.** Its angle is within $0.01^\circ$ of $\beta$, and it meets the top within a cell of
+  `shock_x`; behind it the state is Rankine–Hugoniot's within $1.5\cdot10^{-3}$.
+- **What the oracle leaves out, and why.** The captured shock leaves oscillations of a few $10^{-3}$ that decay over 16 cells behind
+  it (the staircase of an oblique shock on a Cartesian grid). The jump of the ghost state at `shock_x` leaves an entropy streak along the
+  streamline from the foot ($\rho$ 7e-3 off, the pressure continuous). Where the shock leaves through the extrapolated bottom, the
+  corner downstream sits up to 4 % high: an extrapolated face crossed by an oblique shock is not clean. In a shock–boundary-layer
+  interaction the shock meets the wall instead.

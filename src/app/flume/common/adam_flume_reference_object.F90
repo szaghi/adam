@@ -519,9 +519,11 @@ contains
          kind = KIND_SCALED ; dim = DIM_VELOCITY
       case('wall_temperature')
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
-      case('wall_model_height', 'nr_length')
+      case('wall_model_height', 'nr_length', 'shock_x', 'shock_x_end')
          kind = KIND_SCALED ; dim = DIM_LENGTH
       case('nr_sigma') ! the non-reflecting relaxation coefficient (issue #121, S2), dimensionless
+         kind = KIND_NONE
+      case('shock_deflection', 'shock_angle') ! the shock generator's angles, degrees (issue #121, S3)
          kind = KIND_NONE
       case('wall_model_damping', 'wall_model', 'wall_model_eddy_viscosity')
          kind = KIND_NONE

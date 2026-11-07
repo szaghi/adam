@@ -216,7 +216,8 @@ def classify(ini: configparser.ConfigParser, section: str, key: str) -> tuple[fl
         table = {"type": NONE, **STATE_KEYS, "wall_u": VELOCITY, "wall_v": VELOCITY, "wall_w": VELOCITY,
                  "wall_temperature": VELOCITY2,
                  # the wall model (issue #119): a length, a time, the edge state; the model and damping names
-                 "wall_model": NONE, "wall_model_damping": NONE, "wall_model_height": LENGTH, "nr_length": LENGTH, "nr_sigma": NONE, "wall_model_filter": TIME,
+                 "wall_model": NONE, "wall_model_damping": NONE, "wall_model_height": LENGTH, "nr_length": LENGTH, "nr_sigma": NONE,
+                 "shock_x": LENGTH, "shock_x_end": LENGTH, "shock_deflection": NONE, "shock_angle": NONE, "wall_model_filter": TIME,
                  "wall_model_edge_velocity": VELOCITY, "wall_model_edge_temperature": VELOCITY2}
     elif section == "initial_conditions":
         table = dict(IC_KEYS)

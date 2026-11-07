@@ -22,9 +22,10 @@ faces 1–6. Each section **requires** `type`. The value goes through
 | `periodic` | library `BC_PERIODIC = -1` | none |
 | `hydrostatic` | `BC_HYDROSTATIC = 6` | none (reads `[gravity]`); refused with `[eos]` `isothermal` or `barotropic` |
 | `non-reflecting` | `BC_NONREFLECTING = 8` | the target `r, u, v, w, p` (required), `nr_length` $L$ (required, $> 0$), `nr_sigma` $\sigma$ (default 0.28); Euler only ([#121](https://github.com/szaghi/adam/issues/121) S2) |
+| `shock-generator` | `BC_SHOCK_GENERATOR = 9` | the upstream `r, u, v, w, p`, one of `shock_deflection` and `shock_angle` (degrees), `shock_x`, `shock_x_end` (optional); `bc_y_min` and `bc_y_max` only, Euler only ([#121](https://github.com/szaghi/adam/issues/121) S3) |
 
 *Validation:*
-- an unknown value stops the run and the message lists the seven spellings;
+- an unknown value stops the run and the message lists the accepted spellings;
 - a missing inflow key, or a missing or non-positive `wall_temperature`, is fatal;
 - a non-zero normal wall velocity is fatal (the wall does not move through the domain);
 - periodicity must be **paired**: `[bc_x_min]` and `[bc_x_max]` must both be periodic or neither, and the same for y and z;
@@ -175,6 +176,26 @@ passing through. Measured in the [verification](./verification/infrastructure/no
 | a packet leaving through a subsonic inflow face, left behind | 4.3e-3 | `inflow`: 1.4e-5 |
 
 Source: `adam_flume_bc_object.F90` (`nonreflecting_ghost`).
+
+### `shock-generator`: an oblique shock through a y face ([#121](https://github.com/szaghi/adam/issues/121) S3)
+
+The face of a shock–boundary-layer interaction that brings the incident shock in (the top of the box). The ghosts with
+`shock_x` $\le x <$ `shock_x_end` take the state behind an oblique shock in the upstream state `r, u, v, w, p`; the others are
+extrapolated, as are the edge and corner rows beyond the face. The shock is given by its deflection $\theta$
+(`shock_deflection`, the weak solution of the $\theta$–$\beta$–$M$ relation) or by its angle $\beta$ from the upstream velocity
+(`shock_angle`), and turns the flow toward the opposite face. The post-shock state follows from the normal Mach number
+$M\sin\beta$, with $M$ of the velocity in the x-y plane (Rankine–Hugoniot; Anderson, *Modern Compressible Flow*, ch. 4); $w$, tangent
+to the shock, is unchanged. The run prints the shock angle, the deflection and $p_2/p_1$.
+
+- **Refused:** a flow that is not supersonic in the x-y plane, an angle outside $(\mu, 90^\circ]$, a deflection beyond detachment,
+  a face other than y, a model other than Euler (no dual energy, no passive scalars).
+- **The rest of the face is `extrapolation`**: upstream of `shock_x` the free stream leaves or enters at its own state, as at an
+  extrapolated top. A reflected shock that reaches the face beyond `shock_x_end` leaves through it.
+
+Measured in the [verification](./verification/infrastructure/non-reflecting#shock-generator): at Mach 2 and $10^\circ$ the shock angle
+within $0.01^\circ$ of $39.314^\circ$, the state behind it within $1.5\cdot10^{-3}$ of Rankine–Hugoniot.
+
+Source: `adam_flume_bc_object.F90` (`oblique_shock`).
 
 ### `periodic`
 

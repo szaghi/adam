@@ -2641,14 +2641,15 @@ contains
                                           R=self%physics%R, psi_energy=psi_energy,                                 &
                                           wall_velocity=self%bc%wall_velocity,                                     &
                                           wall_temperature=self%bc%wall_temperature,                               &
-                                          nr_par=self%bc%nr_par,                                                   &
+                                          nr_par=self%bc%nr_par, sg_par=self%bc%sg_par,                            &
                                           g=self%physics%gravity%g_uniform,                                        &
                                           has_phi=self%physics%gravity%has_potential, phi_gpu=self%phi_grav_gpu,   &
                                           local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu,       &
                                           row_first=self%bc_pass_range(1,pass,crown),                              &
                                           row_last=self%bc_pass_range(2,pass,crown), bc_rows_gpu=self%bc_rows_gpu, &
                                           q_inflow_gpu=self%q_inflow_gpu, wall_sign_gpu=self%wall_sign_gpu,        &
-                                          dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu)
+                                          dxyz_gpu=self%field_fnl%dxyz_gpu, x_cell_gpu=self%field_fnl%x_cell_gpu,  &
+                                          q_gpu=q_gpu)
       enddo
    enddo
    endsubroutine set_boundary_conditions

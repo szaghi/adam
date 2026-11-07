@@ -80,6 +80,8 @@ public :: BC_WALL_ISOTHERMAL
 public :: BC_HYDROSTATIC
 public :: BC_INFLOW_DF
 public :: BC_NONREFLECTING
+public :: BC_SHOCK_GENERATOR
+public :: oblique_shock
 public :: hydrostatic_ghost
 public :: nonreflecting_ghost
 public :: wall_noslip_ghost
@@ -95,6 +97,7 @@ integer(I4P), parameter :: BC_WALL_ISOTHERMAL = 5_I4P !< No-slip isothermal wall
 integer(I4P), parameter :: BC_HYDROSTATIC = 6_I4P     !< Hydrostatic ghosts under gravity, mirrored velocity.
 integer(I4P), parameter :: BC_INFLOW_DF = 7_I4P       !< Digital-filter turbulent inflow (issue #119, T3.7).
 integer(I4P), parameter :: BC_NONREFLECTING = 8_I4P   !< Characteristic non-reflecting outflow (issue #121, S2).
+integer(I4P), parameter :: BC_SHOCK_GENERATOR = 9_I4P !< Oblique-shock generator on a y face (issue #121, S3).
 
 character(len=13), parameter :: BC_EXTRAPOLATION_STR="extrapolation"          !< Accepted spelling of BC_EXTRAPOLATION.
 character(len=6),  parameter :: BC_INFLOW_STR="inflow"                        !< Accepted spelling of BC_INFLOW.
@@ -106,6 +109,7 @@ character(len=15), parameter :: BC_WALL_ISOTHERMAL_STR="wall-isothermal"      !<
 character(len=11), parameter :: BC_HYDROSTATIC_STR="hydrostatic"              !< Accepted spelling of BC_HYDROSTATIC.
 character(len=21), parameter :: BC_INFLOW_DF_STR="inflow-digital-filter"      !< Accepted spelling of BC_INFLOW_DF.
 character(len=14), parameter :: BC_NONREFLECTING_STR="non-reflecting"        !< Accepted spelling of BC_NONREFLECTING.
+character(len=15), parameter :: BC_SHOCK_GENERATOR_STR="shock-generator"     !< Accepted spelling of BC_SHOCK_GENERATOR.
 real(R8P),         parameter :: NR_SIGMA_DEFAULT=0.28_R8P                     !< Non-reflecting: relaxation (Rudy & Strikwerda 1980).
 character(len=6),  parameter :: WALL_VELOCITY_KEY(3)=['wall_u', 'wall_v', 'wall_w'] !< Wall velocity keys.
 character(len=2),  parameter :: INFLOW_KEY(8)=['r ', 'u ', 'v ', 'w ', &
@@ -130,6 +134,7 @@ type :: flume_bc_object
    real(R8P)              :: wm_edge_t(6)=0._R8P        !< Inverse model: temperature at the edge of the layer per face.
    real(R8P)              :: wall_temperature(6)=0._R8P !< Isothermal walls: wall temperature of each face.
    real(R8P)              :: nr_par(7,6)=0._R8P         !< Non-reflecting faces: target r, u, v, w, p, then sigma and L.
+   real(R8P)              :: sg_par(7,6)=0._R8P         !< Shock generators: the post-shock conservative state, then the x range [x0, x1).
    type(flume_inflow_df_object) :: df                   !< Digital-filter inflow (issue #119, T3.7).
    contains
       ! public methods
@@ -322,6 +327,8 @@ contains
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='nr_length', val=self%nr_par(7,f), error=error)
          if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(nr_length)')
          if (.not.(self%nr_par(7,f) > 0._R8P)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(nr_length) must be positive')
+      case(BC_SHOCK_GENERATOR_STR)
+         call load_shock_generator
       case(BC_HYDROSTATIC_STR)
          ! the hydrostatic ghost extrapolates the temperature through the gamma-law energy (issue #73)
          if (has_inert_energy(physics%model)) &
@@ -332,13 +339,68 @@ contains
          call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(type) "'//bc_str//'"; expected one of '// &
                                   BC_EXTRAPOLATION_STR//', '//BC_INFLOW_STR//', '//BC_WALL_INVISCID_STR//', '// &
                                   BC_WALL_NOSLIP_STR//', '//BC_WALL_ISOTHERMAL_STR//', '//BC_WALL_MODELLED_STR//', '//BC_PERIODIC_STR//', '// &
-                                  BC_HYDROSTATIC_STR//', '//BC_INFLOW_DF_STR//', '//BC_NONREFLECTING_STR)
+                                  BC_HYDROSTATIC_STR//', '//BC_INFLOW_DF_STR//', '//BC_NONREFLECTING_STR//', '//BC_SHOCK_GENERATOR_STR)
       endselect
    enddo
    do f=1, 5, 2
       if ((self%bc_type(f) == BC_PERIODIC) .neqv. (self%bc_type(f+1) == BC_PERIODIC)) &
          call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'] and ['//SECTION_NAME(f+1)//'] must be both periodic or neither')
    enddo
+   contains
+      subroutine load_shock_generator
+      !< A shock generator on face `f` (issue #121, S3): the upstream state `r, u, v, w, p`, the shock by `shock_deflection` (the
+      !< flow turning, degrees, the weak solution) or `shock_angle` (degrees, from the upstream velocity), where it enters
+      !< `shock_x` and, optionally, `shock_x_end` (the ghosts with x >= it extrapolated again).
+      real(R8P) :: up(5)          !< Upstream primitive state.
+      real(R8P) :: deg, x0, x1    !< Angle input, x range.
+      real(R8P) :: beta, theta    !< Shock angle, deflection.
+      real(R8P) :: post(5), ratio !< Post-shock primitive state, pressure ratio.
+      logical   :: by_angle       !< The shock given by its angle.
+      integer(I4P) :: e1, e2      !< Error statuses.
+
+      if (physics%model /= MODEL_EULER .or. physics%passive_scalars > 0_I4P) &
+         call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(type)='//bc_str//' needs [physics].(physical_model)=euler '// &
+                                  '(ideal gas, no dual energy, no passive scalars)')
+      if (f /= 3_I4P .and. f /= 4_I4P) &
+         call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(type)='//bc_str//' is accepted on bc_y_min and bc_y_max only '// &
+                                  '(the shock turns the flow in the x-y plane)')
+      self%bc_type(f) = BC_SHOCK_GENERATOR
+      do k=1, 5
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name=trim(INFLOW_KEY(k)), val=up(k), error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))// &
+                                                 ') (the upstream state of '//bc_str//')')
+      enddo
+      if (.not.(up(1) > 0._R8P .and. up(5) > 0._R8P)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(r, p) must be positive')
+      call file_parameters%get(section_name=SECTION_NAME(f), option_name='shock_deflection', val=deg, error=e1)
+      call file_parameters%get(section_name=SECTION_NAME(f), option_name='shock_angle', val=beta, error=e2)
+      if ((e1 > 0) .eqv. (e2 > 0)) &
+         call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'] needs exactly one of shock_deflection and shock_angle (degrees)')
+      by_angle = e2 == 0
+      if (by_angle) deg = beta
+      call file_parameters%get(section_name=SECTION_NAME(f), option_name='shock_x', val=x0, error=error)
+      if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(shock_x)')
+      call file_parameters%get(section_name=SECTION_NAME(f), option_name='shock_x_end', val=x1, error=error)
+      if (error > 0) x1 = huge(1._R8P)
+      if (.not.(x1 > x0)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(shock_x_end) must be greater than shock_x')
+      call oblique_shock(gamma=physics%gamma, s=merge(1._R8P, -1._R8P, f == 4_I4P), up=up, deg=deg, by_angle=by_angle, &
+                         post=post, beta=beta, theta=theta, error=error)
+      select case(error)
+      case(1)
+         call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'] the upstream flow is not supersonic in the x-y plane')
+      case(2)
+         call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(shock_angle) must lie between the Mach angle and 90 degrees')
+      case(3)
+         call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(shock_deflection) must be positive and below the detachment angle')
+      endselect
+      prim = 0._R8P
+      prim(1:5) = post
+      call primitive_state_to_conservative(model=physics%model, gamma=physics%gamma, prim=prim, q=self%sg_par(1:5,f))
+      self%sg_par(6,f) = x0
+      self%sg_par(7,f) = x1
+      ratio = post(5) / up(5)
+      if (mpih%myrank == 0) print '(A)', 'flume: ['//SECTION_NAME(f)//'] shock generator: shock angle '//trim(str(beta, .true.))// &
+         ' deg, deflection '//trim(str(theta, .true.))//' deg, p2/p1 '//trim(str(ratio, .true.))
+      endsubroutine load_shock_generator
    endsubroutine load_from_file
    ! public procedures
    pure function realm_edge_face(fec, face_kind) result(face)
@@ -456,6 +518,92 @@ contains
       qg(v) = rho_g * q(v) / q(IQ_R)
    enddo
    endsubroutine wall_noslip_ghost
+
+   pure subroutine oblique_shock(gamma, s, up, deg, by_angle, post, beta, theta, error)
+   !< The state behind an oblique shock in the x-y plane (issue #121, S3; Anderson, Modern Compressible Flow, ch. 4): the upstream
+   !< primitive state `up` (r, u, v, w, p), the shock entering through a y face of outward sign `s` (+1 the top), so that it turns
+   !< the flow by -s theta (toward the face opposite). `deg` is the deflection theta (the weak solution) or, `by_angle`, the shock
+   !< angle beta from the upstream velocity, in degrees. The normal Mach number M_n = M sin(beta), with M of the in-plane velocity;
+   !< w, tangent to the shock, is unchanged. `error`: 0, 1 not supersonic, 2 beta out of (mu, 90], 3 theta out of (0, theta_max).
+   real(R8P),    intent(in)  :: gamma        !< Specific heats ratio.
+   real(R8P),    intent(in)  :: s            !< Outward normal sign of the face along y.
+   real(R8P),    intent(in)  :: up(5)        !< Upstream primitive state.
+   real(R8P),    intent(in)  :: deg          !< Deflection or shock angle, degrees.
+   logical,      intent(in)  :: by_angle     !< `deg` is the shock angle.
+   real(R8P),    intent(out) :: post(5)      !< Post-shock primitive state.
+   real(R8P),    intent(out) :: beta, theta  !< Shock angle and deflection, degrees.
+   integer(I4P), intent(out) :: error        !< Error status.
+   real(R8P), parameter      :: PI=acos(-1._R8P), RAD=PI / 180._R8P !< Degrees to radians.
+   real(R8P)                 :: c1, v1, m1, mu, phi, b, t, lo, hi, bm, mn1, mn2, r21, p21, c2, m2, v2 !< Work.
+   integer(I4P)              :: it           !< Counter.
+
+   post = up ; beta = 0._R8P ; theta = 0._R8P ; error = 0_I4P
+   c1 = sqrt(gamma * up(5) / up(1))
+   v1 = sqrt(up(2) * up(2) + up(3) * up(3))
+   m1 = v1 / c1
+   if (.not.(m1 > 1._R8P)) then
+      error = 1_I4P
+      return
+   endif
+   mu = asin(1._R8P / m1)
+   if (by_angle) then
+      b = deg * RAD
+      if (.not.(b > mu .and. b <= 0.5_R8P * PI)) then
+         error = 2_I4P
+         return
+      endif
+      t = deflection(b)
+   else
+      t = deg * RAD
+      ! the maximum deflection: theta(beta) rises from 0 at mu to theta_max, then falls to 0 at 90 degrees (ternary search)
+      lo = mu ; hi = 0.5_R8P * PI
+      do it=1, 200
+         if (deflection(lo + (hi - lo) / 3._R8P) < deflection(hi - (hi - lo) / 3._R8P)) then
+            lo = lo + (hi - lo) / 3._R8P
+         else
+            hi = hi - (hi - lo) / 3._R8P
+         endif
+      enddo
+      bm = 0.5_R8P * (lo + hi)
+      if (.not.(t > 0._R8P .and. t < deflection(bm))) then
+         error = 3_I4P
+         return
+      endif
+      lo = mu ; hi = bm ! the weak solution: theta rises monotonically on (mu, beta_max)
+      do it=1, 200
+         b = 0.5_R8P * (lo + hi)
+         if (deflection(b) < t) then
+            lo = b
+         else
+            hi = b
+         endif
+      enddo
+      b = 0.5_R8P * (lo + hi)
+   endif
+   mn1 = m1 * sin(b)
+   p21 = 1._R8P + 2._R8P * gamma / (gamma + 1._R8P) * (mn1 * mn1 - 1._R8P)
+   r21 = (gamma + 1._R8P) * mn1 * mn1 / ((gamma - 1._R8P) * mn1 * mn1 + 2._R8P)
+   mn2 = sqrt((1._R8P + 0.5_R8P * (gamma - 1._R8P) * mn1 * mn1) / (gamma * mn1 * mn1 - 0.5_R8P * (gamma - 1._R8P)))
+   m2 = mn2 / sin(b - t)
+   post(1) = up(1) * r21
+   post(5) = up(5) * p21
+   c2 = sqrt(gamma * post(5) / post(1))
+   v2 = m2 * c2
+   phi = atan2(up(3), up(2)) - s * t
+   post(2) = v2 * cos(phi)
+   post(3) = v2 * sin(phi)
+   post(4) = up(4)
+   beta = b / RAD
+   theta = t / RAD
+   contains
+      pure function deflection(bb) result(tt)
+      !< The theta-beta-M relation: tan(theta) = 2 cot(beta) (M^2 sin^2(beta) - 1) / (M^2 (gamma + cos(2 beta)) + 2).
+      real(R8P), intent(in) :: bb !< Shock angle, radians.
+      real(R8P)             :: tt !< Deflection, radians.
+
+      tt = atan(2._R8P / tan(bb) * (m1 * m1 * sin(bb)**2 - 1._R8P) / (m1 * m1 * (gamma + cos(2._R8P * bb)) + 2._R8P))
+      endfunction deflection
+   endsubroutine oblique_shock
 
    pure subroutine nonreflecting_ghost(gamma, d, s, dist, par, q1, qg)
    !< Ghost state of a non-reflecting face (issue #121, S2) from the first interior cell `q1` (Euler, conservative), `dist` off it
