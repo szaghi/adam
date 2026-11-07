@@ -1,0 +1,8 @@
+# The H deficit of the Mach 2.5 layer (H 3.54 at delta_i / 12, 3.51 at delta_i / 16, DNS 4.10: not the grid), one factor at a time against
+# m2p5-wm-l90 of tbl_cases_t37_l90.txt (delta_i / 12, 90 x 6 x 6 delta_i): the span doubled (6 delta_i is 3.4 delta at the station), then the
+# digital filter's integral lengths enlarged (0.8, 0.3, 0.3 -> 1.2, 0.5, 0.5 delta_i). Then the Mach 5.86 layer of tbl_cases_t37_m6.txt under
+# Sutherland's law with the DNS's own free-stream Reynolds number (137350 per delta_i, S = 110.4 K / 55 K = 2.0073 T_inf): no viscosity matched
+# at the wall, so its outer layer sees the DNS's viscosity. One phase each, to t = 360 with checkpoints from the start (the averages take t > 180).
+m2p5-wm-z12 1080 72 144 --lx 90 --ly 6 --lz 12 --levels 2 --wm-eddy-viscosity --wall-history 20 --time-max 360 --it-save 400
+m2p5-wm-df 1080 72 72 --lx 90 --ly 6 --lz 6 --levels 2 --wm-eddy-viscosity --wall-history 20 --df-lengths 1.2,0.5,0.5 --time-max 360 --it-save 400
+m6tw076-wm-suth 1440 72 72 --lx 120 --ly 6 --lz 6 --levels 2 --mach 5.86 --reynolds 137350 --sutherland 2.0073 --wall-heat 5.4545 --wm-eddy-viscosity --wall-history 20 --profile src/tests/flume/verification/turbulence/reference/tbl_m6tw076_profile.txt --time-max 360 --it-save 400

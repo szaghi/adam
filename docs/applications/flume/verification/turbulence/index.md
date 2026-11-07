@@ -415,7 +415,40 @@ $u^+_{VD}$ at the station of each run. Right: the rms and $-\langle u'v'\rangle$
   u'v'\rangle$ from 0.80 to 0.66, the log-layer offset in $u^+_{VD}$ at $y^+=200$ from +1.0 to +0.4.
 - **$H$ does not move** (3.54, 3.51, against 4.10): its deficit is not the grid at these resolutions. Candidates are the inflow's outer-layer
   content (the filter's integral lengths), the span of the box ($6\,\delta_i\approx3.4\,\delta$ at the station), and the dissipation of the hybrid
-  scheme in the intermittent outer layer, where the sensor (not calibrated) can switch WENO on.
+  scheme in the intermittent outer layer, where the sensor (not calibrated) can switch WENO on. The first two are measured in
+  [the shape factor](#the-shape-factor-mach-2-5-at-delta-i-12).
+
+### The shape factor: Mach 2.5 at $\delta_i/12$
+
+Two runs of the $\delta_i/12$ case, each changing one setting (`tbl_cases_t37_hdef.txt`): the filter's integral lengths raised from $0.8, 0.3,
+0.3$ to $1.2, 0.5, 0.5\,\delta_i$ (more outer-layer content at the inflow), and the span doubled to $12\,\delta_i$ ($1080\times72\times144$
+cells, $\approx6.9\,\delta$ at the station). Same averaging, $180<t\le360$: 34 and 35 checkpoints.
+
+![The shape factor of the Mach 2.5 layer, three runs](/flume/tbl-m2p5-hdef.png)
+
+*Left: $H$ against $x$; the square is the DNS at its station. Middle: $u^+_{VD}$ at the station of each run. Right: $-\langle u'v'\rangle/u_\tau^2$
+against $y/\delta$; black, the DNS.*
+
+| At $Re_\theta=2835$ | baseline | lengths $1.2, 0.5, 0.5\,\delta_i$ | span $12\,\delta_i$ | DNS |
+|---|---|---|---|---|
+| station $x/\delta_i$ | 55.2 | 51.4 | 54.6 | 53 |
+| $H$ | 3.54 | 3.47 | 3.50 | 4.10 |
+| $C_f$, the wall model's $\tau_w$ | 2.208e-3 (−4.4 %) | 2.248e-3 (−2.7 %) | 2.205e-3 (−4.6 %) | 2.310e-3 |
+| $u^+_{VD}$ at $y^+=30$, $100$, $200$ | 13.1, 17.5, 19.8 | 13.0, 17.7, 19.8 | 13.0, 17.5, 19.9 | 13.6, 16.7, 18.8 |
+| $u_{rms}$, $v_{rms}$, $w_{rms}$ over $u_\tau$ at $y/\delta=0.2$ | 2.06, 0.81, 1.22 | 1.97, 0.75, 1.15 | 2.08, 0.79, 1.22 | 1.49, 0.93, 1.12 |
+| $-\langle u'v'\rangle/u_\tau^2$ at $y/\delta=0.2$, $0.5$ | 0.80, 0.50 | 0.66, 0.57 | 0.74, 0.56 | 0.62, 0.37 |
+
+**What it shows.**
+- **Neither setting is the deficit.** $H$ is 3.47–3.54 in all three runs, within the $\pm0.1$ that $H$ wanders along the plateau
+  ($x=40$–$90$) of each; with the $\delta_i/16$ run, four runs agree.
+- **The inflow profile is lost in the first $15\,\delta_i$.** Every run starts at the DNS's $H\approx4.0$ (the inflow is its profile), falls to 2.8 by
+  $x\approx15$ while the synthetic eddies adapt, and recovers to a plateau of 3.5: the plateau is the LES's own equilibrium, not a memory of the
+  inflow. Longer integral lengths shorten the recovery a little ($C_f$ −2.7 % at the station, the layer reaches $Re_\theta=2835$ at $x=51$), as the
+  $\delta_i/16$ grid did.
+- **The outer layer mixes too much in every run.** $-\langle u'v'\rangle$ at $y/\delta=0.5$ is 0.50–0.57 against 0.37, and $u^+_{VD}$ sits 0.9–1.1
+  above the DNS from $y^+=100$ outward. A larger outer-layer shear stress fills the profile, and a fuller profile has a lower $H$. These runs
+  have no subgrid model (`hybrid-kep-weno`, the central part non-dissipative); what is left to measure is the outer layer's closure, a subgrid
+  model or the sensor that switches WENO on there.
 
 ### Mach 5.86, cold wall
 
@@ -434,15 +467,15 @@ $\tau_w$.
 
 *The panels of the Mach 2.5 figure; the title adds $B_q$ at the station.*
 
-| At $Re_\theta=9453$ ($x=55\,\delta_i$) | LES | DNS |
-|---|---|---|
-| $C_f$, the wall model's $\tau_w$ | **9.47e-4** (the two halves of the window 9.70e-4, 9.25e-4); $x=60$–$110$: 9.78e-4 | 9.84e-4 |
-| $B_q$, the wall model's $q_w$ | **−0.0189** (halves −0.0191, −0.0187); $x=60$–$110$: −0.0194 | −0.02 (one significant figure) |
-| $\delta/\delta_i$ | 1.61 | 1.72 |
-| $H$ | 9.56 | 13.6 |
-| $u^+_{VD}$ at $y^+=30$, $100$, $200$ | 12.4, 17.9, 20.8 | 13.9, 17.2, 19.5 |
-| $u_{rms}$, $v_{rms}$, $w_{rms}$ over $u_\tau$ at $y/\delta=0.2$ | 2.21, 0.56, 0.94 | 1.33, 0.82, 0.99 |
-| $-\langle u'v'\rangle/u_\tau^2$ at $y/\delta=0.2$, $0.5$ | 0.64, 0.39 | 0.49, 0.25 |
+| At $Re_\theta=9453$ ($x=55\,\delta_i$) | LES | LES, Sutherland | DNS |
+|---|---|---|---|
+| $C_f$, the wall model's $\tau_w$ | **9.47e-4** (the two halves of the window 9.70e-4, 9.25e-4); $x=60$–$110$: 9.78e-4 | 9.51e-4; $x=60$–$110$: 9.80e-4 | 9.84e-4 |
+| $B_q$, the wall model's $q_w$ | **−0.0189** (halves −0.0191, −0.0187); $x=60$–$110$: −0.0194 | −0.0190 | −0.02 (one significant figure) |
+| $\delta/\delta_i$ | 1.61 | 1.61 | 1.72 |
+| $H$ | 9.56 | 9.76 | 13.6 |
+| $u^+_{VD}$ at $y^+=30$, $100$, $200$ | 12.4, 17.9, 20.8 | 12.4, 17.9, 20.6 | 13.9, 17.2, 19.5 |
+| $u_{rms}$, $v_{rms}$, $w_{rms}$ over $u_\tau$ at $y/\delta=0.2$ | 2.21, 0.56, 0.94 | 2.24, 0.55, 0.90 | 1.33, 0.82, 0.99 |
+| $-\langle u'v'\rangle/u_\tau^2$ at $y/\delta=0.2$, $0.5$ | 0.64, 0.39 | 0.65, 0.35 | 0.49, 0.25 |
 
 **What it shows.**
 - **$C_f$ within 3.8 % of the DNS** at its $Re_\theta$, with no change of the wall-model setting from Mach 2.5; past $x=60$ the plateau is
@@ -457,7 +490,10 @@ $\tau_w$.
   cells under the matching point) and 0.7–1.3 above it at $y^+=100$–$200$. At $\delta_i/12$ the layer of $Re_\tau=453$ has about 20 cells across
   $\delta$. At Mach 2.5 a finer grid moves the log layer and the stresses toward the DNS but leaves $H$ where it is, so the $H$ deficit is not
   resolution at these grids ([resolution](#resolution-mach-2-5-at-delta-i-16)). The viscosity, matched at the wall, is 1.41 times the DNS's in
-  the free stream: a confound of the outer layer here that Sutherland's law (`viscosity_law = sutherland`) removes.
+  the free stream: a confound of the outer layer here. A run under Sutherland's law (`viscosity_law = sutherland`, $S=110.4$ K, the DNS's
+  $Re=137350$ per $\delta_i$; `tbl_cases_t37_hdef.txt`, 29 checkpoints) removes it and changes little: $H$ 9.76 against 9.56, $C_f$ −3.4 %
+  against −3.8 % at the station, the plateau 9.80e-4, $B_q$ −0.0190. The viscosity of the outer layer is not the $H$ deficit either
+  ([the shape factor](#the-shape-factor-mach-2-5-at-delta-i-12)).
 - **The momentum integral is useless here too** ($-62$ % at the station, negative in places).
 
 ## Not done
@@ -465,6 +501,6 @@ $\tau_w$.
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
-- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: the matching height, the $H$ deficit (inflow lengths, span, sensor), a longer window at Mach 5.86, Mach 5.86 under Sutherland's law; SBLI; runtime regridding along a modelled wall; mean profiles
+- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: the matching height, the $H$ deficit (the outer layer's closure: a subgrid model, the sensor; the inflow lengths, the span and the grid are ruled out), a longer window at Mach 5.86; SBLI; runtime regridding along a modelled wall; mean profiles
   against the DNS; the relaminarisation of the inverse model on $96\times48\times48$ with $u_e = 1.18$; an edge state taken from the flow.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.

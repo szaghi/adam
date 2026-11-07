@@ -2557,6 +2557,54 @@ def fig_tbl_m2p5_res(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_tbl_hdef(out: Path, runs: Path) -> None:
+    """T3.7 (issue #119): the shape-factor deficit of the Mach 2.5 layer, three runs at delta_i / 12 that differ in one setting each
+    (tbl_cases_t37_l90.txt, the baseline; tbl_cases_t37_hdef.txt, the filter's integral lengths 1.2, 0.5, 0.5 delta_i and a span of 12 delta_i),
+    against the DNS (tbl_oracle.py compare of each, 180 < t <= 360). Left H against x, the DNS at its station; middle u+_VD at the station of the
+    DNS's Re_theta, each with its own u_tau, where the wake carries H; right -<u'v'> over u_tau^2 against y / delta."""
+    import json  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import tbl_oracle as to  # noqa: PLC0415
+
+    stat = HERE / "turbulence" / "reference" / "M2p5_Stat.txt"
+    res = {}
+    for case, lab in (("m2p5-wm-l90", "baseline"), ("m2p5-wm-df", r"lengths $1.2, 0.5, 0.5\,\delta_i$"), ("m2p5-wm-z12", r"span $12\,\delta_i$")):
+        work = runs / "tbl" / case
+        if not work.exists():
+            raise FileNotFoundError(work)
+        with tempfile.TemporaryDirectory() as tmp:
+            js = Path(tmp) / "tbl.json"
+            to.compare(str(work), str(stat), 180.0001, str(js))
+            res[lab] = json.loads(js.read_text())
+    _, d = to.read_stat(stat)
+    fig, axs = plt.subplots(1, 3, figsize=(14.0, 4.0), constrained_layout=True)
+    for (lab, j), c in zip(res.items(), ("C0", "C1", "C2"), strict=True):
+        ist = j["station"]
+        h = np.array([np.nan if v is None else v for v in j["H"]])
+        axs[0].plot(j["x"], h, color=c, lw=1.2, label=f"{lab}: {h[ist]:.2f} at x = {j['x'][ist]:.1f}")
+        axs[1].semilogx(j["yplus"], j["uvd"], color=c, marker="o", ms=2.5, label=lab)
+        axs[2].plot(np.array(j["y"]) / j["delta_station"], -np.array(j["uv"]), color=c, lw=1.0, label=lab)
+    j = next(iter(res.values()))
+    axs[0].plot([j["x"][j["station"]]], [j["h_dns"]], "ks", label=f"DNS {j['h_dns']:.2f}")
+    axs[0].set_xlabel(r"$x/\delta_i$")
+    axs[0].set_ylabel(r"$H=\delta^*/\theta$")
+    axs[1].semilogx(d[1:, 2], d[1:, 24], "k-", lw=1.0, label="DNS")
+    axs[1].set_xlim(1.0, 3000.0)
+    axs[1].set_xlabel(r"$y^+$")
+    axs[1].set_ylabel(r"$u^+_{VD}$")
+    axs[2].plot(d[:, 1], -d[:, 15], "k-", lw=1.0, label="DNS")
+    axs[2].set_xlim(0.0, 1.3)
+    axs[2].set_xlabel(r"$y/\delta$")
+    axs[2].set_ylabel(r"$-\langle u'v'\rangle/u_\tau^2$")
+    for ax in axs:
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.savefig(out / "tbl-m2p5-hdef.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_nrbc(out: Path, runs: Path) -> None:
     """#121 S2: the non-reflecting boundary (boundary/check.sh). Left: |p - p_inf| along x once the packet of leg nr2 has left the box at
     rest, over its pressure amplitude: non-reflecting at sigma 0.28 and 0.07, extrapolation. Right: leg nr3, the box-mean overpressure
@@ -4220,7 +4268,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
-           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "nrbc": fig_nrbc,
+           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "nrbc": fig_nrbc,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

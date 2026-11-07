@@ -179,7 +179,8 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None, re_inf: flo
         print(f"compare: no checkpoint from t = {t0}")
         return 1
     a = averages(work, [g for _, g in cps])
-    reynolds, power = float(ini_value(work, "reynolds")), float(ini_value(work, "viscosity_exponent"))
+    reynolds = float(ini_value(work, "reynolds"))
+    law = ini_value(work, "viscosity_law")
     re_theta_scale = re_inf if re_inf else reynolds  # Re_theta with the true free-stream viscosity when the power law is matched at the wall
     t_inf, t_w = float(ini_value(work, "reference_temperature")), float(ini_value(work, "wall_temperature"))
     lx, ly = float(ini_value(work, "emax_x")), float(ini_value(work, "emax_y"))
@@ -219,7 +220,11 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None, re_inf: flo
         q_wall = np.interp(x, xb, w[:, 2 + nb : 2 + 2 * nb].mean(axis=0))
         cf = cf_wall
     ut = np.sqrt(0.5 * cf[ist] / rho_w)
-    mu_w = (t_w / t_inf) ** power / reynolds
+    if law == "sutherland":  # (T / T_ref)^(3/2) (T_ref + S) / (T + S), T_ref the free stream
+        s_t = float(ini_value(work, "sutherland_temperature"))
+        mu_w = (t_w / t_inf) ** 1.5 * (t_inf + s_t) / (t_w + s_t) / reynolds
+    else:
+        mu_w = (t_w / t_inf) ** float(ini_value(work, "viscosity_exponent")) / reynolds
     yplus = y * ut * rho_w / mu_w
     r_st, u_st = a["r"][ist], a["u"][ist]
     uvd = np.concatenate([[0.0], np.cumsum(np.sqrt(0.5 * (r_st[1:] + r_st[:-1]) / rho_w) * np.diff(u_st))]) + np.sqrt(r_st[0] / rho_w) * u_st[0]
