@@ -2558,10 +2558,11 @@ def fig_tbl_m2p5_res(out: Path, runs: Path) -> None:
 
 
 def fig_tbl_hdef(out: Path, runs: Path) -> None:
-    """T3.7 (issue #119): the shape-factor deficit of the Mach 2.5 layer, three runs at delta_i / 12 that differ in one setting each
-    (tbl_cases_t37_l90.txt, the baseline; tbl_cases_t37_hdef.txt, the filter's integral lengths 1.2, 0.5, 0.5 delta_i and a span of 12 delta_i),
-    against the DNS (tbl_oracle.py compare of each, 180 < t <= 360). Left H against x, the DNS at its station; middle u+_VD at the station of the
-    DNS's Re_theta, each with its own u_tau, where the wake carries H; right -<u'v'> over u_tau^2 against y / delta."""
+    """T3.7 (issue #119): the Mach 2.5 layer at delta_i / 12, four runs that differ in one setting each (tbl_cases_t37_l90.txt, the baseline;
+    tbl_cases_t37_hdef.txt, the filter's integral lengths 1.2, 0.5, 0.5 delta_i; tbl_cases_t37_sgs.txt, WALE and Vreman; the span of 12 delta_i,
+    whose checkpoints stay on the cluster, in the table only),
+    against the DNS (tbl_oracle.py compare of each, 180 < t <= 360). Left H against the local edge state against x, the DNS at its station;
+    middle u+_VD at the station of the DNS's Re_theta, each with its own u_tau; right -<u'v'> over u_tau^2 against y / delta."""
     import json  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
 
@@ -2570,7 +2571,8 @@ def fig_tbl_hdef(out: Path, runs: Path) -> None:
 
     stat = HERE / "turbulence" / "reference" / "M2p5_Stat.txt"
     res = {}
-    for case, lab in (("m2p5-wm-l90", "baseline"), ("m2p5-wm-df", r"lengths $1.2, 0.5, 0.5\,\delta_i$"), ("m2p5-wm-z12", r"span $12\,\delta_i$")):
+    for case, lab in (("m2p5-wm-l90", "baseline"), ("m2p5-wm-df", r"lengths $1.2, 0.5, 0.5\,\delta_i$"), 
+                      ("m2p5-wm-wale", "WALE"), ("m2p5-wm-vreman", "Vreman")):
         work = runs / "tbl" / case
         if not work.exists():
             raise FileNotFoundError(work)
@@ -2580,7 +2582,7 @@ def fig_tbl_hdef(out: Path, runs: Path) -> None:
             res[lab] = json.loads(js.read_text())
     _, d = to.read_stat(stat)
     fig, axs = plt.subplots(1, 3, figsize=(14.0, 4.0), constrained_layout=True)
-    for (lab, j), c in zip(res.items(), ("C0", "C1", "C2"), strict=True):
+    for (lab, j), c in zip(res.items(), ("C0", "C1", "C3", "C4"), strict=True):
         ist = j["station"]
         h = np.array([np.nan if v is None else v for v in j["H"]])
         axs[0].plot(j["x"], h, color=c, lw=1.2, label=f"{lab}: {h[ist]:.2f} at x = {j['x'][ist]:.1f}")
@@ -2602,6 +2604,50 @@ def fig_tbl_hdef(out: Path, runs: Path) -> None:
         ax.grid(alpha=0.3)
         ax.legend(fontsize=7)
     fig.savefig(out / "tbl-m2p5-hdef.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_tbl_edge(out: Path, runs: Path) -> None:
+    """T3.7 (issue #119): H against the local edge state, as the DNS normalises its profiles, and against the nominal free stream, which the
+    compression of the free stream over the layer biases (tbl_oracle.py compare of each, 180 < t <= 360). Left the Mach 2.5 baseline
+    (tbl_cases_t37_l90.txt), right the Mach 5.86 cold wall (tbl_cases_t37_m6.txt), H against x, the DNS's header H and its profile's (the
+    same integrals) at its station; middle p_e / p_inf and rho_e / rho_inf at the edge of both layers against x."""
+    import json  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import tbl_oracle as to  # noqa: PLC0415
+
+    fig, axs = plt.subplots(1, 3, figsize=(14.0, 4.0), constrained_layout=True)
+    for (case, stat, re_inf, x_dns, ax, lab), c in zip(
+        (("m2p5-wm-l90", "M2p5_Stat.txt", None, 53.0, axs[0], "Mach 2.5"), ("m6tw076-wm", "M6Tw076_Stat.txt", 137350.0, 54.0, axs[2], "Mach 5.86")),
+        ("C0", "C3"), strict=True):
+        work = runs / "tbl" / case
+        if not work.exists():
+            raise FileNotFoundError(work)
+        st = HERE / "turbulence" / "reference" / stat
+        with tempfile.TemporaryDirectory() as tmp:
+            js = Path(tmp) / "tbl.json"
+            to.compare(str(work), str(st), 180.0001, str(js), re_inf)
+            j = json.loads(js.read_text())
+        x = np.array(j["x"])
+        ist = j["station"]
+        h, hn = (np.array([np.nan if v is None else v for v in j[k]]) for k in ("H", "H_nominal"))
+        ax.plot(x, h, color=c, lw=1.2, label=f"against the edge state: {h[ist]:.2f} at x = {x[ist]:.1f}")
+        ax.plot(x, hn, color=c, lw=0.8, ls="--", label=f"against the nominal free stream: {hn[ist]:.2f}")
+        ax.plot([x_dns], [j["h_dns"]], "ks", label=f"DNS, its header: {j['h_dns']:.2f}")
+        ax.plot([x_dns], [j["h_dns_profile"]], "k^", label=f"DNS, its profile: {j['h_dns_profile']:.2f}")
+        ax.set_xlabel(r"$x/\delta_i$")
+        ax.set_ylabel(rf"$H=\delta^*/\theta$, {lab}")
+        axs[1].plot(x, j["p_e"], color=c, lw=1.0, label=rf"{lab}: $p_e/p_\infty$")
+        axs[1].plot(x, j["rho_e"], color=c, lw=1.0, ls=":", label=rf"{lab}: $\rho_e/\rho_\infty$")
+    axs[1].axhline(1.0, color="k", lw=0.6)
+    axs[1].set_xlabel(r"$x/\delta_i$")
+    axs[1].set_ylabel(r"the edge state (means over $1.5$-$2.5\,\delta$)")
+    for ax in axs:
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.savefig(out / "tbl-edge.png", dpi=DPI)
     plt.close(fig)
 
 
@@ -4318,7 +4364,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
-           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "nrbc": fig_nrbc, "shockgen": fig_shockgen,
+           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

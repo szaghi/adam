@@ -7,7 +7,10 @@ POINT, z wall-normal, y spanwise) into the profile table of the digital-filter i
 `agree <a> <b>`: two runs on the same step sequence (ranks, or CPU against GPU): the conservation history within 1e-11 of its column scale.
 `compare <work> <Stat file> [--t0 T] [--json out]`: the checkpoints from time T on, averaged over the span and in time: per x the 99 % thickness, the momentum
 and displacement thicknesses (theta from the Favre mean rho u), H, Re_theta and C_f = 2 d theta / dx (zero pressure gradient; a quadratic fit of theta over
-+-3 delta_i); at the station where Re_theta is the DNS's (or the nearest), C_f against the DNS's 2 (u_tau / U_inf)^2 rho_w / rho_inf, H against its H, the
++-3 delta_i); H against the local edge state (rho_e, u_e the means over 1.5-2.5 delta, the integrals to 1.5 delta: the DNS's profiles are 1 at their free
+stream, while the run's free stream over the layer is compressed by its growth, 1-2 % at Mach 2.5, 4-5 % at Mach 5.86, and the nominal H, integrated to
+the top of the box, lost 0.5 of 4 to it; printed too); Re_theta and the station from the nominal theta;
+at the station where Re_theta is the DNS's (or the nearest), C_f against the DNS's 2 (u_tau / U_inf)^2 rho_w / rho_inf, H against its H, the
 van Driest velocity u+_VD against y+ (with the run's own u_tau) and the rms of u, v (wall-normal), w (spanwise) and <u'v'> over u_tau against y / delta.
 Recorded, not judged: the result is the result.
 `wall-force <channel work>`: the wall-model history of a channel at a steady state: the mean tau_w of both walls (all bins, the last quarter of the rows)
@@ -194,7 +197,8 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None, re_inf: flo
                      / (a["u"][np.arange(nx), np.maximum(edge, 1)] - a["u"][np.arange(nx), np.maximum(edge, 1) - 1]), np.nan)
     theta = (a["r"] * uf * (1.0 - uf)).sum(axis=1) * dy
     dstar = (1.0 - a["r"] * uf).sum(axis=1) * dy
-    shape = dstar / theta
+    shape_nominal = dstar / theta
+    shape, rho_e, p_e = edge_shape(a, y, delta, t_inf)
     re_theta = re_theta_scale * theta
     cf = np.full(nx, np.nan)
     half = int(round(3.0 / dx))
@@ -233,7 +237,10 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None, re_inf: flo
     uv = (a["uv"][ist] - a["u"][ist] * a["v"][ist]) / ut**2
     d_dns = delta[ist]
     print(f"== {work.name}: {len(cps)} checkpoints from t = {cps[0][0]:.1f} to {cps[-1][0]:.1f}, {nx} x {ny} cells")
-    print(f"station x = {x[ist]:.2f}: Re_theta {re_theta[ist]:.0f} (DNS {re_dns:.0f}), delta {d_dns:.3f}, theta {theta[ist]:.4f}, H {shape[ist]:.2f} (DNS {float(text_h(stat)):.2f})")
+    h_prof = profile_shape(d)
+    print(f"station x = {x[ist]:.2f}: Re_theta {re_theta[ist]:.0f} (DNS {re_dns:.0f}), delta {d_dns:.3f}, theta {theta[ist]:.4f}, H {shape[ist]:.2f} "
+          f"(DNS {float(text_h(stat)):.2f}, its profile {h_prof:.2f}); the edge rho_e {rho_e[ist]:.4f}, p_e {p_e[ist]:.4f} of the nominal free stream, "
+          f"the nominal H {shape_nominal[ist]:.2f}")
     source = "the wall model's tau_w" if cf_wall is not None else "the momentum integral"
     print(f"C_f ({source}) {cf[ist]:.4e} against the DNS {cf_dns:.4e}: {100.0 * (cf[ist] / cf_dns - 1.0):+.1f} %;  u_tau / U_inf {ut:.5f} (DNS {ut_dns:.5f})")
     b_q = b_q_dns = None
@@ -257,12 +264,42 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None, re_inf: flo
           f"(DNS {np.interp(0.2, d[:, 1], d[:, 15]):.2f}, {np.interp(0.5, d[:, 1], d[:, 15]):.2f})")
     if json_out:
         out = {"x": x.tolist(), "re_theta": re_theta.tolist(), "cf": [None if not np.isfinite(c) else float(c) for c in cf],
-               "cf_mom": [None if not np.isfinite(c) else float(c) for c in cf_mom], "cf_source": source, "H": shape.tolist(),
+               "cf_mom": [None if not np.isfinite(c) else float(c) for c in cf_mom], "cf_source": source, "H": shape.tolist(), "H_nominal": shape_nominal.tolist(),
+               "rho_e": rho_e.tolist(), "p_e": p_e.tolist(), "h_dns_profile": h_prof,
                "delta": [None if not np.isfinite(c) else float(c) for c in delta], "station": int(ist), "cf_dns": cf_dns, "re_dns": re_dns,
                "y": y.tolist(), "yplus": yplus.tolist(), "uvd": uvd.tolist(), "rms": {k: v.tolist() for k, v in rms.items()}, "uv": uv.tolist(),
                "delta_station": float(d_dns), "t": [t for t, _ in cps], "b_q": b_q, "b_q_dns": b_q_dns, "h_dns": float(text_h(stat))}
         Path(json_out).write_text(json.dumps(out))
     return 0
+
+
+def edge_shape(a: dict, y: np.ndarray, delta: np.ndarray, t_inf: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per x, H = delta* / theta against the local edge state: rho_e and the Favre u_e the means over 1.5 delta <= y <= 2.5 delta, the integrals to 1.5
+    delta; also rho_e and p_e over the nominal free stream's (rho_inf = 1, p_inf = rho_inf R T_inf = t_inf). NaN where the layer has no 99 % thickness."""
+    nx = a["r"].shape[0]
+    shape, rho_e, p_e = (np.full(nx, np.nan) for _ in range(3))
+    for i in range(nx):
+        if not np.isfinite(delta[i]):
+            continue
+        top = (y >= 1.5 * delta[i]) & (y <= 2.5 * delta[i])
+        if not top.any():
+            continue
+        r, ru = a["r"][i], a["ru"][i]
+        uf = ru / r
+        re_, ue = r[top].mean(), uf[top].mean()
+        m = y < 1.5 * delta[i]
+        rn, un = r[m] / re_, uf[m] / ue
+        shape[i] = (1.0 - rn * un).sum() / (rn * un * (1.0 - un)).sum()
+        rho_e[i] = re_
+        p_e[i] = (a["t"][i][top] * r[top]).mean() / t_inf
+    return shape, rho_e, p_e
+
+
+def profile_shape(d: np.ndarray) -> float:
+    """H of a station file's own profile, integrated as `edge_shape` integrates a run's (to 1.5 delta; rho / rho_inf = (p / p_inf) / (T / T_inf))."""
+    z, u, r = d[:, 1], d[:, 4], d[:, 5] / d[:, 6]
+    m = z <= 1.5
+    return float(np.trapezoid((1.0 - r * u)[m], z[m]) / np.trapezoid((r * u * (1.0 - u))[m], z[m]))
 
 
 def text_bq(stat: str) -> float:
