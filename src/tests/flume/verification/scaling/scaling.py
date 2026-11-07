@@ -70,7 +70,7 @@ IC_KEYS = {"type": NONE, "amr_iterations": NONE, "regions_number": NONE, "axis":
            "peak_radius": LENGTH, "peak_amplitude": FIELD, "loop_radius": LENGTH, "loop_amplitude": FIELD,
            "interface": LENGTH, "interface_1": LENGTH, "interface_2": LENGTH, "interface_2_width": LENGTH,
            "period": LENGTH, "normal_x": NONE, "normal_y": NONE, "rho_amplitude": DENSITY, "rho_wavenumber": INV_LENGTH,
-           "wavelength": LENGTH, "wave_angle": NONE, "wave_amplitude": NONE, "b_par": FIELD,
+           "wavelength": LENGTH, "wave_envelope_width": LENGTH, "wave_envelope_center": LENGTH, "wave_angle": NONE, "wave_amplitude": NONE, "b_par": FIELD,
            "gradient_x": INV_LENGTH, "gradient_y": INV_LENGTH, "gradient_z": INV_LENGTH,
            "wave_mode": NONE, "mach": NONE, "wall_y0": LENGTH, "height": LENGTH, "shock_x0": LENGTH,
            "wall_velocity": VELOCITY,
@@ -216,7 +216,7 @@ def classify(ini: configparser.ConfigParser, section: str, key: str) -> tuple[fl
         table = {"type": NONE, **STATE_KEYS, "wall_u": VELOCITY, "wall_v": VELOCITY, "wall_w": VELOCITY,
                  "wall_temperature": VELOCITY2,
                  # the wall model (issue #119): a length, a time, the edge state; the model and damping names
-                 "wall_model": NONE, "wall_model_damping": NONE, "wall_model_height": LENGTH, "wall_model_filter": TIME,
+                 "wall_model": NONE, "wall_model_damping": NONE, "wall_model_height": LENGTH, "nr_length": LENGTH, "nr_sigma": NONE, "wall_model_filter": TIME,
                  "wall_model_edge_velocity": VELOCITY, "wall_model_edge_temperature": VELOCITY2}
     elif section == "initial_conditions":
         table = dict(IC_KEYS)

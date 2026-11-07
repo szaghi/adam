@@ -2557,6 +2557,62 @@ def fig_tbl_m2p5_res(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_nrbc(out: Path, runs: Path) -> None:
+    """#121 S2: the non-reflecting boundary (boundary/check.sh). Left: |p - p_inf| along x once the packet of leg nr2 has left the box at
+    rest, over its pressure amplitude: non-reflecting at sigma 0.28 and 0.07, extrapolation. Right: leg nr3, the box-mean overpressure
+    over its initial 2 %, from the box integrals of the conservation history (V p = (gamma - 1) (E - (rho u)^2 / (2 rho)), the state
+    near uniform), non-reflecting against extrapolation, and exp(-K t) with K = sigma (1 - M^2) c / L."""
+    sys.path.insert(0, str(HERE / "boundary"))
+    import h5py  # noqa: PLC0415
+    import nrbc_oracle as no  # noqa: PLC0415
+
+    base = runs / "boundary"
+    tag = "adam_flume_cpu-np2"
+    fig, axs = plt.subplots(1, 2, figsize=(11.0, 3.8), constrained_layout=True)
+    ax = axs[0]
+    for name, lab, c in (("nr2-s28", r"non-reflecting, $\sigma$ = 0.28", "C0"), ("nr2-s07", r"non-reflecting, $\sigma$ = 0.07", "C1"),
+                         ("nr2-ex", "extrapolation", "k")):
+        work = base / f"work-{tag}-{name}"
+        if not work.exists():
+            raise FileNotFoundError(work)
+        it = no.last_checkpoint(work)
+        xs, ps = [], []
+        for f5 in sorted(work.glob(f"nrbc-{it}-proc*.h5")):
+            with h5py.File(f5, "r") as h:
+                for blk in {k.rsplit("-", 1)[0] for k in h}:
+                    sl = (slice(no.NGC, -no.NGC),) * 3
+                    r, ru, rv, rw, re_ = (h[f"{blk}-{v}"][()][sl] for v in ("r", "ru", "rv", "rw", "rE"))
+                    p = (no.GAMMA - 1.0) * (re_ - 0.5 * (ru**2 + rv**2 + rw**2) / r)
+                    o, d = h[blk + "-origin"][()], h[blk + "-dxdydz"][()]  # (z, y, x)
+                    x = o[2] + (np.arange(p.shape[2]) + no.NGC + 0.5) * d[2]
+                    xs.append(x)
+                    ps.append(np.abs(p - no.P_INF).max(axis=(0, 1)))
+        x = np.concatenate(xs)
+        y = np.concatenate(ps) / (no.GAMMA * no.P_INF * 1.0e-3)
+        k = np.argsort(x)
+        ax.semilogy(x[k], np.maximum(y[k], 1e-12), color=c, lw=1.0, label=lab)
+    ax.set_xlabel("x")
+    ax.set_ylabel(r"$|p - p_\infty| / (\gamma p_\infty A)$ at $t$ = 1.5")
+    ax.set_title("nr2: what is left of the packet (at rest)", fontsize=9)
+    ax = axs[1]
+    for name, lab, c in (("nr3-nr", r"non-reflecting, $\sigma$ = 0.28", "C0"), ("nr3-ex", "extrapolation", "k")):
+        hist = np.loadtxt(base / f"work-{tag}-{name}" / "nrbc-conservation_history.dat", skiprows=1)
+        t, rho, ru, re_ = hist[:, 1], hist[:, 2], hist[:, 3], hist[:, 6]
+        p = (no.GAMMA - 1.0) * (re_ - 0.5 * ru**2 / rho)
+        ax.semilogy(t, np.abs(p / p[0] * 1.02 - 1.0) / 0.02, color=c, lw=1.2, label=lab)
+    t = np.linspace(0.0, 20.0, 50)
+    ax.semilogy(t, np.exp(-0.28 * 0.75 / 2.0 * t), "k:", lw=0.8, label=r"$e^{-Kt}$, $K = \sigma(1-M^2)c/L$")
+    ax.set_ylim(1e-3, 2.0)
+    ax.set_xlabel("t")
+    ax.set_ylabel("box-mean overpressure / initial")
+    ax.set_title("nr3: the pressure anchor (Mach 0.5)", fontsize=9)
+    for ax in axs:
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.savefig(out / "nrbc.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_barotropic_eos(out: Path, runs: Path) -> None:
     """EO barotropic (issue #100, P3): the piecewise polytrope (CPU). Top left: the eb1 tube on the convex table POLY
     (densities 2, 8; exponents 1, 1.4, 5/3) at t = 0.15, 1600 cells, against the exact solution (eos_oracle.py): the
@@ -4164,7 +4220,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
-           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res,
+           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "nrbc": fig_nrbc,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

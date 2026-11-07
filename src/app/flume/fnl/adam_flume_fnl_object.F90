@@ -2641,6 +2641,7 @@ contains
                                           R=self%physics%R, psi_energy=psi_energy,                                 &
                                           wall_velocity=self%bc%wall_velocity,                                     &
                                           wall_temperature=self%bc%wall_temperature,                               &
+                                          nr_par=self%bc%nr_par,                                                   &
                                           g=self%physics%gravity%g_uniform,                                        &
                                           has_phi=self%physics%gravity%has_potential, phi_gpu=self%phi_grav_gpu,   &
                                           local_map_bc_crown_gpu=self%field_fnl%maps%local_map_bc_crown_gpu,       &

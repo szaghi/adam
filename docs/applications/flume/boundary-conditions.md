@@ -21,6 +21,7 @@ faces 1–6. Each section **requires** `type`. The value goes through
 | `wall-isothermal` | `BC_WALL_ISOTHERMAL = 5` | `wall_temperature` (required, $> 0$), `wall_u, wall_v, wall_w` as above |
 | `periodic` | library `BC_PERIODIC = -1` | none |
 | `hydrostatic` | `BC_HYDROSTATIC = 6` | none (reads `[gravity]`); refused with `[eos]` `isothermal` or `barotropic` |
+| `non-reflecting` | `BC_NONREFLECTING = 8` | the target `r, u, v, w, p` (required), `nr_length` $L$ (required, $> 0$), `nr_sigma` $\sigma$ (default 0.28); Euler only ([#121](https://github.com/szaghi/adam/issues/121) S2) |
 
 *Validation:*
 - an unknown value stops the run and the message lists the seven spellings;
@@ -144,6 +145,36 @@ that cell to the ghost along the axis $d$: an isothermal atmosphere has exact gh
 `wall-inviscid` (no mass flux); the magnetic field and $\psi$ are mirrored even. Without gravity along the normal it is a
 slip wall that copies the first interior cell's thermodynamic state (Zingale et al. 2002). Source:
 `adam_flume_bc_object.F90` (`hydrostatic_ghost`).
+
+### `non-reflecting`: a characteristic outflow and far field ([#121](https://github.com/szaghi/adam/issues/121) S2)
+
+The ghosts are the first interior cell plus the jumps of the characteristic variables, linearised about it (outward
+normal velocity $u_n$, sound speed $c$):
+
+- **Outgoing waves** (speed $> 0$): no jump, extrapolated.
+- **The incoming acoustic wave**, $w_1 = p - \rho c\,u_n$ with speed $u_n - c < 0$: its gradient along the normal is set by
+  the relaxation of Rudy & Strikwerda (1980) and Poinsot & Lele (1992),
+  $\partial w_1/\partial n = K(p - p_t)/(u_n - c)$, $K = \sigma(1 - M^2)c/L$. Ghost $m$ lies $m$ cells off the interior
+  cell, and $w_5 = p + \rho c\,u_n$ is unchanged.
+- **Flow into the domain** ($u_n < 0$): the entropy $\rho - p/c^2$ and the tangential velocity of the target;
+  $u_n + c \le 0$ (supersonic inflow) the whole target.
+
+A supersonic outflow, or $\sigma = 0$ at an outflow, is extrapolation bit for bit. The edge and corner rows beyond the
+face are extrapolated.
+
+**When to use it.** In this characteristic-upwind scheme `extrapolation` (outflow) and `inflow` (a prescribed state) already
+let linear waves out: they make the incoming characteristic jumps zero, or the free stream's. What they cannot do is hold a
+mean pressure at a subsonic outflow, and `extrapolation` keeps whatever pressure the box has. `non-reflecting` pulls it to
+$p_t$ on the time scale $1/K$. The price is a reflection of order $\sigma c/(\omega L)$ of a wave of frequency $\omega$
+passing through. Measured in the [verification](./verification/infrastructure/non-reflecting):
+
+| | `non-reflecting` | the alternative |
+|---|---|---|
+| a 2 % overpressure at Mach 0.5, left after $t = 20 = 10\,L/c$ | 0.099 | `extrapolation`: 1.000 |
+| a packet leaving at rest ($\lambda = 0.2$, $L = 2$), left behind | 2.9e-3 ($\sigma = 0.28$), 7.6e-4 ($\sigma = 0.07$) | `extrapolation`: 1.2e-4 |
+| a packet leaving through a subsonic inflow face, left behind | 4.3e-3 | `inflow`: 1.4e-5 |
+
+Source: `adam_flume_bc_object.F90` (`nonreflecting_ghost`).
 
 ### `periodic`
 

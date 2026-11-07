@@ -82,6 +82,7 @@ round trip): a setup table documents it better than a plot of a difference that 
 
 | Case | ID | Milestone | Backends | Figure |
 |---|---|---|---|---|
+| [Non-reflecting boundary](./infrastructure/non-reflecting) | NR | [#121](https://github.com/szaghi/adam/issues/121) S2 | CPU, FNL | yes |
 | [Ghost probe: every face and edge ghost on a linear field](./infrastructure/ghost-probe) | GP | M4 ([#65](https://github.com/szaghi/adam/issues/65) P0, P1), M6 ([#68](https://github.com/szaghi/adam/issues/68) C2, D1) | CPU, FNL | yes |
 | [Scaling covariance and the reference layer](./infrastructure/scaling-covariance) | NV-0, NV-4, NV-5, NV-6, NV-8, NV-9 | — ([#49](https://github.com/szaghi/adam/issues/49), non-dimensional form, N0–N2) | CPU, FNL | no |
 | [Ranks without blocks](./infrastructure/ranks-without-blocks) | DV-1 | — ([#82](https://github.com/szaghi/adam/issues/82)) | CPU, FNL | yes |

@@ -519,8 +519,10 @@ contains
          kind = KIND_SCALED ; dim = DIM_VELOCITY
       case('wall_temperature')
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
-      case('wall_model_height')
+      case('wall_model_height', 'nr_length')
          kind = KIND_SCALED ; dim = DIM_LENGTH
+      case('nr_sigma') ! the non-reflecting relaxation coefficient (issue #121, S2), dimensionless
+         kind = KIND_NONE
       case('wall_model_damping', 'wall_model', 'wall_model_eddy_viscosity')
          kind = KIND_NONE
       case('wall_model_edge_velocity')
@@ -558,7 +560,8 @@ contains
          kind = KIND_NONE
       case('x0', 'y0', 'radius', 'r0', 'r1', 'pulse_center', 'pulse_width', 'peak_x0', 'peak_y0', 'peak_radius', &
            'wavelength', 'loop_radius', 'interface_1', 'interface_2', 'period', 'interface_2_width', 'interface', &
-           'wall_y0', 'height', 'shock_x0', 'star_radius', 'star_x0', 'star_y0', 'star_z0', 'ch_h', 'ch_lx', 'ch_lz')
+           'wall_y0', 'height', 'shock_x0', 'star_radius', 'star_x0', 'star_y0', 'star_z0', 'ch_h', 'ch_lx', 'ch_lz', &
+           'wave_envelope_width', 'wave_envelope_center')
          kind = KIND_SCALED ; dim = DIM_LENGTH
       case('strength', 'kappa', 'v0', 'wall_velocity', 'ch_ub')
          kind = KIND_SCALED ; dim = DIM_VELOCITY

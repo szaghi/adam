@@ -241,6 +241,7 @@ export default withMermaid({
                         { text: 'Scaling covariance and the reference layer', link: '/applications/flume/verification/infrastructure/scaling-covariance' },
                         { text: 'Ranks without blocks', link: '/applications/flume/verification/infrastructure/ranks-without-blocks' },
                         { text: 'Non-finite state guard', link: '/applications/flume/verification/infrastructure/nonfinite' },
+                        { text: 'Non-reflecting boundary', link: '/applications/flume/verification/infrastructure/non-reflecting' },
                       ],
                     },
                     { text: 'Turbulence (T0, T1, T2)', link: '/applications/flume/verification/turbulence/' },

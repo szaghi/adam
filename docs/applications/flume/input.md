@@ -571,7 +571,7 @@ All six sections are required, even along null directions.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `type` | string | yes (every face) | `extrapolation`, `inflow`, `inflow-digital-filter`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `wall-modelled`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
+| `type` | string | yes (every face) | `extrapolation`, `inflow`, `inflow-digital-filter`, `non-reflecting`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `wall-modelled`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
 | `r`, `u`, `v`, `w`, `p` | real | `type = inflow` | no range check | Prescribed primitive inflow state. |
 | `bx`, `by`, `bz` | real | `type = inflow` **and** `mhd-ideal` | no range check | Prescribed inflow magnetic field. `psi` is set to 0. |
 | `s1` .. `sN` | real | no (`type = inflow` with `passive_scalars = N`) | default 0, no range check | Specific values (mass fractions) of the passive scalars of the inflow. |
@@ -589,12 +589,16 @@ All six sections are required, even along null directions.
 | `df_wall_axis` | string | with `inflow-digital-filter` | `x`, `y`, `z`, not the face normal (fatal) | Wall-normal axis, the wall on its minimum side; the span is the third axis (wrapped when periodic). |
 | `df_length_streamwise`, `df_length_normal`, `df_length_spanwise` | real | with `inflow-digital-filter` | `> 0` | Integral lengths in units of `df_delta`; the streamwise one becomes the time scale $L_x / U_\infty$. |
 | `df_seed` | integer | no (1) | | Seed of the random stream (the same plane on every rank). |
+| `r`, `u`, `v`, `w`, `p` with `non-reflecting` | real | yes | `r, p > 0` (fatal) | The target state: its pressure is the one the face relaxes to, its entropy and tangential velocity those of flow entering through it. **Euler** only (no dual energy, no passive scalars). |
+| `nr_length` | real | with `non-reflecting` | `> 0` (fatal) | $L$ of the relaxation $K = \sigma(1 - M^2)c/L$, a length of the domain. |
+| `nr_sigma` | real | no (0.28) | `>= 0` (fatal) | $\sigma$: 0 is extrapolation at an outflow; larger holds the pressure faster and reflects more. |
 | `wall_model_edge_velocity`, `wall_model_edge_temperature` | real | with `wall_model = inverse-transformation` | `> 0`, otherwise fatal | Speed and temperature at the edge of the layer (the free stream; the centreline of a channel), constants of the run. |
 
 What each `type` does:
 
 - `extrapolation`: zeroth-order extrapolation.
 - `inflow`: prescribed state.
+- `non-reflecting` ([#121](https://github.com/szaghi/adam/issues/121) S2): characteristic outflow and far field, the incoming acoustic wave relaxed toward the target pressure ([boundary conditions](./boundary-conditions#non-reflecting-a-characteristic-outflow-and-far-field-121-s2)).
 - `inflow-digital-filter` ([#119](https://github.com/szaghi/adam/issues/119), T3.7): a turbulent boundary layer through the face, the table's mean
   plus fluctuations of its Reynolds stresses from the digital filter of Klein, Sadiki & Janicka in the form of Touber & Sandham and Xie & Castro
   ([numerics](./numerics#digital-filter-inflow)). The plane state is saved with the restart (`<restart_basename>.dff`), so a restart continues bit

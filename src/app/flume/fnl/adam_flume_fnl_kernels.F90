@@ -17,9 +17,9 @@ module adam_flume_fnl_kernels
 use :: adam_parameters,           only : FEC_1_6_ARRAY, FEC_TO_DELTA
 ! FLUME modules
 use :: adam_flume_common_library, only : reflux_positivity_theta,                                                 &
-                                         ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_INFLOW_DF, BC_WALL_INVISCID, &
+                                         ib_cut_spacing, seam_skin_cell, BC_EXTRAPOLATION, BC_INFLOW, BC_INFLOW_DF, BC_NONREFLECTING, BC_WALL_INVISCID, &
                                          BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, realm_edge_donor, realm_edge_face,           &
-                                         wall_noslip_ghost, BC_HYDROSTATIC, hydrostatic_ghost
+                                         wall_noslip_ghost, BC_HYDROSTATIC, hydrostatic_ghost, nonreflecting_ghost
 use :: adam_flume_cooling_library, only : cooled_internal_energy, cooling_function
 use :: adam_flume_parameters,     only : COOLING_NODES_MAX, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S
 ! third party modules
@@ -866,7 +866,7 @@ contains
 
    subroutine set_boundary_conditions_dev(ni, nj, nk, ngc, nv, nv_mhd, nv_entropy, crown, pass, face_kind, gamma, R,    &
                                           psi_energy, &
-                                          wall_velocity, wall_temperature, g, has_phi, phi_gpu,             &
+                                          wall_velocity, wall_temperature, nr_par, g, has_phi, phi_gpu,     &
                                           local_map_bc_crown_gpu, row_first, row_last, bc_rows_gpu,         &
                                           q_inflow_gpu, wall_sign_gpu, dxyz_gpu, q_gpu)
    !< Set boundary conditions on one crown, for the rows beyond `pass` realm faces (see the CPU
@@ -890,6 +890,7 @@ contains
    real(R8P),    intent(in)    :: psi_energy                        !< 1 if the total energy holds psi^2 / 2 (EGLM).
    real(R8P),    intent(in)    :: wall_velocity(3,6)                !< No-slip walls: wall velocity of each face.
    real(R8P),    intent(in)    :: wall_temperature(6)               !< Isothermal walls: wall temperature of each face.
+   real(R8P),    intent(in)    :: nr_par(7,6)                       !< Non-reflecting faces: target r, u, v, w, p, sigma, L.
    real(R8P),    intent(in)    :: g(3)                              !< Hydrostatic faces: gravity (issue #73).
    logical,      intent(in)    :: has_phi                           !< Hydrostatic faces: a cell potential (issue #81).
    real(R8P),    intent(in)    :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Gravitational potential (read with has_phi).
@@ -916,11 +917,11 @@ contains
    !$acc parallel loop independent gang vector &
    !$acc& DEVICEVAR(local_map_bc_crown_gpu,bc_rows_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
    !$acc& firstprivate(ni,nj,nk,nv,nv_mhd,nv_entropy,crown,pass,face_kind,gamma,R,psi_energy) &
-   !$acc& firstprivate(wall_velocity,wall_temperature,g,has_phi) &
+   !$acc& firstprivate(wall_velocity,wall_temperature,nr_par,g,has_phi) &
    !$acc& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
    !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,bc_rows_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,q_gpu,phi_gpu) &
    !$omp& firstprivate(ni,nj,nk,nv,nv_mhd,nv_entropy,crown,pass,face_kind,gamma,R,psi_energy) &
-   !$omp& firstprivate(wall_velocity,wall_temperature,g,has_phi) &
+   !$omp& firstprivate(wall_velocity,wall_temperature,nr_par,g,has_phi) &
    !$omp& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
    do row=row_first, row_last
       c = bc_rows_gpu(row,crown)
@@ -940,7 +941,7 @@ contains
             face = FEC_1_6_ARRAY(fec)
             ! extrapolation: the first interior cell along the normal, not the previous ghost, which is a row of this
             ! launch (issue #65 P1: the chain raced); the donor then lies beyond block interfaces only
-            if (bc_type == BC_EXTRAPOLATION) &
+            if (bc_type == BC_EXTRAPOLATION .or. bc_type == BC_NONREFLECTING) &
                call realm_edge_donor(face=face, face_kind=BC_EXTRAPOLATION, ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
                                      iref=iref, jref=jref, kref=kref)
             if (bc_type == BC_WALL_INVISCID .or. bc_type == BC_WALL_NOSLIP .or. bc_type == BC_WALL_ISOTHERMAL .or. &
@@ -968,7 +969,7 @@ contains
             if (face > 0_I4P) then
                bc_type = face_kind(face)
                ! the digital-filter inflow is extrapolated beyond its edges (issue #119, T3.7)
-               if (bc_type == BC_INFLOW_DF) bc_type = BC_EXTRAPOLATION
+               if (bc_type == BC_INFLOW_DF .or. bc_type == BC_NONREFLECTING) bc_type = BC_EXTRAPOLATION
                call realm_edge_donor(face=face, face_kind=face_kind(face), ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
                                      iref=iref, jref=jref, kref=kref)
             endif
@@ -999,6 +1000,19 @@ contains
                                    wall_temperature=wall_temperature(face), q=qd(1:nv), qg=qw(1:nv))
             !$acc loop seq
             do v=1, nv
+               q_gpu(b,i,j,k,v) = qw(v)
+            enddo
+         elseif (bc_type == BC_NONREFLECTING) then
+            ! the characteristic ghost from the first interior cell along the normal (issue #121, S2; Euler, nv = 5)
+            !$acc loop seq
+            do v=1, 5
+               qd(v) = q_gpu(b,iref,jref,kref,v)
+            enddo
+            call nonreflecting_ghost(gamma=gamma, d=(face+1)/2, s=merge(1._R8P, -1._R8P, mod(face, 2_I4P) == 0_I4P),         &
+                                     dist=real(abs(i - iref) + abs(j - jref) + abs(k - kref), R8P) * dxyz_gpu(b,(face+1)/2), &
+                                     par=nr_par(:,face), q1=qd(1:5), qg=qw(1:5))
+            !$acc loop seq
+            do v=1, 5
                q_gpu(b,i,j,k,v) = qw(v)
             enddo
          elseif (bc_type == BC_HYDROSTATIC) then

@@ -303,6 +303,7 @@ type :: flume_ic_object
    real(R8P)                 :: peak(4)=0._R8P       !< div(B) peak: x0, y0, radius, amplitude.
    character(:), allocatable :: wave                 !< Linear wave family: fast, alfven, slow, entropy.
    real(R8P)                 :: wave_par(3)=0._R8P   !< Linear wave, CPAW: angle (degrees), amplitude, wavelength.
+   real(R8P)                 :: wave_env(2)=0._R8P   !< Sine wave: Gaussian envelope width (0: none) and centre along n (issue #121).
    real(R8P)                 :: wave_r(NV_MHD)=0._R8P !< Linear wave: right eigenvector, global frame.
    real(R8P)                 :: b_par=0._R8P         !< CPAW: field along the wave normal.
    real(R8P)                 :: polarisation=0._R8P  !< CPAW: +1 right, -1 left.
@@ -420,6 +421,8 @@ contains
    desc = desc//NL//mpih%myrankstr//'  couette:        '//trim(str(self%couette))
    if (self%ic_type == IC_SINE_WAVE_STR) &
    desc = desc//NL//mpih%myrankstr//'  sine wave:      '//self%sine_mode//', '//trim(str(self%wave_par))
+   if (self%ic_type == IC_SINE_WAVE_STR .and. self%wave_env(1) > 0._R8P) &
+   desc = desc//NL//mpih%myrankstr//'  envelope:       width '//trim(str(self%wave_env(1)))//', centre '//trim(str(self%wave_env(2)))
    if (self%ic_type == IC_ISOTHERMAL_ATM_STR .or. self%ic_type == IC_POLYTROPIC_ATM_STR) &
    desc = desc//NL//mpih%myrankstr//'  atmosphere:     g '//trim(str(self%g))//', polytropic_gamma '// &
                                     trim(str(self%polytropic_gamma))//', pulse '//trim(str(self%atm_pulse))
@@ -799,6 +802,17 @@ contains
       enddo
       if (.not.(self%wave_par(3) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
+      ! a wave packet (issue #121, S2): the wave times exp(-((n . x - centre) / width)^2), optional
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave_envelope_width', val=self%wave_env(1), &
+                               error=error)
+      if (error > 0) self%wave_env(1) = 0._R8P
+      if (self%wave_env(1) < 0._R8P) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave_envelope_width) must not be negative')
+      if (self%wave_env(1) > 0._R8P .and. self%sine_mode == SINE_MODE_JEANS) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave_envelope_width) is refused with wave_mode = '//SINE_MODE_JEANS)
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave_envelope_center', val=self%wave_env(2), &
+                               error=error)
+      if (error > 0) self%wave_env(2) = 0._R8P
    case(IC_ISOTHERMAL_ATM_STR, IC_POLYTROPIC_ATM_STR)
       if (.not.physics%gravity%is_active) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//self%ic_type//' needs [gravity]')
@@ -1245,6 +1259,8 @@ contains
                do i=1, field%ni
                   s_   = self%wave_par(2) * sin(2._R8P * PI * (field%x_cell(i,b) * ca + field%y_cell(j,b) * sa) / &
                                                 self%wave_par(3))
+                  if (self%wave_env(1) > 0._R8P) s_ = s_ * exp(-((field%x_cell(i,b) * ca + field%y_cell(j,b) * sa - &
+                                                                  self%wave_env(2)) / self%wave_env(1))**2)
                   prim = self%prim_1
                   if (self%sine_mode == SINE_MODE_SHEAR) then
                      prim(2:3) = prim(2:3) + s_ * [-sa, ca]

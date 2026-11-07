@@ -28,7 +28,8 @@ use :: adam_flume_common_library,      only : flume_common_object, regrid_phases
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
                                               reflux_positivity_theta,                                                 &
                                               BC_EXTRAPOLATION,                                                        &
-                                              BC_INFLOW, BC_INFLOW_DF, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP,          &
+                                              BC_INFLOW, BC_INFLOW_DF, BC_NONREFLECTING, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL,        &
+                                              BC_WALL_NOSLIP, nonreflecting_ghost,                                                     &
                                               realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
                                               BC_HYDROSTATIC, hydrostatic_ghost,                                        &
                                               MODEL_EULER, MODEL_EULER_DE, MODEL_EULER_PS, MODEL_EULER_DE_PS,           &
@@ -2145,6 +2146,14 @@ contains
                call hydrostatic_ghost_cell
             case(BC_SEAM)
                ! inter-realm seam face: filled by the forest (fill_seam_from_peer_forest), nothing to do here
+            case(BC_NONREFLECTING)
+               ! the characteristic ghost from the first interior cell along the normal (issue #121, S2)
+               call realm_edge_donor(face=face, face_kind=BC_EXTRAPOLATION, ni=ni, nj=nj, nk=nk, i=i, j=j, k=k, &
+                                     iref=iref, jref=jref, kref=kref)
+               call nonreflecting_ghost(gamma=self%physics%gamma, d=(face+1)/2, s=merge(1._R8P, -1._R8P, mod(face, 2_I4P) == 0_I4P), &
+                                        dist=real(abs(i - iref) + abs(j - jref) + abs(k - kref), R8P) *                         &
+                                             self%adam%field%dxyz((face+1)/2,b),                                                 &
+                                        par=self%bc%nr_par(:,face), q1=q(1:5,iref,jref,kref,b), qg=q(1:5,i,j,k,b))
             case(BC_INFLOW_DF)
                ! digital-filter inflow: written after this pass (issue #119, T3.7)
             case default

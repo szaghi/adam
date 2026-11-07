@@ -41,6 +41,15 @@ module adam_flume_bc_object
 !< first interior cell (Zingale et al. 2002, ApJS 143, 539: hydrostatic ghosts integrated at constant temperature,
 !< reflecting velocity).
 !<
+!< **Non-reflecting** (issue #121, S2). `non-reflecting`, with the target state `r, u, v, w, p`, `nr_sigma` (default 0.28) and `nr_length` (L,
+!< required), is a characteristic boundary for outflow and far-field faces in ghost-cell form: the ghosts are the first interior cell plus
+!< the jumps of the characteristic variables linearised about it (outward normal velocity u_n, sound speed c). An outgoing wave
+!< (speed > 0) is extrapolated (zero jump). The incoming acoustic wave (u_n - c < 0) has its normal gradient set by the relaxation of
+!< Rudy & Strikwerda (1980) and Poinsot & Lele (1992), d(p - rho c u_n)/dn = K (p - p_t) / (u_n - c), K = sigma (1 - M^2) c / L, so
+!< the mean pressure is pulled toward the target and a wave leaving the box is not sent back; ghost m lies m cells off the
+!< interior cell. Flow into the domain (u_n < 0) takes the entropy and the tangential velocity of the target; u_n + c <= 0
+!< (supersonic inflow) the whole target state. A supersonic outflow, or sigma = 0 at an outflow, is extrapolation bit for bit. Euler (ideal gas, no
+!< passive scalars, no dual energy) only; the edge and corner rows beyond it are extrapolated.
 !< **Digital-filter inflow** (issue #119, T3.7). `inflow-digital-filter` feeds a turbulent boundary layer through the face:
 !< the keys and the method are in `adam_flume_inflow_df_object` (component `df`). The backends write its ghost states after
 !< the face pass; in the edge and corner passes it is extrapolated.
@@ -70,7 +79,9 @@ public :: BC_WALL_NOSLIP
 public :: BC_WALL_ISOTHERMAL
 public :: BC_HYDROSTATIC
 public :: BC_INFLOW_DF
+public :: BC_NONREFLECTING
 public :: hydrostatic_ghost
+public :: nonreflecting_ghost
 public :: wall_noslip_ghost
 public :: BC_PERIODIC
 public :: realm_edge_donor
@@ -83,6 +94,7 @@ integer(I4P), parameter :: BC_WALL_NOSLIP = 4_I4P   !< No-slip adiabatic wall: v
 integer(I4P), parameter :: BC_WALL_ISOTHERMAL = 5_I4P !< No-slip isothermal wall: also the temperature set.
 integer(I4P), parameter :: BC_HYDROSTATIC = 6_I4P     !< Hydrostatic ghosts under gravity, mirrored velocity.
 integer(I4P), parameter :: BC_INFLOW_DF = 7_I4P       !< Digital-filter turbulent inflow (issue #119, T3.7).
+integer(I4P), parameter :: BC_NONREFLECTING = 8_I4P   !< Characteristic non-reflecting outflow (issue #121, S2).
 
 character(len=13), parameter :: BC_EXTRAPOLATION_STR="extrapolation"          !< Accepted spelling of BC_EXTRAPOLATION.
 character(len=6),  parameter :: BC_INFLOW_STR="inflow"                        !< Accepted spelling of BC_INFLOW.
@@ -93,6 +105,8 @@ character(len=11), parameter :: BC_WALL_NOSLIP_STR="wall-noslip"              !<
 character(len=15), parameter :: BC_WALL_ISOTHERMAL_STR="wall-isothermal"      !< Accepted spelling of BC_WALL_ISOTHERMAL.
 character(len=11), parameter :: BC_HYDROSTATIC_STR="hydrostatic"              !< Accepted spelling of BC_HYDROSTATIC.
 character(len=21), parameter :: BC_INFLOW_DF_STR="inflow-digital-filter"      !< Accepted spelling of BC_INFLOW_DF.
+character(len=14), parameter :: BC_NONREFLECTING_STR="non-reflecting"        !< Accepted spelling of BC_NONREFLECTING.
+real(R8P),         parameter :: NR_SIGMA_DEFAULT=0.28_R8P                     !< Non-reflecting: relaxation (Rudy & Strikwerda 1980).
 character(len=6),  parameter :: WALL_VELOCITY_KEY(3)=['wall_u', 'wall_v', 'wall_w'] !< Wall velocity keys.
 character(len=2),  parameter :: INFLOW_KEY(8)=['r ', 'u ', 'v ', 'w ', &
                                                'p ', 'bx', 'by', 'bz']       !< Inflow primitive state keys (MHD: all 8).
@@ -115,6 +129,7 @@ type :: flume_bc_object
    real(R8P)              :: wm_edge_u(6)=0._R8P        !< Inverse model: speed at the edge of the layer per face.
    real(R8P)              :: wm_edge_t(6)=0._R8P        !< Inverse model: temperature at the edge of the layer per face.
    real(R8P)              :: wall_temperature(6)=0._R8P !< Isothermal walls: wall temperature of each face.
+   real(R8P)              :: nr_par(7,6)=0._R8P         !< Non-reflecting faces: target r, u, v, w, p, then sigma and L.
    type(flume_inflow_df_object) :: df                   !< Digital-filter inflow (issue #119, T3.7).
    contains
       ! public methods
@@ -288,6 +303,25 @@ contains
          self%bc_type(f) = BC_INFLOW_DF
          call self%df%load(file_parameters=file_parameters, section=SECTION_NAME(f), face=f, model=physics%model, &
                            gamma=physics%gamma)
+      case(BC_NONREFLECTING_STR)
+         if (physics%model /= MODEL_EULER .or. physics%passive_scalars > 0_I4P) &
+            call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(type)='//bc_str//' needs [physics].(physical_model)=euler '// &
+                                     '(ideal gas, no dual energy, no passive scalars)')
+         self%bc_type(f) = BC_NONREFLECTING
+         do k=1, 5
+            call file_parameters%get(section_name=SECTION_NAME(f), option_name=trim(INFLOW_KEY(k)), val=self%nr_par(k,f), &
+                                     error=error)
+            if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))// &
+                                                    ') (the target state of '//bc_str//')')
+         enddo
+         if (.not.(self%nr_par(1,f) > 0._R8P .and. self%nr_par(5,f) > 0._R8P)) &
+            call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(r, p) must be positive')
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='nr_sigma', val=self%nr_par(6,f), error=error)
+         if (error > 0) self%nr_par(6,f) = NR_SIGMA_DEFAULT
+         if (self%nr_par(6,f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(nr_sigma) must be >= 0')
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='nr_length', val=self%nr_par(7,f), error=error)
+         if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(nr_length)')
+         if (.not.(self%nr_par(7,f) > 0._R8P)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(nr_length) must be positive')
       case(BC_HYDROSTATIC_STR)
          ! the hydrostatic ghost extrapolates the temperature through the gamma-law energy (issue #73)
          if (has_inert_energy(physics%model)) &
@@ -298,7 +332,7 @@ contains
          call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(type) "'//bc_str//'"; expected one of '// &
                                   BC_EXTRAPOLATION_STR//', '//BC_INFLOW_STR//', '//BC_WALL_INVISCID_STR//', '// &
                                   BC_WALL_NOSLIP_STR//', '//BC_WALL_ISOTHERMAL_STR//', '//BC_WALL_MODELLED_STR//', '//BC_PERIODIC_STR//', '// &
-                                  BC_HYDROSTATIC_STR//', '//BC_INFLOW_DF_STR)
+                                  BC_HYDROSTATIC_STR//', '//BC_INFLOW_DF_STR//', '//BC_NONREFLECTING_STR)
       endselect
    enddo
    do f=1, 5, 2
@@ -422,6 +456,60 @@ contains
       qg(v) = rho_g * q(v) / q(IQ_R)
    enddo
    endsubroutine wall_noslip_ghost
+
+   pure subroutine nonreflecting_ghost(gamma, d, s, dist, par, q1, qg)
+   !< Ghost state of a non-reflecting face (issue #121, S2) from the first interior cell `q1` (Euler, conservative), `dist` off it
+   !< along the outward normal of axis `d`, sign `s` (-1 for a min face, +1 for a max face); `par` = target r, u, v, w, p, sigma, L.
+   !< The jumps of the characteristic variables linearised about `q1` (outward normal velocity u_n, sound speed c): outgoing waves none;
+   !< the incoming acoustic one, w1 = p - rho c u_n with speed u_n - c < 0, `dist K (p - p_t) / (u_n - c)`, K = sigma (1 - M^2) c / L,
+   !< with w5 = p + rho c u_n unchanged, so dp = A / 2, du_n = -A / (2 rho c); inflow through the face (u_n < 0) the entropy
+   !< rho - p / c^2 and the tangential velocity of the target; u_n + c <= 0 the whole target.
+   real(R8P),    intent(in)  :: gamma  !< Specific heats ratio.
+   integer(I4P), intent(in)  :: d      !< Normal axis.
+   real(R8P),    intent(in)  :: s      !< Outward normal sign along `d`.
+   real(R8P),    intent(in)  :: dist   !< Distance from the interior cell to the ghost.
+   real(R8P),    intent(in)  :: par(7) !< Target r, u, v, w, p, sigma, L.
+   real(R8P),    intent(in)  :: q1(5)  !< First interior cell, conservative.
+   real(R8P),    intent(out) :: qg(5)  !< Ghost state, conservative.
+   real(R8P)                 :: rho, u(3), p, c, un, mach, kr, a, dp, rho_g, ug(3), p_g !< Work.
+   integer(I4P)              :: t      !< Tangential axis.
+   !$acc routine seq
+   !$omp declare target
+
+   rho = q1(1)
+   u = q1(2:4) / rho
+   p = (gamma - 1._R8P) * (q1(5) - 0.5_R8P * rho * (u(1) * u(1) + u(2) * u(2) + u(3) * u(3)))
+   c = sqrt(gamma * p / rho)
+   un = s * u(d)
+   if (un + c <= 0._R8P) then ! supersonic inflow: every wave comes in
+      rho_g = par(1) ; ug = par(2:4) ; p_g = par(5)
+   else
+      dp = 0._R8P ; a = 0._R8P
+      if (un - c < 0._R8P) then ! the incoming acoustic wave, relaxed toward the target pressure
+         mach = min(abs(un) / c, 1._R8P)
+         kr = par(6) * (1._R8P - mach * mach) * c / par(7)
+         a = dist * kr * (p - par(5)) / (un - c)
+         dp = 0.5_R8P * a
+      endif
+      if (a == 0._R8P .and. un >= 0._R8P) then ! no jump (sigma 0, a supersonic outflow, p at the target): the interior cell itself,
+         qg = q1                               ! bit for bit as extrapolation
+         return
+      endif
+      p_g = p + dp
+      rho_g = rho + dp / (c * c)
+      ug = u
+      ug(d) = u(d) - s * 0.5_R8P * a / (rho * c)
+      if (un < 0._R8P) then ! inflow through the face: the entropy and the tangential velocity of the target
+         rho_g = rho_g + (par(1) - par(5) / (c * c)) - (rho - p / (c * c))
+         do t=1, 3
+            if (t /= d) ug(t) = par(1 + t)
+         enddo
+      endif
+   endif
+   qg(1) = rho_g
+   qg(2:4) = rho_g * ug
+   qg(5) = p_g / (gamma - 1._R8P) + 0.5_R8P * rho_g * (ug(1) * ug(1) + ug(2) * ug(2) + ug(3) * ug(3))
+   endsubroutine nonreflecting_ghost
 
    pure subroutine hydrostatic_ghost(nv, nv_mhd, nv_entropy, gamma, psi_energy, gs, wall_sign, qm, q1, qg)
    !< Ghost state of a hydrostatic boundary (issue #73, M7-G0): the density and the pressure of the isothermal
