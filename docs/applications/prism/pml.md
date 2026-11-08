@@ -52,13 +52,8 @@ damping over the layer cells and `C_gamma` (default 0.1) the safety factor.
 
 ### Constraints
 
-| Backend | Accepted |
-|---|---|
-| CPU | `CLASSIC`, `CLASSIC_DIRECT`, `BERMUDEZ`, `CFS`; `fd_centered`; an SSP Runge–Kutta scheme; no divergence correction, no constrained transport |
-| FNL | `fd_centered`; `runge_kutta` with an SSP scheme; no hyperbolic correction, no constrained transport |
-
-Anything else is fatal at initialization, and so is a section with every face flag `.false.` or a missing parameter
-of the chosen type.
+The PML runs only with `fd_centered`, an SSP Runge–Kutta scheme and no divergence correction; the full list per
+backend is in the [hazards](./hazards#pml-constraints).
 
 ## Far-wave layer
 

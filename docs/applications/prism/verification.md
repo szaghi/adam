@@ -1,6 +1,6 @@
 # Verification gallery
 
-PRISM's regression suite (`src/tests/prism/regression/`, [PRISM regression](/tests/prism-regression)) pins every case
+PRISM's regression suite (`src/tests/prism/regression/`, [regression reference](/reference/regression#prism-suite)) pins every case
 to a golden digest; this page shows the cases that also carry an **oracle**: a `check.sh` that asserts a physical or
 structural property of the run (an invariant, a symmetry, an agreement between two discretisations of the same
 problem) rather than a stored number. The figures are drawn from the runs by
@@ -22,14 +22,14 @@ PRISM_EXE=$PWD/../../../../../exe/adam_prism_fnl ./check.sh        # FNL backend
 ### Quadtree 2:1 seams: the source-free pulse
 
 A quadtree (`[amr] ratio = 4`) refines x and y only: its blocks span the domain along z at every level, so a 2:1 seam
-is 2:1 in x and y and 1:1 in z. Until [#46](https://github.com/szaghi/adam/issues/46) the seam machinery (ghost
-restriction, coarse-fine interpolation, reflux) assumed an octree, and the coarse cells beside a quadtree seam picked up
-a spurious z dependence; quadtree AMR was refused at initialisation.
+is 2:1 in x and y and 1:1 in z. The seam machinery (ghost restriction, coarse-fine interpolation, reflux) handles
+both trees ([#46](https://github.com/szaghi/adam/issues/46)).
 
 **Case.** `rmf-amr-fd-pulse`: the source-free Gaussian EM pulse (`B0 = 10`, σ = 0.01) travelling along +y across a 2:1
 seam at x = 0 (the x < 0 half refined one level), `fd_centered` order 6, SSP-54, 5 steps, 1 rank. The pulse is uniform
 in x and z, so the seam is the only thing that can perturb it: it generates By, and the seam div(B) source of
-[#29](https://github.com/szaghi/adam/issues/29) (a truncation-order quantity the check pins to a baseline).
+[#29](https://github.com/szaghi/adam/issues/29) (a truncation-order quantity the check pins to a baseline;
+[hazards](./hazards#seam-div-b)).
 
 **Oracle** (the quadtree leg of `check.sh`, default-on). The same case runs on the octree of the regression case and on
 a quadtree with `nk = 16` (z cells of 7.5·10⁻³ against the octree's finest 1.875·10⁻³). PRISM's time step is

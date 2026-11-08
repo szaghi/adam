@@ -8,7 +8,7 @@ happens on an invalid one. The sections the library reads for every application 
 [below](#library-sections-in-prism). The [library page](/reference/library-input#parsing-rules) also gives the parsing
 rules and the legend of the **Req.** column.
 
-**Read the [hazards](#hazards) first**: they collect the combinations PRISM refuses, and the ones it accepts but
+**Read the [hazards](./hazards) first**: they collect the combinations PRISM refuses, and the ones it accepts but
 handles differently than the key names suggest.
 
 ## Program entry and read order
@@ -55,7 +55,7 @@ Every key is required; an unknown value is fatal.
 | `scheme_time` | `runge_kutta`, `leapfrog`, `blanes_moan`, `commutator_free_magnus` (also UPPER and Capitalised) | Time integration. **Only `runge_kutta` runs**: the other three are refused at initialization on both backends ([#55](https://github.com/szaghi/adam/issues/55)). |
 | `scheme_space` | `fd_centered`, `fv_centered`, `weno` (also UPPER and Capitalised) | Spatial scheme. `weno` runs on the CPU backend only (the FNL backend refuses it). |
 | `reconstruction_variables` | `conservative`, `characteristics` | Variables the WENO path reconstructs. |
-| `constrained_transport` | `no`, `D`, `B`, `DB` (case variants accepted) | Which GLM scalars to carry: φ for D, ψ for B. See the [divergence-correction matrix](#divergence-correction). |
+| `constrained_transport` | `no`, `D`, `B`, `DB` (case variants accepted) | Which GLM scalars to carry: φ for D, ψ for B. See the [divergence-correction matrix](./hazards#divergence-correction). |
 | `divergence_correction` | `no`, `hyperbolic`, `poisson` | `hyperbolic`: the GLM cleaning of the scalars selected by `constrained_transport` (required: `D`, `B` or `DB`). `poisson`: **refused** at load. `no`: no correction; a `constrained_transport` other than `no` is then ignored with a warning. |
 
 ---
@@ -100,7 +100,7 @@ One key per section, required.
 - **`Dirichlet` writes zero** into the ghosts; there is no key for a prescribed value.
 - Edge and corner ghost rows receive no boundary condition.
 - `Silver_Muller` is spelled with an underscore.
-- The [elliptic map](#elliptic-boundary-map) gives the boundary the t0 solves see.
+- The [elliptic map](./hazards#elliptic-boundary-map) gives the boundary the t0 solves see.
 
 ---
 
@@ -220,7 +220,7 @@ off.
 | `k_max` | real | `CFS` | — | `> 0`, otherwise fatal | CFS stretching. |
 | `beta` | real | `BERMUDEZ` | — | `>= 0`, otherwise fatal | Bermúdez profile coefficient. |
 
-See the [PML hazards](#pml).
+The backend constraints are in the [PML hazards](./hazards#pml-constraints).
 
 ---
 
@@ -337,70 +337,3 @@ The rows are not flushed at every save (a flush per file is a file-system round 
 stalled every rank for seconds): they reach the files when the runtime buffers fill and at the end of the run, so after
 a crash the last rows may be missing.
 
----
-
-## Hazards
-
-### Divergence correction
-
-The GLM scalars φ (for D) and ψ (for B) exist only under `hyperbolic`, and their slots follow `physics`
-([#11](https://github.com/szaghi/adam/issues/11), [#61](https://github.com/szaghi/adam/issues/61)):
-
-| `constrained_transport` | `divergence_correction` | Result |
-|---|---|---|
-| `no` | `no` | `nv = 9` |
-| `D`, `B`, `DB` | `no` | constrained transport ignored with a warning, `nv = 9` |
-| `D` or `B` | `hyperbolic` | `nv = 10` (φ or ψ in slot 7) |
-| `DB` | `hyperbolic` | `nv = 11` (φ in 7, ψ in 8) |
-| `no` | `hyperbolic` | **refused** at initialization |
-| any | `poisson` | **refused** at initialization |
-
-PIC adds `rho`, one more slot. At a 2:1 AMR seam div(B) is not kept at round-off: the seam injects an O(h^p) source
-that converges under refinement but grows in time at fixed h ([#29](https://github.com/szaghi/adam/issues/29)); `[IO]
-seam_divB_tol` makes the growth visible.
-
-### PML
-
-- **CPU:** `CLASSIC`, `CLASSIC_DIRECT`, `BERMUDEZ`, `CFS`, on `fd_centered`, with no divergence correction and no
-  constrained transport, with an SSP Runge-Kutta scheme; anything else is fatal.
-- **FNL:** `fd_centered`, `runge_kutta` with an SSP scheme, no hyperbolic correction, no constrained transport; anything
-  else is fatal.
-- **`CLASSIC_DIRECT` is not a Runge-Kutta PML:** it skips the auxiliary-variable integration and applies direct
-  per-face damping. It is a testing instrument, not the production path.
-- Enabling the section with every face flag `.false.` is fatal; each `PML_type` has its own required parameters, and a
-  missing one is fatal, not defaulted.
-
-### Elliptic boundary map
-
-The t0 solves (`[PIC] electric_field_elliptic_initialization`, `magnetic_field_elliptic_initialization`) run on FLAIL's
-FFT solver with PRISM's own operator D(G) of order `fdv_order`. Each face kind maps to an elliptic kind, then to a FLAIL
-face kind:
-
-| `[bc_*] type` | Elliptic kind | FLAIL face kind |
-|---|---|---|
-| `periodic` | periodic | `FLAIL_BC_PERIODIC` |
-| `Dirichlet` | Dirichlet | `FLAIL_BC_ZERO_GHOSTS` (every ghost layer zero) |
-| `PEC` | PEC | `FLAIL_BC_DIRICHLET` (φ, tangential A), `FLAIL_BC_NEUMANN` (normal A) |
-| `Neumann`, `Silver_Muller` | exact/open | `FLAIL_BC_FREE_GHOSTS` (the free-space potential of the source in the ghosts, summed over the whole domain) |
-| `extrapolation` | — | **fatal**, at the first t0 solve |
-
-The map is total and stops on what it cannot map, but **only when a solve first touches the face**: an input with an
-`extrapolation` face passes initialization and stops at t0 if a PIC field or a t0 current needs a solve. A null axis
-takes the periodic kind.
-
-### Refused combinations
-
-| Input | Where it stops |
-|---|---|
-| `[numerics] scheme_time = leapfrog`, `blanes_moan`, `commutator_free_magnus` | initialization, both backends ([#55](https://github.com/szaghi/adam/issues/55)) |
-| `[PIC] scheme_time = leapfrog` | initialization, both backends |
-| `[numerics] divergence_correction = poisson` | load |
-| `hyperbolic` without constrained transport | load |
-| `[bc_*] type = radiative` | load ([#57](https://github.com/szaghi/adam/issues/57)) |
-| `[initial_conditions] type = riemann-problem`, `magnetic_nozzle`, `rmf_magnetic_nozzle` | load ([#56](https://github.com/szaghi/adam/issues/56)) |
-| `[external_fields] external_fields_applied = magnetic_nozzle`, `rmf_and_magnetic_nozzle` | initialization |
-| `[numerics] scheme_space = weno` on FNL | initialization |
-| `runge-kutta-yoshida` on FNL; a non-SSP scheme with PIC, the PML or the staged path | initialization |
-| `[PIC] current_weighting_model = conserving` on the CPU backend with more than one block or one rank | initialization, at the t0 conserving deposit (the first step on a restart); the CPU charge-conserving deposit is single-block, single-rank |
-| A refined grid that enters a t0 elliptic solve | the solve ([#84](https://github.com/szaghi/adam/issues/84) E7: the wide operator across 2:1 faces is not defined) |
-| `fdv_order = 10` with a t0 elliptic solve | the solve (FLAIL accepts 2, 4, 6, 8) |

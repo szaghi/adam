@@ -9,7 +9,7 @@ PRISM builds for two backends from one common code base:
 
 The full list is on the [build-modes page](/reference/build-modes). Both types extend `prism_common_object`
 (`src/app/prism/common`), which extends the library's `realm_object`; the FNL device helpers are components of the FNL
-type ([library on FNL](/concepts/library-fnl)).
+type ([library on FNL](/developer/fnl)).
 
 ## What each backend implements
 
@@ -21,7 +21,7 @@ type ([library on FNL](/concepts/library-fnl)).
 | Yoshida | yes (EM) | refused |
 | leapfrog, Blanes–Moan, commutator-free Magnus | refused | refused |
 | GLM cleaning (`hyperbolic`) | yes | yes |
-| PML | `CLASSIC`, `CLASSIC_DIRECT`, `BERMUDEZ`, `CFS` with `fd_centered`, SSP, no correction | the same kinds with `fd_centered`, SSP, no hyperbolic correction, no constrained transport |
+| PML | yes ([constraints](./hazards#pml-constraints)) | yes ([constraints](./hazards#pml-constraints)) |
 | far-wave layer | yes | yes |
 | PIC, standard deposits | yes | yes |
 | PIC, charge-conserving current | one block, one rank | yes (on a virtual block) |
@@ -32,9 +32,8 @@ type ([library on FNL](/concepts/library-fnl)).
 | multi-realm forests | yes | yes |
 | probes, `[grms]`, field-at-centre histories | yes | yes |
 
-Every refusal stops the run at initialization with a message naming the combination; on FNL a few come after the device
-allocation (`weno`, the conserving-current refusals, the t0 refined-grid refusal); the full list
-is in the [input hazards](./input#refused-combinations).
+Every refusal stops the run with a message naming the combination; the full list, with where each one stops, is in
+the [hazards](./hazards#refused-combinations).
 
 ## Lifecycle
 
@@ -101,7 +100,7 @@ buffered transposed copies, whose staging buffer has the destination's shape
 
 The ghost exchange is GPU-direct MPI on the device buffers. On the WSL2 development box this needs
 `UCX_RNDV_THRESH=inf` and other WSL-only settings, which must not be copied to a cluster
-([library on FNL](/concepts/library-fnl#gpu-direct-ghost-exchange-and-the-wsl2-rendezvous-abort-issue-12)); WSL runs
+([library on FNL](/developer/fnl#gpu-direct-ghost-exchange)); WSL runs
 are for correctness only, never for timings.
 
 ## Spatial-operator dispatch

@@ -184,8 +184,113 @@ The AMD builds use `local_amd` or `thera_amd` together with a GPU-architecture v
 
 The toolchain must match the varset exactly. A mismatch stops the build at `use hdf5` ("created by a different version
 of GNU Fortran") or, under nvfortran, with an internal compiler error on a module symbol. Bring up a new machine by
-adding its own `[varset:*]` block; the [regression bring-up tutorial](/tests/prism-regression-tutorial) walks through
-it.
+adding its own `[varset:*]` block ([New machine](#new-machine)).
+
+## New machine
+
+A new workstation, cluster, compiler or GPU architecture needs one thing from ADAM: a `[varset:*]` block in `fobos`.
+The rest is the toolchain. A failure in a lower layer usually shows up as a confusing error in the layer above:
+
+```
+4. regression harness  run.sh -> mpirun -np 2 -> digest.py (h5py venv)
+3. ADAM build          fobis build --mode prism-cpu-gnu --varset <name>
+2. varset (fobos)      $HDF5_PREFIX, $NVF_CC        <- the only machine-specific layer
+1. toolchain           gfortran|nvfortran + MPI + parallel HDF5 + FFTW + python3
+```
+
+### Prerequisites
+
+| Tool | Required for | Check |
+|---|---|---|
+| gfortran (16.2.0; CI uses 14) | CPU backend | `gfortran --version` |
+| nvfortran (26.9) | FNL backend | `nvfortran --version` |
+| MPI | both | `mpirun --version` |
+| parallel HDF5 built with **that** MPI | both | `h5pfc -show` |
+| FFTW 3 | CPU backend: every PRISM mode and the FLUME `-fft` modes link `-lfftw3`; the NVIDIA FNL modes link cuFFT, part of NVHPC | `ls /usr/lib/x86_64-linux-gnu/libfftw3.so` (`apt install libfftw3-dev`) |
+| `fobis` 3.8+ | both | `fobis --version` |
+| `python3` with `venv` | the regression harness | `python3 -m venv --help` |
+
+`fobis fetch` is mandatory on a fresh clone: `src/third_party/` is not tracked, and the FNL backend reaches the GPU
+through the FUNDAL library it fetches. The legacy `FoBiS.py build -mode X` form is deprecated in FoBiS 3.8+ (it is
+translated to the long form); write `fobis build --mode X --varset Y`.
+
+### Steps
+
+1. **Load the compiler and MPI first**, before building HDF5 and before `fobis`: `fobis` calls `mpif90`, and a missing
+   module shows up as `FileNotFoundError: [Errno 2] No such file or directory: 'mpif90'`.
+
+   ```bash
+   module load gcc/16.2.0 openmpi/5.0.11-gnu16.2.0   # CPU: gfortran 16.2.0 + Open MPI 5.0.11
+   module load nvhpc/26.9                           # GPU: nvfortran 26.9 + bundled HPC-X Open MPI
+   ```
+
+2. **Find or build a parallel HDF5.** Look for one first (`h5pfc -show`, `module avail hdf5`). Otherwise build it with
+   `scripts/hdf5_build.sh` ([Install External Dependencies](#install-external-dependencies)): it compiles with the
+   `mpicc` and `mpif90` on `PATH`, so the MPI loaded at step 1 is the MPI ADAM must use. `scripts/hdf5_build.sh -h`
+   lists its options (`-use-autot` swaps CMake for autotools). The in-tree convention for the prefix is
+   `lib/hdf5/develop/<sdk>/<version>`; any path works.
+
+3. **Add a varset** to `fobos`:
+
+   ```ini
+   [varset:mymachine_gnu]
+   $HDF5_PREFIX = /path/to/parallel/hdf5
+
+   [varset:mymachine_nvf]
+   $HDF5_PREFIX = /path/to/nvf/parallel/hdf5
+   $NVF_CC      = cc90                        # the GPU's compute capability
+   ```
+
+   Read the compute capability off the device and map `X.Y` to `ccXY` (A100 `cc80`, Ada/RTX 40 `cc89`, H100 `cc90`,
+   Blackwell `cc100`):
+
+   ```bash
+   nvidia-smi --query-gpu=name,compute_cap --format=csv    # "NVIDIA GeForce RTX 4090, 8.9" -> cc89
+   ```
+
+   `$NVF_CC` is defined only in the NVF varsets: an `*-fnl-nvf` mode built without `--varset <an nvf varset>` leaves
+   `-gpu=$NVF_CC` unexpanded and dies on the first nvfortran call.
+
+4. **Build** with the new varset:
+
+   ```bash
+   fobis build --mode prism-cpu-gnu --varset mymachine_gnu   # exe/adam_prism_cpu
+   ```
+
+   A `requires executable stack` linker warning on `adam_tree_bucket_object.o` is harmless. On a Cray, or wherever HDF5
+   is a system module that must be named rather than found under a prefix, `prism-fnl-nvf-spacehpc` shows the pattern
+   (`ext_libs = hdf5_fortran hdf5 z`): copy it in `fobos.d/prism.fobos` and adapt `ext_libs`.
+
+5. **Run the first gate**, the CPU regression suite with the committed goldens:
+
+   ```bash
+   ./src/tests/prism/regression/run.sh cpu --varset mymachine_gnu   # 15 PASS, 11 SKIP, 0 FAIL
+   ```
+
+   A port is correct when the committed goldens pass within tolerance; a new machine does not mint goldens. The GPU
+   gate, the oracles and what to do with a failure are in the [regression cookbook](/cookbook/regression#t7-bring-up-a-new-machine).
+
+| Symptom | Layer | Cause |
+|---|---|---|
+| `FileNotFoundError: ... 'mpif90'` | 1 | MPI module not loaded before `fobis` |
+| `-gpu=$NVF_CC` unexpanded; nvfortran dies at once | 2 | NVF mode built without `--varset <nvf varset>` |
+| HDF5 link errors (`h5open_f` undefined) | 1-2 | wrong `$HDF5_PREFIX`, or HDF5 built with another MPI |
+| `use hdf5`: "created by a different version of GNU Fortran" | 1-2 | the toolchain does not match the varset; build clean |
+| run hangs at the first I/O | 1 | serial HDF5, or HDF5's MPI is not the application's |
+
+Checklist:
+
+```
+[ ] fobis 3.8+; `fobis fetch` run on the fresh clone
+[ ] compiler + MPI modules loaded BEFORE building HDF5 and BEFORE fobis
+[ ] parallel HDF5 built against THAT MPI
+[ ] [varset:<machine>] in fobos with $HDF5_PREFIX (+ $NVF_CC for the GPU)
+[ ] $NVF_CC matches `nvidia-smi --query-gpu=compute_cap`
+[ ] fobis build --mode prism-cpu-gnu --varset <machine> succeeds
+[ ] run.sh cpu --varset <machine> passes every goldened case
+[ ] (GPU) GPU-aware MPI; run.sh fnl --varset <machine>_nvf passes (cookbook T7)
+[ ] (GPU) the WSL2 settings NOT copied into a cluster job script
+```
 
 ## Next
 

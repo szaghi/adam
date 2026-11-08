@@ -41,11 +41,9 @@ create divergence. This needs `ngc >= fdv_order/2`.
 
 ## The elliptic boundary map
 
-The t0 elliptic solves ([numerics](./numerics#t0-elliptic-solves)) see each face through a second, derived kind:
-periodic → periodic, `Dirichlet` → zero ghosts, `PEC` → Dirichlet for $\varphi$ and the tangential $\mathbf A$ and
-Neumann for the normal $\mathbf A$, `Neumann` and `Silver_Muller` → the free-space (open) potential. `extrapolation` has
-no elliptic counterpart and stops the run **at the first t0 solve**, not at load: the table and its consequences are in
-the [input hazards](./input#elliptic-boundary-map).
+The t0 elliptic solves ([numerics](./numerics#t0-elliptic-solves)) see each face through a second, derived kind;
+the map, and the `extrapolation` face that stops the run at the first t0 solve, are in the
+[hazards](./hazards#elliptic-boundary-map).
 
 ## Particle boundaries
 

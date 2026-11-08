@@ -9,5 +9,5 @@ produces, and where the reference is.
 | [Adaptive mesh refinement](/cookbook/amr) | which marker in which application, a static refined region, FLUME runtime regridding, Jeans refinement, pitfalls |
 | [GPU (FNL)](/cookbook/gpu) | building FNL modes, checked device allocation and the block budget, the `buf=` rule, OpenACC/OpenMP kernel twins, WSL2 settings |
 | [MPI and clusters](/cookbook/clusters) | running on several ranks, ranks without blocks, a Slurm job, GPU binding, workstation against cluster settings |
-| [Regression testing](/cookbook/regression) | running the suites, what a golden is, adding a case, the lint, the refusals, verification legs |
+| [Regression testing](/cookbook/regression) | running the suites, what a golden is, adding a case, the lint, the refusals, verification legs, bringing up a new machine |
 | [Forest](/cookbook/forest) | the driver pattern, multi-realm forests (manifests, seams, cadence, 2:1 coupling), restart, forests on FNL |

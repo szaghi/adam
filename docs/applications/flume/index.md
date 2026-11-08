@@ -18,7 +18,7 @@ on CPUs (MPI + OpenMP) and on GPUs (MPI + OpenACC, or OpenMP offload). It supers
 | Physics | Compressible Euler (optionally with dual energy and up to 4 passive scalars); ideal MHD with mixed GLM or EGLM divergence cleaning (or without control, for diagnostics); ideal, isothermal or barotropic gas; viscosity (constant, power law or Sutherland), heat conduction and Ohmic resistivity; external gravity and self-gravity; optically thin radiative cooling; sink particles | [Physical models](./models) |
 | Space | WENO flux splitting (`weno`, orders 3–9, characteristic or conservative); WENO interpolation + Riemann flux + high-order correction (`weno-riemann`, LLF/HLL/HLLC for Euler, LLF/HLL/HLLD for MHD); hybrid central/WENO (`hybrid-kep-weno`, Euler); cell-based positivity limiter | [Numerical methods](./numerics) |
 | Time | SSP and low-storage Runge–Kutta, CFL time step (with the GLM cleaning speed) | [Numerical methods](./numerics#time-integration) |
-| Turbulence | Subgrid-scale models (`vreman`, `wale`, `sigma`); hybrid central/WENO; equilibrium and inverse-transformation wall models (`wall-modelled`); digital-filter turbulent inflow; mass-flow forcing (`[forcing]`); turbulence and wall histories | [Numerical methods](./numerics#subgrid-scale-models), [Boundary conditions](./boundary-conditions), [Verification](./verification/turbulence/) |
+| Turbulence | Subgrid-scale models (`vreman`, `wale`, `sigma`); hybrid central/WENO; equilibrium and inverse-transformation wall models (`wall-modelled`); digital-filter turbulent inflow; mass-flow forcing (`[forcing]`); turbulence and wall histories | [Turbulence](./turbulence), [Boundary conditions](./boundary-conditions), [Verification](./verification/turbulence/) |
 | Grid | Octree/quadtree of Cartesian blocks, AMR at initialisation and during the run (box, gradient, Löhner and solid markers), 2:1 coarse–fine faces with conservative reflux | [Numerical methods](./numerics#adaptive-mesh-refinement) |
 | Geometry | Immersed boundary for static solids (Euler) | [Numerical methods](./numerics#immersed-boundary-euler) |
 | Coupling | Multi-realm runs glued by a forest manifest | [Numerical methods](./numerics#multi-realm-runs) |
@@ -44,7 +44,7 @@ on CPUs (MPI + OpenMP) and on GPUs (MPI + OpenACC, or OpenMP offload). It supers
 | M11 [#93](https://github.com/szaghi/adam/issues/93) | optically thin radiative cooling |
 | M12 [#94](https://github.com/szaghi/adam/issues/94) | sink particles |
 | M13 [#100](https://github.com/szaghi/adam/issues/100) | isothermal and barotropic equations of state, Euler and MHD |
-| Turbulence [#119](https://github.com/szaghi/adam/issues/119) (open) | subgrid-scale models, `hybrid-kep-weno`, wall models, digital-filter inflow, `[forcing]` ([numerics](./numerics#subgrid-scale-models), [verification](./verification/turbulence/)) |
+| Turbulence [#119](https://github.com/szaghi/adam/issues/119) (open) | subgrid-scale models, `hybrid-kep-weno`, wall models, digital-filter inflow, `[forcing]` ([turbulence](./turbulence), [verification](./verification/turbulence/)) |
 | STREAmS roadmap [#121](https://github.com/szaghi/adam/issues/121) (open) | Sutherland viscosity ([input](./input#physics)), non-reflecting boundary and shock generator ([boundary conditions](./boundary-conditions)) |
 
 Every milestone runs on both backends.
@@ -83,13 +83,16 @@ reflux                   = .true.
 
 ## Pages
 
-- [Physical models](./models): equations, thermodynamics, eigensystems, GLM cleaning, time-step bound.
-- [Numerical methods](./numerics): finite differences, WENO, flux splitting, Riemann solvers and correction, time
-  integration, AMR and reflux, immersed boundary, multi-realm.
+- [Physical models](./models): equations and closures: Euler, dual energy, passive scalars, MHD with GLM/EGLM,
+  dissipative terms, isothermal and barotropic gases, gravity and self-gravity, cooling, sinks, units, time-step bound.
+- [Numerical methods](./numerics): finite differences, WENO, flux splitting, Riemann solvers and correction, positivity
+  limiter, discretisation of the physics extensions, time integration, AMR and reflux, immersed boundary, multi-realm.
+- [Turbulence](./turbulence): subgrid-scale models, hybrid central/WENO, wall models, digital-filter inflow, forcing,
+  turbulence diagnostics.
 - [Initial conditions](./initial-conditions) and [boundary conditions](./boundary-conditions): formulas, keys, examples.
 - [Input reference](./input): every section and key, with two complete inputs.
 - [Verification gallery](./verification/): the test cases with figures and measured results.
-- Source layout: [common](./common), [CPU backend](./cpu), [FNL backend](./fnl).
+- Source layout (developer): [common](/developer/flume-source#common), [CPU backend](/developer/flume-source#cpu-backend), [FNL backend](/developer/flume-source#fnl-backend).
 
 ## Known limitations
 
@@ -98,15 +101,15 @@ reflux                   = .true.
   history monitors it.
 - **Positivity at very low plasma β.** The floors alone do not hold it: without the positivity limiter the
   flux-splitting scheme stops on the Balsara–Spicer blast ($\beta = 2.5\cdot10^{-4}$) at step 3 and on the Wu–Shu blast
-  ($\beta = 2.51\cdot10^{-6}$) at step 1. With `[numerics] positivity_limiter = cell` (M3,
-  [#47](https://github.com/szaghi/adam/issues/47)) both schemes run both to the end
+  ($\beta = 2.51\cdot10^{-6}$) at step 1. With `[numerics] positivity_limiter = cell`
+  ([#47](https://github.com/szaghi/adam/issues/47)) both schemes run both to the end
   ([positivity limiter](./verification/mhd/positivity-limiter)). On the flux-splitting path at $\beta \lesssim 10^{-3}$
   the point symmetry and the CPU–FNL agreement then hold only to a grid-scale instability
   ([#77](https://github.com/szaghi/adam/issues/77), [MHD blast symmetry](./verification/runtime-amr/mhd-blast-symmetry));
   where they matter, use `scheme_space = weno-riemann` with `riemann_solver = hlld`.
 - **GLM damping and reflux.** With damping, $\int\psi$ is not conserved across 2:1 faces; the 8 physical integrals are.
 - The GPU backend copies the coarse–fine seam faces to the host at every stage (the flux register is host-side), in
-  one transfer for all the faces of a rank since [#90](https://github.com/szaghi/adam/issues/90).
+  one transfer for all the faces of a rank ([#90](https://github.com/szaghi/adam/issues/90)).
 - Inter-realm seams join cells of the same size (`mirror`) or across a 2:1 jump (`refined`,
   [#52](https://github.com/szaghi/adam/issues/52); octrees, quadtrees and binary trees, the seam normal to a refined
   axis, [#71](https://github.com/szaghi/adam/issues/71)); all realms advance with one time step (no subcycling).

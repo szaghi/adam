@@ -5,7 +5,6 @@ Each of the six faces of the domain takes a boundary condition from its section 
 face before every residual evaluation; interior block faces, inter-realm seams and AMR coarse–fine faces are filled by
 the exchange machinery instead (below).
 
-
 ## Input
 
 There are six sections, `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]` and `[bc_z_max]`, which are
@@ -16,9 +15,9 @@ faces 1–6. Each section **requires** `type`. The value goes through
 |---|---|---|---|
 | `extrapolation` | `BC_EXTRAPOLATION = 1` | zeroth-order extrapolation (outflow) | none |
 | `inflow` | `BC_INFLOW = 2` | prescribed state | `r, u, v, w, p` (+ `bx, by, bz` for MHD), all required |
-| `inflow-digital-filter` | `BC_INFLOW_DF = 7` | turbulent boundary-layer inflow: a mean profile table plus digital-filter fluctuations ([numerics](./numerics#digital-filter-inflow)) | `r, u, p`, `df_profile`, `df_delta`, `df_spacing`, `df_wall_axis`, `df_length_*` (required), `df_seed`; Euler only, one face per realm ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), [#119](https://github.com/szaghi/adam/issues/119)) |
+| `inflow-digital-filter` | `BC_INFLOW_DF = 7` | turbulent boundary-layer inflow: a mean profile table plus digital-filter fluctuations ([turbulence](./turbulence#digital-filter-inflow)) | `r, u, p`, `df_profile`, `df_delta`, `df_spacing`, `df_wall_axis`, `df_length_*` (required), `df_seed`; Euler only, one face per realm ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), [#119](https://github.com/szaghi/adam/issues/119)) |
 | `wall-inviscid` | `BC_WALL_INVISCID = 3` | slip wall | none |
-| `wall-modelled` | `BC_WALL_INVISCID = 3` + wall-model flag | isothermal wall whose face flux comes from a wall model; ghosts mirrored as `wall-inviscid` ([numerics](./numerics#wall-model)) | `wall_temperature` (required, $> 0$), `wall_model`, `wall_model_height`, `wall_model_damping`, `wall_model_filter`, `wall_model_eddy_viscosity`, `wall_model_edge_velocity`, `wall_model_edge_temperature` ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), [#119](https://github.com/szaghi/adam/issues/119)) |
+| `wall-modelled` | `BC_WALL_INVISCID = 3` + wall-model flag | isothermal wall whose face flux comes from a wall model; ghosts mirrored as `wall-inviscid` ([turbulence](./turbulence#wall-model)) | `wall_temperature` (required, $> 0$), `wall_model`, `wall_model_height`, `wall_model_damping`, `wall_model_filter`, `wall_model_eddy_viscosity`, `wall_model_edge_velocity`, `wall_model_edge_temperature` ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), [#119](https://github.com/szaghi/adam/issues/119)) |
 | `wall-noslip` | `BC_WALL_NOSLIP = 4` | no-slip adiabatic wall | `wall_u, wall_v, wall_w` (optional, default 0; the normal one must be 0); refused with `[eos]` `isothermal` or `barotropic` |
 | `wall-isothermal` | `BC_WALL_ISOTHERMAL = 5` | no-slip wall at a set temperature | `wall_temperature` (required, $> 0$), `wall_u, wall_v, wall_w` as above; refused with `[eos]` `isothermal` or `barotropic` |
 | `periodic` | library `BC_PERIODIC = -1` | periodic pair of faces | none |
@@ -35,19 +34,11 @@ faces 1–6. Each section **requires** `type`. The value goes through
 
 ## How the ghost cells are filled
 
-`update_ghost` runs three steps in order:
-1. the intra-realm local copies;
-2. the MPI exchange;
-3. `set_boundary_conditions`.
-
-Step 3 walks the boundary crown map `maps%local_map_bc_crown` **crown by crown**, $c = 1..n_{gc}$, from the innermost
-crown outwards. Each ghost cell $(i,j,k)$ carries an "inward step" $(\delta_i,\delta_j,\delta_k)$, its BC type and its
-`fec` code (face 1–6, edge 7–18, corner 19–26). The CPU implementation is
-`cpu/adam_flume_cpu_object.F90`; the FNL twin is `fnl/adam_flume_fnl_kernels.F90`, called crown by
-crown from `fnl/adam_flume_fnl_object.F90`. Both apply the same rules.
-
-The grid receives the six BC ids through `grid%set_bc_type`. That call
-turns on `is_ijk_periodic` for a periodic axis.
+Before every residual evaluation the ghosts are filled in the order of a Runge–Kutta stage: the copies between the
+blocks of the realm (with the 2:1 coarse–fine interpolation), the MPI exchange, then the boundary conditions, crown by
+crown from the innermost ghost layer outwards. The inter-realm seams are filled by the forest. The sections below give
+the rule of each kind; the crown maps, the edge and corner passes and the seam buffers are documented on the developer
+page [FLUME ghost fill](/developer/flume-ghost-fill).
 
 ### `extrapolation`: zeroth order (constant)
 
@@ -57,8 +48,8 @@ $$
 
 Each ghost copies its inward neighbour. The crowns are filled innermost first, so every ghost column ends up equal to
 the first interior cell: $\mathbf q(1-g) = \mathbf q(1)$ for $g = 1..n_{gc}$. This is order-0 extrapolation, a
-zero-gradient outflow, and matches the `!< Zeroth-order extrapolation` comment. All
-$n_v$ variables are copied, including $\psi$.
+zero-gradient outflow. All $n_v$ variables are copied, including
+$\psi$.
 
 ### `inflow`: prescribed state (Dirichlet on the full conservative vector)
 
@@ -89,14 +80,14 @@ The mirror index reflects the ghost across the face:
 So ghost $1-g$ mirrors interior cell $g$, for example $\mathbf q(0) \leftarrow \mathbf S\,\mathbf q(1)$ and
 $\mathbf q(-1) \leftarrow \mathbf S\,\mathbf q(2)$.
 
-The sign vector $\mathbf S_d$ is built by `adam_flume_bc_object.F90`:
+The sign vector $\mathbf S_d$ is:
 
 | variable | Euler | MHD / MHD-GLM |
 |---|---|---|
 | $\rho$, $E$ | $+1$ (even) | $+1$ |
 | $\rho u_n$ (the normal momentum of direction $d$) | $-1$ (odd) | $-1$ |
 | $\rho u_{t}$ (tangential momenta) | $+1$ | $+1$ |
-| $B_n$ (the normal field of direction $d$) | — | $-1$ (odd), a perfectly conducting reflecting wall (issue #41, D-12) |
+| $B_n$ (the normal field of direction $d$) | — | $-1$ (odd), a perfectly conducting reflecting wall ([#41](https://github.com/szaghi/adam/issues/41)) |
 | $B_t$ | — | $+1$ |
 | $\psi$ | — | $+1$ (**even**) |
 
@@ -106,7 +97,7 @@ average, and $\partial_n\psi = 0$ there.
 
 ### `wall-noslip` and `wall-isothermal`: no-slip walls
 
-The two no-slip walls ([#65](https://github.com/szaghi/adam/issues/65), D-M4-7) mirror the cell like `wall-inviscid`
+The two no-slip walls ([#65](https://github.com/szaghi/adam/issues/65)) mirror the cell like `wall-inviscid`
 and reflect the **whole** velocity about the wall velocity $\mathbf u_w$ (tangential, `wall_u, wall_v, wall_w`):
 
 $$
@@ -119,10 +110,9 @@ so the mean of the ghost and its mirror cell is the wall velocity (no slip, no p
   sense of the symmetric difference.
 - `wall-isothermal` sets the ghost temperature to the geometric mirror, $T_g = T_w^2 / T_m$, so the geometric mean
   of the ghost and its mirror cell is the wall temperature, and the density from the mirrored pressure,
-  $\rho_g = p_m / (R\,T_g)$, with $T = p/(\rho R)$. The ghost is admissible for any admissible cell. Until #65 P2 the
-  mirror was linear, $T_g = 2\,T_w - T_m$, which is negative beside gas hotter than twice the wall: on Sod's right
-  state ($T = 0.0027$) against a wall at $T_w = 0.001$ the ghosts reached $\rho = -1.96$, silently, with no non-finite
-  value. For $T_m = T_w + \delta$ the two mirrors differ by $\delta^2/T_w$, so both are second-order at the wall.
+  $\rho_g = p_m / (R\,T_g)$, with $T = p/(\rho R)$. The ghost is admissible for any admissible cell, which the linear
+  mirror $T_g = 2\,T_w - T_m$ is not beside gas hotter than twice the wall. For $T_m = T_w + \delta$ the two mirrors
+  differ by $\delta^2/T_w$, so both are second-order at the wall.
 
 The total energy is rebuilt from the ghost state, $E_g = p_g/(\gamma-1) + \tfrac12\rho_g|\mathbf u_g|^2 + e_{mag}$, where
 the magnetic energy $e_{mag}$ (and $\psi^2/2$ under EGLM) is unchanged by the mirror. The field follows the
@@ -130,9 +120,8 @@ the magnetic energy $e_{mag}$ (and $\psi^2/2$ under EGLM) is unchanged by the mi
 rule reduces to a sign vector with every momentum component odd. Both walls are second-order accurate at the wall, by
 construction of the mirror.
 
-The rule is the pure procedure `wall_noslip_ghost` in `adam_flume_bc_object.F90`, shared by both backends. It is
-model-agnostic: the field components are those present in the state vector (none for Euler), so no kernel branches on
-the model. The ghost probe GP checks it on every face and edge, moving and resting walls, Euler and MHD with EGLM
+The rule is model-agnostic: the field components are those present in the state vector (none for Euler). The ghost
+probe GP checks it on every face and edge, moving and resting walls, Euler and MHD with EGLM
 ([verification](./verification/infrastructure/ghost-probe)).
 
 The walls are boundary conditions of the ideal solver too: they take effect on any run. Their physical test is the
@@ -146,10 +135,11 @@ The ghost density and pressure continue the isothermal hydrostatic equilibrium o
 normal, $\rho_g = \rho_1 \exp(g_d s/T_1)$, $p_g = \rho_g T_1$, with $T_1 = p_1/\rho_1$ and $s$ the signed distance from
 that cell to the ghost along the axis $d$: an isothermal atmosphere has exact ghosts. The velocity is mirrored as at
 `wall-inviscid` (no mass flux); the magnetic field and $\psi$ are mirrored even. Without gravity along the normal it is a
-slip wall that copies the first interior cell's thermodynamic state (Zingale et al. 2002). Source:
-`adam_flume_bc_object.F90` (`hydrostatic_ghost`).
+slip wall that copies the first interior cell's thermodynamic state (Zingale et al. 2002).
 
-### `non-reflecting`: a characteristic outflow and far field ([#121](https://github.com/szaghi/adam/issues/121) S2)
+<a id="non-reflecting-a-characteristic-outflow-and-far-field-121-s2"></a>
+
+### `non-reflecting`: a characteristic outflow and far field ([#121](https://github.com/szaghi/adam/issues/121))
 
 The ghosts are the first interior cell plus the jumps of the characteristic variables, linearised about it (outward
 normal velocity $u_n$, sound speed $c$):
@@ -177,9 +167,10 @@ passing through. Measured in the [verification](./verification/infrastructure/no
 | a packet leaving at rest ($\lambda = 0.2$, $L = 2$), left behind | 2.9e-3 ($\sigma = 0.28$), 7.6e-4 ($\sigma = 0.07$) | `extrapolation`: 1.2e-4 |
 | a packet leaving through a subsonic inflow face, left behind | 4.3e-3 | `inflow`: 1.4e-5 |
 
-Source: `adam_flume_bc_object.F90` (`nonreflecting_ghost`).
 
-### `shock-generator`: an oblique shock through a y face ([#121](https://github.com/szaghi/adam/issues/121) S3)
+<a id="shock-generator-an-oblique-shock-through-a-y-face-121-s3"></a>
+
+### `shock-generator`: an oblique shock through a y face ([#121](https://github.com/szaghi/adam/issues/121))
 
 The face of a shock–boundary-layer interaction that brings the incident shock in (the top of the box). The ghosts with
 `shock_x` $\le x <$ `shock_x_end` take the state behind an oblique shock in the upstream state `r, u, v, w, p`; the others are
@@ -198,76 +189,52 @@ Measured in the [verification](./verification/infrastructure/non-reflecting#shoc
 within $0.01^\circ$ of $39.314^\circ$, the state behind it within $1.5\cdot10^{-3}$ of Rankine–Hugoniot; reflected off a `wall-inviscid`
 face, the reflected shock within $0.06^\circ$ of the exact regular reflection and the state behind it within $2\cdot10^{-3}$.
 
-Source: `adam_flume_bc_object.F90` (`oblique_shock`).
+
+### `wall-modelled`
+
+A slip-wall mirror for the ghosts, with the flux through the wall face replaced by the stress and the heat flux of a
+wall model sampled off the wall: an isothermal wall for wall-modelled large-eddy simulation. The model, its keys and its
+limits are on the [turbulence](./turbulence#wall-model) page.
+
+### `inflow-digital-filter`
+
+A turbulent boundary layer entering through the face: the mean of a profile table plus digital-filter fluctuations with
+its Reynolds stresses. The method is on the [turbulence](./turbulence#digital-filter-inflow) page.
 
 ### `periodic`
 
-`periodic` gets **no crown rows**. The library tree builds true periodic neighbours, and `update_ghost_local` and
-`update_ghost_mpi` fill the ghosts across blocks and ranks. It is the library `BC_PERIODIC` (as PRISM's `periodic` since
-`cd92194a`), so it works with any number of blocks along the axis, one included: the tree and the maps are rebuilt once
-the BC types are known ([#103](https://github.com/szaghi/adam/issues/103); before, a grid not refined at init kept its
-boundary neighbours, which the CPU refused and the FNL silently left unfilled). The only constraint is the pairing rule
-in B.1.
+`periodic` is the library periodicity: the tree builds true periodic neighbours, and the block exchange fills the ghosts
+across blocks and ranks, with any number of blocks along the axis, one included
+([#103](https://github.com/szaghi/adam/issues/103)). The only constraint is the pairing rule of the validation list
+above.
 
-### Edges and corners (`fec > 6`)
+### Edges and corners {#edges-and-corners-fec-6}
 
-An edge ghost lies outside its block along two axes, a corner ghost along three. The directional WENO stencils never
-read them, but a cross derivative does: the tangential derivatives of the viscous stress or of the current at a face
-(M4, [#65](https://github.com/szaghi/adam/issues/65)) read the edge ghosts of the rows next to a block edge. They are
-filled so that the ghost layer continues the face ghosts, and the probe GP of the [verification](./verification/infrastructure/ghost-probe)
-holds every face and edge ghost to a linear field on every path.
-
-Each crown row carries the boundary its cell lies beyond (`bc_fec`, from the tree), which gives two cases:
-
-- **Beyond one realm face** (`bc_fec` a face). The cell's other directions lead into another block, whose ghosts the
-  exchange has filled. The face's kind applies along its normal exactly as for a face ghost, so a wall edge mirrors
-  the exchanged ghost and negates its normal momentum.
-- **Beyond two or three realm faces** (`bc_fec` an edge or a corner: an edge or a corner of the realm). The kind of
-  one physical face among them applies, inflow first (an inflow ghost holds the inflow state whatever else it lies
-  beyond), else the first non-seam face, `realm_edge_face`. It acts on the donor `realm_edge_donor`: the cell mirrored
-  about that face (any wall kind) or the first interior cell along its normal (extrapolation), with the indexes along the other
-  axes kept. The donor therefore lies beyond the other faces only. It is a face ghost (for an edge) or an edge ghost
-  (for a corner), already filled by the seam, the exchange or its own face. Two walls compose to a double mirror with
-  both normal momenta negated, and a wall beside a seam mirrors the seam ghost.
-
-Beyond seams only, the cell lies outside every realm: the re-entrant corner of an L-shaped forest, inside the step of
-the [Woodward–Colella tunnel](./verification/euler/forward-facing-step). It keeps a copy of
-its inward diagonal, $\mathbf q(i-\delta_i, j-\delta_j, k-\delta_k)$: finite, and read by no stencil of a fluid cell.
-
-Both backends fill the crown in three passes, the rows beyond one face, then two, then three, each crown by crown, so
-that every donor is filled before it is read (`set_boundary_conditions` on the CPU, `set_boundary_conditions_dev` on
-FNL). Within the first pass no row reads another row of the pass: a wall row reads the mirrored interior cell, an
-extrapolation row the **first interior cell** along its normal (not the previous ghost of the chain, which gives the
-same value but is a row of the same launch: on FNL the chain raced, and a ghost beyond a block interface along another
-axis could read its donor before it was written; issue #65 P1). The kind of each realm face comes from `[bc_*]`, overridden by `maps%seam_face` for the faces the forest glued. On FNL each launch visits the rows of its own pass only: the rows of every crown are grouped by pass on the host whenever the device map is copied (`build_bc_pass_rows`), and an empty pass is not launched (issue #90; before, each of the 3 × $n_{gc}$ launches scanned the whole crown map).
-
-Before [#65](https://github.com/szaghi/adam/issues/65) P0 every row beyond two realm faces held its inward diagonal
-copy. On a linear field that is off by up to 0.78 of the field scale at a wall corner (wrong sign of the normal
-momentum, wrong position), measured by GP on the step forest.
+An edge ghost lies outside its block along two axes, a corner ghost along three. The WENO stencils never read them, but
+the tangential derivatives of the viscous stress or of the current at a face do. They are filled so that the ghost layer
+continues the face ghosts: beyond one realm face the face's kind applies along its normal; beyond two or three realm
+faces the kind of one physical face applies (inflow first), so two walls compose to a double mirror. The ghost probe GP
+holds every face and edge ghost to a linear field on every path
+([verification](./verification/infrastructure/ghost-probe)). The donor rules and the pass ordering are on the
+[developer page](/developer/flume-ghost-fill#edges-and-corners).
 
 ### Inter-realm seam
 
-`set_boundary_conditions` leaves seam face rows untouched.
-The forest fills them through `fill_seam_from_peer_forest`, which is a **plain injection copy** of the peer's interior
-cell into this realm's ghost cell, following the seam ghost map rows. The
-buffers used are `q` when `stage_active == 0`, otherwise the active stage of `rk%q_rk`, on each side independently.
-`update_ghost` does not fill seam ghosts. Any diagnostic that reads them has to refill them explicitly;
-`compute_divb_history` does this. The field write does too: with sibling realms, `save_simulation_data` refills the
-seams and then calls `update_ghost`, the order of a Runge-Kutta stage, so the written ghosts (edges included) are those
-the stencils read. The step-0 file is the exception: it is written while each realm initialises, before the forest
-connects the realms, and its seam ghosts are unfilled.
+A face glued to another realm by the forest manifest still needs a `type`, but the seam overrides it: the forest fills
+the seam ghosts by injection from the peer realm, at every Runge–Kutta stage or once per step (`coupling_cadence`). The
+written field files hold the ghosts the stencils read, except the step-0 file, whose seam ghosts are unfilled
+([developer page](/developer/flume-ghost-fill#inter-realm-seam)).
 
 ### 2:1 AMR coarse-fine ghosts
 
-These ghosts are library behaviour, not FLUME-specific. The regime is chosen by the optional key
-`[amr] seam_ghost_fill = injection | restriction-compatible | tricubic`. The default when the key is absent is
-`tricubic`, and an unknown value is fatal. The fill runs inside
-`field%update_ghost_local`.
+These ghosts are library behaviour, selected by `[amr] seam_ghost_fill = injection | restriction-compatible | tricubic`
+(default `tricubic`; an unknown value is fatal; [library input](/reference/library-input#amr)). FLUME bounds the fill
+and blends inadmissible ghosts ([numerics](./numerics#coarse-fine-ghosts)).
 
 ### Immersed solids
 
-Immersed solids (for example `regression/shock-cylinder-ib`) are not a `[bc_*]` kind. They enter through the level-set
-`phi` and the cut spacing in `compute_flux_difference`, and are out of scope here.
+Immersed solids are not a `[bc_*]` kind. They enter through a level set and the cut spacing of the flux difference
+([numerics](./numerics#immersed-boundary-euler)).
 
 ## Examples
 

@@ -91,9 +91,5 @@ with $\rho$ present only under PIC. The cleaning speed is $c_h = \chi c_0$ (`[ph
 $\alpha$ the damping rate (`[physics] alpha`, default 0; in 1/s under EM and PIC, in units of $1/T_0$ under the non-dimensional models, where it is not converted; with $\alpha > 0$ the time step is also capped at
 $1/\alpha$). The fastest signal is then $\max(1, \chi)\,c_0$, which sets the CFL time step.
 
-- `hyperbolic` without `D`, `B` or `DB` is refused at initialization: there would be no scalar to carry.
-- `poisson` (a projection) is refused: no backend implements it.
-- `no` ignores `constrained_transport` with a warning.
-
-The full matrix of `constrained_transport` × `divergence_correction` is in the
-[input hazards](./input#divergence-correction).
+Which combinations of `constrained_transport` and `divergence_correction` run, and the `nv` each gives, is in the
+[hazards](./hazards#divergence-correction).

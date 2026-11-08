@@ -11,9 +11,19 @@ ADAM targets the full spectrum of modern HPC hardware without changing applicati
 
 The choice of hardware backend is a compile-time switch; everything above the backend layer — physics, numerics, I/O, configuration — is identical.
 
+| Modes | Macro | Compiler | Parallelism model |
+|-------|-------|----------|-------------------|
+| `*-cpu-gnu`, `*-cpu-gnu-omp` | — | GNU gfortran | MPI, optional OpenMP threading |
+| `*-fnl-nvf` | `_FNL` | NVIDIA nvfortran | OpenACC + FUNDAL memory management (NVIDIA GPUs) |
+| `*-fnl-omp-amd` | `_FNL`, `DEV_OMP` | AMD amdflang | OpenMP target offloading + FUNDAL (AMD GPUs) |
+
+The FNL kernels carry both directive sets (`!$acc` and `!$omp` twins). Each application compiles to one executable per
+backend from a common source tree under `src/app/<name>/common/`. Tested compiler versions are in
+[install](/start/install#supported-compilers).
+
 ```mermaid
 graph TD
-    A[Solver applications<br/>prism · flume] --> B[ADAM SDK — src/lib/common<br/>AMR · IB · WENO · RK · FLAIL · I/O · MPI]
+    A[Solver applications<br/>prism · flume · ripple] --> B[ADAM SDK — src/lib/common<br/>AMR · IB · WENO · RK · FLAIL · I/O · MPI]
     A --> C{Hardware backend}
     C -->|CPU| CPU[CPU backend<br/>MPI + OpenMP]
     C -->|_FNL| E[FNL backend<br/>OpenACC or OpenMP offloading]
@@ -31,12 +41,12 @@ The SDK provides physics-agnostic building blocks reused identically by every ap
 | Object | Purpose |
 |--------|---------|
 | `adam_grid_object` | Block-structured grid management with AMR geometry |
-| `adam_tree_object` | Octree/quadtree with Morton-order linearization |
+| `adam_tree_object` | Octree/quadtree with Morton-order linearization: blocks sorted along the Z-order curve |
 | `adam_field_object` | Per-block geometry and metrics, ghost exchange (`update_ghost_local`, `update_ghost_mpi`), refinement/derefinement of the block data, restart blocks (`save_blocks`, `load_blocks`) |
-| `adam_weno_object` | WENO reconstruction: upwind orders 1, 3, 5, 7, 9 (`weno-u-N`), centred orders 2, 4, 6, 8 (`weno-c-N`); Jiang–Shu or scale-invariant weights |
-| `adam_rk_object` | Runge-Kutta integration: `runge-kutta-1/2/3`, SSP `11`, `22`, `33`, `54`, and 4-stage symplectic Yoshida |
-| `adam_ib_object` | Immersed boundary method with eikonal distance fields |
-| `adam_io_object` | `[IO]` configuration, history files (residuals, energy, divergence, charge), the XH5F field writer `save_field` |
+| `adam_weno_object` | WENO reconstruction: upwind orders 1, 3, 5, 7, 9 (`weno-u-N`, `ngc = (N+1)/2`), centred orders 2, 4, 6, 8 (`weno-c-N`, `ngc = N/2`); Jiang–Shu (`js`, the default) or scale-invariant (`si`) weights; conservative or characteristic variables. ROR (stencil lowering where a variable check fails, order reduction near solids) is library only: used by no maintained application |
+| `adam_rk_object` | Runge-Kutta integration: `runge-kutta-1/2/3`, SSP `runge-kutta-ssp-11`, `-22`, `-33`, `-54`, and the 4-stage symplectic `runge-kutta-yoshida`; the time step comes from the CFL condition |
+| `adam_ib_object` | Immersed boundary method: solids on the Cartesian grid as eikonal signed-distance fields, boundary conditions reconstructed at the cut cells; in FLUME an `AMR_GEO_SOLID` marker refines around a solid (PRISM does not implement it); moving bodies are library only |
+| `adam_io_object` | `[IO]` configuration, history files (residuals, energy, divergence, charge), the XH5F field writer `save_field`: one HDF5 file per rank plus an XDMF index; restart and slice files in [cookbook IO](/cookbook/io) |
 | `adam_mpih_object` | MPI wrapper: initialize/finalize, `error_stop`, barrier, timers |
 | `adam_flail_object` | FLAIL, the elliptic solver library: a facade over the FFT (`adam_poisson_fft_object`) and AMR multigrid (`adam_poisson_mg_object`) Poisson solvers |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian finite difference operators |
@@ -52,7 +62,7 @@ Every library object belongs to a **realm** — the per-domain solver instance �
 | `io` | `io_object` | INI file handle, output/restart configuration |
 | `amr` | `amr_object` | refinement markers |
 | `weno`, `rk`, `ib` | `weno_object`, `rk_object`, `ib_object` | reconstruction, time integration, immersed boundary |
-| `slices`, `flail`, `leapfrog`, `blanesmoan`, `cfm` | … | slices output, the FLAIL elliptic solver library (FFT and multigrid Poisson solvers), alternative integrators (library only: used by no maintained application) |
+| `slices`, `flail`, `leapfrog`, `blanesmoan`, `cfm` | … | slices output, the FLAIL elliptic solver library (FFT and multigrid Poisson solvers), the leapfrog, Blanes–Moan (`blanes-moan4`) and commutator-free Magnus (`CFM-4`) integrators (library only: used by no maintained application; PRISM refuses them) |
 
 Library routines that need another object receive it **as an argument**, e.g. `call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)`. Because each realm owns its objects, several realms (a multi-realm *forest*) coexist in one process without sharing state.
 
@@ -102,6 +112,7 @@ src/
 ├── app/                  # Solvers built on the SDK
 │   ├── prism/            # Maxwell equations / plasma solver (maintained)
 │   ├── flume/            # Compressible Euler and MHD (maintained)
+│   ├── ripple/           # Scalar advection: the maintained tutorial application
 │   ├── nasto/            # Navier-Stokes solver (unmaintained: predates the realm refactor)
 │   ├── chase/            # Euler solver (unmaintained, superseded by FLUME)
 │   ├── patch/            # Patch-based application (unmaintained)
@@ -112,7 +123,7 @@ src/
 
 ### Backend pattern
 
-PRISM and FLUME share the same subdirectory layout:
+PRISM, FLUME and RIPPLE share the same subdirectory layout:
 
 ```
 app/<name>/common/    # Physics layer shared across all backends
@@ -122,37 +133,9 @@ app/<name>/fnl/       # GPU entry point (OpenACC, or OpenMP offloading on AMD)
 
 ### Adding a new solver
 
-A new physics application requires only implementing the problem-specific layer; the entire SDK is reused unchanged. The application type extends `realm_object`, inheriting every SDK object as a component, and adds only its physics-specific state:
-
-```fortran
-type, extends(realm_object) :: my_common_object
-   ! inherited: io, amr, slices, weno, ib, rk, flail, adam (grid, tree, field, maps), ...
-   real(R8P), allocatable  :: q(:,:,:,:,:)   ! conservative variables (nv, i, j, k, nb)
-   type(my_physics_object) :: physics
-   type(my_bc_object)      :: bc
-   type(my_ic_object)      :: ic
-   type(my_time_object)    :: time
-endtype my_common_object
-
-type, extends(my_common_object) :: my_cpu_object   ! and my_fnl_object for the GPU backend
-   ...
-endtype my_cpu_object
-```
-
-The common `initialize` reads the physics first (it decides `nv`), then calls `realm_object%initialize`, which builds grid, tree, maps, field, AMR, IB, slices, RK, WENO and FDV from the INI file:
-
-```fortran
-call self%io%initialize(filename=filename)                            ! INI file handle
-call self%physics%initialize(file_parameters=self%io%file_parameters) ! decides nv
-call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
-                                  fields_number=fields_number)                 ! block-sized fields: sets nb
-call self%bc%initialize(file_parameters=self%io%file_parameters)
-call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
-call self%adam%tree%rebuild_neighborhood(grid=self%adam%grid)                     ! the maps were built before the
-call self%adam%make_comm_local_maps_ghost_bc                                      ! BC types were known (#103)
-```
-
-The time loop is not written by the application: the program hands an array of realms to `forest_object%simulate`, which drives the `_forest` type-bound procedures (`initialize_forest`, `compute_local_dt_forest`, `advance_one_step_forest`, `post_step_forest`, `is_done_forest`, `finalize_forest`, plus the staged family used on AMR seams and multi-realm runs). PRISM (`src/app/prism`) is the reference implementation.
+A new application extends `realm_object` and supplies only its physics; the time loop is the library's
+`forest_object%simulate`. RIPPLE (`src/app/ripple`), a scalar advection solver, is written to show it layer by layer:
+see [build your own solver](/tutorials/build-your-own/core).
 
 ## AMR data design: inverse indexing
 
@@ -213,6 +196,7 @@ graph LR
 ### Memory and parallelism summary
 
 - **Ghost cells**: configurable width `ngc` (typically 3 for WENO5, 4 for WENO7); exchanged via MPI before each stencil sweep using the compact block index, not Morton keys.
+- **AMR conservation (FLUME)**: coarsening restricts by the cell mean, refinement prolongs with a conservative (MC-limited) reconstruction, and the 2:1 faces are refluxed.
 - **Load balancing**: blocks are redistributed across MPI ranks by reordering the compact index using Morton space-filling curves, keeping the field array layout optimal after each rebalancing step.
 - **Scalability target**: strong scaling to O(1000) GPUs with >70% parallel efficiency.
 

@@ -147,8 +147,7 @@ RIPPLE oracles (r4) PASSED
 ```
 
 The FNL runs of `periodic.ini` and `amr.ini` agree with the CPU runs to round-off, and the device reflux conserves as
-the host one does. These runs were made on a WSL2 workstation, which checks correctness only: never time a GPU run
-there.
+the host one does. These runs were made on a WSL2 workstation, which checks correctness only ([GPU5](/cookbook/gpu#gpu5-run-on-a-development-box-with-wsl2-not-on-a-cluster)).
 
 ## The seams layer
 

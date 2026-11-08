@@ -1,31 +1,35 @@
 # Physical models
 
-FLUME solves hyperbolic conservation laws of compressible, inviscid flow in the form
+FLUME solves the conservation laws of compressible flow in the form
 
 $$\frac{\partial \mathbf{q}}{\partial t} + \sum_{d=1}^{3} \frac{\partial \mathbf{F}_d(\mathbf{q})}{\partial x_d} = \mathbf{S}(\mathbf{q}),$$
 
 with $\mathbf{q}$ the conservative state, $\mathbf{F}_d$ the flux along direction $d$ and $\mathbf{S}$ the sources (GLM/EGLM
-damping, gravity and self-gravity, cooling, sinks, forcing). `[physics] physical_model` (`euler`, `euler-de`, `mhd-ideal`),
-`[physics] passive_scalars`, `[mhd] divergence_control` and `[eos] type` select one of 13 models; the model fixes the state
-width `nv` and selects, on the host, the compute kernels compiled for that width (no branching on the model inside a kernel).
+damping, gravity and self-gravity, cooling, sinks, forcing). This page states the equations and the closures; their
+discretisation is on the [numerical methods](./numerics) page and the keys are in the [input reference](./input).
+
+`[physics] physical_model` (`euler`, `euler-de`, `mhd-ideal`), `[physics] passive_scalars`, `[mhd] divergence_control`
+and `[eos] type` select one of 13 models. The model fixes the state width `nv` and selects, on the host, the compute
+kernels compiled for that width; no kernel branches on the model.
 
 | Model | `[physics] physical_model` | `[mhd] divergence_control` | $\mathbf{q}$ | `nv` |
 |---|---|---|---|---|
 | Compressible Euler | `euler` | — | $(\rho, \rho u, \rho v, \rho w, E)$ | 5 |
-| Euler with dual energy ([numerics](./numerics#dual-energy)) | `euler-de` | — | Euler + $\rho s$ | 6 |
-| Euler, `euler-de` with passive scalars ([numerics](./numerics#passive-scalars)) | `euler`, `euler-de` + `passive_scalars` > 0 | — | + 4 slots $\rho s_k$ | 9, 10 |
+| Euler with [dual energy](#dual-energy) | `euler-de` | — | Euler + $\rho s$ | 6 |
+| Euler, `euler-de` with [passive scalars](#passive-scalars) | `euler`, `euler-de` + `passive_scalars` > 0 | — | + 4 slots $\rho s_k$ | 9, 10 |
 | Ideal MHD with mixed GLM cleaning | `mhd-ideal` | `glm` | $(\rho, \rho u, \rho v, \rho w, E, B_x, B_y, B_z, \psi)$ | 9 |
 | Ideal MHD with EGLM cleaning ($E$ includes $\psi^2/2$) | `mhd-ideal` | `eglm` | as GLM | 9 |
 | Ideal MHD without divergence control | `mhd-ideal` | `none` | the first 8 of the above | 8 |
-| Isothermal or barotropic Euler ([numerics](./numerics#isothermal-and-barotropic-equations-of-state)) | `euler` + `[eos] type` | — | as Euler, energy slot inert | 5 |
-| Isothermal or barotropic ideal MHD ([numerics](./numerics#isothermal-and-barotropic-mhd)) | `mhd-ideal` + `[eos] type` | `glm`, `none` | as MHD, energy slot inert | 9, 8 |
+| [Isothermal or barotropic](#isothermal-and-barotropic-gases) Euler | `euler` + `[eos] type` | — | as Euler, energy slot inert | 5 |
+| [Isothermal or barotropic](#isothermal-and-barotropic-mhd) ideal MHD | `mhd-ideal` + `[eos] type` | `glm`, `none` | as MHD, energy slot inert | 9, 8 |
 
 The gas is calorically perfect (`[eos] type = ideal`, the default) unless `[eos] type` is `isothermal` or `barotropic`,
-which apply to `euler` and `mhd-ideal` without passive scalars only. All models are inviscid by default. Viscosity, heat conduction and Ohmic
-resistivity are milestone M4 ([#65](https://github.com/szaghi/adam/issues/65)), each given as a coefficient or as its
-number ([input](./input#dissipative-terms-issue-65-m4)): with a viscosity or a conductivity each model is its
+which apply to `euler` and `mhd-ideal` without passive scalars only. All models are inviscid by default. Viscosity, heat
+conduction and Ohmic resistivity ([#65](https://github.com/szaghi/adam/issues/65)) are each given as a coefficient or as
+its dimensionless number ([input](./input#dissipative-terms)). With a viscosity or a conductivity each model is its
 compressible Navier–Stokes form, and `mhd-ideal` with a resistivity is resistive MHD (Ohm's law
-$\mathbf E = -\mathbf u\times\mathbf B + \eta\mathbf J$; [numerics](./numerics#dissipative-fluxes-navier–stokes)).
+$\mathbf E = -\mathbf u\times\mathbf B + \eta\mathbf J$; [dissipative terms](#dissipative-terms)). The
+subgrid-scale closures of large-eddy simulation are on the [turbulence](./turbulence#subgrid-scale-models) page.
 
 ## Thermodynamics
 
@@ -67,6 +71,40 @@ evaluated at the Roe average of the two cells adjacent to the face
 ($\sqrt{\rho}$-weighted velocity and enthalpy, $\tilde a^2 = (\gamma-1)(\tilde H - |\tilde{\mathbf{u}}|^2/2)$).
 The unit test `test_flume_euler_library` checks $LR = I$, the homogeneity identity $L\,\mathbf{F}(\mathbf{q}) = \Lambda L\,\mathbf{q}$
 and the rotation invariance on 10 000 random states in each direction.
+
+
+## Dual energy
+
+`physical_model = euler-de` ([#91](https://github.com/szaghi/adam/issues/91)) adds the advected entropy $\rho s$,
+$s = p/\rho^\gamma$, to the Euler state ($nv = 6$):
+
+$$\partial_t(\rho s) + \nabla\cdot(\rho s\,\mathbf u) = 0,$$
+
+a pure conservation law with no gravity source. Once per step each cell compares its internal energy
+$e = E - |\rho\mathbf u|^2/(2\rho)$ with $\eta E$, $\eta$ = `[physics] dual_energy_eta` (default 0.05; the cell-local
+test of Bryan et al. 2014):
+
+- in a cold cell, $e < \eta E$, the entropy is a floor: $e = \max(e, e_s)$, $e_s = \rho s\,\rho^{\gamma-1}/(\gamma-1)$,
+  and $E$ is rebuilt from it;
+- then, everywhere, $\rho s$ follows $e$.
+
+A cell below its adiabat was drained by the truncation error of the total-energy scheme in a cold supersonic flow, and
+the floor lifts it back. A cell above its adiabat was heated by a shock, which the advected entropy does not see, and it
+keeps its energy. The floor only adds energy, and the log reports it per step. A reset of the energy from the entropy,
+as in Cholla (Villasenor et al. 2021), would remove a cold shock's heat ([DE](./verification/euler/dual-energy)). The
+runtime-AMR collapse of [#88](https://github.com/szaghi/adam/issues/88) reaches its end with dual energy
+([SV-17](./verification/self-gravity/polytrope)). Discretisation: [numerics](./numerics#dual-energy).
+
+## Passive scalars
+
+`[physics] passive_scalars = N` ([#92](https://github.com/szaghi/adam/issues/92), $0 < N \le 4$) selects the scalar
+variant of `euler` or `euler-de`: four more conserved variables $\rho s_k$, advected with the flow,
+
+$$\partial_t(\rho s_k) + \nabla\cdot(\rho s_k\,\mathbf u) = 0 .$$
+
+The first $N$ are set by the `s1`..`sN` keys of the initial-condition regions and of the inflows, the others are zero.
+The scalars do not act on the flow: the flow fields of a run with scalars are bitwise those of the same run without
+them. Discretisation: [numerics](./numerics#passive-scalars).
 
 ## Ideal MHD
 
@@ -172,11 +210,105 @@ flux, $F_\rho\,\tilde\psi^2/(2\rho_{\text{up}})$ (a passive scalar, upwind densi
 exchange, and count the floored cells (global counters in the log). With the floors disabled, a non-positive state stops
 the run. Independently, every step checks the state for non-finite values and stops the run naming the first one.
 
+## Dissipative terms
+
+With a viscosity or a conductivity in `[physics]` ([input](./input#dissipative-terms)), Euler becomes the compressible
+Navier–Stokes system ([#65](https://github.com/szaghi/adam/issues/65)), and so does each MHD model, which also takes an
+Ohmic resistivity. Each term is the divergence of a flux, added to the inviscid one in direction $d$:
+
+$$
+G_{d}^{\rho u_i} = -\tau_{di},\qquad
+G_{d}^{E} = -u_i\,\tau_{di} - k\,\frac{\partial T}{\partial x_d},\qquad
+\tau = \mu\left(\nabla\mathbf{u} + \nabla\mathbf{u}^T - \tfrac{2}{3}(\nabla\cdot\mathbf{u})\,I\right),
+$$
+
+with no bulk viscosity (Stokes hypothesis), $T = p/(\rho R)$, and the laws $\mu = \mu_0 (T/T_\mathrm{ref})^\omega$,
+$k = k_0 (T/T_\mathrm{ref})^{\omega_k}$ ($\omega_k = \omega$ when $k$ comes from the Prandtl number, otherwise 0; the
+constant law is $\omega = 0$), or Sutherland's law
+$\mu = \mu_0 (T/T_\mathrm{ref})^{3/2}(T_\mathrm{ref} + S)/(T + S)$.
+
+**Ohmic resistivity (MHD).** With the magnetic diffusivity $\eta$ and $\mathbf J = \nabla\times\mathbf B$ (code units),
+Ohm's law $\mathbf E = -\mathbf u\times\mathbf B + \eta\mathbf J$ in $\partial_t\mathbf B = -\nabla\times\mathbf E$ and
+the Poynting flux $\mathbf E\times\mathbf B$ give
+
+$$
+G_{d}^{B_i} = -\eta\left(\frac{\partial B_i}{\partial x_d} - \frac{\partial B_d}{\partial x_i}\right),\qquad
+G_{d}^{E} = \eta\,(\mathbf J\times\mathbf B)_d = \eta\,B_j\left(\frac{\partial B_d}{\partial x_j} - \frac{\partial B_j}{\partial x_d}\right),
+$$
+
+with $G_d^E = \sum_i B_i\,G_d^{B_i}$, so the field's energy loss is exactly the Ohmic heating $\eta|\mathbf J|^2$ that the
+internal energy receives. The field flux is the **curl form**, $\epsilon_{idk}\,\eta J_k$, not $-\eta\,\partial_d B_i$:
+the two differ by $\eta\nabla(\nabla\cdot\mathbf B)$, which is not zero under GLM, and the curl form keeps the resistive
+term out of the divergence constraint. The decay rate $\eta k^2$ is measured by [VV-5](./verification/dissipative/).
+
+Discretisation: [numerics](./numerics#dissipative-fluxes-navier–stokes).
+
+## Isothermal and barotropic gases
+
+`[eos]` ([#100](https://github.com/szaghi/adam/issues/100)) replaces the ideal gas by a pressure that depends on the
+density alone, $P = P(\rho)$. The energy equation drops out: the state keeps its Euler or MHD layout, and the energy
+slot $\rho E$ is inert (zero flux, zero source, eigenvalue 0) and stays at its initial 0. The auxiliary fields report
+$p = P(\rho)$, $T = P/\rho$ (with $R = 1$), $a = \sqrt{dP/d\rho}$ and $H = 0$.
+
+**Isothermal** (`type = isothermal`): $P = c_0^2\rho$, the sound speed $c_0$ everywhere. In direction $\mathbf n$ the
+waves are $u_n - c_0$, the inert slot (0), $u_n$ twice (the transverse velocities) and $u_n + c_0$. The isothermal
+system has one wave between the acoustic ones, the contact, and it carries only the transverse velocity.
+
+The isothermal Riemann problem is solved exactly with no energy equation: the shock jump
+$u_* = u_K \mp c_0(\rho_*/\rho_K - 1)\sqrt{\rho_K/\rho_*}$ on the compressive side, the fan
+$u_* = u_K \mp c_0\ln(\rho_*/\rho_K)$ on the other. Two streams at Mach $M$ compress to $\rho_* = \rho M_1^2$, $M_1$ the
+Mach number in the frame of the shock. `src/tests/flume/verification/eos/eos_oracle.py` builds these solutions
+independently of the code, and the runs match them ([EO](./verification/euler/isothermal-eos)).
+
+**Barotropic** (`type = barotropic`): a continuous piecewise polytrope,
+
+$$P = K_k\rho^{\Gamma_k}\ \text{on}\ \rho_{k-1} \le \rho < \rho_k,\qquad K_{k+1} = K_k\rho_k^{\Gamma_k - \Gamma_{k+1}},\qquad
+c^2 = \frac{dP}{d\rho} = \Gamma_k\frac{P}{\rho},$$
+
+$c^2$ the speed of the Jeans relation. The default table is that of Mathew & Federrath (2021, MNRAS 507, 2448),
+$\Gamma = 1, 1.1, 1.4, 1.1, 5/3$, in cgs. Where $\Gamma$ increases upward (a convex break) a rarefaction through the
+break splits into two fans with a plateau at the break density. Where it decreases, $\rho c$ drops and the system is
+not genuinely nonlinear there, so Riemann solutions crossing it contain composite waves. The schemes (entropy-satisfying
+fluxes) do not depend on convexity. The exact solver of the verification refuses such a law, and the default table,
+non-convex at its $1.4 \to 1.1$ break, is verified by self-convergence instead
+([EO barotropic](./verification/euler/barotropic-eos)).
+
+**Under gravity** both gases take the momentum sources of the gamma-law gas, $\rho\mathbf g$ (constant or from the cell
+potential, self-gravity included), and no energy source. Where the ideal gas reads $c_s^2$ or a thermal energy from the
+energy slot, these gases take them from the equation of state, with $c_s^2 = dP/d\rho$:
+
+- the Jeans marker's $\lambda_J = \sqrt{\pi c_s^2/(G\rho)}$;
+- the sinks' threshold density $\pi c_s^2/(4 G r_\mathrm{acc}^2)$;
+- the sinks' Jeans test $|E_\mathrm{grav}| > 2E_\mathrm{th}$, with the virial thermal energy
+  $E_\mathrm{th} = \tfrac{3}{2}\int P\,dV$.
+
+The ideal gas keeps its internal energy in the Jeans test; the two agree at $\gamma = 5/3$. At $\gamma \to 1$ the
+internal energy $\int P/(\gamma - 1)\,dV$ diverges (at $\gamma = 1.001$ it is a thousand times the virial term), so the
+test could not pass, and the singular-isothermal-sphere runs of the gamma-law gas keep creation off.
+
+Discretisation (eigensystem, Riemann fluxes, positivity): [numerics](./numerics#isothermal-and-barotropic-equations-of-state).
+
+### Isothermal and barotropic MHD
+
+With `physical_model = mhd-ideal` the two gases close ideal MHD without an energy equation, with the total pressure
+$P(\rho) + |\mathbf B|^2/2$ (Mignone 2007, J. Comput. Phys. 225, 1427, eqs. 1–6). The models keep the MHD layout
+$(\rho, \rho\mathbf u, \rho E, \mathbf B[, \psi])$, the energy slot inert. In direction $\mathbf n$ the six waves
+$u_n \mp c_f$, $u_n \mp c_a$, $u_n \mp c_s$ act on $(\rho, \rho u_n, \rho u_{t1}, \rho u_{t2}, B_{t1}, B_{t2})$; there is
+no entropy mode. The Jacobian holds the gas law only through $a^2 = dP/d\rho$. The normal field is decoupled at speed 0,
+or forms the GLM pair $(B_n, \psi)$ at $\mp c_h$.
+
+- **Floors:** the `[mhd]` density and pressure floors are refused, since there is no pressure to floor.
+- **Cleaning:** GLM is the mixed GLM of the ideal MHD. EGLM is refused: its Derigs sources are built on the energy
+  equation.
+- **Gravity:** it moves the momentum only, as for the Euler gases.
+
+Discretisation: [numerics](./numerics#isothermal-and-barotropic-mhd); verification: [EO MHD](./verification/mhd/barotropic-mhd).
+
 ## External gravity
 
-A constant gravitational acceleration $\mathbf g$ (`[gravity]`, [input](./input#gravity-optional-external-gravity-and-self-gravity); milestone M7,
-[#73](https://github.com/szaghi/adam/issues/73)) adds sources to both models, with the potential $\Phi = -\mathbf
-g\cdot\mathbf x$:
+A constant gravitational acceleration $\mathbf g$ (`[gravity]`, [input](./input#gravity-optional-external-gravity-and-self-gravity);
+[#73](https://github.com/szaghi/adam/issues/73)) adds sources to every model, with the potential
+$\Phi = -\mathbf g\cdot\mathbf x$:
 
 $$
 \partial_t(\rho\mathbf u) + \dots = \rho\,\mathbf g,\qquad \partial_t E + \dots = \rho\,\mathbf u\cdot\mathbf g,
@@ -186,44 +318,53 @@ $$
 - **Momentum**: $\rho_i\,\mathbf g$ at the cell centre.
 - **Energy**: from the scheme's own mass fluxes $F^\rho$, never from $\rho\mathbf u$ at the centre (Mikami et al.
   2008, Mullen et al. 2021): $\sum_d g_d\,(-F^\rho_{i-3/2} + 13F^\rho_{i-1/2} + 13F^\rho_{i+1/2} - F^\rho_{i+3/2})/24$.
-  A face's weights sum to one over the cells it touches, so $\sum(E + \rho\Phi)V$ changes only by boundary fluxes,
-  to round-off; the fourth-order weights make the source the cell value of $\rho u\,g$ to fourth order (the face
-  form $\tfrac12(F_{i-1/2} + F_{i+1/2})$ is second order on a finite-difference scheme, whose fluxes are point values
-  of the primitive function of $\rho u$). At a reflecting wall the invariant is $W$, the sum plus an $O(\Delta x^2)$
-  term of the wall rows ([verification](./verification/gravity/energy-order)). It takes one more
+  A face's weights sum to one over the cells it touches, so $\sum(E + \rho\Phi)V$ changes only by boundary fluxes, to
+  round-off, with periodic boundaries and across block interfaces. The fluxes of a finite-difference scheme are point
+  values of the primitive function of $\rho\mathbf u$, so the two-face average $\tfrac12(F^\rho_{i-1/2} + F^\rho_{i+1/2})$
+  is a second-order cell value and takes the whole scheme to second order; the four-face form is fourth order
+  ([verification](./verification/gravity/energy-order)). It reads the face beyond each block end, so it takes one more
   ghost layer, `ngc >= S + 1`.
+- **Walls**: at a `wall-inviscid` wall along $\mathbf g$ the source reads the mirrored face beyond the wall, and the
+  exactly conserved total is $\sum(E + \rho\Phi)V \pm \sum g_n\Delta x_n\rho V/12$ over the cells beside the wall (+ at
+  the lower wall, − at the upper), which differs from the plain sum by $O(\Delta x^2)$.
 - **Positivity limiter**: the backbone carries the time-centred energy $\rho\mathbf g\cdot(\mathbf u + \mathbf g\Delta t/2)$,
-  which leaves its internal energy unchanged, and the high-order excess of the source is limited with the fluxes.
-- **Time step**: no bound of its own; the regime $|\mathbf g|\Delta t^2/(\mathrm{CFL}\,h)$ is printed at the first step.
+  which leaves its internal energy unchanged, and the high-order excess of the source is limited with the fluxes by the
+  cell factor $\Lambda$. Gravity never makes the backbone inadmissible (near vacuum, or with $g\Delta t$ above the sound
+  speed), and $E + \rho\Phi$ stays exact wherever the limiter does not act.
+- **Time step**: no bound of its own. The first step logs $|\mathbf g|\,\Delta t^2/(\mathrm{CFL}\,h_{\min})$, at least
+  the velocity gravity adds in a step over the fastest wave speed; near 1 or above, gravity is stiff.
 - **Boundary**: `hydrostatic` faces continue the isothermal equilibrium of the boundary cell into the ghosts.
-- **Well-balanced mode** (`[gravity] equilibrium = atmosphere`): the residual of the initial atmosphere at rest,
-  computed with the run's own operator once per grid, is subtracted from every residual (the deviation method of
-  Edelmann et al. 2021, §4.3). The atmosphere is then an exact discrete steady state, and the scheme evolves the
-  deviation from it; without it a stratified atmosphere at rest drives a stationary flow of the truncation error's size
-  ([verification](./verification/gravity/well-balanced)).
-- **Through a cell potential** (`[gravity] potential = linear`, M8-P1, [#81](https://github.com/szaghi/adam/issues/81)):
+- **Well-balanced mode** (`[gravity] equilibrium = atmosphere`): the residual of the initial atmosphere at rest is
+  computed with the run's own space operator once per grid (at the first step, after a restart, after every regrid) and
+  subtracted from every residual (the deviation method of Edelmann et al. 2021, §4.3). The atmosphere is then an exact
+  discrete steady state, on `weno` and `weno-riemann`, Euler and MHD, across 2:1 seams (the equilibrium's reflux is
+  folded into its residual), and the scheme evolves the deviation from it. Without it a stratified atmosphere at rest
+  drives a stationary flow of the truncation error's size ([verification](./verification/gravity/well-balanced)). It
+  costs one more field and one residual evaluation per grid. The subtracted residual is outside the limiter's factor:
+  it is the truncation error of the equilibrium, small against the state wherever the atmosphere is resolved.
+- **Through a cell potential** (`[gravity] potential = linear`, [#81](https://github.com/szaghi/adam/issues/81)):
   the same field as the cell potential $\Phi_i = -\mathbf g\cdot\mathbf x_i$, applied by the path self-gravity uses.
   The face gravity is $-(\Phi_{i+1} - \Phi_i)/\Delta x$, the cell gravity the mean of its two faces; the momentum
   gains $\rho_i$ times the cell gravity, the energy $\tfrac12\sum_d (g_{d,i+1/2}F^\rho_{i+1/2} + g_{d,i-1/2}
   F^\rho_{i-1/2})$. That is the face form, second order, and $\sum(E + \rho\Phi)V$ is conserved without a wall term.
-  The hydrostatic ghosts take the potential drop, and the limiter the face and cell gravity. A test of that path
-  ([SV-1](./verification/self-gravity/potential)); refused with the well-balanced mode.
+  The hydrostatic ghosts take the potential drop, and the limiter the face and cell gravity. It is a test of that path
+  ([SV-1](./verification/self-gravity/potential)).
 
 The equilibria FLUME builds are the `isothermal-atmosphere`, `polytropic-atmosphere` and `rayleigh-taylor` initial
 conditions ([initial conditions](./initial-conditions#isothermal-atmosphere-polytropic-atmosphere-hydrostatic-equilibria-under-gravity)).
 
 ### Self-gravity
 
-`[gravity] self_gravity` ([#81](https://github.com/szaghi/adam/issues/81), M8-P3) adds the gravity of the gas itself:
+`[gravity] self_gravity` ([#81](https://github.com/szaghi/adam/issues/81)) adds the gravity of the gas itself:
 
 $$\nabla^2\Phi = 4\pi G(\rho - \bar\rho), \qquad \partial_t(\rho\mathbf u) \mathrel{+}= -\rho\nabla\Phi, \qquad
 \partial_t E \mathrel{+}= -\rho\mathbf u\cdot\nabla\Phi,$$
 
 with the mean density removed on a periodic domain (the Jeans swindle), or $\Phi \to 0$ at infinity with isolated
-boundaries (`poisson_bc = isolated`, M8-P4). The discretisation is that of Mullen et al. (2021): $\Phi$ solves
+boundaries (`poisson_bc = isolated`). The discretisation is that of Mullen et al. (2021): $\Phi$ solves
 $L_h\Phi = 4\pi G(\rho - \bar\rho)$ (periodic) or $L_h\Phi = 4\pi G\rho$ (isolated) with the 7-point Laplacian (5-point
 in 2-D, periodic only), and enters through the potential path above (face gravity, cell gravity, the energy from the
-face mass fluxes).
+face mass fluxes). A constant $\mathbf g$ may be given too; it adds through its own kernels.
 
 **What is conserved, and why.** The solvers are linear and symmetric, $\Phi = 4\pi G\,K\rho$ with $K = K^T$ ($VK$
 symmetric on AMR, below): the periodic one inverts $L_h$ on the zero-mean modes, the isolated one convolves with an
@@ -239,68 +380,116 @@ exact, only to that tolerance: the defect measured in situ is $1.7\cdot10^{-11}$
 ([SV-13](./verification/self-gravity/multigrid-amr)), the point Mullen et al. make (round-off conservation needs a
 round-off Poisson solution). The Runge–Kutta integration (one solve per
 stage, nothing time-averaged) leaves a drift of its own order in $\Delta t$; the positivity limiter's gravity energy
-correction (M7-G1) breaks the exchange wherever it acts.
+correction (above) breaks the exchange wherever it acts.
 
 The coupling is second order in space whatever the WENO order. A linear Jeans mode obeys
 $\omega^2 = c^2k^2 - 4\pi G\rho_0$: a wavelength shorter than the Jeans length $\lambda_J = c\sqrt{\pi/(G\rho_0)}$
 oscillates, a longer one grows; an n = 1 polytrope star is an isolated equilibrium ([verification](./verification/self-gravity/)).
 
-**On AMR grids** (M8-P5b; isolated boundaries: [#87](https://github.com/szaghi/adam/issues/87), below),
-$L_h$ is the composite Laplacian of the leaves. Across a 2:1 face it carries the **mimetic mean flux**: every fine
-face $f$ of a coarse cell C carries $\tfrac23 w\,(\bar\Phi_f - \Phi_C)$, where $\bar\Phi_f$ is the mean of the face's
-fine cells and $w$ is the fine face area over the fine spacing, and C receives the sum of these fluxes. The operator is
-symmetric in the volume-weighted form, so $\Phi = 4\pi G\,K\rho$ with $VK$ symmetric, and it is consistent (exact for
-linear $\Phi$ face by face). [SV-9](./verification/self-gravity/multigrid-amr) explains why the simpler
-couplings fail one property or the other.
+**Solvers.** Every Runge–Kutta stage solves $\Phi$ from that stage's density, after the ghost update.
+`poisson_solver = auto` takes the FFT solver on a uniform grid and the multigrid solver on an AMR grid.
 
-Both sides of the seam see the same face gravity, $-(\bar\Phi_f - \Phi_C)/(1.5h)$, which is first order there. The
-energy sources, however, need the two-point work. For $E + W$ to telescope, the seam's sources must sum to
-$\sum_f A_fF^\rho_f(\Phi_C - \Phi_f)$ (with the sign of the mass flux), and the two kernels give
-$\sum_f A_fF^\rho_f(\Phi_C - \bar\Phi_f)$ instead. The difference, $\sum_f A_fF^\rho_f(\bar\Phi_f - \Phi_f)$, is small
-($\sum_f(\bar\Phi_f - \Phi_f) = 0$) but not zero.
+- **FFT** (FFTW on the CPU, cuFFT on FNL; the `*-fft` build modes): distributed over the z-planes of the transform
+  array, bitwise the same on every rank count, with $\Phi$ returned with every ghost layer filled. Periodic: each
+  Fourier mode is divided by the eigenvalue of $L_h$, so the discrete residual is round-off. Isolated: the density sits
+  in a zero-padded array of $2(N + n_{gc})$ cells per direction and is convolved with the lattice Green's function of
+  $L_h$ (Hockney–Eastwood), whose residual is about $10^{-13}$ per offset (`scripts/lattice_green.py`); the residual of
+  $\Phi$ is that summed over the source, $2\cdot10^{-11}$ of $4\pi G\rho$ at $64^3$, and the ghosts beyond the domain
+  hold the free-space potential. On FNL the density and $\Phi$ cross the host every stage.
+- **Multigrid** (`adam_poisson_mg_object`): the composite Laplacian of the AMR leaves, flexible CG preconditioned by a
+  V-cycle, its coarsest level solved by the FFT solver of the backend; on FNL it runs on the host. On a uniform grid
+  `poisson_solver = multigrid` is a check against `fft`; isolated boundaries use the symmetric James step
+  ([#87](https://github.com/szaghi/adam/issues/87)).
 
-It rides on the reflux. Every stage adds to the flux register's energy entry:
-- the coarse side: its own seam source, taken back;
-- the fine side: the exact two-point work less the fine cell's own source.
+**On AMR grids** the composite Laplacian carries a mimetic mean flux across each 2:1 face, symmetric in the
+volume-weighted form and consistent ([SV-9](./verification/self-gravity/multigrid-amr)). The face gravity there is first
+order, the potential second order. The gravity work across each seam rides on the reflux, so $E + W$ stays exact in the
+semi-discrete form; the fully discrete drift is first order in $\Delta t$ with `reflux_cadence = step` and of the
+Runge–Kutta order with `stage` ([SV-10](./verification/self-gravity/amr-jeans)). A runtime regrid changes $W$ by a
+truncation-sized amount ([SV-11](./verification/self-gravity/runtime-amr)). Isolated boundaries on AMR need every
+boundary leaf at the coarsest level. The derivation is on the developer page
+[ghost fill and AMR gravity](/developer/flume-ghost-fill#self-gravity-on-amr-grids).
 
-The end-of-step correction then gives the coarse cell exactly the missing work. The semi-discrete $E + W$ is exact
-again, the fine cells keep the consistent gravity, and the coarse cell next to the seam takes an $O(h)$ local error.
+**Limiter.** With `positivity_limiter = cell` the limiter's gravity energy correction acts on the potential path too, so
+$E + W$ stays exact only where the limiter does not act. A star in a light atmosphere ($10^{-4}$ of its central density)
+needs the limiter at its surface and drifts by $2\cdot10^{-3}$ of $E + W$ over a free-fall time at $32^3$, against
+$10^{-9}$ without it.
 
-The fully discrete exchange is first order in $\Delta t$, not of the Runge–Kutta order. The reflux corrects the
-coarse cells only at the end of the step, so its stages advance them with their own seam fluxes, an $O(\Delta t)$
-inconsistency per step. Measured on the collapsing Jeans mode
-([SV-10](./verification/self-gravity/amr-jeans)):
-- with the seam work: $9\cdot10^{-8}$, $3\cdot10^{-8}$, $1.4\cdot10^{-8}$ at CFL 0.4, 0.2, 0.1;
-- without it: $10^{-5}$ at every CFL, a spatial leak.
+**Log.** The first step logs $G$, the free-fall time $t_{ff} = \sqrt{3\pi/(32G\rho_{\max})}$ of the densest cell,
+$\Delta t/t_{ff}$ (a warning above 0.1) and the wall time of one solve. The conservation history gains `W`
+$= \tfrac12\sum\rho\Phi\,dV$ and `E_plus_W`, the energy the scheme conserves.
 
-`[numerics] reflux_cadence = stage` (P5c) restores the Runge–Kutta order: every stage corrects the coarse cells'
-residual from that stage's fluxes, and the drift falls at third order in $\Delta t$ ($3.5\cdot10^{-8}$,
-$4.3\cdot10^{-9}$, $5.4\cdot10^{-10}$).
+## Radiative cooling
 
-**Under runtime AMR** (P5c) every regrid sets the solver up on the new grid and solves $\Phi$ from the regridded
-state. The regrid conserves $\rho$, $\rho\mathbf u$ and $E$, but $W = \tfrac12\sum\rho\Phi V$ is the grid's own
-discrete energy: a regrid that changes the grid changes $W$ by a truncation-sized amount, and $E + W$ jumps
-([SV-11](./verification/self-gravity/runtime-amr)). The jump is not a leak of the scheme between
-regrids, which stays exact. Making the regrid itself conserve $E + W$ would need a correction of $E$ at each regrid,
-which is not done.
+`[cooling]` ([#93](https://github.com/szaghi/adam/issues/93)) adds optically thin cooling to the hydrodynamic models,
 
-**Isolated boundaries on AMR** ([#87](https://github.com/szaghi/adam/issues/87)) use a symmetric form of James's
-method. With $A$ the composite operator with zero ghosts at the domain faces and $B$ the map of ghost values onto the
-boundary rows, the zero-ghost solve $\Phi_0 = A^{-1}4\pi G V\rho$, extended by zero, satisfies the infinite operator
-with a screening charge $s = B^T\Phi_0$ on the ghost cells. The free-space ghost values are $g = -Gs$, $G$ the lattice
-Green's function from ghost cell to ghost cell (a zero-padded FFT of the coarsest grid widened by the ghost layer), and
-the second solve is $\Phi = A^{-1}(4\pi G V\rho - Bg)$:
+$$\partial_t(\rho e) = -n^2\Lambda(T),\qquad n = \rho/m,\qquad T = p/(\rho R),$$
 
-$$K = A^{-1} + A^{-1}BGB^TA^{-1},$$
+at fixed $\rho$ and $\rho\mathbf u$, with $E$ lowered by the energy removed. $\Lambda$ is the piecewise power law
+through the nodes $(T_k, \Lambda_k)$, $\Lambda_k (T/T_k)^{\alpha_k}$ on $[T_k, T_{k+1}]$; above $T_N$ the last segment
+continues. $T_1$ is a floor: below it nothing cools, and there is no heating.
 
-symmetric because $A$ and $G$ are, so the $E + W$ exchange above stays exact. On a uniform grid it is the discrete
-free-space solution of the FFT solver; on AMR it is second order ($G$ ignores the refinement inside the domain, a
-truncation-order error). The textbook James method, with the screening charge on the boundary surface and the
-potential at the ghost centres, is not symmetric. $G$ is the coarse lattice's only if **every leaf on the domain
-boundary is at the coarsest level**: anything else is fatal, at start and at the regrid that would refine a boundary
-block (an isolated problem keeps its mass away from the boundary, where refinement is not needed). Each Poisson solve
-costs two composite solves and one FFT of the coarsest grid
-([SV-13](./verification/self-gravity/multigrid-amr), [SV-14](./verification/self-gravity/polytrope)).
+With `euler-de` a cooled cell takes the entropy of its cooled energy, $\rho s = (\gamma - 1)e\rho^{1-\gamma}$:
+radiation lowers the entropy for real, and an entropy left on the old adiabat would let the next dual-energy floor lift a
+cold cooled cell back to it and undo the cooling.
+
+The cooling itself is integrated exactly, so it sets no limit on the step. `[cooling] dt_factor` (default off) limits
+the step to `dt_factor` times the shortest cooling time $t_\mathrm{cool} = \rho e/(n^2\Lambda)$, for runs that need the
+coupling with the dynamics resolved. The radiated energy is summed over the ranks; the conservation history adds it back
+to $E$ (`E_plus_radiated`, constant to round-off). Discretisation: [numerics](./numerics#radiative-cooling).
+
+## Sink particles
+
+`[sinks]` ([#94](https://github.com/szaghi/adam/issues/94)) adds point masses that act on the gas through self-gravity
+only. It needs self-gravity and a hydrodynamic model.
+
+**Gravity.** Each sink's mass is added to the density the Poisson solver sees, so the periodic and isolated boundaries
+and the AMR composite operator apply to the sinks as to the gas, and $W = \tfrac12\sum\rho_\mathrm{tot}\Phi\,dV$
+includes them. A sink feels the gradient of $\Phi$ at its position. Through the mesh the sink gravity is softened at
+about two cells.
+
+**Creation** (`creation = .true.`). Once per step a cell of the finest level present (with runtime regridding, of the
+finest level allowed) forms a sink when all of these hold, after Federrath et al. (2010):
+
+- its density exceeds $\rho_\mathrm{thr} = \pi c_s^2/(4 G r_\mathrm{acc}^2)$, with $c_s^2 = \gamma p/\rho$ of the cell:
+  a Jeans length of $2 r_\mathrm{acc}$, $r_\mathrm{acc}$ = `accretion_radius_cells` cells;
+- no sink lies within $r_\mathrm{acc}$;
+- the cell is a minimum of the potential over its control volume, the cells within $r_\mathrm{acc}$ (ties allowed: the 8
+  cells around a symmetric centre all qualify);
+- the flow converges along every principal axis (the symmetric velocity gradient is negative definite);
+- the volume is Jeans-unstable, $|E_\mathrm{grav}| > 2E_\mathrm{th}$, with $E_\mathrm{grav}$ summed over the pairs of its
+  cells;
+- the volume is bound, $E_\mathrm{grav} + E_\mathrm{th} + E_\mathrm{kin} < 0$, the kinetic energy relative to its centre
+  of mass.
+
+The candidates of every rank are taken deepest potential first, one per accretion radius. A static box above the
+threshold is not enough: at $\gamma = 1.4$ a control volume at the threshold is Jeans-stable,
+$|E_\mathrm{grav}|/2E_\mathrm{th} \approx \pi^2\gamma(\gamma-1)/10 = 0.55$. Gas that compresses adiabatically with
+$\gamma > 4/3$ never crosses the threshold ($\rho_\mathrm{thr} \propto c_s^2$ grows with $\rho$ at $\gamma = 2$):
+collapse needs [cooling](#radiative-cooling).
+
+**Accretion** (`accretion = .true.`). A new sink has no mass. Every sink then takes, once per step, the gas above the
+threshold from the cells within its radius that is bound to it and falls in
+($\tfrac12|u - v_s|^2 - Gm_s/r < 0$, $(u - v_s)\cdot(x - x_s) < 0$), plus the cell that holds it and every cell of a new
+sink without the checks. A cell within several radii gives its gas to the most bound sink. The cell keeps its specific
+values: every conservative variable is scaled by $\rho_\mathrm{thr}/\rho$ (velocity, specific energy, passive scalars;
+the dual-energy entropy is rebuilt from the energy). The sink gains the mass and the momentum and moves to the centre of
+mass, so accretion conserves mass and momentum exactly.
+
+**Mergers** (`merging = .true.`). Two sinks within an accretion radius that are bound and converging
+($\tfrac12\mu|\Delta v|^2 - Gm_1m_2/d < 0$, $\Delta v\cdot\Delta x < 0$) merge at their centre of mass, with their mass,
+momentum and mass-weighted acceleration (the pair's mutual pull cancels in it).
+
+**Runtime AMR.** With runtime regridding (`[amr] frequency > 0`) the sinks live on the finest level allowed
+(`[amr] max_level`), as in Federrath et al. (2010): they form only there, and $r_\mathrm{acc}$ is in cells of that level
+for the whole run. At every regrid a block within $r_\mathrm{acc} + \tfrac12\,$`frequency`$ + 2$ cells of a sink (its
+accretion radius, the half cell a sink may move per step until the next regrid, its CIC stencil) is refined towards
+that level and never derefined, whatever the other markers vote. A sink formed on a coarser level would have its
+neighbourhood refined at the next regrid: the infall onto it prolongated and its threshold quadrupled from one step to
+the next. A collapse on runtime AMR needs `regrid_prolongation = conservative-state`
+([#88](https://github.com/szaghi/adam/issues/88)).
+
+Discretisation (deposit, time stepping, backends): [numerics](./numerics#sink-particles).
 
 ## Units and scaling
 
@@ -329,11 +518,10 @@ What the invariance does not remove:
   initial and boundary states; one reference speed can set only one of the flow, sound and Alfvén speeds to 1.
 - **The temperature needs $R$**, and later a reference temperature, once conduction, cooling or a temperature-dependent
   resistivity exist.
-- **Gravity is not free**: an external field brings $g L_0/u_0^2 = 1/\mathrm{Fr}^2$ (`[gravity]`, milestone M7,
-  [#73](https://github.com/szaghi/adam/issues/73), [above](#external-gravity)), self-gravity
-  $G\rho_0 L_0^2/u_0^2$ (M8, [#81](https://github.com/szaghi/adam/issues/81)); the
-  dissipative terms of M4 bring the Reynolds, Prandtl, magnetic Reynolds and Lundquist numbers, each accepted in
-  place of its coefficient ([input](./input#dissipative-terms-issue-65-m4)).
+- **Gravity is not free**: an external field brings $g L_0/u_0^2 = 1/\mathrm{Fr}^2$ ([above](#external-gravity)),
+  self-gravity $G\rho_0 L_0^2/u_0^2$ ([#81](https://github.com/szaghi/adam/issues/81)); the dissipative terms bring the
+  Reynolds, Prandtl, magnetic Reynolds and Lundquist numbers, each accepted in place of its coefficient
+  ([input](./input#dissipative-terms)).
 - **The discrete scheme must be scale-free too.** FLUME's is, apart from the classic WENO weights: their absolute
   $\varepsilon$ stops the limiting at small magnitudes ([numerics](./numerics#weno-reconstruction)). With
   `[weno] weights = si` a run whose input is scaled by powers of two (lengths, velocities, density) equals the base run
@@ -366,12 +554,20 @@ definitions are on the [input reference](./input#derived-output-fields) page.
 
 ## References
 
+- Bryan G. L. et al. (2014), ENZO: an adaptive mesh refinement code for astrophysics, *ApJS* 211, 19,
+  doi:10.1088/0067-0049/211/2/19.
 - Dedner A. et al. (2002), Hyperbolic divergence cleaning for the MHD equations, *J. Comput. Phys.* 175, 645–673.
-- Edelmann P. V. F. et al. (2021), Well-balanced treatment of gravity in astrophysical fluid dynamics simulations at low
-  Mach numbers, *Astron. Astrophys.* 652, A53, doi:10.1051/0004-6361/202140653.
-- Goedbloed J. P., Poedts S. (2004), *Principles of Magnetohydrodynamics*, Cambridge University Press.
 - Derigs D. et al. (2018), Ideal GLM-MHD: about the entropy consistent nine-wave magnetic field divergence diminishing
   ideal MHD equations, *J. Comput. Phys.* 364, 420–467.
+- Edelmann P. V. F. et al. (2021), Well-balanced treatment of gravity in astrophysical fluid dynamics simulations at low
+  Mach numbers, *Astron. Astrophys.* 652, A53, doi:10.1051/0004-6361/202140653.
+- Federrath C., Banerjee R., Clark P. C., Klessen R. S. (2010), Modeling collapse and accretion in turbulent gas
+  clouds: implementation and comparison of sink particles in AMR and SPH, *ApJ* 713, 269–290,
+  doi:10.1088/0004-637X/713/1/269.
+- Goedbloed J. P., Poedts S. (2004), *Principles of Magnetohydrodynamics*, Cambridge University Press.
+- Hockney R. W., Eastwood J. W. (1988), *Computer Simulation Using Particles*, Adam Hilger, Bristol.
+- Mathew S. S., Federrath C. (2021), *MNRAS* 507, 2448.
+- Mignone A. (2007), A simple and accurate Riemann solver for isothermal MHD, *J. Comput. Phys.* 225, 1427–1441.
 - Mignone A., Tzeferacos P. (2010), A second-order unsplit Godunov scheme for cell-centered MHD: the CTU-GLM scheme,
   *J. Comput. Phys.* 229, 2117–2138.
 - Mikami H., Sato Y., Matsumoto T., Hanawa T. (2008), *Astrophys. J.* 683, 357, doi:10.1086/589759.
@@ -379,3 +575,5 @@ definitions are on the [input reference](./input#derived-output-fields) page.
   self-gravitating hydrodynamics, *Astrophys. J. Suppl.* 252, 30, doi:10.3847/1538-4365/abcfbd.
 - Stone J. M. et al. (2008), Athena: a new code for astrophysical MHD, *ApJS* 178, 137–177.
 - Toro E. F. (2009), *Riemann Solvers and Numerical Methods for Fluid Dynamics*, 3rd ed., Springer.
+- Villasenor B., Robertson B., Madau P., Schneider E. (2021), Effects of photoionization and photoheating on
+  Lyman-α forest properties from Cholla cosmological simulations, *ApJ* 912, 138, doi:10.3847/1538-4357/abed5a.

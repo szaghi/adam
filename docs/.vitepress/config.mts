@@ -66,7 +66,7 @@ export default withMermaid({
     logo: { light: '/logo.svg', dark: '/logo-dark.svg', alt: 'ADAM' },
     nav: [
       { text: 'Home', link: '/' },
-      { text: 'Start here', link: '/start/' },
+      { text: 'Start here', link: '/start/install' },
       { text: 'Tutorials',  link: '/tutorials/' },
       { text: 'Concepts',   link: '/concepts/architecture' },
       { text: 'Cookbook',   link: '/cookbook/' },
@@ -85,10 +85,11 @@ export default withMermaid({
           { text: 'PRISM input',        link: '/applications/prism/input' },
           { text: 'Library input',      link: '/reference/library-input' },
           { text: 'Build modes',        link: '/reference/build-modes' },
-          { text: 'Regression testing', link: '/tests/' },
+          { text: 'Regression testing', link: '/reference/regression' },
           { text: 'API',                link: '/api/' },
         ],
       },
+      { text: 'Developer', link: '/developer/' },
       {
         text: 'Project',
         items: [
@@ -105,7 +106,6 @@ export default withMermaid({
         {
           text: 'Start here',
           items: [
-            { text: 'About',     link: '/start/' },
             { text: 'Install',   link: '/start/install' },
             { text: 'First run', link: '/start/first-run' },
           ],
@@ -151,10 +151,7 @@ export default withMermaid({
           text: 'Concepts',
           items: [
             { text: 'Architecture',          link: '/concepts/architecture' },
-            { text: 'Features',              link: '/concepts/features' },
             { text: 'Forest (multi-realm)',  link: '/concepts/forest' },
-            { text: 'The library',           link: '/concepts/library' },
-            { text: 'The FNL library (GPU)', link: '/concepts/library-fnl' },
           ],
         },
       ],
@@ -195,6 +192,7 @@ export default withMermaid({
                 { text: 'Overview',            link: '/applications/flume/' },
                 { text: 'Physical Models',     link: '/applications/flume/models' },
                 { text: 'Numerical Methods',   link: '/applications/flume/numerics' },
+                { text: 'Turbulence',          link: '/applications/flume/turbulence' },
                 { text: 'Initial Conditions',  link: '/applications/flume/initial-conditions' },
                 { text: 'Boundary Conditions', link: '/applications/flume/boundary-conditions' },
                 { text: 'Input Reference',     link: '/applications/flume/input' },
@@ -345,12 +343,8 @@ export default withMermaid({
                       ],
                     },
                     { text: 'Unit tests', link: '/applications/flume/verification/unit-tests' },
-                    { text: 'Regression suite', link: '/applications/flume/verification/regression' },
                   ],
                 },
-                { text: 'Common',      link: '/applications/flume/common' },
-                { text: 'CPU Backend', link: '/applications/flume/cpu' },
-                { text: 'FNL Backend', link: '/applications/flume/fnl' },
               ],
             },
             {
@@ -365,6 +359,7 @@ export default withMermaid({
                 { text: 'Absorbing Layers',    link: '/applications/prism/pml' },
                 { text: 'Particle-in-Cell',    link: '/applications/prism/pic' },
                 { text: 'Input Reference',     link: '/applications/prism/input' },
+                { text: 'Hazards',             link: '/applications/prism/hazards' },
                 { text: 'Verification',        link: '/applications/prism/verification' },
                 { text: 'Backends',            link: '/applications/prism/backends' },
               ],
@@ -380,7 +375,7 @@ export default withMermaid({
             { text: 'PRISM input',        link: '/applications/prism/input' },
             { text: 'Library input',      link: '/reference/library-input' },
             { text: 'Build modes',        link: '/reference/build-modes' },
-            { text: 'Regression testing', link: '/tests/' },
+            { text: 'Regression testing', link: '/reference/regression' },
             { text: 'API',                link: '/api/' },
           ],
         },
@@ -394,13 +389,16 @@ export default withMermaid({
         },
         ...apiSidebar,
       ],
-      '/tests/': [
+      '/developer/': [
         {
-          text: 'Tests',
+          text: 'Developer',
           items: [
-            { text: 'Overview',            link: '/tests/' },
-            { text: 'PRISM regression',    link: '/tests/prism-regression' },
-            { text: 'Regression bring-up', link: '/tests/prism-regression-tutorial' },
+            { text: 'Overview',                         link: '/developer/' },
+            { text: 'Library objects',                  link: '/developer/library' },
+            { text: 'FNL library (GPU)',                link: '/developer/fnl' },
+            { text: 'FLAIL elliptic solvers',           link: '/developer/flail' },
+            { text: 'FLUME source layout',              link: '/developer/flume-source' },
+            { text: 'FLUME ghost fill and AMR gravity', link: '/developer/flume-ghost-fill' },
           ],
         },
       ],

@@ -82,8 +82,8 @@ FLUME adds these rules:
 | Section | FLUME rule |
 |---------|------------|
 | `[grid]` | `ngc >= [weno] S` (fatal); `>= 2` with `scheme_space = weno-riemann`; with gravity on a gas with an energy equation, one more (`S + 1`, or `max(S, 2) + 1` with `weno-riemann`), the face beyond each block end ([#73](https://github.com/szaghi/adam/issues/73)); MHD: `fdv_order/2 <= ngc` (CPU) or `<= min(ngc, 3)` (FNL), checked at the first div(B) diagnostic. With `[initial_conditions] amr_iterations > 0`, `ni`/`nj`/`nk` must be even along every non-null axis (fatal). With markers and `max_level > iu_ref_levels`, every refined non-null axis needs an even cell count ([#39](https://github.com/szaghi/adam/issues/39)) and at least `2 ngc` cells ([#66](https://github.com/szaghi/adam/issues/66)); both fatal at initialisation. For Euler a null direction also freezes the momentum along it. |
-| `[amr]` | `frequency > 0` regrids at runtime ([#74](https://github.com/szaghi/adam/issues/74)): negative is fatal, and so is runtime regridding without markers. On a multi-realm forest each realm regrids by its own `[amr]` section ([#110](https://github.com/szaghi/adam/issues/110)): the forest balances the marks of the realms across each seam (for `coupling = mirror` and `refined`, one level per seam side and, across, equal cells or the declared 2:1 jump; for `auto`, face by face, neighbouring cells across the seam equal or in a ratio of 2, so the levels may differ along it as inside a realm) and rebuilds the seams after each regrid. The FNL backend regrids by a host round trip (each regrid logs its wall time). `regrid_prolongation` defaults to `conservative` in FLUME (the library default is `linear`); `conservative-state` ([#88](https://github.com/szaghi/adam/issues/88)) keeps a runtime-AMR stellar collapse admissible ([SV-15](./verification/self-gravity/polytrope)) but is less accurate on smooth flow ([AV](./verification/runtime-amr/accuracy)). Derefinement is always the mean of the children. |
-| `[amr_marker_N]` | Modes 1 (`solid`, `primitive-box`), 2, 4, 5 and 6 (a registered criterion); mode 3, `stl` and an unknown mode are fatal at initialisation (regrid leg rg8). A Löhner marker (mode 4) acts at the runtime regrids only, with `buffer <= ngc - 1` (fatal otherwise); a Jeans marker (mode 5) needs `[gravity] self_gravity = .true.` (fatal otherwise). At a runtime regrid the markers vote per block: refine when any asks, coarsen only when all agree, keep otherwise, never below `iu_ref_levels`; the box marker votes to coarsen outside its box. The gradient is centred, across the faces between blocks too ([#76](https://github.com/szaghi/adam/issues/76)), one-sided at the domain boundary. |
+| `[amr]` | `frequency > 0` regrids at runtime ([#74](https://github.com/szaghi/adam/issues/74)): negative is fatal, and so is runtime regridding without markers. On a multi-realm forest each realm regrids by its own `[amr]` section and the forest balances the marks of the realms across each seam ([#110](https://github.com/szaghi/adam/issues/110); see [Setting up runtime AMR](#setting-up-runtime-amr)). `regrid_prolongation` defaults to `conservative` in FLUME (the library default is `linear`); `conservative-state` ([#88](https://github.com/szaghi/adam/issues/88)) is for self-gravitating collapse ([numerics](./numerics#runtime-regridding)). Derefinement is always the mean of the children. |
+| `[amr_marker_N]` | Modes 1 (`solid`, `primitive-box`), 2, 4, 5 and 6 (a registered criterion); mode 3, `stl` and an unknown mode are fatal at initialisation. A Löhner marker (mode 4) acts at the runtime regrids only, with `buffer <= ngc - 1` (fatal otherwise). A Jeans marker (mode 5) reads `jeans_cells` (default 8) and `jeans_cells_derefine` (default twice `jeans_cells`) and needs `[gravity] self_gravity = .true.` (fatal otherwise) ([numerics](./numerics#runtime-regridding)). At a runtime regrid the markers vote per block: refine when any asks, coarsen only when all agree, keep otherwise, never below `iu_ref_levels`; the box marker votes to coarsen outside its box. The gradient is centred, across the faces between blocks too ([#76](https://github.com/szaghi/adam/issues/76)), one-sided at the domain boundary. |
 | `[runge_kutta]` | `runge-kutta-yoshida` is fatal (no FLUME integrator); the staged path (2:1 faces, forests) and the positivity limiter need an SSP scheme. |
 | `[weno]` | `weno-c-*` is fatal. `weights = si` makes the scheme independent of the units of the data ([numerics](./numerics#weno-reconstruction)); `si` with `weno-riemann` and `reconstruction_variables = primitive` is fatal. With `scheme_space = weno-riemann` the same `scheme` sets the order of the WENO interpolation tables. ROR is not implemented: its keys are read and unused. |
 | `[fdv]` | `fdv_scheme` is read and unused (the div(B) diagnostic is always centred FD); `fdv_order` sets the order of that diagnostic, MHD only. |
@@ -154,17 +154,16 @@ How the pieces combine, and what to expect:
 - **Cost.** The time step is global (no subcycling), so a run regridding to level L advances at the step of level L
   everywhere; the savings come from the cells, and on the verification cases the wall time dropped by 3–19 %
   ([verification](./verification/runtime-amr/accuracy)). On the FNL backend each regrid is a host round trip
-  whose copies scale with the blocks in use, about 0.02 s per regrid on a 50-block grid on the development box
-  ([#75](https://github.com/szaghi/adam/issues/75)).
+  whose copies scale with the blocks in use ([#75](https://github.com/szaghi/adam/issues/75)).
 - **Limits.** On a multi-realm forest ([#110](https://github.com/szaghi/adam/issues/110)) the blocks along each side
   of a `mirror` or `refined` seam keep one level: a refine vote on one refines the whole side. A `coupling = auto` seam
-  may hold different levels along it, face by face (equal cells or 2:1); its checks are per axis since
-  [#71](https://github.com/szaghi/adam/issues/71), but the mixed-level legs run on octrees only. With EGLM the 2:1 seams raise the divergence error B_z well above its uniform-grid level
+  may hold different levels along it, face by face (equal cells or 2:1), with per-axis checks
+  ([#71](https://github.com/szaghi/adam/issues/71)); mixed levels along a seam are verified on octrees only. With EGLM the 2:1 seams raise the divergence error B_z well above its uniform-grid level
   ([#78](https://github.com/szaghi/adam/issues/78)).
 - **Restart.** A run restarted from any step regrids on the same steps and continues bitwise (the regrid happens before
   the step's output and restart files). On a forest every realm restarts from its own files and the inter-realm seams
-  are rebuilt from the restored trees, mixed levels along a seam included (`multirealm/check.sh` leg 13), bitwise
-  under either `coupling_cadence` (`end_of_step` since [#113](https://github.com/szaghi/adam/issues/113), leg 14).
+  are rebuilt from the restored trees, mixed levels along a seam included, bitwise under either `coupling_cadence`
+  ([#113](https://github.com/szaghi/adam/issues/113)).
   Restart on the rank count the run was saved with: fewer ranks stop the run.
 - **Log.** Each regrid prints `flume: regrid at step N: blocks a -> b, R refined, C coarsened, S sweeps` (plus its wall
   time on FNL); a state with non-positive density or pressure after a regrid stops the run with its location.
@@ -174,15 +173,14 @@ How the pieces combine, and what to expect:
   before `simulate`; `c` a TARGET variable of the main program, since the realm keeps a pointer to it; an unregistered
   name stops the run at initialisation), and select it with `[amr_marker_N] mode = 6` and `name = <its name>`; its votes combine with the
   other markers' as theirs do, at runtime regrids. The example `src/tests/flume/verification/regrid/test_flume_user_criterion.F90`
-  is the CPU driver plus a criterion that reproduces the built-in box marker (bitwise the same run, `multirealm/check.sh`
-  leg 10).
+  is the CPU driver plus a criterion that reproduces the built-in box marker (bitwise the same run).
 
 ---
 
 ## [reference] (optional: dimensional input)
 
 FLUME's equations carry no dimensionless number (`B` is `B_SI/sqrt(mu0)`), so a dimensional input runs once every
-value is divided by the reference of its dimension (issue #49). With this section present, FLUME does that once, on
+value is divided by the reference of its dimension ([#49](https://github.com/szaghi/adam/issues/49)). With this section present, FLUME does that once, on
 the loaded file, before any other section is parsed; without it nothing changes. References: density `rho0`, length
 `L0`, velocity `u0`; derived: time `L0/u0`, pressure and energy density `rho0 u0^2`, field `u0 sqrt(rho0)`, the GLM
 `psi` `u0^2 sqrt(rho0)` (the EGLM one as the field). `cp`, `cv` are replaced by `gamma = cp/cv` (the gas constant
@@ -218,7 +216,7 @@ eigenvector it multiplies.
 `type = orszag-tang` (a state hard-coded in code units) and multi-realm runs are refused. The log lists every
 converted key with its old and new value.
 
-The dissipative coefficients and the wall keys (issue #49 N4, issue #65) convert as follows; the numbers are
+The dissipative coefficients and the wall keys convert as follows; the numbers are
 dimensionless and pass unchanged. $R$ is the gas constant of the input ($c_p - c_v$, or 1 with `gamma`), since the layer
 replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 
@@ -264,20 +262,22 @@ verification DC can check every converted value exactly.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `physical_model` | string | yes | `euler` (nv = 5), `euler-de` (nv = 6) or `mhd-ideal` (nv = 8, or 9 with GLM or EGLM). Other → fatal. | Equation set. `euler-de` is Euler with dual energy, the advected entropy `rs` ([#91](https://github.com/szaghi/adam/issues/91), [numerics](./numerics#dual-energy); CPU and FNL). `mhd-ideal` also loads `[mhd]`. |
-| `passive_scalars` | int | no (`euler`, `euler-de`) | `0..4`, default 0; above 4 or with `mhd-ideal` → fatal | Passive scalars ([#92](https://github.com/szaghi/adam/issues/92), [numerics](./numerics#passive-scalars)): `N > 0` selects the scalar variant of the model, 4 more conserved variables `rs1`..`rs4` (`nv` 9, or 10 with `euler-de`), the first `N` set by the `s1`..`sN` keys of the initial-condition regions and of the inflows, the others zero. CPU and FNL. |
+| `physical_model` | string | yes | `euler` (nv = 5), `euler-de` (nv = 6) or `mhd-ideal` (nv = 8, or 9 with GLM or EGLM). Other → fatal. | Equation set. `euler-de` is Euler with dual energy, the advected entropy `rs` ([#91](https://github.com/szaghi/adam/issues/91), [models](./models#dual-energy); CPU and FNL). `mhd-ideal` also loads `[mhd]`. |
+| `passive_scalars` | int | no (`euler`, `euler-de`) | `0..4`, default 0; above 4 or with `mhd-ideal` → fatal | Passive scalars ([#92](https://github.com/szaghi/adam/issues/92), [models](./models#passive-scalars)): `N > 0` selects the scalar variant of the model, 4 more conserved variables `rs1`..`rs4` (`nv` 9, or 10 with `euler-de`), the first `N` set by the `s1`..`sN` keys of the initial-condition regions and of the inflows, the others zero. CPU and FNL. |
 | `dual_energy_eta` | real | no (`euler-de`) | `(0, 1)`, default 0.05; otherwise fatal | Dual-energy switch: a cell whose internal energy is below `dual_energy_eta` times its total energy takes the entropy as the floor of its internal energy. |
 | `gamma` | real | cond. | `> 1`; with `cp` or `cv` → fatal | Specific heats ratio; the gas constant is 1 (code units). |
 | `cp` | real | cond. | `cp > cv > 0`, otherwise fatal; required without `gamma` | Specific heat at constant pressure. |
 | `cv` | real | cond. | as above | Specific heat at constant volume. `gamma = cp/cv`, `R = cp - cv`; the physics then uses `cv = R/(gamma-1)`, `cp = gamma cv` (an input `cp` may move by an ulp). |
 
-### Dissipative terms (issue #65, M4)
+<a id="dissipative-terms-issue-65-m4"></a>
+
+### Dissipative terms
 
 Each term is given either as its coefficient or as the dimensionless number it stands for. In code units the
 references are 1, so a number is the reciprocal coefficient. Giving two keys of a term is fatal; giving none leaves the
 term off, so an input without these keys stays ideal and bitwise unchanged. The viscosity and the conductivity drive
 the Navier–Stokes fluxes of every model, the resistivity the Ohmic ones of `mhd-ideal`
-([numerics](./numerics#dissipative-fluxes-navier–stokes)).
+([models](./models#dissipative-terms), [numerics](./numerics#dissipative-fluxes-navier–stokes)).
 
 | Key | Type | Accepted / invalid | Meaning |
 |-----|------|--------------------|---------|
@@ -294,21 +294,17 @@ the Navier–Stokes fluxes of every model, the resistivity the Ohmic ones of `mh
 | `temperature_unit_kelvin` | real | `> 0`; optional | The kelvin value of one temperature unit of the input (`p/(\rho R)`): the absolute-temperature anchor of a non-dimensional input, read by what needs kelvin (Sutherland's default $S$; the thermally perfect gas to come). With a dimensional `[reference]` input in kelvin it is 1, and the layer converts it to kelvin per code unit. |
 | `sutherland_temperature` | real | `> 0`; required by `sutherland` unless `temperature_unit_kelvin` is given (then $S$ = 110.4 K, air), fatal with another law; `viscosity_exponent` is fatal with `sutherland` | $S$ in Sutherland's law $\mu(T) = \mu\,(T/T_\mathrm{ref})^{3/2}\,(T_\mathrm{ref}+S)/(T+S)$, in the units of `reference_temperature` (110.4 K for air: with a dimensional `[reference]` input both are given in kelvin; in code units $S = 110.4\,T_\mathrm{ref}/T_\mathrm{ref,K}$). |
 
-`[numerics] positivity_limiter = cell` is refused with any non-zero coefficient: the limiter's first-order backbone
-with a central dissipative flux is not admissible without the extension of Zhang (2017, *J. Comput. Phys.* 328), which
-is not implemented (D-M4-5). A coefficient is also fatal with immersed solids (their walls are inviscid), and
-`dissipative_order = 4` with `[grid] ngc < 3`.
+Fatal with any non-zero coefficient: `[numerics] positivity_limiter = cell`
+([why](./numerics#dissipative-fluxes-navier–stokes)) and immersed solids. `dissipative_order = 4` with `[grid] ngc < 3`
+is fatal too.
 
 ---
 
 ## [eos] (optional: equation of state)
 
-Without the section the gas is the ideal gas of `[physics]` (`gamma`, or `cp` and `cv`). `type = isothermal`
-([#100](https://github.com/szaghi/adam/issues/100), M13 P1) selects the isothermal gas $P = c_0^2\rho$, and
-`type = barotropic` (P3) a piecewise polytrope $P = K_k\rho^{\Gamma_k}$, continuous across its density breaks
-([numerics](./numerics#isothermal-and-barotropic-equations-of-state)). Both drop the energy equation: the state keeps
-its five slots, the energy slot `rE` is inert (zero flux, zero source) and stays 0, and the checkpoints still write
-it. The auxiliary fields report $p = P(\rho)$, $T = P/\rho$ (with $R = 1$), $a = \sqrt{dP/d\rho}$, $H = 0$.
+Without the section the gas is the ideal gas of `[physics]` (`gamma`, or `cp` and `cv`). `type = isothermal` and
+`type = barotropic` ([#100](https://github.com/szaghi/adam/issues/100)) select a pressure $P(\rho)$ and drop the energy
+equation; the energy slot `rE` stays 0 and is still written ([models](./models#isothermal-and-barotropic-gases)).
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
@@ -320,45 +316,28 @@ it. The auxiliary fields report $p = P(\rho)$, $T = P/\rho$ (with $R = 1$), $a =
 
 Without `densities` and `exponents`, `barotropic` takes the table of Mathew & Federrath (2021, MNRAS 507, 2448),
 $\Gamma = 1, 1.1, 1.4, 1.1, 5/3$ with breaks at $2.5\cdot10^{-16}$, $3.84\cdot10^{-13}$, $3.84\cdot10^{-8}$ and
-$3.84\cdot10^{-3}$ g cm$^{-3}$: a cgs input (their $c_0$ is 0.2 km/s). A break where $\Gamma$ decreases upward (that
-table's $1.4 \to 1.1$) is not genuinely nonlinear: its Riemann solutions contain composite waves. It is accepted (the
-schemes do not depend on convexity) and reported at start-up.
+$3.84\cdot10^{-3}$ g cm$^{-3}$: a cgs input (their $c_0$ is 0.2 km/s). A break where $\Gamma$ decreases upward is
+accepted and reported at start-up.
 
 With `type = isothermal` or `barotropic`:
-- `[physics]` must be `physical_model = euler` or `mhd-ideal` (P5, below) without `passive_scalars`, and must not set
-  `gamma`, `cp` or `cv` (fatal: they would be ignored);
-- the regions of `[initial_conditions]` and the `inflow` faces need no `p` (it is ignored: $P = P(\rho)$);
-- the accepted initial conditions are `uniform`, `riemann-problem`, `rotated-riemann`, `sine-wave` (with
-  `wave_mode = acoustic` the wave travels at $\sqrt{P'(\rho_0)}$, with `wave_mode = jeans` it obeys
-  $\omega^2 = P'(\rho_0) k^2 - 4\pi G\rho_0$), `linear`, `polynomial`, `shu-osher` and `boss-bodenheimer`; with
-  `isothermal` also `singular-isothermal-sphere` ($a^2 = c_0^2$) and `bonnor-ebert`
-  ([initial conditions](./initial-conditions)); the others, whose density needs $\gamma$, are fatal;
-- gravity (P4): `[gravity]`, external and self-gravity, acts on the momentum only, the energy slot stays 0 (no energy
-  source, so no fourth-order energy correction and no `ngc >= 4` requirement, no seam gravity work in the AMR reflux);
-  the Jeans marker (`[amr_marker_*] mode = 5`) and the sinks take $c_s^2 = dP/d\rho$ of the cell, and the sinks'
-  Jeans test (`|E_grav| > 2 E_th`) the virial thermal energy $E_\mathrm{th} = \tfrac{3}{2}\int P\,dV$ (equal to the
-  internal energy at $\gamma = 5/3$);
-- `[numerics] positivity_limiter = cell` (P4) is the density-only limiter: the models' admissible quantity is the
-  density, kept above `POSITIVITY_LIMITER_KAPPA` times its first-order backbone value (the stages and the AMR reflux),
-  with a kinetic chord that keeps the velocity of a limited cell near its backbone's
-  ([numerics](./numerics#isothermal-and-barotropic-equations-of-state)); the sinks need it, since accretion drains
-  the cells within the accretion radius to the threshold density;
-- refused, each with its own message: `[cooling]` (nothing to radiate), the dissipative terms, `[reference]` (it
-  converts no barotropic law), immersed solids, and the `wall-noslip`, `wall-isothermal` and `hydrostatic` faces;
-- CPU and FNL run the `weno` and `weno-riemann` schemes, all reconstructions, and the `llf`, `hll`, `hllc` solvers;
-  the FNL kernels are the device twins of the CPU ones, on the same library;
-- with `physical_model = mhd-ideal` (P5) the gas closes ideal MHD without an energy equation, the total pressure
-  $P(\rho) + |\mathbf B|^2/2$ ([numerics](./numerics#isothermal-and-barotropic-mhd)):
-  - `[mhd] divergence_control` must be `none` or `glm`. `eglm` is fatal, because its sources are built on the energy
-    equation.
-  - `rho_floor` and `p_floor` must be 0 (fatal otherwise: there is no pressure to floor).
-  - The accepted initial conditions are those above plus `glm-pulse`, `divb-peak`, `mhd-linear-wave` (the eigenvectors
-    of Kim et al. 1999; `wave = entropy` is fatal, since these gases have no entropy mode), `mhd-cpaw`, `mhd-rotor` and
-    `field-loop`. `orszag-tang` and `mhd-vortex` are fatal: their states need $\gamma$.
-  - The schemes are `weno` and `weno-riemann`, with the `llf`, `hll` and `hlld` solvers (Mignone's isothermal HLLD,
-    on any $P(\rho)$).
-  - `positivity_limiter = cell` works as for the Euler gases, and is fatal with `glm`, as for the ideal gas.
-  - CPU and FNL run them (P5a, P5b); the FNL kernels are the device twins of the CPU ones, on the same library.
+
+- `physical_model` must be `euler` or `mhd-ideal`, without `passive_scalars`; `gamma`, `cp` and `cv` are fatal (they
+  would be ignored);
+- the regions of `[initial_conditions]` and the `inflow` faces need no `p` (it is ignored);
+- the accepted initial conditions are `uniform`, `riemann-problem`, `rotated-riemann`, `sine-wave` (`wave_mode =
+  acoustic` or `jeans`), `linear`, `polynomial`, `shu-osher` and `boss-bodenheimer`, with `isothermal` also
+  `singular-isothermal-sphere` and `bonnor-ebert`; the others are fatal;
+- `[gravity]` acts on the momentum only, so the `ngc >= S + 1` requirement of gravity does not apply;
+- `[numerics] positivity_limiter = cell` is the density-only limiter ([numerics](./numerics#isothermal-and-barotropic-equations-of-state));
+  the sinks need it;
+- fatal: `[cooling]`, the dissipative terms, `[reference]`, immersed solids, and the `wall-noslip`, `wall-isothermal`
+  and `hydrostatic` faces;
+- the schemes are `weno` and `weno-riemann`, all reconstructions, with `llf`, `hll`, `hllc` (Euler) or `llf`, `hll`,
+  `hlld` (MHD), on CPU and FNL;
+- with `physical_model = mhd-ideal` ([models](./models#isothermal-and-barotropic-mhd)): `[mhd] divergence_control`
+  must be `none` or `glm` (`eglm` is fatal); `rho_floor` and `p_floor` must be 0; the accepted initial conditions are
+  those above plus `glm-pulse`, `divb-peak`, `mhd-linear-wave` (`wave = entropy` is fatal), `mhd-cpaw`, `mhd-rotor`
+  and `field-loop`; `positivity_limiter = cell` is fatal with `glm`.
 
 ---
 
@@ -368,12 +347,12 @@ The section is not read for `euler`.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `divergence_control` | string | yes | `glm` (nv = 9, psi added), `eglm` (nv = 9, psi also in the energy; the `glm_*` keys apply) or `none` (nv = 8). Other → fatal. | div(B) control. Under `eglm` the AMR reflux leaves B alone (ρ, ρu, E and psi are refluxed): with the Derigs sources B is not a conserved integral, and refluxing it broke the sources' cancellation of the flux-generated $B_z$ at 2:1 seams ([#68](https://github.com/szaghi/adam/issues/68) G3b, #78). |
+| `divergence_control` | string | yes | `glm` (nv = 9, psi added), `eglm` (nv = 9, psi also in the energy; the `glm_*` keys apply) or `none` (nv = 8). Other → fatal. | div(B) control ([models](./models#divergence-control-mixed-glm)). Under `eglm` the AMR reflux leaves B alone ([numerics](./numerics#reflux)). |
 | `glm_ch` | real | `glm`, `eglm` | `> 0`, otherwise fatal | Constant cleaning speed `c_h`. It also bounds the time step (`c_h * sum 1/dx`). Keep it just above the fastest signal speed: a larger one speeds up the growth of small asymmetries in sheared, magnetised flows ([#83](https://github.com/szaghi/adam/issues/83)). |
 | `glm_alpha` | real | `glm`, `eglm` | `>= 0`, otherwise fatal | Damping parameter: `c_h^2/c_p^2 = glm_alpha * c_h / L`. |
 | `glm_damping_length` | real or `min-cell` | `glm`, `eglm` | A positive real, or the literal `min-cell` (the minimum cell spacing over the active directions, MPI-reduced; with runtime regridding, `[amr] frequency > 0`, the spacing of the finest level `max_level` allows, fixed for the run). A non-number or a value `<= 0` is fatal. | Damping length `L`. |
 | `glm_ch_check` | string | `glm`, `eglm` | `warning` or `error`. Other → fatal. Without GLM it is forced to `warning` and not read. | What happens when `max(\|u\|+c_f) > glm_ch`: warn (logged each time a new maximum appears) or stop. |
-| `divb_tol` | real | yes | `>= 0`, otherwise fatal. `0` disables the monitor; `> 0` needs `[diagnostics] divb_flux = .true.` (hence GLM or EGLM), fatal otherwise. | Monitor on the normalised D_flux ([#68](https://github.com/szaghi/adam/issues/68) G1): `max h\|D_flux\| / max\|B\| > divb_tol` warns or stops. Dimensionless (no `[reference]` conversion): the divergence of the interface field the cleaning acts on, scaled by the spacing and the field, bounded on a resolved run with an O(H) seam floor (A2). |
+| `divb_tol` | real | yes | `>= 0`, otherwise fatal. `0` disables the monitor; `> 0` needs `[diagnostics] divb_flux = .true.` (hence GLM or EGLM), fatal otherwise. | Monitor on the normalised D_flux ([numerics](./numerics#output-and-diagnostics)): `max h\|D_flux\| / max\|B\| > divb_tol` warns or stops. Dimensionless, not converted by `[reference]`. |
 | `divb_error` | logical | yes | logical | `.true.`: exceeding `divb_tol` is fatal. |
 | `rho_floor` | real | yes | `>= 0`, otherwise fatal. `0` disables it. | Density positivity floor. |
 | `p_floor` | real | yes | `>= 0`, otherwise fatal. `0` disables it. | Pressure positivity floor. With **both** floors at 0, any non-positive density or pressure stops the run. |
@@ -382,104 +361,42 @@ The section is not read for `euler`.
 
 ## [gravity] (optional: external gravity and self-gravity)
 
-A constant acceleration $\mathbf g$ ([#73](https://github.com/szaghi/adam/issues/73), milestone M7) and the
-self-gravity of the gas ([#81](https://github.com/szaghi/adam/issues/81), milestone M8). Without the section there is
-no gravity and nothing changes.
+A constant acceleration $\mathbf g$ ([#73](https://github.com/szaghi/adam/issues/73)) and the self-gravity of the gas
+([#81](https://github.com/szaghi/adam/issues/81)); the sources are on the [models](./models#external-gravity) page.
+Without the section there is no gravity and nothing changes.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
 | `g_x`, `g_y`, `g_z` | real | one of the two forms | any; each optional (default 0) | The acceleration. Dimensional (length / time²) with [`[reference]`](#reference-optional-dimensional-input). |
 | `froude` | real | the other form, with `axis` | `> 0`, otherwise fatal | The number form: $g = 1/\mathrm{Fr}^2$ along `axis` ($g L_0/u_0^2$ in the reference units; not converted by `[reference]`). |
 | `axis` | string | with `froude` | `+x`, `-x`, `+y`, `-y`, `+z`, `-z`; other → fatal | The signed direction of $\mathbf g$. |
-| `equilibrium` | string | no (default `none`) | `none` or `atmosphere`; other → fatal. `atmosphere` needs an `isothermal-atmosphere`, `polytropic-atmosphere` or `rayleigh-taylor` initial condition, and is fatal with `[numerics] reflux_policy = troubled` and on multi-realm runs | The well-balanced mode (M7-G2b): the initial atmosphere at rest (zero velocity, region 1's field, no pulse or seed) is kept to round-off. See below. |
-| `potential` | string | no (default `uniform`) | `uniform` or `linear`; other → fatal. `linear` is fatal with `equilibrium = atmosphere` and with `self_gravity` | How g reaches the sources. `uniform`: the constant acceleration in every kernel, with the fourth-order energy source. `linear` ([#81](https://github.com/szaghi/adam/issues/81), M8-P1): the same field written as the cell potential Φ = −g·x and applied through the potential path of self-gravity (face gravity −ΔΦ/Δx, second order); a test of that path ([SV-1](./verification/self-gravity/potential)). |
-| `self_gravity` | logical | no (default `.false.`) | with it: `equilibrium = atmosphere`, `potential = linear`, multi-realm runs, immersed solids and a build without an FFT library (the `*-fft` modes) are fatal, and so are the boundaries `poisson_bc` cannot hold (below) | Self-gravity (M8-P3): $L_h\Phi = 4\pi G(\rho - \bar\rho)$ (periodic) or $L_h\Phi = 4\pi G\rho$, $\Phi \to 0$ at infinity (isolated, M8-P4), solved every Runge–Kutta stage, applied through the potential path. See below. |
+| `equilibrium` | string | no (default `none`) | `none` or `atmosphere`; other → fatal. `atmosphere` needs an `isothermal-atmosphere`, `polytropic-atmosphere` or `rayleigh-taylor` initial condition, and is fatal with `[numerics] reflux_policy = troubled` and on multi-realm runs | The well-balanced mode: the initial atmosphere at rest is kept to round-off ([models](./models#external-gravity)). |
+| `potential` | string | no (default `uniform`) | `uniform` or `linear`; other → fatal. `linear` is fatal with `equilibrium = atmosphere` and with `self_gravity` | `uniform`: the constant acceleration in every kernel, with the fourth-order energy source. `linear`: the same field as the cell potential Φ = −g·x, applied through the potential path of self-gravity ([models](./models#external-gravity)). |
+| `self_gravity` | logical | no (default `.false.`) | with it: `equilibrium = atmosphere`, `potential = linear`, multi-realm runs, immersed solids and a build without an FFT library (the `*-fft` modes) are fatal, and so are the boundaries `poisson_bc` cannot hold (below) | Self-gravity, solved every Runge–Kutta stage ([models](./models#self-gravity)). |
 | `G` | real | one of `G`, `G_star` with `self_gravity` | `> 0`, otherwise fatal; fatal without `self_gravity`, and together with `G_star` | The gravitational constant. Dimensional with [`[reference]`](#reference-optional-dimensional-input). |
 | `G_star` | real | the other form | as `G` | The number $G\rho_0L_0^2/u_0^2$; not converted by `[reference]`. |
-| `poisson_solver` | string | no (default `auto`) | `auto`, `fft` or `multigrid`; other → fatal. `fft` is fatal on an AMR grid | `auto`: the FFT solver on a uniform grid, the multigrid solver on an AMR grid (leaves at more than one level, M8-P5b). `fft`: the library FFT solver only (FFTW on the CPU, cuFFT on FNL). `multigrid`: the multigrid solver on any grid (periodic, or isolated by the James step of [#87](https://github.com/szaghi/adam/issues/87)), a check against `fft` on a uniform one. |
-| `poisson_bc` | string | no (default `periodic`) | `periodic` or `isolated`; other → fatal. `periodic` is fatal with a non-periodic active direction; `isolated` is fatal in 2-D, with a periodic direction, with non-cubic cells, and on AMR grids with a leaf above the coarsest level on the domain boundary (at start or at the regrid that makes one, [#87](https://github.com/szaghi/adam/issues/87)) | `periodic`: every active direction periodic, the mean density removed. `isolated` (M8-P4): the free-space potential of the mass on the grid (Hockney–Eastwood zero padding with the lattice Green's function of $L_h$; on AMR grids the multigrid's symmetric James step, [#87](https://github.com/szaghi/adam/issues/87)); the fluid boundaries are the `[bc_*]` ones, e.g. `wall-inviscid` for a closed box. |
+| `poisson_solver` | string | no (default `auto`) | `auto`, `fft` or `multigrid`; other → fatal. `fft` is fatal on an AMR grid | `auto`: FFT on a uniform grid, multigrid on an AMR grid (leaves at more than one level). `fft`: the library FFT solver only. `multigrid`: the multigrid solver on any grid ([models](./models#self-gravity)). |
+| `poisson_bc` | string | no (default `periodic`) | `periodic` or `isolated`; other → fatal. `periodic` is fatal with a non-periodic active direction; `isolated` is fatal in 2-D, with a periodic direction, with non-cubic cells, and on AMR grids with a leaf above the coarsest level on the domain boundary (at start or at the regrid that makes one, [#87](https://github.com/szaghi/adam/issues/87)) | `periodic`: every active direction periodic, the mean density removed. `isolated`: the free-space potential of the mass on the grid; the fluid boundaries are the `[bc_*]` ones, e.g. `wall-inviscid` for a closed box. |
 
 Giving `g_*` together with `froude` is fatal, as is a section with neither (unless `self_gravity`, where $\mathbf g$
 defaults to 0).
 
-$\mathbf g$ sets the `isothermal-atmosphere` and `polytropic-atmosphere` initial conditions and the `hydrostatic`
-boundary condition (M7-G0), and drives the sources (M7-G1):
+Constraints:
 
-- momentum $\rho\mathbf g$; energy from the face mass fluxes the continuity equation uses,
-  $\tfrac1{24}\sum_d g_d\,(-F^\rho_{d,i-3/2} + 13F^\rho_{d,i-1/2} + 13F^\rho_{d,i+1/2} - F^\rho_{d,i+3/2})$, so that with
-  this static potential the total energy $E + \rho\Phi$ ($\Phi = -\mathbf g\cdot\mathbf x$) is conserved exactly
-  (Mikami et al. 2008, Mullen et al. 2021: each face's weights sum to one over the cells) with periodic boundaries and
-  across block interfaces; at a `wall-inviscid` wall along $\mathbf g$ the source reads the mirrored face beyond the
-  wall, and the exactly conserved total is $\sum(E + \rho\Phi)V \pm \sum g_n\Delta x_n\rho V/12$ over the cells
-  beside the wall (+ at the lower wall, − at the upper), which differs from the plain sum by $O(\Delta x^2)$. The fluxes of a
-  finite-difference scheme are point values of the primitive function of $\rho\mathbf u$, not of $\rho\mathbf u$
-  itself, so the two-face average $\tfrac12(F^\rho_{i-1/2} + F^\rho_{i+1/2})$ alone is a second-order cell value and
-  takes the whole scheme to second order; the four-face form is fourth order (M7-G2a,
-  [verification](./verification/gravity/energy-order)). It reads the face beyond each block end, so
-  **gravity needs `[grid] ngc >= S + 1`** ($S$ the WENO half-stencil, 3 for WENO-5; with `weno-riemann`
-  $\max(S, 2) + 1$), fatal otherwise;
-- with `positivity_limiter = cell`, the limiter's first-order backbone takes the time-centred energy
-  $\rho\mathbf g\cdot(\mathbf u + \mathbf g\,\Delta t/2)$, which leaves its internal energy unchanged, and limits the rest
-  of the face form with the cell factor $\Lambda$: gravity never makes the backbone inadmissible (near vacuum, or with
-  $g\Delta t$ above the sound speed), and $E + \rho\Phi$ stays exact wherever the limiter does not act;
-- with `equilibrium = atmosphere` (M7-G2b, the deviation method of Edelmann et al. 2021, §4.3), the residual of the
-  atmosphere at rest is computed once per grid (at the first step, after a restart, after every regrid) with the
-  run's own space operator and subtracted from every residual: the atmosphere is then an exact discrete steady state
-  (round-off), on `weno` and `weno-riemann`, Euler and MHD, across AMR 2:1 seams (the equilibrium's reflux is folded
-  into its residual), and a perturbation of it evolves without the stationary truncation flow of the unbalanced
-  scheme ([verification](./verification/gravity/well-balanced)). It costs one more field (the stored
-  residual) and one residual evaluation per grid. The subtracted residual is outside the positivity limiter's factor:
-  it is the truncation error of the equilibrium, small against the state wherever the atmosphere is resolved;
-- no time-step limit: the first step logs $|\mathbf g|\,\Delta t^2/(\mathrm{CFL}\,h_{\min})$, at least the velocity
-  gravity adds in a step over the fastest wave speed (near 1 or above, gravity is stiff);
-- refused (fatal) along a null direction and with immersed solids.
+- external gravity on a gas with an energy equation needs `[grid] ngc >= S + 1` ($S$ the WENO half-stencil, 3 for
+  WENO-5; with `weno-riemann` $\max(S, 2) + 1$), fatal otherwise;
+- gravity along a null direction and gravity with immersed solids are fatal;
+- `self_gravity` needs a `*-fft` build: `flume-cpu-gnu-fft` (FFTW 3, executable `adam_flume_cpu_fft`) or
+  `flume-fnl-nvf-fft` (cuFFT, `adam_flume_fnl_fft`); the default modes refuse it at the first solve.
 
-With `self_gravity` ([models](./models#self-gravity)):
-
-- every Runge–Kutta stage solves $\Phi$ from that stage's density after the ghost update, with the library FFT solver:
-  distributed over the z-planes of the transform array ([#84](https://github.com/szaghi/adam/issues/84) E5d; bitwise the same on every rank count),
-  $\Phi$ returned with every ghost layer filled. Periodic: it divides each Fourier
-  mode by the eigenvalue of the 7-point Laplacian $L_h$, so the discrete residual is round-off. Isolated: the density
-  sits in a zero-padded array of $2(N + n_{gc})$ cells per direction and is convolved with the lattice Green's function
-  of $L_h$, whose residual is about $10^{-13}$ per offset (`scripts/lattice_green.py`); the residual of $\Phi$ is that
-  summed over the source, $2\cdot10^{-11}$ of $4\pi G\rho$ at $64^3$, and the ghosts beyond the domain hold the
-  free-space potential. The solve is serial on rank 0 and, on FNL, the density and $\Phi$ cross the host every stage:
-  correct, not scalable;
-- on an AMR grid (M8-P5b) the multigrid solver (`adam_poisson_mg_object`) solves the composite Laplacian, whose 2:1
-  faces carry the mimetic mean flux (symmetric and consistent; [SV-9](./verification/self-gravity/multigrid-amr)):
-  flexible CG preconditioned by a V-cycle, its coarsest level solved by the FFT solver of the backend; on FNL it runs
-  on the host. The face gravity at a 2:1 face is the mean-flux one on both sides (first order there, the potential
-  second order), and the gravity work across each seam rides on the reflux (below), so $E + W$ stays exact in the
-  semi-discrete form;
-- across a 2:1 face the reflux, which corrects the coarse cells once at the end of the step, also hands the coarse cell
-  the seam's gravity work, so that summed over the cells the energy sources equal $-\dot W$ exactly. Its stages,
-  though, advance the coarse cells with their own seam fluxes: on AMR the drift of $E + W$ is first order in
-  $\Delta t$, not of the Runge–Kutta order (SV-10); with `[numerics] reflux_cadence = stage` the correction is made
-  every stage and the drift is of the Runge–Kutta order again. `reflux = .false.` or `reflux_policy = troubled` leave
-  the work uncorrected where they leave the flux;
-- under runtime AMR (`[amr] frequency > 0`, P5c) every regrid sets the solver up again on the new grid (the FFT solver
-  when the grid is uniform, the multigrid otherwise) and solves $\Phi$ from the regridded state. The regrid conserves
-  $\rho$, $\rho\mathbf u$ and $E$, but $W$ is the grid's own discrete energy: $E + W$ jumps at every regrid that
-  changes the grid, by a truncation-sized amount ($2\cdot10^{-4}$ of $E + W$ on the SV-11 collapse at base $32^2$);
-- the conservation history gains the columns `W` $= \tfrac12\sum\rho\Phi\,dV$ and `E_plus_W`, the energy the scheme
-  conserves (each row solves $\Phi$ from the committed state);
-- the first step logs $G$, the free-fall time $t_{ff} = \sqrt{3\pi/(32G\rho_{\max})}$ of the densest cell, $\Delta t/t_{ff}$
-  (a warning above 0.1) and the wall time of one solve;
-- a constant $\mathbf g$ may be given too; it adds through its own kernels;
-- with `positivity_limiter = cell`, the limiter's gravity energy correction (above) acts on the potential path too:
-  $E + W$ stays exact only where the limiter does not act. A star in a light atmosphere ($10^{-4}$ of its central
-  density) needs the limiter at its surface and drifts by $2\cdot10^{-3}$ of $E + W$ over a free-fall time at $32^3$,
-  against $10^{-9}$ without it (the SV-7 and SV-8 cases use a $10^{-2}$ atmosphere, which runs without it);
-- **build:** `flume-cpu-gnu-fft` (FFTW 3, executable `adam_flume_cpu_fft`) or `flume-fnl-nvf-fft` (cuFFT,
-  `adam_flume_fnl_fft`); the default modes refuse `self_gravity` at the first solve.
+With `self_gravity` the conservation history gains the columns `W` $= \tfrac12\sum\rho\Phi\,dV$ and `E_plus_W`, the
+energy the scheme conserves.
 
 ## [cooling] (optional: optically thin radiative cooling)
 
-The section switches on radiative cooling ([#93](https://github.com/szaghi/adam/issues/93), M11):
-$\partial_t(\rho e) = -n^2\Lambda(T)$ at fixed density and momentum, with $n = \rho/m$ and $T = p/(\rho R)$. It is
-applied once per step, after the step, by Townsend's exact integration ([numerics](./numerics#radiative-cooling)).
-Without the section nothing changes. The hydrodynamic models only (`euler`, `euler-de`, with or without passive
-scalars): with `mhd-ideal` it is fatal. CPU and FNL run the same rule and the same arithmetic.
+The section switches on optically thin radiative cooling ([#93](https://github.com/szaghi/adam/issues/93);
+[models](./models#radiative-cooling), [numerics](./numerics#radiative-cooling)). Without the section nothing changes.
+The hydrodynamic models only (`euler`, `euler-de`, with or without passive scalars): with `mhd-ideal` it is fatal.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
@@ -498,22 +415,20 @@ run (of this run segment: it restarts from 0 on a restart), and `E_plus_radiated
 
 ## [sinks] (optional: sink particles)
 
-The section switches on sink particles ([#94](https://github.com/szaghi/adam/issues/94), M12): point masses that act on
-the gas through the self-gravity solve only ([numerics](./numerics#sink-particles)). It needs `[gravity] self_gravity =
-.true.` and a hydrodynamic model (`euler`, `euler-de`, with or without passive scalars); otherwise it is fatal. CPU
-and FNL (on FNL, creation copies the state to the host every step: its checks run on the host). The keys list the
-initial sinks, one value each; their
-number is that of `mass` (none: the section with no initial sink).
+The section switches on sink particles ([#94](https://github.com/szaghi/adam/issues/94);
+[models](./models#sink-particles), [numerics](./numerics#sink-particles)). It needs `[gravity] self_gravity = .true.`
+and a hydrodynamic model (`euler`, `euler-de`, with or without passive scalars); otherwise it is fatal. The keys list
+the initial sinks, one value each; their number is that of `mass` (none: the section with no initial sink).
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
 | `mass` | list of reals | no (no sink) | all `> 0`; otherwise fatal | The sinks' masses. |
 | `x`, `y`, `z` | lists of reals | with `mass` | as many values as `mass`, inside the domain; otherwise fatal | The positions. |
 | `u`, `v`, `w` | lists of reals | no (0) | as many values as `mass`; otherwise fatal | The velocities. |
-| `creation` | logical | no (`.false.`) | | Sinks form where the gas passes the checks of Federrath et al. (2010) ([numerics](./numerics#sink-particles)). |
+| `creation` | logical | no (`.false.`) | | Sinks form where the gas passes the checks of Federrath et al. (2010) ([models](./models#sink-particles)). |
 | `accretion` | logical | no (`.true.`) | | Sinks accrete the gas above the threshold within their accretion radius. |
 | `merging` | logical | no (`.true.`) | | Two bound, converging sinks within an accretion radius merge. |
-| `accretion_radius_cells` | real | no (2.5) | in `[1, ngc]`; otherwise fatal | The accretion radius $r_\mathrm{acc}$ in cells of the sink's level (with runtime regridding, `[amr] frequency > 0`, of the finest level allowed, where the sinks form and stay). The threshold density is $\rho_\mathrm{thr} = \pi c_s^2/(4 G r_\mathrm{acc}^2)$, a Jeans length of $2 r_\mathrm{acc}$, with the cell's own $c_s^2 = \gamma p/\rho$. |
+| `accretion_radius_cells` | real | no (2.5) | in `[1, ngc]`; otherwise fatal | The accretion radius $r_\mathrm{acc}$ in cells of the sink's level (with runtime regridding, of the finest level allowed). It sets the threshold density $\rho_\mathrm{thr} = \pi c_s^2/(4 G r_\mathrm{acc}^2)$. |
 
 The conservation history gains `M_sinks`, `Px_sinks`, `Py_sinks`, `Pz_sinks` and `K_sinks` (`W` then includes the
 sinks' mass), and `<output_basename>-sinks_history.dat` gets one row per sink per save (`it time id m x y z u v w`).
@@ -523,11 +438,11 @@ Restart files carry `<restart_basename>.sinks`. A sink that leaves a closed doma
 
 ## [turbulence] (optional: algebraic subgrid-scale model)
 
-A library section ([#119](https://github.com/szaghi/adam/issues/119), T1). Without it, or with `sgs_model = none`, nothing changes.
+A library section ([#119](https://github.com/szaghi/adam/issues/119); [turbulence](./turbulence#subgrid-scale-models)). Without it, or with `sgs_model = none`, nothing changes.
 
 | Key | Type | Required | Values | Meaning |
 |---|---|---|---|---|
-| `sgs_model` | string | no (`none`) | `none`, `vreman`, `wale`, `sigma`. Other → fatal. | Eddy viscosity of the model ([numerics](./numerics#subgrid-scale-models)). |
+| `sgs_model` | string | no (`none`) | `none`, `vreman`, `wale`, `sigma`. Other → fatal. | Eddy viscosity of the model. |
 | `sgs_constant` | real | no | `> 0`, otherwise fatal; defaults 0.07 (Vreman: $c = 2.5 C_s^2$), 0.5 (WALE), 1.35 (Sigma) | Model constant. Taken from other discretizations, not calibrated on WENO. |
 | `prandtl_t` | real | no (0.9) | `> 0`, otherwise fatal | Turbulent Prandtl number. |
 
@@ -537,18 +452,18 @@ A model needs `physical_model = euler` or `euler-de` (fatal otherwise) and `ngc 
 
 | Key | Type | Required | Accepted | Meaning |
 |---|---|---|---|---|
-| `type` | string | no (`none`) | `none`, `mass-flow`; other → fatal | Once per step a uniform momentum is added along `axis` so that the volume mean of the momentum is `bulk_momentum`; the total energy gains the change of kinetic energy. Euler only. |
+| `type` | string | no (`none`) | `none`, `mass-flow`; other → fatal; Euler only | Constant mass flow along `axis` ([turbulence](./turbulence#mass-flow-forcing)). |
 | `axis` | string | with `mass-flow` | `x`, `y`, `z` | Direction of the flow. |
 | `bulk_momentum` | real | with `mass-flow` | | Target mean of the momentum along the axis. |
 
-The force per unit volume, the added momentum over the step, goes to `<output_basename>-forcing_history.dat` (header `VARIABLES="it" "time" "f"`, then one row per save) on the conservation history cadence, in the output units of `[reference]`: at a statistically steady state its mean times the half height is the wall shear stress (issue #119, T3.1). A restart appends to it. Files written before the header existed have none.
+The force per unit volume goes to `<output_basename>-forcing_history.dat` on the conservation-history cadence; a restart appends to it.
 
 ## [numerics]
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `scheme_space` | string | yes | `weno` (WENO flux splitting), `weno-riemann` (WENO interpolation + Riemann flux + high-order correction) or `hybrid-kep-weno` (central KEP flux where the Ducros sensor allows, `weno` elsewhere and at 2:1 seams, physical faces and forest seams; Euler, `ngc >= 3`, no limiter, no immersed solid, all fatal otherwise, [#119](https://github.com/szaghi/adam/issues/119)). Other → fatal. | Spatial operator. MHD at very low β (≲ 1e-3, e.g. the Balsara–Spicer blast): `weno` needs the positivity limiter at every step and breaks point symmetry at the grid scale; use `weno-riemann` with `hlld` where symmetry or backend agreement matter ([#77](https://github.com/szaghi/adam/issues/77), [verification](./verification/runtime-amr/mhd-blast-symmetry)). |
-| `hybrid_threshold` | real | no (0.2), only with `hybrid-kep-weno` | `> 0`, otherwise fatal | Ducros sensor above which a cell keeps WENO ([numerics](./numerics#hybrid-central-weno)). |
+| `scheme_space` | string | yes | `weno`, `weno-riemann` or `hybrid-kep-weno` (Euler, `ngc >= 3`, no limiter, no immersed solid, all fatal otherwise). Other → fatal. | Spatial operator ([numerics](./numerics), [turbulence](./turbulence#hybrid-central-weno)). MHD at very low β (≲ 1e-3): use `weno-riemann` with `hlld` where symmetry or backend agreement matter ([#77](https://github.com/szaghi/adam/issues/77), [verification](./verification/runtime-amr/mhd-blast-symmetry)). |
+| `hybrid_threshold` | real | no (0.2), only with `hybrid-kep-weno` | `> 0`, otherwise fatal | Ducros sensor above which a cell keeps WENO ([turbulence](./turbulence#hybrid-central-weno)). |
 | `hybrid_floor` | real | no ($10^{-8}$), only with `hybrid-kep-weno` | `> 0`, otherwise fatal | Floor of the sensor denominator over $(a/\Delta x_\min)^2$. Not calibrated. |
 | `hybrid_jump` | real | no (0.1), only with `hybrid-kep-weno` | `> 0`, otherwise fatal | Largest relative density jump of a central cell. Not calibrated. |
 | `hybrid_skin` | string | no (`weno`), only with `hybrid-kep-weno` | `weno`, `central-seams`, `central-bcs`, `central`, otherwise fatal | Which block faces keep WENO on their skin: all that are not same-level; all but resolution jumps; all but boundaries and forest seams; none. The relaxed values are for measurement ([verification](./verification/turbulence/#the-hybrid-central-weno-scheme-t2)). With `central-bcs` the sensor ghost at a forest seam is computed locally: not tested. |
@@ -557,11 +472,10 @@ The force per unit volume, the added momentum over the step, goes to `<output_ba
 | `flux_correction` | string | `weno-riemann` | `6th`, `4th`, `none` (2nd order). Other → fatal. | Face-flux correction `F^ = c1 F + c2 (f_i+f_i+1) + c3 (f_i-1+f_i+2)`. |
 | `flux_correction_sensor` | string | `weno-riemann` | `weno` or `none`. Other → fatal. | `weno`: the correction is switched off at faces where `min_k w_k/d_k < 0.2` (fixed threshold `FLUX_CORRECTION_SENSOR_TAU`). `none`: always on. |
 | `reflux` | logical | yes | logical | Berger–Colella reflux at AMR coarse-fine faces (and inter-realm seams). `.false.` is a diagnostic only: the run is then not conservative across 2:1 faces. |
-| `reflux_policy` | string | no | `always`, `troubled` (default `always`; any other value is fatal) | With `reflux = .true.`, which seam face cells the reflux corrects ([#68](https://github.com/szaghi/adam/issues/68) E1). `always`: every one, conservative to round-off. `troubled`: only those flagged in some stage of the step, by the positivity limiter (a blended seam face, issue #50) or by the WENO-5 sensor (the minimum weight ratio $\min_k w_k/d_k$ of density, normal velocity or pressure across the face below 0.2, the weno-riemann flux-correction sensor); elsewhere the coarse flux stays, so smooth regions keep the accuracy of the high-order seam operators at the cost of conservation there (Sod c2f: mass drift $1.5\cdot10^{-7}$, shock unchanged). The log reports the flagged face cells per step. CPU and FNL (E1b: the FNL backend gathers the seam cells' auxiliary variables to the host and flags them there). The default stays `always` (owner decision after E2: exact conservation); `troubled` is the switch that lets `seam_restriction = lagrange6` with `seam_ghost_fill = quintic` keep sixth order across 2:1 seams with the reflux on (AO `euler-tq`), at the price of a bounded conservation drift (about $10^{-5}$ per period on the smooth vortex at N = 64, the reflux-off rate). |
-| `reflux_cadence` | string | no | `step`, `stage` (default `step`; any other value is fatal; `stage` is fatal on multi-realm runs) | With `reflux = .true.`, when the coarse cells are corrected ([#81](https://github.com/szaghi/adam/issues/81) P5c). `step`: once, at the end of the step, from the step's fluxes (Berger–Colella, the AMReX cadence). `stage`: at every Runge–Kutta stage the coarse seam cells' residual is corrected from that stage's fluxes, so every stage advances them with the restricted fine fluxes and the scheme is the conservative composite one at every stage. Both conserve to round-off; `stage` keeps the time integration's order where `step` leaves an $O(\Delta t)$ inconsistency, e.g. the $E + W$ of self-gravity on AMR (first order with `step`, third with `stage`: [SV-10](./verification/self-gravity/amr-jeans)). Intra-realm 2:1 faces only; the exceptions of the step cadence (the equilibrium's mismatch, B under EGLM, `troubled`) apply per stage. |
-| `positivity_limiter` | string | no (default `none`) | `none` or `cell`. Other → fatal. `cell` is fatal with `[mhd] divergence_control = glm`, a non-SSP `[runge_kutta] scheme`, immersed solids, multi-realm runs and any dissipative coefficient (issue #65, D-M4-5). | `cell`: the cell-based positivity limiter ([numerics](./numerics#positivity-limiter)): every face flux blended with the first-order Lax–Friedrichs backbone so that each stage keeps the density and the pressure positive; the limited faces are logged per stage. |
-
-| `dissipative_order` | int | no (default 4) | `2` or `4`. Other → fatal; `4` needs `[grid] ngc >= 3` (fatal otherwise). | Order of the dissipative face fluxes (issue #65, D-M4-2): `4` is the conservative 4th-order flux with the Shu–Osher correction, `2` the compact central one ([numerics](./numerics#dissipative-fluxes-navier–stokes)). An ideal run ignores it. |
+| `reflux_policy` | string | no | `always`, `troubled` (default `always`; any other value is fatal) | With `reflux = .true.`, which seam face cells the reflux corrects: `always` every one, conservative to round-off; `troubled` only those flagged by the positivity limiter or the WENO-5 sensor ([numerics](./numerics#reflux), [#68](https://github.com/szaghi/adam/issues/68)). The log reports the flagged face cells per step. |
+| `reflux_cadence` | string | no | `step`, `stage` (default `step`; any other value is fatal; `stage` is fatal on multi-realm runs) | With `reflux = .true.`, when the coarse cells are corrected: once at the end of the step, or at every Runge–Kutta stage ([numerics](./numerics#reflux)). |
+| `positivity_limiter` | string | no (default `none`) | `none` or `cell`. Other → fatal. `cell` is fatal with `[mhd] divergence_control = glm`, a non-SSP `[runge_kutta] scheme`, immersed solids, multi-realm runs and any dissipative coefficient. | `cell`: the cell-based positivity limiter ([numerics](./numerics#positivity-limiter)); the limited faces are logged per stage. |
+| `dissipative_order` | int | no (default 4) | `2` or `4`. Other → fatal; `4` needs `[grid] ngc >= 3` (fatal otherwise). | Order of the dissipative face fluxes ([numerics](./numerics#dissipative-fluxes-navier–stokes)). An ideal run ignores it. |
 
 ---
 
@@ -577,12 +491,12 @@ All six sections are required, even along null directions.
 | `s1` .. `sN` | real | no (`type = inflow` with `passive_scalars = N`) | default 0, no range check | Specific values (mass fractions) of the passive scalars of the inflow. |
 | `wall_u`, `wall_v`, `wall_w` | real | no (default 0) with `wall-noslip`, `wall-isothermal` | the component normal to the face must be 0 (fatal) | Velocity of the wall (tangential): a moving lid, a Couette wall. |
 | `wall_temperature` | real | `type = wall-isothermal` | `> 0`, otherwise fatal | Wall temperature, $T = p/(\rho R)$ in code units. |
-| `wall_temperature` with `wall-modelled` | real | yes | `> 0`, otherwise fatal | An isothermal wall whose face flux comes from a wall model ([numerics](./numerics#wall-model)), sampled at the 3rd cell off the wall; the ghosts mirror as `wall-inviscid`. Euler with a viscosity and a `prandtl` only, 3 cells per block along the normal. |
+| `wall_temperature` with `wall-modelled` | real | yes | `> 0`, otherwise fatal | Wall temperature of a modelled wall ([turbulence](./turbulence#wall-model)). Euler with a viscosity and a `prandtl` only, 3 cells per block along the normal. |
 | `wall_model` with `wall-modelled` | string | no (`equilibrium`) | `equilibrium`, `inverse-transformation`; other → fatal | The equilibrium thin-layer model, or the inverse-velocity-transformation model of Griffin, Fu & Moin (2023), which needs the two edge keys below. |
-| `wall_model_height` with `wall-modelled` | real | no (0) | `>= 0` | Matching height, a length; 0 samples the 3rd cell. Otherwise interpolated between the cells around it, within the block (beyond it, its last cell). The literature matches at 0.1–0.3 of the boundary-layer thickness with at least 3 cells below ([numerics](./numerics#wall-model)). |
+| `wall_model_height` with `wall-modelled` | real | no (0) | `>= 0` | Matching height, a length; 0 samples the 3rd cell. Otherwise interpolated between the cells around it, within the block (beyond it, its last cell). |
 | `wall_model_damping` with `wall-modelled` | string | no (`classical`) | `classical`, `semi-local`; other → fatal; given with `wall_model = inverse-transformation` → fatal | Van Driest damping of the equilibrium model in wall units, or with the local density and viscosity. |
-| `wall_model_filter` with `wall-modelled` | real | no (0) | `>= 0` | Time scale $T_f$ of an exponential filter of the sampled velocity, pressure and density, updated once per step with weight $\min(\Delta t/T_f, 1)$; 0 for none ([numerics](./numerics#wall-model)). |
-| `wall_model_eddy_viscosity` with `wall-modelled` | logical | no (`.false.`) | | The model's eddy viscosity in the cells below the matching height, so the resolved layer carries the modelled stress and heat flux to the face ([numerics](./numerics#wall-model)). |
+| `wall_model_filter` with `wall-modelled` | real | no (0) | `>= 0` | Time scale $T_f$ of the exponential filter of the sample; 0 for none ([turbulence](./turbulence#input-filter)). |
+| `wall_model_eddy_viscosity` with `wall-modelled` | logical | no (`.false.`) | | The model's eddy viscosity in the cells below the matching height ([turbulence](./turbulence#eddy-viscosity-below-the-matching-height)). |
 | `r`, `u`, `p` with `inflow-digital-filter` | real | yes | `> 0`, otherwise fatal | Free-stream density, speed along the inward normal, pressure. **Euler** only, one such face per realm. |
 | `df_profile` | string | with `inflow-digital-filter` | file must exist, 7 numbers per row, $y$ increasing, $T > 0$ (fatal) | The layer table: `y / delta`, `U / U_inf`, `T / T_inf`, `R_uu`, `R_vv`, `R_ww`, `R_uv` in units of $U_\infty^2$ (v wall-normal, w spanwise), `#` comments; the free stream beyond its last row. `tbl_oracle.py profile` writes it from a DNS station file. |
 | `df_delta`, `df_spacing` | real | with `inflow-digital-filter` | `> 0` | Layer thickness (the table's unit of $y$); spacing of the filter plane, about the grid's. |
@@ -601,24 +515,16 @@ What each `type` does:
 
 - `extrapolation`: zeroth-order extrapolation.
 - `inflow`: prescribed state.
-- `non-reflecting` ([#121](https://github.com/szaghi/adam/issues/121) S2): characteristic outflow and far field, the incoming acoustic wave relaxed toward the target pressure ([boundary conditions](./boundary-conditions#non-reflecting-a-characteristic-outflow-and-far-field-121-s2)).
-- `shock-generator` ([#121](https://github.com/szaghi/adam/issues/121) S3): the post-shock state of an oblique shock in a range of x on a y face, extrapolation elsewhere ([boundary conditions](./boundary-conditions#shock-generator-an-oblique-shock-through-a-y-face-121-s3)).
-- `inflow-digital-filter` ([#119](https://github.com/szaghi/adam/issues/119), T3.7): a turbulent boundary layer through the face, the table's mean
-  plus fluctuations of its Reynolds stresses from the digital filter of Klein, Sadiki & Janicka in the form of Touber & Sandham and Xie & Castro
-  ([numerics](./numerics#digital-filter-inflow)). The plane state is saved with the restart (`<restart_basename>.dff`), so a restart continues bit
-  for bit; without the file it starts a fresh field (warned).
+- `non-reflecting` ([#121](https://github.com/szaghi/adam/issues/121)): characteristic outflow and far field, the incoming acoustic wave relaxed toward the target pressure ([boundary conditions](./boundary-conditions#non-reflecting-a-characteristic-outflow-and-far-field-121)).
+- `shock-generator` ([#121](https://github.com/szaghi/adam/issues/121)): the post-shock state of an oblique shock in a range of x on a y face, extrapolation elsewhere ([boundary conditions](./boundary-conditions#shock-generator-an-oblique-shock-through-a-y-face-121)).
+- `inflow-digital-filter` ([#119](https://github.com/szaghi/adam/issues/119)): a turbulent boundary layer through the face ([turbulence](./turbulence#digital-filter-inflow)).
 - `wall-inviscid`: slip wall (mirror state with the normal momentum negated; for MHD the normal B is negated too).
-- `wall-noslip`: adiabatic no-slip wall (the velocity reflected about the wall velocity, the temperature mirrored).
-- `wall-isothermal`: isothermal no-slip wall (the velocity as above, the ghost temperature $T_w^2/T$, the geometric mirror). See
-  [Boundary conditions](./boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls).
+- `wall-noslip`: adiabatic no-slip wall; `wall-isothermal`: isothermal no-slip wall
+  ([boundary conditions](./boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls)).
+- `wall-modelled` ([#119](https://github.com/szaghi/adam/issues/119)): isothermal wall with a wall-model flux ([turbulence](./turbulence#wall-model)).
 - `periodic`: library periodicity, so true periodic neighbours across blocks and ranks.
-- `hydrostatic` ([#73](https://github.com/szaghi/adam/issues/73)): closes a stratified atmosphere under `[gravity]`.
-  The ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior cell along
-  the normal, $\rho_g = \rho_1 \exp(g_d s / T_1)$, $p_g = \rho_g T_1$ ($T_1 = p_1/\rho_1$, $s$ the signed distance
-  from that cell to the ghost), so an isothermal atmosphere has exact ghosts. The velocity is mirrored with its normal
-  component negated (no mass flux). The field and psi are mirrored **even**: field lines pass through the boundary, so
-  a uniform field along or across gravity stays uniform (a reflecting conductor is `wall-inviscid`). Without gravity
-  along the normal it is a slip wall that copies the thermodynamic state of the first interior cell.
+- `hydrostatic` ([#73](https://github.com/szaghi/adam/issues/73)): closes a stratified atmosphere under `[gravity]`
+  ([boundary conditions](./boundary-conditions#hydrostatic-an-atmosphere-under-gravity-73)).
 
 In a forest, a face glued to another realm by the manifest still needs a `type` here. The seam overrides the ghost
 fill.
@@ -641,11 +547,11 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `type` | Model | Regions read | Extra `[initial_conditions]` keys (all real unless stated) and checks |
 |--------|-------|--------------|-----------------------------------------------------------------------|
 | `uniform` | any | 1 | `s`: signed relative amplitude of a deterministic hashed perturbation of `rho` and `p`. |
-| `boundary-layer` | **euler** | 0 | `bl_profile` (the table of `df_profile`), `bl_delta`, `bl_rho`, `bl_u`, `bl_p` (free stream), `bl_wall` (default 0): the table's mean profile over a wall at $y$ = `bl_wall`, flow along $+x$, uniform along $x$ and $z$, the density $\rho_\infty T_\infty/T$ (issue #119, T3.7). |
-| `channel` | **euler** | 0 | `ch_rho`, `ch_ub` (bulk velocity), `ch_mach` (on the wall sound speed), `ch_h` (half height; the walls at $y=\pm h$), `ch_lx`, `ch_lz`, `ch_pert` (amplitude over `ch_ub`): the laminar profile $\tfrac32U_b(1-\eta^2)$, uniform density and pressure, and a deterministic perturbation vanishing at the walls (issue #119, T3.1). |
+| `boundary-layer` | **euler** | 0 | `bl_profile` (the table of `df_profile`), `bl_delta`, `bl_rho`, `bl_u`, `bl_p` (free stream), `bl_wall` (default 0) ([initial conditions](./initial-conditions#boundary-layer-mean-profile-of-a-boundary-layer)). |
+| `channel` | **euler** | 0 | `ch_rho`, `ch_ub` (bulk velocity), `ch_mach` (on the wall sound speed), `ch_h` (half height; the walls at $y=\pm h$), `ch_lx`, `ch_lz`, `ch_pert` (amplitude over `ch_ub`) ([initial conditions](./initial-conditions#channel-plane-channel-laminar-profile-with-a-perturbation)). |
 | `isentropic-vortex` | **euler** (fatal otherwise) | 1 (free stream) | `x0`, `y0`, `radius` (`> 0`), `strength`; optional `shock_x`: past it the post-shock state of a stationary shock, region 1 its supersonic upstream state with $u > 0$. |
-| `isotropic-turbulence` | **euler, euler-de** (fatal otherwise) | 0 | `hit_density`, `hit_urms`, `hit_mach`, `hit_k0` (all `> 0`), `hit_seed` (default 1). Decaying compressible isotropic turbulence (Johnsen et al. 2010): uniform density and pressure, $M_t = \sqrt3 u_\mathrm{rms}/c_0$, a solenoidal velocity of spectrum $E(k) \propto (k/k_0)^4 e^{-2(k/k_0)^2}$ on the integer wavevectors up to $3k_0$, random phases from the seed: the same field on any rank count or resolution. The box $[0, 2\pi]^3$, its periodicity and that $3k_0$ is resolved are the input's: not checked ([#119](https://github.com/szaghi/adam/issues/119)). |
-| `taylor-green` | **euler, euler-de** (fatal otherwise) | 0 | `tg_density`, `tg_velocity`, `tg_mach` (all `> 0`), `tg_length` (default 1). The compressible Taylor–Green vortex of DeBonis (2013), at uniform temperature. The box $[0, 2\pi L]^3$ and its periodicity are the input's: not checked ([#119](https://github.com/szaghi/adam/issues/119)). |
+| `isotropic-turbulence` | **euler, euler-de** (fatal otherwise) | 0 | `hit_density`, `hit_urms`, `hit_mach`, `hit_k0` (all `> 0`), `hit_seed` (default 1). The box $[0, 2\pi]^3$, its periodicity and the resolution of $3k_0$ are not checked ([initial conditions](./initial-conditions#isotropic-turbulence-decaying-compressible-isotropic-turbulence)). |
+| `taylor-green` | **euler, euler-de** (fatal otherwise) | 0 | `tg_density`, `tg_velocity`, `tg_mach` (all `> 0`), `tg_length` (default 1). The box $[0, 2\pi L]^3$ and its periodicity are not checked ([initial conditions](./initial-conditions#taylor-green-compressible-taylor–green-vortex)). |
 | `riemann-problem` | any | `regions_number` | `regions_number`. Each region also needs extents (see the next section). Every cell must be covered by a region (fatal otherwise, at set time), and the **first** matching region wins. |
 | `glm-pulse` | **mhd-ideal** | 1 | `pulse_axis` (string `x`/`y`/`z`, fatal otherwise), `pulse_center`, `pulse_width` (`> 0`), `pulse_amplitude`. |
 | `divb-peak` | **mhd-ideal** | 1 | `peak_x0`, `peak_y0`, `peak_radius` (`> 0`), `peak_amplitude`. |
@@ -657,13 +563,13 @@ selected type uses is required** (fatal "failed to load" otherwise).
 | `field-loop` | **mhd-ideal** | 1 | `x0`, `y0`, `loop_radius` (`> 0`), `loop_amplitude`. |
 | `rotated-riemann` | any | 2 (states given in the **normal frame**: `u`, `bx` normal; `v`, `by` tangential) | `normal_x`, `normal_y` (not both 0), `interface_1`, `interface_2`, `period` (`> 0`), `interface_2_width` (`>= 0`). Requires `interface_1 < interface_2` and `interface_2 + interface_2_width < interface_1 + period`, fatal otherwise. |
 | `shu-osher` | **euler** | 2 | `axis` (string `x`/`y`/`z`), `interface`, `rho_amplitude`, `rho_wavenumber`. Requires `rho_amplitude < region_2 r`. Region 1 applies where `s <= interface`; region 2 applies elsewhere, with `r + rho_amplitude * sin(rho_wavenumber * s)`. |
-| `linear` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z` (inverse length). Every conservative variable is `q_1 (1 + g . x)`, `q_1` the state of region 1: the verification field of the ghost probe (issue #65 P0), not a flow. |
-| `isothermal-atmosphere` | any | 1 (the state at the origin; its velocity and field uniform) | Needs `[gravity]` (fatal otherwise). Optional, both atmospheres: a relative pressure pulse $p(1 + A e^{-|\mathbf x - \mathbf x_0|^2/w^2})$, `pulse_amplitude` $A$ (default 0), `pulse_x`, `pulse_y`, `pulse_z` ($\mathbf x_0$), `pulse_width` $w$ (`> 0` when $A \ne 0$, fatal otherwise; M7-G2b). $\rho = \rho_1 \exp(\mathbf g\cdot\mathbf x / T_1)$, $p = \rho T_1$, $T_1 = p_1/\rho_1$: the hydrostatic equilibrium of the constant gravity ([#73](https://github.com/szaghi/adam/issues/73)). |
+| `linear` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z` (inverse length). Every conservative variable is `q_1 (1 + g . x)`, `q_1` the state of region 1: the verification field of the ghost probe ([#65](https://github.com/szaghi/adam/issues/65)), not a flow. |
+| `isothermal-atmosphere` | any | 1 (the state at the origin; its velocity and field uniform) | Needs `[gravity]` (fatal otherwise). Optional, both atmospheres: a relative pressure pulse, `pulse_amplitude` (default 0), `pulse_x`, `pulse_y`, `pulse_z`, `pulse_width` (`> 0` when the amplitude is not 0, fatal otherwise) ([initial conditions](./initial-conditions#isothermal-atmosphere-polytropic-atmosphere-hydrostatic-equilibria-under-gravity)). |
 | `polytropic-atmosphere` | any | 1 (as above) | `polytropic_gamma` $G > 1$ (fatal otherwise); needs `[gravity]`. $p = p_1(\rho/\rho_1)^G$, $\rho = \rho_1 s^{1/(G-1)}$, $s = 1 + \frac{G-1}{G}\frac{\rho_1}{p_1}\mathbf g\cdot\mathbf x$; fatal where $s \le 0$ (the top of the atmosphere inside the domain). |
-| `rayleigh-taylor` | any | 1 (the light layer: $T_l = p_1/\rho_1$, $p_1$ the pressure at the interface; its field uniform) | Needs `[gravity]` along one axis (fatal otherwise). `rt_height` $h_0$ (along $-\mathbf g$, $h = -\mathbf g\cdot\mathbf x/|\mathbf g|$), `rt_width` $\delta$, `rt_density_ratio` $R$ (heavy over light at equal pressure; $R < 1$ is the stable control), `rt_wavelength` $\lambda$, `rt_amplitude` $A$, `rt_seed_width` $w$; every key required, $\delta, R, \lambda, w > 0$ (fatal otherwise). Two isothermal layers joined by $T = a + b\tanh((h - h_0)/\delta)$, $a = (T_l + T_h)/2$, $b = (T_h - T_l)/2$, $T_h = T_l/R$, hydrostatic in closed form, at rest; seeded with the solenoidal single mode $v_h = A\cos(k x_t) f(h)$, $u_t = -\frac{A}{k}\sin(k x_t) f'(h)$, $f = e^{-((h - h_0)/w)^2}$, $k = 2\pi/\lambda$, $x_t$ the first axis other than $\mathbf g$'s (M7-G3; its linear growth rate: `verification/gravity/rt_oracle.py`). |
-| `polynomial` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z`, `degree` (an integer $n \ge 1$). Every conservative variable is `q_1 (1 + sum_d g_d x_d^n)`: the ghost probe's field for the high-order seam operators ([#68](https://github.com/szaghi/adam/issues/68) D1), not a flow. Fatal under a non-dimensional reference (`g_d` has dimension $L^{-n}$). |
-| `bonnor-ebert` | **euler**, `[eos] type = isothermal` | 1 (its velocity) | Needs `[gravity] self_gravity`. `be_density` $\rho_c$ (`> 0`, required), `be_x0`, `be_y0`, `be_z0` (default 0), `be_overdensity` $f$ (`> 0`, default 1). $\rho = f\rho_c e^{-\psi(r/r_0)}$, $r_0 = c_0/\sqrt{4\pi G\rho_c}$, $\psi$ the isothermal Lane–Emden function ([#100](https://github.com/szaghi/adam/issues/100) P4). |
-| `boss-bodenheimer` | **euler**, `[eos]` isothermal or barotropic | 1 (the ambient medium) | Needs `[gravity] self_gravity`. `bb_radius` $R$, `bb_density` $\rho_0$ (`> 0`, required), `bb_omega` $\Omega$ (required), `bb_amplitude` $A$ (default 0.1), `bb_x0`, `bb_y0`, `bb_z0` (default 0). Inside $R$: $\rho = \rho_0(1 + A\cos 2\phi)$, solid-body rotation $\Omega\,\mathbf e_z \times (\mathbf x - \mathbf x_0)$ (P4). |
+| `rayleigh-taylor` | any | 1 (the light layer at the interface pressure; its field uniform) | Needs `[gravity]` along one axis (fatal otherwise). `rt_height`, `rt_width`, `rt_density_ratio` (heavy over light; below 1 is the stable control), `rt_wavelength`, `rt_amplitude`, `rt_seed_width`; every key required, width, ratio, wavelength and seed width `> 0` (fatal otherwise) ([initial conditions](./initial-conditions#rayleigh-taylor-two-isothermal-layers-heavy-over-light)). |
+| `polynomial` | any | 1 | `gradient_x`, `gradient_y`, `gradient_z`, `degree` (an integer $n \ge 1$). Every conservative variable is `q_1 (1 + sum_d g_d x_d^n)`: the ghost probe's field for the high-order seam operators ([#68](https://github.com/szaghi/adam/issues/68)), not a flow. Fatal under a non-dimensional reference (`g_d` has dimension $L^{-n}$). |
+| `bonnor-ebert` | **euler**, `[eos] type = isothermal` | 1 (its velocity) | Needs `[gravity] self_gravity`. `be_density` (`> 0`, required), `be_x0`, `be_y0`, `be_z0` (default 0), `be_overdensity` (`> 0`, default 1) ([initial conditions](./initial-conditions#bonnor-ebert-the-isothermal-lane–emden-sphere-self-gravity)). |
+| `boss-bodenheimer` | **euler**, `[eos]` isothermal or barotropic | 1 (the ambient medium) | Needs `[gravity] self_gravity`. `bb_radius`, `bb_density` (`> 0`, required), `bb_omega` (required), `bb_amplitude` (default 0.1), `bb_x0`, `bb_y0`, `bb_z0` (default 0) ([initial conditions](./initial-conditions#boss-bodenheimer-the-rotating-cloud-with-an-m-2-perturbation-self-gravity)). |
 
 Five more types are accepted and documented, with their keys, in [initial conditions](./initial-conditions): `sine-wave`, `couette`, `becker-shock`, `polytrope` and `singular-isothermal-sphere`. A model mismatch (for example `glm-pulse` with `euler`) is fatal. The complete formulas are in the module header.
 With [`[eos] type = isothermal` or `barotropic`](#eos-optional-equation-of-state) only `uniform`, `riemann-problem`,
@@ -702,9 +608,9 @@ Every key is required, and none has a range check.
 |-----|------|------|---------|
 | `conservation_history_save` | int | yes | Cadence (steps) of `<output_basename>-conservation_history.dat` (volume integrals of every conservative variable). For MHD it is also the cadence of `-divb_history.dat` and of the `divb_tol` monitor. `<= 0` disables them. |
 | `ghost_poison` | logical | no (`.false.`) | Verification instrument (issue #65): before each field write every ghost cell is set to NaN and refilled in the order of a stage (seams, exchange, boundary conditions), so a ghost the fill misses, or reads before its donor is written, is written as NaN instead of a stale value. Used by the ghost probe GP; it costs one pass over the ghosts per write. |
-| `divb_flux` | logical | no (`.false.`) | MHD with GLM or EGLM ([#68](https://github.com/szaghi/adam/issues/68) A2): adds four columns to `-divb_history.dat` (`max_dflux`, `l1_dflux`, `seam_max_dflux`, `max_h_dflux_over_bmax`). D_flux is the divergence the cleaning acts on: that of the interface normal field $B_n = F_\psi/s$ read from the scheme's own $\psi$ face fluxes ($s = c_h^2$ GLM, $c_h$ EGLM), the coarse 2:1 faces taking the fine fluxes (the reflux), so its integral over a composite periodic domain is round-off. The last column is the scale-free $\max(h\,|D_\text{flux}|)/\max|\mathbf B|$. Each history row costs one residual evaluation of the committed state, on the idle RK stage buffers: fatal without GLM/EGLM or with a one-stage scheme. An inter-realm seam keeps each side's own flux; the step-0 row, written before the forest builds its register, has no reflux substitution and no seam column (as the centred one). |
-| `turbulence_history_save` | int | no (0, disabled) | Cadence (steps) of `<output_basename>-turbulence_history.dat`: volume integrals `K` ($\rho\lvert u\rvert^2/2$), `Z` ($\rho\lvert\omega\rvert^2/2$), `eps_s` ($\mu\lvert\omega\rvert^2$), `eps_d` ($\tfrac43\mu\theta^2$), `eps` ($\tau_{ij}\partial_j u_i$), `pd` ($p\theta$), from 4th-order central velocity gradients, not divided by the volume, in the output units of [`[reference]`](#reference-optional-dimensional-input) (`K` an energy $\rho_0u_0^2L_0^3$, `Z` $\rho_0u_0^2L_0$, the others a power $\rho_0u_0^3L_0^2$). In a periodic box $dK/dt = $ `pd` $-$ `eps`, up to the scheme's numerical dissipation. Needs `ngc >= 2`. On a forest of several realms there is no step-0 row: the seams are not built yet. Each row refreshes the ghosts and the auxiliary variables of the committed state ([#119](https://github.com/szaghi/adam/issues/119)). |
-| `wall_history_save` | int | no (0, disabled) | Cadence (steps) of `<output_basename>-wall_<face>_history.dat`, one file per `wall-modelled` face: `it`, `time`, then the wall shear stress along `wall_history_axis` (positive for a drag of a flow along $+$axis) and the wall heat flux ($k\,dT/dy$ at the wall, positive when the gas is hotter), each area-averaged over the face cells in `wall_history_bins` equal bins along the axis; code units, appended on restart. The model is evaluated on the committed state at its sample with the solvers the face fluxes use, so it is the stress the solver applies (with `wall_model_filter`, the unfiltered one) ([#119](https://github.com/szaghi/adam/issues/119) T3.7). |
+| `divb_flux` | logical | no (`.false.`) | MHD with GLM or EGLM ([#68](https://github.com/szaghi/adam/issues/68)): adds four columns to `-divb_history.dat` (`max_dflux`, `l1_dflux`, `seam_max_dflux`, `max_h_dflux_over_bmax`), the divergence the cleaning acts on ([numerics](./numerics#output-and-diagnostics)). Fatal without GLM/EGLM or with a one-stage scheme. The step-0 row has no reflux substitution and no seam column. |
+| `turbulence_history_save` | int | no (0, disabled) | Cadence (steps) of `<output_basename>-turbulence_history.dat`: the volume integrals `K`, `Z`, `eps_s`, `eps_d`, `eps`, `pd` of the kinetic-energy budget ([turbulence](./turbulence#kinetic-energy-budget)), in the output units of [`[reference]`](#reference-optional-dimensional-input) (`K` an energy $\rho_0u_0^2L_0^3$, `Z` $\rho_0u_0^2L_0$, the others a power $\rho_0u_0^3L_0^2$). Needs `ngc >= 2`. |
+| `wall_history_save` | int | no (0, disabled) | Cadence (steps) of `<output_basename>-wall_<face>_history.dat`, one file per `wall-modelled` face: wall shear stress and heat flux in `wall_history_bins` bins along `wall_history_axis`, code units, appended on restart ([turbulence](./turbulence#wall-histories)). |
 | `wall_history_bins` | int | with `wall_history_save` | Bins along the axis, `>= 1` (fatal otherwise). |
 | `wall_history_axis` | string | no (`x`) | `x`, `y` or `z`, not the normal of a modelled face (fatal). |
 
@@ -1046,10 +952,8 @@ target_level = 3
 Both groups are written to the XH5F output only when `[IO] save_auxiliary_fields = .true.`. The key is **required**. The auxiliary variables are recomputed on the host from the saved `q`,
 including ghost cells. The derived MHD group is written only for the MHD models.
 
-`save_simulation_data` calls `save_xh5f(with_ghost=.true.)`, so **field files include the ghost cells**. In a forest
-the inter-realm seam ghosts are refilled before the write, then the intra-realm ghosts and the boundary conditions
-(the order of a Runge-Kutta stage), so the written ghosts are those the stencils read; the step-0 file, written while
-each realm initialises and before the forest connects them, holds unfilled seam ghosts.
+**Field files include the ghost cells**, filled in the order of a Runge–Kutta stage, so the written ghosts are those
+the stencils read. In a forest the step-0 file holds unfilled inter-realm seam ghosts.
 
 ### Auxiliary variables
 
@@ -1078,8 +982,6 @@ The conservative variables are named `r, ru, rv, rw, rE [, rs] [, rs1 .. rs4]` (
 | `bmag` | $\vert \mathbf B\vert  = \sqrt{B_x^2+B_y^2+B_z^2}$ | every cell |
 | `divb` | $\sum_d w_d\,\delta_d B_d$ (signed; see below) | interior only, **zero in the ghost cells** |
 
-Here $|\mathbf B|^2$ is summed in plain $x,y,z$ order, not through `mhd_sum3`.
-
 **Discretisation of `divb`.** Each $\delta_d$ is the library centred first derivative,
 $\delta B = \frac{1}{\Delta}\sum_{m=1}^{s}c_{m,s}\,(B_{i+m}-B_{i-m})$.
 The coefficients are:
@@ -1097,6 +999,5 @@ Two further rules apply:
 - Null directions are weighted $w_d = 0$.
 - The scheme is **always FD-centred**, even when `[fdv] fdv_scheme = fv`.
 
-The operator is the same one used by the div(B) history kernels, `compute_divb_norms_dev`. Those kernels report $\max|\nabla\!\cdot\!\mathbf B|$,
-$\sum|\nabla\!\cdot\!\mathbf B|\,\Delta V$ and a seam-band maximum, and cap $s$ at `HS_MAX = 3`. The CPU history also
-requires $s\le n_{gc}$. The output path has no such cap or check.
+The same operator gives the div(B) history ($\max|\nabla\!\cdot\!\mathbf B|$, $\sum|\nabla\!\cdot\!\mathbf B|\,\Delta V$
+and a seam-band maximum), which needs $s \le \min(n_{gc}, 3)$.

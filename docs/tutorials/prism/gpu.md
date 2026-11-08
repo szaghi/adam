@@ -16,10 +16,8 @@ fobis build --mode prism-fnl-nvf --varset local_nvf    # exe/adam_prism_fnl; loc
 
 The input of [page 1](./pulse), unchanged, one GPU per rank.
 
-**The numbers on this page come from a WSL2 workstation, which is for correctness only.** Its GPU and MPI stack needs
-settings that are wrong on a cluster (`UCX_RNDV_THRESH=inf` and the others of the [GPU cookbook](/cookbook/gpu)): set
-them before the command below, or it aborts at the first ghost exchange. Never time a run there, and never copy those
-settings into a cluster job ([clusters](/cookbook/clusters)).
+**On a WSL2 workstation, set the [GPU5](/cookbook/gpu#gpu5-run-on-a-development-box-with-wsl2-not-on-a-cluster) settings before the command below, or it aborts at the first ghost
+exchange.**
 
 ```bash
 mkdir -p run/pulse-fnl && cp src/tests/prism/regression/periodic-pulse-blocks/input.ini run/pulse-fnl/

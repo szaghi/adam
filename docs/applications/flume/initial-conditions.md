@@ -813,7 +813,7 @@ exact steady solution, so the error needs no relaxation run and no fit of the sh
 ## `isothermal-atmosphere`, `polytropic-atmosphere`: hydrostatic equilibria under gravity
 
 The hydrostatic equilibrium of the constant gravity $\mathbf g$ of `[gravity]` (required, fatal otherwise), with the
-state of `[initial_conditions_region_1]` at the origin ([#73](https://github.com/szaghi/adam/issues/73), M7-G0):
+state of `[initial_conditions_region_1]` at the origin ([#73](https://github.com/szaghi/adam/issues/73)):
 
 $$
 \text{isothermal:}\quad \rho = \rho_1\,e^{\mathbf g\cdot\mathbf x/T_1},\quad p = \rho\,T_1,\quad T_1 = p_1/\rho_1;
@@ -824,7 +824,7 @@ $$
 
 with the region's velocity and field uniform. `polytropic_gamma` $G > 1$; the polytrope is fatal where $s \le 0$ (the
 top of the atmosphere inside the domain). Optional, both: a relative pressure pulse $p\,(1 + A e^{-|\mathbf x -
-\mathbf x_0|^2/w^2})$ (`pulse_amplitude`, `pulse_x`, `pulse_y`, `pulse_z`, `pulse_width`; M7-G2b). Close them with
+\mathbf x_0|^2/w^2})$ (`pulse_amplitude`, `pulse_x`, `pulse_y`, `pulse_z`, `pulse_width`). Close them with
 `hydrostatic` faces along $\mathbf g$; with `[gravity] equilibrium = atmosphere` the atmosphere at rest is an exact
 discrete steady state ([verification](./verification/gravity/well-balanced)).
 
@@ -837,7 +837,7 @@ polytropic_gamma = 1.2
 
 ## `rayleigh-taylor`: two isothermal layers, heavy over light
 
-A heavy cold layer over a light hot one under the gravity of `[gravity]`, which must lie along one axis (M7-G3). With
+A heavy cold layer over a light hot one under the gravity of `[gravity]`, which must lie along one axis. With
 the height $h = -\mathbf g\cdot\mathbf x/|\mathbf g|$ and $z = (h - h_0)/\delta$, the temperature is
 
 $$
@@ -877,7 +877,7 @@ rt_seed_width    = 0.1
 
 ## `polytrope`: an n = 1 polytrope star (self-gravity)
 
-A self-gravitating star in equilibrium ([#81](https://github.com/szaghi/adam/issues/81), M8-P4; Euler, `[gravity]
+A self-gravitating star in equilibrium ([#81](https://github.com/szaghi/adam/issues/81); Euler, `[gravity]
 self_gravity` required). The n = 1 polytrope, $p = K\rho^2$, is the Lane–Emden solution
 $\rho_s = \rho_c\,\sin(kr)/(kr)$, $k = \pi/a$, of radius $a$, in equilibrium under its own gravity when
 $K = 2Ga^2/\pi$; its mass is $M = 4\rho_ca^3/\pi$. Region 1 sets a light atmosphere ($\rho_1$, $p_1$, the velocity):
@@ -917,7 +917,7 @@ p = 1.5915494309189535e-05
 
 ## `singular-isothermal-sphere`: Shu's isothermal sphere (self-gravity)
 
-The singular isothermal sphere at rest ([#94](https://github.com/szaghi/adam/issues/94), M12-P4; Euler, `[gravity]
+The singular isothermal sphere at rest ([#94](https://github.com/szaghi/adam/issues/94); Euler, `[gravity]
 self_gravity` required), $\rho = A a^2/(4\pi G r^2)$, $p = \rho a^2$, with the isothermal sound speed
 $a^2 = p_1/\rho_1$ of region 1 (only the ratio is used) and region 1's velocity. $A = 2$ is the hydrostatic sphere of
 Shu (1977), whose inside-out collapse accretes at $0.975\,a^3/G$; $A > 2$ collapses everywhere, at $m_0(A)\,a^3/G$
@@ -927,8 +927,8 @@ the hydrostatic sphere would expand. Keys: `sis_overdensity` $A$ (default 2, $> 
 (the centre, default 0). A cell centre on the centre is fatal: place it on a cell corner. The gas stays isothermal
 with $\gamma$ close to 1 (`gamma = 1.001`, [SI si11](./verification/self-gravity/sink-particles)), or is isothermal
 exactly with [`[eos] type = isothermal`](./input#eos-optional-equation-of-state)
-([#100](https://github.com/szaghi/adam/issues/100) P4): then $a^2 = c_0^2$ and the regions need no `p`
-([EO P4](./verification/euler/barotropic-gravity)).
+([#100](https://github.com/szaghi/adam/issues/100)): then $a^2 = c_0^2$ and the regions need no `p`
+([EO gravity](./verification/euler/barotropic-gravity)).
 
 ```ini
 [physics]
@@ -949,7 +949,7 @@ p = 0.25
 
 ## `bonnor-ebert`: the isothermal Lane–Emden sphere (self-gravity)
 
-The isothermal sphere in hydrostatic equilibrium ([#100](https://github.com/szaghi/adam/issues/100) P4; Euler with
+The isothermal sphere in hydrostatic equilibrium ([#100](https://github.com/szaghi/adam/issues/100); Euler with
 `[eos] type = isothermal`, `[gravity] self_gravity` required), at rest with region 1's velocity:
 $\rho = f\rho_c e^{-\psi(\xi)}$, $\xi = r/r_0$, $r_0 = c_0/\sqrt{4\pi G\rho_c}$, where $\psi$ solves the isothermal
 Lane–Emden equation $\psi'' + 2\psi'/\xi = e^{-\psi}$, $\psi(0) = \psi'(0) = 0$ (tabulated by RK4 on steps
@@ -957,7 +957,7 @@ $\Delta\xi = 10^{-3}$ from the series start, read by cubic Hermite interpolation
 closed box the walls confine it, and the sphere inscribed in the box is a Bonnor–Ebert sphere (Bonnor 1956, Ebert
 1955), stable when its $\xi$ is below 6.45. The overdensity $f$ pushes it out of equilibrium (a super-critical sphere
 left exactly at equilibrium may as well expand). In a cube the profile is not an exact equilibrium: the gas in the
-corners pulls through its cubic multipoles ([EO P4](./verification/euler/barotropic-gravity), eg7). Keys:
+corners pulls through its cubic multipoles ([EO gravity](./verification/euler/barotropic-gravity)). Keys:
 `be_density` $\rho_c$ (required, $> 0$), `be_overdensity` $f$ (default 1, $> 0$), `be_x0`, `be_y0`, `be_z0` (the
 centre, default 0).
 
@@ -981,7 +981,7 @@ w = 0.0
 ## `boss-bodenheimer`: the rotating cloud with an $m = 2$ perturbation (self-gravity)
 
 The standard test of binary fragmentation (Boss & Bodenheimer 1979, as set by Burkert & Bodenheimer 1993;
-[#100](https://github.com/szaghi/adam/issues/100) P4; Euler with `[eos]` isothermal or barotropic, `[gravity]
+[#100](https://github.com/szaghi/adam/issues/100); Euler with `[eos]` isothermal or barotropic, `[gravity]
 self_gravity` required): a sphere of radius $R$ centred at $\mathbf x_0$, $\rho = \rho_0(1 + A\cos 2\phi)$ ($\phi$ the
 azimuth about $z$) in solid-body rotation $\Omega\,\mathbf e_z \times (\mathbf x - \mathbf x_0)$, embedded in region
 1's density and velocity (the light ambient medium). Only the density and the velocity are set: the pressure is the

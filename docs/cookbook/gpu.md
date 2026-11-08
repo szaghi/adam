@@ -2,7 +2,7 @@
 
 Recipes for building and running the GPU backend, FNL, and for writing device code that follows its rules. FNL is
 OpenACC with nvfortran on NVIDIA GPUs, or OpenMP offloading with amdflang on AMD GPUs; the device memory is managed by
-FUNDAL. The library side is described in [library on FNL](/concepts/library-fnl).
+FUNDAL. The library side is described in [library on FNL](/developer/fnl).
 
 ## GPU1. Build an FNL mode
 
@@ -82,7 +82,7 @@ copy-in temporary, and the copy fails with `CUDA_ERROR_INVALID_VALUE` (issue
 [#31](https://github.com/szaghi/adam/issues/31)); otherwise use the whole-array `dev_assign_to_device(..., ij=[1,5])`.
 The same holds for any host buffer that mirrors a device one: give it the device buffer's extent.
 
-**Reference.** [Library on FNL](/concepts/library-fnl).
+**Reference.** [Library on FNL](/developer/fnl).
 
 ## GPU4. Write a device kernel for both GPU vendors
 
@@ -108,26 +108,35 @@ directives: it is NVIDIA-only by decision, and FLUME is the example of the twin 
 **Rules.** No configuration branching inside a kernel (one kernel per model, the `select case` in the host
 controller); a reduction goes into a procedure-local variable.
 
-**Reference.** [Library on FNL](/concepts/library-fnl).
+**Reference.** [Library on FNL](/developer/fnl).
 
 ## GPU5. Run on a development box with WSL2, not on a cluster
 
 **Problem.** Run an FNL executable with several ranks on a WSL2 workstation.
 
-**Settings** (`src/tests/prism/regression/run-fnl-local.sh`, WSL2 only):
+**Settings** (WSL2 only; `src/tests/flume/regression/run-fnl-local.sh` exports all five, the PRISM wrapper the first four):
 
 ```bash
 export OMPI_MCA_pml="ucx"
 export UCX_TLS="^cma"
 export OMPI_MCA_coll_hcoll_enable="0"
 export UCX_RNDV_THRESH="inf"
+export UCX_MEMTYPE_CACHE="n"
 ```
+
+| Setting | Why on WSL2 | On a cluster with InfiniBand and GPUDirect |
+|---|---|---|
+| `UCX_RNDV_THRESH=inf` | forces every message eager (below) | **harmful**: rendezvous is the fast GPUDirect path |
+| `UCX_TLS=^cma` | CMA shared memory is restricted under WSL (`ptrace_scope`) | not needed; use the site's GPU-aware transports, e.g. `UCX_TLS=rc_x,sm,cuda_copy,cuda_ipc` |
+| `OMPI_MCA_coll_hcoll_enable=0` | hcoll needs Mellanox InfiniBand hardware the box lacks | only where hcoll crashes at finalize ([C2](/cookbook/clusters#c2-a-batch-job)) |
+| `UCX_MEMTYPE_CACHE=n` | WSL's memory-type detection is unreliable | not needed |
+| `OMPI_MCA_pml=ucx` | selects the UCX point-to-point layer | usually correct as is |
 
 **Why.** The FNL ghost exchange posts MPI directly on device buffers (GPU-direct; the code has no host-staging
 fallback). With two or more ranks UCX moves them by rendezvous, whose device transports cannot reach the GPU context
-through WSL's `/dev/dxg`, and the run aborts at the first exchange ([#12](https://github.com/szaghi/adam/issues/12));
-`UCX_RNDV_THRESH=inf` forces every message eager. CMA is restricted under WSL and hcoll needs the InfiniBand hardware the box lacks; the `nvhpc` modulefile of the box
-also sets `UCX_MEMTYPE_CACHE=n`, as WSL's memory-type detection is unreliable.
+through WSL's `/dev/dxg`, and the run aborts at the first exchange with a SIGABRT in `ucp_proto_rndv_send_start`
+([#12](https://github.com/szaghi/adam/issues/12)); `UCX_RNDV_THRESH=inf` forces every message eager. The `nvhpc`
+modulefile of the box sets the same variables; the wrappers export them again because a script may run without it.
 
 ::: danger Never copy these settings into a cluster job
 On a cluster with GPUDirect RDMA, rendezvous **is** the fast path: `UCX_RNDV_THRESH=inf` is a performance regression
@@ -135,4 +144,4 @@ there, and the others are no-ops or worse. WSL runs check correctness only; neve
 :::
 
 **Reference.** [Clusters](/cookbook/clusters);
-[library on FNL](/concepts/library-fnl#gpu-direct-ghost-exchange-and-the-wsl2-rendezvous-abort-issue-12).
+[library on FNL](/developer/fnl#gpu-direct-ghost-exchange).

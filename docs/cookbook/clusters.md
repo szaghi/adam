@@ -72,14 +72,8 @@ belong to a WSL2 workstation only.
 
 **Problem.** Know which environment settings belong where.
 
-| Setting | WSL2 workstation | Cluster with InfiniBand and GPUDirect |
-|---|---|---|
-| `UCX_RNDV_THRESH=inf` | required for FNL with 2+ ranks ([#12](https://github.com/szaghi/adam/issues/12)) | **harmful**: rendezvous is the fast GPUDirect path |
-| `UCX_TLS=^cma` | required (CMA restricted) | not needed |
-| `OMPI_MCA_coll_hcoll_enable=0` | required (no Mellanox hardware) | only where hcoll crashes at finalize (C2) |
-| GPU-aware UCX transports, e.g. `UCX_TLS=rc_x,sm,cuda_copy,cuda_ipc` | — | the site's recommended tuning |
-
-Timings measured on WSL2 are not benchmarks: its GPU and MPI stack is a correctness environment only.
+The WSL2 workstation settings, and what to use instead on a cluster, are in
+[GPU5](/cookbook/gpu#gpu5-run-on-a-development-box-with-wsl2-not-on-a-cluster); never copy them into a job script.
 
 **AMD GPUs (OpenMP offload).** The FNL ghost exchange posts MPI directly on device buffers, so the MPI must be
 ROCm-aware. Without it a run is correct and very slow, with no warning. Measured on 8 MI300X, FLUME `profile-couette3d`

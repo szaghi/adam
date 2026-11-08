@@ -21,7 +21,7 @@ charged macro-particles by a particle-in-cell (PIC) method, on CPUs (MPI + OpenM
 | Boundaries | Extrapolation, Neumann, Dirichlet (zero), first-order Silver–Müller, PEC, periodic; perfectly matched layers (four formulations) and a far-wave damping layer | [Boundary conditions](./boundary-conditions), [Absorbing layers](./pml) |
 | Particles | Plasma (uniform, cylinder, slab, box) or a single test particle; Maxwellian or drift velocities; charge and current deposition from NGP to sixth order and Gaussian; charge-conserving currents with periodic faces; Runge–Kutta push | [Particle-in-cell](./pic) |
 | t0 fields | The electric field of the initial charge and the magnetic field of the initial current, solved by FLAIL with PRISM's own operator | [Numerical methods](./numerics#t0-elliptic-solves) |
-| Input | One INI file per realm, every value checked, refusals at initialization | [Input reference](./input) |
+| Input | One INI file per realm, every value checked, refusals at initialization | [Input reference](./input), [Hazards](./hazards) |
 | Output | XDMF + HDF5 field files (ParaView), restart files, slices, probes, residual, energy, divergence, RMS-field and charge-conservation histories | [Outputs](#outputs) |
 | Verification | Regression digests on both backends; oracle checks on AMR seams | [Verification](./verification) |
 
@@ -68,22 +68,19 @@ Without an argument the executable reads `input.ini` in the working directory. A
 - [Initial conditions and sources](./initial-conditions): field initial conditions, coils, external fields.
 - [Boundary conditions](./boundary-conditions) and [absorbing layers](./pml): the face kinds, the PML, the far-wave layer.
 - [Particle-in-cell](./pic): particles, deposition, gather, push, particle boundaries, charge conservation.
-- [Input reference](./input): every section and key, with the refused combinations.
+- [Input reference](./input): every section and key.
+- [Hazards](./hazards): the divergence-correction matrix, seam div(B), the PML constraints, the elliptic boundary map,
+  the refused combinations.
 - [Backends](./backends): CPU and FNL, what each implements, the step structure, device data.
 - [Verification](./verification): the oracle checks.
 
 ## Known limitations
 
-- **Seam div(B).** At a 2:1 AMR face the centred operators no longer commute, and the seam injects an $O(h^p)$
-  $\nabla\cdot\mathbf B$ source that converges under refinement but grows in time at fixed $h$
-  ([#29](https://github.com/szaghi/adam/issues/29), accepted as truncation; an upwinded GLM coupling is
-  [#99](https://github.com/szaghi/adam/issues/99)). `[IO] seam_divB_tol` makes it visible
-  ([numerics](./numerics#the-2-1-seam-and-div-b)).
+- **Seam div(B).** A 2:1 AMR face injects a $\nabla\cdot\mathbf B$ source that grows in time at fixed $h$
+  ([hazards](./hazards#seam-div-b)).
 - **Refinement at initialization only.** PRISM has no runtime regrid; the t0 elliptic solves refuse a refined grid.
-- **Time integration.** Only Runge–Kutta runs: leapfrog, Blanes–Moan and commutator-free Magnus are refused, for the
-  fields and for the particles ([#55](https://github.com/szaghi/adam/issues/55)).
-- **The GPU backend** has no WENO and no Yoshida; its PML needs the FD operators and an SSP scheme
-  ([backends](./backends#what-each-backend-implements)).
+- **Refused inputs.** Only Runge–Kutta runs, the GPU backend has no WENO and no Yoshida, and the PML needs the FD
+  operators and an SSP scheme: the full list is in the [hazards](./hazards#refused-combinations).
 - **The CPU charge-conserving deposit and the CPU coherent matched gather** run on one block and one rank only.
 - **Coils** (defects, [#108](https://github.com/szaghi/adam/issues/108)): a circular coil injects no current, and
   the coils after the first take the first coil's amplitude, not their own `Amplitude`.

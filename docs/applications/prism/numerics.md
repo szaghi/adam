@@ -32,7 +32,7 @@ $$\nabla_h\cdot(\nabla_h\times\mathbf F) \equiv 0 .$$
 Hence $\partial_t(\nabla_h\cdot\mathbf B) = -\nabla_h\cdot\nabla_h\times(\mathbf D/\varepsilon_0) = 0$: a field that starts
 divergence-free stays so to round-off, with no cleaning (a mimetic identity of the centred operators). The same holds
 for $\nabla_h\cdot\mathbf D$ with a divergence-free $\mathbf J$. The identity fails across a 2:1 AMR face
-([below](#the-2-1-seam-and-div-b)).
+([hazards](./hazards#seam-div-b)).
 
 ### Centred finite volumes (`fv_centered`)
 
@@ -41,8 +41,7 @@ the centred FV reconstruction of order $2s$, and differenced:
 
 $$R_v = -\sum_d \frac{F^d_{v,\,i+1/2} - F^d_{v,\,i-1/2}}{\Delta x_d} + S_v .$$
 
-On a uniform grid the centred FV derivative reduces to the FD stencil ([#84](https://github.com/szaghi/adam/issues/84)
-E3a measured both against the elliptic solver). The FV path carries the face fluxes, so its 2:1 faces are refluxed
+On a uniform grid the centred FV derivative reduces to the FD stencil. The FV path carries the face fluxes, so its 2:1 faces are refluxed
 ([#38](https://github.com/szaghi/adam/issues/38)). The coils' current density is stamped with the operator of the
 chosen family (`[fdv] fdv_scheme`), so an FV run evolves an FV-built source.
 
@@ -104,32 +103,16 @@ At a 2:1 face the coarse ghosts are restricted from the fine cells and the fine 
 ones (the library's seam machinery, octrees and quadtrees, [#46](https://github.com/szaghi/adam/issues/46)); the stages
 then run on the staged path of the forest, which needs an SSP scheme.
 
-### The 2:1 seam and div(B)
-
-Across a 2:1 face the two sides difference at different resolutions, the composite operator is no longer a tensor
-product, and $\nabla_h\cdot\nabla_h\times \ne 0$ there: the seam injects a $\nabla\cdot\mathbf B$ source in the
-grid-oscillation modes. It is truncation-order, $O(h^p)$: it converges under refinement, but it is unbounded in time at
-fixed $h$ and independent of $\Delta t$; $\lVert\mathbf B\rVert$ stays bounded, so it is a constraint violation, not an
-energy instability. Five local fixes were ruled out ([#29](https://github.com/szaghi/adam/issues/29)); the state is
-**accept-truncation**, with an upwinded or dissipative GLM coupling at the seams open as
-[#99](https://github.com/szaghi/adam/issues/99) and a staggered-$\mathbf B$ route parked as
-[#30](https://github.com/szaghi/adam/issues/30).
-
-- **Monitor.** `[IO] seam_divB_tol` (off by default) warns, on a run with 2:1 faces, when the max
-  $\lvert\nabla\cdot\mathbf B\rvert$ outside the absorbing layers exceeds it (a global maximum, not a seam-local one), and `[IO] seam_divB_error = .true.` stops the run instead
-  ([library reference](/reference/library-input#io)).
-- **Mitigation.** `divergence_correction = hyperbolic` with `constrained_transport = B` or `DB` and a damping
-  $\alpha > 0$ delays the growth; it does not cure it.
-
-The details and the measurements are on the [forest page](/concepts/forest#the-2-1-seam-is-not-div-free-accept-truncation).
+Across a 2:1 face the centred operators no longer commute, and the seam injects a $\nabla\cdot\mathbf B$ source that
+converges under refinement but grows in time at fixed $h$: its measurements, the `[IO] seam_divB_tol` monitor and the
+mitigation are in the [hazards](./hazards#seam-div-b).
 
 ## Multi-realm runs
 
 A [forest manifest](/reference/library-input#forest-manifest-multi-realm) glues several PRISM realms through seams.
 Both backends implement the realm contract of the forest, fast and staged paths and the seam exchange. A seam fills its
 ghosts once per step (`coupling_cadence = end_of_step`, α, the default) or at every Runge–Kutta stage
-(`stage_coincident`, β). **A 1:1 same-resolution seam needs β to stay divergence-free**: under α the stages after the
-first read stale seam ghosts ([#31](https://github.com/szaghi/adam/issues/31)). The divergence diagnostic refills the
+(`stage_coincident`, β). **A 1:1 same-resolution seam needs β to stay divergence-free** ([hazards](./hazards#seam-div-b)). The divergence diagnostic refills the
 inter-realm seam on the committed state before it measures. Worked cases:
 `src/tests/prism/regression/rmf-2realm*/`; the cadences are explained on the
 [forest page](/concepts/forest#coupling-cadence-α-vs-β).
@@ -150,7 +133,7 @@ $\mathcal D(\mathcal G)$ is PRISM's own operator, the centred first derivative o
 itself on each axis, so the corrected field satisfies $\nabla_h\cdot\mathbf D = \rho$ to round-off with PRISM's own
 divergence. Every centred first derivative annihilates the checkerboard mode, so this wide operator has a second null
 branch at $\theta = \pi$, which the solver drops exactly. The face kinds come from the
-[boundary map](./input#elliptic-boundary-map):
+[boundary map](./hazards#elliptic-boundary-map):
 
 - periodic and PEC faces: a direct FFT solve (FFTW on the CPU, cuFFT on FNL);
 - zero-ghost (Dirichlet) faces: a preconditioned CG on rank 0, to $10^{-12}$;

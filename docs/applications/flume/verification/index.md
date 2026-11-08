@@ -3,7 +3,7 @@
 Every FLUME capability is backed by a verification case in `src/tests/flume/verification/`: a `check.sh` that runs
 the case (CPU by default; `FLUME_EXE=exe/adam_flume_fnl` for the GPU backend) and an oracle that asserts the physics
 (an exact solution, a reference, a symmetry or a conservation property), not a stored golden. The stored goldens are
-the job of the [regression suite](./regression); the building blocks below the solver are pinned by the
+the job of the [regression suite](/reference/regression#flume-suite); the building blocks below the solver are pinned by the
 [unit tests](./unit-tests).
 
 Each case has its own page with the same sections: the case and its scope, the models and numerics with references
@@ -20,7 +20,7 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh        # FNL backend
 ```
 
 The verification cases are complete simulations, and they are run with a focused scope: the legs a change touches,
-not the whole catalog. The [regression suite](./regression) is the layer that runs on every change. Every script
+not the whole catalog. The [regression suite](/reference/regression#flume-suite) is the layer that runs on every change. Every script
 therefore selects its legs the same way, through the shared `legs.sh`:
 
 ```bash
