@@ -214,6 +214,21 @@ M 0.1 against the 512³ DNS, from `turbulence/tgv_dns.py`. Peak $-dK/dt$ over a 
 - **WENO-9** at $128^3$ (0.177) is much closer than WENO-5 (0.278); **WENO-7** is further (0.291), still unexplained.
 - **The skin:** on the 2:1 box the WENO skin (0.269) is further than uniform $64^3$ (0.237); the central skin ties it on $-dK/dt$ (0.236) and beats it on $Z$ (0.580 against 0.615). Smooth flow only.
 
+### The flow
+
+![Vorticity of the Taylor-Green vortex and of the isotropic turbulence](/flume/tgv-fields.png)
+
+*`hybrid-kep-weno` at $128^3$, re-run for this figure (`tgv_cases_vis.txt`, medooza dev-gn). Taylor-Green, Re 1600, Mach 0.1: $\omega_x$ on the
+periodic face $x\approx0$ at $t=4.2$ and $9.4$ (the peak of the dissipation is at $t\approx9$; the Workshop's figures show the vorticity norm on
+this face) and $\omega_z$ on the symmetry plane $z=\pi$ at $t=9.4$. Isotropic turbulence, $M_t$ 0.6, $Re_\lambda$ 100, $k_0=4$: $\omega_z$ on
+$z=\pi$ at $t=2$. Planes from `turbulence/field_slices.py --time`; `make_doc_figures.py --only tgv-fields`.*
+
+- **At $t=4.2$ the vorticity is still in sheets; by $t=9.4$ they have rolled up and broken into the small structures of the transition.**
+- **The flow's mirror symmetries survive the breakdown**: on the face $x\approx0$, $\omega_x$ is antisymmetric about $y=\pi$ and about $z=\pi$ to
+  $8\cdot10^{-13}$ of its maximum at $t=9.4$ (0 at $t=4.2$), as the initial condition is.
+- **On $z=\pi$ the flow is still large-scale at $t=9.4$**: four counter-rotating cells with thin layers at their edges.
+- **The isotropic field shows no visible imprint of the blocks** ($2^2$ per direction). One plane, one time: a description, not a measurement.
+
 ### Cost
 
 200 steps on $128^3$, two A30, three samples: WENO 24.1–24.6 s, every cell flagged 24.2–24.7 s, every cell central 26.7–26.9 s. The sensor costs under 1 %, the central flux about 10 % on top of WENO, startup included. A single kernel with a mask was not tried, so what skipping WENO would save is not measured.

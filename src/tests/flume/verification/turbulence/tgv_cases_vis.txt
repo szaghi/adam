@@ -1,0 +1,5 @@
+# The flow-field figure of the turbulence page (make_doc_figures.py --only tgv-fields): one Taylor-Green case to t = 10 (checkpoints about
+# every unit of time, so t ~ 4 and ~ 9 exist) and one isotropic case to its t = 2, re-run because no checkpoint of the T2 campaign was kept.
+# A case file of tgv_campaign.sh; then field_slices.py --time 4 / --time 9 --x 0.01 --z 3.14159 (Taylor-Green), --z 3.14159 (isotropic).
+m0.1-hybrid-n128 128 0.1 hybrid-kep-weno weno-u-5 --time-max 10.0
+hit-hybrid-n128 128 0.6 hybrid-kep-weno weno-u-5 --hit-k0 4 --reynolds 100 --time-max 2.0
