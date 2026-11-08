@@ -1,7 +1,7 @@
 # Regression suite
 
 The verification cases assert the physics: an exact solution, a reference, a symmetry or a conservation property. The
-regression suite does a different job. It freezes 39 inputs, most of them copies of a verification input cut to a few
+regression suite does a different job. It freezes 55 inputs, most of them copies of a verification input cut to a few
 dozen steps, and detects **any** change of their outputs, wanted or not.
 
 ## How it works
@@ -89,6 +89,7 @@ REGRESSION_CASES="sod-x rotor" src/tests/flume/regression/run.sh cpu --no-build
 | `iso-mhd-tube2` | [isothermal and barotropic MHD](./mhd/barotropic-mhd) (EO em4): Mignone's isothermal tube 2 (rotational discontinuities), 200 cells in four blocks of one transverse cell, WENO5 flux splitting on Kim's eigenvectors, $t = 0.2$: the isothermal MHD library, the inert energy slot; per-backend goldens | [#100](https://github.com/szaghi/adam/issues/100) |
 | `baro-mhd-glm-hlld` | [isothermal and barotropic MHD](./mhd/barotropic-mhd) (EO em4): tube 2 with the densities times 5 on `POLY` (the $\Gamma = 1.4$ segment), mixed GLM, `weno-riemann` with the isothermal HLLD on $P(\rho)$, 200 cells, $t = 0.2$: the barotropic MHD library, the HLLD and GLM kernels; per-backend goldens | [#100](https://github.com/szaghi/adam/issues/100) |
 | `sinks-shu` | [sink particles](./self-gravity/sink-particles) (SI si11): the overdense singular isothermal sphere ($A = 29.3$, $\gamma = 1.001$) with a seed sink at the centre, $16^3$, 30 steps: the deposit into the Poisson source, the CIC gather, threshold accretion, the kick-drift-kick, the sink columns of the history | [#94](https://github.com/szaghi/adam/issues/94) |
+| `tgv-small` | [the Taylor–Green vortex](./turbulence/) (T0.2): Re 1600, Mach 0.4, $16^3$ cells on 8 blocks, 20 steps, with the turbulence history on | [#119](https://github.com/szaghi/adam/issues/119) |
 
 The self-gravity goldens agree across the backends to $9\cdot10^{-14}$ relative in the volume integrals and $E + W$,
 and to $1.8\cdot10^{-18}$ absolute in the momentum, which is round-off.

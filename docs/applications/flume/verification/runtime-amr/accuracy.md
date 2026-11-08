@@ -44,7 +44,7 @@ derefined only when every marker agrees, and a block at the base level is never 
 | av3b | Balsara–Spicer MHD blast of the `blast-limiter` golden: $\rho = 1$, $p = 1000$ for $r < 0.1$ around $(0.5, 0.5)$ (sampled at the cell centres of $N = 64$), $p = 0.1$ outside, $\mathbf B = 100/\sqrt{4\pi}$ at 45° (ambient $\beta = 2.5\cdot10^{-4}$); periodic quadtree on $[0, 1]^2$, $16^2$ cells per block | base level 2 ($N = 64$) to level 3 ($N = 128$); gradient on $p$ (`tol` 100) OR Löhner on $p$ (0.5, 0.2) | $N = 128$ | $t = 0.01$ |
 | av3c | the av3b blast on `weno-riemann` (HLLD) | as av3b | $N = 128$ | $t = 0.01$ |
 | av4 | [field loop](../../initial-conditions#field-loop-advected-field-loop) (MV-9): $A_0 = 10^{-3}$, $R = 0.3$, $\rho = p = 1$, $\mathbf v = (2, 1, 1)$, on $[-1, 1] \times [-0.5, 0.5]$, periodic quadtree, $4 \times 4$ blocks of $N/4 \times N/8$ cells; GLM and EGLM | $N = 64$ to $N = 128$; gradient on $B_x$ (`tol` 0.01) OR Löhner on $B_x$ and $B_y$ (0.3, 0.1, `floor` $10^{-4}$) | $N = 128$ | $t = 1$ |
-| av6 | the av2 tracked vortex | on 1, 2 and 3 ranks (1, 2 on FNL: the WSL box has two GPUs, and three ranks sharing them run about 170 times slower) | — | $t = 0.2$ |
+| av6 | the av2 tracked vortex | on 1, 2 and 3 ranks (1 and 2 on FNL) | — | $t = 0.2$ |
 | av7 | [shock over the cylinder](../euler/shock-cylinder) (V6), octree with $z$ null, $16 \times 16 \times 4$ cells per block | V6's initial AMR (base level 2, solid marker to level 3) and a regrid every 5 steps: solid OR Löhner on $\rho$ (0.6, 0.2) | uniform at V6's finest level (level 3); the init-AMR V6 run (no regrid) | $t = 0.25$ |
 | av8 | the tracked runs of av2, av3a, av3b, av4 (GLM, EGLM), av7 on both backends | — | the uniform-fine pair of each | — |
 

@@ -82,7 +82,7 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs leg8,leg9,leg
 steps; the seam is the dashed line at $x = 0.5$, and the refined patch moves along it with the vortex. Bottom left:
 the mass of each realm and the drift of their sum. Bottom right: the blocks per level in each realm.*
 
-Measured on the development box (WSL), 2026-10-29:
+Results:
 
 | Leg | Check | Bound | CPU | FNL |
 |---|---|---|---|---|

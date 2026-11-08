@@ -110,7 +110,7 @@ Contract legs, the ILES baseline on the Taylor-Green vortex, the subgrid-scale m
 
 | Case | ID | Milestone | Backends | Figure |
 |---|---|---|---|---|
-| [Regrid round trip and input contract](./runtime-amr/regrid-round-trip) | RG (rg0, rg1, rg2) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU (rg0, a host program); rg1 and rg2 CPU, FNL | no |
+| [Regrid round trip and input contract](./runtime-amr/regrid-round-trip) | RG (rg0, rg1, rg2, rg7) | M5 ([#74](https://github.com/szaghi/adam/issues/74)); [#91](https://github.com/szaghi/adam/issues/91) (rg7) | CPU (rg0, a host program); rg1, rg2 and rg7 CPU, FNL | no |
 | [Runtime regrids in FLUME](./runtime-amr/runtime-regrids) | RG (rg3 to rg6) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes |
 | [Accuracy of runtime AMR](./runtime-amr/accuracy) | AV (av2 to av8) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes |
 | [MHD blast symmetry on the flux-splitting path](./runtime-amr/mhd-blast-symmetry) | #77 study, bounded by av3c | M5 ([#74](https://github.com/szaghi/adam/issues/74)), [#77](https://github.com/szaghi/adam/issues/77) | CPU, FNL | yes |
@@ -158,7 +158,7 @@ Contract legs, the ILES baseline on the Taylor-Green vortex, the subgrid-scale m
 | [The FFT Poisson solver](./self-gravity/fft-poisson) | SV-2 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P2 | CPU, FNL | yes |
 | [Jeans modes under self-gravity](./self-gravity/jeans) | SV-3, SV-4, SV-5 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P3 | CPU, FNL | yes |
 | [The isolated Poisson solver](./self-gravity/isolated-solver) | SV-6 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4 | CPU, FNL | yes |
-| [The n = 1 polytrope: equilibrium and collapse](./self-gravity/polytrope) | SV-7, SV-8, SV-14 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4; [#87](https://github.com/szaghi/adam/issues/87), P3 | CPU, FNL | yes |
+| [The n = 1 polytrope: equilibrium and collapse](./self-gravity/polytrope) | SV-7, SV-8, SV-14 to SV-17 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4; [#87](https://github.com/szaghi/adam/issues/87), P3, P4; [#88](https://github.com/szaghi/adam/issues/88); [#91](https://github.com/szaghi/adam/issues/91) | CPU, FNL | yes |
 | [The multigrid Poisson solver on AMR grids](./self-gravity/multigrid-amr) | SV-9, SV-12, SV-13 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5a; [#87](https://github.com/szaghi/adam/issues/87), P1, P2 | CPU only | yes |
 | [Jeans modes on a static AMR grid](./self-gravity/amr-jeans) | SV-10 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5b, P5c | CPU, FNL | yes |
 | [Self-gravity under runtime AMR](./self-gravity/runtime-amr) | SV-11 | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5c | CPU, FNL | yes |

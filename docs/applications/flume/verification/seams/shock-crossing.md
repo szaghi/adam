@@ -157,27 +157,14 @@ by 0.2 to 0.35 cells; the plateau maxima at most 30 % larger than with the reflu
 The PV-5 blast (the limited Balsara–Spicer blast across 2:1 seams, `nk` widened to 8) passes under both restrictions
 and both schemes: $t = 0.01$ reached, no inadmissible stage, no non-finite flux, mass and seam flux mismatch unchanged;
 the largest number of faces limited in a stage is 46336 against 48512 with the mean (split) and 17920 for both (HLLD).
-The PV-5 runs take 2.4 to 2.5 times the wall time of the mean on FNL (4900 s against 1955 s, split; 4395 s against
-1841 s, HLLD, with the same 433 steps; WSL, indicative only), against 16 % on the quadtree
-[AO](./order-across-seams) case.
 
 ### C3b: the cost was the ghost kernel
 
-Profiled with Nsight Systems (40 PV-5 steps, one rank), the local ghost update was 98 % of the FNL GPU time even with
-the mean: 0.70 s per call. nvfortran parallelised its loop over the variables only (9 threads) and ran the map rows in
-sequence (a "loop carried dependence" through the indirect writes): the schedule
-[#27](https://github.com/szaghi/adam/issues/27) specifies the fix for, and that
-[#53](https://github.com/szaghi/adam/issues/53) measured as the dominant FNL cost. With the two loops collapsed, as the
-other map kernels are:
-
-| Run | Before | After |
-|---|---|---|
-| local ghost kernel over 444 calls, `mean` | 310 s | 0.84 s |
-| local ghost kernel over 444 calls, `lagrange6` | 815 s | 1.39 s |
-| full PV-5 split run, `mean` | 1955 s | 276 s |
-| full PV-5 split run, `lagrange6` | 4900 s | 288 s (premium 4 %, with 5 % more steps) |
-
-The results are bitwise identical. WSL timings: #27 asks for the benchmark on a real node.
+Profiled with Nsight Systems (PV-5, one rank), the local ghost update dominated the FNL GPU time even with the mean.
+nvfortran parallelised its loop over the variables only (9 threads) and ran the map rows in sequence (a "loop carried
+dependence" through the indirect writes): the schedule [#27](https://github.com/szaghi/adam/issues/27) specifies the fix
+for, and that [#53](https://github.com/szaghi/adam/issues/53) measured as the dominant FNL cost. The two loops are now
+collapsed, as the other map kernels are. The results are bitwise identical.
 
 ### C3c: the WENO restriction
 
@@ -189,7 +176,6 @@ The results are bitwise identical. WSL timings: #27 asks for the benchmark on a 
 | Sod f2c plateau $\rho$, band $\rho$ | $1.576\cdot10^{-2}$, $3.481\cdot10^{-3}$ | $1.575\cdot10^{-2}$, $3.430\cdot10^{-3}$ | $1.576\cdot10^{-2}$, $3.516\cdot10^{-3}$ |
 | RJ2a c2f plateau $\rho$, band $p$ | $1.413\cdot10^{-2}$, $1.402\cdot10^{-4}$ | $1.410\cdot10^{-2}$, $1.300\cdot10^{-4}$ | $1.414\cdot10^{-2}$, $1.360\cdot10^{-4}$ |
 | PV-5 split / HLLD: most faces limited in a stage | 48512 / 17920 | 46336 / 17920 | 48064 / 17920 |
-| PV-5 split wall (WSL, after C3b) | 276 s | 288 s | 278 s |
 
 The AO rows are the legs `euler-l6` and `euler-w6` of [AO](./order-across-seams), which CPU and FNL reproduce to every
 printed digit.
@@ -219,11 +205,10 @@ Related cases: [AO](./order-across-seams) is the smooth baseline of the same ope
   mean's (the RJ2a band density 2 % above, the others equal or below), and the shock lands in the same place with the
   mass exact. The defect behind a crossing shock does not come from the restriction's order.
 - **C3: it does not worsen positivity.** The limited blast passes as with the mean, with no more faces limited.
-- **C3: on FNL it was slow on an octree,** 2.4 to 2.5 times the mean's wall time: a restricted ghost reads 216 fine
-  cells, one after the other, in the loop that copies the other ghosts. The nonlinear `weno6` followed as an option, not
-  as a fix.
-- **C3b: the cost was the ghost kernel, for every regime.** Collapsing its two loops cut the full PV-5 run from 1955 s
-  to 276 s (mean) and from 4900 s to 288 s (`lagrange6`), bitwise identical.
+- **C3: on FNL a restricted ghost reads 216 fine cells on an octree,** one after the other, in the loop that copies
+  the other ghosts. The nonlinear `weno6` followed as an option, not as a fix.
+- **C3b: the cost was the ghost kernel, for every regime.** Its two loops are collapsed, with bitwise identical
+  results.
 - **C3c: on the smooth vortex `weno6` equals `lagrange6`** (the band L1 13 % lower): no jump is detected, and the
   fourth-order rows at the donor block's edge do not show at these resolutions. The AO leg `euler-w6` asserts it.
 - **C3c: at shocks it is as neutral as `lagrange6`:** shock positions identical, mass exact, every defect within 1.5 %

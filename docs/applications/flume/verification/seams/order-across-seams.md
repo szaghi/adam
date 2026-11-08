@@ -153,6 +153,5 @@ prototype; the uniform-grid orders are [V2](../euler/isentropic-vortex) and
   against 1.46 at $N$ = 64 → 128), as [B1](../seams-studies/caps-prototype) predicts. Reaching the high order with the
   reflux kept at the shocks is Phase E's job ([E2](../seams-studies/reflux-policy)).
 - No restriction row fell back to the mean: every fine pair lies inside its donor block.
-- **C1 cost on FNL:** about 16 % of the wall time of this run ($N = 256$, reflux off: 56 s against 48 s with the mean;
-  WSL, indicative only): the restriction rows read 36 cells instead of 4 on this quadtree, in the same kernels as the
+- **C1 cost on FNL:** the restriction rows read 36 cells instead of 4 on this quadtree, in the same kernels as the
   copies.

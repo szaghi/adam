@@ -105,8 +105,7 @@ isolated analogue of the collapse is [SV-8](./polytrope); the `[reference]` laye
 - **The symmetry holds to round-off, not bitwise:** the summation orders of WENO and of the FFT are not mirror
   invariant. The defect relative to the mode is $5\cdot10^{-11}$ at the end; it is largest ($7\cdot10^{-10}$) early,
   when the amplitude is $10^{-6}$ and round-off is a larger fraction of it.
-- **Cost.** CPU (WSL, indicative): a Poisson solve of the $32^2$ grid takes 0.2 ms; with self-gravity the $32^2$ run
-  takes 31 s against 29 s without (one solve per stage and one per history row). FNL (one A30 per rank): 1.3 ms per
+- **Cost.** One Poisson solve per stage and one per history row. FNL (one A30 per rank): 1.3 ms per
   solve at $32^2$, 4.4 ms at $128^2$, the density and the potential crossing the host each stage. A first version
   copied the whole device potential every stage, sized to the block capacity (23 270 blocks, 16 in use): 0.73 s per
   solve, whatever the grid. Only the active blocks cross now; the results are bitwise those of the first version.

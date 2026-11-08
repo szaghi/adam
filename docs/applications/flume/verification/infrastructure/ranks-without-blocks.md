@@ -11,7 +11,7 @@ into equal chunks, and when a cut falls inside a family it moves the whole famil
 families than ranks therefore leaves ranks with no block: four blocks at level 1 are one family, all on rank 0 at np 2.
 Every code path that sizes an array by the local `blocks_number` meets a zero there.
 
-On FNL that is a zero-byte device allocation: `acc_malloc(0)` returns a null pointer (measured, nvhpc 25.5), and FUNDAL
+On FNL that is a zero-byte device allocation: `acc_malloc(0)` returns a null pointer (measured), and FUNDAL
 reports a null pointer as a failed allocation. Every MHD run therefore died at initialisation
 ([#82](https://github.com/szaghi/adam/issues/82)): the div(B) history copied its seam-face flags,
 `divb_seam(blocks_number, 6)`, to the device. The array is now sized by the block capacity `nb`, as every other
@@ -84,7 +84,7 @@ cd .. && ./make_doc_runs.sh <dir> ranks && python3 make_doc_figures.py --out ../
 families, 8 blocks. Right: the blocks of each rank against the step. Over all 21 checkpoints the largest difference
 between the np 2 and np 1 states, over every field and every cell, is 0.*
 
-| Case (FNL, 2 A30 GPUs, nvhpc 25.5) | blocks per rank, step 0 → 20 | before the fix, np 2 | after: np 2 vs np 1 |
+| Case (FNL, 2 A30 GPUs) | blocks per rank, step 0 → 20 | before the fix, np 2 | after: np 2 vs np 1 |
 |---|---|---|---|
 | `repro` | 4 / 0 → 4 / 0 | **aborts** at initialisation | bitwise |
 | Euler | 4 / 0 → 4 / 0 | runs | bitwise |

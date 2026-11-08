@@ -14,7 +14,7 @@ only behind new keys, whose defaults keep today's behaviour:
 The investigations behind the phases, and the decisions they led to, are the [seam studies](../seams-studies/).
 
 Every case runs on 2 ranks from its `check.sh` under `src/tests/flume/verification/amr-*/`; `FLUME_EXE` selects the
-backend. No M6 case has a figure yet: they are listed in [#85](https://github.com/szaghi/adam/issues/85).
+backend. Every case has a figure.
 
 | Case | ID | What it verifies |
 |---|---|---|

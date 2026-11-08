@@ -4,11 +4,11 @@ The `src/tests/prism/regression/` suite is the **structural-change regression ba
 
 This page is the conceptual overview. The authoritative operational reference — golden-capture workflow, CI-as-authority rules, tolerance rationale, adding a case — is the suite's own [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md); it is not duplicated here. To stand the suite up on a new machine, compiler, or GPU architecture, follow the [bring-up tutorial](./prism-regression-tutorial).
 
-::: tip Current status (`1c6ebee5`, medooza gates)
-**15 PASS, 9 SKIP** on the CPU backend, **16 PASS, 8 SKIP** on FNL (a SKIP is a case with no golden for that backend, or one of the two non-case directories `reproducers/` and `slices/`;
-`rmf-fwl` is FNL-goldened only). The two items open at `cf16e20d` are closed: the `rmf-amr` FV-path change was
-adjudicated and its goldens refreshed on both backends (`bad09954`), and `rmf-fwl` was migrated to `[fWLayer] width`
-with its FNL golden refreshed (`43981538`).
+::: tip Coverage
+The suite has 24 case directories (an `input.ini` each). 15 carry a digest golden for the CPU backend and 16 for FNL
+(`rmf-fwl` is FNL-goldened only), so a green sweep reports 15 PASS on CPU and 16 on FNL. A SKIP is a case with no
+golden for that backend, or one of the two non-case directories `reproducers/` and `slices/`. The other cases are
+checked by their own `check.sh`, `scaling.sh` or `coils.sh`.
 :::
 
 ## Design goals
@@ -52,7 +52,7 @@ The **CPU** golden is captured in CI (the single source of truth for the CPU bac
 
 ## Case inventory
 
-All cases share `physical_model = EM`, `fdv_order = 6` and `ngc = 3`. All but `rmf-hyperbolic` run without divergence correction (`constrained_transport = no`, `divergence_correction = no`, `nv = 9`); `rmf-hyperbolic` is the only case with hyperbolic (GLM) cleaning, on D and B (`nv = 11`).
+All cases use `fdv_order = 6`. The `rmf*`, `periodic-pulse-blocks` and `memory-scaling*` cases are `physical_model = EM`; the four `pic-*` cases are `physical_model = PIC`. The `pic-*`, `rmf-open-t0` and `rmf-pec-t0` cases use `ngc = 6`, every other case `ngc = 3`. All but `rmf-hyperbolic` run without divergence correction (`constrained_transport = no`, `divergence_correction = no`); `rmf-hyperbolic` is the only case with hyperbolic (GLM) cleaning, on D and B (`nv = 11`).
 
 ### Digest/residuals-goldened cases
 
@@ -66,6 +66,31 @@ All cases share `physical_model = EM`, `fdv_order = 6` and `ngc = 3`. All but `r
 | `rmf-fwl-amr`          | single | — | fd | `rmf-fwl` with an init-time box marker refining the x-minus slab to level 3: the fWLayer ranges rebuilt on the refined blocks ([#95](https://github.com/szaghi/adam/issues/95) P5.1) |
 | `rmf-pml-amr`          | single | — | fd | the same grid with a CFS PML instead of the layer: the PML support and its RK storage rebuilt on the refined blocks ([#95](https://github.com/szaghi/adam/issues/95) P5.1) |
 | `rmf-hyperbolic`       | single | — | fd | `rmf` with hyperbolic cleaning on D and B (`chi = 1`, damping `alpha = 1e9` 1/s): the GLM state layout, φ and ψ in slots 7 and 8, J in 9..11 ([#61](https://github.com/szaghi/adam/issues/61)). Its two init refusals (`hyperbolic` without constrained transport, `poisson`) are legs of `refusals.sh` |
+| `periodic-pulse-blocks` | single | — | fd | a Gaussian pulse along +x in a box periodic on every face, 48³ cells as 64 blocks split 32/32 over the two ranks, 192 steps = one period: library periodicity across blocks and ranks |
+| `rmf-pec-t0`           | single | — | fd | the four `rmf` coils carrying their current at t0 inside PEC walls: FLAIL's t0 solves of A give a divergence-free B ([#84](https://github.com/szaghi/adam/issues/84) E3b); its `check.sh` asserts `max\|div B\| h / max\|B\| ≤ 1e-12` and np 1 = np 2 to 1e-12 |
+| `rmf-open-t0`          | single | — | fd | the same coils inside exact/open faces (`Neumann`): the free-space potential in the ghosts, summed on rank 0 ([#84](https://github.com/szaghi/adam/issues/84) E3c); same `check.sh` acceptance, away from the faces |
+| `pic-pec-t0`           | single | — | fd | the t0 electric field of a PIC plasma box between PEC walls: `div D = rho` up to the checkerboard mode ([#84](https://github.com/szaghi/adam/issues/84) E3b); `check.sh` bound `1e-12 max\|rho\|`, np 1 = np 2 |
+| `pic-open-t0`          | single | — | fd | the same plasma inside exact/open faces ([#84](https://github.com/szaghi/adam/issues/84) E3c); `check.sh` bound `1e-11 max\|rho\|` beyond 3 cells of the faces, np 1 = np 2 |
+
+### PIC cases (`check.sh`-driven, goldens in `golden-check/`)
+
+Both run the production PIC path (TSC, conserving current `esirkepov_Q10` with the coherent gather, the t0 FLAIL solves,
+FD6, SSP(5,4), fixed seed) through the shared driver `pic_check.sh`, as legs: CPU np 1 on one block for the first 4
+steps, FNL np 1, and FNL np 2 on the same grid as 64 blocks. Every leg also asserts Gauss's law at t0 and charge
+conservation to round-off. Their goldens sit in `golden-check/`, not `golden/`, because `run.sh` runs every goldened case
+at `-np 2`, which the single-rank CPU leg refuses; `run.sh` reports them as SKIP.
+
+| Case | Exercises |
+|---|---|
+| `pic-periodic`   | uniform plasma periodic on every face, plane wave of one box length, 32×24×24 cells, 40 steps: periodic current fold and particle wrap on three axes |
+| `pic-slab-pulse` | a plasma slab 3 c/ω_pe thick, PEC along x and periodic in y, z, `gaussian_derivative_pulse` through the slab, 384×24×24 cells, 1152 steps |
+
+### Capacity probes (no golden)
+
+`memory-scaling` runs a minimal EM case (`it_max = 1`) at `-np 1` and `-np 2` and asserts, through `scaling.sh`, how the
+per-rank block capacity `nb` scales: it halves on the CPU (host memory shared by the ranks of a node) and stays constant
+on FNL (one device per rank). `memory-scaling-coils` is the same case with the four `rmf` coils; `coils.sh` asserts that
+the capacity budget counts 3 block-sized fields per coil.
 
 ### Inter-realm 1:1 seam anchor
 
@@ -120,4 +145,4 @@ The pulse case is the valid convergence instrument: with `J = 0` the Maxwell sys
 
 - [Forest (multi-realm)](/concepts/forest) — the seam machinery these cases exercise.
 - Suite [`README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/README.md) — operational reference (golden capture, tolerances, adding a case).
-- `kernel_inventory.md` — the separate PRISM-FNL OpenACC kernel-class audit ([#10](https://github.com/szaghi/adam/issues/10) Step 3).
+- [`kernel_inventory.md`](https://github.com/szaghi/adam/blob/develop/src/tests/prism/regression/kernel_inventory.md) — the separate PRISM-FNL OpenACC kernel-class audit ([#10](https://github.com/szaghi/adam/issues/10) Step 3).

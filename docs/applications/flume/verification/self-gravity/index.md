@@ -48,7 +48,7 @@ The figures are regenerated with `make_doc_runs.sh <dir> <group>` and `make_doc_
 | [The FFT Poisson solver](./fft-poisson) | SV-2 | the periodic solver is exact for $L_h$, second order against the continuum |
 | [Jeans modes](./jeans) | SV-3 to SV-5 | the coupling: dispersion relation, growth rate, symmetry, exact $E + W$ exchange, scaling covariance |
 | [The isolated solver](./isolated-solver) | SV-6 | zero padding with the lattice Green's function: free-space potential of the mass on the grid |
-| [The n = 1 polytrope](./polytrope) | SV-7, SV-8, SV-14 | a star in equilibrium and a collapsing one under isolated self-gravity, uniform and on AMR |
+| [The n = 1 polytrope](./polytrope) | SV-7, SV-8, SV-14 to SV-17 | a star in equilibrium and a collapsing one under isolated self-gravity, uniform and on AMR; the collapse under runtime AMR with the conservative-state prolongation, a Jeans marker and dual energy ([#87](https://github.com/szaghi/adam/issues/87), [#88](https://github.com/szaghi/adam/issues/88), [#91](https://github.com/szaghi/adam/issues/91)) |
 | [The multigrid solver on AMR grids](./multigrid-amr) | SV-9, SV-12, SV-13 | the mimetic 2:1 coupling (symmetric and consistent), the FCG solver, Dirichlet faces, isolated boundaries by the symmetric James step |
 | [Jeans modes on a static AMR grid](./amr-jeans) | SV-10 | the multigrid coupling, the seam gravity work, the per-stage reflux |
 | [Self-gravity under runtime AMR](./runtime-amr) | SV-11 | the solver and $\Phi$ follow every regrid; $E + W$ exact between regrids |

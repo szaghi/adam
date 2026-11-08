@@ -90,8 +90,8 @@ test(flume): the vortex-rk3 regression case, the only one on the low-storage Run
 Releases are fully automated via `scripts/bump.sh` and GitHub Actions. The only steps needed are:
 
 ```bash
-# Install git-cliff once
-npx git-cliff@latest
+# Install git-cliff once (bump.sh needs the git-cliff binary on PATH)
+cargo install git-cliff
 
 # Then, to release:
 scripts/bump.sh patch   # v1.2.3 → v1.2.4
@@ -107,8 +107,18 @@ scripts/bump.sh v2.1.0  # explicit version
 3. Create an annotated git tag
 4. Push commit + tag
 
-Pushing the tag triggers the GitHub Actions release workflow, which automatically:
-- Runs the full test suite and uploads coverage to Codecov
-- Builds this documentation site and deploys it to GitHub Pages
-- Packages a versioned tarball `adam-vX.Y.Z.tar.gz`
-- Publishes a GitHub release with the changelog section as release notes
+Pushing the tag triggers the release workflow (`.github/workflows/release.yml`). It runs no test and builds no
+documentation. It:
+- packages a versioned tarball `adam-vX.Y.Z.tar.gz` (without `.git`, `exe`, `obj`, `mod` and the docs build);
+- extracts the tag's section of `CHANGELOG.md` as the release notes;
+- publishes a GitHub release with the tarball and `scripts/install.sh` attached.
+
+The other workflows:
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ci.yml` | every branch push and pull request (not tags) | the coverage rule (`fobis rule --ex makecoverage-analysis`); the PRISM and FLUME CPU regression suites (`--varset ci_gnu`); the FLUME OpenMP-vs-serial bitwise check; the RIPPLE CPU oracles; the check of the build modes named in the docs |
+| `docs.yml` | a push to the default branch, or manual | the coverage rule and the coverage badge, the build-modes page, the API reference, the VitePress build, and the deploy to GitHub Pages |
+| `install.yml` | after a successful release | installs the release through `install.sh` with FoBiS, with fpm, and with CMake when the tag has a `CMakeLists.txt` |
+
+Coverage is not uploaded to any external service: `docs.yml` writes it to the badge `docs/public/coverage-badge.json`.

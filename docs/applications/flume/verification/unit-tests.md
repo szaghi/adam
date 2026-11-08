@@ -31,8 +31,21 @@ fobis build --mode test-flume-<name>-fnl-nvf --varset local_nvf  # device twin
 | `test_poisson_fft` (+ `-fnl-nvf`) | `src/tests/poisson/` | the FFT Poisson solver, periodic and isolated (SV-2, SV-6) | [FFT Poisson solver](./self-gravity/fft-poisson), [isolated solver](./self-gravity/isolated-solver) |
 | `test_poisson_mg` | `src/tests/poisson/` | the multigrid Poisson solver on AMR grids (SV-9, SV-12, SV-13); `--bc` the boundary kinds per face, against the FFT solver on uniform grids and a manufactured potential on AMR ([#84](https://github.com/szaghi/adam/issues/84), E1b); `--flail` the FLAIL facade with them, bitwise against the solvers called directly, and per-component kinds as one instance per component (E1c) | [multigrid on AMR](./self-gravity/multigrid-amr) |
 | `test_flail_bc` (+ `-fnl-nvf`) | `src/tests/poisson/` | FLAIL boundary kinds per face in the FFT solver: periodic, Dirichlet and Neumann at the face (mixed per axis, 2n/4n extensions), ghost-Dirichlet; round-off against per-axis discrete eigenfunctions, ghost layer included; D/D order 1.99 ([#84](https://github.com/szaghi/adam/issues/84), E1a). The same with the wide D(G) of order 2, 4, 6, 8 (PRISM's elliptic operator, E2a), its eigenvalue computed in real space, ghost layers to depth p; wide p = 4 D/D order against the continuum. Zero-ghost faces (PRISM's Dirichlet, E2b) by preconditioned CG: a manufactured solution, the ghosts against the rules, the iterations bounded in the grid. PRISM's own operators (E3a): `div(grad phi) = f` with the library's centred FD and FV derivatives of order 2–8, the solver's ghosts read, so FLAIL inverts exactly the operator PRISM applies. Free-space ghosts (PRISM's exact/open face, E3c): the ghost slabs against a direct Green's sum, `D(G) phi = factor f` with them, the same on 1–3 ranks | `poisson.sh --legs bc` |
-
 | `test_rk_ssp_tableau` | `src/tests/rk/` | the SSP Butcher tableaux ([#104](https://github.com/szaghi/adam/issues/104)): the order conditions up to each scheme's order in quadruple precision ($\le 10^{-14}$; SSP(5,4) at $6\cdot10^{-16}$), $c_i = \sum_j a_{ij}$, $A$ strictly lower triangular, a constant force exact, the observed order on $y' = -y$, the SSP(5,4) error at 320 steps $\le 10^{-12}$ | every case (the time integrator) |
 
 Build modes: `test-tree-closest-block-gnu`, `test-quadtree-seam-ghost-gnu` (`-fnl-nvf`), `test-poisson-fft-gnu`
-(`-fnl-nvf`), `test-poisson-mg-gnu`, `test-rk-ssp-tableau-gnu`.
+(`-fnl-nvf`), `test-poisson-mg-gnu`, `test-flail-bc-gnu` (`-fnl-nvf`), `test-rk-ssp-tableau-gnu`.
+
+## FLUME tests run by the verification legs
+
+Host programs called by a leg of a verification `check.sh`, with the sources next to the case.
+
+| Test | Sources | What it pins | Case |
+|---|---|---|---|
+| `test_sgs` | `src/tests/flume/verification/turbulence/` | the pointwise subgrid-scale formulas (Vreman, WALE, Sigma) for velocity gradients read on stdin, compared by `sgs_oracle.py` with its own computation ([#119](https://github.com/szaghi/adam/issues/119), T1) | [turbulence](./turbulence/), leg sg1 |
+| `test_kep` | `src/tests/flume/verification/turbulence/` | the central flux of the hybrid scheme on periodic lines along x, y, z: order $\ge 5.5$ on every component (n = 32, 64, 128), the discrete kinetic energy identity within $10^{-12}$ of its scale, pressure equilibrium across a 100:1 step within $10^{-12}$ ([#119](https://github.com/szaghi/adam/issues/119), T2) | [turbulence](./turbulence/), leg hy3 |
+| `test_wall_model` | `src/tests/flume/verification/turbulence/` | the wall models pointwise: the laminar limit, the log layer against a fine quadrature, the Crocco relation with $Pr = Pr_t$, the same under Sutherland's law, and the inverse-transformation model ([#119](https://github.com/szaghi/adam/issues/119), T3.4, T3.5) | [turbulence](./turbulence/), leg wm2 |
+| `test_inflow_df` | `src/tests/flume/verification/turbulence/` | the digital-filter inflow generator on its plane alone: the prescribed Reynolds stresses (layer sums within 3 %, every node within 10 %), the temporal and spanwise correlations, a periodic span, a bitwise restart ([#119](https://github.com/szaghi/adam/issues/119), T3.7) | [turbulence](./turbulence/), leg tb1 |
+| `test_flume_user_criterion` | `src/tests/flume/verification/regrid/` | the FLUME CPU driver plus a registered refinement criterion (`[amr_marker_N] mode = 6`) that reproduces the built-in box marker ([#110](https://github.com/szaghi/adam/issues/110), P4) | [multi-realm under runtime AMR](./runtime-amr/multi-realm), leg 10 |
+
+Build modes: `test-sgs-gnu`, `test-kep-gnu`, `test-wm-gnu`, `test-df-gnu`, `test-flume-user-criterion-cpu-gnu`.

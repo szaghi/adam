@@ -58,7 +58,7 @@ Both legs: 2 ranks.
 ```bash
 cd src/tests/flume/verification/mhd
 quadtree/check.sh                                                     # CPU (about 6 min)
-FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl quadtree/check.sh    # FNL (about 9 min on WSL)
+FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl quadtree/check.sh    # FNL
 ```
 
 ## Results

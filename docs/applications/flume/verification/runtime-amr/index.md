@@ -17,7 +17,7 @@ The input keys are described in [setting up runtime AMR](../../input#setting-up-
 
 | Case | ID | What it verifies |
 |---|---|---|
-| [Regrid round trip and input contract](./regrid-round-trip) | RG (rg0 to rg2) | the library regrid in isolation: bookkeeping over 1, 2, 3 ranks, the conservative prolongation exact on the integral and in range, the `frequency` and `regrid_prolongation` contracts |
+| [Regrid round trip and input contract](./regrid-round-trip) | RG (rg0 to rg2, rg7) | the library regrid in isolation: bookkeeping over 1, 2, 3 ranks, the conservative prolongation exact on the integral and in range, the `frequency` and `regrid_prolongation` contracts; the Jeans-marker contract (rg7, [#91](https://github.com/szaghi/adam/issues/91)) |
 | [Runtime regrids in FLUME](./runtime-regrids) | RG (rg3 to rg6) | conservation through regrids, bitwise restart across regrids, the immersed solid, CPU against FNL |
 | [Accuracy of runtime AMR](./accuracy) | AV (av2 to av8) | tracked runs against uniform-fine runs on the vortex, Sod, the MHD blast, the field loop and the cylinder; rank and backend invariance |
 | [MHD blast symmetry on the flux-splitting path](./mhd-blast-symmetry) | #77, av3c | why the low-β blast loses its point symmetry on `weno` flux splitting, and the Riemann-flux path that keeps it |

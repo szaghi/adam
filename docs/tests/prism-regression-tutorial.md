@@ -10,10 +10,11 @@ is the operational reference for golden capture and tolerances. **This page is
 the bring-up path**: from a bare checkout to a green `run.sh cpu`, then
 optionally to a green FNL/GPU run.
 
-::: tip What a correct port reaches (as of `1c6ebee5`)
-**15 PASS, 9 SKIP** on the CPU backend and **16 PASS, 8 SKIP** on FNL, with no
-failure: a SKIP is a case with no golden for that backend, or one of the two non-case directories `reproducers/` and `slices/`. See the
-[suite page](./prism-regression) for the case list.
+::: tip What a correct port reaches
+Every case with a golden for the backend passes, and none fails. The suite has 24 cases: 15 carry a CPU golden and 16
+an FNL golden, so a correct port reports **15 PASS, 11 SKIP** on the CPU backend and **16 PASS, 10 SKIP** on FNL. A SKIP
+is a case with no golden for that backend, or one of the two non-case directories `reproducers/` and `slices/`. See
+the [suite page](./prism-regression) for the case list.
 :::
 
 ## The dependency stack
@@ -57,8 +58,8 @@ and the FNL backend reaches the GPU through the **FUNDAL** library fetched here.
 
 ::: warning FoBiS 3.8+ CLI form
 Use `fobis build --mode X --varset Y`. The legacy `FoBiS.py build -mode X`
-short-dash form is **not accepted** by 3.8+; every script in this repo emits the
-long form.
+short-dash form is deprecated in 3.8+: it is still translated to the long form,
+but every script in this repo emits the long form, and so should yours.
 :::
 
 ### Environment modules
@@ -70,8 +71,8 @@ a missing module surfaces as
 
 ```bash
 module avail                          # see what the site provides
-module load openmpi/5.0.7-gnu14.2.0   # CPU: MPI + matching GCC
-module load nvhpc                     # GPU: nvfortran + bundled MPI
+module load gcc/16.2.0 openmpi/5.0.11-gnu16.2.0   # CPU: gfortran 16.2.0 + Open MPI 5.0.11
+module load nvhpc/26.9                           # GPU: nvfortran 26.9 + bundled HPC-X Open MPI
 ```
 
 Match the MPI module to the compiler the HDF5 build used — that pairing is what
@@ -94,7 +95,7 @@ fetches and builds szip and zlib:
 
 ```bash
 ./scripts/hdf5_build.sh -build \
-   -hdf5 $PWD/lib/hdf5/develop/gnu/14.2.0 \
+   -hdf5 $PWD/lib/hdf5/develop/gnu/16.2.0 \
    -lsrc $PWD/untracked/hdf5-src \
    -abs-paths
 ```
@@ -118,12 +119,16 @@ Current varsets (`fobos`; `[varsets] default = local_gnu`):
 
 | Varset | `$HDF5_PREFIX` | `$NVF_CC` | Machine |
 |---|---|---|---|
-| `local_gnu` | `lib/hdf5/develop/gnu/14.2.0` | — | dev workstation, GNU (**default**) |
-| `local_nvf` | `lib/hdf5/develop/nvf/26.1` | `cc89` | dev workstation, Ada GPU |
+| `local_gnu` | `lib/hdf5/develop/gnu/16.2.0` | — | dev workstation, gfortran 16.2.0 + Open MPI 5.0.11 (**default**) |
+| `local_nvf` | `lib/hdf5/develop/nvf/26.9` | `cc89` | dev workstation, nvfortran 26.9, Ada GPU |
+| `ci_gnu` | `lib/hdf5/develop/gnu/14.2.0` | — | GitHub Actions, Ubuntu 24.04 apt gfortran-14 + Open MPI |
 | `leonardo` | Spack path, NVHPC 24.5 | `cc80` | CINECA Leonardo, A100 |
-| `iac_gnu` | `lib/hdf5/develop/iac/gnu/12.2.1/openmpi-4.1.6` | — | IAC cluster, GNU |
-| `iac_nvf` | `lib/hdf5/develop/iac/nvf/25.5` | `cc80` | IAC cluster, A100 |
+| `iac_gnu` | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — | IAC cluster (medooza), gfortran 16.2.0 + Open MPI 5.0.11 |
+| `iac_nvf` | `lib/hdf5/develop/iac/nvf/26.9` | `cc80,cuda12.9` | IAC cluster (medooza), nvfortran 26.9, A30 |
 | `spacehpc` | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` | SpaceHPC (Cray), H100 |
+
+The toolchain must match the varset exactly: Fortran `.mod` files (HDF5's above all) work only with the compiler
+version that wrote them, so build clean after switching compilers.
 
 Append a block for your machine:
 
@@ -214,7 +219,7 @@ Exit code 0 means every case passed:
 == Summary [cpu]
 PASS: 15
 FAIL: 0
-SKIP: 9
+SKIP: 11
 ```
 
 ::: warning The venv lives under `exe/`, not `src/`
@@ -226,13 +231,16 @@ would otherwise compile or document the Fortran test fixtures shipped inside
 ### Expected skips (not failures)
 
 `SKIP` is normal. A case with no `golden/<backend>/` directory is not an anchor
-on that backend and is skipped. On the CPU backend that is three cases:
+on that backend and is skipped. On the CPU backend that is nine cases (eight on FNL):
 
-- `rmf-fwl` — FNL-goldened only; its CPU golden is pending a CI capture (and it
-  is un-migrated from the old `[fWLayer] C` key, so it would `error_stop`).
-- `rmf-2realm-fd-pulse` — no golden and no `check.sh` on either backend; a
-  manual reproducer for [#31](https://github.com/szaghi/adam/issues/31) only.
-- one further case depending on your tree state.
+- `rmf-fwl` — FNL-goldened only; its CPU golden is pending a CI capture. Its input
+  uses `[fWLayer] width = 0.045` (six cells).
+- `rmf-2realm-fd-pulse`, `rmf-2realm-fd-pulse-refined`, `rmf-2realm-fv-pulse-blocks`,
+  `rmf-amr-fv-pulse-timed` — no digest golden; each is checked by its own `check.sh`.
+- `pic-periodic`, `pic-slab-pulse` — their goldens live in `golden-check/`, checked by
+  their `check.sh` (`pic_check.sh`), because the CPU leg runs on one rank.
+- `memory-scaling`, `memory-scaling-coils` — capacity probes with no field golden,
+  run by `scaling.sh` and `coils.sh`.
 
 The three AMR-seam cases (`rmf-amr`, `rmf-amr-fd`, `rmf-amr-fd-pulse`) are
 **not** skipped: they carry digest goldens on both backends *and* a bespoke

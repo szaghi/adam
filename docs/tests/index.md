@@ -25,13 +25,12 @@ The [PRISM regression suite](./prism-regression) is the structural-change baseli
 
 To stand the suite up on a new machine, compiler, or GPU architecture, follow the [regression bring-up tutorial](./prism-regression-tutorial).
 
-::: tip Current status (`1c6ebee5`, medooza gates)
-PRISM: **15 PASS, 9 SKIP** on the CPU backend and **16 PASS, 8 SKIP** on FNL; a SKIP is a case with no golden for that
-backend, or one of the two non-case directories `reproducers/` and `slices/`. FLUME: **54/54 PASS** on both backends.
-:::
+The PRISM suite has 24 cases: 15 carry a CPU digest golden and 16 an FNL one; the others are checked by their own
+`check.sh`. It also covers the FLAIL t0 elliptic solves (`rmf-pec-t0`, `rmf-open-t0`, `pic-pec-t0`, `pic-open-t0`), PIC
+(`pic-periodic`, `pic-slab-pulse`) and periodic faces across blocks and ranks (`periodic-pulse-blocks`).
 
 The [FLUME regression suite](https://github.com/szaghi/adam/blob/develop/src/tests/flume/regression/run.sh)
-(`src/tests/flume/regression/`, 54 cases) is the same harness for FLUME: each case is a frozen copy of a verification
+(`src/tests/flume/regression/`, 55 cases) is the same harness for FLUME: each case is a frozen copy of a verification
 input, compared against committed field digests, residual logs and conservation histories on each backend. The
 physics is asserted by the verification oracles (`src/tests/flume/verification/`, the
 [verification gallery](../applications/flume/verification/)); this suite detects changes.

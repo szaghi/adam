@@ -168,7 +168,7 @@ the limiter's gravity energy correction comes from [the force](../gravity/force)
   1.5-fold from $32^3$ to $64^3$. The pulsation it drives sets the core's drift, which shrinks 1.7-fold, and the
   interior motion 2.1-fold. A star of radius 8 cells pulsates by 10 % of its central density, of 16 cells by 6 %.
 - **The bound asserts convergence, not an order.** P0 asked for 100 free-fall times; the runs reach 2 ($64^3$ took
-  37 min on the WSL CPU, 20 min on the A30).
+  20 min on the A30).
 - The regression case `selfgravity-star` freezes the equilibrium at $16^3$ in the $10^{-2}$ atmosphere without the
   limiter, not SV-7's light-atmosphere setup.
 - **Isolated self-gravity on AMR holds the star and keeps the exchange exact** (SV-14). Refining the star halves its

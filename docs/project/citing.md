@@ -7,7 +7,7 @@ If you use ADAM in work that leads to a scientific publication, please cite the 
 > *Computers and Fluids*, 266 (2023) 106040.
 > DOI: [10.1016/j.compfluid.2023.106040](https://doi.org/10.1016/j.compfluid.2023.106040)
 
-The paper describes the ADAM framework architecture, the AMR/IB coupling strategy, the GPU parallelization approach (CUDA Fortran), and demonstrates strong scaling on a shock–sphere interaction benchmark. A preprint is available in [docs/papers/zaghi-2023-computer_fluids.pdf](../papers/zaghi-2023-computer_fluids.pdf).
+The paper describes the ADAM framework architecture, the AMR/IB coupling strategy, the GPU parallelization approach (CUDA Fortran), and demonstrates strong scaling on a shock–sphere interaction benchmark. A preprint is available as a [PDF](/papers/zaghi-2023-computer_fluids.pdf).
 
 BibTeX entry:
 
