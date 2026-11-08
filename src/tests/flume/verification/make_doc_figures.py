@@ -31,6 +31,9 @@ import matplotlib as mpl
 import numpy as np
 
 mpl.use("Agg")
+# the washi ground of the docs identity (docs/BRAND.md): figures read as part of the page, not as white cards
+mpl.rcParams["figure.facecolor"] = "#f3ede1"
+mpl.rcParams["savefig.facecolor"] = "#f3ede1"
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Circle, Rectangle  # noqa: E402
 

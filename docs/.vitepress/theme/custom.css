@@ -85,3 +85,12 @@
   .VPHero .text { font-size: 40px; line-height: 50px; }
   .VPHero .tagline { font-size: 20px; line-height: 32px; }
 }
+
+/* ---------- Figures (not identity tokens) ----------
+   The verification figures are drawn on the washi ground (docs/scripts/theme_figures.py); on silver ink they are shown
+   as washi cards, the way a printed plate sits on a dark table, rather than as white rectangles. */
+.dark .vp-doc img[src$=".png"] {
+  background: #f3ede1;
+  border-radius: 6px;
+  padding: 6px;
+}
