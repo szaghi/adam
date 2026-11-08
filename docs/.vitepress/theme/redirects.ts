@@ -102,6 +102,8 @@ export const anchorRedirects: Record<string, string> = {
   '/tests/prism-regression#case-inventory': '/reference/regression#prism-cases',
   '/applications/flume/verification/regression#cases': '/reference/regression#flume-cases',
   '/applications/flume/verification/regression#refreshing-a-golden': '/cookbook/regression#t3-add-a-case-and-capture-its-goldens',
+  // PRISM verification folder
+  '/applications/prism/verification#quadtree-2-1-seams-the-source-free-pulse': '/applications/prism/verification/quadtree',
   // PRISM hazards page
   '/applications/prism/input#hazards': '/applications/prism/hazards',
   '/applications/prism/input#divergence-correction': '/applications/prism/hazards#divergence-correction',

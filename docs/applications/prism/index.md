@@ -23,7 +23,7 @@ charged macro-particles by a particle-in-cell (PIC) method, on CPUs (MPI + OpenM
 | t0 fields | The electric field of the initial charge and the magnetic field of the initial current, solved by FLAIL with PRISM's own operator | [Numerical methods](./numerics#t0-elliptic-solves) |
 | Input | One INI file per realm, every value checked, refusals at initialization | [Input reference](./input), [Hazards](./hazards) |
 | Output | XDMF + HDF5 field files (ParaView), restart files, slices, probes, residual, energy, divergence, RMS-field and charge-conservation histories | [Outputs](#outputs) |
-| Verification | Regression digests on both backends; oracle checks on AMR seams | [Verification](./verification) |
+| Verification | Regression digests on both backends; oracle checks on AMR and inter-realm seams, the t0 solves, PIC, slices and the input refusals | [Verification](./verification/) |
 
 ## Quick start
 
@@ -72,7 +72,7 @@ Without an argument the executable reads `input.ini` in the working directory. A
 - [Hazards](./hazards): the divergence-correction matrix, seam div(B), the PML constraints, the elliptic boundary map,
   the refused combinations.
 - [Backends](./backends): CPU and FNL, what each implements, the step structure, device data.
-- [Verification](./verification): the oracle checks.
+- [Verification](./verification/): the oracle checks.
 
 ## Known limitations
 
