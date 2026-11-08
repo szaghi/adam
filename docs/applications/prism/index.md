@@ -1,5 +1,8 @@
 # PRISM
 
+<img src="/prism/logo.svg" alt="PRISM, a brushed helicon plasma thruster: four coils, the field lines and the nozzle, over an adaptive mesh" width="200" class="light-only">
+<img src="/prism/logo-dark.svg" alt="PRISM, a brushed helicon plasma thruster: four coils, the field lines and the nozzle, over an adaptive mesh" width="200" class="dark-only">
+
 **PRISM** (**P**lasma **R**esearch us**I**ng **S**imulation **M**ethods) is the electromagnetics and plasma application
 of ADAM. It solves Maxwell's equations for the electric displacement $\mathbf D$ and the magnetic induction
 $\mathbf B$ with centred finite differences or finite volumes on block-structured adaptive grids, optionally coupled to

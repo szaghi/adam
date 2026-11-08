@@ -7,6 +7,7 @@ See also:
 - [Fortran Style Guide](.claude/docs/fortran-style.md) - Zen of Fortran, coding style, modern patterns and examples
 - [HPC Optimization Guide](.claude/docs/hpc-optimization.md) - GPU, MPI, memory optimization, benchmarking, pitfalls
 - [Agent Workflows](.claude/docs/agent-workflows.md) - Task protocols, debugging checklists
+- [Visual identity](docs/BRAND.md) - the sumi family (ADAM, FLUME, PRISM): logos, favicons, washi light / silver ink dark tokens; do not change logos, colours or the docs theme without following it
 
 ## Development Philosophy
 

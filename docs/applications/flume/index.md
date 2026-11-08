@@ -1,5 +1,8 @@
 # FLUME
 
+<img src="/flume/logo.svg" alt="FLUME, a brushed black hole: a tilted disk, its lensed arcs and the photon ring, over an adaptive mesh" width="200" class="light-only">
+<img src="/flume/logo-dark.svg" alt="FLUME, a brushed black hole: a tilted disk, its lensed arcs and the photon ring, over an adaptive mesh" width="200" class="dark-only">
+
 **FLUME** (**F**luid **L**aboratory for **U**nsteady **M**ultiphysics at **E**xascale) is the compressible-flow
 application of ADAM: compressible Euler, Navier–Stokes and ideal MHD with external gravity, self-gravity and sink
 particles, ideal, isothermal and barotropic gases, radiative cooling, passive scalars and immersed boundaries, solved

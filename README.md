@@ -1,9 +1,9 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)"  srcset="docs/public/adam-logo-bgai.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/public/adam-logo-bga.png">
-  <img src="docs/public/adam-logo-bgai.png" alt="ADAM logo" width="480">
+  <source media="(prefers-color-scheme: dark)"  srcset="docs/public/logo-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/public/logo.svg">
+  <img src="docs/public/logo.svg" alt="ADAM, a brushed bow shock over an adaptive mesh" width="240">
 </picture>
 
 > A physics-agnostic Fortran SDK for adaptive grids, and its solvers, from a laptop to GPU clusters

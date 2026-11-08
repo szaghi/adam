@@ -2,8 +2,8 @@
 title: About ADAM
 ---
 
-<img src="/adam-logo-bga.png" alt="ADAM logo" width="480" class="light-only">
-<img src="/adam-logo-bgai.png" alt="ADAM logo" width="480" class="dark-only">
+<img src="/logo.svg" alt="ADAM, a brushed bow shock over an adaptive mesh" width="240" class="light-only">
+<img src="/logo-dark.svg" alt="ADAM, a brushed bow shock over an adaptive mesh" width="240" class="dark-only">
 
 # About ADAM
 

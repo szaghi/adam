@@ -7,11 +7,19 @@ const apiSidebarFile = new URL('../api/_sidebar.json', import.meta.url)
 const apiSidebar = existsSync(apiSidebarFile) ? JSON.parse(readFileSync(apiSidebarFile, 'utf8')) : []
 
 export default withMermaid({
-  title: 'ADAM Documentation',
+  title: 'ADAM',
   // ford.md is the API generator's project file (read by `formal generate` in CI), not a page.
-  srcExclude: ['ford.md'],
+  // BRAND.md is the identity's source of truth (logos, colours, theme rules), for maintainers, not a page.
+  srcExclude: ['ford.md', 'BRAND.md'],
   head: [
     ['style', {}, '.dark-only{display:none}.dark .dark-only{display:block}.dark .light-only{display:none}'],
+    // the sumi family identity (BRAND.md): favicons and the browser chrome colour of each theme
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/adam/favicon.svg' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/adam/favicon-32.png' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/adam/favicon-16.png' }],
+    ['link', { rel: 'apple-touch-icon', sizes: '180x180', href: '/adam/apple-touch-icon.png' }],
+    ['meta', { name: 'theme-color', media: '(prefers-color-scheme: light)', content: '#f3ede1' }],
+    ['meta', { name: 'theme-color', media: '(prefers-color-scheme: dark)', content: '#0e1116' }],
   ],
   base: '/adam/',
   description: 'Accelerated fluid Dynamics on Adaptive Mesh refinement grids — fluid dynamics SDK and apps for High-Performance Computing — from laptop to exascale device-accelerated superpc',
@@ -39,16 +47,23 @@ export default withMermaid({
     config: (md) => {
       const escapeAngles = (s: string) =>
         s.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      // Only on the generated API pages: hand-written pages use raw HTML on purpose (light/dark images, galleries), and
+      // escaping it everywhere printed their tags as text.
+      const isApi = (env: any) => typeof env?.relativePath === 'string' && env.relativePath.startsWith('api/')
       for (const rule of ['html_inline', 'html_block'] as const) {
         const fallback =
           md.renderer.rules[rule] ||
           ((tokens, idx) => tokens[idx].content)
-        md.renderer.rules[rule] = (tokens, idx, options, env, self) =>
-          escapeAngles(fallback(tokens, idx, options, env, self))
+        md.renderer.rules[rule] = (tokens, idx, options, env, self) => {
+          const html = fallback(tokens, idx, options, env, self)
+          return isApi(env) ? escapeAngles(html) : html
+        }
       }
     },
   },
   themeConfig: {
+    // the nav-bar mark, swapped with the theme (BRAND.md: never the washi logo on a dark ground or the reverse)
+    logo: { light: '/logo.svg', dark: '/logo-dark.svg', alt: 'ADAM' },
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Start here', link: '/start/' },

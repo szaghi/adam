@@ -6,9 +6,9 @@ hero:
   text: Accelerated fluid Dynamics on Adaptive Mesh refinement grids
   tagline: A physics-agnostic Fortran SDK and its solvers, from a laptop to GPU clusters.
   image:
-    light: /adam-logo-bga.png
-    dark:  /adam-logo-bgai.png
-    alt:   ADAM logo
+    light: /logo.svg
+    dark: /logo-dark.svg
+    alt: ADAM, a brushed bow shock over an adaptive mesh
   actions:
     - theme: brand
       text: Install
