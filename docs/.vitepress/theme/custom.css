@@ -94,3 +94,62 @@
   border-radius: 6px;
   padding: 6px;
 }
+
+/* ---------- Layout (not identity): landing galleries ----------
+   "See it run" (.adam-casts: theme-aware videos, the .light-only/.dark-only pair of config.mts) and the figure cards
+   (.adam-gallery: one markdown link per paragraph, image + <strong> title + <span> caption). One column on phones,
+   two from 640 px. Flat: borders from the theme tokens, no shadows, no gradients. */
+.vp-doc .adam-casts,
+.vp-doc .adam-gallery {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin: 16px 0 24px;
+}
+@media (min-width: 640px) {
+  .vp-doc .adam-casts,
+  .vp-doc .adam-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vp-doc .adam-casts-wide { grid-template-columns: 1fr; }
+}
+.vp-doc .adam-cast {
+  margin: 0;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--vp-c-bg-soft);
+}
+.vp-doc .adam-cast video {
+  width: 100%;
+  height: auto;
+  vertical-align: top;
+}
+.vp-doc .adam-cast figcaption,
+.vp-doc .adam-gallery span {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--vp-c-text-2);
+}
+.vp-doc .adam-cast figcaption { padding: 8px 12px 10px; }
+.vp-doc .adam-gallery p { margin: 0; }
+.vp-doc .adam-gallery a {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
+  text-decoration: none;
+}
+.vp-doc .adam-gallery a:hover { border-color: var(--vp-c-brand-1); }
+.vp-doc .adam-gallery img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #f3ede1;   /* the figures' washi ground, in both themes */
+  border-radius: 0;
+  padding: 6px;
+}
+.vp-doc .adam-gallery strong { padding: 8px 12px 0; font-size: 14px; }
+.vp-doc .adam-gallery span { padding: 2px 12px 10px; }

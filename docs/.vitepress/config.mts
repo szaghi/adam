@@ -189,7 +189,8 @@ export default withMermaid({
               text: 'FLUME',
               collapsed: false,
               items: [
-                { text: 'Overview',            link: '/applications/flume/' },
+                { text: 'FLUME home',          link: '/applications/flume/' },
+                { text: 'Overview',            link: '/applications/flume/overview' },
                 { text: 'Physical Models',     link: '/applications/flume/models' },
                 { text: 'Numerical Methods',   link: '/applications/flume/numerics' },
                 { text: 'Turbulence',          link: '/applications/flume/turbulence' },
@@ -411,7 +412,8 @@ export default withMermaid({
               text: 'PRISM',
               collapsed: false,
               items: [
-                { text: 'Overview',            link: '/applications/prism/' },
+                { text: 'PRISM home',          link: '/applications/prism/' },
+                { text: 'Overview',            link: '/applications/prism/overview' },
                 { text: 'Physical Models',     link: '/applications/prism/models' },
                 { text: 'Numerical Methods',   link: '/applications/prism/numerics' },
                 { text: 'Initial Conditions',  link: '/applications/prism/initial-conditions' },

@@ -1,115 +1,148 @@
-# FLUME
+---
+layout: home
 
-<img src="/flume/logo.svg" alt="FLUME, a brushed black hole: a tilted disk, its lensed arcs and the photon ring, over an adaptive mesh" width="200" class="light-only">
-<img src="/flume/logo-dark.svg" alt="FLUME, a brushed black hole: a tilted disk, its lensed arcs and the photon ring, over an adaptive mesh" width="200" class="dark-only">
+hero:
+  name: FLUME
+  text: Fluid Laboratory for Unsteady Multiphysics at Exascale
+  tagline: Compressible Euler, Navier–Stokes and ideal MHD on ADAM's adaptive grids, with gravity, self-gravity, sinks and turbulence models, on CPUs and GPUs.
+  image:
+    light: /flume/logo.svg
+    dark: /flume/logo-dark.svg
+    alt: FLUME, a brushed black hole, a tilted disk, its lensed arcs and the photon ring, over an adaptive mesh
+  actions:
+    - theme: brand
+      text: Overview
+      link: /applications/flume/overview
+    - theme: alt
+      text: Tutorial
+      link: /tutorials/flume/sod
+    - theme: alt
+      text: Input reference
+      link: /applications/flume/input
+    - theme: alt
+      text: Verification
+      link: /applications/flume/verification/
 
-**FLUME** (**F**luid **L**aboratory for **U**nsteady **M**ultiphysics at **E**xascale) is the compressible-flow
-application of ADAM: compressible Euler, Navier–Stokes and ideal MHD with external gravity, self-gravity and sink
-particles, ideal, isothermal and barotropic gases, radiative cooling, passive scalars and immersed boundaries, solved
-with high-order WENO finite differences on block-structured adaptive grids (static and runtime AMR, multi-realm forests),
-on CPUs (MPI + OpenMP) and on GPUs (MPI + OpenACC, or OpenMP offload). It supersedes the deprecated CHASE.
+features:
+  - icon: 💨
+    title: Euler and Navier–Stokes
+    details: Compressible Euler with optional dual energy and up to 4 passive scalars; viscosity (constant, power law or Sutherland), heat conduction, no-slip and isothermal walls.
+    link: /applications/flume/models#compressible-euler
+    linkText: Physical models
+  - icon: 🧲
+    title: Ideal MHD
+    details: Cell-centred B with mixed GLM or energy-consistent EGLM cleaning, Ohmic resistivity, HLLD fluxes, and a cell-based positivity limiter for very low plasma β.
+    link: /applications/flume/models#ideal-mhd
+    linkText: MHD and cleaning
+  - icon: 📐
+    title: High-order space schemes
+    details: WENO flux splitting (orders 3–9), WENO interpolation with LLF, HLL, HLLC or HLLD fluxes and a high-order correction, and a hybrid central/WENO scheme for turbulence.
+    link: /applications/flume/numerics
+    linkText: Numerical methods
+  - icon: 🌡️
+    title: Gases and cooling
+    details: Ideal, isothermal and barotropic equations of state for Euler and MHD; optically thin radiative cooling.
+    link: /applications/flume/models#isothermal-and-barotropic-gases
+    linkText: Equations of state
+  - icon: 🌌
+    title: Gravity, self-gravity, sinks
+    details: External gravity with a well-balanced mode; self-gravity, periodic or isolated, uniform or AMR, solved by FLAIL every stage; sink particles on the finest level.
+    link: /applications/flume/models#external-gravity
+    linkText: Gravity
+  - icon: 🌀
+    title: Turbulence and wall models
+    details: Vreman, WALE and Sigma subgrid models, equilibrium and inverse-transformation wall models, digital-filter inflow, mass-flow forcing, non-reflecting faces and a shock generator.
+    link: /applications/flume/turbulence
+    linkText: Turbulence
+  - icon: 🌲
+    title: Static and runtime AMR
+    details: Refinement at initialization and during the run (box, gradient, Löhner, Jeans and solid markers), 2:1 faces with conservative reflux, restarts across regrids.
+    link: /applications/flume/numerics#adaptive-mesh-refinement
+    linkText: AMR
+  - icon: 🧩
+    title: Forests and immersed solids
+    details: Several realms glued by 1:1 or 2:1 seams in one run; static solids by an immersed boundary (Euler).
+    link: /applications/flume/numerics#multi-realm-runs
+    linkText: Multi-realm runs
+  - icon: ⚡
+    title: CPU and GPU
+    details: The same INI input on the CPU backend (MPI + OpenMP) and on the FNL backend (MPI + OpenACC, or OpenMP offload); every milestone is verified on both.
+    link: /developer/flume-source
+    linkText: Source layout
+---
 
-![Orszag-Tang vortex](/flume/orszag-tang.png)
+## Start here
 
-## What is implemented
+The [overview](./overview) lists what is implemented, with a [quick start](./overview#quick-start) and the
+[known limitations](./overview#known-limitations). The [first run](/start/first-run) builds FLUME and checks a Sod
+shock tube against its exact solution; the [tutorial](/tutorials/flume/sod) continues from there.
 
-| Area | Capabilities | Details |
-|---|---|---|
-| Physics | Compressible Euler (optionally with dual energy and up to 4 passive scalars); ideal MHD with mixed GLM or EGLM divergence cleaning (or without control, for diagnostics); ideal, isothermal or barotropic gas; viscosity (constant, power law or Sutherland), heat conduction and Ohmic resistivity; external gravity and self-gravity; optically thin radiative cooling; sink particles | [Physical models](./models) |
-| Space | WENO flux splitting (`weno`, orders 3–9, characteristic or conservative); WENO interpolation + Riemann flux + high-order correction (`weno-riemann`, LLF/HLL/HLLC for Euler, LLF/HLL/HLLD for MHD); hybrid central/WENO (`hybrid-kep-weno`, Euler); cell-based positivity limiter | [Numerical methods](./numerics) |
-| Time | SSP and low-storage Runge–Kutta, CFL time step (with the GLM cleaning speed) | [Numerical methods](./numerics#time-integration) |
-| Turbulence | Subgrid-scale models (`vreman`, `wale`, `sigma`); hybrid central/WENO; equilibrium and inverse-transformation wall models (`wall-modelled`); digital-filter turbulent inflow; mass-flow forcing (`[forcing]`); turbulence and wall histories | [Turbulence](./turbulence), [Boundary conditions](./boundary-conditions), [Verification](./verification/turbulence/) |
-| Grid | Octree/quadtree of Cartesian blocks, AMR at initialisation and during the run (box, gradient, Löhner and solid markers), 2:1 coarse–fine faces with conservative reflux | [Numerical methods](./numerics#adaptive-mesh-refinement) |
-| Geometry | Immersed boundary for static solids (Euler) | [Numerical methods](./numerics#immersed-boundary-euler) |
-| Coupling | Multi-realm runs glued by a forest manifest | [Numerical methods](./numerics#multi-realm-runs) |
-| Setup | 29 initial conditions (Riemann problems, vortices, Shu–Osher, Orszag–Tang, rotor, field loop, linear waves, exact viscous states, atmospheres, self-gravitating spheres and clouds, channel, boundary layer, Taylor–Green, isotropic turbulence, ...), 11 boundary conditions (no-slip, isothermal and modelled walls, hydrostatic faces under gravity, digital-filter inflow, non-reflecting faces, shock generator included) | [Initial conditions](./initial-conditions), [Boundary conditions](./boundary-conditions) |
-| Input | One INI file per realm, every value checked | [Input reference](./input) |
-| Output | XDMF + HDF5 checkpoints (ParaView), restart, slices, residual, conservation and div(B) histories | [Input reference](./input#io) |
-| Verification | Exact solutions, convergence orders, symmetry and conservation oracles on both backends | [Verification gallery](./verification/) |
+## See it run
 
-**Status.** Milestones M1 to M13 are complete; the turbulence and STREAmS fronts are open:
+<div class="adam-casts">
+<figure class="adam-cast">
+<video class="light-only" autoplay loop muted playsinline poster="/gallery/orszag-tang-light.png" aria-label="Orszag–Tang vortex, density"><source src="/gallery/orszag-tang-light.webm" type="video/webm"><source src="/gallery/orszag-tang-light.mp4" type="video/mp4"></video>
+<video class="dark-only" autoplay loop muted playsinline poster="/gallery/orszag-tang-dark.png" aria-label="Orszag–Tang vortex, density"><source src="/gallery/orszag-tang-dark.webm" type="video/webm"><source src="/gallery/orszag-tang-dark.mp4" type="video/mp4"></video>
+<figcaption>Orszag–Tang vortex, ideal MHD with GLM cleaning: density to t = 0.5 on 128², the blocks outlined. Case MV-12.</figcaption>
+</figure>
+<figure class="adam-cast">
+<video class="light-only" autoplay loop muted playsinline poster="/gallery/rayleigh-taylor-light.png" aria-label="Rayleigh–Taylor instability, hydro and MHD, density"><source src="/gallery/rayleigh-taylor-light.webm" type="video/webm"><source src="/gallery/rayleigh-taylor-light.mp4" type="video/mp4"></video>
+<video class="dark-only" autoplay loop muted playsinline poster="/gallery/rayleigh-taylor-dark.png" aria-label="Rayleigh–Taylor instability, hydro and MHD, density"><source src="/gallery/rayleigh-taylor-dark.webm" type="video/webm"><source src="/gallery/rayleigh-taylor-dark.mp4" type="video/mp4"></video>
+<figcaption>Rayleigh–Taylor single mode under constant gravity, density to t = 5 on 128²: hydrodynamics (left) and MHD with a horizontal field at half the critical value of the mode (right). Case GV-4.</figcaption>
+</figure>
+<figure class="adam-cast">
+<video class="light-only" autoplay loop muted playsinline poster="/gallery/forward-facing-step-light.png" aria-label="Mach 3 forward-facing step on a three-realm forest, density"><source src="/gallery/forward-facing-step-light.webm" type="video/webm"><source src="/gallery/forward-facing-step-light.mp4" type="video/mp4"></video>
+<video class="dark-only" autoplay loop muted playsinline poster="/gallery/forward-facing-step-dark.png" aria-label="Mach 3 forward-facing step on a three-realm forest, density"><source src="/gallery/forward-facing-step-dark.webm" type="video/webm"><source src="/gallery/forward-facing-step-dark.mp4" type="video/mp4"></video>
+<figcaption>Woodward–Colella Mach 3 step, density to t = 4 on a forest of three quadtree realms, base spacing 1/80 with static refined boxes; the inter-realm seams dashed. Case EV-step.</figcaption>
+</figure>
+</div>
+
+<div class="adam-gallery">
+
+[![Shock/boundary-layer interaction at Mach 2.28](/flume/sbli-fields.png)<strong>Shock/boundary-layer interaction</strong><span>Mach 2.28, wall-modelled LES: schlieren, pressure and velocity planes</span>](./verification/streams/sbli)
+
+[![Mach 2.5 turbulent boundary layer and the interaction in 3-D](/flume/tbl-3d.png)<strong>Turbulent boundary layer</strong><span>Mach 2.5 from a digital-filter inflow: skin friction 0.2 % below the DNS at δ_i/16</span>](./verification/turbulence/boundary-layer)
+
+[![Vorticity of the Taylor-Green vortex and of isotropic turbulence](/flume/tgv-fields.png)<strong>Taylor–Green and isotropic turbulence</strong><span>vorticity, hybrid-kep-weno at 128³</span>](./verification/turbulence/hybrid-scheme)
+
+[![Streamwise velocity in two wall-modelled channels](/flume/channel-fields.png)<strong>Wall-modelled channel</strong><span>Mach 1.5 and 3: Re_τ 219–222 and 443–445, DNS 220–222 and 451</span>](./verification/turbulence/channel)
+
+[![Balsara-Spicer blast with the positivity limiter](/flume/blast.png)<strong>Balsara–Spicer blast</strong><span>β = 2.5·10⁻⁴ with the positivity limiter, both space schemes</span>](./verification/mhd/positivity-limiter)
+
+[![MHD rotor, density and magnetic pressure](/flume/rotor.png)<strong>MHD rotor</strong><span>density and magnetic pressure, symmetric to 1.8·10⁻⁹</span>](./verification/mhd/rotor)
+
+[![Shock over a cylinder imposed by the immersed boundary](/flume/shock-cylinder.png)<strong>Shock over a cylinder</strong><span>Mach 2 shock on an immersed-boundary cylinder, AMR</span>](./verification/euler/shock-cylinder)
+
+[![A self-gravitating star on a static AMR box](/flume/selfgravity-star-amr.png)<strong>Self-gravitating star on AMR</strong><span>the refined box halves the core's spurious swing</span>](./verification/self-gravity/star-amr)
+
+[![Sink particles: binary, accretion rate, collapse on runtime AMR](/flume/sink-particles.png)<strong>Sink particles</strong><span>a binary orbit, the Shu accretion rate, a collapse on runtime AMR</span>](./verification/sinks/sink-particles)
+
+[![Woodward-Colella step at t = 4](/flume/step.png)<strong>Forward-facing step</strong><span>three quadtree realms, refined run against the uniform 1/80 control</span>](./verification/euler/forward-facing-step)
+
+</div>
+
+The animations are made by `docs/scripts/make_gallery_runs.sh` (committed verification inputs, only the checkpoint
+period changed) and `docs/scripts/make_gallery.py`; the figures by `src/tests/flume/verification/make_doc_figures.py`.
+
+## Milestones
+
+Each milestone links to its section of the [verification timeline](./verification/), where every case has an oracle
+run on both backends.
 
 | Milestone | Content |
 |---|---|
-| M1 [#35](https://github.com/szaghi/adam/issues/35) | compressible Euler |
-| M2 [#41](https://github.com/szaghi/adam/issues/41) | ideal MHD with GLM |
-| M3 [#47](https://github.com/szaghi/adam/issues/47) | the Riemann-solver scheme (`weno-riemann`, Euler and MHD), EGLM cleaning, the positivity-preserving limiter |
-| M4 [#65](https://github.com/szaghi/adam/issues/65) | viscosity, heat conduction (no-slip walls) and Ohmic resistivity, conservative across AMR seams and realms |
-| M5 [#74](https://github.com/szaghi/adam/issues/74) | runtime AMR (`[amr] frequency`, [setting it up](./input#setting-up-runtime-amr)), restarts across regrids |
-| M6 [#68](https://github.com/szaghi/adam/issues/68) | seam accuracy and divergence at 2:1 faces |
-| M7 [#73](https://github.com/szaghi/adam/issues/73) | external gravity |
-| M8 [#81](https://github.com/szaghi/adam/issues/81) | self-gravity, periodic and isolated, uniform and AMR ([#87](https://github.com/szaghi/adam/issues/87)) |
-| M9 [#91](https://github.com/szaghi/adam/issues/91) | dual energy (`euler-de`) and the Jeans refinement marker |
-| M10 [#92](https://github.com/szaghi/adam/issues/92) | passive scalars |
-| M11 [#93](https://github.com/szaghi/adam/issues/93) | optically thin radiative cooling |
-| M12 [#94](https://github.com/szaghi/adam/issues/94) | sink particles |
-| M13 [#100](https://github.com/szaghi/adam/issues/100) | isothermal and barotropic equations of state, Euler and MHD |
-| Turbulence [#119](https://github.com/szaghi/adam/issues/119) (open) | subgrid-scale models, `hybrid-kep-weno`, wall models, digital-filter inflow, `[forcing]` ([turbulence](./turbulence), [verification](./verification/turbulence/)) |
-| STREAmS roadmap [#121](https://github.com/szaghi/adam/issues/121) (open) | Sutherland viscosity ([input](./input#physics)), non-reflecting boundary and shock generator ([boundary conditions](./boundary-conditions), [verification](./verification/streams/)) |
-
-Every milestone runs on both backends.
-
-## Quick start
-
-Build (FoBiS, from the repository root):
-
-```bash
-fobis build --mode flume-cpu-gnu                         # CPU backend
-fobis build --mode flume-fnl-nvf --varset local_nvf      # GPU backend (OpenACC, NVIDIA HPC SDK)
-```
-
-Run the Sod shock tube of the verification suite:
-
-```bash
-cd src/tests/flume/verification/sod
-mpirun -np 2 ../../../../../exe/adam_flume_cpu sod-x.ini
-```
-
-The run writes `sod-x-<iteration>.xdmf` (open it with ParaView) and the residual and conservation histories. The
-[input reference](./input) explains every key of `sod-x.ini`. To run the same problem with the Riemann-solver scheme,
-change its `[numerics]` section to
-
-```ini
-[numerics]
-scheme_space             = weno-riemann
-reconstruction_variables = characteristic
-riemann_solver           = hllc
-flux_correction          = 6th
-flux_correction_sensor   = weno
-reflux                   = .true.
-```
-
-`./check.sh` in the same directory runs the three directions and compares them with the exact solution.
-
-## Pages
-
-- [Physical models](./models): equations and closures: Euler, dual energy, passive scalars, MHD with GLM/EGLM,
-  dissipative terms, isothermal and barotropic gases, gravity and self-gravity, cooling, sinks, units, time-step bound.
-- [Numerical methods](./numerics): finite differences, WENO, flux splitting, Riemann solvers and correction, positivity
-  limiter, discretisation of the physics extensions, time integration, AMR and reflux, immersed boundary, multi-realm.
-- [Turbulence](./turbulence): subgrid-scale models, hybrid central/WENO, wall models, digital-filter inflow, forcing,
-  turbulence diagnostics.
-- [Initial conditions](./initial-conditions) and [boundary conditions](./boundary-conditions): formulas, keys, examples.
-- [Input reference](./input): every section and key, with two complete inputs.
-- [Verification gallery](./verification/): the test cases with figures and measured results.
-- Source layout (developer): [common](/developer/flume-source#common), [CPU backend](/developer/flume-source#cpu-backend), [FNL backend](/developer/flume-source#fnl-backend).
-
-## Known limitations
-
-- **Seam div(B).** A cell-centred $\mathbf{B}$ cannot be kept divergence-free across a 2:1 coarse–fine face (Tóth & Roe
-  2002): the seams inject a truncation-level $\nabla\cdot\mathbf{B}$, which GLM keeps bounded; `seam_max_divb` in the div(B)
-  history monitors it.
-- **Positivity at very low plasma β.** The floors alone do not hold it: without the positivity limiter the
-  flux-splitting scheme stops on the Balsara–Spicer blast ($\beta = 2.5\cdot10^{-4}$) at step 3 and on the Wu–Shu blast
-  ($\beta = 2.51\cdot10^{-6}$) at step 1. With `[numerics] positivity_limiter = cell`
-  ([#47](https://github.com/szaghi/adam/issues/47)) both schemes run both to the end
-  ([positivity limiter](./verification/mhd/positivity-limiter)). On the flux-splitting path at $\beta \lesssim 10^{-3}$
-  the point symmetry and the CPU–FNL agreement then hold only to a grid-scale instability
-  ([#77](https://github.com/szaghi/adam/issues/77), [MHD blast symmetry](./verification/runtime-amr/mhd-blast-symmetry));
-  where they matter, use `scheme_space = weno-riemann` with `riemann_solver = hlld`.
-- **GLM damping and reflux.** With damping, $\int\psi$ is not conserved across 2:1 faces; the 8 physical integrals are.
-- The GPU backend copies the coarse–fine seam faces to the host at every stage (the flux register is host-side), in
-  one transfer for all the faces of a rank ([#90](https://github.com/szaghi/adam/issues/90)).
-- Inter-realm seams join cells of the same size (`mirror`) or across a 2:1 jump (`refined`,
-  [#52](https://github.com/szaghi/adam/issues/52); octrees, quadtrees and binary trees, the seam normal to a refined
-  axis, [#71](https://github.com/szaghi/adam/issues/71)); all realms advance with one time step (no subcycling).
+| [M1 · #35](./verification/#m1-·-euler-core-35) | Compressible Euler: Riemann problems, design order, immersed boundary, reflux, restart |
+| [M2 · #41](./verification/#m2-·-ideal-mhd-41) | Ideal MHD with mixed GLM cleaning |
+| [M3 · #47](./verification/#m3-·-riemann-fluxes-eglm-positivity-limiter-47) | `weno-riemann` (Euler and MHD), EGLM cleaning, positivity limiter |
+| [M4 · #65](./verification/#m4-·-dissipative-terms-65) | Viscosity, heat conduction, Ohmic resistivity, no-slip walls, conservative across seams |
+| [M5 · #74](./verification/#m5-·-runtime-amr-74) | Runtime AMR, restarts across regrids |
+| [M6 · #68](./verification/#m6-·-seam-accuracy-and-divergence-68) | Seam accuracy and divergence at 2:1 faces |
+| [M7 · #73](./verification/#m7-·-external-gravity-73) | External gravity |
+| [M8 · #81](./verification/#m8-·-self-gravity-81) | Self-gravity, periodic and isolated, uniform and AMR |
+| [M9 · #91](./verification/#m9-·-dual-energy-91) | Dual energy (`euler-de`) and the Jeans refinement marker |
+| [M10 · #92](./verification/#m10-·-passive-scalars-92) | Passive scalars |
+| [M11 · #93](./verification/#m11-·-radiative-cooling-93) | Optically thin radiative cooling |
+| [M12 · #94](./verification/#m12-·-sink-particles-94) | Sink particles |
+| [M13 · #100](./verification/#m13-·-isothermal-and-barotropic-equations-of-state-100) | Isothermal and barotropic equations of state, Euler and MHD |
+| [Turbulence · #119](./verification/#_119-·-turbulence) (open) | Subgrid-scale models, `hybrid-kep-weno`, wall models, digital-filter inflow, mass-flow forcing |
+| [STREAmS · #121](./verification/#_121-·-streams-roadmap) (open) | Sutherland viscosity, non-reflecting faces, shock generator, wall-modelled shock/boundary-layer interaction |

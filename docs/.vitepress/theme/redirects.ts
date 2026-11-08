@@ -111,4 +111,14 @@ export const anchorRedirects: Record<string, string> = {
   '/applications/prism/input#elliptic-boundary-map': '/applications/prism/hazards#elliptic-boundary-map',
   '/applications/prism/input#refused-combinations': '/applications/prism/hazards#refused-combinations',
   '/applications/prism/numerics#the-2-1-seam-and-div-b': '/applications/prism/hazards#seam-div-b',
+  // FLUME and PRISM landings: the old index content moved to overview pages
+  '/applications/flume#what-is-implemented': '/applications/flume/overview#what-is-implemented',
+  '/applications/flume#quick-start': '/applications/flume/overview#quick-start',
+  '/applications/flume#pages': '/applications/flume/overview#pages',
+  '/applications/flume#known-limitations': '/applications/flume/overview#known-limitations',
+  '/applications/prism#what-is-implemented': '/applications/prism/overview#what-is-implemented',
+  '/applications/prism#quick-start': '/applications/prism/overview#quick-start',
+  '/applications/prism#outputs': '/applications/prism/overview#outputs',
+  '/applications/prism#pages': '/applications/prism/overview#pages',
+  '/applications/prism#known-limitations': '/applications/prism/overview#known-limitations',
 }

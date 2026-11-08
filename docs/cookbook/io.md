@@ -3,7 +3,7 @@
 Recipes for the files a run writes: the field checkpoints, the restart files, the histories and the slices, and how to
 read each of them. The keys are in the [library input reference](/reference/library-input#io); the application pages
 list their own histories ([FLUME](/applications/flume/input#output-formats-no-format-key-exists),
-[PRISM](/applications/prism/#outputs)).
+[PRISM](/applications/prism/overview#outputs)).
 
 ## IO1. What a run writes
 
@@ -42,7 +42,7 @@ save_laplacian_fields  = .false.
 
 **Reference.** [`[IO]`](/reference/library-input#io); the
 [FLUME output table](/applications/flume/input#output-formats-no-format-key-exists); the
-[PRISM outputs](/applications/prism/#outputs).
+[PRISM outputs](/applications/prism/overview#outputs).
 
 ## IO2. Open the fields in ParaView
 
