@@ -72,10 +72,21 @@ with the right eigenvectors, and differenced. `ngc >= [weno] S` is checked. The 
 PIC runs, the PML, the charge-conserving current and the staged path (2:1 faces, forests) need an SSP scheme (PIC:
 SSP-22, 33 or 54). At every stage the coils' current is evaluated at the stage time $t + \gamma_s\Delta t$.
 
-**Time step.** $\Delta t = \mathrm{CFL}\,\Delta x_{\min}/\lambda_{\max}$, with $\Delta x_{\min}$ the smallest cell size
-over every block and rank and $\lambda_{\max} = \max(1,\chi)\,c_0$, capped by $1/\alpha$ (GLM damping) and by
+**Time step.** $\Delta t = \mathrm{CFL}\,(\Delta x_{\min}/2)/\lambda_{\max}$, with $\Delta x_{\min}$ the smallest cell
+size over every block and rank and $\lambda_{\max} = \max(1,\chi)\,c_0$: both backends halve the smallest cell size
+before dividing (at CFL 0.5, $\Delta t = \Delta x_{\min}/(4c_0)$). The step is capped by $1/\alpha$ (GLM damping) and by
 $C_\gamma/\gamma_{\max}$ (the [PML](./pml)). `[time] it_max > 0` runs that many steps; otherwise the run ends at
 `time_max`, the last step shortened to reach it.
+
+**Plasma-frequency cap (PIC models).** With $\Delta t_{\rm CFL}$ the step above and $\omega_{\max}$ the highest plasma
+characteristic frequency of the previous step (or t0), the step stays $\Delta t_{\rm CFL}$ while
+$\omega_{\max}\Delta t_{\rm CFL} <$ `[PIC] omega_dt_max` (default 0.05). Otherwise
+$\Delta t = \min\big(\texttt{omega\_dt\_max}/\omega_{\max},\ (\Delta t_{\rm CFL}^{-2} + \omega_{\max}^2/\beta_I^2)^{-1/2}\big)$,
+with $\beta_I$ the imaginary-axis stability bound of the Runge–Kutta scheme (3.278 for SSP-54, $\sqrt3$ for SSP-33).
+$\omega_{\max}$ is the R cutoff, which bounds $\omega_{UH}$, $\omega_{pe}$ and $\Omega_{ce}$, from the global maxima of
+$\omega_p$ (per cell, NGP) and of the cyclotron frequency at the particles. Every step prints the step source (`CFL` or
+`plasma_frequencies`). A step in which a particle crosses more than one cell ($\max\lvert v_d\rvert\Delta t/\Delta x_d >
+1$) stops the run.
 
 ## Adaptive mesh refinement
 

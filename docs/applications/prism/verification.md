@@ -33,7 +33,7 @@ in x and z, so the seam is the only thing that can perturb it: it generates By, 
 
 **Oracle** (the quadtree leg of `check.sh`, default-on). The same case runs on the octree of the regression case and on
 a quadtree with `nk = 16` (z cells of 7.5·10⁻³ against the octree's finest 1.875·10⁻³). PRISM's time step is
-`CFL · min(dx, dy, dz) / c`, set on both trees by the finest x and y cells, so the two runs take the same steps; the
+`CFL · min(dx, dy, dz) / (2c)`, set on both trees by the finest x and y cells, so the two runs take the same steps; the
 pulse is uniform in z, so both stay z-invariant. `quadtree_oracle.py` (shared with FLUME's MV-15) keys the cells by their
 (x, y) centre and asserts, per field:
 

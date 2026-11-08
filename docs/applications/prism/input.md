@@ -77,7 +77,7 @@ Every key is required; an unknown value is fatal.
 | Section | PRISM rule |
 |---------|------------|
 | `[grid]` | `ngc >= fdv_order/2` (fatal); with `scheme_space = weno` also `ngc >= [weno] S` (fatal). Extents are divided by `L0` in a non-dimensional model. |
-| `[amr]` | Refinement at initialization only, during the `[initial_conditions] amr_iterations` passes; `frequency` is read and unused, `regrid_prolongation` is unused. |
+| `[amr]` | Refinement at initialization only, during the `[initial_conditions] amr_iterations` passes; `frequency` is read and unused, `regrid_prolongation` is unused. `memory_fraction` (default 0.85, in (0, 1]) is the share of the memory budget given to the blocks ([backends](./backends#memory-budget)). |
 | `[amr_marker_N]` | Mode 1 `primitive-box` refines; mode 3 (`AMR_TV`) refines on the total variation of the coils' current density (`tol`, `delta_type`, `delta_fine`, `delta_coarse`). `stl` is fatal. **Mode 1 `solid`, mode 2, mode 4 and mode 5 do nothing, silently.** |
 | `[runge_kutta]` | EM on CPU: every scheme, Yoshida included. EM on FNL: Yoshida is refused. PIC: `runge-kutta-ssp-22/33/54` only. The PML, the charge-conserving PIC current and the staged path (2:1 faces, forests) need an SSP scheme (the PIC current one of SSP-22/33/54). |
 | `[weno]` | Used only with `scheme_space = weno` (CPU). `weights` (`js`, `si`) is used; ROR is not implemented. |
@@ -112,7 +112,7 @@ Every key is required.
 |-----|------|---------|
 | `it_max` | int | `> 0`: stop after `it_max` steps. `<= 0`: run to `time_max`. |
 | `time_max` | real | End time (s; divided by `T0` in a non-dimensional model). |
-| `CFL` | real | CFL number on the fastest wave, `max(1, chi) c0` (upper-case key). The PML (`C_gamma`) and the GLM damping (`alpha`) may cap the step further. |
+| `CFL` | real | CFL number on the fastest wave, `max(1, chi) c0`, and half the smallest cell: `dt = CFL (dx_min/2) / (max(1, chi) c0)` (upper-case key). The PML (`C_gamma`), the GLM damping (`alpha`) and, under PIC, `[PIC] omega_dt_max` may cap the step further. |
 
 ---
 
@@ -217,7 +217,7 @@ off.
 | `gamma_max` | real | `CLASSIC`, `CLASSIC_DIRECT`, `CFS` | — | `>= 0`, otherwise fatal | Maximum damping. |
 | `gamma_exponent` | real | `CLASSIC`, `CLASSIC_DIRECT`, `BERMUDEZ` | — | `> 0`, otherwise fatal | Exponent of the damping profile. |
 | `alfa_max` | real | `CFS` | — | `>= 0`, otherwise fatal | CFS frequency shift (spelled `alfa`). |
-| `k_max` | real | `CFS` | 1 | `> 0`, otherwise fatal | CFS stretching. |
+| `k_max` | real | `CFS` | — | `> 0`, otherwise fatal | CFS stretching. |
 | `beta` | real | `BERMUDEZ` | — | `>= 0`, otherwise fatal | Bermúdez profile coefficient. |
 
 See the [PML hazards](#pml).
@@ -246,12 +246,15 @@ See the [PML hazards](#pml).
 | `particle_weighting_model` | string | yes | — | `NGP`, `CIC`, `TSC`, `cubic` (`3rd`), `quartic` (`4th`), `quintic` (`5th`), `sextic` (`6th`), `gaussian`, with case variants; other values are fatal | Charge deposition. |
 | `current_weighting_model` | string | yes | — | the same list, plus `conserving` (`charge_conserving`); other values are fatal | Current deposition. `conserving` needs `fd_centered`, `runge_kutta` and SSP-22/33/54 (fatal otherwise). |
 | `field_weighting_model` | string | yes | — | `0D` … `6D`, `gaussian`, `londrillo`, `totorica` (`esirkepov_Q2`), `esirkepov_Q5`, `esirkepov_Q6`, `esirkepov_Q8`, `esirkepov_Q10`, with case variants; other values are fatal | Field gather to the particles. |
-| `current_conserving_solver` | string | no | `londrillo` | `londrillo`, `totorica` (`esirkepov_Q2`), `esirkepov_Q5/Q6/Q8/Q10`; the old names `esirkepov`, `direct`/`line`, `esirkepov-modified` stop with the new name; other values are fatal. Ignored unless `current_weighting_model = conserving`. | Matched current of the conserving deposit. With periodic faces `londrillo` stops at the first step (CPU). |
-| `esirkepov_tail_cleanup` | logical | no | `.false.` | logical | Tail cleanup of the Esirkepov current; stops at the first step with periodic faces (CPU). |
+| `current_conserving_solver` | string | no | `londrillo` | `londrillo`, `totorica` (`esirkepov_Q2`), `esirkepov_Q5/Q6/Q8/Q10`; the old names `esirkepov`, `direct`/`line`, `esirkepov-modified` stop with the new name; other values are fatal. Ignored unless `current_weighting_model = conserving`. | Matched current of the conserving deposit. With periodic faces `londrillo` stops at initialization, both backends. |
+| `esirkepov_tail_cleanup` | logical | no | `.false.` | logical | Tail cleanup of the Esirkepov current; stops at initialization with periodic faces, both backends. |
 | `filter_deposition` | logical | no | `.false.` | logical | Filter the deposited source. |
 | `sigma`, `cutoff_sigma` | real | cond. (any Gaussian model) | — | `> 0`, otherwise fatal | Gaussian width and cut-off (in widths). |
 | `gaussian_support_cells` | int | no | automatic | — | Gaussian support in cells; automatic from the final cell size when absent. |
 | `scheme_time` | string | yes | — | `runge_kutta`, `leapfrog` (case variants); **another value warns and falls back to `runge_kutta`** | Particle push. `leapfrog` is refused at initialization. |
+| `omega_dt_max` | real | no | `0.05` | `> 0`, otherwise fatal | Accuracy threshold on ω_max Δt: when the field step gives ω_max Δt ≥ `omega_dt_max` (ω_max the R cutoff of the plasma frequencies), Δt = `omega_dt_max`/ω_max or less ([numerics](./numerics#time-integration)). |
+| `particle_capacity_factor` | real | no | `0` (global capacity) | `>= 1` when given, otherwise fatal | Particle-array capacity of every rank, in units of global particles / ranks, fixed at initialization; a rank that has to hold more stops the run ([#112](https://github.com/szaghi/adam/issues/112)). |
+| `charge_conservation_save` | int | no | `0` (no history) | `>= 0`, otherwise fatal | Write `<basename>-charge_conservation_history.dat` every N steps; 0 skips the diagnostic and its ghost exchange per stage ([#111](https://github.com/szaghi/adam/issues/111)). |
 
 The particle closure at the domain faces is not an input key: it follows the field `[bc_*] type` (periodic faces wrap
 the particles, every other kind keeps the legacy closure, where a particle leaving the domain stops the run).
@@ -398,6 +401,6 @@ takes the periodic kind.
 | `[external_fields] external_fields_applied = magnetic_nozzle`, `rmf_and_magnetic_nozzle` | initialization |
 | `[numerics] scheme_space = weno` on FNL | initialization |
 | `runge-kutta-yoshida` on FNL; a non-SSP scheme with PIC, the PML or the staged path | initialization |
-| `[PIC] current_weighting_model = conserving` on the CPU backend with more than one block or one rank | the first step (the CPU charge-conserving deposit is single-block, single-rank) |
+| `[PIC] current_weighting_model = conserving` on the CPU backend with more than one block or one rank | initialization, at the t0 conserving deposit (the first step on a restart); the CPU charge-conserving deposit is single-block, single-rank |
 | A refined grid that enters a t0 elliptic solve | the solve ([#84](https://github.com/szaghi/adam/issues/84) E7: the wide operator across 2:1 faces is not defined) |
 | `fdv_order = 10` with a t0 elliptic solve | the solve (FLAIL accepts 2, 4, 6, 8) |

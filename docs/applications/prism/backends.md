@@ -4,7 +4,7 @@ PRISM builds for two backends from one common code base:
 
 | Backend | Program | Type | Parallelism | Build modes |
 |---|---|---|---|---|
-| CPU | `adam_prism_cpu` | `prism_cpu_object` | MPI + OpenMP | `prism-cpu-gnu`, `prism-cpu-gnu-debug`; `prism-cpu-amd` (amdflang) |
+| CPU | `adam_prism_cpu` | `prism_cpu_object` | MPI + OpenMP | `prism-cpu-gnu`, `prism-cpu-gnu-debug`; `prism-cpu-amd`, `prism-cpu-amd-debug` (amdflang) |
 | FNL | `adam_prism_fnl` | `prism_fnl_object` | MPI + OpenACC (NVIDIA), or OpenMP offload (AMD) | `prism-fnl-nvf`, `-debug`, `-spacehpc` (with a `--varset`); `prism-fnl-omp-amd`, `-debug` |
 
 The full list is on the [build-modes page](/reference/build-modes). Both types extend `prism_common_object`
@@ -76,7 +76,11 @@ time-scheme checks before any device allocation, then builds its device objects:
 The number of blocks a rank can hold is computed from a memory budget and the number of block-sized fields (the state,
 the residual, the fluxes, the Runge–Kutta stages). On the CPU the budget is the rank's share of the host memory
 (`mpih%memory_avail`); on FNL it is the device memory divided by the realms and by the ranks that share the device:
-$M = M_{\rm device} / (N_{\rm realms}\,N_{\rm sharers})$. An allocation that does not fit stops the run with the name of
+$M = M_{\rm device} / (N_{\rm realms}\,N_{\rm sharers})$. The blocks get the fraction `[amr] memory_fraction` of $M$
+(real in (0, 1], default 0.85; another value is fatal). On FNL the device allocations that are not block-sized (the
+particle arrays, sized on `[PIC] particle_capacity_factor`, and the virtual block of the conserving current) are
+estimated and taken off the blocks' share first, so the headroom stays $(1 - \texttt{memory\_fraction})\,M$; a reserve
+larger than the blocks' share stops the run (use more processes). An allocation that does not fit stops the run with the name of
 the array (every `dev_alloc` checks its error code).
 
 ## Device data (FNL)

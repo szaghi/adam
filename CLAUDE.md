@@ -516,7 +516,7 @@ The perfectly-matched-layer absorbing boundary lives in `prism_pml_object` (+ `p
 | `NONE` | `NO`/`no`/`None`/`NONE`… | — (PML disabled) |
 | `CLASSIC` | `PML`, `classic`, `STANDARD` | `gamma_max` (≥0), `gamma_exponent` (>0) |
 | `CLASSIC_DIRECT` | `direct`, `CLASSIC-DIRECT` | `gamma_max`, `gamma_exponent` |
-| `CFS` (CPML) | `cfs`, `CPML` | `gamma_max`, **`alfa_max`** (note the spelling), `k_max` (>0) |
+| `CFS` (CPML) | `cfs`, `CPML`, `CFS_PML` | `gamma_max`, **`alfa_max`** (note the spelling), `k_max` (>0) |
 | `BERMUDEZ` | `bermudez` | `beta` (≥0), `gamma_exponent` (>0) |
 
 All kinds also require a **physical** `width` (>0, an `error_stop` otherwise) and the six face flags `{x,y,z}_{minus,plus}_layer`. Enabling the section with **all six flags false** is an `error_stop` ("enable at least one").
@@ -530,15 +530,15 @@ CPU time integration is implemented only for `CLASSIC`, `CLASSIC_DIRECT`, `BERMU
 
 ### PIC: `physical_model = PIC` widens `nv` by one (`rho`) — gated on ONE flag, unlike the `phi`/`psi` hazard
 
-`[physics] physical_model` selects `EM` (default), `ADIM_EM` (non-dimensional), or `PIC`; an unknown string **does** `error_stop` here (`adam_prism_physics_object.F90:447`). Under `PIC`, `nv_pic = 1` and the state vector widens — `nv = nv_c + nv_s + nv_cl + nv_pic`, so a plain `PIC` run is `nv = 10`, carrying charge density `rho` as the extra slot (`:410-414`).
+`[physics] physical_model` accepts `EM`, `PIC`, `AdimEM` and `AdimPIC` (non-dimensional), each with aliases (`Maxwell`, `ParticleInCell`, `adim_pic`, …); `ADIM_EM_PHYSICAL_MODEL` (`'adim_electromagnetic'`) is the internal constant, not an input value. An unknown string **does** `error_stop` here (`adam_prism_physics_object.F90:457-467`). Under a PIC model (`is_pic_model`: `PIC` or `AdimPIC`), `nv_pic = 1` and the state vector widens — `nv = nv_c + nv_s + nv_cl + nv_pic`, so a plain `PIC` run is `nv = 10`, carrying charge density `rho` as the extra slot (`:430-432`).
 
-**This was never the issue #11 hazard**: `io_initialize`'s `add_rho` is gated on `physics%physical_model == PIC_PHYSICAL_MODEL`, the **same** predicate that set `nv_pic`, so the names array and the allocation cannot disagree. The `phi`/`psi` slots were gated on `numerics%constrained_transport_*` while `nv_cl` came from `divergence_correction`, two sources that disagreed under `poisson`; since #61 they follow `physics%var_phi/var_psi`. When adding a new state variable, keep one source for its width and its name.
+**This was never the issue #11 hazard**: `io_initialize`'s `add_rho` is gated on `is_pic_model(physics%physical_model)`, the **same** predicate that set `nv_pic`, so the names array and the allocation cannot disagree. The `phi`/`psi` slots were gated on `numerics%constrained_transport_*` while `nv_cl` came from `divergence_correction`, two sources that disagreed under `poisson`; since #61 they follow `physics%var_phi/var_psi`. When adding a new state variable, keep one source for its width and its name.
 
-PIC configuration lives in its own `[PIC]` section (`adam_prism_pic_object.F90`, 2114 lines — the largest PRISM common file):
+PIC configuration lives in its own `[PIC]` section (`adam_prism_pic_object.F90`, the largest PRISM common file):
 
-- `problem_type` — `plasma` or `single_particle`; `plasma_domain` ∈ `Uniform_domain` / `Uniform_cilinder` / `Uniform_cell` (note the spelling **`cilinder`**), with `cilinder_{radius,length,x_center,y_center,z_center,axis}` when cylindrical, plus `plasma_density` and `neutral_fraction`.
-- `scheme_time` — `LEAPFROG` or Runge-Kutta; each has its own object pair (`prism_leapfrog_pic_object` / `prism_rk_pic_object`) on both backends.
-- `particle_weighting_model` / `current_weighting_model` / `field_weighting_model` — the full ladder (NGP, CIC, TSC, cubic, quartic, quintic, Gaussian for charge and current; 0D–5D, Gaussian and bspline for fields), every one mirrored as a `_dev` device routine in `prism_fnl_pic_object`. Gaussian kinds additionally read `sigma` and `cutoff_sigma`.
+- `problem_type` — `plasma` or `single_particle`; `plasma_domain` ∈ `uniform` (`all`, `full`, `uniform_domain`) / `cilinder` (`uniform_cilinder`) / `slab` (`uniform_slab`) / `box` (`uniform_box`), with case variants (note the spelling **`cilinder`**; there is no cell domain), with `cilinder_{radius,length,x_center,y_center,z_center,axis}` when cylindrical, `slab_{normal,thickness,center}` for a slab, `box_length_{x,y,z}` and `box_{x,y,z}_center` for a box, plus `plasma_density` and `neutral_fraction`.
+- `scheme_time` — `runge_kutta` or `leapfrog`; the leapfrog object pair (`prism_leapfrog_pic_object`, FNL twin) exists but the PIC leapfrog is **refused at initialization on both backends** (`adam_prism_cpu_object.F90:308-316`, `adam_prism_fnl_object.F90:728-735`): only `prism_rk_pic_object` runs, with SSP-22, 33 or 54.
+- `particle_weighting_model` / `current_weighting_model` / `field_weighting_model` — the full ladder (NGP, CIC, TSC, cubic, quartic, quintic, sextic, Gaussian for charge and current, plus `conserving` for the current; 0D–6D, Gaussian and the coherent gathers `londrillo`, `totorica`, `esirkepov_Q5/Q6/Q8/Q10` for fields); every deposit and interpolation is mirrored as a `_dev` device routine in `prism_fnl_pic_object`, while the coherent gathers run on FNL only with the conserving current (`prism_fnl_pic_conserving_object`). Gaussian kinds additionally read `sigma` and `cutoff_sigma`.
 - `initialization` (`coherent` → elliptic-solver field init) ties PIC into the FLAIL elliptic solver (the t0 solves,
   `*_field_elliptic_initialization`). `elliptic_correction` is removed (#84 E3d): `.true.` stops the run, and the
   removed-keys lint rejects it in committed inputs.

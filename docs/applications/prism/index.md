@@ -53,7 +53,7 @@ Without an argument the executable reads `input.ini` in the working directory. A
 | `<basename>-residuals.dat` | L2 norm of every residual | `[IO] residuals_save` |
 | `<basename>-energy_history.dat` | the electric and magnetic energies $\tfrac12\sum\lvert\mathbf D\rvert^2/\varepsilon_0\,\Delta V$ and $\tfrac12\sum\lvert\mathbf B\rvert^2/\mu_0\,\Delta V$, the coil power and the Poynting flux | every 10 steps (fixed) |
 | `<basename>-divergence_history.dat` | max $\lvert\nabla\cdot\mathbf D\rvert$ ($\lvert\nabla\cdot\mathbf D - \rho\rvert$ with PIC), $\lvert\nabla\cdot\mathbf B\rvert$, $\lvert\nabla\cdot\mathbf J\rvert$ outside the absorbing layers, and the residual of the current solver | every step |
-| `<basename>-charge_conservation_history.dat` | PIC: particle and deposited charge, continuity and Gauss residuals | PIC models |
+| `<basename>-charge_conservation_history.dat` | PIC: particle and deposited charge, continuity and Gauss residuals | `[PIC] charge_conservation_save` > 0 (every N steps; default 0, no file) |
 | `<basename>-grms_history.dat`, `<basename>-magnetic_field_at_center_domain.dat` | RMS of the field over a region; $\mathbf B$ at the domain centre | `[grms]`, `[magnetic_field_at_center_domain]` |
 | `<basename>-probe_NN.dat` | The state at a fixed point, trilinear | `[probes]` |
 | `<basename>-plane_NN.dat` | The state on a plane of probes (per save one row per probe), trilinear | `[probes]` |

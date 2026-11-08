@@ -22,6 +22,10 @@ field gathered at it is `pic_fields(6, n)`, $\mathbf D$ and $\mathbf B$.
 - **`problem_type = single_particle`.** One test particle with the given position, charge, mass and velocity; its
   trajectory and fields go to `single_particle_output.dat` at every step.
 
+The particle arrays of every rank hold a fixed number of particles, set at initialization and never reallocated: the
+global number, or `particle_capacity_factor` (≥ 1) times the global number over the ranks
+([#112](https://github.com/szaghi/adam/issues/112)). A rank that has to hold more stops the run with the factor needed.
+
 ## The push
 
 The particles obey the non-relativistic Lorentz equations,
@@ -32,6 +36,12 @@ $$\frac{\mathrm d\mathbf x}{\mathrm dt} = \mathbf v, \qquad
 integrated with the field in the same SSP Runge–Kutta stages (`[PIC] scheme_time = runge_kutta`; SSP-22, 33 or 54).
 `leapfrog` is refused at initialization on both backends. An [external field](./initial-conditions#external-fields), when
 present, is added to the gathered field.
+
+The time step is the field step capped by the plasma frequencies: when $\omega_{\max}\Delta t$ of the field step reaches
+`[PIC] omega_dt_max` (default 0.05, `> 0`), $\Delta t = \texttt{omega\_dt\_max}/\omega_{\max}$ (or less, the
+Runge–Kutta stability bound), with $\omega_{\max}$ the R cutoff
+of the previous step, which bounds $\omega_{UH}$, $\omega_{pe}$ and $\Omega_{ce}$
+([numerics](./numerics#time-integration)). A particle crossing more than one cell in a step stops the run.
 
 One step, per stage $s$: locate the particles in the grid; deposit $\mathbf J$ (and fold the deposit that spilled into
 ghost cells back onto the cells it belongs to, across blocks and ranks); add the coils' current; evaluate the Maxwell
@@ -98,7 +108,9 @@ measured and warned, and a checkerboard under a matched deposit stops the run as
 
 ## Charge conservation diagnostic
 
-Every step writes `<basename>-charge_conservation_history.dat`: the total particle and deposited charge and their
+With `[PIC] charge_conservation_save = N > 0` every N-th step writes `<basename>-charge_conservation_history.dat`
+([#111](https://github.com/szaghi/adam/issues/111)); the default 0 writes no history and skips the stage div(J), which
+costs a ghost exchange per Runge–Kutta stage. The file holds the total particle and deposited charge and their
 difference, the continuity residual $\max\lvert(\rho^{n+1}-\rho^n)/\Delta t + \sum_s\beta_s\nabla_h\cdot\mathbf J_s\rvert$
 in the L1, L2 and L∞ norms, the net and absolute charge change, and the Gauss residual
 $\nabla_h\cdot\mathbf D - \rho$ in the three norms. With the conserving current the continuity residual is at
