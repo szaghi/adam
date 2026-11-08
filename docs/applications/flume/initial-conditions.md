@@ -1,6 +1,6 @@
 # Initial conditions
 
-The initial state is set by the `[initial_conditions]` section: `type` selects one of the sixteen initial conditions
+The initial state is set by the `[initial_conditions]` section: `type` selects one of the 29 initial conditions
 below, and the primitive states of the regions are given in `[initial_conditions_region_N]` sections. The value of
 every key is checked: an unknown `type`, a missing key or an inconsistent value stops the run with a message naming the
 accepted values.
@@ -14,11 +14,16 @@ accepted values.
 | `rotated-riemann` | ✓ | ✓ | ✓ | 2 |
 | `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `mhd-rotor`, `field-loop` | ✗ | ✓ | ✓ | 1 |
 | `orszag-tang` | ✗ | ✓ | ✓ | 0 |
-| `linear` (verification) | ✓ | ✓ | ✓ | 1 |
+| `linear`, `polynomial` (verification) | ✓ | ✓ | ✓ | 1 |
+| `sine-wave` (verification; `wave_mode = magnetic` MHD only) | ✓ | ✓ | ✓ | 1 |
+| `couette`, `becker-shock` (verification, `euler` or `euler-de`) | ✓ | ✗ | ✗ | 1 |
+| `isothermal-atmosphere`, `polytropic-atmosphere`, `rayleigh-taylor` (`[gravity]` required) | ✓ | ✓ | ✓ | 1 |
 | `polytrope` (self-gravity) | ✓ | ✗ | ✗ | 1 (the atmosphere) |
 | `singular-isothermal-sphere` (self-gravity) | ✓ | ✗ | ✗ | 1 (the temperature) |
 | `bonnor-ebert` (self-gravity, `[eos] type = isothermal`) | ✓ | ✗ | ✗ | 1 (the velocity) |
 | `boss-bodenheimer` (self-gravity, `[eos]` isothermal or barotropic) | ✓ | ✗ | ✗ | 1 (the ambient medium) |
+| `channel`, `boundary-layer` (`euler` only) | ✓ | ✗ | ✗ | 0 |
+| `taylor-green`, `isotropic-turbulence` (`euler` or `euler-de`) | ✓ | ✗ | ✗ | 0 |
 
 "MHD" in the error messages means `[physics] physical_model = mhd-ideal`. `glm` versus `none` is chosen separately by
 `[mhd] divergence_control`.
@@ -56,7 +61,7 @@ the `update_ghost` call that follows.
 
 | key | type | meaning |
 |---|---|---|
-| `type` | string (control characters are blanked by `strip_control`, so CRLF files parse) | one of the 25 names below. Any other value stops the run. |
+| `type` | string (control characters are blanked by `strip_control`, so CRLF files parse) | one of the 29 names below. Any other value stops the run. |
 | `amr_iterations` | integer, **required** | the number of init-time AMR passes (set the IC, refine, repeat). The value is clamped to $\ge 0$. The loop is at `cpu/adam_flume_cpu_object.F90` and `fnl/adam_flume_fnl_object.F90`. When the value is $>0$, every refined non-null axis must have an even block cell count of at least `2 ngc`, otherwise `error_stop`. |
 
 **Region sections** are named `[initial_conditions_region_N]`, with $N = 1..$`regions_number`. They hold the primitive keys `r, u, v, w, p`, plus `bx, by, bz` for either MHD
@@ -68,7 +73,7 @@ read depends on the type:
 | `uniform`, `isentropic-vortex`, `glm-pulse`, `divb-peak`, `mhd-linear-wave`, `mhd-cpaw`, `mhd-vortex`, `mhd-rotor`, `field-loop`, `linear` | 1 | none |
 | `shu-osher`, `rotated-riemann` | 2 | none (any extent keys present are ignored) |
 | `riemann-problem` | `regions_number` (from the INI) | `emin_x, emin_y, emin_z, emax_x, emax_y, emax_z` (required) |
-| `orszag-tang` | 0 | none |
+| `orszag-tang`, `channel`, `boundary-layer`, `taylor-green`, `isotropic-turbulence` | 0 | none |
 
 ---
 
@@ -984,3 +989,65 @@ gas's own $P(\rho)$. Keys: `bb_radius` $R$, `bb_density` $\rho_0$ (both required
 (required), `bb_amplitude` $A$ (default 0.1), `bb_x0`, `bb_y0`, `bb_z0` (default 0). With $G = 1$, $R = 1$ and
 $M = 1$, Burkert & Bodenheimer's ratios $\alpha = E_\mathrm{th}/|W| = 0.26$ and $\beta = E_\mathrm{rot}/|W| = 0.16$
 give $c_0 = 0.3225$ and $\Omega = 0.6928$ (`eos/make_eos_gravity.py bb`).
+
+## `channel`: plane channel, laminar profile with a perturbation
+
+The start of a turbulent channel ([#119](https://github.com/szaghi/adam/issues/119); `euler` only, fatal otherwise):
+walls at $y = \pm h$, uniform density $\rho_0$ and pressure $p_0 = \rho_0 U_b^2/(\gamma M^2)$, the laminar profile along x
+plus a deterministic perturbation of amplitude $a$ that vanishes at the walls, with $\eta = y/h$, $k_x = 4\pi/L_x$,
+$k_z = 12\pi/L_z$ (2 waves along x, 6 along z):
+
+$$
+u = \tfrac32 U_b(1-\eta^2) + A\sin k_z z\,\sin k_x x,\qquad v = A\cos k_x x\,\cos k_z z,\qquad w = A\cos k_z z\,\sin k_x x,\qquad
+A = a\,U_b(1-\eta^2).
+$$
+
+The pattern does not depend on the partition, so the field is the same on any rank count. Keys: `ch_rho` $\rho_0$, `ch_ub`
+$U_b$ (bulk velocity), `ch_mach` $M$ (on the sound speed of the uniform state), `ch_h` $h$, `ch_lx` $L_x$, `ch_lz` $L_z$
+(all required, $> 0$), `ch_pert` $a$ (required). No region section. Pair it with `[forcing] type = mass-flow`
+([input](./input#forcing-optional-mass-flow-forcing-of-a-periodic-channel)), periodic x and z, and wall faces at $y = \pm h$.
+
+## `boundary-layer`: mean profile of a boundary layer
+
+The mean profile of a table over a wall ([#119](https://github.com/szaghi/adam/issues/119); `euler` only, fatal
+otherwise), the initial state of a spatially developing boundary layer fed by an
+[`inflow-digital-filter`](./boundary-conditions) face: flow along $+x$, uniform along x and z, with
+$\eta = \max(y - y_w, 0)/\delta$,
+
+$$
+u = U_\infty\,\frac{U}{U_\infty}(\eta),\qquad v = w = 0,\qquad p = p_\infty,\qquad \rho = \rho_\infty\Big/\frac{T}{T_\infty}(\eta),
+$$
+
+$U/U_\infty$ and $T/T_\infty$ interpolated in the table, the free stream beyond its last row. Keys: `bl_profile` (the table
+file, the format of `df_profile` in the [input reference](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max)),
+`bl_delta` $\delta$, `bl_rho` $\rho_\infty$, `bl_u` $U_\infty$, `bl_p` $p_\infty$ (all required, $> 0$), `bl_wall` $y_w$
+(default 0). No region section.
+
+## `taylor-green`: compressible Taylor–Green vortex
+
+The compressible Taylor–Green vortex of DeBonis (2013) ([#119](https://github.com/szaghi/adam/issues/119); `euler` or
+`euler-de`, fatal otherwise), at uniform temperature, with $\hat x = x/L$ and so on, $p_0 = \rho_0 V_0^2/(\gamma M^2)$:
+
+$$
+u = V_0\sin\hat x\cos\hat y\cos\hat z,\qquad v = -V_0\cos\hat x\sin\hat y\cos\hat z,\qquad w = 0,
+$$
+$$
+p = p_0 + \frac{\rho_0V_0^2}{16}\,(\cos2\hat x + \cos2\hat y)(\cos2\hat z + 2),\qquad \rho = \rho_0\,\frac{p}{p_0}.
+$$
+
+Keys: `tg_density` $\rho_0$, `tg_velocity` $V_0$, `tg_mach` $M$ (all required, $> 0$), `tg_length` $L$ (default 1,
+$> 0$). No region section. The box $[0, 2\pi L]^3$ and its periodicity are the input's: not checked.
+
+## `isotropic-turbulence`: decaying compressible isotropic turbulence
+
+Decaying compressible isotropic turbulence (Johnsen et al. 2010; [#119](https://github.com/szaghi/adam/issues/119);
+`euler` or `euler-de`, fatal otherwise): uniform density and pressure, turbulent Mach number
+$M_t = \sqrt3\,u_\mathrm{rms}/c_0$, and a solenoidal velocity with the spectrum
+
+$$
+E(k) \propto \Big(\frac{k}{k_0}\Big)^4 e^{-2(k/k_0)^2}
+$$
+
+on the integer wavevectors up to $3k_0$, with random phases from a seed: the same field on any rank count or resolution.
+Keys: `hit_density`, `hit_urms`, `hit_mach`, `hit_k0` (all required, $> 0$), `hit_seed` (default 1, $> 0$). No region
+section. The box $[0, 2\pi]^3$, its periodicity and the resolution of $3k_0$ are the input's: not checked.

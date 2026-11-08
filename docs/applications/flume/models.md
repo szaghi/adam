@@ -4,18 +4,24 @@ FLUME solves hyperbolic conservation laws of compressible, inviscid flow in the 
 
 $$\frac{\partial \mathbf{q}}{\partial t} + \sum_{d=1}^{3} \frac{\partial \mathbf{F}_d(\mathbf{q})}{\partial x_d} = \mathbf{S}(\mathbf{q}),$$
 
-with $\mathbf{q}$ the conservative state, $\mathbf{F}_d$ the flux along direction $d$ and $\mathbf{S}$ a source, present only
-in the GLM damping of the MHD model. Four models are implemented; the model fixes the state width `nv` and selects,
-on the host, the compute kernels compiled for that width (no branching on the model inside a kernel).
+with $\mathbf{q}$ the conservative state, $\mathbf{F}_d$ the flux along direction $d$ and $\mathbf{S}$ the sources (GLM/EGLM
+damping, gravity and self-gravity, cooling, sinks, forcing). `[physics] physical_model` (`euler`, `euler-de`, `mhd-ideal`),
+`[physics] passive_scalars`, `[mhd] divergence_control` and `[eos] type` select one of 13 models; the model fixes the state
+width `nv` and selects, on the host, the compute kernels compiled for that width (no branching on the model inside a kernel).
 
 | Model | `[physics] physical_model` | `[mhd] divergence_control` | $\mathbf{q}$ | `nv` |
 |---|---|---|---|---|
 | Compressible Euler | `euler` | — | $(\rho, \rho u, \rho v, \rho w, E)$ | 5 |
+| Euler with dual energy ([numerics](./numerics#dual-energy)) | `euler-de` | — | Euler + $\rho s$ | 6 |
+| Euler, `euler-de` with passive scalars ([numerics](./numerics#passive-scalars)) | `euler`, `euler-de` + `passive_scalars` > 0 | — | + 4 slots $\rho s_k$ | 9, 10 |
 | Ideal MHD with mixed GLM cleaning | `mhd-ideal` | `glm` | $(\rho, \rho u, \rho v, \rho w, E, B_x, B_y, B_z, \psi)$ | 9 |
 | Ideal MHD with EGLM cleaning ($E$ includes $\psi^2/2$) | `mhd-ideal` | `eglm` | as GLM | 9 |
 | Ideal MHD without divergence control | `mhd-ideal` | `none` | the first 8 of the above | 8 |
+| Isothermal or barotropic Euler ([numerics](./numerics#isothermal-and-barotropic-equations-of-state)) | `euler` + `[eos] type` | — | as Euler, energy slot inert | 5 |
+| Isothermal or barotropic ideal MHD ([numerics](./numerics#isothermal-and-barotropic-mhd)) | `mhd-ideal` + `[eos] type` | `glm`, `none` | as MHD, energy slot inert | 9, 8 |
 
-All models use a calorically perfect ideal gas and are inviscid by default. Viscosity, heat conduction and Ohmic
+The gas is calorically perfect (`[eos] type = ideal`, the default) unless `[eos] type` is `isothermal` or `barotropic`,
+which apply to `euler` and `mhd-ideal` without passive scalars only. All models are inviscid by default. Viscosity, heat conduction and Ohmic
 resistivity are milestone M4 ([#65](https://github.com/szaghi/adam/issues/65)), each given as a coefficient or as its
 number ([input](./input#dissipative-terms-issue-65-m4)): with a viscosity or a conductivity each model is its
 compressible Navier–Stokes form, and `mhd-ideal` with a resistivity is resistive MHD (Ohm's law

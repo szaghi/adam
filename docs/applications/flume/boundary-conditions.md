@@ -10,19 +10,21 @@ the exchange machinery instead (below).
 
 There are six sections, `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]` and `[bc_z_max]`, which are
 faces 1–6. Each section **requires** `type`. The value goes through
-`strip_control`, so CRLF files are accepted. Seven values are accepted, and matching is case-sensitive:
+`strip_control`, so CRLF files are accepted. Eleven values are accepted, and matching is case-sensitive:
 
-| `type` | id | per-face keys |
-|---|---|---|
-| `extrapolation` | `BC_EXTRAPOLATION = 1` | none |
-| `inflow` | `BC_INFLOW = 2` | `r, u, v, w, p` (+ `bx, by, bz` for MHD), all required |
-| `wall-inviscid` | `BC_WALL_INVISCID = 3` | none |
-| `wall-noslip` | `BC_WALL_NOSLIP = 4` | `wall_u, wall_v, wall_w` (optional, default 0; the normal one must be 0) |
-| `wall-isothermal` | `BC_WALL_ISOTHERMAL = 5` | `wall_temperature` (required, $> 0$), `wall_u, wall_v, wall_w` as above |
-| `periodic` | library `BC_PERIODIC = -1` | none |
-| `hydrostatic` | `BC_HYDROSTATIC = 6` | none (reads `[gravity]`); refused with `[eos]` `isothermal` or `barotropic` |
-| `non-reflecting` | `BC_NONREFLECTING = 8` | the target `r, u, v, w, p` (required), `nr_length` $L$ (required, $> 0$), `nr_sigma` $\sigma$ (default 0.28); Euler only ([#121](https://github.com/szaghi/adam/issues/121) S2) |
-| `shock-generator` | `BC_SHOCK_GENERATOR = 9` | the upstream `r, u, v, w, p`, one of `shock_deflection` and `shock_angle` (degrees), `shock_x`, `shock_x_end` (optional); `bc_y_min` and `bc_y_max` only, Euler only ([#121](https://github.com/szaghi/adam/issues/121) S3) |
+| `type` | id | Meaning | per-face keys |
+|---|---|---|---|
+| `extrapolation` | `BC_EXTRAPOLATION = 1` | zeroth-order extrapolation (outflow) | none |
+| `inflow` | `BC_INFLOW = 2` | prescribed state | `r, u, v, w, p` (+ `bx, by, bz` for MHD), all required |
+| `inflow-digital-filter` | `BC_INFLOW_DF = 7` | turbulent boundary-layer inflow: a mean profile table plus digital-filter fluctuations ([numerics](./numerics#digital-filter-inflow)) | `r, u, p`, `df_profile`, `df_delta`, `df_spacing`, `df_wall_axis`, `df_length_*` (required), `df_seed`; Euler only, one face per realm ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), [#119](https://github.com/szaghi/adam/issues/119)) |
+| `wall-inviscid` | `BC_WALL_INVISCID = 3` | slip wall | none |
+| `wall-modelled` | `BC_WALL_INVISCID = 3` + wall-model flag | isothermal wall whose face flux comes from a wall model; ghosts mirrored as `wall-inviscid` ([numerics](./numerics#wall-model)) | `wall_temperature` (required, $> 0$), `wall_model`, `wall_model_height`, `wall_model_damping`, `wall_model_filter`, `wall_model_eddy_viscosity`, `wall_model_edge_velocity`, `wall_model_edge_temperature` ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), [#119](https://github.com/szaghi/adam/issues/119)) |
+| `wall-noslip` | `BC_WALL_NOSLIP = 4` | no-slip adiabatic wall | `wall_u, wall_v, wall_w` (optional, default 0; the normal one must be 0); refused with `[eos]` `isothermal` or `barotropic` |
+| `wall-isothermal` | `BC_WALL_ISOTHERMAL = 5` | no-slip wall at a set temperature | `wall_temperature` (required, $> 0$), `wall_u, wall_v, wall_w` as above; refused with `[eos]` `isothermal` or `barotropic` |
+| `periodic` | library `BC_PERIODIC = -1` | periodic pair of faces | none |
+| `hydrostatic` | `BC_HYDROSTATIC = 6` | hydrostatic ghosts under gravity, mirrored velocity | none (reads `[gravity]`); refused with `[eos]` `isothermal` or `barotropic` |
+| `non-reflecting` | `BC_NONREFLECTING = 8` | characteristic outflow and far field | the target `r, u, v, w, p` (required), `nr_length` $L$ (required, $> 0$), `nr_sigma` $\sigma$ (default 0.28); Euler only ([#121](https://github.com/szaghi/adam/issues/121) S2) |
+| `shock-generator` | `BC_SHOCK_GENERATOR = 9` | oblique shock entering through a y face | the upstream `r, u, v, w, p`, one of `shock_deflection` and `shock_angle` (degrees), `shock_x`, `shock_x_end` (optional); `bc_y_min` and `bc_y_max` only, Euler only ([#121](https://github.com/szaghi/adam/issues/121) S3) |
 
 *Validation:*
 - an unknown value stops the run and the message lists the accepted spellings;

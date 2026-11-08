@@ -15,18 +15,19 @@ on CPUs (MPI + OpenMP) and on GPUs (MPI + OpenACC, or OpenMP offload). It supers
 
 | Area | Capabilities | Details |
 |---|---|---|
-| Physics | Compressible Euler (optionally with dual energy and up to 4 passive scalars); ideal MHD with mixed GLM or EGLM divergence cleaning (or without control, for diagnostics); ideal, isothermal or barotropic gas; viscosity, heat conduction and Ohmic resistivity; external gravity and self-gravity; optically thin radiative cooling; sink particles | [Physical models](./models) |
-| Space | WENO flux splitting (`weno`, orders 3–9, characteristic or conservative); WENO interpolation + Riemann flux + high-order correction (`weno-riemann`, LLF/HLL/HLLC for Euler, LLF/HLL/HLLD for MHD); cell-based positivity limiter | [Numerical methods](./numerics) |
+| Physics | Compressible Euler (optionally with dual energy and up to 4 passive scalars); ideal MHD with mixed GLM or EGLM divergence cleaning (or without control, for diagnostics); ideal, isothermal or barotropic gas; viscosity (constant, power law or Sutherland), heat conduction and Ohmic resistivity; external gravity and self-gravity; optically thin radiative cooling; sink particles | [Physical models](./models) |
+| Space | WENO flux splitting (`weno`, orders 3–9, characteristic or conservative); WENO interpolation + Riemann flux + high-order correction (`weno-riemann`, LLF/HLL/HLLC for Euler, LLF/HLL/HLLD for MHD); hybrid central/WENO (`hybrid-kep-weno`, Euler); cell-based positivity limiter | [Numerical methods](./numerics) |
 | Time | SSP and low-storage Runge–Kutta, CFL time step (with the GLM cleaning speed) | [Numerical methods](./numerics#time-integration) |
+| Turbulence | Subgrid-scale models (`vreman`, `wale`, `sigma`); hybrid central/WENO; equilibrium and inverse-transformation wall models (`wall-modelled`); digital-filter turbulent inflow; mass-flow forcing (`[forcing]`); turbulence and wall histories | [Numerical methods](./numerics#subgrid-scale-models), [Boundary conditions](./boundary-conditions), [Verification](./verification/turbulence/) |
 | Grid | Octree/quadtree of Cartesian blocks, AMR at initialisation and during the run (box, gradient, Löhner and solid markers), 2:1 coarse–fine faces with conservative reflux | [Numerical methods](./numerics#adaptive-mesh-refinement) |
 | Geometry | Immersed boundary for static solids (Euler) | [Numerical methods](./numerics#immersed-boundary-euler) |
 | Coupling | Multi-realm runs glued by a forest manifest | [Numerical methods](./numerics#multi-realm-runs) |
-| Setup | 25 initial conditions (Riemann problems, vortices, Shu–Osher, Orszag–Tang, rotor, field loop, linear waves, exact viscous states, atmospheres, self-gravitating spheres and clouds, ...), 7 boundary conditions (no-slip and isothermal walls, hydrostatic faces under gravity included) | [Initial conditions](./initial-conditions), [Boundary conditions](./boundary-conditions) |
+| Setup | 29 initial conditions (Riemann problems, vortices, Shu–Osher, Orszag–Tang, rotor, field loop, linear waves, exact viscous states, atmospheres, self-gravitating spheres and clouds, channel, boundary layer, Taylor–Green, isotropic turbulence, ...), 11 boundary conditions (no-slip, isothermal and modelled walls, hydrostatic faces under gravity, digital-filter inflow, non-reflecting faces, shock generator included) | [Initial conditions](./initial-conditions), [Boundary conditions](./boundary-conditions) |
 | Input | One INI file per realm, every value checked | [Input reference](./input) |
 | Output | XDMF + HDF5 checkpoints (ParaView), restart, slices, residual, conservation and div(B) histories | [Input reference](./input#io) |
 | Verification | Exact solutions, convergence orders, symmetry and conservation oracles on both backends | [Verification gallery](./verification/) |
 
-**Status.** Milestones M1 to M13 are complete:
+**Status.** Milestones M1 to M13 are complete; the turbulence and STREAmS fronts are open:
 
 | Milestone | Content |
 |---|---|
@@ -43,6 +44,8 @@ on CPUs (MPI + OpenMP) and on GPUs (MPI + OpenACC, or OpenMP offload). It supers
 | M11 [#93](https://github.com/szaghi/adam/issues/93) | optically thin radiative cooling |
 | M12 [#94](https://github.com/szaghi/adam/issues/94) | sink particles |
 | M13 [#100](https://github.com/szaghi/adam/issues/100) | isothermal and barotropic equations of state, Euler and MHD |
+| Turbulence [#119](https://github.com/szaghi/adam/issues/119) (open) | subgrid-scale models, `hybrid-kep-weno`, wall models, digital-filter inflow, `[forcing]` ([numerics](./numerics#subgrid-scale-models), [verification](./verification/turbulence/)) |
+| STREAmS roadmap [#121](https://github.com/szaghi/adam/issues/121) (open) | Sutherland viscosity ([input](./input#physics)), non-reflecting boundary and shock generator ([boundary conditions](./boundary-conditions)) |
 
 Every milestone runs on both backends.
 

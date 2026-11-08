@@ -7,15 +7,16 @@ conservative flux difference
 $$\frac{d\mathbf{q}_i}{dt} = -\sum_{d} \frac{\hat{\mathbf{F}}_{d,i+1/2} - \hat{\mathbf{F}}_{d,i-1/2}}{\Delta x_d} + \mathbf{S}(\mathbf{q}_i),$$
 
 integrated in time by an explicit Runge–Kutta scheme. The numerical flux $\hat{\mathbf{F}}_{i+1/2}$ is built so that the
-difference is a high-order approximation of $\partial\mathbf{F}/\partial x$ (Shu & Osher 1989). Two space operators are
+difference is a high-order approximation of $\partial\mathbf{F}/\partial x$ (Shu & Osher 1989). Three space operators are
 available, selected by `[numerics] scheme_space`:
 
 | `scheme_space` | Face flux | Models |
 |---|---|---|
 | `weno` | WENO reconstruction of the Lax–Friedrichs-split fluxes, per characteristic field | Euler, MHD |
 | `weno-riemann` | WENO interpolation of the face states, a Riemann solver and a high-order correction (Chen, Tóth & Gombosi 2016) | Euler (LLF, HLL, HLLC); MHD (LLF, HLL, HLLD) |
+| `hybrid-kep-weno` | `weno`, with a 6th-order kinetic-energy- and pressure-equilibrium-preserving central flux at the faces away from shocks ([hybrid central/WENO](#hybrid-central-weno)) | Euler |
 
-Both operators store the face flux at the same place, so seams, AMR reflux and the flux difference are shared.
+All operators store the face flux at the same place, so seams, AMR reflux and the flux difference are shared.
 
 ## Grid, blocks and ghost cells
 
@@ -631,8 +632,8 @@ flux carry mass, energy and scalars through the face at $O(h^3)$ (+11 % of the m
 `wall-modelled` faces ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), issue #119, T3.3–T3.4) mirror their ghosts as `wall-inviscid`
 and replace the flux through the wall face, after every other dissipative flux: no mass, the parallel momentum by $\tau_w$ along the parallel velocity
 of the sample, the energy by the wall heat flux $q_w$; the normal momentum keeps the mirrored pressure. The sample is the 3rd cell off the wall,
-$h = 2.5\,\Delta$ (Kawai & Larsson 2012, as cited in #119, place it off the first cell), or at `wall_model_height`, interpolated linearly
-between the two cells around it. The literature collected in llm-wiki (equilibrium wall model, log-layer mismatch) matches at a fixed fraction of
+$h = 2.5\,\Delta$ (Kawai & Larsson 2012 place it off the first cell), or at `wall_model_height`, interpolated linearly
+between the two cells around it. Equilibrium wall models are usually matched at a fixed fraction of
 $\delta$, 0.1–0.3, with $\Delta/h_{\mathrm{wm}}\lesssim0.3$–0.4: the 3rd cell sits at that bound and moves with the grid.
 
 The model is the equilibrium thin layer between the wall and the sample, pressure uniform across it:
@@ -643,7 +644,7 @@ $$
 $$
 
 $\mu_t=\kappa y\sqrt{\rho\tau_w}\,\big(1-e^{-y^+/A^+}\big)^2$ with the local density, $y^+=y\sqrt{\tau_w\rho_w}/\mu_w$ (classical) or
-$y^*=y\sqrt{\tau_w\rho}/\mu$ with the local density and viscosity (`semi-local`, as Yang & Lv 2018 and Chen et al. 2022, cited in llm-wiki), $\kappa=0.41$, $A^+=17$,
+$y^*=y\sqrt{\tau_w\rho}/\mu$ with the local density and viscosity (`semi-local`, as Yang & Lv 2018 and Chen et al. 2022), $\kappa=0.41$, $A^+=17$,
 $Pr_t=0.9$; $T=T_w$ and $U=0$ at the wall, the sample values at $y=h$. Integrated once, $\tau_w$ and $q_w$ follow from two quadratures for a given
 temperature profile: 40 intervals stretched by 1.3, a rule exact for a coefficient linear on each interval, 8 iterations with an Aitken step on
 $\ln\tau_w$ every second one (capped at a factor $e$), the temperature iterate under-relaxed and kept positive, the laminar stress if all else fails.
@@ -651,8 +652,8 @@ A fixed cost per wall face, on the device too. Measured (`test_wall_model`): $\t
 (5.5 % at $10^6$), the Crocco relation to $8\cdot10^{-4}$, a hot compressible layer against an independent solver to $3\cdot10^{-3}$, and no
 non-finite result in $2\cdot10^5$ random samples up to 4.5 wall sound speeds.
 
-**Inverse-velocity-transformation model** (`wall_model = inverse-transformation`, T3.5). Griffin, Fu & Moin (2023, J. Fluid Mech. 970, A36; in
-llm-wiki) keep the constant-property layer above, at the same semi-local height, $S_t^+=1/(1+\kappa y^*D^2)$, $D=1-e^{-y^*/A^+}$, and map its strain to
+**Inverse-velocity-transformation model** (`wall_model = inverse-transformation`, T3.5). Griffin, Fu & Moin (2023, J. Fluid Mech. 970, A36)
+keep the constant-property layer above, at the same semi-local height, $S_t^+=1/(1+\kappa y^*D^2)$, $D=1-e^{-y^*/A^+}$, and map its strain to
 the compressible one by inverting the total-stress-based transformation (their Eq. 2.2),
 
 $$
@@ -674,7 +675,7 @@ intervals (the grid, not the algebra); no non-finite result in $2\cdot10^5$ rand
 on a laminar flow ($h^+\approx1$) and departs from it on a hot wall.
 
 **Input filter** (`wall_model_filter` $=T_f$). The sampled velocity, pressure and density of each wall face are averaged in time,
-$\bar a\leftarrow(1-e)\,\bar a+e\,a$, $e=\min(\Delta t/T_f,1)$, as Kawai & Larsson (2012, cited in llm-wiki) recommend against the noise of a
+$\bar a\leftarrow(1-e)\,\bar a+e\,a$, $e=\min(\Delta t/T_f,1)$, as Kawai & Larsson (2012) recommend against the noise of a
 single LES sample. The average takes the sample once per step, at the first stage (from $q^n$); every stage uses $(1-e)\bar a+e\,a$ with its own
 sample, so $T_f\to0$ is the unfiltered model bit for bit (leg wm7); the residual of a balanced gravity equilibrium, a steady state, uses the
 unfiltered model and leaves the averages alone. The averages restart from the next sample at the start and after a regrid; a checkpoint

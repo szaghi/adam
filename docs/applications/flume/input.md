@@ -2,7 +2,7 @@
 
 A FLUME run reads one INI file: `mpirun -np N exe/adam_flume_cpu input.ini` (or `adam_flume_fnl`). This page lists
 every section and key the application reads, with its type, whether it is required, its default, the accepted values
-and what happens on an invalid one. The two complete inputs at the end are verification cases, copied verbatim; the
+and what happens on an invalid one. The two complete inputs at the end are verification cases; the
 [verification gallery](./verification/) shows their results.
 
 ## Program entry and read order
@@ -876,13 +876,18 @@ conservation_history_save = 1
 
 ---
 
-## Complete example 2: ideal MHD with GLM, Orszag–Tang vortex with a 2:1 AMR box (verbatim)
+## Complete example 2: ideal MHD with GLM, Orszag–Tang vortex with a 2:1 AMR box
 
 There is **no committed INI** under `src/tests/flume/verification/mhd/orszag-tang/`. `check.sh` generates the input
-with `make_orszag_tang.py` from `verification/vortex/vortex-n064.ini`. The file below is copied without changes from
-the generated (git-ignored) `src/tests/flume/verification/mhd/orszag-tang/work-adam_flume_cpu-np2-amr/orszag-tang.ini`
-(written 2026-09-29, `--cells 32 --refine-box 0.25 0.25 0.75 0.75`). It is written by Python `configparser`, which
-explains the section order and the spacing.
+with `make_orszag_tang.py` from `verification/vortex/vortex-n064.ini`. The example below is what the generator writes
+for the AMR leg of `check.sh`:
+
+```bash
+cd src/tests/flume/verification
+python3 mhd/orszag-tang/make_orszag_tang.py vortex/vortex-n064.ini orszag-tang.ini --cells 32 --refine-box 0.25 0.25 0.75 0.75
+```
+
+It is written by Python `configparser`, which explains the section order and the spacing.
 
 ```ini
 [IO]
