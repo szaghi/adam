@@ -40,7 +40,7 @@ The SDK provides physics-agnostic building blocks reused identically by every ap
 | `adam_mpih_object` | MPI wrapper: initialize/finalize, `error_stop`, barrier, timers |
 | `adam_flail_object` | FLAIL, the elliptic solver library: a facade over the FFT (`adam_poisson_fft_object`) and AMR multigrid (`adam_poisson_mg_object`) Poisson solvers |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian finite difference operators |
-| `adam_riemann_euler_library` | Riemann solvers for the Euler equations |
+| `adam_riemann_euler_library` | Riemann solvers for the Euler equations (library only: used by no maintained application) |
 
 ### Object ownership: the realm
 
@@ -52,7 +52,7 @@ Every library object belongs to a **realm** — the per-domain solver instance �
 | `io` | `io_object` | INI file handle, output/restart configuration |
 | `amr` | `amr_object` | refinement markers |
 | `weno`, `rk`, `ib` | `weno_object`, `rk_object`, `ib_object` | reconstruction, time integration, immersed boundary |
-| `slices`, `flail`, `leapfrog`, `blanesmoan`, `cfm` | … | slices output, the FLAIL elliptic solver library (issue #84: FFT and multigrid Poisson solvers), alternative integrators |
+| `slices`, `flail`, `leapfrog`, `blanesmoan`, `cfm` | … | slices output, the FLAIL elliptic solver library (FFT and multigrid Poisson solvers), alternative integrators (library only: used by no maintained application) |
 
 Library routines that need another object receive it **as an argument**, e.g. `call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)`. Because each realm owns its objects, several realms (a multi-realm *forest*) coexist in one process without sharing state.
 
@@ -107,7 +107,7 @@ src/
 │   ├── patch/            # Patch-based application (unmaintained)
 │   └── ascot/            # Binary-to-ASCII output converter
 ├── tests/                # Unit and integration tests
-└── third_party/          # Git submodules (PENF, StringiFor, FiNeR, VTKFortran, …)
+└── third_party/          # Dependencies fetched by `fobis fetch` (PENF, StringiFor, FiNeR, VTKFortran, …)
 ```
 
 ### Backend pattern

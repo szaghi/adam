@@ -110,7 +110,7 @@ the expected message in the log, so a crash is not mistaken for a refusal. Add a
 
 ```bash
 ./src/tests/flume/verification/sod/check.sh --legs all          # every verification script takes --legs
-./src/tests/ripple/check.sh                                      # RIPPLE: r1 r2 r3 r5 on the CPU executable
+./src/tests/ripple/check.sh                                      # RIPPLE: r1 r2 r3 r5 r6 (r6 also on test_ripple_crest_criterion)
 RIPPLE_R5_EXE=$PWD/exe/adam_ripple_fnl ./src/tests/ripple/check.sh --legs r5   # the CRLF leg on FNL
 ```
 

@@ -107,7 +107,7 @@ pulse in the box (`r0 = 0.0`, as the [next page](./faces) does) to see the schem
 ::: tip What you learned
 - PRISM's input names the model, the space and time schemes, the grid, the initial field and the faces.
 - The energy and divergence histories are the first checks: energy flat, divergence zero on a uniform grid.
-- Dispersion, not dissipation, is the error of a centred scheme on a narrow pulse.
+- The 4% return error here is the unwrapped initial cut, not the scheme; centre the pulse to see the scheme's own error.
 :::
 
 Next: [2. Reflecting and absorbing faces](./faces).

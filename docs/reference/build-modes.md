@@ -2,7 +2,7 @@
 
 # Build modes
 
-The fobos files define 120 modes. Build one with `fobis build --mode <mode>`; the executables go to `exe/`.
+The fobos files define 126 modes. Build one with `fobis build --mode <mode>`; the executables go to `exe/`.
 
 - **Varsets.** A varset selects the machine and toolchain: the HDF5 build (`$HDF5_PREFIX`) and, for nvfortran, the GPU compute capability (`$NVF_CC`). The default varset is `local_gnu`. Every nvfortran mode needs `--varset` with an NVF varset, or `-gpu=$NVF_CC` stays unexpanded and the first nvfortran call fails. The varset table is on the [install page](/start/install#varsets-one-per-machine-and-toolchain). In the tables, **default** is `local_gnu` (or the machine's GNU varset: `ci_gnu`, `iac_gnu`); **NVF** is a varset that sets `$NVF_CC` (`local_nvf`, `iac_nvf`, `leonardo`, `spacehpc`); **AMD** is a varset that sets the amdflang HDF5 (`local_amd`, `thera_amd`), combined with a `gfx*` varset to change `$GPU_ARCH` from its default, gfx942.
 - **Names.** `<target>-<backend>-<compiler>[-<variant>]`: `cpu` is the CPU backend (MPI, optionally OpenMP), `fnl` the GPU backend (OpenACC with `nvf`, OpenMP offload with `omp-amd`). Build clean after switching compiler: `.mod` files work only with the compiler that wrote them.
@@ -131,6 +131,8 @@ Status: does not build.
 | `test-flume-weno-weights-gnu` | CPU (gfortran) | — | default |
 | `test-flume-weno-interpolation-fnl-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
 | `test-flume-weno-interpolation-fnl-omp-amd` | FNL, OpenMP offload (amdflang) | — | AMD |
+| `test-flume-user-criterion-cpu-gnu` | CPU (gfortran) | — | default |
+| `test-ripple-crest-criterion-cpu-gnu` | CPU (gfortran) | — | default |
 | `test-fdv-curl-trigonometric-gnu` | CPU (gfortran) | — | default |
 | `test-fdv-curl-trigonometric-gnu-debug` | CPU (gfortran) | debug flags | default |
 | `test-fdv-fnl-curl-trigonometric-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
@@ -184,6 +186,10 @@ Status: does not build.
 | `test-flail-bc-fnl-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
 | `test-rk-ssp-tableau-gnu` | CPU (gfortran) | — | default |
 | `test-rk-ssp-tableau-gnu-debug` | CPU (gfortran) | debug flags | default |
+| `test-sgs-gnu` | CPU (gfortran) | — | default |
+| `test-kep-gnu` | CPU (gfortran) | — | default |
+| `test-wm-gnu` | CPU (gfortran) | — | default |
+| `test-df-gnu` | CPU (gfortran) | — | default |
 
 ## Benchmarks
 

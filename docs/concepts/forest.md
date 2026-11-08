@@ -4,7 +4,7 @@ ADAM's **forest** is the orchestrator that drives more than one independent simu
 
 Two flagship use cases motivate the multi-realm machinery:
 
-- **Asymmetric integrator stride** — one realm advances on SSP-RK-3 for a stiff region while another uses SSP-RK-5 for a region requiring higher temporal accuracy, both with the same global `dt`.
+- **Asymmetric integrator stride** — one realm advances on SSP(3,3) for a stiff region while another uses SSP(5,4) for a region requiring higher temporal accuracy, both with the same global `dt`.
 - **Accuracy-driven spatial decomposition** — one realm uses WENO-7 near shocks while another uses FD-centered in smooth regions; both run the same RK scheme but with operators tuned to their local physics regime.
 
 The first scenario requires the **α (end-of-step)** seam-coupling cadence, the AMReX-aligned default. The second is best served by **β (stage-coincident)**, the opt-in alternative that recovers single-realm temporal accuracy at the seam.
@@ -219,7 +219,7 @@ The two families are structurally disjoint and use different machinery:
 | Declared by | `[forest]` manifest face-pairs | AMR refinement markers |
 | Resolution | same (`mirror`, blocks lined up or not) or 2:1 (`refined`) | 2:1 coarse↔fine jump |
 | Ghost fill | `adam_seam_exchange%seam_fill_batch` (`seam_fill_post` / `seam_fill_complete` per pair; `seam_fill` for one pair): local rows and cross-rank rows (copy, interpolate, restrict) | `update_ghost_local` flag-4 path → `interp_seam_ghost` |
-| Fill regime | copy (`mirror`); the `seam_ghost_fill` regime and the 2x2x2 mean (`refined`) | selectable: injection / restriction-compatible / **tricubic** |
+| Fill regime | copy (`mirror`); the `seam_ghost_fill` and `seam_restriction` regimes (`refined`) | selectable: `seam_ghost_fill` (six regimes, default **tricubic**) and `seam_restriction` (default `mean`) |
 | Cadence | α / β per seam | intrinsic to `update_ghost` (every stage) |
 | Registered as | `SEAM_KIND_INTER_REALM` (with `maps%seam_overlap` for misaligned blocks), `SEAM_KIND_INTER_REALM_REFINED` | `SEAM_KIND_INTRA_REALM_AMR` |
 | Reflux | inter-realm flux register | Berger-Colella reflux at the 2:1 face |
@@ -232,7 +232,8 @@ At an intra-realm 2:1 seam, the fine block's ghost cells overlapping the coarse 
 
 ```ini
 [amr]
-seam_ghost_fill = tricubic   ; injection | restriction-compatible | tricubic
+seam_ghost_fill  = tricubic ; injection | restriction-compatible | tricubic | quintic | weno6 | quintic-mp
+seam_restriction = mean     ; mean | lagrange6 | weno6 (the fine-to-coarse ghosts)
 ```
 
 | Value | Enum | Order | Footprint | Notes |
@@ -240,10 +241,18 @@ seam_ghost_fill = tricubic   ; injection | restriction-compatible | tricubic
 | `injection`              | `SEAM_FILL_INJECTION`  | 0 (legacy) | 1 | straight copy of the coarse value |
 | `restriction-compatible` | `SEAM_FILL_COMPATIBLE` | q=2 | 3 | exact `R∘P = I` restriction-compatible stencil |
 | `tricubic`               | `SEAM_FILL_TRICUBIC`   | q=4 | 4 | high-order tensor-product cubic |
+| `quintic`                | `SEAM_FILL_QUINTIC`    | q=6 | 6 | tensor 6-point Lagrange, exact for degree 5 |
+| `weno6`                  | `SEAM_FILL_WENO6`      | 6 where no jump | 6 | WENO-Z combination of the 4-point cubics, dropping those that hold a jump |
+| `quintic-mp`             | `SEAM_FILL_QUINTIC_MP` | 6 where unclamped | 6 | the quintic clamped to a monotonicity-preserving bound |
 
-**Effective default is `tricubic`**: when the `[amr] seam_ghost_fill` key is absent, `adam_object%initialize` sets `maps%seam_ghost_fill = SEAM_FILL_TRICUBIC` (`adam_adam_object.F90:236`). (The `adam_maps_object` struct initializer is `SEAM_FILL_INJECTION` — a latent fallback only reachable if the parse block is bypassed; the two literals disagree by design, with the runtime override winning.) The FNL device path carries the regime through `update_ghost_local_gpu(..., seam_ghost_fill=self%maps%seam_ghost_fill, ...)`.
+The 6-point regimes need at least 6 cells per block along every refined axis (refused at initialization otherwise).
+The fine-to-coarse ghosts take the `[amr] seam_restriction` regime: `mean` (default, the mean of the fine cells, second
+order), `lagrange6` (tensor 6-point Lagrange to the coarse centre, exact for degree 5) or `weno6` (WENO-Z of the 4-point
+cubics, the mean across a jump); `lagrange6` and `weno6` also need 6 cells along every refined axis.
 
-The map-row flag (column 9 of the local ghost map) is a *separate* selector: value `4` routes a ghost cell to `interp_seam_ghost` (the coarse→fine path); `1` is plain injection copy, `8` is coarsening mean. The `seam_ghost_fill` regime (0/1/2) is orthogonal — it chooses *how* the flag-4 cells interpolate.
+**Effective default is `tricubic`**: when the `[amr] seam_ghost_fill` key is absent, `adam_object%initialize` sets `maps%seam_ghost_fill = SEAM_FILL_TRICUBIC` (`adam_adam_object.F90`); an unknown value of either key is fatal. (The `adam_maps_object` struct initializer is `SEAM_FILL_INJECTION` — a latent fallback only reachable if the parse block is bypassed; the two literals disagree by design, with the runtime override winning.) The FNL device path carries the regime through `update_ghost_local_gpu(..., seam_ghost_fill=self%maps%seam_ghost_fill, ...)`.
+
+The map-row flag (column 9 of the local ghost map) is a *separate* selector: value `4` routes a ghost cell to `interp_seam_ghost` (the coarse→fine path); `1` is plain injection copy, `8` is coarsening mean. The `seam_ghost_fill` regime (0-5) is orthogonal — it chooses *how* the flag-4 cells interpolate.
 
 ### The 2:1 seam is not div-free (accept-truncation)
 

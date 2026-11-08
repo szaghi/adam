@@ -13,8 +13,8 @@ The primary focus is on large-scale scientific computing: ADAM targets exascale 
 
 ## Key capabilities
 
-- **AMR** — Morton-order linearized octree/quadtree; refinement at initialization by geometric, gradient and total-variation markers, and runtime regridding in FLUME (`[amr] frequency`)
-- **Immersed Boundary** — complex and moving geometries without body-fitted meshes
+- **AMR** — Morton-order linearized octree/quadtree; refinement by geometric, gradient, Löhner, Jeans-length and user-registered markers in FLUME, by geometric and total-variation markers in PRISM, and runtime regridding in FLUME (`[amr] frequency`)
+- **Immersed Boundary** — complex geometries without body-fitted meshes (moving bodies are library only: used by no maintained application)
 - **High-order WENO** — upwind reconstructions of order 1 to 9 and centred of order 2 to 8
 - **GPU backend** — one FNL codebase compiles for OpenACC (nvfortran) and OpenMP offloading (amdflang)
 - **Elliptic solvers** — FLAIL: FFT and AMR multigrid Poisson solvers, on CPU and GPU

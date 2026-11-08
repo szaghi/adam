@@ -26,7 +26,7 @@ hero:
 features:
   - icon: 🌲
     title: Adaptive Mesh Refinement
-    details: Morton-ordered octrees and quadtrees with 2:1 balance and conservative refluxing. Refinement at initialization by geometric, gradient and total-variation markers; FLUME also regrids at runtime.
+    details: Morton-ordered octrees and quadtrees with 2:1 balance and conservative refluxing. FLUME refines by geometric, gradient, Löhner, Jeans-length and user-registered markers and also regrids at runtime; PRISM refines at initialization by geometric and total-variation markers.
     link: /concepts/library
     linkText: AMR markers
   - icon: ⚡
@@ -41,7 +41,7 @@ features:
     linkText: The forest
   - icon: 🌌
     title: FLUME
-    details: Compressible Euler and ideal MHD with dissipative terms, ideal, isothermal and barotropic gases, gravity, self-gravity, cooling and sink particles.
+    details: Compressible Euler and ideal MHD with dissipative terms, ideal, isothermal and barotropic gases, gravity, self-gravity, cooling, sink particles, and turbulence (SGS models for LES, wall models, digital-filter inflow).
     link: /applications/flume/
     linkText: FLUME
   - icon: 🔌
@@ -51,7 +51,7 @@ features:
     linkText: PRISM
   - icon: 🔧
     title: INI-driven configuration
-    details: A run is configured by one INI file, and a missing key stops it at initialization; no recompilation to change physics, numerics or grid.
+    details: A run is configured by one INI file, and an unrecognised option value stops it at initialization (the input reference marks the keys left unchecked); no recompilation to change physics, numerics or grid.
     link: /applications/flume/input
     linkText: Input reference
 ---

@@ -17,7 +17,7 @@ The aggregate entry point `adam_fnl_library` re-exports the entire FNL API toget
 - [Runge-Kutta integration](#runge-kutta-integration)
 - [Immersed boundary method](#immersed-boundary-method)
 - [Communication maps](#communication-maps)
-- [Finite difference/volume operators](#finite-differencevolume-operators)
+- [Finite difference/volume operators](#finite-difference-volume-operators)
 - [Poisson solver](#poisson-solver)
 - [MPI handler](#mpi-handler)
 - [Module summary](#module-summary)
@@ -153,7 +153,7 @@ All routines carry `!$acc parallel loop independent` and use `DEVICEVAR` on ever
 
 ### `adam_fnl_weno_object` — GPU WENO coefficient wrapper
 
-A plain type, initialised from the realm's `weno` (`initialize(weno)`). The CPU object computes all WENO coefficients once during initialisation; the FNL object mirrors them to device memory and holds the ROR (Reduced-Order Reconstruction) tables used near solid boundaries.
+A plain type, initialised from the realm's `weno` (`initialize(weno)`). The CPU object computes all WENO coefficients once during initialisation; the FNL object mirrors them to device memory and holds the ROR (Reduced-Order Reconstruction) tables used near solid boundaries (library only: used by no maintained application).
 
 **Device arrays:**
 
@@ -265,8 +265,8 @@ Wall BC modes applied by `invert_eikonal`:
 | `compute_eikonal_dq_phi_dev` | Gradient-weighted residual: `dq = |n_x|·Δq_x + |n_y|·Δq_y + |n_z|·Δq_z` inside solid |
 | `evolve_eikonal_q_phi_dev` | `q -= dq` inside solid (φ > 0) |
 | `invert_eikonal_q_phi_dev` | Momentum reflection at surface (BCS_VISCOUS or BCS_EULER) |
-| `move_phi_dev` | Level-set advection: `∂φ/∂t = −v·∇φ` for moving bodies |
-| `reduce_cell_order_phi_dev` | Lower reconstruction order in cells adjacent to solid surface |
+| `move_phi_dev` | Level-set advection: `∂φ/∂t = −v·∇φ` for moving bodies (library only: used by no maintained application) |
+| `reduce_cell_order_phi_dev` | Lower reconstruction order in cells adjacent to solid surface (library only: used by no maintained application) |
 
 ---
 

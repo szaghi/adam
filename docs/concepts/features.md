@@ -32,7 +32,7 @@ ADAM uses a **Morton-order linearized octree/quadtree** for AMR:
 
 ## Immersed Boundary Method
 
-Complex and moving geometries are handled without body-fitted meshes:
+Complex geometries are handled without body-fitted meshes (moving bodies are library only: used by no maintained application):
 
 - Solid body positions are tracked on a background Cartesian grid
 - IB forcing reconstructs boundary conditions at cut cells
@@ -54,7 +54,7 @@ Weighted Essentially Non-Oscillatory finite difference reconstructions:
 | `weno-u-9` | 9th (upwind) | `ngc = 5` |
 | `weno-c-2` … `weno-c-8` | 2nd–8th (centred) | `ngc = order/2` |
 
-Nonlinear weights: Jiang–Shu (`js`, the default) or scale-invariant (`si`). Reconstruction variables: conservative or characteristic. ROR iterations lower the stencil where a variable check fails, and the order is reduced close to immersed solids.
+Nonlinear weights: Jiang–Shu (`js`, the default) or scale-invariant (`si`). Reconstruction variables: conservative or characteristic. ROR iterations lower the stencil where a variable check fails, and the order is reduced close to immersed solids (library only: used by no maintained application).
 
 ---
 
@@ -64,7 +64,7 @@ Explicit Runge-Kutta multi-stage methods:
 
 - `runge-kutta-1`, `-2`, `-3`; SSP `runge-kutta-ssp-11`, `-22`, `-33`, `-54`; the 4-stage symplectic `runge-kutta-yoshida`
 - CFL-based time step control
-- Leapfrog, Blanes–Moan (`blanes-moan4`) and commutator-free Magnus (`CFM-4`) integrator objects
+- Leapfrog, Blanes–Moan (`blanes-moan4`) and commutator-free Magnus (`CFM-4`) integrator objects (library only: used by no maintained application; PRISM refuses them)
 
 ---
 

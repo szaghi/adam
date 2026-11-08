@@ -49,7 +49,7 @@ The aggregate entry point `adam_common_library` re-exports all modules below; a 
 
 The tree is a **CPU-resident hash-map** keyed on 64-bit Morton indices that linearise the four octree coordinates `(level, bx, by, bz)` into a single integer. It provides O(1) block insertion, deletion, and neighbour lookup during AMR update phases. Morton ordering clusters geometrically adjacent blocks in index space, minimising ghost-cell communication volume across MPI ranks.
 
-The refinement ratio is selectable: 4 (quadtree) or 8 (octree). Full 26-neighbourhood support covers all face, edge, and corner adjacencies needed by high-order stencils.
+The refinement ratio is selectable: 2 (binary tree), 4 (quadtree) or 8 (octree). Full 26-neighbourhood support covers all face, edge, and corner adjacencies needed by high-order stencils.
 
 The tree is never accessed by numerical kernels during time integration — it is consulted only during AMR update cycles (marking → refinement/coarsening → load rebalancing).
 
@@ -85,7 +85,8 @@ Key configuration (`[grid]` INI section):
 | `ni`, `nj`, `nk` | Cells per block per direction |
 | `ngc` | Ghost-cell width (typically 3 for WENO5, 4 for WENO7) |
 | `emin_*`, `emax_*` | Domain extents |
-| `bc_type(6)` | Boundary condition type on each of the 6 domain faces |
+
+The face boundary types `bc_type(6)` are not read from `[grid]`: the application sets them (`set_bc_type`).
 
 Notable methods: `block_emin/emax`, `cell_xyz`, `node_xyz`, `compute_metrics`, `compute_weight_neighbor`, `load_from_ini_file`.
 
@@ -161,7 +162,7 @@ Operators: gradient, divergence, curl, Laplacian, and scalar derivatives of orde
 
 #### `adam_riemann_euler_library` — Euler equation Riemann solvers
 
-Convective interface flux computation for the compressible Euler equations. All solvers accept left/right primitive states and return the numerical flux; the optional `lmax` output gives the maximum wave speed for CFL estimation.
+Library only: used by no maintained application. Convective interface flux computation for the compressible Euler equations. All solvers accept left/right primitive states and return the numerical flux; the optional `lmax` output gives the maximum wave speed for CFL estimation.
 
 | Procedure | Solver |
 |-----------|--------|
@@ -192,7 +193,7 @@ Convective interface flux computation for the compressible Euler equations. All 
 Stage storage `q_rk(nv, ni, nj, nk, nb, nrk)` is pre-allocated; no allocation occurs during time-stepping. Configuration section: `[runge_kutta]`.
 
 The next three integrators are library objects that `realm_object` declares but does **not** initialize (the calls
-are commented out); no application can use them today, and PRISM refuses them at init (issue #55).
+are commented out); no application can use them today (library only: used by no maintained application), and PRISM refuses them at init.
 
 #### `adam_leapfrog_object` — leapfrog with RAW filter
 
@@ -234,7 +235,7 @@ Stage residuals `dq` and field buffer `q` are pre-allocated. Configuration secti
 
 #### `adam_eos_ic_object` — ideal compressible gas EOS
 
-Thermodynamic model for a calorically perfect ideal gas. Stores primary properties and derives all secondary quantities on initialisation.
+Library only: used by no maintained application (`realm_object` imports it). Thermodynamic model for a calorically perfect ideal gas. Stores primary properties and derives all secondary quantities on initialisation.
 
 | Property | Symbol | Description |
 |----------|--------|-------------|
@@ -267,7 +268,7 @@ Wall boundary condition types:
 | `BCS_VISCOUS` | 1 | Viscous (no-slip) wall |
 | `BCS_EULER` | 2 | Inviscid (slip) wall |
 
-Configuration section: `[solid]`. Number of eikonal integration steps configurable via `n_eikonal`.
+Configuration sections: `[solids]` (`number`, and `n_eikonal`, the number of eikonal integration steps) and one `[solid_N]` per solid.
 
 #### `adam_amr_object` — AMR refinement markers
 
@@ -314,7 +315,7 @@ tangential components of A, `FLAIL_BC_NEUMANN` (even) for the normal one, as the
 (the wide operator across 2:1 faces is not defined; #84 E7 closed with no consumer). The FNL
 backend allocates the cuFFT solver; every PRISM mode links an FFT library (FFTW on the host, cuFFT on NVIDIA FNL).
 Regression cases `pic-pec-t0`, `rmf-pec-t0`, `pic-open-t0` and `rmf-open-t0` enter the two solves. Three limits: the CG solves (zero-ghost and free-space
-faces) gather the grid on rank 0 (and on its GPU on FNL), about 24 B per transform cell (#84 decision 3; the PEC
+faces) gather the grid on rank 0 (and on its GPU on FNL), about 24 B per transform cell (the PEC
 solves are distributed over the z-planes since E5d, 8 N cells with reflected faces); and PRISM's centred div∘grad annihilates the checkerboard, so with PEC faces the
 component of rho along `(-1)^(i+j+k)` stays in `div D - rho` (no D can carry it; the legacy smoother could not either);
 the free-space ghost sum is a direct one on rank 0, O(ghost-slab cells x cells) per component (a lattice free-space
@@ -700,7 +701,7 @@ The orchestrator gates per-seam: Phase 2 fires only on `STAGE_COINCIDENT` seams 
 The inter-realm machinery above couples two *realms*. A separate family — the **intra-realm AMR seam** — handles a 2:1 resolution jump *inside a single realm's* Morton octree (a level-`ℓ` block abutting a level-`ℓ+1` block, produced by AMR markers). It is not manifest-declared and uses different code:
 
 - **Registration**: `forest_object%register_intra_realm_amr_seams(realm)` (private) does a two-pass registration of the coarse-fine faces into the flux register with `SEAM_KIND_INTRA_REALM_AMR` (`adam_flux_register_object.F90`), and allocates/fills `maps%amr_seam_quadrant`. The array is allocated for every realm with blocks, so the seam `div(B)` guard-rail (below) arms on its tolerance alone.
-- **Ghost fill**: the fine block's coarse-overlapping ghosts are filled through `field_object%update_ghost_local`'s **flag-4** map-row path → `interp_seam_ghost`. The interpolation *regime* is `maps%seam_ghost_fill`, one of `SEAM_FILL_INJECTION` (0, copy), `SEAM_FILL_COMPATIBLE` (1, q=2 restriction-compatible), `SEAM_FILL_TRICUBIC` (2, q=4) — declared in `adam_seam_interpolation_library.F90`, selected by `[amr] seam_ghost_fill`. **Effective default is `tricubic`**: `adam_object%initialize` overwrites the `maps` struct default (`SEAM_FILL_INJECTION`) with `SEAM_FILL_TRICUBIC` when the key is absent. The FNL device path carries the regime via `update_ghost_local_gpu(..., seam_ghost_fill=..., ...)`. **Seam fill guard** ([#101](https://github.com/szaghi/adam/issues/101)): when an app sets `maps%seam_density_var` to the index of its density, with the three momenta at the next indices (FLUME does; the default 0 turns it off, as in PRISM), the fill is clamped in the manner of Suresh and Huynh by `seam_mp_bound` (`adam_seam_interpolation_library`): the density to the range of the coarse cells that bracket the ghost, widened by the data's curvature, and the velocity (momentum over that density) to the same bound of the coarse cells' velocities; a ghost whose clamped density is below `SEAM_DENSITY_GUARD` = 0.1 times its anchor's (the coarse cell holding it) takes, in every variable, the value of that anchor (the injection value). Each variable recomputes the density of its ghost, so the decision is the same in every row and in any order: on the CPU, in the parallel FNL kernels, in the MPI pack and in the inter-realm seam pack (`pack_seam_rows`). The guard belongs to the state: `update_ghost_local` / `update_ghost_mpi` (and their FNL twins) take `seam_guard = .false.` for any other field filled with the same maps (FLUME's positivity-limiter factors, whose zero is legitimate). Cost: the ghost's part (`seam_guard_prepare`) is computed once per ghost on the CPU (once per row on FNL), and both clamps first test the range of the bracketing cells, inside the bound, so the full bound is computed only when a value leaves that range; on `shock-cylinder-ib`, the regression case with the most seam ghosts, the run is 20 % slower than without the guard (the others within noise).
+- **Ghost fill**: the fine block's coarse-overlapping ghosts are filled through `field_object%update_ghost_local`'s **flag-4** map-row path → `interp_seam_ghost`. The interpolation *regime* is `maps%seam_ghost_fill`, one of `SEAM_FILL_INJECTION` (0, copy), `SEAM_FILL_COMPATIBLE` (1, q=2 restriction-compatible), `SEAM_FILL_TRICUBIC` (2, q=4), `SEAM_FILL_QUINTIC` (3, q=6), `SEAM_FILL_WENO6` (4), `SEAM_FILL_QUINTIC_MP` (5) — declared in `adam_seam_interpolation_library.F90`, selected by `[amr] seam_ghost_fill`; the coarse ghosts take the `[amr] seam_restriction` regime (`mean`, `lagrange6`, `weno6`). **Effective default is `tricubic`**: `adam_object%initialize` overwrites the `maps` struct default (`SEAM_FILL_INJECTION`) with `SEAM_FILL_TRICUBIC` when the key is absent. The FNL device path carries the regime via `update_ghost_local_gpu(..., seam_ghost_fill=..., ...)`. **Seam fill guard** ([#101](https://github.com/szaghi/adam/issues/101)): when an app sets `maps%seam_density_var` to the index of its density, with the three momenta at the next indices (FLUME does; the default 0 turns it off, as in PRISM), the fill is clamped in the manner of Suresh and Huynh by `seam_mp_bound` (`adam_seam_interpolation_library`): the density to the range of the coarse cells that bracket the ghost, widened by the data's curvature, and the velocity (momentum over that density) to the same bound of the coarse cells' velocities; a ghost whose clamped density is below `SEAM_DENSITY_GUARD` = 0.1 times its anchor's (the coarse cell holding it) takes, in every variable, the value of that anchor (the injection value). Each variable recomputes the density of its ghost, so the decision is the same in every row and in any order: on the CPU, in the parallel FNL kernels, in the MPI pack and in the inter-realm seam pack (`pack_seam_rows`). The guard belongs to the state: `update_ghost_local` / `update_ghost_mpi` (and their FNL twins) take `seam_guard = .false.` for any other field filled with the same maps (FLUME's positivity-limiter factors, whose zero is legitimate). Cost: the ghost's part (`seam_guard_prepare`) is computed once per ghost on the CPU (once per row on FNL), and both clamps first test the range of the bracketing cells, inside the bound, so the full bound is computed only when a value leaves that range; on `shock-cylinder-ib`, the regression case with the most seam ghosts, the run is 20 % slower than without the guard (the others within noise).
 - **Reflux**: Berger-Colella reflux at the 2:1 face, dispatched by `apply_reflux_corrections` at each realm's own end-of-step (α.r1 gate), identical machinery to the inter-realm register.
 
 The two families are structurally disjoint — a single-realm run never touches `fill_seam_from_peer_forest`; a same-resolution forest never touches `interp_seam_ghost`. They can coexist (a forest of internally-AMR-refined realms).

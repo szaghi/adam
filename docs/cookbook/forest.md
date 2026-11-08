@@ -124,14 +124,18 @@ A refinement marker creates blocks one level finer; where a level-`l` block meet
 
 What happens at a 2:1 face:
 - **Ghosts.** The fine block's ghosts that overlap the coarse block are **interpolated** with the
-  `[amr] seam_ghost_fill` regime; the coarse block's ghosts that overlap fine cells take the **mean of the 2x2x2**
-  fine cells.
+  `[amr] seam_ghost_fill` regime; the coarse block's ghosts that overlap fine cells are restricted from the fine cells
+  with the `[amr] seam_restriction` regime (default `mean`, the **mean of the 2x2x2** fine cells; `lagrange6` and
+  `weno6` use a 6-point footprint).
 - **Reflux.** The face is registered (`SEAM_KIND_INTRA_REALM_AMR`); after the step the coarse cells get the
   Berger-Colella correction (FLUME: `[numerics] reflux = .true.`).
 
 | `seam_ghost_fill` | Order | Footprint | Use |
 |---|---|---|---|
 | `tricubic` (**default**) | q = 4 | 4x4x4 coarse cells | production |
+| `quintic` | q = 6 | 6x6x6 | the 6-point Lagrange interpolation, exact for degree 5 |
+| `weno6` | 6 where no jump | 6x6x6 | WENO-Z combination of the 4-point cubics, dropping those that hold a jump |
+| `quintic-mp` | 6 where unclamped | 6x6x6 | the quintic clamped to a monotonicity-preserving bound |
 | `restriction-compatible` | q = 2 | 3x3x3 | exact restriction of the interpolant (`R∘P = I`); diagnostics |
 | `injection` | 0 | the anchor cell | legacy, comparisons |
 
@@ -146,7 +150,9 @@ What happens at a 2:1 face:
    `2 ngc` fine cells; a thinner block makes the outer layers read its own ghosts, which the same exchange is still
    filling (stale, silently, depending on the exchange order: 0.2 in density between 1 and 2 ranks on the step
    forest). Refused at initialisation ([#66](https://github.com/szaghi/adam/issues/66)).
-4. At least 4 cells per block on every axis, null axes included, for the coarse-fine interpolation footprint.
+4. At least 4 cells per block along every refined axis, for the coarse-fine interpolation footprint; at least 6 with the
+   6-point regimes (`seam_ghost_fill = quintic | weno6 | quintic-mp`, `seam_restriction = lagrange6 | weno6`).
+   Refused at initialisation.
 
 **Log.** `forest: registered intra-realm AMR seam faces: +N`.
 
@@ -317,7 +323,8 @@ seam_ghost_fill = tricubic ; [amr]             seam_ghost_fill = tricubic ; [amr
 What happens:
 - **Rows.** The seam reuses the intra-realm 2:1 formulas. A fine-side ghost is an **interpolate** row: the owner of
   the coarse cells evaluates the `seam_ghost_fill` interpolant around the coarse cell containing the ghost. A
-  coarse-side ghost is a **restrict** row: the mean of the 2x2x2 fine cells under it. Rows whose cells live on the
+  coarse-side ghost is a **restrict** row: the `[amr] seam_restriction` of the fine cells under it (default `mean`, the
+  2x2x2 mean). Rows whose cells live on the
   same rank travel as messages to self.
 - **Register.** One register face per coarse seam block. Its four fine blocks are each restricted 2:1 into their
   quadrant (`SEAM_KIND_INTER_REALM_REFINED`).
@@ -326,7 +333,8 @@ What happens:
 **Requirements.** Each is checked, with a named error:
 1. A cell-size ratio of exactly 2 along every axis.
 2. The same block cell counts along the seam (the tangential `n`).
-3. The same `[amr] seam_ghost_fill` in both realms.
+3. The same `[amr] seam_ghost_fill` and the same `[amr] seam_restriction` in both realms (6-point regimes: at least 6
+   cells along the refined axes, in the coarse realm for the fill and in the fine realm for the restriction).
 4. Even `ni`, `nj`, `nk` in the fine realm.
 5. Nested blocks: every fine seam block covers one quadrant of one coarse seam block face.
 6. Declaring such a pair `mirror` is refused ("coupling = mirror joins cells of the same size").
@@ -538,7 +546,7 @@ seam); [writing a refinement criterion](/applications/flume/input#setting-up-run
 |---|---|---|
 | `only coupling = mirror, refined or auto is implemented` | `periodic` / `interpolate` | reserved names; before #52 they silently ran as `mirror` |
 | `coupling = mirror joins cells of the same size, the seam cells differ` | different cell sizes on a mirror pair | equal cells, or `coupling = refined` for a 2:1 jump |
-| `coupling = refined needs ...` (a ratio of exactly 2, the same block cell counts along the seam, the same `seam_ghost_fill`, even counts, nested blocks) | an R6 requirement | see [R6](#r6-refined-seam-a-2-1-jump-between-realms) |
+| `coupling = refined needs ...` (a ratio of exactly 2, the same block cell counts along the seam, the same `seam_ghost_fill` and `seam_restriction`, even counts, nested blocks) | an R6 requirement | see [R6](#r6-refined-seam-a-2-1-jump-between-realms) |
 | `realm R has seam cells of different sizes` | refinement reaches the face of a `mirror` or `refined` seam | keep refinement away from the seam (R7), put the jump on the seam (R6), or `coupling = auto` (R12) |
 | `the seam block of realm R at ... faces cells of realm P that are neither one size equal to, half or twice its own` / `is not covered by nested blocks` | an `auto` seam with a jump other than 1:1 or 2:1, or 2:1 faces that do not nest | let the forest balance it (runtime AMR), or align the realms' blocks |
 | `the seam marks did not settle in 64 passes: a refinement next to a seam needs the peer realm finer than its [amr] max_level allows` | the cross-realm balance hit a peer's `max_level` | raise the peer's `max_level`, or lower this realm's |
@@ -550,6 +558,10 @@ seam); [writing a refinement criterion](/applications/flume/input#setting-up-run
 | `[grid].(ni)=+7 is odd: 2:1 refinement ...` | #39 | even counts along refined axes |
 | `[grid].(nj)=+4 is less than 2*ngc = +6 ...` | #66: thin blocks read stale ghosts at 2:1 seams | at least `2 ngc` cells along refined axes |
 | `(positivity_limiter)=cell is not supported on multi-realm runs` | the FLUME limiter | no limiter in a forest |
+| `[reference] is not supported on multi-realm runs` | FLUME non-dimensional input: nothing checks that the realms share the references | dimensional input in a forest |
+| `[gravity].(equilibrium) = atmosphere is not supported on multi-realm runs` | the FLUME balanced atmosphere needs the peers' equilibrium at the seams | `equilibrium = none` in a forest |
+| `[gravity].(self_gravity) is not supported on multi-realm runs` | each realm would solve its own Poisson equation | no self-gravity in a forest |
+| `[numerics].(reflux_cadence) = stage is not supported on multi-realm runs` | the FLUME per-stage reflux | `reflux_cadence = step` (the default) in a forest |
 
 ## Current limits
 
@@ -557,10 +569,10 @@ seam); [writing a refinement criterion](/applications/flume/input#setting-up-run
   face pair, and the three-realm forward-facing step (static refinement).
 - **Runtime AMR across seams.** Inter-realm 2:1 faces work on every tree kind since
   [#71](https://github.com/szaghi/adam/issues/71), but the runtime-AMR legs (balance, mixed levels) run on octrees; a
-  seam cannot wrap a periodic axis (two faces of the same two realms at opposite ends) is not supported, and not
-  refused either; α seams are not verified in FLUME (R4).
+  seam that wraps a periodic axis (two faces of the same two realms at opposite ends) is neither supported nor refused.
 - **Time stepping.** There is no subcycling: one global time step, set by the most restrictive realm.
-- **FLUME limiter.** The positivity limiter is refused in a forest.
+- **FLUME refusals.** The positivity limiter, `[reference]` (non-dimensional input), `[gravity] equilibrium = atmosphere`,
+  self-gravity and `reflux_cadence = stage` are refused in a forest.
 - **FNL cost.** On FNL the cross-rank seam rows go through the host on every fill
   ([#53](https://github.com/szaghi/adam/issues/53)).
 - **Divergence at 2:1 seams.** A 2:1 seam, inter- or intra-realm, is not divergence-free for collocated B in PRISM
