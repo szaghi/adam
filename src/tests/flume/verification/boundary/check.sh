@@ -25,8 +25,12 @@
 #        (0.026); the shock angle fitted from the mid-pressure crossing of the rows within 0.3 degrees (39.322).
 #   sg2  the same shock given by its angle (shock_angle 39.313932): the same bounds (the same digits).
 #   sg3  a shock that enters beyond the box (shock_x 3) equals an extrapolated top bit for bit.
+#   sg4  the regular reflection off a slip wall (S4): y_min `wall-inviscid`, 96 x 48 x 8 cells, the shock entering at x = 0.1 (it meets the
+#        wall at x = 1.321), t = 5 (steady; at t = 2.5 the region behind the reflected shock is still 6 % low): behind the reflected shock
+#        p and rho within 4e-3 of the exact p3 / p1 = 2.80319 (measured 2.1e-3, 1.5e-3), the flow parallel to the wall within 0.1 degrees
+#        (0.062); the reflected shock's angle to the wall within 0.3 degrees of 39.384 (39.437).
 #
-# Usage: ./check.sh [--np N] [--legs LIST]   LIST: nr1, nr2, nr3, nr4, sg1, sg2, sg3 or all (default all)
+# Usage: ./check.sh [--np N] [--legs LIST]   LIST: nr1, nr2, nr3, nr4, sg1, sg2, sg3, sg4 or all (default all)
 # FLUME_EXE overrides the executable under test (the caller owns the environment, as in the other verifications).
 set -euo pipefail
 
@@ -36,7 +40,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 source "$VERIF_DIR/legs.sh"
-legs_declare "nr1 nr2 nr3 nr4 sg1 sg2 sg3"
+legs_declare "nr1 nr2 nr3 nr4 sg1 sg2 sg3 sg4"
 
 while [[ $# -gt 0 ]]; do
    case "$1" in
@@ -118,5 +122,10 @@ if has_leg sg3; then
    a=$(MAKE=make_shockgen.py run sg3-far --nx 64 --deflection 10 --shock-x 3.0 --time-max 0.5)
    b=$(MAKE=make_shockgen.py run sg3-ex --nx 64 --top extrapolation --time-max 0.5)
    "$VENV_PY" "$SG_ORACLE" bitwise "$a" "$b"
+fi
+if has_leg sg4; then
+   echo "== sg4: the regular reflection off a slip wall"
+   a=$(MAKE=make_shockgen.py run sg4-refl --nx 96 --deflection 10 --shock-x 0.1 --bottom wall-inviscid --time-max 5.0)
+   "$VENV_PY" "$SG_ORACLE" reflect "$a" --mach 2 --deflection 10 --shock-x 0.1 --bound 4e-3 --angle-bound 0.1
 fi
 echo "NR/SG PASSED ($TAG, legs: $LEGS)"

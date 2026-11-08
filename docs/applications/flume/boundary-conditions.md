@@ -193,7 +193,8 @@ to the shock, is unchanged. The run prints the shock angle, the deflection and $
   extrapolated top. A reflected shock that reaches the face beyond `shock_x_end` leaves through it.
 
 Measured in the [verification](./verification/infrastructure/non-reflecting#shock-generator): at Mach 2 and $10^\circ$ the shock angle
-within $0.01^\circ$ of $39.314^\circ$, the state behind it within $1.5\cdot10^{-3}$ of Rankine–Hugoniot.
+within $0.01^\circ$ of $39.314^\circ$, the state behind it within $1.5\cdot10^{-3}$ of Rankine–Hugoniot; reflected off a `wall-inviscid`
+face, the reflected shock within $0.06^\circ$ of the exact regular reflection and the state behind it within $2\cdot10^{-3}$.
 
 Source: `adam_flume_bc_object.F90` (`oblique_shock`).
 

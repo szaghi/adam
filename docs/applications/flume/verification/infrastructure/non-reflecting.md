@@ -60,6 +60,7 @@ the top face. The legs measure the shock it makes against the oblique-shock rela
 | sg1 | the shock by its deflection | the uniform region behind it (16 cells off the shock, 4 below the streamline from its foot, above $y = 0.2$): $p$ and $\rho$ within 3e-3 of Rankine–Hugoniot, the flow angle within $0.05^\circ$; the shock angle fitted from where $p$ crosses $(p_1 + p_2)/2$ along the rows within $0.3^\circ$ | $p$ 1.47e-3, $\rho$ 1.22e-3, angle $0.026^\circ$; $\beta$ $39.322^\circ$, the foot at $x = 0.496$ |
 | sg2 | the same shock by its angle (`shock_angle` 39.313932) | as sg1 | the same digits |
 | sg3 | a shock entering beyond the box (`shock_x` 3) | equal to an extrapolated top bit for bit | 0 of 64 datasets differ |
+| sg4 | the regular reflection off a slip wall ([#121](https://github.com/szaghi/adam/issues/121) S4a): `wall-inviscid` at $y = 0$, $96\times48\times8$ cells, `shock_x` = 0.1 (the shock meets the wall at $x = 1.321$), $t = 5$ | behind the reflected shock (8 cells off it and off the wall) $p$ and $\rho$ within 4e-3 of the exact $p_3/p_1 = 2.80319$, the flow parallel to the wall within $0.1^\circ$; the reflected shock's angle to the wall within $0.3^\circ$ of $39.384^\circ$ | $p$ 2.10e-3, $\rho$ 1.50e-3, $0.062^\circ$; $39.437^\circ$, its foot at $x = 1.324$ |
 
 ![The shock generator at Mach 2](/flume/shockgen.png)
 
@@ -74,3 +75,14 @@ $p/p_1$ and $\rho/\rho_1$ along the row $y = 0.484$ against the step of Rankine�
   streamline from the foot ($\rho$ 7e-3 off, the pressure continuous). Where the shock leaves through the extrapolated bottom, the
   corner downstream sits up to 4 % high: an extrapolated face crossed by an oblique shock is not clean. In a shock–boundary-layer
   interaction the shock meets the wall instead.
+
+![The regular reflection off a slip wall](/flume/shockgen-reflect.png)
+
+*Leg sg4. Left: $p/p_1$ in the x-y plane; dashed, the incident shock of the theory; dotted, the reflected one ($M_2 = 1.641$, turned back
+by $10^\circ$). Right: $p/p_1$ along the row $y = 0.260$ against the steps of the exact regular reflection.*
+
+- **The reflection is the exact one.** Behind the reflected shock the state is within $2\cdot10^{-3}$ of $p_3/p_1 = 2.803$, the flow
+  parallel to the wall within $0.06^\circ$, and the reflected shock lies within $0.06^\circ$ of its angle, its foot within a cell of where the
+  incident shock meets the wall.
+- **It needs the steady state.** At $t = 2.5$ the region behind the reflected shock is still 6 % low near the outflow: the reflected shock
+  forms at the wall and straightens outward, so the leg runs to $t = 5$.

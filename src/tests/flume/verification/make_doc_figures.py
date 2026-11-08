@@ -2701,6 +2701,53 @@ def fig_shockgen(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_shockgen_reflect(out: Path, runs: Path) -> None:
+    """#121 S4a: the regular reflection off a slip wall (boundary/check.sh leg sg4, Mach 2, deflection 10 degrees, 96 x 48 cells, t = 5).
+    Left: p / p1 in the x-y plane, the incident and the reflected shock of the exact solution (dashed). Right: p / p1 along the row nearest
+    y = 0.25 against the steps of the exact solution (p2 / p1 behind the incident shock, p3 / p1 behind the reflected one)."""
+    import math  # noqa: PLC0415
+
+    sys.path.insert(0, str(HERE / "boundary"))
+    import shockgen_oracle as so  # noqa: PLC0415
+
+    work = runs / "boundary" / "work-adam_flume_cpu-np2-sg4-refl"
+    if not work.exists():
+        raise FileNotFoundError(work)
+    rf = so.reflection(2.0, 10.0)
+    c = so.cells(work)
+    tb, tr = math.tan(math.radians(rf["incident"]["beta"])), math.tan(math.radians(rf["angle"]))
+    x0 = 0.1
+    xw = x0 + 1.0 / tb
+    fig, axs = plt.subplots(1, 2, figsize=(12.0, 4.0), constrained_layout=True)
+    xs, ys = np.unique(c["x"]), np.unique(c["y"])
+    grid = np.full((len(ys), len(xs)), np.nan)
+    grid[np.searchsorted(ys, c["y"]), np.searchsorted(xs, c["x"])] = c["p"] / so.P_INF
+    im = axs[0].pcolormesh(xs, ys, grid, shading="nearest", cmap="viridis")
+    fig.colorbar(im, ax=axs[0], label=r"$p/p_1$")
+    yy = np.linspace(0.0, 1.0, 50)
+    axs[0].plot(x0 + (1.0 - yy) / tb, yy, "w--", lw=1.0, label=rf"incident, $\beta$ = {rf['incident']['beta']:.3f}$^\circ$")
+    yr = np.linspace(0.0, (2.0 - xw) * tr, 50)
+    axs[0].plot(xw + yr / tr, yr, "w:", lw=1.2, label=rf"reflected, {rf['angle']:.3f}$^\circ$ to the wall")
+    axs[0].set_xlabel(r"$x$")
+    axs[0].set_ylabel(r"$y$")
+    axs[0].set_aspect("equal")
+    axs[0].legend(fontsize=7, loc="upper right")
+    y0 = ys[np.argmin(np.abs(ys - 0.25))]
+    m = np.isclose(c["y"], y0)
+    xr = np.unique(c["x"][m])
+    pr = np.array([c["p"][m][c["x"][m] == v].mean() for v in xr]) / so.P_INF
+    xa, xb = x0 + (1.0 - y0) / tb, xw + y0 / tr
+    axs[1].plot(xr, pr, "o", ms=3, color="C0", label=r"$p/p_1$")
+    axs[1].plot([0.0, xa, xa, xb, xb, 2.0], [1.0, 1.0, rf["incident"]["p21"], rf["incident"]["p21"], rf["p31"], rf["p31"]], "k-", lw=0.8,
+                label="exact regular reflection")
+    axs[1].set_xlabel(rf"$x$ (row $y$ = {y0:.3f})")
+    axs[1].set_ylabel(r"$p/p_1$")
+    axs[1].grid(alpha=0.3)
+    axs[1].legend(fontsize=7)
+    fig.savefig(out / "shockgen-reflect.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_nrbc(out: Path, runs: Path) -> None:
     """#121 S2: the non-reflecting boundary (boundary/check.sh). Left: |p - p_inf| along x once the packet of leg nr2 has left the box at
     rest, over its pressure amplitude: non-reflecting at sigma 0.28 and 0.07, extrapolation. Right: leg nr3, the box-mean overpressure
@@ -4364,7 +4411,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "radiative-cooling": fig_radiative_cooling, "isothermal-eos": fig_isothermal_eos,
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
-           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen,
+           "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

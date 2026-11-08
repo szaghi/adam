@@ -12,6 +12,12 @@ Subcommands:
     angle <work> --mach M (--deflection T | --angle B) --shock-x X --bound D
                                                           the shock angle fitted from where p crosses (p1 + p2) / 2 along x, y in
                                                           [0.15, 0.85]: within D degrees of the theory, and so its position
+    reflect <work> --mach M --deflection T --shock-x X --bound E --angle-bound A
+                                                          a regular reflection off the slip wall y = 0: the state behind the reflected shock
+                                                          (8 cells off it and off the wall, the flow parallel to the wall) against the exact
+                                                          solution, p and rho within E, the flow angle within A degrees; the reflected
+                                                          shock's angle to the wall, fitted from where p crosses (p2 + p3) / 2 along the
+                                                          rows y in [0.05, 0.45], within 0.3 degrees
     bitwise <a> <b>                                       the last checkpoints of two runs equal bit for bit
 
 The free stream is rho = 1, p = 1 / gamma (c = 1), at Mach M along x (make_shockgen.py); the shock enters through y = 1.
@@ -57,6 +63,54 @@ def theory(m: float, theta_deg: float | None, beta_deg: float | None) -> dict:
     p21 = 1.0 + 2.0 * GAMMA / (GAMMA + 1.0) * (mn1 * mn1 - 1.0)
     r21 = (GAMMA + 1.0) * mn1 * mn1 / ((GAMMA - 1.0) * mn1 * mn1 + 2.0)
     return {"beta": math.degrees(beta), "theta": math.degrees(theta), "p21": p21, "r21": r21}
+
+
+def reflection(m: float, theta_deg: float) -> dict:
+    """The regular reflection off a wall parallel to the free stream: the incident shock (weak, deflection theta), then the reflected one
+    that turns the flow of region 2 back by theta; its angle to the wall beta2 - theta, and p3 / p1, rho3 / rho1."""
+    a = theory(m, theta_deg, None)
+    b, t = math.radians(a["beta"]), math.radians(theta_deg)
+    mn1 = m * math.sin(b)
+    mn2 = math.sqrt((1.0 + 0.5 * (GAMMA - 1.0) * mn1 * mn1) / (GAMMA * mn1 * mn1 - 0.5 * (GAMMA - 1.0)))
+    m2 = mn2 / math.sin(b - t)
+    c = theory(m2, theta_deg, None)
+    return {"incident": a, "m2": m2, "reflected": c, "angle": c["beta"] - theta_deg, "p31": a["p21"] * c["p21"], "r31": a["r21"] * c["r21"]}
+
+
+def reflect(work: Path, m: float, theta_deg: float, x0: float, bound: float, angle_bound: float) -> int:
+    """The state behind the reflected shock and its angle against the exact regular reflection."""
+    rf = reflection(m, theta_deg)
+    c = cells(work)
+    dx = c["dx"]
+    xw = x0 + 1.0 / math.tan(math.radians(rf["incident"]["beta"]))  # where the incident shock meets the wall
+    tr = math.tan(math.radians(rf["angle"]))
+    behind = (c["x"] - (xw + c["y"] / tr)) / dx  # cells downstream of the reflected shock
+    m3 = (behind > 8.0) & (c["y"] > 8.0 * dx) & (c["x"] < 2.0 - 4.0 * dx)
+    ep = np.abs(c["p"][m3] / P_INF / rf["p31"] - 1.0).max()
+    er = np.abs(c["r"][m3] / rf["r31"] - 1.0).max()
+    ea = np.abs(c["phi"][m3]).max()
+    pm = P_INF * 0.5 * (rf["incident"]["p21"] + rf["p31"])
+    ys, xc = [], []
+    for yv in np.unique(np.round(c["y"], 12)):
+        if not 0.05 <= yv <= 0.45:
+            continue
+        row = np.isclose(c["y"], yv)
+        xu = np.unique(c["x"][row])
+        pu = np.array([c["p"][row][c["x"][row] == v].mean() for v in xu])
+        up = np.nonzero((pu[:-1] < pm) & (pu[1:] >= pm) & (xu[:-1] > xw - 0.1))[0]
+        if len(up) == 0:
+            continue
+        j = up[0]
+        ys.append(yv)
+        xc.append(xu[j] + (pm - pu[j]) / (pu[j + 1] - pu[j]) * (xu[j + 1] - xu[j]))
+    slope, icpt = np.polyfit(ys, xc, 1)
+    ang = math.degrees(math.atan(1.0 / slope))
+    da = abs(ang - rf["angle"])
+    ok = ep < bound and er < bound and ea < angle_bound and da < 0.3
+    print(f"   {work.name}: {int(m3.sum())} cells behind the reflected shock; |p/p3 - 1| {ep:.2e}, |rho/rho3 - 1| {er:.2e} (bound {bound:g}),"
+          f" flow angle {ea:.2e} deg (bound {angle_bound:g}); reflected shock {ang:.3f} deg to the wall (theory {rf['angle']:.3f}, {len(ys)} rows,"
+          f" bound 0.3), its foot x = {icpt:.4f} (theory {xw:.4f}); p3/p1 {rf['p31']:.6f}, M2 {rf['m2']:.4f}  {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
 
 
 def last_checkpoint(work: Path) -> str:
@@ -164,13 +218,13 @@ def main() -> int:
     """Dispatch the subcommand."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("theory", "post", "angle"):
+    for name in ("theory", "post", "angle", "reflect"):
         q = sub.add_parser(name)
         if name != "theory":
             q.add_argument("work", type=Path)
             q.add_argument("--shock-x", type=float, required=True)
             q.add_argument("--bound", type=float, required=True)
-            if name == "post":
+            if name in ("post", "reflect"):
                 q.add_argument("--angle-bound", type=float, required=True)
         q.add_argument("--mach", type=float, required=True)
         g = q.add_mutually_exclusive_group(required=True)
@@ -186,6 +240,8 @@ def main() -> int:
     if a.cmd == "theory":
         print(f"beta {th['beta']:.6f} deg, theta {th['theta']:.6f} deg, p2/p1 {th['p21']:.8f}, rho2/rho1 {th['r21']:.8f}")
         return 0
+    if a.cmd == "reflect":
+        return reflect(a.work, a.mach, a.deflection, a.shock_x, a.bound, a.angle_bound)
     if a.cmd == "post":
         return post(a.work, th, a.shock_x, a.bound, a.angle_bound)
     return angle(a.work, th, a.shock_x, a.bound)

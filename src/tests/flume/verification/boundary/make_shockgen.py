@@ -4,7 +4,7 @@
 A box [0, 2] x [0, 1] x [0, 0.125] of 128 x 64 x 8 cells (8 blocks, periodic z), an inviscid free stream rho = 1, p = 1 / gamma (c = 1)
 at Mach `--mach` along x, entering through x_min (`inflow`) and leaving through x_max and y_min (`extrapolation`). The top face y_max is
 the `shock-generator`: the oblique shock of deflection `--deflection` (or angle `--angle`) enters at `--shock-x`; `--top extrapolation`
-replaces it for the bit-for-bit leg.
+replaces it for the bit-for-bit leg. `--bottom wall-inviscid` makes y_min a slip wall, where the shock reflects (S4a).
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ def main() -> int:
     ap.add_argument("--shock-x", type=float, default=0.5)
     ap.add_argument("--shock-x-end", type=float)
     ap.add_argument("--top", default="shock-generator", choices=["shock-generator", "extrapolation"])
+    ap.add_argument("--bottom", default="extrapolation", choices=["extrapolation", "wall-inviscid"])
     ap.add_argument("--time-max", type=float, default=4.0)
     ap.add_argument("--nx", type=int, default=128)
     args = ap.parse_args()
@@ -53,7 +54,7 @@ def main() -> int:
     free = {"r": "1.0", "u": repr(args.mach), "v": "0.0", "w": "0.0", "p": repr(p_inf)}
     text = section(text, "bc_x_min", {"type": "inflow"} | free)
     text = section(text, "bc_x_max", {"type": "extrapolation"})
-    text = section(text, "bc_y_min", {"type": "extrapolation"})
+    text = section(text, "bc_y_min", {"type": args.bottom})
     top = {"type": args.top}
     if args.top == "shock-generator":
         top |= free | {"shock_x": repr(args.shock_x)}
