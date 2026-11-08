@@ -337,6 +337,21 @@ forcing work in 50-unit windows, 1 at a thermal steady state.*
 - **Cost:** from the same $t=800$ state of the semi-local run to $t=810$ (medooza, 4 A30), the key on takes 1.69 times the wall time of the key off:
   1.28 times the steps (the eddy viscosity enters the viscous time-step limit) and 1.32 times the time per step.
 
+### The flow
+
+![Instantaneous streamwise velocity in the two channels](/flume/channel-fields.png)
+
+*The streamwise velocity over the bulk velocity of the last checkpoint: the $x$-$y$ plane at mid-span (left), the wall-parallel plane at the
+matching height $h=0.15$ above the lower wall (middle, its own colour range) and the cross-flow plane (right). Top: bulk Mach 1.5,
+$128\times64\times64$, $h=0.15$ with semi-local damping, $t=200$. Bottom: bulk Mach 3, the same grid and model with the eddy viscosity below $h$,
+$t=800$. Planes from `turbulence/field_slices.py`; the figure is `make_doc_figures.py --only channel-fields`.*
+
+- **At the matching height the flow is in streaks** along $x$, but outer-scaled ones. At Mach 3 the first minimum of the spanwise correlation of
+  $u$ in that plane puts them $1.05\,h$ apart, about 470 wall units at $Re_\tau\approx445$, against the 100 of the near-wall cycle; at Mach 1.5
+  the correlation has no clear minimum within the span. The near-wall cycle lives below the matching height ($y^+\approx33$ at Mach 1.5), in the
+  wall model, and the grid ($\Delta z^+\approx14$, $\Delta x^+\approx22$ at Mach 1.5) does not form it above.
+- **At Mach 3 the streaks look longer and more regular** than at Mach 1.5. One snapshot each: a description, not a measurement.
+
 ## Compressible boundary layer (T3.7)
 
 The zero-pressure-gradient layer of the DNS of Zhang, Duan & Choudhari (2018, AIAA J 56(11)), case M2p5: Mach 2.5, adiabatic wall
@@ -383,6 +398,28 @@ the rms over $u_\tau$ at the same station; dashed: the DNS.*
 - **The log layer sits 0.9–1.0 above the DNS in $u^+_{VD}$**, and $u_{rms}$ peaks too high, the near-wall streaks of a coarse LES. The resolved
   $-\langle u'v'\rangle$ in the outer layer is above the DNS's. At $\delta_i/16$ the log layer, $u_{rms}$ and $-\langle u'v'\rangle$ move toward
   the DNS. $H$, taken against the local free stream as the DNS takes it, is the DNS's within 1 % (4.08).
+
+### The flow
+
+![Instantaneous fields of the two boundary layers](/flume/tbl-fields.png)
+
+*The last checkpoint of the Mach 2.5 run (top block, $90\,\delta_i$ box, $t=360$) and of the Mach 5.86 cold-wall run (bottom block). Per run: the
+streamwise velocity in the $x$-$y$ plane at mid-span over the whole box, with the 99 % line of the spanwise average (black); the wall-parallel plane
+at $y=0.29\,\delta_i$ (its own colour range); a $20\,\delta_i$ window of the $x$-$y$ plane and the temperature in the cross-flow plane at its centre.
+The figure is `make_doc_figures.py --only tbl-fields`.*
+
+![The Mach 2.5 boundary layer and the interaction in 3-D](/flume/tbl-3d.png)
+
+*The same planes as the faces of a cutaway, $u/U_\infty$, $y$ drawn stretched twice: the Mach 2.5 layer over $15<x<45$, the cross-flow face at
+$x=45$ (top), and the Mach 2.28 interaction of [the next section](#shock-boundary-layer-interaction-121-s4b) over $35<x<60$, the cross-flow face at
+the impingement $x=60$ (bottom). `make_doc_figures.py --only tbl-3d`.*
+
+- **The streaks at $y=0.29\,\delta_i$ ($0.18\,\delta$) are outer-scaled**: the first minimum of the spanwise correlation of $u$ puts them
+  $1.5$–$1.7\,\delta_i$ apart at Mach 2.5 and $1.8$–$2.0\,\delta_i$ at Mach 5.86, about one $\delta$, the same near the inflow ($x<15$) and
+  downstream ($30<x<80$). At $\delta_i/12$ the first cell is $0.05\,\delta$, about 26 wall units at $Re_\tau=510$; the near-wall cycle is the
+  wall model's, as in the channel.
+- **The edge of the layer is corrugated by bulges** of about $\delta$ in length. The cold-wall layer's cross-section shows the hot fluid near the
+  wall (up to $5.5\,T_\infty$) lifted in ejections; at Mach 2.5 the near-wall temperature is the adiabatic $2.05\,T_\infty$.
 
 ### Resolution: Mach 2.5 at $\delta_i/16$
 
@@ -511,11 +548,70 @@ $\tau_w$.
   29 checkpoints) removes that: $H$ 13.71 against 13.41, $C_f$ −3.4 % against −3.8 % at the station, the plateau 9.80e-4, $B_q$ −0.0190.
 - **The momentum integral is useless here too** ($-62$ % at the station, negative in places).
 
+## Shock/boundary-layer interaction (#121 S4b)
+
+The interaction of the IUSTI experiment (Dupont, Haddad & Debiève 2006, JFM 559) as computed by the STREAmS DNS (Bernardini, Modesti, Salvadore &
+Pirozzoli 2021, CPC, Fig. 7): Mach 2.28, an oblique shock of $8^\circ$ flow deflection on an adiabatic wall, $Re_\theta\approx5000$. The layer is
+the T3.7 setup; the shock comes in through the top face, the [`shock-generator`](../../boundary-conditions#shock-generator-an-oblique-shock-through-a-y-face-121-s3)
+of S3. Nothing is fitted to the interaction: the wall model is the one of the zero-pressure-gradient layers.
+
+| Setup | |
+|---|---|
+| box, cells | $100\times12\times6\,\delta_i$, $1200\times144\times72$, cubic $\delta_i/12$ |
+| shock | $\beta=32.685^\circ$, entering the top at $x=41.30$ so that the inviscid shock reaches the wall at $x_{imp}=60$, past the inflow's recovery; exact regular reflection: $p_2/p_1=1.602$, $p_3/p_1=2.458$, reflected at $29.77^\circ$ |
+| gas | $Re=U_\infty\delta_i/\nu_\infty=35500$, Sutherland's law with $S/T_\infty=0.776$ (110.4 K over the experiment's 142 K), $Pr=0.71$ |
+| wall, inflow, scheme | `wall-modelled` at $T_w=1.918\,T_\infty$ (the recovery temperature), the 3rd cell, semi-local damping, eddy viscosity below $h$; the M2p5 DNS profile with its temperature excess scaled by $(2.28/2.5)^2$ (`reference/tbl_m2p28_profile.txt`); `hybrid-kep-weno` |
+| run | `tbl_cases_s4.txt`, to $t=1200$ on 4 A30 (prod-gn, 0.74 s per step); statistics: the span and the 50 checkpoints of $310\le t\le934$ (`sbli_oracle.py compare --t0 300`) |
+| references | the DNS wall pressure and the IUSTI points of STREAmS Fig. 7a and Volpiani, Bernardini & Larsson (2018, PRF 3) Fig. 12, digitised from the vector paths (`reference/sbli_m2p28_*`, error in the headers) |
+
+`sbli_oracle.py` takes $\delta_0$, $\delta^*$ and $\theta$ of the undisturbed layer from a linear fit over $[x_{imp}-15,\,x_{imp}-6]$
+extrapolated to $x_{imp}$; $C_f$ from the wall model's $\tau_w$; the reflected shock from the mid-pressure crossings of the rows
+$2.5<y/\delta_0<5$, a line extrapolated to the wall: its apparent origin $x_{ref}$ gives $L_{int}=x_{imp}-x_{ref}$, the length STREAmS scales
+$x$ with.
+
+![The interaction: wall pressure and skin friction](/flume/sbli.png)
+
+*Left: the mean wall pressure $(p_w-p_\infty)/(p_2-p_\infty)$ against $x^*=(x-x_{imp})/L_{int}$, the DNS (line) and the experiment (triangles).
+Right: $C_f$; dotted the apparent origin of the reflected shock ($x^*=-1$), dashed the inviscid impingement. `make_doc_figures.py --only sbli`.*
+
+![The interaction's flow field](/flume/sbli-fields.png)
+
+*One checkpoint ($t=934$). From the top: numerical schlieren of the mid-span plane; the spanwise-averaged pressure with the sonic line (white), the
+$\bar u=0$ line (red, absent) and the oracle's shock fits (orange, its crossings as dots); $u$ in the wall-parallel plane $y=0.29$
+($0.16\,\delta_0$; dashed the reflected shock's apparent origin, dotted $x_{imp}$); the cross-flow plane at $x_{imp}$ and spanwise-averaged
+profiles. `make_doc_figures.py --only sbli-fields`.*
+
+| | FLUME, wall model | Reference |
+|---|---|---|
+| $Re_\theta$ at $x_{imp}$, nominal / against the edge state | 5247 / 4667 | about 5000 (DNS, experiment) |
+| $\delta_0$, $\delta^*_0$, $H$ at $x_{imp}-10$ | $1.807$, $0.531\,\delta_i$, 3.58 | |
+| reflected shock: angle to the wall | $28.95^\circ$ | $29.77^\circ$ inviscid |
+| $L_{int}/\delta_0$ | **3.15** | 3.22, Volpiani et al. (DNS, $Re_\theta=1050$) |
+| separation: $L_{sep}/\delta_0$ | **0**, $C_f$ never negative, minimum $0.22\cdot10^{-3}$ at $x^*\approx-0.25$ | 1.62, Volpiani et al., $Re_\theta=1050$; the DNS and the experiment have a bubble |
+| $(p_w-p_\infty)/(p_2-p_\infty)$ at $x^*=-0.5$, $0$, $0.5$, $1$, $2$ | 1.12, 1.72, 2.09, 2.24, 2.37 | DNS: 0.00, 0.64, 1.75, 2.08, 2.29 |
+| Souverein $L^*=L_{int}/(\delta^*g_3)$, separation parameter $Se$ | 1.93, 1.20 | |
+
+**What it shows.**
+- **The interaction length is right**: $L_{int}/\delta_0=3.15$ against 3.22 in the DNS of Volpiani et al. (2018, at $Re_\theta=1050$), and the reflected
+  shock leaves at $28.95^\circ$, $0.8^\circ$ under the inviscid angle. The downstream pressure plateau is
+  the DNS's within 4 % ($x^*=2$).
+- **The mean flow does not separate.** $C_f$ dips to $0.22\cdot10^{-3}$ and recovers; the DNS, the experiment and Volpiani et al. have a bubble. It comes close: in one checkpoint the
+  spanwise-averaged $u$ of the first cell falls to $0.003\,U_\infty$ between $x=55$ and 65, and the wall-parallel plane at $0.16\,\delta_0$ has patches of
+  $u<0$ (down to $-0.14\,U_\infty$) between $x=57.7$ and 61.9. The wall model's $\tau_w$ follows the velocity at its matching height, the 3rd cell,
+  whose mean stays positive.
+- **The wall pressure rises too early and too steeply.** It starts at the reflected shock's apparent origin ($x^*=-1$, where the DNS is still flat)
+  and passes $p_2$ at $x^*\approx-0.5$, where the DNS has not risen; the DNS starts at $x^*\approx-0.3$. In the DNS a separation bubble spreads the
+  compression into a fan; here the reflected shock reaches the wall almost whole: upstream the sonic line is $0.12\,\delta_i$ ($0.07\,\delta_0$, two cells)
+  above the wall, and it thickens to $0.6$–$0.8\,\delta_i$ only past the foot of the shock.
+- **The likely cause is the wall model, not yet measured.** The equilibrium model has no pressure-gradient term and computes $\tau_w$ from the
+  velocity at the 3rd cell, $0.21\,\delta_i$ or $0.12\,\delta_0$ above the wall: the near-wall deceleration under the adverse gradient reaches
+  it late. Testing that needs a non-equilibrium model or a finer wall grid at the interaction (a 2:1 box under it).
+
 ## Not done
 
 - HLLC at $256^3$, M 0.1 was dropped by owner decision.
 - Spectra against the DNS: the file holds integrals only. The DNS of Johnsen et al. for the isotropic case.
 - Calibration of the sensor; a model masked by face rather than by cell; `central-bcs` on a forest seam.
-- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: the matching height, the outer-layer and near-wall stresses at $\delta_i/12$, a longer window at Mach 5.86; $Re_\theta$ and the station against the edge state (they use the nominal free stream); SBLI; runtime regridding along a modelled wall; mean profiles
+- T3: why the classical damping overshoots at Mach 3; a cheaper flux path below $h$; the boundary layer: the matching height, the outer-layer and near-wall stresses at $\delta_i/12$, a longer window at Mach 5.86; $Re_\theta$ and the station against the edge state (they use the nominal free stream); SBLI: the separation (a wall model with the pressure gradient, or a finer wall grid at the interaction), the wall-pressure fluctuations and the low-frequency unsteadiness; runtime regridding along a modelled wall; mean profiles
   against the DNS; the relaminarisation of the inverse model on $96\times48\times48$ with $u_e = 1.18$; an edge state taken from the flow.
 - A model on 2:1 grids beyond conservation; runtime AMR with a model; a wall.

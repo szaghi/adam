@@ -1,0 +1,7 @@
+# Issue #121 S4b: the shock/boundary-layer interaction of the IUSTI experiment (Dupont, Haddad & Debieve 2006; Mach 2.3, flow deflection 8 deg,
+# adiabatic wall, Re_theta ~ 5000) with the wall model and the digital-filter inflow of #119 T3.7. Mach 2.28, the M2p5 DNS profile with its
+# temperature excess scaled to Mach 2.28 (tbl_m2p28_profile.txt; T_w / T_inf 1.918, the wall model's wall temperature), Sutherland's law
+# with S / T_inf 0.776 (110.4 K over the experiment's ~142 K), Re = U_inf delta_i / nu_inf 35500 so that Re_theta ~ 5000 near x = 60.
+# Box 100 x 12 x 6 delta_i at delta_i / 12. The top a shock-generator of 8 deg (beta 32.685 deg) entering at x = 41.2975, so that the
+# inviscid shock reaches the wall at x_imp = 60: past the inflow's ~50 delta_i recovery. To t = 1200; the statistics over t > 300.
+sbli-m2p28-8 1200 144 72 --lx 100 --ly 12 --lz 6 --levels 2 --mach 2.28 --reynolds 35500 --sutherland 0.776 --wall-heat 1.918 --profile src/tests/flume/verification/turbulence/reference/tbl_m2p28_profile.txt --wm-eddy-viscosity --wall-history 20 --top-shock 8 --shock-x 41.2975 --time-max 1200 --it-save 1000

@@ -62,6 +62,9 @@ def main() -> int:
     ap.add_argument("--restart", action="store_true")
     ap.add_argument("--history", type=int, default=1)
     ap.add_argument("--wall-history", type=int, default=0, help="[diagnostics] wall_history_save: the wall model's tau_w and q_w in nx bins along x")
+    ap.add_argument("--top-shock", type=float, default=0.0,
+                    help="the top face a shock-generator of this deflection (degrees, issue #121 S4), 0: extrapolation")
+    ap.add_argument("--shock-x", type=float, default=0.0, help="with --top-shock: where the shock enters through the top")
     ap.add_argument("--slice-z", default="", help="x-y slices at these comma-separated z, cell-centre points every cell along x and y (trilinear)")
     ap.add_argument("--slice-every", type=int, default=0, help="steps between slice saves")
     args = ap.parse_args()
@@ -97,7 +100,11 @@ def main() -> int:
                                       "df_delta": "1.0", "df_wall_axis": "y", "df_spacing": repr(dy), "df_length_streamwise": lengths[0],
                                       "df_length_normal": lengths[1], "df_length_spanwise": lengths[2], "df_seed": str(args.df_seed)})
     text = section(text, "bc_x_max", {"type": "extrapolation"})
-    text = section(text, "bc_y_max", {"type": "extrapolation"})
+    if args.top_shock > 0.0:  # the incident shock of an interaction (issue #121, S4): the free stream upstream of it
+        text = section(text, "bc_y_max", {"type": "shock-generator", "r": "1.0", "u": "1.0", "v": "0.0", "w": "0.0", "p": repr(p_inf),
+                                          "shock_deflection": repr(args.top_shock), "shock_x": repr(args.shock_x)})
+    else:
+        text = section(text, "bc_y_max", {"type": "extrapolation"})
     for face in ("z_min", "z_max"):
         text = section(text, f"bc_{face}", {"type": "periodic"})
     keys = {"type": args.wall}

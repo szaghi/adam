@@ -1,0 +1,33 @@
+# Bernardini, Modesti, Salvadore & Pirozzoli, STREAmS, Comput. Phys. Commun. (2021), arXiv:2004.02276, Fig. 7: the shock/turbulent
+# boundary layer interaction at Mach 2.28, flow deflection 8 deg, adiabatic wall; DNS (solid line) and the IUSTI experiment of Dupont, Haddad &
+# Debieve, J. Fluid Mech. 559 (2006) 255-277 (open triangles). Digitised from the vector paths of the arXiv PDF (mutool draw -F trace), mapped
+# through the axis frames and ticks. x* = (x - x_imp) / L, L the distance from the nominal impingement point to the apparent origin of the
+# reflected shock.
+# IUSTI experiment: x*, sqrt(u''u'') / u_inf at y = 0.1 L. Error: the DNS line ~0.0002; triangles +-0.0013 in y, +-0.01 in x*.
+# x_star  value
+-1.98267 0.06319
+-1.82681 0.06417
+-1.65921 0.06517
+-1.50302 0.06361
+-1.34131 0.06458
+-1.17339 0.06474
+-1.01753 0.06486
+-0.84996 0.07698
+-0.72834 0.10442
+-0.64746 0.14552
+-0.61291 0.17204
+-0.53203 0.19946
+-0.41627 0.21152
+-0.32368 0.18426
+-0.20238 0.15702
+-0.08695 0.13403
+0.07508 0.12477
+0.23682 0.12235
+0.39299 0.12418
+0.56058 0.12176
+0.71675 0.12019
+0.87850 0.12204
+1.05196 0.12047
+1.20814 0.11548
+1.36986 0.11307
+1.53161 0.10892

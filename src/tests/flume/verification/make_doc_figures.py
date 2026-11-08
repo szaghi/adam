@@ -2748,6 +2748,297 @@ def fig_shockgen_reflect(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def _slices(path: Path) -> dict:
+    """The planes of a 3-D run written by turbulence/field_slices.py (on the machine that holds the checkpoints)."""
+    if not path.exists():
+        raise FileNotFoundError(path)
+    with np.load(path) as z:
+        return {k: z[k] for k in z.files}
+
+
+def _schlieren(r: np.ndarray, dx: float, dy: float) -> np.ndarray:
+    """Numerical schlieren of a density plane: exp(-10 |grad rho| / max |grad rho|), dark where the density jumps."""
+    gx, gy = np.gradient(r, dx, dy)
+    g = np.hypot(gx, gy)
+    return np.exp(-10.0 * g / np.nanpercentile(g, 99.9))
+
+
+def _mach(s: dict, plane: str) -> np.ndarray:
+    g = float(s["gamma"])
+    return np.sqrt(s[f"{plane}_u"] ** 2 + s[f"{plane}_v"] ** 2 + s[f"{plane}_w"] ** 2) / np.sqrt(g * s[f"{plane}_p"] / s[f"{plane}_r"])
+
+
+def _sbli_data(runs: Path) -> tuple[dict, dict]:
+    import json  # noqa: PLC0415
+
+    root = runs / "sbli"
+    js = root / "sbli-m2p28-8.json"
+    if not js.exists():
+        raise FileNotFoundError(js)
+    return json.loads(js.read_text()), _slices(root / "sbli-m2p28-8-slices.npz")
+
+
+def fig_sbli(out: Path, runs: Path) -> None:
+    """#121 S4b: the wall-modelled shock/boundary layer interaction, Mach 2.28, deflection 8 degrees, Re_theta ~ 5000 (make_tbl.py --top-shock,
+    tbl_cases_s4.txt; the IUSTI experiment as computed by the STREAmS DNS). Data: the JSON of turbulence/sbli_oracle.py compare --json (the span and
+    time average from t = 300) in <runs>/sbli/sbli-m2p28-8.json. Left: the wall pressure (p_w - p_inf) / (p_2 - p_inf) against
+    x* = (x - x_imp) / L_int, L_int = x_imp - the apparent origin of the reflected shock (the STREAmS normalisation), against the DNS and the IUSTI
+    measurements digitised from Bernardini et al. (2021, STREAmS) Fig. 7a. Right: C_f from the wall model's tau_w."""
+    j, _ = _sbli_data(runs)
+    xs, pw, cf = np.array(j["x_star"]), np.array(j["pw_norm"]), np.array(j["cf"])
+    dns, iusti = np.array(j["dns"]), np.array(j["iusti"])
+    fig, axs = plt.subplots(1, 2, figsize=(12.0, 4.0), constrained_layout=True)
+    ax = axs[0]
+    ax.plot(dns[:, 0], dns[:, 1], "k-", lw=1.0, label="DNS (STREAmS)")
+    ax.plot(iusti[:, 0], iusti[:, 1], "^", ms=4, mfc="none", color="0.35", label="IUSTI experiment")
+    ax.plot(xs, pw, "-", color="C3", lw=1.4, label=rf"FLUME, wall model, $t \geq$ {j['t'][0]:.0f} ({len(j['t'])} checkpoints)")
+    ax.axvline(-1.0, color="0.6", ls=":", lw=0.8)
+    ax.axvline(0.0, color="0.6", ls="--", lw=0.8)
+    ax.set_xlim(-2.0, 3.0)
+    ax.set_xlabel(r"$x^* = (x - x_{imp}) / L_{int}$")
+    ax.set_ylabel(r"$(p_w - p_\infty) / (p_2 - p_\infty)$")
+    ax.set_title(rf"$L_{{int}}/\delta_0$ = {j['l_int'] / j['delta0']:.2f} (Volpiani et al.: {j['volpiani'].get('b', float('nan')):.2f})", fontsize=9)
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, loc="lower right")
+    ax = axs[1]
+    ax.plot(xs, 1e3 * cf, "-", color="C3", lw=1.4, label=r"FLUME, from the wall model's $\tau_w$")
+    ax.axhline(0.0, color="k", lw=0.8)
+    ax.axvline(-1.0, color="0.6", ls=":", lw=0.8, label="apparent origin of the reflected shock")
+    ax.axvline(0.0, color="0.6", ls="--", lw=0.8, label="inviscid impingement $x_{imp}$")
+    ax.set_xlim(-2.0, 3.0)
+    ax.set_xlabel(r"$x^*$")
+    ax.set_ylabel(r"$10^3 C_f$")
+    sep = "no separation" if j["l_sep"] == 0.0 else rf"$L_{{sep}}/\delta_0$ = {j['l_sep'] / j['delta0']:.2f}"
+    ax.set_title(rf"{sep} (Volpiani et al., adiabatic, Re$_\theta$ 1050: {j['volpiani'].get('a', float('nan')):.2f})", fontsize=9)
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8)
+    fig.savefig(out / "sbli.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_sbli_fields(out: Path, runs: Path) -> None:
+    """#121 S4b: the interaction's flow field (data as fig_sbli, plus the planes of turbulence/field_slices.py of one checkpoint in
+    <runs>/sbli/sbli-m2p28-8-slices.npz). From the top: numerical schlieren of the x-y plane at mid-span; the spanwise-averaged pressure of the same
+    checkpoint with the sonic line and the shock fits of sbli_oracle (the mid-pressure crossings above the layer and their lines extrapolated to the
+    wall); the streamwise velocity in the wall-parallel plane near y = 0.15 delta_0; the cross-flow plane at x_imp."""
+    j, s = _sbli_data(runs)
+    x, y, z = s["x"], s["y"], s["z"]
+    d0, x_imp = j["delta0"], j["x_imp"]
+    xm = (x > x_imp - 25.0) & (x < x_imp + 25.0)
+    ym = y < 8.0
+    fig = plt.figure(figsize=(12.0, 11.5), constrained_layout=True)
+    gs = fig.add_gridspec(4, 2, height_ratios=[1.0, 1.0, 0.8, 1.0], width_ratios=[1.0, 0.45])
+    ext = [x[xm][0], x[xm][-1], y[ym][0], y[ym][-1]]
+    ax = fig.add_subplot(gs[0, :])
+    sch = _schlieren(s["xy_r"].astype(float), x[1] - x[0], y[1] - y[0])
+    ax.imshow(sch[np.ix_(xm, ym)].T, origin="lower", extent=ext, cmap="gray", aspect="equal", vmin=0.0, vmax=1.0)
+    ax.set_title(f"numerical schlieren, $x$-$y$ plane at $z$ = {float(s['cut'][2]):.2f}, $t$ = {float(s['time']):.0f}", fontsize=9)
+    ax.set_ylabel(r"$y$")
+    ax = fig.add_subplot(gs[1, :])
+    p_inf = 1.0 / (float(s["gamma"]) * 2.28**2)
+    im = ax.imshow((s["avg_p"][np.ix_(xm, ym)] / p_inf).T, origin="lower", extent=ext, cmap="viridis", aspect="equal")
+    fig.colorbar(im, ax=ax, label=r"$p/p_\infty$", shrink=0.9, pad=0.01)
+    ax.contour(x[xm], y[ym], _mach(s, "avg")[np.ix_(xm, ym)].T, levels=[1.0], colors="w", linewidths=1.0)
+    ax.contour(x[xm], y[ym], s["avg_u"][np.ix_(xm, ym)].T, levels=[0.0], colors="r", linewidths=1.0)
+    sr = j["shock_rows"]
+    yy = np.linspace(0.0, 8.0, 20)
+    for xs_, ys_, lab in ((sr["xi"], sr["yi"], "incident"), (sr["xr"], sr["yr"], "reflected")):
+        if len(ys_) > 3:
+            c = np.polyfit(ys_, xs_, 1)
+            ax.plot(xs_, ys_, ".", color="C1", ms=3)
+            ax.plot(np.polyval(c, yy), yy, "--", color="C1", lw=0.9)
+    ax.plot([], [], "w-", label="sonic line")
+    ax.plot([], [], "r-", label="$u = 0$")
+    ax.plot([], [], "--", color="C1", label="shock fits (oracle)")
+    ax.axvline(x_imp, color="w", ls=":", lw=0.8)
+    ax.set_xlim(ext[0], ext[1])
+    ax.set_ylim(ext[2], ext[3])
+    ax.legend(fontsize=7, loc="upper left", framealpha=0.6)
+    ax.set_title("spanwise average of the same checkpoint", fontsize=9)
+    ax.set_ylabel(r"$y$")
+    ax = fig.add_subplot(gs[2, :])
+    im = ax.imshow(s["xz_u"][xm].T, origin="lower", extent=[ext[0], ext[1], z[0], z[-1]], cmap="RdBu_r", aspect="equal")
+    fig.colorbar(im, ax=ax, label=r"$u/U_\infty$", shrink=0.9, pad=0.01)
+    ax.axvline(x_imp, color="k", ls=":", lw=0.8)
+    ax.axvline(j["x_ref"], color="k", ls="--", lw=0.8)
+    ax.set_title(rf"streamwise velocity, wall-parallel plane $y$ = {float(s['cut'][1]):.2f} ({float(s['cut'][1]) / d0:.2f} $\delta_0$); "
+                 "dashed: the reflected shock's apparent origin, dotted: $x_{imp}$", fontsize=9)
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$z$")
+    ax = fig.add_subplot(gs[3, 0])
+    y4 = y < 4.0
+    im = ax.imshow(s["yz_u"][y4], origin="lower", extent=[z[0], z[-1], y[y4][0], y[y4][-1]], cmap="RdBu_r", aspect="equal")
+    fig.colorbar(im, ax=ax, label=r"$u/U_\infty$", shrink=0.9, pad=0.01)
+    ax.set_title(f"cross-flow plane $x$ = {float(s['cut'][0]):.1f}", fontsize=9)
+    ax.set_xlabel(r"$z$")
+    ax.set_ylabel(r"$y$")
+    ax = fig.add_subplot(gs[3, 1])
+    i0 = int(np.argmin(np.abs(x - (x_imp - 10.0))))
+    for i, lab in ((i0, f"$x$ = {x[i0]:.0f}"), (int(np.argmin(np.abs(x - x_imp))), f"$x$ = {x_imp:.0f}"), (int(np.argmin(np.abs(x - (x_imp + 10.0)))), f"$x$ = {x_imp + 10:.0f}")):
+        ax.plot(s["avg_u"][i, ym], y[ym] / d0, lw=1.2, label=lab)
+    ax.set_xlabel(r"$\bar u/U_\infty$")
+    ax.set_ylabel(r"$y/\delta_0$")
+    ax.set_title("spanwise-averaged profiles", fontsize=9)
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7)
+    fig.savefig(out / "sbli-fields.png", dpi=DPI)
+    plt.close(fig)
+
+
+def _box_view(ax, s: dict, key: str, cmap: str, vlim: tuple[float, float], xr: tuple[float, float], ymax: float, label: str) -> None:  # noqa: ANN001
+    """Draw the three orthogonal planes of a field_slices npz, cropped to x in xr and y < ymax, as the faces of a 3-D cutaway (x-y at the z cut,
+    x-z at the y cut, y-z at the x cut, which must lie in xr); y is drawn stretched twice."""
+    norm = mpl.colors.Normalize(*vlim)
+    cm = mpl.colormaps[cmap]
+    x, y, z = s["x"], s["y"], s["z"]
+    ix, iy = (x >= xr[0]) & (x <= xr[1]), y <= ymax
+    cx, cy, cz = (float(v) for v in s["cut"])
+    kw = {"shade": False, "rstride": 1, "cstride": 1, "linewidth": 0, "antialiased": False}
+    xx, yy = np.meshgrid(x[ix], y[iy], indexing="ij")
+    ax.plot_surface(xx, np.full_like(xx, cz), yy, facecolors=cm(norm(s[f"xy_{key}"][np.ix_(ix, iy)])), **kw)
+    xx, zz = np.meshgrid(x[ix], z, indexing="ij")
+    ax.plot_surface(xx, zz, np.full_like(xx, cy), facecolors=cm(norm(s[f"xz_{key}"][ix])), **kw)
+    yy, zz = np.meshgrid(y[iy], z, indexing="ij")
+    ax.plot_surface(np.full_like(yy, cx), zz, yy, facecolors=cm(norm(s[f"yz_{key}"][iy])), **kw)
+    ax.set_box_aspect((xr[1] - xr[0], np.ptp(z), 2.0 * ymax), zoom=1.45)
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$z$")
+    ax.set_zlabel(r"$y$")
+    ax.view_init(elev=42.0, azim=-66.0)
+    ax.set_zticks([0.0, ymax / 2.0, ymax])
+    ax.set_yticks([0.0, 3.0, 6.0])
+    box = ax.get_position()
+    cax = ax.figure.add_axes((box.x0 + 0.08 * box.width, box.y0 + 0.16 * box.height, 0.25 * box.width, 0.015))
+    ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cm), cax=cax, label=label, orientation="horizontal")
+
+
+def fig_tbl_3d(out: Path, runs: Path) -> None:
+    """#119 T3.7 and #121 S4b in 3-D: cutaways of the instantaneous streamwise velocity of the Mach 2.5 boundary layer (x in [15, 45], the y-z face
+    at x = 45) and of the interaction (x in [35, 60], the y-z face at x_imp = 60): the three orthogonal planes of turbulence/field_slices.py drawn as
+    the faces of the box (data as fig_tbl_fields and fig_sbli_fields), y up to 2.5, drawn stretched twice."""
+    s1 = _slices(runs / "tbl" / "tbl-m2p5-slices.npz")
+    _, s2 = _sbli_data(runs)
+    fig = plt.figure(figsize=(12.0, 9.0))
+    lab = r"$u/U_\infty$"
+    ax = fig.add_axes((-0.08, 0.5, 1.0, 0.5), projection="3d")
+    c1 = float(s1["cut"][0])
+    _box_view(ax, s1, "u", "RdBu_r", (0.0, 1.1), (c1 - 30.0, c1 + 0.05), 2.5, lab)
+    ax.set_title(f"Mach 2.5 boundary layer, $t$ = {float(s1['time']):.0f}", fontsize=9, y=0.88)
+    ax = fig.add_axes((-0.08, 0.0, 1.0, 0.5), projection="3d")
+    c2 = float(s2["cut"][0])
+    _box_view(ax, s2, "u", "RdBu_r", (-0.1, 1.1), (c2 - 25.0, c2 + 0.05), 2.5, lab)
+    ax.set_title(f"Mach 2.28 interaction, deflection 8$^\\circ$, $t$ = {float(s2['time']):.0f}", fontsize=9, y=0.88)
+    fig.savefig(out / "tbl-3d.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_tbl_fields(out: Path, runs: Path) -> None:
+    """#119 T3.7: instantaneous fields of the two wall-modelled boundary layers (Mach 2.5 adiabatic, 90 delta_i box, and Mach 5.86 cold wall, their
+    last checkpoint), from the planes of turbulence/field_slices.py in <runs>/tbl/{tbl-m2p5,tbl-m6}-slices.npz. Per case, top to bottom: the
+    streamwise velocity in the x-y plane at mid-span over the whole box with the 99 % line of the spanwise average; in the wall-parallel plane near
+    y = 0.25 (the streaks of the logarithmic layer: the wall model takes the layer below its matching height, so there are no viscous-sublayer
+    streaks to see); a 20 delta_i window of the x-y plane around the cross-flow cut, and the temperature in the cross-flow plane."""
+    cases = (("tbl-m2p5-slices.npz", "Mach 2.5, adiabatic", 2.5), ("tbl-m6-slices.npz", "Mach 5.86, $T_w/T_r$ = 0.76", 5.86))
+    data = [(_slices(runs / "tbl" / f), lab, m) for f, lab, m in cases]
+    fig = plt.figure(figsize=(13.0, 6.2 * len(data)), constrained_layout=True)
+    sub = fig.subfigures(len(data), 1, hspace=0.04)
+    for sf, (s, lab, mach) in zip(np.atleast_1d(sub), data, strict=True):
+        x, y, z = s["x"], s["y"], s["z"]
+        g = float(s["gamma"])
+        ym = y < 4.0
+        gs = sf.add_gridspec(3, 2, height_ratios=[1.0, 1.0, 2.2], width_ratios=[2.2, 1.0])
+        kw = {"origin": "lower", "cmap": "RdBu_r", "aspect": "equal", "vmin": 0.0, "vmax": 1.1}
+        ax = sf.add_subplot(gs[0, :])
+        im = ax.imshow(s["xy_u"][:, ym].T, extent=[x[0], x[-1], y[ym][0], y[ym][-1]], **kw)
+        ax.contour(x, y[ym], s["avg_u"][:, ym].T, levels=[0.99], colors="k", linewidths=0.8)
+        ax.set_title(f"{lab}, $t$ = {float(s['time']):.0f}: $x$-$y$ plane at $z$ = {float(s['cut'][2]):.2f}; black: 99 % of the spanwise average",
+                     fontsize=9)
+        ax.set_ylabel(r"$y$")
+        sf.colorbar(im, ax=ax, label=r"$u/U_\infty$", shrink=0.8, pad=0.01)
+        ax = sf.add_subplot(gs[1, :])
+        lo, hi = np.nanpercentile(s["xz_u"], [1.0, 99.0])
+        im = ax.imshow(s["xz_u"].T, extent=[x[0], x[-1], z[0], z[-1]], **(kw | {"vmin": lo, "vmax": hi}))
+        ax.set_title(f"wall-parallel plane $y$ = {float(s['cut'][1]):.2f} (its own colour range)", fontsize=9)
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$z$")
+        sf.colorbar(im, ax=ax, label=r"$u/U_\infty$", shrink=0.8, pad=0.01)
+        xc = float(s["cut"][0])
+        xw = (x > xc - 10.0) & (x < xc + 10.0)
+        ax = sf.add_subplot(gs[2, 0])
+        im = ax.imshow(s["xy_u"][np.ix_(xw, ym)].T, extent=[x[xw][0], x[xw][-1], y[ym][0], y[ym][-1]], **kw)
+        ax.contour(x[xw], y[ym], s["avg_u"][np.ix_(xw, ym)].T, levels=[0.99], colors="k", linewidths=0.8)
+        ax.axvline(xc, color="k", ls=":", lw=0.8)
+        ax.set_title(f"$x$-$y$ plane, window around $x$ = {xc:.0f}", fontsize=9)
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$y$")
+        sf.colorbar(im, ax=ax, label=r"$u/U_\infty$", shrink=0.8, pad=0.01)
+        ax = sf.add_subplot(gs[2, 1])
+        t = g * mach**2 * s["yz_p"][ym] / s["yz_r"][ym]
+        im = ax.imshow(t, origin="lower", extent=[z[0], z[-1], y[ym][0], y[ym][-1]], cmap="inferno", aspect="equal")
+        sf.colorbar(im, ax=ax, label=r"$T/T_\infty$", shrink=0.8, pad=0.02)
+        ax.set_title(f"cross-flow plane $x$ = {xc:.0f}", fontsize=9)
+        ax.set_xlabel(r"$z$")
+        ax.set_ylabel(r"$y$")
+    fig.savefig(out / "tbl-fields.png", dpi=DPI)
+    plt.close(fig)
+
+
+def _plane_vorticity(s: dict, plane: str) -> np.ndarray:
+    """The vorticity component normal to a plane of field_slices: omega_z on x-y, omega_y on x-z, omega_x on y-z (central differences)."""
+    a, b, ua, ub = {"xy": ("x", "y", "u", "v"), "xz": ("z", "x", "w", "u"), "yz": ("y", "z", "v", "w")}[plane]
+    va, vb = s[f"{plane}_{ub}"].astype(float), s[f"{plane}_{ua}"].astype(float)
+    if plane == "xz":  # arrays are (x, z): omega_y = du/dz - dw/dx
+        return np.gradient(s["xz_u"].astype(float), s["z"][1] - s["z"][0], axis=1) - np.gradient(s["xz_w"].astype(float), s["x"][1] - s["x"][0], axis=0)
+    return np.gradient(va, s[a][1] - s[a][0], axis=0) - np.gradient(vb, s[b][1] - s[b][0], axis=1)
+
+
+def fig_tgv_fields(out: Path, runs: Path) -> None:
+    """#119 T0/T2: instantaneous vorticity of the Taylor-Green vortex (Re 1600, Mach 0.1, 128^3, hybrid-kep-weno; tgv_cases_vis.txt) and of the
+    decaying isotropic turbulence (Mach_t 0.6, Re_lambda 100, k0 4, 128^3), from the planes of turbulence/field_slices.py in
+    <runs>/tgv/{tgv-t4,tgv-t9,hit}-slices.npz: omega_x on the face x = 0 of the periodic box at t ~ 4 and ~ 9 (the time of the peak dissipation, the
+    plane of the High-Order CFD Workshop figures, which show the vorticity norm), omega_z in the x-y plane at z = pi at t ~ 9, and omega_z of the
+    isotropic case at its last checkpoint."""
+    tg4, tg9, hit = (_slices(runs / "tgv" / f"{n}-slices.npz") for n in ("tgv-t4", "tgv-t9", "hit"))
+    fig, axs = plt.subplots(1, 4, figsize=(16.0, 4.3), constrained_layout=True)
+    panels = ((tg4, "yz", r"$\omega_x$", f"Taylor-Green, $x$ = {float(tg4['cut'][0]):.2f}, $t$ = {float(tg4['time']):.2f}", ("z", "y")),
+              (tg9, "yz", r"$\omega_x$", f"Taylor-Green, $x$ = {float(tg9['cut'][0]):.2f}, $t$ = {float(tg9['time']):.2f}", ("z", "y")),
+              (tg9, "xy", r"$\omega_z$", f"Taylor-Green, $z$ = {float(tg9['cut'][2]):.2f}, $t$ = {float(tg9['time']):.2f}", ("x", "y")),
+              (hit, "xy", r"$\omega_z$", f"isotropic turbulence, $z$ = {float(hit['cut'][2]):.2f}, $t$ = {float(hit['time']):.2f}", ("x", "y")))
+    for ax, (s, plane, lab, title, (h, v)) in zip(axs, panels, strict=True):
+        w = _plane_vorticity(s, plane)
+        img = w if plane == "yz" else w.T  # yz arrays are (y, z): rows y
+        lim = float(np.nanpercentile(np.abs(w), 99.5))
+        im = ax.imshow(img, origin="lower", extent=[s[h][0], s[h][-1], s[v][0], s[v][-1]], cmap="RdBu_r", vmin=-lim, vmax=lim, aspect="equal")
+        fig.colorbar(im, ax=ax, label=lab, shrink=0.8, pad=0.02)
+        ax.set_title(title, fontsize=9)
+        ax.set_xlabel(f"${h}$")
+        ax.set_ylabel(f"${v}$")
+    fig.savefig(out / "tgv-fields.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_channel_fields(out: Path, runs: Path) -> None:
+    """#119 T3: instantaneous fields of the wall-modelled channel (bulk Mach 1.5, 128 x 64 x 64, h = 0.15, semi-local damping, and bulk Mach 3, the
+    eddy viscosity below h), from turbulence/field_slices.py planes in <runs>/channel/{channel,channel-m3}-slices.npz: the streamwise velocity in the
+    x-y plane, in the wall-parallel plane at the matching height above the lower wall (y = -1 + 0.15) and in the cross-flow plane."""
+    cases = (("channel-slices.npz", "bulk Mach 1.5"), ("channel-m3-slices.npz", "bulk Mach 3, the eddy viscosity below $h$"))
+    data = [(_slices(runs / "channel" / f), lab) for f, lab in cases]
+    fig, axs = plt.subplots(len(data), 3, figsize=(14.0, 3.6 * len(data)), constrained_layout=True, gridspec_kw={"width_ratios": [1.0, 1.0, 0.75]})
+    for row, (s, lab) in zip(np.atleast_2d(axs), data, strict=True):
+        x, y, z = s["x"], s["y"], s["z"]
+        ub = np.nanmean(s["avg_u"])
+        for ax, key, ext, xl, yl, title in ((row[0], "xy_u", [x[0], x[-1], y[0], y[-1]], "$x$", "$y$", f"{lab}: $x$-$y$ plane, $t$ = {float(s['time']):.0f}"),
+                                             (row[1], "xz_u", [x[0], x[-1], z[0], z[-1]], "$x$", "$z$", f"wall-parallel plane $y$ = {float(s['cut'][1]):.3f} (wall at $-1$)"),
+                                             (row[2], "yz_u", [z[0], z[-1], y[0], y[-1]], "$z$", "$y$", f"$x$ = {float(s['cut'][0]):.2f}")):
+            im = ax.imshow((s[key] if key == "yz_u" else s[key].T) / ub, origin="lower", extent=ext, cmap="RdBu_r", aspect="equal")
+            fig.colorbar(im, ax=ax, label=r"$u/U_b$", shrink=0.8, pad=0.01)
+            ax.set_title(title, fontsize=9)
+            ax.set_xlabel(xl)
+            ax.set_ylabel(yl)
+    fig.savefig(out / "channel-fields.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_nrbc(out: Path, runs: Path) -> None:
     """#121 S2: the non-reflecting boundary (boundary/check.sh). Left: |p - p_inf| along x once the packet of leg nr2 has left the box at
     rest, over its pressure amplitude: non-reflecting at sigma 0.28 and 0.07, extrapolation. Right: leg nr3, the box-mean overpressure
@@ -4412,6 +4703,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

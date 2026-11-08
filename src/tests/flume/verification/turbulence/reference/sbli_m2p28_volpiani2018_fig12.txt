@@ -1,0 +1,30 @@
+# Volpiani, Bernardini & Larsson, Phys. Rev. Fluids 3, 083401 (2018), Fig. 12, digitised from the vector paths of the preprint
+# (iris.uniroma1.it): marker bbox centres mapped through the grid lines (y: 0-8 at 12.116 pt per unit; x: 15.387 pt per degree).
+# Error: the print precision of the paths, about 0.01 in L / delta_0 and 0.01 deg. Mach 2.28, Re_theta ~ 1050 unless stated.
+# panel  wall  phi_deg  L_over_delta0   (a: L_sep / delta_0, b: L_int / delta_0)
+a  heated_Tw/Tr_1.9  3.50  0.129
+a  heated_Tw/Tr_1.9  5.00  1.059
+a  adiabatic  5.00  0.568
+a  heated_Tw/Tr_1.9  6.50  1.937
+a  adiabatic  6.50  0.973
+a  heated_Tw/Tr_1.9  8.00  3.539
+a  adiabatic  8.00  1.622
+a  cooled_Tw/Tr_0.5  8.00  0.896
+a  cooled_Tw/Tr_0.5  9.50  1.746
+a  heated_Tw/Tr_1.9  9.50  7.853
+a  adiabatic,_Re_theta_1990  9.50  3.739
+a  adiabatic  9.50  3.353
+a  adiabatic  11.00  7.058
+b  heated_Tw/Tr_1.9  3.50  2.770
+b  heated_Tw/Tr_1.9  5.00  3.284
+b  adiabatic  5.00  2.421
+b  heated_Tw/Tr_1.9  6.50  3.781
+b  adiabatic  6.50  2.827
+b  heated_Tw/Tr_1.9  8.00  4.613
+b  cooled_Tw/Tr_0.5  8.00  2.474
+b  adiabatic  8.00  3.221
+b  adiabatic,_Re_theta_1990  9.50  4.089
+b  heated_Tw/Tr_1.9  9.50  6.445
+b  adiabatic  9.50  4.006
+b  cooled_Tw/Tr_0.5  9.50  3.009
+b  adiabatic  11.00  5.654
