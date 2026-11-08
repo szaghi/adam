@@ -1,8 +1,8 @@
 # Passive scalars
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| PS (ps1 to ps4) | Euler | M10 ([#92](https://github.com/szaghi/adam/issues/92)) | CPU, FNL | yes | `sod-ps` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| PS (ps1 to ps4) | Euler | M10 ([#92](https://github.com/szaghi/adam/issues/92)) | P+C | CPU, FNL | yes | `sod-ps` |
 
 ## Case and scope
 
@@ -82,5 +82,5 @@ entropy of `euler-de` uses the same machinery ([dual energy](./dual-energy)).
 - **WENO bounds a scalar only to its own accuracy.** A mass fraction across a contact over- and undershoots by
   $5\cdot10^{-4}$; a model that needs $s \in [0, 1]$ strictly (chemistry) would need a bound-preserving limiter on the
   scalars.
-- **The fixed capacity costs width.** The kernels carry four slots whatever $N$ (D-M10-1): a scalar run projects the
+- **The fixed capacity costs width.** The kernels carry four slots whatever $N$ (fixed capacity `NS_MAX = 4`): a scalar run projects the
   wider state, the unused slots stay exactly zero.

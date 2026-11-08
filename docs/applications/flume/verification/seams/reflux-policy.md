@@ -1,15 +1,15 @@
 # Reflux policy: troubled against always
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| E2 (E1) | Seam studies | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | FNL (flags checked equal to the CPU's); AO `euler-tq`: CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| E2 (E1) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) · E1, E2 | P | FNL (flags checked equal to the CPU's); AO `euler-tq`: CPU, FNL | yes | — |
 
 ## Case and scope
 
 The Berger–Colella reflux keeps a 2:1 seam conservative, and caps the composite at second order
-([AO](../seams/order-across-seams), [B1](./caps-prototype)): it replaces the coarse face flux by the restricted fine one
-everywhere. [B2](./sensor-gated-reflux) showed in a prototype that a sensor-gated reflux recovers the order and keeps
-the shocks in place (D-M6-4: go). E1 builds `[numerics] reflux_policy = troubled`; E2 measures it against `always` on
+([AO](./order-across-seams), [B1](./design-record#b1-the-caps-in-a-2-d-prototype)): it replaces the coarse face flux by
+the restricted fine one everywhere. [B2](./design-record#b2-a-sensor-gated-reflux-prototype) showed in a prototype that a
+sensor-gated reflux recovers the order and keeps the shocks in place. E1 builds `[numerics] reflux_policy = troubled`; E2 measures it against `always` on
 the four checks of the plan: the smooth order (A1), the shock crossings (A3), the integral drift (A4) and the seam
 divergence (A2).
 
@@ -20,17 +20,17 @@ divergence (A2).
 | `reflux_policy = always` | default: every seam face cell takes the restricted fine flux | `apply_reflux_to_stage_forest`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
 | `reflux_policy = troubled` | the reflux applies only at the seam face cells flagged in a stage of the step: those the positivity limiter blended, and those where the WENO-5 sensor $\min_k w_k/d_k$ of the density, the normal velocity or the pressure across the face is below 0.2; a cell flagged at any stage is refluxed | `flag_troubled_seam_cells`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) and [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90); `seam_weno5_sensor`, [`adam_flume_seam_sync_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_seam_sync_object.F90); `FLUX_CORRECTION_SENSOR_TAU`, [`adam_flume_parameters.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_parameters.F90) |
 | Key | `[numerics] reflux_policy`, with `reflux = .true.` | [`adam_flume_numerics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_numerics_object.F90) |
-| Seam operators | default (`mean` + `tricubic`) or `lagrange6` + `quintic` | [C1](../seams/order-across-seams), [D1](./quintic-fill) |
+| Seam operators | default (`mean` + `tricubic`) or `lagrange6` + `quintic` | [C1, D1](./order-across-seams) |
 | Scheme, time | as in each baseline case | [numerics](../../numerics#adaptive-mesh-refinement) |
 
 ## Initial and boundary conditions
 
 | Check | Setup |
 |---|---|
-| A1 | the [AO](../seams/order-across-seams) euler and mhd ladders, $N$ = 64 / 128 / 256; euler also with `lagrange6` + `quintic` (`euler-tq`) |
-| A3 | the [AS](../seams/shock-crossing) crossings, Sod and RJ2a, `c2f` and `f2c` |
-| A4 | the [AL](../seams/integral-drift) vortex ($N = 64$ to $t = 1$) and Sod `c2f` |
-| A2 | the [AD](../seams/divergence-across-seams) `cpaw`, $N$ = 64 / 128 |
+| A1 | the [AO](./order-across-seams) euler and mhd ladders, $N$ = 64 / 128 / 256; euler also with `lagrange6` + `quintic` (`euler-tq`) |
+| A3 | the [AS](./shock-crossing) crossings, Sod and RJ2a, `c2f` and `f2c` |
+| A4 | the [AL](./integral-drift) vortex ($N = 64$ to $t = 1$) and Sod `c2f` |
+| A2 | the [AD](./divergence-across-seams) `cpaw`, $N$ = 64 / 128 |
 
 FNL, 2 ranks.
 
@@ -49,13 +49,13 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh --legs euler-tq
 ```
 
 The A2 and A4 runs under `troubled`: `amr-divb/make_amr_divb.py --reflux-policy troubled` and
-`amr-log/check.sh --reflux-policy troubled` (issue #85 R2b; before, the policy was added to the inputs by hand).
+`amr-log/check.sh --reflux-policy troubled`.
 
 ## Results
 
 ![E2: troubled against always](/flume/reflux-policy.png)
 
-*CPU. Left: the AO ladder, `troubled` with lagrange6 + quintic at the order of the run without reflux (6.11), today's operators at 2. Centre and right: the Sod shock after the crossing, lagrange6 + quintic under `always` and `troubled`: the same profile (the shock faces are flagged, so they are refluxed).*
+*CPU. Left: the AO ladder, `troubled` with lagrange6 + quintic at the order of the run without reflux (6.11), the default operators at 2. Centre and right: the Sod shock after the crossing, lagrange6 + quintic under `always` and `troubled`: the same profile (the shock faces are flagged, so they are refluxed).*
 
 | Check | `always` | `troubled` |
 |---|---|---|
@@ -72,8 +72,8 @@ The A2 and A4 runs under `troubled`: `amr-divb/make_amr_divb.py --reflux-policy 
 
 On FNL the flags equal the CPU's to the cell.
 
-Related cases: [B2](./sensor-gated-reflux) is the prototype; [AL](../seams/integral-drift) measured the sensor's false
-positives; [G3a](./reflux-not-ghosts) uses `troubled` as the #78 workaround.
+Related cases: [B2](./design-record#b2-a-sensor-gated-reflux-prototype) is the prototype; [AL](./integral-drift)
+measured the sensor's false positives; [EGLM reflux](./eglm-reflux) measures `troubled` on the field loop of #78.
 
 ## Findings
 
@@ -87,5 +87,5 @@ positives; [G3a](./reflux-not-ghosts) uses `troubled` as the #78 workaround.
   rate on smooth flows ($10^{-5}$ per period at $N = 64$, bounded but one component accumulating) and by $10^{-7}$
   across a shock.
 - **MHD:** the D_flux seam floor is bounded and 1.4 times lower at $N = 128$ (83 against 119 times the uniform floor).
-- **Decision (D-M6-2, owner):** the default stays `always`, exactly conservative; `troubled` is the opt-in that makes
-  the high-order seam operators worth their cost with the reflux on.
+- **The default stays `always`**, exactly conservative; `troubled` is the opt-in that makes the high-order seam
+  operators worth their cost with the reflux on.

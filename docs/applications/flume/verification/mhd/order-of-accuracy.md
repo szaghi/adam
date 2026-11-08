@@ -1,8 +1,8 @@
 # Order of accuracy: linear waves, CPAW, magnetised vortex
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-5, MV-6, MV-7 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-5, MV-6, MV-7 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P5 | P | CPU, FNL | yes | — |
 
 ## Case and scope
 

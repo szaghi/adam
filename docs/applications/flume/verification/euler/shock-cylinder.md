@@ -1,8 +1,8 @@
 # Shock over a cylinder
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| V6 | Euler | M1 ([#35](https://github.com/szaghi/adam/issues/35)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU, FNL | yes | `shock-cylinder-ib` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| V6 | Euler | M1 ([#35](https://github.com/szaghi/adam/issues/35)); M3 ([#47](https://github.com/szaghi/adam/issues/47)) | P | CPU, FNL | yes | `shock-cylinder-ib` |
 
 ## Case and scope
 

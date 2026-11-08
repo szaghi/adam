@@ -1,8 +1,8 @@
 # Ryu–Jones 2a: all seven waves
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-4 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes | `rj2a-x`, `rj2a-y`, `rj2a-z` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-4 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P3b | P | CPU, FNL | yes | `rj2a-x`, `rj2a-y`, `rj2a-z` |
 
 ## Case and scope
 

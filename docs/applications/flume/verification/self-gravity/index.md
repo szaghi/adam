@@ -1,8 +1,8 @@
 # Self-gravity (M8)
 
-Self-gravity ([#81](https://github.com/szaghi/adam/issues/81)) solves $\nabla^2\Phi = 4\pi G(\rho - \bar\rho)$ every
-Runge–Kutta stage and applies gravity through the cell potential. The design (the P0 comment on #81) uses the spatial
-discretisation of Mullen et al. (2021), with the 7-point Laplacian $L_h$:
+Milestone M8 ([#81](https://github.com/szaghi/adam/issues/81)), self-gravity, solves
+$\nabla^2\Phi = 4\pi G(\rho - \bar\rho)$ every Runge–Kutta stage and applies gravity through the cell potential. It
+uses the spatial discretisation of Mullen et al. (2021), with the 7-point Laplacian $L_h$:
 - **face gravity:** $g_{d,i+1/2} = -(\Phi_{i+1} - \Phi_i)/\Delta x_d$;
 - **cell gravity:** the mean of the cell's two faces;
 - **momentum:** $\rho$ times the cell gravity;
@@ -11,9 +11,8 @@ discretisation of Mullen et al. (2021), with the 7-point Laplacian $L_h$:
 
 Summed over the cells, the energy source is $\sum_i \Phi_i (F_{i+1/2} - F_{i-1/2})/\Delta x$. So $E + \rho\Phi$ is
 conserved exactly with a static potential, and $E + \tfrac12\rho\Phi$ with a self-consistent one: in the semi-discrete
-form, given a Poisson solve that is linear and symmetric, $\Phi = 4\pi G\,K\rho$ with $K = K^T$. P4 corrected the first
-claim, which asked for a round-off residual of the Poisson equation (see [models](../../models#self-gravity)). The
-scheme is second order.
+form, given a Poisson solve that is linear and symmetric, $\Phi = 4\pi G\,K\rho$ with $K = K^T$; a round-off residual
+of the Poisson equation is not required ([models](../../models#self-gravity)). The scheme is second order.
 
 The phases of #81 and the cases that verify them:
 
@@ -30,6 +29,7 @@ The phases of #81 and the cases that verify them:
 | [#87](https://github.com/szaghi/adam/issues/87) P1 | Dirichlet faces in the multigrid solver, a DST-I coarsest level | SV-12 |
 | [#87](https://github.com/szaghi/adam/issues/87) P2 | isolated boundaries on AMR, the symmetric James step | SV-13 |
 | [#87](https://github.com/szaghi/adam/issues/87) P3 | isolated self-gravity on AMR in FLUME: the refusals lifted, a regrid that refines a boundary block fatal | SV-14 |
+| [#88](https://github.com/szaghi/adam/issues/88), [#91](https://github.com/szaghi/adam/issues/91) | the star under runtime AMR: the `conservative-state` prolongation, the Jeans marker, dual energy | SV-15, SV-16, SV-17, rg7 |
 
 The figures are regenerated with `make_doc_runs.sh <dir> <group>` and `make_doc_figures.py --only <figure>`
 (`src/tests/flume/verification/`):
@@ -38,18 +38,21 @@ The figures are regenerated with `make_doc_runs.sh <dir> <group>` and `make_doc_
 |---|---|---|
 | `selfgravity` | `exe/adam_flume_cpu`, `exe/test_poisson_fft` (mode `test-poisson-fft-gnu`) | `selfgravity-potential selfgravity-poisson` |
 | `jeans` | `exe/adam_flume_cpu_fft` (mode `flume-cpu-gnu-fft`) | `selfgravity-jeans` |
-| `isolated` | `exe/test_poisson_fft`, `exe/adam_flume_cpu_fft` | `selfgravity-isolated selfgravity-star` |
+| `isolated` | `exe/test_poisson_fft`, `exe/adam_flume_cpu_fft` | `selfgravity-isolated selfgravity-star selfgravity-star-amr` |
+| `collapse-regrid` | `exe/adam_flume_cpu_fft` | `selfgravity-star-regrid` |
 | `amr` | `exe/test_poisson_mg` (mode `test-poisson-mg-gnu`), `exe/adam_flume_cpu_fft` | `selfgravity-amr selfgravity-amr-jeans selfgravity-amr-regrid` |
-| `sinks` | `exe/adam_flume_cpu_fft` | `sink-particles` |
 
-| Case | ID | What it verifies |
-|---|---|---|
-| [Gravity from a cell potential](./potential) | SV-1 | the potential path reproduces the constant-g oracles of M7 |
-| [The FFT Poisson solver](./fft-poisson) | SV-2 | the periodic solver is exact for $L_h$, second order against the continuum |
-| [Jeans modes](./jeans) | SV-3 to SV-5 | the coupling: dispersion relation, growth rate, symmetry, exact $E + W$ exchange, scaling covariance |
-| [The isolated solver](./isolated-solver) | SV-6 | zero padding with the lattice Green's function: free-space potential of the mass on the grid |
-| [The n = 1 polytrope](./polytrope) | SV-7, SV-8, SV-14 to SV-17 | a star in equilibrium and a collapsing one under isolated self-gravity, uniform and on AMR; the collapse under runtime AMR with the conservative-state prolongation, a Jeans marker and dual energy ([#87](https://github.com/szaghi/adam/issues/87), [#88](https://github.com/szaghi/adam/issues/88), [#91](https://github.com/szaghi/adam/issues/91)) |
-| [The multigrid solver on AMR grids](./multigrid-amr) | SV-9, SV-12, SV-13 | the mimetic 2:1 coupling (symmetric and consistent), the FCG solver, Dirichlet faces, isolated boundaries by the symmetric James step |
-| [Jeans modes on a static AMR grid](./amr-jeans) | SV-10 | the multigrid coupling, the seam gravity work, the per-stage reflux |
-| [Self-gravity under runtime AMR](./runtime-amr) | SV-11 | the solver and $\Phi$ follow every regrid; $E + W$ exact between regrids |
-| [Sink particles](./sink-particles) | SI | point masses through the Poisson source: rest, Kepler binary, creation, accretion at Shu's rate, mergers, runtime AMR ([#94](https://github.com/szaghi/adam/issues/94)) |
+| Case | ID | Phase | Type | What it verifies |
+|---|---|---|---|---|
+| [Gravity from a cell potential](./potential) | SV-1 | P1 | P | the potential path reproduces the constant-g oracles of M7 |
+| [The FFT Poisson solver](./fft-poisson) | SV-2 | P2 | P | the periodic solver is exact for $L_h$, second order against the continuum |
+| [Jeans modes](./jeans) | SV-3 to SV-5 | P3 | P+C | the coupling: dispersion relation, growth rate, symmetry, exact $E + W$ exchange, scaling covariance |
+| [The isolated solver](./isolated-solver) | SV-6 | P4 | P | zero padding with the lattice Green's function: free-space potential of the mass on the grid |
+| [The n = 1 polytrope](./polytrope) | SV-7, SV-8 | P4 | P | a star in equilibrium and a collapsing one under isolated self-gravity, uniform grid |
+| [The multigrid solver on AMR grids](./multigrid-amr) | SV-9, SV-12, SV-13 | P5a; #87 P1, P2 | P | the mimetic 2:1 coupling (symmetric and consistent), the FCG solver, Dirichlet faces, isolated boundaries by the symmetric James step |
+| [Jeans modes on a static AMR grid](./amr-jeans) | SV-10 | P5b, P5c | P | the multigrid coupling, the seam gravity work, the per-stage reflux |
+| [Self-gravity under runtime AMR](./runtime-amr) | SV-11 | P5c | C | the solver and $\Phi$ follow every regrid; $E + W$ exact between regrids |
+| [The polytrope on AMR](./star-amr) | SV-14 to SV-17, rg7 | #87 P3, P4; #88; M9 | P+C | the star on a static AMR box; its collapse under runtime AMR with the conservative-state prolongation, a Jeans marker and dual energy; the Jeans-marker contract |
+
+Sink particles (M12, [#94](https://github.com/szaghi/adam/issues/94)) build on self-gravity and have their own
+[group](../sinks/). The [timeline](../) places the star on AMR after M8, with #87 and #88.

@@ -1,8 +1,8 @@
 # Shu–Osher shock / entropy-wave interaction
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| RV-3 (`shu-osher` leg) | Euler | M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU (all schemes), FNL (`weno-riemann` HLLC) | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| RV-3 (`shu-osher` leg) | Euler | M3 ([#47](https://github.com/szaghi/adam/issues/47)) | P | CPU (all schemes), FNL (`weno-riemann` HLLC) | yes | — |
 
 ## Case and scope
 
@@ -12,7 +12,7 @@ has no closed-form solution; the reference is a much finer run.
 
 What the case catches:
 - **excess dissipation** of the `weno-riemann` scheme at the entropy waves: $L_1(\rho)$ against the reference must stay
-  within $1.05\times$ the splitting scheme's (owner decision, 2026-09-30);
+  within $1.05\times$ the splitting scheme's ([#47](https://github.com/szaghi/adam/issues/47));
 - **a flux-correction sensor that trips on smooth waves:** a jump sensor switches the correction off in the entropy
   waves and does worse than splitting;
 - **loss of positivity** behind the strong shock: density and pressure must stay positive;

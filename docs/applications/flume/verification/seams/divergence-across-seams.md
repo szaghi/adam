@@ -1,8 +1,8 @@
 # Divergence across seams
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| AD (A2) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)), [#78](https://github.com/szaghi/adam/issues/78) | FNL (tables); CPU for the loop leg and the D_flux cross-check | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| AD (A2) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) · A2; [#78](https://github.com/szaghi/adam/issues/78) (follow-up) | P | FNL (tables); CPU for the loop leg and the D_flux cross-check | yes | — |
 
 ## Case and scope
 
@@ -97,8 +97,8 @@ relative.
 | GLM | $2.35\cdot10^{-4}$ | $2.03\cdot10^{-4}$ | $1.10\cdot10^{-3}$ | $6.86\cdot10^{-4}$ |
 | EGLM | $2.45\cdot10^{-4}$ | $2.05\cdot10^{-4}$ | $1.91\cdot10^{-4}$ | $2.72\cdot10^{-6}$ |
 
-Related cases: [G2](../seams-studies/glm-damping) varies the GLM damping length on the same `cpaw` leg;
-[G3a](../seams-studies/reflux-not-ghosts) and [G3b](../seams-studies/eglm-reflux) rerun the `loop` leg and fix #78;
+Related cases: [G2](./design-record#g2-the-glm-damping-length-on-a-seam) varies the GLM damping length on the same
+`cpaw` leg; [EGLM reflux](./eglm-reflux) (G3a, G3b) reruns the `loop` leg and fixes #78;
 the uniform-grid cleaning is [GLM divergence cleaning](../mhd/glm-cleaning) and [EGLM cleaning](../mhd/eglm).
 
 ## Findings
@@ -112,7 +112,5 @@ the uniform-grid cleaning is [GLM divergence cleaning](../mhd/glm-cleaning) and 
 - **#78 is not a divergence difference.** GLM and EGLM leave the same D_flux, refined and uniform; EGLM's 250-fold
   smaller $B_z$ on a uniform grid comes from its source term, whose centred divergence cancels the $B_z$ the flux
   generates. The $B_z$ rises 70 times on the refined grid, reproduced here to the printed digits of #78.
-- **Attribution, corrected.** A2 attributed the rise to the centred source divergence reading the second-order
-  restricted ghosts at the seam, where the cancellation fails, and placed the fix in Phase G3 (a source divergence
-  consistent with the face fluxes at the seams). [G3a](../seams-studies/reflux-not-ghosts) showed that the ghosts are
-  not the cause: the reflux is. [G3b](../seams-studies/eglm-reflux) fixed it by not refluxing $\mathbf{B}$ under EGLM.
+- **#78 is caused by the reflux of $\mathbf{B}$,** not by the restricted ghosts; G3b fixes it by not refluxing
+  $\mathbf{B}$ under EGLM ([EGLM reflux](./eglm-reflux)).

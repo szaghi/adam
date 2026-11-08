@@ -1,8 +1,8 @@
 # The isolated Poisson solver
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| SV-6 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P4 | CPU, FNL | yes | `selfgravity-star` (through the star it solves for) |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| SV-6 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)) · P4 | P | CPU, FNL | yes | `selfgravity-star` (through the star it solves for) |
 
 ## Case and scope
 
@@ -95,7 +95,7 @@ the kernel's level. Middle: the polytrope's potential along the line through the
 on the exact curve, $-GM/r$ outside the star. Right: the error on the plane through the centre, $6.1\cdot10^{-4}$ at
 most, at the centre; smooth, with no trace of the domain's edge or of the padding.*
 
-| Asserted | Bound | CPU (FFTW) | FNL (cuFFT, A30 and the WSL GPU) |
+| Asserted | Bound | CPU (FFTW) | FNL (cuFFT) |
 |---|---|---|---|
 | residual of $L_h$, relative to $\max\lvert 4\pi G\rho\rvert$ | $10^{-10}$ | $\le 2.1\cdot10^{-11}$ | $\le 2.1\cdot10^{-11}$ |
 | least-squares order against the exact $\Phi$, every cell and ghost, polytrope | $\ge 1.9$ | 2.03 | 2.03 |
@@ -106,7 +106,7 @@ most, at the centre; smooth, with no trace of the domain's edge or of the paddin
 
 Related cases: the periodic solver is [SV-2](./fft-poisson); the stars it holds and collapses are
 [SV-7 and SV-8](./polytrope); isolated boundaries on AMR are the multigrid's James step
-([#87](https://github.com/szaghi/adam/issues/87), [SV-13](./multigrid-amr), [SV-14](./polytrope)).
+([#87](https://github.com/szaghi/adam/issues/87), [SV-13](./multigrid-amr), [SV-14](./star-amr)).
 
 ## Findings
 

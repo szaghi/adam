@@ -179,4 +179,4 @@ $G$ is the coarse lattice's only if **every leaf on the domain boundary is at th
 fatal, at start and at the regrid that would refine a boundary block; an isolated problem keeps its mass away from the
 boundary, where refinement is not needed. Each Poisson solve costs two composite solves and one FFT of the coarsest
 grid ([SV-13](../applications/flume/verification/self-gravity/multigrid-amr),
-[SV-14](../applications/flume/verification/self-gravity/polytrope)).
+[SV-14](../applications/flume/verification/self-gravity/star-amr)).

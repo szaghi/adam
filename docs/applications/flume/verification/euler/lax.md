@@ -1,8 +1,8 @@
 # Lax problem
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| RV-3 (`lax` leg) | Euler | M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU (all schemes), FNL (`weno-riemann` HLLC) | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| RV-3 (`lax` leg) | Euler | M3 ([#47](https://github.com/szaghi/adam/issues/47)) | P | CPU (all schemes), FNL (`weno-riemann` HLLC) | yes | — |
 
 ## Case and scope
 
@@ -12,7 +12,7 @@ error is measured against it.
 
 What the case catches:
 - **a dissipative Riemann solver or a degraded flux correction** of `scheme_space = weno-riemann`: $L_1(\rho)$ must stay
-  within $1.05\times$ the splitting scheme's (owner decision, 2026-09-30);
+  within $1.05\times$ the splitting scheme's ([#47](https://github.com/szaghi/adam/issues/47));
 - **direction-dependent defects:** the problem runs along $x$, $y$ and $z$, and the three runs must be equal **bit for
   bit** after the permutation of the axes;
 - **broken 1-D consistency:** every transverse copy of the solution, in every block, must be bitwise identical;

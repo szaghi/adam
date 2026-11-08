@@ -1,8 +1,8 @@
 # Stratified atmospheres and the `hydrostatic` boundary
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| GV (G0) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| GV (G0) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)) · G0 | C | CPU, FNL | yes | — |
 
 ## Case and scope
 

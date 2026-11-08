@@ -1,8 +1,8 @@
 # The order of the energy source
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| GV-9 (G2a) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| GV-9 (G2a) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)) · G2a | P | CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -99,7 +99,7 @@ self-gravity runs the same wave in [SV-1](../self-gravity/potential).
   of the scheme (5 in $\rho$, 4.6 in $p$) on both face families.
 - **Conservation.** Each face's weights still sum to one over the cells, so $E + \rho\Phi$ stays conserved exactly
   with periodic boundaries and across block interfaces.
-- **The invariant at reflecting walls (owner decision: $W$ is the invariant).** At a wall the correction of the wall
+- **The invariant at reflecting walls ($W$ is the invariant).** At a wall the correction of the wall
   cell reads the face beyond it: the mirrored ghosts give $F_{-1} = -F_1$ and $F_0 = 0$, and the wall row's mass
   balance $F_1 = -\Delta x\,d\rho_1/dt$ turns the left-over $g\Delta x(F_1 - F_{-1})/24$ into
   $d/dt(-g\Delta x\rho_1 V/12)$. The exactly conserved total energy is then

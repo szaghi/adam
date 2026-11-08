@@ -1,8 +1,8 @@
 # Positivity limiter
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| PV-1 to PV-5 | Ideal MHD | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P5); PV-5 [#50](https://github.com/szaghi/adam/issues/50) | CPU, FNL (PV-1 as a sphere: FNL only) | yes | `blast-limiter`, `blast3d-limiter`, `blast-amr-limiter` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| PV-1 to PV-5 | Ideal MHD | M3 ([#47](https://github.com/szaghi/adam/issues/47)) · P5; [#50](https://github.com/szaghi/adam/issues/50) (follow-up) · PV-5 | P | CPU, FNL (PV-1 as a sphere: FNL only) | yes | `blast-limiter`, `blast3d-limiter`, `blast-amr-limiter` |
 
 ## Case and scope
 

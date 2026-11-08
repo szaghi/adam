@@ -1,8 +1,8 @@
 # Ranks without blocks
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| DV-1 | Infrastructure | — ([#82](https://github.com/szaghi/adam/issues/82)) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| DV-1 | Infrastructure | [#82](https://github.com/szaghi/adam/issues/82) (follow-up) | C | CPU, FNL | yes | — |
 
 ## Case and scope
 

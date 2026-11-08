@@ -1,8 +1,8 @@
 # The gravity force
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| GV-1, GV-2, GV-3, GV-6, GV-7 (G1) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| GV-1, GV-2, GV-3, GV-6, GV-7 (G1) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)) · G1 | P+C | CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -125,7 +125,7 @@ self-gravity in [SV-1](../self-gravity/potential).
   every checkpoint, while $E$ alone moves by per cent. Since G2a the exactly conserved total at reflecting walls is
   $W$, $E + \rho\Phi$ plus an $O(\Delta x^2)$ wall-row term ([energy order](./energy-order)); GV-3 asserts $W$ and
   reports the plain sum.
-- **The limiter and gravity (owner decision: option B).** The first form put the face-form energy into the backbone.
+- **The limiter and gravity.** The first form put the face-form energy into the backbone.
   A cell beside a wall then gets half of the face form (the wall face carries no mass) while its momentum gains the
   whole $\rho\mathbf g\,\Delta t$: the stage takes about $\tfrac12\rho|\mathbf u||\mathbf g|\Delta t$ out of its
   internal energy, which near vacuum is negative. `box2d-lim` died at step 128 and `box2d-stiff` at step 1 (every

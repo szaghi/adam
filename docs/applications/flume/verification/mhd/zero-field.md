@@ -1,8 +1,8 @@
 # MHD with a zero field
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-2 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41), P3) | CPU, FNL | no | `uniform-amr-mhd` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-2 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P3a | C | CPU, FNL | no | `uniform-amr-mhd` |
 
 ## Case and scope
 

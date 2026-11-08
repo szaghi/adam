@@ -1,8 +1,8 @@
 # Sod shock tube
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| V1, RV-3 | Euler | M1 ([#35](https://github.com/szaghi/adam/issues/35)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU, FNL | yes | `sod-x`, `sod-y`, `sod-z`, `sod-hllc` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| V1, RV-3 | Euler | M1 ([#35](https://github.com/szaghi/adam/issues/35)); M3 ([#47](https://github.com/szaghi/adam/issues/47)) | P | CPU, FNL | yes | `sod-x`, `sod-y`, `sod-z`, `sod-hllc` |
 
 ## Case and scope
 

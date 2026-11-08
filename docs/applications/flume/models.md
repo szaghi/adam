@@ -93,7 +93,7 @@ the floor lifts it back. A cell above its adiabat was heated by a shock, which t
 keeps its energy. The floor only adds energy, and the log reports it per step. A reset of the energy from the entropy,
 as in Cholla (Villasenor et al. 2021), would remove a cold shock's heat ([DE](./verification/euler/dual-energy)). The
 runtime-AMR collapse of [#88](https://github.com/szaghi/adam/issues/88) reaches its end with dual energy
-([SV-17](./verification/self-gravity/polytrope)). Discretisation: [numerics](./numerics#dual-energy).
+([SV-17](./verification/self-gravity/star-amr)). Discretisation: [numerics](./numerics#dual-energy).
 
 ## Passive scalars
 

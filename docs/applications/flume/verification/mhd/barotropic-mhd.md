@@ -1,14 +1,14 @@
 # Isothermal and barotropic MHD
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| EO (em1 to em10) | Ideal MHD | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P5a (CPU), P5b (FNL) | CPU, FNL | yes | `iso-mhd-tube2`, `baro-mhd-glm-hlld` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| EO (em1 to em10) | Ideal MHD | M13 ([#100](https://github.com/szaghi/adam/issues/100)) · P5a, P5b | P | CPU, FNL | yes | `iso-mhd-tube2`, `baro-mhd-glm-hlld` |
 
 ## Case and scope
 
 The [isothermal](../euler/isothermal-eos) and [barotropic](../euler/barotropic-eos) gases gain a magnetic field.
 The result is ideal MHD without an energy equation, the total pressure $P(\rho) + |\mathbf B|^2/2$, with the energy
-slot inert as for the Euler gases (D-M13-1). Two literature pieces carry it
+slot inert as for the Euler gases. Two literature pieces carry it
 ([numerics](../../numerics#isothermal-and-barotropic-mhd), [input](../../input#eos-optional-equation-of-state)):
 - **the six-wave eigensystem of Kim et al. (1999)**, with $a^2 = dP/d\rho$, for the characteristic projection;
 - **the isothermal HLLD of Mignone (2007)**, on any $P(\rho)$.

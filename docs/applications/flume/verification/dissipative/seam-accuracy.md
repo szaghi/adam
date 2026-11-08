@@ -1,8 +1,8 @@
 # Accuracy across 2:1 seams
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| VV-8 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| VV-8 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | P | CPU, FNL | yes | — |
 
 ## Case and scope
 

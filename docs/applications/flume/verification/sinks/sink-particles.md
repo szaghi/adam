@@ -1,8 +1,8 @@
 # Sink particles
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| SI (si1 to si11) | Self-gravity | M12 ([#94](https://github.com/szaghi/adam/issues/94)) | CPU, FNL | yes | `sinks-shu` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| SI (si1 to si11) | Sink particles | M12 ([#94](https://github.com/szaghi/adam/issues/94)) | P+C | CPU, FNL | yes | `sinks-shu` |
 
 ## Case and scope
 
@@ -36,11 +36,11 @@ What the case catches:
 | Sink step | kick-drift-kick on the committed state once per step; $\Delta t \le \tfrac12 h/|v|$ and $\tfrac12\sqrt{h^3/(Gm)}$ | `kick_sinks`, `drift_sinks`, `sinks_dt_limit` |
 | Creation, accretion, mergers | Federrath et al. (2010): the threshold $\rho_\mathrm{thr} = \pi c_s^2/(4 G r_\mathrm{acc}^2)$, the potential minimum, the converging flow, Jeans instability, boundedness; threshold accretion of the bound infalling gas | `create_sinks`, `accrete_sinks`, `merge_sinks`; FNL `accrete_sinks_gpu` |
 | Runtime AMR | creation on the finest level allowed, $r_\mathrm{acc}$ in its cells, the neighbourhood kept there at every regrid | `mark_runtime` (`sink_region`), `sink_accretion_radius` |
-| Space, time | WENO5 characteristic flux splitting, SSP-RK(3,3), the positivity limiter | as [the polytrope](./polytrope) |
+| Space, time | WENO5 characteristic flux splitting, SSP-RK(3,3), the positivity limiter | as [the polytrope](../self-gravity/polytrope) |
 
 ## Initial and boundary conditions
 
-Every case is the [polytrope](./polytrope) box with its numerics: $[-1, 1]^3$, $32^3$ cells (blocks of 16), $G = 1$,
+Every case is the [polytrope](../self-gravity/polytrope) box with its numerics: $[-1, 1]^3$, $32^3$ cells (blocks of 16), $G = 1$,
 $\gamma = 2$ and $r_\mathrm{acc} = 2.5$ cells, unless the table says otherwise.
 
 | Leg | Setup |
@@ -113,8 +113,8 @@ there.*
 | si11 | the accretion rate over $m_0(29.3)\,a^3/G$, $t \in [0.1, 0.25]$; mass | 6 %; $10^{-13}$ | 0.959; $2.2\cdot10^{-16}$ | 0.959; $6.7\cdot10^{-16}$ |
 | si11 at $64^3$ (figure run) | the accretion rate | — | 0.985 | — |
 
-Related cases: [the polytrope](./polytrope) is the box and the collapse of si6 and si10, [radiative
-cooling](../euler/radiative-cooling) keeps si6 isothermal, and [self-gravity under runtime AMR](./runtime-amr) is the
+Related cases: [the polytrope](../self-gravity/polytrope) is the box and the collapse of si6 and si10, [radiative
+cooling](../euler/radiative-cooling) keeps si6 isothermal, and [self-gravity under runtime AMR](../self-gravity/runtime-amr) is the
 regrid that si10 drives.
 
 ## Findings

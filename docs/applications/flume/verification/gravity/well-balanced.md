@@ -1,8 +1,8 @@
 # The well-balanced mode
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| GV-2b, GV-5, GV-8, GV-10, GV-7 (G2b) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| GV-2b, GV-5, GV-8, GV-10, GV-7 (G2b) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)) · G2b | P | CPU, FNL | yes | — |
 
 ## Case and scope
 

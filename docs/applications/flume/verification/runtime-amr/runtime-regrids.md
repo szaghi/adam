@@ -1,8 +1,8 @@
 # Runtime regrids in FLUME
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| RG (rg3 to rg6) | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes | `vortex-regrid` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| RG (rg3 to rg6) | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) · P2, P3 | C | CPU, FNL | yes | `vortex-regrid` |
 
 ## Case and scope
 

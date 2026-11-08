@@ -1,17 +1,17 @@
 # Barotropic gases under gravity
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| EO (eg1 to eg10) | Euler | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P4 | CPU, FNL | yes | `baro-jeans-box`, `iso-sinks-shu` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| EO (eg1 to eg10) | Euler | M13 ([#100](https://github.com/szaghi/adam/issues/100)) · P4 | P | CPU, FNL | yes | `baro-jeans-box`, `iso-sinks-shu` |
 
 ## Case and scope
 
 The [isothermal](./isothermal-eos) and [barotropic](./barotropic-eos) gases have no energy equation: their energy slot
-is inert (D-M13-1). P4 couples them to gravity, self-gravity, the Jeans refinement marker and the sink particles
+is inert. P4 couples them to gravity, self-gravity, the Jeans refinement marker and the sink particles
 ([numerics](../../numerics#isothermal-and-barotropic-equations-of-state),
 [input](../../input#eos-optional-equation-of-state)). Gravity must then move the momentum only, and every quantity the
 ideal gas reads from its internal energy (the sound speed of the Jeans length, the sinks' threshold density, the
-thermal energy of their Jeans test) must come from the equation of state, $c_s^2 = dP/d\rho$ (D-M13-4).
+thermal energy of their Jeans test) must come from the equation of state, $c_s^2 = dP/d\rho$.
 
 What the legs catch:
 - **gravity writing into the energy slot:** the free fall and the AMR collapse keep `rE` and its integral at exactly 0;
@@ -103,7 +103,7 @@ density along $z$, with the sinks.*
 | eg10 | the time advanced over the last 50 steps, over 50 mean steps; sinks formed | $\ge 0.1$; $\ge 1$ | 0.372 ($t = 1.649$); 1 | 0.372 ($t = 1.649$); 1 |
 | eg10 | the edge cells of the shell against the rest: largest speed; smallest density ([#101](https://github.com/szaghi/adam/issues/101)) | $\le 2$; $\ge 0.5$ | 1.42; 1.00 (8 ranks) | 1.42; 1.00 (2 ranks) |
 
-Related cases: the [Jeans modes](../self-gravity/jeans) and the [sink particles](../self-gravity/sink-particles) of the
+Related cases: the [Jeans modes](../self-gravity/jeans) and the [sink particles](../sinks/sink-particles) of the
 ideal gas.
 
 ## Findings

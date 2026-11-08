@@ -1,8 +1,8 @@
 # Ghost probe: every face and edge ghost on a linear field
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| GP | Infrastructure | M4 ([#65](https://github.com/szaghi/adam/issues/65) P0, P1), M6 ([#68](https://github.com/szaghi/adam/issues/68) C2, D1) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| GP | Infrastructure | M4 ([#65](https://github.com/szaghi/adam/issues/65)) · P0, P1; M6 ([#68](https://github.com/szaghi/adam/issues/68)) · C2, D1 | C | CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -112,7 +112,7 @@ every other ghost is at round-off. Bottom: after.*
 | the step forest before P0 | — | realm edges off by up to 0.78 | |
 
 Related cases: [Forward-facing step](../euler/forward-facing-step) and [Multi-realm runs](../euler/multi-realm) run the
-seams this probe inspects; [D1, quintic fill](../seams-studies/quintic-fill) uses the polynomial probe.
+seams this probe inspects; [D1, quintic fill](../seams/order-across-seams#d1-the-quintic-fill) uses the polynomial probe.
 
 ## Findings
 

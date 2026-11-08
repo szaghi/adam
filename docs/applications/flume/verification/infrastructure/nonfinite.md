@@ -1,8 +1,8 @@
 # Non-finite state guard
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| — (`nonfinite`) | Infrastructure | — ([#45](https://github.com/szaghi/adam/issues/45)) | CPU, FNL | no | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| — (`nonfinite`) | Infrastructure | [#45](https://github.com/szaghi/adam/issues/45) (follow-up) | C | CPU, FNL | no | — |
 
 ## Case and scope
 

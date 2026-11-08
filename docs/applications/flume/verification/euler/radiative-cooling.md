@@ -1,8 +1,8 @@
 # Radiative cooling
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| CO (co1 to co7) | Euler | M11 ([#93](https://github.com/szaghi/adam/issues/93)) | CPU, FNL | yes | `radiative-shock` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| CO (co1 to co7) | Euler | M11 ([#93](https://github.com/szaghi/adam/issues/93)) | P | CPU, FNL | yes | `radiative-shock` |
 
 ## Case and scope
 
@@ -27,7 +27,7 @@ What the case catches:
 | Item | Choice | Code |
 |---|---|---|
 | Model | `euler` (and `euler-de`, co4) with `[cooling]`: $\Lambda$ the piecewise power law through the nodes, the first node the floor | [`adam_flume_cooling_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_cooling_object.F90) |
-| Cooling | once per step after the dual-energy sync, Townsend's exact integration (D-M11-1), `dt_factor` limiter optional | [`adam_flume_cooling_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_cooling_library.F90), `apply_cooling` (CPU), `apply_cooling_dev` (FNL) |
+| Cooling | once per step after the dual-energy sync, Townsend's exact integration, `dt_factor` limiter optional | [`adam_flume_cooling_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_cooling_library.F90), `apply_cooling` (CPU), `apply_cooling_dev` (FNL) |
 | Space, time | as [Sod](./sod) (V1): WENO5 characteristic flux splitting, SSP-RK(3,3), CFL 0.5 | `adam_flume_cpu_euler_kernels.F90`, FNL `adam_flume_fnl_euler_kernels.F90` |
 
 ## Initial and boundary conditions

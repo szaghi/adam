@@ -1,8 +1,8 @@
 # Barotropic equation of state
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| EO (eb1 to eb8) | Euler | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P3 | CPU, FNL | yes | `baro-tube`, `baro-collide-hllc` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| EO (eb1 to eb8) | Euler | M13 ([#100](https://github.com/szaghi/adam/issues/100)) · P3 | P | CPU, FNL | yes | `baro-tube`, `baro-collide-hllc` |
 
 ## Case and scope
 
@@ -27,7 +27,7 @@ What the case catches:
 
 | Item | Choice | Code |
 |---|---|---|
-| Model | `euler` with `[eos] type = barotropic`: `MODEL_EULER_BARO`, the energy slot inert (D-M13-1), the table registered in `adam_flume_eos_tables_library` | [`adam_flume_euler_baro_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_euler_baro_library.F90), [`adam_flume_eos_tables_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_eos_tables_library.F90) |
+| Model | `euler` with `[eos] type = barotropic`: `MODEL_EULER_BARO`, the energy slot inert, the table registered in `adam_flume_eos_tables_library` | [`adam_flume_euler_baro_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_euler_baro_library.F90), [`adam_flume_eos_tables_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_eos_tables_library.F90) |
 | Space | WENO5 characteristic flux splitting (eb1 to eb3, eb5, eb6); `weno-riemann` with `llf`, `hll`, `hllc` (eb7) | `adam_flume_cpu_euler_baro_kernels.F90`, `adam_flume_cpu_euler_baro_{llf,hll,hllc}_kernels.F90`; FNL `adam_flume_fnl_euler_baro_*` |
 | Time | SSP-RK(3,3), CFL 0.5; SSP-RK(5,4) at CFL 0.1 for the order (eb3) | — |
 

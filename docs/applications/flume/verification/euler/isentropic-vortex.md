@@ -1,8 +1,8 @@
 # Isentropic vortex: order of accuracy
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| V2, RV-2 | Euler | M1 ([#35](https://github.com/szaghi/adam/issues/35)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU (all schemes), FNL (`weno`, `weno-riemann` LLF and HLLC) | yes | `vortex-periodic` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| V2, RV-2 | Euler | M1 ([#35](https://github.com/szaghi/adam/issues/35)); M3 ([#47](https://github.com/szaghi/adam/issues/47)) | P | CPU (all schemes), FNL (`weno`, `weno-riemann` LLF and HLLC) | yes | `vortex-periodic` |
 
 ## Case and scope
 

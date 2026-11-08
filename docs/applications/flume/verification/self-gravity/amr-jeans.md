@@ -1,8 +1,8 @@
 # Jeans modes on a static AMR grid
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| SV-10 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5b, P5c | CPU, FNL | yes | `selfgravity-amr-stage`; `amr-periodic-reflux-stage` (the per-stage reflux, without gravity) |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| SV-10 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)) · P5b, P5c | P | CPU, FNL | yes | `selfgravity-amr-stage`; `amr-periodic-reflux-stage` (the per-stage reflux, without gravity) |
 
 ## Case and scope
 
@@ -29,7 +29,7 @@ What the case catches:
 | Item | Choice | Code |
 |---|---|---|
 | Equations | compressible Euler, $\gamma = 5/3$, periodic self-gravity | [models](../../models#self-gravity) |
-| Solver selection | `poisson_solver = auto`: the FFT solver on a uniform grid, the multigrid on an AMR grid; `fft` on AMR is fatal, and so is isolated on a periodic grid (the multigrid's own check; isolated boundaries on AMR are [SV-13](./multigrid-amr) and [SV-14](./polytrope), [#87](https://github.com/szaghi/adam/issues/87)) | `set_potential`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90); [`adam_flume_gravity_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_gravity_object.F90) |
+| Solver selection | `poisson_solver = auto`: the FFT solver on a uniform grid, the multigrid on an AMR grid; `fft` on AMR is fatal, and so is isolated on a periodic grid (the multigrid's own check; isolated boundaries on AMR are [SV-13](./multigrid-amr) and [SV-14](./star-amr), [#87](https://github.com/szaghi/adam/issues/87)) | `set_potential`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90); [`adam_flume_gravity_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_gravity_object.F90) |
 | Poisson solver | multigrid (FCG + V-cycle) on the mimetic composite Laplacian, on the host (CPU) or the device (FNL, #84 E6a); its coarsest level on the backend's FFT solver (FFTW, or cuFFT on FNL) | [`adam_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_mg_object.F90), [`adam_fnl_poisson_mg_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/fnl/adam_fnl_poisson_mg_object.F90), [`adam_fnl_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/fnl/adam_fnl_poisson_fft_object.F90) |
 | Seam gravity work | added per stage to the flux register's energy entry: the coarse side takes its own seam source back, the fine side adds the exact two-point work less its own source | `add_seam_gravity_work`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90); `accumulate_seam_fluxes`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90), [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90) |
 | Reflux | `reflux = .true.`; `reflux_cadence = step` (default, end of step) or `stage` (P5c: the coarse seam cells corrected at every Runge–Kutta stage) | `reflux_stage`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90); [`adam_flume_numerics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_numerics_object.F90); [numerics](../../numerics#adaptive-mesh-refinement) |
@@ -86,7 +86,7 @@ drift falls 2.8 and then 2.2 times per halving of the CFL number, with the per-s
 SSP-RK3 order. Right: the collapse density at $t = 0.4$ on the composite grid; the refined blocks are the central
 box.*
 
-| Asserted | Bound | CPU | FNL (WSL GPU) |
+| Asserted | Bound | CPU | FNL |
 |---|---|---|---|
 | on a uniform $32^2$ grid, `poisson_solver = multigrid` against `fft`, $\max\lvert\rho_{mg} - \rho_{fft}\rvert / (\rho_0A)$ after one period | $10^{-6}$ | $3.8\cdot10^{-9}$ | $2.7\cdot10^{-9}$ |
 | stable wave, order of the L1 error, finest pair, 2-D | $\ge 1.8$ | 1.98 (1.97, 1.98) | 1.98 |
@@ -120,4 +120,4 @@ collapse under runtime AMR is [SV-11](./runtime-amr); conservation across seams 
   $1.9\cdot10^{-3}$ against $2.1\cdot10^{-3}$, because the box adds resolution. The first-order seam gravity shows in
   no norm the legs measure.
 - Isolated boundaries on AMR came with [#87](https://github.com/szaghi/adam/issues/87): the multigrid's symmetric
-  James step ([SV-13](./multigrid-amr)), the polytrope on AMR ([SV-14](./polytrope)).
+  James step ([SV-13](./multigrid-amr)), the polytrope on AMR ([SV-14](./star-amr)).

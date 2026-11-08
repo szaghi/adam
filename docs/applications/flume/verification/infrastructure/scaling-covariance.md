@@ -1,8 +1,8 @@
 # Scaling covariance and the reference layer
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| NV-0, NV-4, NV-5, NV-6, NV-8, NV-9 | Infrastructure | — ([#49](https://github.com/szaghi/adam/issues/49), non-dimensional form, N0–N2) | CPU, FNL | no | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| NV-0, NV-4, NV-5, NV-6, NV-8, NV-9 | Infrastructure | [#49](https://github.com/szaghi/adam/issues/49) (follow-up) · N0–N2 | C | CPU, FNL | no | — |
 
 ## Case and scope
 
@@ -137,5 +137,4 @@ inputs; [Ranks without blocks](./ranks-without-blocks) is the other identity leg
 - A self-gravity case runs on the FFT twin of the executable under test (`<exe>_fft`, or `FLUME_EXE_FFT`), as in the
   regression harness, so one run covers the whole suite. The polytrope's `star_radius`, `star_x0`, `star_y0`,
   `star_z0` (lengths), `star_density` (a density) and `star_pressure_factor` (a pure number) are classified in both
-  tables since 2026-10: before, the two star cases stopped on an unclassified option, loudly, and NV-5 did not cover
-  them.
+  tables, so NV-5 covers the two star cases.

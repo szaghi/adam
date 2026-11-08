@@ -1,8 +1,8 @@
 # Conservation across AMR seams
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| V3, RV-4 | Euler | M1 ([#35](https://github.com/szaghi/adam/issues/35)), M3 ([#47](https://github.com/szaghi/adam/issues/47)) | CPU, FNL | yes | `amr-periodic-reflux`, `amr-periodic-reflux-stage` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| V3, RV-4 | Euler | M1 ([#35](https://github.com/szaghi/adam/issues/35)); M3 ([#47](https://github.com/szaghi/adam/issues/47)) | C | CPU, FNL | yes | `amr-periodic-reflux`, `amr-periodic-reflux-stage` |
 
 ## Case and scope
 

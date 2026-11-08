@@ -1,14 +1,15 @@
 # Input contract of the dissipative terms
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| DC | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | no | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| DC | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) · P1 | C | CPU, FNL | no | — |
 
 ## Case and scope
 
-M4 reads each dissipative coefficient either as a coefficient or as its dimensionless number (#49 N4), refuses the
-positivity limiter with any of them (D-M4-5) and adds the no-slip walls (D-M4-7). The case is a contract test, not a
-flow: a list of 25 inputs, each a base input with some keys set, each with an expected outcome.
+M4 reads each dissipative coefficient either as a coefficient or as its dimensionless number
+([#49](https://github.com/szaghi/adam/issues/49) N4), refuses the positivity limiter with any of them and adds the
+no-slip walls. The case is a contract test, not a flow: a list of 25 inputs, each a base input with some keys set, each
+with an expected outcome.
 
 What the case catches:
 - **an invalid combination that runs:** it must stop the run with a message that names it;
@@ -26,7 +27,7 @@ The keys are listed in [input](../../input#dissipative-terms-issue-65-m4).
 |---|---|---|
 | Coefficients and numbers | `viscosity` or `reynolds`, `conductivity` or `prandtl`, `resistivity` or `magnetic_reynolds` or `lundquist`; `viscosity_law = power-law` with `viscosity_exponent`, `reference_temperature`, or `sutherland` with `reference_temperature`, `sutherland_temperature` | `load_from_file`, `laws`, [`adam_flume_dissipation_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_dissipation_object.F90) |
 | Order of the dissipative fluxes | `[numerics] dissipative_order`, 2 or 4; 4 needs `ngc >= 3` | `load_from_file`, [`adam_flume_numerics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_numerics_object.F90); `check_dissipation`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
-| Positivity limiter | refused with any dissipative coefficient (D-M4-5) | `check_positivity_limiter`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
+| Positivity limiter | refused with any dissipative coefficient | `check_positivity_limiter`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
 | No-slip walls | `wall-noslip` (tangential `wall_u/v/w`, a normal component is fatal), `wall-isothermal` (`wall_temperature > 0`) | `load_from_file`, [`adam_flume_bc_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_bc_object.F90); [boundary conditions](../../boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls) |
 | Diffusive time-step limit | logged at every run (`dissipative dt limit (issue #65)`) | `log_dt_limit`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90); [time-step bound](../../models#time-step-bound) |
 | Dimensional input | `[reference]` section; `lundquist` needs the Alfvénic velocity preset | `classify`, [`adam_flume_reference_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_reference_object.F90); [units and scaling](../../models#units-and-scaling) |
@@ -86,8 +87,8 @@ the dimensional input by [scaling covariance](../infrastructure/scaling-covarian
 
 ## Findings
 
-- Every invalid combination of D-M4-5, D-M4-6 and D-M4-7 stops the run with a message that names the keys; none runs
-  with a coefficient dropped.
+- Every invalid input of the refuse kind (both keys of a term, the limiter with a coefficient, an inconsistent wall)
+  stops the run with a message that names the keys; none runs with a coefficient dropped.
 - The coefficient a number implies is logged bit-exactly, so the conversion $1/Re$, $\mu c_p/Pr$, $1/Rm$ has no hidden
   rounding step.
 - The dissipative path is inert at zero coefficients: the run is bitwise the base run.

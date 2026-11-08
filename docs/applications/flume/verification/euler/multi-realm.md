@@ -1,8 +1,8 @@
-# Multi-realm runs
+# Forest seams: the inter-realm contract
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| multirealm legs 1–6 | Euler | M2 entry ([#37](https://github.com/szaghi/adam/issues/37)); [#40](https://github.com/szaghi/adam/issues/40), [#51](https://github.com/szaghi/adam/issues/51), [#52](https://github.com/szaghi/adam/issues/52), [#54](https://github.com/szaghi/adam/issues/54); M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | yes | `sod-2realm`, `sod-2realm-blocks`, `sod-amr`, `sod-amr-2realm`, `sod-amr-refined` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| multirealm legs 1–6, 15; MV-14 | Forest | [#37](https://github.com/szaghi/adam/issues/37) (follow-up) · legs 1–2; [#40](https://github.com/szaghi/adam/issues/40), [#51](https://github.com/szaghi/adam/issues/51), [#52](https://github.com/szaghi/adam/issues/52), [#54](https://github.com/szaghi/adam/issues/54) (follow-up) · legs 3–5; M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P7c (MV-14); M6 ([#68](https://github.com/szaghi/adam/issues/68)) · leg 6; [#71](https://github.com/szaghi/adam/issues/71) (follow-up) · leg 15 | C | CPU, FNL | yes | `sod-2realm`, `sod-2realm-blocks`, `sod-amr`, `sod-amr-2realm`, `sod-amr-refined` |
 
 ## Case and scope
 
@@ -14,16 +14,29 @@ must use the formulas of the intra-realm AMR seams; any difference in the seam f
 the inter-realm reflux register breaks the bitwise identity. The split at the diaphragm makes the seam carry the
 Riemann problem from the first step.
 
+The contract is built issue by issue: the 1:1 mirror seam ([#37](https://github.com/szaghi/adam/issues/37), legs 1–2),
+the seam across ranks ([#40](https://github.com/szaghi/adam/issues/40), leg 3), the 2:1 inter-realm seam
+([#52](https://github.com/szaghi/adam/issues/52), leg 4), misaligned seam blocks ([#51](https://github.com/szaghi/adam/issues/51),
+leg 5), the high-order seam operators of M6 (leg 6), the seam peer lookup on quadtrees
+([#54](https://github.com/szaghi/adam/issues/54), MV-14 leg 6) and the 2:1 seams of quadtrees
+([#71](https://github.com/szaghi/adam/issues/71), leg 15). MV-14 carries the same contract for the nine MHD fields.
+
 What the legs catch:
-- **seam fill and inter-realm reflux** at a mirror seam (leg 1), and both kinds of register face in one realm, the
-  intra-realm 2:1 face and the fine side of the inter-realm seam (leg 2);
+- **seam fill and inter-realm reflux** at a mirror seam (leg 1): a boundary routine that does not skip the forest's
+  `BC_SEAM` crown rows, a fine side of the inter-realm register restricted like an intra-realm AMR seam, seam and
+  boundary maps missing on the device;
+- **both kinds of register face in one realm**, the intra-realm 2:1 face and the fine side of the inter-realm seam
+  (leg 2): the forest must compose the two registrations;
 - **rank-local seam machinery** ([#40](https://github.com/szaghi/adam/issues/40)): the seam ghosts and the reflux
-  register must cross ranks (leg 3);
+  register must cross ranks (leg 3); a rank-local register ends normally with a wrong solution;
 - **a 2:1 inter-realm seam** ([#52](https://github.com/szaghi/adam/issues/52)) that interpolates (coarse to fine) or
   restricts (fine to coarse) differently from an intra-realm 2:1 face (leg 4), and seam operators of higher order
   ([#68](https://github.com/szaghi/adam/issues/68) C2, C3, D1, D2) that differ across the seam (leg 6);
 - **seam blocks that do not line up** ([#51](https://github.com/szaghi/adam/issues/51)): the coverage of the register
-  faces (leg 5);
+  faces (leg 5), and where the overlaps land along a face (MV-14 leg 5);
+- **a seam peer lookup that assumes an octree** ([#54](https://github.com/szaghi/adam/issues/54)): the closest leaf of
+  the peer's tree on binary trees, quadtrees and octrees (MV-14 leg 6, `test_tree_closest_block`);
+- **the MHD state across a seam and a restart** (MV-14): every forest and restart channel widened to the nine fields;
 - **invalid couplings**: a 2:1 pair declared `mirror`, and the positivity limiter on a multi-realm run, must be refused
   at initialization.
 
@@ -99,13 +112,16 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl ./check.sh               # FNL
 | 15 | summed conservation histories | round-off | within $2\cdot10^{-16}$ | within $4\cdot10^{-16}$ |
 | 15, $z$ | `refined` across the null axis; `auto` across it | refused; bitwise (12800 cells) | refused; bitwise | refused; bitwise |
 
-The MHD twin, `mhd/multirealm/check.sh` (MV-14):
+**MV-14, the MHD twin** (`mhd/multirealm/check.sh`, M2 P7c; np 2, CPU):
 
 | Leg | Check | Result |
 |---|---|---|
-| 4 | RJ2a with GLM on the leg-4 cells, `coupling = refined` | bitwise on all nine fields over 349 steps |
-| 5 | the MHD rotor on an octree, split at $x = 0.5$ with misaligned seam blocks, both ways, 50 steps | bitwise on all nine fields; a deliberately misplaced overlap drives the density negative at step 2 |
-| 6 | the rotor on its own quadtree, blocks lined up and not | bitwise on all nine fields |
+| 1 | RJ2a (MV-4, GLM, $N = 256$) split at the diaphragm by a mirror seam, against the single realm | bitwise on all nine fields over 297 steps; summed conservation within $1.7\cdot10^{-16}$ |
+| 2 | restart round trip of the two-realm run (148 steps, restart, to $t = 0.2$) | bitwise on all nine fields; residuals, conservation and div(B) histories byte-identical |
+| 3 | restart round trip of the MV-11 box (3-D, 2:1 AMR, reflux, damped GLM) | bitwise on all nine fields, with $\max\lvert\psi\rvert = 1.7\cdot10^{-3}$ |
+| 4 | RJ2a with GLM on the leg-4 cells, `coupling = refined` ([#52](https://github.com/szaghi/adam/issues/52)) | bitwise on all nine fields over 349 steps |
+| 5 | the MHD rotor on an octree, split at $x = 0.5$ with misaligned seam blocks, both ways, 50 steps ([#51](https://github.com/szaghi/adam/issues/51)) | bitwise on all nine fields; a deliberately misplaced overlap drives the density negative at step 2 |
+| 6 | the rotor on its own quadtree, blocks lined up and not ([#54](https://github.com/szaghi/adam/issues/54)) | bitwise on all nine fields |
 
 Related cases: [Sod](./sod) (the reference runs), [Forward-facing step](./forward-facing-step) (three realms on
 quadtrees), [MHD rotor](../mhd/rotor) (the MV-14 split), [Ghost probe](../infrastructure/ghost-probe) (the seam edge
@@ -113,23 +129,21 @@ ghosts).
 
 ## Findings
 
-- The first runs of leg 1 ([#37](https://github.com/szaghi/adam/issues/37)) found three defects: the CPU boundary
-  routine stopped on the forest's `BC_SEAM` crown rows; the fine side of the inter-realm reflux register was
-  2:1-restricted like an AMR seam, which wrote $F_{coarse} - 0$ into three quarters of the realm-1 seam skin at every
-  step; the FNL backend never copied the forest-built seam and boundary maps to the device (illegal address in the seam
-  fill kernel).
-- Leg 2 passed once the forest composed the two registrations; before, the manifest path registered the inter-realm
-  faces only, and the 2:1 face got no reflux.
-- Before [#40](https://github.com/szaghi/adam/issues/40) the $N$-rank run of leg 3 ended normally with a wrong solution:
-  205 steps instead of 174, realm-1 mass frozen at 0.5, reflux mismatch 69.
-- Leg 6: the fine owner packs the 6-point restriction codes in the restrict rows, the coarse owner the 6-point anchor
-  shifts of the fill; the shock crosses the seam, so another operator on either side would differ.
+- **A 1:1 mirror seam with β cadence is a block interface like any other:** the union reproduces the single realm bit
+  for bit, across ranks and with misaligned seam blocks. The seam fill must run at every Runge–Kutta stage
+  (`coupling_cadence = stage_coincident`).
+- **A `refined` seam reproduces an intra-realm 2:1 face bit for bit,** with the default operators and with every
+  6-point restriction and fill of M6 (leg 6): the fine owner packs the 6-point restriction codes in the restrict rows,
+  the coarse owner the anchor shifts of the fill; the shock crosses the seam, so a different operator on either side
+  would show.
 - Sod is 1-D, so legs 4 and 5 test the coverage of the register faces, not where the overlaps land along a face; the
-  rotor of MV-14 leg 5 does. In 1-D $\psi$ stays at round-off, so MV-14 leg 4 tests $\mathbf{B}$, not the cleaning,
-  across the 2:1 seam.
-- Before [#54](https://github.com/szaghi/adam/issues/54) the tree lookup of the seam peers used the 3-D Morton code on
-  every tree, wrong on a quadtree from level 2 on, and the lined-up rotor split stopped at initialization. The unit
-  test `test_tree_closest_block` pins the lookup on binary trees, quadtrees and octrees, including a single-block
-  tree, whose root the lookup now returns instead of aborting.
-- The positivity limiter is refused on every multi-realm run: the inter-realm seam faces carry no limiting factor (the
-  2:1 seam flux synchronisation of [#50](https://github.com/szaghi/adam/issues/50) is intra-realm).
+  rotor of MV-14 leg 5 does. In 1-D $\psi$ stays at round-off, so MV-14 legs 2 and 4 test $\mathbf{B}$, not the
+  cleaning; MV-14 leg 3 carries a non-zero $\psi$ through a restart.
+- The seam peer lookup takes the closest leaf of the peer's tree by the Morton code of the tree's own dimension; on a
+  single-block tree it returns the root. `test_tree_closest_block` pins it on binary trees, quadtrees and octrees.
+- **Refused at initialization:** a 2:1 pair declared `mirror`; a `refined` seam normal to the axis a quadtree does not
+  refine; the positivity limiter, `[reference]`, the gravity equilibrium and self-gravity on a multi-realm run. The
+  inter-realm seam faces carry no limiting factor (the 2:1 seam flux synchronisation of
+  [#50](https://github.com/szaghi/adam/issues/50) is intra-realm).
+- Runtime AMR across the seams of a forest is [multi-realm runtime AMR](../runtime-amr/multi-realm)
+  ([#110](https://github.com/szaghi/adam/issues/110), legs 7–13).

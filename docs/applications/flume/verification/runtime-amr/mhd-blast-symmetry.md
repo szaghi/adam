@@ -1,8 +1,8 @@
 # MHD blast symmetry on the flux-splitting path
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| #77 study, bounded by av3c | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)), [#77](https://github.com/szaghi/adam/issues/77) | CPU, FNL | yes | `blast-limiter` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| #77 study, bounded by av3c | Runtime AMR (M5) | [#77](https://github.com/szaghi/adam/issues/77) (follow-up) | P | CPU, FNL | yes | `blast-limiter` |
 
 ## Case and scope
 
@@ -58,7 +58,7 @@ The probes of the table below are investigation runs, not legs of a script.
 
 ![The MHD blast point-symmetry defect](/flume/mhd-blast-symmetry.png)
 
-*The uniform $N = 128$ blast on FNL (WSL GPU, 2 ranks), a checkpoint every 20 steps. Left: the splitting scheme's density at $t = 0.01$. Centre: its point-symmetry defect $|\rho(\mathbf x) - \rho(\mathbf 1 - \mathbf x)| / \max\rho$, spread over the whole blast, not along the grid axes. Right: the largest defect of $\rho$ and $B_y$ against the step: on the splitting scheme it leaves round-off by step 20, grows exponentially and saturates at 0.18 (this measure) by step 260; on `weno-riemann` HLLD it stays near $10^{-12}$, under the av3c bound.*
+*The uniform $N = 128$ blast on FNL (2 ranks), a checkpoint every 20 steps. Left: the splitting scheme's density at $t = 0.01$. Centre: its point-symmetry defect $|\rho(\mathbf x) - \rho(\mathbf 1 - \mathbf x)| / \max\rho$, spread over the whole blast, not along the grid axes. Right: the largest defect of $\rho$ and $B_y$ against the step: on the splitting scheme it leaves round-off by step 20, grows exponentially and saturates at 0.18 (this measure) by step 260; on `weno-riemann` HLLD it stays near $10^{-12}$, under the av3c bound.*
 
 | Probe | Result |
 |---|---|

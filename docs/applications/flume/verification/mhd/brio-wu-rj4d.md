@@ -1,8 +1,8 @@
 # Brio–Wu and Ryu–Jones 4d
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| — (`mhd/riemann`, M2-P3 exit) | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes | `brio-wu` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| — (`mhd/riemann`) | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P3c | P | CPU, FNL | yes | `brio-wu` |
 
 ## Case and scope
 

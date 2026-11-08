@@ -1,8 +1,8 @@
 # Shock crossing a static 2:1 face
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| AS (A3, C3, C3b, C3c) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL (Sod); FNL only (RJ2a, C3, C3c) | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| AS (A3, C3, C3c) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) · A3, C3, C3c | P | CPU, FNL (Sod); FNL only (RJ2a, C3, C3c) | yes | — |
 
 ## Case and scope
 
@@ -22,7 +22,7 @@ What the case catches:
 - **a transverse dependence** of the 1-D solution (the spread among the transverse copies must stay at round-off).
 
 AS is the shock baseline of the seam remedies of #68 C, D and E (D2's "no worse than tricubic"). C3 reruns it under the
-6-point restriction, C3b profiles the FNL cost, C3c adds the WENO restriction.
+6-point restriction, C3c adds the WENO restriction.
 
 ## Models and numerics
 
@@ -36,7 +36,7 @@ AS is the shock baseline of the seam remedies of #68 C, D and E (D2's "no worse 
 | Coarse-to-fine ghosts | `tricubic` | `interp_seam_ghost`, [`adam_field_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_field_object.F90) |
 | Reflux | Berger–Colella, on; off only as a measurement (`--no-reflux`) | `accumulate_seam_fluxes`, `apply_reflux_to_stage_forest`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
 | Boundaries | `extrapolation` on all six faces | [boundary conditions](../../boundary-conditions#extrapolation-zeroth-order-constant) |
-| FNL ghost kernel | the local ghost update, its map loops collapsed (C3b) | `update_ghost_local_gpu_dev`, [`adam_fnl_field_kernels.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/fnl/adam_fnl_field_kernels.F90) |
+| FNL ghost kernel | the local ghost update, its variable and map-row loops collapsed | `update_ghost_local_gpu_dev`, [`adam_fnl_field_kernels.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/fnl/adam_fnl_field_kernels.F90) |
 
 **C3c, the WENO restriction** (`[amr] seam_restriction = weno6`, #68 C3). Per direction, the WENO-Z combination
 (Borges et al. 2008, $p = 2$) of the cubic interpolants of the 4-point sub-stencils of the 6 nodes that contain the
@@ -118,11 +118,11 @@ contact, wider in cells on the fine controls, into their plateau.
 
 ![AS: the Sod shock crossing a 2:1 face](/flume/shock-crossing.png)
 
-*Sod at $t = 0.2$, $N = 200$, today's operators, CPU: the density against the exact solution, coarse to fine and fine to coarse, and the plateau behind the shock with the uniform controls at the coarse ($N = 200$) and the fine ($N = 400$) spacing: the c2f crossing leaves a bump behind the face at $x \approx 0.81$, the f2c one a dip on both sides; neither control has it.*
+*Sod at $t = 0.2$, $N = 200$, default operators, CPU: the density against the exact solution, coarse to fine and fine to coarse, and the plateau behind the shock with the uniform controls at the coarse ($N = 200$) and the fine ($N = 400$) spacing: the c2f crossing leaves a bump behind the face at $x \approx 0.81$, the f2c one a dip on both sides; neither control has it.*
 
 ![AS: the RJ2a fast shock crossing a 2:1 face](/flume/shock-crossing-rj2a.png)
 
-*RJ2a at $t = 0.2$, $N = 256$, today's operators, FNL (`make_doc_runs.sh <runs> rj2a-shock`): the density against the
+*RJ2a at $t = 0.2$, $N = 256$, default operators, FNL (`make_doc_runs.sh <runs> rj2a-shock`): the density against the
 exact solution and the plateau behind the fast shock with the uniform control; the same signature as on Sod, a bump
 behind the face after c2f and a dip after f2c, which the uniform run does not have.*
 
@@ -158,14 +158,6 @@ The PV-5 blast (the limited Balsara–Spicer blast across 2:1 seams, `nk` widene
 and both schemes: $t = 0.01$ reached, no inadmissible stage, no non-finite flux, mass and seam flux mismatch unchanged;
 the largest number of faces limited in a stage is 46336 against 48512 with the mean (split) and 17920 for both (HLLD).
 
-### C3b: the cost was the ghost kernel
-
-Profiled with Nsight Systems (PV-5, one rank), the local ghost update dominated the FNL GPU time even with the mean.
-nvfortran parallelised its loop over the variables only (9 threads) and ran the map rows in sequence (a "loop carried
-dependence" through the indirect writes): the schedule [#27](https://github.com/szaghi/adam/issues/27) specifies the fix
-for, and that [#53](https://github.com/szaghi/adam/issues/53) measured as the dominant FNL cost. The two loops are now
-collapsed, as the other map kernels are. The results are bitwise identical.
-
 ### C3c: the WENO restriction
 
 | Check (FNL, 2 ranks) | mean | lagrange6 | weno6 |
@@ -180,9 +172,9 @@ collapsed, as the other map kernels are. The results are bitwise identical.
 The AO rows are the legs `euler-l6` and `euler-w6` of [AO](./order-across-seams), which CPU and FNL reproduce to every
 printed digit.
 
-Related cases: [AO](./order-across-seams) is the smooth baseline of the same operators; the seam studies
-[D1](../seams-studies/quintic-fill), [D2](../seams-studies/limited-fills), [E0](../seams-studies/capturing-error) and
-[E2](../seams-studies/reflux-policy) rerun these crossings; the uniform references are [Sod](../euler/sod) and
+Related cases: [AO](./order-across-seams) is the smooth baseline of the same operators; its
+[D1](./order-across-seams#d1-the-quintic-fill) and [D2](./order-across-seams#d2-the-limited-fills) sections,
+[E0](./design-record#e0-the-shock-crossing-defect-is-a-capturing-error) and [E2](./reflux-policy) rerun these crossings; the uniform references are [Sod](../euler/sod) and
 [Ryu–Jones 2a](../mhd/ryu-jones-2a); the blast is the [positivity limiter](../mhd/positivity-limiter) case PV-5.
 
 ## Findings
@@ -196,7 +188,7 @@ Related cases: [AO](./order-across-seams) is the smooth baseline of the same ope
   level falls up to 14 times; only the width of the defect shrinks (the mean entropy error halves).
 - **It is not the reflux.** Without the reflux the plateau defect changes by at most 30 %. A3 placed its source in the
   coarse-fine transfer of a discontinuity, the mean restriction and the prolongation of the ghosts, which Phases C and D
-  replace; [E0](../seams-studies/capturing-error) later showed that no seam operator controls it: it is a capturing
+  replace; [E0](./design-record#e0-the-shock-crossing-defect-is-a-capturing-error) shows that no seam operator controls it: it is a capturing
   error.
 - **The entropy defect leaves the face.** It moves with the flow, $u_2 t$ downstream of the face by $t = 0.2$, so the
   band entropy maxima are 100 to 1900 times below the plateau ones; the acoustic maxima of Sod c2f still sit at the
@@ -205,15 +197,14 @@ Related cases: [AO](./order-across-seams) is the smooth baseline of the same ope
   mean's (the RJ2a band density 2 % above, the others equal or below), and the shock lands in the same place with the
   mass exact. The defect behind a crossing shock does not come from the restriction's order.
 - **C3: it does not worsen positivity.** The limited blast passes as with the mean, with no more faces limited.
-- **C3: on FNL a restricted ghost reads 216 fine cells on an octree,** one after the other, in the loop that copies
-  the other ghosts. The nonlinear `weno6` followed as an option, not as a fix.
-- **C3b: the cost was the ghost kernel, for every regime.** Its two loops are collapsed, with bitwise identical
-  results.
+- **C3: on FNL a restricted ghost reads 216 fine cells on an octree,** in the kernel that copies the other ghosts.
+  That kernel runs its variable and map-row loops collapsed, as the other map kernels do
+  ([#27](https://github.com/szaghi/adam/issues/27)). The nonlinear `weno6` followed as an option, not as a fix.
 - **C3c: on the smooth vortex `weno6` equals `lagrange6`** (the band L1 13 % lower): no jump is detected, and the
   fourth-order rows at the donor block's edge do not show at these resolutions. The AO leg `euler-w6` asserts it.
 - **C3c: at shocks it is as neutral as `lagrange6`:** shock positions identical, mass exact, every defect within 1.5 %
   of the mean's; PV-5 passes under both schemes with no inadmissible stage. Neither 6-point restriction makes a shock
-  crossing worse, so the default stays `mean` until Phase D/E evidence; `weno6` is the option for data with jumps
+  crossing worse, so the default stays `mean`; `weno6` is the option for data with jumps
   inside the restriction footprint that these cases do not produce.
 - [Multirealm](../euler/multi-realm) leg 6 runs both regimes (bitwise unions), and [GP](../infrastructure/ghost-probe)
   probes `weno6` on `box3d`, `channel2d` and `refined3d`.

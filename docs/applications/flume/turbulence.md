@@ -78,7 +78,7 @@ box).
 
 `hybrid_skin` relaxes this rule for measurement ([input](./input#numerics)). The default stays WENO: on a smooth flow
 the central skin is closer to the DNS, but with a shock at a seam there is no reference
-([verification](./verification/turbulence/#against-the-dns)).
+([verification](./verification/turbulence/hybrid-scheme#against-the-dns)).
 
 **With a subgrid-scale model.** The eddy viscosity is zero on flagged cells. The rule is per cell: a WENO face next to
 a flagged cell, or on a skin, can still carry the model. The sensor and its exchange then run twice per stage.
@@ -184,7 +184,7 @@ over an early transient $T_f=1$ moves it by $1.4\cdot10^{-2}$.
 
 The face takes $\tau_w$ and $q_w$ from the sample, and nothing in the cells between the wall and $h$ carries them there
 unless a subgrid model does. At Mach 3 the first cell then drains: colder than the wall, dense, its flow reversed
-([channel at Mach 3](./verification/turbulence/#mach-3)).
+([channel at Mach 3](./verification/turbulence/channel#mach-3)).
 
 With `wall_model_eddy_viscosity = .true.` the cells whose centre lies below $h$ take the model's own eddy viscosity,
 $\mu_t=\kappa y\sqrt{\rho\tau_w}\,D^2$, $D = 1-e^{-y^+/A^+}$ with the damping of the face (semi-local for the inverse

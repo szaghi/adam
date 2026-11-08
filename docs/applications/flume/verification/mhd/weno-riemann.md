@@ -1,8 +1,8 @@
 # MHD on `weno-riemann`
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| RV-5, RV-6, RV-7 | Ideal MHD | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P3c) | CPU, FNL | yes | `rj2a-hlld` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| RV-5, RV-6, RV-7 | Ideal MHD | M3 ([#47](https://github.com/szaghi/adam/issues/47)) · P3c | P | CPU, FNL | yes | `rj2a-hlld` |
 
 ## Case and scope
 

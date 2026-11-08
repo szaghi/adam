@@ -1,8 +1,8 @@
 # Dual energy: the advected entropy of euler-de
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| DE (de1 to de4) | Euler | M9 ([#91](https://github.com/szaghi/adam/issues/91)), P2, P3, P4 | CPU, FNL | yes | `noh-de` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| DE (de1 to de4) | Euler | M9 ([#91](https://github.com/szaghi/adam/issues/91)) · P2–P4 | P+C | CPU, FNL | yes | `noh-de` |
 
 ## Case and scope
 
@@ -11,13 +11,13 @@ numbers, and the truncation error of the total-energy scheme can drain it to zer
 [#88](https://github.com/szaghi/adam/issues/88) died that way. `physical_model = euler-de` carries the advected entropy
 $\rho s$, $s = p/\rho^\gamma$, and uses it as a floor of the internal energy in the cold cells. These legs check that it
 changes nothing where it must not, and that it keeps a shock heated; the collapse it rescues is
-[SV-17](../self-gravity/polytrope).
+[SV-17](../self-gravity/star-amr).
 
 What the case catches:
 - **a model that perturbs a warm flow:** where no cell is cold the floor never acts, and the Euler fields must be those
   of `euler` bitwise;
 - **a floor that removes shock heat:** the entropy does not see a shock, so a scheme that resets the energy of a cold
-  shocked cell from it loses the shock (the first form of D-M9-1 did, on this very case);
+  shocked cell from it loses the shock;
 - **a silent input:** a switch outside $(0, 1)$;
 - **a backend that disagrees:** the FNL kernels (`adam_flume_fnl_euler_de_kernels`, `sync_dual_energy_dev`) against
   the CPU ones on the same run.
@@ -73,23 +73,23 @@ advected entropy diffused across the foot.*
 | de4 | per field, FNL against CPU relative to its largest magnitude, `euler-de` against the `euler` pair (`rs` against their largest) | $\le 2\times$ the `euler` pair's, or $10^{-10}$ | `ru` $1.5\cdot10^{-9}$ (`euler` $1.0\cdot10^{-9}$), `rs` $5.2\cdot10^{-10}$, the rest $\le 6.1\cdot10^{-10}$ | (the same comparison) |
 
 Related cases: [Sod](./sod) is the warm baseline of de1; the collapse dual energy rescues is
-[SV-17](../self-gravity/polytrope).
+[SV-17](../self-gravity/star-amr).
 
 ## Findings
 
 - **Where no cell is cold, `euler-de` is `euler`.** In Sod every cell has $e \ge 0.05 E$, the floor never acts, and the
   entropy only follows the energy: the five Euler fields are bitwise those of `euler`.
-- **A floor, not a reset.** The first form of the synchronisation (D-M9-1 as approved: the energy of a cold cell reset
-  from its entropy) took the shock's heat away in the first steps of this case, when every cell is cold, and the run
-  went non-finite at step 3. Numerical dissipation only raises the entropy, so the drained cells are the ones below
-  their adiabat: lifting only those keeps every shock heated (the post-shock pressure of the two models agrees to
-  $3\cdot10^{-5}$), and the energy the floor adds is the only change to the total energy.
+- **A floor, not a reset.** Resetting the energy of a cold cell from its entropy takes the shock's heat away in the
+  first steps of this case, when every cell is cold, and the run goes non-finite at step 3. Numerical dissipation only
+  raises the entropy, so the drained cells are the ones below their adiabat: lifting only those keeps every shock heated
+  (the post-shock pressure of the two models agrees to $3\cdot10^{-5}$), and the energy the floor adds is the only
+  change to the total energy.
 - **The price is a little preheating at a cold shock's foot.** The advected entropy diffuses forward across the foot,
   so the floor lifts the one or two cold cells there, to $10^{-5}$ in a $10^{-6}$ stream ahead of a 1.2 shock. A switch
   at Enzo's $10^{-3}$ would lift the same cells (their $e/E$ is below it as well): it is the floor, not the switch.
 - **The FNL port runs the same rule.** On a Mach 845 shock the two backends already differ by $10^{-9}$ with `euler`
   (the device arithmetic); `euler-de` differs by at most 1.5 times that, and its entropy by half of it (de4, the
   relative-to-baseline rule of [AV](../runtime-amr/accuracy) av8: an absolute $10^{-10}$ bound fails `euler` itself).
-- **The switch is 0.05, not Enzo's $10^{-3}$** (D-M9-3, revised): in the #88 collapse the coldest cells sit at
+- **The switch is 0.05, not Enzo's $10^{-3}$:** in the #88 collapse the coldest cells sit at
   $e/E \approx 10^{-2}$ two steps before they go negative, so $10^{-3}$ never acts; 0.05 (Cholla uses 0.035) rescues the
-  collapse ([SV-17](../self-gravity/polytrope)).
+  collapse ([SV-17](../self-gravity/star-amr)).

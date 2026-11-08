@@ -1,8 +1,8 @@
 # Jeans modes under self-gravity
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| SV-3, SV-4, SV-5 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P3 | CPU, FNL | yes | `selfgravity-jeans` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| SV-3, SV-4, SV-5 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)) · P3 | P+C | CPU, FNL | yes | `selfgravity-jeans` |
 
 ## Case and scope
 
@@ -89,7 +89,7 @@ $\mathbf u$ odd.
 | SV-4, mirror symmetry | defect over the mode amplitude at $t = 0.5$ | $10^{-9}$ | $\rho$ $4.8\cdot10^{-11}$, $\mathbf u$ $3.7\cdot10^{-11}$ | $\rho$ $9.8\cdot10^{-11}$, $\mathbf u$ $7.7\cdot10^{-11}$ |
 | SV-4, collapse, CFL 0.4, 0.2, 0.1 | drift of $E + W$: $2.74\cdot10^{-7}$, $3.45\cdot10^{-8}$, $4.33\cdot10^{-9}$; order in $\Delta t$ | $\ge 2.5$ | 2.99, 2.99 | 2.99, 2.99 (the same drifts) |
 | SV-4, collapse | the largest $\lvert\int\rho\mathbf u\rvert$ | $10^{-14}$ | $8.9\cdot10^{-18}$ | $5.1\cdot10^{-18}$ |
-| SV-5, scaling covariance | the dimensional run (with $G$ converted) against the code-unit run | bitwise | bitwise (fields, histories, 14 conversions) | bitwise with nvfortran 26.1 (WSL GPU); nvfortran 25.5 (A30) stops reading the converted input, as NV-5 does: a defect older than P3, [#86](https://github.com/szaghi/adam/issues/86) |
+| SV-5, scaling covariance | the dimensional run (with $G$ converted) against the code-unit run | bitwise | bitwise (fields, histories, 14 conversions) | bitwise with nvfortran 26.1; nvfortran 25.5 stops reading the converted input, as NV-5 does: a defect older than P3, [#86](https://github.com/szaghi/adam/issues/86) |
 
 Related cases: the same modes across 2:1 seams are [SV-10](./amr-jeans), under runtime AMR [SV-11](./runtime-amr); the
 isolated analogue of the collapse is [SV-8](./polytrope); the `[reference]` layer is

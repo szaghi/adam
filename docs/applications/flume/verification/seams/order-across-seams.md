@@ -1,8 +1,8 @@
 # Order across static 2:1 seams
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| AO (A1, C1) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| AO (A1, C1, D1, D2) | Seam accuracy and divergence | M6 ([#68](https://github.com/szaghi/adam/issues/68)) · A1, C1, D1, D2 | P | CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -22,8 +22,8 @@ What the case catches:
   improvement of the transfers or of the reflux passes and a degradation fails;
 - **a broken instrument**: the uniform control (no refined quadrant) must reach design order.
 
-Phases C (high-order restriction), D (quintic prolongation) and E (reflux policy) of #68 are measured against these
-baselines; the legs `euler-l6`, `euler-w6`, `euler-q6`, `euler-ww`, `euler-mp` and `euler-tq` are their entries in the
+Phases C (high-order restriction), D (6-point coarse-to-fine fills) and E (reflux policy) of #68 are measured against
+these baselines; the legs `euler-l6`, `euler-w6`, `euler-q6`, `euler-ww`, `euler-mp` and `euler-tq` are their entries in the
 same ladder.
 
 ## Models and numerics
@@ -44,9 +44,29 @@ The seam operators are described in [numerics](../../numerics#adaptive-mesh-refi
 
 **C1, the 6-point restriction** (`[amr] seam_restriction = lagrange6`, #68 C1, C2). The coarse seam ghosts take the
 tensor 6-point Lagrange interpolation of the fine cells to the coarse centre instead of their mean: exact 1-D weights
-$k/256$, the footprint shifted inside the donor block at its edge, as [B3](../seams-studies/high-order-restriction)
+$k/256$, the footprint shifted inside the donor block at its edge, as [B3](./design-record#b3-footprint-of-the-6-point-restriction)
 recommends. A row whose fine pair does not lie inside its donor block falls back to the mean. On FNL the restriction
 runs in the device twin of C2.
+
+**D1, the quintic fill** (`[amr] seam_ghost_fill = quintic`, #68 D1). A fine ghost takes the tensor 6-point Lagrange
+interpolation of the coarse cells at its centre: 1-D weights $k/8192$ (exact in binary), the footprint shifted inside
+the coarse donor block at its edge as the tricubic one is (blocks of at least 6 cells along the refined axes); along an
+unrefined axis only the anchor is read. The anchor shifts travel in the fill meta of every map row (bits 18–26,
+`seam_meta_pack`, [`adam_seam_interpolation_library.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_seam_interpolation_library.F90)).
+FNL sums straight from the device field; the inter-realm rows use the same fill.
+
+**D2, the limited fills** (#68 D2), both order 6 at the centred anchor positions:
+- `weno6`: per direction the WENO-Z combination of the cubics of the 4-point sub-stencils that contain the ghost's
+  interval (the kernel of the C3 restriction), with positive linear weights that reproduce the Lagrange interpolant of
+  their union; a sub-stencil holding a jump is dropped, and the clamped linear interpolation is used when none is left.
+  Order 5 one cell from the donor block's edge, 4 at it (`seam_interpolate_weno6`);
+- `quintic-mp`: the D1 quintic clamped per direction to a Suresh–Huynh monotonicity-preserving bound, the interval's
+  values and the curvature-corrected linear value $L + \theta(\theta-1)/2\, d^{M4}$, widened by the curvature term; at
+  the block edge the extrapolation is allowed only when the edge-side intervals hold no jump
+  (`seam_interpolate_quintic_mp`).
+
+The other fills compared on the shock crossings are `injection` (order 1) and `restriction-compatible` (order 2, exact
+$R \circ P = I$ with the `mean` restriction). Every fill but `tricubic` is opt-in.
 
 ## Initial and boundary conditions
 
@@ -69,10 +89,10 @@ Legs of the euler ladder (each: refined and uniform runs, $N$ = 64 / 128 / 256):
 | `euler` | `mean` | `tricubic` | on, `always` | A1 |
 | `euler-l6` | `lagrange6` | `tricubic` | off | C1 |
 | `euler-w6` | `weno6` | `tricubic` | off | C3, [C3c](./shock-crossing#c3c-the-weno-restriction) |
-| `euler-q6` | `lagrange6` | `quintic` | off | [D1](../seams-studies/quintic-fill) |
-| `euler-ww` | `weno6` | `weno6` | off | [D2](../seams-studies/limited-fills) |
-| `euler-mp` | `lagrange6` | `quintic-mp` | off | [D2](../seams-studies/limited-fills) |
-| `euler-tq` | `lagrange6` | `quintic` | on, `troubled` | [E2](../seams-studies/reflux-policy) |
+| `euler-q6` | `lagrange6` | `quintic` | off | [D1](#d1-the-quintic-fill) |
+| `euler-ww` | `weno6` | `weno6` | off | [D2](#d2-the-limited-fills) |
+| `euler-mp` | `lagrange6` | `quintic-mp` | off | [D2](#d2-the-limited-fills) |
+| `euler-tq` | `lagrange6` | `quintic` | on, `troubled` | [E2](./reflux-policy) |
 
 ## Input files
 
@@ -82,6 +102,10 @@ Legs of the euler ladder (each: refined and uniform runs, $N$ = 64 / 128 / 256):
 | `src/tests/flume/verification/mhd/amr_box.py` | `refine_box`: the refined quadrant, one 2:1 level at initialisation |
 | `src/tests/flume/verification/amr-order/amr_order_oracle.py` | the per-region errors against the exact vortex, the orders, the bounds |
 | `src/tests/flume/verification/make_doc_figures.py --only order-across-seams` | the figure, from the kept work directories of `amr-order/check.sh --keep` (CPU) |
+| `src/tests/flume/verification/amr-shock/make_amr_shock.py` | the D1 and D2 shock crossings of [AS](./shock-crossing) (`--seam-restriction`, `--seam-ghost-fill`) |
+| `src/tests/flume/verification/ghosts/check.sh --seam-restriction lagrange6 --seam-ghost-fill quintic --degree 5` | the [ghost probe](../infrastructure/ghost-probe) on a degree-5 field (D1); `--seam-ghost-fill F` on a cubic field (D2) |
+| `src/tests/flume/verification/make_doc_figures.py --only quintic-fill` | the D1 figure, from `ghosts/check.sh --degree 5 --keep` and the kept AO work directories (CPU) |
+| `src/tests/flume/verification/make_doc_runs.sh <runs> seams`, `make_doc_figures.py --only limited-fills` | the D2 figure: re-runs the crossings `d-{quintic,weno6,quintic-mp}-{c2f,f2c}` (CPU) |
 | `src/tests/flume/verification/amr-order/check.sh` | runs the legs (`--legs euler,mhd,euler-octree,euler-l6,euler-w6,euler-q6,euler-ww,euler-mp,euler-tq`, default all but `euler-octree`; `--np N`, `--keep`; `FLUME_EXE` selects the backend) |
 
 ```bash
@@ -109,7 +133,7 @@ Cost of `euler-l6`: about 10 min on the CPU, 2 on FNL.
 
 ![AO ladders and error maps](/flume/order-across-seams.png)
 
-*CPU, from the work directories `amr-order/check.sh --legs euler,euler-l6,euler-q6 --keep` leaves: $L_1(\rho)$ over all cells and $L_\infty(\rho)$ in the seam band against $N$ (the 128 → 256 orders in the legend), today's operators (mean + tricubic, reflux on) capped at 2.01 and 1.46, lagrange6 without reflux at the uniform control, lagrange6 + quintic below it; and the density error maps at $N = 128$ (the refined quadrant in white): today's error concentrates on the seams, lagrange6 + quintic leaves the vortex's own.*
+*CPU, from the work directories `amr-order/check.sh --legs euler,euler-l6,euler-q6 --keep` leaves: $L_1(\rho)$ over all cells and $L_\infty(\rho)$ in the seam band against $N$ (the 128 → 256 orders in the legend), the default operators (mean + tricubic, reflux on) capped at 2.01 and 1.46, lagrange6 without reflux at the uniform control, lagrange6 + quintic below it; and the density error maps at $N = 128$ (the refined quadrant in white): the default operators' error concentrates on the seams, lagrange6 + quintic leaves the vortex's own.*
 
 Baselines (A1). CPU and FNL identical to every printed digit, 2 ranks; orders of the finest pair, $N$ = 128 → 256:
 
@@ -123,17 +147,68 @@ same run to $3\cdot10^{-14}$:
 
 | N = 256 | L1 all | L∞ all | Orders 128 → 256, L1 / L∞ |
 |---|---|---|---|
-| euler (mean, reflux on, today) | $4.05\cdot10^{-6}$ | – | 2.01 / 1.46 |
+| euler (mean, reflux on, default) | $4.05\cdot10^{-6}$ | – | 2.01 / 1.46 |
 | euler-l6 (lagrange6, reflux off) | $8.55\cdot10^{-8}$ | $6.36\cdot10^{-6}$ | **5.33 / 5.53** |
 | uniform at the coarse spacing | $8.38\cdot10^{-8}$ | $5.34\cdot10^{-6}$ | 5.79 / 7.38 |
 
-The other legs of the ladder report on their study pages: `euler-w6` in [C3c](./shock-crossing#c3c-the-weno-restriction),
-`euler-q6` in [D1](../seams-studies/quintic-fill), `euler-ww` and `euler-mp` in [D2](../seams-studies/limited-fills),
-`euler-tq` in [E2](../seams-studies/reflux-policy).
+`euler-w6` reports in [C3c](./shock-crossing#c3c-the-weno-restriction) and `euler-tq` in [E2](./reflux-policy).
+
+### D1: the quintic fill
+
+![D1: the quintic fill in situ and on the AO vortex](/flume/quintic-fill.png)
+
+*CPU. Left and centre: the ghost probe on a degree-5 field, box3d (octree) and channel2d (quadtree), 2 ranks, the largest error per ghost group: mean + tricubic misses the field by up to $5\cdot10^{-5}$ in every group a seam operator fills (the expected failure: exact to degree 1 and 3), lagrange6 + quintic matches it to $10^{-14}$. Right: the AO ladder without reflux, lagrange6 with the tricubic and the quintic fill.*
+
+FNL, 2 ranks, `lagrange6` restriction in every run. The shock crossings are the [AS](./shock-crossing) `c2f` and
+`f2c` runs (Sod $N = 200$, RJ2a $N = 256$, reflux on, the null axes widened to 8 cells); plateau values in units of
+$10^{-2}$, band values absolute:
+
+| Check | lagrange6 + tricubic | lagrange6 + quintic |
+|---|---|---|
+| AO euler, reflux off, N = 256: L1 all / band, L∞ | $8.55\cdot10^{-8}$ / $2.61\cdot10^{-7}$, $6.36\cdot10^{-6}$ | $6.03\cdot10^{-8}$ / $1.74\cdot10^{-7}$, $4.78\cdot10^{-6}$ |
+| AO orders L1 / L∞ (128 → 256) | 5.33 / 5.53 | 6.11 / 6.35 |
+| Sod c2f plateau $\rho$ / $p$, band $\rho$ | $2.457$ / $0.691$, $0.633\cdot10^{-2}$ | $2.631$ / $0.858$, $0.795\cdot10^{-2}$ |
+| Sod f2c plateau $\rho$ / $p$, band $\rho$ | $1.575$ / $1.015$, $0.343\cdot10^{-2}$ | $1.573$ / $0.985$, $0.338\cdot10^{-2}$ |
+| RJ2a c2f plateau $\rho$ / $p$, band $\rho$ | $1.410$ / $0.622$, $1.03\cdot10^{-4}$ | $2.297$ / $0.986$, $0.68\cdot10^{-4}$ |
+| PV-5 split / HLLD: most faces limited, inadmissible stages | 46336 / 17920, 0 | 45644 / 17920, 0 |
+
+Backend agreement: np 1 / 2 / 3 bitwise on the CPU, np 1 / 2 on FNL, CPU against FNL $2.7\cdot10^{-13}$; the
+`euler-q6` ladder agrees on CPU and FNL to every printed digit. [Multirealm](../euler/multi-realm) leg 6 runs the fill
+across a refined inter-realm seam, bitwise.
+
+### D2: the limited fills
+
+![D2: the plateau with the 6-point fills](/flume/limited-fills.png)
+
+*Sod at $N = 200$, lagrange6, reflux on, CPU: the plateau behind the shock with the quintic, weno6 and quintic-mp fills (and the tricubic, c2f), coarse to fine and fine to coarse. The fills differ by at most about $10^{-3}$ in density, against a defect of $2.5\cdot10^{-2}$ of the jump: the defect is not the fill.*
+
+Every fill on the `c2f` crossings (FNL, 2 ranks, `lagrange6` restriction, reflux on; plateau and band defects as in
+[AS](./shock-crossing)):
+
+| Fill (order) | Sod plateau $\rho$ | Sod band $\rho$ | Sod shock (cells) | RJ2a plateau $\rho$ | RJ2a band $\rho$ |
+|---|---|---|---|---|---|
+| `injection` (1) | $2.98\cdot10^{-2}$ | $7.91\cdot10^{-3}$ | 0.173 | $2.49\cdot10^{-2}$ | $2.16\cdot10^{-4}$ |
+| `restriction-compatible` (2) | $2.32\cdot10^{-2}$ | $5.31\cdot10^{-3}$ | 0.164 | $1.98\cdot10^{-2}$ | $1.28\cdot10^{-4}$ |
+| `tricubic` (4) | $2.46\cdot10^{-2}$ | $6.33\cdot10^{-3}$ | 0.158 | $1.41\cdot10^{-2}$ | $1.03\cdot10^{-4}$ |
+| `quintic` (6) | $2.63\cdot10^{-2}$ | $7.95\cdot10^{-3}$ | 0.159 | $2.30\cdot10^{-2}$ | $0.68\cdot10^{-4}$ |
+| `weno6` (6, limited) | $3.01\cdot10^{-2}$ | $7.75\cdot10^{-3}$ | 0.178 | $1.48\cdot10^{-2}$ | $1.52\cdot10^{-4}$ |
+| `quintic-mp` (6, limited) | $3.14\cdot10^{-2}$ | $8.82\cdot10^{-3}$ | 0.173 | $2.47\cdot10^{-2}$ | $6.25\cdot10^{-4}$ |
+
+Smooth flow (AO, $N$ = 128 → 256):
+
+| Leg | L1 order | L∞ order | L1 at N = 256 | L∞ at N = 256 |
+|---|---|---|---|---|
+| `euler-ww` (`weno6` + `weno6`) | 5.32 | 5.50 | $8.60\cdot10^{-8}$ | $6.61\cdot10^{-6}$ |
+| `euler-mp` (`lagrange6` + `quintic-mp`) | 6.10 | 6.33 | $6.04\cdot10^{-8}$ | $4.77\cdot10^{-6}$ |
+| `euler-q6` (`lagrange6` + `quintic`) | 6.11 | 6.35 | $6.03\cdot10^{-8}$ | $4.78\cdot10^{-6}$ |
+
+PV-5 passes with no inadmissible stage under both limited fills; the ghost probe holds a cubic field to round-off with
+either fill; multirealm leg 6 runs both across a refined inter-realm seam, bitwise.
 
 Related cases: [AS](./shock-crossing) is the shock baseline of the same seam operators; [AL](./integral-drift) logs
-the drift of this vortex without the reflux; [B1](../seams-studies/caps-prototype) reproduces the caps in a 2-D
-prototype; the uniform-grid orders are [V2](../euler/isentropic-vortex) and
+the drift of this vortex without the reflux; [B1](./design-record#b1-the-caps-in-a-2-d-prototype) reproduces the caps
+in a 2-D prototype; [E0](./design-record#e0-the-shock-crossing-defect-is-a-capturing-error) explains the crossing defect
+D2 could not reduce; the uniform-grid orders are [V2](../euler/isentropic-vortex) and
 [MV-5 to MV-7](../mhd/order-of-accuracy).
 
 ## Findings
@@ -144,14 +219,29 @@ prototype; the uniform-grid orders are [V2](../euler/isentropic-vortex) and
 - **On this smooth flow the refinement makes the solution worse.** At $N = 256$ the refined composite error is 48
   times (Euler) and 70 times (MHD) the error of the uniform run at the coarse spacing, which reaches design order.
 - **Euler's L∞ order is 1.46,** below the 2 of the 1-D prototype in #68 (Appendix A). The vortex crosses the seam
-  corner, where the two seam directions meet; the 2-D prototype of Phase B was to check whether the corner explains
-  it ([B1](../seams-studies/caps-prototype) and [B2](../seams-studies/sensor-gated-reflux) found it does not).
+  corner, where the two seam directions meet; the 2-D prototypes of Phase B show that the corner does not explain it
+  ([B1, B2](./design-record#b1-the-caps-in-a-2-d-prototype)).
 - **C1: the restriction was the seam error.** With the 6-point restriction and without the reflux the refined
-  composite error equals the uniform coarse run's, 47 times below today's: at these resolutions the restriction was the
+  composite error equals the uniform coarse run's, 47 times below the default operators': at these resolutions the restriction was the
   seam error, and the tricubic prolongation's $O(h^4)$ term has not shown yet.
 - **C1: the reflux caps the order by itself.** With the reflux on, the restriction changes nothing (band L∞ order 1.43
-  against 1.46 at $N$ = 64 → 128), as [B1](../seams-studies/caps-prototype) predicts. Reaching the high order with the
-  reflux kept at the shocks is Phase E's job ([E2](../seams-studies/reflux-policy)).
+  against 1.46 at $N$ = 64 → 128), as [B1](./design-record#b1-the-caps-in-a-2-d-prototype) predicts. The high order
+  with the reflux kept at the shocks is [E2](./reflux-policy).
 - No restriction row fell back to the mean: every fine pair lies inside its donor block.
 - **C1 cost on FNL:** the restriction rows read 36 cells instead of 4 on this quadtree, in the same kernels as the
   copies.
+- **D1: the smooth order reaches the scheme's.** With the reflux off, the 6-point restriction and the quintic fill,
+  AO euler is sixth order (6.11 / 6.35) and its error at $N = 256$, $6.03\cdot10^{-8}$, is below the uniform coarse
+  run's ($8.38\cdot10^{-8}$): the 2:1 seams no longer cost accuracy on this flow.
+- **D1: unlimited, the quintic fill worsens a shock entering a finer region.** On the `c2f` crossings the plateau
+  defect grows (Sod +7 % in $\rho$, +24 % in $p$; RJ2a +63 % / +59 %): the shock's coarse values reach the fine ghosts
+  through a 6-point stencil with larger overshoots than the 4-point one. `f2c` is unchanged, the shock positions are
+  the same, mass is exact, and PV-5 passes with no inadmissible stage.
+- **D2: the crossing defect has no trend with the fill's order, and limiting makes it worse.** The best fill differs by
+  case and by metric (`restriction-compatible` on Sod, `tricubic` on the RJ2a plateau, `quintic` on its band); every
+  unlimited fill sits within about $\pm 30\,\%$ of `tricubic`, and the two limited fills are the worst on Sod, their
+  shock furthest off. The plateau defect is not an overshoot of the fill, so no fill can be held to "no worse than
+  `tricubic`"; [E0](./design-record#e0-the-shock-crossing-defect-is-a-capturing-error) shows it is a capturing error.
+- **D2: on smooth flows both limited fills keep their order.** `euler-ww` has the `weno6` restriction's accuracy;
+  `euler-mp` equals `euler-q6`: the MP bound never clips the vortex.
+- `quintic`, `weno6` and `quintic-mp` stay opt-in; the default fill is `tricubic`.

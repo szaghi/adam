@@ -15,13 +15,18 @@ prolonged or restricted, the blocks are redistributed, the maps rebuilt).
 
 The input keys are described in [setting up runtime AMR](../../input#setting-up-runtime-amr).
 
-| Case | ID | What it verifies |
-|---|---|---|
-| [Regrid round trip and input contract](./regrid-round-trip) | RG (rg0 to rg2, rg7) | the library regrid in isolation: bookkeeping over 1, 2, 3 ranks, the conservative prolongation exact on the integral and in range, the `frequency` and `regrid_prolongation` contracts; the Jeans-marker contract (rg7, [#91](https://github.com/szaghi/adam/issues/91)) |
-| [Runtime regrids in FLUME](./runtime-regrids) | RG (rg3 to rg6) | conservation through regrids, bitwise restart across regrids, the immersed solid, CPU against FNL |
-| [Accuracy of runtime AMR](./accuracy) | AV (av2 to av8) | tracked runs against uniform-fine runs on the vortex, Sod, the MHD blast, the field loop and the cylinder; rank and backend invariance |
-| [MHD blast symmetry on the flux-splitting path](./mhd-blast-symmetry) | #77, av3c | why the low-β blast loses its point symmetry on `weno` flux splitting, and the Riemann-flux path that keeps it |
-| [Runtime AMR on a forest](./multi-realm) | multirealm legs 7–13 | the realms of a forest regridding across their seams: the cross-realm balance, mixed levels along a seam, restart across regrids ([#110](https://github.com/szaghi/adam/issues/110)) |
+| Case | ID | Milestone | Type | What it verifies |
+|---|---|---|---|---|
+| [Regrid round trip and input contract](./regrid-round-trip) | RG (rg0 to rg2) | M5 · P0, P1 | C | the library regrid in isolation: bookkeeping over 1, 2, 3 ranks, the conservative prolongation exact on the integral and in range, the `frequency` and `regrid_prolongation` contracts |
+| [Runtime regrids in FLUME](./runtime-regrids) | RG (rg3 to rg6) | M5 · P2, P3 | C | conservation through regrids, bitwise restart across regrids, the immersed solid, CPU against FNL |
+| [Accuracy of runtime AMR](./accuracy) | AV (av2 to av8) | M5 · P4 | P | tracked runs against uniform-fine runs on the vortex, Sod, the MHD blast, the field loop and the cylinder; rank and backend invariance |
+| [MHD blast symmetry on the flux-splitting path](./mhd-blast-symmetry) | av3c | [#77](https://github.com/szaghi/adam/issues/77) | P | why the low-β blast loses its point symmetry on `weno` flux splitting, and the Riemann-flux path that keeps it |
+| [Multi-realm runtime AMR](./multi-realm) | multirealm legs 7–13 | [#110](https://github.com/szaghi/adam/issues/110) · P1–P5 | C | the realms of a forest regridding across their seams: the cross-realm balance, mixed levels along a seam, restart across regrids |
+
+Two later legs of `regrid/check.sh` belong to other issues: rg7, the Jeans-marker contract of M9, is on
+[the polytrope on AMR](../self-gravity/star-amr); rg8 ([#110](https://github.com/szaghi/adam/issues/110) P4.2) refuses
+at initialisation the markers FLUME does not implement. The multi-realm page comes from #110, after M13, and the
+[timeline](../) lists it there.
 
 Run every leg:
 

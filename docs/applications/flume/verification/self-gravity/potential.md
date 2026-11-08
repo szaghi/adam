@@ -1,8 +1,8 @@
 # Gravity from a cell potential
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| SV-1 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P1 | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| SV-1 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)) · P1 | P | CPU, FNL | yes | — |
 
 ## Case and scope
 

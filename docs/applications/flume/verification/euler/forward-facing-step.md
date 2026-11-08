@@ -1,8 +1,8 @@
 # Forward-facing step: a three-realm forest on quadtrees
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| EV-step | Euler | — ([#46](https://github.com/szaghi/adam/issues/46), quadtree AMR; [#66](https://github.com/szaghi/adam/issues/66)) | CPU, FNL (`trees` leg); CPU only (`full` leg) | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| EV-step | Euler | [#46](https://github.com/szaghi/adam/issues/46), [#66](https://github.com/szaghi/adam/issues/66) (follow-up) | P+C | CPU, FNL (`trees` leg); CPU only (`full` leg) | yes | — |
 
 ## Case and scope
 
@@ -36,11 +36,10 @@ initialisation: FLUME had no runtime AMR when this case was written (milestone M
 place them either, since the tunnel starts uniform. The boxes therefore follow the flow only once it has settled, and
 the case verifies the seam machinery, not adaptivity.
 
-The realms of a forest now regrid at runtime ([#110](https://github.com/szaghi/adam/issues/110)), but this forest's
-seams are `mirror` seams between blocks that do not line up, and a mirror seam keeps one level per seam side. A
-Löhner marker tried on the octree at $N = 80$ (2026-10-29) refined whole seam sides at its first regrid, and every
-later sweep balanced to no mark, so the grid stayed fixed. A `coupling = auto` seam varies its levels face by face but
-needs the blocks of a 2:1 face to nest, which realm A (0.2 high) cannot offer realm B on an octree at this size.
+The realms of a forest regrid at runtime ([#110](https://github.com/szaghi/adam/issues/110)), but this forest's seams
+are `mirror` seams between blocks that do not line up, and a mirror seam keeps one level per seam side. A
+`coupling = auto` seam varies its levels face by face but needs the blocks of a 2:1 face to nest, which realm A
+(0.2 high) cannot offer realm B on an octree at this size. The refinement therefore stays static.
 :::
 
 ## Models and numerics
@@ -153,26 +152,7 @@ quadtree on MHD), [Ghost probe](../infrastructure/ghost-probe) (the step forest'
   seam, on the base grid in both runs, and agree. C's 2:1 seam at $x = 0.9$ is crossed by the reflected shock and the
   slip line without a kink. Downstream of it, the box resolves the shock pattern near the step top ($x \approx 1.2$)
   more sharply than the uniform grid, which smears it into a single blob.
-
-::: details What this leg caught: blocks thinner than 2 ngc ([#66](https://github.com/szaghi/adam/issues/66))
-A first layout kept A's blocks at 4 cells along y and refined them. The quadtree then differed from the octree by
-$2.4\cdot10^{-5}$, with no difference in either tree's z invariance. Bisection put it on the quadtree alone, and only
-across ranks:
-
-| Comparison | Max difference |
-|---|---|
-| Quadtree, np 1, against the octree, np 1 or np 2 | $2\cdot10^{-14}$ |
-| Quadtree, np 1, against np 2 | $4.6\cdot10^{-6}$ after one step |
-
-The difference was independent of `seam_ghost_fill` and of `reflux`. At the bisected cell, the coarse ghost density
-next to the step wall differed by 0.20.
-
-The coarse ghost layers beside a finer block are restricted from $2\,n_{gc}$ fine cells. A 4-cell block holds fewer,
-so the outer layer was restricted from the fine block's own ghost cells, which the same exchange is still filling. They
-are fresh or a stage stale depending on the exchange order: the local order happened to refresh them first, the MPI
-path did not. The octree passed only because its rank layout kept the two fine blocks together.
-
-The library now refuses blocks thinner than $2\,n_{gc}$ along a refined, non-null axis, the constraint block-structured
-AMR codes such as PARAMESH impose. No committed case is affected: every one below 6 cells is so only along a null axis,
-where the field is invariant.
-:::
+- **Blocks thinner than $2\,n_{gc}$ along a refined axis are refused** ([#66](https://github.com/szaghi/adam/issues/66),
+  `check_amr_block_cells`). The coarse ghost layers beside a finer block are restricted from $2\,n_{gc}$ fine cells; a
+  thinner block would restrict its outer layer from its own ghost cells, which the same exchange is still filling, and
+  the result would depend on the exchange order (rank count). A's blocks keep 8 cells along $y$ for this reason.

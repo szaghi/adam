@@ -1,8 +1,8 @@
 # The FFT Poisson solver
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| SV-2 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P2 | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| SV-2 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)) · P2 | P | CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -66,7 +66,7 @@ python3 poisson_oracle.py compare <dir-cpu> <dir-fnl>                       # CP
 solution and the residual stay at round-off. Middle and right: the 2-D potential at $N = 64$ and its error against
 the continuum solution, $4.3\cdot10^{-4}$, largest where $\lvert\Phi\rvert$ is.*
 
-| Asserted | Bound | CPU (FFTW) | FNL (cuFFT, A30 and the WSL GPU) |
+| Asserted | Bound | CPU (FFTW) | FNL (cuFFT) |
 |---|---|---|---|
 | $\max\lvert\Phi - \Phi_h\rvert / \max\lvert\Phi_h\rvert$, every cell and ghost | $10^{-12}$ | $\le 2.8\cdot10^{-15}$ | $\le 2.8\cdot10^{-15}$ |
 | residual of $L_h$ from the scattered ghosts, relative | $10^{-10}$ | $\le 3.7\cdot10^{-14}$ | $\le 4.3\cdot10^{-14}$ |
@@ -81,8 +81,8 @@ checked against this one on uniform grids, is [SV-9](./multigrid-amr); the coupl
 
 ## Findings
 
-- The printed numbers do not depend on the rank count (np 1 and np 4 agree to every digit), and the A30 potential is
-  bitwise that of the WSL GPU.
+- The printed numbers do not depend on the rank count (np 1 and np 4 agree to every digit), and the potential is
+  bitwise the same on two different GPU models.
 - The solver is exact for $L_h$, and the scheme is second order through $L_h$.
 - The residual grows from $10^{-15}$ to $4\cdot10^{-14}$ between $N = 16$ and 64: $L_h$ amplifies the round-off of
   $\Phi$ by $(k\Delta x)^{-2}$. That is the floor the conservation of P3 inherits.

@@ -1,8 +1,8 @@
 # Field loop advection
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-9 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)); `--agree` [#79](https://github.com/szaghi/adam/issues/79) | CPU, FNL | yes | `field-loop` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-9 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P6c; [#79](https://github.com/szaghi/adam/issues/79) (follow-up) · `--agree` | P | CPU, FNL | yes | `field-loop` |
 
 ## Case and scope
 
@@ -90,7 +90,7 @@ $32/64$ runs that the `--amr` ladder is compared with give $1.99\cdot10^{-3}$, $
 Related cases: [glm cleaning](./glm-cleaning) measures the GLM transport and damping on an exact solution;
 [runtime regrids](../runtime-amr/runtime-regrids) and [accuracy of runtime AMR](../runtime-amr/accuracy) track this
 loop with a moving refinement (regression `field-loop-regrid`); the M6 seam studies
-[G3a](../seams-studies/reflux-not-ghosts) and [G3b](../seams-studies/eglm-reflux) run it across a 2:1 seam under GLM
+[G3a and G3b](../seams/eglm-reflux) run it across a 2:1 seam under GLM
 and EGLM.
 
 ## Findings

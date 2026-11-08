@@ -159,7 +159,7 @@ face are extrapolated.
 let linear waves out: they make the incoming characteristic jumps zero, or the free stream's. What they cannot do is hold a
 mean pressure at a subsonic outflow, and `extrapolation` keeps whatever pressure the box has. `non-reflecting` pulls it to
 $p_t$ on the time scale $1/K$. The price is a reflection of order $\sigma c/(\omega L)$ of a wave of frequency $\omega$
-passing through. Measured in the [verification](./verification/infrastructure/non-reflecting):
+passing through. Measured in the [verification](./verification/streams/non-reflecting):
 
 | | `non-reflecting` | the alternative |
 |---|---|---|
@@ -185,7 +185,7 @@ to the shock, is unchanged. The run prints the shock angle, the deflection and $
 - **The rest of the face is `extrapolation`**: upstream of `shock_x` the free stream leaves or enters at its own state, as at an
   extrapolated top. A reflected shock that reaches the face beyond `shock_x_end` leaves through it.
 
-Measured in the [verification](./verification/infrastructure/non-reflecting#shock-generator): at Mach 2 and $10^\circ$ the shock angle
+Measured in the [verification](./verification/streams/shock-generator): at Mach 2 and $10^\circ$ the shock angle
 within $0.01^\circ$ of $39.314^\circ$, the state behind it within $1.5\cdot10^{-3}$ of Rankine–Hugoniot; reflected off a `wall-inviscid`
 face, the reflected shock within $0.06^\circ$ of the exact regular reflection and the state behind it within $2\cdot10^{-3}$.
 

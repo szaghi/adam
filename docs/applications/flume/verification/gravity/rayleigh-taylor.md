@@ -1,15 +1,15 @@
 # Rayleigh–Taylor
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| GV-4 (G3) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)); symmetry study [#83](https://github.com/szaghi/adam/issues/83) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| GV-4 (G3) | External gravity | M7 ([#73](https://github.com/szaghi/adam/issues/73)) · G3; [#83](https://github.com/szaghi/adam/issues/83) (follow-up) | P | CPU, FNL | yes | — |
 
 ## Case and scope
 
 Rayleigh–Taylor is the gravity test of the literature, and there it is compared by eye (Liska & Wendroff 2003; Stone
 et al. 2008, §8.3; Almgren et al. 2010, §8.3): its nonlinear stage has no converged solution. Its linear stage has
 one, the growth rate of the seeded mode, and GV-4 asserts it against the linearised compressible Euler equations of
-the exact equilibrium profile (owner decision: B, with the nonlinear stage as figures, C). The incompressible
+the exact equilibrium profile; the nonlinear stage is shown as figures only. The incompressible
 sharp-interface formula $\sigma^2 = Agk$ is not a reference for that: the finite interface width and compressibility
 move $\sigma$ by several per cent.
 

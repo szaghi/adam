@@ -1,8 +1,8 @@
 # GLM divergence cleaning
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-3, MV-10 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)); the MV-10 monitor M6 ([#68](https://github.com/szaghi/adam/issues/68), G1) | CPU, FNL | yes | `glm-pulse` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-3, MV-10 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P4; M6 ([#68](https://github.com/szaghi/adam/issues/68)) · G1 (MV-10) | P | CPU, FNL | yes | `glm-pulse` |
 
 ## Case and scope
 

@@ -1,8 +1,8 @@
 # Conservation across 2:1 seams and forest seams
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| VV-7 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | yes | `seam-viscous-amr` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| VV-7 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | C | CPU, FNL | yes | `seam-viscous-amr` |
 
 ## Case and scope
 

@@ -1,8 +1,8 @@
 # Compressible Couette flow
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| VV-3 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | yes | `couette` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| VV-3 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | P | CPU, FNL | yes | `couette` |
 
 ## Case and scope
 

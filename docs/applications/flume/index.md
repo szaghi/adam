@@ -45,7 +45,7 @@ on CPUs (MPI + OpenMP) and on GPUs (MPI + OpenACC, or OpenMP offload). It supers
 | M12 [#94](https://github.com/szaghi/adam/issues/94) | sink particles |
 | M13 [#100](https://github.com/szaghi/adam/issues/100) | isothermal and barotropic equations of state, Euler and MHD |
 | Turbulence [#119](https://github.com/szaghi/adam/issues/119) (open) | subgrid-scale models, `hybrid-kep-weno`, wall models, digital-filter inflow, `[forcing]` ([turbulence](./turbulence), [verification](./verification/turbulence/)) |
-| STREAmS roadmap [#121](https://github.com/szaghi/adam/issues/121) (open) | Sutherland viscosity ([input](./input#physics)), non-reflecting boundary and shock generator ([boundary conditions](./boundary-conditions)) |
+| STREAmS roadmap [#121](https://github.com/szaghi/adam/issues/121) (open) | Sutherland viscosity ([input](./input#physics)), non-reflecting boundary and shock generator ([boundary conditions](./boundary-conditions), [verification](./verification/streams/)) |
 
 Every milestone runs on both backends.
 

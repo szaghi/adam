@@ -1,8 +1,8 @@
 # Isothermal equation of state
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| EO (eo1 to eo7) | Euler | M13 ([#100](https://github.com/szaghi/adam/issues/100)), P1, P2 | CPU, FNL | yes | `iso-tube`, `iso-collide-hllc` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| EO (eo1 to eo7) | Euler | M13 ([#100](https://github.com/szaghi/adam/issues/100)) · P1, P2 | P | CPU, FNL | yes | `iso-tube`, `iso-collide-hllc` |
 
 ## Case and scope
 
@@ -25,7 +25,7 @@ What the case catches:
 
 | Item | Choice | Code |
 |---|---|---|
-| Model | `euler` with `[eos] type = isothermal`, `sound_speed` $c_0 = 1$: `MODEL_EULER_ISO`, the energy slot inert (D-M13-1) | [`adam_flume_euler_iso_library_body.INC`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_euler_iso_library_body.INC), [`adam_flume_physics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_physics_object.F90) |
+| Model | `euler` with `[eos] type = isothermal`, `sound_speed` $c_0 = 1$: `MODEL_EULER_ISO`, the energy slot inert | [`adam_flume_euler_iso_library_body.INC`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_euler_iso_library_body.INC), [`adam_flume_physics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_physics_object.F90) |
 | Space | WENO5 characteristic flux splitting (eo1 to eo5); `weno-riemann` with the characteristic interpolation, the 6th-order flux correction and `llf`, `hll`, `hllc` (eo6) | `adam_flume_cpu_euler_iso_kernels.F90`, `adam_flume_cpu_euler_iso_{llf,hll,hllc}_kernels.F90`; FNL `adam_flume_fnl_euler_iso_kernels.F90`, `adam_flume_fnl_euler_iso_{llf,hll,hllc}_kernels.F90` |
 | Time | SSP-RK(3,3), CFL 0.5; SSP-RK(5,4) at CFL 0.1 for the order (eo3), so the time error stays below the WENO5 space error | — |
 

@@ -1,8 +1,8 @@
 # Orszag–Tang vortex
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-12 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes | `orszag-tang` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-12 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P6a | P | CPU, FNL | yes | `orszag-tang` |
 
 ## Case and scope
 

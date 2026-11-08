@@ -1,8 +1,8 @@
 # EGLM cleaning
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| EV-2, EV-3, EV-4 | Ideal MHD | M3 ([#47](https://github.com/szaghi/adam/issues/47), M3-P4) | CPU, FNL | yes | `orszag-tang-eglm` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| EV-2, EV-3, EV-4 | Ideal MHD | M3 ([#47](https://github.com/szaghi/adam/issues/47)) · P4 | P | CPU, FNL | yes | `orszag-tang-eglm` |
 
 ## Case and scope
 
@@ -93,7 +93,7 @@ scheme and for `hlld:characteristic`.
 
 Related cases: [GLM cleaning](./glm-cleaning) is the GLM version of EV-2; [Orszag–Tang](./orszag-tang) the GLM version
 of EV-4; [positivity limiter](./positivity-limiter) makes the splitting scheme run the blast;
-[G3b](../seams-studies/eglm-reflux) handles the EGLM reflux at 2:1 seams.
+[G3b](../seams/eglm-reflux) handles the EGLM reflux at 2:1 seams.
 
 ## Findings
 

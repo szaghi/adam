@@ -1,8 +1,8 @@
 # MHD conservation across AMR seams
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-11 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41), P7a) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-11 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P7a | C | CPU, FNL | yes | — |
 
 ## Case and scope
 

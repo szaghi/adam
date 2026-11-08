@@ -1,8 +1,8 @@
 # CPU and FNL agree run by run
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| VV `agree` | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | no | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| VV `agree` | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | C | CPU, FNL | no | — |
 
 ## Case and scope
 

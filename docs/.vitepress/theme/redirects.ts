@@ -3,6 +3,21 @@
 // Keep entries forever: external links and bookmarks still point at the old locations.
 
 export const pageRedirects: Record<string, string> = {
+  // FLUME verification: seam studies folded, sinks folder
+  '/applications/flume/verification/seams-studies': '/applications/flume/verification/seams',
+  '/applications/flume/verification/seams-studies/quintic-fill': '/applications/flume/verification/seams/order-across-seams#d1-the-quintic-fill',
+  '/applications/flume/verification/seams-studies/limited-fills': '/applications/flume/verification/seams/order-across-seams#d2-the-limited-fills',
+  '/applications/flume/verification/seams-studies/reflux-policy': '/applications/flume/verification/seams/reflux-policy',
+  '/applications/flume/verification/seams-studies/reflux-not-ghosts': '/applications/flume/verification/seams/eglm-reflux',
+  '/applications/flume/verification/seams-studies/eglm-reflux': '/applications/flume/verification/seams/eglm-reflux',
+  '/applications/flume/verification/seams-studies/caps-prototype': '/applications/flume/verification/seams/design-record#b1-the-caps-in-a-2-d-prototype',
+  '/applications/flume/verification/seams-studies/sensor-gated-reflux': '/applications/flume/verification/seams/design-record#b2-a-sensor-gated-reflux-prototype',
+  '/applications/flume/verification/seams-studies/high-order-restriction': '/applications/flume/verification/seams/design-record#b3-footprint-of-the-6-point-restriction',
+  '/applications/flume/verification/seams-studies/capturing-error': '/applications/flume/verification/seams/design-record#e0-the-shock-crossing-defect-is-a-capturing-error',
+  '/applications/flume/verification/seams-studies/glm-damping': '/applications/flume/verification/seams/design-record#g2-the-glm-damping-length-on-a-seam',
+  '/applications/flume/verification/self-gravity/sink-particles': '/applications/flume/verification/sinks/sink-particles',
+  // FLUME verification: STREAmS group
+  '/applications/flume/verification/infrastructure/non-reflecting': '/applications/flume/verification/streams/non-reflecting',
   // developer section
   '/concepts/library': '/developer/library',
   '/concepts/library-fnl': '/developer/fnl',
@@ -20,6 +35,31 @@ export const pageRedirects: Record<string, string> = {
 
 // 'old/page#old-anchor' -> 'new/page#new-anchor', for sections moved to another page or renamed.
 export const anchorRedirects: Record<string, string> = {
+  // FLUME verification: turbulence split, STREAmS group
+  '/applications/flume/verification/seams/shock-crossing#c3b-the-cost-was-the-ghost-kernel': '/applications/flume/verification/seams/shock-crossing#findings',
+  '/applications/flume/verification/runtime-amr/regrid-round-trip#the-conservative-state-prolongation': '/applications/flume/verification/self-gravity/star-amr#the-conservative-state-prolongation',
+  '/applications/flume/verification/turbulence#contract-legs': '/applications/flume/verification/turbulence',
+  '/applications/flume/verification/turbulence#taylor-green-vortex-the-iles-baseline': '/applications/flume/verification/turbulence/iles-baseline#taylor-green-vortex-t0-3-t0-4',
+  '/applications/flume/verification/turbulence#subgrid-scale-models-t1-and-the-go-no-go': '/applications/flume/verification/turbulence/sgs-models',
+  '/applications/flume/verification/turbulence#the-effect-of-a-2-1-box-t0-6': '/applications/flume/verification/turbulence/iles-baseline#a-static-2-1-box-t0-6',
+  '/applications/flume/verification/turbulence#decaying-compressible-isotropic-turbulence-t0-5': '/applications/flume/verification/turbulence/iles-baseline#decaying-compressible-isotropic-turbulence-t0-5',
+  '/applications/flume/verification/turbulence#the-hybrid-central-weno-scheme-t2': '/applications/flume/verification/turbulence/hybrid-scheme',
+  '/applications/flume/verification/turbulence#on-a-2-1-box-and-what-the-skin-costs': '/applications/flume/verification/turbulence/hybrid-scheme#on-a-2-1-box-and-what-the-skin-costs',
+  '/applications/flume/verification/turbulence#against-the-dns': '/applications/flume/verification/turbulence/hybrid-scheme#against-the-dns',
+  '/applications/flume/verification/turbulence#the-flow': '/applications/flume/verification/turbulence/hybrid-scheme#the-flow',
+  '/applications/flume/verification/turbulence#cost': '/applications/flume/verification/turbulence/hybrid-scheme#cost',
+  '/applications/flume/verification/turbulence#plane-channel-and-the-wall-model-t3': '/applications/flume/verification/turbulence/channel',
+  '/applications/flume/verification/turbulence#mach-3': '/applications/flume/verification/turbulence/channel#mach-3',
+  '/applications/flume/verification/turbulence#without-a-flux-path-below-h-to-t-200': '/applications/flume/verification/turbulence/channel#without-a-flux-path-below-h-to-t-200',
+  '/applications/flume/verification/turbulence#with-the-eddy-viscosity-below-h-to-t-800': '/applications/flume/verification/turbulence/channel#with-the-eddy-viscosity-below-h-to-t-800',
+  '/applications/flume/verification/turbulence#the-flow-1': '/applications/flume/verification/turbulence/channel#the-flow',
+  '/applications/flume/verification/turbulence#compressible-boundary-layer-t3-7': '/applications/flume/verification/turbulence/boundary-layer',
+  '/applications/flume/verification/turbulence#the-flow-2': '/applications/flume/verification/turbulence/boundary-layer#the-flow',
+  '/applications/flume/verification/turbulence#resolution-mach-2-5-at-delta-i-16': '/applications/flume/verification/turbulence/boundary-layer#resolution-mach-2-5-at-delta-i-16',
+  '/applications/flume/verification/turbulence#the-shape-factor-and-the-free-stream': '/applications/flume/verification/turbulence/boundary-layer#the-shape-factor-and-the-free-stream',
+  '/applications/flume/verification/turbulence#mach-5-86-cold-wall': '/applications/flume/verification/turbulence/boundary-layer#mach-5-86-cold-wall',
+  '/applications/flume/verification/turbulence#shock-boundary-layer-interaction-121-s4b': '/applications/flume/verification/streams/sbli',
+  '/applications/flume/verification/streams/non-reflecting#shock-generator': '/applications/flume/verification/streams/shock-generator',
   // developer section (old anchors arrive on the new page with the page redirect)
   '/developer/library#adam-tree-object-—-octree-quadtree-hierarchy': '/developer/library#adam-tree-object',
   '/developer/library#adam-tree-node-object-—-individual-tree-node': '/developer/library#adam-tree-node-object',

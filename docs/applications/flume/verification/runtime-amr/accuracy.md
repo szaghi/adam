@@ -1,8 +1,8 @@
 # Accuracy of runtime AMR
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| AV (av2 to av8) | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) | CPU, FNL | yes | `field-loop-regrid` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| AV (av2 to av8) | Runtime AMR (M5) | M5 ([#74](https://github.com/szaghi/adam/issues/74)) · P4 | P | CPU, FNL | yes | `field-loop-regrid` |
 
 ## Case and scope
 
@@ -30,7 +30,7 @@ number (see [Findings](#findings)).
 | Gradient marker | centred differences, across the faces between blocks too (#76); spacing `delta_fine` where $\max\lvert\nabla v\rvert >$ `tol`, else `delta_coarse`; acts at initialisation and at the regrids | `mark_by_gradient`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
 | Löhner marker | the FLASH/PLUTO dimension-sum estimator with an absolute `floor` (#74 P4); acts at the regrids | `mark_by_lohner`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
 | Solid marker (av7) | blocks crossed by the cylinder surface | `mark_by_solid`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90) |
-| Regrid | every 5 steps, `conservative` prolongation, mean restriction, reflux on; no subcycling (D-M5-3) | `regrid_forest`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90), [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90); [numerics](../../numerics#adaptive-mesh-refinement) |
+| Regrid | every 5 steps, `conservative` prolongation, mean restriction, reflux on; no subcycling | `regrid_forest`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90), [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90); [numerics](../../numerics#adaptive-mesh-refinement) |
 
 At a runtime regrid the markers vote per block (`mark_runtime`): a block is refined when any marker asks for it,
 derefined only when every marker agrees, and a block at the base level is never derefined.
@@ -105,14 +105,14 @@ Related cases: the regrid machinery is [RG](./runtime-regrids); the point-symmet
 [the MHD blast on the flux-splitting path](./mhd-blast-symmetry); the uniform cases are the
 [isentropic vortex](../euler/isentropic-vortex), [Sod](../euler/sod), the [shock over a cylinder](../euler/shock-cylinder),
 the [field loop](../mhd/field-loop) and the [positivity limiter](../mhd/positivity-limiter) blast; the EGLM seam
-level of #78 is followed up in [EGLM reflux](../seams-studies/eglm-reflux).
+level of #78 is followed up in [EGLM reflux](../seams/eglm-reflux).
 
 ## Findings
 
 - **Accuracy:** within the stated factor of the uniform-fine run in every case, and equal to it where the refined
   region covers the whole feature (av3a, av7).
 - **Cost:** the savings are modest on these cases, and the reason is visible. The tracked vortex and loop hold half
-  the blocks of the uniform runs, but the time step is set by the finest cells either way (no subcycling, D-M5-3) and
+  the blocks of the uniform runs, but the time step is set by the finest cells either way (no subcycling) and
   the regrids, the 2:1 seams and the reflux cost their share, so the wall time drops by 3 to 19 % (av7 the most); the
   blast and the cylinder end fully refined, their waves filling the box by the final time.
 

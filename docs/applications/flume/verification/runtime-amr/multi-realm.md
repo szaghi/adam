@@ -1,8 +1,8 @@
-# Runtime AMR on a forest
+# Multi-realm runtime AMR (#110)
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| multirealm legs 7–13 | Euler | [#110](https://github.com/szaghi/adam/issues/110) P1–P5 | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| multirealm legs 7–13 | Runtime AMR | [#110](https://github.com/szaghi/adam/issues/110) (follow-up) · P1–P5 | C | CPU, FNL | yes | — |
 
 ## Case and scope
 

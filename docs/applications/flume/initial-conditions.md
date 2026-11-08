@@ -761,7 +761,7 @@ of `[initial_conditions_region_1]` ($\rho_0$, $\mathbf u_0$, $p_0$), with $s = A
 | `jeans` (self-gravity) | $\rho = \rho_0(1 + s)$, $p = p_0(1 + \gamma s)$ and, with $\omega^2 = a_0^2k^2 - 4\pi G\rho_0$, $k = 2\pi/\lambda$: for $\omega^2 \ge 0$ the right-running Jeans wave, $\mathbf u = \mathbf u_0 + (\omega/k)\,s\,\mathbf n$; for $\omega^2 < 0$ the growing mode, $\mathbf u = \mathbf u_0 + (\sigma/k)A\cos(2\pi\,\mathbf n\cdot\mathbf x/\lambda)\,\mathbf n$, $\sigma^2 = -\omega^2$ ([#81](https://github.com/szaghi/adam/issues/81), [verification](./verification/self-gravity/)) | relative |
 
 Keys: `wave_mode` (`shear`, `acoustic`, `entropy`, `magnetic` or `jeans`, other → fatal; `magnetic` needs `mhd-ideal`, `jeans` needs `[gravity] self_gravity`), `wave_angle` $\theta$ (degrees), `wave_amplitude` $A$,
-`wavelength` $\lambda$ (`> 0`); optional `wave_envelope_width` $w$ (`>= 0`, 0 none; refused with `jeans`) and `wave_envelope_center` $x_c$ multiply $s$ by $e^{-((\mathbf n\cdot\mathbf x - x_c)/w)^2}$, a wave packet ([#121](https://github.com/szaghi/adam/issues/121): the non-reflecting [verification](./verification/infrastructure/non-reflecting)). The values are point values at the cell centres. It is the initial state of the
+`wavelength` $\lambda$ (`> 0`); optional `wave_envelope_width` $w$ (`>= 0`, 0 none; refused with `jeans`) and `wave_envelope_center` $x_c$ multiply $s$ by $e^{-((\mathbf n\cdot\mathbf x - x_c)/w)^2}$, a wave packet ([#121](https://github.com/szaghi/adam/issues/121): the non-reflecting [verification](./verification/streams/non-reflecting)). The values are point values at the cell centres. It is the initial state of the
 viscous verifications VV-1 (shear-wave decay) and VV-2 (viscous-thermal acoustic attenuation)
 ([verification](./verification/dissipative/viscous-waves)) and of the Ohmic ones VV-5 and VV-6
 ([verification](./verification/dissipative/ohmic-alfven)); the wave is periodic in a box whose sides are multiples
@@ -925,7 +925,7 @@ Shu (1977), whose inside-out collapse accretes at $0.975\,a^3/G$; $A > 2$ collap
 of $\mathbf x/r^2$ through its faces): sampled at the centres, $1/r^2$ would miss the mass of the unresolved core and
 the hydrostatic sphere would expand. Keys: `sis_overdensity` $A$ (default 2, $> 0$), `sis_x0`, `sis_y0`, `sis_z0`
 (the centre, default 0). A cell centre on the centre is fatal: place it on a cell corner. The gas stays isothermal
-with $\gamma$ close to 1 (`gamma = 1.001`, [SI si11](./verification/self-gravity/sink-particles)), or is isothermal
+with $\gamma$ close to 1 (`gamma = 1.001`, [SI si11](./verification/sinks/sink-particles)), or is isothermal
 exactly with [`[eos] type = isothermal`](./input#eos-optional-equation-of-state)
 ([#100](https://github.com/szaghi/adam/issues/100)): then $a^2 = c_0^2$ and the regions need no `p`
 ([EO gravity](./verification/euler/barotropic-gravity)).

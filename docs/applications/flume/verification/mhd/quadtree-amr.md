@@ -1,8 +1,8 @@
 # Quadtree AMR
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-15 | Ideal MHD | [#46](https://github.com/szaghi/adam/issues/46) (no milestone, after M3) | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-15 | Ideal MHD | [#46](https://github.com/szaghi/adam/issues/46) (follow-up) | C | CPU, FNL | yes | — |
 
 ## Case and scope
 

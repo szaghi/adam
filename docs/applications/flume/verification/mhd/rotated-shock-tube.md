@@ -1,8 +1,8 @@
 # Rotated shock tube
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-8 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes | `rotated-shock-tube` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-8 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P6d | P | CPU, FNL | yes | `rotated-shock-tube` |
 
 ## Case and scope
 

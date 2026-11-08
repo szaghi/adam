@@ -1,8 +1,8 @@
 # MHD plumbing
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| — (`mhd/plumbing`, M2-P1) | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41), P1) | CPU, FNL | no | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| — (`mhd/plumbing`) | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P1 | C | CPU, FNL | no | — |
 
 ## Case and scope
 

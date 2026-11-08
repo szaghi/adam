@@ -1,8 +1,8 @@
 # Self-gravity under runtime AMR
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| SV-11 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)), P5c | CPU, FNL | yes | — |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| SV-11 | Self-gravity | M8 ([#81](https://github.com/szaghi/adam/issues/81)) · P5c | C | CPU, FNL | yes | — |
 
 ## Case and scope
 
@@ -23,7 +23,7 @@ What the case catches:
 - a momentum or mass leak through the regrid.
 
 Isolated boundaries under runtime AMR, refused here until [#87](https://github.com/szaghi/adam/issues/87), are
-verified with the polytrope ([SV-14](./polytrope)), with the refusal of a regrid that refines a boundary block.
+verified with the polytrope ([SV-14](./star-amr)), with the refusal of a regrid that refines a boundary block.
 
 ## Models and numerics
 
@@ -68,7 +68,7 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl_fft ./jeans.sh --legs sv11     
 *Left: $E + W$ drifts at the time integration's level until the regrid at $t = 0.35$ refines the ridge (16 → 52
 blocks), then jumps once and stays flat. Right: the final density, the refined blocks along the ridge.*
 
-| Asserted | Bound | CPU | FNL (WSL GPU) |
+| Asserted | Bound | CPU | FNL |
 |---|---|---|---|
 | the grid changes (blocks of the first and the last checkpoint) | must differ | 16 → 52 | 16 → 52 |
 | every jump of $E + W$ on a regrid step | yes | one jump, at step 60: $-2.3\cdot10^{-4}$ | the same, $-2.3\cdot10^{-4}$ |

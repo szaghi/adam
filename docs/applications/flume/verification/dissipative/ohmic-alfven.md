@@ -1,8 +1,8 @@
 # Ohmic decay and the visco-resistive Alfvén wave
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| VV-5 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | CPU, FNL | yes | `alfven-resistive` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| VV-5 | Dissipative terms (M4) | M4 ([#65](https://github.com/szaghi/adam/issues/65)) | P | CPU, FNL | yes | `alfven-resistive` |
 
 ## Case and scope
 

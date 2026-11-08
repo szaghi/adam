@@ -1,8 +1,8 @@
 # MHD rotor
 
-| ID | Group | Milestone | Backends | Figure | Regression |
-|---|---|---|---|---|---|
-| MV-13 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) | CPU, FNL | yes | `rotor` |
+| ID | Group | Milestone | Type | Backends | Figure | Regression |
+|---|---|---|---|---|---|---|
+| MV-13 | Ideal MHD | M2 ([#41](https://github.com/szaghi/adam/issues/41)) · P6b | P | CPU, FNL | yes | `rotor` |
 
 ## Case and scope
 

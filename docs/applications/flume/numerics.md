@@ -356,7 +356,7 @@ exchange momentum equal and opposite to truncation ($4\cdot10^{-5}$ relative on 
 gas's face gradients and the sink's CIC gather differ by about 1 %, so the gravity exchange during accretion is not
 exact. A sink at rest on a composite grid that is not symmetric about it feels its own potential through the 2:1 seams:
 a constant truncation force, $3\cdot10^{-2}$ finest cells over $t = 0.5$ on a refined box, against $1.4\cdot10^{-4}$ on
-a uniform one ([verification](./verification/self-gravity/sink-particles)).
+a uniform one ([verification](./verification/sinks/sink-particles)).
 
 **Time stepping.** The gas step runs with the sinks at their positions $x^n$ in the Poisson source. Then, once per step
 on the committed state, kick-drift-kick: $v \mathrel{+}= \tfrac{\Delta t}2 a$, $x \mathrel{+}= \Delta t\,v$, the
@@ -502,7 +502,7 @@ With reflux the volume integrals of a periodic box stay constant to round-off; w
 ([conservation example](./verification/euler/amr-conservation)).
 
 - Under GLM $\mathbf{B}$ and $\psi$ are refluxed; under EGLM $\mathbf{B}$ is not, since the sources
-  $-\mathbf u\,\nabla\cdot\mathbf B$ make it a non-conserved integral ([verification](./verification/seams-studies/eglm-reflux)).
+  $-\mathbf u\,\nabla\cdot\mathbf B$ make it a non-conserved integral ([verification](./verification/seams/eglm-reflux)).
 - `reflux_cadence = stage` corrects the coarse seam cells' residual at every stage from that stage's fluxes, so every
   stage advances them with the restricted fine fluxes. Both cadences conserve to round-off; `stage` keeps the order of
   the time integration where `step` leaves an $O(\Delta t)$ inconsistency, e.g. in the $E + W$ of self-gravity on AMR
@@ -518,7 +518,7 @@ With reflux the volume integrals of a periodic box stay constant to round-off; w
 **Keep shocks off the 2:1 seams.** A captured shock that crosses a 2:1 seam into finer cells leaves a defect behind it
 (about 2 % of the jump in density, with an entropy defect of the same size) that does not shrink with the resolution.
 No choice of seam operator removes it: restriction, coarse-to-fine fill and reflux move it by at most ±30 %
-([verification](./verification/seams-studies/capturing-error)). The evidence points to the start-up error of a captured shock
+([verification](./verification/seams/design-record#e0-the-shock-crossing-defect-is-a-capturing-error)). The evidence points to the start-up error of a captured shock
 whose numerical structure is squeezed into finer cells. Refine ahead of the shocks instead: a gradient or Löhner marker
 on density or pressure with a `buffer` of a few cells and a regrid `frequency` short enough that a shock cannot outrun
 the refined region between two regrids (the standard AMR practice; the remedy itself is not measured).
@@ -552,7 +552,7 @@ $\lambda_J = \sqrt{\pi c_s^2/(G\rho)}$, $c_s^2 = \gamma p/\rho$ (magnetic suppor
 $h$. A block is refined where some cell has $\lambda_J/h$ below `jeans_cells` (default 8; Truelove et al. 1997 ask for at
 least 4), coarsened where every cell is above `jeans_cells_derefine` (default twice that, the hysteresis band of
 Federrath et al. 2010), kept between. It reads no ghost cell, so it also shapes the initial grid
-([SV-16](./verification/self-gravity/polytrope)). It needs self-gravity.
+([SV-16](./verification/self-gravity/star-amr)). It needs self-gravity.
 
 **Regridding transfers.** A derefined parent takes the mean of its children. A refined block's children are filled by
 `[amr] regrid_prolongation`:
@@ -568,7 +568,7 @@ Federrath et al. 2010), kept between. It reads no ghost cell, so it also shapes 
   from the tensor interpolation of whole coarse states, with one offset factor $\theta \le 1$ for the whole state, the
   largest that keeps every variable of every child within the range of the parent and its $3^d$ neighbours. It keeps
   the runtime-AMR collapse of an under-resolved star admissible where the default drains a cell to a negative pressure
-  ([SV-15](./verification/self-gravity/polytrope)). It costs accuracy on smooth flow, since an extremum of any one
+  ([SV-15](./verification/self-gravity/star-amr)). It costs accuracy on smooth flow, since an extremum of any one
   variable flattens the children of every variable: the tracked vortex of AV misses its bound with it (L1 1.68 times
   the uniform fine run's, the bound 1.5).
 
