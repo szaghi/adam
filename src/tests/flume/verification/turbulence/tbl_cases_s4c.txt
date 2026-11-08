@@ -1,0 +1,6 @@
+# Issue #121 S4c: the S4b interaction (tbl_cases_s4.txt) with one more level, 2:1, under it: the blocks of x in [25, 75] (their centres in the box
+# x in [30, 75]), y < 3, every z, at delta_i / 24, the rest at delta_i / 12; 120 blocks, about 23 M cells. The wall model and its matching point (the
+# 3rd cell) are unchanged, so in the box the matching height halves with the cells (0.104 against 0.208 delta_i). Separates the two causes of
+# S4b's missing separation: a bubble here points at the near-wall grid, none at the equilibrium model. To t = 550: the statistics over t > 300
+# (S4b's converged by then), checkpoints every 2000 steps (about 14 time units; 0.9 GB each).
+sbli-m2p28-8-r2 1200 144 72 --lx 100 --ly 12 --lz 6 --levels 2 --mach 2.28 --reynolds 35500 --sutherland 0.776 --wall-heat 1.918 --profile src/tests/flume/verification/turbulence/reference/tbl_m2p28_profile.txt --wm-eddy-viscosity --wall-history 20 --top-shock 8 --shock-x 41.2975 --refine-box 30,75,2.5 --time-max 550 --it-save 2000

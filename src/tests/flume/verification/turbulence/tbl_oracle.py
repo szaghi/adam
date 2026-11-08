@@ -143,32 +143,36 @@ def checkpoints(work: Path) -> list[tuple[float, str]]:
 
 
 def averages(work: Path, tags: list[str]) -> dict[str, np.ndarray]:
-    """Span and time averages on the (x, y) cell grid: r, ru, u, v, w, T and the second moments uu, vv, ww, uv (Reynolds)."""
+    """Span and time averages on the (x, y) cell grid: r, ru, u, v, w, T and the second moments uu, vv, ww, uv (Reynolds). On a grid with
+    refined blocks the grid is the finest one: a coarser block's cells are repeated over the finer cells they cover (piecewise constant)."""
     import h5py
 
-    acc: dict[str, np.ndarray] = {}
-    count = None
-    for tag in tags:
-        for f5 in sorted(work.glob(f"tbl-{tag}-proc*.h5")):
-            with h5py.File(f5, "r") as h:
-                for b in {k.rsplit("-", 1)[0] for k in h}:
-                    o, d = h[b + "-origin"][()], h[b + "-dxdydz"][()]
-                    s = (slice(NGC, -NGC),) * 3
-                    r, ru, rv, rw, re_ = (h[f"{b}-{v}"][()][s] for v in ("r", "ru", "rv", "rw", "rE"))
-                    u, v, w = ru / r, rv / r, rw / r
-                    t = (GAMMA - 1.0) * (re_ - 0.5 * r * (u**2 + v**2 + w**2)) / r
-                    if not acc:
-                        nx = int(round(float(ini_value(work, "emax_x")) / d[2]))  # origin and spacing are (z, y, x)
-                        ny = int(round(float(ini_value(work, "emax_y")) / d[1]))
-                        for k in ("r", "ru", "u", "v", "w", "t", "uu", "vv", "ww", "uv"):
-                            acc[k] = np.zeros((nx, ny))
-                        count = np.zeros((nx, ny))
-                    i0 = int(round((o[2] + NGC * d[2]) / d[2]))
-                    j0 = int(round((o[1] + NGC * d[1]) / d[1]))
-                    sl = (slice(i0, i0 + r.shape[2]), slice(j0, j0 + r.shape[1]))
-                    for k, a in (("r", r), ("ru", ru), ("u", u), ("v", v), ("w", w), ("t", t), ("uu", u * u), ("vv", v * v), ("ww", w * w), ("uv", u * v)):
-                        acc[k][sl] += a.sum(axis=0).T
-                    count[sl] += r.shape[0]
+    files = [f5 for tag in tags for f5 in sorted(work.glob(f"tbl-{tag}-proc*.h5"))]
+    d_min = None  # the grid is static: the finest spacing from the first checkpoint
+    for f5 in sorted(work.glob(f"tbl-{tags[0]}-proc*.h5")):
+        with h5py.File(f5, "r") as h:
+            for b in {k.rsplit("-", 1)[0] for k in h if k.endswith("-origin")}:
+                d = h[b + "-dxdydz"][()]
+                d_min = d if d_min is None else np.minimum(d_min, d)
+    nx = int(round(float(ini_value(work, "emax_x")) / d_min[2]))  # origin and spacing are (z, y, x)
+    ny = int(round(float(ini_value(work, "emax_y")) / d_min[1]))
+    acc = {k: np.zeros((nx, ny)) for k in ("r", "ru", "u", "v", "w", "t", "uu", "vv", "ww", "uv")}
+    count = np.zeros((nx, ny))
+    for f5 in files:
+        with h5py.File(f5, "r") as h:
+            for b in {k.rsplit("-", 1)[0] for k in h if k.endswith("-origin")}:
+                o, d = h[b + "-origin"][()], h[b + "-dxdydz"][()]
+                s = (slice(NGC, -NGC),) * 3
+                r, ru, rv, rw, re_ = (h[f"{b}-{v}"][()][s] for v in ("r", "ru", "rv", "rw", "rE"))
+                u, v, w = ru / r, rv / r, rw / r
+                t = (GAMMA - 1.0) * (re_ - 0.5 * r * (u**2 + v**2 + w**2)) / r
+                rx, ry = int(round(d[2] / d_min[2])), int(round(d[1] / d_min[1]))  # this block's cells per finest cell
+                i0 = int(round((o[2] + NGC * d[2]) / d_min[2]))
+                j0 = int(round((o[1] + NGC * d[1]) / d_min[1]))
+                sl = (slice(i0, i0 + r.shape[2] * rx), slice(j0, j0 + r.shape[1] * ry))
+                for k, a in (("r", r), ("ru", ru), ("u", u), ("v", v), ("w", w), ("t", t), ("uu", u * u), ("vv", v * v), ("ww", w * w), ("uv", u * v)):
+                    acc[k][sl] += np.repeat(np.repeat(a.mean(axis=0).T, rx, axis=0), ry, axis=1)
+                count[sl] += 1.0
     return {k: a / count for k, a in acc.items()}
 
 

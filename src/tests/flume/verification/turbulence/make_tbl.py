@@ -67,6 +67,7 @@ def main() -> int:
     ap.add_argument("--shock-x", type=float, default=0.0, help="with --top-shock: where the shock enters through the top")
     ap.add_argument("--slice-z", default="", help="x-y slices at these comma-separated z, cell-centre points every cell along x and y (trilinear)")
     ap.add_argument("--slice-every", type=int, default=0, help="steps between slice saves")
+    ap.add_argument("--refine-box", default="", help="XMIN,XMAX,YMAX: one more level (2:1) on the blocks meeting x in [XMIN, XMAX], y < YMAX, every z")
     args = ap.parse_args()
     blocks = 2**args.levels
     for n in (args.nx, args.ny, args.nz):
@@ -124,6 +125,14 @@ def main() -> int:
     text = section(text, "diagnostics", diag)
     if args.sgs_model != "none":
         text += f"\n[turbulence]\nsgs_model = {args.sgs_model}\n"
+    if args.refine_box:  # a static 2:1 box at the start, as the channel's wm3 (make_channel.py --amr-box); no runtime regridding
+        xa, xb, yb = (float(v) for v in args.refine_box.split(","))
+        text = section(text, "amr", {"max_level": str(args.levels + 1), "markers_number": "1"})
+        text = section(text, "initial_conditions", {"amr_iterations": "1"})
+        text = section(text, "numerics", {"reflux": ".true."})
+        text += (f"\n[amr_marker_1]\nmode = 1\ngeo_type = primitive-box\ndelta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0\n"
+                 f"box_xmin = {xa!r}\nbox_ymin = -1.0\nbox_zmin = -1.0\nbox_xmax = {xb!r}\nbox_ymax = {yb!r}\nbox_zmax = {args.lz + 1.0!r}\n"
+                 f"target_level = {args.levels + 1}\n")
     zs = [float(z) for z in args.slice_z.split(",")] if args.slice_z else []
     text = re.sub(r"^\[slices\]\n[^\[]*", "", text, flags=re.M)
     text += f"\n[slices]\nslices_number = {len(zs)}\n"
