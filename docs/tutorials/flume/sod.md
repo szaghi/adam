@@ -58,11 +58,7 @@ are `extrapolation`.
 
 Copy the input into three directories and change `[weno] scheme` (and `ngc` where the stencil needs it):
 
-| `[weno] scheme` | `ngc` | $L_1(\rho)$ against the exact solution, 200 cells, $t = 0.2$ |
-|---|---|---|
-| `weno-u-3` | 3 | $4.585912\cdot10^{-3}$ |
-| `weno-u-5` (the input) | 3 | $3.244140\cdot10^{-3}$ |
-| `weno-u-7` | 4 | $2.823079\cdot10^{-3}$ |
+<!--@include: @/snippets/tutorials/flume-sod-orders.md-->
 
 Each row is a run on 2 ranks checked with
 
@@ -75,14 +71,12 @@ and a rarefaction the $L_1$ error is dominated by the discontinuities, where eve
 
 **`ngc` is checked.** `weno-u-7` reads 4 cells on each side of a face. With `ngc = 3` the run stops at initialization:
 
-```text
-[mpi-00000]error stop : [grid].(ngc)=+3 is smaller than the WENO stencil half-width +4
-```
+<<< @/snippets/tutorials/flume-sod-ngc.txt
 
 ## The conservation history
 
 `sod-x-conservation_history.dat` integrates the conservative variables over the domain at every step. Between step 0
-and step 174 the mass stays at $0.5625$ (to the last digit), and the momentum grows from 0 to
+and step 174 the mass stays at $0.5625$ (to round-off), and the momentum grows from 0 to
 $0.18 = (p_L - p_R)\,t = (1 - 0.1)\times0.2$: the extrapolated ends carry the pressure difference, the only flux the
 waves have not yet reached.
 

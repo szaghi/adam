@@ -26,9 +26,7 @@ is spelled with an underscore).
 A perfect electric conductor sets $\mathbf E_t = 0$ and $B_n = 0$ on the face, by odd reflection into the ghosts. The
 packet's centre reaches $+x$ at step 96; the pulse reflects and travels back. Total energy, $W_D + W_B$ from `-energy_history.dat`:
 
-| step | 10 | 50 | 100 | 150 | 192 |
-|---|---|---|---|---|---|
-| $W_D + W_B$ (J) | 84628.44 | 84628.44 | 84628.43 | 84628.43 | 84628.42 |
+<!--@include: @/snippets/tutorials/prism-faces-pec.md-->
 
 The box is closed: the energy is conserved to $2\cdot10^{-7}$ over the run.
 
@@ -37,9 +35,7 @@ The box is closed: the energy is conserved to $2\cdot10^{-7}$ over the run.
 The first-order Silver–Müller condition imposes the impedance of an outgoing plane wave, $|\mathbf E_t| = c_0|\mathbf B_t|$,
 on the face ghosts: a wave arriving along the normal passes through.
 
-| step | 10 | 50 | 100 | 150 | 192 |
-|---|---|---|---|---|---|
-| $W_D + W_B$ (J) | 84628.44 | 84628.16 | 29704.97 | 375.70 | 191.57 |
+<!--@include: @/snippets/tutorials/prism-faces-sm.md-->
 
 The pulse crosses the face between steps 50 and 150; what remains at step 192, $2.3\cdot10^{-3}$ of the initial energy,
 is what the first-order condition does not let out. The next page replaces it with a perfectly matched layer.

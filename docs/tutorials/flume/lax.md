@@ -33,9 +33,7 @@ mpirun -np 2 ../../exe/adam_flume_cpu input.ini > log.txt
 ../../exe/.regression-venv/bin/python ../../src/tests/flume/verification/sod/sod_oracle.py input.ini .
 ```
 
-```text
-/lax: axis x, it 245, cells 200, L1(rho) = 1.063839e-02
-```
+<<< @/snippets/tutorials/flume-lax-splitting.txt
 
 ## A Riemann solver at the faces
 
@@ -53,9 +51,7 @@ flux_correction_sensor   = weno
 reflux                   = .true.
 ```
 
-```text
-/lax: axis x, it 245, cells 200, L1(rho) = 1.080670e-02
-```
+<<< @/snippets/tutorials/flume-lax-hllc.txt
 
 Both numbers are the ones of the [Lax verification page](/applications/flume/verification/euler/lax) ($1.064\cdot10^{-2}$
 splitting, $1.081\cdot10^{-2}$ HLLC). Lax is the one problem where splitting beats every Riemann solver, by 1.6%; the

@@ -1,0 +1,1 @@
+[mpi-00000]error stop : +4 cells with a non-positive density or pressure at step +3 (min rho +0.72590331193952229E+000, min p -0.15378822578668403E-002); the [mhd] floors rho_floor, p_floor are disabled

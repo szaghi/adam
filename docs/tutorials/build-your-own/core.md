@@ -222,11 +222,7 @@ $t = 1$, on 4×4 blocks of 8×8 cells. The run writes `periodic-history.dat` (st
 files of step 0 and of the last step (`periodic-000000000.xdmf`, `periodic-000000120.xdmf` and the per-rank `.h5`).
 `periodic-history.dat`, first and last rows:
 
-```text
-# it time total(u dV)
-        0  0.000000000000000E+000  3.122502256758253E-017
-      120  9.999999999999989E-001 -1.040834085586084E-017
-```
+<<< @/snippets/tutorials/ripple-periodic-history.txt
 
 120 steps to $t = 1$; the total of $u\,dV$ is zero for this profile, and stays zero to round-off: the scheme is
 conservative.

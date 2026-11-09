@@ -63,11 +63,7 @@ half the cell size.
 
 `blast-amr-limiter-conservation_history.dat`, first and last rows, the mass column:
 
-```text
-VARIABLES="it" "time" "int_r" ...
-0   0.0000000000000000E+000 1.0000000000000000E+000
-100 2.6041666666666683E-003 9.9999999999999967E-001
-```
+<<< @/snippets/tutorials/flume-blast-amr-history.txt
 
 On a periodic box the mass is conserved exactly by the scheme, and it is here to $3\cdot10^{-16}$ although the blast
 crosses the 2:1 faces: at the end of each step the reflux replaces the coarse face flux with the sum of the fine ones,

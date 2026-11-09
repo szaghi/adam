@@ -9,7 +9,9 @@ the pages comes from such a run. Start with the [first run](/start/first-run) if
 | **PRISM** | [1. A pulse in a periodic box](./prism/pulse) · [2. Reflecting and absorbing faces](./prism/faces) · [3. A perfectly matched layer](./prism/pml) · [4. The same on the GPU](./prism/gpu) | run an electromagnetic pulse, compare boundary treatments through the energy history, run it on the GPU backend |
 | **Build your own solver** | [1. A realm and the core layer](./build-your-own/core) · [2. The library's numerics](./build-your-own/numerics) · [3. AMR and the staged layer](./build-your-own/amr) · [4. The GPU twin](./build-your-own/gpu) | read RIPPLE, the scalar advection app written for this track, and the realm contract it implements, layer by layer |
 
-The runs on these pages were made on a WSL2 workstation (gfortran 16.2 and Open MPI 5.0.11 for the CPU, nvfortran 26.9
+The program output on these pages is not pasted: `src/tests/tutorials/capture.py` runs every tutorial and writes
+what the pages show into `docs/snippets/tutorials/`, and checks every number the prose quotes; the CI job
+`docs-tutorials` runs it again and fails when a page and the code disagree. The runs were made on a WSL2 workstation (gfortran 16.2 and Open MPI 5.0.11 for the CPU, nvfortran 26.9
 for the GPU), which is for correctness only: no page quotes a timing, and its GPU runs need the settings of [GPU5](/cookbook/gpu#gpu5-run-on-a-development-box-with-wsl2-not-on-a-cluster).
 
 The [cookbook](/cookbook/) answers single tasks; the application pages ([FLUME](/applications/flume/),

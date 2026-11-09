@@ -24,18 +24,11 @@ The input is the Sod shock tube along $x$: $(\rho, u, p) = (1, 0, 1)$ for $x < 0
 cells (64 blocks of $50\times4\times4$ cells, four along $x$; $y$ and $z$ are null axes), WENO5 on characteristic
 variables, SSP Runge–Kutta 3, CFL 0.5, to $t = 0.2$. The run ends with
 
-```text
-[mpi-00000]save HDF5 files t: 174, time: 0.20000000000000001E+000
-[mpi-00000]ADAM run complete: all realms finalized, entering MPI_Finalize
-```
+<<< @/snippets/tutorials/flume-sod-end.txt
 
 ## What it writes
 
-```text
-sod-x-000000000.xdmf  sod-x-000000000-proc000000.h5  sod-x-000000000-proc000001.h5
-sod-x-000000174.xdmf  sod-x-000000174-proc000000.h5  sod-x-000000174-proc000001.h5
-sod-x-residuals.dat   sod-x-conservation_history.dat
-```
+<<< @/snippets/tutorials/flume-sod-files.txt
 
 - **Field files**, at step 0 and at the last step (`[IO] it_save = 100000` saves nothing in between): one HDF5 file
   per rank and one XDMF index per save, the conservative variables `r`, `ru`, `rv`, `rw`, `rE` of every block, ghost
@@ -44,10 +37,7 @@ sod-x-residuals.dat   sod-x-conservation_history.dat
 - **`sod-x-conservation_history.dat`**: the domain integrals of the conservative variables, one row per step. With
   extrapolation at both ends mass is conserved up to the flux through the ends, which the waves have not reached:
 
-```text
-         0  0.0000000000000000E+000  5.6250000000000000E-001  0.0000000000000000E+000  ...  1.3750000000000002E+000
-       174  2.0000000000000001E-001  5.6249999999999989E-001  1.7999999999999999E-001  ...  1.3750000000000002E+000
-```
+<<< @/snippets/tutorials/flume-sod-history.txt
 
 ## Look at it
 
@@ -65,9 +55,7 @@ python3 -m venv ../../exe/.regression-venv && ../../exe/.regression-venv/bin/pip
 ../../exe/.regression-venv/bin/python ../../src/tests/flume/verification/sod/sod_oracle.py input.ini . --l1-max 3.31e-3
 ```
 
-```text
-/sod-x: axis x, it 174, cells 200, L1(rho) = 3.244140e-03  PASS
-```
+<<< @/snippets/tutorials/flume-sod-oracle.txt
 
 $3.244\cdot10^{-3}$ is the value recorded on the [Sod verification page](/applications/flume/verification/euler/sod).
 

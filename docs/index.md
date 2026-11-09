@@ -86,31 +86,13 @@ cd run/sod && mpirun -np 2 ../../exe/adam_flume_cpu input.ini > log.txt
 grep '^\[mpi-00000\]' log.txt
 ```
 
-```text
-…
-[mpi-00000]t:            1
-[mpi-00000]nodes number: 64
-[mpi-00000]time step:    0.21128856368212916E-002
-[mpi-00000]time:         0.21128856368212916E-002
-[mpi-00000]progress:     1%
-…
-[mpi-00000]t:            174
-[mpi-00000]nodes number: 64
-[mpi-00000]time step:    0.40494782553279762E-003
-[mpi-00000]time:         0.20000000000000001E+000
-[mpi-00000]progress:     100%
-[mpi-00000]
-[mpi-00000]save HDF5 files t: 174, time: 0.20000000000000001E+000
-[mpi-00000]ADAM run complete: all realms finalized, entering MPI_Finalize
-```
+<<< @/snippets/tutorials/flume-sod-log.txt
 
 ```bash
 ../../exe/.regression-venv/bin/python ../../src/tests/flume/verification/sod/sod_oracle.py input.ini . --l1-max 3.31e-3
 ```
 
-```text
-/sod-x: axis x, it 174, cells 200, L1(rho) = 3.244140e-03  PASS
-```
+<<< @/snippets/tutorials/flume-sod-oracle.txt
 
 The run writes one HDF5 file per rank and one XDMF index per save, for ParaView. The oracle compares the density with
 the exact Riemann solution. Next: the [tutorials](/tutorials/).

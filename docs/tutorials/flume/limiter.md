@@ -26,9 +26,7 @@ The `[mhd]` floors are off (`rho_floor = 0.0`, `p_floor = 0.0`), so nothing hide
 mpirun -np 2 ../../exe/adam_flume_cpu input.ini > log.txt
 ```
 
-```text
-[mpi-00000]error stop : +4 cells with a non-positive density or pressure at step +3 (min rho +0.72590331193952229E+000, min p -0.15378822578668403E-002); the [mhd] floors rho_floor, p_floor are disabled
-```
+<<< @/snippets/tutorials/flume-limiter-none.txt
 
 At $\beta = 2.5\cdot10^{-4}$ the pressure is a tiny difference of large energies, and the high-order update makes it
 negative in the third step. FLUME stops rather than continue with a non-physical state.
@@ -37,11 +35,9 @@ negative in the third step. FLUME stops rather than continue with a non-physical
 
 `positivity_limiter = cell` blends every face flux of a cell with the first-order Lax–Friedrichs flux, just enough to
 keep the cell's density and pressure above a fraction (`POSITIVITY_LIMITER_KAPPA` = 0.1) of their first-order update.
-The same input with `cell`:
+The same input with `cell`, the last row of `blast-limiter-residuals.dat`:
 
-```text
-+193 +0.99908507877250665E-002 +8 ...       (the last row of blast-limiter-residuals.dat)
-```
+<<< @/snippets/tutorials/flume-limiter-cell.txt
 
 It reaches $t = 0.01$ in 193 steps (the row shows the time at the start of the last step). The limiter changes only
 the cells where the high-order update would leave the admissible set; elsewhere the scheme is unchanged. The

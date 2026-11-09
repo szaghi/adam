@@ -74,10 +74,7 @@ It writes the fields every 48 steps (`periodic_pulse_blocks-000000000.xdmf` … 
 
 **Energy** (`periodic_pulse_blocks-energy_history.dat`, every 10 steps; electric and magnetic energy in joules):
 
-```text
-+10  +32 +0.34746257462833344E-010 +0.42220747103426816E+005 +0.42220747103426831E+005 ...
-+192 +32 +0.66712814328639916E-009 +0.42220694691084245E+005 +0.42220694691084274E+005 ...
-```
+<<< @/snippets/tutorials/prism-pulse-energy.txt
 
 The two energies stay equal (a travelling wave) and their sum drifts by $1.2\cdot10^{-6}$ relative over the period:
 the centred scheme is non-dissipative, and the drift is the Runge–Kutta's.
@@ -93,16 +90,16 @@ venv of the [first run](/start/first-run#check-it)):
 ../../exe/.regression-venv/bin/python ../../src/tests/tutorials/compare_saves.py . periodic_pulse_blocks 0 192
 ```
 
-```text
-Bz       max|q(192) - q(0)| / max|q(0)| = 3.961e-02
-Dy       max|q(192) - q(0)| / max|q(0)| = 3.961e-02
-```
+<<< @/snippets/tutorials/prism-pulse-return.txt
 
 A 4% difference after one crossing, and most of it is not the scheme: the initial pulse is set as a Gaussian about
-`r0 = 0.07` that is **not wrapped across the periodic faces**, so at the face $x = 0.1$, $2\sigma$ from its centre,
-the field jumps by 18% of the peak. That jump travels with the pulse and dominates the return error; a 1-D model of
-this run gives 4.0% with the cut and 0.14% with a wrapped pulse, and refining the grid does not remove it. Centre the
-pulse in the box (`r0 = 0.0`, as the [next page](./faces) does) to see the scheme's own error.
+`r0 = 0.07` that is **not wrapped across the periodic faces**. The last cells before the face $x = 0.1$, $1.86\sigma$
+from the centre, hold 18% of the peak, and the cells beyond it, the periodic images of $x = -0.1$, almost nothing: the
+field jumps there, the jump travels with the pulse and dominates the return error, and refining the grid does not
+remove it. The same run with the pulse centred in the box (`r0 = 0.0`, as the [next page](./faces) does), where
+nothing is cut, shows the scheme's own error:
+
+<<< @/snippets/tutorials/prism-pulse-centred.txt
 
 ::: tip What you learned
 - PRISM's input names the model, the space and time schemes, the grid, the initial field and the faces.

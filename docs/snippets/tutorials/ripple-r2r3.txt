@@ -1,0 +1,13 @@
+   cells           L1         Linf  order L1 order Linf
+    1792   5.7008e-04   4.7944e-03
+    7168   1.2859e-04   1.1297e-03     2.148      2.085
+   28672   3.1220e-05   2.4886e-04     2.042      2.183
+PASS [r2]
+total of u dV: 242 rows, largest drift 9.368e-17 of max|u0| times the volume
+PASS [r2 conservation N=32]
+total of u dV: 482 rows, largest drift 1.631e-16 of max|u0| times the volume
+PASS [r2 conservation N=64]
+total of u dV: 961 rows, largest drift 2.776e-16 of max|u0| times the volume
+PASS [r2 conservation N=128]
+28 blocks, largest |u_1 - u_2| = 0.000e+00
+PASS [r3]

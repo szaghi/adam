@@ -158,21 +158,7 @@ Before calling it the forest sums the fine contributions over the ranks (`flux_r
 ./src/tests/ripple/check.sh --legs r2,r3
 ```
 
-```text
-   cells           L1         Linf  order L1 order Linf
-    1792   5.7008e-04   4.7944e-03
-    7168   1.2859e-04   1.1297e-03     2.148      2.085
-   28672   3.1220e-05   2.4886e-04     2.042      2.183
-PASS [r2]
-total of u dV: 242 rows, largest drift 9.368e-17 of max|u0| times the volume
-PASS [r2 conservation N=32]
-total of u dV: 482 rows, largest drift 1.631e-16 of max|u0| times the volume
-PASS [r2 conservation N=64]
-total of u dV: 961 rows, largest drift 2.776e-16 of max|u0| times the volume
-PASS [r2 conservation N=128]
-28 blocks, largest |u_1 - u_2| = 0.000e+00
-PASS [r3]
-```
+<<< @/snippets/tutorials/ripple-r2r3.txt
 
 - **Order 2, not 5.** The library's 2:1 transfers (the mean restriction of the coarse ghosts and the reflux of
   point-value fluxes) are second order; across a 2:1 face the scheme is second order, as FLUME measures too.
@@ -247,13 +233,7 @@ fobis build --mode test-ripple-crest-criterion-cpu-gnu
 ./src/tests/ripple/check.sh --legs r6
 ```
 
-```text
-refined base blocks: [(0, 0), (0, 1), (1, 0), (1, 1), (2, 2), (2, 3), (3, 2), (3, 3)]; expected (u0 > 0.9): [(0, 0), (0, 1), (1, 0), (1, 1), (2, 2), (2, 3), (3, 2), (3, 3)]
-PASS [r6]
-total of u dV: 482 rows, largest drift 1.934e-16 of max|u0| times the volume
-PASS [r6 conservation]
-PASS [r6 unregistered]
-```
+<<< @/snippets/tutorials/ripple-r6.txt
 
 - **r6: the blocks it refines.** $u_0 = \sin 2\pi x \, \sin 2\pi y$ rises above 0.9 only around its two positive
   crests, $(0.25, 0.25)$ and $(0.75, 0.75)$: the oracle computes, block by block, where $u_0$ at the base resolution

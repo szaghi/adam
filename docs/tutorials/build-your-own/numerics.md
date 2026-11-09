@@ -119,13 +119,7 @@ CFL = 0.4
 ./src/tests/ripple/check.sh --legs r1
 ```
 
-```text
-   cells           L1         Linf  order L1 order Linf
-    1024   1.8584e-04   5.2719e-04
-    4096   5.8085e-06   1.8025e-05     5.000      4.870
-   16384   1.8101e-07   5.6842e-07     5.004      4.987
-PASS [r1]
-```
+<<< @/snippets/tutorials/ripple-r1.txt
 
 Order 5 to three digits: at CFL 0.4 the fourth-order time integration is not visible, the spatial error dominates.
 

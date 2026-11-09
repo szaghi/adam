@@ -33,10 +33,7 @@ has.
 
 **Why `time_max`.** The PML caps the time step at $C_\gamma/\gamma_{\max}$ (`C_gamma` = 0.1 by default). The log shows
 
-```text
-[mpi-00000]      C_gamma: +0.10000000000000001E+000
-[mpi-00000]time step:    0.12820512820512821E-011
-```
+<<< @/snippets/tutorials/prism-pml-log.txt
 
 $1.28\cdot10^{-12}$ s, against $3.47\cdot10^{-12}$ s without the layer: 192 steps would reach only $t = 2.5\cdot10^{-10}$
 s. The `time_max` above is the time the 192 steps of the previous pages reached, and the run takes 521 steps.
@@ -45,10 +42,7 @@ s. The `time_max` above is the time the 192 steps of the previous pages reached,
 
 Total energy $W_D + W_B$ from `-energy_history.dat`:
 
-| step | 10 | 110 | 210 | 310 | 410 | 521 |
-|---|---|---|---|---|---|---|
-| $t$ (s) | $1.28\cdot10^{-11}$ | $1.41\cdot10^{-10}$ | $2.69\cdot10^{-10}$ | $3.97\cdot10^{-10}$ | $5.26\cdot10^{-10}$ | $6.67\cdot10^{-10}$ |
-| $W_D + W_B$ (J) | 84628.44 | 84491.46 | 35867.34 | 46.86 | 0.256 | $9.9\cdot10^{-3}$ |
+<!--@include: @/snippets/tutorials/prism-pml-energy.md-->
 
 At the same final time the PML leaves $1.2\cdot10^{-7}$ of the energy, against $2.3\cdot10^{-3}$ with the Silver–Müller
 faces alone: four orders of magnitude less.

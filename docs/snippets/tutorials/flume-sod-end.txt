@@ -1,0 +1,2 @@
+[mpi-00000]save HDF5 files t: 174, time: 0.20000000000000001E+000
+[mpi-00000]ADAM run complete: all realms finalized, entering MPI_Finalize

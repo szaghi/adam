@@ -1,0 +1,5 @@
+refined base blocks: [(0, 0), (0, 1), (1, 0), (1, 1), (2, 2), (2, 3), (3, 2), (3, 3)]; expected (u0 > 0.9): [(0, 0), (0, 1), (1, 0), (1, 1), (2, 2), (2, 3), (3, 2), (3, 3)]
+PASS [r6]
+total of u dV: 482 rows, largest drift 1.934e-16 of max|u0| times the volume
+PASS [r6 conservation]
+PASS [r6 unregistered]
