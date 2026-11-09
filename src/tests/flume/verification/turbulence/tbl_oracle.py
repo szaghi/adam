@@ -176,6 +176,17 @@ def averages(work: Path, tags: list[str]) -> dict[str, np.ndarray]:
     return {k: a / count for k, a in acc.items()}
 
 
+def edge_height(u: np.ndarray, y: np.ndarray, dy: float) -> np.ndarray:
+    """delta_99 per column of the mean velocity u[x, y]: the first row with u >= 0.99, interpolated linearly from the row below;
+    NaN where no row above the first reaches 0.99. There the denominator can be zero (on a grid with refined blocks a coarse cell
+    fills two fine rows with one value) and the result is discarded anyway, so it is replaced by 1 instead of dividing by zero."""
+    edge = np.argmax(u >= 0.99, axis=1)
+    jj = np.maximum(edge, 1)
+    cols = np.arange(u.shape[0])
+    du = u[cols, jj] - u[cols, jj - 1]
+    return np.where(edge > 0, y[jj - 1] + dy * (0.99 - u[cols, jj - 1]) / np.where(edge > 0, du, 1.0), np.nan)
+
+
 def compare(work_s: str, stat: str, t0: float, json_out: str | None, re_inf: float | None = None) -> int:
     """Print the comparison with the DNS (and write it as JSON)."""
     import json
@@ -196,9 +207,7 @@ def compare(work_s: str, stat: str, t0: float, json_out: str | None, re_inf: flo
     x = (np.arange(nx) + 0.5) * dx
     y = (np.arange(ny) + 0.5) * dy
     uf = a["ru"] / a["r"]
-    edge = np.argmax(a["u"] >= 0.99, axis=1)
-    delta = np.where(edge > 0, y[np.maximum(edge, 1) - 1] + dy * (0.99 - a["u"][np.arange(nx), np.maximum(edge, 1) - 1])
-                     / (a["u"][np.arange(nx), np.maximum(edge, 1)] - a["u"][np.arange(nx), np.maximum(edge, 1) - 1]), np.nan)
+    delta = edge_height(a["u"], y, dy)
     theta = (a["r"] * uf * (1.0 - uf)).sum(axis=1) * dy
     dstar = (1.0 - a["r"] * uf).sum(axis=1) * dy
     shape_nominal = dstar / theta

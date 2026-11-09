@@ -70,9 +70,7 @@ def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str
     y = (np.arange(ny) + 0.5) * dy
     uf = a["ru"] / a["r"]
     p = a["t"] * a["r"]
-    edge = np.argmax(a["u"] >= 0.99, axis=1)
-    jj = np.maximum(edge, 1)
-    delta = np.where(edge > 0, y[jj - 1] + dy * (0.99 - a["u"][np.arange(nx), jj - 1]) / (a["u"][np.arange(nx), jj] - a["u"][np.arange(nx), jj - 1]), np.nan)
+    delta = to.edge_height(a["u"], y, dy)
     # the nominal integrals stop at 1.5 delta as the edge ones do: above the layer the post-shock region (rho u > 1) would count
     inner = y[None, :] < 1.5 * np.where(np.isfinite(delta), delta, 0.0)[:, None]
     theta = np.where(inner, a["r"] * uf * (1.0 - uf), 0.0).sum(axis=1) * dy
