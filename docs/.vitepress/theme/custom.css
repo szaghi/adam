@@ -107,9 +107,13 @@
   margin: 16px 0 24px;
 }
 @media (min-width: 640px) {
-  .vp-doc .adam-casts,
   .vp-doc .adam-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .vp-doc .adam-casts-wide { grid-template-columns: 1fr; }
+  /* Casts: a justified row. Each card grows in proportion to its video's aspect ratio (--ar, width/height, set on the
+     figure), so the videos of a row share one height whatever their shapes; a wide cast (.adam-cast-wide) takes a row. */
+  .vp-doc .adam-casts { display: flex; flex-wrap: wrap; align-items: stretch; }
+  .vp-doc .adam-casts .adam-cast { flex: var(--ar, 1.5) 1 0; min-width: 0; }
+  .vp-doc .adam-casts .adam-cast-wide,
+  .vp-doc .adam-casts-wide .adam-cast { flex-basis: 100%; }
 }
 .vp-doc .adam-cast {
   margin: 0;

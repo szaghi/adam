@@ -80,17 +80,17 @@ shock tube against its exact solution; the [tutorial](/tutorials/flume/sod) cont
 ## See it run
 
 <div class="adam-casts">
-<figure class="adam-cast">
+<figure class="adam-cast" style="--ar: 0.97">
 <video class="light-only" autoplay loop muted playsinline poster="/gallery/orszag-tang-light.png" aria-label="Orszag–Tang vortex, density"><source src="/gallery/orszag-tang-light.webm" type="video/webm"><source src="/gallery/orszag-tang-light.mp4" type="video/mp4"></video>
 <video class="dark-only" autoplay loop muted playsinline poster="/gallery/orszag-tang-dark.png" aria-label="Orszag–Tang vortex, density"><source src="/gallery/orszag-tang-dark.webm" type="video/webm"><source src="/gallery/orszag-tang-dark.mp4" type="video/mp4"></video>
 <figcaption>Orszag–Tang vortex, ideal MHD with GLM cleaning: density to t = 0.5 on 128², the blocks outlined. Case MV-12.</figcaption>
 </figure>
-<figure class="adam-cast">
+<figure class="adam-cast" style="--ar: 1.89">
 <video class="light-only" autoplay loop muted playsinline poster="/gallery/rayleigh-taylor-light.png" aria-label="Rayleigh–Taylor instability, hydro and MHD, density"><source src="/gallery/rayleigh-taylor-light.webm" type="video/webm"><source src="/gallery/rayleigh-taylor-light.mp4" type="video/mp4"></video>
 <video class="dark-only" autoplay loop muted playsinline poster="/gallery/rayleigh-taylor-dark.png" aria-label="Rayleigh–Taylor instability, hydro and MHD, density"><source src="/gallery/rayleigh-taylor-dark.webm" type="video/webm"><source src="/gallery/rayleigh-taylor-dark.mp4" type="video/mp4"></video>
 <figcaption>Rayleigh–Taylor single mode under constant gravity, density to t = 5 on 128²: hydrodynamics (left) and MHD with a horizontal field at half the critical value of the mode (right). Case GV-4.</figcaption>
 </figure>
-<figure class="adam-cast">
+<figure class="adam-cast adam-cast-wide" style="--ar: 2.75">
 <video class="light-only" autoplay loop muted playsinline poster="/gallery/forward-facing-step-light.png" aria-label="Mach 3 forward-facing step on a three-realm forest, density"><source src="/gallery/forward-facing-step-light.webm" type="video/webm"><source src="/gallery/forward-facing-step-light.mp4" type="video/mp4"></video>
 <video class="dark-only" autoplay loop muted playsinline poster="/gallery/forward-facing-step-dark.png" aria-label="Mach 3 forward-facing step on a three-realm forest, density"><source src="/gallery/forward-facing-step-dark.webm" type="video/webm"><source src="/gallery/forward-facing-step-dark.mp4" type="video/mp4"></video>
 <figcaption>Woodward–Colella Mach 3 step, density to t = 4 on a forest of three quadtree realms, base spacing 1/80 with static refined boxes; the inter-realm seams dashed. Case EV-step.</figcaption>

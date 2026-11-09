@@ -80,7 +80,7 @@ The [overview](./overview) lists what is implemented, with a [quick start](./ove
 ## See it run
 
 <div class="adam-casts adam-casts-wide">
-<figure class="adam-cast">
+<figure class="adam-cast adam-cast-wide" style="--ar: 2.79">
 <video class="light-only" autoplay loop muted playsinline poster="/gallery/prism-faces-light.png" aria-label="A pulse leaving through PEC, Silver–Müller and PML faces"><source src="/gallery/prism-faces-light.webm" type="video/webm"><source src="/gallery/prism-faces-light.mp4" type="video/mp4"></video>
 <video class="dark-only" autoplay loop muted playsinline poster="/gallery/prism-faces-dark.png" aria-label="A pulse leaving through PEC, Silver–Müller and PML faces"><source src="/gallery/prism-faces-dark.webm" type="video/webm"><source src="/gallery/prism-faces-dark.mp4" type="video/mp4"></video>
 <figcaption>A Gaussian pulse in vacuum meets the x faces of the box. Left to right: PEC, first-order Silver–Müller, Silver–Müller with a classic PML (outlined). log₁₀ of √(|E|² + c²|B|²) relative to the initial peak, plane z ≈ 0, to t = 6.67·10⁻¹⁰ s; the three runs share one time step. Inputs of <a href="/adam/tutorials/prism/faces.html">tutorial 2</a> and <a href="/adam/tutorials/prism/pml.html">tutorial 3</a>.</figcaption>
