@@ -73,6 +73,10 @@ src/tests/prism/regression/run_verification_legs.sh $PWD $PWD/exe/adam_prism_cpu
 src/tests/prism/regression/run_verification_legs.sh --fnl $PWD $PWD/exe/adam_prism_fnl /tmp/prism-verif    # FNL
 ```
 
+The values in the result tables of this section come from these logs (2026-11-08, code at `e3da0473`): the CPU legs on
+a medooza node (gfortran 16.2.0, Open MPI 5.0.11), the FNL legs on A30 GPUs (nvfortran 26.9, CUDA 12.9), and
+`slices` on the WSL2 workstation (the same compilers, its two GPUs for FNL).
+
 ## Not done
 
 Analytic oracles for the physics are tracked and not yet implemented:

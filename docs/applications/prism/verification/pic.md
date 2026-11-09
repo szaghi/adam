@@ -78,11 +78,11 @@ Each leg asserts, as coded:
 
 | Check | Bound | `pic-periodic` CPU | `pic-periodic` FNL | `pic-slab-pulse` CPU | `pic-slab-pulse` FNL |
 |---|---|---|---|---|---|
-| run exits 0 | — | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ |
-| charge: max $\lvert$`Q_deposition_error`$\rvert$, $\lvert$`dQ_num_net`$\rvert$ over the run, relative to one species' charge | $\le 10^{-12}$ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ |
-| Gauss at t0: max $\lvert\nabla\cdot\mathbf D - \rho + c\chi\rvert/\max\lvert\rho\rvert$ | $\le 10^{-12}$ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ |
-| digest against `golden-check/<backend>` | `rtol = 1e-6`, `atol = 1e-3`; sums on the scale $\sqrt{n\sum q^2}$ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ |
-| residuals against the golden (1-rank legs) | `rtol = 1e-6`, `atol = 1e-3` | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ |
+| run exits 0 | — | pass, np 1 | pass, np 1, 2 | pass, np 1 | pass, np 1, 2 |
+| charge: max $\lvert$`Q_deposition_error`$\rvert$, $\lvert$`dQ_num_net`$\rvert$ over the run, relative to one species' charge | $\le 10^{-12}$ | $1.0\cdot10^{-16}$ | $7.3\cdot10^{-18}$ | $9.3\cdot10^{-17}$ | $1.3\cdot10^{-17}$ |
+| Gauss at t0: max $\lvert\nabla\cdot\mathbf D - \rho + c\chi\rvert/\max\lvert\rho\rvert$ | $\le 10^{-12}$ | $8.9\cdot10^{-15}$ | $5.0\cdot10^{-15}$ | $6.3\cdot10^{-15}$ | $5.2\cdot10^{-15}$ |
+| digest against `golden-check/<backend>` | `rtol = 1e-6`, `atol = 1e-3`; sums on the scale $\sqrt{n\sum q^2}$ | 48 rows, 0 outside | 48 + 42 rows (np 1, 2), 0 outside | 48 rows, 0 outside | 96 + 84 rows (np 1, 2), 0 outside |
+| residuals against the golden (1-rank legs) | `rtol = 1e-6`, `atol = 1e-3` | 1 row, match | 1 row, match | 1 row, match | 3 rows, match |
 
 At 2 ranks the digest skips the per-block metadata rows (`origin`, `dxdydz`, `time_iteration`) and the residuals log,
 which depend on the block layout, not on the fields.

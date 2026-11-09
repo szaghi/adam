@@ -60,9 +60,9 @@ The case is also [tutorial 1](/tutorials/prism/pulse), which walks through the r
 | Check | Bound | CPU | FNL |
 |---|---|---|---|
 | digest and residuals against the golden | `rtol = 1e-6`, `atol = 1e-3` | pass | pass |
-| total energy $W_D + W_B$, relative drift over 192 steps | — | $1.2\cdot10^{-6}$ | ⟨run⟩ |
-| $W_D$ against $W_B$ | equal (travelling wave) | equal to 15 digits | ⟨run⟩ |
-| $\lvert\nabla\cdot\mathbf D\rvert$, $\lvert\nabla\cdot\mathbf B\rvert$, last row of the divergence history | round-off | 0, 0 | ⟨run⟩ |
+| total energy $W_D + W_B$, relative drift over 192 steps | — | $1.2\cdot10^{-6}$ | $1.2\cdot10^{-6}$ |
+| $W_D$ against $W_B$ | equal (travelling wave) | equal to 15 digits | equal to 15 digits |
+| $\lvert\nabla\cdot\mathbf D\rvert$, $\lvert\nabla\cdot\mathbf B\rvert$, last row of the divergence history | round-off | 0, 0 | 0, 0 |
 | 64 blocks on 2 ranks against one $48^3$ block | — | $\approx 2\cdot10^{-15}$ | — |
 | return after one crossing, $\max\lvert q(192) - q(0)\rvert / \max\lvert q(0)\rvert$, $B_z$ and $D_y$ | — | $3.961\cdot10^{-2}$ | — |
 

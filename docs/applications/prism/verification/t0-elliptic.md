@@ -75,15 +75,15 @@ then the step-0 fields of the two rank counts agree.
 
 | Case | Oracle | Bound | CPU | FNL |
 |---|---|---|---|---|
-| `rmf-pec-t0` | `divb`: max $\lvert\nabla\cdot\mathbf B\rvert\,h/\max\lvert\mathbf B\rvert$ | $10^{-12}$ | ⟨run⟩ | ⟨run⟩ |
-| `rmf-pec-t0` | `same`: $B$ at np 1 against np 2, relative | $10^{-12}$ | ⟨run⟩ | ⟨run⟩ |
-| `rmf-open-t0` | `divb`, beyond 3 cells of the faces | $10^{-12}$ | ⟨run⟩ | ⟨run⟩ |
-| `rmf-open-t0` | `same`: $B$ | $10^{-12}$ | ⟨run⟩ | ⟨run⟩ |
-| `pic-pec-t0` | `gauss`: max $\lvert\nabla\cdot\mathbf D - \rho + c\chi\rvert/\max\lvert\rho\rvert$ | $10^{-12}$ | $\approx 10^{-16}$ | ⟨run⟩ |
-| `pic-pec-t0` | checkerboard share $c/\max\lvert\rho\rvert$ (reported) | — | $3\cdot10^{-5}$ | ⟨run⟩ |
-| `pic-pec-t0` | `same`: $D$, $B$ | $10^{-12}$ | ⟨run⟩ | ⟨run⟩ |
-| `pic-open-t0` | `open`: max $\lvert\nabla\cdot\mathbf D - \rho\rvert/\max\lvert\rho\rvert$ beyond 3 cells of the faces | $10^{-11}$ (the CG tolerance) | $6.6\cdot10^{-13}$ | ⟨run⟩ |
-| `pic-open-t0` | `same`: $D$, $B$ | $10^{-12}$ | ⟨run⟩ | ⟨run⟩ |
+| `rmf-pec-t0` | `divb`: max $\lvert\nabla\cdot\mathbf B\rvert\,h/\max\lvert\mathbf B\rvert$ | $10^{-12}$ | $1.9\cdot10^{-15}$ | $2.1\cdot10^{-15}$ |
+| `rmf-pec-t0` | `same`: $B$ at np 1 against np 2, relative | $10^{-12}$ | 0 | 0 |
+| `rmf-open-t0` | `divb`, beyond 3 cells of the faces | $10^{-12}$ | $4.7\cdot10^{-16}$ | $3.3\cdot10^{-16}$ |
+| `rmf-open-t0` | `same`: $B$ | $10^{-12}$ | 0 | 0 |
+| `pic-pec-t0` | `gauss`: max $\lvert\nabla\cdot\mathbf D - \rho + c\chi\rvert/\max\lvert\rho\rvert$ | $10^{-12}$ | $4.4\cdot10^{-16}$ | $5.0\cdot10^{-16}$ |
+| `pic-pec-t0` | checkerboard share $c/\max\lvert\rho\rvert$ (reported) | — | $3.3\cdot10^{-5}$ | $1.2\cdot10^{-5}$ |
+| `pic-pec-t0` | `same`: $D$, $B$ | $10^{-12}$ | 0 | 0 |
+| `pic-open-t0` | `open`: max $\lvert\nabla\cdot\mathbf D - \rho\rvert/\max\lvert\rho\rvert$ beyond 3 cells of the faces | $10^{-11}$ (the CG tolerance) | $6.6\cdot10^{-13}$ | $5.6\cdot10^{-13}$ |
+| `pic-open-t0` | `same`: $D$, $B$ | $10^{-12}$ | 0 | 0 |
 
 Against the legacy smoother FLAIL replaced (measured in #84):
 

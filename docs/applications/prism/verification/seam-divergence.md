@@ -78,16 +78,16 @@ Bounds as coded; the baselines are CPU-pinned and the 5 % band is the cross-back
 
 | Case, leg | Asserts | Bound | CPU | FNL |
 |---|---|---|---|---|
-| `rmf-amr-fd`, control | max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | ⟨run⟩ | ⟨run⟩ |
-| `rmf-amr-fd`, seam | max $\lvert\nabla\cdot\mathbf B\rvert$ | $1.555802\cdot10^{-7} \pm 5\%$ | $1.555802\cdot10^{-7}$ (baseline) | ⟨run⟩ |
+| `rmf-amr-fd`, control | max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | $1.96\cdot10^{-19}$ | $1.03\cdot10^{-19}$ |
+| `rmf-amr-fd`, seam | max $\lvert\nabla\cdot\mathbf B\rvert$ | $1.555802\cdot10^{-7} \pm 5\%$ | $1.555802\cdot10^{-7}$ (baseline) | $1.555801\cdot10^{-7}$ |
 | `rmf-amr-fd`, seam | max $\lvert\nabla\cdot\mathbf J\rvert$ | $3.217958\cdot10^{-5}$, factor 3 | $3.22\cdot10^{-5}$ | $2.62\cdot10^{-5}$ |
-| pulse, control | max $\lvert\nabla\cdot\mathbf D\rvert$, max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | ⟨run⟩ | ⟨run⟩ |
-| pulse, uniform level 2 (1:1 faces) | max $\lvert\nabla\cdot\mathbf D\rvert$, max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | ⟨run⟩ | ⟨run⟩ |
-| pulse, seam | max $\lvert\nabla\cdot\mathbf D\rvert$ | $\le 10^{-13}$ | $3.1\cdot10^{-15}$ | ⟨run⟩ |
+| pulse, control | max $\lvert\nabla\cdot\mathbf D\rvert$, max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | 0, 0 | 0, 0 |
+| pulse, uniform level 2 (1:1 faces) | max $\lvert\nabla\cdot\mathbf D\rvert$, max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | 0, 0 | 0, 0 |
+| pulse, seam | max $\lvert\nabla\cdot\mathbf D\rvert$ | $\le 10^{-13}$ | $3.3\cdot10^{-15}$ | $3.3\cdot10^{-15}$ |
 | pulse, seam | max $\lvert\nabla\cdot\mathbf B\rvert$ (step 5) | $12.65004 \pm 5\%$ | 12.65004 | 12.65004 |
-| pulse, `runge-kutta-1` | non-zero exit with `not stage-splittable` in the log | refusal | ⟨run⟩ | ⟨run⟩ |
-| pulse, SSP (1,1) | max $\lvert\nabla\cdot\mathbf D\rvert$; max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$; $11.81251 \pm 5\%$ | ⟨run⟩; 11.81251 (baseline) | ⟨run⟩ |
-| pulse, `--convergence` | $p_{obs} = \log_2(E_{16}/E_{32})$ of the seam $\nabla\cdot\mathbf B$ at the same time | $\ge 0.8$ | 1.15 at baseline capture; $E_{16}$, $E_{32}$ ⟨run⟩ | ⟨run⟩ |
+| pulse, `runge-kutta-1` | non-zero exit with `not stage-splittable` in the log | refusal | refused, exit 1 | refused, exit 1 |
+| pulse, SSP (1,1) | max $\lvert\nabla\cdot\mathbf D\rvert$; max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$; $11.81251 \pm 5\%$ | $2.3\cdot10^{-15}$; 11.81251 | $3.3\cdot10^{-15}$; 11.81251 |
+| pulse, `--convergence` | $p_{obs} = \log_2(E_{16}/E_{32})$ of the seam $\nabla\cdot\mathbf B$ at the same time | $\ge 0.8$ | $E_{16} = 12.65$, $E_{32} = 5.700$: 1.150 | $E_{16} = 12.65$, $E_{32} = 5.700$: 1.150 |
 
 Long-horizon measurement, not a leg: on the pulse at fixed $h$ the seam max $\lvert\nabla\cdot\mathbf B\rvert$ grows
 from 6.9 to 1002 in 100 steps while the control stays at 0 and $\lVert\mathbf B\rVert$ changes by −3 %. The

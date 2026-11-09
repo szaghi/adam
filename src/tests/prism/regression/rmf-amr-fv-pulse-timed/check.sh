@@ -54,7 +54,7 @@ if ! (cd "$W" && mpirun -np "$NP" "$EXE" input.ini > log.txt 2>&1); then
    echo "   run failed, see $W/log.txt  FAIL"
    exit 1
 fi
-mapfile -t DTS < <(grep -a '^\[mpi-00000\]time step:' "$W/log.txt" | awk '{print $NF}')
+mapfile -t DTS < <(grep -a '^\[mpi-00000\]time step:' "$W/log.txt" | awk '{print $3}')
 if "$VENV_PY" -c "import sys; sys.exit(0 if float('${DTS[-1]}') < 0.99 * float('${DTS[0]}') else 1)"; then
    echo "   ${#DTS[@]} steps, last step ${DTS[-1]} against ${DTS[0]} (capped)  PASS"
 else

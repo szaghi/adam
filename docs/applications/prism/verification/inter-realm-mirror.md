@@ -75,9 +75,9 @@ cd src/tests/prism/regression/rmf-2realm-fd-pulse && ./check.sh
 |---|---|---|---|---|
 | `rmf-2realm`, `-asymK` | digest and residuals against their α goldens | `rtol = 1e-6`, `atol = 1e-3` | pass | pass |
 | `rmf-2realm-stagesync` | digest against its β golden and against the single-realm `rmf` golden | `rtol = 1e-6`, `atol = 1e-3` | pass | pass |
-| fd-pulse, β | max $\lvert\nabla\cdot\mathbf D\rvert$, max $\lvert\nabla\cdot\mathbf B\rvert$, both realms | $\le 10^{-13}$ | 0, 0 (both realms) | ⟨run⟩ |
-| fd-pulse, health | both realms reach 100 %, both divergence histories exist | — | pass | ⟨run⟩ |
-| fd-pulse, α (negative control) | max $\lvert\nabla\cdot\mathbf B\rvert$ above the bound on at least one realm | $> 10^{-13}$ | $4.56\cdot10^{2}$ (both realms) | ⟨run⟩ |
+| fd-pulse, β | max $\lvert\nabla\cdot\mathbf D\rvert$, max $\lvert\nabla\cdot\mathbf B\rvert$, both realms | $\le 10^{-13}$ | 0, 0 (both realms) | 0, 0 (both realms) |
+| fd-pulse, health | both realms reach 100 %, both divergence histories exist | — | pass | pass |
+| fd-pulse, α (negative control) | max $\lvert\nabla\cdot\mathbf B\rvert$ above the bound on at least one realm | $> 10^{-13}$ | $4.56\cdot10^{2}$ (both realms) | $4.56\cdot10^{2}$ (both realms) |
 
 Seam localisation under α (`rmf-2realm`, measured before the α golden was ratified), max $\lvert B_z\rvert$ by
 distance from the seam:

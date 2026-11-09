@@ -63,7 +63,7 @@ PRISM_EXE=$PWD/../../../../../exe/adam_prism_fnl ./check.sh        # FNL
 | fields | every checkpoint field ($\mathbf B$, $\mathbf D$, $\mathbf J$, `div_*`, `res_*`) of the union equals the single realm on every cell | bitwise | 147456 cells, 27 fields | 147456 cells, 27 fields |
 | divergence histories | at every step the single-realm max $\lvert\nabla\cdot\mathbf D\rvert$ and max $\lvert\nabla\cdot\mathbf B\rvert$ equal the larger of the two realms' maxima | printed digits | pass | pass |
 | seam max $\lvert\nabla\cdot\mathbf B\rvert$, steps 1 → 5 | reported | — | 6.86 → 12.65 | 6.86 → 12.65 |
-| monitor | `WARNING: seam div(B) ... exceeds [IO].seam_divB_tol` in the split's log | fires | ⟨run⟩ warnings | ⟨run⟩ warnings |
+| monitor | `WARNING: seam div(B) ... exceeds [IO].seam_divB_tol` in the split's log | fires | 15 warnings | 15 warnings |
 
 Related pages: [seam div(B)](./seam-divergence) for the single-realm source; [inter-realm 1:1 seams](./inter-realm-mirror).
 

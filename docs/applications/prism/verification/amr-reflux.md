@@ -68,16 +68,16 @@ Each leg of `check.sh`, as coded:
 
 | Leg | Asserts | CPU | FNL |
 |---|---|---|---|
-| main, health | no error/abort/NaN; the time loop reaches 100 % | pass | ⟨run⟩ |
-| main, blocks | `nodes number` > 1 | ⟨run⟩ | ⟨run⟩ |
-| main, levels | both level 1 and level 2 present (a 2:1 jump) | ⟨run⟩ | ⟨run⟩ |
-| main, registration | `registered intra-realm AMR seam faces` > 0 | ⟨run⟩ | ⟨run⟩ |
-| main, reflux | last `reflux max\|F_coarse-F_fine_sum\|` > 0 | ⟨run⟩ | ⟨run⟩ |
-| control, levels | no level 2 | pass | ⟨run⟩ |
-| control, registration | exactly 0 faces | 0 | ⟨run⟩ |
-| control, reflux | no reflux line printed | pass | ⟨run⟩ |
-| parity, face count | np 1 = np 2, > 0 | ⟨run⟩ | ⟨run⟩ |
-| parity, per face | every face printed once per step at np 2, the values string-equal to np 1 | ⟨run⟩ | ⟨run⟩ |
+| main, health | no error/abort/NaN; the time loop reaches 100 % | pass | pass |
+| main, blocks | `nodes number` > 1 | 36 | 36 |
+| main, levels | both level 1 and level 2 present (a 2:1 jump) | 1, 2 | 1, 2 |
+| main, registration | `registered intra-realm AMR seam faces` > 0 | 4 | 4 |
+| main, reflux | last `reflux max\|F_coarse-F_fine_sum\|` > 0 | 1.510 | 1.510 |
+| control, levels | no level 2 | pass | pass |
+| control, registration | exactly 0 faces | 0 | 0 |
+| control, reflux | no reflux line printed | pass | pass |
+| parity, face count | np 1 = np 2, > 0 | 4 = 4 | 4 = 4 |
+| parity, per face | every face printed once per step at np 2, the values string-equal to np 1 | pass, 4 faces × 5 steps | pass, 4 faces × 5 steps |
 
 Related pages: [seam div(B)](./seam-divergence) runs the same grid on the FD path; [FV reflux on a capped last
 step](./reflux-capped-step) measures the conservation the register buys.

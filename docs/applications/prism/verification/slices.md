@@ -64,12 +64,12 @@ PRISM_EXE=$PWD/../../../../../exe/adam_prism_fnl ./check.sh --np "1 2"   # FNL
 
 | Leg | Asserts | Bound | CPU | FNL |
 |---|---|---|---|---|
-| oracle, every slice and field set (q, curl, div), per rank count | coordinates against the `[slice_N]` box; values against the recomputed interpolation, relative to the largest of the eight stencil values | coordinates $10^{-14}$; values $10^{-12}$ | ⟨run⟩ | ⟨run⟩ |
-| oracle, face ghosts | ghost slab equal to the same-level neighbour's interior slab, every field set (faces across the 2:1 seam counted, not checked) | bitwise | ⟨run⟩ | ⟨run⟩ |
-| decomposition | every `.mat` file at 2 and 4 ranks identical to the 1-rank file | bitwise | ⟨run⟩ | ⟨run⟩ |
-| truncation | the pre-placed 100000-byte file replaced by a file of the right size | file size | ⟨run⟩ | ⟨run⟩ |
-| non-dimensional | the oracle, with the extents divided by `L0` | as the oracle | ⟨run⟩ | ⟨run⟩ |
-| `--convergence` | observed order of the slice error, 16 → 32 cells | $\ge 1.8$ | ⟨run⟩ | ⟨run⟩ |
+| oracle, every slice and field set (q, curl, div), per rank count | coordinates against the `[slice_N]` box; values against the recomputed interpolation, relative to the largest of the eight stencil values | coordinates $10^{-14}$; values $10^{-12}$ | coordinates $\le 1.4\cdot10^{-17}$, values $\le 1.7\cdot10^{-14}$ (36 files, np 1, 2, 4) | coordinates $\le 1.7\cdot10^{-17}$, values $\le 1.6\cdot10^{-14}$ (24 files, np 1, 2) |
+| oracle, face ghosts | ghost slab equal to the same-level neighbour's interior slab, every field set (faces across the 2:1 seam counted, not checked) | bitwise | 0 (68 faces, 16 across levels skipped) | 0 (68 faces, 16 across levels skipped) |
+| decomposition | every `.mat` file at 2 and 4 ranks identical to the 1-rank file | bitwise | 24 files identical | 12 files identical (np 2) |
+| truncation | the pre-placed 100000-byte file replaced by a file of the right size | file size | pass | pass |
+| non-dimensional | the oracle, with the extents divided by `L0` | as the oracle | coordinates $1.8\cdot10^{-15}$, values $4.3\cdot10^{-16}$ | coordinates $8.9\cdot10^{-16}$, values $5.5\cdot10^{-16}$ |
+| `--convergence` | observed order of the slice error, 16 → 32 cells | $\ge 1.8$ | 1.98 | 1.98 |
 
 Input validation (1 rank): each leg must stop with the message and write no slice.
 

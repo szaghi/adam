@@ -61,10 +61,10 @@ Each leg asserts: the run reaches 100 % with no error/abort/NaN; the reflux line
 
 | Leg | Register lines (face × step) | max mismatch | Fields against the single realm | Backends |
 |---|---|---|---|---|
-| `small1` (register side on small blocks: each register face holds $2\times2$ realm-2 faces) | 320 | 0 | $\le 3.7\cdot10^{-15}$ | CPU, FNL |
-| `small2` (each realm-2 face scattered into 4 register faces) | 80 | 0 | $\le 3.7\cdot10^{-15}$ | CPU, FNL |
-| `one1` | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ |
-| `one2` | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ | ⟨run⟩ |
+| `small1` (register side on small blocks: each register face holds $2\times2$ realm-2 faces) | 320 | 0 | $\le 4.3\cdot10^{-15}$ | CPU, FNL |
+| `small2` (each realm-2 face scattered into 4 register faces) | 80 | 0 | $\le 4.3\cdot10^{-15}$ | CPU, FNL |
+| `one1` | 20 | 0 | $\le 4.9\cdot10^{-15}$ | CPU, FNL |
+| `one2` | 80 | 0 | $\le 4.9\cdot10^{-15}$ | CPU, FNL |
 
 Related pages: [inter-realm 1:1 seams](./inter-realm-mirror) on aligned blocks; [static AMR](./amr-reflux) for the
 register on intra-realm 2:1 faces.
