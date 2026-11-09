@@ -11,8 +11,9 @@ cuts and a spanwise average. This reads one checkpoint block by block on the mac
 - ``avg_*`` the x-y plane averaged over z (all cells),
 
 each with the density ``r``, the velocity ``u, v, w`` and the pressure ``p`` (gamma from the run's input, default 1.4),
-plus the cell-centre coordinates ``x, y, z`` of the uniform grid. One refinement level only (the runs it serves are
-uniform); a mixed grid is refused.
+plus the cell-centre coordinates ``x, y, z``. On a grid with refined blocks (S4c's static 2:1 box) the planes are on the
+finest grid: a coarser block's cells are repeated over the finer cells they cover (piecewise constant, as
+``tbl_oracle.averages`` does), and ``xy_dx`` holds each cell's own streamwise spacing, so a figure can mark the levels.
 
 Usage: field_slices.py <work> [--it N | --time T] [--x X] [--y Y] [--z Z] [--out FILE] (default <work>/slices-<it>.npz)
 """
@@ -73,10 +74,7 @@ def extract(work: Path, it: int | None, x: float | None, y: float | None, z: flo
                 lo = h5[f"{blk}-origin"][()][::-1] + ngc * d
                 n = np.array(h5[f"{blk}-r"].shape[::-1]) - 2 * ngc
                 geo.append((lo, d, n))
-    ds = np.array([g[1] for g in geo])
-    if np.ptp(ds, axis=0).max() > 1e-9 * ds.max():
-        raise SystemExit(f"{work}: more than one cell size, field_slices handles one level only")
-    d = ds[0]
+    d = np.min([g[1] for g in geo], axis=0)  # the finest spacing; every block's is an integer multiple (2:1 levels)
     lo = np.min([g[0] for g in geo], axis=0)
     hi = np.max([g[0] + g[2] * g[1] for g in geo], axis=0)
     n = np.rint((hi - lo) / d).astype(int)
@@ -87,13 +85,18 @@ def extract(work: Path, it: int | None, x: float | None, y: float | None, z: flo
     out = {f"{p}_{k}": np.full(shape, np.nan) for p, shape in (("xy", (n[0], n[1])), ("xz", (n[0], n[2])), ("yz", (n[1], n[2])))
            for k in keys}
     out |= {f"avg_{k}": np.zeros((n[0], n[1])) for k in keys}
+    out["xy_dx"] = np.full((n[0], n[1]), np.nan)
     count = np.zeros((n[0], n[1]))
     for path in files:  # pass 2: the planes
         with h5py.File(path, "r") as h5:
             for blk in block_names(h5):
-                b0 = np.rint((h5[f"{blk}-origin"][()][::-1] + ngc * d - lo) / d).astype(int)
+                db = h5[f"{blk}-dxdydz"][()][::-1]
+                rf = np.rint(db / d).astype(int)  # this block's finest cells per cell, per axis
+                b0 = np.rint((h5[f"{blk}-origin"][()][::-1] + ngc * db - lo) / d).astype(int)
                 q = {v: h5[f"{blk}-{v}"][()].transpose(2, 1, 0)[ngc:-ngc, ngc:-ngc, ngc:-ngc] for v in NAMES}
                 f = primitives(q, gamma)
+                if (rf > 1).any():
+                    f = {k: np.repeat(np.repeat(np.repeat(a, rf[0], axis=0), rf[1], axis=1), rf[2], axis=2) for k, a in f.items()}
                 nb = f["r"].shape
                 s = tuple(slice(b0[a], b0[a] + nb[a]) for a in range(3))
                 for k in keys:
@@ -102,6 +105,7 @@ def extract(work: Path, it: int | None, x: float | None, y: float | None, z: flo
                 if b0[2] <= cut[2] < b0[2] + nb[2]:
                     for k in keys:
                         out[f"xy_{k}"][s[0], s[1]] = f[k][:, :, cut[2] - b0[2]]
+                    out["xy_dx"][s[0], s[1]] = db[0]
                 if b0[1] <= cut[1] < b0[1] + nb[1]:
                     for k in keys:
                         out[f"xz_{k}"][s[0], s[2]] = f[k][:, cut[1] - b0[1], :]
