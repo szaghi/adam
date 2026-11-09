@@ -17,9 +17,12 @@
 #   hlld       EGLM on weno-riemann with HLLD
 #   amr        EGLM with runtime regrids every 5 steps to level 2 (a Loehner marker on the density, which acts at the
 #              runtime regrids only): rank 1 starts empty and the first regrid repopulates it
+#   split      the mhd-eglm input with the static balancing on (issue #123, [amr] balance_static, the default): the
+#              family is cut by block count, so at np N <= 4 every rank owns blocks and the children of one parent sit on
+#              different ranks through the whole run (the other cases set balance_static = .false. to keep their layout)
 # Each case runs on 1 and on N ranks. Asserted (ranks_oracle.py):
 #   - ownership: in the np N run every rank but 0 owns no block at step 0 (else the leg would exercise nothing), and
-#     in the amr case every rank owns blocks at the end;
+#     in the amr case every rank owns blocks at the end; in the split case every rank owns blocks at step 0;
 #   - identity: the np N run equals the np 1 run bitwise at the last checkpoint, every field, every cell.
 # Measured (P0/P2, FNL on 2 A30 GPUs, nvhpc 25.5): before the fix every MHD case aborted at np 2
 # ("dev_assign_to_device: device memory not allocated"), Euler ran; after it every case runs and is bitwise.
@@ -39,7 +42,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 GEN="$CASE_DIR/../gravity/make_atmosphere.py"
 NP=2
 source "$VERIF_DIR/legs.sh"
-legs_declare "repro euler mhd-none mhd-glm mhd-eglm limiter balanced hlld amr"
+legs_declare "repro euler mhd-none mhd-glm mhd-eglm limiter balanced hlld amr split"
 KEEP=0
 IT_SAVE=""
 
@@ -79,7 +82,7 @@ case_ini() { # case_ini <name> <ini>: write the input of a case
       euler)    "${gen[@]}" strat2d --steps 20 --cfl 0.4 --pulse 0.1 ;;
       mhd-none) "${gen[@]}" strat2d-mhdx --steps 20 --cfl 0.4 --pulse 0.1 --divergence-control none ;;
       mhd-glm)  "${gen[@]}" strat2d-mhdx --steps 20 --cfl 0.4 --pulse 0.1 --divergence-control glm ;;
-      mhd-eglm|limiter|amr) "${gen[@]}" strat2d-mhdx --steps 20 --cfl 0.4 --pulse 0.1 ;;
+      mhd-eglm|limiter|amr|split) "${gen[@]}" strat2d-mhdx --steps 20 --cfl 0.4 --pulse 0.1 ;;
       balanced) "${gen[@]}" strat2d-mhdx --steps 20 --cfl 0.4 --pulse 0.1 --balanced ;;
       hlld)     "${gen[@]}" strat2d-mhdx --steps 20 --cfl 0.4 --pulse 0.1 --riemann hlld ;;
       *)        echo "check.sh: unknown case '$name'" >&2 ; exit 2 ;;
@@ -88,6 +91,8 @@ case_ini() { # case_ini <name> <ini>: write the input of a case
    sed -i -e 's/^ni = .*/ni = 16/' -e 's/^nj = .*/nj = 16/' -e 's/^iu_ref_levels = .*/iu_ref_levels = 1/' \
           -e 's/^max_level = .*/max_level = 1/' -e 's/^ghost_poison = .*/ghost_poison = .false./' "$ini"
    if [[ -n $IT_SAVE ]]; then sed -i "s/^it_save = .*/it_save = $IT_SAVE/" "$ini" ; fi
+   # the static grid keeps its sibling-preserving layout (rank 0 owns the family) unless the case is split (issue #123)
+   if [[ $name != split ]]; then sed -i 's/^frequency = \(.*\)$/frequency = \1\nbalance_static = .false./' "$ini" ; fi
    case $name in
       repro)
          sed -i -e 's/^type = hydrostatic/type = wall-inviscid/' -e 's/^type = isothermal-atmosphere/type = uniform/' \
@@ -118,6 +123,7 @@ for name in $LEGS; do
    done
    one="$CASE_DIR/work-$TAG-$name-np1" ; many="$CASE_DIR/work-$TAG-$name-np$NP"
    own=(--empty-at-start) ; [[ $name == amr ]] && own+=(--filled-at-end)
+   [[ $name == split ]] && own=(--split-at-start)
    "$VENV_PY" "$CASE_DIR/ranks_oracle.py" ownership "$many" "${own[@]}" || FAILED=1
    "$VENV_PY" "$CASE_DIR/ranks_oracle.py" same "$one" "$many" || FAILED=1
    if [[ $KEEP -eq 0 ]]; then

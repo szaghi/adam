@@ -1496,6 +1496,8 @@ contains
          call self%set_initial_conditions(is_restart=self%io%restart)
          call self%amr_update
       enddo
+      ! PRISM regrids at initialization only: balance the blocks by count, sibling sets split (issue #123)
+      if (self%amr%balance_static) call self%rebalance
       call self%set_initial_conditions(is_restart=self%io%restart)
       call self%adam%make_comm_local_maps_ghost_bc
       self%time%time = 0._R8P

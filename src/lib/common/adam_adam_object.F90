@@ -53,6 +53,7 @@ type :: adam_object
       procedure, pass(self) :: make_comm_local_maps_ghost_bc !< Make communication/local maps of ghost cells.
       procedure, pass(self) :: mpi_gather_refinement_needed  !< Gather refinement needed.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes/blocks to processes, load balancing.
+      procedure, pass(self) :: rebalance                     !< Balance a grid that will not be derefined again (issue #123).
       procedure, pass(self) :: prune                         !< Prune nodes/blocks.
       procedure, pass(self) :: refine_uniform                !< Refine all blocks uniformly.
       procedure, pass(self) :: save_restart_files            !< Save restart files.
@@ -493,20 +494,43 @@ contains
    endif
    endsubroutine mpi_gather_refinement_needed
 
-   subroutine mpi_redistribute(self, q)
+   subroutine mpi_redistribute(self, q, split_siblings)
    !< Redistribute nodes/blocks to processes, load balancing.
-   class(adam_object), intent(inout) :: self !< ADAM.
-   real(R8P),          intent(inout) :: q(1:,              &
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
-                                          1-self%grid%ngc:,&
-                                          1:)!< Field cell centered variables.
+   class(adam_object), intent(inout)        :: self           !< ADAM.
+   real(R8P),          intent(inout)        :: q(1:,              &
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1:)          !< Field cell centered variables.
+   logical,            intent(in), optional :: split_siblings !< Allow a sibling set across ranks (`tree%mpi_redistribute`).
 
-   call self%tree%mpi_redistribute
+   call self%tree%mpi_redistribute(split_siblings=split_siblings)
    call self%maps%make_comm_local_maps(tree=self%tree)
    call self%field%mpi_redistribute(grid=self%grid, maps=self%maps, tree=self%tree, q=q)
 
    endsubroutine mpi_redistribute
+
+   subroutine rebalance(self, q)
+   !< Balance the blocks over the ranks by count, complete sibling sets split where the even cut falls in them, and rebuild the
+   !< maps (issue #123). Only for a grid that will not be derefined again (the static grids, `[amr] frequency = 0`, after the
+   !< initial AMR): `tree%derefine` needs every sibling set on one rank and stops if it finds one split. The per-block data of the
+   !< application (face data, probes, device copies) must be rebuilt after it, as after any AMR update.
+   class(adam_object), intent(inout) :: self             !< ADAM.
+   real(R8P),          intent(inout) :: q(1:,              &
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1:)            !< Field cell centered variables.
+   integer(I4P)                      :: nb_min, nb_max   !< Fewest and most blocks on a rank.
+   integer(I4P)                      :: ierr             !< MPI error status.
+
+   call self%mpi_redistribute(q=q, split_siblings=.true.)
+   call self%make_comm_local_maps_ghost_bc
+   call MPI_ALLREDUCE(self%field%blocks_number, nb_min, 1, MPI_INTEGER, MPI_MIN, MPI_COMM_WORLD, ierr)
+   call MPI_ALLREDUCE(self%field%blocks_number, nb_max, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD, ierr)
+   call mpih%print_message('blocks balanced over the ranks (static grid): '//trim(str(nb_min, .true.))//' to '// &
+                           trim(str(nb_max, .true.))//' blocks per rank')
+   endsubroutine rebalance
 
    subroutine prune(self, q, ijkl_prune, do_blocks_reorder)
    !< Prune nodes/blocks.

@@ -1051,7 +1051,7 @@ contains
    enddo
    endsubroutine import_refinements_needed
 
-   subroutine mpi_redistribute(self)
+   subroutine mpi_redistribute(self, split_siblings)
    !< Redistribute nodes to processes, load balancing.
    !<
    !< The nodes are distributed among all process exploiting the Morton ordering spatiality. Simply, the sorted list of codes are
@@ -1060,7 +1060,14 @@ contains
    !< the spatiality. The algorithm is sophisticated enough to place the siblings alternatively to the *left* or *right* process
    !< accordingly to where the split falls, namely to the *right* if the split falls in the first half of siblings or to the *left*
    !< if it falls in the second half.
-   class(tree_object), intent(inout) :: self             !< The tree.
+   !<
+   !< Keeping a complete sibling set on one rank is required only by derefinement (`derefine` and `field%derefine*` read the
+   !< `ratio` children locally, issue #123). With `split_siblings = .true.` (a grid that will never be derefined again: the
+   !< static grids, `[amr] frequency = 0`) the sorted codes are cut into `procs_number` contiguous chunks of `floor` or `ceiling`
+   !< of `nodes_number/procs_number` nodes: still a Morton split, no rank empty when `nodes_number >= procs_number`. Example: the
+   !< 120 blocks of a 2:1 box on 8 ranks go 15 each, against 20/13/19/17/13/19/19/0 keeping the sibling sets whole.
+   class(tree_object), intent(inout)        :: self             !< The tree.
+   logical,            intent(in), optional :: split_siblings   !< Allow a complete sibling set across ranks (no derefinement).
    integer(I8P), allocatable         :: codes_sorted(:)  !< List of (sorted) codes.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
    integer(I4P)                      :: p                !< Processes counter.
@@ -1069,8 +1076,28 @@ contains
    integer(I8P)                      :: block_index_new  !< New block index counter.
    integer(I8P)                      :: my_codes_number  !< Number of codes for each process for a balanced workload.
    integer(I4P)                      :: child_local_code !< Local numbering.
+   integer(I8P)                      :: n_codes          !< Number of codes.
 
    codes_sorted = self%codes() ! sorted list of codes
+   n_codes = size(codes_sorted, dim=1, kind=I8P)
+   if (present(split_siblings)) then
+      if (split_siblings) then
+         ! even contiguous chunks: the code c (1-based) goes to the rank floor((c-1) procs / n), its chunk holding floor or ceiling
+         ! of n / procs codes
+         p = -1_I4P
+         do c=1_I8P, n_codes
+            if (int(((c - 1_I8P) * int(mpih%procs_number, I8P)) / n_codes, I4P) /= p) then
+               p = int(((c - 1_I8P) * int(mpih%procs_number, I8P)) / n_codes, I4P)
+               block_index_new = 0_I8P
+            endif
+            block_index_new = block_index_new + 1_I8P
+            node_ptr => self%node(code=codes_sorted(c))
+            node_ptr%myrank_new = p
+            node_ptr%block_index_new = block_index_new
+         enddo
+         return
+      endif
+   endif
    my_codes_number = nint(real(size(codes_sorted, dim=1),R8P) / mpih%procs_number)
    ! initialize process rank and my codes number
    p = 0_I4P
@@ -1836,6 +1863,15 @@ contains
       mn = -(self%ratio-1)
       do n=1, derefined_number, self%ratio
          first_child => self%node(code=self%node_to_derefine(n))
+         ! the field averages the ratio children on the first child's rank: a set split across ranks (mpi_redistribute with
+         ! split_siblings, the static grids of issue #123) would read missing children as block 0; the tree is replicated, so every
+         ! rank takes the same decision
+         do i=1, self%ratio - 1
+            node_ptr => self%node(code=self%node_to_derefine(n+i))
+            if (node_ptr%myrank /= first_child%myrank) &
+               call mpih%error_stop(msg=': tree%derefine: the children of node '//trim(str(self%parent(code=first_child%code)))// &
+                                        ' are on more than one rank; a grid balanced with split sibling sets cannot be derefined')
+         enddo
          if (mpih%myrank == first_child%myrank) then
             mn = mn + self%ratio
             self%block_derefined(1,(mn-1)/self%ratio+1) = self%parent(code=first_child%code)

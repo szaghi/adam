@@ -117,6 +117,7 @@ type, extends(realm_object) :: prism_common_object
    contains
       ! AMR methods (issue #22 F0: promoted from prism_cpu_object — host-side, backend-agnostic)
       procedure, pass(self) :: amr_update                    !< Do AMR update (init-time only where amr_locked_).
+      procedure, pass(self) :: rebalance                     !< Balance the static grid's blocks by count (issue #123).
       procedure, pass(self) :: mark_by_geometry              !< Mark blocks to be refined by a primitive geometric box.
       procedure, pass(self) :: mark_by_j_vec_total_variation !< Mark by j_vec total variation (backend override; common
                                                              !< default error_stops — the marker needs backend ghost/coil
@@ -225,6 +226,21 @@ contains
       call self%sync_probes
    endif
    endsubroutine amr_update
+
+   subroutine rebalance(self)
+   !< Balance the blocks over the ranks by count, complete sibling sets split (issue #123), after the initial AMR. PRISM regrids at
+   !< initialization only (`amr_locked_`), so its grid is never derefined afterwards. The per-block data are rebuilt as
+   !< `amr_update` rebuilds them after a grid change; the caller imposes the initial conditions (and the device copies) after it.
+   class(prism_common_object), intent(inout) :: self !< The equation.
+
+   call self%adam%rebalance(q=self%q)
+   call self%initialize_block_face_data
+   if (self%probes%is_built) then
+      call self%probes%build_stencils(grid=self%adam%grid, field=self%adam%field, ni=self%ni, nj=self%nj, nk=self%nk, &
+                                      blocks_number=self%blocks_number)
+      call self%sync_probes
+   endif
+   endsubroutine rebalance
 
    subroutine mark_by_geometry(self, box_emin, box_emax, target_level, do_init)
    !< Mark blocks to be refined by a primitive axis-aligned box (deterministic, solution-independent).

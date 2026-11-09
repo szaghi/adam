@@ -3300,6 +3300,9 @@ contains
          call self%compute_phi
          call self%amr_update
       enddo
+      ! a static grid is never derefined again: balance its blocks by count, sibling sets split (issue #123, key
+      ! [amr] balance_static, default on); the initial conditions below are imposed on the final layout
+      if (self%amr%frequency == 0_I4P .and. self%amr%balance_static) call self%adam%rebalance(q=self%q)
       call self%ic%set_initial_conditions(field=self%adam%field, q=self%q)
       call self%compute_phi
       call self%adam%make_comm_local_maps_ghost_bc

@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Oracle of the FLUME empty-rank leg DV-1 (issue #82): block ownership per rank, and np N against np 1 bitwise.
 
-    ranks_oracle.py ownership <work> --empty-at-start [--filled-at-end]
+    ranks_oracle.py ownership <work> [--empty-at-start] [--filled-at-end] [--split-at-start]
     ranks_oracle.py same <work_np1> <work_npN>
 
 `ownership` counts the blocks of every rank in the first and the last checkpoint of a run (the blocks of the
 `<basename>-<step>-proc<rank>.h5` file of each rank). `--empty-at-start` asserts that every rank but rank 0 owns no
 block in the first checkpoint, so the leg exercises an empty rank and cannot become vacuous if the distribution changes;
 `--filled-at-end` asserts that every rank owns a block in the last one (a runtime regrid repopulated them).
+`--split-at-start` asserts that every rank owns a block in the first one: the static balancing ([amr] balance_static,
+issue #123) split the one sibling family across the ranks, so the time loop runs with the children of one parent on
+different ranks.
 
 `same` compares two runs of the same input on 1 and on N ranks at their last common checkpoint, cell by cell (matched by
 centre) and field by field, and passes only when every value is equal (bitwise). With every block on rank 0 the
@@ -54,6 +57,9 @@ def ownership(args: argparse.Namespace) -> int:
     if args.empty_at_start and any(n for r, n in start.items() if r > 0):
         print(f"   {args.work.name}: a rank other than 0 owns blocks at step {first}: no empty rank exercised  FAIL")
         ok = False
+    if args.split_at_start and not (all(start.values()) and len([n for n in start.values() if n]) > 1):
+        print(f"   {args.work.name}: a rank owns no block at step {first}: the sibling family was not split  FAIL")
+        ok = False
     if args.filled_at_end and not all(end.values()):
         print(f"   {args.work.name}: a rank still owns no block at step {last}: the regrid did not repopulate it  FAIL")
         ok = False
@@ -92,6 +98,8 @@ def main() -> int:
     p.add_argument("work", type=Path)
     p.add_argument("--empty-at-start", action="store_true", help="ranks > 0 own no block at the first checkpoint")
     p.add_argument("--filled-at-end", action="store_true", help="every rank owns a block at the last checkpoint")
+    p.add_argument("--split-at-start", action="store_true",
+                   help="every rank owns a block at the first checkpoint: the static balancing split the sibling family (#123)")
     p = sub.add_parser("same")
     p.add_argument("a", type=Path, help="the run on 1 rank")
     p.add_argument("b", type=Path, help="the run on N ranks")

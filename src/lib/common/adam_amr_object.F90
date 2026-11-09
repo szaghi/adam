@@ -80,6 +80,7 @@ type :: amr_object
    integer(I4P)                         :: markers_number=0_I4P !< AMR number of markers.
    integer(I4P)                         :: regrid_prolongation=AMR_PROLONGATION_LINEAR !< Refined blocks filling.
    logical                              :: regrid_prolongation_given=.false. !< `regrid_prolongation` set by the input.
+   logical                              :: balance_static=.true.!< Balance a static grid by block count after the AMR (#123).
    type(amr_marker_object), allocatable :: markers(:)           !< AMR array of marker objects.
    contains
       ! public methods
@@ -100,6 +101,7 @@ contains
    desc =       mpih%myrankstr//'amr main data'                                    //NL
    desc = desc//mpih%myrankstr//'  iters:          '//trim(str(self%iters         ))//NL
    desc = desc//mpih%myrankstr//'  frequency:      '//trim(str(self%frequency     ))//NL
+   desc = desc//mpih%myrankstr//'  balance_static: '//trim(str(self%balance_static))//NL
    desc = desc//mpih%myrankstr//'  prolongation:   '//prolongation_name(self%regrid_prolongation)//NL
    desc = desc//mpih%myrankstr//'  markers number: '//trim(str(self%markers_number))
    if (self%markers_number>0) then
@@ -158,6 +160,11 @@ contains
                                   '" (expected: linear | conservative | conservative-state)')
       endselect
    endif
+
+   ! optional: a grid that is never regridded at runtime (the apps decide which: FLUME `frequency = 0`, PRISM always) is balanced
+   ! by block count after the initial AMR, complete sibling sets split (issue #123); `.false.` keeps the sibling-preserving layout
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='balance_static', val=self%balance_static, error=error)
+   if (error > 0) self%balance_static = .true.
 
    allocate(self%markers(self%markers_number))
    do i_marker=1, self%markers_number

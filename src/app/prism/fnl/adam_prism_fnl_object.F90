@@ -116,6 +116,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu     !< Allocate GPU data.
       procedure, pass(self) :: amr_update       !< Override: the common AMR update, then the device PML twins.
+      procedure, pass(self) :: rebalance        !< Override: the common rebalance (issue #123), then the device PML twins.
       procedure, pass(self) :: copy_cpu_gpu     !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_gpu_cpu     !< Copy data from GPU to CPU.
       procedure, pass(self) :: destroy          !< Free device data owned by this realm.
@@ -939,6 +940,16 @@ contains
    call self%prism_common_object%amr_update
    call self%initialize_pml_fnl
    endsubroutine amr_update
+
+   subroutine rebalance(self)
+   !< Balance the static grid's blocks by count (issue #123): the common host rebalance (which rebuilds the per-block face data),
+   !< then the device PML twins from the rebuilt host PML, as amr_update does. The device fields and maps follow in
+   !< initialize_forest.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%prism_common_object%rebalance
+   call self%initialize_pml_fnl
+   endsubroutine rebalance
 
    ! IO methods
    subroutine load_restart_files(self, t, time)
@@ -5913,6 +5924,8 @@ contains
          call self%set_initial_conditions(is_restart=self%io%restart)
          call self%amr_update ! host-side (promoted to prism_common, issue #22 F0); device resync below
       enddo
+      ! PRISM regrids at initialization only: balance the blocks by count, sibling sets split (issue #123)
+      if (self%amr%balance_static) call self%rebalance
       call self%set_initial_conditions(is_restart=self%io%restart)
       call self%adam%make_comm_local_maps_ghost_bc
       ! Device topology resync (issue #22 F0/GA2): amr_update rebuilt the host tree/field/maps and
