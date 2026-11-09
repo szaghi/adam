@@ -124,25 +124,21 @@ shock tube against its exact solution; the [tutorial](/tutorials/flume/sod) cont
 The animations are made by `docs/scripts/make_gallery_runs.sh` (committed verification inputs, only the checkpoint
 period changed) and `docs/scripts/make_gallery.py`; the figures by `src/tests/flume/verification/make_doc_figures.py`.
 
-## Milestones
+## What is verified
 
-Each milestone links to its section of the [verification timeline](./verification/), where every case has an oracle
+Each capability links to its section of the [verification catalog](./verification/), where every case has an oracle
 run on both backends.
 
-| Milestone | Content |
+| Capability | Content |
 |---|---|
-| [M1 · #35](./verification/#m1-·-euler-core-35) | Compressible Euler: Riemann problems, design order, immersed boundary, reflux, restart |
-| [M2 · #41](./verification/#m2-·-ideal-mhd-41) | Ideal MHD with mixed GLM cleaning |
-| [M3 · #47](./verification/#m3-·-riemann-fluxes-eglm-positivity-limiter-47) | `weno-riemann` (Euler and MHD), EGLM cleaning, positivity limiter |
-| [M4 · #65](./verification/#m4-·-dissipative-terms-65) | Viscosity, heat conduction, Ohmic resistivity, no-slip walls, conservative across seams |
-| [M5 · #74](./verification/#m5-·-runtime-amr-74) | Runtime AMR, restarts across regrids |
-| [M6 · #68](./verification/#m6-·-seam-accuracy-and-divergence-68) | Seam accuracy and divergence at 2:1 faces |
-| [M7 · #73](./verification/#m7-·-external-gravity-73) | External gravity |
-| [M8 · #81](./verification/#m8-·-self-gravity-81) | Self-gravity, periodic and isolated, uniform and AMR |
-| [M9 · #91](./verification/#m9-·-dual-energy-91) | Dual energy (`euler-de`) and the Jeans refinement marker |
-| [M10 · #92](./verification/#m10-·-passive-scalars-92) | Passive scalars |
-| [M11 · #93](./verification/#m11-·-radiative-cooling-93) | Optically thin radiative cooling |
-| [M12 · #94](./verification/#m12-·-sink-particles-94) | Sink particles |
-| [M13 · #100](./verification/#m13-·-isothermal-and-barotropic-equations-of-state-100) | Isothermal and barotropic equations of state, Euler and MHD |
-| [Turbulence · #119](./verification/#_119-·-turbulence) (open) | Subgrid-scale models, `hybrid-kep-weno`, wall models, digital-filter inflow, mass-flow forcing |
-| [STREAmS · #121](./verification/#_121-·-streams-roadmap) (open) | Sutherland viscosity, non-reflecting faces, shock generator, wall-modelled shock/boundary-layer interaction |
+| [Compressible Euler](./verification/#compressible-euler) | Riemann problems, design order, immersed boundary, reflux, restart; `weno-riemann`; isothermal and barotropic equations of state, dual energy (`euler-de`), passive scalars, optically thin radiative cooling (M1, M3, M9–M11, M13) |
+| [Ideal MHD](./verification/#ideal-mhd) | the MHD waves and classic problems, mixed GLM and EGLM cleaning, `weno-riemann`, the positivity limiter, quadtrees (M2, M3, M13) |
+| [Viscosity, heat conduction and resistivity](./verification/#viscosity-heat-conduction-and-resistivity) | viscosity, heat conduction, Ohmic resistivity, no-slip walls, conservative across seams (M4) |
+| [External gravity](./verification/#external-gravity) | the force and its energy source, stratified atmospheres, the well-balanced mode, Rayleigh–Taylor (M7) |
+| [Self-gravity](./verification/#self-gravity) | periodic and isolated, uniform and AMR, the Jeans refinement marker (M8, M9) |
+| [Sink particles](./verification/#sink-particles) | creation, accretion, mergers, restarts, runtime AMR (M12) |
+| [Accuracy across 2:1 seams](./verification/#accuracy-across-2-1-seams) | order, divergence and shocks at 2:1 faces, the operators that lift the cap (M6) |
+| [Runtime AMR](./verification/#runtime-amr) | regrids during the run, restarts across regrids, forests that regrid across their seams (M5) |
+| [Turbulence](./verification/#turbulence) (open) | subgrid-scale models, `hybrid-kep-weno`, wall models, digital-filter inflow, mass-flow forcing ([#119](https://github.com/szaghi/adam/issues/119)) |
+| [Supersonic boundary layers](./verification/#supersonic-boundary-layers-boundaries-and-shock-interaction) (open) | Sutherland viscosity, non-reflecting faces, shock generator, wall-modelled shock/boundary-layer interaction ([#121](https://github.com/szaghi/adam/issues/121)) |
+| [Infrastructure](./verification/#infrastructure) | ghost cells, the non-finite guard, ranks without blocks, the non-dimensional form |

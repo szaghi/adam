@@ -97,7 +97,7 @@ relative.
 | GLM | $2.35\cdot10^{-4}$ | $2.03\cdot10^{-4}$ | $1.10\cdot10^{-3}$ | $6.86\cdot10^{-4}$ |
 | EGLM | $2.45\cdot10^{-4}$ | $2.05\cdot10^{-4}$ | $1.91\cdot10^{-4}$ | $2.72\cdot10^{-6}$ |
 
-Related cases: [G2](./design-record#g2-the-glm-damping-length-on-a-seam) varies the GLM damping length on the same
+Related cases: [G2](./design-record#the-glm-damping-length-on-a-seam) varies the GLM damping length on the same
 `cpaw` leg; [EGLM reflux](./eglm-reflux) (G3a, G3b) reruns the `loop` leg and fixes #78;
 the uniform-grid cleaning is [GLM divergence cleaning](../mhd/glm-cleaning) and [EGLM cleaning](../mhd/eglm).
 

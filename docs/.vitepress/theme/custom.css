@@ -157,3 +157,24 @@
 }
 .vp-doc .adam-gallery strong { padding: 8px 12px 0; font-size: 14px; }
 .vp-doc .adam-gallery span { padding: 2px 12px 10px; }
+
+/* Verification catalogs (.adam-gallery.adam-catalog): the same cards, three per row on wide screens, a smaller figure,
+   the card's tag (<em>: physics / contract) at its foot. A page without a figure is a text card. */
+@media (min-width: 960px) {
+  .vp-doc .adam-gallery.adam-catalog { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.vp-doc .adam-catalog { gap: 12px; }
+.vp-doc .adam-catalog img { aspect-ratio: 16 / 10; padding: 4px; }
+.vp-doc .adam-catalog strong { padding-top: 8px; line-height: 1.35; }
+.vp-doc .adam-catalog span { flex: 1; }
+.vp-doc .adam-catalog em {
+  align-self: flex-start;
+  margin: 0 12px 10px;
+  padding: 1px 8px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: 0.02em;
+  color: var(--vp-c-text-2);
+}

@@ -1,4 +1,4 @@
-# Plane channel and the wall model (T3)
+# Plane channel and the wall model
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|

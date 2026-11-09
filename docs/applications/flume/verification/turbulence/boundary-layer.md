@@ -1,4 +1,4 @@
-# Compressible boundary layer (T3.7)
+# Compressible boundary layer
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|

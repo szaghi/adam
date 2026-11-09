@@ -1,4 +1,4 @@
-# Subgrid-scale models (T1)
+# Subgrid-scale models
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
@@ -26,13 +26,13 @@ campaign reruns the Taylor-Green vortex of T0.3 with each model.
 
 | Setup | |
 |---|---|
-| flow, scheme, run | as the [ILES baseline](./iles-baseline#taylor-green-vortex-t0-3-t0-4): Re 1600, M 0.1, WENO-5, `runge-kutta-ssp-54`, CFL 0.5, 4 ranks on A30 |
+| flow, scheme, run | as the [ILES baseline](./iles-baseline#taylor-green-vortex): Re 1600, M 0.1, WENO-5, `runge-kutta-ssp-54`, CFL 0.5, 4 ranks on A30 |
 | models | Vreman, WALE, Sigma, default constants (not tuned) |
 | grids | $64^3$, $128^3$; Vreman also at $M_0 = 1.25$, $128^3$ |
 
 ![The models and the 2:1 box](/flume/tgv-models.png)
 
-*Top: M 0.1 at $64^3$; middle: at $128^3$; bottom: a [2:1 box](./iles-baseline#a-static-2-1-box-t0-6) on the centre of the $64^3$ grid against the uniform grids.*
+*Top: M 0.1 at $64^3$; middle: at $128^3$; bottom: a [2:1 box](./iles-baseline#a-static-2-1-box) on the centre of the $64^3$ grid against the uniform grids.*
 
 | Case, M 0.1 | Peak $-dK/dt$ | at $t$ | Peak $Z$ | Share to the peak | $K(20)$ |
 |---|---|---|---|---|---|
@@ -70,7 +70,7 @@ Against the 512³ DNS (L2 errors over $0.3 < t < 19.7$; the full table is in [Ag
   ([T2](./hybrid-scheme)) necessary before any model is recommended.
 
 The constants come from other discretizations. The same models in decaying isotropic turbulence are in
-[the ILES baseline](./iles-baseline#decaying-compressible-isotropic-turbulence-t0-5); on the hybrid scheme in
+[the ILES baseline](./iles-baseline#decaying-compressible-isotropic-turbulence); on the hybrid scheme in
 [T2](./hybrid-scheme).
 
 ## Not done

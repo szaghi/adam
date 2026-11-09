@@ -1,4 +1,4 @@
-# Shock/boundary-layer interaction (S4b)
+# Shock/boundary-layer interaction
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
@@ -79,9 +79,9 @@ this interaction over $35<x<60$, the cross-flow face at the impingement $x=60$ (
   from the velocity at the 3rd cell, $0.21\,\delta_i$ or $0.12\,\delta_0$ above the wall, which the near-wall
   deceleration under the adverse gradient reaches late. S4c separates the near-wall grid from the model.
 
-## S4c: a refined wall grid under the interaction
+## A refined wall grid under the interaction
 
-The S4b case with one more level, 2:1, under the interaction (`tbl_cases_s4c.txt`). The wall model and its matching
+Run S4c is the S4b case with one more level, 2:1, under the interaction (`tbl_cases_s4c.txt`). The wall model and its matching
 point (the 3rd cell) are unchanged, so in the refined box the matching height halves with the cells. A bubble in this
 run points at the near-wall grid; none points at the equilibrium model.
 

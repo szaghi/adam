@@ -1,4 +1,4 @@
-# The ILES baseline (T0)
+# The ILES baseline
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
@@ -27,7 +27,7 @@ page.
 | ht1 | T0.5 | `isotropic-turbulence` field: every shell, $K$, dilatation | shells $7\cdot10^{-15}$, $K$ $1.5\cdot10^{-14}$ |
 | ht2 | T0.5 | one rank against 2 on the random field | $7\cdot10^{-15}$ |
 
-## Taylor-Green vortex (T0.3, T0.4)
+## Taylor-Green vortex
 
 | Setup | |
 |---|---|
@@ -67,7 +67,7 @@ The share is that of the energy lost until the peak of $-dK/dt$ not accounted fo
 - **Resolution matters more than scheme and order at $128^3$.** HLLC gains a few percent, WENO-9 reaches $Z$ 4.45. WENO-7 is below WENO-5 ($Z$ 3.17 against 3.40); the cause is not established.
 - **At $M_0 = 1.25$ the numerical share falls with the resolution**: 80 %, 46 %, 20 %.
 
-## A static 2:1 box (T0.6)
+## A static 2:1 box
 
 | Setup | |
 |---|---|
@@ -93,7 +93,7 @@ The share is that of the energy lost until the peak of $-dK/dt$ not accounted fo
   does not telescope, so $\int p\,\theta\,dV$ picks up the mean pressure ($p \approx 71$ at M 0.1) times a nonzero discrete
   $\int\theta\,dV$. This explanation is untested. The budget and the numerical share are therefore not reported on a 2:1 grid.
 
-## Decaying compressible isotropic turbulence (T0.5)
+## Decaying compressible isotropic turbulence
 
 | Setup | |
 |---|---|

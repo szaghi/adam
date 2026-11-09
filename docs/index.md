@@ -123,7 +123,7 @@ the exact Riemann solution. Next: the [tutorials](/tutorials/).
 </div>
 
 Verification figures, each linked to its case in the [FLUME](/applications/flume/verification/) and
-[PRISM](/applications/prism/verification/) timelines:
+[PRISM](/applications/prism/verification/) verification catalogs:
 
 <div class="adam-gallery">
 

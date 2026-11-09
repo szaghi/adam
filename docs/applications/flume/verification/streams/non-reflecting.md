@@ -1,4 +1,4 @@
-# Non-reflecting boundary (S2)
+# Non-reflecting boundary
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|

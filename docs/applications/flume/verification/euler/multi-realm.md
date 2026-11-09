@@ -145,5 +145,5 @@ ghosts).
   refine; the positivity limiter, `[reference]`, the gravity equilibrium and self-gravity on a multi-realm run. The
   inter-realm seam faces carry no limiting factor (the 2:1 seam flux synchronisation of
   [#50](https://github.com/szaghi/adam/issues/50) is intra-realm).
-- Runtime AMR across the seams of a forest is [multi-realm runtime AMR](../runtime-amr/multi-realm)
+- Runtime AMR across the seams of a forest is [runtime AMR on a forest](../runtime-amr/multi-realm)
   ([#110](https://github.com/szaghi/adam/issues/110), legs 7–13).

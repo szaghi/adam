@@ -10,11 +10,11 @@ verification cases that freeze the outcome are [AO](./order-across-seams), [AD](
 
 | Study | Question | Conclusion |
 |---|---|---|
-| [B1](#b1-the-caps-in-a-2-d-prototype) | do the 1-D order caps of a 2:1 seam hold in 2-D, and do the corners explain AO's L∞ order? | yes; no |
-| [B2](#b2-a-sensor-gated-reflux-prototype) | does a sensor-gated reflux recover the order and keep the shocks? | yes, near-conservatively: built as `reflux_policy = troubled` |
-| [B3](#b3-footprint-of-the-6-point-restriction) | shift-inward or two-pass footprint for the 6-point restriction? | shift-inward |
-| [E0](#e0-the-shock-crossing-defect-is-a-capturing-error) | does a seam operator cause the defect behind a crossing shock? | no: a capturing error |
-| [G2](#g2-the-glm-damping-length-on-a-seam) | would a per-level GLM damping length matter on a seam? | no: not added |
+| [B1](#the-caps-in-a-2-d-prototype) | do the 1-D order caps of a 2:1 seam hold in 2-D, and do the corners explain AO's L∞ order? | yes; no |
+| [B2](#a-sensor-gated-reflux-prototype) | does a sensor-gated reflux recover the order and keep the shocks? | yes, near-conservatively: built as `reflux_policy = troubled` |
+| [B3](#footprint-of-the-6-point-restriction) | shift-inward or two-pass footprint for the 6-point restriction? | shift-inward |
+| [E0](#the-shock-crossing-defect-is-a-capturing-error) | does a seam operator cause the defect behind a crossing shock? | no: a capturing error |
+| [G2](#the-glm-damping-length-on-a-seam) | would a per-level GLM damping length matter on a seam? | no: not added |
 
 The prototypes run from `src/tests/flume/verification/amr-proto/check.sh` (`--legs b1,b2,b3`, a leg runs only when the
 ones before it pass; `--long` for the finer ladders). They are NumPy models in `proto2d.py`, not FLUME runs: a 2:1 box
@@ -22,9 +22,9 @@ $[0.25, 0.75]^2$ on the periodic unit square, the coarse cells under the box hol
 and the FLUME seam operators (`mean` or 6-point `lag6` restriction, `cubic` or `quintic` prolongation, reflux on or
 off) reimplemented on it.
 
-## B1: the caps in a 2-D prototype
+## The caps in a 2-D prototype
 
-**Tried.** $u_t + u_x + u_y = 0$, $\sin 2\pi x \sin 2\pi y$ to $t = 1$, conservative finite differences with the
+Study B1. **Tried.** $u_t + u_x + u_y = 0$, $\sin 2\pi x \sin 2\pi y$ to $t = 1$, conservative finite differences with the
 fifth-order linear upwind flux, RK4 with $\Delta t \propto h^{5/4}$. Every arm of restriction × prolongation × reflux
 against the uniform coarse control, $N$ = 128 → 256 (`--long`); the L∞ error split into corner, edge and interior
 regions (within 3 coarse cells of a box corner, of a box edge, the rest). `check.sh` asserts lower bounds only: uniform
@@ -51,9 +51,9 @@ the transfers. The 6-point restriction with the quintic prolongation and no refl
 present. The corners hold the maximum error in every arm but converge at the same rate as edges and interior, so they
 do not explain the L∞ order 1.46 of [AO](./order-across-seams)'s Euler vortex.
 
-## B2: a sensor-gated reflux prototype
+## A sensor-gated reflux prototype
 
-**Tried.** The B1 grid with WENO5-JS and Lax–Friedrichs splitting (the weights of `adam_weno_object`). Three reflux
+Study B2. **Tried.** The B1 grid with WENO5-JS and Lax–Friedrichs splitting (the weights of `adam_weno_object`). Three reflux
 policies on `lag6`/`quintic`: `always`, `never`, and `troubled`, a coarse box face refluxed only where the sensor
 $r = \min_k w_k/d_k$ of the coarse face or of either fine face is below $\tau = 0.2$. Legs: the smooth B1 advection,
 and Burgers pulses crossing the box coarse to fine (`c2f`), fine to coarse (`f2c`), and a weak $10^{-3}$ pulse that
@@ -82,9 +82,9 @@ unflagged smooth faces. A missed weak shock costs 0.007 to 0.011 cells and $3\cd
 mass. The order is recovered only together with the high-order transfers: with the mean restriction it stays at 2
 (B1). Built in FLUME as [`reflux_policy = troubled`](./reflux-policy).
 
-## B3: footprint of the 6-point restriction
+## Footprint of the 6-point restriction
 
-**Tried.** The 6-point restriction reaches 2 to 3 fine cells beyond the coarse cell, so near the edge of a fine block it
+Study B3. **Tried.** The 6-point restriction reaches 2 to 3 fine cells beyond the coarse cell, so near the edge of a fine block it
 needs data the block does not hold. Two footprints, on the B1 problem without reflux, with the fine box split into
 blocks of $B$ = 4, 6, 8, 16 cells or left whole, $N$ = 48 / 96 / 192 (`--long`):
 - **shift-inward:** the stencil shifts inside the donor block (one-sided, needs $B \ge 6$);
@@ -114,10 +114,10 @@ buys a factor 4 in L1 only with the cubic prolongation, at the cost of a second 
 C1 implements shift-inward (`seam_restriction_code`,
 [`adam_seam_interpolation_library.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_seam_interpolation_library.F90)).
 
-## E0: the shock-crossing defect is a capturing error
+## The shock-crossing defect is a capturing error
 
-**Tried.** [AS](./shock-crossing) finds an $O(1)$, non-converging defect behind a shock that crosses a 2:1 face, and
-[D2](./order-across-seams#d2-the-limited-fills) shows that no fill reduces it. E0 ran the AS `c2f` crossings (Sod
+Study E0. **Tried.** [AS](./shock-crossing) finds an $O(1)$, non-converging defect behind a shock that crosses a 2:1 face, and
+[D2](./order-across-seams#the-limited-fills) shows that no fill reduces it. E0 ran the AS `c2f` crossings (Sod
 $N = 200$ and 400, RJ2a $N = 256$; FNL, 2 ranks, CPU re-runs agree to the printed digits) for every combination of fill
 (`restriction-compatible`, the one fill with $R \circ P = I$ under `mean`, and `tricubic`), restriction (`mean`,
 `lagrange6`) and reflux (on, off). No `check.sh` leg runs E0; the inputs come from
@@ -152,9 +152,9 @@ wide, is squeezed into finer cells: the transition emits a spurious wave whose a
 strength, not with the spacing. The remedy is to keep shocks off the seams by refining ahead of them
 ([runtime AMR](../runtime-amr/), [numerics](../../numerics#adaptive-mesh-refinement)).
 
-## G2: the GLM damping length on a seam
+## The GLM damping length on a seam
 
-**Tried.** The GLM damping rate is $c_h^2/c_p^2 = \alpha\, c_h / L$ with `[mhd] glm_damping_length` $L$ a fixed length
+Study G2. **Tried.** The GLM damping rate is $c_h^2/c_p^2 = \alpha\, c_h / L$ with `[mhd] glm_damping_length` $L$ a fixed length
 or `min-cell` (the finest spacing; under runtime AMR frozen at the spacing of `max_level`). G2 brackets a per-level
 length between the coarse and the finest spacings on the source-free CPAW of [AD](./divergence-across-seams) (`cpaw`
 leg, `glm_ch` 2.0, `glm_alpha` 0.18, refined and uniform $N$ = 64 / 128, 10 periods, FNL, 2 ranks), measuring the seam

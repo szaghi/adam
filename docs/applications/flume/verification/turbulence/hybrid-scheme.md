@@ -1,4 +1,4 @@
-# The hybrid central/WENO scheme (T2)
+# The hybrid central/WENO scheme
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
@@ -142,7 +142,7 @@ $0.3 < t < 19.7$ relative to the DNS, $-dK/dt$ over the same window. This table 
   $128^3$. All three models also worsen WENO-5. At Re 1600 the subgrid scales are not far from resolved, and the
   constants were not tuned; on these integrals no model is recommended.
 - **WENO-9** at $128^3$ (0.177) is much closer than WENO-5 (0.278); **WENO-7** is further (0.291), see
-  [the ILES baseline](./iles-baseline#taylor-green-vortex-t0-3-t0-4).
+  [the ILES baseline](./iles-baseline#taylor-green-vortex).
 - **The skin.** On the 2:1 box the WENO skin (0.269) is further than uniform $64^3$ (0.237); the central skin ties it on
   $-dK/dt$ (0.236) and beats it on $Z$ (0.580 against 0.615). Smooth flow only.
 

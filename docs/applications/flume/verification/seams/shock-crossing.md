@@ -142,7 +142,7 @@ With the reflux turned off (`make_amr_shock.py --no-reflux`, a measurement only)
 $2.2\cdot10^{-4}$ (Sod) and $0.9$ to $1.5\cdot10^{-4}$ (RJ2a), against at most $3\cdot10^{-10}$ with it; the shock off
 by 0.2 to 0.35 cells; the plateau maxima at most 30 % larger than with the reflux.
 
-### C3: the 6-point restriction at shocks
+### The 6-point restriction at shocks
 
 `lagrange6` is linear and unlimited, so it could overshoot where a shock lies in its footprint
 ([#68](https://github.com/szaghi/adam/issues/68) C3). The AS cases rerun under either restriction on the widened grid
@@ -158,7 +158,9 @@ The PV-5 blast (the limited Balsara–Spicer blast across 2:1 seams, `nk` widene
 and both schemes: $t = 0.01$ reached, no inadmissible stage, no non-finite flux, mass and seam flux mismatch unchanged;
 the largest number of faces limited in a stage is 46336 against 48512 with the mean (split) and 17920 for both (HLLD).
 
-### C3c: the WENO restriction
+### The WENO restriction
+
+Phase C3c: the `weno6` restriction against `mean` and `lagrange6`.
 
 | Check (FNL, 2 ranks) | mean | lagrange6 | weno6 |
 |---|---|---|---|
@@ -173,8 +175,8 @@ The AO rows are the legs `euler-l6` and `euler-w6` of [AO](./order-across-seams)
 printed digit.
 
 Related cases: [AO](./order-across-seams) is the smooth baseline of the same operators; its
-[D1](./order-across-seams#d1-the-quintic-fill) and [D2](./order-across-seams#d2-the-limited-fills) sections,
-[E0](./design-record#e0-the-shock-crossing-defect-is-a-capturing-error) and [E2](./reflux-policy) rerun these crossings; the uniform references are [Sod](../euler/sod) and
+[D1](./order-across-seams#the-quintic-fill) and [D2](./order-across-seams#the-limited-fills) sections,
+[E0](./design-record#the-shock-crossing-defect-is-a-capturing-error) and [E2](./reflux-policy) rerun these crossings; the uniform references are [Sod](../euler/sod) and
 [Ryu–Jones 2a](../mhd/ryu-jones-2a); the blast is the [positivity limiter](../mhd/positivity-limiter) case PV-5.
 
 ## Findings
@@ -188,7 +190,7 @@ Related cases: [AO](./order-across-seams) is the smooth baseline of the same ope
   level falls up to 14 times; only the width of the defect shrinks (the mean entropy error halves).
 - **It is not the reflux.** Without the reflux the plateau defect changes by at most 30 %. A3 placed its source in the
   coarse-fine transfer of a discontinuity, the mean restriction and the prolongation of the ghosts, which Phases C and D
-  replace; [E0](./design-record#e0-the-shock-crossing-defect-is-a-capturing-error) shows that no seam operator controls it: it is a capturing
+  replace; [E0](./design-record#the-shock-crossing-defect-is-a-capturing-error) shows that no seam operator controls it: it is a capturing
   error.
 - **The entropy defect leaves the face.** It moves with the flow, $u_2 t$ downstream of the face by $t = 0.2$, so the
   band entropy maxima are 100 to 1900 times below the plateau ones; the acoustic maxima of Sod c2f still sit at the

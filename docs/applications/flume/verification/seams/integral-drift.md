@@ -89,7 +89,7 @@ Sensor, faces with $r < \tau$:
 | sod | 1.000 (0.172) | 0.128 (0.078) |
 
 Related cases: [E2](./reflux-policy) builds the `troubled` policy on these logs;
-[B2](./design-record#b2-a-sensor-gated-reflux-prototype) is its scalar prototype; the reflux conservation on uniform-level seams is
+[B2](./design-record#a-sensor-gated-reflux-prototype) is its scalar prototype; the reflux conservation on uniform-level seams is
 [conservation across AMR seams](../euler/amr-conservation).
 
 ## Findings
@@ -103,4 +103,4 @@ Related cases: [E2](./reflux-policy) builds the `troubled` policy on these logs;
 - **It also flags smooth seam faces.** On the vortex, up to 11 % of the band faces (mean 5 %) read $r < \tau$, 2.6
   times the interior's mean fraction: the JS weights drop at the extrema of a smooth profile, and more so where the
   seam's second-order error adds kinks. For `reflux_policy = troubled` a false positive keeps the reflux, the
-  conservative choice: the cost is the order on those faces, which [B2](./design-record#b2-a-sensor-gated-reflux-prototype) and [E2](./reflux-policy) measure. The threshold is not tuned here.
+  conservative choice: the cost is the order on those faces, which [B2](./design-record#a-sensor-gated-reflux-prototype) and [E2](./reflux-policy) measure. The threshold is not tuned here.

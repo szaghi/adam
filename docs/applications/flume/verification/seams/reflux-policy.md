@@ -7,8 +7,8 @@
 ## Case and scope
 
 The Berger–Colella reflux keeps a 2:1 seam conservative, and caps the composite at second order
-([AO](./order-across-seams), [B1](./design-record#b1-the-caps-in-a-2-d-prototype)): it replaces the coarse face flux by
-the restricted fine one everywhere. [B2](./design-record#b2-a-sensor-gated-reflux-prototype) showed in a prototype that a
+([AO](./order-across-seams), [B1](./design-record#the-caps-in-a-2-d-prototype)): it replaces the coarse face flux by
+the restricted fine one everywhere. [B2](./design-record#a-sensor-gated-reflux-prototype) showed in a prototype that a
 sensor-gated reflux recovers the order and keeps the shocks in place. E1 builds `[numerics] reflux_policy = troubled`; E2 measures it against `always` on
 the four checks of the plan: the smooth order (A1), the shock crossings (A3), the integral drift (A4) and the seam
 divergence (A2).
@@ -72,7 +72,7 @@ The A2 and A4 runs under `troubled`: `amr-divb/make_amr_divb.py --reflux-policy 
 
 On FNL the flags equal the CPU's to the cell.
 
-Related cases: [B2](./design-record#b2-a-sensor-gated-reflux-prototype) is the prototype; [AL](./integral-drift)
+Related cases: [B2](./design-record#a-sensor-gated-reflux-prototype) is the prototype; [AL](./integral-drift)
 measured the sensor's false positives; [EGLM reflux](./eglm-reflux) measures `troubled` on the field loop of #78.
 
 ## Findings

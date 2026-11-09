@@ -1,4 +1,4 @@
-# Multi-realm runtime AMR (#110)
+# Runtime AMR on a forest
 
 | ID | Group | Milestone | Type | Backends | Figure | Regression |
 |---|---|---|---|---|---|---|

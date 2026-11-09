@@ -101,7 +101,9 @@ FLUME_EXE=$PWD/../../../../exe/adam_flume_fnl ./make_doc_runs.sh <dir> rt-sym   
 
 ## Results
 
-### Linear stage (GV-4)
+### Linear stage
+
+Leg GV-4 measures the linear growth rate against the compressible linear theory.
 
 ![GV-4: the seeded mode, its local growth rate and its vertical profile against the linear theory](/flume/gravity-rt-linear.png)
 
@@ -148,9 +150,9 @@ instability of [#77](https://github.com/szaghi/adam/issues/77) ([MHD blast symme
 it appears under both flux families and at $\beta \approx 200$, and only with the field on. The study below traces it
 to the divergence cleaning.
 
-### The mirror symmetry of the MHD run (#83)
+### The mirror symmetry of the MHD run
 
-The measure is $a(t) = \max |\rho(x, y) - \rho(\lambda - x, y)|$, which the exact solution keeps at zero
+This is the study of [#83](https://github.com/szaghi/adam/issues/83). The measure is $a(t) = \max |\rho(x, y) - \rho(\lambda - x, y)|$, which the exact solution keeps at zero
 (`atmosphere_oracle.py symmetry`, with its mean growth rate over $t \in [2, 4]$). The runs are `rt2d-mhd` at $N = 128$
 with one cleaning parameter changed at a time (`make_doc_runs.sh <dir> rt-sym`, the FNL build, about 2 min each on two
 A30 GPUs); the hydro reference ran on the CPU. No pass/fail bound: a report.

@@ -1,8 +1,7 @@
-# Self-gravity (M8)
+# Self-gravity
 
-Milestone M8 ([#81](https://github.com/szaghi/adam/issues/81)), self-gravity, solves
-$\nabla^2\Phi = 4\pi G(\rho - \bar\rho)$ every Runge–Kutta stage and applies gravity through the cell potential. It
-uses the spatial discretisation of Mullen et al. (2021), with the 7-point Laplacian $L_h$:
+Self-gravity in FLUME solves $\nabla^2\Phi = 4\pi G(\rho - \bar\rho)$ every Runge–Kutta stage and applies gravity
+through the cell potential. It uses the spatial discretisation of Mullen et al. (2021), with the 7-point Laplacian $L_h$:
 - **face gravity:** $g_{d,i+1/2} = -(\Phi_{i+1} - \Phi_i)/\Delta x_d$;
 - **cell gravity:** the mean of the cell's two faces;
 - **momentum:** $\rho$ times the cell gravity;
@@ -14,7 +13,42 @@ conserved exactly with a static potential, and $E + \tfrac12\rho\Phi$ with a sel
 form, given a Poisson solve that is linear and symmetric, $\Phi = 4\pi G\,K\rho$ with $K = K^T$; a round-off residual
 of the Poisson equation is not required ([models](../../models#self-gravity)). The scheme is second order.
 
-The phases of #81 and the cases that verify them:
+The cases verify the potential path against the constant-g oracles of [external gravity](../gravity/), the Poisson
+solvers (FFT, isolated by the lattice Green's function, multigrid on AMR grids) against the discrete Laplacian $L_h$ and
+the free-space potential, the coupling on Jeans modes against the dispersion relation with an exact $E + W$ exchange,
+and the $n = 1$ polytrope in equilibrium and in collapse, on uniform, static AMR and runtime AMR grids.
+
+| Case | Type | What it verifies |
+|---|---|---|
+| [Gravity from a cell potential](./potential) | P | the potential path reproduces the constant-g oracles of external gravity |
+| [The FFT Poisson solver](./fft-poisson) | P | the periodic solver is exact for $L_h$, second order against the continuum |
+| [Jeans modes](./jeans) | P+C | the coupling: dispersion relation, growth rate, symmetry, exact $E + W$ exchange, scaling covariance |
+| [The isolated solver](./isolated-solver) | P | zero padding with the lattice Green's function: free-space potential of the mass on the grid |
+| [The n = 1 polytrope](./polytrope) | P | a star in equilibrium and a collapsing one under isolated self-gravity, uniform grid |
+| [The multigrid solver on AMR grids](./multigrid-amr) | P | the mimetic 2:1 coupling (symmetric and consistent), the FCG solver, Dirichlet faces, isolated boundaries by the symmetric James step |
+| [Jeans modes on a static AMR grid](./amr-jeans) | P | the multigrid coupling, the seam gravity work, the per-stage reflux |
+| [Self-gravity under runtime AMR](./runtime-amr) | C | the solver and $\Phi$ follow every regrid; $E + W$ exact between regrids |
+| [The polytrope on AMR](./star-amr) | P+C | the star on a static AMR box; its collapse under runtime AMR with the conservative-state prolongation, a Jeans marker and dual energy; the Jeans-marker contract |
+
+Sink particles build on self-gravity and have their own [group](../sinks/).
+
+The figures are regenerated with `make_doc_runs.sh <dir> <group>` and `make_doc_figures.py --only <figure>`
+(`src/tests/flume/verification/`):
+
+| `make_doc_runs.sh` group | Executables it needs | `make_doc_figures.py --only` |
+|---|---|---|
+| `selfgravity` | `exe/adam_flume_cpu`, `exe/test_poisson_fft` (mode `test-poisson-fft-gnu`) | `selfgravity-potential selfgravity-poisson` |
+| `jeans` | `exe/adam_flume_cpu_fft` (mode `flume-cpu-gnu-fft`) | `selfgravity-jeans` |
+| `isolated` | `exe/test_poisson_fft`, `exe/adam_flume_cpu_fft` | `selfgravity-isolated selfgravity-star selfgravity-star-amr` |
+| `collapse-regrid` | `exe/adam_flume_cpu_fft` | `selfgravity-star-regrid` |
+| `amr` | `exe/test_poisson_mg` (mode `test-poisson-mg-gnu`), `exe/adam_flume_cpu_fft` | `selfgravity-amr selfgravity-amr-jeans selfgravity-amr-regrid` |
+
+## How it was built
+
+Self-gravity is milestone M8 ([#81](https://github.com/szaghi/adam/issues/81)); isolated self-gravity on AMR is
+[#87](https://github.com/szaghi/adam/issues/87), the star under runtime AMR [#88](https://github.com/szaghi/adam/issues/88)
+and [#91](https://github.com/szaghi/adam/issues/91) (M9); sink particles are M12
+([#94](https://github.com/szaghi/adam/issues/94)). The phases of #81 and the cases that verify them:
 
 | Phase | What it adds | Cases |
 |---|---|---|
@@ -31,28 +65,16 @@ The phases of #81 and the cases that verify them:
 | [#87](https://github.com/szaghi/adam/issues/87) P3 | isolated self-gravity on AMR in FLUME: the refusals lifted, a regrid that refines a boundary block fatal | SV-14 |
 | [#88](https://github.com/szaghi/adam/issues/88), [#91](https://github.com/szaghi/adam/issues/91) | the star under runtime AMR: the `conservative-state` prolongation, the Jeans marker, dual energy | SV-15, SV-16, SV-17, rg7 |
 
-The figures are regenerated with `make_doc_runs.sh <dir> <group>` and `make_doc_figures.py --only <figure>`
-(`src/tests/flume/verification/`):
-
-| `make_doc_runs.sh` group | Executables it needs | `make_doc_figures.py --only` |
+| Case | ID | Phase |
 |---|---|---|
-| `selfgravity` | `exe/adam_flume_cpu`, `exe/test_poisson_fft` (mode `test-poisson-fft-gnu`) | `selfgravity-potential selfgravity-poisson` |
-| `jeans` | `exe/adam_flume_cpu_fft` (mode `flume-cpu-gnu-fft`) | `selfgravity-jeans` |
-| `isolated` | `exe/test_poisson_fft`, `exe/adam_flume_cpu_fft` | `selfgravity-isolated selfgravity-star selfgravity-star-amr` |
-| `collapse-regrid` | `exe/adam_flume_cpu_fft` | `selfgravity-star-regrid` |
-| `amr` | `exe/test_poisson_mg` (mode `test-poisson-mg-gnu`), `exe/adam_flume_cpu_fft` | `selfgravity-amr selfgravity-amr-jeans selfgravity-amr-regrid` |
+| [Gravity from a cell potential](./potential) | SV-1 | P1 |
+| [The FFT Poisson solver](./fft-poisson) | SV-2 | P2 |
+| [Jeans modes](./jeans) | SV-3 to SV-5 | P3 |
+| [The isolated solver](./isolated-solver) | SV-6 | P4 |
+| [The n = 1 polytrope](./polytrope) | SV-7, SV-8 | P4 |
+| [The multigrid solver on AMR grids](./multigrid-amr) | SV-9, SV-12, SV-13 | P5a; #87 P1, P2 |
+| [Jeans modes on a static AMR grid](./amr-jeans) | SV-10 | P5b, P5c |
+| [Self-gravity under runtime AMR](./runtime-amr) | SV-11 | P5c |
+| [The polytrope on AMR](./star-amr) | SV-14 to SV-17, rg7 | #87 P3, P4; #88; M9 |
 
-| Case | ID | Phase | Type | What it verifies |
-|---|---|---|---|---|
-| [Gravity from a cell potential](./potential) | SV-1 | P1 | P | the potential path reproduces the constant-g oracles of M7 |
-| [The FFT Poisson solver](./fft-poisson) | SV-2 | P2 | P | the periodic solver is exact for $L_h$, second order against the continuum |
-| [Jeans modes](./jeans) | SV-3 to SV-5 | P3 | P+C | the coupling: dispersion relation, growth rate, symmetry, exact $E + W$ exchange, scaling covariance |
-| [The isolated solver](./isolated-solver) | SV-6 | P4 | P | zero padding with the lattice Green's function: free-space potential of the mass on the grid |
-| [The n = 1 polytrope](./polytrope) | SV-7, SV-8 | P4 | P | a star in equilibrium and a collapsing one under isolated self-gravity, uniform grid |
-| [The multigrid solver on AMR grids](./multigrid-amr) | SV-9, SV-12, SV-13 | P5a; #87 P1, P2 | P | the mimetic 2:1 coupling (symmetric and consistent), the FCG solver, Dirichlet faces, isolated boundaries by the symmetric James step |
-| [Jeans modes on a static AMR grid](./amr-jeans) | SV-10 | P5b, P5c | P | the multigrid coupling, the seam gravity work, the per-stage reflux |
-| [Self-gravity under runtime AMR](./runtime-amr) | SV-11 | P5c | C | the solver and $\Phi$ follow every regrid; $E + W$ exact between regrids |
-| [The polytrope on AMR](./star-amr) | SV-14 to SV-17, rg7 | #87 P3, P4; #88; M9 | P+C | the star on a static AMR box; its collapse under runtime AMR with the conservative-state prolongation, a Jeans marker and dual energy; the Jeans-marker contract |
-
-Sink particles (M12, [#94](https://github.com/szaghi/adam/issues/94)) build on self-gravity and have their own
-[group](../sinks/). The [timeline](../) places the star on AMR after M8, with #87 and #88.
+The [verification catalog](../) places the star on AMR after M8, with #87 and #88.

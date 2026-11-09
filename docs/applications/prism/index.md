@@ -98,7 +98,8 @@ shorter checkpoint period) and `docs/scripts/make_gallery.py`; the figure by `sr
 
 ## Verification
 
-The [verification timeline](./verification/) lists the oracle checks in the order the capabilities were implemented:
-uniform-grid identities, static AMR and the FV reflux, 2:1 seam divergence, quadtrees, inter-realm seams, absorbing
-layers on AMR, input refusals, the t0 solves on FLAIL, PIC with periodic faces and the Fresnel slab, slices. Analytic
+The [verification catalog](./verification/) groups the oracle checks by capability: the fields on uniform and refined
+grids (uniform-grid identities, the FV reflux, the 2:1 seam divergence, quadtrees), forests of realms (inter-realm
+seams), absorbing layers on AMR, the t0 solves on FLAIL and PIC with periodic faces and the Fresnel slab, input
+refusals and slices. Analytic
 oracles for the field physics are open ([#106](https://github.com/szaghi/adam/issues/106)).

@@ -5,18 +5,292 @@ case and an oracle that asserts the physics (an exact solution, a reference, a s
 not a stored golden. The goldens are the job of the [regression suite](/reference/regression#flume-suite); the building
 blocks below the solver are pinned by the [unit tests](./unit-tests).
 
-The cases are listed below in the order they were implemented, milestone by milestone, so the list reads as the path
-the solver took. Each case page has the same sections: case and scope, models and numerics with references to the
-code, initial and boundary conditions, input files, results on CPU and FNL, findings. All runs use 2 MPI ranks and
-WENO5 unless a page says otherwise.
+The catalog below is grouped by capability. Each card names what its page verifies; each page has the same sections:
+case and scope, models and numerics with references to the code, initial and boundary conditions, input files, results
+on CPU and FNL, findings. All runs use 2 MPI ranks and WENO5 unless a page says otherwise. The tag of a card says what
+it verifies:
 
-**Type** marks what a page verifies:
+- **physics**: a run against an exact or reference solution, an order of accuracy or a symmetry;
+- **contract**: a bitwise identity, rank or backend invariance (CPU = FNL), a restart, conservation to round-off, an
+  input refusal. A contract page documents its setup in a table; most have no figure, since a plot of a difference that
+  is zero shows nothing.
 
-- **P**, physics: a run against an exact or reference solution, an order of accuracy or a symmetry;
-- **C**, contract: a bitwise identity, rank or backend invariance (CPU = FNL), a restart, conservation to round-off,
-  an input refusal.
+## Compressible Euler
 
-**Figure** "no" marks a contract page: a setup table documents it better than a plot of a difference that is zero.
+Riemann problems against their exact solutions, the design order on smooth flows, the immersed boundary, the equations of state (ideal, isothermal, barotropic), dual energy, passive scalars and radiative cooling; conservation across 2:1 faces and forest seams, restarts. [Group page](./euler/).
+
+<div class="adam-gallery adam-catalog">
+
+[![Sod shock tube](/flume/sod.png)<strong>Sod shock tube</strong><span>$L_1(\rho)$ against the exact solution; $x$, $y$, $z$ bitwise equal; reflecting walls</span><em>physics</em>](./euler/sod)
+
+[![Isentropic vortex: order of accuracy](/flume/vortex.png)<strong>Isentropic vortex: order of accuracy</strong><span>the design order on a smooth exact solution, periodic blocks across ranks</span><em>physics</em>](./euler/isentropic-vortex)
+
+[![Shock over a cylinder](/flume/shock-cylinder.png)<strong>Shock over a cylinder</strong><span>the immersed boundary with solid AMR: refinement, mirror symmetry, positivity</span><em>physics</em>](./euler/shock-cylinder)
+
+[![Conservation across AMR seams](/flume/conservation.png)<strong>Conservation across AMR seams</strong><span>the reflux at 2:1 faces: the volume integrals constant to round-off</span><em>contract</em>](./euler/amr-conservation)
+
+[<strong>Restart round trip and output channels</strong><span>a restarted run equals the uninterrupted one bit for bit on four integration paths, an empty rank included; slices and auxiliary fields</span><em>contract</em>](./euler/restart)
+
+[![Forest seams: the inter-realm contract](/flume/multirealm.png)<strong>Forest seams: the inter-realm contract</strong><span>mirror, misaligned and 2:1 inter-realm seams, across ranks: bitwise equal to one realm</span><em>contract</em>](./euler/multi-realm)
+
+[![Lax problem](/flume/lax.png)<strong>Lax problem</strong><span>the Riemann solvers on a strong contact, bound $1.05\times$ the splitting scheme</span><em>physics</em>](./euler/lax)
+
+[![Shu–Osher shock / entropy-wave interaction](/flume/shu-osher.png)<strong>Shu–Osher shock / entropy-wave interaction</strong><span>the entropy waves behind a Mach 3 shock against a 16× finer reference</span><em>physics</em>](./euler/shu-osher)
+
+[![Forward-facing step](/flume/step-trees.png)<strong>Forward-facing step</strong><span>a three-realm forest on quadtrees against octrees; the Woodward–Colella step at $t = 4$</span><em>physics + contract</em>](./euler/forward-facing-step)
+
+[![Dual energy: the advected entropy of euler-de](/flume/dual-energy-noh.png)<strong>Dual energy: the advected entropy of euler-de</strong><span>`euler-de` changes nothing where no cell is cold (Sod bitwise) and keeps a cold Noh shock heated</span><em>physics + contract</em>](./euler/dual-energy)
+
+[![Passive scalars](/flume/passive-scalars.png)<strong>Passive scalars</strong><span>up to four scalars that do not act on the flow, are conserved, and stay uniform through runtime AMR</span><em>physics + contract</em>](./euler/passive-scalars)
+
+[![Radiative cooling](/flume/radiative-cooling.png)<strong>Radiative cooling</strong><span>optically thin cooling by Townsend's exact integration: the isochoric ODE to round-off, the floor, a radiative shock against its steady structure</span><em>physics</em>](./euler/radiative-cooling)
+
+[![Isothermal equation of state](/flume/isothermal-eos.png)<strong>Isothermal equation of state</strong><span>$P = c_0^2\rho$: the shock tube and a Mach-5 collision against the exact solution, the fifth order on an acoustic wave, the inert energy slot, the contract</span><em>physics</em>](./euler/isothermal-eos)
+
+[![Barotropic equation of state](/flume/barotropic-eos.png)<strong>Barotropic equation of state</strong><span>a piecewise polytrope: a fan split at a convex break, shocks across segments, the order with $c^2 = P'(\rho_0)$, the Mathew & Federrath table by self-convergence</span><em>physics</em>](./euler/barotropic-eos)
+
+[![Barotropic gases under gravity](/flume/barotropic-gravity.png)<strong>Barotropic gases under gravity</strong><span>gravity on the momentum only, Jeans waves with $c^2 = P'(\rho_0)$, the Jeans marker, sinks with $c_s^2 = dP/d\rho$ and the virial thermal energy, Bonnor–Ebert stability, Boss–Bodenheimer</span><em>physics</em>](./euler/barotropic-gravity)
+
+</div>
+
+## Ideal MHD
+
+The seven MHD waves and the classic MHD problems against exact or reference solutions, the order of accuracy on linear waves, the divergence control (GLM, EGLM), the Riemann-flux path and the positivity limiter, conservation on AMR and quadtrees. [Group page](./mhd/).
+
+<div class="adam-gallery adam-catalog">
+
+[<strong>MHD plumbing</strong><span>the MHD model end to end: the fast-speed and $c_h$ time step, the auxiliary fields, a bitwise restart, the refused inputs</span><em>contract</em>](./mhd/plumbing)
+
+[<strong>MHD with a zero field</strong><span>MHD with $\mathbf{B} = 0$ reduces to Euler (Sod along x/y/z, bitwise across axes); a uniform MHD state is steady, bitwise on one level and to round-off across a 2:1 patch</span><em>contract</em>](./mhd/zero-field)
+
+[![Ryu–Jones 2a: all seven waves](/flume/rj2a.png)<strong>Ryu–Jones 2a: all seven waves</strong><span>the whole MHD path against an exact 7-state solution; x/y/z bitwise; GLM inert in 1-D</span><em>physics</em>](./mhd/ryu-jones-2a)
+
+[![Brio–Wu and Ryu–Jones 4d](/flume/brio-wu.png)<strong>Brio–Wu and Ryu–Jones 4d</strong><span>clean runs near the eigensystem degeneracies; the positivity floors engage and stop as they should</span><em>physics</em>](./mhd/brio-wu-rj4d)
+
+[![GLM divergence cleaning](/flume/glm-pulse.png)<strong>GLM divergence cleaning</strong><span>the GLM telegraph system against its exact solution; div(B) decay of the Dedner peak, uniform and across seams; the `divb_tol` monitor</span><em>physics</em>](./mhd/glm-cleaning)
+
+[![Order of accuracy](/flume/linear-wave-order.png)<strong>Order of accuracy</strong><span>fifth order on linear waves, the circularly polarised Alfvén wave and the magnetised vortex</span><em>physics</em>](./mhd/order-of-accuracy)
+
+[![Orszag–Tang vortex](/flume/orszag-tang.png)<strong>Orszag–Tang vortex</strong><span>180° symmetry, conservation and positivity, uniform and across 2:1 seams</span><em>physics</em>](./mhd/orszag-tang)
+
+[![MHD rotor](/flume/rotor.png)<strong>MHD rotor</strong><span>symmetry under rotation with $\mathbf{B} \to -\mathbf{B}$, positivity</span><em>physics</em>](./mhd/rotor)
+
+[![Field loop advection](/flume/field-loop.png)<strong>Field loop advection</strong><span>the divergence error GLM leaves, the loop dissipation, CPU–FNL agreement on $\mathbf{B}$</span><em>physics</em>](./mhd/field-loop)
+
+[![Rotated shock tube](/flume/rotated-shock-tube.png)<strong>Rotated shock tube</strong><span>$B_\parallel$ preservation and agreement with the 1-D problem at 63.4° and 45°</span><em>physics</em>](./mhd/rotated-shock-tube)
+
+[![MHD conservation across AMR seams](/flume/mhd-conservation.png)<strong>MHD conservation across AMR seams</strong><span>every MHD integral, $\mathbf{B}$ and $\psi$ included, constant to round-off across 2:1 faces with reflux; the no-reflux negative control drifts</span><em>contract</em>](./mhd/conservation)
+
+[![MHD on `weno-riemann`](/flume/weno-riemann.png)<strong>MHD on `weno-riemann`</strong><span>the HLLD scheme on the M2 verifications</span><em>physics</em>](./mhd/weno-riemann)
+
+[![EGLM cleaning](/flume/eglm-energy.png)<strong>EGLM cleaning</strong><span>the energy-consistent cleaning: telegraph solution, EGLM = GLM at $\psi = 0$, drifts bounded by the sources</span><em>physics</em>](./mhd/eglm)
+
+[![Positivity limiter](/flume/blast.png)<strong>Positivity limiter</strong><span>positivity on magnetised blasts and near vacuum, inactivity on smooth flow, 2:1 seams</span><em>physics</em>](./mhd/positivity-limiter)
+
+[![Quadtree AMR](/flume/quadtree.png)<strong>Quadtree AMR</strong><span>2:1 seams on quadtrees against the octree reference</span><em>contract</em>](./mhd/quadtree-amr)
+
+[![Isothermal and barotropic MHD](/flume/barotropic-mhd.png)<strong>Isothermal and barotropic MHD</strong><span>ideal MHD without an energy equation: Kim's eigensystem and Mignone's isothermal HLLD on $P(\rho)$, fifth-order linear waves, Mignone's tubes, the inert energy slot</span><em>physics</em>](./mhd/barotropic-mhd)
+
+</div>
+
+## Viscosity, heat conduction and resistivity
+
+Viscous and resistive waves against their exact decay, Becker's shock and Couette flow against exact profiles, Ohmic heating and the divergence constraint, accuracy and conservation across 2:1 seams, and the input contract. [Group page](./dissipative/).
+
+<div class="adam-gallery adam-catalog">
+
+[<strong>Input contract</strong><span>34 input cases: invalid combinations refused with a message, implied coefficients logged exactly, zero coefficients bitwise inert, dimensional keys converted back exactly</span><em>contract</em>](./dissipative/input-contract)
+
+[![Viscous waves](/flume/viscous.png)<strong>Viscous waves</strong><span>order 4 and 2 of the viscous flux on a shear wave (along $x$, $y$ and the diagonal), $\mu$ and $k$ together on an acoustic wave, against the exact linear mode</span><em>physics</em>](./dissipative/viscous-waves)
+
+[![Compressible Couette flow](/flume/couette.png)<strong>Compressible Couette flow</strong><span>the no-slip walls (isothermal and moving) and the viscous heating, against the exact steady profile</span><em>physics</em>](./dissipative/couette)
+
+[![Becker's viscous shock](/flume/viscous.png)<strong>Becker's viscous shock</strong><span>the nonlinear viscous and heat fluxes through a resolved shock, Mach 2 and 3</span><em>physics</em>](./dissipative/becker-shock)
+
+[![Ohmic decay and the visco-resistive Alfvén wave](/flume/viscous.png)<strong>Ohmic decay and the visco-resistive Alfvén wave</strong><span>the Ohmic flux (sign, cross terms, coefficient), $\mu$ and $\eta$ together, the viscous fluxes on MHD</span><em>physics</em>](./dissipative/ohmic-alfven)
+
+[<strong>Ohmic heating and the divergence constraint</strong><span>the Ohmic energy returned to the gas as heat; no divergence added by the curl form (GLM, EGLM)</span><em>contract</em>](./dissipative/ohmic-heating)
+
+[![Conservation across 2:1 seams and forest seams](/flume/seam-conservation.png)<strong>Conservation across 2:1 seams and forest seams</strong><span>the dissipative fluxes carried by the reflux and the inter-realm register; forest union equal to the single realm</span><em>contract</em>](./dissipative/seam-conservation)
+
+[![Accuracy across 2:1 seams](/flume/viscous-fields.png)<strong>Accuracy across 2:1 seams</strong><span>the order of the composite grid (second), and the reflux as the carrier of the dissipative seam flux</span><em>physics</em>](./dissipative/seam-accuracy)
+
+[<strong>CPU and FNL agree run by run</strong><span>every one of the 72 VV runs equal on the two backends within $10^{-10}$ of the physical scales</span><em>contract</em>](./dissipative/cpu-fnl-agreement)
+
+</div>
+
+## External gravity
+
+The gravity force and its energy source to design order, stratified atmospheres held at rest by the well-balanced mode and the hydrostatic boundary, the Rayleigh–Taylor growth rate against linear theory. [Group page](./gravity/).
+
+<div class="adam-gallery adam-catalog">
+
+[![Stratified atmospheres and the `hydrostatic` boundary](/flume/gravity-atmospheres.png)<strong>Stratified atmospheres and the `hydrostatic` boundary</strong><span>the initial atmospheres and the ghosts of the `hydrostatic` faces against the closed form, before any force acts</span><em>contract</em>](./gravity/atmospheres)
+
+[![The gravity force](/flume/gravity-force.png)<strong>The gravity force</strong><span>exact free fall, mass and total energy of a closed box to round-off, the limiter near vacuum, scaling covariance</span><em>physics + contract</em>](./gravity/force)
+
+[![The order of the energy source](/flume/gravity-order.png)<strong>The order of the energy source</strong><span>the fourth-order energy source restores the order of the scheme on a falling density wave</span><em>physics</em>](./gravity/energy-order)
+
+[![The well-balanced mode](/flume/gravity-balance.png)<strong>The well-balanced mode</strong><span>an atmosphere at rest stays at rest to round-off, across 2:1 seams too, and small perturbations respond linearly</span><em>physics</em>](./gravity/well-balanced)
+
+[![Rayleigh–Taylor](/flume/gravity-rt-linear.png)<strong>Rayleigh–Taylor</strong><span>the linear growth rate against the compressible linear theory; the nonlinear stage and the mirror symmetry of the MHD run</span><em>physics</em>](./gravity/rayleigh-taylor)
+
+</div>
+
+## Self-gravity
+
+The Poisson solvers (FFT, isolated, multigrid on AMR) against exact potentials, Jeans modes against the dispersion relation, the exact exchange of kinetic and potential energy, and the $n=1$ polytrope in equilibrium and collapse on uniform and adaptive grids. [Group page](./self-gravity/).
+
+<div class="adam-gallery adam-catalog">
+
+[![Gravity from a cell potential](/flume/selfgravity-potential.png)<strong>Gravity from a cell potential</strong><span>the potential path reproduces the constant-g oracles of M7</span><em>physics</em>](./self-gravity/potential)
+
+[![The FFT Poisson solver](/flume/selfgravity-poisson.png)<strong>The FFT Poisson solver</strong><span>the periodic solver is exact for $L_h$, second order against the continuum</span><em>physics</em>](./self-gravity/fft-poisson)
+
+[![Jeans modes](/flume/selfgravity-jeans.png)<strong>Jeans modes</strong><span>the coupling: dispersion relation, growth rate, symmetry, exact $E + W$ exchange, scaling covariance</span><em>physics + contract</em>](./self-gravity/jeans)
+
+[![The isolated solver](/flume/selfgravity-isolated.png)<strong>The isolated solver</strong><span>zero padding with the lattice Green's function: free-space potential of the mass on the grid</span><em>physics</em>](./self-gravity/isolated-solver)
+
+[![The n = 1 polytrope](/flume/selfgravity-star.png)<strong>The n = 1 polytrope</strong><span>a star in equilibrium and a collapsing one under isolated self-gravity, uniform grid</span><em>physics</em>](./self-gravity/polytrope)
+
+[![The multigrid solver on AMR grids](/flume/selfgravity-amr.png)<strong>The multigrid solver on AMR grids</strong><span>the mimetic 2:1 coupling (symmetric and consistent), the FCG solver, Dirichlet faces, isolated boundaries by the symmetric James step</span><em>physics</em>](./self-gravity/multigrid-amr)
+
+[![Jeans modes on a static AMR grid](/flume/selfgravity-amr-jeans.png)<strong>Jeans modes on a static AMR grid</strong><span>the multigrid coupling, the seam gravity work, the per-stage reflux</span><em>physics</em>](./self-gravity/amr-jeans)
+
+[![Self-gravity under runtime AMR](/flume/selfgravity-amr-regrid.png)<strong>Self-gravity under runtime AMR</strong><span>the solver and $\Phi$ follow every regrid; $E + W$ exact between regrids</span><em>contract</em>](./self-gravity/runtime-amr)
+
+[![The polytrope on AMR](/flume/selfgravity-star-amr.png)<strong>The polytrope on AMR</strong><span>the star on a static AMR box; its collapse under runtime AMR with the conservative-state prolongation, a Jeans marker and dual energy; the Jeans-marker contract</span><em>physics + contract</em>](./self-gravity/star-amr)
+
+</div>
+
+## Sink particles
+
+Point masses coupled through the Poisson source: rest and Kepler orbits, creation, accretion at Shu's rate, mergers, restarts, CPU against FNL and runtime AMR. [Group page](./sinks/).
+
+<div class="adam-gallery adam-catalog">
+
+[![Sink particles](/flume/sink-particles.png)<strong>Sink particles</strong><span>point masses through the Poisson source: rest, Kepler binary, the input contract, restart, creation, accretion at Shu's rate, mergers, CPU against FNL, runtime AMR</span><em>physics + contract</em>](./sinks/sink-particles)
+
+</div>
+
+## Accuracy across 2:1 seams
+
+What a static 2:1 face costs: the order of accuracy across it, the divergence the cleaning sees, a shock crossing it against the exact solution, the drift of the integrals, and the operators that lift the cap. [Group page](./seams/).
+
+<div class="adam-gallery adam-catalog">
+
+[![Order across static 2:1 seams](/flume/order-across-seams.png)<strong>Order across static 2:1 seams</strong><span>the order of a smooth vortex crossing a refined quadrant, per region, against the uniform control; the 6-point restriction; the quintic and limited coarse-to-fine fills</span><em>physics</em>](./seams/order-across-seams)
+
+[![Divergence across seams](/flume/divergence-across-seams.png)<strong>Divergence across seams</strong><span>D_flux, the divergence the cleaning acts on: bounded and first-order convergent at the seams; #78 is not a divergence difference</span><em>physics</em>](./seams/divergence-across-seams)
+
+[![Shock crossing a static 2:1 face](/flume/shock-crossing.png)<strong>Shock crossing a static 2:1 face</strong><span>mass, shock position and the plateau behind a shock crossing a 2:1 face, against the exact solution; the 6-point and WENO restrictions at shocks</span><em>physics</em>](./seams/shock-crossing)
+
+[![Integral drift and the WENO sensor near seams](/flume/integral-drift.png)<strong>Integral drift and the WENO sensor near seams</strong><span>the drift of the integrals without the reflux, and what the WENO sensor reads at the seams</span><em>physics + contract</em>](./seams/integral-drift)
+
+[![Reflux policy: troubled against always](/flume/reflux-policy.png)<strong>Reflux policy: troubled against always</strong><span>the sensor-gated reflux recovers the sixth order with shocks unchanged, at a conservation cost</span><em>physics</em>](./seams/reflux-policy)
+
+[![EGLM reflux leaves B alone](/flume/field-loop-seams.png)<strong>EGLM reflux leaves B alone</strong><span>#78 is caused by the reflux of $\mathbf{B}$; without it EGLM's $B_z$ drops from 70 to 3.3 times the uniform level</span><em>physics</em>](./seams/eglm-reflux)
+
+[![Seam design record](/flume/seam-proto-b1.png)<strong>Seam design record</strong><span>appendix: the 2-D prototypes, the restriction footprint, the capturing error behind a crossing shock, the GLM damping length</span><em>physics</em>](./seams/design-record)
+
+</div>
+
+## Runtime AMR
+
+Regridding during the run: the regrid step and its conservative prolongation, conservation and bitwise restarts through regrids, tracked runs against uniform-fine controls, and forests whose realms regrid across their seams. [Group page](./runtime-amr/).
+
+<div class="adam-gallery adam-catalog">
+
+[<strong>Regrid round trip and input contract</strong><span>the library regrid in isolation: bookkeeping over 1, 2, 3 ranks, the conservative prolongation exact on the integral and in range, the `frequency` and `regrid_prolongation` contracts</span><em>contract</em>](./runtime-amr/regrid-round-trip)
+
+[![Runtime regrids in FLUME](/flume/regrid-runtime.png)<strong>Runtime regrids in FLUME</strong><span>conservation through regrids, bitwise restart across regrids, the immersed solid, CPU against FNL</span><em>contract</em>](./runtime-amr/runtime-regrids)
+
+[![Accuracy of runtime AMR](/flume/regrid.png)<strong>Accuracy of runtime AMR</strong><span>tracked runs against uniform-fine runs on the vortex, Sod, the MHD blast, the field loop and the cylinder; rank and backend invariance</span><em>physics</em>](./runtime-amr/accuracy)
+
+[![MHD blast symmetry on the flux-splitting path](/flume/mhd-blast-symmetry.png)<strong>MHD blast symmetry on the flux-splitting path</strong><span>why the low-β blast loses its point symmetry on `weno` flux splitting, and the Riemann-flux path that keeps it</span><em>physics</em>](./runtime-amr/mhd-blast-symmetry)
+
+[![Runtime AMR on a forest](/flume/multirealm-amr.png)<strong>Runtime AMR on a forest</strong><span>the realms of a forest regridding across their seams: the cross-realm balance, mixed levels along a seam, restart across regrids</span><em>contract</em>](./runtime-amr/multi-realm)
+
+</div>
+
+## Turbulence
+
+What the scheme does to turbulence, then the closures: subgrid-scale models, a hybrid central/WENO scheme, and wall models with a turbulent inflow, against DNS of the Taylor–Green vortex, isotropic turbulence, channels and boundary layers. [Group page](./turbulence/).
+
+<div class="adam-gallery adam-catalog">
+
+[![The ILES baseline](/flume/tgv-iles.png)<strong>The ILES baseline</strong><span>what WENO-5 does to turbulence before any model: 77 % and 58 % of the energy lost to numerical dissipation up to the peak at $64^3$ and $128^3$; Taylor–Green and isotropic decay against DNS</span><em>physics + contract</em>](./turbulence/iles-baseline)
+
+[![Subgrid-scale models](/flume/tgv-models.png)<strong>Subgrid-scale models</strong><span>Vreman, WALE and Sigma on WENO-5 against the DNS: no model beats no model, each lowers the enstrophy peak further from it</span><em>physics + contract</em>](./turbulence/sgs-models)
+
+[![The hybrid central/WENO scheme](/flume/tgv-hybrid.png)<strong>The hybrid central/WENO scheme</strong><span>the central/WENO hybrid at $128^3$ closer to the DNS than WENO-5 at $256^3$ on every L2 error; a subgrid model makes it worse</span><em>physics + contract</em>](./turbulence/hybrid-scheme)
+
+[![Plane channel and the wall model](/flume/channel-wm.png)<strong>Plane channel and the wall model</strong><span>the equilibrium wall model in a compressible channel: $Re_\tau$ 219–222 at Mach 1.5 (DNS 220–222) and 443–445 at Mach 3 (DNS 451)</span><em>physics + contract</em>](./turbulence/channel)
+
+[![Compressible boundary layer](/flume/tbl-m2p5.png)<strong>Compressible boundary layer</strong><span>Mach 2.5 and 5.86 layers from a digital-filter inflow: $C_f$ 0.2 % below the DNS at $\delta_i/16$, 3.8 % below at Mach 5.86 with $B_q$ as the DNS</span><em>physics + contract</em>](./turbulence/boundary-layer)
+
+</div>
+
+## Supersonic boundary layers: boundaries and shock interaction
+
+The boundaries a shock/boundary-layer interaction needs, a non-reflecting outflow and an oblique-shock generator, verified against exact relations, and the wall-modelled interaction against DNS and experiment. [Group page](./streams/).
+
+<div class="adam-gallery adam-catalog">
+
+[![Non-reflecting boundary](/flume/nrbc.png)<strong>Non-reflecting boundary</strong><span>the characteristic outflow and far field: a leaving packet reflects $2.9\cdot10^{-3}$ of its amplitude, a 2 % overpressure drains to 0.099 (`extrapolation` keeps 1.000)</span><em>physics</em>](./streams/non-reflecting)
+
+[![Shock generator](/flume/shockgen.png)<strong>Shock generator</strong><span>an oblique shock through a $y$ face against Rankine–Hugoniot ($p$, $\rho$ within $3\cdot10^{-3}$, angle within $0.05^\circ$) and its regular reflection off a slip wall</span><em>physics</em>](./streams/shock-generator)
+
+[![Shock/boundary-layer interaction](/flume/sbli.png)<strong>Shock/boundary-layer interaction</strong><span>the Mach 2.28, $8^\circ$ interaction, wall-modelled, against the STREAmS DNS and the IUSTI experiment: $L_{int}/\delta_0$ 3.15 against 3.22, no mean separation</span><em>physics</em>](./streams/sbli)
+
+</div>
+
+## Infrastructure
+
+Contracts below the physics: every ghost cell on a linear field, the non-finite state guard, ranks that own no block, and the covariance of the non-dimensional form. [Group page](./infrastructure/).
+
+<div class="adam-gallery adam-catalog">
+
+[<strong>Non-finite state guard</strong><span>a NaN planted in the Sod state stops the run at step 1 on the guard's message, on every rank, with the first non-finite value located</span><em>contract</em>](./infrastructure/nonfinite)
+
+[<strong>Scaling covariance and the reference layer</strong><span>rescaled inputs reproduce the base run bit for bit; dimensional input, restart and output through `[reference]`</span><em>contract</em>](./infrastructure/scaling-covariance)
+
+[![Ghost probe](/flume/ghosts.png)<strong>Ghost probe</strong><span>every face and edge ghost, on every fill path (copy, MPI, 2:1, inter-realm seams, physical boundaries), holds the value a stencil must read; a poison exposes reads before the fill</span><em>contract</em>](./infrastructure/ghost-probe)
+
+[![Ranks without blocks](/flume/ranks.png)<strong>Ranks without blocks</strong><span>a rank that owns no block runs every model and option, and np 2 equals np 1 bit for bit</span><em>contract</em>](./infrastructure/ranks-without-blocks)
+
+</div>
+
+## How it was built
+
+The capabilities were added one milestone or issue at a time; this table maps each to the pages that verify it, in the
+order they were implemented.
+
+| Built under | Capability | Pages |
+|---|---|---|
+| M1, [#35](https://github.com/szaghi/adam/issues/35) | Euler core | [Sod shock tube](./euler/sod), [Isentropic vortex: order of accuracy](./euler/isentropic-vortex), [Shock over a cylinder](./euler/shock-cylinder), [Conservation across AMR seams](./euler/amr-conservation), [Restart round trip and output channels](./euler/restart) |
+| [#37](https://github.com/szaghi/adam/issues/37) | Forest entry | [Forest seams: the inter-realm contract](./euler/multi-realm) |
+| M2, [#41](https://github.com/szaghi/adam/issues/41) | Ideal MHD | [MHD plumbing](./mhd/plumbing), [MHD with a zero field](./mhd/zero-field), [Ryu–Jones 2a: all seven waves](./mhd/ryu-jones-2a), [Brio–Wu and Ryu–Jones 4d](./mhd/brio-wu-rj4d), [GLM divergence cleaning](./mhd/glm-cleaning), [Order of accuracy: linear waves, CPAW, magnetised vortex](./mhd/order-of-accuracy), [Orszag–Tang vortex](./mhd/orszag-tang), [MHD rotor](./mhd/rotor), [Field loop advection](./mhd/field-loop), [Rotated shock tube](./mhd/rotated-shock-tube), [MHD conservation across AMR seams](./mhd/conservation) |
+| [#45](https://github.com/szaghi/adam/issues/45) | Non-finite state guard | [Non-finite state guard](./infrastructure/nonfinite) |
+| M3, [#47](https://github.com/szaghi/adam/issues/47) | Riemann fluxes, EGLM, positivity limiter | [Lax problem](./euler/lax), [Shu–Osher shock / entropy-wave interaction](./euler/shu-osher), [MHD on `weno-riemann`](./mhd/weno-riemann), [EGLM cleaning](./mhd/eglm), [Positivity limiter](./mhd/positivity-limiter) |
+| [#40](https://github.com/szaghi/adam/issues/40), [#51](https://github.com/szaghi/adam/issues/51), [#52](https://github.com/szaghi/adam/issues/52), [#54](https://github.com/szaghi/adam/issues/54) | Inter-realm seams | [Forest seams: the inter-realm contract](./euler/multi-realm) |
+| [#49](https://github.com/szaghi/adam/issues/49) | Non-dimensional form | [Scaling covariance and the reference layer](./infrastructure/scaling-covariance) |
+| [#46](https://github.com/szaghi/adam/issues/46) | Quadtrees | [Quadtree AMR](./mhd/quadtree-amr), [Forward-facing step: a three-realm forest on quadtrees](./euler/forward-facing-step) |
+| M4, [#65](https://github.com/szaghi/adam/issues/65) | Dissipative terms | [Ghost probe: every face and edge ghost on a linear field](./infrastructure/ghost-probe), [Input contract of the dissipative terms](./dissipative/input-contract), [Viscous waves](./dissipative/viscous-waves), [Compressible Couette flow](./dissipative/couette), [Becker's viscous shock](./dissipative/becker-shock), [Ohmic decay and the visco-resistive Alfvén wave](./dissipative/ohmic-alfven), [Ohmic heating and the divergence constraint](./dissipative/ohmic-heating), [Conservation across 2:1 seams and forest seams](./dissipative/seam-conservation), [Accuracy across 2:1 seams](./dissipative/seam-accuracy), [CPU and FNL agree run by run](./dissipative/cpu-fnl-agreement) |
+| M5, [#74](https://github.com/szaghi/adam/issues/74) | Runtime AMR | [Regrid round trip and input contract](./runtime-amr/regrid-round-trip), [Runtime regrids in FLUME](./runtime-amr/runtime-regrids), [Accuracy of runtime AMR](./runtime-amr/accuracy), [MHD blast symmetry on the flux-splitting path](./runtime-amr/mhd-blast-symmetry) |
+| M6, [#68](https://github.com/szaghi/adam/issues/68) | Seam accuracy and divergence | [Order across static 2:1 seams](./seams/order-across-seams), [Divergence across seams](./seams/divergence-across-seams), [Shock crossing a static 2:1 face](./seams/shock-crossing), [Integral drift and the WENO sensor near seams](./seams/integral-drift), [Reflux policy: troubled against always](./seams/reflux-policy), [EGLM reflux leaves B alone](./seams/eglm-reflux), [Seam design record (appendix)](./seams/design-record) |
+| M7, [#73](https://github.com/szaghi/adam/issues/73) | External gravity | [Stratified atmospheres and the `hydrostatic` boundary](./gravity/atmospheres), [The gravity force](./gravity/force), [The order of the energy source](./gravity/energy-order), [The well-balanced mode](./gravity/well-balanced), [Rayleigh–Taylor](./gravity/rayleigh-taylor) |
+| [#82](https://github.com/szaghi/adam/issues/82) | Ranks without blocks | [Ranks without blocks](./infrastructure/ranks-without-blocks) |
+| M8, [#81](https://github.com/szaghi/adam/issues/81) | Self-gravity | [Gravity from a cell potential](./self-gravity/potential), [The FFT Poisson solver](./self-gravity/fft-poisson), [Jeans modes under self-gravity](./self-gravity/jeans), [The isolated Poisson solver](./self-gravity/isolated-solver), [The n = 1 polytrope: equilibrium and collapse](./self-gravity/polytrope), [The multigrid Poisson solver on AMR grids](./self-gravity/multigrid-amr), [Jeans modes on a static AMR grid](./self-gravity/amr-jeans), [Self-gravity under runtime AMR](./self-gravity/runtime-amr) |
+| [#87](https://github.com/szaghi/adam/issues/87), [#88](https://github.com/szaghi/adam/issues/88) | Isolated self-gravity on AMR | [The polytrope on AMR: static boxes, runtime regrids, Jeans refinement](./self-gravity/star-amr) |
+| M9, [#91](https://github.com/szaghi/adam/issues/91) | Dual energy | [Dual energy: the advected entropy of euler-de](./euler/dual-energy) |
+| M10, [#92](https://github.com/szaghi/adam/issues/92) | Passive scalars | [Passive scalars](./euler/passive-scalars) |
+| M11, [#93](https://github.com/szaghi/adam/issues/93) | Radiative cooling | [Radiative cooling](./euler/radiative-cooling) |
+| M12, [#94](https://github.com/szaghi/adam/issues/94) | Sink particles | [Sink particles](./sinks/sink-particles) |
+| M13, [#100](https://github.com/szaghi/adam/issues/100) | Isothermal and barotropic equations of state | [Isothermal equation of state](./euler/isothermal-eos), [Barotropic equation of state](./euler/barotropic-eos), [Barotropic gases under gravity](./euler/barotropic-gravity), [Isothermal and barotropic MHD](./mhd/barotropic-mhd) |
+| [#110](https://github.com/szaghi/adam/issues/110), [#71](https://github.com/szaghi/adam/issues/71) | Runtime AMR on a forest | [Runtime AMR on a forest](./runtime-amr/multi-realm) |
+| [#119](https://github.com/szaghi/adam/issues/119) | Turbulence | [The ILES baseline (T0)](./turbulence/iles-baseline), [Subgrid-scale models (T1)](./turbulence/sgs-models), [The hybrid central/WENO scheme (T2)](./turbulence/hybrid-scheme), [Plane channel and the wall model (T3)](./turbulence/channel), [Compressible boundary layer (T3.7)](./turbulence/boundary-layer) |
+| [#121](https://github.com/szaghi/adam/issues/121) | Boundaries and shock interaction for supersonic boundary layers (the STREAmS roadmap) | [Non-reflecting boundary](./streams/non-reflecting), [Shock generator and regular reflection](./streams/shock-generator), [Shock/boundary-layer interaction](./streams/sbli) |
 
 ## Running a case
 
@@ -33,271 +307,3 @@ its default selection in its `Usage:` header. An unknown leg, or a selection tha
 exit status 2 before anything runs; each log opens with the resolved selection (`>> legs: ...`). The figures are drawn
 by `make_doc_figures.py`, from the work directories of the `check.sh` scripts or from the re-runs of
 `make_doc_runs.sh`; each group page lists its commands.
-
-## M1 · Euler core (#35)
-
-Issue [#35](https://github.com/szaghi/adam/issues/35). The Euler solver on one realm: Riemann problems, the design
-order, the immersed boundary, the reflux at 2:1 faces and the restart. [Group page](./euler/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Sod shock tube](./euler/sod) | V1, RV-3 | P | yes |
-| [Isentropic vortex: order of accuracy](./euler/isentropic-vortex) | V2, RV-2 | P | yes |
-| [Shock over a cylinder](./euler/shock-cylinder) | V6 | P | yes |
-| [Conservation across AMR seams](./euler/amr-conservation) | V3, RV-4 | C | yes |
-| [Restart round trip and output channels](./euler/restart) | V7 | C | no |
-
-## #37 · Forest entry
-
-Issue [#37](https://github.com/szaghi/adam/issues/37). Several realms glued by inter-realm seams run as one forest,
-bitwise equal to a single realm. The same page carries the legs of the later seam issues and the MHD twin MV-14 of M2.
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Forest seams: the inter-realm contract](./euler/multi-realm) | multirealm legs 1–6, 15; MV-14 | C | yes |
-
-## M2 · Ideal MHD (#41)
-
-Issue [#41](https://github.com/szaghi/adam/issues/41). The conservative MHD system with cell-centred $\mathbf{B}$ and
-mixed GLM cleaning, on the flux-splitting scheme. [Group page](./mhd/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [MHD plumbing](./mhd/plumbing) | — (`mhd/plumbing`) | C | no |
-| [MHD with a zero field](./mhd/zero-field) | MV-2 | C | no |
-| [Ryu–Jones 2a: all seven waves](./mhd/ryu-jones-2a) | MV-4 | P | yes |
-| [Brio–Wu and Ryu–Jones 4d](./mhd/brio-wu-rj4d) | — (`mhd/riemann`) | P | yes |
-| [GLM divergence cleaning](./mhd/glm-cleaning) | MV-3; MV-10 (M6) | P | yes |
-| [Order of accuracy: linear waves, CPAW, magnetised vortex](./mhd/order-of-accuracy) | MV-5, MV-6, MV-7 | P | yes |
-| [Orszag–Tang vortex](./mhd/orszag-tang) | MV-12 | P | yes |
-| [MHD rotor](./mhd/rotor) | MV-13 | P | yes |
-| [Field loop advection](./mhd/field-loop) | MV-9 | P | yes |
-| [Rotated shock tube](./mhd/rotated-shock-tube) | MV-8 | P | yes |
-| [MHD conservation across AMR seams](./mhd/conservation) | MV-11 | C | yes |
-
-## #45 · Non-finite state guard
-
-Issue [#45](https://github.com/szaghi/adam/issues/45). A run whose state turns non-finite stops at once, on every rank.
-[Group page](./infrastructure/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Non-finite state guard](./infrastructure/nonfinite) | — (`nonfinite`) | C | no |
-
-## M3 · Riemann fluxes, EGLM, positivity limiter (#47)
-
-Issue [#47](https://github.com/szaghi/adam/issues/47). The `weno-riemann` scheme (LLF, HLL, HLLC, HLLD face fluxes with
-a flux correction), the energy-consistent EGLM cleaning and the positivity limiter.
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Lax problem](./euler/lax) | RV-3 (`lax`) | P | yes |
-| [Shu–Osher shock / entropy-wave interaction](./euler/shu-osher) | RV-3 (`shu-osher`) | P | yes |
-| [MHD on `weno-riemann`](./mhd/weno-riemann) | RV-5, RV-6, RV-7 | P | yes |
-| [EGLM cleaning](./mhd/eglm) | EV-2, EV-3, EV-4 | P | yes |
-| [Positivity limiter](./mhd/positivity-limiter) | PV-1 to PV-5 | P | yes |
-
-## #40, #51, #52, #54 · Inter-realm seams
-
-Issues [#40](https://github.com/szaghi/adam/issues/40), [#51](https://github.com/szaghi/adam/issues/51),
-[#52](https://github.com/szaghi/adam/issues/52), [#54](https://github.com/szaghi/adam/issues/54). Inter-realm seams
-across ranks, between misaligned blocks and with a 2:1 jump; the tree lookup on quadtrees and single-block roots.
-Verified on the forest page of #37.
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Forest seams: the inter-realm contract](./euler/multi-realm) | multirealm legs 3–5 | C | yes |
-
-## #49 · Non-dimensional form
-
-Issue [#49](https://github.com/szaghi/adam/issues/49). The scheme carries no absolute constant: rescaled inputs
-reproduce the run bit for bit, and the `[reference]` layer reads dimensional input.
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Scaling covariance and the reference layer](./infrastructure/scaling-covariance) | NV-0, NV-4, NV-5, NV-6, NV-8, NV-9 | C | no |
-
-## #46 · Quadtrees
-
-Issue [#46](https://github.com/szaghi/adam/issues/46). 2:1 seams on quadtrees, per axis, against the octree reference;
-blocks thinner than two ghost layers are refused ([#66](https://github.com/szaghi/adam/issues/66)).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Quadtree AMR](./mhd/quadtree-amr) | MV-15 | C | yes |
-| [Forward-facing step: a three-realm forest on quadtrees](./euler/forward-facing-step) | EV-step | P+C | yes |
-
-## M4 · Dissipative terms (#65)
-
-Issue [#65](https://github.com/szaghi/adam/issues/65). Viscosity, heat conduction and resistivity on Euler and MHD, and
-the no-slip walls. [Group page](./dissipative/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Ghost probe: every face and edge ghost on a linear field](./infrastructure/ghost-probe) | GP | C | yes |
-| [Input contract of the dissipative terms](./dissipative/input-contract) | DC | C | no |
-| [Viscous waves](./dissipative/viscous-waves) | VV-1, VV-2 | P | yes |
-| [Compressible Couette flow](./dissipative/couette) | VV-3 | P | yes |
-| [Becker's viscous shock](./dissipative/becker-shock) | VV-4 | P | yes |
-| [Ohmic decay and the visco-resistive Alfvén wave](./dissipative/ohmic-alfven) | VV-5 | P | yes |
-| [Ohmic heating and the divergence constraint](./dissipative/ohmic-heating) | VV-6 | C | no |
-| [Conservation across 2:1 seams and forest seams](./dissipative/seam-conservation) | VV-7 | C | yes |
-| [Accuracy across 2:1 seams](./dissipative/seam-accuracy) | VV-8 | P | yes |
-| [CPU and FNL agree run by run](./dissipative/cpu-fnl-agreement) | VV `agree` | C | no |
-
-## M5 · Runtime AMR (#74)
-
-Issue [#74](https://github.com/szaghi/adam/issues/74). Regrids during the time loop, on both backends, and their
-accuracy against uniform-fine runs. [Group page](./runtime-amr/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Regrid round trip and input contract](./runtime-amr/regrid-round-trip) | RG (rg0 to rg2) | C | no |
-| [Runtime regrids in FLUME](./runtime-amr/runtime-regrids) | RG (rg3 to rg6) | C | yes |
-| [Accuracy of runtime AMR](./runtime-amr/accuracy) | AV (av2 to av8) | P | yes |
-| [MHD blast symmetry on the flux-splitting path](./runtime-amr/mhd-blast-symmetry) | [#77](https://github.com/szaghi/adam/issues/77), av3c | P | yes |
-
-## M6 · Seam accuracy and divergence (#68)
-
-Issue [#68](https://github.com/szaghi/adam/issues/68). M6 measures the accuracy cap of static 2:1 seams, then lifts it
-behind new keys: high-order restriction and fills, a sensor-gated reflux, an EGLM reflux that leaves $\mathbf{B}$ alone.
-The forest page adds leg 6, the GLM page the MV-10 monitor. [Group page](./seams/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Order across static 2:1 seams](./seams/order-across-seams) | AO (A1, C1, D1, D2) | P | yes |
-| [Divergence across seams](./seams/divergence-across-seams) | AD (A2) | P | yes |
-| [Shock crossing a static 2:1 face](./seams/shock-crossing) | AS (A3, C3, C3c) | P | yes |
-| [Integral drift and the WENO sensor near seams](./seams/integral-drift) | AL (A4) | P+C | yes |
-| [Reflux policy: troubled against always](./seams/reflux-policy) | E1, E2 | P | yes |
-| [EGLM reflux leaves B alone](./seams/eglm-reflux) | G3a, G3b | P | yes |
-| [Seam design record (appendix)](./seams/design-record) | B1, B2, B3, E0, G2 | P | yes |
-
-## M7 · External gravity (#73)
-
-Issue [#73](https://github.com/szaghi/adam/issues/73). A constant gravitational acceleration: initial atmospheres, the
-force, a fourth-order energy source, a well-balanced mode, Rayleigh–Taylor. [Group page](./gravity/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Stratified atmospheres and the `hydrostatic` boundary](./gravity/atmospheres) | GV (G0) | C | yes |
-| [The gravity force](./gravity/force) | GV-1, GV-2, GV-3, GV-6, GV-7 | P+C | yes |
-| [The order of the energy source](./gravity/energy-order) | GV-9 | P | yes |
-| [The well-balanced mode](./gravity/well-balanced) | GV-2b, GV-5, GV-7, GV-8, GV-10 | P | yes |
-| [Rayleigh–Taylor](./gravity/rayleigh-taylor) | GV-4 | P | yes |
-
-## #82 · Ranks without blocks
-
-Issue [#82](https://github.com/szaghi/adam/issues/82). A rank that owns no block runs every model and option, and the
-result does not change.
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Ranks without blocks](./infrastructure/ranks-without-blocks) | DV-1 | C | yes |
-
-## M8 · Self-gravity (#81)
-
-Issue [#81](https://github.com/szaghi/adam/issues/81). The Poisson equation solved every Runge–Kutta stage, gravity
-applied through the cell potential: periodic and isolated FFT solvers, multigrid on AMR grids. [Group
-page](./self-gravity/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Gravity from a cell potential](./self-gravity/potential) | SV-1 | P | yes |
-| [The FFT Poisson solver](./self-gravity/fft-poisson) | SV-2 | P | yes |
-| [Jeans modes under self-gravity](./self-gravity/jeans) | SV-3, SV-4, SV-5 | P+C | yes |
-| [The isolated Poisson solver](./self-gravity/isolated-solver) | SV-6 | P | yes |
-| [The n = 1 polytrope: equilibrium and collapse](./self-gravity/polytrope) | SV-7, SV-8 | P | yes |
-| [The multigrid Poisson solver on AMR grids](./self-gravity/multigrid-amr) | SV-9, SV-12, SV-13 | P | yes |
-| [Jeans modes on a static AMR grid](./self-gravity/amr-jeans) | SV-10 | P | yes |
-| [Self-gravity under runtime AMR](./self-gravity/runtime-amr) | SV-11 | C | yes |
-
-## #87, #88 · Isolated self-gravity on AMR
-
-Issues [#87](https://github.com/szaghi/adam/issues/87), [#88](https://github.com/szaghi/adam/issues/88). The star on
-static AMR boxes and its collapse under runtime AMR: the conservative-state prolongation, the Jeans marker and, with M9,
-dual energy.
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [The polytrope on AMR: static boxes, runtime regrids, Jeans refinement](./self-gravity/star-amr) | SV-14 to SV-17, rg7 | P+C | yes |
-
-## M9 · Dual energy (#91)
-
-Issue [#91](https://github.com/szaghi/adam/issues/91). An advected entropy that floors the internal energy of cold cells
-(`euler-de`).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Dual energy: the advected entropy of euler-de](./euler/dual-energy) | DE (de1 to de4) | P+C | yes |
-
-## M10 · Passive scalars (#92)
-
-Issue [#92](https://github.com/szaghi/adam/issues/92). Up to four advected scalars that do not act on the flow.
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Passive scalars](./euler/passive-scalars) | PS (ps1 to ps4) | P+C | yes |
-
-## M11 · Radiative cooling (#93)
-
-Issue [#93](https://github.com/szaghi/adam/issues/93). Optically thin cooling by Townsend's exact integration.
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Radiative cooling](./euler/radiative-cooling) | CO (co1 to co7) | P | yes |
-
-## M12 · Sink particles (#94)
-
-Issue [#94](https://github.com/szaghi/adam/issues/94). Point masses that act through self-gravity: creation, accretion,
-mergers. [Group page](./sinks/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Sink particles](./sinks/sink-particles) | SI (si1 to si11) | P+C | yes |
-
-## M13 · Isothermal and barotropic equations of state (#100)
-
-Issue [#100](https://github.com/szaghi/adam/issues/100). Gases without an energy equation, $P = P(\rho)$, on Euler and
-MHD, with gravity, self-gravity and sinks.
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Isothermal equation of state](./euler/isothermal-eos) | EO (eo1 to eo7) | P | yes |
-| [Barotropic equation of state](./euler/barotropic-eos) | EO (eb1 to eb8) | P | yes |
-| [Barotropic gases under gravity](./euler/barotropic-gravity) | EO (eg1 to eg10) | P | yes |
-| [Isothermal and barotropic MHD](./mhd/barotropic-mhd) | EO (em1 to em10) | P | yes |
-
-## #110, #71 · Runtime AMR on a forest
-
-Issues [#110](https://github.com/szaghi/adam/issues/110), [#71](https://github.com/szaghi/adam/issues/71). The realms of
-a forest regrid across their seams. The inter-realm 2:1 seams on quadtrees of #71 are leg 15 of the
-[forest page](./euler/multi-realm).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Multi-realm runtime AMR](./runtime-amr/multi-realm) | multirealm legs 7–13 | C | yes |
-
-## #119 · Turbulence
-
-Issue [#119](https://github.com/szaghi/adam/issues/119). What the scheme does to turbulence, then the closures in order:
-subgrid-scale models, a hybrid central/WENO scheme, wall models and a turbulent inflow. [Group page](./turbulence/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [The ILES baseline (T0)](./turbulence/iles-baseline) | TT, HT: tt1–tt6, ht1–ht2 | P+C | yes |
-| [Subgrid-scale models (T1)](./turbulence/sgs-models) | SG: sg1–sg4 | P+C | yes |
-| [The hybrid central/WENO scheme (T2)](./turbulence/hybrid-scheme) | HY: hy1–hy13 | P+C | yes |
-| [Plane channel and the wall model (T3)](./turbulence/channel) | WM: wm1–wm11 | P+C | yes |
-| [Compressible boundary layer (T3.7)](./turbulence/boundary-layer) | TB: tb1–tb2 | P+C | yes |
-
-## #121 · STREAmS roadmap
-
-Issue [#121](https://github.com/szaghi/adam/issues/121). The inflow and boundary toolchain of a shock/boundary-layer
-interaction, validated against the STREAmS DNS and the IUSTI experiment. [Group page](./streams/).
-
-| Page | IDs / legs | Type | Figure |
-|---|---|---|---|
-| [Non-reflecting boundary (S2)](./streams/non-reflecting) | NR: nr1–nr4 | P | yes |
-| [Shock generator (S3, S4a)](./streams/shock-generator) | SG: sg1–sg4 (boundary) | P | yes |
-| [Shock/boundary-layer interaction (S4b, S4c)](./streams/sbli) | campaign, no leg | P | yes |

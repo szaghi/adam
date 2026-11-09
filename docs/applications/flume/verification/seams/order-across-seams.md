@@ -44,7 +44,7 @@ The seam operators are described in [numerics](../../numerics#adaptive-mesh-refi
 
 **C1, the 6-point restriction** (`[amr] seam_restriction = lagrange6`, #68 C1, C2). The coarse seam ghosts take the
 tensor 6-point Lagrange interpolation of the fine cells to the coarse centre instead of their mean: exact 1-D weights
-$k/256$, the footprint shifted inside the donor block at its edge, as [B3](./design-record#b3-footprint-of-the-6-point-restriction)
+$k/256$, the footprint shifted inside the donor block at its edge, as [B3](./design-record#footprint-of-the-6-point-restriction)
 recommends. A row whose fine pair does not lie inside its donor block falls back to the mean. On FNL the restriction
 runs in the device twin of C2.
 
@@ -88,10 +88,10 @@ Legs of the euler ladder (each: refined and uniform runs, $N$ = 64 / 128 / 256):
 |---|---|---|---|---|
 | `euler` | `mean` | `tricubic` | on, `always` | A1 |
 | `euler-l6` | `lagrange6` | `tricubic` | off | C1 |
-| `euler-w6` | `weno6` | `tricubic` | off | C3, [C3c](./shock-crossing#c3c-the-weno-restriction) |
-| `euler-q6` | `lagrange6` | `quintic` | off | [D1](#d1-the-quintic-fill) |
-| `euler-ww` | `weno6` | `weno6` | off | [D2](#d2-the-limited-fills) |
-| `euler-mp` | `lagrange6` | `quintic-mp` | off | [D2](#d2-the-limited-fills) |
+| `euler-w6` | `weno6` | `tricubic` | off | C3, [C3c](./shock-crossing#the-weno-restriction) |
+| `euler-q6` | `lagrange6` | `quintic` | off | [D1](#the-quintic-fill) |
+| `euler-ww` | `weno6` | `weno6` | off | [D2](#the-limited-fills) |
+| `euler-mp` | `lagrange6` | `quintic-mp` | off | [D2](#the-limited-fills) |
 | `euler-tq` | `lagrange6` | `quintic` | on, `troubled` | [E2](./reflux-policy) |
 
 ## Input files
@@ -151,9 +151,11 @@ same run to $3\cdot10^{-14}$:
 | euler-l6 (lagrange6, reflux off) | $8.55\cdot10^{-8}$ | $6.36\cdot10^{-6}$ | **5.33 / 5.53** |
 | uniform at the coarse spacing | $8.38\cdot10^{-8}$ | $5.34\cdot10^{-6}$ | 5.79 / 7.38 |
 
-`euler-w6` reports in [C3c](./shock-crossing#c3c-the-weno-restriction) and `euler-tq` in [E2](./reflux-policy).
+`euler-w6` reports in [C3c](./shock-crossing#the-weno-restriction) and `euler-tq` in [E2](./reflux-policy).
 
-### D1: the quintic fill
+### The quintic fill
+
+Phase D1: the `quintic` coarse-to-fine fill.
 
 ![D1: the quintic fill in situ and on the AO vortex](/flume/quintic-fill.png)
 
@@ -176,7 +178,9 @@ Backend agreement: np 1 / 2 / 3 bitwise on the CPU, np 1 / 2 on FNL, CPU against
 `euler-q6` ladder agrees on CPU and FNL to every printed digit. [Multirealm](../euler/multi-realm) leg 6 runs the fill
 across a refined inter-realm seam, bitwise.
 
-### D2: the limited fills
+### The limited fills
+
+Phase D2: the limited fills `weno6` and `quintic-mp`.
 
 ![D2: the plateau with the 6-point fills](/flume/limited-fills.png)
 
@@ -206,8 +210,8 @@ PV-5 passes with no inadmissible stage under both limited fills; the ghost probe
 either fill; multirealm leg 6 runs both across a refined inter-realm seam, bitwise.
 
 Related cases: [AS](./shock-crossing) is the shock baseline of the same seam operators; [AL](./integral-drift) logs
-the drift of this vortex without the reflux; [B1](./design-record#b1-the-caps-in-a-2-d-prototype) reproduces the caps
-in a 2-D prototype; [E0](./design-record#e0-the-shock-crossing-defect-is-a-capturing-error) explains the crossing defect
+the drift of this vortex without the reflux; [B1](./design-record#the-caps-in-a-2-d-prototype) reproduces the caps
+in a 2-D prototype; [E0](./design-record#the-shock-crossing-defect-is-a-capturing-error) explains the crossing defect
 D2 could not reduce; the uniform-grid orders are [V2](../euler/isentropic-vortex) and
 [MV-5 to MV-7](../mhd/order-of-accuracy).
 
@@ -220,12 +224,12 @@ D2 could not reduce; the uniform-grid orders are [V2](../euler/isentropic-vortex
   times (Euler) and 70 times (MHD) the error of the uniform run at the coarse spacing, which reaches design order.
 - **Euler's L∞ order is 1.46,** below the 2 of the 1-D prototype in #68 (Appendix A). The vortex crosses the seam
   corner, where the two seam directions meet; the 2-D prototypes of Phase B show that the corner does not explain it
-  ([B1, B2](./design-record#b1-the-caps-in-a-2-d-prototype)).
+  ([B1, B2](./design-record#the-caps-in-a-2-d-prototype)).
 - **C1: the restriction was the seam error.** With the 6-point restriction and without the reflux the refined
   composite error equals the uniform coarse run's, 47 times below the default operators': at these resolutions the restriction was the
   seam error, and the tricubic prolongation's $O(h^4)$ term has not shown yet.
 - **C1: the reflux caps the order by itself.** With the reflux on, the restriction changes nothing (band L∞ order 1.43
-  against 1.46 at $N$ = 64 → 128), as [B1](./design-record#b1-the-caps-in-a-2-d-prototype) predicts. The high order
+  against 1.46 at $N$ = 64 → 128), as [B1](./design-record#the-caps-in-a-2-d-prototype) predicts. The high order
   with the reflux kept at the shocks is [E2](./reflux-policy).
 - No restriction row fell back to the mean: every fine pair lies inside its donor block.
 - **C1 cost on FNL:** the restriction rows read 36 cells instead of 4 on this quadtree, in the same kernels as the
@@ -241,7 +245,7 @@ D2 could not reduce; the uniform-grid orders are [V2](../euler/isentropic-vortex
   case and by metric (`restriction-compatible` on Sod, `tricubic` on the RJ2a plateau, `quintic` on its band); every
   unlimited fill sits within about $\pm 30\,\%$ of `tricubic`, and the two limited fills are the worst on Sod, their
   shock furthest off. The plateau defect is not an overshoot of the fill, so no fill can be held to "no worse than
-  `tricubic`"; [E0](./design-record#e0-the-shock-crossing-defect-is-a-capturing-error) shows it is a capturing error.
+  `tricubic`"; [E0](./design-record#the-shock-crossing-defect-is-a-capturing-error) shows it is a capturing error.
 - **D2: on smooth flows both limited fills keep their order.** `euler-ww` has the `weno6` restriction's accuracy;
   `euler-mp` equals `euler-q6`: the MP bound never clips the vortex.
 - `quintic`, `weno6` and `quintic-mp` stay opt-in; the default fill is `tricubic`.

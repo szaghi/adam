@@ -112,7 +112,7 @@ every other ghost is at round-off. Bottom: after.*
 | the step forest before P0 | — | realm edges off by up to 0.78 | |
 
 Related cases: [Forward-facing step](../euler/forward-facing-step) and [Multi-realm runs](../euler/multi-realm) run the
-seams this probe inspects; [D1, quintic fill](../seams/order-across-seams#d1-the-quintic-fill) uses the polynomial probe.
+seams this probe inspects; [D1, quintic fill](../seams/order-across-seams#the-quintic-fill) uses the polynomial probe.
 
 ## Findings
 

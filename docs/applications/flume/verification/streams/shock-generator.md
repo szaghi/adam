@@ -1,4 +1,4 @@
-# Shock generator (S3, S4a)
+# Shock generator and regular reflection
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
@@ -32,7 +32,7 @@ legs belong to `src/tests/flume/verification/boundary/check.sh`, not to the
 | sg3 | a shock entering beyond the box (`shock_x` 3) | equal to an extrapolated top bit for bit | 0 of 64 datasets differ |
 | sg4 | the regular reflection off a slip wall (S4a): `wall-inviscid` at $y = 0$, `shock_x` = 0.1 (the shock meets the wall at $x = 1.321$), $t = 5$ | behind the reflected shock (8 cells off it and off the wall) $p$ and $\rho$ within 4e-3 of the exact $p_3/p_1 = 2.80319$, the flow parallel to the wall within $0.1^\circ$; the reflected shock's angle to the wall within $0.3^\circ$ of $39.384^\circ$ | $p$ 2.10e-3, $\rho$ 1.50e-3, $0.062^\circ$; $39.437^\circ$, its foot at $x = 1.324$ |
 
-## The incident shock (S3)
+## The incident shock
 
 ![The shock generator at Mach 2](/flume/shockgen.png)
 
@@ -48,7 +48,7 @@ $p/p_1$ and $\rho/\rho_1$ along the row $y = 0.484$ against the step of Rankineâ
   through the extrapolated bottom, the corner downstream sits up to 4 % high: an extrapolated face crossed by an oblique
   shock is not clean. In a shock/boundary-layer interaction the shock meets the wall instead.
 
-## Regular reflection off a slip wall (S4a)
+## Regular reflection off a slip wall
 
 ![The regular reflection off a slip wall](/flume/shockgen-reflect.png)
 

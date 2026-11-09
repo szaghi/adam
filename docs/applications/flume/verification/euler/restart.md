@@ -86,7 +86,7 @@ The FNL column of the two [#109](https://github.com/szaghi/adam/issues/109) rows
 
 Related cases: restart across runtime regrids is [runtime regrids](../runtime-amr/runtime-regrids) (rg3–rg6); the MHD
 restart round trips are MV-14 legs 2 and 3 on [forest seams](./multi-realm); the forest restart is
-[multi-realm runtime AMR](../runtime-amr/multi-realm).
+[runtime AMR on a forest](../runtime-amr/multi-realm).
 
 ## Findings
 

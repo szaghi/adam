@@ -518,7 +518,7 @@ With reflux the volume integrals of a periodic box stay constant to round-off; w
 **Keep shocks off the 2:1 seams.** A captured shock that crosses a 2:1 seam into finer cells leaves a defect behind it
 (about 2 % of the jump in density, with an entropy defect of the same size) that does not shrink with the resolution.
 No choice of seam operator removes it: restriction, coarse-to-fine fill and reflux move it by at most ±30 %
-([verification](./verification/seams/design-record#e0-the-shock-crossing-defect-is-a-capturing-error)). The evidence points to the start-up error of a captured shock
+([verification](./verification/seams/design-record#the-shock-crossing-defect-is-a-capturing-error)). The evidence points to the start-up error of a captured shock
 whose numerical structure is squeezed into finer cells. Refine ahead of the shocks instead: a gradient or Löhner marker
 on density or pressure with a `buffer` of a few cells and a regrid `frequency` short enough that a shock cannot outrun
 the refined region between two regrids (the standard AMR practice; the remedy itself is not measured).
