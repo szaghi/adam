@@ -2771,14 +2771,14 @@ def _mach(s: dict, plane: str) -> np.ndarray:
     return np.sqrt(s[f"{plane}_u"] ** 2 + s[f"{plane}_v"] ** 2 + s[f"{plane}_w"] ** 2) / np.sqrt(g * s[f"{plane}_p"] / s[f"{plane}_r"])
 
 
-def _sbli_data(runs: Path) -> tuple[dict, dict]:
+def _sbli_data(runs: Path, case: str = "sbli-m2p28-8") -> tuple[dict, dict]:
     import json  # noqa: PLC0415
 
     root = runs / "sbli"
-    js = root / "sbli-m2p28-8.json"
+    js = root / f"{case}.json"
     if not js.exists():
         raise FileNotFoundError(js)
-    return json.loads(js.read_text()), _slices(root / "sbli-m2p28-8-slices.npz")
+    return json.loads(js.read_text()), _slices(root / f"{case}-slices.npz")
 
 
 def fig_sbli(out: Path, runs: Path) -> None:
@@ -2824,7 +2824,12 @@ def fig_sbli_fields(out: Path, runs: Path) -> None:
     <runs>/sbli/sbli-m2p28-8-slices.npz). From the top: numerical schlieren of the x-y plane at mid-span; the spanwise-averaged pressure of the same
     checkpoint with the sonic line and the shock fits of sbli_oracle (the mid-pressure crossings above the layer and their lines extrapolated to the
     wall); the streamwise velocity in the wall-parallel plane near y = 0.15 delta_0; the cross-flow plane at x_imp."""
-    j, s = _sbli_data(runs)
+    _sbli_fields(out, *_sbli_data(runs), "sbli-fields.png")
+
+
+def _sbli_fields(out: Path, j: dict, s: dict, name: str) -> None:
+    """The panels of fig_sbli_fields for one run (its oracle JSON and its field_slices planes), written to <out>/<name>. On a grid with refined
+    blocks (field_slices' xy_dx plane holds two spacings) the 2:1 box is outlined on the x-y panels."""
     x, y, z = s["x"], s["y"], s["z"]
     d0, x_imp = j["delta0"], j["x_imp"]
     xm = (x > x_imp - 25.0) & (x < x_imp + 25.0)
@@ -2837,6 +2842,9 @@ def fig_sbli_fields(out: Path, runs: Path) -> None:
     ax.imshow(sch[np.ix_(xm, ym)].T, origin="lower", extent=ext, cmap="gray", aspect="equal", vmin=0.0, vmax=1.0)
     ax.set_title(f"numerical schlieren, $x$-$y$ plane at $z$ = {float(s['cut'][2]):.2f}, $t$ = {float(s['time']):.0f}", fontsize=9)
     ax.set_ylabel(r"$y$")
+    levels = np.unique(s["xy_dx"][np.isfinite(s["xy_dx"])]) if "xy_dx" in s else np.array([])
+    if len(levels) > 1:  # the 2:1 box: the contour between the two spacings
+        ax.contour(x[xm], y[ym], s["xy_dx"][np.ix_(xm, ym)].T.astype(float), levels=[levels.mean()], colors="C1", linewidths=1.0)
     ax = fig.add_subplot(gs[1, :])
     p_inf = 1.0 / (float(s["gamma"]) * 2.28**2)
     im = ax.imshow((s["avg_p"][np.ix_(xm, ym)] / p_inf).T, origin="lower", extent=ext, cmap="viridis", aspect="equal")
@@ -2884,8 +2892,55 @@ def fig_sbli_fields(out: Path, runs: Path) -> None:
     ax.set_title("spanwise-averaged profiles", fontsize=9)
     ax.grid(alpha=0.3)
     ax.legend(fontsize=7)
-    fig.savefig(out / "sbli-fields.png", dpi=DPI)
+    fig.savefig(out / name, dpi=DPI)
     plt.close(fig)
+
+
+def fig_sbli_refined(out: Path, runs: Path) -> None:
+    """#121 S4c: the interaction of S4b with a static 2:1 box under it (x 25-75, y < 3: the near-wall grid and the wall model's matching height
+    halved), against S4b. Data: the sbli_oracle JSONs <runs>/sbli/sbli-m2p28-8.json (S4b) and sbli-m2p28-8-r2.json (S4c). Left: the wall pressure
+    against x* with the DNS and the IUSTI points; right: C_f against x, the box shaded."""
+    import json  # noqa: PLC0415
+
+    jb = json.loads((runs / "sbli" / "sbli-m2p28-8.json").read_text())
+    jc = json.loads((runs / "sbli" / "sbli-m2p28-8-r2.json").read_text())
+    fig, axs = plt.subplots(1, 2, figsize=(12.0, 4.0), constrained_layout=True)
+    ax = axs[0]
+    dns, iusti = np.array(jb["dns"]), np.array(jb["iusti"])
+    ax.plot(dns[:, 0], dns[:, 1], "k-", lw=1.0, label="DNS (STREAmS)")
+    ax.plot(iusti[:, 0], iusti[:, 1], "^", ms=4, mfc="none", color="0.35", label="IUSTI experiment")
+    for j, c, lab in ((jb, "C0", r"S4b, $\delta_i/12$"), (jc, "C3", r"S4c, 2:1 box, $\delta_i/24$ at the wall")):
+        ax.plot(j["x_star"], j["pw_norm"], "-", color=c, lw=1.3,
+                label=rf"{lab}: $L_{{int}}/\delta_0$ {j['l_int'] / j['delta0']:.2f}")
+    ax.axvline(-1.0, color="0.6", ls=":", lw=0.8)
+    ax.axvline(0.0, color="0.6", ls="--", lw=0.8)
+    ax.set_xlim(-2.0, 3.0)
+    ax.set_xlabel(r"$x^* = (x - x_{imp}) / L_{int}$")
+    ax.set_ylabel(r"$(p_w - p_\infty) / (p_2 - p_\infty)$")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, loc="lower right")
+    ax = axs[1]
+    ax.axvspan(25.0, 75.0, color="C3", alpha=0.07, lw=0, label="the 2:1 box of S4c")
+    for j, c, lab in ((jb, "C0", "S4b"), (jc, "C3", "S4c")):
+        x, cf = np.array(j["x"]), np.array(j["cf"])
+        m = (x > 35.0) & (x < 85.0)
+        i = int(np.argmin(np.where(m, cf, np.inf)))
+        ax.plot(x[m], 1e3 * cf[m], "-", color=c, lw=1.3, label=rf"{lab}: minimum {1e3 * cf[i]:.2f} at $x$ = {x[i]:.1f}")
+    ax.axhline(0.0, color="k", lw=0.8)
+    ax.axvline(jb["x_imp"], color="0.6", ls="--", lw=0.8)
+    ax.set_xlim(35.0, 85.0)
+    ax.set_xlabel(r"$x/\delta_i$")
+    ax.set_ylabel(r"$10^3 C_f$ (the wall model's $\tau_w$)")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, loc="lower right")
+    fig.savefig(out / "sbli-refined.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_sbli_refined_fields(out: Path, runs: Path) -> None:
+    """#121 S4c: the panels of fig_sbli_fields for the run with the 2:1 box (<runs>/sbli/sbli-m2p28-8-r2.json and -slices.npz, field_slices on the
+    fine grid, the box outlined in the schlieren panel)."""
+    _sbli_fields(out, *_sbli_data(runs, "sbli-m2p28-8-r2"), "sbli-refined-fields.png")
 
 
 def _box_view(ax, s: dict, key: str, cmap: str, vlim: tuple[float, float], xr: tuple[float, float], ymax: float, label: str) -> None:  # noqa: ANN001
@@ -4706,7 +4761,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

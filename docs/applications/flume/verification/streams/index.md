@@ -11,7 +11,7 @@ against the STREAmS DNS and the IUSTI experiment. It continues the
 |---|---|---|
 | [Non-reflecting boundary](./non-reflecting) | P | `[bc_*] type = non-reflecting` against the kinds it would replace, `extrapolation` and `inflow`: what an outgoing packet leaves in the box, the relaxation of a uniform overpressure, bit-for-bit equality with `extrapolation` where it must reduce to it |
 | [Shock generator and regular reflection](./shock-generator) | P | the shock of `type = shock-generator` against the oblique-shock relations, and its regular reflection off a slip wall against the exact reflection |
-| [Shock/boundary-layer interaction](./sbli) | P | the wall-modelled interaction at Mach 2.28: the interaction length, the separation from $C_f$ and the wall pressure against the STREAmS DNS and the IUSTI experiment; a refined wall grid under the interaction (in progress) |
+| [Shock/boundary-layer interaction](./sbli) | P | the wall-modelled interaction at Mach 2.28: the interaction length, the separation from $C_f$ and the wall pressure against the STREAmS DNS and the IUSTI experiment; a 2:1 box under the interaction, the matching height halved: the dip of $C_f$ halves, no mean separation |
 | [Sutherland viscosity](#sutherland-viscosity) | P+C | the law against the formula, both wall models under it, its input contract, the cold-wall boundary layer rerun under it |
 
 The non-reflecting and shock-generator legs are in `src/tests/flume/verification/boundary/check.sh`; their `sg` legs are
@@ -43,7 +43,7 @@ The toolchain is [#121](https://github.com/szaghi/adam/issues/121), which contin
 | S3 | Oblique-shock generator on a y face (`type = shock-generator`) | sg1–sg3 (boundary) | [Shock generator](./shock-generator) |
 | S4a | Inviscid regular reflection off a slip wall | sg4 (boundary) | [Shock generator](./shock-generator#regular-reflection-off-a-slip-wall) |
 | S4b | Wall-modelled interaction, Mach 2.28, IUSTI | campaign, no leg | [Shock/boundary-layer interaction](./sbli) |
-| S4c | S4b with a 2:1 box under the interaction | campaign, in progress | [Shock/boundary-layer interaction](./sbli#a-refined-wall-grid-under-the-interaction) |
+| S4c | S4b with a 2:1 box under the interaction | campaign (t 550, done) | [Shock/boundary-layer interaction](./sbli#a-refined-wall-grid-under-the-interaction) |
 | S5 | Recycling–rescaling turbulent inflow | — | not started |
 
 | Page | Phases | Legs | Type |

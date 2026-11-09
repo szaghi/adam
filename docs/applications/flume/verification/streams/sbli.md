@@ -77,7 +77,7 @@ this interaction over $35<x<60$, the cross-flow face at the impingement $x=60$ (
   thickens to $0.6$–$0.8\,\delta_i$ only past the foot of the shock.
 - **Two causes remain, not separated.** The equilibrium model has no pressure-gradient term, and it computes $\tau_w$
   from the velocity at the 3rd cell, $0.21\,\delta_i$ or $0.12\,\delta_0$ above the wall, which the near-wall
-  deceleration under the adverse gradient reaches late. S4c separates the near-wall grid from the model.
+  deceleration under the adverse gradient reaches late. [S4c](#a-refined-wall-grid-under-the-interaction) halves the matching height: the dip of $C_f$ halves, the mean does not separate.
 
 ## A refined wall grid under the interaction
 
@@ -107,10 +107,51 @@ an even split. `mpi_redistribute` walks the blocks greedily and keeps the 8 sibl
 model of the routine reproduces that split exactly ([#123](https://github.com/szaghi/adam/issues/123)). Evenly split,
 the step would take about 0.71 s, so the run would need about 13.5 hours instead of 18.
 
-The results are pending the end of the run ($t=550$).
+### Results
+
+![S4c against S4b: wall pressure and skin friction](/flume/sbli-refined.png)
+
+*Left: the mean wall pressure of S4b and S4c against the DNS and the experiment. Right: $C_f$ from the wall model's
+$\tau_w$ against $x$, the 2:1 box of S4c shaded. `make_doc_figures.py --only sbli-refined`.*
+
+The statistics are the span and the 21 checkpoints of $307.5\le t\le550$ (`sbli_oracle.py compare --t0 300`); S4b's
+column repeats the table above.
+
+| | S4c, 2:1 box | S4b |
+|---|---|---|
+| $Re_\theta$ at $x_{imp}$, nominal; $\delta_0$ | 5314; $1.824$ | 5247; $1.807$ |
+| reflected shock: angle to the wall | $28.63^\circ$ | $28.95^\circ$ |
+| $L_{int}/\delta_0$ | **3.04** | 3.15 (DNS of Volpiani et al.: 3.22) |
+| separation: $L_{sep}/\delta_0$ | **0**, $C_f$ never negative, minimum $0.10\cdot10^{-3}$ at $x=58.4$ | 0, minimum $0.22\cdot10^{-3}$ at $x=58.6$ |
+| $(p_w-p_\infty)/(p_2-p_\infty)$ at $x^*=-0.5$, $0$, $0.5$, $1$, $2$ | 0.89, 1.76, 2.14, 2.26, 2.39 | 1.12, 1.72, 2.09, 2.24, 2.37 (DNS: 0.00, 0.64, 1.75, 2.08, 2.29) |
+| $C_f$ upstream of the box ($x\le24$) | S4b's within 0.4 % | |
+| $C_f$ in the box, before the interaction | $-11$ % at $x=26$–$30$, behind the 2:1 face; $+6$ % at $x=35$; $+10$ % at $x=45$–$55$ | |
+| $C_f$ downstream of the box ($x=76$–$90$) | $-7$ % | |
+
+![The flow of S4c](/flume/sbli-refined-fields.png)
+
+*The panels of [the flow](#the-flow) for S4c at $t=550$, on the fine grid of the box (the coarse cells repeated
+outside it, the box outlined in orange in the schlieren). `make_doc_figures.py --only sbli-refined-fields`.*
+
+- **The finer near-wall grid does not open a mean bubble.** Halving the matching height halves the dip of $C_f$, at the
+  same place, and the mean stays positive. In single checkpoints the flow at the wall reverses in patches: at $t=550$
+  the spanwise-averaged $u$ of the first cells is negative over a short stretch near $x=58.5$ (the red $u=0$ line), and
+  the cross-flow plane at $x_{imp}$ has reversed cells along the wall. The reversal is intermittent; the mean has none.
+- **The interaction length shrinks slightly,** 3.04 against 3.15, and the early rise of the wall pressure is smaller
+  ($0.89$ at $x^*=-0.5$ against $1.12$), but it still starts where the DNS is flat: the shape of the interaction is
+  S4b's.
+- **The zero-pressure-gradient layer depends on the matching height.** Outside the box $C_f$ is S4b's; inside it, after
+  an adjustment over about $10\,\delta_i$ behind the 2:1 face, it is 10 % higher before the interaction. The
+  equilibrium model's $\tau_w$ follows the velocity at its matching point, and that point moved from $0.12$ to
+  $0.06\,\delta_0$ (the log-layer mismatch of Kawai & Larsson 2012). A matching height fixed in $\delta_i$, not in
+  cells, would keep the two levels consistent.
+- **What remains is the model.** The equilibrium model integrates a constant total stress across its layer, so its
+  $\tau_w$ turns negative only where the velocity at the matching height reverses on average. With the matching point
+  at $0.06\,\delta_0$ it does not; the pressure-gradient term, which lets $\tau_w$ reverse under a strong adverse
+  gradient while the matching velocity is still positive, is the next test.
 
 ## Not done
 
-- The separation: a wall model with the pressure gradient, or the finer wall grid of S4c.
+- The separation: a wall model with the pressure gradient (the finer wall grid of S4c does not open the mean bubble), and a matching height fixed in $\delta_i$ across the levels.
 - The wall-pressure fluctuations and the low-frequency unsteadiness.
 - The recycling–rescaling inflow (S5).
