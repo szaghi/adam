@@ -81,11 +81,33 @@ this interaction over $35<x<60$, the cross-flow face at the impingement $x=60$ (
 
 ## S4c: a refined wall grid under the interaction
 
-The S4b case with one more level, 2:1, under the interaction (`tbl_cases_s4c.txt`): the blocks of $25\le x\le75$,
-$y<3$, every $z$, at $\delta_i/24$, the rest at $\delta_i/12$, about 23 M cells. The wall model and its matching point
-(the 3rd cell) are unchanged, so in the box the matching height halves with the cells ($0.104$ against $0.208\,\delta_i$).
-A bubble in this run points at the near-wall grid; none points at the equilibrium model. The run is in progress; there
-are no results yet.
+The S4b case with one more level, 2:1, under the interaction (`tbl_cases_s4c.txt`). The wall model and its matching
+point (the 3rd cell) are unchanged, so in the refined box the matching height halves with the cells. A bubble in this
+run points at the near-wall grid; none points at the equilibrium model.
+
+| Setup | |
+|---|---|
+| grid | S4b's box and base grid ($\delta_i/12$) with a static 2:1 box: `make_tbl.py --refine-box 30,75,2.5` refines a block when its centre is inside $30\le x\le75$, $y\le2.5$, which takes the blocks of $25\le x\le75$, $y<3$, every $z$, to $\delta_i/24$; 120 blocks (64 fine, 56 coarse), about 23 M cells |
+| matching height | the 3rd cell: $0.104\,\delta_i$ in the box against S4b's $0.208\,\delta_i$ ($0.06$ against $0.12\,\delta_0$) |
+| seams | the box's upstream face is at $x=25$, 35 $\delta_i$ ahead of the impingement and 29 ahead of S4b's reflected-shock origin; its top at $y=3$, $1.7\,\delta_0$, inside the layer (FV reflux at the 2:1 faces) |
+| start | from $t=0$ with the box in place, not from S4b's state: moving a developed state onto a refined grid needs runtime regridding along a modelled wall, which is not verified (a static box is what the wall-model leg `wm3` verifies). The cost is S4b's $\approx300$ time units of transient again |
+| run | to $t=550$ on 2 nodes (8 A30), a checkpoint every 2000 steps ($\approx14$ time units); statistics over $t>300$, where S4b's had converged (S4b changed by at most 1 % between the windows $310$–$934$ and $310$–$1200$) |
+| oracle | `sbli_oracle.py compare --t0 300`: `tbl_oracle.averages` maps the two levels onto the fine grid (coarse cells repeated); $C_f$ comes from the wall model's history, 1200 bins of equal width weighted by area, so the levels need no special case. `field_slices.py` cuts the planes on the fine grid the same way |
+
+### Cost on two nodes
+
+The first FNL run of FLUME across two medooza nodes. S4b ran 64 blocks on 4 A30 (one node) at 0.74 s per step; S4c
+runs 120 blocks of the same size on 8 A30 at 0.95 s per step at the start and 0.98 at $t\approx400$ (the time step
+falls as the layer develops; the steps cost the same). Per step the busiest GPU advances 4.1 M cells per second against
+S4b's 4.2 M: the inter-node halo exchange and the 2:1 seams (reflux included) cost about 2–3 %.
+
+The step is slower because of the partition, not the network. The 120 blocks land 20/13/19/17/13/19/19/0 on the 8
+ranks: one GPU holds no block, and the busiest holds 20 against an even 15, which makes each step 1.33 times slower than
+an even split. `mpi_redistribute` walks the blocks greedily and keeps the 8 siblings of a refined parent together; a
+model of the routine reproduces that split exactly ([#123](https://github.com/szaghi/adam/issues/123)). Evenly split,
+the step would take about 0.71 s, so the run would need about 13.5 hours instead of 18.
+
+The results are pending the end of the run ($t=550$).
 
 ## Not done
 
