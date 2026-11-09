@@ -136,15 +136,7 @@ fobis build --mode ripple-fnl-nvf --varset local_nvf    # exe/adam_ripple_fnl
 ./src/tests/ripple/check.sh --legs r4                   # after r1 and r2: it compares against their CPU runs
 ```
 
-```text
-16 blocks, largest |u_1 - u_2| = 1.665e-15
-PASS [r4 periodic]
-28 blocks, largest |u_1 - u_2| = 4.241e-14
-PASS [r4 amr]
-total of u dV: 482 rows, largest drift 1.388e-17 of max|u0| times the volume
-PASS [r4 conservation]
-RIPPLE oracles (r4) PASSED
-```
+<<< @/snippets/tutorials/ripple-r4.txt
 
 The FNL runs of `periodic.ini` and `amr.ini` agree with the CPU runs to round-off, and the device reflux conserves as
 the host one does. These runs were made on a WSL2 workstation, which checks correctness only ([GPU5](/cookbook/gpu#gpu5-run-on-a-development-box-with-wsl2-not-on-a-cluster)).

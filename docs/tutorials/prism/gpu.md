@@ -31,10 +31,7 @@ CPU run's, in the same format.
 
 The last rows of the two energy histories:
 
-```text
-CPU  +192 +32 +0.66712814328639916E-009 +0.42220694691084245E+005 +0.42220694691084274E+005 ...
-FNL  +192 +32 +0.66712814328639916E-009 +0.42220694691085213E+005 +0.42220694691085213E+005 ...
-```
+<<< @/snippets/tutorials/prism-gpu-energy.txt
 
 and the fields of step 192, block by block (`compare_saves.py` with the FNL directory as the second run):
 
@@ -42,10 +39,7 @@ and the fields of step 192, block by block (`compare_saves.py` with the FNL dire
 ../../exe/.regression-venv/bin/python ../../src/tests/tutorials/compare_saves.py ../pulse periodic_pulse_blocks 192 192 .
 ```
 
-```text
-Bz       max|q(192) - q(192)| / max|q(192)| = 2.110e-15
-Dy       max|q(192) - q(192)| / max|q(192)| = 1.682e-15
-```
+<<< @/snippets/tutorials/prism-gpu-compare.txt
 
 The two backends run the same algorithm; they differ only in the order of floating-point operations, so they agree
 to round-off, not bitwise.

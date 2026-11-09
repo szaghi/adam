@@ -10,6 +10,7 @@ The numbers the prose quotes are checked as claims: the page must contain the st
     capture.py --check         run, compare with the committed snippets (numbers within --rtol/--atol), check the claims
     capture.py --only sod,lax  only these runs (and the snippets and claims that read them)
     capture.py --gpu           also the FNL cases (PRISM pulse, RIPPLE r4): their round-off digits are the machine's
+    capture.py --gpu --only pulse-fnl,ripple-r4 --with-existing   the FNL cases alone, after a CPU capture
 
 Exit status 0 when every run behaved as expected (two runs must stop: an error message is their output), every
 snippet matched (--check) and every claim held; 1 otherwise, with the differences printed.
@@ -420,6 +421,9 @@ def main():
     ap.add_argument("--exe-dir", type=Path, default=REPO / "exe")
     ap.add_argument("--work", type=Path, default=REPO / "exe" / "tutorials-work")
     ap.add_argument("--reuse", action="store_true", help="do not run; read the outputs already in --work")
+    ap.add_argument("--with-existing", action="store_true",
+                    help="also read the runs not selected by --only whose outputs are already in --work (e.g. --gpu "
+                         "--only pulse-fnl,ripple-r4 --with-existing, after a CPU capture)")
     ap.add_argument("--rtol", type=float, default=1e-6)
     ap.add_argument("--atol", type=float, default=1e-12)
     ap.add_argument("--list", action="store_true", help="list the runs and snippets, and exit")
@@ -451,6 +455,13 @@ def main():
             print(f"  FAIL {n}: exit {run.status} (expected {'non-zero' if run.must_fail else 0}); log {run.dir}/log.txt")
 
     done = set(names)
+    if args.with_existing:
+        for n, run in R.items():
+            if n not in done and (run.dir / "log.txt").exists():
+                run.status = 1 if run.must_fail else 0
+                if run.exe == "check.sh":
+                    run.stdout = (run.dir / "log.txt").read_text()
+                done.add(n)
     out = Path(tempfile.mkdtemp()) if args.check else SNIPPETS
     out.mkdir(parents=True, exist_ok=True)
     for name, (runs, make) in snippets(R).items():
