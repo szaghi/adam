@@ -4,7 +4,7 @@ The dissipative terms of FLUME: viscosity and heat conduction (Navier–Stokes) 
 diffusion) on MHD, and the no-slip walls, verified against exact linear modes and exact steady solutions, through the
 conservation and the order across 2:1 and forest seams, and run by run between the two backends. Each coefficient is
 read either as a coefficient or as its dimensionless number ([#49](https://github.com/szaghi/adam/issues/49) N4);
-the keys are listed in [input](../../input#dissipative-terms-issue-65-m4), the fluxes in
+the keys are listed in [input](../../input#dissipative-terms), the fluxes in
 [numerics](../../numerics#dissipative-fluxes-navier–stokes), the walls in [boundary
 conditions](../../boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls).
 

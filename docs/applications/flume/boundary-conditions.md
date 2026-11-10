@@ -129,19 +129,22 @@ compressible Couette flow between an isothermal wall and a moving adiabatic one,
 ([VV-3](./verification/dissipative/couette)): the moving-wall mirror is exact for its linear velocity and
 symmetric temperature, the isothermal mirror $T_w^2/T$ is second-order, so the run converges at order 2.
 
-### `hydrostatic`: an atmosphere under gravity ([#73](https://github.com/szaghi/adam/issues/73))
+<a id="hydrostatic-an-atmosphere-under-gravity-73"></a>
 
-The ghost density and pressure continue the isothermal hydrostatic equilibrium of the first interior cell along the
+### `hydrostatic`: an atmosphere under gravity
+
+Added for the gravity of [#73](https://github.com/szaghi/adam/issues/73). The ghost density and pressure continue the isothermal hydrostatic equilibrium of the first interior cell along the
 normal, $\rho_g = \rho_1 \exp(g_d s/T_1)$, $p_g = \rho_g T_1$, with $T_1 = p_1/\rho_1$ and $s$ the signed distance from
 that cell to the ghost along the axis $d$: an isothermal atmosphere has exact ghosts. The velocity is mirrored as at
 `wall-inviscid` (no mass flux); the magnetic field and $\psi$ are mirrored even. Without gravity along the normal it is a
 slip wall that copies the first interior cell's thermodynamic state (Zingale et al. 2002).
 
 <a id="non-reflecting-a-characteristic-outflow-and-far-field-121-s2"></a>
+<a id="non-reflecting-a-characteristic-outflow-and-far-field-121"></a>
 
-### `non-reflecting`: a characteristic outflow and far field ([#121](https://github.com/szaghi/adam/issues/121))
+### `non-reflecting`: a characteristic outflow and far field
 
-The ghosts are the first interior cell plus the jumps of the characteristic variables, linearised about it (outward
+Added for the STREAmS cases of [#121](https://github.com/szaghi/adam/issues/121). The ghosts are the first interior cell plus the jumps of the characteristic variables, linearised about it (outward
 normal velocity $u_n$, sound speed $c$):
 
 - **Outgoing waves** (speed $> 0$): no jump, extrapolated.
@@ -169,10 +172,11 @@ passing through. Measured in the [verification](./verification/streams/non-refle
 
 
 <a id="shock-generator-an-oblique-shock-through-a-y-face-121-s3"></a>
+<a id="shock-generator-an-oblique-shock-through-a-y-face-121"></a>
 
-### `shock-generator`: an oblique shock through a y face ([#121](https://github.com/szaghi/adam/issues/121))
+### `shock-generator`: an oblique shock through a y face
 
-The face of a shock–boundary-layer interaction that brings the incident shock in (the top of the box). The ghosts with
+Added for the STREAmS cases of [#121](https://github.com/szaghi/adam/issues/121). The face of a shock–boundary-layer interaction that brings the incident shock in (the top of the box). The ghosts with
 `shock_x` $\le x <$ `shock_x_end` take the state behind an oblique shock in the upstream state `r, u, v, w, p`; the others are
 extrapolated, as are the edge and corner rows beyond the face. The shock is given by its deflection $\theta$
 (`shock_deflection`, the weak solution of the $\theta$–$\beta$–$M$ relation) or by its angle $\beta$ from the upstream velocity

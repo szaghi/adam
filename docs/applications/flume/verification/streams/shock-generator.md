@@ -7,7 +7,7 @@
 ## Case and scope
 
 `[bc_y_max] type = shock-generator`
-([boundary conditions](../../boundary-conditions#shock-generator-an-oblique-shock-through-a-y-face-121-s3)) brings an oblique
+([boundary conditions](../../boundary-conditions#shock-generator-an-oblique-shock-through-a-y-face)) brings an oblique
 shock in through the top face. The legs measure the shock it makes against the oblique-shock relations (S3) and its
 regular reflection off a slip wall (S4a), with `shockgen_oracle.py`, which solves the relations on its own. These `sg`
 legs belong to `src/tests/flume/verification/boundary/check.sh`, not to the

@@ -9,7 +9,7 @@
 `[bc_*] type = non-reflecting` is a characteristic outflow and far-field boundary. It extrapolates the outgoing waves,
 relaxes the incoming acoustic wave toward a target pressure (Rudy & Strikwerda 1980, Poinsot & Lele 1992), and takes the
 target's entropy and tangential velocity where flow enters
-([boundary conditions](../../boundary-conditions#non-reflecting-a-characteristic-outflow-and-far-field-121-s2)). The legs
+([boundary conditions](../../boundary-conditions#non-reflecting-a-characteristic-outflow-and-far-field)). The legs
 measure what it does against the kinds it would replace, `extrapolation` and `inflow`.
 
 ## Setup

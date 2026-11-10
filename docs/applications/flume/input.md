@@ -518,8 +518,8 @@ What each `type` does:
 
 - `extrapolation`: zeroth-order extrapolation.
 - `inflow`: prescribed state.
-- `non-reflecting` ([#121](https://github.com/szaghi/adam/issues/121)): characteristic outflow and far field, the incoming acoustic wave relaxed toward the target pressure ([boundary conditions](./boundary-conditions#non-reflecting-a-characteristic-outflow-and-far-field-121)).
-- `shock-generator` ([#121](https://github.com/szaghi/adam/issues/121)): the post-shock state of an oblique shock in a range of x on a y face, extrapolation elsewhere ([boundary conditions](./boundary-conditions#shock-generator-an-oblique-shock-through-a-y-face-121)).
+- `non-reflecting` ([#121](https://github.com/szaghi/adam/issues/121)): characteristic outflow and far field, the incoming acoustic wave relaxed toward the target pressure ([boundary conditions](./boundary-conditions#non-reflecting-a-characteristic-outflow-and-far-field)).
+- `shock-generator` ([#121](https://github.com/szaghi/adam/issues/121)): the post-shock state of an oblique shock in a range of x on a y face, extrapolation elsewhere ([boundary conditions](./boundary-conditions#shock-generator-an-oblique-shock-through-a-y-face)).
 - `inflow-digital-filter` ([#119](https://github.com/szaghi/adam/issues/119)): a turbulent boundary layer through the face ([turbulence](./turbulence#digital-filter-inflow)).
 - `wall-inviscid`: slip wall (mirror state with the normal momentum negated; for MHD the normal B is negated too).
 - `wall-noslip`: adiabatic no-slip wall; `wall-isothermal`: isothermal no-slip wall
@@ -527,7 +527,7 @@ What each `type` does:
 - `wall-modelled` ([#119](https://github.com/szaghi/adam/issues/119)): isothermal wall with a wall-model flux ([turbulence](./turbulence#wall-model)).
 - `periodic`: library periodicity, so true periodic neighbours across blocks and ranks.
 - `hydrostatic` ([#73](https://github.com/szaghi/adam/issues/73)): closes a stratified atmosphere under `[gravity]`
-  ([boundary conditions](./boundary-conditions#hydrostatic-an-atmosphere-under-gravity-73)).
+  ([boundary conditions](./boundary-conditions#hydrostatic-an-atmosphere-under-gravity)).
 
 In a forest, a face glued to another realm by the manifest still needs a `type` here. The seam overrides the ghost
 fill.

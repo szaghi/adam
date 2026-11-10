@@ -19,7 +19,7 @@ What the case catches:
 - **a side effect of the dissipative path on an ideal run:** zero coefficients must leave the run bit for bit equal to
   the base run.
 
-The keys are listed in [input](../../input#dissipative-terms-issue-65-m4).
+The keys are listed in [input](../../input#dissipative-terms).
 
 ## Models and numerics
 
