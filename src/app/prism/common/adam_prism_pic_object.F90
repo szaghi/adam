@@ -652,7 +652,9 @@ contains
       self%n_neutrals = nint(self%neutral_fraction*real(self%particle_number,R8P))
 	   self%n_ions = nint(real(self%particle_number-self%n_neutrals, R8P)/2.0_R8P)
 	   self%n_electrons = self%n_ions
-	   self%n_neutrals = self%particle_number - self%n_ions - self%n_electrons
+      ! the total follows the rounded counts: with an odd total, n_neutrals = total - 2 n_ions was -1 and the last electron
+      ! was written one column beyond the injection arrays (sized on the total)
+      self%particle_number = self%n_ions + self%n_electrons + self%n_neutrals
    elseif (self%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
       self%particle_number = 1_I4P
    endif
