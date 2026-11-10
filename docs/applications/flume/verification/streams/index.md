@@ -44,10 +44,11 @@ The toolchain is [#121](https://github.com/szaghi/adam/issues/121), which contin
 | S4a | Inviscid regular reflection off a slip wall | sg4 (boundary) | [Shock generator](./shock-generator#regular-reflection-off-a-slip-wall) |
 | S4b | Wall-modelled interaction, Mach 2.28, IUSTI | campaign, no leg | [Shock/boundary-layer interaction](./sbli) |
 | S4c | S4b with a 2:1 box under the interaction | campaign (t 550, done) | [Shock/boundary-layer interaction](./sbli#a-refined-wall-grid-under-the-interaction) |
+| S4d | The equilibrium wall model with the pressure gradient (`wall_model_pressure_gradient`, `wall_model_pressure_gradient_filter`) | wm12 (turbulence), `test_wall_model` (wm2); a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-wall-model-with-the-pressure-gradient) |
 | S5 | Recycling–rescaling turbulent inflow | — | not started |
 
 | Page | Phases | Legs | Type |
 |---|---|---|---|
 | [Non-reflecting boundary](./non-reflecting) | S2 | nr1–nr4 | P |
 | [Shock generator](./shock-generator) | S3, S4a | sg1–sg4 (boundary) | P |
-| [Shock/boundary-layer interaction](./sbli) | S4b, S4c | campaign | P |
+| [Shock/boundary-layer interaction](./sbli) | S4b, S4c, S4d | campaign | P |

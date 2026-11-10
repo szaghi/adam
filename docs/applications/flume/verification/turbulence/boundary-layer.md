@@ -55,7 +55,7 @@ the rms over $u_\tau$ at the same station; dashed: the DNS.*
 - **$C_f$ within 4.4 % of the DNS** at its $Re_\theta$, with the setting that matched the Mach 3 channel. The two halves
   of the averaging window differ by 1.1 %. Most of the 4.4 % is the inflow's recovery, not the plateau: farther
   downstream, at $Re_\theta=3000$–$3350$, $C_f$ is within 1.6–0.4 % of the DNS's value scaled as $Re_\theta^{-1/4}$,
-  and at $\delta_i/16$ it is 0.3 % at the station ([resolution](#resolution-mach-2-5-at-delta-i-16)).
+  and at $\delta_i/16$ it is 0.2 % at the station ([resolution](#resolution-mach-2-5-at-delta-i-16)).
 - **The inflow recovers by $x\approx50\,\delta_i$.** The layer reaches the DNS's $Re_\theta$ at $x=55$, against 53 in
   the DNS. $C_f$ falls from $2.8\cdot10^{-3}$ at the inlet to $1.8\cdot10^{-3}$ at $x\approx25$, the adaptation of the
   synthetic eddies, then rises to a plateau of $2.2\cdot10^{-3}$ from $x\approx50$. That matches the $40\,\delta_i$

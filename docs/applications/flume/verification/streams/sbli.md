@@ -2,7 +2,7 @@
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
-| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b, S4c | P | none | FNL | yes |
+| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4d | P | none (the pressure-gradient key: wm12) | FNL | yes |
 
 ## Case and scope
 
@@ -42,8 +42,8 @@ Right: $C_f$; dotted the apparent origin of the reflected shock ($x^*=-1$), dash
 | $Re_\theta$ at $x_{imp}$, nominal / against the edge state | 5247 / 4667 | about 5000 (DNS, experiment) |
 | $\delta_0$, $\delta^*_0$, $H$ at $x_{imp}-10$ | $1.807$, $0.531\,\delta_i$, 3.58 | |
 | reflected shock: angle to the wall | $28.95^\circ$ | $29.77^\circ$ inviscid |
-| $L_{int}/\delta_0$ | **3.15** | 3.22, Volpiani et al. (DNS, $Re_\theta=1050$) |
-| separation: $L_{sep}/\delta_0$ | **0**, $C_f$ never negative, minimum $0.22\cdot10^{-3}$ at $x^*\approx-0.25$ | 1.62, Volpiani et al., $Re_\theta=1050$; the DNS and the experiment have a bubble |
+| $L_{int}/\delta_0$ | **3.15** | 3.22, Volpiani et al. (DNS, $Re_\theta=1050$); 3.30, Bernardini et al. (2022, DNS, $Re_\theta=6882$) |
+| separation: $L_{sep}/\delta_0$ | **0**, $C_f$ never negative, minimum $0.22\cdot10^{-3}$ at $x^*\approx-0.25$ | 1.62, Volpiani et al., $Re_\theta=1050$; 2.16, Bernardini et al. (2022), $Re_\theta=6882$; the experiment has a bubble |
 | $(p_w-p_\infty)/(p_2-p_\infty)$ at $x^*=-1$, $-0.5$, $0$, $0.5$, $1$, $2$ | 0.02, 1.12, 1.72, 2.09, 2.24, 2.37 | DNS: 0.64, 1.75, 2.07, 2.22, 2.29, 2.36; at $Re_\theta=6882$: 0.87, 1.65, 2.01, 2.18, 2.27, 2.35 |
 | Souverein $L^*=L_{int}/(\delta^*g_3)$, separation parameter $Se$ | 1.93, 1.20 | |
 
@@ -76,9 +76,12 @@ this interaction over $35<x<60$, the cross-flow face at the impingement $x=60$ (
   pressure is the DNS's within 4 %. (The first version of this page read the reference's $x^*$ from $x_{imp}$, as the
   STREAmS paper's text says, and found the rise early: the figure measures it from the reflected shock,
   [below](#where-the-compression-starts).)
-- **Two causes of the missing separation, not separated.** The equilibrium model has no pressure-gradient term, and it computes $\tau_w$
-  from the velocity at the 3rd cell, $0.21\,\delta_i$ or $0.12\,\delta_0$ above the wall, which the near-wall
-  deceleration under the adverse gradient reaches late. [S4c](#a-refined-wall-grid-under-the-interaction) halves the matching height: the dip of $C_f$ halves, the mean does not separate.
+- **Two candidate causes of the missing separation, tested since.** The equilibrium model has no pressure-gradient term,
+  and it computes $\tau_w$ from the velocity at the 3rd cell, $0.21\,\delta_i$ or $0.12\,\delta_0$ above the wall, which
+  the near-wall deceleration under the adverse gradient reaches late. [S4c](#a-refined-wall-grid-under-the-interaction)
+  halves the matching height: the dip of $C_f$ halves, the mean does not separate.
+  [S4d](#the-wall-model-with-the-pressure-gradient) adds the pressure gradient: a bubble of $0.6\,\delta_0$, the
+  compression unchanged.
 
 ## A refined wall grid under the interaction
 
@@ -102,11 +105,13 @@ runs 120 blocks of the same size on 8 A30 at 0.95 s per step at the start and 0.
 falls as the layer develops; the steps cost the same). Per step the busiest GPU advances 4.1 M cells per second against
 S4b's 4.2 M: the inter-node halo exchange and the 2:1 seams (reflux included) cost about 2–3 %.
 
-The step is slower because of the partition, not the network. The 120 blocks land 20/13/19/17/13/19/19/0 on the 8
-ranks: one GPU holds no block, and the busiest holds 20 against an even 15, which makes each step 1.33 times slower than
-an even split. `mpi_redistribute` walks the blocks greedily and keeps the 8 siblings of a refined parent together; a
-model of the routine reproduces that split exactly ([#123](https://github.com/szaghi/adam/issues/123)). Evenly split,
-the step would take about 0.71 s, so the run would need about 13.5 hours instead of 18.
+The step was slower because of the partition, not the network. The 120 blocks landed 20/13/19/17/13/19/19/0 on the 8
+ranks: one GPU held no block, and the busiest held 20 against an even 15, which made each step 1.33 times slower than
+an even split. `mpi_redistribute` then walked the blocks greedily and kept the 8 siblings of a refined parent together;
+a model of the routine reproduces that split exactly ([#123](https://github.com/szaghi/adam/issues/123)). A static grid
+is now balanced by block count (`[amr] balance_static`, on by default: 15 per rank on this tree), and a runtime regrid
+by a min-max split of the sibling sets (busiest 18). Evenly split, the step would take about 0.71 s, so the run would
+need about 13.5 hours instead of 18.
 
 ### Results
 
@@ -138,8 +143,9 @@ outside it, the box outlined in orange in the schlieren). `make_doc_figures.py -
   same place, and the mean stays positive. In single checkpoints the flow at the wall reverses in patches: at $t=550$
   the spanwise-averaged $u$ of the first cells is negative over a short stretch near $x=58.5$ (the red $u=0$ line), and
   the cross-flow plane at $x_{imp}$ has reversed cells along the wall. The reversal is intermittent; the mean has none.
-- **The interaction length shrinks slightly,** 3.04 against 3.15, and the wall pressure rises a little later still
-  ($0.89$ at $x^*=-0.5$ against S4b's $1.12$ and the DNS's $1.75$): the shape of the interaction is S4b's.
+- **The interaction length shrinks slightly,** 3.04 against 3.15, and the rise is shallower ($0.89$ at $x^*=-0.5$
+  against S4b's $1.12$ and the DNS's $1.75$), its onset unchanged ([below](#where-the-compression-starts)): the shape of
+  the interaction is S4b's.
 - **The zero-pressure-gradient layer depends on the matching height.** Outside the box $C_f$ is S4b's; inside it, after
   an adjustment over about $10\,\delta_i$ behind the 2:1 face, it is 10 % higher before the interaction. The
   equilibrium model's $\tau_w$ follows the velocity at its matching point, and that point moved from $0.12$ to
@@ -148,7 +154,8 @@ outside it, the box outlined in orange in the schlieren). `make_doc_figures.py -
 - **What remains is the model.** The equilibrium model integrates a constant total stress across its layer, so its
   $\tau_w$ turns negative only where the velocity at the matching height reverses on average. With the matching point
   at $0.06\,\delta_0$ it does not; the pressure-gradient term, which lets $\tau_w$ reverse under a strong adverse
-  gradient while the matching velocity is still positive, is the next test.
+  gradient while the matching velocity is still positive, was tested next
+  ([below](#the-wall-model-with-the-pressure-gradient)): a bubble of $0.6\,\delta_0$, a quarter of the DNS's.
 
 ## The wall model with the pressure gradient
 
@@ -194,7 +201,7 @@ sbli-apriori`.*
 |---|---|
 | start | S4b's last state ($t=1200$), the developed layer and interaction; its block layout kept (`[amr] balance_static = .false.`) |
 | model | `wall_model_pressure_gradient = .true.`, `wall_model_pressure_gradient_filter = 10` (about $5\,\delta_0/U_\infty$, far below the period of the interaction's low-frequency motion); the rest as S4b (the 3rd cell, $h=0.208\,\delta_i$, semi-local damping, the model's eddy viscosity below $h$) |
-| run | to $t=1450$ on one node (4 A30), 0.74 s per step, S4b's cost; statistics over the 24 checkpoints of $t\ge1300$ (`sbli_oracle.py compare --t0 1300`) |
+| run | to $t=1450$ on one node (4 A30), 0.74 s per step, S4b's cost; statistics over the 24 checkpoints of $t\ge1300$ (`sbli_oracle.py compare --t0 1300`); the input is S4b's `make_tbl.py` line with `--restart --time-max 1450 --wm-pressure-gradient --wm-pg-filter 10` (no case file: a one-off restart) |
 
 ![S4d against S4b and S4c: wall pressure and skin friction](/flume/sbli-pg.png)
 
@@ -254,6 +261,8 @@ profile the inflow is made from. `sbli_oracle.py fields` and `compression`; `mak
 | $L_{sep}/\delta_0$ | 0 | 0 | 0.60 | 2.16 ($x^*=-0.8$ to $-0.15$) |
 | incoming layer at $x_{imp}-5\,\delta_0$: mean sonic height | $0.028\,\delta_0$ | $0.031\,\delta_0$ (1.4 cells) | $0.041\,\delta_0$ | $0.036\,\delta$ (the inflow's DNS profile) |
 
+$L_{int}$ here is from the time-mean field (`fields`, `compression`), 0.01 above `compare`'s in the tables above.
+
 - **The incoming layer is not the cause.** Its mean Mach number is the DNS profile's to 0.03 above $0.3\,\delta$ and
   to 0.15 at the 2nd cell ($0.13\,\delta$, lower: the log-layer mismatch of the wall model), and its mean sonic height,
   $0.03$–$0.04\,\delta_0$, is the DNS profile's $0.036\,\delta$. The first cell, below that height, runs at
@@ -266,7 +275,9 @@ profile the inflow is made from. `sbli_oracle.py fields` and `compression`; `mak
   it (S4d), and the late compression follows. Halving the near-wall cells (S4c) leaves the onset where it was. The pressure-gradient term moved the onset by $0.06\,L_{int}$
   *downstream*.
 - **For the next wall model,** non-equilibrium: the target is the DNS's bubble ($x^*\approx-0.8$ to $-0.15$) and its
-  wall pressure, half-way at $x^*\approx-1.1$; both are now in `sbli_oracle.py compare`.
+  wall pressure, half-way at $x^*\approx-1.1$. The run's wall pressure is printed by `sbli_oracle.py compare` (at fixed
+  $x^*$, against both DNS) and `compression` (where it reaches 5, 10 and 50 %); the oracle reports the run's $L_{sep}$,
+  the DNS's is quoted from Bernardini et al. (2022).
 
 ## Not done
 

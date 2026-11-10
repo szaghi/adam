@@ -125,7 +125,8 @@ Integrated once, $\tau_w$ and $q_w$ follow from two quadratures for a given temp
 - 16 plain fixed-point iterations: the error falls at about the rate 1/2 of the under-relaxed temperature, and over a
   sweep of samples the result is within $7\cdot10^{-5}$ of the fixed point. An Aitken step on $\ln\tau_w$ every
   second iteration, used before, is exact only on a geometric sequence; on the others it stopped a few samples on an
-  extrapolated iterate, $\tau_w$ up to 2.7 times the fixed point (about 1 sample in 1000 more than 5 % off);
+  extrapolated iterate, $\tau_w$ up to 2.7 times the fixed point (more than 5 % off: about 2 samples in 1000 of a random
+  sweep, 1.4 % of S4c's mean samples);
 - the temperature iterate under-relaxed and kept positive, and the laminar stress if all else fails.
 
 The cost per wall face is fixed, on the device too. Measured by the unit test `test_wall_model`: $\tau_w$ within 0.6 % of
@@ -239,7 +240,8 @@ Measured by `test_wall_model`:
 
 - the laminar limit, $U(h)=\tau_wh/\mu+(dp/dx)\,h^2/(2\mu)$, of either sign of the gradient, to $2.6\cdot10^{-7}$,
   with $\tau_w<0$ under the adverse one;
-- a zero gradient is the equilibrium model bit for bit (the same iteration);
+- a zero gradient is the equilibrium model to the convergence of the two iterations (test bound $10^{-3}$); with the key off the
+  faces call the equilibrium solver itself, bit for bit;
 - a hot turbulent layer under Sutherland's law against the same equations on $2\cdot10^5$ intervals with 400
   iterations: within $3.4\cdot10^{-3}$ of $|\tau_w|+|dp/dx|\,h$ for a mild and a strong adverse gradient ($\tau_w<0$
   in both) and a favourable one;
@@ -339,7 +341,7 @@ face: `it`, `time`, then the wall shear stress along `wall_history_axis` (positi
 and the wall heat flux ($k\,dT/dy$ at the wall, positive when the gas is hotter), each area-averaged over the face cells
 in `wall_history_bins` equal bins along the axis. The model is evaluated on the committed state at its sample with the
 solvers of the face fluxes, so the history is the stress the solver applies (with `wall_model_filter`, the unfiltered
-one).
+sample; with `wall_model_pressure_gradient_filter`, the filtered gradient the face takes).
 
 ## References
 

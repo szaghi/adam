@@ -29,7 +29,7 @@ interaction continues T3.7 under [#121](https://github.com/szaghi/adam/issues/12
 | [The ILES baseline](./iles-baseline) | T0.1–T0.6 | tt1–tt6, ht1–ht2 | P+C |
 | [Subgrid-scale models](./sgs-models) | T1 | sg1–sg4 | P+C |
 | [The hybrid central/WENO scheme](./hybrid-scheme) | T2.1–T2.7 | hy1–hy13 | P+C |
-| [Plane channel and the wall model](./channel) | T3.1–T3.6 | wm1–wm11 | P+C |
+| [Plane channel and the wall model](./channel) | T3.1–T3.6 | wm1–wm12 | P+C |
 | [Compressible boundary layer](./boundary-layer) | T3.7 | tb1–tb2 | P+C |
 
 | Phase | What | Legs | Page |
@@ -55,4 +55,5 @@ interaction continues T3.7 under [#121](https://github.com/szaghi/adam/issues/12
 | T3.5 | Compressibility: semi-local damping, inverse-transformation model, input filter | wm6–wm9 | [Channel](./channel#mach-1-5) |
 | T3.6 | 2:1 faces along a modelled wall | wm3 | [Channel](./channel) |
 | T3.7 | Coleman channel at Mach 1.5 and 3; eddy viscosity below the matching height | wm11 | [Channel](./channel#mach-3) |
+| ([#121](https://github.com/szaghi/adam/issues/121) S4d) | The pressure gradient in the equilibrium model | wm12 | [Channel](./channel) |
 | T3.7 | Compressible boundary layer, Mach 2.5 and 5.86, digital-filter inflow | tb1, tb2 | [Boundary layer](./boundary-layer) |

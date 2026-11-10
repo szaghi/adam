@@ -2,7 +2,7 @@
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
-| WM | [#119](https://github.com/szaghi/adam/issues/119) · T3.1–T3.6 | P+C | wm1–wm11 | CPU, FNL | yes |
+| WM | [#119](https://github.com/szaghi/adam/issues/119) · T3.1–T3.6 | P+C | wm1–wm12 | CPU, FNL | yes |
 
 ## Case and scope
 
@@ -30,6 +30,7 @@ and 3, against a wall-resolved reference (T3.2) and the DNS.
 | wm9 | T3.5 | restart with the filter averages (`.wmf`, one per rank): 10 steps + restart to 20 against 20 straight, inverse-transformation model, $T_f=0.01$; control with the `.wmf` removed | fields and histories bit for bit (CPU and FNL); the control differs and warns |
 | wm10 | T3.1 ([#49](https://github.com/szaghi/adam/issues/49) NV-5, NV-9) | dimensional units on a Vreman channel with the wall model and the forcing, gas `cp, cv`: input bit for bit (NV-5), output against `scaling.py dimensionalize` (NV-9), forcing and turbulence histories included | bit for bit (CPU and FNL); bit for bit, 4 histories |
 | wm11 | Mach 3 channel | the wall model's eddy viscosity below the matching height (`wall_model_eddy_viscosity`), perturbed channel at Re 1000, $h = 0.3$: it acts; 2 against 4 blocks per direction; one rank against 2; the same with Vreman | not recorded (bounds: force change above $10^{-3}$; blocks within `channel_oracle agree`'s bounds, $2.4\cdot10^{-6}$ against $10^{-9}$ with the ghost columns left out) |
+| wm12 | [#121](https://github.com/szaghi/adam/issues/121) S4d | the pressure gradient in the equilibrium model (`wall_model_pressure_gradient`) on wm11's perturbed channel with the model's eddy viscosity: it acts; 2 against 4 blocks per direction (the gradient's central difference reads the ghost cells along the wall); one rank against N, CPU against GPU (`--agree`); its filter `wall_model_pressure_gradient_filter` $=0.01$ acts; the filtered gradient across a restart (the 6th average of the `.wmf`) bit for bit; a `.wmf` of another layout restarts the averages with a warning | not recorded (bounds: force change above $10^{-6}$; blocks and ranks within `channel_oracle agree`'s bounds; the restart bit for bit) |
 
 ## Mach 1.5
 
