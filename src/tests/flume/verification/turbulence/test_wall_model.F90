@@ -2,10 +2,11 @@
 
 program test_wall_model
 !< Laminar limit, log layer against a fine quadrature, and the Crocco relation with Pr = Pr_t; the models under Sutherland's
-!< law against the same references, and the law itself.
+!< law against the same references, and the law itself; the model with the pressure gradient (issue #121, S4d): its laminar limit
+!< of either sign, px = 0 against the equilibrium model, a fine-grid reference, robustness.
 
 use :: adam_flume_dissipation_library, only : temperature_law
-use :: adam_flume_wall_model_library, only : inverse_strain, sample_cells, wall_model_solve, wall_model_solve_inverse
+use :: adam_flume_wall_model_library, only : inverse_strain, sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure
 use :: penf,                          only : I4P, I8P, R8P
 
 implicit none
@@ -14,7 +15,7 @@ real(R8P)            :: tau, q, us, hplus, err, ref, mu, dy, y1, y2, f1, f2, tau
 real(R8P), parameter :: tw15=1._R8P / (1.4_R8P * 2.25_R8P)
 integer(I8P)         :: seed
 integer(I4P)         :: nbad, mm
-real(R8P)            :: ww, te0, tauc, qc, c1, g, gl, gs
+real(R8P)            :: ww, te0, tauc, qc, c1, g, gl, gs, px
 logical              :: ok1
 integer(I4P)         :: n
 integer(I4P), parameter :: NF=4000000_I4P
@@ -156,6 +157,61 @@ do n=1, 200000
 enddo
 print '(A,I0,A)', 'robustness, non-finite or negative results: ', nbad, ' of 400000 (bound 0)'
 ok = ok .and. nbad == 0
+! the pressure gradient (S4d), laminar limit: h+ small (mu_t below 1e-6 mu), T uniform at the wall's, a constant viscosity, so U(h) = tau h / mu + px h^2 / (2 mu)
+! exactly; an adverse gradient strong enough turns tau negative with U(h) > 0
+err = 0._R8P
+do n=-1, 1
+   px = 4.e-3_R8P * real(n, R8P)
+   call wall_model_solve_pressure(h=1._R8P, us=1.e-3_R8P, ts=1._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1._R8P, tref=1._R8P, suth=0._R8P, &
+                                  omega_mu=0._R8P, tau=tau, q=q)
+   ref = 1.e-3_R8P - 0.5_R8P * px
+   err = max(err, abs(tau - ref) / 1.e-3_R8P)
+   if (n == 1) ok = ok .and. tau < 0._R8P
+enddo
+print '(A,ES10.2,A,ES10.2,A)', 'pressure gradient, laminar limit of either sign, tau relative ', err, ' (bound 1e-6); adverse: tau ', tau, ' (below 0)'
+ok = ok .and. err < 1.e-6_R8P
+! px = 0 is the equilibrium model, to the two iterations' convergence: the hot layer, semi-local and classical, and the log layer at h+ 1e4
+call wall_model_solve(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, &
+                      tau=tauc, q=qc, semilocal=.true.)
+call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=0._R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
+                               omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true.)
+err = max(abs(tau - tauc) / tauc, abs(q - qc) / abs(qc))
+call wall_model_solve(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0._R8P, omega_mu=0.7_R8P, &
+                      tau=tauc, q=qc)
+call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=0._R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0._R8P, &
+                               omega_mu=0.7_R8P, tau=tau, q=q)
+err = max(err, abs(tau - tauc) / tauc, abs(q - qc) / abs(qc))
+call wall_model_solve(h=1._R8P, us=21._R8P, ts=1.e6_R8P, ps=1.e6_R8P, tw=1.e6_R8P, R=GAS, cp=CP, pr=0.9_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, &
+                      tau=tauc, q=qc)
+call wall_model_solve_pressure(h=1._R8P, us=21._R8P, ts=1.e6_R8P, ps=1.e6_R8P, tw=1.e6_R8P, px=0._R8P, R=GAS, cp=CP, pr=0.9_R8P, mu0=1.e-4_R8P, tref=1._R8P, &
+                               suth=0._R8P, omega_mu=0._R8P, tau=tau, q=q)
+err = max(err, abs(tau - tauc) / tauc)
+print '(A,ES10.2,A)', 'pressure gradient zero against the equilibrium model, tau and q relative ', err, ' (bound 1e-3)'
+ok = ok .and. err < 1.e-3_R8P
+! a turbulent hot layer under Sutherland, semi-local, against the same equations on a fine grid: a mild adverse gradient (tau +), a strong one (tau -), a favourable one
+do n=1, 3
+   px = merge(0.3e-2_R8P, merge(0.1_R8P, -1.e-2_R8P, n == 2), n == 1)
+   call reference_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, tau=tauf, q=ref)
+   call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
+                                  omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true.)
+   ! relative to the scale of the stress across the layer: tau itself can cross zero
+   err = abs(tau - tauf) / (abs(tauf) + abs(px) * 0.3_R8P)
+   print '(A,ES10.2,A,ES11.3,A,ES11.3,A,ES10.2,A)', 'pressure gradient ', px, ': tau ', tau, ' (fine grid ', tauf, '), relative to |tau| + |px| h ', err, &
+         ' (bound 2e-2)'
+   ok = ok .and. err < 2.e-2_R8P .and. abs(q - ref) / abs(ref) < 2.e-2_R8P
+   if (n == 2) ok = ok .and. tau < 0._R8P .and. tauf < 0._R8P
+enddo
+! robustness: the samples of the loop above, with a gradient of either sign up to 0.3 (any tau sign allowed, finite only)
+nbad = 0 ; seed = 54321_I8P
+do n=1, 100000
+   hh = 0.01_R8P + 0.3_R8P * lcg(seed) ; uu = 3._R8P * lcg(seed) ; tt = tw15 * (0.5_R8P + 3._R8P * lcg(seed)) ; pp = (0.5_R8P + lcg(seed)) * tw15
+   px = (lcg(seed) - 0.5_R8P) * 0.6_R8P * lcg(seed)**3
+   call wall_model_solve_pressure(h=hh, us=uu, ts=tt, ps=pp, tw=tw15, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1._R8P / 3000._R8P, tref=tw15, suth=0._R8P, &
+                                  omega_mu=0.7_R8P, tau=tau, q=q, semilocal=mod(n, 2) == 0)
+   if (.not.(abs(tau) < huge(1._R8P) .and. abs(q) < huge(1._R8P))) nbad = nbad + 1
+enddo
+print '(A,I0,A)', 'pressure gradient, robustness, non-finite results: ', nbad, ' of 100000 (bound 0)'
+ok = ok .and. nbad == 0
 if (ok) then
    print '(A)', 'test_wall_model: PASS'
 else
@@ -238,6 +294,56 @@ contains
    enddo
    tau = exp(0.5_R8P * (lo + hi))
    endsubroutine reference_inverse
+
+   subroutine reference_pressure(h, us, ts, ps, tw, px, pr, mu0, tref, suth, tau, q)
+   !< The layer with the pressure gradient, semi-local damping, Sutherland's law: (mu + mu_t) dU/dy = tau + px y, mu_t on sqrt((|tau| + |px| y) / rho), on
+   !< 200000 intervals uniform in sqrt(y), trapezoids, 400 under-relaxed iterations: no code shared with the library.
+   real(R8P), intent(in)  :: h, us, ts, ps, tw, px, pr, mu0, tref, suth !< As `wall_model_solve_pressure`.
+   real(R8P), intent(out) :: tau, q                                      !< Results.
+   integer(I4P), parameter :: M=200000_I4P
+   real(R8P), allocatable :: y(:), t(:), u(:), mt(:), a(:)
+   real(R8P)              :: i0, i1, i2, i3, ts_, mu, rho, dmp, tn
+   integer(I4P)           :: i, it
+
+   allocate(y(0:M), t(0:M), u(0:M), mt(0:M), a(0:M))
+   do i=0, M
+      y(i) = h * (real(i, R8P) / M)**2
+      t(i) = tw + (ts - tw) * y(i) / h
+   enddo
+   tau = mu0 * law(tw, tref, 1.5_R8P, suth) * us / h
+   do it=1, 400
+      do i=0, M
+         mu = mu0 * law(t(i), tref, 1.5_R8P, suth) ; rho = ps / (GAS * t(i)) ; ts_ = abs(tau) + abs(px) * y(i)
+         dmp = 1._R8P - exp(-y(i) * sqrt(rho * ts_) / (mu * APLUS))
+         mt(i) = KAPPA * y(i) * sqrt(rho * ts_) * dmp**2
+         a(i) = mu / pr + mt(i) / 0.9_R8P
+         mt(i) = mu + mt(i)
+      enddo
+      i0 = 0._R8P ; i1 = 0._R8P
+      do i=1, M
+         i0 = i0 + 0.5_R8P * (y(i) - y(i-1)) * (1._R8P / mt(i) + 1._R8P / mt(i-1))
+         i1 = i1 + 0.5_R8P * (y(i) - y(i-1)) * (y(i) / mt(i) + y(i-1) / mt(i-1))
+      enddo
+      tn = (us - px * i1) / i0
+      u(0) = 0._R8P
+      do i=1, M
+         u(i) = u(i-1) + 0.5_R8P * (y(i) - y(i-1)) * ((tn + px * y(i)) / mt(i) + (tn + px * y(i-1)) / mt(i-1))
+      enddo
+      i2 = 0._R8P ; i3 = 0._R8P
+      do i=1, M
+         i2 = i2 + 0.5_R8P * (y(i) - y(i-1)) * (1._R8P / a(i) + 1._R8P / a(i-1))
+         i3 = i3 + 0.5_R8P * (y(i) - y(i-1)) * ((tn + px * y(i)) * u(i) / a(i) + (tn + px * y(i-1)) * u(i-1) / a(i-1))
+      enddo
+      q = (CP * (ts - tw) + i3) / i2
+      i2 = 0._R8P ; i3 = 0._R8P
+      do i=1, M
+         i2 = i2 + 0.5_R8P * (y(i) - y(i-1)) * (1._R8P / a(i) + 1._R8P / a(i-1))
+         i3 = i3 + 0.5_R8P * (y(i) - y(i-1)) * ((tn + px * y(i)) * u(i) / a(i) + (tn + px * y(i-1)) * u(i-1) / a(i-1))
+         t(i) = 0.5_R8P * t(i) + 0.5_R8P * (tw + (q * i2 - i3) / CP)
+      enddo
+      tau = 0.5_R8P * tau + 0.5_R8P * tn
+   enddo
+   endsubroutine reference_pressure
 
    subroutine reference(h, us, ts, ps, tw, pr, mu0, tref, omega, tau, q, semilocal, suth)
    !< The layer on 200000 intervals uniform in sqrt(y), by trapezoids and 400 under-relaxed iterations: no code shared with the library.

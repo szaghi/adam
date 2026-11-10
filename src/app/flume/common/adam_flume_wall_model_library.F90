@@ -22,6 +22,7 @@ public :: sample_cells
 public :: wall_eddy_viscosity
 public :: wall_model_solve
 public :: wall_model_solve_inverse
+public :: wall_model_solve_pressure
 public :: inverse_strain
 public :: WM_ITERATIONS, WM_POINTS
 
@@ -34,6 +35,7 @@ real(R8P),    parameter :: WM_PRT=0.9_R8P       !< Turbulent Prandtl number.
 real(R8P),    parameter :: WM_SRA=1.14_R8P      !< Reynolds analogy factor of the inverse model (Griffin et al. 2023, after Zhang et al. 2014).
 integer(I4P), parameter :: WM_SHOTS=8_I4P       !< Shots of the inverse model, secant on ln(tau) after the first.
 integer(I4P), parameter :: WM_SUBITERATIONS=2_I4P !< Corrections of each step of the inverse model.
+integer(I4P), parameter :: WM_PG_ITERATIONS=12_I4P !< Fixed-point steps of the model with the pressure gradient.
 
 contains
    pure function wall_eddy_viscosity(y, rho, mu, tau, rhow, muw, semilocal) result(mt)
@@ -173,6 +175,102 @@ contains
       q = muw * cp / pr * (ts - tw) / h
    endif
    endsubroutine wall_model_solve
+
+   pure subroutine wall_model_solve_pressure(h, us, ts, ps, tw, px, R, cp, pr, mu0, tref, suth, omega_mu, tau, q, semilocal)
+   !< `wall_model_solve` with the pressure gradient `px` (along the sample velocity) in the momentum balance (issue #121, S4d):
+   !< `(mu + mu_t) dU/dy = tau_w + px y`, so `U(h) = tau_w I0 + px I1`, `I0 = int dy / (mu + mu_t)`, `I1 = int y dy / (mu + mu_t)`: an adverse gradient
+   !< strong enough gives `tau_w < 0` with `U(h) > 0`. The eddy viscosity takes the velocity scale `sqrt((|tau_w| + |px| y) / rho)` (u_tau and the pressure
+   !< scale combined, as Duprat et al. 2011 do), so `px = 0` is the equilibrium model; the energy flux `cp (mu / Pr + mu_t / Pr_t) dT/dy + (tau_w + px y) U`
+   !< is constant across the layer. The convective terms are dropped and dp/dx kept, as Wang & Moin (2002) do. `tau_w` is no longer a power of the sample
+   !< speed, so no Aitken on log(tau): WM_PG_ITERATIONS plain fixed-point steps, within 7e-4 of `|tau_w| + |px| h` of the converged value over a sweep of
+   !< samples (`sbli_oracle.py apriori`, the Python port, with S4c's mean samples among them).
+   real(R8P), intent(in)  :: h, us, ts, ps       !< Height, parallel speed, temperature and pressure of the sample.
+   real(R8P), intent(in)  :: tw                  !< Wall temperature.
+   real(R8P), intent(in)  :: px                  !< Pressure gradient along the sample velocity.
+   real(R8P), intent(in)  :: R, cp, pr           !< Gas constant, specific heat, Prandtl number.
+   real(R8P), intent(in)  :: mu0, tref, suth, omega_mu !< Viscosity law, as `compute_dissipative_flux`.
+   real(R8P), intent(out) :: tau, q              !< Wall shear stress (along the sample velocity), wall heat flux.
+   logical,   intent(in), optional :: semilocal  !< Semi-local damping, y* = y sqrt(rho tau_s) / mu with the local rho, mu (else wall units).
+   logical                :: sl                  !< Local copy.
+   real(R8P)              :: y(0:WM_POINTS)      !< Heights.
+   real(R8P)              :: t(0:WM_POINTS)      !< Temperature.
+   real(R8P)              :: u(0:WM_POINTS)      !< I0, then the velocity.
+   real(R8P)              :: v(0:WM_POINTS)      !< I1.
+   real(R8P)              :: mt(0:WM_POINTS)     !< mu + mu_t.
+   real(R8P)              :: a(0:WM_POINTS)      !< mu / Pr + mu_t / Pr_t.
+   real(R8P)              :: dy0, mu, rho, rhow, muw, ts_, damp, i2, i3, dy, hp, tnew, s0, s1 !< Work.
+   integer(I4P)           :: n, it               !< Counters.
+   !$acc routine seq
+   !$omp declare target
+
+   sl = .false. ; if (present(semilocal)) sl = semilocal
+   dy0 = h * (WM_STRETCH - 1._R8P) / (WM_STRETCH**WM_POINTS - 1._R8P)
+   y(0) = 0._R8P
+   t(0) = tw
+   do n=1, WM_POINTS
+      y(n) = y(n-1) + dy0 * WM_STRETCH**(n-1)
+      t(n) = tw + (ts - tw) * y(n) / h
+   enddo
+   rhow = ps / (R * tw)
+   muw = mu0 * temperature_law(t=tw, tref=tref, suth=suth, omega=omega_mu)
+   q = muw * cp / pr * (ts - tw) / h
+   ! the first guess of the equilibrium model (the log law when above the laminar one), zero without a speed
+   tau = max(muw * us / h, 0._R8P)
+   if (tau > 0._R8P) then
+      hp = h * sqrt(tau / rhow) * rhow / muw
+      do it=1, 3
+         hp = max(hp, 1.5_R8P)
+         hp = (us / (log(hp) / WM_KAPPA + 5._R8P)) * h * rhow / muw
+      enddo
+      if (hp > 11._R8P) tau = rhow * (hp * muw / (h * rhow))**2
+   endif
+   do it=1, WM_PG_ITERATIONS
+      do n=0, WM_POINTS
+         mu = mu0 * temperature_law(t=t(n), tref=tref, suth=suth, omega=omega_mu)
+         rho = ps / (R * t(n))
+         ts_ = abs(tau) + abs(px) * y(n)
+         if (sl) then
+            damp = 1._R8P - exp(-y(n) * sqrt(rho * ts_) / (mu * WM_APLUS))
+         else
+            damp = 1._R8P - exp(-y(n) * sqrt(ts_ * rhow) / (muw * WM_APLUS))
+         endif
+         mt(n) = WM_KAPPA * y(n) * sqrt(rho * ts_) * damp * damp
+         a(n) = mu / pr + mt(n) / WM_PRT
+         mt(n) = mu + mt(n)
+      enddo
+      ! I0 exact for a coefficient linear in y on each interval (as wall_model_solve), I1 by trapezoids (y / (mu + mu_t) is bounded and smooth)
+      u(0) = 0._R8P ; v(0) = 0._R8P
+      do n=1, WM_POINTS
+         u(n) = u(n-1) + (y(n) - y(n-1)) * log_mean_inverse(mt(n-1), mt(n))
+         v(n) = v(n-1) + 0.5_R8P * (y(n) - y(n-1)) * (y(n-1) / mt(n-1) + y(n) / mt(n))
+      enddo
+      tnew = (us - px * v(WM_POINTS)) / u(WM_POINTS)
+      do n=0, WM_POINTS
+         u(n) = tnew * u(n) + px * v(n)
+      enddo
+      i2 = 0._R8P ; i3 = 0._R8P
+      do n=1, WM_POINTS
+         dy = (y(n) - y(n-1)) * log_mean_inverse(a(n-1), a(n))
+         s0 = (tnew + px * y(n-1)) * u(n-1) ; s1 = (tnew + px * y(n)) * u(n)
+         i2 = i2 + dy
+         i3 = i3 + 0.5_R8P * dy * (s0 + s1)
+      enddo
+      q = (cp * (ts - tw) + i3) / i2
+      i2 = 0._R8P ; i3 = 0._R8P
+      do n=1, WM_POINTS
+         dy = (y(n) - y(n-1)) * log_mean_inverse(a(n-1), a(n))
+         s0 = (tnew + px * y(n-1)) * u(n-1) ; s1 = (tnew + px * y(n)) * u(n)
+         i2 = i2 + dy
+         i3 = i3 + 0.5_R8P * dy * (s0 + s1)
+         t(n) = max(0.5_R8P * t(n) + 0.5_R8P * (tw + (q * i2 - i3) / cp), 0.1_R8P * min(tw, ts))
+      enddo
+      tau = tnew
+   enddo
+   if (.not.(abs(tau) < huge(1._R8P) .and. abs(q) < huge(1._R8P))) then ! a last resort: the laminar layer
+      tau = muw * us / h - 0.5_R8P * px * h
+      q = muw * cp / pr * (ts - tw) / h
+   endif
+   endsubroutine wall_model_solve_pressure
 
    pure subroutine wall_model_solve_inverse(h, us, ts, ps, tw, ue, te, R, cp, pr, mu0, tref, suth, omega_mu, tau, q)
    !< Return the wall shear stress `tau` and the heat flux `q` (`k dT/dy` at the wall, positive when the gas is hotter than the wall) of an isothermal wall by the model of
