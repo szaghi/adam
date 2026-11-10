@@ -30,6 +30,12 @@ module adam_flume_bc_object
 !< `kappa y sqrt(rho tau_w) D^2` from the instantaneous (unfiltered) sample's `tau_w`, the damping of the face (semi-local for the inverse model), the cell's
 !< density and viscosity, the larger of it and a subgrid-scale model's: the resolved layer then carries the modelled stress and heat flux to the face. Without
 !< it nothing below `h` does (issue #119, the Mach 3 first-cell drain).
+!< `wall_model_pressure_gradient = .true.` (default `.false.`, equilibrium model only) adds the pressure gradient along the sample velocity to the model's
+!< momentum balance, `(mu + mu_t) dU/dy = tau_w + (dp/dx) y` (`wall_model_solve_pressure`, issue #121, S4d): `tau_w` turns negative under an adverse gradient
+!< strong enough while the sample still moves downstream. The gradient is the central difference of the wall-parallel neighbours of the sample cell,
+!< averaged in time over `wall_model_pressure_gradient_filter` (an exponential filter of its own, 0 for none): the turbulent wall-pressure gradient of an
+!< LES sample is as large as tau_w / h, and the model is not linear in it (a zero-pressure-gradient layer moves by +13 % unfiltered, S4b a priori).
+!< The eddy viscosity below the matching height stays the equilibrium model's.
 !<
 !< **Hydrostatic** (issue #73, M7-G0). `hydrostatic` closes a stratified atmosphere under the constant gravity of
 !< `[gravity]`: the ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior
@@ -130,6 +136,8 @@ type :: flume_bc_object
    real(R8P)              :: wm_filter(6)=0._R8P        !< Wall model: time scale of the input filter per face, 0 for none.
    logical                :: wm_viscosity(6)=.false.    !< Wall model: its eddy viscosity in the cells below the matching height per face.
    logical                :: wm_inverse(6)=.false.      !< Wall model: the inverse-transformation model (Griffin et al. 2023) per face, else the equilibrium one.
+   logical                :: wm_pressure(6)=.false.     !< Wall model: the pressure gradient in the equilibrium model's momentum balance per face (issue #121, S4d).
+   real(R8P)              :: wm_pg_filter(6)=0._R8P     !< Wall model: time scale of the pressure gradient's filter per face, 0 for none.
    real(R8P)              :: wm_edge_u(6)=0._R8P        !< Inverse model: speed at the edge of the layer per face.
    real(R8P)              :: wm_edge_t(6)=0._R8P        !< Inverse model: temperature at the edge of the layer per face.
    real(R8P)              :: wall_temperature(6)=0._R8P !< Isothermal walls: wall temperature of each face.
@@ -276,6 +284,14 @@ contains
          if (self%wm_filter(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_filter) must be >= 0')
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_eddy_viscosity', val=self%wm_viscosity(f), error=error)
          if (error /= 0) self%wm_viscosity(f) = .false.
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_pressure_gradient', val=self%wm_pressure(f), error=error)
+         if (error /= 0) self%wm_pressure(f) = .false.
+         if (self%wm_pressure(f) .and. self%wm_inverse(f)) &
+            call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_pressure_gradient) belongs to wall_model = equilibrium')
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_pressure_gradient_filter', val=self%wm_pg_filter(f), error=error)
+         if (error /= 0) self%wm_pg_filter(f) = 0._R8P
+         if (self%wm_pg_filter(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_pressure_gradient_filter) must be >= 0')
+         if (.not.self%wm_pressure(f)) self%wm_pg_filter(f) = 0._R8P
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID
       case(BC_WALL_NOSLIP_STR, BC_WALL_ISOTHERMAL_STR)

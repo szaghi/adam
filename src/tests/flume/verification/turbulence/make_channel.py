@@ -47,6 +47,8 @@ def main() -> int:
     ap.add_argument("--wm-filter", type=float, default=0.0, help="[bc] wall_model_filter, the time scale of the input filter, 0: none")
     ap.add_argument("--wm-model", default="", help="[bc] wall_model: equilibrium or inverse-transformation")
     ap.add_argument("--wm-eddy-viscosity", action="store_true", help="[bc] wall_model_eddy_viscosity: the model's eddy viscosity below the matching height")
+    ap.add_argument("--wm-pressure-gradient", action="store_true", help="[bc] wall_model_pressure_gradient: dp/dx in the equilibrium model (#121, S4d)")
+    ap.add_argument("--wm-pg-filter", type=float, default=0.0, help="[bc] wall_model_pressure_gradient_filter, the time scale of the gradient's filter")
     ap.add_argument("--wm-edge-velocity", type=float, default=1.5, help="[bc] wall_model_edge_velocity (inverse model), the bulk speed being 1")
     ap.add_argument("--wm-edge-heat", type=float, default=1.0, help="[bc] wall_model_edge_temperature (inverse model) over the gas temperature of the start")
     ap.add_argument("--amr-box", action="store_true", help="one more level on the middle half along x, over the whole height: 2:1 faces along the walls")
@@ -96,6 +98,8 @@ def main() -> int:
             keys |= {"wall_model_damping": args.wm_damping} if args.wm_damping else {}
             keys |= {"wall_model_filter": repr(args.wm_filter)} if args.wm_filter > 0.0 else {}
             keys |= {"wall_model_eddy_viscosity": ".true."} if args.wm_eddy_viscosity else {}
+            keys |= {"wall_model_pressure_gradient": ".true."} if args.wm_pressure_gradient else {}
+            keys |= {"wall_model_pressure_gradient_filter": repr(args.wm_pg_filter)} if args.wm_pg_filter > 0.0 else {}
             if args.wm_model:
                 keys["wall_model"] = args.wm_model
             if args.wm_model == "inverse-transformation":

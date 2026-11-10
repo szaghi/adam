@@ -197,6 +197,55 @@ The columns of the two ghost layers along the wall are computed from their ghost
 agree on its flux: the same cells split into 2 or 4 blocks per direction agree to round-off, against $2\cdot10^{-6}$
 with those columns left out. Without the key nothing changes, bit for bit.
 
+### Pressure gradient
+
+The equilibrium model balances a constant stress across the layer, so its $\tau_w$ has the sign of the sample speed:
+under the shock of an interaction it can fall, but it cannot reverse while the flow at $h$ still moves downstream
+([interaction](./verification/streams/sbli)). With `wall_model_pressure_gradient = .true.` (equilibrium model only)
+the momentum balance keeps the pressure gradient along the sample velocity, as Wang & Moin (2002) do:
+
+$$
+(\mu+\mu_t)\frac{dU}{dy}=\tau_w+\frac{dp}{dx}\,y,\qquad
+U(h)=\tau_w\int_0^h\frac{dy}{\mu+\mu_t}+\frac{dp}{dx}\int_0^h\frac{y\,dy}{\mu+\mu_t},
+$$
+
+so an adverse gradient strong enough gives $\tau_w<0$ with $U(h)>0$. The eddy viscosity takes the velocity scale
+$\sqrt{(|\tau_w|+|dp/dx|\,y)/\rho}$, $u_\tau$ and the pressure scale combined as Duprat et al. (2011) do, so a zero
+gradient is the equilibrium model. The energy flux $c_p k\,dT/dy+(\tau_w+y\,dp/dx)\,U$ is constant across the layer.
+The convective terms stay out: the later literature calls keeping one and not the other inconsistent, since the two
+partly balance in the wall layer, so the model can over-respond.
+
+- **Gradient.** Per wall-parallel direction, the central difference of the pressure of the sample cell's neighbours
+  (both sample cells, weighted as the sample, when $h$ falls between two), projected on the sample velocity. It reads
+  the ghost cells along the wall at a block face.
+- **Its filter.** `wall_model_pressure_gradient_filter` $=T_p$ averages it in time with an exponential filter of its
+  own, as the input filter does the sample (the sixth average of the face, in the `.wmf` of a checkpoint). The
+  turbulent wall-pressure gradient of a single LES sample is as large as $\tau_w/h$, and the model is not linear in
+  it: on an instantaneous slice of the Mach 2.28 layer upstream of the interaction (S4b, $x = 35$–$50$) the gradient
+  has an rms of $1.1\cdot10^{-2}$ against a mean of $8\cdot10^{-4}$, $|dp/dx|\,h/\tau_w$ a median of 1.4, and the
+  model with it raises the mean $\tau_w$ of the zero-pressure-gradient layer by 13 %. The mean gradient of an
+  interaction lasts much longer than the turbulent one, so a $T_p$ of a few $\delta/U_e$ keeps it and removes most
+  of the noise. $T_p=0$ takes the instantaneous gradient.
+- **Solve.** $\tau_w$ is no longer a power of the sample speed, so there is no Aitken step on $\ln\tau_w$: 12 plain
+  fixed-point steps on the same 40 intervals, within $7\cdot10^{-4}$ of $|\tau_w|+|dp/dx|\,h$ of the converged value
+  over a sweep of samples.
+- **Below the matching height** the eddy viscosity stays the equilibrium model's: its ghost columns hold no
+  filtered gradient, and an unfiltered one would bring the noise back.
+- **History.** The wall history evaluates the same model.
+
+Measured by `test_wall_model`:
+
+- the laminar limit, $U(h)=\tau_wh/\mu+(dp/dx)\,h^2/(2\mu)$, of either sign of the gradient, to $2.6\cdot10^{-7}$,
+  with $\tau_w<0$ under the adverse one;
+- a zero gradient against the equilibrium model, $3.8\cdot10^{-4}$ (two iterations' convergence, so the key with a zero
+  gradient is not the model without it bit for bit);
+- a hot turbulent layer under Sutherland's law against the same equations on $2\cdot10^5$ intervals with 400
+  iterations: within $3.4\cdot10^{-3}$ of $|\tau_w|+|dp/dx|\,h$ for a mild and a strong adverse gradient ($\tau_w<0$
+  in both) and a favourable one;
+- no non-finite result in $10^5$ random samples.
+
+Without the key nothing changes, bit for bit.
+
 ### Limits
 
 - Isothermal walls only.
@@ -294,6 +343,8 @@ one).
 ## References
 
 - Ducros F. et al. (1999), Large-eddy simulation of the shock/turbulence interaction, *J. Comput. Phys.* 152, 517–549.
+- Duprat C., Balarac G., Métais O., Congedo P. M., Brugière O. (2011), A wall-layer model for large-eddy simulations of
+  turbulent flows with/out pressure gradient, *Phys. Fluids* 23, 015101.
 - Griffin K. P., Fu L., Moin P. (2023), *J. Fluid Mech.* 970, A36.
 - Kawai S., Larsson J. (2012), Wall-modeling in large eddy simulation: length scales, grid resolution, and accuracy,
   *Phys. Fluids* 24, 015105.
@@ -311,5 +362,7 @@ one).
   separation bubble, *Theor. Comput. Fluid Dyn.* 23, 79–107.
 - Vreman A. W. (2004), An eddy-viscosity subgrid-scale model for turbulent shear flow: algebraic theory and
   applications, *Phys. Fluids* 16, 3670–3681.
+- Wang M., Moin P. (2002), Dynamic wall modeling for large-eddy simulation of complex turbulent flows, *Phys. Fluids*
+  14, 2043–2051.
 - Xie Z.-T., Castro I. P. (2008), Efficient generation of inflow conditions for large eddy simulation of street-scale
   flows, *Flow Turbul. Combust.* 81, 449–470.

@@ -7,7 +7,7 @@ module adam_flume_fnl_forcing_kernels
 
 use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse
+use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure
 use :: penf,                  only : I4P, R8P
 
 implicit none
@@ -75,7 +75,7 @@ contains
    enddo
    endsubroutine add_uniform_momentum_dev
    subroutine overwrite_wall_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces_gpu, tw, hwm, sl, tf, dt, commit, &
-                                        fresh, avg_gpu, inv, ue, te, dxyz_gpu, q_aux_gpu, fl_gpu)
+                                        fresh, avg_gpu, inv, ue, te, pg, tp, is_null, dxyz_gpu, q_aux_gpu, fl_gpu)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
    !< With a filter time `tf` the sample is `(1 - e) a + e s`, `e = min(dt / tf, 1)` (1 when `fresh`), from the averages `a` of the face, which take it when `commit`.
@@ -96,6 +96,9 @@ contains
    real(R8P),    intent(inout) :: avg_gpu(1:,1:,1:,1:,1:)         !< Averages of the faces of direction `d` [nb, ni or 2, nj or 2, nk or 2, 5].
    logical,      intent(in)    :: inv(6)                          !< The inverse-transformation model per face (T3.5), else the equilibrium one.
    real(R8P),    intent(in)    :: ue(6), te(6)                    !< Inverse model: speed and temperature at the edge of the layer per face.
+   logical,      intent(in)    :: pg(6)                           !< The pressure gradient in the equilibrium model per face (issue #121, S4d).
+   real(R8P),    intent(in)    :: tp(6)                           !< Filter time of the pressure gradient per face, 0 for none.
+   logical,      intent(in)    :: is_null(3)                      !< Null directions.
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Blocks space steps.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)      !< Face fluxes of direction `d`.
@@ -103,6 +106,9 @@ contains
    integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, i0, i1, j0, j1, k0, k1, ia, ja, ka !< Counters.
    real(R8P)                   :: twf, hwf, tff, uef, tef            !< Wall temperature, matching height, filter time, edge speed and temperature of the face.
    logical                     :: slf, ivf                           !< Semi-local damping, inverse model of the face.
+   logical                     :: pgf, nl1, nl2, nl3                 !< Pressure gradient of the face, null directions.
+   real(R8P)                   :: px, g, g2, tpf, ep                 !< Pressure gradient along the sample velocity, along a direction; its filter.
+   integer(I4P)                :: t, ei, ej, ek                      !< Wall-parallel direction, its unit step.
 
    n = ni * di + nj * dj + nk * dk
    cp = gamma * (R / (gamma - 1._R8P)) ! as the physics object derives it (cv = R / (gamma - 1), cp = gamma cv)
@@ -111,17 +117,20 @@ contains
       l = merge(0_I4P, n, side == 1)
       s = merge(1._R8P, -1._R8P, side == 1)
       twf = tw(f) ; hwf = hwm(f) ; slf = sl(f) ; tff = tf(f) ; ivf = inv(f) ; uef = ue(f) ; tef = te(f)
+      pgf = pg(f) ; nl1 = is_null(1) ; nl2 = is_null(2) ; nl3 = is_null(3) ; tpf = tp(f)
+      ep = 1._R8P
+      if (tpf > 0._R8P .and. .not.fresh) ep = min(dt / tpf, 1._R8P)
       e = 1._R8P
       if (tff > 0._R8P .and. .not.fresh) e = min(dt / tff, 1._R8P)
       i0 = merge(l, 1_I4P, di == 1_I4P) ; i1 = merge(l, ni, di == 1_I4P)
       j0 = merge(l, 1_I4P, dj == 1_I4P) ; j1 = merge(l, nj, dj == 1_I4P)
       k0 = merge(l, 1_I4P, dk == 1_I4P) ; k1 = merge(l, nk, dk == 1_I4P)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                 &
-      !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)                              &
-      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka)
+      !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
+      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek)
       !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                                &
-      !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)                              &
-      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka)
+      !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
+      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek)
       do k=k0, k1
       do j=j0, j1
       do i=i0, i1
@@ -156,7 +165,30 @@ contains
             endif
             us = sqrt(u1 * u1 + u2 * u2 + u3 * u3)
             ts = ps / (R * rs)
-            if (ivf) then
+            px = 0._R8P
+            if (pgf .and. us > 0._R8P) then ! the pressure gradient along the sample velocity (issue #121, S4d), as the CPU kernel takes it
+               do t=1, 3
+                  if (t /= d .and. .not.merge(nl1, merge(nl2, nl3, t == 2_I4P), t == 1_I4P)) then
+                     ei = merge(1_I4P, 0_I4P, t == 1_I4P) ; ej = merge(1_I4P, 0_I4P, t == 2_I4P) ; ek = merge(1_I4P, 0_I4P, t == 3_I4P)
+                     g = (q_aux_gpu(b,i+di*o1+ei,j+dj*o1+ej,k+dk*o1+ek,IA_P) - q_aux_gpu(b,i+di*o1-ei,j+dj*o1-ej,k+dk*o1-ek,IA_P)) / (2._R8P * dxyz_gpu(b,t))
+                     if (w > 0._R8P) then
+                        g2 = (q_aux_gpu(b,i+di*o2+ei,j+dj*o2+ej,k+dk*o2+ek,IA_P) - q_aux_gpu(b,i+di*o2-ei,j+dj*o2-ej,k+dk*o2-ek,IA_P)) / (2._R8P * dxyz_gpu(b,t))
+                        g = g + w * (g2 - g)
+                     endif
+                     px = px + g * merge(u1, merge(u2, u3, t == 2_I4P), t == 1_I4P)
+                  endif
+               enddo
+               px = px / us
+            endif
+            if (pgf .and. tpf > 0._R8P) then ! its own exponential filter (the turbulent gradient is as large as tau / h): avg(6)
+               ia = merge(side, i, di == 1_I4P) ; ja = merge(side, j, dj == 1_I4P) ; ka = merge(side, k, dk == 1_I4P)
+               px = (1._R8P - ep) * avg_gpu(b,ia,ja,ka,6) + ep * px
+               if (commit) avg_gpu(b,ia,ja,ka,6) = px
+            endif
+            if (pgf) then
+               call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=twf, px=px, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
+                                              tau=tau, q=q, semilocal=slf)
+            elseif (ivf) then
                call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=twf, ue=uef, te=tef, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q)
             else
                call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=twf, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, semilocal=slf)

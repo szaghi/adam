@@ -50,6 +50,8 @@ def main() -> int:
     ap.add_argument("--wm-height", type=float, default=0.0)
     ap.add_argument("--wm-damping", default="semi-local")
     ap.add_argument("--wm-eddy-viscosity", action="store_true")
+    ap.add_argument("--wm-pressure-gradient", action="store_true", help="[bc] wall_model_pressure_gradient: dp/dx in the equilibrium model (#121, S4d)")
+    ap.add_argument("--wm-pg-filter", type=float, default=0.0, help="[bc] wall_model_pressure_gradient_filter, the time scale of the gradient's filter")
     ap.add_argument("--df-lengths", default="0.8,0.3,0.3", help="integral lengths streamwise, normal, spanwise in units of delta_i")
     ap.add_argument("--df-seed", type=int, default=1)
     ap.add_argument("--scheme-space", default="hybrid-kep-weno")
@@ -115,6 +117,8 @@ def main() -> int:
         keys |= {"wall_model_height": str(args.wm_height)} if args.wm_height > 0.0 else {}
         keys |= {"wall_model_damping": args.wm_damping} if args.wm_damping else {}
         keys |= {"wall_model_eddy_viscosity": ".true."} if args.wm_eddy_viscosity else {}
+        keys |= {"wall_model_pressure_gradient": ".true."} if args.wm_pressure_gradient else {}
+        keys |= {"wall_model_pressure_gradient_filter": repr(args.wm_pg_filter)} if args.wm_pg_filter > 0.0 else {}
     text = section(text, "bc_y_min", keys)
     text = section(text, "initial_conditions", {"type": "boundary-layer", "amr_iterations": "0", "bl_profile": "profile.txt", "bl_delta": "1.0",
                                                  "bl_rho": "1.0", "bl_u": "1.0", "bl_p": repr(p_inf)})

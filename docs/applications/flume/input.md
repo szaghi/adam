@@ -227,6 +227,7 @@ replaces `cp`, `cv` by `gamma` and the code temperature becomes $p/\rho$:
 | `resistivity` | $u_0 L_0$ |
 | `[bc_*]` `wall_model_height` | $L_0$ |
 | `[bc_*]` `wall_model_filter` | $L_0 / u_0$ |
+| `[bc_*]` `wall_model_pressure_gradient_filter` | $L_0 / u_0$ |
 | `[bc_*]` `wall_model_edge_velocity` | $u_0$ |
 | `[bc_*]` `wall_model_edge_temperature` | $u_0^2 / R$ |
 | `[forcing]` `bulk_momentum` | $\rho_0 u_0$ |
@@ -497,6 +498,8 @@ All six sections are required, even along null directions.
 | `wall_model_damping` with `wall-modelled` | string | no (`classical`) | `classical`, `semi-local`; other → fatal; given with `wall_model = inverse-transformation` → fatal | Van Driest damping of the equilibrium model in wall units, or with the local density and viscosity. |
 | `wall_model_filter` with `wall-modelled` | real | no (0) | `>= 0` | Time scale $T_f$ of the exponential filter of the sample; 0 for none ([turbulence](./turbulence#input-filter)). |
 | `wall_model_eddy_viscosity` with `wall-modelled` | logical | no (`.false.`) | | The model's eddy viscosity in the cells below the matching height ([turbulence](./turbulence#eddy-viscosity-below-the-matching-height)). |
+| `wall_model_pressure_gradient` with `wall-modelled` | logical | no (`.false.`) | | The pressure gradient along the sample velocity in the equilibrium model's momentum balance; refused with `wall_model = inverse-transformation` ([turbulence](./turbulence#pressure-gradient)). |
+| `wall_model_pressure_gradient_filter` with `wall_model_pressure_gradient` | real | no (0) | `>= 0` | Time scale $T_p$ of the exponential filter of the pressure gradient; 0 for none ([turbulence](./turbulence#pressure-gradient)). |
 | `r`, `u`, `p` with `inflow-digital-filter` | real | yes | `> 0`, otherwise fatal | Free-stream density, speed along the inward normal, pressure. **Euler** only, one such face per realm. |
 | `df_profile` | string | with `inflow-digital-filter` | file must exist, 7 numbers per row, $y$ increasing, $T > 0$ (fatal) | The layer table: `y / delta`, `U / U_inf`, `T / T_inf`, `R_uu`, `R_vv`, `R_ww`, `R_uv` in units of $U_\infty^2$ (v wall-normal, w spanwise), `#` comments; the free stream beyond its last row. `tbl_oracle.py profile` writes it from a DNS station file. |
 | `df_delta`, `df_spacing` | real | with `inflow-digital-filter` | `> 0` | Layer thickness (the table's unit of $y$); spacing of the filter plane, about the grid's. |

@@ -60,7 +60,7 @@ use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_reference_object,   only : flume_reference_object
 use :: adam_flume_sinks_object,       only : flume_sinks_object
 use :: adam_flume_time_object,        only : flume_time_object
-use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve, wall_model_solve_inverse
+use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure
 ! third party modules
 use :: finer,                         only : file_ini
 use :: motion,                        only : xh5f_file_object
@@ -115,10 +115,12 @@ type, extends(realm_object) :: flume_common_object
    logical                        :: has_wall_model=.false. !< Some face of the domain is modelled.
    integer(I4P),      allocatable :: ns_faces(:,:)       !< No-slip walls: block faces on them [nb, 6] (issue #119, the #65 mass leak).
    logical                        :: has_noslip=.false.  !< Some face of the domain is a no-slip wall of a hydrodynamic model.
-   real(R8P),         allocatable :: wm_avg_x(:,:,:,:,:) !< Wall model input filter: the averaged u, v, w, p, rho on the x faces [5, 2, nj, nk, nb], side 1 low.
-   real(R8P),         allocatable :: wm_avg_y(:,:,:,:,:) !< The same on the y faces [5, ni, 2, nk, nb].
-   real(R8P),         allocatable :: wm_avg_z(:,:,:,:,:) !< The same on the z faces [5, ni, nj, 2, nb].
-   logical                        :: has_wm_filter=.false. !< Some modelled face filters its samples (`wall_model_filter` > 0).
+   real(R8P),         allocatable :: wm_avg_x(:,:,:,:,:) !< Wall model input filter: the averaged u, v, w, p, rho and the pressure gradient along u (#121 S4d)
+                                                         !< on the x faces [6, 2, nj, nk, nb], side 1 low.
+   real(R8P),         allocatable :: wm_avg_y(:,:,:,:,:) !< The same on the y faces [6, ni, 2, nk, nb].
+   real(R8P),         allocatable :: wm_avg_z(:,:,:,:,:) !< The same on the z faces [6, ni, nj, 2, nb].
+   logical                        :: has_wm_filter=.false. !< Some modelled face filters its samples (`wall_model_filter` > 0) or its pressure gradient
+                                                           !< (`wall_model_pressure_gradient_filter` > 0).
    logical                        :: has_wm_viscosity=.false. !< Some modelled face puts its eddy viscosity below the matching height.
    logical                        :: wm_filter_fresh=.true. !< The averages hold no history (start, regrid, a checkpoint without them): the next commit takes the sample.
    integer(I4P)                   :: wm_filter_it=-1_I4P !< The iteration whose sample the averages hold.
@@ -1236,16 +1238,16 @@ contains
           any(self%bc%wall_modelled(5:6)) .and. self%nk < 3_I4P) call mpih%error_stop(msg=': wall-modelled faces need 3 cells per block along the normal')
    endif
    ! the input filter (#119): the host averages, sized by the block capacity; a placeholder of one element without a filter (the kernels take them anyway)
-   self%has_wm_filter = self%has_wall_model .and. any(self%bc%wall_modelled .and. self%bc%wm_filter > 0._R8P)
+   self%has_wm_filter = self%has_wall_model .and. any(self%bc%wall_modelled .and. (self%bc%wm_filter > 0._R8P .or. self%bc%wm_pg_filter > 0._R8P))
    ! the model's eddy viscosity below h (#119): mu_t on the cells and 2 ghost layers, as a subgrid-scale model's, through the same flux kernels
    self%has_wm_viscosity = self%has_wall_model .and. any(self%bc%wall_modelled .and. self%bc%wm_viscosity)
    if (allocated(self%wm_avg_x)) deallocate(self%wm_avg_x, self%wm_avg_y, self%wm_avg_z)
    if (self%has_wm_filter) then
-      allocate(self%wm_avg_x(5,2,self%nj,self%nk,self%nb), source=0._R8P)
-      allocate(self%wm_avg_y(5,self%ni,2,self%nk,self%nb), source=0._R8P)
-      allocate(self%wm_avg_z(5,self%ni,self%nj,2,self%nb), source=0._R8P)
+      allocate(self%wm_avg_x(6,2,self%nj,self%nk,self%nb), source=0._R8P)
+      allocate(self%wm_avg_y(6,self%ni,2,self%nk,self%nb), source=0._R8P)
+      allocate(self%wm_avg_z(6,self%ni,self%nj,2,self%nb), source=0._R8P)
    else
-      allocate(self%wm_avg_x(5,1,1,1,1), self%wm_avg_y(5,1,1,1,1), self%wm_avg_z(5,1,1,1,1), source=0._R8P)
+      allocate(self%wm_avg_x(6,1,1,1,1), self%wm_avg_y(6,1,1,1,1), self%wm_avg_z(6,1,1,1,1), source=0._R8P)
    endif
    call self%check_gravity
    call self%sinks%load_from_file(file_parameters=file_parameters, model=self%physics%model,                        &
@@ -1498,6 +1500,7 @@ contains
    integer(I4P)                              :: unit, ios, b !< File unit, I/O status, counter.
    integer(I4P)                              :: n(4), fresh  !< Blocks number and block sizes, fresh flag.
    integer(I8P)                              :: code         !< Morton code of a block.
+   integer(I8P)                              :: bytes        !< File size.
    logical                                   :: is_present   !< File presence.
 
    filename = trim(adjustl(basename))//'-proc'//trim(strz(mpih%myrank, 6))//'.wmf'
@@ -1514,6 +1517,16 @@ contains
       call mpih%error_stop(msg=': '//filename//' holds '//trim(str(n(1), .true.))//' blocks of '//trim(str(n(2:4), .true.))// &
                                ' cells, the restart '//trim(str(self%blocks_number, .true.))//' of '//                       &
                                trim(str([self%ni, self%nj, self%nk], .true.)))
+   ! the layout: 6 averages per face since #121 S4d (5 before): a file of another size restarts the averages, never read misaligned
+   inquire(file=filename, size=bytes)
+   if (bytes /= 20_I8P + int(n(1), I8P) * (8_I8P + 8_I8P * size(self%wm_avg_x, 1, I8P) * &
+                (2_I8P * n(3) * n(4) + 2_I8P * n(2) * n(4) + 2_I8P * n(2) * n(3)))) then
+      close(unit)
+      call mpih%print_message('warning: '//filename//' has another layout (written before the pressure-gradient filter): the wall-model '// &
+                              'input filter restarts from the next sample')
+      self%wm_filter_fresh = .true.
+      return
+   endif
    do b=1, n(1)
       read(unit, iostat=ios) code
       if (ios == 0 .and. code /= self%adam%field%code(b)) &
@@ -1580,14 +1593,15 @@ contains
    character(8), parameter                   :: FACE_NAME(6)=['x_min', 'x_max', 'y_min', 'y_max', 'z_min', 'z_max']
    real(R8P), allocatable                    :: acc(:,:)              !< Per bin: stress times area, heat flux times area, area [3, bins].
    real(R8P)                                 :: tref, suth, omega_mu, omega_k, mu0, cp, h, w, us, ts, ps, rs, tau, q, area, lo, len !< Work.
-   real(R8P)                                 :: u(3), p1(5), p2(5), xyz(3) !< Work.
-   integer(I4P)                              :: f, d, a, side, n, m, b, i, j, k, c(3), o1, o2, ib, nbins, t1, t2 !< Counters.
+   real(R8P)                                 :: u(3), p1(5), p2(5), xyz(3), px, g(2) !< Work.
+   integer(I4P)                              :: f, d, a, side, n, m, b, i, j, k, c(3), o1, o2, ib, nbins, t1, t2, t, oo !< Counters.
    integer(I4P)                              :: lb(3), ub(3)          !< Face cell ranges.
    logical                                   :: is_present            !< File presence.
 
    if (.not.self%has_wall_model) return
    if (.not.self%time%is_to_save(cadence=self%diagnostics%wall_history_save)) return
    call self%wall_history_to_host
+   if (any(self%bc%wall_modelled .and. self%bc%wm_pg_filter > 0._R8P)) call self%wm_filter_to_host
    call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k)
    mu0 = self%physics%dissipation%mu
    cp = self%physics%gamma * (self%physics%R / (self%physics%gamma - 1._R8P))
@@ -1626,7 +1640,31 @@ contains
                   u = p1(2:4) ; u(d) = 0._R8P
                   us = sqrt(dot_product(u, u))
                   rs = p1(1) ; ps = p1(5) ; ts = ps / (self%physics%R * rs)
-                  if (self%bc%wm_inverse(f)) then
+                  if (self%bc%wm_pressure(f)) then
+                     ! the pressure gradient along u, as overwrite_wall_fluxes samples it (central differences of the wall-parallel neighbours)
+                     px = 0._R8P
+                     do t=1, 3
+                        if (t == d .or. self%adam%grid%null_xyz(t) .or. .not.(us > 0._R8P)) cycle
+                        do oo=1, merge(2_I4P, 1_I4P, w > 0._R8P)
+                           c = [i, j, k] ; c(d) = merge(o1, o2, oo == 1_I4P)
+                           c(t) = c(t) + 1_I4P ; p2 = primitive(c, b) ; g(oo) = p2(5)
+                           c(t) = c(t) - 2_I4P ; p2 = primitive(c, b) ; g(oo) = (g(oo) - p2(5)) / (2._R8P * self%adam%field%dxyz(t,b))
+                        enddo
+                        if (w > 0._R8P) g(1) = g(1) + w * (g(2) - g(1))
+                        px = px + g(1) * u(t)
+                     enddo
+                     if (us > 0._R8P) px = px / us
+                     if (self%bc%wm_pg_filter(f) > 0._R8P) then ! the filtered gradient the face flux takes (the filter's own state, side 1 low)
+                        select case(d)
+                        case(1) ; px = self%wm_avg_x(6,side,j,k,b)
+                        case(2) ; px = self%wm_avg_y(6,i,side,k,b)
+                        case(3) ; px = self%wm_avg_z(6,i,j,side,b)
+                        endselect
+                     endif
+                     call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), px=px, R=self%physics%R, cp=cp, &
+                                                    pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, &
+                                                    semilocal=self%bc%wm_semilocal(f))
+                  elseif (self%bc%wm_inverse(f)) then
                      call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), ue=self%bc%wm_edge_u(f), &
                                                    te=self%bc%wm_edge_t(f), R=self%physics%R, cp=cp, pr=self%physics%dissipation%prandtl, mu0=mu0, &
                                                    tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q)

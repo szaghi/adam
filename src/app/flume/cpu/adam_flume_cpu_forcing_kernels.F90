@@ -5,7 +5,7 @@ module adam_flume_cpu_forcing_kernels
 
 use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse
+use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure
 use :: penf,                  only : I4P, R8P
 
 implicit none
@@ -67,7 +67,7 @@ contains
    !$omp end parallel do
    endsubroutine add_uniform_momentum
    subroutine overwrite_wall_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces, tw, hwm, sl, tf, dt, commit, fresh, &
-                                    avg, inv, ue, te, dxyz, q_aux, fl)
+                                    avg, inv, ue, te, pg, tp, is_null, dxyz, q_aux, fl)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
    !< With a filter time `tf` the sample is `(1 - e) a + e s`, `e = min(dt / tf, 1)` (1 when `fresh`), from the averages `a` of the face, which take it when `commit`
@@ -89,10 +89,13 @@ contains
    real(R8P),    intent(inout) :: avg(1:,1:,1:,1:,1:)             !< Averages of the faces of direction `d` [5, ni or 2, nj or 2, nk or 2, nb].
    logical,      intent(in)    :: inv(6)                          !< The inverse-transformation model per face (T3.5), else the equilibrium one.
    real(R8P),    intent(in)    :: ue(6), te(6)                    !< Inverse model: speed and temperature at the edge of the layer per face.
+   logical,      intent(in)    :: pg(6)                           !< The pressure gradient in the equilibrium model per face (issue #121, S4d).
+   real(R8P),    intent(in)    :: tp(6)                           !< Filter time of the pressure gradient per face, 0 for none.
+   logical,      intent(in)    :: is_null(3)                      !< Null directions.
    real(R8P),    intent(in)    :: dxyz(1:,1:)                    !< Blocks space steps.
    real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)      !< Face fluxes of direction `d`.
-   real(R8P)                   :: u(3), us, ts, ps, rs, tau, q, cp, h, s, w, e !< Work.
+   real(R8P)                   :: u(3), us, ts, ps, rs, tau, q, cp, h, s, w, e, px, ep !< Work.
    integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, ia, ja, ka !< Counters.
 
    n = ni * di + nj * dj + nk * dk
@@ -131,7 +134,18 @@ contains
                   endif
                   us = sqrt(dot_product(u, u))
                   ts = ps / (R * rs)
-                  if (inv(f)) then
+                  if (pg(f)) then
+                     px = sample_pressure_gradient(i=i, j=j, k=k, b=b, o1=o1, o2=o2, w=w, u=u, us=us)
+                     if (tp(f) > 0._R8P) then ! its own exponential filter (the turbulent gradient is as large as tau / h): avg(6)
+                        ep = 1._R8P
+                        if (.not.fresh) ep = min(dt / tp(f), 1._R8P)
+                        ia = merge(side, i, di == 1_I4P) ; ja = merge(side, j, dj == 1_I4P) ; ka = merge(side, k, dk == 1_I4P)
+                        px = (1._R8P - ep) * avg(6,ia,ja,ka,b) + ep * px
+                        if (commit) avg(6,ia,ja,ka,b) = px
+                     endif
+                     call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, &
+                                                    omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
+                  elseif (inv(f)) then
                      call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=tw(f), ue=ue(f), te=te(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
                                                    tau=tau, q=q)
                   else
@@ -147,6 +161,32 @@ contains
       enddo
       !$omp end parallel do
    enddo
+   contains
+      function sample_pressure_gradient(i, j, k, b, o1, o2, w, u, us) result(px)
+      !< The pressure gradient along the sample velocity `u` (speed `us`, 0 without a speed): per active wall-parallel direction the central difference of
+      !< the neighbours of the sample cells o1 and o2, weighted as the sample (issue #121, S4d).
+      integer(I4P), intent(in) :: i, j, k, b, o1, o2 !< Face index, block, sample cells.
+      real(R8P),    intent(in) :: w, u(3), us        !< Weight of o2, sample velocity and speed.
+      real(R8P)                :: px                 !< Gradient along u.
+      real(R8P)                :: g, g2              !< Gradient along a direction.
+      integer(I4P)             :: t, et(3), c(3)     !< Direction, its unit step, sample cell.
+
+      px = 0._R8P
+      if (.not.(us > 0._R8P)) return
+      do t=1, 3
+         if (t == d .or. is_null(t)) cycle
+         et = 0_I4P ; et(t) = 1_I4P
+         c = [i + di * o1, j + dj * o1, k + dk * o1]
+         g = (q_aux(IA_P,c(1)+et(1),c(2)+et(2),c(3)+et(3),b) - q_aux(IA_P,c(1)-et(1),c(2)-et(2),c(3)-et(3),b)) / (2._R8P * dxyz(t,b))
+         if (w > 0._R8P) then
+            c = [i + di * o2, j + dj * o2, k + dk * o2]
+            g2 = (q_aux(IA_P,c(1)+et(1),c(2)+et(2),c(3)+et(3),b) - q_aux(IA_P,c(1)-et(1),c(2)-et(2),c(3)-et(3),b)) / (2._R8P * dxyz(t,b))
+            g = g + w * (g2 - g)
+         endif
+         px = px + g * u(t)
+      enddo
+      px = px / us
+      endfunction sample_pressure_gradient
    endsubroutine overwrite_wall_fluxes
    subroutine add_wall_mu_t(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces, ev, tw, hwm, sl, inv, ue, te, &
                             is_null, dxyz, q_aux, mu_t)

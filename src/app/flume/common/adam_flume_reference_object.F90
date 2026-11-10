@@ -525,13 +525,13 @@ contains
          kind = KIND_NONE
       case('shock_deflection', 'shock_angle') ! the shock generator's angles, degrees (issue #121, S3)
          kind = KIND_NONE
-      case('wall_model_damping', 'wall_model', 'wall_model_eddy_viscosity')
+      case('wall_model_damping', 'wall_model', 'wall_model_eddy_viscosity', 'wall_model_pressure_gradient')
          kind = KIND_NONE
       case('wall_model_edge_velocity')
          kind = KIND_SCALED ; dim = DIM_VELOCITY
       case('wall_model_edge_temperature')
          kind = KIND_TEMPERATURE ; dim = DIM_VELOCITY2
-      case('wall_model_filter')
+      case('wall_model_filter', 'wall_model_pressure_gradient_filter')
          kind = KIND_SCALED ; dim = DIM_TIME
       case('p')
          kind = KIND_SCALED ; dim = DIM_PRESSURE
