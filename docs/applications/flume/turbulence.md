@@ -122,11 +122,14 @@ wall, the sample values at $y=h$.
 Integrated once, $\tau_w$ and $q_w$ follow from two quadratures for a given temperature profile:
 
 - 40 intervals stretched by 1.3, a rule exact for a coefficient linear on each interval;
-- 8 iterations, with an Aitken step on $\ln\tau_w$ every second one (capped at a factor $e$);
+- 16 plain fixed-point iterations: the error falls at about the rate 1/2 of the under-relaxed temperature, and over a
+  sweep of samples the result is within $7\cdot10^{-5}$ of the fixed point. An Aitken step on $\ln\tau_w$ every
+  second iteration, used before, is exact only on a geometric sequence; on the others it stopped a few samples on an
+  extrapolated iterate, $\tau_w$ up to 2.7 times the fixed point (about 1 sample in 1000 more than 5 % off);
 - the temperature iterate under-relaxed and kept positive, and the laminar stress if all else fails.
 
 The cost per wall face is fixed, on the device too. Measured by the unit test `test_wall_model`: $\tau_w$ within 0.6 % of
-a fine quadrature for $h^+=10^2$–$10^5$ (5.5 % at $10^6$); the Crocco relation to $8\cdot10^{-4}$; a hot compressible
+a fine quadrature for $h^+=10^2$–$10^5$ (5.5 % at $10^6$); the Crocco relation to round-off; a hot compressible
 layer against an independent solver to $3\cdot10^{-3}$; no non-finite result in $2\cdot10^5$ random samples up to 4.5
 wall sound speeds.
 
@@ -156,7 +159,7 @@ $\ln\tau_w$ (secant, 8 shots).
 
 Measured by `test_wall_model`:
 
-- in the constant-property limit it equals the equilibrium model to $2\cdot10^{-9}$;
+- in the constant-property limit it equals the equilibrium model to $3\cdot10^{-8}$;
 - against Eq. 2.2 integrated as printed on $2\cdot10^5$ intervals, $3.9\cdot10^{-3}$ on a cold wall and
   $7.8\cdot10^{-3}$ on a hot one, falling to $3\cdot10^{-4}$ and $5\cdot10^{-5}$ with 160 and 640 intervals (the error
   is the grid's, not the algebra's);
@@ -226,9 +229,8 @@ partly balance in the wall layer, so the model can over-respond.
   model with it raises the mean $\tau_w$ of the zero-pressure-gradient layer by 13 %. The mean gradient of an
   interaction lasts much longer than the turbulent one, so a $T_p$ of a few $\delta/U_e$ keeps it and removes most
   of the noise. $T_p=0$ takes the instantaneous gradient.
-- **Solve.** $\tau_w$ is no longer a power of the sample speed, so there is no Aitken step on $\ln\tau_w$: 12 plain
-  fixed-point steps on the same 40 intervals, within $7\cdot10^{-4}$ of $|\tau_w|+|dp/dx|\,h$ of the converged value
-  over a sweep of samples.
+- **Solve.** The same 16 plain fixed-point steps on the same 40 intervals, within $7\cdot10^{-5}$ of
+  $|\tau_w|+|dp/dx|\,h$ of the converged value over a sweep of samples.
 - **Below the matching height** the eddy viscosity stays the equilibrium model's: its ghost columns hold no
   filtered gradient, and an unfiltered one would bring the noise back.
 - **History.** The wall history evaluates the same model.
@@ -237,8 +239,7 @@ Measured by `test_wall_model`:
 
 - the laminar limit, $U(h)=\tau_wh/\mu+(dp/dx)\,h^2/(2\mu)$, of either sign of the gradient, to $2.6\cdot10^{-7}$,
   with $\tau_w<0$ under the adverse one;
-- a zero gradient against the equilibrium model, $3.8\cdot10^{-4}$ (two iterations' convergence, so the key with a zero
-  gradient is not the model without it bit for bit);
+- a zero gradient is the equilibrium model bit for bit (the same iteration);
 - a hot turbulent layer under Sutherland's law against the same equations on $2\cdot10^5$ intervals with 400
   iterations: within $3.4\cdot10^{-3}$ of $|\tau_w|+|dp/dx|\,h$ for a mild and a strong adverse gradient ($\tau_w<0$
   in both) and a favourable one;

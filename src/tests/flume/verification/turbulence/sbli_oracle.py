@@ -220,13 +220,13 @@ def _log_mean_inverse(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.where(small, 2.0 / (a + b) * (1.0 + x * x / 3.0), np.log(b / a) / np.where(small, 1.0, b - a))
 
 
-WM_POINTS, WM_ITERATIONS, WM_STRETCH, WM_KAPPA, WM_APLUS, WM_PRT = 40, 8, 1.3, 0.41, 17.0, 0.9
+WM_POINTS, WM_ITERATIONS, WM_STRETCH, WM_KAPPA, WM_APLUS, WM_PRT = 40, 16, 1.3, 0.41, 17.0, 0.9
 
 
 def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0) -> tuple[np.ndarray, np.ndarray]:
-    """tau_w and q_w of the equilibrium model, vectorised over the samples. `px` None: wall_model_solve operation for operation (8 iterations, Aitken
-    on log tau). `px` given: the momentum balance with the pressure gradient, `U(h) = tau I0 + px I1`, I0 = int dy / (mu + mu_t), I1 = int y dy /
-    (mu + mu_t), solved for tau by a fixed point (tau can be negative; unrelaxed: 12 iterations are within 7e-4 of
+    """tau_w and q_w of the equilibrium model, vectorised over the samples. `px` None: wall_model_solve operation for operation (16 plain
+    fixed-point iterations; before #121 S4d 8 with an Aitken step on log tau every second one, which stopped a few samples far from the fixed point). `px` given: the momentum balance with the pressure gradient, `U(h) = tau I0 + px I1`, I0 = int dy / (mu + mu_t), I1 = int y dy /
+    (mu + mu_t), solved for tau by a fixed point (tau can be negative; unrelaxed: 16 iterations, the Fortran count, are within 7e-5 of
     |tau| + |px| h over a sweep of the samples, 200 the default here), mu_t on the velocity scale sqrt((|tau| + |px| y) / rho) (with
     px = 0 the same model), the energy flux `cp k dT/dy + tau(y) U` constant across the layer."""
     r, cp, pr, mu0, tref, suth, om, sl = (gas[k] for k in ("R", "cp", "pr", "mu0", "tref", "suth", "omega", "semilocal"))
@@ -243,9 +243,8 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0) -> tu
         hp = (us / (np.log(hp) / WM_KAPPA + 5.0)) * h * rhow / muw
     tau = np.where(hp > 11.0, rhow * (hp * muw / (h * rhow)) ** 2, tau)
     dyy = np.diff(y, axis=1)
-    x0 = x1 = np.log(tau)
     p = 0.0 if px is None else np.asarray(px, dtype=float)[:, None]
-    for it in range(1, (iterations or (WM_ITERATIONS if px is None else 200)) + 1):
+    for _ in range((iterations or (WM_ITERATIONS if px is None else 200))):
         mu = mu0 * _law(t, tref, suth, om)
         rho = ps / (r * t)
         ts_ = np.abs(tau) + np.abs(p) * y
@@ -270,18 +269,7 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0) -> tu
         i3 = np.cumsum(0.5 * da * (su[:, :-1] + su[:, 1:]), axis=1)
         q = (cp * (ts - tw) + i3[:, -1:]) / i2[:, -1:]
         t[:, 1:] = np.maximum(0.5 * t[:, 1:] + 0.5 * (tw + (q * i2 - i3) / cp), 0.1 * np.minimum(tw, ts))
-        if px is None:
-            x2 = np.log(tnew)
-            if it % 2 == 0:
-                den = x2 - 2.0 * x1 + x0
-                ok = np.abs(den) > 1.0e-12
-                x2 = np.where(ok, np.clip(x0 - (x1 - x0) ** 2 / np.where(ok, den, 1.0), x1 - 1.0, x1 + 1.0), x2)
-            x0, x1 = x1, x2
-            if it % 2 == 0:
-                x0 = x2
-            tau = np.exp(x2)
-        else:
-            tau = tnew
+        tau = tnew
     return tau[:, 0], q[:, 0]
 
 

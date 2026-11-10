@@ -27,7 +27,8 @@ public :: inverse_strain
 public :: WM_ITERATIONS, WM_POINTS
 
 integer(I4P), parameter :: WM_POINTS=40_I4P     !< Intervals of the layer; tau within 1 % up to h+ = 1e5, 5.5 % off at 1e6.
-integer(I4P), parameter :: WM_ITERATIONS=8_I4P  !< Iterations, Aitken every second one.
+integer(I4P), parameter :: WM_ITERATIONS=16_I4P !< Plain fixed-point iterations (an Aitken step every second one, before #121 S4d, stopped a few
+                                                !< samples on an extrapolated iterate, tau up to 2.7 times the fixed point).
 real(R8P),    parameter :: WM_STRETCH=1.3_R8P   !< Ratio of consecutive intervals.
 real(R8P),    parameter :: WM_KAPPA=0.41_R8P    !< von Karman constant.
 real(R8P),    parameter :: WM_APLUS=17._R8P     !< Damping constant.
@@ -35,7 +36,6 @@ real(R8P),    parameter :: WM_PRT=0.9_R8P       !< Turbulent Prandtl number.
 real(R8P),    parameter :: WM_SRA=1.14_R8P      !< Reynolds analogy factor of the inverse model (Griffin et al. 2023, after Zhang et al. 2014).
 integer(I4P), parameter :: WM_SHOTS=8_I4P       !< Shots of the inverse model, secant on ln(tau) after the first.
 integer(I4P), parameter :: WM_SUBITERATIONS=2_I4P !< Corrections of each step of the inverse model.
-integer(I4P), parameter :: WM_PG_ITERATIONS=12_I4P !< Fixed-point steps of the model with the pressure gradient.
 
 contains
    pure function wall_eddy_viscosity(y, rho, mu, tau, rhow, muw, semilocal) result(mt)
@@ -97,7 +97,7 @@ contains
    real(R8P)              :: u(0:WM_POINTS)      !< Velocity.
    real(R8P)              :: mt(0:WM_POINTS)     !< mu + mu_t.
    real(R8P)              :: a(0:WM_POINTS)      !< mu / Pr + mu_t / Pr_t.
-   real(R8P)              :: dy0, mu, rho, rhow, muw, ut, damp, i2, i3, dy, hp, tnew, x0, x1, x2 !< Work.
+   real(R8P)              :: dy0, mu, rho, rhow, muw, ut, damp, i2, i3, dy, hp, tnew !< Work.
    integer(I4P)           :: n, it               !< Counters.
    !$acc routine seq
    !$omp declare target
@@ -123,7 +123,8 @@ contains
       hp = (us / (log(hp) / WM_KAPPA + 5._R8P)) * h * rhow / muw
    enddo
    if (hp > 11._R8P) tau = rhow * (hp * muw / (h * rhow))**2
-   x0 = log(tau) ; x1 = x0
+   ! plain fixed-point steps: the error falls geometrically, at about the rate 1/2 of the under-relaxed temperature; an Aitken step on log(tau)
+   ! (every second iteration until #121 S4d) is exact only for a geometric sequence, and on the others it left tau up to 2.7 times the fixed point
    do it=1, WM_ITERATIONS
       ut = sqrt(tau / rhow)
       do n=0, WM_POINTS
@@ -161,14 +162,7 @@ contains
          ! under-relaxed and kept positive: with a poor tau the frictional heating term can drive the iterate below zero (NaN in a sweep at Mach 2 samples)
          t(n) = max(0.5_R8P * t(n) + 0.5_R8P * (tw + (q * i2 - tnew * i3) / cp), 0.1_R8P * min(tw, ts))
       enddo
-      ! Aitken on log(tau) every second iteration: tau = g(tau) is a power law in the log layer
-      x2 = log(tnew)
-      if (mod(it, 2_I4P) == 0_I4P .and. abs(x2 - 2._R8P * x1 + x0) > 1.e-12_R8P) then
-         x2 = min(max(x0 - (x1 - x0)**2 / (x2 - 2._R8P * x1 + x0), x1 - 1._R8P), x1 + 1._R8P) ! at most a factor e per extrapolation
-      endif
-      x0 = x1 ; x1 = x2
-      if (mod(it, 2_I4P) == 0_I4P) x0 = x2
-      tau = exp(x2)
+      tau = tnew
    enddo
    if (.not.(tau < huge(1._R8P) .and. tau >= 0._R8P .and. abs(q) < huge(1._R8P))) then ! a last resort, never seen after the guards above
       tau = muw * us / h
@@ -182,7 +176,7 @@ contains
    !< strong enough gives `tau_w < 0` with `U(h) > 0`. The eddy viscosity takes the velocity scale `sqrt((|tau_w| + |px| y) / rho)` (u_tau and the pressure
    !< scale combined, as Duprat et al. 2011 do), so `px = 0` is the equilibrium model; the energy flux `cp (mu / Pr + mu_t / Pr_t) dT/dy + (tau_w + px y) U`
    !< is constant across the layer. The convective terms are dropped and dp/dx kept, as Wang & Moin (2002) do. `tau_w` is no longer a power of the sample
-   !< speed, so no Aitken on log(tau): WM_PG_ITERATIONS plain fixed-point steps, within 7e-4 of `|tau_w| + |px| h` of the converged value over a sweep of
+   !< speed: WM_ITERATIONS plain fixed-point steps, as wall_model_solve, within 7e-5 of `|tau_w| + |px| h` of the converged value over a sweep of
    !< samples (`sbli_oracle.py apriori`, the Python port, with S4c's mean samples among them).
    real(R8P), intent(in)  :: h, us, ts, ps       !< Height, parallel speed, temperature and pressure of the sample.
    real(R8P), intent(in)  :: tw                  !< Wall temperature.
@@ -224,7 +218,7 @@ contains
       enddo
       if (hp > 11._R8P) tau = rhow * (hp * muw / (h * rhow))**2
    endif
-   do it=1, WM_PG_ITERATIONS
+   do it=1, WM_ITERATIONS
       do n=0, WM_POINTS
          mu = mu0 * temperature_law(t=t(n), tref=tref, suth=suth, omega=omega_mu)
          rho = ps / (R * t(n))

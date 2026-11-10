@@ -61,7 +61,7 @@
 #   wm7  the input filter (wall_model_filter): (a) T_f = 1e-12, so e = 1 at every stage, is the unfiltered wm5-32 run (wm7-base) bit for bit (force relative 0, bound 1e-14);
 #        (b) T_f = 0.05 on the same run, near its steady state at t = 5, within 1e-3 of it (the lag T_f |df/dt| / f, a few 1e-4 there); (c) T_f = 1 over the early
 #        transient to t = 0.5 differs from the unfiltered run by more than 1e-3 (the filter acts); (d) one rank against N with T_f = 0.01 (e about 0.3).
-#   wm8  the inverse-transformation model (T3.5; its stress in the constant-property limit is the equilibrium one to 2e-9: test_wall_model, leg wm2): (a) on wm5's
+#   wm8  the inverse-transformation model (T3.5; its stress in the constant-property limit is the equilibrium one to 3e-8: test_wall_model, leg wm2): (a) on wm5's
 #        laminar channel (h+ about 1) the force within 1e-3 of the equilibrium model's. Not closer: the heat flux is the Reynolds analogy s cp tau (Tr - Tw) / Ue,
 #        not the laminar conduction, so the gas gains 2.8 times the energy (total 2.3e-3 apart at t = 5) and the force moves by 1e-4 (measured 9.97e-5; my
 #        first bound, 1e-4, ignored the heat flux); `energy` asserts that gap, more than 1e-3, so this leg keeps exercising the analogy. (b) on wm6's hot wall,
