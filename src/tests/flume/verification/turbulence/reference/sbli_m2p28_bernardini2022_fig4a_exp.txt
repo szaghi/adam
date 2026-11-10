@@ -1,0 +1,44 @@
+# Bernardini, Della Posta, Salvadore & Martelli, Unsteadiness characterisation of shock wave/turbulent boundary-layer interaction at moderate
+# Reynolds number, arXiv:2204.10531v2 (2022), Fig. 4a: the mean wall pressure of the STREAmS DNS of the IUSTI interaction (Mach 2.28, flow
+# deflection 8 deg, adiabatic wall) at Re_theta 6882 (Re_tau 1100; the experiment 5100), L_int / delta_0 3.30, L_sep / delta_0 2.16 (their
+# table 2 and section 4); and the experiment of Dupont, Haddad & Debieve, J. Fluid Mech. 559 (2006) (filled circles), placed by the authors
+# in the same coordinates. x* = (x - x_0) / L_int, x_0 the mean position of the ideal incident shock (the nominal impingement point), L_int
+# from it to the foot of the reflected shock: the convention of sbli_oracle.py. (The authors' footnote: in Dupont et al. x_0 is the mean
+# position of the reflected shock, so their x* differs by one, the positions being the same.)
+# Digitised from the vector paths of the arXiv PDF, page 9 (mutool draw -F trace), mapped through the major ticks (x* -3..4, p 1..3).
+# Experiment (filled circles): x*, p_w / p_inf, the marker's bounding-box centre. Error: +-0.01 in x* and p_w / p_inf.
+# x_star  p_w/p_inf
+-1.88486 1.00695
+-1.78724 0.94886
+-1.68932 0.98226
+-1.55898 1.01188
+-1.50457 0.96189
+-1.40665 0.98735
+-1.30222 1.04431
+-1.20462 1.01300
+-1.10667 1.13166
+-1.02638 1.31199
+-1.00444 1.59645
+-0.92843 1.59231
+-0.83050 1.72455
+-0.71744 1.87752
+-0.61985 1.94695
+-0.58060 1.93677
+-0.52192 1.99808
+-0.48264 1.99731
+-0.41749 2.04090
+-0.38509 2.04504
+-0.31953 2.11578
+-0.22195 2.17879
+-0.12402 2.24348
+-0.02606 2.26821
+0.07152 2.29085
+0.16945 2.32554
+0.26741 2.35705
+0.36500 2.36648
+0.46293 2.36101
+0.56089 2.37120
+0.65847 2.36404
+0.75640 2.37591
+0.85436 2.35139
+0.95195 2.38988

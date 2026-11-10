@@ -15,10 +15,18 @@ and the wall history over the same window:
   over the rows y in [2.5, 5] delta_0 fitted by a line and extrapolated to the wall; the incident one fitted the same way, its foot against x_imp;
 - the Souverein scaling L* = L_int / (delta* g3), g3 = sin(beta - phi) / (sin beta sin phi), and the separation criterion Se = k1 (p_3 - p_1) / q_inf
   with k1 = 3 (low Reynolds number, Volpiani et al. 2018).
-Recorded, not judged: the comparison with the digitised references (reference/sbli_m2p28_*) is printed next to each value.
+Recorded, not judged: the comparison with the digitised references (reference/sbli_m2p28_*) is printed next to each value: the STREAmS DNS and the
+IUSTI points of the CPC paper's Fig. 7, whose x* is measured from the reflected shock (shifted here by SHIFT_FIG7 = 1 to x_imp; see `references`), and
+the STREAmS DNS at Re_theta 6882 of Bernardini et al. (arXiv:2204.10531, Fig. 4a), x* from x_imp.
 
 `means <work> --x-imp X [--t0 T0] --out <npz>`: the span and time averages near the wall (tbl_oracle.averages, the first 12 rows of the finest grid),
 the C_f of the wall-model history, delta_0 and the run's gas and viscosity law, in one file for `apriori` (run it where the checkpoints are).
+`fields <work> --x-imp X --deflection T [--t0 T0] --out <npz>`: the span and time averages of every row (tbl_oracle.averages), delta(x), delta_0
+and the free-stream temperature, for `compression` (run it where the checkpoints are).
+`compression <npz>... [--json out]`: where the interaction's compression starts and how it crosses the layer, per run: the incoming layer's mean
+Mach number per cell and sonic height against the DNS profile the inflow is made from (reference/tbl_m2p28_profile.txt), the x where the wall
+pressure reaches 5, 10 and 50 % of p_2 - p_inf against the Re_theta 6882 DNS, and the path of the compression through the layer (per height, the
+first crossing of p_inf + k (p_2 - p_inf), k = 0.1 and 0.5).
 `apriori <npz> [--hwm H] [--json out]`: the equilibrium wall model of the run (a port of `wall_model_solve`, adam_flume_wall_model_library.F90) applied
 to the mean field at the run's sample (the 3rd cell of the local grid, or the height H between cells as `sample_cells` takes it) per x, with and without
 the mean streamwise pressure gradient in the momentum balance, `(mu + mu_t) dU/dy = tau_w + (dp/dx) y`, the eddy viscosity on the velocity scale
@@ -45,6 +53,24 @@ import tbl_oracle as to  # noqa: E402
 GAMMA = 1.4
 
 
+SHIFT_FIG7 = 1.0  # STREAmS Fig. 7 (CPC 2021) plots x* from the reflected shock's apparent origin (the IUSTI convention): x*(x_imp) = x*(fig) - 1
+
+
+def references(p21: float) -> dict[str, np.ndarray]:
+    """The digitised wall-pressure references as (x*, (p_w - p_inf) / (p_2 - p_inf)), x* = (x - x_imp) / L_int: `dns` and `iusti`, STREAmS Fig. 7
+    (CPC 2021) shifted by SHIFT_FIG7 (its origin is the reflected shock, reference/sbli_m2p28_fig7a_*.txt); `dns_hre` and `exp_hre`, the STREAmS
+    DNS at Re_theta 6882 and the experiment of Bernardini et al. (arXiv:2204.10531, Fig. 4a), from p_w / p_inf with p2/p1 = `p21`."""
+    ref = HERE / "reference"
+    out = {}
+    for key, name in (("dns", "sbli_m2p28_fig7a_dns.txt"), ("iusti", "sbli_m2p28_fig7a_iusti.txt")):
+        a = np.loadtxt(ref / name)
+        out[key] = np.column_stack([a[:, 0] - SHIFT_FIG7, a[:, 1]])
+    for key, name in (("dns_hre", "sbli_m2p28_bernardini2022_fig4a_dns.txt"), ("exp_hre", "sbli_m2p28_bernardini2022_fig4a_exp.txt")):
+        a = np.loadtxt(ref / name)
+        out[key] = np.column_stack([a[:, 0], (a[:, 1] - 1.0) / (p21 - 1.0)])
+    return out
+
+
 def shocks(mach: float, theta_deg: float) -> dict:
     """The incident oblique shock and the regular reflection off the wall (shockgen_oracle.reflection, the same gamma)."""
     import shockgen_oracle as so
@@ -59,6 +85,30 @@ def crossings(p_row: np.ndarray, x: np.ndarray, level: float, after: float) -> f
         return float("nan")
     j = k[0]
     return float(x[j] + (level - p_row[j]) / (p_row[j + 1] - p_row[j]) * (x[j + 1] - x[j]))
+
+
+def shock_fits(p: np.ndarray, x: np.ndarray, y: np.ndarray, delta0: float, x_imp: float, p_inf: float, p2: float, p3: float,
+               beta_deg: float) -> tuple[float, float, float, tuple[list, list, list, list]]:
+    """The incident and the reflected shock above the layer: the mid-pressure crossings of the rows 2.5 <= y / delta_0 <= 5 fitted by lines, their
+    feet at the wall (the incident one's, the reflected one's apparent origin x_ref), the reflected one's angle to the wall and the crossings."""
+    dx = x[1] - x[0]
+    pm_i, pm_r = 0.5 * (p_inf + p2), 0.5 * (p2 + p3)
+    tb = math.tan(math.radians(beta_deg))
+    rows = [j for j in range(len(y)) if 2.5 * delta0 <= y[j] <= 5.0 * delta0]
+    xi, xr, yr, yi = [], [], [], []
+    for j in rows:
+        xa = crossings(p[:, j], x, pm_i, x_imp - (y[j] / tb) - 10.0)
+        if np.isfinite(xa):
+            xi.append(xa)
+            yi.append(y[j])
+            xb_ = crossings(p[:, j], x, pm_r, xa + 2.0 * dx)
+            if np.isfinite(xb_):
+                xr.append(xb_)
+                yr.append(y[j])
+    ci = np.polyfit(yi, xi, 1) if len(yi) > 3 else [np.nan, np.nan]
+    cr = np.polyfit(yr, xr, 1) if len(yr) > 3 else [np.nan, np.nan]
+    beta_r = math.degrees(math.atan(1.0 / cr[0])) if len(yr) > 3 else float("nan")
+    return float(ci[1]), float(cr[1]), beta_r, (yi, xi, yr, xr)
 
 
 def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str | None) -> int:
@@ -116,24 +166,8 @@ def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str
     x_att = float(x[neg[-1]]) if len(neg) else float("nan")
     l_sep = x_att - x_sep if len(neg) else 0.0
     # the reflected and the incident shock, fitted above the layer
-    pm_i, pm_r = 0.5 * (p_inf + p2), 0.5 * (p2 + p3)
-    tb = math.tan(math.radians(sh["incident"]["beta"]))
-    rows = [j for j in range(ny) if 2.5 * delta0 <= y[j] <= 5.0 * delta0]
-    xi, xr, yr, yi = [], [], [], []
-    for j in rows:
-        xa = crossings(p[:, j], x, pm_i, x_imp - (y[j] / tb) - 10.0)
-        if np.isfinite(xa):
-            xi.append(xa)
-            yi.append(y[j])
-            xb_ = crossings(p[:, j], x, pm_r, xa + 2.0 * dx)
-            if np.isfinite(xb_):
-                xr.append(xb_)
-                yr.append(y[j])
-    ci = np.polyfit(yi, xi, 1) if len(yi) > 3 else [np.nan, np.nan]
-    cr = np.polyfit(yr, xr, 1) if len(yr) > 3 else [np.nan, np.nan]
-    x_inc_wall, x_ref = float(ci[1]), float(cr[1])
+    x_inc_wall, x_ref, beta_r, (yi, xi, yr, xr) = shock_fits(p, x, y, delta0, x_imp, p_inf, p2, p3, sh["incident"]["beta"])
     l_int = x_imp - x_ref
-    beta_r = math.degrees(math.atan(1.0 / cr[0])) if len(yr) > 3 else float("nan")
     b, ph = math.radians(sh["incident"]["beta"]), math.radians(theta_deg)
     g3 = math.sin(b - ph) / (math.sin(b) * math.sin(ph))
     l_star = l_int / (dstar0 * g3)
@@ -142,8 +176,8 @@ def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str
     pw_norm = (p_w - p_inf) / (p2 - p_inf)
     x_star = (x - x_imp) / l_int
     ref = HERE / "reference"
-    dns = np.loadtxt(ref / "sbli_m2p28_fig7a_dns.txt")
-    iusti = np.loadtxt(ref / "sbli_m2p28_fig7a_iusti.txt")
+    refs = references(sh["incident"]["p21"])
+    dns, iusti, dns_hre = refs["dns"], refs["iusti"], refs["dns_hre"]
     vol = {}
     for line in (ref / "sbli_m2p28_volpiani2018_fig12.txt").read_text().splitlines():
         if line.startswith("#") or not line.strip():
@@ -162,13 +196,15 @@ def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str
     print(f"L_int = x_imp - x_ref {l_int:.3f}: L_int / delta_0 {l_int / delta0:.2f} (Volpiani et al. {vol.get('b', float('nan')):.2f}); Souverein L* = L_int / (delta* g3) "
           f"{l_star:.3f}, g3 {g3:.3f}, Se {se:.3f}")
     for xs in (-1.0, -0.5, 0.0, 0.5, 1.0, 2.0):
-        print(f"  x* {xs:+.1f}: (p_w - p_inf) / (p_2 - p_inf) {np.interp(xs, x_star, pw_norm):.3f} (DNS {np.interp(xs, dns[:, 0], dns[:, 1]):.3f})")
+        print(f"  x* {xs:+.1f}: (p_w - p_inf) / (p_2 - p_inf) {np.interp(xs, x_star, pw_norm):.3f} (DNS {np.interp(xs, dns[:, 0], dns[:, 1]):.3f}, "
+              f"Re_theta 6882 {np.interp(xs, dns_hre[:, 0], dns_hre[:, 1]):.3f})")
     if json_out:
         out = {"x": x.tolist(), "cf": cf.tolist(), "pw_norm": pw_norm.tolist(), "x_star": x_star.tolist(), "delta": [None if not np.isfinite(v) else float(v) for v in delta],
                "H": [None if not np.isfinite(v) else float(v) for v in h_edge], "p_e": [None if not np.isfinite(v) else float(v) for v in p_e],
                "delta0": delta0, "dstar0": dstar0, "dstar0_nominal": dstar0_nom, "theta0": theta0, "re_theta": re_theta_nom, "re_theta_edge": re_theta_edge,
                "x_sep": x_sep, "x_att": x_att, "l_sep": l_sep, "x_ref": x_ref, "l_int": l_int, "x_inc_wall": x_inc_wall, "beta_r": beta_r, "l_star": l_star,
                "g3": g3, "se": se, "x_imp": x_imp, "t": [t for t, _ in cps], "volpiani": vol, "iusti": iusti.tolist(), "dns": dns.tolist(),
+               "dns_hre": dns_hre.tolist(), "exp_hre": refs["exp_hre"].tolist(),
                "shock_rows": {"yi": yi, "xi": xi, "yr": yr, "xr": xr}}
         Path(json_out).write_text(json.dumps(out))
     return 0
@@ -204,6 +240,106 @@ def means(work: Path, x_imp: float, t0: float, out: Path) -> int:
                         t_wall=float(to.ini_value(work, "wall_temperature")), semilocal=to.ini_value(work, "wall_model_damping") == "semi-local",
                         **{k: a[k][:, near] for k in ("r", "u", "w", "t", "p", "s")})
     print(f"{out}: {len(cps)} checkpoints t {cps[0][0]:.1f}-{cps[-1][0]:.1f}, {nx} x {ny} cells, delta_0 {delta0:.4f}")
+    return 0
+
+
+def fields(work: Path, x_imp: float, theta_deg: float, t0: float, out: Path) -> int:
+    """Write the full span and time averages of a run (tbl_oracle.averages, every row), delta_0 and the shocks' pressures to `out` (an npz), for
+    `compression` (run it where the checkpoints are)."""
+    cps = [(t, g) for t, g in to.checkpoints(work) if t >= t0]
+    if not cps:
+        print(f"sbli_oracle: no checkpoint at t >= {t0} in {work}")
+        return 1
+    a = to.averages(work, [g for _, g in cps])
+    lx, ly = float(to.ini_value(work, "emax_x")), float(to.ini_value(work, "emax_y"))
+    nx, ny = a["u"].shape
+    dx, dy = lx / nx, ly / ny
+    x = (np.arange(nx) + 0.5) * dx
+    y = (np.arange(ny) + 0.5) * dy
+    delta = to.edge_height(a["u"], y, dy)
+    up = (x >= x_imp - 15.0) & (x <= x_imp - 6.0) & np.isfinite(delta)
+    delta0 = float(np.polyval(np.polyfit(x[up], delta[up], 1), x_imp))
+    t_inf = float(to.ini_value(work, "reference_temperature"))
+    np.savez_compressed(out, x=x, y=y, delta=delta, delta0=delta0, x_imp=x_imp, theta=theta_deg, t_inf=t_inf, t0=cps[0][0], t1=cps[-1][0], n=len(cps),
+                        **{k: a[k] for k in a})
+    print(f"{out}: {len(cps)} checkpoints t {cps[0][0]:.1f}-{cps[-1][0]:.1f}, {nx} x {ny} cells, delta_0 {delta0:.4f}")
+    return 0
+
+
+def sonic_height(m_col: np.ndarray, y: np.ndarray) -> float:
+    """The lowest height where the mean Mach number of a column reaches 1 (linear between cells; the wall, M = 0, below the first cell)."""
+    yy, mm = np.concatenate([[0.0], y]), np.concatenate([[0.0], m_col])
+    k = np.nonzero(mm >= 1.0)[0]
+    if len(k) == 0:
+        return float("nan")
+    j = k[0]
+    return float(yy[j - 1] + (1.0 - mm[j - 1]) / (mm[j] - mm[j - 1]) * (yy[j] - yy[j - 1]))
+
+
+def compression(npzs: list[Path], json_out: str | None) -> int:
+    """Where the compression of the interaction starts and how it crosses the layer, per run (an npz of `fields`): the incoming layer's mean Mach
+    profile and sonic height against the DNS profile the inflow is made from, the wall-pressure onset, and the path of the compression through the
+    layer (the first crossing of p_inf + k (p_2 - p_inf) per row)."""
+    ref = np.loadtxt(HERE / "reference" / "tbl_m2p28_profile.txt")
+    res = {}
+    for npz in npzs:
+        d = np.load(npz)
+        x, y, delta0, x_imp = d["x"], d["y"], float(d["delta0"]), float(d["x_imp"])
+        dy = y[1] - y[0]
+        t_inf = float(d["t_inf"])
+        mach = 1.0 / math.sqrt(GAMMA * t_inf)
+        sh = shocks(mach, float(d["theta"]))
+        p_inf = 1.0 / (GAMMA * mach**2)
+        p2, p3 = p_inf * sh["incident"]["p21"], p_inf * sh["p31"]
+        p = d["p"]
+        uf = d["ru"] / d["r"]
+        mbar = uf / np.sqrt(GAMMA * d["t"])
+        _, x_ref, _, _ = shock_fits(p, x, y, delta0, x_imp, p_inf, p2, p3, sh["incident"]["beta"])
+        hre = references(sh["incident"]["p21"])["dns_hre"]
+        l_int = x_imp - x_ref
+        ys = np.array([sonic_height(mbar[i], y) for i in range(len(x))])
+        # the DNS profile: y / delta of its own station, M = U / sqrt(T) M_inf
+        m_ref = ref[:, 1] / np.sqrt(ref[:, 2]) * mach
+        ys_ref = sonic_height(m_ref[1:], ref[1:, 0])
+        up = {}
+        for k in (5.0, 10.0):
+            i = int(np.argmin(np.abs(x - (x_imp - k * delta0))))
+            up[f"x_imp-{k:g}d0"] = {"x": float(x[i]), "y_sonic_d0": ys[i] / delta0, "y_sonic_cells": ys[i] / dy, "delta_d0": float(d["delta"][i]) / delta0,
+                                    "M_cells": [float(v) for v in mbar[i, :4]], "u_cells": [float(v) for v in uf[i, :4]]}
+        pw = (p[:, 0] - p_inf) / (p2 - p_inf)
+        onset = {}
+        for lev in (0.05, 0.1, 0.5):
+            x0 = crossings(pw, x, lev, x_imp - 20.0)
+            onset[f"{lev:g}"] = {"x": x0, "upstream_d0": (x_imp - x0) / delta0, "x_star": (x0 - x_imp) / l_int,
+                                 "x_star_dns": crossings(hre[:, 1], hre[:, 0], lev, -3.0)}
+        # the path of the compression: per height, the first crossing of p_inf + k (p_2 - p_inf), searched from x_imp - 20
+        path = {}
+        for lev in (0.1, 0.5):
+            lv = p_inf + lev * (p2 - p_inf)
+            pts = []
+            for yd in (0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0):
+                j = 0 if yd == 0.0 else int(np.argmin(np.abs(y - yd * delta0)))
+                xc = crossings(p[:, j], x, lv, x_imp - 20.0)
+                pts.append({"y_d0": float(y[j]) / delta0, "x": xc, "x_star": (xc - x_imp) / l_int, "upstream_d0": (x_imp - xc) / delta0,
+                            "M_up": float(mbar[int(np.argmin(np.abs(x - (x_imp - 5.0 * delta0)))), j])})
+            path[f"{lev:g}"] = pts
+        win = (x > x_imp - 4.0 * delta0) & (x < x_imp + 2.0 * delta0)
+        res[npz.stem] = {"t": [float(d["t0"]), float(d["t1"])], "n": int(d["n"]), "delta0": delta0, "dy_d0": dy / delta0, "l_int": l_int,
+                         "l_int_d0": l_int / delta0, "upstream": up, "y_sonic_dns_delta": ys_ref, "onset": onset, "path": path,
+                         "sonic_line": {"x": x[win].tolist(), "y_d0": (ys[win] / delta0).tolist()}}
+        print(f"== {npz.stem}: t {float(d['t0']):.0f}-{float(d['t1']):.0f} ({int(d['n'])}), delta_0 {delta0:.3f}, cell {dy / delta0:.4f} delta_0, "
+              f"L_int {l_int:.3f} = {l_int / delta0:.2f} delta_0")
+        for k, v in up.items():
+            print(f"  incoming layer at {k} (x {v['x']:.1f}): sonic height {v['y_sonic_d0']:.4f} delta_0 = {v['y_sonic_cells']:.2f} cells; "
+                  f"M of cells 1-4 {', '.join(f'{m:.2f}' for m in v['M_cells'])}")
+        print(f"  DNS profile (Zhang et al. M2p5, Re_tau 510, rescaled to Mach {mach:.2f}): sonic height {ys_ref:.4f} delta")
+        for k, v in onset.items():
+            print(f"  wall pressure reaches {k} of p_2 - p_inf at x {v['x']:.2f}: {v['upstream_d0']:.2f} delta_0 upstream of x_imp, x* {v['x_star']:+.2f} "
+                  f"(DNS Re_theta 6882: {v['x_star_dns']:+.2f})")
+        for k, pts in path.items():
+            print(f"  compression path, p_inf + {k} (p_2 - p_inf): " + "; ".join(f"y {q['y_d0']:.2f}: x* {q['x_star']:+.2f}" for q in pts))
+    if json_out:
+        Path(json_out).write_text(json.dumps(res))
     return 0
 
 
@@ -351,6 +487,15 @@ def main() -> int:
     m.add_argument("--x-imp", type=float, required=True)
     m.add_argument("--t0", type=float, default=300.0)
     m.add_argument("--out", type=Path, required=True)
+    f = sub.add_parser("fields")
+    f.add_argument("work", type=Path)
+    f.add_argument("--x-imp", type=float, required=True)
+    f.add_argument("--deflection", type=float, required=True)
+    f.add_argument("--t0", type=float, default=300.0)
+    f.add_argument("--out", type=Path, required=True)
+    q = sub.add_parser("compression")
+    q.add_argument("npz", type=Path, nargs="+")
+    q.add_argument("--json")
     p = sub.add_parser("apriori")
     p.add_argument("npz", type=Path)
     p.add_argument("--hwm", type=float, default=0.0)
@@ -358,6 +503,10 @@ def main() -> int:
     a = ap.parse_args()
     if a.cmd == "means":
         return means(a.work, a.x_imp, a.t0, a.out)
+    if a.cmd == "fields":
+        return fields(a.work, a.x_imp, a.deflection, a.t0, a.out)
+    if a.cmd == "compression":
+        return compression(a.npz, a.json)
     if a.cmd == "apriori":
         return apriori(a.npz, a.hwm, a.json)
     return compare(a.work, a.x_imp, a.deflection, a.t0, a.json)

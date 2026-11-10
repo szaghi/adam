@@ -241,7 +241,7 @@ The boundaries a shock/boundary-layer interaction needs, a non-reflecting outflo
 
 [![Shock generator](/flume/shockgen.png)<strong>Shock generator</strong><span>an oblique shock through a $y$ face against Rankine–Hugoniot ($p$, $\rho$ within $3\cdot10^{-3}$, angle within $0.05^\circ$) and its regular reflection off a slip wall</span><em>physics</em>](./streams/shock-generator)
 
-[![Shock/boundary-layer interaction](/flume/sbli.png)<strong>Shock/boundary-layer interaction</strong><span>the Mach 2.28, $8^\circ$ interaction, wall-modelled, against the STREAmS DNS and the IUSTI experiment: $L_{int}/\delta_0$ 3.15 against 3.22, no mean separation</span><em>physics</em>](./streams/sbli)
+[![Shock/boundary-layer interaction](/flume/sbli.png)<strong>Shock/boundary-layer interaction</strong><span>the Mach 2.28, $8^\circ$ interaction, wall-modelled, against the STREAmS DNS and the IUSTI experiment: $L_{int}/\delta_0$ 3.15 against 3.30; the DNS's separation ($2.2\,\delta_0$) missing, the compression half an interaction length late</span><em>physics</em>](./streams/sbli)
 
 </div>
 

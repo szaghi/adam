@@ -1,3 +1,8 @@
+# CORRECTION (2026-11-10): the curves of this figure are plotted with the origin of x* at the reflected shock's apparent origin, the
+# convention of Dupont et al. 2006 (x_0 the mean position of the reflected shock), not at x_imp as the paper's text says: shifted by
+# Delta x* = -1 they fall on the high-Reynolds-number STREAmS DNS of sbli_m2p28_bernardini2022_fig4a_dns.txt (x_0 = x_imp) within
+# 0.034 p_inf rms over -1.8 <= x* <= 2.5 (best shift 1.02). The values below are as digitised; sbli_oracle.py and make_doc_figures.py
+# subtract 1 from x* (SHIFT_FIG7).
 # Bernardini, Modesti, Salvadore & Pirozzoli, STREAmS, Comput. Phys. Commun. (2021), arXiv:2004.02276, Fig. 7: the shock/turbulent
 # boundary layer interaction at Mach 2.28, flow deflection 8 deg, adiabatic wall; DNS (solid line) and the IUSTI experiment of Dupont, Haddad &
 # Debieve, J. Fluid Mech. 559 (2006) 255-277 (open triangles). Digitised from the vector paths of the arXiv PDF (mutool draw -F trace), mapped
