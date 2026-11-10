@@ -7,9 +7,11 @@
 ## Case and scope
 
 Under runtime AMR the tree never splits a family of sibling blocks across ranks: derefinement averages the children of a
-parent on one rank. `tree%mpi_redistribute` cuts the Morton-ordered blocks into equal chunks, and when a cut falls inside
-a family it moves the whole family to one side. A grid with fewer families than ranks therefore leaves ranks with no
-block: four blocks at level 1 are one family, all on rank 0 at np 2. Every code path that sizes an array by the local
+parent on one rank. `tree%mpi_redistribute` cuts the Morton-ordered blocks into one contiguous run per rank, a complete
+family being a unit no cut splits; the runs minimise the block count of the busiest rank
+([#123](https://github.com/szaghi/adam/issues/123); the earlier greedy walk accumulated its overshoots and could leave the
+last rank empty). A grid with fewer families than ranks still leaves ranks with no block: four blocks at level 1 are one
+family, all on rank 0 at np 2. Every code path that sizes an array by the local
 `blocks_number` meets a zero there. (A static grid is balanced by block count since
 [#123](https://github.com/szaghi/adam/issues/123), `[amr] balance_static`; the cases below that test the empty rank set it
 `.false.` to keep this layout, and the `split` case tests the balanced one.)
@@ -24,7 +26,8 @@ test.
 What the leg catches: any block-indexed allocation, copy or reduction that fails, or changes the result, on a rank that
 owns no block, in every model and option that allocates block-indexed state; a regrid that does not repopulate an
 empty rank; and (`split`) a time loop that changes the result when the children of one parent sit on different ranks,
-the layout the static balancing of [#123](https://github.com/szaghi/adam/issues/123) creates.
+the layout the static balancing of [#123](https://github.com/szaghi/adam/issues/123) creates. The `partition` leg runs the
+library unit test of the split itself (`tests/amr/test_tree_balance`).
 
 ## Models and numerics
 
@@ -57,6 +60,7 @@ the layout the static balancing of [#123](https://github.com/szaghi/adam/issues/
 | EGLM, `weno-riemann` + HLLD | `strat2d-mhdx --riemann hlld` |
 | EGLM, runtime AMR | `strat2d-mhdx` with runtime regrids every 5 steps to level 2: a Löhner marker on the density (`refine_tol = 0.1`, `derefine_tol = 0.02`, `buffer = 2`), acting at the regrids only, so rank 1 starts empty and the first regrid repopulates it |
 | EGLM, `split` | `strat2d-mhdx` with the static balancing on (`balance_static` at its default): the family is cut by block count, 2 / 2 at np 2, and the run keeps that layout |
+| `partition` | no run: `tests/amr/test_tree_balance` (np 1, a host program) checks `contiguous_min_max_split`, the split of the units (families of `ratio` blocks, single blocks) the runtime regrids use: the 36 units of S4c's tree (#121) give a busiest rank of 30, 18 and 10 blocks on 4, 8 and 16 ranks, the optimum keeping the families whole, no rank empty; a uniform tree 8 per rank; every split contiguous; on 2000 random unit sequences the busiest rank equals the exact minimum of a dynamic program over all contiguous splits |
 
 Asserted (`ranks_oracle.py`):
 - **ownership:** in the np 2 run every rank but 0 owns no block at step 0, so the leg cannot become vacuous if the
@@ -70,8 +74,9 @@ Asserted (`ranks_oracle.py`):
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/gravity/make_atmosphere.py` | writes the inputs |
-| `src/tests/flume/verification/ranks/check.sh` | rewrites them to one family, runs each case on 1 and $N$ ranks (`--np N`, `--legs LIST`: `repro`, `euler`, `mhd-none`, `mhd-glm`, `mhd-eglm`, `limiter`, `balanced`, `hlld`, `amr`, `split`, default all; `--keep`, `--it-save N`) |
+| `src/tests/flume/verification/ranks/check.sh` | rewrites them to one family, runs each case on 1 and $N$ ranks (`--np N`, `--legs LIST`: `repro`, `euler`, `mhd-none`, `mhd-glm`, `mhd-eglm`, `limiter`, `balanced`, `hlld`, `amr`, `split`, `partition`, default all; `--keep`, `--it-save N`) |
 | `src/tests/flume/verification/ranks/ranks_oracle.py` | `ownership` (`--empty-at-start`, `--filled-at-end`, `--split-at-start`) and `same` (bitwise) |
+| `src/tests/amr/test_tree_balance.F90` (`fobis build --mode test-tree-balance-gnu`) | the unit test of the `partition` leg |
 | `src/tests/flume/verification/make_doc_runs.sh` (group `ranks`) | the AMR case on 1 and 2 ranks, a checkpoint every step |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_ranks`) | the figure |
 
@@ -109,6 +114,7 @@ between the np 2 and np 1 states, over every field and every cell, is 0.*
 | FNL, the pre-fix executable (negative control) | must fail | 8 of 9 cases abort; Euler, which never computes the div(B) history, runs |
 | CPU | 9/9 bitwise | pass, 2.8 min |
 | FNL and CPU with the static balancing ([#123](https://github.com/szaghi/adam/issues/123), medooza: A30, gfortran 16.2) | 10/10 bitwise, ownership as asserted; `split` also at np 3 (CPU) | FNL pass, 3.3 min; CPU pass, 3.4 min; np 3 `split` 19 s |
+| FNL and CPU with the runtime split of the families ([#123](https://github.com/szaghi/adam/issues/123), medooza: A30, gfortran 16.2) | 10/10 bitwise, ownership as asserted; `partition` (CPU, a host program); `amr` and `split` also at np 3 (CPU) | FNL pass, 21 min; CPU pass, 15 min; np 3 2.6 min (wall times on a loaded `/ifs`, during large copies to it: not comparable with the row above) |
 
 Related cases: [Scaling covariance](./scaling-covariance) (the other identity leg of this group); the atmospheres are
 the [external-gravity](../gravity/atmospheres) inputs.

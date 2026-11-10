@@ -20,6 +20,9 @@
 #   split      the mhd-eglm input with the static balancing on (issue #123, [amr] balance_static, the default): the
 #              family is cut by block count, so at np N <= 4 every rank owns blocks and the children of one parent sit on
 #              different ranks through the whole run (the other cases set balance_static = .false. to keep their layout)
+#   partition  the library unit test tests/amr/test_tree_balance (a host program, np 1, any EXE): the contiguous split of the
+#              Morton-ordered units (complete sibling sets kept whole) that tree%mpi_redistribute uses at runtime regrids, on
+#              S4c's tree, a uniform tree and 2000 random ones against the exact optimum (issue #123)
 # Each case runs on 1 and on N ranks. Asserted (ranks_oracle.py):
 #   - ownership: in the np N run every rank but 0 owns no block at step 0 (else the leg would exercise nothing), and
 #     in the amr case every rank owns blocks at the end; in the split case every rank owns blocks at step 0;
@@ -42,7 +45,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 GEN="$CASE_DIR/../gravity/make_atmosphere.py"
 NP=2
 source "$VERIF_DIR/legs.sh"
-legs_declare "repro euler mhd-none mhd-glm mhd-eglm limiter balanced hlld amr split"
+legs_declare "repro euler mhd-none mhd-glm mhd-eglm limiter balanced hlld amr split partition"
 KEEP=0
 IT_SAVE=""
 
@@ -110,6 +113,16 @@ case_ini() { # case_ini <name> <ini>: write the input of a case
 TAG="$(basename "$EXE")"
 FAILED=0
 for name in $LEGS; do
+   if [[ $name == partition ]]; then
+      unit="$REPO_ROOT/exe/test_tree_balance"
+      echo ">> partition: mpirun -np 1 test_tree_balance"
+      if [[ -x $unit ]] && mpirun -np 1 "$unit" > "$CASE_DIR/partition.log" 2>&1 && grep -q "test_tree_balance: PASSED" "$CASE_DIR/partition.log"; then
+         echo "   partition: PASS" ; rm -f "$CASE_DIR/partition.log"
+      else
+         echo "   partition: FAIL (build it: fobis build --mode test-tree-balance-gnu; see $CASE_DIR/partition.log)" ; FAILED=1
+      fi
+      continue
+   fi
    for np in 1 "$NP"; do
       work="$CASE_DIR/work-$TAG-$name-np$np"
       rm -rf "$work" ; mkdir -p "$work"

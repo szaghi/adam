@@ -146,6 +146,7 @@ implicit none
 private
 public :: tree_object
 public :: tree_iterator_object
+public :: contiguous_min_max_split
 public :: NODE_LESS_REFINED
 public :: NODE_STANDARD
 public :: NODE_MORE_REFINED
@@ -1054,12 +1055,12 @@ contains
    subroutine mpi_redistribute(self, split_siblings)
    !< Redistribute nodes to processes, load balancing.
    !<
-   !< The nodes are distributed among all process exploiting the Morton ordering spatiality. Simply, the sorted list of codes are
-   !< splitted in chunk of `nodes_number/procs_number` balancing the workload. However, the algorithm checks if the splits fall
-   !< among siblings that cannot be splitted: if this scenario happens the siblings are placed in the same process for preserving
-   !< the spatiality. The algorithm is sophisticated enough to place the siblings alternatively to the *left* or *right* process
-   !< accordingly to where the split falls, namely to the *right* if the split falls in the first half of siblings or to the *left*
-   !< if it falls in the second half.
+   !< The nodes are distributed among all process exploiting the Morton ordering spatiality: the sorted list of codes is cut into
+   !< `procs_number` contiguous chunks. A complete set of sibling leaves (the `ratio` children of one parent) is a unit that the cut
+   !< never splits; the units (sets of `ratio` blocks, or single blocks) are split by `contiguous_min_max_split`, which minimises the
+   !< block count of the busiest rank and leaves no rank empty when there are at least as many units as ranks. The previous greedy
+   !< walk (a cut when the running count passed `nint(nodes/procs)`, the set moved to the left or right rank) accumulated its
+   !< overshoots: the 120 blocks of a 2:1 box on 8 ranks went 20/13/19/17/13/19/19/0, now 18 at most (issue #123).
    !<
    !< Keeping a complete sibling set on one rank is required only by derefinement (`derefine` and `field%derefine*` read the
    !< `ratio` children locally, issue #123). With `split_siblings = .true.` (a grid that will never be derefined again: the
@@ -1071,12 +1072,14 @@ contains
    integer(I8P), allocatable         :: codes_sorted(:)  !< List of (sorted) codes.
    type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
    integer(I4P)                      :: p                !< Processes counter.
-   integer(I4P)                      :: cl               !< Local child counter.
    integer(I8P)                      :: c                !< Codes counter.
    integer(I8P)                      :: block_index_new  !< New block index counter.
-   integer(I8P)                      :: my_codes_number  !< Number of codes for each process for a balanced workload.
-   integer(I4P)                      :: child_local_code !< Local numbering.
    integer(I8P)                      :: n_codes          !< Number of codes.
+   integer(I8P), allocatable         :: unit_first(:)    !< First code (index in the sorted list) of each unit.
+   integer(I8P), allocatable         :: unit_size(:)     !< Codes in each unit: ratio for a complete sibling set, else 1.
+   integer(I4P), allocatable         :: unit_part(:)     !< Rank of each unit.
+   integer(I8P)                      :: n_units          !< Number of units.
+   integer(I8P)                      :: u                !< Units counter.
 
    codes_sorted = self%codes() ! sorted list of codes
    n_codes = size(codes_sorted, dim=1, kind=I8P)
@@ -1098,70 +1101,49 @@ contains
          return
       endif
    endif
-   my_codes_number = nint(real(size(codes_sorted, dim=1),R8P) / mpih%procs_number)
-   ! initialize process rank and my codes number
-   p = 0_I4P
-   block_index_new = 0_I8P
-   ! loop over all codes
-   c = 1
-   do while(c<=size(codes_sorted, dim=1))
-      if (block_index_new > my_codes_number.and.p < mpih%procs_number-1) then ! I would like to split...
-         if (can_split()) then
-            ! I am lucky, the split does not separate siblings
-            p = p + 1_I4P
-            block_index_new = 1_I8P
-            node_ptr => self%node(code=codes_sorted(c))
-            node_ptr%myrank_new = p
-            node_ptr%block_index_new = block_index_new
-         else
-            ! I am not lucky, the split would separate siblings
-            child_local_code = self%child_local(code=codes_sorted(c))
-            if (child_local_code > self%ratio/2 -1) then
-               ! the split falls in the second half of siblings list, place all nodes in the current process
-               do cl=child_local_code, self%ratio-1
-                  block_index_new = block_index_new + 1
-                  node_ptr => self%node(code=codes_sorted(c+cl-child_local_code))
-                  node_ptr%myrank_new = p
-                  node_ptr%block_index_new = block_index_new
-               enddo
-            else
-               ! the split falls in the first half of siblings list, place all nodes in the next process
-               p = p + 1_I4P
-               block_index_new = 0_I8P
-               do cl=0, self%ratio-1
-                  block_index_new = block_index_new + 1
-                  node_ptr => self%node(code=codes_sorted(c+cl-child_local_code))
-                  node_ptr%myrank_new = p
-                  node_ptr%block_index_new = block_index_new
-               enddo
-            endif
-            ! update codes counter skipping all current siblings
-            c = c + self%ratio - 1 - child_local_code
-         endif
-      else ! no split, keeping to place nodes in the current process
-         block_index_new = block_index_new + 1
+   ! the units of the distribution: a complete set of sibling leaves (the ratio children of one parent, consecutive in the Morton
+   ! order), which derefinement reads on one rank, or a single block
+   allocate(unit_first(n_codes), unit_size(n_codes))
+   n_units = 0_I8P
+   c = 1_I8P
+   do while (c <= n_codes)
+      n_units = n_units + 1_I8P
+      unit_first(n_units) = c
+      unit_size(n_units) = 1_I8P
+      if (is_sibling_set(c)) unit_size(n_units) = int(self%ratio, I8P)
+      c = c + unit_size(n_units)
+   enddo
+   ! the contiguous split of the units minimising the largest rank's block count
+   unit_part = contiguous_min_max_split(weights=unit_size(1:n_units), parts=mpih%procs_number)
+   p = -1_I4P
+   do u=1_I8P, n_units
+      if (unit_part(u) /= p) then
+         p = unit_part(u)
+         block_index_new = 0_I8P
+      endif
+      do c=unit_first(u), unit_first(u) + unit_size(u) - 1_I8P
+         block_index_new = block_index_new + 1_I8P
          node_ptr => self%node(code=codes_sorted(c))
          node_ptr%myrank_new = p
          node_ptr%block_index_new = block_index_new
-      endif
-      c = c + 1
+      enddo
    enddo
    contains
-      function can_split()
-      !< Return true if the split can be done.
-      !<
-      !< The split is not allowed if all siblings exist and the previous code in the ordered list is one of my siblings.
-      logical                   :: can_split    !< Result of test.
-      integer(I8P), allocatable :: siblings_(:) !< List of siblings
-      integer(I4P)              :: s            !< Counter.
+      function is_sibling_set(first) result(is_set)
+      !< Return true if the ratio codes from `first` on are the complete set of children of one parent.
+      integer(I8P), intent(in) :: first  !< Index of the first code in the sorted list.
+      logical                  :: is_set !< Result of test.
+      integer(I8P)             :: k      !< Counter.
 
-      can_split = .true.
-      if (c==1_I8P) return
-      siblings_ = self%siblings(code=codes_sorted(c))
-      if (all([(self%has_code(code=siblings_(s)), s=1,self%ratio-1)])) then ! if all siblings exist
-         can_split = .not.(findloc(siblings_, codes_sorted(c-1),dim=1) > 0) ! if my predecessor is a sib the split is not allowed
-      endif
-      endfunction can_split
+      is_set = .false.
+      if (self%ratio < 2 .or. first + self%ratio - 1 > n_codes) return
+      if (codes_sorted(first) < 0_I8P) return ! the root (code -1) has no siblings
+      if (self%child_local(code=codes_sorted(first)) /= 0) return
+      do k=1_I8P, int(self%ratio, I8P) - 1_I8P
+         if (self%parent(code=codes_sorted(first+k)) /= self%parent(code=codes_sorted(first))) return
+      enddo
+      is_set = .true.
+      endfunction is_sibling_set
    endsubroutine mpi_redistribute
 
    ! Morton ordering methods
@@ -2107,4 +2089,68 @@ contains
       endif
    enddo
    endsubroutine sanitize
+   pure function contiguous_min_max_split(weights, parts) result(part)
+   !< Return the part (0 to `parts-1`) of each unit for a contiguous split of `weights` into `parts` minimising the largest part.
+   !<
+   !< The units stay in order and each part takes a contiguous run of them. The smallest capacity `cap` for which the greedy fill (a
+   !< part takes units while its load stays within `cap`) needs at most `parts` parts is found by bisection over
+   !< `[maxval(weights), sum(weights)]`; the greedy fill at that capacity is optimal for the largest part (the linear-partition
+   !< problem). The fill also closes a part as soon as the units left equal the parts left, so no part is empty when
+   !< `size(weights) >= parts` (each of the remaining parts then takes one unit, within `cap`); with fewer units than parts, each unit
+   !< has a part of its own and the last parts are empty. Example (issue #123): weights 8 x 8 + 56 x 1 in the Morton order of a 2:1
+   !< box, 8 parts: the largest part 18 blocks.
+   integer(I8P), intent(in) :: weights(:)              !< Weight (blocks) of each unit, > 0.
+   integer(I4P), intent(in) :: parts                   !< Number of parts (ranks), > 0.
+   integer(I4P)             :: part(size(weights))     !< Part of each unit.
+   integer(I8P)             :: lo, hi, cap             !< Bisection bounds and capacity.
+   integer(I8P)             :: load                    !< Load of the current part.
+   integer(I8P)             :: n                       !< Number of units.
+   integer(I8P)             :: u                       !< Units counter.
+   integer(I4P)             :: p                       !< Parts counter.
+
+   n = size(weights, dim=1, kind=I8P)
+   part = 0_I4P
+   if (n == 0_I8P .or. parts <= 1_I4P) return
+   lo = maxval(weights)
+   hi = sum(weights)
+   do while (lo < hi)
+      cap = lo + (hi - lo) / 2_I8P
+      if (parts_needed(cap) <= int(parts, I8P)) then
+         hi = cap
+      else
+         lo = cap + 1_I8P
+      endif
+   enddo
+   cap = lo
+   p = 0_I4P
+   load = 0_I8P
+   do u=1_I8P, n
+      if (load > 0_I8P .and. p < parts - 1_I4P) then
+         if (load + weights(u) > cap .or. n - u + 1_I8P <= int(parts - 1_I4P - p, I8P)) then
+            p = p + 1_I4P
+            load = 0_I8P
+         endif
+      endif
+      part(u) = p
+      load = load + weights(u)
+   enddo
+   contains
+      pure function parts_needed(capacity) result(needed)
+      !< Return the parts the greedy fill needs at a capacity.
+      integer(I8P), intent(in) :: capacity !< Capacity of a part.
+      integer(I8P)             :: needed   !< Parts needed.
+      integer(I8P)             :: load_    !< Load of the current part.
+      integer(I8P)             :: v        !< Units counter.
+
+      needed = 1_I8P
+      load_ = 0_I8P
+      do v=1_I8P, n
+         if (load_ + weights(v) > capacity) then
+            needed = needed + 1_I8P
+            load_ = 0_I8P
+         endif
+         load_ = load_ + weights(v)
+      enddo
+      endfunction parts_needed
+   endfunction contiguous_min_max_split
 endmodule adam_tree_object
