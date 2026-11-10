@@ -2937,6 +2937,94 @@ def fig_sbli_refined(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_sbli_apriori(out: Path, runs: Path) -> None:
+    """#121 S4d P0: the equilibrium wall model applied a priori to the mean samples of S4b and S4c (sbli_oracle.py apriori), without and with the
+    mean pressure gradient in its momentum balance, against the C_f of the runs' wall history. Data: <runs>/sbli/sbli-m2p28-8-apriori.json (S4b)
+    and sbli-m2p28-8-r2-apriori.json (S4c). Bottom: dp/dx of the mean wall pressure."""
+    import json  # noqa: PLC0415
+
+    fig, axs = plt.subplots(2, 2, figsize=(12.0, 6.0), sharex=True, gridspec_kw={"height_ratios": [2.2, 1.0]}, constrained_layout=True)
+    for col, (name, lab) in enumerate((("sbli-m2p28-8", r"S4b, $h = 0.208\,\delta_i$"), ("sbli-m2p28-8-r2", r"S4c, $h = 0.104\,\delta_i$ in the box"))):
+        j = json.loads((runs / "sbli" / f"{name}-apriori.json").read_text())
+        x = np.array(j["x"])
+        m = (x > 45.0) & (x < 72.0)
+        ax = axs[0, col]
+        ax.plot(x[m], 1e3 * np.array(j["cf_history"])[m], "-", color="0.3", lw=1.3, label="the run (wall history)")
+        ax.plot(x[m], 1e3 * np.array(j["cf_model"])[m], "--", color="C0", lw=1.2, label="model on the mean sample")
+        cfp = np.array(j["cf_dpdx"])
+        neg = np.nonzero((cfp < 0.0) & m)[0]
+        lsep = (x[neg[-1]] - x[neg[0]]) / j["delta0"] if len(neg) else 0.0
+        ax.plot(x[m], 1e3 * cfp[m], "-", color="C3", lw=1.3, label=rf"model with $dp/dx$: $C_f<0$ over {lsep:.2f} $\delta_0$")
+        if len(neg):
+            ax.axvspan(x[neg[0]], x[neg[-1]], color="C3", alpha=0.08, lw=0)
+        ax.axhline(0.0, color="k", lw=0.8)
+        ax.axvline(j["x_imp"], color="0.6", ls="--", lw=0.8)
+        ax.set_title(lab, fontsize=10)
+        ax.set_ylabel(r"$10^3 C_f$")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8, loc="lower right")
+        ax = axs[1, col]
+        ax.plot(x[m], np.array(j["dpdx"])[m], "-", color="C2", lw=1.1)
+        ax.axhline(0.0, color="k", lw=0.8)
+        ax.set_xlabel(r"$x/\delta_i$")
+        ax.set_ylabel(r"$dp_w/dx$")
+        ax.grid(alpha=0.3)
+    axs[0, 0].set_xlim(45.0, 72.0)
+    fig.savefig(out / "sbli-apriori.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_sbli_pg(out: Path, runs: Path) -> None:
+    """#121 S4d: S4b restarted at t = 1200 with the pressure gradient in the equilibrium wall model (wall_model_pressure_gradient, filtered over
+    T_p = 10), statistics t >= 1300, against S4b and S4c. Data: the sbli_oracle JSONs <runs>/sbli/sbli-m2p28-8.json (S4b), -r2.json (S4c),
+    -pg.json (S4d). Left: the mean wall pressure against x* with the DNS and the experiment; right: C_f against x, the reversed stretch shaded."""
+    import json  # noqa: PLC0415
+
+    runs_ = [("sbli-m2p28-8", "C0", "S4b, equilibrium model"), ("sbli-m2p28-8-r2", "C2", "S4c, 2:1 box"),
+             ("sbli-m2p28-8-pg", "C3", "S4d, with $dp/dx$")]
+    js = {name: json.loads((runs / "sbli" / f"{name}.json").read_text()) for name, _, _ in runs_}
+    fig, axs = plt.subplots(1, 2, figsize=(12.0, 4.0), constrained_layout=True)
+    ax = axs[0]
+    jb = js["sbli-m2p28-8"]
+    dns, iusti = np.array(jb["dns"]), np.array(jb["iusti"])
+    ax.plot(dns[:, 0], dns[:, 1], "k-", lw=1.0, label="DNS (STREAmS)")
+    ax.plot(iusti[:, 0], iusti[:, 1], "^", ms=4, mfc="none", color="0.35", label="IUSTI experiment")
+    for name, c, lab in runs_:
+        j = js[name]
+        ax.plot(j["x_star"], j["pw_norm"], "-", color=c, lw=1.3, label=rf"{lab}: $L_{{int}}/\delta_0$ {j['l_int'] / j['delta0']:.2f}")
+    ax.axvline(-1.0, color="0.6", ls=":", lw=0.8)
+    ax.axvline(0.0, color="0.6", ls="--", lw=0.8)
+    ax.set_xlim(-2.0, 3.0)
+    ax.set_xlabel(r"$x^* = (x - x_{imp}) / L_{int}$")
+    ax.set_ylabel(r"$(p_w - p_\infty) / (p_2 - p_\infty)$")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, loc="lower right")
+    ax = axs[1]
+    for name, c, lab in runs_:
+        j = js[name]
+        x, cf = np.array(j["x"]), np.array(j["cf"])
+        m = (x > 45.0) & (x < 75.0)
+        sep = rf"$L_{{sep}}/\delta_0$ {j['l_sep'] / j['delta0']:.2f}" if j["l_sep"] > 0.0 else "no separation"
+        ax.plot(x[m], 1e3 * cf[m], "-", color=c, lw=1.3, label=f"{lab}: {sep}")
+        if j["l_sep"] > 0.0:
+            ax.axvspan(j["x_sep"], j["x_att"], color=c, alpha=0.12, lw=0)
+    ax.axhline(0.0, color="k", lw=0.8)
+    ax.axvline(jb["x_imp"], color="0.6", ls="--", lw=0.8)
+    ax.set_xlim(45.0, 75.0)
+    ax.set_xlabel(r"$x/\delta_i$")
+    ax.set_ylabel(r"$10^3 C_f$ (the wall model's $\tau_w$)")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, loc="lower right")
+    fig.savefig(out / "sbli-pg.png", dpi=DPI)
+    plt.close(fig)
+
+
+def fig_sbli_pg_fields(out: Path, runs: Path) -> None:
+    """#121 S4d: the panels of fig_sbli_fields for S4b with the pressure gradient in the wall model (<runs>/sbli/sbli-m2p28-8-pg.json and
+    -slices.npz, the last checkpoint, t = 1450)."""
+    _sbli_fields(out, *_sbli_data(runs, "sbli-m2p28-8-pg"), "sbli-pg-fields.png")
+
+
 def fig_sbli_refined_fields(out: Path, runs: Path) -> None:
     """#121 S4c: the panels of fig_sbli_fields for the run with the 2:1 box (<runs>/sbli/sbli-m2p28-8-r2.json and -slices.npz, field_slices on the
     fine grid, the box outlined in the schlieren panel)."""
@@ -4761,7 +4849,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

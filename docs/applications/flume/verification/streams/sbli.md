@@ -150,8 +150,88 @@ outside it, the box outlined in orange in the schlieren). `make_doc_figures.py -
   at $0.06\,\delta_0$ it does not; the pressure-gradient term, which lets $\tau_w$ reverse under a strong adverse
   gradient while the matching velocity is still positive, is the next test.
 
+## The wall model with the pressure gradient
+
+The equilibrium model has its $\tau_w$ from a constant-stress layer, so it reverses only where the mean velocity at the
+matching height does. With `wall_model_pressure_gradient` ([turbulence](../../turbulence#pressure-gradient)) the layer
+carries $\tau_w+y\,dp/dx$, and an adverse gradient strong enough turns $\tau_w$ negative while the sample still moves
+downstream.
+
+### A priori, on the mean fields
+
+Before any run, the model was applied to the span and time averages of S4b and S4c: per $x$, the mean sample at the
+run's matching point and the gradient of the mean wall pressure, in a Python port of the model (`sbli_oracle.py means`
+and `apriori`; the port reproduces the Fortran solver to $10^{-14}$).
+
+| | S4b, $h=0.208\,\delta_i$ | S4c, $h=0.104\,\delta_i$ in the box |
+|---|---|---|
+| the model without $dp/dx$ on the mean sample, against the run's $C_f$ ($x=35$–$50$) | $-1.7$ % | $-2.0$ % |
+| without $dp/dx$: $C_f<0$ | nowhere (minimum $0.10\cdot10^{-3}$) | nowhere (minimum $0.03\cdot10^{-3}$) |
+| **with $dp/dx$: $C_f<0$** | $x=56.1$–$61.2$, $L_{sep}/\delta_0=2.81$ | $x=56.1$–$60.7$, $L_{sep}/\delta_0=2.54$ |
+| with $dp/dx$: $C_f$ minimum | $-1.58\cdot10^{-3}$ at $x=56.5$ | $-1.28\cdot10^{-3}$ at $x=58.9$ |
+
+![The equilibrium model with and without the pressure gradient on the mean samples](/flume/sbli-apriori.png)
+
+*Top: $C_f$ of the runs (the wall model's history), of the model on the mean sample, and of the model with the mean
+$dp/dx$, the reversed stretch shaded; bottom: the gradient of the mean wall pressure. `make_doc_figures.py --only
+sbli-apriori`.*
+
+- **The term opens a bubble on both grids,** 2.5–2.8 $\delta_0$ long, against 1.62 in the DNS of Volpiani et al.
+  (at $Re_\theta=1050$). The model without it reproduces the runs' $C_f$ to 2 %, so the port is the run's model.
+- **The term dominates there:** $(dp/dx)\,h/\tau_w$ reaches about 70 in the bubble, far from the equilibrium layer
+  the model assumes. The model keeps $dp/dx$ and drops the convective terms, which partly balance it in the wall layer:
+  it can over-respond.
+- **The mean field is the attached one.** With a bubble the pressure rise spreads and $dp/dx$ falls, so the run
+  decides.
+- **The instantaneous gradient cannot be used as it is.** On a single checkpoint of S4b upstream of the interaction
+  ($x=35$–$50$) the turbulent wall-pressure gradient has an rms of $1.1\cdot10^{-2}$ against a mean of
+  $8\cdot10^{-4}$, so $|dp/dx|\,h/\tau_w$ has a median of 1.4, and the model with it raises the mean $\tau_w$ of the
+  zero-pressure-gradient layer by 13 %. The run filters the gradient in time (`wall_model_pressure_gradient_filter`).
+
+### The run
+
+| Setup | |
+|---|---|
+| start | S4b's last state ($t=1200$), the developed layer and interaction; its block layout kept (`[amr] balance_static = .false.`) |
+| model | `wall_model_pressure_gradient = .true.`, `wall_model_pressure_gradient_filter = 10` (about $5\,\delta_0/U_\infty$, far below the period of the interaction's low-frequency motion); the rest as S4b (the 3rd cell, $h=0.208\,\delta_i$, semi-local damping, the model's eddy viscosity below $h$) |
+| run | to $t=1450$ on one node (4 A30), 0.74 s per step, S4b's cost; statistics over the 24 checkpoints of $t\ge1300$ (`sbli_oracle.py compare --t0 1300`) |
+
+![S4d against S4b and S4c: wall pressure and skin friction](/flume/sbli-pg.png)
+
+*Left: the mean wall pressure of S4b, S4c and S4d against the DNS and the experiment; right: $C_f$ from the wall
+model's $\tau_w$, the reversed stretch of S4d shaded. `make_doc_figures.py --only sbli-pg`.*
+
+| | S4d, with $dp/dx$ | S4b | S4c, 2:1 box |
+|---|---|---|---|
+| **separation: $L_{sep}/\delta_0$** | **0.60**, $C_f<0$ from $x=56.6$ to $57.7$, minimum $-1.9\cdot10^{-3}$ | 0 | 0 |
+| $L_{int}/\delta_0$ (DNS of Volpiani et al.: 3.22) | 3.12 | 3.15 | 3.04 |
+| reflected shock: angle to the wall | $28.2^\circ$ | $28.95^\circ$ | $28.6^\circ$ |
+| $(p_w-p_\infty)/(p_2-p_\infty)$ at $x^*=-0.5$ (DNS 0.00) | 0.95 | 1.12 | 0.89 |
+| $Re_\theta$ at $x_{imp}$; $\delta_0$ | 5288; 1.794 | 5247; 1.807 | 5314; 1.824 |
+| $C_f$ upstream ($x=35$–$50$) against S4b | $-1.7$ % (S4b's own windows differ by up to 1 %; the unfiltered gradient gave $+13$ % a priori) | | |
+
+![The flow of S4d](/flume/sbli-pg-fields.png)
+
+*The panels of [the flow](#the-flow) for S4d at $t=1450$. `make_doc_figures.py --only sbli-pg-fields`.*
+
+- **The mean flow separates,** for the first time in these runs: $C_f$ is negative over $0.60\,\delta_0$ at the foot
+  of the reflected shock's compression, where the filtered gradient is largest, and reattaches before the
+  impingement. The a priori test on the mean fields gave 2.5–2.8 $\delta_0$ for the same pressure field; the run's
+  is a quarter of that, the gradient being filtered and the pressure rise unchanged.
+- **The bubble is short and in the wrong place.** Volpiani et al. have 1.62 $\delta_0$ at $Re_\theta=1050$ (the
+  separation shrinks with the Reynolds number, so not the same number), around the impingement; here it sits
+  $3\,\delta_i$ ahead of it.
+- **The interaction does not change.** The wall pressure still rises from $x^*\approx-0.7$, where the DNS is flat, and
+  $L_{int}$ is S4b's: the model's stress reverses, but the resolved flow above the matching height, which sets the
+  pressure, does not.
+- **What remains.** The model keeps $dp/dx$ and drops the convective terms (the known inconsistency): a
+  non-equilibrium layer (the thin-boundary-layer equations with convection, or an integral model) is the next test of
+  the wall model. The early compression is the other open item; neither the near-wall grid (S4c) nor the
+  pressure-gradient term moved it.
+
 ## Not done
 
-- The separation: a wall model with the pressure gradient (the finer wall grid of S4c does not open the mean bubble), and a matching height fixed in $\delta_i$ across the levels.
+- A separation of the right length and place: the pressure-gradient term opens a short bubble ahead of the impingement; a non-equilibrium wall model (convection), and a matching height fixed in $\delta_i$ across the levels.
+- The early wall-pressure rise ($x^*\approx-0.7$ against the DNS's $-0.3$), unchanged by the near-wall grid and by the pressure-gradient term.
 - The wall-pressure fluctuations and the low-frequency unsteadiness.
 - The recycling–rescaling inflow (S5).
