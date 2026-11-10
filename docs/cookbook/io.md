@@ -153,7 +153,9 @@ emax_z = 0.0013
 ```
 
 **What you get.** `<output_basename>-slice_01-<it:9>.mat` every `n_save` steps and at the last step: one file for
-all ranks, written with MPI-IO. The format (`save_slice`, `src/lib/common/adam_adam_object.F90`):
+all ranks, written with MPI-IO: each rank packs the points it owns and writes them in one collective call through a file
+view ([#124](https://github.com/szaghi/adam/issues/124); one write per point was ~30 times slower on an NFS working
+directory). The format (`save_slice`, `src/lib/common/adam_adam_object.F90`):
 - a header of four 32-bit integers, `ni, nj, nk, nc`, with `nc` the columns per point;
 - then, for every point with `i` fastest, `nc = 3 + nv` 64-bit reals: `x, y, z` and the state variables (`save_slice` can
   also write the level set `phi`, but no caller passes it).

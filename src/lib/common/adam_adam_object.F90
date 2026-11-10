@@ -596,6 +596,12 @@ contains
    subroutine save_slice(self, itype, points, basename, q, q_name, phi, t, time, length_scale, q_scale)
    !< Save slice. `length_scale` multiplies the written points and distance function, `q_scale` the written interpolated
    !< variables (output units of an application, e.g. FLUME `[reference] output_units`); the interpolation is unchanged.
+   !<
+   !< The file is a 16-byte header (`nijkv`, 4 default integers) followed by one record `[point(3), qp(nv), phi?]` per
+   !< slice point, in point order. Each rank packs the records of the points it owns and writes them with ONE collective
+   !< `MPI_FILE_WRITE_ALL` through a file view selecting their record slots (issue #124: one independent write per field
+   !< and point cost ~400 s for 0.6 MB on NFS). Collective by construction: every rank opens, truncates and writes,
+   !< ranks owning no point with a zero count.
    class(adam_object), intent(inout)        :: self                  !< ADAM.
    character(*),       intent(in)           :: itype                 !< Type of interpolation.
    real(R8P),          intent(in)           :: points(1:,1:,1:,1:)   !< Interpolation points coordinates [1:3,1:ni,1:nj,1:nk].
@@ -619,11 +625,16 @@ contains
    real(R8P)                                :: qp(1:size(q,dim=1))   !< Q variables interpolated at given point.
    real(R8P)                                :: point(3)              !< Written point coordinates.
    real(R8P)                                :: phi_p                 !< Written distance function.
+   real(R8P),    allocatable                :: records(:,:)          !< Owned records [nijkv(4),records_number], packed.
+   integer(I4P), allocatable                :: record_index(:)       !< Owned records 0-based slots [records_number].
+   integer(I4P)                             :: records_number        !< Number of owned records.
    logical                                  :: is_mine               !< Flag to check if point interpolation belongs to myrank.
    integer(I4P)                             :: nijkv(4)              !< Points grid dimensions.
    integer(I4P)                             :: i, j, k, v, p         !< Counter.
    integer(I4P)                             :: MPI_IO_FILE_unit      !< Unit file.
-   integer(MPI_OFFSET_KIND)                 :: offset, offset_head   !< MPI record offset.
+   integer(I4P)                             :: record_type           !< MPI type of one record, nijkv(4) MPI_REAL8.
+   integer(I4P)                             :: file_type             !< MPI file type selecting the owned record slots.
+   integer(MPI_OFFSET_KIND)                 :: offset_head           !< MPI header offset (bytes).
    integer(I4P)                             :: ijkc(3,8)             !< IJK indexes of cells containing interpolation point.
    integer(I8P)                             :: code                  !< Morton code of block containing interpolation point.
    integer(I4P)                             :: ijk                   !< IJK counter (linearized).
@@ -644,46 +655,74 @@ contains
    nijkv(3) = size(points, dim=4)
    nijkv(4) = 3 + size(q, dim=1) + p
 
-   call MPI_FILE_OPEN(MPI_COMM_WORLD, trim(adjustl(basename))//'.mat', &
-                      MPI_MODE_CREATE+MPI_MODE_WRONLY, MPI_INFO_NULL, MPI_IO_FILE_unit, mpih%error)
-   offset_head = 0
-   ! truncate (collective): MPI_MODE_CREATE keeps an existing file, whose tail would outlive a shorter rewrite
-   call MPI_FILE_SET_SIZE(MPI_IO_FILE_unit, offset_head, mpih%error)
-   if (mpih%myrank==0) then
-      ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, error)
-      call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, mpih%error)
-   endif
-   offset_head = offset_head + 4 * 4
+   ! pack the owned records, in point order (the slots must be increasing for the file view)
+   allocate(records(nijkv(4), max(1, nijkv(1)*nijkv(2)*nijkv(3) / mpih%procs_number)))
+   allocate(record_index(size(records, dim=2)))
+   records_number = 0
    ijk = 0
    do k=lbound(points, dim=4), ubound(points, dim=4)
       do j=lbound(points, dim=3), ubound(points, dim=3)
          do i=lbound(points, dim=2), ubound(points, dim=2)
             call self%interpolate_at_point(itype=itype, point=points(:,i,j,k), q=q, qp=qp, is_mine=is_mine, ijk=ijkc, code=code)
             if (is_mine) then
-               offset = offset_head + ijk * 8 * (3 + size(q, dim=1) + p)
-               ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, points(:,i,j,k), 3, MPI_REAL8, MPI_STATUS_IGNORE, error)
+               if (records_number == size(record_index)) call grow_records
+               records_number = records_number + 1
+               record_index(records_number) = ijk
                point = points(:,i,j,k)
                if (present(length_scale)) point = point * length_scale
                if (present(q_scale)) qp = qp * q_scale
-               call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, point, 3, MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
-               offset = offset + 8 * 3
-               ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, error)
-               call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
+               records(1:3,records_number) = point
+               records(4:3+size(q, dim=1),records_number) = qp
                if (present(phi)) then
                   node => self%tree%node(code=code)
-                  offset = offset + 8 * size(q, dim=1)
-                  ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1)), 1, &
-                  !                            MPI_REAL8, MPI_STATUS_IGNORE, error)
                   phi_p = phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1))
                   if (present(length_scale)) phi_p = phi_p * length_scale
-                  call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset, phi_p, 1, MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
+                  records(nijkv(4),records_number) = phi_p
                endif
             endif
             ijk = ijk + 1
          enddo
       enddo
    enddo
+
+   call MPI_FILE_OPEN(MPI_COMM_WORLD, trim(adjustl(basename))//'.mat', &
+                      MPI_MODE_CREATE+MPI_MODE_WRONLY, MPI_INFO_NULL, MPI_IO_FILE_unit, mpih%error)
+   offset_head = 0
+   ! truncate (collective): MPI_MODE_CREATE keeps an existing file, whose tail would outlive a shorter rewrite
+   call MPI_FILE_SET_SIZE(MPI_IO_FILE_unit, offset_head, mpih%error)
+   if (mpih%myrank==0) then
+      ! default view (byte etype, displacement 0): the offset is in bytes
+      call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, mpih%error)
+   endif
+   offset_head = offset_head + 4 * 4
+   ! the view starts after the header; its file type selects the owned record slots (a rank owning no point keeps a
+   ! plain MPI_REAL8 file type and writes a zero count, the collective call is still made)
+   if (records_number > 0) then
+      call MPI_TYPE_CONTIGUOUS(nijkv(4), MPI_REAL8, record_type, mpih%error)
+      call MPI_TYPE_CREATE_INDEXED_BLOCK(records_number, 1, record_index(1:records_number), record_type, file_type, &
+                                         mpih%error)
+      call MPI_TYPE_COMMIT(file_type, mpih%error)
+      call MPI_TYPE_FREE(record_type, mpih%error)
+   else
+      file_type = MPI_REAL8
+   endif
+   call MPI_FILE_SET_VIEW(MPI_IO_FILE_unit, offset_head, MPI_REAL8, file_type, 'native', MPI_INFO_NULL, mpih%error)
+   call MPI_FILE_WRITE_ALL(MPI_IO_FILE_unit, records, records_number * nijkv(4), MPI_REAL8, MPI_STATUS_IGNORE, mpih%error)
    call MPI_FILE_CLOSE(MPI_IO_FILE_unit, mpih%error)
+   if (records_number > 0) call MPI_TYPE_FREE(file_type, mpih%error)
+   contains
+      subroutine grow_records
+      !< Double the capacity of the owned records buffers.
+      real(R8P),    allocatable :: records_(:,:)     !< Records, grown.
+      integer(I4P), allocatable :: record_index_(:)  !< Record slots, grown.
+
+      allocate(records_(size(records, dim=1), 2 * size(records, dim=2)))
+      records_(:,1:records_number) = records(:,1:records_number)
+      call move_alloc(from=records_, to=records)
+      allocate(record_index_(2 * size(record_index)))
+      record_index_(1:records_number) = record_index(1:records_number)
+      call move_alloc(from=record_index_, to=record_index)
+      endsubroutine grow_records
    endsubroutine save_slice
 
    subroutine save_vtk(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
