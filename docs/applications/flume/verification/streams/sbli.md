@@ -2,7 +2,7 @@
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
-| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4d | P | none (the pressure-gradient key: wm12) | FNL | yes |
+| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4e | P | none (the pressure-gradient key: wm12) | FNL | yes |
 
 ## Case and scope
 
@@ -273,15 +273,90 @@ $L_{int}$ here is from the time-mean field (`fields`, `compression`), 0.01 above
 - **What is missing is the separation.** In the DNS a bubble of $2.2\,\delta_0$ starting at $x^*\approx-0.8$ lifts
   the flow and carries the compression to $x^*\approx-1.2$. The equilibrium model opens none (S4b, S4c) or a quarter of
   it (S4d), and the late compression follows. Halving the near-wall cells (S4c) leaves the onset where it was. The pressure-gradient term moved the onset by $0.06\,L_{int}$
-  *downstream*.
+  *downstream*. S4e qualifies this bullet and the first: without the model's eddy viscosity below $h$ the near-wall
+  layer slows and the onset moves $1.2\,\delta_0$ upstream with no bubble
+  ([below](#without-the-eddy-viscosity-below-the-matching-height)).
 - **For the next wall model,** non-equilibrium: the target is the DNS's bubble ($x^*\approx-0.8$ to $-0.15$) and its
   wall pressure, half-way at $x^*\approx-1.1$. The run's wall pressure is printed by `sbli_oracle.py compare` (at fixed
   $x^*$, against both DNS) and `compression` (where it reaches 5, 10 and 50 %); the oracle reports the run's $L_{sep}$,
   the DNS's is quoted from Bernardini et al. (2022).
 
+## Wall models for this interaction in the literature
+
+Before a new wall model, what the literature says about wall-modelled LES of separating interactions, and the test it
+suggests on these runs.
+
+| Source | Case | Finding |
+|---|---|---|
+| Hickel, Touber, Bodart & Larsson (2012, CTR Summer Program) | this interaction (IUSTI, $8^\circ$), a priori on the wall-resolved LES of Touber & Sandham (2009); an adverse-pressure-gradient layer | Above the viscous layer the convective term balances the pressure gradient (Bernoulli), so a model that keeps $dp/dx$ and drops convection, as here, is inconsistent: on the adverse-gradient layer it separates much too early, and the model of Duprat et al. (2011), whose velocity scale S4d uses, over-predicts the wall shear of the interaction. Convection parametrised as $-\frac{1}{\rho}\frac{dp}{dx}\min(y/y_{pg},1)$, $y_{pg}=4\,(\mu_w^2/(\rho_w\lvert dp/dx\rvert))^{1/3}$, gives a skin friction close to the reference |
+| Larsson, Kawai, Bodart & Bermejo-Moreno (2016, Mech. Eng. Rev. 3) | review | Equilibrium models can be accurate in these interactions "provided that the outer part of the boundary layer is well resolved" (a duct interaction near incipient separation; a ramp at $Re_\theta\approx50\,000$, where the equilibrium model fell within the experimental uncertainty as the non-equilibrium one did): no conclusive demonstration that a non-equilibrium model is better yet. Outer-layer grid: $\Delta x\approx0.08\,\delta$, $\Delta z\approx0.05\,\delta$, $\Delta y$ from $0.02\,\delta$ at $y=0.2\,\delta$ to $0.05\,\delta$ at $\delta$ |
+| Fu, Karp, Bose, Moin & Urzay (2021, JFM) | Mach 6, laminar inflow, transitional interaction | The equilibrium-model LES delays the separation and advances the reattachment: a shorter bubble than the DNS's (the symptom here, in a different regime) |
+
+**Against these runs.** S4b's grid ($0.046\,\delta_0$, cubic) is finer than the guideline in $x$, equal in $z$ and 2.3
+times coarser in $y$ at $0.2\,\delta$; S4c's box ($0.023\,\delta_0$) meets it everywhere, and does not separate either.
+The Bernoulli-consistent model a priori on the mean fields (`sbli_oracle.py apriori --ypg 4`, the port of the
+pressure-gradient model with $y$ replaced by $g(y)=y-y^2/(2y_{pg})$ below $y_{pg}$ and $y_{pg}/2$ above):
+
+| | model, no $dp/dx$ | with $dp/dx$ (S4d's model) | Bernoulli-consistent, $y^*_{pg}=4$ | DNS, $Re_\theta=6882$ |
+|---|---|---|---|---|
+| S4b: $L_{sep}/\delta_0$ | 0 | 2.81 | 1.01 ($x=57.8$–$59.6$) | 2.16 |
+| S4c: $L_{sep}/\delta_0$ | 0 | 2.54 | 1.53 ($x=57.4$–$60.2$) | |
+
+- **The a priori numbers bound the model, not the run.** S4d's run kept a quarter of its a priori bubble (0.60 against
+  2.81), and its strongly negative $\tau_w$ left the interaction where it was: the resolved flow above the matching
+  height decides. A Bernoulli-consistent model alone is unlikely to reach $2.2\,\delta_0$.
+- **The suspect is the resolved near-wall flow.** The first cell runs at $M\approx0.95$–$0.98$ against the DNS profile's
+  0.85 at that height ([above](#where-the-compression-starts)): extra momentum at the wall that the adverse gradient has
+  to stop. The model's eddy viscosity below the matching height (`wall_model_eddy_viscosity`) shapes that layer, so
+  S4e takes it out.
+
+### Without the eddy viscosity below the matching height
+
+| Setup | |
+|---|---|
+| start | S4b's last state ($t=1200$); its block layout kept (`[amr] balance_static = .false.`) |
+| model | S4b's without `wall_model_eddy_viscosity` (the cells below $h$ get the SGS model's viscosity only); no $dp/dx$ |
+| run | to $t=1450$ on one node (4 A30), 3 h 24 min; statistics over the 23 checkpoints of $t\ge1300$ (`sbli_oracle.py compare --t0 1300`, `fields`, `compression`); the input is S4b's line of `tbl_cases_s4.txt` without `--wm-eddy-viscosity`, with `--restart --time-max 1450` (no case file: a one-off restart) |
+
+![S4e against S4b and S4d](/flume/sbli-nonu.png)
+
+*Left: the mean wall pressure of S4b, S4d and S4e against the DNS and the experiment; middle: $C_f$ from the wall
+model's $\tau_w$, the reversed stretch of S4d shaded; right: the mean Mach number of the incoming layer at
+$x_{imp}-5\,\delta_0$ against the DNS profile the inflow is made from. `make_doc_figures.py --only sbli-nonu`.*
+
+| | S4e, no eddy viscosity below $h$ | S4b | DNS, $Re_\theta=6882$ |
+|---|---|---|---|
+| $L_{int}/\delta_0$ | **3.51** | 3.16 | 3.30 |
+| wall pressure at 5 % of $p_2-p_\infty$: distance ahead of $x_{imp}$ | $3.55\,\delta_0$ | $2.34\,\delta_0$ | $4.13\,\delta_0$ ($x^*=-1.25$) |
+| the same at 50 % | $2.64\,\delta_0$ | $1.96\,\delta_0$ | $3.60\,\delta_0$ ($x^*=-1.09$) |
+| separation: $L_{sep}/\delta_0$ | **0**, $C_f$ minimum $0.27\cdot10^{-3}$ at $x=58.5$ | 0, minimum $0.21\cdot10^{-3}$ at $x=58.6$ | 2.16 |
+| incoming layer at $x_{imp}-5\,\delta_0$: first-cell Mach number | 0.75 (DNS profile 0.82 there) | 0.98 (DNS profile 0.83) | |
+| the same: second and third cells | 1.08, 1.30 (DNS 1.23, 1.37) | 1.13, 1.26 (DNS 1.24, 1.37) | |
+| the same: sonic height | $0.061\,\delta$ | $0.030\,\delta$ | $0.036\,\delta$ |
+| incoming layer: $\delta_0$, $\delta^*$, $Re_\theta$ | 1.85, 0.572, 5463 | 1.81, 0.531, 5271 | |
+| $C_f$ at $x=35$–$45$ | $+4.8$ % on S4b | | |
+
+- **The eddy viscosity moves the onset, not the separation.** Without it the first cell slows from $M=0.98$ to 0.75,
+  the sonic line rises from $0.030$ to $0.061\,\delta$, and the compression starts $1.2\,\delta_0$ earlier: about
+  two thirds of the way to the DNS at 5 % of the rise, 40 % of the way at 50 %. $L_{int}$ overshoots the DNS by 6 %
+  (S4b undershoots by 4 %). The mean flow still does not separate, and the minimum of $C_f$ stays near S4b's. The
+  pressure-gradient term (S4d) did the opposite: a bubble, the onset moved by $0.06\,L_{int}$ downstream.
+- **The incoming layer is not the DNS's either way.** S4b's first cell is too fast and its next two too slow; S4e's first
+  three are all too slow, and the sonic height goes from 15 % below the DNS's to 70 % above. $\delta^*$ grows by 8 % and
+  $C_f$ upstream by 5 %: S4e changes the layer that meets the shock, so it is a diagnostic, not a candidate setting.
+  The run stayed stable for its 250 time units (the eddy viscosity was introduced against the first-cell drain of the
+  Mach 3 channel, [turbulence](../../turbulence)); longer runs were not made.
+- **The mean is short.** 150 time units against S4b's 890; the interim mean over $t=1301$–$1363$ gave
+  $L_{int}/\delta_0=3.52$, the full one 3.51.
+- **What it points to.** The two features have different levers: the onset answers to the momentum of the resolved
+  near-wall layer, the separation to the sign of $\tau_w$. A Bernoulli-consistent model changes $\tau_w$ only (a
+  priori $1.0$–$1.5\,\delta_0$, above), so it is expected to open a bubble without moving the onset, as S4d did; the
+  onset needs an incoming near-wall layer closer to the DNS profile, which is the matching between the model and the
+  resolved cells, not the model's momentum balance.
+
 ## Not done
 
 - A separation of the right length and place: the pressure-gradient term opens a short bubble ahead of the impingement; a non-equilibrium wall model (convection), and a matching height fixed in $\delta_i$ across the levels.
-- The late compression ($x^*\approx-0.6$ half-way against the DNS's $-1.1$), unchanged by the near-wall grid and by the pressure-gradient term: the missing separation, above.
+- The late compression ($x^*\approx-0.6$ half-way against the DNS's $-1.1$), unchanged by the near-wall grid and by the pressure-gradient term; moved 40 % of the way by taking out the eddy viscosity below $h$ (S4e), which also moves the incoming layer off the DNS's: the matching between the model and the resolved near-wall cells.
 - The wall-pressure fluctuations and the low-frequency unsteadiness.
 - The recycling–rescaling inflow (S5).

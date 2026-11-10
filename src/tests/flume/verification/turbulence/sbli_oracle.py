@@ -359,12 +359,15 @@ def _log_mean_inverse(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 WM_POINTS, WM_ITERATIONS, WM_STRETCH, WM_KAPPA, WM_APLUS, WM_PRT = 40, 16, 1.3, 0.41, 17.0, 0.9
 
 
-def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0) -> tuple[np.ndarray, np.ndarray]:
+def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
     """tau_w and q_w of the equilibrium model, vectorised over the samples. `px` None: wall_model_solve operation for operation (16 plain
     fixed-point iterations; before #121 S4d 8 with an Aitken step on log tau every second one, which stopped a few samples far from the fixed point). `px` given: the momentum balance with the pressure gradient, `U(h) = tau I0 + px I1`, I0 = int dy / (mu + mu_t), I1 = int y dy /
     (mu + mu_t), solved for tau by a fixed point (tau can be negative; unrelaxed: 16 iterations, the Fortran count, are within 7e-5 of
     |tau| + |px| h over a sweep of the samples, 200 the default here), mu_t on the velocity scale sqrt((|tau| + |px| y) / rho) (with
-    px = 0 the same model), the energy flux `cp k dT/dy + tau(y) U` constant across the layer."""
+    px = 0 the same model), the energy flux `cp k dT/dy + tau(y) U` constant across the layer.
+    `ypg` > 0 (with `px`): the Bernoulli-consistent variant of Hickel, Touber, Bodart & Larsson (CTR Summer Program 2012, eq. 4.1): the
+    convective term cancels the pressure gradient above y_pg = ypg (mu_w^2 / (rho_w |px|))^(1/3) and fades linearly below, so y is replaced
+    by g(y) = y - y^2 / (2 y_pg) below y_pg and y_pg / 2 above, in the stress tau + px g(y), in I1 and in the velocity scale."""
     r, cp, pr, mu0, tref, suth, om, sl = (gas[k] for k in ("R", "cp", "pr", "mu0", "tref", "suth", "omega", "semilocal"))
     h, us, ts, ps = (np.asarray(v, dtype=float)[:, None] for v in (h, us, ts, ps))
     dy0 = h * (WM_STRETCH - 1.0) / (WM_STRETCH**WM_POINTS - 1.0)
@@ -380,10 +383,14 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0) -> tu
     tau = np.where(hp > 11.0, rhow * (hp * muw / (h * rhow)) ** 2, tau)
     dyy = np.diff(y, axis=1)
     p = 0.0 if px is None else np.asarray(px, dtype=float)[:, None]
+    g = y
+    if px is not None and ypg > 0.0:
+        y_pg = ypg * np.cbrt(muw * muw / (rhow * np.maximum(np.abs(p), 1e-300)))
+        g = np.where(y < y_pg, y - y * y / (2.0 * y_pg), 0.5 * y_pg)
     for _ in range((iterations or (WM_ITERATIONS if px is None else 200))):
         mu = mu0 * _law(t, tref, suth, om)
         rho = ps / (r * t)
-        ts_ = np.abs(tau) + np.abs(p) * y
+        ts_ = np.abs(tau) + np.abs(p) * g
         damp = 1.0 - np.exp(-y * np.sqrt(rho * ts_) / (mu * WM_APLUS)) if sl else 1.0 - np.exp(-y * np.sqrt(ts_ / rhow) * rhow / (muw * WM_APLUS))
         mt = WM_KAPPA * y * np.sqrt(rho * ts_) * damp * damp
         a = mu / pr + mt / WM_PRT
@@ -394,11 +401,11 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0) -> tu
             u = i0 * tnew
             stress = tnew
         else:
-            yt = y / mt
+            yt = g / mt
             i1 = np.concatenate([np.zeros_like(h), np.cumsum(0.5 * dyy * (yt[:, :-1] + yt[:, 1:]), axis=1)], axis=1)
             tnew = (us - p * i1[:, -1:]) / i0[:, -1:]
             u = tnew * i0 + p * i1
-            stress = tnew + p * y
+            stress = tnew + p * g
         da = dyy * _log_mean_inverse(a[:, :-1], a[:, 1:])
         i2 = np.cumsum(da, axis=1)
         su = stress * u
@@ -425,7 +432,7 @@ def _sample(col: np.ndarray, rep: np.ndarray, dy: float, hwm: float) -> tuple[np
     return val, hh
 
 
-def apriori(npz: Path, hwm: float, json_out: str | None) -> int:
+def apriori(npz: Path, hwm: float, json_out: str | None, ypg: float = 4.0) -> int:
     """Apply the equilibrium wall model, with and without the mean pressure gradient, to the mean field of a run (see the module docstring)."""
     d = np.load(npz)
     x, dy, cf_log, delta0, x_imp = d["x"], float(d["dy"]), d["cf"], float(d["delta0"]), float(d["x_imp"])
@@ -448,6 +455,7 @@ def apriori(npz: Path, hwm: float, json_out: str | None) -> int:
     cf0s = 2.0 * wall_model(h, ss, ts, ps, tw, gas)[0]
     cfp = 2.0 * wall_model(h, us, ts, ps, tw, gas, px=px)[0]
     cfp_c = 2.0 * wall_model(h, us, ts, ps, tw, gas, px=px, iterations=400)[0]
+    cfb = 2.0 * wall_model(h, us, ts, ps, tw, gas, px=px, ypg=ypg)[0]
     print(f"== {npz.name}: {int(d['n'])} checkpoints t {float(d['t0']):.1f}-{float(d['t1']):.1f}; delta_0 {delta0:.3f}; sample "
           f"{'3rd cell' if hwm == 0 else f'hwm {hwm:g}'}, h {h.min():.4f}-{h.max():.4f}")
     print(f"fixed point with dp/dx: max |C_f(200) - C_f(400)| {np.max(np.abs(cfp - cfp_c)):.2e}")
@@ -456,19 +464,19 @@ def apriori(npz: Path, hwm: float, json_out: str | None) -> int:
           f"({100 * (cf0[zpg].mean() / cf_log[zpg].mean() - 1):+.1f} %), on mean |u_par| {cf0s[zpg].mean():.4e} "
           f"({100 * (cf0s[zpg].mean() / cf_log[zpg].mean() - 1):+.1f} %), with dp/dx {cfp[zpg].mean():.4e}")
     win = (x >= x_imp - 10.0 * delta0) & (x <= x_imp + 5.0 * delta0)
-    for name, c in (("history", cf_log), ("model", cf0), ("model + dp/dx", cfp)):
+    for name, c in (("history", cf_log), ("model", cf0), ("model + dp/dx", cfp), (f"Bernoulli y*_pg {ypg:g}", cfb)):
         j = np.argmin(np.where(win, c, np.inf))
         neg = np.nonzero((c < 0.0) & win)[0]
         sep = (f"C_f < 0 from x {x[neg[0]]:.2f} to {x[neg[-1]]:.2f}, L_sep / delta_0 {(x[neg[-1]] - x[neg[0]]) / delta0:.2f}, {len(neg)} columns"
                if len(neg) else "no C_f < 0")
-        print(f"  {name:14s}: C_f min {c[j]:.3e} at x {x[j]:.2f}; {sep}")
-    print("     x    dp/dx    C_f hist   model    +dp/dx")
+        print(f"  {name:20s}: C_f min {c[j]:.3e} at x {x[j]:.2f}; {sep}")
+    print("     x    dp/dx    C_f hist   model    +dp/dx     Bernoulli")
     for xs in np.arange(x_imp - 8.0, x_imp + 6.5, 1.0):
         j = int(np.argmin(np.abs(x - xs)))
-        print(f"  {x[j]:6.2f} {px[j]:+.2e} {cf_log[j]:+.3e} {cf0[j]:+.3e} {cfp[j]:+.3e}")
+        print(f"  {x[j]:6.2f} {px[j]:+.2e} {cf_log[j]:+.3e} {cf0[j]:+.3e} {cfp[j]:+.3e} {cfb[j]:+.3e}")
     if json_out:
         Path(json_out).write_text(json.dumps({"x": x.tolist(), "cf_history": cf_log.tolist(), "cf_model": cf0.tolist(), "cf_model_speed": cf0s.tolist(),
-                                              "cf_dpdx": cfp.tolist(), "dpdx": px.tolist(), "h": h.tolist(), "delta0": delta0, "x_imp": x_imp, "hwm": hwm}))
+                                              "cf_dpdx": cfp.tolist(), "cf_bernoulli": cfb.tolist(), "ypg": ypg, "dpdx": px.tolist(), "h": h.tolist(), "delta0": delta0, "x_imp": x_imp, "hwm": hwm}))
     return 0
 
 
@@ -499,6 +507,7 @@ def main() -> int:
     p = sub.add_parser("apriori")
     p.add_argument("npz", type=Path)
     p.add_argument("--hwm", type=float, default=0.0)
+    p.add_argument("--ypg", type=float, default=4.0, help="y*_pg of the Bernoulli-consistent model (Hickel et al. 2012)")
     p.add_argument("--json")
     a = ap.parse_args()
     if a.cmd == "means":
@@ -508,7 +517,7 @@ def main() -> int:
     if a.cmd == "compression":
         return compression(a.npz, a.json)
     if a.cmd == "apriori":
-        return apriori(a.npz, a.hwm, a.json)
+        return apriori(a.npz, a.hwm, a.json, a.ypg)
     return compare(a.work, a.x_imp, a.deflection, a.t0, a.json)
 
 
