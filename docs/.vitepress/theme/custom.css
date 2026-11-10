@@ -88,11 +88,18 @@
 
 /* ---------- Figures (not identity tokens) ----------
    The verification figures are drawn on the washi ground (docs/scripts/theme_figures.py); on silver ink they are shown
-   as washi cards, the way a printed plate sits on a dark table, rather than as white rectangles. */
+   as washi cards, the way a printed plate sits on a dark table, rather than as white rectangles. A figure with a
+   silver-ink twin (<name>-dark.png, docs/scripts/figure_theme.py) shows the twin instead, swapped in by index.ts
+   (class adam-dark-twin): drawn on the page ground, it needs no card. */
 .dark .vp-doc img[src$=".png"] {
   background: #f3ede1;
   border-radius: 6px;
   padding: 6px;
+}
+.dark .vp-doc img.adam-dark-twin {
+  background: none;
+  border-radius: 0;
+  padding: 0;
 }
 
 /* ---------- Layout (not identity): landing galleries ----------
@@ -155,6 +162,10 @@
   border-radius: 0;
   padding: 6px;
 }
+.dark .vp-doc .adam-gallery img.adam-dark-twin {
+  background: #0e1116;   /* the silver-ink twin's ground (figure_theme.py) */
+  padding: 6px;
+}
 .vp-doc .adam-gallery strong { padding: 8px 12px 0; font-size: 14px; }
 .vp-doc .adam-gallery span { padding: 2px 12px 10px; }
 
@@ -165,6 +176,7 @@
 }
 .vp-doc .adam-catalog { gap: 12px; }
 .vp-doc .adam-catalog img { aspect-ratio: 16 / 10; padding: 4px; }
+.dark .vp-doc .adam-catalog img.adam-dark-twin { padding: 4px; }
 .vp-doc .adam-catalog strong { padding-top: 8px; line-height: 1.35; }
 .vp-doc .adam-catalog span { flex: 1; }
 .vp-doc .adam-catalog em {

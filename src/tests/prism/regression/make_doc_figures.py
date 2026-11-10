@@ -10,8 +10,10 @@ Figures:
                     difference of the two trees, and their divergence histories.
 
 Usage:
-    make_doc_figures.py --out DIR [--only NAME ...]
+    make_doc_figures.py --out DIR [--only NAME ...] [--theme {light,dark,both}]
 
+`--theme dark` writes the silver-ink twin `<name>-dark.png` of every figure instead (docs/scripts/figure_theme.py; the
+docs show it in the dark theme), `--theme both` the two; the default, light, is the figure as before.
 Needs numpy, h5py and matplotlib.
 """
 
@@ -29,6 +31,9 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import LogNorm  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "docs" / "scripts"))
+from figure_theme import THEMES, theme, themes  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DPI = 110
@@ -168,18 +173,27 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path, required=True, help="output directory of the PNG files")
     ap.add_argument("--only", nargs="*", default=None, help="figures to draw (default: all)")
+    ap.add_argument(
+        "--theme",
+        choices=THEMES,
+        default="light",
+        help="light: <name>.png; dark: <name>-dark.png on silver ink; both (default: light)",
+    )
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     status = 0
     for name, fn in FIGURES.items():
         if a.only and name not in a.only:
             continue
-        try:
-            fn(a.out)
-            print(f"{name}: done")
-        except (FileNotFoundError, StopIteration, KeyError) as err:
-            print(f"{name}: skipped ({err!r})")
-            status = 1
+        for t in themes(a.theme):
+            try:
+                with theme(t):
+                    fn(a.out)
+                print(f"{name}: done" + ("" if t == "light" else f" ({t})"))
+            except (FileNotFoundError, StopIteration, KeyError) as err:
+                print(f"{name}: skipped ({err!r})")
+                status = 1
+                break
     return status
 
 

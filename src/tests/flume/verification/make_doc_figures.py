@@ -7,13 +7,15 @@ the exact or reference solution of the corresponding oracle where one exists, so
 change of the solver and compared with the published one.
 
 Usage:
-    make_doc_figures.py --out DIR [--runs DIR] [--only NAME ...]
+    make_doc_figures.py --out DIR [--runs DIR] [--only NAME ...] [--theme {light,dark,both}]
 
 `--runs` holds the re-runs of inputs whose work directories keep no checkpoint, one sub-directory per case, all written
 by `make_doc_runs.sh` (its groups: the MHD gallery, the limited blasts, the Euler near-vacuum problems, the linear-wave
 ladders, the rotated shock tube, the quadtree, the runtime regrids, the multi-realm unions, the gravity and
 self-gravity cases).
-A figure whose data is missing is skipped with a message. Needs numpy, h5py and matplotlib.
+A figure whose data is missing is skipped with a message. `--theme dark` writes the silver-ink twin `<name>-dark.png`
+of every figure instead (docs/scripts/figure_theme.py; the docs show it in the dark theme), `--theme both` the two;
+the default, light, is the washi figure. Needs numpy, h5py and matplotlib.
 """
 
 from __future__ import annotations
@@ -36,6 +38,9 @@ mpl.rcParams["figure.facecolor"] = "#f3ede1"
 mpl.rcParams["savefig.facecolor"] = "#f3ede1"
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Circle, Rectangle  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "docs" / "scripts"))
+from figure_theme import THEMES, theme, themes  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 RF = HERE / "riemann-flux"
@@ -4873,18 +4878,27 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True, help="output directory of the PNG files")
     ap.add_argument("--runs", type=Path, default=HERE, help="directory of the re-run MHD cases")
     ap.add_argument("--only", nargs="*", default=None, help="figures to draw (default: all)")
+    ap.add_argument(
+        "--theme",
+        choices=THEMES,
+        default="light",
+        help="light: <name>.png on washi; dark: <name>-dark.png on silver ink; both (default: light)",
+    )
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     status = 0
     for name, fn in FIGURES.items():
         if a.only and name not in a.only:
             continue
-        try:
-            fn(a.out, a.runs)
-            print(f"{name}: done")
-        except (FileNotFoundError, StopIteration, KeyError) as err:
-            print(f"{name}: skipped ({err!r})")
-            status = 1
+        for t in themes(a.theme):
+            try:
+                with theme(t):
+                    fn(a.out, a.runs)
+                print(f"{name}: done" + ("" if t == "light" else f" ({t})"))
+            except (FileNotFoundError, StopIteration, KeyError) as err:
+                print(f"{name}: skipped ({err!r})")
+                status = 1
+                break
     return status
 
 
