@@ -143,7 +143,8 @@ def checkpoints(work: Path) -> list[tuple[float, str]]:
 
 
 def averages(work: Path, tags: list[str]) -> dict[str, np.ndarray]:
-    """Span and time averages on the (x, y) cell grid: r, ru, u, v, w, T and the second moments uu, vv, ww, uv (Reynolds). On a grid with
+    """Span and time averages on the (x, y) cell grid: r, ru, u, v, w, T, p, the wall-parallel speed s = sqrt(u^2 + w^2) (the speed a wall model
+    samples) and the second moments uu, vv, ww, uv (Reynolds). On a grid with
     refined blocks the grid is the finest one: a coarser block's cells are repeated over the finer cells they cover (piecewise constant)."""
     import h5py
 
@@ -156,7 +157,7 @@ def averages(work: Path, tags: list[str]) -> dict[str, np.ndarray]:
                 d_min = d if d_min is None else np.minimum(d_min, d)
     nx = int(round(float(ini_value(work, "emax_x")) / d_min[2]))  # origin and spacing are (z, y, x)
     ny = int(round(float(ini_value(work, "emax_y")) / d_min[1]))
-    acc = {k: np.zeros((nx, ny)) for k in ("r", "ru", "u", "v", "w", "t", "uu", "vv", "ww", "uv")}
+    acc = {k: np.zeros((nx, ny)) for k in ("r", "ru", "u", "v", "w", "t", "p", "s", "uu", "vv", "ww", "uv")}
     count = np.zeros((nx, ny))
     for f5 in files:
         with h5py.File(f5, "r") as h:
@@ -170,7 +171,8 @@ def averages(work: Path, tags: list[str]) -> dict[str, np.ndarray]:
                 i0 = int(round((o[2] + NGC * d[2]) / d_min[2]))
                 j0 = int(round((o[1] + NGC * d[1]) / d_min[1]))
                 sl = (slice(i0, i0 + r.shape[2] * rx), slice(j0, j0 + r.shape[1] * ry))
-                for k, a in (("r", r), ("ru", ru), ("u", u), ("v", v), ("w", w), ("t", t), ("uu", u * u), ("vv", v * v), ("ww", w * w), ("uv", u * v)):
+                for k, a in (("r", r), ("ru", ru), ("u", u), ("v", v), ("w", w), ("t", t), ("p", r * t), ("s", np.sqrt(u * u + w * w)), ("uu", u * u),
+                             ("vv", v * v), ("ww", w * w), ("uv", u * v)):
                     acc[k][sl] += np.repeat(np.repeat(a.mean(axis=0).T, rx, axis=0), ry, axis=1)
                 count[sl] += 1.0
     return {k: a / count for k, a in acc.items()}

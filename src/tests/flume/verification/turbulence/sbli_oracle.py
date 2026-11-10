@@ -16,6 +16,15 @@ and the wall history over the same window:
 - the Souverein scaling L* = L_int / (delta* g3), g3 = sin(beta - phi) / (sin beta sin phi), and the separation criterion Se = k1 (p_3 - p_1) / q_inf
   with k1 = 3 (low Reynolds number, Volpiani et al. 2018).
 Recorded, not judged: the comparison with the digitised references (reference/sbli_m2p28_*) is printed next to each value.
+
+`means <work> --x-imp X [--t0 T0] --out <npz>`: the span and time averages near the wall (tbl_oracle.averages, the first 12 rows of the finest grid),
+the C_f of the wall-model history, delta_0 and the run's gas and viscosity law, in one file for `apriori` (run it where the checkpoints are).
+`apriori <npz> [--hwm H] [--json out]`: the equilibrium wall model of the run (a port of `wall_model_solve`, adam_flume_wall_model_library.F90) applied
+to the mean field at the run's sample (the 3rd cell of the local grid, or the height H between cells as `sample_cells` takes it) per x, with and without
+the mean streamwise pressure gradient in the momentum balance, `(mu + mu_t) dU/dy = tau_w + (dp/dx) y`, the eddy viscosity on the velocity scale
+`sqrt((|tau_w| + |dp/dx| y) / rho)` (S4d, issue #121): C_f against the history's (the history averages tau of the instantaneous samples, the model
+here takes the mean sample), and the C_f < 0 region the pressure gradient opens, if any. A priori: what a run with the term would start from, not
+what it would converge to.
 """
 
 from __future__ import annotations
@@ -165,6 +174,180 @@ def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str
     return 0
 
 
+def means(work: Path, x_imp: float, t0: float, out: Path) -> int:
+    """Write the near-wall span and time averages of a run, its wall-model C_f, delta_0 and its gas and viscosity law to `out` (an npz)."""
+    cps = [(t, g) for t, g in to.checkpoints(work) if t >= t0]
+    if not cps:
+        print(f"sbli_oracle: no checkpoint at t >= {t0} in {work}")
+        return 1
+    a = to.averages(work, [g for _, g in cps])
+    lx, ly = float(to.ini_value(work, "emax_x")), float(to.ini_value(work, "emax_y"))
+    nx, ny = a["u"].shape
+    dx, dy = lx / nx, ly / ny
+    x = (np.arange(nx) + 0.5) * dx
+    y = (np.arange(ny) + 0.5) * dy
+    delta = to.edge_height(a["u"], y, dy)
+    up = (x >= x_imp - 15.0) & (x <= x_imp - 6.0) & np.isfinite(delta)
+    delta0 = float(np.polyval(np.polyfit(x[up], delta[up], 1), x_imp))
+    w = to.wall_rows(work / "tbl-wall_y_min_history.dat")
+    w = w[w[:, 1] >= t0]
+    nb = (w.shape[1] - 2) // 2
+    cf = 2.0 * np.interp(x, (np.arange(nb) + 0.5) * lx / nb, w[:, 2 : 2 + nb].mean(axis=0))
+    t_inf = float(to.ini_value(work, "reference_temperature"))
+    try:
+        suth = float(to.ini_value(work, "sutherland_temperature"))
+    except (KeyError, ValueError):
+        suth = 0.0
+    near = slice(0, 12)
+    np.savez_compressed(out, x=x, dy=dy, cf=cf, delta0=delta0, x_imp=x_imp, t0=cps[0][0], t1=cps[-1][0], n=len(cps), t_inf=t_inf, suth=suth,
+                        reynolds=float(to.ini_value(work, "reynolds")), prandtl=float(to.ini_value(work, "prandtl")),
+                        t_wall=float(to.ini_value(work, "wall_temperature")), semilocal=to.ini_value(work, "wall_model_damping") == "semi-local",
+                        **{k: a[k][:, near] for k in ("r", "u", "w", "t", "p", "s")})
+    print(f"{out}: {len(cps)} checkpoints t {cps[0][0]:.1f}-{cps[-1][0]:.1f}, {nx} x {ny} cells, delta_0 {delta0:.4f}")
+    return 0
+
+
+def _law(t: np.ndarray, tref: float, suth: float, omega: float) -> np.ndarray:
+    """temperature_law of adam_flume_dissipation_library."""
+    r = (t / tref) ** omega
+    return r * (tref + suth) / (t + suth) if suth > 0.0 and omega > 0.0 else r
+
+
+def _log_mean_inverse(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """The mean of 1 / c over an interval where c is linear between a and b (log_mean_inverse)."""
+    x = (b - a) / (b + a)
+    small = np.abs(x) < 1.0e-3
+    return np.where(small, 2.0 / (a + b) * (1.0 + x * x / 3.0), np.log(b / a) / np.where(small, 1.0, b - a))
+
+
+WM_POINTS, WM_ITERATIONS, WM_STRETCH, WM_KAPPA, WM_APLUS, WM_PRT = 40, 8, 1.3, 0.41, 17.0, 0.9
+
+
+def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """tau_w and q_w of the equilibrium model, vectorised over the samples. `px` None: wall_model_solve operation for operation (8 iterations, Aitken
+    on log tau). `px` given: the momentum balance with the pressure gradient, `U(h) = tau I0 + px I1`, I0 = int dy / (mu + mu_t), I1 = int y dy /
+    (mu + mu_t), solved for tau by a fixed point (tau can be negative; unrelaxed: 12 iterations are within 7e-4 of
+    |tau| + |px| h over a sweep of the samples, 200 the default here), mu_t on the velocity scale sqrt((|tau| + |px| y) / rho) (with
+    px = 0 the same model), the energy flux `cp k dT/dy + tau(y) U` constant across the layer."""
+    r, cp, pr, mu0, tref, suth, om, sl = (gas[k] for k in ("R", "cp", "pr", "mu0", "tref", "suth", "omega", "semilocal"))
+    h, us, ts, ps = (np.asarray(v, dtype=float)[:, None] for v in (h, us, ts, ps))
+    dy0 = h * (WM_STRETCH - 1.0) / (WM_STRETCH**WM_POINTS - 1.0)
+    y = np.concatenate([np.zeros_like(h), np.cumsum(dy0 * WM_STRETCH ** np.arange(WM_POINTS)[None, :], axis=1)], axis=1)
+    t = tw + (ts - tw) * y / h
+    rhow = ps / (r * tw)
+    muw = mu0 * _law(np.asarray(tw), tref, suth, om)
+    tau = muw * us / h
+    hp = h * np.sqrt(tau / rhow) * rhow / muw
+    for _ in range(3):
+        hp = np.maximum(hp, 1.5)
+        hp = (us / (np.log(hp) / WM_KAPPA + 5.0)) * h * rhow / muw
+    tau = np.where(hp > 11.0, rhow * (hp * muw / (h * rhow)) ** 2, tau)
+    dyy = np.diff(y, axis=1)
+    x0 = x1 = np.log(tau)
+    p = 0.0 if px is None else np.asarray(px, dtype=float)[:, None]
+    for it in range(1, (iterations or (WM_ITERATIONS if px is None else 200)) + 1):
+        mu = mu0 * _law(t, tref, suth, om)
+        rho = ps / (r * t)
+        ts_ = np.abs(tau) + np.abs(p) * y
+        damp = 1.0 - np.exp(-y * np.sqrt(rho * ts_) / (mu * WM_APLUS)) if sl else 1.0 - np.exp(-y * np.sqrt(ts_ / rhow) * rhow / (muw * WM_APLUS))
+        mt = WM_KAPPA * y * np.sqrt(rho * ts_) * damp * damp
+        a = mu / pr + mt / WM_PRT
+        mt = mu + mt
+        i0 = np.concatenate([np.zeros_like(h), np.cumsum(dyy * _log_mean_inverse(mt[:, :-1], mt[:, 1:]), axis=1)], axis=1)
+        if px is None:
+            tnew = us / i0[:, -1:]
+            u = i0 * tnew
+            stress = tnew
+        else:
+            yt = y / mt
+            i1 = np.concatenate([np.zeros_like(h), np.cumsum(0.5 * dyy * (yt[:, :-1] + yt[:, 1:]), axis=1)], axis=1)
+            tnew = (us - p * i1[:, -1:]) / i0[:, -1:]
+            u = tnew * i0 + p * i1
+            stress = tnew + p * y
+        da = dyy * _log_mean_inverse(a[:, :-1], a[:, 1:])
+        i2 = np.cumsum(da, axis=1)
+        su = stress * u
+        i3 = np.cumsum(0.5 * da * (su[:, :-1] + su[:, 1:]), axis=1)
+        q = (cp * (ts - tw) + i3[:, -1:]) / i2[:, -1:]
+        t[:, 1:] = np.maximum(0.5 * t[:, 1:] + 0.5 * (tw + (q * i2 - i3) / cp), 0.1 * np.minimum(tw, ts))
+        if px is None:
+            x2 = np.log(tnew)
+            if it % 2 == 0:
+                den = x2 - 2.0 * x1 + x0
+                ok = np.abs(den) > 1.0e-12
+                x2 = np.where(ok, np.clip(x0 - (x1 - x0) ** 2 / np.where(ok, den, 1.0), x1 - 1.0, x1 + 1.0), x2)
+            x0, x1 = x1, x2
+            if it % 2 == 0:
+                x0 = x2
+            tau = np.exp(x2)
+        else:
+            tau = tnew
+    return tau[:, 0], q[:, 0]
+
+
+def _sample(col: np.ndarray, rep: np.ndarray, dy: float, hwm: float) -> tuple[np.ndarray, np.ndarray]:
+    """The sample of `col` [x, rows of the finest grid] as sample_cells takes it on each column's own grid (`rep` finest rows per cell): the 3rd cell
+    (hwm 0) or the height hwm between cells m and m + 1; return the values and the heights."""
+    val, hh = np.empty(col.shape[0]), np.empty(col.shape[0])
+    for i in range(col.shape[0]):
+        cells, d = col[i, :: rep[i]], dy * rep[i]
+        if hwm > 0.0:
+            s = max(hwm / d + 0.5, 1.0)
+            m, wgt = int(s), s - int(s)
+            val[i] = cells[m - 1] + wgt * (cells[m] - cells[m - 1])
+            hh[i] = (m + wgt - 0.5) * d
+        else:
+            val[i], hh[i] = cells[2], 2.5 * d
+    return val, hh
+
+
+def apriori(npz: Path, hwm: float, json_out: str | None) -> int:
+    """Apply the equilibrium wall model, with and without the mean pressure gradient, to the mean field of a run (see the module docstring)."""
+    d = np.load(npz)
+    x, dy, cf_log, delta0, x_imp = d["x"], float(d["dy"]), d["cf"], float(d["delta0"]), float(d["x_imp"])
+    gas = {"R": 1.0, "cp": GAMMA / (GAMMA - 1.0), "pr": float(d["prandtl"]), "mu0": 1.0 / float(d["reynolds"]), "tref": float(d["t_inf"]),
+           "suth": float(d["suth"]), "omega": 1.5 if float(d["suth"]) > 0.0 else 0.0, "semilocal": bool(d["semilocal"])}
+    # a column of a coarser block repeats each value over the finest rows it covers (tbl_oracle.averages): two equal first rows
+    rep = np.where(d["u"][:, 0] == d["u"][:, 1], 2, 1)
+    us, h = _sample(d["u"], rep, dy, hwm)
+    ss, _ = _sample(d["s"], rep, dy, hwm)
+    ps, _ = _sample(d["p"], rep, dy, hwm)
+    ts = ps / _sample(d["r"], rep, dy, hwm)[0]
+    tw = float(d["t_wall"])
+    # dp/dx of the mean wall pressure (first cell), central over one cell of each column's own grid
+    pw = d["p"][:, 0]
+    k = rep
+    i = np.arange(len(x))
+    lo, hi = np.clip(i - k, 0, len(x) - 1), np.clip(i + k, 0, len(x) - 1)
+    px = (pw[hi] - pw[lo]) / (x[hi] - x[lo])
+    cf0 = 2.0 * wall_model(h, us, ts, ps, tw, gas)[0]
+    cf0s = 2.0 * wall_model(h, ss, ts, ps, tw, gas)[0]
+    cfp = 2.0 * wall_model(h, us, ts, ps, tw, gas, px=px)[0]
+    cfp_c = 2.0 * wall_model(h, us, ts, ps, tw, gas, px=px, iterations=400)[0]
+    print(f"== {npz.name}: {int(d['n'])} checkpoints t {float(d['t0']):.1f}-{float(d['t1']):.1f}; delta_0 {delta0:.3f}; sample "
+          f"{'3rd cell' if hwm == 0 else f'hwm {hwm:g}'}, h {h.min():.4f}-{h.max():.4f}")
+    print(f"fixed point with dp/dx: max |C_f(200) - C_f(400)| {np.max(np.abs(cfp - cfp_c)):.2e}")
+    zpg = (x >= x_imp - 25.0) & (x <= x_imp - 10.0)
+    print(f"zero-pressure-gradient window x [{x_imp - 25:g}, {x_imp - 10:g}]: C_f history {cf_log[zpg].mean():.4e}, model on mean u {cf0[zpg].mean():.4e} "
+          f"({100 * (cf0[zpg].mean() / cf_log[zpg].mean() - 1):+.1f} %), on mean |u_par| {cf0s[zpg].mean():.4e} "
+          f"({100 * (cf0s[zpg].mean() / cf_log[zpg].mean() - 1):+.1f} %), with dp/dx {cfp[zpg].mean():.4e}")
+    win = (x >= x_imp - 10.0 * delta0) & (x <= x_imp + 5.0 * delta0)
+    for name, c in (("history", cf_log), ("model", cf0), ("model + dp/dx", cfp)):
+        j = np.argmin(np.where(win, c, np.inf))
+        neg = np.nonzero((c < 0.0) & win)[0]
+        sep = (f"C_f < 0 from x {x[neg[0]]:.2f} to {x[neg[-1]]:.2f}, L_sep / delta_0 {(x[neg[-1]] - x[neg[0]]) / delta0:.2f}, {len(neg)} columns"
+               if len(neg) else "no C_f < 0")
+        print(f"  {name:14s}: C_f min {c[j]:.3e} at x {x[j]:.2f}; {sep}")
+    print("     x    dp/dx    C_f hist   model    +dp/dx")
+    for xs in np.arange(x_imp - 8.0, x_imp + 6.5, 1.0):
+        j = int(np.argmin(np.abs(x - xs)))
+        print(f"  {x[j]:6.2f} {px[j]:+.2e} {cf_log[j]:+.3e} {cf0[j]:+.3e} {cfp[j]:+.3e}")
+    if json_out:
+        Path(json_out).write_text(json.dumps({"x": x.tolist(), "cf_history": cf_log.tolist(), "cf_model": cf0.tolist(), "cf_model_speed": cf0s.tolist(),
+                                              "cf_dpdx": cfp.tolist(), "dpdx": px.tolist(), "h": h.tolist(), "delta0": delta0, "x_imp": x_imp, "hwm": hwm}))
+    return 0
+
+
 def main() -> int:
     """Dispatch the subcommand."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -175,7 +358,20 @@ def main() -> int:
     c.add_argument("--deflection", type=float, required=True)
     c.add_argument("--t0", type=float, default=300.0)
     c.add_argument("--json")
+    m = sub.add_parser("means")
+    m.add_argument("work", type=Path)
+    m.add_argument("--x-imp", type=float, required=True)
+    m.add_argument("--t0", type=float, default=300.0)
+    m.add_argument("--out", type=Path, required=True)
+    p = sub.add_parser("apriori")
+    p.add_argument("npz", type=Path)
+    p.add_argument("--hwm", type=float, default=0.0)
+    p.add_argument("--json")
     a = ap.parse_args()
+    if a.cmd == "means":
+        return means(a.work, a.x_imp, a.t0, a.out)
+    if a.cmd == "apriori":
+        return apriori(a.npz, a.hwm, a.json)
     return compare(a.work, a.x_imp, a.deflection, a.t0, a.json)
 
 
