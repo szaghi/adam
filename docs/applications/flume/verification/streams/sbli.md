@@ -2,7 +2,7 @@
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
-| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4e | P | none (the pressure-gradient key: wm12) | FNL | yes |
+| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4g | P | none (the pressure-gradient key: wm12) | FNL | yes |
 
 ## Case and scope
 
@@ -402,9 +402,53 @@ viscosities; the resolved part $-\bar\rho\,(\overline{uv}-\bar u\bar v)$):
   DNS's onset comes with its bubble, and the separation is what the runs lack (S4d opened a quarter of it,
   [above](#the-wall-model-with-the-pressure-gradient)).
 
+## The pressure gradient without the convection, with it, and without the eddy viscosity
+
+Two more restarts of S4b at $t=1200$, run to $t=1450$, statistics over $t\ge1300$ (`sbli_oracle.py compare --t0 1300`,
+`fields`, `compression`), as S4d and S4e:
+
+| Setup | S4g | S4f |
+|---|---|---|
+| model | S4d's (`wall_model_pressure_gradient`, filter 10) with `wall_model_pressure_gradient_ypg = 4`: the Bernoulli-consistent variant ([turbulence](../../turbulence#bernoulli-consistent-variant)) | S4d's, without `wall_model_eddy_viscosity` |
+| question | does the consistent model keep a bubble? (a priori $1.0\,\delta_0$ against S4d's 2.8) | does S4d's bubble grow when the near-wall flow is slower (S4e's layer)? |
+| run | one node (4 A30), 0.97 s per step (S4d 0.92, S4e 0.68), 24 checkpoints | one node (4 A30), 3 h 52 min, 22 checkpoints |
+
+![The pressure-gradient runs against S4b and S4e](/flume/sbli-pg-runs.png)
+
+*Left: the mean wall pressure of S4b, S4e, S4d, S4g and S4f against the DNS and the experiment; right: $C_f$ from the
+wall model's $\tau_w$, the reversed stretches shaded. The legend's $L_{int}$ is `compare`'s, 0.01 below the table's.
+`make_doc_figures.py --only sbli-pg-runs`.*
+
+| | S4b | S4e, no $\nu_t$ below $h$ | S4d, $dp/dx$ | S4g, Bernoulli-consistent | S4f, $dp/dx$, no $\nu_t$ below $h$ | DNS, $Re_\theta=6882$ |
+|---|---|---|---|---|---|---|
+| $L_{int}/\delta_0$ (the time-mean field) | 3.16 | 3.51 | 3.13 | 3.24 | 3.37 | 3.30 |
+| $L_{sep}/\delta_0$ | 0 | 0 | 0.60 | **0** | 0.14 ($x=58.4$–58.6) | 2.16 |
+| $C_f$ minimum ($10^{-3}$) | 0.21 | 0.27 | $-1.87$ | 0.15 | $-0.02$ | |
+| 5 % of the rise, ahead of $x_{imp}$ | $2.34\,\delta_0$ | $3.55\,\delta_0$ | $2.12\,\delta_0$ | $2.44\,\delta_0$ | $3.07\,\delta_0$ | $4.13\,\delta_0$ |
+| 50 % of the rise | $1.96\,\delta_0$ | $2.64\,\delta_0$ | $1.77\,\delta_0$ | $2.04\,\delta_0$ | $2.42\,\delta_0$ | $3.60\,\delta_0$ |
+| first-cell Mach number at $x_{imp}-5\,\delta_0$ | 0.98 | 0.75 | 0.94 | 0.95 | 0.70 | 0.83 |
+
+- **The consistent model does not separate.** With convection balancing the pressure gradient above $y_{pg}$ (a few
+  viscous lengths of the gradient, far below $h$), $\tau_w$ stays positive: S4g's $C_f$ dips to $0.15\cdot10^{-3}$, S4b's
+  0.21, and its interaction is S4b's (onset within $0.1\,\delta_0$, $L_{int}$ within 0.08). S4d's bubble was the
+  pressure gradient acting over the whole layer, the inconsistency Hickel et al. (2012) point out; a priori the
+  consistent model kept $1.0\,\delta_0$ of it, the run none.
+- **A slower near-wall flow does not grow S4d's bubble.** Without the eddy viscosity (S4f) the first cell slows to
+  $M=0.70$, as in S4e, and the bubble shrinks from 0.60 to $0.14\,\delta_0$ and moves $0.7\,\delta_0$ downstream, toward the
+  impingement ($x=58.4$–58.6 against S4d's 56.6–57.7); its $C_f$ also dips to $0.15\cdot10^{-3}$ at $x\approx55.4$, where
+  its compression starts, without reversing; the onset moves upstream as in S4e, by a little less ($3.07\,\delta_0$ against 3.55 at
+  5 %). The two levers do not add: each moves its own feature, and together they move both less.
+- **What none of the five runs does.** The DNS separates over $2.16\,\delta_0$ from $x^*\approx-0.8$; the runs open at
+  most $0.6\,\delta_0$ and only with the inconsistent model. The sample sits at $h\approx0.12\,\delta$ and $y_{pg}$
+  about ten times lower ($\approx0.02\,\delta_i$ under the interaction's gradient); where the reversed layer is thinner
+  than $h$ the sample still moves downstream, and an equilibrium-type model, which takes $\tau_w$ from that sample and a
+  consistently balanced gradient, cannot see the reversal. (The DNS's bubble height is not measured here.) The convection the reversal needs is the flow's own, which a model fed with the resolved
+  field (the integral model of Yang et al. 2015, the thin-boundary-layer equations with convection) carries and these
+  do not.
+
 ## Not done
 
-- A separation of the right length and place: the pressure-gradient term opens a short bubble ahead of the impingement; a non-equilibrium wall model (convection), and a matching height fixed in $\delta_i$ across the levels.
+- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). Left: a model fed with the flow's own convection (integral, thin-boundary-layer equations), and a matching height fixed in $\delta_i$ across the levels.
 - The late compression ($x^*\approx-0.6$ half-way against the DNS's $-1.1$), unchanged by the near-wall grid and by the pressure-gradient term; moved 40 % of the way by taking out the eddy viscosity below $h$ (S4e), which also moves the incoming layer off the DNS's: the matching between the model and the resolved near-wall cells.
 - The wall-pressure fluctuations and the low-frequency unsteadiness.
 - The recycling–rescaling inflow (S5).

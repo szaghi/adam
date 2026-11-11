@@ -46,10 +46,12 @@ The toolchain is [#121](https://github.com/szaghi/adam/issues/121), which contin
 | S4c | S4b with a 2:1 box under the interaction | campaign (t 550, done) | [Shock/boundary-layer interaction](./sbli#a-refined-wall-grid-under-the-interaction) |
 | S4d | The equilibrium wall model with the pressure gradient (`wall_model_pressure_gradient`, `wall_model_pressure_gradient_filter`) | wm12 (turbulence), `test_wall_model` (wm2); a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-wall-model-with-the-pressure-gradient) |
 | S4e | S4b without the wall model's eddy viscosity below the matching height: the near-wall layer moves the onset, not the separation | a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#without-the-eddy-viscosity-below-the-matching-height) |
+| S4f | S4d without the eddy viscosity below the matching height: the bubble shrinks, the onset moves | a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity) |
+| S4g | The Bernoulli-consistent pressure gradient (`wall_model_pressure_gradient_ypg`): no separation | wm2 (`test_wall_model`); a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity) |
 | S5 | Recycling–rescaling turbulent inflow | — | not started |
 
 | Page | Phases | Legs | Type |
 |---|---|---|---|
 | [Non-reflecting boundary](./non-reflecting) | S2 | nr1–nr4 | P |
 | [Shock generator](./shock-generator) | S3, S4a | sg1–sg4 (boundary) | P |
-| [Shock/boundary-layer interaction](./sbli) | S4b, S4c, S4d, S4e | campaign | P |
+| [Shock/boundary-layer interaction](./sbli) | S4b–S4g | campaign | P |

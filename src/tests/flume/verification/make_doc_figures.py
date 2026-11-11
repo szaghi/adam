@@ -3152,6 +3152,49 @@ def fig_sbli_pg(out: Path, runs: Path) -> None:
 
 
 
+
+def fig_sbli_pg_runs(out: Path, runs: Path) -> None:
+    """#121 P1: the pressure-gradient runs restarted from S4b at t = 1200, statistics t >= 1300: S4d (dp/dx), S4g (dp/dx, Bernoulli-consistent,
+    y*_pg 4), S4f (dp/dx without the eddy viscosity below h), with S4b and S4e (no eddy viscosity, no dp/dx). Data: the sbli_oracle compare JSONs
+    <runs>/sbli/sbli-m2p28-8{,-pg,-pgb,-pgnu,-nonu}.json. Left: the mean wall pressure against x* with the DNS and the experiment; right: C_f against x,
+    the reversed stretches shaded."""
+    import json  # noqa: PLC0415
+
+    runs_ = [("sbli-m2p28-8", "C0", "S4b"), ("sbli-m2p28-8-nonu", "C1", r"S4e, no $\nu_t$ below $h$"), ("sbli-m2p28-8-pg", "C3", "S4d, $dp/dx$"),
+             ("sbli-m2p28-8-pgb", "C4", "S4g, $dp/dx$ Bernoulli-consistent"), ("sbli-m2p28-8-pgnu", "C2", r"S4f, $dp/dx$, no $\nu_t$ below $h$")]
+    js = {name: json.loads((runs / "sbli" / f"{name}.json").read_text()) for name, _, _ in runs_}
+    fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.4), constrained_layout=True)
+    ax = axs[0]
+    _sbli_refs(ax)
+    for name, c, lab in runs_:
+        j = js[name]
+        ax.plot(j["x_star"], j["pw_norm"], "-", color=c, lw=1.3, label=rf"{lab}: $L_{{int}}/\delta_0$ {j['l_int'] / j['delta0']:.2f}")
+    ax.axvline(-1.0, color="0.6", ls=":", lw=0.8)
+    ax.axvline(0.0, color="0.6", ls="--", lw=0.8)
+    ax.set_xlim(-2.0, 3.0)
+    ax.set_xlabel(r"$x^* = (x - x_{imp}) / L_{int}$")
+    ax.set_ylabel(r"$(p_w - p_\infty) / (p_2 - p_\infty)$")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7, loc="lower right")
+    ax = axs[1]
+    for name, c, lab in runs_:
+        j = js[name]
+        x, cf = np.array(j["x"]), np.array(j["cf"])
+        m = (x > 45.0) & (x < 75.0)
+        sep = rf"$L_{{sep}}/\delta_0$ {j['l_sep'] / j['delta0']:.2f}" if j["l_sep"] > 0.0 else "no separation"
+        ax.plot(x[m], 1e3 * cf[m], "-", color=c, lw=1.3, label=f"{lab}: {sep}")
+        if j["l_sep"] > 0.0:
+            ax.axvspan(j["x_sep"], j["x_att"], color=c, alpha=0.12, lw=0)
+    ax.axhline(0.0, color="k", lw=0.8)
+    ax.axvline(js["sbli-m2p28-8"]["x_imp"], color="0.6", ls="--", lw=0.8)
+    ax.set_xlim(45.0, 75.0)
+    ax.set_xlabel(r"$x/\delta_i$")
+    ax.set_ylabel(r"$10^3 C_f$ (the wall model's $\tau_w$)")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7, loc="lower right")
+    fig.savefig(out / "sbli-pg-runs.png", dpi=DPI)
+    plt.close(fig)
+
 def fig_sbli_cells(out: Path, runs: Path) -> None:
     """#121 P1: the near-wall cells of the incoming layer at x_imp - 5 delta_0 against the DNS profile the inflow is made from
     (reference/tbl_m2p28_profile.txt), from the span and time averages of sbli_oracle.py fields (<runs>/sbli/<case>-fields.npz; S4c's on the
@@ -5015,7 +5058,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,
