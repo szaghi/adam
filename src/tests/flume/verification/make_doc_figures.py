@@ -3151,6 +3151,40 @@ def fig_sbli_pg(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+
+def fig_sbli_cells(out: Path, runs: Path) -> None:
+    """#121 P1: the near-wall cells of the incoming layer at x_imp - 5 delta_0 against the DNS profile the inflow is made from
+    (reference/tbl_m2p28_profile.txt), from the span and time averages of sbli_oracle.py fields (<runs>/sbli/<case>-fields.npz; S4c's on the
+    fine grid of its box). Left: u / u_e of the first 8 cells (centres) against y / delta, the DNS line; right: the relative difference of each
+    cell from the DNS at its centre, by cell index counted from the wall."""
+    cases = (("sbli-m2p28-8", "S4b", "C0", 1), ("sbli-m2p28-8-r2", "S4c, 2:1 box", "C2", 1), ("sbli-m2p28-8-pg", "S4d, with $dp/dx$", "C3", 1),
+             ("sbli-m2p28-8-nonu", r"S4e, no $\nu_t$ below $h$", "C1", 1))
+    ref = np.loadtxt(HERE / "turbulence" / "reference" / "tbl_m2p28_profile.txt")
+    fig, axs = plt.subplots(1, 2, figsize=(12.0, 4.2), constrained_layout=True)
+    axs[0].plot(ref[:, 1], ref[:, 0], "k-", lw=1.1, label="DNS profile (Zhang et al. M2p5, at Mach 2.28)")
+    for case, lab, c, _ in cases:
+        d = np.load(runs / "sbli" / f"{case}-fields.npz")
+        i = int(np.argmin(np.abs(d["x"] - (float(d["x_imp"]) - 5.0 * float(d["delta0"])))))
+        de = float(d["delta"][i])
+        ue = float(d["u"][i][int(np.argmin(np.abs(d["y"] - de)))])
+        y, u = d["y"][:8], d["u"][i][:8] / ue
+        axs[0].plot(u, y / de, "o-", color=c, ms=3.5, lw=1.0, label=lab)
+        dns = np.interp(y / de, ref[:, 0], ref[:, 1])
+        axs[1].plot(np.arange(1, 9), 100.0 * (u - dns) / dns, "o-", color=c, ms=3.5, lw=1.0, label=lab)
+    axs[0].set_ylim(0.0, 0.3)
+    axs[0].set_xlim(0.2, 0.9)
+    axs[0].set_xlabel(r"$\bar{u} / u_e$ at $x_{imp}-5\delta_0$")
+    axs[0].set_ylabel(r"$y / \delta$")
+    axs[0].grid(alpha=0.3)
+    axs[0].legend(fontsize=7.5, loc="upper left")
+    axs[1].axhline(0.0, color="k", lw=0.8)
+    axs[1].set_xlabel("cell from the wall")
+    axs[1].set_ylabel(r"$(\bar{u} - u_{DNS}) / u_{DNS}$ at the cell centre [%]")
+    axs[1].grid(alpha=0.3)
+    axs[1].legend(fontsize=7.5, loc="upper right")
+    fig.savefig(out / "sbli-cells.png", dpi=DPI)
+    plt.close(fig)
+
 def fig_sbli_pg_fields(out: Path, runs: Path) -> None:
     """#121 S4d: the panels of fig_sbli_fields for S4b with the pressure gradient in the wall model (<runs>/sbli/sbli-m2p28-8-pg.json and
     -slices.npz, the last checkpoint, t = 1450)."""
@@ -4981,7 +5015,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

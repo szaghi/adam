@@ -354,6 +354,54 @@ $x_{imp}-5\,\delta_0$ against the DNS profile the inflow is made from. `make_doc
   onset needs an incoming near-wall layer closer to the DNS profile, which is the matching between the model and the
   resolved cells, not the model's momentum balance.
 
+## The near-wall cells of the incoming layer
+
+Before changing how the model meets the resolved cells: how far the cells of the incoming layer are from the DNS profile
+the inflow is made from, on both grids and with and without the eddy viscosity below $h$.
+
+| Setup | |
+|---|---|
+| data | the span and time averages of `sbli_oracle.py fields` at $x_{imp}-5\,\delta_0$ (S4b $t=310$–1200, S4c 308–550, S4d 1305–1450, S4e 1301–1450); S4c on the fine grid of its box |
+| reference | `reference/tbl_m2p28_profile.txt` at the cell centres, $y/\delta$ with the run's local $\delta$, $u/u_e$ |
+| figure | `make_doc_figures.py --only sbli-cells` |
+
+![The near-wall cells of the incoming layer](/flume/sbli-cells.png)
+
+*Left: the mean velocity of the first 8 cells of S4b, S4c, S4d and S4e against the DNS profile; right: the difference of
+each cell from the DNS at its centre. A cell holds the mean over its height: in the first cell, where the profile bends,
+the DNS's cell mean is below its centre value, so the excess of the runs is a lower bound.*
+
+| $u/u_e$, cells 1 – 4 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| DNS at S4b's centres ($y/\delta$ 0.025, 0.075, 0.12, 0.17) | 0.478 | 0.669 | 0.722 | 0.757 |
+| S4b | 0.558 (+17 %) | 0.625 ($-7$ %) | 0.684 ($-5$ %) | 0.758 (0 %) |
+| S4d, with $dp/dx$ | +14 % | $-9$ % | $-7$ % | 0 % |
+| S4e, no eddy viscosity below $h$ | 0.441 ($-7$ %) | 0.602 ($-10$ %) | 0.698 ($-3$ %) | $-1.5$ % |
+| S4c, the box ($\Delta y/2$; $y/\delta$ 0.012, 0.037, 0.062, 0.087) | +70 % | +2 % | $-2$ % | +2 % |
+
+The mean stress through the face between cells 1 and 2, in units of $\tau_w$ (the time-mean strain times the mean
+viscosities; the resolved part $-\bar\rho\,(\overline{uv}-\bar u\bar v)$):
+
+| | viscous | resolved | the model's eddy viscosity | sum |
+|---|---|---|---|---|
+| S4b | 0.03 | 0.20 | 0.59 | 0.82 |
+| S4e | 0.08 | 0.33 | — | 0.41 |
+
+- **The first cell slips with the eddy viscosity and lags without it.** With the model's eddy viscosity below $h$ it
+  is 14–17 % faster than the DNS on S4b's grid and 70 % on S4c's finer one; without it 7 % slower.
+- **Cells 2 and 3 are 5–10 % slow on S4b's grid, within 2 % on S4c's.** That is the log-layer mismatch of a coarse
+  near-wall grid (Kawai & Larsson 2012), and S4c's $\Delta y=0.025\,\delta$ removes it. From the 4th cell up every run
+  is within 2.5 % of the DNS.
+- **The budget does not close on the means.** No subgrid model runs (the hybrid KEP-WENO scheme is the implicit LES),
+  so with the eddy viscosity the explicit stresses carry 0.82 of $\tau_w$ through the first face, without it 0.41. The
+  rest is the scheme's dissipation, or the correlation of the eddy viscosity with the strain, which the means cannot
+  separate: whether the resolved and the modelled stress overlap below $h$ is not measurable from these fields.
+- **A DNS-like incoming layer does not move the onset.** S4c's layer is the DNS's from the second cell up, and its
+  onset is S4b's ([above](#a-refined-wall-grid-under-the-interaction)). S4e moves the onset with a layer slower than
+  the DNS's. So matching the model to the resolved cells better, by itself, is not the lever for the interaction. The
+  DNS's onset comes with its bubble, and the separation is what the runs lack (S4d opened a quarter of it,
+  [above](#the-wall-model-with-the-pressure-gradient)).
+
 ## Not done
 
 - A separation of the right length and place: the pressure-gradient term opens a short bubble ahead of the impingement; a non-equilibrium wall model (convection), and a matching height fixed in $\delta_i$ across the levels.
