@@ -36,6 +36,9 @@ module adam_flume_bc_object
 !< averaged in time over `wall_model_pressure_gradient_filter` (an exponential filter of its own, 0 for none): the turbulent wall-pressure gradient of an
 !< LES sample is as large as tau_w / h, and the model is not linear in it (a zero-pressure-gradient layer moves by +13 % unfiltered, S4b a priori).
 !< The eddy viscosity below the matching height stays the equilibrium model's.
+!< `wall_model_pressure_gradient_ypg` (default 0, with `wall_model_pressure_gradient` only) > 0 takes the Bernoulli-consistent variant of Hickel, Touber,
+!< Bodart & Larsson (2012, eq. 4.1; issue #121, P1): above the viscous layer convection balances the pressure gradient, modelled as
+!< `-(dp/dx) min(y / y_pg, 1)` with `y_pg = ypg (mu_w^2 / (rho_w |dp/dx|))^(1/3)` (their value 4); 0 keeps the model above, bit for bit.
 !<
 !< **Hydrostatic** (issue #73, M7-G0). `hydrostatic` closes a stratified atmosphere under the constant gravity of
 !< `[gravity]`: the ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior
@@ -138,6 +141,7 @@ type :: flume_bc_object
    logical                :: wm_inverse(6)=.false.      !< Wall model: the inverse-transformation model (Griffin et al. 2023) per face, else the equilibrium one.
    logical                :: wm_pressure(6)=.false.     !< Wall model: the pressure gradient in the equilibrium model's momentum balance per face (issue #121, S4d).
    real(R8P)              :: wm_pg_filter(6)=0._R8P     !< Wall model: time scale of the pressure gradient's filter per face, 0 for none.
+   real(R8P)              :: wm_ypg(6)=0._R8P           !< Wall model: y_pg of the Bernoulli-consistent pressure gradient per face, 0 for none (#121 P1).
    real(R8P)              :: wm_edge_u(6)=0._R8P        !< Inverse model: speed at the edge of the layer per face.
    real(R8P)              :: wm_edge_t(6)=0._R8P        !< Inverse model: temperature at the edge of the layer per face.
    real(R8P)              :: wall_temperature(6)=0._R8P !< Isothermal walls: wall temperature of each face.
@@ -291,7 +295,11 @@ contains
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_pressure_gradient_filter', val=self%wm_pg_filter(f), error=error)
          if (error /= 0) self%wm_pg_filter(f) = 0._R8P
          if (self%wm_pg_filter(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_pressure_gradient_filter) must be >= 0')
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_pressure_gradient_ypg', val=self%wm_ypg(f), error=error)
+         if (error /= 0) self%wm_ypg(f) = 0._R8P
+         if (self%wm_ypg(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_pressure_gradient_ypg) must be >= 0')
          if (.not.self%wm_pressure(f)) self%wm_pg_filter(f) = 0._R8P
+         if (.not.self%wm_pressure(f)) self%wm_ypg(f) = 0._R8P
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID
       case(BC_WALL_NOSLIP_STR, BC_WALL_ISOTHERMAL_STR)

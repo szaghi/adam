@@ -3,7 +3,8 @@
 program test_wall_model
 !< Laminar limit, log layer against a fine quadrature, and the Crocco relation with Pr = Pr_t; the models under Sutherland's
 !< law against the same references, and the law itself; the model with the pressure gradient (issue #121, S4d): its laminar limit
-!< of either sign, px = 0 against the equilibrium model, a fine-grid reference, robustness.
+!< of either sign, px = 0 against the equilibrium model, a fine-grid reference, robustness; its Bernoulli-consistent variant (#121 P1): the
+!< laminar limit with y_pg above and below h, ypg 0 bit for bit, y_pg >> h, a fine-grid reference, robustness.
 
 use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_wall_model_library, only : inverse_strain, sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure
@@ -212,6 +213,67 @@ do n=1, 100000
 enddo
 print '(A,I0,A)', 'pressure gradient, robustness, non-finite results: ', nbad, ' of 100000 (bound 0)'
 ok = ok .and. nbad == 0
+! the Bernoulli-consistent variant (issue #121, P1; Hickel et al. 2012, eq. 4.1), laminar limit as above: U(h) mu = tau h + px int_0^h g dy, g = y - y^2 / (2 y_pg)
+! below y_pg = ypg (mu_w^2 / (rho_w |px|))^(1/3), y_pg / 2 above; y_pg above h (ypg 4) and below it (ypg 0.1); I1 by trapezoids on the model's 40 intervals,
+! exact for the S4d model's linear g, second order on the parabola: 5.7e-4 of |tau| + |px| h measured
+err = 0._R8P
+do n=1, 4
+   px = merge(4.e-3_R8P, -4.e-3_R8P, mod(n, 2) == 1)
+   g = merge(4._R8P, 0.1_R8P, n <= 2) * (1._R8P / abs(px))**(1._R8P / 3._R8P) ! y_pg
+   if (g >= 1._R8P) then
+      ref = 0.5_R8P - 1._R8P / (6._R8P * g)
+   else
+      ref = g * g / 3._R8P + 0.5_R8P * g * (1._R8P - g)
+   endif
+   ref = 1.e-3_R8P - px * ref
+   call wall_model_solve_pressure(h=1._R8P, us=1.e-3_R8P, ts=1._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1._R8P, tref=1._R8P, suth=0._R8P, &
+                                  omega_mu=0._R8P, tau=tau, q=q, ypg=merge(4._R8P, 0.1_R8P, n <= 2))
+   err = max(err, abs(tau - ref) / (1.e-3_R8P + abs(px)))
+enddo
+print '(A,ES10.2,A)', 'Bernoulli-consistent, laminar limit, y_pg above and below h, tau relative to |tau| + |px| h ', err, ' (bound 1e-3)'
+ok = ok .and. err < 1.e-3_R8P
+! ypg 0 or absent is the S4d model bit for bit; y_pg far above h tends to it
+ok1 = .true.
+do n=1, 3
+   px = merge(0.3e-2_R8P, merge(0.1_R8P, -1.e-2_R8P, n == 2), n == 1)
+   call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
+                                  omega_mu=1.5_R8P, tau=tauc, q=qc, semilocal=.true.)
+   call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
+                                  omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true., ypg=0._R8P)
+   ok1 = ok1 .and. tau == tauc .and. q == qc
+   call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
+                                  omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true., ypg=1.e9_R8P)
+   err = abs(tau - tauc) / (abs(tauc) + abs(px) * 0.3_R8P)
+   ok1 = ok1 .and. err < 1.e-5_R8P
+enddo
+print '(A,L1,A)', 'Bernoulli-consistent, ypg 0 bit for bit the S4d model, y_pg >> h within 1e-5 of it: ', ok1, ' (bound T)'
+ok = ok .and. ok1
+! a turbulent hot layer under Sutherland, semi-local, ypg 4, against the fine grid; the variant's tau is above the S4d model's under an adverse gradient
+do n=1, 3
+   px = merge(0.3e-2_R8P, merge(0.1_R8P, -1.e-2_R8P, n == 2), n == 1)
+   call reference_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, tau=tauf, q=ref, &
+                           ypg=4._R8P)
+   call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
+                                  omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true., ypg=4._R8P)
+   call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
+                                  omega_mu=1.5_R8P, tau=tauc, q=qc, semilocal=.true.)
+   err = abs(tau - tauf) / (abs(tauf) + abs(px) * 0.3_R8P)
+   print '(A,ES10.2,A,ES11.3,A,ES11.3,A,ES11.3,A,ES10.2,A)', 'Bernoulli-consistent, gradient ', px, ': tau ', tau, ' (fine grid ', tauf, ', S4d model ', tauc, &
+         '), relative to |tau| + |px| h ', err, ' (bound 2e-2)'
+   ok = ok .and. err < 2.e-2_R8P .and. abs(q - ref) / abs(ref) < 2.e-2_R8P
+   if (px > 0._R8P) ok = ok .and. tau > tauc
+enddo
+! robustness with ypg 4 on the samples above
+nbad = 0 ; seed = 54321_I8P
+do n=1, 100000
+   hh = 0.01_R8P + 0.3_R8P * lcg(seed) ; uu = 3._R8P * lcg(seed) ; tt = tw15 * (0.5_R8P + 3._R8P * lcg(seed)) ; pp = (0.5_R8P + lcg(seed)) * tw15
+   px = (lcg(seed) - 0.5_R8P) * 0.6_R8P * lcg(seed)**3
+   call wall_model_solve_pressure(h=hh, us=uu, ts=tt, ps=pp, tw=tw15, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1._R8P / 3000._R8P, tref=tw15, suth=0._R8P, &
+                                  omega_mu=0.7_R8P, tau=tau, q=q, semilocal=mod(n, 2) == 0, ypg=4._R8P)
+   if (.not.(abs(tau) < huge(1._R8P) .and. abs(q) < huge(1._R8P))) nbad = nbad + 1
+enddo
+print '(A,I0,A)', 'Bernoulli-consistent, robustness, non-finite results: ', nbad, ' of 100000 (bound 0)'
+ok = ok .and. nbad == 0
 if (ok) then
    print '(A)', 'test_wall_model: PASS'
 else
@@ -295,25 +357,32 @@ contains
    tau = exp(0.5_R8P * (lo + hi))
    endsubroutine reference_inverse
 
-   subroutine reference_pressure(h, us, ts, ps, tw, px, pr, mu0, tref, suth, tau, q)
+   subroutine reference_pressure(h, us, ts, ps, tw, px, pr, mu0, tref, suth, tau, q, ypg)
    !< The layer with the pressure gradient, semi-local damping, Sutherland's law: (mu + mu_t) dU/dy = tau + px y, mu_t on sqrt((|tau| + |px| y) / rho), on
-   !< 200000 intervals uniform in sqrt(y), trapezoids, 400 under-relaxed iterations: no code shared with the library.
+   !< 200000 intervals uniform in sqrt(y), trapezoids, 400 under-relaxed iterations: no code shared with the library. `ypg` > 0: the Bernoulli-consistent
+   !< variant (Hickel et al. 2012, eq. 4.1), the net forcing px (1 - min(y / y_pg, 1)) integrated to the stress tau + px gg(y), gg = y - y^2 / (2 y_pg), then y_pg / 2.
    real(R8P), intent(in)  :: h, us, ts, ps, tw, px, pr, mu0, tref, suth !< As `wall_model_solve_pressure`.
    real(R8P), intent(out) :: tau, q                                      !< Results.
+   real(R8P), intent(in), optional :: ypg                                !< y_pg in viscous units of the gradient.
    integer(I4P), parameter :: M=200000_I4P
-   real(R8P), allocatable :: y(:), t(:), u(:), mt(:), a(:)
-   real(R8P)              :: i0, i1, i2, i3, ts_, mu, rho, dmp, tn
+   real(R8P), allocatable :: y(:), t(:), u(:), mt(:), a(:), gg(:)
+   real(R8P)              :: i0, i1, i2, i3, ts_, mu, rho, dmp, tn, yv
    integer(I4P)           :: i, it
 
-   allocate(y(0:M), t(0:M), u(0:M), mt(0:M), a(0:M))
+   allocate(y(0:M), t(0:M), u(0:M), mt(0:M), a(0:M), gg(0:M))
    do i=0, M
       y(i) = h * (real(i, R8P) / M)**2
       t(i) = tw + (ts - tw) * y(i) / h
    enddo
+   gg = y
+   if (present(ypg)) then
+      yv = ypg * ((mu0 * law(tw, tref, 1.5_R8P, suth))**2 / (ps / (GAS * tw) * abs(px)))**(1._R8P / 3._R8P)
+      gg = min(y, yv) - min(y, yv)**2 / (2._R8P * yv)
+   endif
    tau = mu0 * law(tw, tref, 1.5_R8P, suth) * us / h
    do it=1, 400
       do i=0, M
-         mu = mu0 * law(t(i), tref, 1.5_R8P, suth) ; rho = ps / (GAS * t(i)) ; ts_ = abs(tau) + abs(px) * y(i)
+         mu = mu0 * law(t(i), tref, 1.5_R8P, suth) ; rho = ps / (GAS * t(i)) ; ts_ = abs(tau) + abs(px) * gg(i)
          dmp = 1._R8P - exp(-y(i) * sqrt(rho * ts_) / (mu * APLUS))
          mt(i) = KAPPA * y(i) * sqrt(rho * ts_) * dmp**2
          a(i) = mu / pr + mt(i) / 0.9_R8P
@@ -322,23 +391,23 @@ contains
       i0 = 0._R8P ; i1 = 0._R8P
       do i=1, M
          i0 = i0 + 0.5_R8P * (y(i) - y(i-1)) * (1._R8P / mt(i) + 1._R8P / mt(i-1))
-         i1 = i1 + 0.5_R8P * (y(i) - y(i-1)) * (y(i) / mt(i) + y(i-1) / mt(i-1))
+         i1 = i1 + 0.5_R8P * (y(i) - y(i-1)) * (gg(i) / mt(i) + gg(i-1) / mt(i-1))
       enddo
       tn = (us - px * i1) / i0
       u(0) = 0._R8P
       do i=1, M
-         u(i) = u(i-1) + 0.5_R8P * (y(i) - y(i-1)) * ((tn + px * y(i)) / mt(i) + (tn + px * y(i-1)) / mt(i-1))
+         u(i) = u(i-1) + 0.5_R8P * (y(i) - y(i-1)) * ((tn + px * gg(i)) / mt(i) + (tn + px * gg(i-1)) / mt(i-1))
       enddo
       i2 = 0._R8P ; i3 = 0._R8P
       do i=1, M
          i2 = i2 + 0.5_R8P * (y(i) - y(i-1)) * (1._R8P / a(i) + 1._R8P / a(i-1))
-         i3 = i3 + 0.5_R8P * (y(i) - y(i-1)) * ((tn + px * y(i)) * u(i) / a(i) + (tn + px * y(i-1)) * u(i-1) / a(i-1))
+         i3 = i3 + 0.5_R8P * (y(i) - y(i-1)) * ((tn + px * gg(i)) * u(i) / a(i) + (tn + px * gg(i-1)) * u(i-1) / a(i-1))
       enddo
       q = (CP * (ts - tw) + i3) / i2
       i2 = 0._R8P ; i3 = 0._R8P
       do i=1, M
          i2 = i2 + 0.5_R8P * (y(i) - y(i-1)) * (1._R8P / a(i) + 1._R8P / a(i-1))
-         i3 = i3 + 0.5_R8P * (y(i) - y(i-1)) * ((tn + px * y(i)) * u(i) / a(i) + (tn + px * y(i-1)) * u(i-1) / a(i-1))
+         i3 = i3 + 0.5_R8P * (y(i) - y(i-1)) * ((tn + px * gg(i)) * u(i) / a(i) + (tn + px * gg(i-1)) * u(i-1) / a(i-1))
          t(i) = 0.5_R8P * t(i) + 0.5_R8P * (tw + (q * i2 - i3) / CP)
       enddo
       tau = 0.5_R8P * tau + 0.5_R8P * tn

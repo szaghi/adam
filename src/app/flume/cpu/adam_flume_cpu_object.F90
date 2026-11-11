@@ -943,15 +943,15 @@ contains
    if (.not.self%adam%grid%null_xyz(1)) call overwrite_wall_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
         faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
-        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_x, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, tp=tp, is_null=self%adam%grid%null_xyz, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flx_f)
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_x, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, yp=self%bc%wm_ypg, tp=tp, is_null=self%adam%grid%null_xyz, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flx_f)
    if (.not.self%adam%grid%null_xyz(2)) call overwrite_wall_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
         faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
-        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_y, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, tp=tp, is_null=self%adam%grid%null_xyz, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%fly_f)
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_y, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, yp=self%bc%wm_ypg, tp=tp, is_null=self%adam%grid%null_xyz, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%fly_f)
    if (.not.self%adam%grid%null_xyz(3)) call overwrite_wall_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
         faces=self%wm_faces, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
-        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_z, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, tp=tp, is_null=self%adam%grid%null_xyz, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flz_f)
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg=self%wm_avg_z, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, yp=self%bc%wm_ypg, tp=tp, is_null=self%adam%grid%null_xyz, dxyz=self%adam%field%dxyz, q_aux=self%q_aux, fl=self%flz_f)
    if (commit) then
       self%wm_filter_it = self%time%it
       self%wm_filter_fresh = .false.

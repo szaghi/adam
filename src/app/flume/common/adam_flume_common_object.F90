@@ -1663,7 +1663,7 @@ contains
                      endif
                      call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), px=px, R=self%physics%R, cp=cp, &
                                                     pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, &
-                                                    semilocal=self%bc%wm_semilocal(f))
+                                                    semilocal=self%bc%wm_semilocal(f), ypg=self%bc%wm_ypg(f))
                   elseif (self%bc%wm_inverse(f)) then
                      call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), ue=self%bc%wm_edge_u(f), &
                                                    te=self%bc%wm_edge_t(f), R=self%physics%R, cp=cp, pr=self%physics%dissipation%prandtl, mu0=mu0, &

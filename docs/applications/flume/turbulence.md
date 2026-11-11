@@ -249,6 +249,32 @@ Measured by `test_wall_model`:
 
 Without the key nothing changes, bit for bit.
 
+#### Bernoulli-consistent variant
+
+Above the viscous layer of an adverse-gradient layer the convective term balances the pressure gradient (Bernoulli), so a
+model that keeps one and drops the other over-responds: Hickel, Touber, Bodart & Larsson (2012), a priori on the
+wall-resolved LES of the IUSTI interaction, find it separating much too early. Their parametrised convection is
+$-(dp/dx)\min(y/y_{pg},1)$, with $y_{pg}=y^*_{pg}\,(\mu_w^2/(\rho_w\lvert dp/dx\rvert))^{1/3}$ and $y^*_{pg}=4$. With
+`wall_model_pressure_gradient_ypg` $=y^*_{pg}>0$ the model takes it: the net forcing $(dp/dx)(1-\min(y/y_{pg},1))$
+integrates to the stress $\tau_w+(dp/dx)\,g(y)$,
+
+$$
+g(y)=y-\frac{y^2}{2y_{pg}}\quad(y<y_{pg}),\qquad g(y)=\frac{y_{pg}}{2}\quad(y\ge y_{pg}),
+$$
+
+and $g$ replaces $y$ in the stress, in the second quadrature and in the velocity scale of the eddy viscosity. The net
+forcing vanishes above $y_{pg}$. 0, the default, keeps the model above, bit for bit.
+
+Measured by `test_wall_model`:
+
+- the laminar limit, $U(h)\,\mu=\tau_wh+(dp/dx)\int_0^hg\,dy$, with $y_{pg}$ above and below $h$ and either sign of the
+  gradient: within $5.7\cdot10^{-4}$ of $|\tau_w|+|dp/dx|\,h$ (the second quadrature by trapezoids, exact for $g=y$,
+  second order on the parabola);
+- $y^*_{pg}=0$ is the model above bit for bit, $y_{pg}\gg h$ within $10^{-5}$ of it;
+- the hot turbulent layer above against the same equations on $2\cdot10^5$ intervals: within $2.7\cdot10^{-3}$; under
+  the strong adverse gradient $\tau_w=1.30\cdot10^{-3}$, where the model above gives $-0.69\cdot10^{-3}$;
+- no non-finite result in $10^5$ random samples.
+
 ### Limits
 
 - Isothermal walls only.
