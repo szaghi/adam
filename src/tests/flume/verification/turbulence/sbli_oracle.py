@@ -26,13 +26,20 @@ and the free-stream temperature, for `compression` (run it where the checkpoints
 `compression <npz>... [--json out]`: where the interaction's compression starts and how it crosses the layer, per run: the incoming layer's mean
 Mach number per cell and sonic height against the DNS profile the inflow is made from (reference/tbl_m2p28_profile.txt), the x where the wall
 pressure reaches 5, 10 and 50 % of p_2 - p_inf against the Re_theta 6882 DNS, and the path of the compression through the layer (per height, the
-first crossing of p_inf + k (p_2 - p_inf), k = 0.1 and 0.5).
+first crossing of p_inf + k (p_2 - p_inf), k = 0.1 and 0.5), and the mean reversed flow of the resolved cells 1-3 (the mean u < 0, its streamwise
+extent: the wall model's tau_w, from which `compare` takes L_sep, does not see a reversal below its sample).
 `apriori <npz> [--hwm H] [--json out]`: the equilibrium wall model of the run (a port of `wall_model_solve`, adam_flume_wall_model_library.F90) applied
 to the mean field at the run's sample (the 3rd cell of the local grid, or the height H between cells as `sample_cells` takes it) per x, with and without
 the mean streamwise pressure gradient in the momentum balance, `(mu + mu_t) dU/dy = tau_w + (dp/dx) y`, the eddy viscosity on the velocity scale
 `sqrt((|tau_w| + |dp/dx| y) / rho)` (S4d, issue #121): C_f against the history's (the history averages tau of the instantaneous samples, the model
 here takes the mean sample), and the C_f < 0 region the pressure gradient opens, if any. A priori: what a run with the term would start from, not
 what it would converge to.
+`reversal <work> --x-imp X --delta0 D [--t0 T0] [--json out]`: the reversed flow of each checkpoint near the interaction, x in
+[x_imp - 4.5 D, x_imp + D], y below 1.5 D, on the finest grid (coarser cells repeated): the area with u < 0 per unit span (the volume over the
+span width, in D^2), the height of the highest reversed cell of each (x, z) column (its 50th, 90th and 99th percentiles over the columns that
+reverse at all, in D), the fraction of the first and of the third cells (the default sample) reversed, and the streamwise extent of the span-averaged u < 0 in the first cell. For the
+instantaneous bubble of the DNS (Bernardini et al. 2022, Fig. 10: in its large state up to y* = y / L_int of about 0.15, 0.5 delta_0, over
+x* from about -0.85 to 0.1), which the time means of `compare` do not show (run it where the checkpoints are).
 """
 
 from __future__ import annotations
@@ -285,7 +292,7 @@ def compression(npzs: list[Path], json_out: str | None) -> int:
     for npz in npzs:
         d = np.load(npz)
         x, y, delta0, x_imp = d["x"], d["y"], float(d["delta0"]), float(d["x_imp"])
-        dy = y[1] - y[0]
+        dy, dx_ = y[1] - y[0], x[1] - x[0]
         t_inf = float(d["t_inf"])
         mach = 1.0 / math.sqrt(GAMMA * t_inf)
         sh = shocks(mach, float(d["theta"]))
@@ -324,9 +331,15 @@ def compression(npzs: list[Path], json_out: str | None) -> int:
                             "M_up": float(mbar[int(np.argmin(np.abs(x - (x_imp - 5.0 * delta0)))), j])})
             path[f"{lev:g}"] = pts
         win = (x > x_imp - 4.0 * delta0) & (x < x_imp + 2.0 * delta0)
+        # the mean reversed flow of the resolved cells 1-3 (the mean u, not the wall model's tau_w): its streamwise extent near the interaction
+        near = (x > x_imp - 10.0 * delta0) & (x < x_imp + 4.0 * delta0)
+        rev = {}
+        for j in range(3):
+            neg = x[near & (d["u"][:, j] < 0.0)]
+            rev[f"cell{j + 1}"] = {"x0": float(neg.min()), "x1": float(neg.max()), "extent_d0": float((neg.max() - neg.min() + dx_) / delta0)} if neg.size else None
         res[npz.stem] = {"t": [float(d["t0"]), float(d["t1"])], "n": int(d["n"]), "delta0": delta0, "dy_d0": dy / delta0, "l_int": l_int,
                          "l_int_d0": l_int / delta0, "upstream": up, "y_sonic_dns_delta": ys_ref, "onset": onset, "path": path,
-                         "sonic_line": {"x": x[win].tolist(), "y_d0": (ys[win] / delta0).tolist()}}
+                         "sonic_line": {"x": x[win].tolist(), "y_d0": (ys[win] / delta0).tolist()}, "mean_reversal": rev}
         print(f"== {npz.stem}: t {float(d['t0']):.0f}-{float(d['t1']):.0f} ({int(d['n'])}), delta_0 {delta0:.3f}, cell {dy / delta0:.4f} delta_0, "
               f"L_int {l_int:.3f} = {l_int / delta0:.2f} delta_0")
         for k, v in up.items():
@@ -338,6 +351,8 @@ def compression(npzs: list[Path], json_out: str | None) -> int:
                   f"(DNS Re_theta 6882: {v['x_star_dns']:+.2f})")
         for k, pts in path.items():
             print(f"  compression path, p_inf + {k} (p_2 - p_inf): " + "; ".join(f"y {q['y_d0']:.2f}: x* {q['x_star']:+.2f}" for q in pts))
+        print("  mean u < 0 of the resolved cells (not the wall model's tau_w): " + "; ".join(
+            f"{k} x {v['x0']:.2f}-{v['x1']:.2f}, {v['extent_d0']:.2f} delta_0" if v else f"{k} none" for k, v in rev.items()))
     if json_out:
         Path(json_out).write_text(json.dumps(res))
     return 0
@@ -480,6 +495,69 @@ def apriori(npz: Path, hwm: float, json_out: str | None, ypg: float = 4.0) -> in
     return 0
 
 
+def reversal(work: Path, x_imp: float, delta0: float, t0: float, json_out: str | None) -> int:
+    """The reversed flow near the interaction per checkpoint (see the module docstring)."""
+    import h5py
+
+    tags = [tag for t, tag in to.checkpoints(work) if t >= t0]
+    times = [t for t, _ in to.checkpoints(work) if t >= t0]
+    if not tags:
+        print(f"no checkpoint after t = {t0} in {work}")
+        return 1
+    x0, x1, y1 = x_imp - 4.5 * delta0, x_imp + delta0, 1.5 * delta0
+    d_min = None
+    for f5 in sorted(work.glob(f"tbl-{tags[0]}-proc*.h5")):
+        with h5py.File(f5, "r") as h:
+            for b in {k.rsplit("-", 1)[0] for k in h if k.endswith("-origin")}:
+                d = h[b + "-dxdydz"][()]
+                d_min = d if d_min is None else np.minimum(d_min, d)
+    dz, dy, dx = (float(v) for v in d_min)
+    lz = float(to.ini_value(work, "emax_z"))
+    nz, ny, nx = round(lz / dz), round(y1 / dy), round((x1 - x0) / dx)
+    rows = []
+    for t, tag in zip(times, tags, strict=True):
+        u3 = np.full((nz, ny, nx), np.nan)
+        for f5 in sorted(work.glob(f"tbl-{tag}-proc*.h5")):
+            with h5py.File(f5, "r") as h:
+                for b in {k.rsplit("-", 1)[0] for k in h if k.endswith("-origin")}:
+                    o, d = h[b + "-origin"][()], h[b + "-dxdydz"][()]
+                    lo = o + to.NGC * d
+                    shape = np.array(h[b + "-r"].shape) - 2 * to.NGC
+                    hi = lo + shape * d
+                    if hi[2] <= x0 or lo[2] >= x1 or lo[1] >= y1:
+                        continue
+                    s = (slice(to.NGC, -to.NGC),) * 3
+                    u = h[b + "-ru"][()][s] / h[b + "-r"][()][s]
+                    rz, ry, rx = (round(float(d[i]) / float(d_min[i])) for i in range(3))
+                    u = np.repeat(np.repeat(np.repeat(u, rz, axis=0), ry, axis=1), rx, axis=2)
+                    k0, j0, i0 = round(float(lo[0]) / dz), round(float(lo[1]) / dy), round((float(lo[2]) - x0) / dx)
+                    kk, jj, ii = np.arange(k0, k0 + u.shape[0]), np.arange(j0, j0 + u.shape[1]), np.arange(i0, i0 + u.shape[2])
+                    mk, mj, mi = (kk >= 0) & (kk < nz), (jj >= 0) & (jj < ny), (ii >= 0) & (ii < nx)
+                    u3[np.ix_(kk[mk], jj[mj], ii[mi])] = u[np.ix_(mk, mj, mi)]
+        rev = u3 < 0.0
+        area = rev.sum() * dx * dy / nz / delta0**2
+        yc = (np.arange(ny) + 0.5) * dy
+        top = np.where(rev.any(axis=1), yc[ny - 1 - np.argmax(rev[:, ::-1, :], axis=1)], np.nan) / delta0
+        cols = top[np.isfinite(top)]
+        pct = np.percentile(cols, [50, 90, 99]) if cols.size else np.zeros(3)
+        wall = rev[:, 0, :].mean()
+        third = rev[:, 2, :].mean()
+        um = np.nanmean(u3[:, 0, :], axis=0)
+        xs = x0 + (np.arange(nx) + 0.5) * dx
+        neg = xs[um < 0.0]
+        ext = (neg.max() - neg.min() + dx) / delta0 if neg.size else 0.0
+        rows.append([t, area, *pct, wall, ext, third])
+        print(f"t {t:8.1f}: reversed area {area:6.3f} delta_0^2; column top p50 {pct[0]:5.3f} p90 {pct[1]:5.3f} p99 {pct[2]:5.3f} delta_0;"
+              f" first cells reversed {100 * wall:5.1f} %, third {100 * third:5.1f} %; span-mean first-cell u < 0 over {ext:5.2f} delta_0", flush=True)
+    a = np.array(rows)
+    print(f"== {work.name}: {len(rows)} checkpoints t {a[0, 0]:.0f}-{a[-1, 0]:.0f}; reversed area mean {a[:, 1].mean():.3f}, max {a[:, 1].max():.3f}"
+          f" delta_0^2; column top p99 mean {a[:, 4].mean():.3f}, max {a[:, 4].max():.3f} delta_0; first cells reversed mean {100 * a[:, 5].mean():.1f} %, third cells {100 * a[:, 7].mean():.1f} %;"
+          f" span-mean first-cell u < 0 extent mean {a[:, 6].mean():.2f} delta_0")
+    if json_out:
+        Path(json_out).write_text(json.dumps({"columns": ["t", "area", "top_p50", "top_p90", "top_p99", "wall_fraction", "extent", "third_fraction"], "rows": rows,
+                                              "delta0": delta0, "x_imp": x_imp, "window": [x0, x1, y1]}))
+    return 0
+
 def main() -> int:
     """Dispatch the subcommand."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -509,7 +587,15 @@ def main() -> int:
     p.add_argument("--hwm", type=float, default=0.0)
     p.add_argument("--ypg", type=float, default=4.0, help="y*_pg of the Bernoulli-consistent model (Hickel et al. 2012)")
     p.add_argument("--json")
+    v = sub.add_parser("reversal")
+    v.add_argument("work", type=Path)
+    v.add_argument("--x-imp", type=float, required=True)
+    v.add_argument("--delta0", type=float, required=True)
+    v.add_argument("--t0", type=float, default=300.0)
+    v.add_argument("--json")
     a = ap.parse_args()
+    if a.cmd == "reversal":
+        return reversal(a.work, a.x_imp, a.delta0, a.t0, a.json)
     if a.cmd == "means":
         return means(a.work, a.x_imp, a.t0, a.out)
     if a.cmd == "fields":

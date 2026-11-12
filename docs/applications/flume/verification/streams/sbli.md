@@ -442,9 +442,59 @@ wall model's $\tau_w$, the reversed stretches shaded. The legend's $L_{int}$ is 
   most $0.6\,\delta_0$ and only with the inconsistent model. The sample sits at $h\approx0.12\,\delta$ and $y_{pg}$
   about ten times lower ($\approx0.02\,\delta_i$ under the interaction's gradient); where the reversed layer is thinner
   than $h$ the sample still moves downstream, and an equilibrium-type model, which takes $\tau_w$ from that sample and a
-  consistently balanced gradient, cannot see the reversal. (The DNS's bubble height is not measured here.) The convection the reversal needs is the flow's own, which a model fed with the resolved
+  consistently balanced gradient, cannot see the reversal. The DNS's bubble is taller than $h$ in its large state, and the runs' own mean
+  reversed layer lies below $h$ ([below](#the-reversed-flow-the-dns-s-bubble-and-the-runs-below-the-sample)). The convection the reversal needs is the flow's own, which a model fed with the resolved
   field (the integral model of Yang et al. 2015, the thin-boundary-layer equations with convection) carries and these
   do not.
+
+## The reversed flow: the DNS's bubble and the runs' below the sample
+
+Whether a reversed layer can hide below the matching height: how tall the DNS's bubble is, and where the runs' own
+reversed flow sits.
+
+**The DNS.** Bernardini et al. (2022) give the bubble's length ($2.16\,\delta_0$ in the mean, from $x^*\approx-0.8$
+to $-0.15$) and its time history, but no height. Their Fig. 10 shows two instantaneous states on a vertical slice, in
+$y^*=y/L_{int}$: in the large one the $u=0$ line reaches $y^*\approx0.14$–0.16, about $0.5\,\delta_0$, over
+$x^*\approx-0.85$ to 0.1; in the other the bubble is almost absent. The area of the bubble swings between two
+probable values with intermittent large excursions (their Fig. 9). Our sample sits at $h=0.208\,\delta_i=0.115\,\delta_0
+=0.035\,L_{int}$: the large state is about $4h$ thick, ten of S4b's cells.
+
+**The runs.** `sbli_oracle.py reversal` reads each checkpoint in $x_{imp}-4.5\,\delta_0<x<x_{imp}+\delta_0$, $y<1.5\,\delta_0$:
+
+| | S4b | S4c, 2:1 box | S4d, $dp/dx$ | S4e, no $\nu_t$ below $h$ | S4f, $dp/dx$, no $\nu_t$ | S4g, Bernoulli-consistent |
+|---|---|---|---|---|---|---|
+| checkpoints | 71 | 21 | 24 | 23 | 22 | 24 |
+| area with $u<0$ per unit span, mean (max), $\delta_0^2$ | 0.068 (0.142) | 0.069 (0.084) | 0.049 (0.086) | 0.140 (0.200) | 0.113 (0.191) | 0.077 (0.106) |
+| highest reversed cell of a column, 99th percentile, mean (max), $\delta_0$ | 0.31 (0.44) | 0.30 (0.40) | 0.31 (0.44) | 0.38 (0.52) | 0.38 (0.52) | 0.34 (0.49) |
+| first cells reversed | 9.5 % | 14.5 % | 6.1 % | 23.3 % | 17.9 % | 9.8 % |
+| third cells (the sample) reversed | 5.1 % | 8.7 % | 3.9 % | 8.2 % | 6.6 % | 5.9 % |
+| **time-mean $u<0$ in the first cell** | none | $x=57.8$–58.9, $0.66\,\delta_0$ | none | $x=56.8$–58.8, $1.13\,\delta_0$ | $x=57.5$–58.9, $0.77\,\delta_0$ | none |
+| time-mean $u<0$ in cells 2, 3 | none | cell 2 $0.32\,\delta_0$; cell 3 none | none | none | none | none |
+| $L_{sep}$ from the wall model's $\tau_w$ (`compare`) | 0 | 0 | 0.60 | 0 | 0.14 | 0 |
+
+![The reversed flow of the runs](/flume/sbli-reversal.png)
+
+*Left: the area with $u<0$ per unit span per checkpoint; right: the fraction of the first and of the third cells (the
+wall model's sample) reversed in the window. `sbli_oracle.py reversal`, `make_doc_figures.py --only sbli-reversal`.
+The time-mean reversal of the cells is printed by `sbli_oracle.py compression`.*
+
+- **The runs reverse as high as the DNS's large state, but rarely.** In every run some columns reverse up to
+  $0.4$–$0.5\,\delta_0$; the span-averaged area stays at 0.02–$0.2\,\delta_0^2$, within about twice its mean in each run (S4b's 71
+  checkpoints: 0.04–0.14 around 0.068), where the DNS's bubble area has a bimodal distribution with a long tail of
+  large excursions (their Fig. 9; its normalisation is not given, and a single slice is not a span average, so the
+  areas themselves are not compared). The sample sees these reversals: its cell is reversed 35–64 % as often as the first cell.
+- **In the mean, three runs separate below the sample.** S4c's resolved flow reverses in the mean over $0.66\,\delta_0$
+  in its first cell and $0.32\,\delta_0$ in its second; S4e's over $1.13\,\delta_0$ ($x^*=-0.49$ to $-0.19$, against the
+  DNS's $-0.8$ to $-0.15$), S4f's over $0.77\,\delta_0$; the third cell, the sample, never. The wall model's $\tau_w$, which
+  takes the sample, stays positive there: `compare` reports no separation for S4c and S4e, and $0.14\,\delta_0$ for S4f.
+- **Under that layer the wall stress has the wrong sign.** A positive $\tau_w$ takes streamwise momentum out of a first
+  cell whose mean flow is already reversed, where the wall would push it forward. The model is consistent only while the
+  reversed layer reaches $h$.
+- **So the bubble is partly there, and the oracle's $L_{sep}$ misses it.** The mean reversal of the first cell is the
+  separation a wall-resolved run would report; on it, S4e is at half the DNS's length and the onset of its reversal is at
+  $x^*=-0.49$, against $-0.8$. What the equilibrium-type models lack is a wall stress consistent with a reversed layer
+  below $h$: a model fed with the flow's own convection between the wall and $h$ (thin-boundary-layer equations, an
+  integral model) has it by construction.
 
 ## Not done
 

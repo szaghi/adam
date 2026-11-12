@@ -3195,6 +3195,40 @@ def fig_sbli_pg_runs(out: Path, runs: Path) -> None:
     fig.savefig(out / "sbli-pg-runs.png", dpi=DPI)
     plt.close(fig)
 
+
+def fig_sbli_reversal(out: Path, runs: Path) -> None:
+    """#121: the instantaneous reversed flow of the runs near the interaction (turbulence/sbli_oracle.py reversal, the JSONs
+    <runs>/sbli/rev2-<run>.json): per checkpoint the area with u < 0 per unit span (window x_imp - 4.5 delta_0 .. x_imp + delta_0, y < 1.5 delta_0)
+    and the fraction of the first and of the third cells (the wall model's sample) reversed. Left: the area against time; right: the two fractions,
+    the mean over the checkpoints per run."""
+    import json  # noqa: PLC0415
+
+    runs_ = [("s4b", "S4b", "C0"), ("s4c", "S4c, 2:1 box", "C2"), ("s4d", "S4d, $dp/dx$", "C3"), ("s4e", r"S4e, no $\nu_t$ below $h$", "C1"),
+             ("s4f", r"S4f, $dp/dx$, no $\nu_t$", "C5"), ("s4g", "S4g, Bernoulli-consistent", "C4")]
+    fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.2), constrained_layout=True, gridspec_kw={"width_ratios": [1.6, 1.0]})
+    first, third, labels, colors = [], [], [], []
+    for key, lab, c in runs_:
+        j = json.loads((runs / "sbli" / f"rev2-{key}.json").read_text())
+        a = np.array(j["rows"])
+        axs[0].plot(a[:, 0], a[:, 1], "o-", color=c, ms=2.5, lw=0.9, label=lab)
+        first.append(100.0 * a[:, 5].mean())
+        third.append(100.0 * a[:, 7].mean())
+        labels.append(lab.split(",")[0])
+        colors.append(c)
+    axs[0].set_xlabel(r"$t\,U_\infty/\delta_i$")
+    axs[0].set_ylabel(r"area with $u<0$ per unit span $[\delta_0^2]$")
+    axs[0].grid(alpha=0.3)
+    axs[0].legend(fontsize=7.5, loc="upper left", ncol=2)
+    xs = np.arange(len(labels))
+    axs[1].bar(xs - 0.2, first, 0.4, color=colors, label="first cell")
+    axs[1].bar(xs + 0.2, third, 0.4, color=colors, alpha=0.45, hatch="//", label="third cell (the sample)")
+    axs[1].set_xticks(xs, labels)
+    axs[1].set_ylabel("cells reversed in the window [%]")
+    axs[1].grid(alpha=0.3, axis="y")
+    axs[1].legend(fontsize=7.5, loc="upper left")
+    fig.savefig(out / "sbli-reversal.png", dpi=DPI)
+    plt.close(fig)
+
 def fig_sbli_cells(out: Path, runs: Path) -> None:
     """#121 P1: the near-wall cells of the incoming layer at x_imp - 5 delta_0 against the DNS profile the inflow is made from
     (reference/tbl_m2p28_profile.txt), from the span and time averages of sbli_oracle.py fields (<runs>/sbli/<case>-fields.npz; S4c's on the
@@ -5058,7 +5092,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "sbli-reversal": fig_sbli_reversal, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,
