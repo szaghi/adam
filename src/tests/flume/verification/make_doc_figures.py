@@ -3229,6 +3229,36 @@ def fig_sbli_reversal(out: Path, runs: Path) -> None:
     fig.savefig(out / "sbli-reversal.png", dpi=DPI)
     plt.close(fig)
 
+
+def fig_sbli_convective(out: Path, runs: Path) -> None:
+    """#121: the wall model a priori on the mean fields of S4b and S4e (turbulence/sbli_oracle.py convective, <runs>/sbli/<case>-convective.json):
+    C_f of the equilibrium model, with the pressure gradient alone, Bernoulli-consistent, and fed with the convection of the resolved cells below
+    the sample; the mean u of the first cell on the right axis."""
+    import json  # noqa: PLC0415
+
+    fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.2), constrained_layout=True, sharey=True)
+    for ax, (case, lab) in zip(axs, (("sbli-m2p28-8", "S4b"), ("sbli-m2p28-8-nonu", r"S4e, no $\nu_t$ below $h$")), strict=True):
+        j = json.loads((runs / "sbli" / f"{case}-convective.json").read_text())
+        x = np.array(j["x"])
+        for key, c, name in (("cf_eq", "C0", "equilibrium"), ("cf_pg", "C3", "$dp/dx$ alone"), ("cf_bernoulli", "C4", "Bernoulli-consistent"),
+                             ("cf_convective", "C2", "fed with the resolved convection")):
+            ax.plot(x, 1e3 * np.array(j[key]), "-", color=c, lw=1.3, label=name)
+        ax.axhline(0.0, color="k", lw=0.8)
+        ax.axvline(j["x_imp"], color="0.6", ls="--", lw=0.8)
+        ax.set_xlim(48.0, 66.0)
+        ax.set_xlabel(r"$x/\delta_i$")
+        ax.set_title(lab, fontsize=10)
+        ax.grid(alpha=0.3)
+        tw = ax.twinx()
+        tw.plot(x, j["u1"], ":", color="0.4", lw=1.1)
+        tw.axhline(0.0, color="0.4", lw=0.5, ls=":")
+        tw.set_ylim(-0.2, 0.8)
+        tw.set_ylabel(r"mean $u$ of the first cell (dotted)", fontsize=8)
+    axs[0].set_ylabel(r"$10^3 C_f$ a priori")
+    axs[0].legend(fontsize=7.5, loc="lower left")
+    fig.savefig(out / "sbli-convective.png", dpi=DPI)
+    plt.close(fig)
+
 def fig_sbli_cells(out: Path, runs: Path) -> None:
     """#121 P1: the near-wall cells of the incoming layer at x_imp - 5 delta_0 against the DNS profile the inflow is made from
     (reference/tbl_m2p28_profile.txt), from the span and time averages of sbli_oracle.py fields (<runs>/sbli/<case>-fields.npz; S4c's on the
@@ -5092,7 +5122,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "sbli-reversal": fig_sbli_reversal, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "sbli-reversal": fig_sbli_reversal, "sbli-convective": fig_sbli_convective, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

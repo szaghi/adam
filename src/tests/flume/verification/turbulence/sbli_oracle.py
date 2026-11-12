@@ -374,7 +374,7 @@ def _log_mean_inverse(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 WM_POINTS, WM_ITERATIONS, WM_STRETCH, WM_KAPPA, WM_APLUS, WM_PRT = 40, 16, 1.3, 0.41, 17.0, 0.9
 
 
-def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: float = 0.0, forcing=None) -> tuple[np.ndarray, np.ndarray]:
     """tau_w and q_w of the equilibrium model, vectorised over the samples. `px` None: wall_model_solve operation for operation (16 plain
     fixed-point iterations; before #121 S4d 8 with an Aitken step on log tau every second one, which stopped a few samples far from the fixed point). `px` given: the momentum balance with the pressure gradient, `U(h) = tau I0 + px I1`, I0 = int dy / (mu + mu_t), I1 = int y dy /
     (mu + mu_t), solved for tau by a fixed point (tau can be negative; unrelaxed: 16 iterations, the Fortran count, are within 7e-5 of
@@ -382,7 +382,9 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
     px = 0 the same model), the energy flux `cp k dT/dy + tau(y) U` constant across the layer.
     `ypg` > 0 (with `px`): the Bernoulli-consistent variant of Hickel, Touber, Bodart & Larsson (CTR Summer Program 2012, eq. 4.1): the
     convective term cancels the pressure gradient above y_pg = ypg (mu_w^2 / (rho_w |px|))^(1/3) and fades linearly below, so y is replaced
-    by g(y) = y - y^2 / (2 y_pg) below y_pg and y_pg / 2 above, in the stress tau + px g(y), in I1 and in the velocity scale."""
+    by g(y) = y - y^2 / (2 y_pg) below y_pg and y_pg / 2 above, in the stress tau + px g(y), in I1 and in the velocity scale.
+    `forcing` (with `px`, which it replaces): a callable of the model's heights y [samples, points] returning the integrated forcing
+    S(y) = int_0^y (dp/dx + convection) dy' [samples, points]: the stress is tau + S(y), the convection-fed thin-boundary-layer balance."""
     r, cp, pr, mu0, tref, suth, om, sl = (gas[k] for k in ("R", "cp", "pr", "mu0", "tref", "suth", "omega", "semilocal"))
     h, us, ts, ps = (np.asarray(v, dtype=float)[:, None] for v in (h, us, ts, ps))
     dy0 = h * (WM_STRETCH - 1.0) / (WM_STRETCH**WM_POINTS - 1.0)
@@ -399,19 +401,21 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
     dyy = np.diff(y, axis=1)
     p = 0.0 if px is None else np.asarray(px, dtype=float)[:, None]
     g = y
-    if px is not None and ypg > 0.0:
+    if forcing is not None:
+        p, g = 1.0, forcing(y)
+    elif px is not None and ypg > 0.0:
         y_pg = ypg * np.cbrt(muw * muw / (rhow * np.maximum(np.abs(p), 1e-300)))
         g = np.where(y < y_pg, y - y * y / (2.0 * y_pg), 0.5 * y_pg)
-    for _ in range((iterations or (WM_ITERATIONS if px is None else 200))):
+    for _ in range((iterations or (WM_ITERATIONS if px is None and forcing is None else 200))):
         mu = mu0 * _law(t, tref, suth, om)
         rho = ps / (r * t)
-        ts_ = np.abs(tau) + np.abs(p) * g
+        ts_ = np.abs(tau) + np.abs(p * g) if forcing is not None else np.abs(tau) + np.abs(p) * g
         damp = 1.0 - np.exp(-y * np.sqrt(rho * ts_) / (mu * WM_APLUS)) if sl else 1.0 - np.exp(-y * np.sqrt(ts_ / rhow) * rhow / (muw * WM_APLUS))
         mt = WM_KAPPA * y * np.sqrt(rho * ts_) * damp * damp
         a = mu / pr + mt / WM_PRT
         mt = mu + mt
         i0 = np.concatenate([np.zeros_like(h), np.cumsum(dyy * _log_mean_inverse(mt[:, :-1], mt[:, 1:]), axis=1)], axis=1)
-        if px is None:
+        if px is None and forcing is None:
             tnew = us / i0[:, -1:]
             u = i0 * tnew
             stress = tnew
@@ -558,6 +562,68 @@ def reversal(work: Path, x_imp: float, delta0: float, t0: float, json_out: str |
                                               "delta0": delta0, "x_imp": x_imp, "window": [x0, x1, y1]}))
     return 0
 
+def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
+    """The wall model fed with the flow's own convection, a priori on the mean field of a run (an npz of `fields`): at each x, the sample of the
+    3rd cell, the stress tau + S(y), S = int_0^y F, F = dp/dx + d(rho u u)/dx + d(rho u v)/dy of the mean field in the cells below the sample
+    (linear in y between the cell centres, F(0) = dp/dx: no convection at the wall), the eddy viscosity on sqrt((|tau| + |S|) / rho): the
+    steady thin-boundary-layer balance of Wang & Moin (2002) or Park & Moin (2014), with the convection taken from the resolved cells instead of
+    from its own profile. Against: the equilibrium model, the pressure gradient alone (S4d's), the Bernoulli-consistent one (S4g's), and the mean
+    u of the first cell. A priori on time means: what the model would return for the mean field, not what a run with it converges to."""
+    d = np.load(npz)
+    x, y, delta0, x_imp = d["x"], d["y"], float(d["delta0"]), float(d["x_imp"])
+    dx, dy = x[1] - x[0], y[1] - y[0]
+    t_inf = float(d["t_inf"])
+    gas = {"R": 1.0, "cp": GAMMA / (GAMMA - 1.0), "pr": gas_args["prandtl"], "mu0": 1.0 / gas_args["reynolds"], "tref": t_inf,
+           "suth": gas_args["suth"], "omega": 1.5, "semilocal": gas_args["semilocal"]}
+    r, ru, v, t, p = d["r"], d["ru"], d["v"], d["t"], d["p"]
+    u = ru / r
+    pw = p[:, 0]
+    px = np.gradient(pw, dx)
+    # the convection of the mean field in cells 1-3: d(rho u u)/dx (central) + d(rho u v)/dy (the wall's flux zero, central above)
+    fx = np.gradient(ru[:, :4] * u[:, :4], dx, axis=0)
+    ruv = np.concatenate([np.zeros((len(x), 1)), ru[:, :4] * v[:, :4]], axis=1)
+    yy = np.concatenate([[0.0], y[:4]])
+    fy = np.gradient(ruv, yy, axis=1)[:, 1:]
+    conv = fx + fy  # [x, 4] at the centres of cells 1-4
+    near = (x > x_imp - 10.0 * delta0) & (x < x_imp + 4.0 * delta0)
+    idx = np.where(near)[0]
+    h = np.full(idx.size, 2.5 * dy)
+    us, ts, ps = u[idx, 2], t[idx, 2], p[idx, 2]
+    tw = gas_args["t_wall"]
+    yc = np.concatenate([[0.0], y[:3]])  # the wall and the centres of cells 1-3 (the sample at the 3rd)
+    fc = np.concatenate([np.zeros((idx.size, 1)), conv[idx, :3]], axis=1) + px[idx, None]
+
+    def forcing(ym: np.ndarray) -> np.ndarray:
+        """S(y) = int_0^y F, F piecewise linear between the wall and the cell centres (constant beyond the last)."""
+        out = np.zeros_like(ym)
+        for n in range(ym.shape[0]):
+            fine = np.linspace(0.0, float(ym[n, -1]), 2001)
+            f = np.interp(fine, yc, fc[n])
+            cum = np.concatenate([[0.0], np.cumsum(0.5 * (f[1:] + f[:-1]) * np.diff(fine))])
+            out[n] = np.interp(ym[n], fine, cum)
+        return out
+
+    cf_eq = 2.0 * wall_model(h, us, ts, ps, tw, gas)[0]
+    cf_pg = 2.0 * wall_model(h, us, ts, ps, tw, gas, px=px[idx])[0]
+    cf_b = 2.0 * wall_model(h, us, ts, ps, tw, gas, px=px[idx], ypg=4.0)[0]
+    cf_c = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing)[0]
+    xs = x[idx]
+
+    def sep(cf: np.ndarray) -> str:
+        neg = xs[cf < 0.0]
+        return f"x {neg.min():.2f}-{neg.max():.2f}, {(neg.max() - neg.min() + dx) / delta0:.2f} delta_0" if neg.size else "none"
+
+    u1 = u[idx, 0]
+    print(f"== {npz.stem}: x {xs[0]:.1f}-{xs[-1]:.1f}, sample the 3rd cell (h {2.5 * dy:.3f}), delta_0 {delta0:.3f}")
+    print(f"  C_f < 0, equilibrium model: {sep(cf_eq)}; dp/dx alone: {sep(cf_pg)}; Bernoulli-consistent: {sep(cf_b)}; convection-fed: {sep(cf_c)}")
+    print(f"  mean u < 0 in the first cell: {sep(u1)}")
+    print(f"  C_f minimum (1e-3): equilibrium {1e3 * cf_eq.min():.3f}, dp/dx {1e3 * cf_pg.min():.3f}, Bernoulli {1e3 * cf_b.min():.3f}, "
+          f"convection-fed {1e3 * cf_c.min():.3f}")
+    if json_out:
+        Path(json_out).write_text(json.dumps({"x": xs.tolist(), "cf_eq": cf_eq.tolist(), "cf_pg": cf_pg.tolist(), "cf_bernoulli": cf_b.tolist(),
+                                              "cf_convective": cf_c.tolist(), "u1": u1.tolist(), "delta0": delta0, "x_imp": x_imp}))
+    return 0
+
 def main() -> int:
     """Dispatch the subcommand."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -593,7 +659,17 @@ def main() -> int:
     v.add_argument("--delta0", type=float, required=True)
     v.add_argument("--t0", type=float, default=300.0)
     v.add_argument("--json")
+    k = sub.add_parser("convective")
+    k.add_argument("npz", type=Path)
+    k.add_argument("--reynolds", type=float, default=35500.0)
+    k.add_argument("--prandtl", type=float, default=0.71)
+    k.add_argument("--suth", type=float, default=0.10662621465945567, help="Sutherland temperature (the S4 runs')")
+    k.add_argument("--t-wall", type=float, default=0.26354262850107724)
+    k.add_argument("--classical", action="store_true", help="classical damping (default semi-local, the S4 runs')")
+    k.add_argument("--json")
     a = ap.parse_args()
+    if a.cmd == "convective":
+        return convective(a.npz, a.json, {"reynolds": a.reynolds, "prandtl": a.prandtl, "suth": a.suth, "t_wall": a.t_wall, "semilocal": not a.classical})
     if a.cmd == "reversal":
         return reversal(a.work, a.x_imp, a.delta0, a.t0, a.json)
     if a.cmd == "means":

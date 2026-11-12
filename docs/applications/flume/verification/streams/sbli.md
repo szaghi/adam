@@ -496,6 +496,37 @@ The time-mean reversal of the cells is printed by `sbli_oracle.py compression`.*
   below $h$: a model fed with the flow's own convection between the wall and $h$ (thin-boundary-layer equations, an
   integral model) has it by construction.
 
+### A priori: the wall model fed with the resolved convection
+
+The thin-boundary-layer balance between the wall and $h$ keeps the convection with the pressure gradient (Wang &
+Moin 2002; Park & Moin 2014): $(\mu+\mu_t)\,dU/dy=\tau_w+\int_0^y F\,dy'$, $F=dp/dx+\partial(\rho uu)/\partial x+
+\partial(\rho uv)/\partial y$. Fed with $F$ of the resolved cells below the sample (linear in $y$ between the cell
+centres, $F=dp/dx$ at the wall, where the convection vanishes) and applied to the mean field of a run
+(`sbli_oracle.py convective`):
+
+| $C_f<0$ a priori, $\delta_0$ | equilibrium | $dp/dx$ alone (S4d's) | Bernoulli-consistent (S4g's) | fed with the resolved convection | mean $u<0$ of the first cell |
+|---|---|---|---|---|---|
+| S4b's mean field | 0 | 2.86 | 1.01 | 3.04 ($x=56.5$–61.9) | none |
+| S4d's | 0 | 2.88 | 0.74 | 2.79 | none |
+| S4e's | 0 | 2.57 | 1.31 | 3.33 ($x=56.4$–62.5) | 1.08 |
+| S4f's | 0 | 3.11 | 1.31 | 2.98 | 0.72 |
+
+![The wall model a priori on the mean fields](/flume/sbli-convective.png)
+
+*$C_f$ of the four models on the mean fields of S4b (left) and S4e (right), the mean $u$ of the first cell dotted.
+`sbli_oracle.py convective`, `make_doc_figures.py --only sbli-convective`.*
+
+- **Where the resolved flow obeys Bernoulli, the model follows it.** At the steepest gradient ($x\approx56.5$) the
+  resolved convection of cells 1–6 balances 0.9–1.4 of $-dp/dx$, and the model fed with it loses the spike of the
+  pressure gradient alone ($C_f=-1.58\cdot10^{-3}$ there for S4b), as the Bernoulli-consistent model does.
+- **Where the resolved near-wall flow is slow or reversed, the convection is small** (0 to 0.3 of $-dp/dx$ in cells
+  1–3 over $x=57.5$–58.5) and the model behaves as the pressure gradient alone: $C_f<0$ over about $3\,\delta_0$, from
+  $x^*\approx-0.6$, downstream into the reattachment.
+- **The a priori does not tell this model from S4d's** (2.8–3.3 against 2.6–3.1), and S4d's run kept a fifth of its
+  a priori bubble. Unlike S4d's model, this one changes with the resolved flow: its $\tau_w$ turns negative where the
+  resolved convection stops balancing the pressure gradient, which is where S4c, S4e and S4f reverse below $h$. Only a run says
+  whether the feedback opens the DNS's bubble.
+
 ## Not done
 
 - A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). Left: a model fed with the flow's own convection (integral, thin-boundary-layer equations), and a matching height fixed in $\delta_i$ across the levels.
