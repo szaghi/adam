@@ -49,7 +49,7 @@
 #   wm1  T3.1 laminar channel, isothermal walls, Re 100, M 0.1, from the laminar profile: the driving force against 3 mu U / h^2 with order, mass conserved
 #        (the no-slip walls of #65 let mass through at O(h^3) before their inviscid face fluxes were closed: 1.6e-7, 2.1e-8, 2.0e-9 at 16, 32, 64);
 #        one rank against N on the perturbed flow.
-#   wm2  T3.3, T3.4: test_wall_model (laminar limit, log law, Crocco; the model with the pressure gradient, S4d of #121: its laminar limit of either sign, px = 0 against the equilibrium model, a fine grid; its Bernoulli-consistent variant, P1 of #121: laminar limit, ypg 0 bit for bit, a fine grid); the laminar channel on modelled walls: the force with order above 1.5 (the mirror cell and the linear profile are second order), mass conserved. The time 2 is before the diffusive steady state, t about 40, so the same transient on both sides.
+#   wm2  T3.3, T3.4: test_wall_model (laminar limit, log law, Crocco; the model with the pressure gradient, S4d of #121: its laminar limit of either sign, px = 0 against the equilibrium model, a fine grid; its Bernoulli-consistent variant, P1 of #121: laminar limit, ypg 0 bit for bit, a fine grid; the model fed with the convection, P2: a zero convection against the pressure model, the laminar limit, a fine grid); the laminar channel on modelled walls: the force with order above 1.5 (the mirror cell and the linear profile are second order), mass conserved. The time 2 is before the diffusive steady state, t about 40, so the same transient on both sides.
 #   wm3  T3.6: the same with 2:1 faces along the walls, half the wall refined: mass conserved, the force strictly between those of the uniform base and of the
 #        uniform grid with the fine wall spacing (the flow does not depend on x, z). Runtime regridding is not run.
 #   wm4  T3.3: the energy flux: a wall hotter than the gas, modelled against resolved isothermal walls: the same change of the total energy within 15 %; one rank against N on modelled walls.
@@ -88,6 +88,11 @@
 #        T_p = 0.01) acts, the force differs from the unfiltered run by more than 1e-6; (e) the filtered gradient across a restart (the 6th average of the
 #        .wmf): 20 steps straight against 10, a checkpoint, a restart to 20, bit for bit (fields and every history); (f) a .wmf of another layout
 #        (truncated by 8 bytes) restarts the averages with a warning, never read misaligned.
+#   wm13 the model fed with the resolved convection (wall_model_convection, #121 P2; the model alone is leg wm2's): on wm12's channel with the filtered
+#        gradient: (a) it acts, the force differs from wm12's filtered run by more than 1e-6; (b) the same cells in 2 or 4 blocks per direction agree (the
+#        convection's central differences read the ghost cells along the wall at a block face); (c) one rank against N; CPU against GPU with --agree;
+#        (d) the filtered convection across a restart (averages 7-10 of the .wmf): 20 steps straight against 10, a checkpoint, a restart to 20, bit for
+#        bit; (e) a .wmf of another layout restarts the averages with a warning.
 #   tb1  the digital-filter inflow (T3.7): (a) test_inflow_df, the generator alone: Reynolds stresses within 3 % of the table (summed over the layer), the
 #        temporal correlation exp(-pi t / 2T) within 0.03, the spanwise integral length within 10 % of 2 L / pi, a periodic span, a bitwise restart of the plane;
 #        (b) a Mach 2.5 box (make_tbl.py on the M2p5 table of the Zhang-Duan-Choudhari DNS), 20 steps: the inflow ghosts carry the table's mean u at delta / 2
@@ -111,7 +116,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11 wm12 tb1 tb2"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11 wm12 wm13 tb1 tb2"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -519,6 +524,34 @@ if has_leg wm12; then
       for h in "$a"/*_history.dat; do cmp -s "$h" "$b/$(basename "$h")" || { bitwise=0 ; result="$result; $(basename "$h") differs" ; } ; done
       if [[ $v == restart ]]; then
          [[ $bitwise -eq 1 ]] && echo "restart with the filtered gradient: $result  PASS" || { echo "restart with the filtered gradient: $result  FAIL" ; exit 1 ; }
+      else
+         grep -q "has another layout" "$b/log2.txt" && echo "a .wmf of another layout: refused with a warning  PASS" || { echo "a .wmf of another layout: no warning  FAIL" ; exit 1 ; }
+      fi
+   done
+fi
+if has_leg wm13; then
+   echo "== wm13: the model fed with the resolved convection"
+   E=(--nx 32 --ny 32 --nz 32 --wall wall-modelled --wm-height 0.3 --reynolds 1000 --perturbation 0.1 --it-max 10 --wm-eddy-viscosity --wm-pressure-gradient --wm-pg-filter 0.01)
+   a=$(channel_run wm13-on "$NP" "${E[@]}" --wm-convection)
+   b=$(channel_run wm13-off "$NP" "${E[@]}")
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" differ --tol 1e-6 "$a" "$b"
+   b=$(channel_run wm13-l1 "$NP" "${E[@]}" --wm-convection --levels 1)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+   a=$(channel_run wm13-np1 1 "${E[@]}" --wm-convection)
+   b=$(channel_run wm13-npN "$NP" "${E[@]}" --wm-convection)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+   R=(--nx 32 --ny 32 --nz 32 --wall wall-modelled --wm-height 0.3 --reynolds 1000 --perturbation 0.1 --wm-eddy-viscosity --wm-pressure-gradient --wm-pg-filter 0.01 --wm-convection --it-save 10)
+   a=$(channel_run wm13-straight "$NP" "${R[@]}" --it-max 20)
+   for v in restart layout; do
+      b=$(channel_run "wm13-$v" "$NP" "${R[@]}" --it-max 10 --restart-save 10)
+      [[ $(ls "$b"/*.wmf 2>/dev/null | wc -l) -eq $NP ]] || { echo "check.sh: wm13 wrote no .wmf per rank" >&2 ; exit 1 ; }
+      [[ $v == layout ]] && for w in "$b"/*.wmf; do truncate -s -8 "$w"; done
+      python3 -I "$CASE_DIR/make_channel.py" "$b/input.ini" "${R[@]}" --it-max 20 --restart
+      (cd "$b" && mpirun -np "$NP" "$EXE" input.ini > log2.txt 2>&1) || { echo "check.sh: wm13 $v failed, see $b/log2.txt" >&2 ; exit 1 ; }
+      result="$("$VENV_PY" "$VERIF_DIR/scaling/scaling.py" compare "$a" "$b" --ngc 3 --conservative --psi glm)" && bitwise=1 || bitwise=0
+      for h in "$a"/*_history.dat; do cmp -s "$h" "$b/$(basename "$h")" || { bitwise=0 ; result="$result; $(basename "$h") differs" ; } ; done
+      if [[ $v == restart ]]; then
+         [[ $bitwise -eq 1 ]] && echo "restart with the filtered convection: $result  PASS" || { echo "restart with the filtered convection: $result  FAIL" ; exit 1 ; }
       else
          grep -q "has another layout" "$b/log2.txt" && echo "a .wmf of another layout: refused with a warning  PASS" || { echo "a .wmf of another layout: no warning  FAIL" ; exit 1 ; }
       fi

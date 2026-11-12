@@ -5,7 +5,8 @@ module adam_flume_cpu_forcing_kernels
 
 use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure
+use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
+                                         wall_model_solve_convective, WM_CONV_CELLS
 use :: penf,                  only : I4P, R8P
 
 implicit none
@@ -67,7 +68,7 @@ contains
    !$omp end parallel do
    endsubroutine add_uniform_momentum
    subroutine overwrite_wall_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces, tw, hwm, sl, tf, dt, commit, fresh, &
-                                    avg, inv, ue, te, pg, yp, tp, is_null, dxyz, q_aux, fl)
+                                    avg, inv, ue, te, pg, yp, cv, tp, is_null, dxyz, q_aux, fl)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
    !< With a filter time `tf` the sample is `(1 - e) a + e s`, `e = min(dt / tf, 1)` (1 when `fresh`), from the averages `a` of the face, which take it when `commit`
@@ -91,13 +92,14 @@ contains
    real(R8P),    intent(in)    :: ue(6), te(6)                    !< Inverse model: speed and temperature at the edge of the layer per face.
    logical,      intent(in)    :: pg(6)                           !< The pressure gradient in the equilibrium model per face (issue #121, S4d).
    real(R8P),    intent(in)    :: yp(6)                           !< y_pg of the Bernoulli-consistent pressure gradient per face, 0 for none (#121 P1).
+   logical,      intent(in)    :: cv(6)                           !< The model fed with the resolved convection per face (#121 P2).
    real(R8P),    intent(in)    :: tp(6)                           !< Filter time of the pressure gradient per face, 0 for none.
    logical,      intent(in)    :: is_null(3)                      !< Null directions.
    real(R8P),    intent(in)    :: dxyz(1:,1:)                    !< Blocks space steps.
    real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)      !< Face fluxes of direction `d`.
-   real(R8P)                   :: u(3), us, ts, ps, rs, tau, q, cp, h, s, w, e, px, ep !< Work.
-   integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, ia, ja, ka !< Counters.
+   real(R8P)                   :: u(3), us, ts, ps, rs, tau, q, cp, h, s, w, e, px, ep, cc(WM_CONV_CELLS) !< Work.
+   integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, ia, ja, ka, nc, c !< Counters.
 
    n = ni * di + nj * dj + nk * dk
    cp = gamma * (R / (gamma - 1._R8P)) ! as the physics object derives it (cv = R / (gamma - 1), cp = gamma cv)
@@ -144,8 +146,23 @@ contains
                         px = (1._R8P - ep) * avg(6,ia,ja,ka,b) + ep * px
                         if (commit) avg(6,ia,ja,ka,b) = px
                      endif
-                     call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, &
-                                                    omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f), ypg=yp(f))
+                     if (cv(f)) then ! the model fed with the convection of the cells up to the sample (#121 P2), filtered as the gradient: avg(7:)
+                        nc = min(m + merge(1_I4P, 0_I4P, w > 0._R8P), WM_CONV_CELLS, n - 1_I4P)
+                        cc = 0._R8P
+                        do c=1, nc
+                           cc(c) = cell_convection(i=i, j=j, k=k, b=b, c=c, u=u, us=us)
+                        enddo
+                        ia = merge(side, i, di == 1_I4P) ; ja = merge(side, j, dj == 1_I4P) ; ka = merge(side, k, dk == 1_I4P)
+                        do c=1, nc
+                           cc(c) = (1._R8P - ep) * avg(6+c,ia,ja,ka,b) + ep * cc(c)
+                           if (commit) avg(6+c,ia,ja,ka,b) = cc(c)
+                        enddo
+                        call wall_model_solve_convective(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, nc=nc, dyc=dxyz(d,b), cc=cc, R=R, cp=cp, pr=pr, &
+                                                         mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
+                     else
+                        call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, &
+                                                       omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f), ypg=yp(f))
+                     endif
                   elseif (inv(f)) then
                      call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=tw(f), ue=ue(f), te=te(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
                                                    tau=tau, q=q)
@@ -188,6 +205,46 @@ contains
       enddo
       px = px / us
       endfunction sample_pressure_gradient
+
+      function cell_convection(i, j, k, b, c, u, us) result(cv_)
+      !< The convection along the sample velocity `u` (speed `us`) at the cell `c` counted from the wall (issue #121, P2):
+      !< `sum_t e_t sum_j d(rho u_t u_j)/dx_j`, `e = u / us`; along each active wall-parallel direction a central difference of the neighbours;
+      !< along the normal, in the coordinate away from the wall, `(G_2 + 3 G_1) / (3 dx)` in the first cell (the wall's G = 0 at half a cell)
+      !< and a central difference above, `G = rho u_t u_d`.
+      integer(I4P), intent(in) :: i, j, k, b, c      !< Face index, block, cell from the wall.
+      real(R8P),    intent(in) :: u(3), us           !< Sample velocity and speed.
+      real(R8P)                :: cv_                !< Convection.
+      integer(I4P)             :: t, jd, oc, cc0(3), et(3) !< Counters, cell.
+      real(R8P)                :: sd                 !< Sign of the axis away from the wall.
+
+      cv_ = 0._R8P
+      if (.not.(us > 0._R8P)) return
+      sd = merge(1._R8P, -1._R8P, side == 1)
+      oc = merge(c, 1_I4P - c, side == 1)
+      cc0 = [i + di * oc, j + dj * oc, k + dk * oc]
+      do t=1, 3
+         if (t == d .or. u(t) == 0._R8P) cycle
+         do jd=1, 3
+            if (jd /= d .and. is_null(jd)) cycle
+            et = 0_I4P ; et(jd) = 1_I4P
+            if (jd /= d) then
+               cv_ = cv_ + u(t) / us * (flux(cc0 + et, b, t, jd) - flux(cc0 - et, b, t, jd)) / (2._R8P * dxyz(jd,b))
+            elseif (c == 1_I4P) then
+               cv_ = cv_ + u(t) / us * sd * (flux(cc0 + nint(sd) * et, b, t, jd) + 3._R8P * flux(cc0, b, t, jd)) / (3._R8P * dxyz(jd,b))
+            else
+               cv_ = cv_ + u(t) / us * sd * (flux(cc0 + nint(sd) * et, b, t, jd) - flux(cc0 - nint(sd) * et, b, t, jd)) / (2._R8P * dxyz(jd,b))
+            endif
+         enddo
+      enddo
+      endfunction cell_convection
+
+      function flux(cl, b, t, jd) result(g)
+      !< `rho u_t u_jd` of the cell `cl` of the block `b`.
+      integer(I4P), intent(in) :: cl(3), b, t, jd !< Cell, block, components.
+      real(R8P)                :: g            !< Momentum flux.
+
+      g = q_aux(IA_R,cl(1),cl(2),cl(3),b) * q_aux(IA_U+t-1,cl(1),cl(2),cl(3),b) * q_aux(IA_U+jd-1,cl(1),cl(2),cl(3),b)
+      endfunction flux
    endsubroutine overwrite_wall_fluxes
    subroutine add_wall_mu_t(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces, ev, tw, hwm, sl, inv, ue, te, &
                             is_null, dxyz, q_aux, mu_t)

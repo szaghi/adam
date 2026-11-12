@@ -23,8 +23,9 @@ public :: wall_eddy_viscosity
 public :: wall_model_solve
 public :: wall_model_solve_inverse
 public :: wall_model_solve_pressure
+public :: wall_model_solve_convective
 public :: inverse_strain
-public :: WM_ITERATIONS, WM_POINTS
+public :: WM_ITERATIONS, WM_POINTS, WM_CONV_CELLS
 
 integer(I4P), parameter :: WM_POINTS=40_I4P     !< Intervals of the layer; tau within 1 % up to h+ = 1e5, 5.5 % off at 1e6.
 integer(I4P), parameter :: WM_ITERATIONS=16_I4P !< Plain fixed-point iterations (an Aitken step every second one, before #121 S4d, stopped a few
@@ -36,6 +37,7 @@ real(R8P),    parameter :: WM_PRT=0.9_R8P       !< Turbulent Prandtl number.
 real(R8P),    parameter :: WM_SRA=1.14_R8P      !< Reynolds analogy factor of the inverse model (Griffin et al. 2023, after Zhang et al. 2014).
 integer(I4P), parameter :: WM_SHOTS=8_I4P       !< Shots of the inverse model, secant on ln(tau) after the first.
 integer(I4P), parameter :: WM_SUBITERATIONS=2_I4P !< Corrections of each step of the inverse model.
+integer(I4P), parameter :: WM_CONV_CELLS=4_I4P   !< Cells below (and at) the sample whose convection feeds wall_model_solve_convective.
 
 contains
    pure function wall_eddy_viscosity(y, rho, mu, tau, rhow, muw, semilocal) result(mt)
@@ -292,6 +294,151 @@ contains
       q = muw * cp / pr * (ts - tw) / h
    endif
    endsubroutine wall_model_solve_pressure
+
+   pure subroutine wall_model_solve_convective(h, us, ts, ps, tw, px, nc, dyc, cc, R, cp, pr, mu0, tref, suth, omega_mu, tau, q, semilocal)
+   !< `wall_model_solve_pressure` fed with the flow's own convection (issue #121, P2): the thin-boundary-layer balance between the wall and the
+   !< sample keeps the convection with the pressure gradient (Wang & Moin 2002; Park & Moin 2014), `(mu + mu_t) dU/dy = tau_w + S(y)`,
+   !< `S(y) = int_0^y F`, `F = px + C`, with `C` the convection along the sample velocity of the resolved cells below the sample, `cc(1:nc)` at
+   !< the cell centres `(c - 1/2) dyc`, linear in y between them, 0 at the wall (no-slip), constant beyond the last centre. `S` replaces `px y` of
+   !< the pressure model in the stress, in I1 and in the velocity scale `sqrt((|tau_w| + |S|) / rho)`; `cc = 0` is that model to round-off. Where the
+   !< resolved convection balances the pressure gradient (Bernoulli) the forcing vanishes, where the near-wall flow is slow it is the gradient.
+   real(R8P),    intent(in)  :: h, us, ts, ps       !< Height, parallel speed, temperature and pressure of the sample.
+   real(R8P),    intent(in)  :: tw                  !< Wall temperature.
+   real(R8P),    intent(in)  :: px                  !< Pressure gradient along the sample velocity.
+   integer(I4P), intent(in)  :: nc                  !< Cells with a convection, 0 to WM_CONV_CELLS.
+   real(R8P),    intent(in)  :: dyc                 !< Cell spacing along the normal.
+   real(R8P),    intent(in)  :: cc(WM_CONV_CELLS)   !< Convection along the sample velocity at the centres of cells 1 to nc.
+   real(R8P),    intent(in)  :: R, cp, pr           !< Gas constant, specific heat, Prandtl number.
+   real(R8P),    intent(in)  :: mu0, tref, suth, omega_mu !< Viscosity law, as `compute_dissipative_flux`.
+   real(R8P),    intent(out) :: tau, q              !< Wall shear stress (along the sample velocity), wall heat flux.
+   logical,      intent(in), optional :: semilocal  !< Semi-local damping.
+   logical                   :: sl                  !< Local copy.
+   real(R8P)                 :: y(0:WM_POINTS)      !< Heights.
+   real(R8P)                 :: sg(0:WM_POINTS)     !< The integrated forcing S(y).
+   real(R8P)                 :: t(0:WM_POINTS)      !< Temperature.
+   real(R8P)                 :: u(0:WM_POINTS)      !< I0, then the velocity.
+   real(R8P)                 :: v(0:WM_POINTS)      !< I1.
+   real(R8P)                 :: mt(0:WM_POINTS)     !< mu + mu_t.
+   real(R8P)                 :: a(0:WM_POINTS)      !< mu / Pr + mu_t / Pr_t.
+   real(R8P)                 :: yk(0:WM_CONV_CELLS) !< Knots of F: the wall and the cell centres.
+   real(R8P)                 :: fk(0:WM_CONV_CELLS) !< F at the knots.
+   real(R8P)                 :: dy0, mu, rho, rhow, muw, ts_, damp, i2, i3, dy, hp, tnew, s0, s1, ya, yb, fa, fb !< Work.
+   integer(I4P)              :: n, it, c, nk        !< Counters, knots.
+   !$acc routine seq
+   !$omp declare target
+
+   sl = .false. ; if (present(semilocal)) sl = semilocal
+   dy0 = h * (WM_STRETCH - 1._R8P) / (WM_STRETCH**WM_POINTS - 1._R8P)
+   y(0) = 0._R8P
+   t(0) = tw
+   do n=1, WM_POINTS
+      y(n) = y(n-1) + dy0 * WM_STRETCH**(n-1)
+      t(n) = tw + (ts - tw) * y(n) / h
+   enddo
+   rhow = ps / (R * tw)
+   muw = mu0 * temperature_law(t=tw, tref=tref, suth=suth, omega=omega_mu)
+   q = muw * cp / pr * (ts - tw) / h
+   ! the forcing: F piecewise linear on the knots (the wall, F = px, and the cell centres, F = px + C), constant beyond the last; S its integral
+   nk = max(0_I4P, min(nc, WM_CONV_CELLS))
+   yk(0) = 0._R8P ; fk(0) = px
+   do c=1, nk
+      yk(c) = (real(c, R8P) - 0.5_R8P) * dyc ; fk(c) = px + cc(c)
+   enddo
+   sg(0) = 0._R8P
+   do n=1, WM_POINTS
+      ! the integral over [y(n-1), y(n)] of the piecewise linear F, split at the knots inside the interval
+      ya = y(n-1) ; fa = forcing_at(ya, nk, yk, fk)
+      s0 = 0._R8P
+      do c=1, nk
+         if (yk(c) > ya .and. yk(c) < y(n)) then
+            yb = yk(c) ; fb = fk(c)
+            s0 = s0 + 0.5_R8P * (yb - ya) * (fa + fb)
+            ya = yb ; fa = fb
+         endif
+      enddo
+      yb = y(n) ; fb = forcing_at(yb, nk, yk, fk)
+      sg(n) = sg(n-1) + s0 + 0.5_R8P * (yb - ya) * (fa + fb)
+   enddo
+   ! the first guess of the equilibrium model (the log law when above the laminar one), zero without a speed
+   tau = max(muw * us / h, 0._R8P)
+   if (tau > 0._R8P) then
+      hp = h * sqrt(tau / rhow) * rhow / muw
+      do it=1, 3
+         hp = max(hp, 1.5_R8P)
+         hp = (us / (log(hp) / WM_KAPPA + 5._R8P)) * h * rhow / muw
+      enddo
+      if (hp > 11._R8P) tau = rhow * (hp * muw / (h * rhow))**2
+   endif
+   do it=1, WM_ITERATIONS
+      do n=0, WM_POINTS
+         mu = mu0 * temperature_law(t=t(n), tref=tref, suth=suth, omega=omega_mu)
+         rho = ps / (R * t(n))
+         ts_ = abs(tau) + abs(sg(n))
+         if (sl) then
+            damp = 1._R8P - exp(-y(n) * sqrt(rho * ts_) / (mu * WM_APLUS))
+         else
+            damp = 1._R8P - exp(-y(n) * sqrt(ts_ * rhow) / (muw * WM_APLUS))
+         endif
+         mt(n) = WM_KAPPA * y(n) * sqrt(rho * ts_) * damp * damp
+         a(n) = mu / pr + mt(n) / WM_PRT
+         mt(n) = mu + mt(n)
+      enddo
+      u(0) = 0._R8P ; v(0) = 0._R8P
+      do n=1, WM_POINTS
+         u(n) = u(n-1) + (y(n) - y(n-1)) * log_mean_inverse(mt(n-1), mt(n))
+         v(n) = v(n-1) + 0.5_R8P * (y(n) - y(n-1)) * (sg(n-1) / mt(n-1) + sg(n) / mt(n))
+      enddo
+      tnew = (us - v(WM_POINTS)) / u(WM_POINTS)
+      do n=0, WM_POINTS
+         u(n) = tnew * u(n) + v(n)
+      enddo
+      i2 = 0._R8P ; i3 = 0._R8P
+      do n=1, WM_POINTS
+         dy = (y(n) - y(n-1)) * log_mean_inverse(a(n-1), a(n))
+         s0 = (tnew + sg(n-1)) * u(n-1) ; s1 = (tnew + sg(n)) * u(n)
+         i2 = i2 + dy
+         i3 = i3 + 0.5_R8P * dy * (s0 + s1)
+      enddo
+      q = (cp * (ts - tw) + i3) / i2
+      i2 = 0._R8P ; i3 = 0._R8P
+      do n=1, WM_POINTS
+         dy = (y(n) - y(n-1)) * log_mean_inverse(a(n-1), a(n))
+         s0 = (tnew + sg(n-1)) * u(n-1) ; s1 = (tnew + sg(n)) * u(n)
+         i2 = i2 + dy
+         i3 = i3 + 0.5_R8P * dy * (s0 + s1)
+         t(n) = max(0.5_R8P * t(n) + 0.5_R8P * (tw + (q * i2 - i3) / cp), 0.1_R8P * min(tw, ts))
+      enddo
+      tau = tnew
+   enddo
+   if (.not.(abs(tau) < huge(1._R8P) .and. abs(q) < huge(1._R8P))) then ! a last resort: the laminar layer, U(h) mu_w = tau h + int_0^h S
+      s0 = 0._R8P
+      do n=1, WM_POINTS
+         s0 = s0 + 0.5_R8P * (y(n) - y(n-1)) * (sg(n-1) + sg(n))
+      enddo
+      tau = (muw * us - s0) / h
+      q = muw * cp / pr * (ts - tw) / h
+   endif
+   endsubroutine wall_model_solve_convective
+
+   pure function forcing_at(yy, nk, yk, fk) result(f)
+   !< The forcing of `wall_model_solve_convective` at the height `yy`: linear between the knots `yk(0:nk)`, constant beyond the last.
+   real(R8P),    intent(in) :: yy                  !< Height.
+   integer(I4P), intent(in) :: nk                  !< Last knot.
+   real(R8P),    intent(in) :: yk(0:WM_CONV_CELLS) !< Knots.
+   real(R8P),    intent(in) :: fk(0:WM_CONV_CELLS) !< Forcing at the knots.
+   real(R8P)                :: f                   !< Forcing.
+   integer(I4P)             :: k                   !< Knot.
+   !$acc routine seq
+   !$omp declare target
+
+   f = fk(nk)
+   do k=1, nk
+      if (yy <= yk(k)) then
+         f = fk(k-1) + (fk(k) - fk(k-1)) * (yy - yk(k-1)) / (yk(k) - yk(k-1))
+         return
+      endif
+   enddo
+   endfunction forcing_at
 
    pure subroutine wall_model_solve_inverse(h, us, ts, ps, tw, ue, te, R, cp, pr, mu0, tref, suth, omega_mu, tau, q)
    !< Return the wall shear stress `tau` and the heat flux `q` (`k dT/dy` at the wall, positive when the gas is hotter than the wall) of an isothermal wall by the model of

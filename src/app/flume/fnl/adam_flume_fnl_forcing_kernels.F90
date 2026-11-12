@@ -7,7 +7,8 @@ module adam_flume_fnl_forcing_kernels
 
 use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure
+use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
+                                         wall_model_solve_convective, WM_CONV_CELLS
 use :: penf,                  only : I4P, R8P
 
 implicit none
@@ -75,7 +76,7 @@ contains
    enddo
    endsubroutine add_uniform_momentum_dev
    subroutine overwrite_wall_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces_gpu, tw, hwm, sl, tf, dt, commit, &
-                                        fresh, avg_gpu, inv, ue, te, pg, yp, tp, is_null, dxyz_gpu, q_aux_gpu, fl_gpu)
+                                        fresh, avg_gpu, inv, ue, te, pg, yp, cv, tp, is_null, dxyz_gpu, q_aux_gpu, fl_gpu)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
    !< With a filter time `tf` the sample is `(1 - e) a + e s`, `e = min(dt / tf, 1)` (1 when `fresh`), from the averages `a` of the face, which take it when `commit`.
@@ -98,6 +99,7 @@ contains
    real(R8P),    intent(in)    :: ue(6), te(6)                    !< Inverse model: speed and temperature at the edge of the layer per face.
    logical,      intent(in)    :: pg(6)                           !< The pressure gradient in the equilibrium model per face (issue #121, S4d).
    real(R8P),    intent(in)    :: yp(6)                           !< y_pg of the Bernoulli-consistent pressure gradient per face, 0 for none (#121 P1).
+   logical,      intent(in)    :: cv(6)                           !< The model fed with the resolved convection per face (#121 P2).
    real(R8P),    intent(in)    :: tp(6)                           !< Filter time of the pressure gradient per face, 0 for none.
    logical,      intent(in)    :: is_null(3)                      !< Null directions.
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Blocks space steps.
@@ -110,6 +112,10 @@ contains
    logical                     :: pgf, nl1, nl2, nl3                 !< Pressure gradient of the face, null directions.
    real(R8P)                   :: px, g, g2, tpf, ep, ypf            !< Pressure gradient along the sample velocity, along a direction; its filter; y_pg.
    integer(I4P)                :: t, ei, ej, ek                      !< Wall-parallel direction, its unit step.
+   logical                     :: cvf                                !< Convection-fed model of the face (#121 P2).
+   real(R8P)                   :: cc(WM_CONV_CELLS), sd, fcv, ut, gp, gm, g0 !< Convection of the cells, sign away from the wall, work.
+   integer(I4P)                :: nc, c, oc, ic, jc, kc, tt, jd, sg  !< Cells with a convection, cell, its index, components, step away from the wall.
+   logical                     :: nlj                                !< Null direction.
 
    n = ni * di + nj * dj + nk * dk
    cp = gamma * (R / (gamma - 1._R8P)) ! as the physics object derives it (cv = R / (gamma - 1), cp = gamma cv)
@@ -118,7 +124,7 @@ contains
       l = merge(0_I4P, n, side == 1)
       s = merge(1._R8P, -1._R8P, side == 1)
       twf = tw(f) ; hwf = hwm(f) ; slf = sl(f) ; tff = tf(f) ; ivf = inv(f) ; uef = ue(f) ; tef = te(f)
-      pgf = pg(f) ; nl1 = is_null(1) ; nl2 = is_null(2) ; nl3 = is_null(3) ; tpf = tp(f) ; ypf = yp(f)
+      pgf = pg(f) ; nl1 = is_null(1) ; nl2 = is_null(2) ; nl3 = is_null(3) ; tpf = tp(f) ; ypf = yp(f) ; cvf = cv(f)
       ep = 1._R8P
       if (tpf > 0._R8P .and. .not.fresh) ep = min(dt / tpf, 1._R8P)
       e = 1._R8P
@@ -127,11 +133,11 @@ contains
       j0 = merge(l, 1_I4P, dj == 1_I4P) ; j1 = merge(l, nj, dj == 1_I4P)
       k0 = merge(l, 1_I4P, dk == 1_I4P) ; k1 = merge(l, nk, dk == 1_I4P)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                 &
-      !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
-      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek)
+      !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,cvf,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
+      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,cc,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj)
       !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                                &
-      !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
-      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek)
+      !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,cvf,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
+      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,cc,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj)
       do k=k0, k1
       do j=j0, j1
       do i=i0, i1
@@ -186,7 +192,51 @@ contains
                px = (1._R8P - ep) * avg_gpu(b,ia,ja,ka,6) + ep * px
                if (commit) avg_gpu(b,ia,ja,ka,6) = px
             endif
-            if (pgf) then
+            if (pgf .and. cvf) then ! fed with the convection of the cells up to the sample (#121 P2), as the CPU kernel's cell_convection, filtered: avg(7:)
+               nc = min(m + merge(1_I4P, 0_I4P, w > 0._R8P), WM_CONV_CELLS, n - 1_I4P)
+               do c=1, WM_CONV_CELLS
+                  cc(c) = 0._R8P
+               enddo
+               if (us > 0._R8P) then
+                  sd = merge(1._R8P, -1._R8P, side == 1) ; sg = merge(1_I4P, -1_I4P, side == 1)
+                  do c=1, nc
+                     oc = merge(c, 1_I4P - c, side == 1)
+                     ic = i + di * oc ; jc = j + dj * oc ; kc = k + dk * oc
+                     fcv = 0._R8P
+                     do tt=1, 3
+                        ut = merge(u1, merge(u2, u3, tt == 2_I4P), tt == 1_I4P)
+                        if (tt /= d .and. ut /= 0._R8P) then
+                           do jd=1, 3
+                              nlj = merge(nl1, merge(nl2, nl3, jd == 2_I4P), jd == 1_I4P)
+                              ei = merge(1_I4P, 0_I4P, jd == 1_I4P) ; ej = merge(1_I4P, 0_I4P, jd == 2_I4P) ; ek = merge(1_I4P, 0_I4P, jd == 3_I4P)
+                              if (jd /= d .and. .not.nlj) then
+                                 gp = q_aux_gpu(b,ic+ei,jc+ej,kc+ek,IA_R) * q_aux_gpu(b,ic+ei,jc+ej,kc+ek,IA_U+tt-1) * q_aux_gpu(b,ic+ei,jc+ej,kc+ek,IA_U+jd-1)
+                                 gm = q_aux_gpu(b,ic-ei,jc-ej,kc-ek,IA_R) * q_aux_gpu(b,ic-ei,jc-ej,kc-ek,IA_U+tt-1) * q_aux_gpu(b,ic-ei,jc-ej,kc-ek,IA_U+jd-1)
+                                 fcv = fcv + ut / us * (gp - gm) / (2._R8P * dxyz_gpu(b,jd))
+                              elseif (jd == d) then
+                                 gp = q_aux_gpu(b,ic+sg*ei,jc+sg*ej,kc+sg*ek,IA_R) * q_aux_gpu(b,ic+sg*ei,jc+sg*ej,kc+sg*ek,IA_U+tt-1) * q_aux_gpu(b,ic+sg*ei,jc+sg*ej,kc+sg*ek,IA_U+jd-1)
+                                 if (c == 1_I4P) then
+                                    g0 = q_aux_gpu(b,ic,jc,kc,IA_R) * q_aux_gpu(b,ic,jc,kc,IA_U+tt-1) * q_aux_gpu(b,ic,jc,kc,IA_U+jd-1)
+                                    fcv = fcv + ut / us * sd * (gp + 3._R8P * g0) / (3._R8P * dxyz_gpu(b,jd))
+                                 else
+                                    gm = q_aux_gpu(b,ic-sg*ei,jc-sg*ej,kc-sg*ek,IA_R) * q_aux_gpu(b,ic-sg*ei,jc-sg*ej,kc-sg*ek,IA_U+tt-1) * q_aux_gpu(b,ic-sg*ei,jc-sg*ej,kc-sg*ek,IA_U+jd-1)
+                                    fcv = fcv + ut / us * sd * (gp - gm) / (2._R8P * dxyz_gpu(b,jd))
+                                 endif
+                              endif
+                           enddo
+                        endif
+                     enddo
+                     cc(c) = fcv
+                  enddo
+               endif
+               ia = merge(side, i, di == 1_I4P) ; ja = merge(side, j, dj == 1_I4P) ; ka = merge(side, k, dk == 1_I4P)
+               do c=1, nc
+                  cc(c) = (1._R8P - ep) * avg_gpu(b,ia,ja,ka,6+c) + ep * cc(c)
+                  if (commit) avg_gpu(b,ia,ja,ka,6+c) = cc(c)
+               enddo
+               call wall_model_solve_convective(h=h, us=us, ts=ts, ps=ps, tw=twf, px=px, nc=nc, dyc=dxyz_gpu(b,d), cc=cc, R=R, cp=cp, pr=pr, mu0=mu0, &
+                                                tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, semilocal=slf)
+            elseif (pgf) then
                call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=twf, px=px, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
                                               tau=tau, q=q, semilocal=slf, ypg=ypf)
             elseif (ivf) then

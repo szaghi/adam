@@ -905,13 +905,13 @@ contains
    call dev_assign_to_device(src=self%bc%wall_sign, dst=self%wall_sign_gpu)
    ! the wall-model input filter (#119): the averages live on the device only (a placeholder of one element per variable without a filter)
    if (self%has_wm_filter) then
-      call dev_alloc(fptr_dev=self%wm_avg_x_gpu, ubounds=[nb,2,nj,nk,6], init_value=0._R8P, ierr=ierr)
-      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_y_gpu, ubounds=[nb,ni,2,nk,6], init_value=0._R8P, ierr=ierr)
-      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_z_gpu, ubounds=[nb,ni,nj,2,6], init_value=0._R8P, ierr=ierr)
+      call dev_alloc(fptr_dev=self%wm_avg_x_gpu, ubounds=[nb,2,nj,nk,self%wm_avg_nv], init_value=0._R8P, ierr=ierr)
+      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_y_gpu, ubounds=[nb,ni,2,nk,self%wm_avg_nv], init_value=0._R8P, ierr=ierr)
+      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_z_gpu, ubounds=[nb,ni,nj,2,self%wm_avg_nv], init_value=0._R8P, ierr=ierr)
    else
-      call dev_alloc(fptr_dev=self%wm_avg_x_gpu, ubounds=[1,1,1,1,6], init_value=0._R8P, ierr=ierr)
-      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_y_gpu, ubounds=[1,1,1,1,6], init_value=0._R8P, ierr=ierr)
-      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_z_gpu, ubounds=[1,1,1,1,6], init_value=0._R8P, ierr=ierr)
+      call dev_alloc(fptr_dev=self%wm_avg_x_gpu, ubounds=[1,1,1,1,self%wm_avg_nv], init_value=0._R8P, ierr=ierr)
+      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_y_gpu, ubounds=[1,1,1,1,self%wm_avg_nv], init_value=0._R8P, ierr=ierr)
+      if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_z_gpu, ubounds=[1,1,1,1,self%wm_avg_nv], init_value=0._R8P, ierr=ierr)
    endif
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate wm_avg_*_gpu in flume_fnl_object%allocate_gpu')
    allocate(self%buf_5D_R8P(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv), stat=alloc_stat, errmsg=alloc_msg)
@@ -1201,17 +1201,17 @@ contains
    if (.not.self%adam%grid%null_xyz(1)) call overwrite_wall_fluxes_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
         faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
-        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg_gpu=self%wm_avg_x_gpu, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, yp=self%bc%wm_ypg, tp=tp, is_null=self%adam%grid%null_xyz, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, &
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg_gpu=self%wm_avg_x_gpu, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, yp=self%bc%wm_ypg, cv=self%bc%wm_conv, tp=tp, is_null=self%adam%grid%null_xyz, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, &
         fl_gpu=self%flx_f_gpu)
    if (.not.self%adam%grid%null_xyz(2)) call overwrite_wall_fluxes_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
         faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
-        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg_gpu=self%wm_avg_y_gpu, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, yp=self%bc%wm_ypg, tp=tp, is_null=self%adam%grid%null_xyz, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, &
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg_gpu=self%wm_avg_y_gpu, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, yp=self%bc%wm_ypg, cv=self%bc%wm_conv, tp=tp, is_null=self%adam%grid%null_xyz, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, &
         fl_gpu=self%fly_f_gpu)
    if (.not.self%adam%grid%null_xyz(3)) call overwrite_wall_fluxes_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
         blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
         faces_gpu=self%wm_faces_gpu, tw=self%bc%wall_temperature, hwm=self%bc%wm_height, sl=self%bc%wm_semilocal, &
-        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg_gpu=self%wm_avg_z_gpu, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, yp=self%bc%wm_ypg, tp=tp, is_null=self%adam%grid%null_xyz, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, &
+        tf=tf, dt=self%time%dt, commit=commit, fresh=self%wm_filter_fresh, avg_gpu=self%wm_avg_z_gpu, inv=self%bc%wm_inverse, ue=self%bc%wm_edge_u, te=self%bc%wm_edge_t, pg=self%bc%wm_pressure, yp=self%bc%wm_ypg, cv=self%bc%wm_conv, tp=tp, is_null=self%adam%grid%null_xyz, dxyz_gpu=self%field_fnl%dxyz_gpu, q_aux_gpu=self%q_aux_gpu, &
         fl_gpu=self%flz_f_gpu)
    if (commit) then
       self%wm_filter_it = self%time%it

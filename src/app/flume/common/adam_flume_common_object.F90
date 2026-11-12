@@ -60,7 +60,8 @@ use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_reference_object,   only : flume_reference_object
 use :: adam_flume_sinks_object,       only : flume_sinks_object
 use :: adam_flume_time_object,        only : flume_time_object
-use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure
+use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
+                                         wall_model_solve_convective, WM_CONV_CELLS
 ! third party modules
 use :: finer,                         only : file_ini
 use :: motion,                        only : xh5f_file_object
@@ -121,6 +122,8 @@ type, extends(realm_object) :: flume_common_object
    real(R8P),         allocatable :: wm_avg_z(:,:,:,:,:) !< The same on the z faces [6, ni, nj, 2, nb].
    logical                        :: has_wm_filter=.false. !< Some modelled face filters its samples (`wall_model_filter` > 0) or its pressure gradient
                                                            !< (`wall_model_pressure_gradient_filter` > 0).
+   integer(I4P)                   :: wm_avg_nv=6_I4P       !< Averages per wall face: the sample (5), the pressure gradient, and with
+                                                           !< `wall_model_convection` the convection of WM_CONV_CELLS cells (#121 P2).
    logical                        :: has_wm_viscosity=.false. !< Some modelled face puts its eddy viscosity below the matching height.
    logical                        :: wm_filter_fresh=.true. !< The averages hold no history (start, regrid, a checkpoint without them): the next commit takes the sample.
    integer(I4P)                   :: wm_filter_it=-1_I4P !< The iteration whose sample the averages hold.
@@ -1242,12 +1245,15 @@ contains
    ! the model's eddy viscosity below h (#119): mu_t on the cells and 2 ghost layers, as a subgrid-scale model's, through the same flux kernels
    self%has_wm_viscosity = self%has_wall_model .and. any(self%bc%wall_modelled .and. self%bc%wm_viscosity)
    if (allocated(self%wm_avg_x)) deallocate(self%wm_avg_x, self%wm_avg_y, self%wm_avg_z)
+   ! the convection-fed model (#121 P2) adds the filtered convection of its cells: averages 7 to 6 + WM_CONV_CELLS, only with the key (the .wmf
+   ! layout of every other run is unchanged)
+   self%wm_avg_nv = merge(6_I4P + WM_CONV_CELLS, 6_I4P, self%has_wall_model .and. any(self%bc%wall_modelled .and. self%bc%wm_conv))
    if (self%has_wm_filter) then
-      allocate(self%wm_avg_x(6,2,self%nj,self%nk,self%nb), source=0._R8P)
-      allocate(self%wm_avg_y(6,self%ni,2,self%nk,self%nb), source=0._R8P)
-      allocate(self%wm_avg_z(6,self%ni,self%nj,2,self%nb), source=0._R8P)
+      allocate(self%wm_avg_x(self%wm_avg_nv,2,self%nj,self%nk,self%nb), source=0._R8P)
+      allocate(self%wm_avg_y(self%wm_avg_nv,self%ni,2,self%nk,self%nb), source=0._R8P)
+      allocate(self%wm_avg_z(self%wm_avg_nv,self%ni,self%nj,2,self%nb), source=0._R8P)
    else
-      allocate(self%wm_avg_x(6,1,1,1,1), self%wm_avg_y(6,1,1,1,1), self%wm_avg_z(6,1,1,1,1), source=0._R8P)
+      allocate(self%wm_avg_x(self%wm_avg_nv,1,1,1,1), self%wm_avg_y(self%wm_avg_nv,1,1,1,1), self%wm_avg_z(self%wm_avg_nv,1,1,1,1), source=0._R8P)
    endif
    call self%check_gravity
    call self%sinks%load_from_file(file_parameters=file_parameters, model=self%physics%model,                        &
@@ -1593,8 +1599,8 @@ contains
    character(8), parameter                   :: FACE_NAME(6)=['x_min', 'x_max', 'y_min', 'y_max', 'z_min', 'z_max']
    real(R8P), allocatable                    :: acc(:,:)              !< Per bin: stress times area, heat flux times area, area [3, bins].
    real(R8P)                                 :: tref, suth, omega_mu, omega_k, mu0, cp, h, w, us, ts, ps, rs, tau, q, area, lo, len !< Work.
-   real(R8P)                                 :: u(3), p1(5), p2(5), xyz(3), px, g(2) !< Work.
-   integer(I4P)                              :: f, d, a, side, n, m, b, i, j, k, c(3), o1, o2, ib, nbins, t1, t2, t, oo !< Counters.
+   real(R8P)                                 :: u(3), p1(5), p2(5), xyz(3), px, g(2), cc(WM_CONV_CELLS) !< Work.
+   integer(I4P)                              :: f, d, a, side, n, m, b, i, j, k, c(3), o1, o2, ib, nbins, t1, t2, t, oo, nc !< Counters.
    integer(I4P)                              :: lb(3), ub(3)          !< Face cell ranges.
    logical                                   :: is_present            !< File presence.
 
@@ -1661,9 +1667,23 @@ contains
                         case(3) ; px = self%wm_avg_z(6,i,j,side,b)
                         endselect
                      endif
-                     call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), px=px, R=self%physics%R, cp=cp, &
-                                                    pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, &
-                                                    semilocal=self%bc%wm_semilocal(f), ypg=self%bc%wm_ypg(f))
+                     if (self%bc%wm_conv(f)) then ! the filtered convection the face flux takes (its filter is required), cells 1 to nc
+                        nc = min(m + merge(1_I4P, 0_I4P, w > 0._R8P), WM_CONV_CELLS)
+                        cc = 0._R8P
+                        select case(d)
+                        case(1) ; cc(1:nc) = self%wm_avg_x(7:6+nc,side,j,k,b)
+                        case(2) ; cc(1:nc) = self%wm_avg_y(7:6+nc,i,side,k,b)
+                        case(3) ; cc(1:nc) = self%wm_avg_z(7:6+nc,i,j,side,b)
+                        endselect
+                        call wall_model_solve_convective(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), px=px, nc=nc, &
+                                                         dyc=self%adam%field%dxyz(d,b), cc=cc, R=self%physics%R, cp=cp, &
+                                                         pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
+                                                         tau=tau, q=q, semilocal=self%bc%wm_semilocal(f))
+                     else
+                        call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), px=px, R=self%physics%R, cp=cp, &
+                                                       pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
+                                                       tau=tau, q=q, semilocal=self%bc%wm_semilocal(f), ypg=self%bc%wm_ypg(f))
+                     endif
                   elseif (self%bc%wm_inverse(f)) then
                      call wall_model_solve_inverse(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), ue=self%bc%wm_edge_u(f), &
                                                    te=self%bc%wm_edge_t(f), R=self%physics%R, cp=cp, pr=self%physics%dissipation%prandtl, mu0=mu0, &

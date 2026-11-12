@@ -275,6 +275,34 @@ Measured by `test_wall_model`:
   the strong adverse gradient $\tau_w=1.30\cdot10^{-3}$, where the model above gives $-0.69\cdot10^{-3}$;
 - no non-finite result in $10^5$ random samples.
 
+#### Fed with the resolved convection
+
+The thin-boundary-layer balance between the wall and $h$ keeps the convection with the pressure gradient (Wang & Moin
+2002; Park & Moin 2014):
+
+$$
+(\mu+\mu_t)\frac{dU}{dy}=\tau_w+S(y),\qquad S(y)=\int_0^y\Big(\frac{dp}{dx}+C\Big)dy',
+$$
+
+with $C$ the convection along the sample velocity. With `wall_model_convection = .true.` (with
+`wall_model_pressure_gradient` and its filter, not with `wall_model_pressure_gradient_ypg`) $C$ comes from the resolved
+flow: $\sum_t e_t\sum_j\partial(\rho u_tu_j)/\partial x_j$, $e$ the unit sample velocity, in the cells up to the sample (at
+most 4), by central differences along the wall and, along the normal, $(G_2+3G_1)/(3\Delta)$ in the first cell (the
+wall's flux $G=0$ half a cell below) and central differences above. The cell values are filtered in time with the
+gradient's filter (averages 7 to 10 of the face, in the `.wmf`), and $C$ is linear between the cell centres, 0 at the
+wall, constant beyond the last. $S$ replaces $(dp/dx)\,y$ in the stress, in the second quadrature and in the velocity
+scale. Where the resolved flow obeys Bernoulli, $C\approx-dp/dx$ and the forcing vanishes; where the near-wall flow is
+slow or reversed, it is the pressure gradient ([interaction](./verification/streams/sbli#a-priori-the-wall-model-fed-with-the-resolved-convection)).
+
+Measured by `test_wall_model`:
+
+- a zero convection is the pressure-gradient model within $10^{-10}$;
+- the laminar limit with a convection linear in $y$, $U(h)\,\mu=\tau_wh+(dp/dx)\,h^2/2+a\,h^3/6$: within
+  $1.03\cdot10^{-3}$ of $|\tau_w|+|dp/dx|\,h+|a|\,h^2$ (the second quadrature by trapezoids, second order on the quadratic $S$);
+- the hot turbulent layer under Sutherland's law with a convection opposing and adding to the gradient, against the same
+  equations on $2\cdot10^5$ intervals: within $3\cdot10^{-3}$;
+- no non-finite result in $10^5$ random samples with random convections.
+
 ### Limits
 
 - Isothermal walls only.

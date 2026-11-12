@@ -4,10 +4,12 @@ program test_wall_model
 !< Laminar limit, log layer against a fine quadrature, and the Crocco relation with Pr = Pr_t; the models under Sutherland's
 !< law against the same references, and the law itself; the model with the pressure gradient (issue #121, S4d): its laminar limit
 !< of either sign, px = 0 against the equilibrium model, a fine-grid reference, robustness; its Bernoulli-consistent variant (#121 P1): the
-!< laminar limit with y_pg above and below h, ypg 0 bit for bit, y_pg >> h, a fine-grid reference, robustness.
+!< laminar limit with y_pg above and below h, ypg 0 bit for bit, y_pg >> h, a fine-grid reference, robustness; the model fed with the convection
+!< (#121 P2): a zero convection against the pressure model, the laminar limit with a convection linear in y, a fine-grid reference, robustness.
 
 use :: adam_flume_dissipation_library, only : temperature_law
-use :: adam_flume_wall_model_library, only : inverse_strain, sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure
+use :: adam_flume_wall_model_library, only : inverse_strain, sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
+                                         wall_model_solve_convective, WM_CONV_CELLS
 use :: penf,                          only : I4P, I8P, R8P
 
 implicit none
@@ -21,6 +23,7 @@ logical              :: ok1
 integer(I4P)         :: n
 integer(I4P), parameter :: NF=4000000_I4P
 logical              :: ok
+real(R8P)            :: cc(WM_CONV_CELLS), ac
 
 ok = .true.
 ! laminar limit: h+ small, so mu_t vanishes: tau = mu U / h, q = cp mu / Pr (Ts - Tw) / h with Couette work
@@ -274,6 +277,65 @@ do n=1, 100000
 enddo
 print '(A,I0,A)', 'Bernoulli-consistent, robustness, non-finite results: ', nbad, ' of 100000 (bound 0)'
 ok = ok .and. nbad == 0
+! the model fed with the convection (issue #121, P2), wall_model_solve_convective: (a) a zero convection is the pressure model to round-off
+ok1 = .true.
+cc = 0._R8P
+do n=1, 3
+   px = merge(0.3e-2_R8P, merge(0.1_R8P, -1.e-2_R8P, n == 2), n == 1)
+   call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
+                                  omega_mu=1.5_R8P, tau=tauc, q=qc, semilocal=.true.)
+   call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.12_R8P, cc=cc, R=GAS, cp=CP, &
+                                    pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true.)
+   err = abs(tau - tauc) / (abs(tauc) + abs(px) * 0.3_R8P)
+   ok1 = ok1 .and. err < 1.e-10_R8P .and. abs(q - qc) / abs(qc) < 1.e-10_R8P
+enddo
+print '(A,L1,A)', 'convection-fed, zero convection against the pressure model within 1e-10: ', ok1, ' (bound T)'
+ok = ok .and. ok1
+! (b) the laminar limit with a convection linear in y (the cell centres 0.2, 0.6, 1.0, 1.4 cover h = 1): F = px + a y, U(h) mu = tau h + px h^2 / 2
+! + a h^3 / 6; I1 by trapezoids on the model's 40 intervals, second order on the quadratic S (the last interval is 0.23 h: 1.03e-3 measured)
+err = 0._R8P
+do n=1, 4
+   px = merge(4.e-3_R8P, -4.e-3_R8P, mod(n, 2) == 1)
+   ac = merge(-6.e-3_R8P, 6.e-3_R8P, n <= 2)
+   do mm=1, WM_CONV_CELLS
+      cc(mm) = ac * (real(mm, R8P) - 0.5_R8P) * 0.4_R8P
+   enddo
+   call wall_model_solve_convective(h=1._R8P, us=1.e-3_R8P, ts=1._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.4_R8P, cc=cc, R=GAS, cp=CP, &
+                                    pr=0.7_R8P, mu0=1._R8P, tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, tau=tau, q=q)
+   ref = 1.e-3_R8P - 0.5_R8P * px - ac / 6._R8P
+   err = max(err, abs(tau - ref) / (1.e-3_R8P + abs(px) + abs(ac)))
+enddo
+print '(A,ES10.2,A)', 'convection-fed, laminar limit with a convection linear in y, tau relative to |tau| + |px| h + |a| h^2 ', err, ' (bound 2e-3)'
+ok = ok .and. err < 2.e-3_R8P
+! (c) a turbulent hot layer under Sutherland, semi-local, a convection linear in y opposing and adding to the gradient, against the fine grid
+do n=1, 2
+   px = 0.3e-2_R8P
+   ac = merge(-1.5e-2_R8P, 1.5e-2_R8P, n == 1)
+   do mm=1, WM_CONV_CELLS
+      cc(mm) = ac * (real(mm, R8P) - 0.5_R8P) * 0.1_R8P
+   enddo
+   call reference_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, tau=tauf, q=ref, &
+                           acoef=ac)
+   call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.1_R8P, cc=cc, R=GAS, cp=CP, &
+                                    pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true.)
+   err = abs(tau - tauf) / (abs(tauf) + abs(px) * 0.3_R8P + abs(ac) * 0.045_R8P)
+   print '(A,ES10.2,A,ES11.3,A,ES11.3,A,ES10.2,A)', 'convection-fed, a = ', ac, ': tau ', tau, ' (fine grid ', tauf, '), relative ', err, ' (bound 2e-2)'
+   ok = ok .and. err < 2.e-2_R8P .and. abs(q - ref) / abs(ref) < 2.e-2_R8P
+enddo
+! (d) robustness: the samples above with random convections up to 0.3 of either sign
+nbad = 0 ; seed = 98765_I8P
+do n=1, 100000
+   hh = 0.01_R8P + 0.3_R8P * lcg(seed) ; uu = 3._R8P * lcg(seed) ; tt = tw15 * (0.5_R8P + 3._R8P * lcg(seed)) ; pp = (0.5_R8P + lcg(seed)) * tw15
+   px = (lcg(seed) - 0.5_R8P) * 0.6_R8P * lcg(seed)**3
+   do mm=1, WM_CONV_CELLS
+      cc(mm) = (lcg(seed) - 0.5_R8P) * 0.6_R8P * lcg(seed)**3
+   enddo
+   call wall_model_solve_convective(h=hh, us=uu, ts=tt, ps=pp, tw=tw15, px=px, nc=1_I4P + mod(n, WM_CONV_CELLS), dyc=hh / 2.5_R8P, cc=cc, R=GAS, cp=CP, &
+                                    pr=0.7_R8P, mu0=1._R8P / 3000._R8P, tref=tw15, suth=0._R8P, omega_mu=0.7_R8P, tau=tau, q=q, semilocal=mod(n, 2) == 0)
+   if (.not.(abs(tau) < huge(1._R8P) .and. abs(q) < huge(1._R8P))) nbad = nbad + 1
+enddo
+print '(A,I0,A)', 'convection-fed, robustness, non-finite results: ', nbad, ' of 100000 (bound 0)'
+ok = ok .and. nbad == 0
 if (ok) then
    print '(A)', 'test_wall_model: PASS'
 else
@@ -357,13 +419,14 @@ contains
    tau = exp(0.5_R8P * (lo + hi))
    endsubroutine reference_inverse
 
-   subroutine reference_pressure(h, us, ts, ps, tw, px, pr, mu0, tref, suth, tau, q, ypg)
+   subroutine reference_pressure(h, us, ts, ps, tw, px, pr, mu0, tref, suth, tau, q, ypg, acoef)
    !< The layer with the pressure gradient, semi-local damping, Sutherland's law: (mu + mu_t) dU/dy = tau + px y, mu_t on sqrt((|tau| + |px| y) / rho), on
    !< 200000 intervals uniform in sqrt(y), trapezoids, 400 under-relaxed iterations: no code shared with the library. `ypg` > 0: the Bernoulli-consistent
    !< variant (Hickel et al. 2012, eq. 4.1), the net forcing px (1 - min(y / y_pg, 1)) integrated to the stress tau + px gg(y), gg = y - y^2 / (2 y_pg), then y_pg / 2.
    real(R8P), intent(in)  :: h, us, ts, ps, tw, px, pr, mu0, tref, suth !< As `wall_model_solve_pressure`.
    real(R8P), intent(out) :: tau, q                                      !< Results.
    real(R8P), intent(in), optional :: ypg                                !< y_pg in viscous units of the gradient.
+   real(R8P), intent(in), optional :: acoef                              !< A convection a y added to the forcing: stress tau + px y + a y^2 / 2.
    integer(I4P), parameter :: M=200000_I4P
    real(R8P), allocatable :: y(:), t(:), u(:), mt(:), a(:), gg(:)
    real(R8P)              :: i0, i1, i2, i3, ts_, mu, rho, dmp, tn, yv
@@ -379,6 +442,7 @@ contains
       yv = ypg * ((mu0 * law(tw, tref, 1.5_R8P, suth))**2 / (ps / (GAS * tw) * abs(px)))**(1._R8P / 3._R8P)
       gg = min(y, yv) - min(y, yv)**2 / (2._R8P * yv)
    endif
+   if (present(acoef)) gg = y + acoef * y * y / (2._R8P * px)
    tau = mu0 * law(tw, tref, 1.5_R8P, suth) * us / h
    do it=1, 400
       do i=0, M
