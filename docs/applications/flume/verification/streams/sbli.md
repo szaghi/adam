@@ -2,7 +2,7 @@
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
-| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4g | P | none (the pressure-gradient key: wm12) | FNL | yes |
+| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4h | P | none (the pressure-gradient key: wm12) | FNL | yes |
 
 ## Case and scope
 
@@ -527,9 +527,46 @@ centres, $F=dp/dx$ at the wall, where the convection vanishes) and applied to th
   resolved convection stops balancing the pressure gradient, which is where S4c, S4e and S4f reverse below $h$. Only a run says
   whether the feedback opens the DNS's bubble.
 
+### The run: S4h
+
+S4b restarted at $t=1200$ with S4d's model fed with the resolved convection (`wall_model_pressure_gradient`, filter 10,
+`wall_model_convection`; [turbulence](../../turbulence#fed-with-the-resolved-convection)), the eddy viscosity below $h$
+kept, to $t=1450$ on one node (4 A30, 5 h 27 min), statistics over the 24 checkpoints of $t\ge1300$; it is the black
+line of [the figure above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity).
+
+| | S4h, fed with the resolved convection | S4d, $dp/dx$ | S4g, Bernoulli-consistent | S4b | DNS, $Re_\theta=6882$ |
+|---|---|---|---|---|---|
+| $L_{int}/\delta_0$ (the time-mean field) | **3.36** | 3.13 | 3.24 | 3.16 | 3.30 |
+| $L_{sep}/\delta_0$ from $\tau_w$ | 0.18 ($x=55.96$–56.29, $x^*=-0.66$ to $-0.61$) | 0.60 ($x^*\approx-0.6$ to $-0.4$) | 0 | 0 | 2.16 ($x^*=-0.8$ to $-0.15$) |
+| $C_f$ minimum ($10^{-3}$) | $-0.30$ at $x=56.1$ | $-1.87$ | 0.15 | 0.21 | |
+| time-mean $u<0$ in the first cell | $x=58.3$–59.0, $0.41\,\delta_0$ | none | none | none | |
+| 5 % of the rise, ahead of $x_{imp}$ | $2.63\,\delta_0$ | $2.12\,\delta_0$ | $2.44\,\delta_0$ | $2.34\,\delta_0$ | $4.13\,\delta_0$ |
+| 50 % of the rise | $2.23\,\delta_0$ | $1.77\,\delta_0$ | $2.04\,\delta_0$ | $1.96\,\delta_0$ | $3.60\,\delta_0$ |
+| first-cell Mach number at $x_{imp}-5\,\delta_0$ | 0.91 | 0.94 | 0.95 | 0.98 | 0.83 |
+| reversed area per unit span, mean (`reversal`), $\delta_0^2$ | 0.091 | 0.049 | 0.077 | 0.068 | |
+| **$C_f$ upstream against S4b**: $x=15$–25, 25–35, 35–45, 45–52 | **+5, +6, +9.5, +12 %** | +1, +1, −2, −2 % | 0, 0, −3, −3 % | | |
+
+- **The interaction moves toward the DNS.** $L_{int}$ is the DNS's within 2 % (the closest of the runs), the onset moves
+  upstream by $0.3\,\delta_0$ at 5 % and at 50 % of the rise, the first cell slows from $M=0.98$ to 0.91 (the DNS profile
+  0.83), and the wall stress reverses at $x^*\approx-0.63$, where the DNS's bubble begins. The bubble is short, $0.18$
+  against $2.16\,\delta_0$; the resolved first cell reverses in the mean over another $0.41\,\delta_0$ further down.
+- **The zero-gradient layer moves too, which it should not.** Upstream of the interaction $C_f$ rises by 5 % near the
+  inflow and by 12 % ahead of the interaction, where S4d and S4g stay within 3 % (S4e and S4f, without the
+  eddy viscosity, within 7 %), and the recovery behind the
+  reattachment is higher still. The convection fed to the model is the instantaneous resolved one, and its time mean
+  holds the gradient of the resolved shear stress, $\partial\langle\rho u'v'\rangle/\partial y$, large in the cells below $h$
+  ([the budget above](#the-near-wall-cells-of-the-incoming-layer): 0.2 of $\tau_w$ through the first face, about 1 by the
+  third). The model's own eddy viscosity already carries that stress: it is counted twice, and $\tau_w$ grows. Park &
+  Moin (2014) meet the same double count in their thin-boundary-layer model fed with the LES and reduce the model's
+  eddy viscosity dynamically, so that modelled and resolved stresses at $h$ add up to the total.
+- **So the convection is a lever, and this form of it is not yet a model.** It moves both the onset and $L_{int}$ the
+  right way, which no equilibrium-type variant did, but a model that changes the zero-gradient layer by 10 % fails the
+  layer before the interaction. The correction is the reduced eddy viscosity (or the convection of the mean flow only),
+  checked on the zero-gradient boundary layer before the interaction.
+
 ## Not done
 
-- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). Left: a model fed with the flow's own convection (integral, thin-boundary-layer equations), and a matching height fixed in $\delta_i$ across the levels.
+- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). The model fed with the resolved convection (S4h) moves the onset and $L_{int}$ the right way and opens $0.18\,\delta_0$ where the DNS's bubble begins, but counts the resolved stress twice ($C_f$ of the zero-gradient layer +5 to +12 %): left, its reduced eddy viscosity (Park & Moin 2014), checked on the zero-gradient layer first; and a matching height fixed in $\delta_i$ across the levels.
 - The late compression ($x^*\approx-0.6$ half-way against the DNS's $-1.1$), unchanged by the near-wall grid and by the pressure-gradient term; moved 40 % of the way by taking out the eddy viscosity below $h$ (S4e), which also moves the incoming layer off the DNS's: the matching between the model and the resolved near-wall cells.
 - The wall-pressure fluctuations and the low-frequency unsteadiness.
 - The recycling–rescaling inflow (S5).

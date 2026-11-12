@@ -48,10 +48,11 @@ The toolchain is [#121](https://github.com/szaghi/adam/issues/121), which contin
 | S4e | S4b without the wall model's eddy viscosity below the matching height: the near-wall layer moves the onset, not the separation | a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#without-the-eddy-viscosity-below-the-matching-height) |
 | S4f | S4d without the eddy viscosity below the matching height: the bubble shrinks, the onset moves | a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity) |
 | S4g | The Bernoulli-consistent pressure gradient (`wall_model_pressure_gradient_ypg`): no separation | wm2 (`test_wall_model`); a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity) |
+| S4h | The model fed with the resolved convection (`wall_model_convection`): the onset and $L_{int}$ move toward the DNS, the zero-gradient $C_f$ by +5 to +12 % | wm2, wm13 (turbulence); a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-run-s4h) |
 | S5 | Recycling–rescaling turbulent inflow | — | not started |
 
 | Page | Phases | Legs | Type |
 |---|---|---|---|
 | [Non-reflecting boundary](./non-reflecting) | S2 | nr1–nr4 | P |
 | [Shock generator](./shock-generator) | S3, S4a | sg1–sg4 (boundary) | P |
-| [Shock/boundary-layer interaction](./sbli) | S4b–S4g | campaign | P |
+| [Shock/boundary-layer interaction](./sbli) | S4b–S4h | campaign | P |

@@ -3154,14 +3154,17 @@ def fig_sbli_pg(out: Path, runs: Path) -> None:
 
 
 def fig_sbli_pg_runs(out: Path, runs: Path) -> None:
-    """#121 P1: the pressure-gradient runs restarted from S4b at t = 1200, statistics t >= 1300: S4d (dp/dx), S4g (dp/dx, Bernoulli-consistent,
-    y*_pg 4), S4f (dp/dx without the eddy viscosity below h), with S4b and S4e (no eddy viscosity, no dp/dx). Data: the sbli_oracle compare JSONs
+    """#121 P1, P2: the pressure-gradient runs restarted from S4b at t = 1200, statistics t >= 1300: S4d (dp/dx), S4g (dp/dx, Bernoulli-consistent,
+    y*_pg 4), S4f (dp/dx without the eddy viscosity below h), S4h (fed with the resolved convection, when its JSON exists), with S4b and S4e (no
+    eddy viscosity, no dp/dx). Data: the sbli_oracle compare JSONs
     <runs>/sbli/sbli-m2p28-8{,-pg,-pgb,-pgnu,-nonu}.json. Left: the mean wall pressure against x* with the DNS and the experiment; right: C_f against x,
     the reversed stretches shaded."""
     import json  # noqa: PLC0415
 
     runs_ = [("sbli-m2p28-8", "C0", "S4b"), ("sbli-m2p28-8-nonu", "C1", r"S4e, no $\nu_t$ below $h$"), ("sbli-m2p28-8-pg", "C3", "S4d, $dp/dx$"),
-             ("sbli-m2p28-8-pgb", "C4", "S4g, $dp/dx$ Bernoulli-consistent"), ("sbli-m2p28-8-pgnu", "C2", r"S4f, $dp/dx$, no $\nu_t$ below $h$")]
+             ("sbli-m2p28-8-pgb", "C4", "S4g, $dp/dx$ Bernoulli-consistent"), ("sbli-m2p28-8-pgnu", "C2", r"S4f, $dp/dx$, no $\nu_t$ below $h$"),
+             ("sbli-m2p28-8-pgc", "k", "S4h, fed with the resolved convection")]
+    runs_ = [r for r in runs_ if (runs / "sbli" / f"{r[0]}.json").exists()]
     js = {name: json.loads((runs / "sbli" / f"{name}.json").read_text()) for name, _, _ in runs_}
     fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.4), constrained_layout=True)
     ax = axs[0]
@@ -3204,7 +3207,8 @@ def fig_sbli_reversal(out: Path, runs: Path) -> None:
     import json  # noqa: PLC0415
 
     runs_ = [("s4b", "S4b", "C0"), ("s4c", "S4c, 2:1 box", "C2"), ("s4d", "S4d, $dp/dx$", "C3"), ("s4e", r"S4e, no $\nu_t$ below $h$", "C1"),
-             ("s4f", r"S4f, $dp/dx$, no $\nu_t$", "C5"), ("s4g", "S4g, Bernoulli-consistent", "C4")]
+             ("s4f", r"S4f, $dp/dx$, no $\nu_t$", "C5"), ("s4g", "S4g, Bernoulli-consistent", "C4"), ("s4h", "S4h, convection-fed", "k")]
+    runs_ = [r for r in runs_ if (runs / "sbli" / f"rev2-{r[0]}.json").exists()]
     fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.2), constrained_layout=True, gridspec_kw={"width_ratios": [1.6, 1.0]})
     first, third, labels, colors = [], [], [], []
     for key, lab, c in runs_:
