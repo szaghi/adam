@@ -343,8 +343,6 @@ contains
    integer(I4P)                           :: alloc_error
    character(len=256)                     :: alloc_message
 
-   if (trim(self%pml_type) == PML_TYPE_CLASSIC_DIRECT) return
-
    if (self%active_blocks(PML_FACE_X_M) > 0_I4P) then
       allocate(self%blocks_x_m(1:self%active_blocks(PML_FACE_X_M)), stat=alloc_error, errmsg=alloc_message)
       if (alloc_error /= 0_I4P) &
@@ -395,6 +393,9 @@ contains
    type(grid_object),       intent(in)    :: grid
    integer(I4P)                           :: alloc_error
    character(len=256)                     :: alloc_message
+
+   ! CLASSIC_DIRECT damps the fields directly: it uses the per-face block lists, never an auxiliary state
+   if (trim(self%pml_type) == PML_TYPE_CLASSIC_DIRECT) return
 
    if (self%active_blocks(PML_FACE_X_M) > 0_I4P) then
       allocate(self%q_pml_x_m(1:PML_VARS_PER_FACE, 1:self%max_cells(PML_FACE_X_M), 1:grid%nj, 1:grid%nk, &
