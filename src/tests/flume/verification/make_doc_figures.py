@@ -3263,6 +3263,44 @@ def fig_sbli_convective(out: Path, runs: Path) -> None:
     fig.savefig(out / "sbli-convective.png", dpi=DPI)
     plt.close(fig)
 
+
+def fig_tbl_convection(out: Path, runs: Path) -> None:
+    """#121 P3: the zero-gradient gate of the convection-fed wall model on the Mach 2.5 boundary layer of #119 T3.7 (m2p5-wm-l90): the baseline
+    (the equilibrium model, t 180-360) and its restarts at t 360 to 540 (statistics t >= 400) fed with the resolved convection with the resolved
+    shear stress removed (rs) and with the velocity scale from tau_w as well (rs2). Data: the tbl_oracle.py compare JSONs
+    <runs>/tbl/m2p5-wm-l90-{base,rs,rs2}-compare.json. Left: C_f (the wall model's tau_w) against x, the DNS at its station; right: the ratio
+    to the baseline."""
+    import json  # noqa: PLC0415
+
+    cases = (("base", "C0", "equilibrium (the baseline)"), ("rs", "C3", "fed with the convection, resolved stress removed"),
+             ("rs2", "C2", "and the velocity scale from $\\tau_w$"))
+    js = {k: json.loads((runs / "tbl" / f"m2p5-wm-l90-{k}-compare.json").read_text()) for k, _, _ in cases}
+    fig, axs = plt.subplots(1, 2, figsize=(12.0, 4.2), constrained_layout=True)
+    xb, cb = np.array(js["base"]["x"]), np.array(js["base"]["cf"])
+    for k, c, lab in cases:
+        x, cf = np.array(js[k]["x"]), np.array(js[k]["cf"])
+        axs[0].plot(x, 1e3 * cf, "-", color=c, lw=1.2, label=lab)
+        if k != "base":
+            axs[1].plot(x, 100.0 * (cf / np.interp(x, xb, cb) - 1.0), "-", color=c, lw=1.2, label=lab)
+    j = js["base"]
+    axs[0].plot(j["x"][j["station"]], 1e3 * j["cf_dns"], "k*", ms=10, label=rf"DNS, $Re_\theta$ {j['re_dns']:.0f} (at the baseline's station)")
+    axs[0].set_xlim(10.0, 85.0)
+    axs[0].set_ylim(1.5, 3.0)
+    axs[0].set_xlabel(r"$x/\delta_i$")
+    axs[0].set_ylabel(r"$10^3 C_f$ (the wall model's $\tau_w$)")
+    axs[0].grid(alpha=0.3)
+    axs[0].legend(fontsize=7.5, loc="upper right")
+    axs[1].axhline(0.0, color="k", lw=0.8)
+    axs[1].axvspan(45.0, 80.0, color="0.85", alpha=0.5, lw=0)
+    axs[1].set_xlim(10.0, 85.0)
+    axs[1].set_xlabel(r"$x/\delta_i$")
+    axs[1].set_ylabel(r"$C_f$ against the baseline [%]")
+    axs[1].set_ylim(-20.0, 20.0)
+    axs[1].grid(alpha=0.3)
+    axs[1].legend(fontsize=7.5, loc="upper right")
+    fig.savefig(out / "tbl-convection.png", dpi=DPI)
+    plt.close(fig)
+
 def fig_sbli_cells(out: Path, runs: Path) -> None:
     """#121 P1: the near-wall cells of the incoming layer at x_imp - 5 delta_0 against the DNS profile the inflow is made from
     (reference/tbl_m2p28_profile.txt), from the span and time averages of sbli_oracle.py fields (<runs>/sbli/<case>-fields.npz; S4c's on the
@@ -5126,7 +5164,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "sbli-reversal": fig_sbli_reversal, "sbli-convective": fig_sbli_convective, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "tbl-convection": fig_tbl_convection, "sbli-reversal": fig_sbli_reversal, "sbli-convective": fig_sbli_convective, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

@@ -233,6 +233,48 @@ into the wall). The wall history gives $q_w$ as well as $\tau_w$.
   −3.8 % at the station, the plateau 9.80e-4, $B_q$ −0.0190.
 - **The momentum integral does not measure $C_f$ here either** ($-62$ % at the station, negative in places).
 
+## The wall model fed with the resolved convection
+
+The zero-gradient check of the convection-fed model before it is used in the shock interaction
+([turbulence](../../turbulence#fed-with-the-resolved-convection)): fed with the instantaneous resolved convection it
+raised the $C_f$ of the interaction's incoming layer by 5 to 12 % ([interaction](../streams/sbli#the-run-s4h)).
+
+| Setup | |
+|---|---|
+| runs | the Mach 2.5 case above (`m2p5-wm-l90`, the baseline, statistics $180<t\le360$), restarted at $t=360$ to 540 with `wall_model_pressure_gradient` (filter 10), `wall_model_convection` and `wall_model_resolved_stress`; statistics over the 27 checkpoints of $400<t\le540$ (`tbl_oracle.py compare --t0 400`); one node, 4 A30, about 3 h each |
+| rs | the resolved shear stress removed from the forcing, the velocity scale of the eddy viscosity $\sqrt{(|\tau_w|+|S|)/\rho}$ (an intermediate build) |
+| rs2 | the key's model: the resolved stress removed and the velocity scale $\sqrt{|\tau_w|/\rho}$ |
+| a priori | `wmf_apriori.py` on the filtered averages of rs's `.wmf` (77760 wall columns): the model's variants on the same samples |
+
+![The convection-fed wall model on the Mach 2.5 zero-gradient layer](/flume/tbl-convection.png)
+
+*Left: $C_f$ from the wall model's $\tau_w$, the DNS at the baseline's station; right: the ratio to the baseline,
+the stretch $45\le x\le80$ shaded. `make_doc_figures.py --only tbl-convection`.*
+
+| | baseline | rs | rs2 |
+|---|---|---|---|
+| $C_f$ at the station ($Re_\theta=2835$) against the DNS | $-4.3$ % | $+2.5$ % | **$-4.4$ %** |
+| $C_f$ over $45\le x\le80$ against the baseline | | $+6.6$ % | **$-0.3$ %** |
+| $C_f$ over $20\le x<40$ (the recovery from the inflow) against the baseline | | $+0.8$ % | $-8.6$ % |
+
+| a priori, mean $\tau_w$ against the equilibrium model | |
+|---|---|
+| the pressure gradient alone | $+3.9$ % |
+| fed with the convection | $+22.9$ % |
+| and the resolved stress removed | $+12.4$ % |
+| and the velocity scale from $\tau_w$ | $-1.5$ % |
+| the resolved stress removed, fed the span-mean forcing | $+6.7$ % |
+
+- **Removing the resolved stress is not enough.** The filtered forcing at the sample fluctuates as much as $\tau_w$ (rms
+  $1.0\cdot10^{-3}$ against a mean $\tau_w$ of $0.97\cdot10^{-3}$), and in the velocity scale $|S|$ averages far above the
+  mean forcing: the eddy viscosity grows and $\tau_w$ with it (rs, +6.6 % in the run, +12.4 % a priori).
+- **With the forcing out of the eddy viscosity the layer is the baseline's.** rs2's $C_f$ is the baseline's within
+  0.3 % over the developed stretch and $-4.4$ % against the DNS at the station (the baseline $-4.3$ %), as the a priori
+  $-1.5$ % predicted: the gate passes.
+- **Where the layer recovers from the inflow it is lower.** Over $20\le x<40$, behind the digital-filter inflow, rs2's
+  $C_f$ is 8.6 % below the baseline's: there the resolved convection does not vanish, and the model answers to it. The
+  DNS station lies beyond, so which of the two is right there is not measured.
+
 ## Not done
 
 - The matching height at fixed grid; the outer-layer and near-wall stresses at $\delta_i/12$.

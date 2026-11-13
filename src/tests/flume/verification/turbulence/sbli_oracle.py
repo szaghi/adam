@@ -383,7 +383,7 @@ def _log_mean_inverse(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 WM_POINTS, WM_ITERATIONS, WM_STRETCH, WM_KAPPA, WM_APLUS, WM_PRT = 40, 16, 1.3, 0.41, 17.0, 0.9
 
 
-def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: float = 0.0, forcing=None) -> tuple[np.ndarray, np.ndarray]:
+def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: float = 0.0, forcing=None, scale: str = "sum") -> tuple[np.ndarray, np.ndarray]:
     """tau_w and q_w of the equilibrium model, vectorised over the samples. `px` None: wall_model_solve operation for operation (16 plain
     fixed-point iterations; before #121 S4d 8 with an Aitken step on log tau every second one, which stopped a few samples far from the fixed point). `px` given: the momentum balance with the pressure gradient, `U(h) = tau I0 + px I1`, I0 = int dy / (mu + mu_t), I1 = int y dy /
     (mu + mu_t), solved for tau by a fixed point (tau can be negative; unrelaxed: 16 iterations, the Fortran count, are within 7e-5 of
@@ -393,7 +393,9 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
     convective term cancels the pressure gradient above y_pg = ypg (mu_w^2 / (rho_w |px|))^(1/3) and fades linearly below, so y is replaced
     by g(y) = y - y^2 / (2 y_pg) below y_pg and y_pg / 2 above, in the stress tau + px g(y), in I1 and in the velocity scale.
     `forcing` (with `px`, which it replaces): a callable of the model's heights y [samples, points] returning the integrated forcing
-    S(y) = int_0^y (dp/dx + convection) dy' [samples, points]: the stress is tau + S(y), the convection-fed thin-boundary-layer balance."""
+    S(y) = int_0^y (dp/dx + convection) dy' [samples, points]: the stress is tau + S(y), the convection-fed thin-boundary-layer balance.
+    `scale`: the velocity scale of the eddy viscosity, "sum" sqrt((|tau| + |px g| or |S|) / rho) (the Fortran models), "tau" sqrt(|tau| / rho)
+    (the forcing kept out of the eddy viscosity, entering the balance linearly)."""
     r, cp, pr, mu0, tref, suth, om, sl = (gas[k] for k in ("R", "cp", "pr", "mu0", "tref", "suth", "omega", "semilocal"))
     h, us, ts, ps = (np.asarray(v, dtype=float)[:, None] for v in (h, us, ts, ps))
     dy0 = h * (WM_STRETCH - 1.0) / (WM_STRETCH**WM_POINTS - 1.0)
@@ -419,6 +421,8 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
         mu = mu0 * _law(t, tref, suth, om)
         rho = ps / (r * t)
         ts_ = np.abs(tau) + np.abs(p * g) if forcing is not None else np.abs(tau) + np.abs(p) * g
+        if scale == "tau":
+            ts_ = np.abs(tau) + 0.0 * g
         damp = 1.0 - np.exp(-y * np.sqrt(rho * ts_) / (mu * WM_APLUS)) if sl else 1.0 - np.exp(-y * np.sqrt(ts_ / rhow) * rhow / (muw * WM_APLUS))
         mt = WM_KAPPA * y * np.sqrt(rho * ts_) * damp * damp
         a = mu / pr + mt / WM_PRT
