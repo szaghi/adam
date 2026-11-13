@@ -8,6 +8,7 @@ and the wall history over the same window:
   99 % thickness the undisturbed layer would have at x_imp, extrapolated from a linear fit of delta over [x_imp - 15, x_imp - 6] (upstream of the
   interaction's influence); delta* the same way (the Souverein et al. 2013 scaling takes the upstream displacement thickness); Re_theta of both;
 - C_f(x) from the wall model's tau_w: the separation (the first C_f < 0 downstream of x_imp - 10 delta_0) and the reattachment (the last), L_sep;
+  the same for the time-mean u of the first cell (the resolved flow's separation, which tau_w misses below the sample);
 - the mean wall pressure (the first cell), as (p_w - p_inf) / (p_2 - p_inf) with p_2 the pressure behind the incident shock (the normalisation
   of the STREAmS figure), against x* = (x - x_imp) / L;
 - the interaction length L_int = x_imp - x_ref, x_ref the apparent origin of the reflected shock: above the layer every row crosses the incident
@@ -172,6 +173,13 @@ def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str
     x_sep = float(x[neg[0]]) if len(neg) else float("nan")
     x_att = float(x[neg[-1]]) if len(neg) else float("nan")
     l_sep = x_att - x_sep if len(neg) else 0.0
+    # the separation of the resolved flow: the time-mean u of the first cell (finest row) below zero, which tau_w misses when the reversed
+    # layer lies below the wall model's sample (#121 P2)
+    u1 = a["u"][:, 0]
+    neg1 = np.nonzero((u1 < 0.0) & (x > x_imp - 10.0 * delta0))[0]
+    x_sep1 = float(x[neg1[0]]) if len(neg1) else float("nan")
+    x_att1 = float(x[neg1[-1]]) if len(neg1) else float("nan")
+    l_sep1 = x_att1 - x_sep1 + (x[1] - x[0]) if len(neg1) else 0.0
     # the reflected and the incident shock, fitted above the layer
     x_inc_wall, x_ref, beta_r, (yi, xi, yr, xr) = shock_fits(p, x, y, delta0, x_imp, p_inf, p2, p3, sh["incident"]["beta"])
     l_int = x_imp - x_ref
@@ -199,6 +207,7 @@ def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str
     print(f"wall pressure upstream: p_w / p_inf {np.mean(p_w[(x > x_imp - 25.0) & (x < x_imp - 15.0)]) / p_inf:.4f} over [{x_imp - 25:g}, {x_imp - 15:g}]")
     print(f"separation: C_f < 0 from x = {x_sep:.2f} to {x_att:.2f}: L_sep / delta_0 {l_sep / delta0:.2f} (Volpiani et al. adiabatic {theta_deg:g} deg, Re_theta 1050: "
           f"{vol.get('a', float('nan')):.2f})")
+    print(f"separation of the resolved flow: mean u < 0 in the first cell from x = {x_sep1:.2f} to {x_att1:.2f}: L_sep / delta_0 {l_sep1 / delta0:.2f}")
     print(f"incident shock: foot at x = {x_inc_wall:.2f} (x_imp {x_imp:g}); reflected shock: {len(yr)} rows, {beta_r:.2f} deg to the wall, apparent origin x_ref {x_ref:.2f}")
     print(f"L_int = x_imp - x_ref {l_int:.3f}: L_int / delta_0 {l_int / delta0:.2f} (Volpiani et al. {vol.get('b', float('nan')):.2f}); Souverein L* = L_int / (delta* g3) "
           f"{l_star:.3f}, g3 {g3:.3f}, Se {se:.3f}")
@@ -209,7 +218,7 @@ def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str
         out = {"x": x.tolist(), "cf": cf.tolist(), "pw_norm": pw_norm.tolist(), "x_star": x_star.tolist(), "delta": [None if not np.isfinite(v) else float(v) for v in delta],
                "H": [None if not np.isfinite(v) else float(v) for v in h_edge], "p_e": [None if not np.isfinite(v) else float(v) for v in p_e],
                "delta0": delta0, "dstar0": dstar0, "dstar0_nominal": dstar0_nom, "theta0": theta0, "re_theta": re_theta_nom, "re_theta_edge": re_theta_edge,
-               "x_sep": x_sep, "x_att": x_att, "l_sep": l_sep, "x_ref": x_ref, "l_int": l_int, "x_inc_wall": x_inc_wall, "beta_r": beta_r, "l_star": l_star,
+               "x_sep": x_sep, "x_att": x_att, "l_sep": l_sep, "x_sep_u1": x_sep1, "x_att_u1": x_att1, "l_sep_u1": l_sep1, "u1": u1.tolist(), "x_ref": x_ref, "l_int": l_int, "x_inc_wall": x_inc_wall, "beta_r": beta_r, "l_star": l_star,
                "g3": g3, "se": se, "x_imp": x_imp, "t": [t for t, _ in cps], "volpiani": vol, "iusti": iusti.tolist(), "dns": dns.tolist(),
                "dns_hre": dns_hre.tolist(), "exp_hre": refs["exp_hre"].tolist(),
                "shock_rows": {"yi": yi, "xi": xi, "yr": yr, "xr": xr}}

@@ -27,7 +27,9 @@ and the wall pressure against the DNS and the experiment.
 `sbli_oracle.py` takes $\delta_0$, $\delta^*$ and $\theta$ of the undisturbed layer from a linear fit over
 $[x_{imp}-15,\,x_{imp}-6]$ extrapolated to $x_{imp}$; $C_f$ from the wall model's $\tau_w$; the reflected shock from the
 mid-pressure crossings of the rows $2.5<y/\delta_0<5$, a line extrapolated to the wall: its apparent origin $x_{ref}$
-gives $L_{int}=x_{imp}-x_{ref}$, the length STREAmS scales $x$ with.
+gives $L_{int}=x_{imp}-x_{ref}$, the length STREAmS scales $x$ with. It also reports the separation of the resolved flow, where the
+time-mean $u$ of the first cell is negative, which $\tau_w$ misses when the reversed layer lies below the sample
+([below](#the-reversed-flow-the-dns-s-bubble-and-the-runs-below-the-sample)).
 
 ## Results
 
