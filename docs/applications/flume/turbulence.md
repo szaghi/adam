@@ -303,6 +303,35 @@ Measured by `test_wall_model`:
   equations on $2\cdot10^5$ intervals: within $3\cdot10^{-3}$;
 - no non-finite result in $10^5$ random samples with random convections.
 
+##### The resolved shear stress
+
+The convection fed to the model is the instantaneous resolved one, and its time mean holds the gradient of the
+resolved shear stress, $\partial\langle\rho u'_eu'_\eta\rangle/\partial\eta$ ($\eta$ away from the wall), which the model's
+eddy viscosity already represents: counted twice, it raises $\tau_w$ (by 5 to 12 % in the zero-gradient layer of the
+interaction runs, [S4h](./verification/streams/sbli#the-run-s4h)). Park & Moin (2014) lower the model's eddy
+viscosity by the resolved one, $\mu_{t,wm}=\mu_{t,mix}-\rho\,|\langle u'v'\rangle|/(dU/dy)$; in the model's balance this is
+the same as removing the resolved stress from the forcing. With `wall_model_resolved_stress = .true.` (with
+`wall_model_convection`)
+
+$$
+(\mu+\mu_t)\frac{dU}{dy}=\tau_w+S(y)-R(y),\qquad R=\langle\rho u_eu_\eta\rangle-\frac{\langle\rho u_e\rangle\langle\rho u_\eta\rangle}{\langle\rho\rangle},
+$$
+
+$R$ at the centres of the convection cells from four running averages per cell ($\rho$, $\rho u_e$, $\rho u_\eta$,
+$\rho u_eu_\eta$, filtered with the gradient's filter; averages 11 to 26 of the face, in the `.wmf`), linear between the
+wall ($R=0$) and the centres, constant beyond. The wall-parallel fluctuation terms are not removed.
+
+The same key takes the forcing out of the eddy viscosity: its velocity scale is $\sqrt{|\tau_w|/\rho}$, as in the
+thin-boundary-layer model of Wang & Moin (2002), and the forcing enters the balance linearly. The filtered resolved
+forcing fluctuates as much as $\tau_w$ itself (on the Mach 2.5 zero-gradient layer, $S(h)$ has an rms of $1.0\cdot10^{-3}$
+against a mean $\tau_w$ of $0.97\cdot10^{-3}$), and $|S|$ in the scale raises the mean $\tau_w$: a priori on the filtered
+averages of that layer (77760 wall columns), against the equilibrium model, the convection-fed model gives +22.9 %, with
+the resolved stress removed +12.4 %, and with the scale $\sqrt{|\tau_w|/\rho}$ as well $-1.5$ %.
+
+Measured by `test_wall_model`: with no convection and $R=ry$, the model is the pressure-gradient model with $dp/dx-r$ within
+$10^{-10}$; $R=0$ is the convection-fed model; with the scale from $\tau_w$ alone, no forcing is the equilibrium model and
+$R=ry$ is the model with $dp/dx-r$, within $10^{-10}$.
+
 ### Limits
 
 - Isothermal walls only.

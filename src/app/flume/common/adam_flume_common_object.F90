@@ -123,7 +123,8 @@ type, extends(realm_object) :: flume_common_object
    logical                        :: has_wm_filter=.false. !< Some modelled face filters its samples (`wall_model_filter` > 0) or its pressure gradient
                                                            !< (`wall_model_pressure_gradient_filter` > 0).
    integer(I4P)                   :: wm_avg_nv=6_I4P       !< Averages per wall face: the sample (5), the pressure gradient, and with
-                                                           !< `wall_model_convection` the convection of WM_CONV_CELLS cells (#121 P2).
+                                                           !< `wall_model_convection` the convection of WM_CONV_CELLS cells (#121 P2), and with
+                                                           !< `wall_model_resolved_stress` four averages per cell for its resolved stress (#121 P3).
    logical                        :: has_wm_viscosity=.false. !< Some modelled face puts its eddy viscosity below the matching height.
    logical                        :: wm_filter_fresh=.true. !< The averages hold no history (start, regrid, a checkpoint without them): the next commit takes the sample.
    integer(I4P)                   :: wm_filter_it=-1_I4P !< The iteration whose sample the averages hold.
@@ -1248,6 +1249,8 @@ contains
    ! the convection-fed model (#121 P2) adds the filtered convection of its cells: averages 7 to 6 + WM_CONV_CELLS, only with the key (the .wmf
    ! layout of every other run is unchanged)
    self%wm_avg_nv = merge(6_I4P + WM_CONV_CELLS, 6_I4P, self%has_wall_model .and. any(self%bc%wall_modelled .and. self%bc%wm_conv))
+   ! the resolved shear stress (#121 P3): rho, rho u_e, rho u_eta, rho u_e u_eta of each convection cell, averages 11 to 10 + 4 WM_CONV_CELLS
+   if (self%has_wall_model .and. any(self%bc%wall_modelled .and. self%bc%wm_rstress)) self%wm_avg_nv = 6_I4P + 5_I4P * WM_CONV_CELLS
    if (self%has_wm_filter) then
       allocate(self%wm_avg_x(self%wm_avg_nv,2,self%nj,self%nk,self%nb), source=0._R8P)
       allocate(self%wm_avg_y(self%wm_avg_nv,self%ni,2,self%nk,self%nb), source=0._R8P)
@@ -1599,8 +1602,9 @@ contains
    character(8), parameter                   :: FACE_NAME(6)=['x_min', 'x_max', 'y_min', 'y_max', 'z_min', 'z_max']
    real(R8P), allocatable                    :: acc(:,:)              !< Per bin: stress times area, heat flux times area, area [3, bins].
    real(R8P)                                 :: tref, suth, omega_mu, omega_k, mu0, cp, h, w, us, ts, ps, rs, tau, q, area, lo, len !< Work.
-   real(R8P)                                 :: u(3), p1(5), p2(5), xyz(3), px, g(2), cc(WM_CONV_CELLS) !< Work.
-   integer(I4P)                              :: f, d, a, side, n, m, b, i, j, k, c(3), o1, o2, ib, nbins, t1, t2, t, oo, nc !< Counters.
+   real(R8P)                                 :: u(3), p1(5), p2(5), xyz(3), px, g(2), cc(WM_CONV_CELLS), rc(WM_CONV_CELLS) !< Work.
+   real(R8P), allocatable                    :: av(:)                 !< The averages of a face column.
+   integer(I4P)                              :: f, d, a, side, n, m, b, i, j, k, c(3), o1, o2, ib, nbins, t1, t2, t, oo, nc, ab !< Counters.
    integer(I4P)                              :: lb(3), ub(3)          !< Face cell ranges.
    logical                                   :: is_present            !< File presence.
 
@@ -1615,7 +1619,7 @@ contains
    a = self%diagnostics%wall_history_axis
    lo = self%adam%grid%domain_emin(a)
    len = self%adam%grid%domain_emax(a) - lo
-   allocate(acc(3, nbins))
+   allocate(acc(3, nbins), av(self%wm_avg_nv))
    do f=1, 6
       if (.not.self%bc%wall_modelled(f)) cycle
       d = (f + 1_I4P) / 2_I4P
@@ -1669,14 +1673,20 @@ contains
                      endif
                      if (self%bc%wm_conv(f)) then ! the filtered convection the face flux takes (its filter is required), cells 1 to nc
                         nc = min(m + merge(1_I4P, 0_I4P, w > 0._R8P), WM_CONV_CELLS)
-                        cc = 0._R8P
+                        cc = 0._R8P ; rc = 0._R8P
                         select case(d)
-                        case(1) ; cc(1:nc) = self%wm_avg_x(7:6+nc,side,j,k,b)
-                        case(2) ; cc(1:nc) = self%wm_avg_y(7:6+nc,i,side,k,b)
-                        case(3) ; cc(1:nc) = self%wm_avg_z(7:6+nc,i,j,side,b)
+                        case(1) ; cc(1:nc) = self%wm_avg_x(7:6+nc,side,j,k,b) ; if (self%bc%wm_rstress(f)) av = self%wm_avg_x(:,side,j,k,b)
+                        case(2) ; cc(1:nc) = self%wm_avg_y(7:6+nc,i,side,k,b) ; if (self%bc%wm_rstress(f)) av = self%wm_avg_y(:,i,side,k,b)
+                        case(3) ; cc(1:nc) = self%wm_avg_z(7:6+nc,i,j,side,b) ; if (self%bc%wm_rstress(f)) av = self%wm_avg_z(:,i,j,side,b)
                         endselect
+                        if (self%bc%wm_rstress(f)) then ! the filtered resolved shear stress, <rho u_e u_eta> - <rho u_e> <rho u_eta> / <rho>
+                           do oo=1, nc
+                              ab = 6_I4P + WM_CONV_CELLS + 4_I4P * (oo - 1_I4P)
+                              if (av(ab+1) > 0._R8P) rc(oo) = av(ab+4) - av(ab+2) * av(ab+3) / av(ab+1)
+                           enddo
+                        endif
                         call wall_model_solve_convective(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), px=px, nc=nc, &
-                                                         dyc=self%adam%field%dxyz(d,b), cc=cc, R=self%physics%R, cp=cp, &
+                                                         dyc=self%adam%field%dxyz(d,b), cc=cc, rc=rc, ftau=self%bc%wm_rstress(f), R=self%physics%R, cp=cp, &
                                                          pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
                                                          tau=tau, q=q, semilocal=self%bc%wm_semilocal(f))
                      else

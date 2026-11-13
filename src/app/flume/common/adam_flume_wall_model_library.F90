@@ -295,19 +295,27 @@ contains
    endif
    endsubroutine wall_model_solve_pressure
 
-   pure subroutine wall_model_solve_convective(h, us, ts, ps, tw, px, nc, dyc, cc, R, cp, pr, mu0, tref, suth, omega_mu, tau, q, semilocal)
+   pure subroutine wall_model_solve_convective(h, us, ts, ps, tw, px, nc, dyc, cc, rc, ftau, R, cp, pr, mu0, tref, suth, omega_mu, tau, q, semilocal)
    !< `wall_model_solve_pressure` fed with the flow's own convection (issue #121, P2): the thin-boundary-layer balance between the wall and the
    !< sample keeps the convection with the pressure gradient (Wang & Moin 2002; Park & Moin 2014), `(mu + mu_t) dU/dy = tau_w + S(y)`,
    !< `S(y) = int_0^y F`, `F = px + C`, with `C` the convection along the sample velocity of the resolved cells below the sample, `cc(1:nc)` at
    !< the cell centres `(c - 1/2) dyc`, linear in y between them, 0 at the wall (no-slip), constant beyond the last centre. `S` replaces `px y` of
    !< the pressure model in the stress, in I1 and in the velocity scale `sqrt((|tau_w| + |S|) / rho)`; `cc = 0` is that model to round-off. Where the
    !< resolved convection balances the pressure gradient (Bernoulli) the forcing vanishes, where the near-wall flow is slow it is the gradient.
+   !< `rc` (#121 P3): the resolved shear stress `<rho u'_e u'_eta>` of the same cells (eta away from the wall), linear between the wall (0) and the
+   !< centres, constant beyond: the mean of the instantaneous convection holds its gradient, which the model's eddy viscosity already carries, so
+   !< `S(y) - R(y)` replaces `S` (the stress form of Park & Moin's 2014 reduced eddy viscosity). `rc = 0` is the model without it, bit for bit.
+   !< `ftau` (#121 P3): the velocity scale of the eddy viscosity `sqrt(|tau_w| / rho)`, the forcing kept out of it and linear in the balance (as
+   !< Wang & Moin's 2002 thin-boundary-layer model): the filtered resolved forcing fluctuates as much as tau_w itself, and `|S|` in the scale
+   !< biases the mean tau_w up (a priori on a zero-gradient layer: +12 % with it, -1.5 % without). `.false.`: the scale `|tau_w| + |S|`.
    real(R8P),    intent(in)  :: h, us, ts, ps       !< Height, parallel speed, temperature and pressure of the sample.
    real(R8P),    intent(in)  :: tw                  !< Wall temperature.
    real(R8P),    intent(in)  :: px                  !< Pressure gradient along the sample velocity.
    integer(I4P), intent(in)  :: nc                  !< Cells with a convection, 0 to WM_CONV_CELLS.
    real(R8P),    intent(in)  :: dyc                 !< Cell spacing along the normal.
    real(R8P),    intent(in)  :: cc(WM_CONV_CELLS)   !< Convection along the sample velocity at the centres of cells 1 to nc.
+   real(R8P),    intent(in)  :: rc(WM_CONV_CELLS)   !< Resolved shear stress at the centres of cells 1 to nc, 0 for none.
+   logical,      intent(in)  :: ftau                !< The velocity scale of the eddy viscosity from tau_w alone.
    real(R8P),    intent(in)  :: R, cp, pr           !< Gas constant, specific heat, Prandtl number.
    real(R8P),    intent(in)  :: mu0, tref, suth, omega_mu !< Viscosity law, as `compute_dissipative_flux`.
    real(R8P),    intent(out) :: tau, q              !< Wall shear stress (along the sample velocity), wall heat flux.
@@ -322,6 +330,7 @@ contains
    real(R8P)                 :: a(0:WM_POINTS)      !< mu / Pr + mu_t / Pr_t.
    real(R8P)                 :: yk(0:WM_CONV_CELLS) !< Knots of F: the wall and the cell centres.
    real(R8P)                 :: fk(0:WM_CONV_CELLS) !< F at the knots.
+   real(R8P)                 :: rk(0:WM_CONV_CELLS) !< The resolved shear stress at the knots.
    real(R8P)                 :: dy0, mu, rho, rhow, muw, ts_, damp, i2, i3, dy, hp, tnew, s0, s1, ya, yb, fa, fb !< Work.
    integer(I4P)              :: n, it, c, nk        !< Counters, knots.
    !$acc routine seq
@@ -340,9 +349,9 @@ contains
    q = muw * cp / pr * (ts - tw) / h
    ! the forcing: F piecewise linear on the knots (the wall, F = px, and the cell centres, F = px + C), constant beyond the last; S its integral
    nk = max(0_I4P, min(nc, WM_CONV_CELLS))
-   yk(0) = 0._R8P ; fk(0) = px
+   yk(0) = 0._R8P ; fk(0) = px ; rk(0) = 0._R8P
    do c=1, nk
-      yk(c) = (real(c, R8P) - 0.5_R8P) * dyc ; fk(c) = px + cc(c)
+      yk(c) = (real(c, R8P) - 0.5_R8P) * dyc ; fk(c) = px + cc(c) ; rk(c) = rc(c)
    enddo
    sg(0) = 0._R8P
    do n=1, WM_POINTS
@@ -359,6 +368,9 @@ contains
       yb = y(n) ; fb = forcing_at(yb, nk, yk, fk)
       sg(n) = sg(n-1) + s0 + 0.5_R8P * (yb - ya) * (fa + fb)
    enddo
+   do n=1, WM_POINTS ! the resolved shear stress the mean convection holds, counted once (rc = 0: unchanged, bit for bit)
+      sg(n) = sg(n) - forcing_at(y(n), nk, yk, rk)
+   enddo
    ! the first guess of the equilibrium model (the log law when above the laminar one), zero without a speed
    tau = max(muw * us / h, 0._R8P)
    if (tau > 0._R8P) then
@@ -373,7 +385,8 @@ contains
       do n=0, WM_POINTS
          mu = mu0 * temperature_law(t=t(n), tref=tref, suth=suth, omega=omega_mu)
          rho = ps / (R * t(n))
-         ts_ = abs(tau) + abs(sg(n))
+         ts_ = abs(tau)
+         if (.not.ftau) ts_ = ts_ + abs(sg(n))
          if (sl) then
             damp = 1._R8P - exp(-y(n) * sqrt(rho * ts_) / (mu * WM_APLUS))
          else

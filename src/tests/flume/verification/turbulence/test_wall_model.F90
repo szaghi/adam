@@ -5,7 +5,8 @@ program test_wall_model
 !< law against the same references, and the law itself; the model with the pressure gradient (issue #121, S4d): its laminar limit
 !< of either sign, px = 0 against the equilibrium model, a fine-grid reference, robustness; its Bernoulli-consistent variant (#121 P1): the
 !< laminar limit with y_pg above and below h, ypg 0 bit for bit, y_pg >> h, a fine-grid reference, robustness; the model fed with the convection
-!< (#121 P2): a zero convection against the pressure model, the laminar limit with a convection linear in y, a fine-grid reference, robustness.
+!< (#121 P2): a zero convection against the pressure model, the laminar limit with a convection linear in y, a fine-grid reference, robustness;
+!< the resolved shear stress removed (#121 P3): a stress linear in y against the pressure model with px - r.
 
 use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_wall_model_library, only : inverse_strain, sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
@@ -23,7 +24,7 @@ logical              :: ok1
 integer(I4P)         :: n
 integer(I4P), parameter :: NF=4000000_I4P
 logical              :: ok
-real(R8P)            :: cc(WM_CONV_CELLS), ac
+real(R8P)            :: cc(WM_CONV_CELLS), ac, rcv(WM_CONV_CELLS)
 
 ok = .true.
 ! laminar limit: h+ small, so mu_t vanishes: tau = mu U / h, q = cp mu / Pr (Ts - Tw) / h with Couette work
@@ -280,11 +281,12 @@ ok = ok .and. nbad == 0
 ! the model fed with the convection (issue #121, P2), wall_model_solve_convective: (a) a zero convection is the pressure model to round-off
 ok1 = .true.
 cc = 0._R8P
+rcv = 0._R8P
 do n=1, 3
    px = merge(0.3e-2_R8P, merge(0.1_R8P, -1.e-2_R8P, n == 2), n == 1)
    call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
                                   omega_mu=1.5_R8P, tau=tauc, q=qc, semilocal=.true.)
-   call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.12_R8P, cc=cc, R=GAS, cp=CP, &
+   call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.12_R8P, cc=cc, rc=rcv, ftau=.false., R=GAS, cp=CP, &
                                     pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true.)
    err = abs(tau - tauc) / (abs(tauc) + abs(px) * 0.3_R8P)
    ok1 = ok1 .and. err < 1.e-10_R8P .and. abs(q - qc) / abs(qc) < 1.e-10_R8P
@@ -300,7 +302,7 @@ do n=1, 4
    do mm=1, WM_CONV_CELLS
       cc(mm) = ac * (real(mm, R8P) - 0.5_R8P) * 0.4_R8P
    enddo
-   call wall_model_solve_convective(h=1._R8P, us=1.e-3_R8P, ts=1._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.4_R8P, cc=cc, R=GAS, cp=CP, &
+   call wall_model_solve_convective(h=1._R8P, us=1.e-3_R8P, ts=1._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.4_R8P, cc=cc, rc=rcv, ftau=.false., R=GAS, cp=CP, &
                                     pr=0.7_R8P, mu0=1._R8P, tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, tau=tau, q=q)
    ref = 1.e-3_R8P - 0.5_R8P * px - ac / 6._R8P
    err = max(err, abs(tau - ref) / (1.e-3_R8P + abs(px) + abs(ac)))
@@ -316,7 +318,7 @@ do n=1, 2
    enddo
    call reference_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, tau=tauf, q=ref, &
                            acoef=ac)
-   call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.1_R8P, cc=cc, R=GAS, cp=CP, &
+   call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.1_R8P, cc=cc, rc=rcv, ftau=.false., R=GAS, cp=CP, &
                                     pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true.)
    err = abs(tau - tauf) / (abs(tauf) + abs(px) * 0.3_R8P + abs(ac) * 0.045_R8P)
    print '(A,ES10.2,A,ES11.3,A,ES11.3,A,ES10.2,A)', 'convection-fed, a = ', ac, ': tau ', tau, ' (fine grid ', tauf, '), relative ', err, ' (bound 2e-2)'
@@ -330,12 +332,67 @@ do n=1, 100000
    do mm=1, WM_CONV_CELLS
       cc(mm) = (lcg(seed) - 0.5_R8P) * 0.6_R8P * lcg(seed)**3
    enddo
-   call wall_model_solve_convective(h=hh, us=uu, ts=tt, ps=pp, tw=tw15, px=px, nc=1_I4P + mod(n, WM_CONV_CELLS), dyc=hh / 2.5_R8P, cc=cc, R=GAS, cp=CP, &
+   call wall_model_solve_convective(h=hh, us=uu, ts=tt, ps=pp, tw=tw15, px=px, nc=1_I4P + mod(n, WM_CONV_CELLS), dyc=hh / 2.5_R8P, cc=cc, rc=rcv, ftau=.false., R=GAS, cp=CP, &
                                     pr=0.7_R8P, mu0=1._R8P / 3000._R8P, tref=tw15, suth=0._R8P, omega_mu=0.7_R8P, tau=tau, q=q, semilocal=mod(n, 2) == 0)
    if (.not.(abs(tau) < huge(1._R8P) .and. abs(q) < huge(1._R8P))) nbad = nbad + 1
 enddo
 print '(A,I0,A)', 'convection-fed, robustness, non-finite results: ', nbad, ' of 100000 (bound 0)'
 ok = ok .and. nbad == 0
+! the resolved shear stress removed (#121 P3): with no convection and a stress linear in y, R = r y (the centres 0.05, 0.15, 0.25, 0.35 cover
+! h = 0.3), the forcing is (px - r) y: the pressure model with px - r, to round-off; a zero stress is the model without it, bit for bit
+ok1 = .true.
+cc = 0._R8P
+do n=1, 3
+   px = merge(0.3e-2_R8P, merge(0.1_R8P, -1.e-2_R8P, n == 2), n == 1)
+   ac = merge(2.e-2_R8P, merge(-5.e-2_R8P, 1.e-2_R8P, n == 2), n == 1)
+   do mm=1, WM_CONV_CELLS
+      rcv(mm) = ac * (real(mm, R8P) - 0.5_R8P) * 0.1_R8P
+   enddo
+   call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px - ac, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, &
+                                  suth=0.4_R8P, omega_mu=1.5_R8P, tau=tauc, q=qc, semilocal=.true.)
+   call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.1_R8P, cc=cc, rc=rcv, ftau=.false., R=GAS, &
+                                    cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true.)
+   err = abs(tau - tauc) / (abs(tauc) + abs(px - ac) * 0.3_R8P)
+   ok1 = ok1 .and. err < 1.e-10_R8P .and. abs(q - qc) / abs(qc) < 1.e-10_R8P
+enddo
+rcv = 0._R8P
+call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=0.1_R8P, nc=WM_CONV_CELLS, dyc=0.1_R8P, cc=cc, rc=rcv, ftau=.false., R=GAS, &
+                                 cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, tau=tau, q=q, semilocal=.true.)
+call wall_model_solve_pressure(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=0.1_R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, &
+                               suth=0.4_R8P, omega_mu=1.5_R8P, tau=tauc, q=qc, semilocal=.true.)
+ok1 = ok1 .and. abs(tau - tauc) / (abs(tauc) + 0.03_R8P) < 1.e-10_R8P
+print '(A,L1,A)', 'resolved stress removed: R = r y is the pressure model with px - r within 1e-10, R = 0 the convection model: ', ok1, ' (bound T)'
+ok = ok .and. ok1
+! the velocity scale from tau_w alone (ftau, #121 P3): no forcing is the equilibrium model (the same 16 iterations); a resolved stress R = r y
+! is the same model with the pressure gradient px - r and no stress (S - R = (px - r) y both ways; a convection -r would not do: it is 0 at the
+! wall, the knot below the first centre)
+call wall_model_solve(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, &
+                      omega_mu=1.5_R8P, tau=tauc, q=qc, semilocal=.true.)
+cc = 0._R8P ; rcv = 0._R8P
+call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=0._R8P, nc=WM_CONV_CELLS, dyc=0.1_R8P, cc=cc, rc=rcv, &
+                                 ftau=.true., R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, tau=tau, q=q, &
+                                 semilocal=.true.)
+err = max(abs(tau - tauc) / tauc, abs(q - qc) / abs(qc))
+ok1 = err < 1.e-8_R8P
+do n=1, 2
+   px = merge(0.3e-2_R8P, 0.1_R8P, n == 1)
+   ac = merge(2.e-2_R8P, -5.e-2_R8P, n == 1)
+   do mm=1, WM_CONV_CELLS
+      rcv(mm) = ac * (real(mm, R8P) - 0.5_R8P) * 0.1_R8P
+   enddo
+   cc = 0._R8P
+   call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px, nc=WM_CONV_CELLS, dyc=0.1_R8P, cc=cc, rc=rcv, &
+                                    ftau=.true., R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, tau=tauc, q=qc, &
+                                    semilocal=.true.)
+   cc = 0._R8P ; rcv = 0._R8P
+   call wall_model_solve_convective(h=0.3_R8P, us=1._R8P, ts=2._R8P, ps=1._R8P, tw=1._R8P, px=px - ac, nc=WM_CONV_CELLS, dyc=0.1_R8P, cc=cc, rc=rcv, &
+                                    ftau=.true., R=GAS, cp=CP, pr=0.7_R8P, mu0=1.e-4_R8P, tref=1._R8P, suth=0.4_R8P, omega_mu=1.5_R8P, tau=tau, q=q, &
+                                    semilocal=.true.)
+   ok1 = ok1 .and. abs(tau - tauc) / (abs(tauc) + abs(px - ac) * 0.3_R8P) < 1.e-10_R8P
+enddo
+print '(A,ES10.2,A,L1,A)', 'velocity scale from tau_w: no forcing against the equilibrium model ', err, ', R = r y as px - r within 1e-10: ', &
+      ok1, ' (bound T)'
+ok = ok .and. ok1
 if (ok) then
    print '(A)', 'test_wall_model: PASS'
 else

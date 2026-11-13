@@ -68,7 +68,7 @@ contains
    !$omp end parallel do
    endsubroutine add_uniform_momentum
    subroutine overwrite_wall_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces, tw, hwm, sl, tf, dt, commit, fresh, &
-                                    avg, inv, ue, te, pg, yp, cv, tp, is_null, dxyz, q_aux, fl)
+                                    avg, inv, ue, te, pg, yp, cv, rsf, tp, is_null, dxyz, q_aux, fl)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
    !< With a filter time `tf` the sample is `(1 - e) a + e s`, `e = min(dt / tf, 1)` (1 when `fresh`), from the averages `a` of the face, which take it when `commit`
@@ -93,13 +93,15 @@ contains
    logical,      intent(in)    :: pg(6)                           !< The pressure gradient in the equilibrium model per face (issue #121, S4d).
    real(R8P),    intent(in)    :: yp(6)                           !< y_pg of the Bernoulli-consistent pressure gradient per face, 0 for none (#121 P1).
    logical,      intent(in)    :: cv(6)                           !< The model fed with the resolved convection per face (#121 P2).
+   logical,      intent(in)    :: rsf(6)                          !< Its resolved shear stress removed per face (#121 P3).
    real(R8P),    intent(in)    :: tp(6)                           !< Filter time of the pressure gradient per face, 0 for none.
    logical,      intent(in)    :: is_null(3)                      !< Null directions.
    real(R8P),    intent(in)    :: dxyz(1:,1:)                    !< Blocks space steps.
    real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)      !< Face fluxes of direction `d`.
-   real(R8P)                   :: u(3), us, ts, ps, rs, tau, q, cp, h, s, w, e, px, ep, cc(WM_CONV_CELLS) !< Work.
-   integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, ia, ja, ka, nc, c !< Counters.
+   real(R8P)                   :: u(3), us, ts, ps, rs, tau, q, cp, h, s, w, e, px, ep, cc(WM_CONV_CELLS), rc(WM_CONV_CELLS) !< Work.
+   real(R8P)                   :: rv(4), ue_, un_, rr, sdr     !< Resolved-stress work: the four averages, u_e, u_eta, rho, sign away from the wall.
+   integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, ia, ja, ka, nc, c, oc, kk, ab, cl(3) !< Counters.
 
    n = ni * di + nj * dj + nk * dk
    cp = gamma * (R / (gamma - 1._R8P)) ! as the physics object derives it (cv = R / (gamma - 1), cp = gamma cv)
@@ -157,7 +159,25 @@ contains
                            cc(c) = (1._R8P - ep) * avg(6+c,ia,ja,ka,b) + ep * cc(c)
                            if (commit) avg(6+c,ia,ja,ka,b) = cc(c)
                         enddo
-                        call wall_model_solve_convective(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, nc=nc, dyc=dxyz(d,b), cc=cc, R=R, cp=cp, pr=pr, &
+                        rc = 0._R8P
+                        if (rsf(f)) then ! the resolved shear stress of the same cells (#121 P3): rho, rho u_e, rho u_eta, rho u_e u_eta filtered
+                           sdr = merge(1._R8P, -1._R8P, side == 1)
+                           do c=1, nc
+                              oc = merge(c, 1_I4P - c, side == 1) ; cl = [i + di * oc, j + dj * oc, k + dk * oc]
+                              rr = q_aux(IA_R,cl(1),cl(2),cl(3),b)
+                              ue_ = 0._R8P
+                              if (us > 0._R8P) ue_ = dot_product(u, q_aux(IA_U:IA_W,cl(1),cl(2),cl(3),b)) / us
+                              un_ = sdr * q_aux(IA_U+d-1,cl(1),cl(2),cl(3),b)
+                              rv = [rr, rr * ue_, rr * un_, rr * ue_ * un_]
+                              do kk=1, 4
+                                 ab = 6_I4P + WM_CONV_CELLS + 4_I4P * (c - 1_I4P) + kk
+                                 rv(kk) = (1._R8P - ep) * avg(ab,ia,ja,ka,b) + ep * rv(kk)
+                                 if (commit) avg(ab,ia,ja,ka,b) = rv(kk)
+                              enddo
+                              if (rv(1) > 0._R8P) rc(c) = rv(4) - rv(2) * rv(3) / rv(1)
+                           enddo
+                        endif
+                        call wall_model_solve_convective(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, nc=nc, dyc=dxyz(d,b), cc=cc, rc=rc, ftau=rsf(f), R=R, cp=cp, pr=pr, &
                                                          mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
                      else
                         call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, &
