@@ -4,7 +4,8 @@ face: the filtered sample u, v, w, p, rho; the filtered pressure gradient; the f
 rho u_e u_eta of cells 1-4). Per column: tau_w of the equilibrium model, of the pressure gradient alone, fed with the convection, with the
 resolved stress removed, and the last with the velocity scale of the eddy viscosity sqrt(|tau| / rho) (the forcing kept out of it); and the
 corrected model fed with the forcing averaged over the span (the same x), whose difference from the span mean of the per-column tau_w is the
-bias of the nonlinear response to a fluctuating forcing.
+bias of the nonlinear response to a fluctuating forcing. P4a: the corrected model with two velocity scales that keep the forcing's mean in the
+eddy viscosity and its fluctuation out, Duprat et al.'s (2011) u_tau_p and the total stress of the column-mean forcing.
 
 Without the sample's input filter (wall_model_filter 0) the .wmf holds no filtered sample: its speed is taken from the filtered rho u_e / rho
 of the sample cell, its pressure the free stream's (--mach), its temperature a fraction of the wall's (--t-ratio); the variants are compared on
@@ -105,6 +106,13 @@ def main() -> int:
     fkm = np.repeat(fk.mean(axis=0, keepdims=True), us.size, axis=0)
     rkm = np.repeat(rk.mean(axis=0, keepdims=True), us.size, axis=0)
     res["  - resolved stress, the mean forcing"] = so.wall_model(h, us, ts, ps, tw, gas, forcing=make_forcing(fkm, rkm), iterations=60)[0]
+    # #121 P4a: two velocity scales that keep the forcing's mean in the eddy viscosity and its fluctuation out: Duprat et al.'s (2011)
+    # u_tau_p from the filtered wall gradient, and the total stress of the slow forcing (here the mean over all columns, the limit of a long
+    # filter in a homogeneous layer); the forcing in the balance stays the column's own
+    res["  - resolved stress, scale Duprat u_tau_p"] = so.wall_model(h, us, ts, ps, tw, gas, forcing=make_forcing(fk, rk), iterations=60,
+                                                                     scale="duprat", px_scale=px)[0]
+    res["  - resolved stress, scale |tau + S_mean|"] = so.wall_model(h, us, ts, ps, tw, gas, forcing=make_forcing(fk, rk), iterations=60,
+                                                                     scale="total", s_scale=make_forcing(fkm, rkm))[0]
     base = res["equilibrium"].mean()
     for k, v in res.items():
         print(f"  {k:45s} mean tau_w {v.mean():.4e} ({100 * (v.mean() / base - 1):+6.1f} % on the equilibrium); negative in {100 * (v < 0).mean():5.1f} %")
