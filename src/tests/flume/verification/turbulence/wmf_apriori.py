@@ -5,7 +5,7 @@ rho u_e u_eta of cells 1-4). Per column: tau_w of the equilibrium model, of the 
 resolved stress removed, and the last with the velocity scale of the eddy viscosity sqrt(|tau| / rho) (the forcing kept out of it); and the
 corrected model fed with the forcing averaged over the span (the same x), whose difference from the span mean of the per-column tau_w is the
 bias of the nonlinear response to a fluctuating forcing. P4a: the corrected model with two velocity scales that keep the forcing's mean in the
-eddy viscosity and its fluctuation out, Duprat et al.'s (2011) u_tau_p and the total stress of the column-mean forcing.
+eddy viscosity and its fluctuation out, Duprat et al.'s (2011) u_tau_p, the total stress of the column-mean forcing, and |tau| + |dp/dx| y (column-mean or filtered dp/dx).
 
 Without the sample's input filter (wall_model_filter 0) the .wmf holds no filtered sample: its speed is taken from the filtered rho u_e / rho
 of the sample cell, its pressure the free stream's (--mach), its temperature a fraction of the wall's (--t-ratio); the variants are compared on
@@ -113,6 +113,10 @@ def main() -> int:
                                                                      scale="duprat", px_scale=px)[0]
     res["  - resolved stress, scale |tau + S_mean|"] = so.wall_model(h, us, ts, ps, tw, gas, forcing=make_forcing(fk, rk), iterations=60,
                                                                      scale="total", s_scale=make_forcing(fkm, rkm))[0]
+    res["  - resolved stress, scale |tau| + |px_mean| y"] = so.wall_model(h, us, ts, ps, tw, gas, forcing=make_forcing(fk, rk), iterations=60,
+                                                                         scale="pressure", px_scale=np.full(px.shape, px.mean()))[0]
+    res["  - resolved stress, scale |tau| + |px| y (filtered)"] = so.wall_model(h, us, ts, ps, tw, gas, forcing=make_forcing(fk, rk),
+                                                                               iterations=60, scale="pressure", px_scale=px)[0]
     base = res["equilibrium"].mean()
     for k, v in res.items():
         print(f"  {k:45s} mean tau_w {v.mean():.4e} ({100 * (v.mean() / base - 1):+6.1f} % on the equilibrium); negative in {100 * (v < 0).mean():5.1f} %")

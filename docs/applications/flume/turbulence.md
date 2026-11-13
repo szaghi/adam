@@ -334,7 +334,9 @@ $\mu U(h)/h$ by two orders of magnitude: $\tau_w$ jumps to a large negative valu
 reverses. In the interaction ([S4i](./verification/streams/sbli#the-run-s4i)) the key returns $C_f$ down to
 $-3.4\cdot10^{-3}$ under a first cell that moves forward everywhere, and the interaction shrinks. The key passes the
 zero-gradient layer and fails the interaction: a velocity scale that keeps the mean forcing (the adverse gradient)
-without its fluctuation is not in FLUME.
+without its fluctuation is not in FLUME. Three candidates tested a priori on both flows (Duprat et al.'s 2011 mixed scale, the total
+stress of the slow forcing, and $|\tau_w|+|\overline{dp/dx}|\,y$ with a slow gradient) each fail one of them
+([interaction](./verification/streams/sbli#a-priori-the-velocity-scale-of-the-eddy-viscosity)).
 
 Measured by `test_wall_model`: with no convection and $R=ry$, the model is the pressure-gradient model with $dp/dx-r$ within
 $10^{-10}$; $R=0$ is the convection-fed model; with the scale from $\tau_w$ alone, no forcing is the equilibrium model and

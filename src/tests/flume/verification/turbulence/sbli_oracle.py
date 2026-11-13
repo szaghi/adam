@@ -400,7 +400,9 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
     (the forcing kept out of the eddy viscosity, entering the balance linearly), "duprat" sqrt(|tau| / rho + u_p^2) with u_p = (mu_w |dp/dx| /
     rho_w^2)^(1/3) of `px_scale` [samples] (the mixed scale of Duprat, Balarac, Metais, Congedo & Brugiere, Phys. Fluids 23, 015101, 2011:
     the scale only, in this model's mixing length and damping), "total" sqrt(|tau + S_bar(y)| / rho) with `s_scale` a callable like
-    `forcing` (the total stress of a slow forcing S_bar: its fluctuation kept out of the eddy viscosity, its mean in)."""
+    `forcing` (the total stress of a slow forcing S_bar: its fluctuation kept out of the eddy viscosity, its mean in), "pressure"
+    sqrt((|tau| + |px_bar| y) / rho) with px_bar = `px_scale` (a slow wall pressure gradient: its stress in the eddy viscosity, the
+    convection's not)."""
     r, cp, pr, mu0, tref, suth, om, sl = (gas[k] for k in ("R", "cp", "pr", "mu0", "tref", "suth", "omega", "semilocal"))
     h, us, ts, ps = (np.asarray(v, dtype=float)[:, None] for v in (h, us, ts, ps))
     dy0 = h * (WM_STRETCH - 1.0) / (WM_STRETCH**WM_POINTS - 1.0)
@@ -426,6 +428,8 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
         up = np.cbrt(muw * np.abs(np.asarray(px_scale, dtype=float)[:, None]) / (rhow * rhow))
         tp = rhow * up * up
     sbar = s_scale(y) if scale == "total" else 0.0
+    if scale == "pressure":
+        pys = np.abs(np.asarray(px_scale, dtype=float)[:, None]) * y
     for _ in range((iterations or (WM_ITERATIONS if px is None and forcing is None else 200))):
         mu = mu0 * _law(t, tref, suth, om)
         rho = ps / (r * t)
@@ -436,6 +440,8 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
             ts_ = np.abs(tau) + tp + 0.0 * g
         elif scale == "total":
             ts_ = np.abs(tau + sbar)
+        elif scale == "pressure":
+            ts_ = np.abs(tau) + pys
         damp = 1.0 - np.exp(-y * np.sqrt(rho * ts_) / (mu * WM_APLUS)) if sl else 1.0 - np.exp(-y * np.sqrt(ts_ / rhow) * rhow / (muw * WM_APLUS))
         mt = WM_KAPPA * y * np.sqrt(rho * ts_) * damp * damp
         a = mu / pr + mt / WM_PRT
@@ -595,8 +601,8 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
     steady thin-boundary-layer balance of Wang & Moin (2002) or Park & Moin (2014), with the convection taken from the resolved cells instead of
     from its own profile. Against: the equilibrium model, the pressure gradient alone (S4d's), the Bernoulli-consistent one (S4g's), and the mean
     u of the first cell. Three more velocity scales of the eddy viscosity: sqrt(|tau| / rho) (`wall_model_resolved_stress`: on a mean field the
-    convection is the mean flow's, without the resolved stress the key removes), Duprat et al.'s (2011) mixed scale, and the total stress of
-    the forcing, slow here, being a mean. A priori on time means: what the model would return for the mean field, not what a run with it converges to."""
+    convection is the mean flow's, without the resolved stress the key removes), Duprat et al.'s (2011) mixed scale, the total stress of
+    the forcing, slow here, being a mean, and |tau| + |dp/dx| y. A priori on time means: what the model would return for the mean field, not what a run with it converges to."""
     d = np.load(npz)
     x, y, delta0, x_imp = d["x"], d["y"], float(d["delta0"]), float(d["x_imp"])
     dx, dy = x[1] - x[0], y[1] - y[0]
@@ -638,6 +644,7 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
     cf_ct = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing, scale="tau")[0]  # wall_model_resolved_stress's velocity scale
     cf_cd = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing, scale="duprat", px_scale=px[idx])[0]  # Duprat et al. (2011)
     cf_cs = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing, scale="total", s_scale=forcing)[0]  # the mean field's forcing is slow
+    cf_cp = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing, scale="pressure", px_scale=px[idx])[0]  # the mean px is slow
     xs = x[idx]
 
     def sep(cf: np.ndarray) -> str:
@@ -655,7 +662,7 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
     u_in = float(u1[(xs >= 45.0) & (xs <= 52.0)].mean())
     down, win = xs >= 54.0, (xs >= 55.0) & (xs <= 64.0)
     for name, cf in (("dp/dx alone", cf_pg), ("convection-fed, |tau| + |S|", cf_c), ("scale from tau_w", cf_ct), ("Duprat u_tau_p", cf_cd),
-                     ("total stress of the slow forcing", cf_cs)):
+                     ("total stress of the slow forcing", cf_cs), ("|tau| + |px_bar| y", cf_cp)):
         neg = cf[down] < 0.0
         changes = int(np.count_nonzero(np.diff(neg.astype(int))))
         umax = float((u1[down][neg] / u_in).max()) if neg.any() else 0.0
@@ -665,7 +672,7 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
     if json_out:
         Path(json_out).write_text(json.dumps({"x": xs.tolist(), "cf_eq": cf_eq.tolist(), "cf_pg": cf_pg.tolist(), "cf_bernoulli": cf_b.tolist(),
                                               "cf_convective": cf_c.tolist(), "cf_convective_tau": cf_ct.tolist(),
-                                              "cf_convective_duprat": cf_cd.tolist(), "cf_convective_total": cf_cs.tolist(), "u1": u1.tolist(), "delta0": delta0, "x_imp": x_imp}))
+                                              "cf_convective_duprat": cf_cd.tolist(), "cf_convective_total": cf_cs.tolist(), "cf_convective_pressure": cf_cp.tolist(), "u1": u1.tolist(), "delta0": delta0, "x_imp": x_imp}))
     return 0
 
 def main() -> int:
