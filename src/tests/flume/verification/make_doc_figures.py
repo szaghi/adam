@@ -3272,7 +3272,8 @@ def fig_sbli_convective(out: Path, runs: Path) -> None:
 def fig_sbli_scales(out: Path, runs: Path) -> None:
     """#121 P4a: the convection-fed wall model a priori on the mean fields of S4b, S4e and S4i with four velocity scales of its eddy viscosity
     (turbulence/sbli_oracle.py convective, <runs>/sbli/<case>-scales.json): sqrt((|tau| + |S|) / rho) (wall_model_convection), sqrt(|tau| / rho)
-    (wall_model_resolved_stress), Duprat et al.'s (2011) mixed scale, the total stress of the slow forcing, and |tau| + |dp/dx| y (the mean gradient); the mean u of the first cell on
+    (wall_model_resolved_stress), Duprat et al.'s (2011) mixed scale, the total stress of the slow forcing, |tau| + |dp/dx| y (the mean gradient), and the total stress with kappa matched to the
+    field's slope at h; the mean u of the first cell on
     the right axis, its half incoming speed dotted."""
     import json  # noqa: PLC0415
 
@@ -3286,7 +3287,8 @@ def fig_sbli_scales(out: Path, runs: Path) -> None:
         x = np.array(j["x"])
         for key, c, name in (("cf_convective", "C2", r"$|\tau_w|+|S|$"), ("cf_convective_tau", "C6", r"$|\tau_w|$"),
                              ("cf_convective_duprat", "C1", r"Duprat $u_{\tau p}$"), ("cf_convective_total", "C0", r"$|\tau_w+\bar S|$"),
-                             ("cf_convective_pressure", "C3", r"$|\tau_w|+|\overline{dp/dx}|\,y$")):
+                             ("cf_convective_pressure", "C3", r"$|\tau_w|+|\overline{dp/dx}|\,y$"),
+                             ("cf_convective_dynamic", "C5", r"$|\tau_w+\bar S|$, dynamic $\kappa$")):
             if key in j:
                 ax.plot(x, 1e3 * np.array(j[key]), "-", color=c, lw=1.2, label=name)
         ax.axhline(0.0, color="k", lw=0.8)

@@ -619,50 +619,63 @@ of [the figure above](#the-pressure-gradient-without-the-convection-with-it-and-
 ### A priori: the velocity scale of the eddy viscosity
 
 S4h's scale, $\sqrt{(|\tau_w|+|S|)/\rho}$, raises the zero-gradient $\tau_w$ (the forcing's fluctuation inside $|S|$); S4i's,
-$\sqrt{|\tau_w|/\rho}$, collapses under the adverse gradient. Three scales meant to keep the forcing's mean in the eddy viscosity and
-its fluctuation out, each tested a priori on both flows before any code: on the interaction's mean fields of S4b, S4e and S4i
-(`sbli_oracle.py convective`), and on the filtered averages of the Mach 2.5 zero-gradient layer, 77760 wall columns of the `.wmf` of
-two runs ([boundary layer](../turbulence/boundary-layer#the-wall-model-fed-with-the-resolved-convection), `wmf_apriori.py`). The
+$\sqrt{|\tau_w|/\rho}$, collapses under the adverse gradient. Scales meant to keep the forcing's mean in the eddy viscosity and its
+fluctuation out, each tested a priori on both flows before any code: on the interaction's mean fields of S4b, S4e and S4i
+(`sbli_oracle.py convective`), and on the filtered averages of the Mach 2.5 zero-gradient layer kept in the `.wmf` of two runs
+([boundary layer](../turbulence/boundary-layer#the-wall-model-fed-with-the-resolved-convection), `wmf_apriori.py`), over the developed
+stretch $45\le x<80$ (30240 wall columns, each column's $x$ from its block's Morton code), the stretch the runs' gate measured. The
 criteria were fixed before the results: on the layer, the mean $\tau_w$ within 2 % of the equilibrium model's; on each mean field,
-from $x=54$ on, at most four sign changes of $C_f$, and $C_f<0$ only under a first cell below half its incoming speed.
+from $x=54$ on, at most four sign changes of $C_f$, and $C_f<0$ only under a first cell below half its incoming speed. The models keep
+the resolved stress removed from the forcing.
 
-| Velocity scale, $u^2=$ | zero-gradient layer, mean $\tau_w$ against the equilibrium model | sign changes of $C_f$ (S4b, S4e, S4i) | of them beyond $\pm0.2\cdot10^{-3}$ (after the fact) | fastest first cell under $C_f<0$, of its incoming speed |
+| Velocity scale, $u^2=$; forcing | layer $45\le x<80$, mean $\tau_w$ against the equilibrium model (rs, rs2) | sign changes of $C_f$ (S4b, S4e, S4i) | of them beyond $\pm0.2\cdot10^{-3}$ (after the fact) | fastest first cell under $C_f<0$, of its incoming speed |
 |---|---|---|---|---|
-| $(\lvert \tau_w\rvert +\lvert S\rvert )/\rho$ (S4h) | $+12.5$, $+11.3$ % | 4, 4, 6 | 4, 2, 4 | 0.76, 0.60, 0.80 |
-| $\lvert \tau_w\rvert /\rho$ (S4i) | $-1.0$, $-1.0$ % | 23, 30, 22 | 17, 16, 16 | 0.93, 0.89, 0.99 |
-| $\lvert \tau_w\rvert /\rho+u_p^2$, $u_p=(\mu_w\lvert dp/dx\rvert /\rho_w^2)^{1/3}$ (Duprat et al. 2011) | **$+0.3$, $+0.3$ %** | 17, 27, 24 | 11, 12, 16 | 0.90, 0.89, 1.01 |
-| $\lvert \tau_w+\bar S\rvert /\rho$, $\bar S$ the slow forcing | $-6.8$, $-5.8$ % | **4, 4, 6** | 4, 2, 4 | 0.76, 0.60, 0.80 |
-| $(\lvert \tau_w\rvert +\lvert \overline{dp/dx}\rvert \,y)/\rho$, the slow gradient | **$+0.2$, $0.0$ %** (with the code's filter: $+2.7$, $+2.4$ %) | 10, 7, 10 | **2, 2, 4** | 0.66, 0.89, 0.74 |
-| $dp/dx$ alone (S4d's model, for reference) | $+4.0$, $+3.5$ % | 4, 4, 2 | 2, 2, 2 | 0.93, 0.40, 0.96 |
+| $(\lvert\tau_w\rvert+\lvert S\rvert)/\rho$; the column's (the P3 intermediate) | $+9.7$, $+6.5$ % | 4, 4, 6 | 4, 2, 4 | 0.76, 0.60, 0.80 |
+| $\lvert\tau_w\rvert/\rho$ (S4i) | $-5.0$, $-6.7$ % | 23, 30, 22 | 17, 16, 16 | 0.93, 0.89, 0.99 |
+| $\lvert\tau_w\rvert/\rho+u_p^2$, $u_p=(\mu_w\lvert dp/dx\rvert/\rho_w^2)^{1/3}$ (Duprat et al. 2011) | $-3.7$, $-5.5$ % | 17, 27, 24 | 11, 12, 16 | 0.90, 0.89, 1.01 |
+| $(\lvert\tau_w\rvert+\lvert\overline{dp/dx}\rvert\,y)/\rho$, the slow gradient | $-2.7$, $-5.0$ % (with the code's filter: $-1.2$, $-3.5$ %) | 10, 7, 10 | 2, 2, 4 | 0.66, 0.89, 0.74 |
+| $\lvert\tau_w+\bar S\rvert/\rho$ with the column's forcing in the balance | $-6.5$, $-4.1$ % | 4, 4, 6 | 4, 2, 4 | 0.76, 0.60, 0.80 |
+| $\lvert\tau_w+S\rvert/\rho$, the column's own: the local modelled stress (Park & Moin 2014's mixing length) | $+2.8$, $+1.1$ % | 4, 4, 6 | 4, 2, 4 | 0.76, 0.60, 0.80 |
+| the same, $\kappa$ matched to the resolved slope at $h$ (Kawai & Larsson 2013's matching) | $-32.6$, $-30.6$ % | 4, 6, 4 | 4, 4, 4 | 0.86, 0.83, 0.87 |
+| **$(\lvert\tau_w\rvert+\lvert\bar S\rvert)/\rho$; the slow forcing $\bar S$ in the balance too** | **$+1.7$, $-0.7$ %** | 4, 4, 6 | **4, 2, 4** | 0.76, 0.60, 0.80 |
+| $dp/dx$ alone (S4d's model, for reference) | $+4.7$, $+3.7$ % | 4, 4, 2 | 2, 2, 2 | 0.93, 0.40, 0.96 |
 
-*The slow forcing and gradient: on a mean field, its own; on the layer, the mean over all wall columns (the limit of a long filter
-in a homogeneous layer). Two `.wmf`: the runs rs and rs2 of the boundary-layer gate.*
+*The slow forcing and gradient: on a mean field, its own (so on the mean fields the last row is the first, and the local stress the
+total stress of the slow forcing); on the layer, the mean over the stretch, the limit of a long time filter in a homogeneous layer. Two
+`.wmf`: the runs rs and rs2 of the boundary-layer gate.*
 
 ![The velocity scales a priori on the mean fields](/flume/sbli-scales.png)
 
-*$C_f$ of the convection-fed model with the resolved stress removed, under the five velocity scales, on the mean fields of S4b, S4e
-and S4i; the mean $u$ of the first cell dotted, half its incoming speed as a thin line. `sbli_oracle.py convective`,
+*$C_f$ of the convection-fed model with the resolved stress removed, under six velocity scales, on the mean fields of S4b, S4e and
+S4i; the mean $u$ of the first cell dotted, half its incoming speed as a thin line. `sbli_oracle.py convective`,
 `make_doc_figures.py --only sbli-scales`.*
 
-- **No scale passes both flows by the criteria set beforehand.**
-- **Duprat's scale is a near-wall scale.** It keeps the zero-gradient layer (+0.3 %), but at the foot of the compression
-  $\rho_wu_p^2\approx1$–$4\cdot10^{-4}$, while the forcing the balance carries up to $h$ is $S(h)\approx(dp/dx)\,h\approx2\cdot10^{-2}$:
-  the eddy viscosity still vanishes with $\tau_w$, and $C_f$ chatters as with S4i's scale.
-- **The total stress of the slow forcing does not chatter, but biases the layer.** The mean forcing at $h$ is not zero in the
-  zero-gradient layer ($\bar S(h)=-1.4\cdot10^{-4}$, $-0.15\,\tau_w$: the resolved convection of the near-wall cells less their
-  resolved stress does not cancel), so a scale built on it lowers $\tau_w$ by 6 %.
-- **The slow pressure gradient comes closest.** It keeps the layer (0.0–0.2 % with a slow gradient; the code's filter of 10 gives
-  +2.5 %), and it is the only scale without a negative spike at the foot of the compression, S4i's failure; its extra sign changes are
-  oscillations about zero behind the impingement, below $0.2\cdot10^{-3}$, which the criterion fixed beforehand does not tell
-  from chatter.
+- **The mean forcing of the developed layer is its physical one.** At the matching height the forcing with the resolved stress
+  removed averages $-0.011\,\tau_w$ (rs; $+0.11$ in rs2) on $45\le x<80$, against a total-stress drop of $-0.018\,\tau_w$ in the
+  DNS at the same $y/\delta$ (0.108); the $-0.15\,\tau_w$ of all the wall columns comes from the recovery behind the inflow
+  ($-0.21$, $-0.25$ on $20\le x<40$).
+- **The bias is the fluctuating forcing inside the balance, not the scale alone.** With the column's forcing every $\tau_w$-type scale
+  lowers the layer's $\tau_w$ by 3 to 7 %, and $|S|$ in the scale raises it by 6 to 10 %; with the slow forcing in both the balance and
+  the scale the layer is the equilibrium model's within 2 % (the only row that passes), and on the interaction it is S4h's
+  $|\tau_w|+|S|$, which does not chatter (4, 2, 4 sign changes beyond $\pm0.2\cdot10^{-3}$) and keeps the eddy viscosity under the
+  adverse gradient. Park & Moin's local stress with the column's forcing is close ($+2.8$, $+1.1$ %).
+- **Duprat's scale is a near-wall scale.** At the foot of the compression $\rho_wu_p^2\approx1$–$4\cdot10^{-4}$, against a forcing
+  carried up to $h$ of $S(h)\approx(dp/dx)\,h\approx2\cdot10^{-2}$: the eddy viscosity still vanishes with $\tau_w$ and $C_f$ chatters.
+- **Matching $\kappa$ to the resolved slope at the third cell halves it** (0.42–0.50 of 0.41 on the layer, 0.54–0.57 upstream of the
+  interaction): the resolved velocity gradient there is too steep for the log law (the log-layer mismatch of wall-modelled LES), and
+  the layer's $\tau_w$ falls by a third. The `.wmf` holds no fourth-cell averages, so on the layer the slope is one-sided, at $2\Delta y$.
 - **The second interaction criterion is failed by nearly every model**, the pressure gradient alone included (it passes on S4e's
   field only, where the first cell reverses): these mean fields come from runs whose near-wall flow does not slow, so a model forced
   by the measured pressure rise disagrees with them by construction. A priori, on another model's mean field, it cannot be met;
   only a run tests it.
+- **The a priori's absolute level is worth a few per cent.** On the layer it puts S4i's scale at $-5$ to $-7$ %, while its run
+  (rs2) kept $C_f$ within 0.3 % of the equilibrium run over the same stretch: the sample is rebuilt from the averages (the speed of
+  the third cell, the free-stream pressure, a fixed temperature), so differences between the rows are firmer than each row against
+  the 2 % criterion.
 
 ## Not done
 
-- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). The model fed with the resolved convection (S4h) moves the onset and $L_{int}$ the right way and opens $0.18\,\delta_0$ where the DNS's bubble begins, but counts the resolved stress twice ($C_f$ of the zero-gradient layer +5 to +12 %). With the resolved stress removed and the velocity scale from $\tau_w$ (S4i) it passes the zero-gradient layer, but the scale collapses under the adverse gradient: $\tau_w<0$ under a forward first cell and a shorter interaction ([above](#the-run-s4i)). Three velocity scales meant to keep the mean forcing without its fluctuation fail one flow or the other a priori ([above](#a-priori-the-velocity-scale-of-the-eddy-viscosity)); the closest, $|\tau_w|+|\overline{dp/dx}|\,y$, needs a slower pressure gradient than the code's filter and has not been run. Left: that run, or a forcing whose mean vanishes in the zero-gradient layer; and a matching height fixed in $\delta_i$ across the levels.
+- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). The model fed with the resolved convection (S4h) moves the onset and $L_{int}$ the right way and opens $0.18\,\delta_0$ where the DNS's bubble begins, but counts the resolved stress twice ($C_f$ of the zero-gradient layer +5 to +12 %). With the resolved stress removed and the velocity scale from $\tau_w$ (S4i) it passes the zero-gradient layer, but the scale collapses under the adverse gradient: $\tau_w<0$ under a forward first cell and a shorter interaction ([above](#the-run-s4i)). Velocity scales meant to keep the mean forcing without its fluctuation, tested a priori on both flows ([above](#a-priori-the-velocity-scale-of-the-eddy-viscosity)): only the slow forcing, in both the balance and S4h's scale $|\tau_w|+|\bar S|$, keeps the zero-gradient layer (within 2 %) without chattering under the adverse gradient; it needs a time filter of the forcing longer than the code's and a key that keeps S4h's scale with the resolved stress removed, and has not been run. Left: that run; and a matching height fixed in $\delta_i$ across the levels.
 - The late compression ($x^*\approx-0.6$ half-way against the DNS's $-1.1$), unchanged by the near-wall grid and by the pressure-gradient term; moved 40 % of the way by taking out the eddy viscosity below $h$ (S4e), which also moves the incoming layer off the DNS's: the matching between the model and the resolved near-wall cells.
 - The wall-pressure fluctuations and the low-frequency unsteadiness.
 - The recycling–rescaling inflow (S5).

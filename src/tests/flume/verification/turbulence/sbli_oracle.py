@@ -385,7 +385,7 @@ WM_POINTS, WM_ITERATIONS, WM_STRETCH, WM_KAPPA, WM_APLUS, WM_PRT = 40, 16, 1.3, 
 
 
 def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: float = 0.0, forcing=None, scale: str = "sum", px_scale=None,
-               s_scale=None) -> tuple[np.ndarray, np.ndarray]:
+               s_scale=None, slope_h=None, stats: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
     """tau_w and q_w of the equilibrium model, vectorised over the samples. `px` None: wall_model_solve operation for operation (16 plain
     fixed-point iterations; before #121 S4d 8 with an Aitken step on log tau every second one, which stopped a few samples far from the fixed point). `px` given: the momentum balance with the pressure gradient, `U(h) = tau I0 + px I1`, I0 = int dy / (mu + mu_t), I1 = int y dy /
     (mu + mu_t), solved for tau by a fixed point (tau can be negative; unrelaxed: 16 iterations, the Fortran count, are within 7e-5 of
@@ -402,7 +402,10 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
     the scale only, in this model's mixing length and damping), "total" sqrt(|tau + S_bar(y)| / rho) with `s_scale` a callable like
     `forcing` (the total stress of a slow forcing S_bar: its fluctuation kept out of the eddy viscosity, its mean in), "pressure"
     sqrt((|tau| + |px_bar| y) / rho) with px_bar = `px_scale` (a slow wall pressure gradient: its stress in the eddy viscosity, the
-    convection's not)."""
+    convection's not).
+    `slope_h` [samples] (with `forcing`): the LES's dU/dy at h; the eddy viscosity profile is scaled per sample so that the model's slope at h
+    equals it, (mu + mu_t(h)) slope_h = tau + S(h), i.e. the modelled stress at h matches the LES's unresolved stress there (the matching of
+    Kawai & Larsson 2013 with a dynamic kappa; the factor kappa_d / kappa clipped to [0, 10], its mean and spread returned in `stats`)."""
     r, cp, pr, mu0, tref, suth, om, sl = (gas[k] for k in ("R", "cp", "pr", "mu0", "tref", "suth", "omega", "semilocal"))
     h, us, ts, ps = (np.asarray(v, dtype=float)[:, None] for v in (h, us, ts, ps))
     dy0 = h * (WM_STRETCH - 1.0) / (WM_STRETCH**WM_POINTS - 1.0)
@@ -444,6 +447,10 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
             ts_ = np.abs(tau) + pys
         damp = 1.0 - np.exp(-y * np.sqrt(rho * ts_) / (mu * WM_APLUS)) if sl else 1.0 - np.exp(-y * np.sqrt(ts_ / rhow) * rhow / (muw * WM_APLUS))
         mt = WM_KAPPA * y * np.sqrt(rho * ts_) * damp * damp
+        if slope_h is not None:
+            target = np.abs(tau + p * g[:, -1:]) / np.maximum(np.abs(np.asarray(slope_h, dtype=float))[:, None], 1e-12) - mu[:, -1:]
+            fac = np.clip(target / np.maximum(mt[:, -1:], 1e-300), 0.0, 10.0)
+            mt = mt * fac
         a = mu / pr + mt / WM_PRT
         mt = mu + mt
         i0 = np.concatenate([np.zeros_like(h), np.cumsum(dyy * _log_mean_inverse(mt[:, :-1], mt[:, 1:]), axis=1)], axis=1)
@@ -464,6 +471,8 @@ def wall_model(h, us, ts, ps, tw, gas: dict, px=None, iterations: int = 0, ypg: 
         q = (cp * (ts - tw) + i3[:, -1:]) / i2[:, -1:]
         t[:, 1:] = np.maximum(0.5 * t[:, 1:] + 0.5 * (tw + (q * i2 - i3) / cp), 0.1 * np.minimum(tw, ts))
         tau = tnew
+    if slope_h is not None and stats is not None:
+        stats["kappa_factor"] = fac[:, 0]
     return tau[:, 0], q[:, 0]
 
 
@@ -602,7 +611,8 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
     from its own profile. Against: the equilibrium model, the pressure gradient alone (S4d's), the Bernoulli-consistent one (S4g's), and the mean
     u of the first cell. Three more velocity scales of the eddy viscosity: sqrt(|tau| / rho) (`wall_model_resolved_stress`: on a mean field the
     convection is the mean flow's, without the resolved stress the key removes), Duprat et al.'s (2011) mixed scale, the total stress of
-    the forcing, slow here, being a mean, and |tau| + |dp/dx| y. A priori on time means: what the model would return for the mean field, not what a run with it converges to."""
+    the forcing, slow here, being a mean (on a mean field the local
+    modelled stress of Park & Moin's mixing length), |tau| + |dp/dx| y, and the local stress with kappa matched to the field's slope at h. A priori on time means: what the model would return for the mean field, not what a run with it converges to."""
     d = np.load(npz)
     x, y, delta0, x_imp = d["x"], d["y"], float(d["delta0"]), float(d["x_imp"])
     dx, dy = x[1] - x[0], y[1] - y[0]
@@ -645,6 +655,11 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
     cf_cd = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing, scale="duprat", px_scale=px[idx])[0]  # Duprat et al. (2011)
     cf_cs = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing, scale="total", s_scale=forcing)[0]  # the mean field's forcing is slow
     cf_cp = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing, scale="pressure", px_scale=px[idx])[0]  # the mean px is slow
+    # the local modelled stress with kappa matched dynamically to the LES's slope at h (cells 2 and 4 of the mean field)
+    st: dict = {}
+    slope = (u[idx, 3] - u[idx, 1]) / (y[3] - y[1])
+    cf_cy = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing, scale="total", s_scale=forcing, slope_h=slope, stats=st)[0]
+    kf = st["kappa_factor"]
     xs = x[idx]
 
     def sep(cf: np.ndarray) -> str:
@@ -662,17 +677,21 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
     u_in = float(u1[(xs >= 45.0) & (xs <= 52.0)].mean())
     down, win = xs >= 54.0, (xs >= 55.0) & (xs <= 64.0)
     for name, cf in (("dp/dx alone", cf_pg), ("convection-fed, |tau| + |S|", cf_c), ("scale from tau_w", cf_ct), ("Duprat u_tau_p", cf_cd),
-                     ("total stress of the slow forcing", cf_cs), ("|tau| + |px_bar| y", cf_cp)):
+                     ("total stress of the slow forcing", cf_cs), ("|tau| + |px_bar| y", cf_cp), ("local stress, dynamic kappa", cf_cy)):
         neg = cf[down] < 0.0
         changes = int(np.count_nonzero(np.diff(neg.astype(int))))
         umax = float((u1[down][neg] / u_in).max()) if neg.any() else 0.0
         verdict = "PASS" if changes <= 4 and umax < 0.5 else "FAIL"
         print(f"  {name:34s} x >= 54: {changes:3d} sign changes, fastest first cell under C_f < 0 {umax:.2f} of the incoming; C_f < 0 over "
               f"{100 * (cf[win] < 0.0).mean():3.0f} % of x 55-64, minimum {1e3 * cf.min():6.3f}: {verdict}")
+    up = xs < 54.0
+    print(f"  dynamic kappa / 0.41: upstream (x < 54) mean {kf[up].mean():.2f} (rms {kf[up].std():.2f}); x 55-64 mean {kf[win].mean():.2f}, "
+          f"range {kf[win].min():.2f}-{kf[win].max():.2f}")
     if json_out:
         Path(json_out).write_text(json.dumps({"x": xs.tolist(), "cf_eq": cf_eq.tolist(), "cf_pg": cf_pg.tolist(), "cf_bernoulli": cf_b.tolist(),
                                               "cf_convective": cf_c.tolist(), "cf_convective_tau": cf_ct.tolist(),
-                                              "cf_convective_duprat": cf_cd.tolist(), "cf_convective_total": cf_cs.tolist(), "cf_convective_pressure": cf_cp.tolist(), "u1": u1.tolist(), "delta0": delta0, "x_imp": x_imp}))
+                                              "cf_convective_duprat": cf_cd.tolist(), "cf_convective_total": cf_cs.tolist(), "cf_convective_pressure": cf_cp.tolist(), "cf_convective_dynamic": cf_cy.tolist(),
+                                              "kappa_factor": kf.tolist(), "u1": u1.tolist(), "delta0": delta0, "x_imp": x_imp}))
     return 0
 
 def main() -> int:
