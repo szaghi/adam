@@ -328,6 +328,14 @@ against a mean $\tau_w$ of $0.97\cdot10^{-3}$), and $|S|$ in the scale raises th
 averages of that layer (77760 wall columns), against the equilibrium model, the convection-fed model gives +22.9 %, with
 the resolved stress removed +12.4 %, and with the scale $\sqrt{|\tau_w|/\rho}$ as well $-1.5$ %.
 
+That scale fails under a strong adverse gradient. Where $\tau_w$ approaches zero the eddy viscosity vanishes with it, the
+balance between the wall and $h$ becomes laminar, and the integrated forcing, of order $(dp/dx)\,h/2$, outweighs
+$\mu U(h)/h$ by two orders of magnitude: $\tau_w$ jumps to a large negative value whether or not the resolved flow
+reverses. In the interaction ([S4i](./verification/streams/sbli#the-run-s4i)) the key returns $C_f$ down to
+$-3.4\cdot10^{-3}$ under a first cell that moves forward everywhere, and the interaction shrinks. The key passes the
+zero-gradient layer and fails the interaction: a velocity scale that keeps the mean forcing (the adverse gradient)
+without its fluctuation is not in FLUME.
+
 Measured by `test_wall_model`: with no convection and $R=ry$, the model is the pressure-gradient model with $dp/dx-r$ within
 $10^{-10}$; $R=0$ is the convection-fed model; with the scale from $\tau_w$ alone, no forcing is the equilibrium model and
 $R=ry$ is the model with $dp/dx-r$, within $10^{-10}$.

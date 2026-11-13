@@ -2,7 +2,7 @@
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
-| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4h | P | none (the pressure-gradient key: wm12) | FNL | yes |
+| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4i | P | none (the pressure-gradient key: wm12) | FNL | yes |
 
 ## Case and scope
 
@@ -417,7 +417,8 @@ Two more restarts of S4b at $t=1200$, run to $t=1450$, statistics over $t\ge1300
 
 ![The pressure-gradient runs against S4b and S4e](/flume/sbli-pg-runs.png)
 
-*Left: the mean wall pressure of S4b, S4e, S4d, S4g and S4f against the DNS and the experiment; right: $C_f$ from the
+*Left: the mean wall pressure of S4b, S4e, S4d, S4g, S4f, S4h (black, [below](#the-run-s4h)) and S4i (pink,
+[below](#the-run-s4i)) against the DNS and the experiment; right: $C_f$ from the
 wall model's $\tau_w$, the reversed stretches shaded. The legend's $L_{int}$ is `compare`'s, 0.01 below the table's.
 `make_doc_figures.py --only sbli-pg-runs`.*
 
@@ -515,7 +516,8 @@ centres, $F=dp/dx$ at the wall, where the convection vanishes) and applied to th
 
 ![The wall model a priori on the mean fields](/flume/sbli-convective.png)
 
-*$C_f$ of the four models on the mean fields of S4b (left) and S4e (right), the mean $u$ of the first cell dotted.
+*$C_f$ of the four models on the mean fields of S4b (left) and S4e (right), and of the convection-fed one with the
+velocity scale from $\tau_w$ (pink, [S4i](#the-run-s4i)); the mean $u$ of the first cell dotted.
 `sbli_oracle.py convective`, `make_doc_figures.py --only sbli-convective`.*
 
 - **Where the resolved flow obeys Bernoulli, the model follows it.** At the steepest gradient ($x\approx56.5$) the
@@ -564,11 +566,59 @@ line of [the figure above](#the-pressure-gradient-without-the-convection-with-it
 - **So the convection is a lever, and this form of it is not yet a model.** It moves both the onset and $L_{int}$ the
   right way, which no equilibrium-type variant did, but a model that changes the zero-gradient layer by 10 % fails the
   layer before the interaction. The correction is the reduced eddy viscosity (or the convection of the mean flow only),
-  checked on the zero-gradient boundary layer before the interaction.
+  checked on the zero-gradient boundary layer before the interaction: S4i, below.
+
+### The run: S4i
+
+S4h's model with `wall_model_resolved_stress` ([turbulence](../../turbulence#the-resolved-shear-stress)): the filtered
+resolved shear stress of the convection cells removed from the forcing, and the eddy viscosity's velocity scale from
+$\tau_w$ alone. It passes the zero-gradient gate (the Mach 2.5 layer's $C_f$ within 0.3 % of the equilibrium model's,
+[boundary layer](../turbulence/boundary-layer#the-wall-model-fed-with-the-resolved-convection)). S4b restarted at
+$t=1200$, to $t=1450$ on one node (4 A30, 6 h 01 min), statistics over the 24 checkpoints of $t\ge1300$; the pink line
+of [the figure above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity).
+
+| | S4i, the resolved stress removed, scale from $\tau_w$ | S4h, fed with the resolved convection | S4b | DNS, $Re_\theta=6882$ |
+|---|---|---|---|---|
+| $L_{int}/\delta_0$ (the time-mean field) | **2.94** | 3.36 | 3.16 | 3.30 |
+| $C_f<0$ (`compare`) | $x=56.96$–62.38 ($3.01\,\delta_0$, $x^*=-0.58$ to 0.45), negative over $1.99\,\delta_0$ of it | 0.18 | 0 | 2.16 ($x^*=-0.8$ to $-0.15$) |
+| $C_f$ minimum ($10^{-3}$) | $-3.41$ at $x=57.3$ | $-0.30$ | 0.21 | |
+| time-mean $u<0$ in the first cell | **none** (its minimum $u$ 0.068, at $x=58.9$) | $0.41\,\delta_0$ | none | |
+| 5 % / 50 % of the rise, ahead of $x_{imp}$ | $1.85$ / $1.59\,\delta_0$ | 2.63 / 2.23 | 2.34 / 1.96 | 4.13 / 3.60 |
+| first-cell Mach number at $x_{imp}-5\,\delta_0$ | 0.98 | 0.91 | 0.98 | 0.83 |
+| reversed area per unit span, mean (max), $\delta_0^2$ | 0.033 (0.054) | 0.091 | 0.068 (0.142) | |
+| first / third cells reversed | 4.8 % / 2.5 % | | 9.5 % / 5.1 % | |
+| $C_f$ upstream against S4b: $x=15$–25, 25–35, 35–45, 45–52 | $-0.4$, $-6.0$, $-5.8$, $-2.5$ % | +5, +6, +9.5, +12 % | | |
+| $C_f$ behind the interaction against S4b: $x=64$–70, 70–80 | $-36$, $-11$ % | | | |
+
+| A priori on the mean fields (`convective`), $C_f<0$ over $55\le x\le64$ | $dp/dx$ alone | convection-fed, scale $\sqrt{(\lvert\tau_w\rvert+\lvert S\rvert)/\rho}$ | and the scale $\sqrt{\lvert\tau_w\rvert/\rho}$ |
+|---|---|---|---|
+| S4b's mean field | 56 % | 54 % (min $-0.73$) | **81 %** (min $-2.46$) |
+| S4e's | 52 % | 66 % (min $-1.11$) | **94 %** (min $-3.90$) |
+| S4i's | 42 % | 44 % (min $-1.34$) | **66 %** (min $-3.23$) |
+
+- **The wall stress reverses, the flow does not.** $C_f$ is negative over two stretches, deep at the foot of the
+  compression ($x=56.96$–57.79, down to $-3.4\cdot10^{-3}$, S4d's inconsistent balance $-1.9\cdot10^{-3}$) and
+  shallow behind the impingement ($x=59.8$–62.4). Between them, at $x=57.9$–59.7, it is positive: there the first cell is
+  slowest ($u\approx0.09$), while at the deep stretch it moves at 0.33. The resolved flow reverses less than in any
+  earlier run (half S4b's area and first-cell fraction), and its first cell never reverses in the mean.
+- **The interaction shrinks.** $L_{int}$ falls from 3.16 to $2.94\,\delta_0$ and the compression starts
+  $0.5\,\delta_0$ later than S4b's (5 % of the rise $1.85\,\delta_0$ ahead of $x_{imp}$, against 2.34; the DNS 4.13):
+  the opposite of S4h's shift. A negative wall stress under a forward first cell pushes the near-wall flow downstream,
+  against the pressure rise.
+- **The cause is the velocity scale, and the mean fields show it a priori.** With the scale from $\tau_w$, the eddy
+  viscosity vanishes as $\tau_w$ approaches zero, the model's layer becomes laminar, and the integrated adverse forcing
+  (of order $(dp/dx)\,h/2\approx5\cdot10^{-3}$) outweighs $\mu U(h)/h$ (about $7\cdot10^{-5}$): $\tau_w$ jumps to the
+  negative branch. On S4b's mean field the variant is negative over 81 % of the interaction (the scale with $|S|$ 54 %)
+  with a minimum three times deeper, and its sign changes 23 times along $x\ge54$, against 2 to 4 for the other variants.
+  The a priori was run after S4i; it would have stopped the run.
+- **So the zero-gradient gate is necessary, not sufficient.** The scale that removes the zero-gradient bias (the
+  forcing's fluctuation in $|S|$) also removes the eddy viscosity that the adverse gradient needs. Upstream the run
+  confirms the zero-gradient result: $C_f$ within 6 % of S4b's (S4h's +5 to +12 %), lower behind the inflow, as in the
+  gate's recovery stretch.
 
 ## Not done
 
-- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). The model fed with the resolved convection (S4h) moves the onset and $L_{int}$ the right way and opens $0.18\,\delta_0$ where the DNS's bubble begins, but counts the resolved stress twice ($C_f$ of the zero-gradient layer +5 to +12 %): left, its reduced eddy viscosity (Park & Moin 2014), checked on the zero-gradient layer first; and a matching height fixed in $\delta_i$ across the levels.
+- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). The model fed with the resolved convection (S4h) moves the onset and $L_{int}$ the right way and opens $0.18\,\delta_0$ where the DNS's bubble begins, but counts the resolved stress twice ($C_f$ of the zero-gradient layer +5 to +12 %). With the resolved stress removed and the velocity scale from $\tau_w$ (S4i) it passes the zero-gradient layer, but the scale collapses under the adverse gradient: $\tau_w<0$ under a forward first cell and a shorter interaction ([above](#the-run-s4i)). Left: a velocity scale that keeps the mean forcing without its fluctuation, checked a priori on the zero-gradient `.wmf` and on the interaction's mean fields before a run; and a matching height fixed in $\delta_i$ across the levels.
 - The late compression ($x^*\approx-0.6$ half-way against the DNS's $-1.1$), unchanged by the near-wall grid and by the pressure-gradient term; moved 40 % of the way by taking out the eddy viscosity below $h$ (S4e), which also moves the incoming layer off the DNS's: the matching between the model and the resolved near-wall cells.
 - The wall-pressure fluctuations and the low-frequency unsteadiness.
 - The recycling–rescaling inflow (S5).

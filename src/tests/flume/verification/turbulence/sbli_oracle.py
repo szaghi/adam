@@ -205,9 +205,10 @@ def compare(work: Path, x_imp: float, theta_deg: float, t0: float, json_out: str
     print(f"incoming layer at x_imp = {x_imp:g} (fit over [{x_imp - 15:g}, {x_imp - 6:g}]): delta_0 {delta0:.3f}, delta* {dstar0:.4f} (nominal {dstar0_nom:.4f}), "
           f"theta {theta0:.4f}, Re_theta {re_theta_nom:.0f} (against the edge state {re_theta_edge:.0f}); H at x_imp - 10 {h_edge[int((x_imp - 10) / dx)]:.2f}")
     print(f"wall pressure upstream: p_w / p_inf {np.mean(p_w[(x > x_imp - 25.0) & (x < x_imp - 15.0)]) / p_inf:.4f} over [{x_imp - 25:g}, {x_imp - 15:g}]")
-    print(f"separation: C_f < 0 from x = {x_sep:.2f} to {x_att:.2f}: L_sep / delta_0 {l_sep / delta0:.2f} (Volpiani et al. adiabatic {theta_deg:g} deg, Re_theta 1050: "
-          f"{vol.get('a', float('nan')):.2f})")
-    print(f"separation of the resolved flow: mean u < 0 in the first cell from x = {x_sep1:.2f} to {x_att1:.2f}: L_sep / delta_0 {l_sep1 / delta0:.2f}")
+    span = f"from x = {x_sep:.2f} to {x_att:.2f}: L_sep / delta_0 {l_sep / delta0:.2f}" if l_sep > 0.0 else "nowhere: L_sep 0"
+    print(f"separation: C_f < 0 {span} (Volpiani et al. adiabatic {theta_deg:g} deg, Re_theta 1050: {vol.get('a', float('nan')):.2f})")
+    span = f"from x = {x_sep1:.2f} to {x_att1:.2f}: L_sep / delta_0 {l_sep1 / delta0:.2f}" if l_sep1 > 0.0 else "nowhere: L_sep 0"
+    print(f"separation of the resolved flow: mean u < 0 in the first cell {span}")
     print(f"incident shock: foot at x = {x_inc_wall:.2f} (x_imp {x_imp:g}); reflected shock: {len(yr)} rows, {beta_r:.2f} deg to the wall, apparent origin x_ref {x_ref:.2f}")
     print(f"L_int = x_imp - x_ref {l_int:.3f}: L_int / delta_0 {l_int / delta0:.2f} (Volpiani et al. {vol.get('b', float('nan')):.2f}); Souverein L* = L_int / (delta* g3) "
           f"{l_star:.3f}, g3 {g3:.3f}, Se {se:.3f}")
@@ -581,7 +582,8 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
     (linear in y between the cell centres, F(0) = dp/dx: no convection at the wall), the eddy viscosity on sqrt((|tau| + |S|) / rho): the
     steady thin-boundary-layer balance of Wang & Moin (2002) or Park & Moin (2014), with the convection taken from the resolved cells instead of
     from its own profile. Against: the equilibrium model, the pressure gradient alone (S4d's), the Bernoulli-consistent one (S4g's), and the mean
-    u of the first cell. A priori on time means: what the model would return for the mean field, not what a run with it converges to."""
+    u of the first cell; and the eddy viscosity on sqrt(|tau| / rho) (`wall_model_resolved_stress`: on a mean field the convection is the mean
+    flow's, without the resolved stress the key removes). A priori on time means: what the model would return for the mean field, not what a run with it converges to."""
     d = np.load(npz)
     x, y, delta0, x_imp = d["x"], d["y"], float(d["delta0"]), float(d["x_imp"])
     dx, dy = x[1] - x[0], y[1] - y[0]
@@ -620,6 +622,7 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
     cf_pg = 2.0 * wall_model(h, us, ts, ps, tw, gas, px=px[idx])[0]
     cf_b = 2.0 * wall_model(h, us, ts, ps, tw, gas, px=px[idx], ypg=4.0)[0]
     cf_c = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing)[0]
+    cf_ct = 2.0 * wall_model(h, us, ts, ps, tw, gas, forcing=forcing, scale="tau")[0]  # wall_model_resolved_stress's velocity scale
     xs = x[idx]
 
     def sep(cf: np.ndarray) -> str:
@@ -628,13 +631,13 @@ def convective(npz: Path, json_out: str | None, gas_args: dict) -> int:
 
     u1 = u[idx, 0]
     print(f"== {npz.stem}: x {xs[0]:.1f}-{xs[-1]:.1f}, sample the 3rd cell (h {2.5 * dy:.3f}), delta_0 {delta0:.3f}")
-    print(f"  C_f < 0, equilibrium model: {sep(cf_eq)}; dp/dx alone: {sep(cf_pg)}; Bernoulli-consistent: {sep(cf_b)}; convection-fed: {sep(cf_c)}")
+    print(f"  C_f < 0, equilibrium model: {sep(cf_eq)}; dp/dx alone: {sep(cf_pg)}; Bernoulli-consistent: {sep(cf_b)}; convection-fed: {sep(cf_c)}; and the velocity scale from tau_w: {sep(cf_ct)}")
     print(f"  mean u < 0 in the first cell: {sep(u1)}")
     print(f"  C_f minimum (1e-3): equilibrium {1e3 * cf_eq.min():.3f}, dp/dx {1e3 * cf_pg.min():.3f}, Bernoulli {1e3 * cf_b.min():.3f}, "
-          f"convection-fed {1e3 * cf_c.min():.3f}")
+          f"convection-fed {1e3 * cf_c.min():.3f}, and the scale from tau_w {1e3 * cf_ct.min():.3f}")
     if json_out:
         Path(json_out).write_text(json.dumps({"x": xs.tolist(), "cf_eq": cf_eq.tolist(), "cf_pg": cf_pg.tolist(), "cf_bernoulli": cf_b.tolist(),
-                                              "cf_convective": cf_c.tolist(), "u1": u1.tolist(), "delta0": delta0, "x_imp": x_imp}))
+                                              "cf_convective": cf_c.tolist(), "cf_convective_tau": cf_ct.tolist(), "u1": u1.tolist(), "delta0": delta0, "x_imp": x_imp}))
     return 0
 
 def main() -> int:

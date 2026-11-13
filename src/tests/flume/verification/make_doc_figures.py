@@ -3155,15 +3155,16 @@ def fig_sbli_pg(out: Path, runs: Path) -> None:
 
 def fig_sbli_pg_runs(out: Path, runs: Path) -> None:
     """#121 P1, P2: the pressure-gradient runs restarted from S4b at t = 1200, statistics t >= 1300: S4d (dp/dx), S4g (dp/dx, Bernoulli-consistent,
-    y*_pg 4), S4f (dp/dx without the eddy viscosity below h), S4h (fed with the resolved convection, when its JSON exists), with S4b and S4e (no
+    y*_pg 4), S4f (dp/dx without the eddy viscosity below h), S4h (fed with the resolved convection), S4i (and the resolved stress
+    removed, the velocity scale from tau_w), each when its JSON exists, with S4b and S4e (no
     eddy viscosity, no dp/dx). Data: the sbli_oracle compare JSONs
-    <runs>/sbli/sbli-m2p28-8{,-pg,-pgb,-pgnu,-nonu}.json. Left: the mean wall pressure against x* with the DNS and the experiment; right: C_f against x,
+    <runs>/sbli/sbli-m2p28-8{,-pg,-pgb,-pgnu,-nonu,-pgc,-pgr}.json. Left: the mean wall pressure against x* with the DNS and the experiment; right: C_f against x,
     the reversed stretches shaded."""
     import json  # noqa: PLC0415
 
     runs_ = [("sbli-m2p28-8", "C0", "S4b"), ("sbli-m2p28-8-nonu", "C1", r"S4e, no $\nu_t$ below $h$"), ("sbli-m2p28-8-pg", "C3", "S4d, $dp/dx$"),
              ("sbli-m2p28-8-pgb", "C4", "S4g, $dp/dx$ Bernoulli-consistent"), ("sbli-m2p28-8-pgnu", "C2", r"S4f, $dp/dx$, no $\nu_t$ below $h$"),
-             ("sbli-m2p28-8-pgc", "k", "S4h, fed with the resolved convection")]
+             ("sbli-m2p28-8-pgc", "k", "S4h, fed with the resolved convection"), ("sbli-m2p28-8-pgr", "C6", "S4i, and the resolved stress removed")]
     runs_ = [r for r in runs_ if (runs / "sbli" / f"{r[0]}.json").exists()]
     js = {name: json.loads((runs / "sbli" / f"{name}.json").read_text()) for name, _, _ in runs_}
     fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.4), constrained_layout=True)
@@ -3207,7 +3208,8 @@ def fig_sbli_reversal(out: Path, runs: Path) -> None:
     import json  # noqa: PLC0415
 
     runs_ = [("s4b", "S4b", "C0"), ("s4c", "S4c, 2:1 box", "C2"), ("s4d", "S4d, $dp/dx$", "C3"), ("s4e", r"S4e, no $\nu_t$ below $h$", "C1"),
-             ("s4f", r"S4f, $dp/dx$, no $\nu_t$", "C5"), ("s4g", "S4g, Bernoulli-consistent", "C4"), ("s4h", "S4h, convection-fed", "k")]
+             ("s4f", r"S4f, $dp/dx$, no $\nu_t$", "C5"), ("s4g", "S4g, Bernoulli-consistent", "C4"), ("s4h", "S4h, convection-fed", "k"),
+             ("s4i", "S4i, resolved stress removed", "C6")]
     runs_ = [r for r in runs_ if (runs / "sbli" / f"rev2-{r[0]}.json").exists()]
     fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.2), constrained_layout=True, gridspec_kw={"width_ratios": [1.6, 1.0]})
     first, third, labels, colors = [], [], [], []
@@ -3236,8 +3238,9 @@ def fig_sbli_reversal(out: Path, runs: Path) -> None:
 
 def fig_sbli_convective(out: Path, runs: Path) -> None:
     """#121: the wall model a priori on the mean fields of S4b and S4e (turbulence/sbli_oracle.py convective, <runs>/sbli/<case>-convective.json):
-    C_f of the equilibrium model, with the pressure gradient alone, Bernoulli-consistent, and fed with the convection of the resolved cells below
-    the sample; the mean u of the first cell on the right axis."""
+    C_f of the equilibrium model, with the pressure gradient alone, Bernoulli-consistent, fed with the convection of the resolved cells below
+    the sample, and that with the velocity scale from tau_w (wall_model_resolved_stress, when the JSON holds it); the mean u of the first cell on the
+    right axis."""
     import json  # noqa: PLC0415
 
     fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.2), constrained_layout=True, sharey=True)
@@ -3245,8 +3248,10 @@ def fig_sbli_convective(out: Path, runs: Path) -> None:
         j = json.loads((runs / "sbli" / f"{case}-convective.json").read_text())
         x = np.array(j["x"])
         for key, c, name in (("cf_eq", "C0", "equilibrium"), ("cf_pg", "C3", "$dp/dx$ alone"), ("cf_bernoulli", "C4", "Bernoulli-consistent"),
-                             ("cf_convective", "C2", "fed with the resolved convection")):
-            ax.plot(x, 1e3 * np.array(j[key]), "-", color=c, lw=1.3, label=name)
+                             ("cf_convective", "C2", "fed with the resolved convection"),
+                             ("cf_convective_tau", "C6", r"and the velocity scale $\sqrt{|\tau_w|/\rho}$")):
+            if key in j:
+                ax.plot(x, 1e3 * np.array(j[key]), "-", color=c, lw=1.3, label=name)
         ax.axhline(0.0, color="k", lw=0.8)
         ax.axvline(j["x_imp"], color="0.6", ls="--", lw=0.8)
         ax.set_xlim(48.0, 66.0)
