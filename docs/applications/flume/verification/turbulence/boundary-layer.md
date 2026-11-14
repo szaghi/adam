@@ -245,17 +245,19 @@ raised the $C_f$ of the interaction's incoming layer by 5 to 12 % ([interaction]
 | rs | the resolved shear stress removed from the forcing, the velocity scale of the eddy viscosity $\sqrt{(|\tau_w|+|S|)/\rho}$ (an intermediate build) |
 | rs2 | the key's model: the resolved stress removed and the velocity scale $\sqrt{|\tau_w|/\rho}$ |
 | a priori | `wmf_apriori.py` on the filtered averages of rs's `.wmf` (77760 wall columns): the model's variants on the same samples |
+| f50, f100 | the slow forcing: rs restarted at $t=540$ to 900 with `wall_model_velocity_scale = sum` (the scale $\sqrt{(\lvert\tau_w\rvert+\lvert S\rvert)/\rho}$, the resolved stress removed) and the forcing filter 50 or 100 (`wall_model_pressure_gradient_filter`, against rs's 10); statistics over the 34 checkpoints of $720<t\le900$; one prod-gn job, a run per node, 6 h |
 
 ![The convection-fed wall model on the Mach 2.5 zero-gradient layer](/flume/tbl-convection.png)
 
 *Left: $C_f$ from the wall model's $\tau_w$, the DNS at the baseline's station; right: the ratio to the baseline,
-the stretch $45\le x\le80$ shaded. `make_doc_figures.py --only tbl-convection`.*
+the stretch $45\le x\le80$ shaded; rs, rs2 and the slow forcing f50, f100. `make_doc_figures.py --only tbl-convection`.*
 
-| | baseline | rs | rs2 |
-|---|---|---|---|
-| $C_f$ at the station ($Re_\theta=2835$) against the DNS | $-4.3$ % | $+2.5$ % | **$-4.4$ %** |
-| $C_f$ over $45\le x\le80$ against the baseline | | $+6.6$ % | **$-0.3$ %** |
-| $C_f$ over $20\le x<40$ (the recovery from the inflow) against the baseline | | $+0.8$ % | $-8.6$ % |
+| | baseline | rs | rs2 | f50 | f100 |
+|---|---|---|---|---|---|
+| $C_f$ at the station ($Re_\theta=2835$) against the DNS | $-4.3$ % | $+2.5$ % | **$-4.4$ %** | $-1.7$ % | $-2.4$ % |
+| $C_f$ over $45\le x\le80$ against the baseline | | $+6.6$ % | **$-0.3$ %** | $+2.2$ % | **$+1.9$ %** |
+| the same, range along $x$ | | $+3.8$ to $+11.3$ % | $-4.3$ to $+3.3$ % | $-1.0$ to $+3.8$ % | $-1.9$ to $+5.1$ % |
+| $C_f$ over $20\le x<40$ (the recovery from the inflow) against the baseline | | $+0.8$ % | $-8.6$ % | $-5.6$ % | $-6.2$ % |
 
 | a priori, mean $\tau_w$ against the equilibrium model | |
 |---|---|
@@ -274,6 +276,13 @@ the stretch $45\le x\le80$ shaded. `make_doc_figures.py --only tbl-convection`.*
 - **Where the layer recovers from the inflow it is lower.** Over $20\le x<40$, behind the digital-filter inflow, rs2's
   $C_f$ is 8.6 % below the baseline's: there the resolved convection does not vanish, and the model answers to it. The
   DNS station lies beyond, so which of the two is right there is not measured.
+- **The slow forcing keeps the layer within about 2 %.** With the scale $|\tau_w|+|S|$ (which keeps the eddy viscosity under an
+  adverse gradient, [interaction](../streams/sbli#a-priori-the-velocity-scale-of-the-eddy-viscosity)) and a forcing filtered over 50
+  or 100 instead of 10, the developed stretch sits $+2.2$ and $+1.9$ % above the baseline, against rs's $+6.6$ %: the filter does
+  most of the work between 10 and 50, little beyond (the a priori limit of an infinite filter, $+1.7$ and $-0.7$ %, is near). With
+  the criterion of 2 % fixed before the runs, f100 passes and f50 falls 0.2 % short, a difference within the scatter along $x$ (the
+  first 20 checkpoints of the same window gave $+0.4$ and $+0.8$ %). Both move the station toward the DNS ($-1.7$, $-2.4$ % against
+  the baseline's $-4.3$ %).
 
 ## Not done
 

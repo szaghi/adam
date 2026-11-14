@@ -3312,13 +3312,16 @@ def fig_sbli_scales(out: Path, runs: Path) -> None:
 def fig_tbl_convection(out: Path, runs: Path) -> None:
     """#121 P3: the zero-gradient gate of the convection-fed wall model on the Mach 2.5 boundary layer of #119 T3.7 (m2p5-wm-l90): the baseline
     (the equilibrium model, t 180-360) and its restarts at t 360 to 540 (statistics t >= 400) fed with the resolved convection with the resolved
-    shear stress removed (rs) and with the velocity scale from tau_w as well (rs2). Data: the tbl_oracle.py compare JSONs
-    <runs>/tbl/m2p5-wm-l90-{base,rs,rs2}-compare.json. Left: C_f (the wall model's tau_w) against x, the DNS at its station; right: the ratio
+    shear stress removed (rs) and with the velocity scale from tau_w as well (rs2); P4b: rs restarted at t 540 to 900 (statistics t >= 720)
+    with the slow forcing, the scale |tau_w| + |S| and the forcing filter 50 or 100 (f50, f100, when their JSONs exist). Data: the
+    tbl_oracle.py compare JSONs <runs>/tbl/m2p5-wm-l90-{base,rs,rs2,f50,f100}-compare.json. Left: C_f (the wall model's tau_w) against x, the DNS at its station; right: the ratio
     to the baseline."""
     import json  # noqa: PLC0415
 
     cases = (("base", "C0", "equilibrium (the baseline)"), ("rs", "C3", "fed with the convection, resolved stress removed"),
-             ("rs2", "C2", "and the velocity scale from $\\tau_w$"))
+             ("rs2", "C2", "and the velocity scale from $\\tau_w$"), ("f50", "C1", "slow forcing: $|\\tau_w|+|\\bar S|$, filter 50"),
+             ("f100", "C4", "slow forcing, filter 100"))
+    cases = tuple(c for c in cases if (runs / "tbl" / f"m2p5-wm-l90-{c[0]}-compare.json").exists())
     js = {k: json.loads((runs / "tbl" / f"m2p5-wm-l90-{k}-compare.json").read_text()) for k, _, _ in cases}
     fig, axs = plt.subplots(1, 2, figsize=(12.0, 4.2), constrained_layout=True)
     xb, cb = np.array(js["base"]["x"]), np.array(js["base"]["cf"])
