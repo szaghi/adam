@@ -340,6 +340,11 @@ the total stress of the slow forcing, a slow pressure gradient, Park & Moin's (2
 resolved slope at $h$ each fail one of them or sit at its edge; the forcing filtered much longer than the code's, in both the balance
 and S4h's scale, passes both.
 
+`wall_model_velocity_scale = tau | sum` sets the scale apart from the resolved stress (default `tau` with `wall_model_resolved_stress`,
+`sum` without: the models above, bit for bit). The slow-forcing model is `wall_model_resolved_stress = .true.`,
+`wall_model_velocity_scale = sum` and a `wall_model_pressure_gradient_filter` long against the forcing's fluctuation: the filter acts on
+the pressure gradient, the convection and the resolved-stress averages alike.
+
 Measured by `test_wall_model`: with no convection and $R=ry$, the model is the pressure-gradient model with $dp/dx-r$ within
 $10^{-10}$; $R=0$ is the convection-fed model; with the scale from $\tau_w$ alone, no forcing is the equilibrium model and
 $R=ry$ is the model with $dp/dx-r$, within $10^{-10}$.

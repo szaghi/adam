@@ -1686,7 +1686,7 @@ contains
                            enddo
                         endif
                         call wall_model_solve_convective(h=h, us=us, ts=ts, ps=ps, tw=self%bc%wall_temperature(f), px=px, nc=nc, &
-                                                         dyc=self%adam%field%dxyz(d,b), cc=cc, rc=rc, ftau=self%bc%wm_rstress(f), R=self%physics%R, cp=cp, &
+                                                         dyc=self%adam%field%dxyz(d,b), cc=cc, rc=rc, ftau=self%bc%wm_ftau(f), R=self%physics%R, cp=cp, &
                                                          pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, &
                                                          tau=tau, q=q, semilocal=self%bc%wm_semilocal(f))
                      else

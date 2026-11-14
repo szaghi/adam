@@ -47,6 +47,10 @@ module adam_flume_bc_object
 !< convection holds its gradient, which the model's eddy viscosity already carries (the stress form of Park & Moin's 2014 correction); and
 !< takes the eddy viscosity's velocity scale from tau_w alone (the forcing linear in the balance, Wang & Moin 2002): the filtered forcing
 !< fluctuates as much as tau_w, and |S| in the scale biases the mean tau_w up.
+!< `wall_model_velocity_scale = tau | sum` (with `wall_model_convection`; #121 P4b) sets that scale apart: `tau` sqrt(|tau_w| / rho), `sum`
+!< sqrt((|tau_w| + |S|) / rho); the default is `tau` with `wall_model_resolved_stress` and `sum` without it (the models above, bit for bit).
+!< `sum` with the resolved stress removed and a filter long against the forcing's fluctuation (`wall_model_pressure_gradient_filter`) is
+!< the slow-forcing model: the scale keeps the eddy viscosity under an adverse gradient, where tau_w's alone vanishes.
 !<
 !< **Hydrostatic** (issue #73, M7-G0). `hydrostatic` closes a stratified atmosphere under the constant gravity of
 !< `[gravity]`: the ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior
@@ -152,6 +156,7 @@ type :: flume_bc_object
    real(R8P)              :: wm_ypg(6)=0._R8P           !< Wall model: y_pg of the Bernoulli-consistent pressure gradient per face, 0 for none (#121 P1).
    logical                :: wm_conv(6)=.false.         !< Wall model: fed with the resolved convection per face (#121 P2).
    logical                :: wm_rstress(6)=.false.      !< Wall model: the resolved shear stress removed from the convection's forcing per face (#121 P3).
+   logical                :: wm_ftau(6)=.false.         !< Wall model: the convection-fed model's eddy viscosity on sqrt(|tau_w|/rho) per face (#121 P4b).
    real(R8P)              :: wm_edge_u(6)=0._R8P        !< Inverse model: speed at the edge of the layer per face.
    real(R8P)              :: wm_edge_t(6)=0._R8P        !< Inverse model: temperature at the edge of the layer per face.
    real(R8P)              :: wall_temperature(6)=0._R8P !< Isothermal walls: wall temperature of each face.
@@ -323,6 +328,22 @@ contains
          if (error /= 0) self%wm_rstress(f) = .false.
          if (self%wm_rstress(f) .and. .not.self%wm_conv(f)) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_resolved_stress) needs wall_model_convection = .true.')
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_velocity_scale', val=buff, error=error)
+         if (error /= 0) then
+            self%wm_ftau(f) = self%wm_rstress(f) ! the default: P3's models bit for bit
+         else
+            select case(trim(adjustl(strip_control(buff))))
+            case('tau')
+               self%wm_ftau(f) = .true.
+            case('sum')
+               self%wm_ftau(f) = .false.
+            case default
+               call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_velocity_scale)='//trim(adjustl(strip_control(buff)))// &
+                                        ' unknown: tau or sum')
+            endselect
+            if (.not.self%wm_conv(f)) &
+               call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_velocity_scale) needs wall_model_convection = .true.')
+         endif
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID
       case(BC_WALL_NOSLIP_STR, BC_WALL_ISOTHERMAL_STR)

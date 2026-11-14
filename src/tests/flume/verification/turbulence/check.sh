@@ -94,7 +94,8 @@
 #        (d) the filtered convection across a restart (averages 7-10 of the .wmf): 20 steps straight against 10, a checkpoint, a restart to 20, bit for
 #        bit; (e) a .wmf of another layout restarts the averages with a warning; (f) the resolved shear stress removed (wall_model_resolved_stress,
 #        #121 P3) acts, the force differs from (a)'s by more than 1e-6, and the same cells in 2 or 4 blocks per direction agree; the restart of (d)
-#        and (e) runs with it (averages 7-26 of the .wmf).
+#        and (e) runs with it (averages 7-26 of the .wmf); (g) with it the velocity scale sum (wall_model_velocity_scale, #121 P4b) acts against the
+#        default tau of (f), the same cells in 2 or 4 blocks per direction agree, and an explicit tau agrees with (f).
 #   tb1  the digital-filter inflow (T3.7): (a) test_inflow_df, the generator alone: Reynolds stresses within 3 % of the table (summed over the layer), the
 #        temporal correlation exp(-pi t / 2T) within 0.03, the spanwise integral length within 10 % of 2 L / pi, a periodic span, a bitwise restart of the plane;
 #        (b) a Mach 2.5 box (make_tbl.py on the M2p5 table of the Zhang-Duan-Choudhari DNS), 20 steps: the inflow ghosts carry the table's mean u at delta / 2
@@ -546,6 +547,12 @@ if has_leg wm13; then
    b=$(channel_run wm13-rs "$NP" "${E[@]}" --wm-convection --wm-resolved-stress)
    "$VENV_PY" "$CASE_DIR/channel_oracle.py" differ --tol 1e-6 "$b" "$a"
    a=$(channel_run wm13-rs-l1 "$NP" "${E[@]}" --wm-convection --wm-resolved-stress --levels 1)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$b" "$a"
+   c=$(channel_run wm13-rs-sum "$NP" "${E[@]}" --wm-convection --wm-resolved-stress --wm-velocity-scale sum)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" differ --tol 1e-6 "$c" "$b"
+   a=$(channel_run wm13-rs-sum-l1 "$NP" "${E[@]}" --wm-convection --wm-resolved-stress --wm-velocity-scale sum --levels 1)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$c" "$a"
+   a=$(channel_run wm13-rs-tau "$NP" "${E[@]}" --wm-convection --wm-resolved-stress --wm-velocity-scale tau)
    "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$b" "$a"
    R=(--nx 32 --ny 32 --nz 32 --wall wall-modelled --wm-height 0.3 --reynolds 1000 --perturbation 0.1 --wm-eddy-viscosity --wm-pressure-gradient --wm-pg-filter 0.01 --wm-convection --wm-resolved-stress --it-save 10)
    a=$(channel_run wm13-straight "$NP" "${R[@]}" --it-max 20)

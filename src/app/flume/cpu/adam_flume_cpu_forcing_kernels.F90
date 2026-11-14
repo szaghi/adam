@@ -68,7 +68,7 @@ contains
    !$omp end parallel do
    endsubroutine add_uniform_momentum
    subroutine overwrite_wall_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces, tw, hwm, sl, tf, dt, commit, fresh, &
-                                    avg, inv, ue, te, pg, yp, cv, rsf, tp, is_null, dxyz, q_aux, fl)
+                                    avg, inv, ue, te, pg, yp, cv, rsf, tsf, tp, is_null, dxyz, q_aux, fl)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
    !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
    !< With a filter time `tf` the sample is `(1 - e) a + e s`, `e = min(dt / tf, 1)` (1 when `fresh`), from the averages `a` of the face, which take it when `commit`
@@ -94,6 +94,7 @@ contains
    real(R8P),    intent(in)    :: yp(6)                           !< y_pg of the Bernoulli-consistent pressure gradient per face, 0 for none (#121 P1).
    logical,      intent(in)    :: cv(6)                           !< The model fed with the resolved convection per face (#121 P2).
    logical,      intent(in)    :: rsf(6)                          !< Its resolved shear stress removed per face (#121 P3).
+   logical,      intent(in)    :: tsf(6)                          !< Its eddy viscosity on sqrt(|tau_w|/rho) per face (#121 P4b), else on the sum.
    real(R8P),    intent(in)    :: tp(6)                           !< Filter time of the pressure gradient per face, 0 for none.
    logical,      intent(in)    :: is_null(3)                      !< Null directions.
    real(R8P),    intent(in)    :: dxyz(1:,1:)                    !< Blocks space steps.
@@ -177,7 +178,7 @@ contains
                               if (rv(1) > 0._R8P) rc(c) = rv(4) - rv(2) * rv(3) / rv(1)
                            enddo
                         endif
-                        call wall_model_solve_convective(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, nc=nc, dyc=dxyz(d,b), cc=cc, rc=rc, ftau=rsf(f), R=R, cp=cp, pr=pr, &
+                        call wall_model_solve_convective(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, nc=nc, dyc=dxyz(d,b), cc=cc, rc=rc, ftau=tsf(f), R=R, cp=cp, pr=pr, &
                                                          mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
                      else
                         call wall_model_solve_pressure(h=h, us=us, ts=ts, ps=ps, tw=tw(f), px=px, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, &
