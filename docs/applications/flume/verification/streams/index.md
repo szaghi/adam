@@ -50,10 +50,11 @@ The toolchain is [#121](https://github.com/szaghi/adam/issues/121), which contin
 | S4g | The Bernoulli-consistent pressure gradient (`wall_model_pressure_gradient_ypg`): no separation | wm2 (`test_wall_model`); a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity) |
 | S4h | The model fed with the resolved convection (`wall_model_convection`): the onset and $L_{int}$ move toward the DNS, the zero-gradient $C_f$ by +5 to +12 % | wm2, wm13 (turbulence); a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-run-s4h) |
 | S4i | And the resolved stress removed, the velocity scale from $\tau_w$ (`wall_model_resolved_stress`): passes the zero-gradient layer; in the interaction $\tau_w<0$ under a forward first cell, $L_{int}$ 2.94 | wm13 (turbulence); a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-run-s4i) |
+| S4j | The slow forcing (`wall_model_velocity_scale = sum`, the resolved stress removed, the forcing filtered over 100): the incoming layer within 2 % of S4b's, the interaction S4b's ($L_{int}$ 3.12, $L_{sep}$ 0.14) | wm13 (turbulence); a run restarted from S4b | [Shock/boundary-layer interaction](./sbli#the-run-s4j) |
 | S5 | Recycling–rescaling turbulent inflow | — | not started |
 
 | Page | Phases | Legs | Type |
 |---|---|---|---|
 | [Non-reflecting boundary](./non-reflecting) | S2 | nr1–nr4 | P |
 | [Shock generator](./shock-generator) | S3, S4a | sg1–sg4 (boundary) | P |
-| [Shock/boundary-layer interaction](./sbli) | S4b–S4i | campaign | P |
+| [Shock/boundary-layer interaction](./sbli) | S4b–S4j | campaign | P |
