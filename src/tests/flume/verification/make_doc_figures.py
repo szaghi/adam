@@ -2952,6 +2952,63 @@ def fig_sbli_refined(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def fig_sbli_fixed_h(out: Path, runs: Path) -> None:
+    """#121 S4k: the 2:1 box of S4c with the matching height fixed at S4b's, 5/24 delta_i (5 fine cells below it), restarted from S4c at t = 550,
+    against S4b and S4c (h halved with the cells). Data: the sbli_oracle JSONs <runs>/sbli/sbli-m2p28-8.json (S4b), -r2.json (S4c), -r2h.json
+    (S4k). Left: the wall pressure against x* with the DNS and the IUSTI points; right: C_f against x, the box and the zero-gradient stretch
+    35 <= x <= 48 shaded, each run's mean over that stretch against S4b's in the legend, the stretch where the time-mean u of the first cell is
+    negative hatched (the JSON's l_sep_u1, when present)."""
+    import json  # noqa: PLC0415
+
+    runs_ = [("sbli-m2p28-8", "C0", r"S4b, $\delta_i/12$, $h = 5/24\,\delta_i$"), ("sbli-m2p28-8-r2", "C3", r"S4c, 2:1 box, $h$ halved in it"),
+             ("sbli-m2p28-8-r2h", "k", r"S4k, 2:1 box, $h = 5/24\,\delta_i$ fixed")]
+    runs_ = [r for r in runs_ if (runs / "sbli" / f"{r[0]}.json").exists()]
+    js = {name: json.loads((runs / "sbli" / f"{name}.json").read_text()) for name, _, _ in runs_}
+
+    def zpg(j: dict) -> float:
+        x, cf = np.array(j["x"]), np.array(j["cf"])
+        return float(cf[(x >= 35.0) & (x <= 48.0)].mean())
+
+    ref = zpg(js["sbli-m2p28-8"])
+    fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.4), constrained_layout=True)
+    ax = axs[0]
+    _sbli_refs(ax)
+    for name, c, lab in runs_:
+        j = js[name]
+        ax.plot(j["x_star"], j["pw_norm"], "-", color=c, lw=1.3, label=rf"{lab}: $L_{{int}}/\delta_0$ {j['l_int'] / j['delta0']:.2f}")
+    ax.axvline(-1.0, color="0.6", ls=":", lw=0.8)
+    ax.axvline(0.0, color="0.6", ls="--", lw=0.8)
+    ax.set_xlim(-2.0, 3.0)
+    ax.set_xlabel(r"$x^* = (x - x_{imp}) / L_{int}$")
+    ax.set_ylabel(r"$(p_w - p_\infty) / (p_2 - p_\infty)$")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7, loc="lower right")
+    ax = axs[1]
+    ax.axvspan(25.0, 75.0, color="C3", alpha=0.06, lw=0, label="the 2:1 box")
+    ax.axvspan(35.0, 48.0, color="0.5", alpha=0.12, lw=0, label=r"zero-gradient stretch $35 \leq x \leq 48$")
+    for name, c, lab in runs_:
+        j = js[name]
+        x, cf = np.array(j["x"]), np.array(j["cf"])
+        m = (x > 20.0) & (x < 85.0)
+        sep = rf"$\tau_w<0$ over {j['l_sep'] / j['delta0']:.2f} $\delta_0$" if j["l_sep"] > 0.0 else r"$\tau_w>0$"
+        l1 = j.get("l_sep_u1", 0.0)
+        if l1 > 0.0:  # the resolved flow's mean reversal: the first cell's time-mean u < 0, which tau_w misses below the sample
+            sep += rf", first cell $u<0$ over {l1 / j['delta0']:.2f} $\delta_0$"
+            ax.axvspan(j["x_sep_u1"], j["x_att_u1"], color=c, alpha=0.18, lw=0, hatch="///", fill=False)
+        ax.plot(x[m], 1e3 * cf[m], "-", color=c, lw=1.2, label=f"{lab.split(',')[0]}: stretch {100.0 * (zpg(j) / ref - 1.0):+.1f} %, {sep}")
+        if j["l_sep"] > 0.0:
+            ax.axvspan(j["x_sep"], j["x_att"], color=c, alpha=0.15, lw=0)
+    ax.axhline(0.0, color="k", lw=0.8)
+    ax.axvline(js["sbli-m2p28-8"]["x_imp"], color="0.6", ls="--", lw=0.8)
+    ax.set_xlim(20.0, 85.0)
+    ax.set_xlabel(r"$x/\delta_i$")
+    ax.set_ylabel(r"$10^3 C_f$ (the wall model's $\tau_w$)")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7, loc="upper left")
+    fig.savefig(out / "sbli-fixed-h.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_sbli_apriori(out: Path, runs: Path) -> None:
     """#121 S4d P0: the equilibrium wall model applied a priori to the mean samples of S4b and S4c (sbli_oracle.py apriori), without and with the
     mean pressure gradient in its momentum balance, against the C_f of the runs' wall history. Data: <runs>/sbli/sbli-m2p28-8-apriori.json (S4b)
@@ -3211,7 +3268,7 @@ def fig_sbli_reversal(out: Path, runs: Path) -> None:
     runs_ = [("s4b", "S4b", "C0"), ("s4c", "S4c, 2:1 box", "C2"), ("s4d", "S4d, $dp/dx$", "C3"), ("s4e", r"S4e, no $\nu_t$ below $h$", "C1"),
              ("s4f", r"S4f, $dp/dx$, no $\nu_t$", "C5"), ("s4g", "S4g, Bernoulli-consistent", "C4"), ("s4h", "S4h, convection-fed", "k"),
              ("s4i", "S4i, resolved stress removed", "C6"),
-             ("s4j", "S4j, the slow forcing", "C8")]
+             ("s4j", "S4j, the slow forcing", "C8"), ("s4k", r"S4k, 2:1 box, $h$ fixed", "C9")]
     runs_ = [r for r in runs_ if (runs / "sbli" / f"rev2-{r[0]}.json").exists()]
     fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.2), constrained_layout=True, gridspec_kw={"width_ratios": [1.6, 1.0]})
     first, third, labels, colors = [], [], [], []
@@ -5214,7 +5271,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "tbl-convection": fig_tbl_convection, "sbli-reversal": fig_sbli_reversal, "sbli-convective": fig_sbli_convective, "sbli-scales": fig_sbli_scales, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-fixed-h": fig_sbli_fixed_h,"sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "tbl-convection": fig_tbl_convection, "sbli-reversal": fig_sbli_reversal, "sbli-convective": fig_sbli_convective, "sbli-scales": fig_sbli_scales, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,
