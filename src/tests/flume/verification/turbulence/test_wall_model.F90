@@ -117,13 +117,16 @@ call strain_point(g, gl, gs)
 print '(A,ES10.2,A,ES10.2,A)', 'inverse strain beyond dy*/dy = 0: relative to tau / mu ', abs(g - gl) / gl, ' (bound 2e-3), the other root ', abs(gs - gl) / gl, &
       ' (min 0.1)'
 ok = ok .and. abs(g - gl) / gl < 2.e-3_R8P .and. abs(gs - gl) / gl > 0.1_R8P
-! the sample cells: the 3rd cell by default; a height between cells 3 and 4; a height beyond the block, its last cells
+! the sample cells: the 3rd cell by default; a height between cells 3 and 4; a height beyond the block, its last cells; a height on a centre
 call sample_cells(hwm=0._R8P, dx=0.1_R8P, n=8_I4P, m=mm, w=ww, h=hh)
 ok1 = mm == 3 .and. ww == 0._R8P .and. abs(hh - 0.25_R8P) < 1.e-15_R8P
 call sample_cells(hwm=0.3_R8P, dx=0.1_R8P, n=8_I4P, m=mm, w=ww, h=hh)
 ok1 = ok1 .and. mm == 3 .and. abs(ww - 0.5_R8P) < 1.e-12_R8P .and. abs(hh - 0.3_R8P) < 1.e-12_R8P
 call sample_cells(hwm=2._R8P, dx=0.1_R8P, n=8_I4P, m=mm, w=ww, h=hh)
 ok1 = ok1 .and. mm == 7 .and. ww == 1._R8P .and. abs(hh - 0.75_R8P) < 1.e-12_R8P
+! a height on a cell centre: 5/24 over 1/12 is 2.5 cells up to round-off (w 4.4e-16 before the snap), the 3rd cell, w exactly 0
+call sample_cells(hwm=5._R8P / 24._R8P, dx=1._R8P / 12._R8P, n=8_I4P, m=mm, w=ww, h=hh)
+ok1 = ok1 .and. mm == 3 .and. ww == 0._R8P .and. abs(hh - 5._R8P / 24._R8P) < 1.e-15_R8P
 print '(A,L1)', 'sample cells: ', ok1
 ok = ok .and. ok1
 ! the viscosity coupling (#126): mu_w 2 |v| / dy = 0.04 here; the model's |tau| when larger, along the first cell's velocity, reversed with it

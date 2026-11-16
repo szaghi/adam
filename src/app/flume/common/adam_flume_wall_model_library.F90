@@ -39,6 +39,7 @@ real(R8P),    parameter :: WM_SRA=1.14_R8P      !< Reynolds analogy factor of th
 integer(I4P), parameter :: WM_SHOTS=8_I4P       !< Shots of the inverse model, secant on ln(tau) after the first.
 integer(I4P), parameter :: WM_SUBITERATIONS=2_I4P !< Corrections of each step of the inverse model.
 integer(I4P), parameter :: WM_CONV_CELLS=4_I4P   !< Cells below (and at) the sample whose convection feeds wall_model_solve_convective.
+real(R8P),    parameter :: WM_SAMPLE_SNAP=1.e-9_R8P !< A sample weight below it is 0: the matching height on a cell centre (sample_cells).
 
 contains
    pure function wall_eddy_viscosity(y, rho, mu, tau, rhow, muw, semilocal) result(mt)
@@ -77,6 +78,9 @@ contains
    if (hwm > 0._R8P) then
       s = max(hwm / dx + 0.5_R8P, 1._R8P)
       m = int(s, I4P) ; w = s - real(m, R8P)
+      ! a height on a cell centre is that cell: hwm / dx carries round-off (5/24 over 1/12 gives w = 4.4e-16), and the callers test w == 0 to
+      ! keep the sample cell out of the cells below h
+      if (w < WM_SAMPLE_SNAP) w = 0._R8P
       if (m >= n) then
          m = n - 1_I4P ; w = 1._R8P ! the block holds no farther cell: its last one
       endif

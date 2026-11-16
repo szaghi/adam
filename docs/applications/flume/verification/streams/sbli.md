@@ -195,7 +195,8 @@ The two refined runs count fine cells, S4b coarse ones: the reversed fractions c
   the box was not planned: there $h=5/24\,\delta_i$ falls on the 3rd cell's centre, the sample weight comes out $4\cdot10^{-16}$ instead
   of 0, and the eddy viscosity below $h$, which skips the sample cell only when the weight is exactly 0, also enters the 3rd cell
   (`sample_cells`, `adam_flume_wall_model_library.F90`). Upstream of the box $C_f$ is then 4.2 % above S4b's, and the layer
-  entering the box carries that.
+  entering the box carries that. `sample_cells` now snaps a weight below $10^{-9}$ to 0, so a matching height on a cell centre is
+  that cell; S4k and S4l (whose coarse region has the same defect) were not run again.
 - **(b) half passes: the resolved flow separates, the wall stress does not.** $L_{int}$ is the DNS's within 1.2 %, and the
   compression starts $0.25\,\delta_0$ earlier than in S4b and S4c (still $1.5\,\delta_0$ behind the DNS's). For the first time with
   the plain equilibrium model the time-mean $u$ of the first cell is negative, over $1.10\,\delta_0$ (half the DNS's bubble, in its
