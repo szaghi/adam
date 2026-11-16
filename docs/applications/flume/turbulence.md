@@ -377,6 +377,11 @@ Measured by `test_wall_model`: forward and reversed first cells, the larger of t
 Leg wm14 of `turbulence/check.sh`: the key acts against `flux`, an explicit `flux` agrees with the default, the block layouts and rank
 counts agree, the CPU and the GPU agree, and on a laminar channel the history's $\tau_w$ balances the driving force.
 
+In the shock/boundary-layer interaction ([S4l](./verification/streams/sbli#the-viscosity-coupling-s4l)) the wall stress separates
+in the mean over $1.66\,\delta_0$, where the flux coupling's stays positive, and $L_{int}$ is 10.3 % above the DNS's. On that grid
+the first cell's molecular stress is 94 % of the applied one ahead of the interaction, so the maximum can raise the zero-gradient
+stress (there 3.3 % above S4b's, 1.6 % above S4k's).
+
 ### Limits
 
 - Isothermal walls only.

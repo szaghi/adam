@@ -2955,13 +2955,15 @@ def fig_sbli_refined(out: Path, runs: Path) -> None:
 def fig_sbli_fixed_h(out: Path, runs: Path) -> None:
     """#121 S4k: the 2:1 box of S4c with the matching height fixed at S4b's, 5/24 delta_i (5 fine cells below it), restarted from S4c at t = 550,
     against S4b and S4c (h halved with the cells). Data: the sbli_oracle JSONs <runs>/sbli/sbli-m2p28-8.json (S4b), -r2.json (S4c), -r2h.json
-    (S4k). Left: the wall pressure against x* with the DNS and the IUSTI points; right: C_f against x, the box and the zero-gradient stretch
+    (S4k), -r2hv.json (S4l: S4k restarted at t = 850 with wall_model_coupling = viscosity, #126; its C_f is the applied stress, negative where
+    the first cell reverses). Left: the wall pressure against x* with the DNS and the IUSTI points; right: C_f against x, the box and the zero-gradient stretch
     35 <= x <= 48 shaded, each run's mean over that stretch against S4b's in the legend, the stretch where the time-mean u of the first cell is
     negative hatched (the JSON's l_sep_u1, when present)."""
     import json  # noqa: PLC0415
 
     runs_ = [("sbli-m2p28-8", "C0", r"S4b, $\delta_i/12$, $h = 5/24\,\delta_i$"), ("sbli-m2p28-8-r2", "C3", r"S4c, 2:1 box, $h$ halved in it"),
-             ("sbli-m2p28-8-r2h", "k", r"S4k, 2:1 box, $h = 5/24\,\delta_i$ fixed")]
+             ("sbli-m2p28-8-r2h", "k", r"S4k, 2:1 box, $h = 5/24\,\delta_i$ fixed"),
+             ("sbli-m2p28-8-r2hv", "C2", r"S4l, S4k with the viscosity coupling")]
     runs_ = [r for r in runs_ if (runs / "sbli" / f"{r[0]}.json").exists()]
     js = {name: json.loads((runs / "sbli" / f"{name}.json").read_text()) for name, _, _ in runs_}
 
@@ -3268,7 +3270,8 @@ def fig_sbli_reversal(out: Path, runs: Path) -> None:
     runs_ = [("s4b", "S4b", "C0"), ("s4c", "S4c, 2:1 box", "C2"), ("s4d", "S4d, $dp/dx$", "C3"), ("s4e", r"S4e, no $\nu_t$ below $h$", "C1"),
              ("s4f", r"S4f, $dp/dx$, no $\nu_t$", "C5"), ("s4g", "S4g, Bernoulli-consistent", "C4"), ("s4h", "S4h, convection-fed", "k"),
              ("s4i", "S4i, resolved stress removed", "C6"),
-             ("s4j", "S4j, the slow forcing", "C8"), ("s4k", r"S4k, 2:1 box, $h$ fixed", "C9")]
+             ("s4j", "S4j, the slow forcing", "C8"), ("s4k", r"S4k, 2:1 box, $h$ fixed", "C9"),
+             ("s4l", "S4l, viscosity coupling", "C7")]
     runs_ = [r for r in runs_ if (runs / "sbli" / f"rev2-{r[0]}.json").exists()]
     fig, axs = plt.subplots(1, 2, figsize=(13.0, 4.2), constrained_layout=True, gridspec_kw={"width_ratios": [1.6, 1.0]})
     first, third, labels, colors = [], [], [], []

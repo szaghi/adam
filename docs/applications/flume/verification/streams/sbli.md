@@ -2,7 +2,7 @@
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
-| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4k | P | none (the pressure-gradient key: wm12) | FNL | yes |
+| — (campaign `tbl_cases_s4.txt`) | [#121](https://github.com/szaghi/adam/issues/121) · S4b–S4l | P | none (the pressure-gradient key: wm12) | FNL | yes |
 
 ## Case and scope
 
@@ -204,7 +204,54 @@ The two refined runs count fine cells, S4b coarse ones: the reversed fractions c
   and the model, which sees only the flow at $h$, keeps the positive $\tau_w$ of a forward flow over a reversed first cell.
 - **So the remaining gap is the coupling.** The face takes the model's $\tau_w$ whatever the first cell does; a coupling through the
   wall viscosity with the no-slip condition kept (De Vanna et al. 2022), where the first cell sets the sign of the wall stress, is
-  the next test ([wall models in the literature](#wall-models-for-this-interaction-in-the-literature)).
+  the next test ([wall models in the literature](#wall-models-for-this-interaction-in-the-literature)): S4l
+  ([below](#the-viscosity-coupling-s4l)).
+
+### The viscosity coupling: S4l
+
+S4k with the model coupled through the wall viscosity, the no-slip condition kept ([#126](https://github.com/szaghi/adam/issues/126),
+`wall_model_coupling = viscosity`, [turbulence](../../turbulence#viscosity-coupling)): the face stress is the larger of the first
+cell's molecular no-slip stress and the model's, along the first cell's wall-parallel velocity, so a reversed first cell reverses
+the wall stress. Otherwise S4k's set-up (plain equilibrium model, $h=5/24\,\delta_i$, eddy viscosity below $h$), restarted from S4k
+at $t=850$ to 1150 on two nodes (8 A30, 18 h 38 min, 1.19 s per step); the statistics take the span and the 20 checkpoints of
+$953\le t\le1150$ (`sbli_oracle.py compare --t0 950`). Criteria fixed before the run: (a) $C_f$ over $35\le x\le48$ within 2 % of
+S4b's; (b) a mean bubble from $\tau_w$ and $L_{int}$ within 10 % of the DNS's. $C_f$ is the stress applied (its $x$ component),
+negative where the first cell reverses; S4k's is the model's.
+
+| | S4l, viscosity coupling | S4k, flux coupling | S4b | DNS, $Re_\theta=6882$ |
+|---|---|---|---|---|
+| $Re_\theta$ at $x_{imp}$, nominal; $\delta_0$ | 5276; 1.757 | 5253; 1.783 | 5247; 1.807 | |
+| $C_f$ over $35\le x\le48$ against S4b | **+3.3 %** | +1.7 % | | |
+| $C_f$ against S4b: $x=15$–24 (outside the box), 25–35, 45–52, 64–70, 76–90 | +2.7, $-0.9$, +2.9, $-8.4$, $-9.8$ % | +4.2, $-2.2$, +2.2, $-4.5$, $-8.3$ % | | |
+| $L_{int}/\delta_0$ | **3.64** | 3.26 | 3.15 | 3.30 |
+| $L_{sep}/\delta_0$ from $\tau_w$ | **1.66**, $x=56.4$–59.4 ($x^*=-0.56$ to $-0.10$) | 0 | 0 | 2.16 ($x^*=-0.8$ to $-0.15$) |
+| $C_f$ minimum ($10^{-3}$) | $-0.39$ at $x=58.4$ | 0.14 at $x=58.6$ | 0.22 at $x=58.6$ | |
+| time-mean $u<0$: first, second, third cell | 1.83, 1.14, $0.64\,\delta_0$ | 1.10, $0.68\,\delta_0$, none | none | |
+| 5 % / 50 % of the rise, $\delta_0$ ahead of $x_{imp}$ | 3.48 / 2.93 | 2.58 / 2.28 | 2.34 / 1.96 | 4.13 / 3.60 |
+| $(p_w-p_\infty)/(p_2-p_\infty)$ at $x^*=-0.5$, 0, 0.5, 1, 2 | 0.89, 1.56, 2.09, 2.23, 2.35 | 1.02, 1.57, 2.11, 2.28, 2.39 | 1.12, 1.72, 2.09, 2.24, 2.37 | 1.75, 2.07, 2.22, 2.29, 2.36 |
+| sonic height at $x_{imp}-5\,\delta_0$, $\delta_0$ | 0.035 | | 0.028 | 0.036 |
+| reversed area per unit span, mean (max), $\delta_0^2$ | 0.188 (0.217) | 0.115 (0.138) | 0.068 (0.142) | |
+| first / third cells reversed in the window | 33.4 % / 18.9 % | 23.4 % / 12.6 % | 9.5 % / 5.1 % | |
+
+The green line of [the figure above](#the-matching-height-fixed-s4k); the reversed flow per checkpoint in
+[the reversal figure](#the-reversed-flow-the-dns-s-bubble-and-the-runs-below-the-sample).
+
+- **(b) half passes: the wall stress separates in the mean, for the first time in this campaign.** $C_f<0$ over $1.66\,\delta_0$,
+  three quarters of the DNS's bubble, at its downstream end ($x^*=-0.56$ to $-0.10$ against $-0.8$ to $-0.15$). The compression starts
+  $0.9\,\delta_0$ earlier than S4k's (5 % of the rise $3.48\,\delta_0$ ahead of $x_{imp}$, the DNS's 4.13), and the reversed flow
+  grows: the first cells reverse in the mean over $1.83\,\delta_0$, a third of them in the window. $L_{int}$ overshoots:
+  3.64, 10.3 % above the DNS's 3.30, just outside the bound (Volpiani et al.'s 3.22 at $Re_\theta=1050$).
+- **(a) fails: the stretch $35\le x\le48$ is 3.3 % above S4b's** (S4k's 1.7 %). In the box the first cell spans about 21 wall
+  units, and its molecular no-slip stress is 94 % of the applied one in the mean: close enough that the maximum takes it whenever
+  the first cell runs faster than its mean. With the first cell's fluctuation (rms 17 % of its mean there) and a steady model
+  stress that bias would be +3.8 %; the model's stress fluctuates with the flow, so the bias is smaller, and the measured shift
+  against S4k is +1.6 %. A hypothesis: the model's own $\tau_w$ is not recorded apart from the applied one. The shift is also of
+  the size of the scatter of S4k's own bands against S4b (from $-2.2$ to +4.2 %) on a window of 200 time units after a restart;
+  the flat-plate gate of the same coupling (T-rs, [boundary layer](../turbulence/boundary-layer)) measures the zero-gradient
+  layer apart. The no-slip ghosts slow the first cells: the sonic height at
+  $x_{imp}-5\,\delta_0$ is the DNS's, $0.035\,\delta_0$ against 0.036, where S4b's is 0.028. The stress also jumps at the 2:1
+  face ($x=25$, +10 % over about $3\,\delta_i$), which the flux coupling does not.
+- **Behind the interaction the layer recovers more slowly** ($C_f$ 8 to 10 % below S4b's over $64\le x\le90$, S4k's 4 to 8 %).
 
 ## The wall model with the pressure gradient
 
@@ -756,7 +803,7 @@ sample weighs $e^{-3}$; the olive line of [the figure above](#the-pressure-gradi
 
 ## Not done
 
-- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). The model fed with the resolved convection (S4h) moves the onset and $L_{int}$ the right way and opens $0.18\,\delta_0$ where the DNS's bubble begins, but counts the resolved stress twice ($C_f$ of the zero-gradient layer +5 to +12 %). With the resolved stress removed and the velocity scale from $\tau_w$ (S4i) it passes the zero-gradient layer, but the scale collapses under the adverse gradient: $\tau_w<0$ under a forward first cell and a shorter interaction ([above](#the-run-s4i)). Velocity scales meant to keep the mean forcing without its fluctuation, tested a priori on both flows ([above](#a-priori-the-velocity-scale-of-the-eddy-viscosity)): only the slow forcing, in both the balance and S4h's scale $|\tau_w|+|\bar S|$, keeps the zero-gradient layer; run as S4j ([above](#the-run-s4j)) it keeps the incoming layer and returns the interaction to S4b's (no bubble beyond $0.14\,\delta_0$, the compression $0.25\,\delta_0$ later). No wall model tried here, equilibrium-type or fed with the resolved convection, both consistent on the zero-gradient layer and closer to the DNS in the interaction. A matching height fixed in $\delta_i$ across the levels, with 5 cells below it in a 2:1 box (S4k, [above](#the-matching-height-fixed-s4k)), keeps the zero-gradient layer within 1.7 % and gives $L_{int}$ 3.26 and a mean reversed first cell over $1.10\,\delta_0$, under a wall stress that stays positive: the bubble lies below the matching height, which the flux coupling of the face cannot see. Left: the coupling through a wall viscosity with the no-slip condition kept (De Vanna et al. 2022), and a matching height fixed in $\delta$ above the DNS's bubble (about $4h$ tall).
+- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). The model fed with the resolved convection (S4h) moves the onset and $L_{int}$ the right way and opens $0.18\,\delta_0$ where the DNS's bubble begins, but counts the resolved stress twice ($C_f$ of the zero-gradient layer +5 to +12 %). With the resolved stress removed and the velocity scale from $\tau_w$ (S4i) it passes the zero-gradient layer, but the scale collapses under the adverse gradient: $\tau_w<0$ under a forward first cell and a shorter interaction ([above](#the-run-s4i)). Velocity scales meant to keep the mean forcing without its fluctuation, tested a priori on both flows ([above](#a-priori-the-velocity-scale-of-the-eddy-viscosity)): only the slow forcing, in both the balance and S4h's scale $|\tau_w|+|\bar S|$, keeps the zero-gradient layer; run as S4j ([above](#the-run-s4j)) it keeps the incoming layer and returns the interaction to S4b's (no bubble beyond $0.14\,\delta_0$, the compression $0.25\,\delta_0$ later). No wall model tried here, equilibrium-type or fed with the resolved convection, both consistent on the zero-gradient layer and closer to the DNS in the interaction. A matching height fixed in $\delta_i$ across the levels, with 5 cells below it in a 2:1 box (S4k, [above](#the-matching-height-fixed-s4k)), keeps the zero-gradient layer within 1.7 % and gives $L_{int}$ 3.26 and a mean reversed first cell over $1.10\,\delta_0$, under a wall stress that stays positive: the bubble lies below the matching height, which the flux coupling of the face cannot see. Coupled through the wall viscosity with the no-slip condition kept (De Vanna et al. 2022; S4l, [above](#the-viscosity-coupling-s4l)) the wall stress separates in the mean over $1.66\,\delta_0$, three quarters of the DNS's bubble, and the compression starts $0.9\,\delta_0$ earlier, but $L_{int}$ overshoots by 10.3 % and the zero-gradient stretch is 3.3 % above S4b's. Left: the onset still $0.25\,\delta_0$ behind the DNS's bubble, and a matching height fixed in $\delta$ above the DNS's bubble (about $4h$ tall).
 - The late compression ($x^*\approx-0.6$ half-way against the DNS's $-1.1$), unchanged by the near-wall grid and by the pressure-gradient term; moved 40 % of the way by taking out the eddy viscosity below $h$ (S4e), which also moves the incoming layer off the DNS's: the matching between the model and the resolved near-wall cells.
 - The wall-pressure fluctuations and the low-frequency unsteadiness.
 - The recycling–rescaling inflow (S5).
