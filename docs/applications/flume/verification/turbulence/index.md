@@ -56,5 +56,5 @@ interaction continues T3.7 under [#121](https://github.com/szaghi/adam/issues/12
 | T3.6 | 2:1 faces along a modelled wall | wm3 | [Channel](./channel) |
 | T3.7 | Coleman channel at Mach 1.5 and 3; eddy viscosity below the matching height | wm11 | [Channel](./channel#mach-3) |
 | ([#121](https://github.com/szaghi/adam/issues/121) S4d) | The pressure gradient in the equilibrium model | wm12 | [Channel](./channel) |
-| ([#126](https://github.com/szaghi/adam/issues/126)) | The wall model coupled through the wall viscosity, no-slip kept | wm14 | [Channel](./channel) |
+| ([#126](https://github.com/szaghi/adam/issues/126)) | The wall model coupled through the wall viscosity, no-slip kept; on the Mach 2.5 zero-gradient layer $C_f$ 8.7 % below the flux coupling's (the gate fails) | wm14 | [Channel](./channel), [Boundary layer](./boundary-layer#the-viscosity-coupling) |
 | T3.7 | Compressible boundary layer, Mach 2.5 and 5.86, digital-filter inflow | tb1, tb2 | [Boundary layer](./boundary-layer) |

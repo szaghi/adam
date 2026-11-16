@@ -378,9 +378,13 @@ Leg wm14 of `turbulence/check.sh`: the key acts against `flux`, an explicit `flu
 counts agree, the CPU and the GPU agree, and on a laminar channel the history's $\tau_w$ balances the driving force.
 
 In the shock/boundary-layer interaction ([S4l](./verification/streams/sbli#the-viscosity-coupling-s4l)) the wall stress separates
-in the mean over $1.66\,\delta_0$, where the flux coupling's stays positive, and $L_{int}$ is 10.3 % above the DNS's. On that grid
-the first cell's molecular stress is 94 % of the applied one ahead of the interaction, so the maximum can raise the zero-gradient
-stress (there 3.3 % above S4b's, 1.6 % above S4k's).
+in the mean over $1.66\,\delta_0$, where the flux coupling's stays positive, and $L_{int}$ is 10.3 % above the DNS's. On the zero-gradient
+layer it fails: on the Mach 2.5 flat plate $C_f$ falls 8.7 % below the flux coupling's, $-11.3$ % against the DNS
+([boundary layer](./verification/turbulence/boundary-layer#the-viscosity-coupling)). Under the flux coupling the first cell runs
+faster than its no-slip stress allows (1.08 times the model's there); the maximum takes that stress, slows the first cell to the
+DNS's velocity and the cells above it below the DNS's, and the model, reading a slower sample, returns a lower $\tau_w$. De Vanna
+et al. match the model's stress exactly with the resolved gradient; the lower bound $\mu_w^{sgs}\ge0$ is FLUME's (the variant
+without it is not tested).
 
 ### Limits
 

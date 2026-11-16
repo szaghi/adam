@@ -3411,6 +3411,69 @@ def fig_tbl_convection(out: Path, runs: Path) -> None:
     fig.savefig(out / "tbl-convection.png", dpi=DPI)
     plt.close(fig)
 
+def fig_tbl_coupling(out: Path, runs: Path) -> None:
+    """#126: the zero-gradient gate of the viscosity coupling on the Mach 2.5 boundary layer (m2p5-wm-l90): rs's state at t = 540 restarted to
+    900 with the plain equilibrium model and its eddy viscosity below h (the baseline's setting), wall_model_coupling = viscosity (vc) and the
+    default flux (ctrl); statistics t >= 720. Data: the tbl_oracle.py compare JSONs <runs>/tbl/m2p5-wm-l90-{base,ctrl,vc}-compare.json and,
+    when present, <runs>/tbl/m2p5-wm-l90-coupling-history.json (C_f over 45 <= x <= 80 against t, from tbl-wall_y_min_history.dat, every 10
+    rows averaged). Top left: C_f (the stress applied) against x, the DNS at each run's station; top right: vc against ctrl; bottom left: the
+    van Driest velocity at the station against the DNS; bottom right: C_f over the developed stretch against t."""
+    import json  # noqa: PLC0415
+
+    cases = (("base", "C0", "flux, the baseline (t 180-360)"), ("ctrl", "k", "flux, restarted (ctrl)"), ("vc", "C3", "viscosity coupling (vc)"))
+    cases = tuple(c for c in cases if (runs / "tbl" / f"m2p5-wm-l90-{c[0]}-compare.json").exists())
+    js = {k: json.loads((runs / "tbl" / f"m2p5-wm-l90-{k}-compare.json").read_text()) for k, _, _ in cases}
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import tbl_oracle as to  # noqa: PLC0415
+
+    _, d = to.read_stat(HERE / "turbulence" / "reference" / "M2p5_Stat.txt")
+    fig, axs = plt.subplots(2, 2, figsize=(12.0, 7.6), constrained_layout=True)
+    for k, c, lab in cases:
+        j = js[k]
+        x, cf = np.array(j["x"]), np.array(j["cf"])
+        ist = j["station"]
+        axs[0, 0].plot(x, 1e3 * cf, "-", color=c, lw=1.2, label=f"{lab}: {100.0 * (cf[ist] / j['cf_dns'] - 1.0):+.1f} % at the station")
+        axs[0, 0].plot(x[ist], 1e3 * cf[ist], "o", color=c, ms=5)
+        axs[1, 0].semilogx(j["yplus"], j["uvd"], "o-", color=c, ms=2.5, lw=1.0, label=lab)
+    j = js["ctrl"]
+    axs[0, 0].axhline(1e3 * j["cf_dns"], color="0.4", ls=":", lw=1.0, label=rf"DNS, $Re_\theta$ {j['re_dns']:.0f}")
+    axs[0, 0].set_xlim(10.0, 85.0)
+    axs[0, 0].set_ylim(1.4, 3.0)
+    axs[0, 0].set_xlabel(r"$x/\delta_i$")
+    axs[0, 0].set_ylabel(r"$10^3 C_f$ (the stress applied)")
+    axs[0, 0].legend(fontsize=7.5, loc="upper right")
+    xc, cc = np.array(j["x"]), np.array(j["cf"])
+    xv, cv = np.array(js["vc"]["x"]), np.array(js["vc"]["cf"])
+    axs[0, 1].plot(xv, 100.0 * (cv / np.interp(xv, xc, cc) - 1.0), "-", color="C3", lw=1.2, label="vc against ctrl")
+    axs[0, 1].axhline(0.0, color="k", lw=0.8)
+    axs[0, 1].axhspan(-2.0, 2.0, color="C2", alpha=0.12, lw=0, label=r"the gate, $\pm2$ %")
+    axs[0, 1].axvspan(45.0, 80.0, color="0.85", alpha=0.5, lw=0)
+    axs[0, 1].set_xlim(10.0, 85.0)
+    axs[0, 1].set_ylim(-20.0, 10.0)
+    axs[0, 1].set_xlabel(r"$x/\delta_i$")
+    axs[0, 1].set_ylabel(r"$C_f$ against ctrl [%]")
+    axs[0, 1].legend(fontsize=7.5, loc="lower right")
+    axs[1, 0].semilogx(d[1:, 2], d[1:, 24], "-", color="0.4", lw=1.0, label="DNS")
+    axs[1, 0].set_xlim(5.0, 3000.0)
+    axs[1, 0].set_xlabel(r"$y^+$ (the cell centres)")
+    axs[1, 0].set_ylabel(r"$u^+_{VD}$ at the station")
+    axs[1, 0].legend(fontsize=7.5, loc="upper left")
+    hist = runs / "tbl" / "m2p5-wm-l90-coupling-history.json"
+    if hist.exists():
+        h = json.loads(hist.read_text())
+        for k, c, lab in cases:
+            if k in h:
+                axs[1, 1].plot(h[k]["t"], 1e3 * np.array(h[k]["cf"]), "-", color=c, lw=1.0, label=lab)
+        axs[1, 1].axvspan(720.0, 900.0, color="0.85", alpha=0.5, lw=0, label="the statistics")
+        axs[1, 1].set_xlabel(r"$t\,U_\infty/\delta_i$")
+        axs[1, 1].set_ylabel(r"$10^3 C_f$ over $45\leq x\leq80$")
+        axs[1, 1].legend(fontsize=7.5, loc="upper right")
+    for ax in axs.flat:
+        ax.grid(alpha=0.3)
+    fig.savefig(out / "tbl-coupling.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_sbli_cells(out: Path, runs: Path) -> None:
     """#121 P1: the near-wall cells of the incoming layer at x_imp - 5 delta_0 against the DNS profile the inflow is made from
     (reference/tbl_m2p28_profile.txt), from the span and time averages of sbli_oracle.py fields (<runs>/sbli/<case>-fields.npz; S4c's on the
@@ -5274,7 +5337,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-fixed-h": fig_sbli_fixed_h,"sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "tbl-convection": fig_tbl_convection, "sbli-reversal": fig_sbli_reversal, "sbli-convective": fig_sbli_convective, "sbli-scales": fig_sbli_scales, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-fixed-h": fig_sbli_fixed_h,"sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "tbl-convection": fig_tbl_convection, "tbl-coupling": fig_tbl_coupling, "sbli-reversal": fig_sbli_reversal, "sbli-convective": fig_sbli_convective, "sbli-scales": fig_sbli_scales, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

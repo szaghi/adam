@@ -284,9 +284,51 @@ the stretch $45\le x\le80$ shaded; rs, rs2 and the slow forcing f50, f100. `make
   first 20 checkpoints of the same window gave $+0.4$ and $+0.8$ %). Both move the station toward the DNS ($-1.7$, $-2.4$ % against
   the baseline's $-4.3$ %).
 
+## The viscosity coupling
+
+The zero-gradient gate of `wall_model_coupling = viscosity` ([turbulence](../../turbulence#viscosity-coupling),
+[#126](https://github.com/szaghi/adam/issues/126)): the no-slip condition kept and the face stress the larger of the first cell's
+molecular no-slip stress and the model's, along the first cell's wall-parallel velocity. In the shock interaction it separates the
+wall stress in the mean ([S4l](../streams/sbli#the-viscosity-coupling-s4l)). Criteria fixed before the runs: $C_f$ over
+$45\le x\le80$ within 2 % of the flux-coupled control, and the station against the DNS no worse than the baseline's $-4.3$ %.
+
+| Setup | |
+|---|---|
+| runs | rs's state at $t=540$ (the section above) restarted to 900 with the plain equilibrium model and its eddy viscosity below $h$ (the baseline's setting, $h=5/24\,\delta_i$, 2.5 cells); vc with `wall_model_coupling = viscosity`, ctrl with the default `flux`; statistics over the 33 and 34 checkpoints of $720<t\le900$ (`tbl_oracle.py compare --t0 720`); one prod-gn job, a run per node (4 A30), 4 h |
+| grid | the baseline's: $\delta_i/12$, $1080\times72\times72$ over $90\times6\times6\,\delta_i$, the first cell centre at $y^+\approx10$ |
+
+![The viscosity coupling on the Mach 2.5 zero-gradient layer](/flume/tbl-coupling.png)
+
+*Top: $C_f$ (the stress applied) against $x$, the dots at each run's station; vc against ctrl, the developed stretch shaded and the
+gate's band. Bottom: the van Driest velocity at the station against the DNS; $C_f$ over $45\le x\le80$ against time.
+`make_doc_figures.py --only tbl-coupling`.*
+
+| | baseline | ctrl, flux | vc, viscosity |
+|---|---|---|---|
+| $C_f$ at the station ($Re_\theta=2835$) against the DNS | $-4.3$ % | $-4.3$ % | **$-11.3$ %** |
+| $C_f$ over $45\le x\le80$ against ctrl (range along $x$) | | | **$-8.7$ %** ($-11.8$ to $-7.7$ %) |
+| $C_f$ over $20\le x<40$ against ctrl | | | $-12.9$ % |
+| $H$ at the station (DNS 4.10) | | 4.10 | 4.22 |
+| $u^+_{VD}$ of the first three cells, $y^+\approx10$, 30, 50 (DNS 8.8, 13.6, 15.0) | | 11.3, 13.1, 14.7 | 8.9, 11.9, 14.1 |
+| molecular no-slip stress of the first cell against the applied, $u_1^+/y_1^+$ | | 1.08 | 0.88 |
+
+- **The gate fails: the coupling lowers the zero-gradient stress by 9 %.** Over the developed stretch vc's $C_f$ is 8.7 % below
+  ctrl's, and $-11.3$ % against the DNS at the station; ctrl reproduces the baseline ($-4.3$ %). The drop settles within about 60
+  time units of the restart and holds over the window (bottom right), so it is the coupling's, not a transient.
+- **How: the maximum drags the first cell down to its no-slip velocity, and the sample with it.** Under the flux coupling the first
+  cell runs at $u^+=11.3$ at $y^+\approx10$, faster than the DNS's 8.9 there: its no-slip stress would be 1.08 times the model's. Switched to
+  the viscosity coupling, the maximum takes that larger stress (vc's $C_f$ first rises above ctrl's, bottom right), the first cell slows
+  to $u^+=8.9$, the DNS's value within 2 %, and the cells above it slow too ($u^+=11.9$ at $y^+\approx30$ against the DNS's 13.6). The model reads
+  the slower velocity at $h$ and returns a lower $\tau_w$, which the face then applies wherever it exceeds the molecular one.
+- **De Vanna et al. (2022) reproduce the model's stress exactly with the resolved gradient** (an effective wall viscosity
+  $\mu_{eff}=\tau_w^{wm}/(\partial u/\partial y)$, no lower bound stated); the lower bound $\mu_w^{sgs}\ge0$ here, which keeps the
+  molecular stress where the wall is resolved, is what lets the first cell's no-slip gradient win. The variant without it, the
+  model's magnitude along the first cell's velocity, is not tested.
+
 ## Not done
 
 - The matching height at fixed grid; the outer-layer and near-wall stresses at $\delta_i/12$.
 - $\delta_i/16$ at Mach 5.86; a longer averaging window at Mach 5.86.
 - $Re_\theta$ and the station against the edge state: they use the nominal free stream.
 - Mean profiles against the DNS beyond the station.
+- The viscosity coupling without the lower bound on the wall's subgrid viscosity (the model's stress along the first cell's velocity).
