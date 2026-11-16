@@ -5,6 +5,8 @@ Geometry (conductor centre-lines, from Final.aedtresults):
   rectangular: 4 planar loops 40 (transverse) x 50 (axial) mm, planes x,y = +-30.5 mm, I = 100 A
                Y coils (By) phase 0, X coils (Bx) phase -90
                Ansys convention: By = -B0 cos(wt), Bx = +B0 sin(wt)
+               PRISM `normal` is the magnetic-moment direction (right-handed): Y coils -y, X coils +x
+               (checked 2026-11-16 on the t0 centre field, X and Y pairs separately)
   saddle     : 120 deg arcs at z = +-25 mm, axial wires 50 mm
                X pair R = 25 mm, I = 43.95 A, phase -90 ; Y pair R = 28 mm, I = 50.32 A, phase 0
                Ansys convention: By = +B0 cos(wt), Bx = +B0 sin(wt)
@@ -28,6 +30,9 @@ p.add_argument('--it_max', type=int, default=0, help='override it_max (smoke tes
 p.add_argument('--it_save', type=int, default=0)
 p.add_argument('--cfl', type=float, default=0.499666666666666)
 p.add_argument('--basename', required=True)
+p.add_argument('--slices_every', type=int, default=0,
+               help='>0: write the production slices (planes z=0, x=0, axial line, control-volume box) every N iterations')
+p.add_argument('--restart_save', type=int, default=0)
 a = p.parse_args()
 
 dx0 = 2 * a.hx / a.ni
@@ -62,6 +67,10 @@ def setkey(section, key, val):
 setkey('IO', 'output_basename', a.basename)
 setkey('IO', 'restart_basename', a.basename + '-restart')
 setkey('IO', 'it_save', it_save)
+if a.restart_save: setkey('IO', 'restart_save', a.restart_save)
+if a.slices_every:
+    setkey('IO', 'save_residual_fields', '.false.')
+    setkey('IO', 'save_divergence_fields', '.false.')
 setkey('grms', 'radius', 0.015)   # Ansys Volume_controllo: cylinder D30 x L50
 setkey('grms', 'length', 0.05)
 setkey('time', 'time_max', f'{t_end * 1.01:.6e}')
@@ -86,7 +95,7 @@ if a.case == 'rect':
     coils += ['rectangular_coils_number = 4', 'solenoid_coils_number = 0', 'helicon_coils_number = 0',
               f'time_delay = {a.time_delay:.6e}']
     # (centre, normal, phase): Y coils phase 0, X coils phase -90 (Ansys Final)
-    for n, (xc, yc, nrm, ph) in enumerate([(0, 0.0305, '+y', 0), (0, -0.0305, '+y', 0),
+    for n, (xc, yc, nrm, ph) in enumerate([(0, 0.0305, '-y', 0), (0, -0.0305, '-y', 0),
                                            (0.0305, 0, '+x', -90), (-0.0305, 0, '+x', -90)], 1):
         coils += [f'[coils_input_coil_{n}]', 'coil_type = rectangular', 'current_type = AC_current',
                   'lx = 0.040', 'ly = 0.050', f'sigma = {sigma:.6g}',
@@ -116,6 +125,24 @@ else:
         for k, (x, y, z) in enumerate(pts, 1):
             coils += [f'x_point_{k} = {x:.13f}', f'y_point_{k} = {y:.13f}', f'z_point_{k} = {z:.13f}']
 txt = txt[:i0] + '\n'.join(coils) + '\n\n' + txt[i1:]
+
+if a.slices_every:
+    hxi, hzi = a.hx - 1e-3, a.hz - 1e-3        # keep clear of the boundary half cell
+    nxy, nz = round(2 * hxi / 1e-3) + 1, round(2 * hzi / 1e-3) + 1
+    sl = [('z=0 plane', (nxy, nxy, 1), (-hxi, -hxi, 0.0), (hxi, hxi, 0.0)),
+          ('x=0 plane', (1, nxy, nz), (0.0, -hxi, -hzi), (0.0, hxi, hzi)),
+          ('axial line', (1, 1, nz), (0.0, 0.0, -hzi), (0.0, 0.0, hzi)),
+          ('control volume box D30 L50, 0.5 mm', (61, 61, 101), (-0.015, -0.015, -0.025), (0.015, 0.015, 0.025))]
+    blk = [f'[slices]', f'slices_number = {len(sl)}']
+    for n, (lab, nn, lo, hi) in enumerate(sl, 1):
+        blk += [f'; {lab}', f'[slice_{n}]', 'itype  = trilinear', f'n_save = {a.slices_every}',
+                f'ni     = {nn[0]}', f'nj     = {nn[1]}', f'nk     = {nn[2]}']
+        e = 1e-7   # off the cell and block faces (x, y, z = integer mm at dh = 1 mm): no tie on the owning block
+        blk += [f'emin_{c} = {v + e:.9g}' for c, v in zip('xyz', lo)] + [f'emax_{c} = {v + e:.9g}' for c, v in zip('xyz', hi)]
+    i0 = txt.index('[slices]')
+    m = re.search(r'^\[(?!slice)[^\]]+\]\s*$', txt[i0 + 8:], flags=re.M)
+    i1 = i0 + 8 + m.start() if m else len(txt)
+    txt = txt[:i0] + '\n'.join(blk) + '\n\n' + txt[i1:]
 
 out = pathlib.Path(a.outdir); out.mkdir(parents=True, exist_ok=True)
 (out / 'input.ini').write_text(txt)
