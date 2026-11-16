@@ -5604,9 +5604,12 @@ contains
       enddo
    enddo
 
+   ! the centred curl reads only the three axial lines through the centre: the other points of the cube stay 0
+   A_gc = 0.0_R8P
    do i = 1, 2*hs+1
       do j = 1, 2*hs+1
          do k = 1, 2*hs+1
+            if (count([i, j, k] /= hs+1) > 1) cycle
             A_gc(:,i,j,k) = rectangular_coil_A_at_point(xp=coordinates_matrix(:,i,j,k),                 &
                                                         xc=[x_c, y_c, z_c],                             &
                                                         idir_n=i_dir_n, idir_a=i_dir_a, idir_b=i_dir_b, &
@@ -5641,9 +5644,12 @@ contains
    integer(I4P)                 :: j
    integer(I4P)                 :: k
 
+   ! the centred curl reads only the three axial lines through the centre: the other points of the cube stay 0
+   A_gc = 0.0_R8P
    do k=1, 2*hs+1
       do j=1, 2*hs+1
          do i=1, 2*hs+1
+            if (count([i, j, k] /= hs+1) > 1) cycle
             coord = gc_coord + [real(i-1-hs, kind=R8P)*dxyz(1), &
                                 real(j-1-hs, kind=R8P)*dxyz(2), &
                                 real(k-1-hs, kind=R8P)*dxyz(3)]
