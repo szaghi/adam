@@ -38,6 +38,9 @@ public :: initialize_single_particle_output
 public :: write_single_particle_output
 public :: estimate_backend_memory_interface
 
+real(R8P), parameter :: COIL_SATURATION_SIGMAS = 10._R8P !< Beyond this many sigma from its centre every coil erf is +-1 in
+                                                         !< double precision (erf(x/(sqrt(2) sigma)) = +-1 for |x| > 8.4 sigma).
+
 abstract interface
    subroutine estimate_backend_memory_interface(physics, file_parameters, extra_fields, reserved_memory)
    !< Estimate the backend allocations that `compute_fields_number` does not count, before the grid exists (issue #112):
@@ -2225,8 +2228,6 @@ contains
    class(prism_common_object), intent(inout) :: self                                    !< Cpu object.
    integer(I4P),               intent(in)    :: n                                       !< Coil number.
    real(R8P), allocatable                    :: A(:,:,:,:,:)                            !< Total coil vector potential field.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:) !< Coil vector potential field at ghost cells, used for boundary
-      !< condition application.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:)                 !< Buffer variable for self%coil%J_vec.
    real(R8P)                                 :: r_p1, theta_p1, csi_p1 !< Cylindrical coordinates of the first coil point.
    real(R8P)                                 :: r_p2, theta_p2, csi_p2 !< Cylindrical coordinates of the second coil point.
@@ -2236,15 +2237,12 @@ contains
    real(R8P), allocatable                    :: s_map(:), csi_map(:) !< Coordinate dei punti nella spira nel piano cilindrico
       !< srotolato s=R*theta; csi = axial
    real(R8P)                                 :: area_signed, eta
-   real(R8P)                                 :: cell_coord(3)                           !< Cartesian coordinates of the cell center.
    real(R8P)                                 :: x_p1, y_p1, z_p1
    real(R8P)                                 :: x_p2, y_p2, z_p2
-   integer(I4P)                              :: b,i,j,k,p,f                             !< Counters.   
-   real(R8P)                                 :: gc_coord(3)
-   integer(I4P), parameter                   :: n_faces = 6_I4P                         !< Number of ghost-cell face slabs.
-   integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
-   integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
-   integer(I4P)                              :: k1_f(n_faces), k2_f(n_faces)
+   integer(I4P)                              :: b,i,j,k,p                               !< Counters.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)  !< Potential of one block, extended along the
+                                                             !< face normals for the ghost-face curls.
+   real(R8P)                                 :: lo(3), hi(3) !< Reach box of a block.
    integer(I4P)                              :: progress_done, progress_total, progress_percent
    character(len=:), allocatable             :: progress_label
 
@@ -2259,8 +2257,6 @@ contains
    
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
-   allocate(A_gc(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))
-   A_gc(:,:,:,:) = 0.0_R8P
    allocate(s_map(1:N_points))
    allocate(csi_map(1:N_points))
 
@@ -2325,25 +2321,29 @@ contains
    theta_c = 0.5_R8P * (minval(s_map/Radius) + maxval(s_map/Radius))
 
    progress_done = 0_I4P
-   progress_total = blocks_number + 1_I4P + n_faces*blocks_number
+   progress_total = blocks_number + 1_I4P
    progress_percent = -10_I4P
    progress_label = 'source coil '//trim(str(n,.true.))//' helicon'
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
-   
+
+   ! Per block: the potential on the cells and on the extensions the ghost-face curls read, the curls of the face ghosts
+   ! (compute_curl covers the interior only). Blocks out of the reach of the coil keep A = 0 and J = 0: the radial window
+   ! is saturated there, or chi is exactly 0.
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
    do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-               A(:,i,j,k,b) = helicon_coil_A_at_point(hs=hs, dxyz=dxyz(:,b), cell_coord=cell_coord, &
-                                                       x_c=x_c, y_c=y_c, z_c=z_c, normal=normal,    &
-                                                       Radius=Radius, N_points=N_points,            &
-                                                       s_map=s_map, csi_map=csi_map, eta=eta,       &
-                                                       theta_c=theta_c, sigma=sigma)
-            enddo
-         enddo
-      enddo
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=2_I4P*hs, lo=lo, hi=hi)
+      if (helicon_block_active(lo=lo, hi=hi, x_c=x_c, y_c=y_c, z_c=z_c, normal=normal, Radius=Radius, sigma=sigma, &
+                               csi_min=minval(csi_map), csi_max=maxval(csi_map))) then
+         call helicon_coil_block_A(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b),      &
+                                   z_cell=z_cell(:,b), dxyz=dxyz(:,b), x_c=x_c, y_c=y_c, z_c=z_c, normal=normal,     &
+                                   Radius=Radius, N_points=N_points, s_map=s_map, csi_map=csi_map, eta=eta,          &
+                                   theta_c=theta_c, sigma=sigma, Ae=Ae)
+         A(:,:,:,:,b) = Ae(:,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc)
+         call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                   Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+      endif
       progress_done = progress_done + 1_I4P
       call print_source_progress(label=progress_label, progress_done=progress_done, &
                                  progress_total=progress_total, last_percent=progress_percent)
@@ -2352,107 +2352,6 @@ contains
    progress_done = progress_done + 1_I4P
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
-
-   !Parte relativa alle ghost cells, visto che compute_curl lavora solo
-   !sui punti interni del dominio.
-   ! Faccia -x
-   i1_f(1) = 1_I4P - ngc
-   i2_f(1) = 0_I4P
-   j1_f(1) = 1_I4P
-   j2_f(1) = nj
-   k1_f(1) = 1_I4P
-   k2_f(1) = nk
-
-   ! Faccia +x
-   i1_f(2) = ni + 1_I4P
-   i2_f(2) = ni + ngc
-   j1_f(2) = 1_I4P
-   j2_f(2) = nj
-   k1_f(2) = 1_I4P
-   k2_f(2) = nk
-
-   ! Faccia -y
-   i1_f(3) = 1_I4P
-   i2_f(3) = ni
-   j1_f(3) = 1_I4P - ngc
-   j2_f(3) = 0_I4P
-   k1_f(3) = 1_I4P
-   k2_f(3) = nk
-
-   ! Faccia +y
-   i1_f(4) = 1_I4P
-   i2_f(4) = ni
-   j1_f(4) = nj + 1_I4P
-   j2_f(4) = nj + ngc
-   k1_f(4) = 1_I4P
-   k2_f(4) = nk
-
-   ! Faccia -z
-   i1_f(5) = 1_I4P
-   i2_f(5) = ni
-   j1_f(5) = 1_I4P
-   j2_f(5) = nj
-   k1_f(5) = 1_I4P - ngc
-   k2_f(5) = 0_I4P
-
-   ! Faccia +z
-   i1_f(6) = 1_I4P
-   i2_f(6) = ni
-   j1_f(6) = 1_I4P
-   j2_f(6) = nj
-   k1_f(6) = nk + 1_I4P
-   k2_f(6) = nk + ngc
-  
-   select case (self%fdv_scheme)
-   case ('FD')
-      do f = 1_I4P, n_faces
-         do b = 1, blocks_number
-            do k = k1_f(f), k2_f(f)
-               do j = j1_f(f), j2_f(f)
-                  do i = i1_f(f), i2_f(f)
-                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-
-                     A_gc = build_A_ghost_stencil_helicon(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
-                                                          x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
-                                                          N_points=N_points, s_map=s_map,          &
-                                                          csi_map=csi_map, eta=eta,                &
-                                                          theta_c=theta_c, r_coil=Radius,          &
-                                                          normal=normal)
-                     call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
-                  enddo
-               enddo
-            enddo
-            progress_done = progress_done + 1_I4P
-            call print_source_progress(label=progress_label, progress_done=progress_done, &
-                                       progress_total=progress_total, last_percent=progress_percent)
-         enddo
-      enddo
-   case ('FV')
-      do f = 1_I4P, n_faces
-         do b = 1, blocks_number
-            do k = k1_f(f), k2_f(f)
-               do j = j1_f(f), j2_f(f)
-                  do i = i1_f(f), i2_f(f)
-                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-
-                     A_gc = build_A_ghost_stencil_helicon(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
-                                                          x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
-                                                          N_points=N_points, s_map=s_map,          &
-                                                          csi_map=csi_map, eta=eta,                &
-                                                          theta_c=theta_c, r_coil=Radius,          &
-                                                          normal=normal)
-                     call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
-                  enddo
-               enddo
-            enddo
-            progress_done = progress_done + 1_I4P
-            call print_source_progress(label=progress_label, progress_done=progress_done, &
-                                       progress_total=progress_total, last_percent=progress_percent)
-         enddo
-      enddo
-   case default
-      call mpih%error_stop(msg='set_helicon_coil: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
-   endselect
 
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
@@ -2523,63 +2422,10 @@ contains
                 - erf_primitive_function(s=r, mu=Radius+sigma, sigma=sigma))
    endfunction helicon_radial_primitive
 
-   subroutine compute_helicon_radial_gradient_centered(hs, dxyz, cell_coord, x_c, y_c, z_c, normal, &
-                                                       Radius, sigma, grad_G)
-   !< Compute the discrete centered gradient of the radial helicon primitive.
-   integer(I4P),      intent(in)  :: hs
-   real(R8P),         intent(in)  :: dxyz(1:3)
-   real(R8P),         intent(in)  :: cell_coord(1:3)
-   real(R8P),         intent(in)  :: x_c, y_c, z_c
-   character(len=2 ), intent(in)  :: normal
-   real(R8P),         intent(in)  :: Radius
-   real(R8P),         intent(in)  :: sigma
-   real(R8P),         intent(out) :: grad_G(1:3)
-   real(R8P)                      :: G_x(1-hs:1+hs)
-   real(R8P)                      :: G_y(1-hs:1+hs)
-   real(R8P)                      :: G_z(1-hs:1+hs)
-   real(R8P)                      :: coord_tmp(3)
-   real(R8P)                      :: r_tmp
-   real(R8P)                      :: theta_tmp
-   real(R8P)                      :: axial_tmp
-   integer(I4P)                   :: m
-
-   do m=-hs, hs
-      coord_tmp = cell_coord
-      coord_tmp(1) = coord_tmp(1) + real(m, kind=R8P) * dxyz(1)
-      call cartesian_to_cylindrical(x=coord_tmp(1), y=coord_tmp(2), z=coord_tmp(3), &
-                                    x_c=x_c, y_c=y_c, z_c=z_c, normal=normal,      &
-                                    r=r_tmp, theta=theta_tmp, axial=axial_tmp)
-      G_x(1+m) = helicon_radial_primitive(r=r_tmp, Radius=Radius, sigma=sigma)
-   enddo
-
-   do m=-hs, hs
-      coord_tmp = cell_coord
-      coord_tmp(2) = coord_tmp(2) + real(m, kind=R8P) * dxyz(2)
-      call cartesian_to_cylindrical(x=coord_tmp(1), y=coord_tmp(2), z=coord_tmp(3), &
-                                    x_c=x_c, y_c=y_c, z_c=z_c, normal=normal,      &
-                                    r=r_tmp, theta=theta_tmp, axial=axial_tmp)
-      G_y(1+m) = helicon_radial_primitive(r=r_tmp, Radius=Radius, sigma=sigma)
-   enddo
-
-   do m=-hs, hs
-      coord_tmp = cell_coord
-      coord_tmp(3) = coord_tmp(3) + real(m, kind=R8P) * dxyz(3)
-      call cartesian_to_cylindrical(x=coord_tmp(1), y=coord_tmp(2), z=coord_tmp(3), &
-                                    x_c=x_c, y_c=y_c, z_c=z_c, normal=normal,      &
-                                    r=r_tmp, theta=theta_tmp, axial=axial_tmp)
-      G_z(1+m) = helicon_radial_primitive(r=r_tmp, Radius=Radius, sigma=sigma)
-   enddo
-
-   call compute_derivative1_fd_centered(s=hs, ds=dxyz(1), q=G_x, dq_ds=grad_G(1))
-   call compute_derivative1_fd_centered(s=hs, ds=dxyz(2), q=G_y, dq_ds=grad_G(2))
-   call compute_derivative1_fd_centered(s=hs, ds=dxyz(3), q=G_z, dq_ds=grad_G(3))
-   endsubroutine compute_helicon_radial_gradient_centered
-
-   function helicon_coil_A_at_point(hs, dxyz, cell_coord, x_c, y_c, z_c, normal, Radius, &
-                                    N_points, s_map, csi_map, eta, theta_c, sigma) result(Ap)
-   !< Compute helicon/saddle coil auxiliary vector potential A at one point.
-   integer(I4P),      intent(in) :: hs
-   real(R8P),         intent(in) :: dxyz(3)
+   function helicon_coil_chi_at_point(cell_coord, x_c, y_c, z_c, normal, Radius, &
+                                   N_points, s_map, csi_map, theta_c, sigma) result(chi)
+   !< Helicon/saddle coil inside indicator chi at one point: 1/2 (1 + erf(d/sigma)) of the signed distance d to the
+   !< polyline in the unrolled (s, csi) plane, exactly 0 or 1 beyond 8 sigma. The potential is A = eta chi grad(G).
    real(R8P),         intent(in) :: cell_coord(3)                             !< Coordinate cartesiane del punto di valutazione.
    real(R8P),         intent(in) :: x_c                                       !< Coordinata x centro cilindro.
    real(R8P),         intent(in) :: y_c                                       !< Coordinata x centro cilindro.
@@ -2589,19 +2435,16 @@ contains
    integer(I4P),      intent(in) :: N_points                                  !< Numero di punti della spline.
    real(R8P),         intent(in) :: s_map(1:N_points) !< s coordinates of the spline points for the helicon coil case.
    real(R8P),         intent(in) :: csi_map(1:N_points) !< csi coordinates of the spline points for the helicon coil case.
-   real(R8P),         intent(in) :: eta                  
    real(R8P),         intent(in) :: theta_c                 
    real(R8P),         intent(in) :: sigma                                     !< Smearing.
-   real(R8P)                     :: Ap(3)                                     !< Output vector potential at the evaluation point.
    real(R8P)                     :: r_p, theta_p, theta_p_prime               !< Coordinate del punto in coordinate cilindriche
    real(R8P)                     :: s_p, csi_p !< Coordinate del secondo punto nel s.d.r. sull'asse del cilindro
    real(R8P)                     :: lambda, v_hat(2), p_near(2)               !<
    real(R8P)                     :: d_p, d_p_0, w_n
-   real(R8P)                     :: chi, grad_G(3)
+   real(R8P)                     :: chi
    real(R8P), parameter          :: chi_cut_sigma = 8.0_R8P
    integer(I4P)                  :: p                            !< Counters.
 !
-   Ap(:) = 0.0_R8P
    call cartesian_to_cylindrical(x=cell_coord(1), y=cell_coord(2), z=cell_coord(3),                 &
                                             x_c=x_c, y_c=y_c, z_c=z_c,                              &
                                             normal=normal, r=r_p, theta=theta_p_prime, axial=csi_p)
@@ -2631,12 +2474,7 @@ contains
    else
       chi = 0.5_R8P * (1.0_R8P + erf_function(s=d_p, mu=0.0_R8P, sigma=sigma))
    endif
-   call compute_helicon_radial_gradient_centered(hs=hs, dxyz=dxyz, cell_coord=cell_coord, &
-                                                 x_c=x_c, y_c=y_c, z_c=z_c, normal=normal, &
-                                                 Radius=Radius, sigma=sigma, grad_G=grad_G)
-   Ap = eta * chi * grad_G
-
-   endfunction helicon_coil_A_at_point
+   endfunction helicon_coil_chi_at_point
 
    pure subroutine cartesian_to_cylindrical(x, y, z, x_c, y_c, z_c, normal, r, theta, axial)
    !< Convert cartesian coordinates to cylindrical coordinates with respect to the coil center and normal direction.
@@ -3079,17 +2917,11 @@ contains
    real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+x, -1=-x.
    real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for self%coil%J_vec.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:)
-                                                                        !< Vector potential contribution from ghost cell
-                                                                        !< reconstruction.
    real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
    real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
    real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
    real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
    real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
-   real(R8P)                                 :: gc_coord(3)
-                                                                        !< Ghost cell center coordinate vector for ghost cell
-                                                                        !< reconstruction.
    real(R8P)                                 :: y_1                     !< Lower y-boundary of the rectangular coil.
    real(R8P)                                 :: y_2                     !< Upper y-boundary of the rectangular coil.
    real(R8P)                                 :: z_1                     !< Lower z-boundary of the rectangular coil.
@@ -3100,11 +2932,11 @@ contains
    integer(I4P)                              :: i_dir_n, i_dir_a, i_dir_b
                                                                           !< Normal and tangential directions indices for ghost cell
                                                                           !< reconstruction.
-   integer(I4P), parameter                   :: n_faces = 6_I4P         !< Number of ghost-cell face slabs.
-   integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
-   integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
-   integer(I4P)                              :: k1_f(n_faces), k2_f(n_faces)
-   integer(I4P)                              :: b,i,j,k,f               !< Counters.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)             !< Potential of one block, extended along the
+                                                                        !< face normals for the ghost-face curls.
+   logical, allocatable                      :: active(:)               !< Blocks the coil may give a source.
+   real(R8P)                                 :: lo(3), hi(3)            !< Reach box of a block.
    integer(I4P)                              :: progress_done           !< Completed source-term progress units.
    integer(I4P)                              :: progress_total          !< Total source-term progress units.
    integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
@@ -3152,20 +2984,39 @@ contains
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
 
-   allocate(A_gc(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))
-   A_gc(:,:,:,:) = 0.0_R8P
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
    progress_done = 0_I4P
-   progress_total = blocks_number + 1_I4P + n_faces*blocks_number
+   progress_total = 2_I4P*blocks_number + 1_I4P
    progress_percent = -10_I4P
    progress_label = 'source coil '//trim(str(n,.true.))//' rectangular-x'
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
+   ! Local directions: normal, first and second tangential.
+   i_dir_n = 1_I4P
+   i_dir_a = 2_I4P
+   i_dir_b = 3_I4P
+
+   ! Blocks out of the reach of the coil keep A = 0 and J = 0: there every erf is saturated, so the potential is
+   ! 0 or constant across the stencils and its curl is exactly the 0 it would compute.
+   allocate(active(1:blocks_number))
    do b=1, blocks_number
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=hs, lo=lo, hi=hi)
+      active(b) = rectangular_block_active(lo=lo, hi=hi, xc=[x_c, y_c, z_c], idir_n=i_dir_n, idir_a=i_dir_a, &
+                                           idir_b=i_dir_b, a1=y_1, a2=y_2, b1=z_1, b2=z_2, sigma=sigma)
+   enddo
+
+   do b=1, blocks_number
+      if (.not.active(b)) then
+         progress_done = progress_done + 1_I4P
+         call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                    progress_total=progress_total, last_percent=progress_percent)
+         cycle
+      endif
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -3209,115 +3060,23 @@ contains
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
-   ! Parte relativa alle ghost cells, visto che compute_curl lavora solo
-   ! sui punti interni del dominio.
-
-   i_dir_n = 1_I4P
-   i_dir_a = 2_I4P
-   i_dir_b = 3_I4P
-
-   ! Faccia -x
-   i1_f(1) = 1_I4P - ngc
-   i2_f(1) = 0_I4P
-   j1_f(1) = 1_I4P
-   j2_f(1) = nj
-   k1_f(1) = 1_I4P
-   k2_f(1) = nk
-
-   ! Faccia +x
-   i1_f(2) = ni + 1_I4P
-   i2_f(2) = ni + ngc
-   j1_f(2) = 1_I4P
-   j2_f(2) = nj
-   k1_f(2) = 1_I4P
-   k2_f(2) = nk
-
-   ! Faccia -y
-   i1_f(3) = 1_I4P
-   i2_f(3) = ni
-   j1_f(3) = 1_I4P - ngc
-   j2_f(3) = 0_I4P
-   k1_f(3) = 1_I4P
-   k2_f(3) = nk
-
-   ! Faccia +y
-   i1_f(4) = 1_I4P
-   i2_f(4) = ni
-   j1_f(4) = nj + 1_I4P
-   j2_f(4) = nj + ngc
-   k1_f(4) = 1_I4P
-   k2_f(4) = nk
-
-   ! Faccia -z
-   i1_f(5) = 1_I4P
-   i2_f(5) = ni
-   j1_f(5) = 1_I4P
-   j2_f(5) = nj
-   k1_f(5) = 1_I4P - ngc
-   k2_f(5) = 0_I4P
-
-   ! Faccia +z
-   i1_f(6) = 1_I4P
-   i2_f(6) = ni
-   j1_f(6) = 1_I4P
-   j2_f(6) = nj
-   k1_f(6) = nk + 1_I4P
-   k2_f(6) = nk + ngc
-
-   select case (self%fdv_scheme)
-   case ('FD')
-      do f = 1_I4P, n_faces
-         do b = 1, blocks_number
-            do k = k1_f(f), k2_f(f)
-               do j = j1_f(f), j2_f(f)
-                  do i = i1_f(f), i2_f(f)
-
-                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-
-                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
-                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
-                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
-                                                              i_dir_b=i_dir_b, a1=y_1, a2=y_2,         &
-                                                              b1=z_1, b2=z_2)
-
-                     call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
-
-                  enddo
-               enddo
-            enddo
-            progress_done = progress_done + 1_I4P
-            call print_source_progress(label=progress_label, progress_done=progress_done, &
-                                       progress_total=progress_total, last_percent=progress_percent)
-         enddo
-      enddo
-   case ('FV')
-      do f = 1_I4P, n_faces
-         do b = 1, blocks_number
-            do k = k1_f(f), k2_f(f)
-               do j = j1_f(f), j2_f(f)
-                  do i = i1_f(f), i2_f(f)
-
-                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-
-                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
-                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
-                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
-                                                              i_dir_b=i_dir_b, a1=y_1, a2=y_2,         &
-                                                              b1=z_1, b2=z_2)
-
-                     call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
-
-                  enddo
-               enddo
-            enddo
-            progress_done = progress_done + 1_I4P
-            call print_source_progress(label=progress_label, progress_done=progress_done, &
-                                       progress_total=progress_total, last_percent=progress_percent)
-         enddo
-      enddo
-   case default
-      call mpih%error_stop(msg='set_rectangular_coil_x: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
-   endselect
+   ! Ghost faces (compute_curl covers the interior only): each block extended hs cells beyond its ghosts along the
+   ! face normals, then the centred curl of every face ghost cell read from it.
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
+   do b=1, blocks_number
+      if (active(b)) then
+         call rectangular_coil_block_extension(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b),           &
+                                               y_cell=y_cell(:,b), z_cell=z_cell(:,b), dxyz=dxyz(:,b),         &
+                                               A=A(:,:,:,:,b), xc=[x_c, y_c, z_c], idir_n=i_dir_n,             &
+                                               idir_a=i_dir_a, idir_b=i_dir_b, a1=y_1, a2=y_2, b1=z_1, b2=z_2, &
+                                               sigma=sigma, Ae=Ae)
+         call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                   Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+      endif
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
+   enddo
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -3499,13 +3258,11 @@ contains
    real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+y, -1=-y.
    real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for self%coil%J_vec.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:)           !< Vector potential contribution from ghost cell rec.
    real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
    real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
    real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
    real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
    real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
-   real(R8P)                                 :: gc_coord(3)             !< Ghost cell center coordinate vector for ghost cell rec.
    real(R8P)                                 :: x_1                     !< Lower x-boundary of the rectangular coil.
    real(R8P)                                 :: x_2                     !< Upper x-boundary of the rectangular coil.
    real(R8P)                                 :: z_1                     !< Lower z-boundary of the rectangular coil.
@@ -3514,11 +3271,11 @@ contains
    real(R8P)                                 :: W_t                     !< Tangential window function.
    real(R8P)                                 :: W_y                     !< Coil thickness window function along y.
    integer(I4P)                              :: i_dir_n,i_dir_a,i_dir_b !< Normal and tangential directions indices.
-   integer(I4P), parameter                   :: n_faces = 6_I4P         !< Number of ghost-cell face slabs.
-   integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
-   integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
-   integer(I4P)                              :: k1_f(n_faces), k2_f(n_faces)
-   integer(I4P)                              :: b,i,j,k,f               !< Counters.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)             !< Potential of one block, extended along the
+                                                                        !< face normals for the ghost-face curls.
+   logical, allocatable                      :: active(:)               !< Blocks the coil may give a source.
+   real(R8P)                                 :: lo(3), hi(3)            !< Reach box of a block.
    integer(I4P)                              :: progress_done           !< Completed source-term progress units.
    integer(I4P)                              :: progress_total          !< Total source-term progress units.
    integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
@@ -3572,20 +3329,39 @@ contains
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
 
-   allocate(A_gc(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))
-   A_gc(:,:,:,:) = 0.0_R8P
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
    progress_done = 0_I4P
-   progress_total = blocks_number + 1_I4P + n_faces*blocks_number
+   progress_total = 2_I4P*blocks_number + 1_I4P
    progress_percent = -10_I4P
    progress_label = 'source coil '//trim(str(n,.true.))//' rectangular-y'
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
+   ! Local directions: normal, first and second tangential.
+   i_dir_n = 2_I4P
+   i_dir_a = 3_I4P
+   i_dir_b = 1_I4P
+
+   ! Blocks out of the reach of the coil keep A = 0 and J = 0: there every erf is saturated, so the potential is
+   ! 0 or constant across the stencils and its curl is exactly the 0 it would compute.
+   allocate(active(1:blocks_number))
    do b=1, blocks_number
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=hs, lo=lo, hi=hi)
+      active(b) = rectangular_block_active(lo=lo, hi=hi, xc=[x_c, y_c, z_c], idir_n=i_dir_n, idir_a=i_dir_a, &
+                                           idir_b=i_dir_b, a1=z_1, a2=z_2, b1=x_1, b2=x_2, sigma=sigma)
+   enddo
+
+   do b=1, blocks_number
+      if (.not.active(b)) then
+         progress_done = progress_done + 1_I4P
+         call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                    progress_total=progress_total, last_percent=progress_percent)
+         cycle
+      endif
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -3629,115 +3405,23 @@ contains
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
-   ! Parte relativa alle ghost cells, visto che compute_curl lavora solo
-   ! sui punti interni del dominio.
-
-   i_dir_n = 2_I4P
-   i_dir_a = 3_I4P
-   i_dir_b = 1_I4P
-
-   ! Faccia -x
-   i1_f(1) = 1_I4P-ngc
-   i2_f(1) = 0_I4P
-   j1_f(1) = 1_I4P
-   j2_f(1) = nj
-   k1_f(1) = 1_I4P
-   k2_f(1) = nk
-
-   ! Faccia +x
-   i1_f(2) = ni+1_I4P
-   i2_f(2) = ni+ngc
-   j1_f(2) = 1_I4P
-   j2_f(2) = nj
-   k1_f(2) = 1_I4P
-   k2_f(2) = nk
-
-   ! Faccia -y
-   i1_f(3) = 1_I4P
-   i2_f(3) = ni
-   j1_f(3) = 1_I4P-ngc
-   j2_f(3) = 0_I4P
-   k1_f(3) = 1_I4P
-   k2_f(3) = nk
-
-   ! Faccia +y
-   i1_f(4) = 1_I4P
-   i2_f(4) = ni
-   j1_f(4) = nj+1_I4P
-   j2_f(4) = nj+ngc
-   k1_f(4) = 1_I4P
-   k2_f(4) = nk
-
-   ! Faccia -z
-   i1_f(5) = 1_I4P
-   i2_f(5) = ni
-   j1_f(5) = 1_I4P
-   j2_f(5) = nj
-   k1_f(5) = 1_I4P-ngc
-   k2_f(5) = 0_I4P
-
-   ! Faccia +z
-   i1_f(6) = 1_I4P
-   i2_f(6) = ni
-   j1_f(6) = 1_I4P
-   j2_f(6) = nj
-   k1_f(6) = nk+1_I4P
-   k2_f(6) = nk+ngc
-
-   select case (self%fdv_scheme)
-   case ('FD')
-      do f = 1_I4P, n_faces
-         do b = 1, blocks_number
-            do k = k1_f(f), k2_f(f)
-               do j = j1_f(f), j2_f(f)
-                  do i = i1_f(f), i2_f(f)
-
-                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-
-                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
-                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
-                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
-                                                              i_dir_b=i_dir_b, a1=z_1, a2=z_2,         &
-                                                              b1=x_1, b2=x_2)
-
-                     call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
-
-                  enddo
-               enddo
-            enddo
-            progress_done = progress_done + 1_I4P
-            call print_source_progress(label=progress_label, progress_done=progress_done, &
-                                       progress_total=progress_total, last_percent=progress_percent)
-         enddo
-      enddo
-   case ('FV')
-      do f = 1_I4P, n_faces
-         do b = 1, blocks_number
-            do k = k1_f(f), k2_f(f)
-               do j = j1_f(f), j2_f(f)
-                  do i = i1_f(f), i2_f(f)
-
-                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-
-                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
-                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
-                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
-                                                              i_dir_b=i_dir_b, a1=z_1, a2=z_2,         &
-                                                              b1=x_1, b2=x_2)
-
-                     call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
-
-                  enddo
-               enddo
-            enddo
-            progress_done = progress_done + 1_I4P
-            call print_source_progress(label=progress_label, progress_done=progress_done, &
-                                       progress_total=progress_total, last_percent=progress_percent)
-         enddo
-      enddo
-   case default
-      call mpih%error_stop(msg='set_rectangular_coil_y: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
-   endselect
+   ! Ghost faces (compute_curl covers the interior only): each block extended hs cells beyond its ghosts along the
+   ! face normals, then the centred curl of every face ghost cell read from it.
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
+   do b=1, blocks_number
+      if (active(b)) then
+         call rectangular_coil_block_extension(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b),           &
+                                               y_cell=y_cell(:,b), z_cell=z_cell(:,b), dxyz=dxyz(:,b),         &
+                                               A=A(:,:,:,:,b), xc=[x_c, y_c, z_c], idir_n=i_dir_n,             &
+                                               idir_a=i_dir_a, idir_b=i_dir_b, a1=z_1, a2=z_2, b1=x_1, b2=x_2, &
+                                               sigma=sigma, Ae=Ae)
+         call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                   Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+      endif
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
+   enddo
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -3926,13 +3610,11 @@ contains
    real(R8P),                  intent(in)    :: verse                   !< Coil normal direction, +1=+z, -1=-z.
    real(R8P), allocatable                    :: A(:,:,:,:,:)            !< Total coil vector potential field.
    real(R8P), allocatable                    :: J_vec_buffer(:,:,:,:,:) !< Buffer variable for self%coil%J_vec.
-   real(R8P), allocatable                    :: A_gc(:,:,:,:)           !< Vector potential contribution from ghost cell rec.
    real(R8P)                                 :: A_1                     !< Vector potential contribution from side 1.
    real(R8P)                                 :: A_2                     !< Vector potential contribution from side 2.
    real(R8P)                                 :: A_3                     !< Vector potential contribution from side 3.
    real(R8P)                                 :: A_4                     !< Vector potential contribution from side 4.
    real(R8P)                                 :: cell_coord(3)           !< Cell-center coordinate vector.
-   real(R8P)                                 :: gc_coord(3)             !< Ghost cell center coordinate vector for ghost cell rec.
    real(R8P)                                 :: x_1                     !< Lower x-boundary of the rectangular coil.
    real(R8P)                                 :: x_2                     !< Upper x-boundary of the rectangular coil.
    real(R8P)                                 :: y_1                     !< Lower y-boundary of the rectangular coil.
@@ -3941,11 +3623,11 @@ contains
    real(R8P)                                 :: W_t                     !< Tangential window function.
    real(R8P)                                 :: W_z                     !< Coil thickness window function along z.
    integer(I4P)                              :: i_dir_n,i_dir_a,i_dir_b !< Normal and tangential directions indices.
-   integer(I4P), parameter                   :: n_faces = 6_I4P         !< Number of ghost-cell face slabs.
-   integer(I4P)                              :: i1_f(n_faces), i2_f(n_faces)
-   integer(I4P)                              :: j1_f(n_faces), j2_f(n_faces)
-   integer(I4P)                              :: k1_f(n_faces), k2_f(n_faces)
-   integer(I4P)                              :: b,i,j,k,f               !< Counters.
+   integer(I4P)                              :: b,i,j,k                 !< Counters.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)             !< Potential of one block, extended along the
+                                                                        !< face normals for the ghost-face curls.
+   logical, allocatable                      :: active(:)               !< Blocks the coil may give a source.
+   real(R8P)                                 :: lo(3), hi(3)            !< Reach box of a block.
    integer(I4P)                              :: progress_done           !< Completed source-term progress units.
    integer(I4P)                              :: progress_total          !< Total source-term progress units.
    integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
@@ -3993,20 +3675,39 @@ contains
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
 
-   allocate(A_gc(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))
-   A_gc(:,:,:,:) = 0.0_R8P
 
    allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    J_vec_buffer(:,:,:,:,:) = 0.0_R8P
 
    progress_done = 0_I4P
-   progress_total = blocks_number + 1_I4P + n_faces*blocks_number
+   progress_total = 2_I4P*blocks_number + 1_I4P
    progress_percent = -10_I4P
    progress_label = 'source coil '//trim(str(n,.true.))//' rectangular-z'
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
+   ! Local directions: normal, first and second tangential.
+   i_dir_n = 3_I4P
+   i_dir_a = 1_I4P
+   i_dir_b = 2_I4P
+
+   ! Blocks out of the reach of the coil keep A = 0 and J = 0: there every erf is saturated, so the potential is
+   ! 0 or constant across the stencils and its curl is exactly the 0 it would compute.
+   allocate(active(1:blocks_number))
    do b=1, blocks_number
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=hs, lo=lo, hi=hi)
+      active(b) = rectangular_block_active(lo=lo, hi=hi, xc=[x_c, y_c, z_c], idir_n=i_dir_n, idir_a=i_dir_a, &
+                                           idir_b=i_dir_b, a1=x_1, a2=x_2, b1=y_1, b2=y_2, sigma=sigma)
+   enddo
+
+   do b=1, blocks_number
+      if (.not.active(b)) then
+         progress_done = progress_done + 1_I4P
+         call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                    progress_total=progress_total, last_percent=progress_percent)
+         cycle
+      endif
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -4050,109 +3751,23 @@ contains
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
-   ! Parte relativa alle ghost cells, visto che compute_curl lavora solo
-   ! sui punti interni del dominio.
-
-   i_dir_n = 3_I4P
-   i_dir_a = 1_I4P
-   i_dir_b = 2_I4P
-
-   ! Faccia -x
-   i1_f(1) = 1_I4P - ngc
-   i2_f(1) = 0_I4P
-   j1_f(1) = 1_I4P
-   j2_f(1) = nj
-   k1_f(1) = 1_I4P
-   k2_f(1) = nk
-
-   ! Faccia +x
-   i1_f(2) = ni + 1_I4P
-   i2_f(2) = ni + ngc
-   j1_f(2) = 1_I4P
-   j2_f(2) = nj
-   k1_f(2) = 1_I4P
-   k2_f(2) = nk
-
-   ! Faccia -y
-   i1_f(3) = 1_I4P
-   i2_f(3) = ni
-   j1_f(3) = 1_I4P - ngc
-   j2_f(3) = 0_I4P
-   k1_f(3) = 1_I4P
-   k2_f(3) = nk
-
-   ! Faccia +y
-   i1_f(4) = 1_I4P
-   i2_f(4) = ni
-   j1_f(4) = nj + 1_I4P
-   j2_f(4) = nj + ngc
-   k1_f(4) = 1_I4P
-   k2_f(4) = nk
-
-   ! Faccia -z
-   i1_f(5) = 1_I4P
-   i2_f(5) = ni
-   j1_f(5) = 1_I4P
-   j2_f(5) = nj
-   k1_f(5) = 1_I4P - ngc
-   k2_f(5) = 0_I4P
-
-   ! Faccia +z
-   i1_f(6) = 1_I4P
-   i2_f(6) = ni
-   j1_f(6) = 1_I4P
-   j2_f(6) = nj
-   k1_f(6) = nk + 1_I4P
-   k2_f(6) = nk + ngc
-
-   select case (self%fdv_scheme)
-   case ('FD')
-      do f = 1_I4P, n_faces
-         do b = 1, blocks_number
-            do k = k1_f(f), k2_f(f)
-               do j = j1_f(f), j2_f(f)
-                  do i = i1_f(f), i2_f(f)
-                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
-                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
-                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
-                                                              i_dir_b=i_dir_b, a1=x_1, a2=x_2,         &
-                                                              b1=y_1, b2=y_2)
-                     call compute_curl_fd_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
-
-                  enddo
-               enddo
-            enddo
-            progress_done = progress_done + 1_I4P
-            call print_source_progress(label=progress_label, progress_done=progress_done, &
-                                       progress_total=progress_total, last_percent=progress_percent)
-         enddo
-      enddo
-   case ('FV')
-      do f = 1_I4P, n_faces
-         do b = 1, blocks_number
-            do k = k1_f(f), k2_f(f)
-               do j = j1_f(f), j2_f(f)
-                  do i = i1_f(f), i2_f(f)
-                     gc_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-                     A_gc = build_A_ghost_stencil_rectangular(hs=hs, dxyz=dxyz(:,b), gc_coord=gc_coord, &
-                                                              x_c=x_c, y_c=y_c, z_c=z_c, sigma=sigma,  &
-                                                              i_dir_n=i_dir_n, i_dir_a=i_dir_a,        &
-                                                              i_dir_b=i_dir_b, a1=x_1, a2=x_2,         &
-                                                              b1=y_1, b2=y_2)
-                     call compute_curl_fv_centered(s=hs, dxyz=dxyz(:,b), q=A_gc, curl=J_vec_buffer(:,i,j,k,b))
-
-                  enddo
-               enddo
-            enddo
-            progress_done = progress_done + 1_I4P
-            call print_source_progress(label=progress_label, progress_done=progress_done, &
-                                       progress_total=progress_total, last_percent=progress_percent)
-         enddo
-      enddo
-   case default
-      call mpih%error_stop(msg='set_rectangular_coil_z: unknown FDV scheme "'//trim(self%fdv_scheme)//'"')
-   endselect
+   ! Ghost faces (compute_curl covers the interior only): each block extended hs cells beyond its ghosts along the
+   ! face normals, then the centred curl of every face ghost cell read from it.
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
+   do b=1, blocks_number
+      if (active(b)) then
+         call rectangular_coil_block_extension(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b),           &
+                                               y_cell=y_cell(:,b), z_cell=z_cell(:,b), dxyz=dxyz(:,b),         &
+                                               A=A(:,:,:,:,b), xc=[x_c, y_c, z_c], idir_n=i_dir_n,             &
+                                               idir_a=i_dir_a, idir_b=i_dir_b, a1=x_1, a2=x_2, b1=y_1, b2=y_2, &
+                                               sigma=sigma, Ae=Ae)
+         call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                   Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+      endif
+      progress_done = progress_done + 1_I4P
+      call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                 progress_total=progress_total, last_percent=progress_percent)
+   enddo
 
    J_vec_buffer = J_vec_buffer * verse
 
@@ -5574,95 +5189,236 @@ contains
 
    endfunction erf_primitive_function
 
-   function build_A_ghost_stencil_rectangular(hs, dxyz, gc_coord, x_c, y_c, z_c, sigma, i_dir_n, &
-                                              i_dir_a, i_dir_b, a1, a2, b1, b2) result(A_gc)
-   !< Build rectangular-coil ghost cell A array to compute J_vec value through the curl.
-   integer(I4P),     intent(in)            :: hs                                    !< Half-stencil size for the curl computation.
-   real(R8P),        intent(in)            :: dxyz(3)                               !< Space steps.
-   real(R8P),        intent(in)            :: gc_coord(3)                           !< Ghost cell coordinates.
-   real(R8P),        intent(in)            :: x_c, y_c, z_c                         !< Center coordinates.
-   real(R8P),        intent(in)            :: sigma                                 !< Width of the Gaussian profile.
-   real(R8P),        intent(in)            :: a1, a2           
-                                                                                    !< Local coordinates of the rectangular coil
-                                                                                    !< along the first tangential direction.
-   real(R8P),        intent(in)            :: b1, b2               
-                                                                                    !< Local coordinates of the rectangular coil
-                                                                                    !< along the second tangential direction.
-   integer(I4P),     intent(in)            :: i_dir_n, i_dir_a, i_dir_b !< Direction indices for the normal and tangential
-      !< directions.
-   real(R8P)                               :: A_gc(3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1) !< Output ghost cell A array for the curl
-      !< stencil.
-   real(R8P),        allocatable           :: coordinates_matrix(:,:,:,:) !< Coordinates matrix for the ghost cell stencil.
-   integer(I4P)                            :: i,j,k                                 !< Counters.
+   ! coil sources: the block potential extended along the face normals, the ghost-face curls, the reach of a coil
+   pure function coil_ext_coord(ngc, xc, n, ds, i) result(x)
+   !< Cell-centre coordinate of index i along one direction, continued by whole cells beyond the ghost cells.
+   integer(I4P), intent(in) :: ngc        !< Ghost cells.
+   real(R8P),    intent(in) :: xc(1-ngc:) !< Cell centres [1-ngc:n+ngc].
+   integer(I4P), intent(in) :: n          !< Interior cells.
+   real(R8P),    intent(in) :: ds         !< Space step.
+   integer(I4P), intent(in) :: i          !< Index.
+   real(R8P)                :: x          !< Coordinate.
 
-   allocate(coordinates_matrix(1:3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1))
-   do i = 1, 2*hs+1
-      do j = 1, 2*hs+1
-         do k = 1, 2*hs+1
-            coordinates_matrix(:,i,j,k) = gc_coord + [(i-1-hs)*dxyz(1), (j-1-hs)*dxyz(2), (k-1-hs)*dxyz(3)]
+   if (i < 1_I4P-ngc) then
+      x = xc(1-ngc) + real(i-(1-ngc), R8P)*ds
+   elseif (i > n+ngc) then
+      x = xc(n+ngc) + real(i-(n+ngc), R8P)*ds
+   else
+      x = xc(i)
+   endif
+   endfunction coil_ext_coord
+
+   pure subroutine coil_block_box(ngc, ni, nj, nk, x_cell, y_cell, z_cell, dxyz, reach, lo, hi)
+   !< Box of the cell centres whose coil potential reaches the source of a block: the block with its ghost cells, widened
+   !< by `reach` cells (the curl stencil, plus the radial gradient for a helicon).
+   integer(I4P), intent(in)  :: ngc            !< Ghost cells.
+   integer(I4P), intent(in)  :: ni, nj, nk     !< Interior cells.
+   real(R8P),    intent(in)  :: x_cell(1-ngc:) !< Cell centres along x.
+   real(R8P),    intent(in)  :: y_cell(1-ngc:) !< Cell centres along y.
+   real(R8P),    intent(in)  :: z_cell(1-ngc:) !< Cell centres along z.
+   real(R8P),    intent(in)  :: dxyz(3)        !< Space steps.
+   integer(I4P), intent(in)  :: reach          !< Cells beyond the ghosts.
+   real(R8P),    intent(out) :: lo(3)          !< Lower corner.
+   real(R8P),    intent(out) :: hi(3)          !< Upper corner.
+
+   lo = [x_cell(1-ngc),  y_cell(1-ngc),  z_cell(1-ngc)]  - real(reach, R8P)*dxyz
+   hi = [x_cell(ni+ngc), y_cell(nj+ngc), z_cell(nk+ngc)] + real(reach, R8P)*dxyz
+   endsubroutine coil_block_box
+
+   pure function rectangular_block_active(lo, hi, xc, idir_n, idir_a, idir_b, a1, a2, b1, b2, sigma) result(active)
+   !< True when a rectangular coil may give a source in the box. Farther than COIL_SATURATION_SIGMAS sigma from the layer
+   !< |x_n - x_c| <= sigma, or from the sides in the plane, every erf of the potential is +-1 in double precision: the
+   !< potential is 0 there, or the same constant across the stencils (inside the sides), and its curl is exactly 0.
+   real(R8P),    intent(in) :: lo(3), hi(3)           !< Box corners.
+   real(R8P),    intent(in) :: xc(3)                  !< Coil centre.
+   integer(I4P), intent(in) :: idir_n, idir_a, idir_b !< Normal and tangential directions.
+   real(R8P),    intent(in) :: a1, a2, b1, b2         !< Sides along the tangential directions.
+   real(R8P),    intent(in) :: sigma                  !< Smearing.
+   logical                  :: active                 !< Possible source.
+   real(R8P)                :: d                      !< Saturation distance.
+   logical                  :: outside, inside        !< Box beyond the sides, outward or inward.
+
+   d = COIL_SATURATION_SIGMAS*sigma
+   active = hi(idir_n) >= xc(idir_n) - sigma - d .and. lo(idir_n) <= xc(idir_n) + sigma + d
+   if (.not.active) return
+   outside = hi(idir_a) < a1 - d .or. lo(idir_a) > a2 + d .or. hi(idir_b) < b1 - d .or. lo(idir_b) > b2 + d
+   inside  = lo(idir_a) > a1 + d .and. hi(idir_a) < a2 - d .and. lo(idir_b) > b1 + d .and. hi(idir_b) < b2 - d
+   active = .not.(outside .or. inside)
+   endfunction rectangular_block_active
+
+   pure function helicon_block_active(lo, hi, x_c, y_c, z_c, normal, Radius, sigma, csi_min, csi_max) result(active)
+   !< True when a helicon coil may give a source in the box. The radial window lives in the shell R -+ sigma: farther than
+   !< COIL_SATURATION_SIGMAS sigma from it its erfs are saturated and G is constant (gradient at round-off). Beyond the axial
+   !< extent of the polyline by more than 8 sigma, chi is exactly 0.
+   real(R8P),         intent(in) :: lo(3), hi(3)     !< Box corners.
+   real(R8P),         intent(in) :: x_c, y_c, z_c    !< Coil axis point.
+   character(len=2 ), intent(in) :: normal           !< Coil axis.
+   real(R8P),         intent(in) :: Radius           !< Coil radius.
+   real(R8P),         intent(in) :: sigma            !< Smearing.
+   real(R8P),         intent(in) :: csi_min, csi_max !< Axial extent of the polyline, from the axis point.
+   logical                       :: active           !< Possible source.
+   real(R8P)                     :: c(3)             !< Axis point.
+   real(R8P)                     :: d                !< Saturation distance.
+   real(R8P)                     :: rmin2, rmax2     !< Squared radial extent of the box.
+   integer(I4P)                  :: ax, p(2), m      !< Axis, plane directions, counter.
+
+   select case (normal)
+   case (NORMAL_P_X, NORMAL_M_X) ; ax = 1_I4P ; p = [2_I4P, 3_I4P]
+   case (NORMAL_P_Y, NORMAL_M_Y) ; ax = 2_I4P ; p = [3_I4P, 1_I4P]
+   case default                  ; ax = 3_I4P ; p = [1_I4P, 2_I4P]
+   endselect
+   c = [x_c, y_c, z_c]
+   d = COIL_SATURATION_SIGMAS*sigma
+   rmin2 = 0._R8P ; rmax2 = 0._R8P
+   do m=1, 2
+      rmin2 = rmin2 + max(lo(p(m)) - c(p(m)), 0._R8P, c(p(m)) - hi(p(m)))**2
+      rmax2 = rmax2 + max((c(p(m)) - lo(p(m)))**2, (hi(p(m)) - c(p(m)))**2)
+   enddo
+   active = sqrt(rmax2) >= Radius - sigma - d .and. sqrt(rmin2) <= Radius + sigma + d .and. &
+            hi(ax) - c(ax) >= csi_min - d .and. lo(ax) - c(ax) <= csi_max + d
+   endfunction helicon_block_active
+
+   subroutine coil_face_ghost_curl(fdv_scheme, hs, ngc, ni, nj, nk, dxyz, Ae, Jb)
+   !< Centred curl of a coil potential on the face ghost cells of one block (compute_curl covers the interior; edge and
+   !< corner ghosts are left as they are), read from the block potential extended along the face normals.
+   character(*), intent(in)    :: fdv_scheme                         !< FD or FV.
+   integer(I4P), intent(in)    :: hs                                 !< Half stencil.
+   integer(I4P), intent(in)    :: ngc                                !< Ghost cells.
+   integer(I4P), intent(in)    :: ni, nj, nk                         !< Interior cells.
+   real(R8P),    intent(in)    :: dxyz(3)                            !< Space steps.
+   real(R8P),    intent(in)    :: Ae(1:,1-ngc-hs:,1-ngc-hs:,1-ngc-hs:) !< Extended potential.
+   real(R8P),    intent(inout) :: Jb(1:,1-ngc:,1-ngc:,1-ngc:)         !< Source of the block.
+   integer(I4P)                :: f, d, i, j, k                      !< Counters.
+   integer(I4P)                :: n(3), l(3), u(3)                   !< Cells, face slab bounds.
+   logical                     :: fd                                 !< Finite differences.
+
+   select case (fdv_scheme)
+   case ('FD') ; fd = .true.
+   case ('FV') ; fd = .false.
+   case default
+      call mpih%error_stop(msg='coil_face_ghost_curl: unknown FDV scheme "'//trim(fdv_scheme)//'"')
+   endselect
+   n = [ni, nj, nk]
+   do f=1, 6 ! -x, +x, -y, +y, -z, +z
+      d = (f + 1_I4P)/2_I4P
+      l = 1_I4P ; u = n
+      if (mod(f, 2_I4P) == 1_I4P) then
+         l(d) = 1_I4P - ngc ; u(d) = 0_I4P
+      else
+         l(d) = n(d) + 1_I4P ; u(d) = n(d) + ngc
+      endif
+      do k=l(3), u(3)
+         do j=l(2), u(2)
+            do i=l(1), u(1)
+               if (fd) then
+                  call compute_curl_fd_centered(s=hs, dxyz=dxyz, q=Ae(:,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs), curl=Jb(:,i,j,k))
+               else
+                  call compute_curl_fv_centered(s=hs, dxyz=dxyz, q=Ae(:,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs), curl=Jb(:,i,j,k))
+               endif
+            enddo
          enddo
       enddo
    enddo
+   endsubroutine coil_face_ghost_curl
 
-   ! the centred curl reads only the three axial lines through the centre: the other points of the cube stay 0
-   A_gc = 0.0_R8P
-   do i = 1, 2*hs+1
-      do j = 1, 2*hs+1
-         do k = 1, 2*hs+1
-            if (count([i, j, k] /= hs+1) > 1) cycle
-            A_gc(:,i,j,k) = rectangular_coil_A_at_point(xp=coordinates_matrix(:,i,j,k),                 &
-                                                        xc=[x_c, y_c, z_c],                             &
-                                                        idir_n=i_dir_n, idir_a=i_dir_a, idir_b=i_dir_b, &
-                                                        a1=a1, a2=a2, b1=b1, b2=b2,                     &
-                                                        sigma=sigma)
+   subroutine rectangular_coil_block_extension(hs, ngc, ni, nj, nk, x_cell, y_cell, z_cell, dxyz, A, xc, idir_n, idir_a, &
+                                               idir_b, a1, a2, b1, b2, sigma, Ae)
+   !< Rectangular coil potential of one block extended hs cells beyond its ghosts along each axis, the points the curls of
+   !< the face ghosts read: the block values copied, the extension evaluated.
+   integer(I4P), intent(in)  :: hs                                   !< Half stencil.
+   integer(I4P), intent(in)  :: ngc                                  !< Ghost cells.
+   integer(I4P), intent(in)  :: ni, nj, nk                           !< Interior cells.
+   real(R8P),    intent(in)  :: x_cell(1-ngc:)                       !< Cell centres along x.
+   real(R8P),    intent(in)  :: y_cell(1-ngc:)                       !< Cell centres along y.
+   real(R8P),    intent(in)  :: z_cell(1-ngc:)                       !< Cell centres along z.
+   real(R8P),    intent(in)  :: dxyz(3)                              !< Space steps.
+   real(R8P),    intent(in)  :: A(1:,1-ngc:,1-ngc:,1-ngc:)            !< Potential of the block.
+   real(R8P),    intent(in)  :: xc(3)                                !< Coil centre.
+   integer(I4P), intent(in)  :: idir_n, idir_a, idir_b               !< Normal and tangential directions.
+   real(R8P),    intent(in)  :: a1, a2, b1, b2                       !< Sides along the tangential directions.
+   real(R8P),    intent(in)  :: sigma                                !< Smearing.
+   real(R8P),    intent(out) :: Ae(1:,1-ngc-hs:,1-ngc-hs:,1-ngc-hs:)   !< Extended potential.
+   integer(I4P)              :: i, j, k, ng                          !< Counters, extended ghosts.
+
+   ng = ngc + hs
+   Ae = 0._R8P
+   Ae(:,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc) = A
+   do k=1-ng, nk+ng
+      do j=1-ng, nj+ng
+         do i=1-ng, ni+ng
+            if (count([i < 1-ngc .or. i > ni+ngc, j < 1-ngc .or. j > nj+ngc, k < 1-ngc .or. k > nk+ngc]) /= 1) cycle
+            Ae(:,i,j,k) = rectangular_coil_A_at_point(xp=[coil_ext_coord(ngc=ngc, xc=x_cell, n=ni, ds=dxyz(1), i=i), &
+                                                          coil_ext_coord(ngc=ngc, xc=y_cell, n=nj, ds=dxyz(2), i=j), &
+                                                          coil_ext_coord(ngc=ngc, xc=z_cell, n=nk, ds=dxyz(3), i=k)], &
+                                                      xc=xc, idir_n=idir_n, idir_a=idir_a, idir_b=idir_b,               &
+                                                      a1=a1, a2=a2, b1=b1, b2=b2, sigma=sigma)
          enddo
       enddo
    enddo
-   endfunction build_A_ghost_stencil_rectangular
+   endsubroutine rectangular_coil_block_extension
 
-   function build_A_ghost_stencil_helicon(hs, dxyz, gc_coord, x_c, y_c, z_c, sigma, &
-                                          N_points, s_map, csi_map, eta, theta_c,  &
-                                          r_coil, normal) result(A_gc)
-   !< Build the helicon A stencil at a ghost cell without reading outside allocated arrays.
-   integer(I4P),      intent(in) :: hs
-   real(R8P),         intent(in) :: dxyz(3)
-   real(R8P),         intent(in) :: gc_coord(3)
-   real(R8P),         intent(in) :: x_c
-   real(R8P),         intent(in) :: y_c
-   real(R8P),         intent(in) :: z_c
-   real(R8P),         intent(in) :: sigma
-   integer(I4P),      intent(in) :: N_points
-   real(R8P),         intent(in) :: s_map(1:N_points)
-   real(R8P),         intent(in) :: csi_map(1:N_points)
-   real(R8P),         intent(in) :: eta
-   real(R8P),         intent(in) :: theta_c
-   real(R8P),         intent(in) :: r_coil
-   character(len=2 ), intent(in) :: normal
-   real(R8P)                    :: A_gc(3, 1:2*hs+1, 1:2*hs+1, 1:2*hs+1)
-   real(R8P)                    :: coord(3)
-   integer(I4P)                 :: i
-   integer(I4P)                 :: j
-   integer(I4P)                 :: k
+   subroutine helicon_coil_block_A(hs, ngc, ni, nj, nk, x_cell, y_cell, z_cell, dxyz, x_c, y_c, z_c, normal, Radius, &
+                                   N_points, s_map, csi_map, eta, theta_c, sigma, Ae)
+   !< Helicon coil potential A = eta chi grad(G) of one block, on its cells and hs cells beyond its ghosts along each axis
+   !< (the points the curls of the face ghosts read). G, the primitive of the radial window, is evaluated once per cell
+   !< centre on the block widened by ngc + 2 hs cells, and its gradient is the centred difference of those values.
+   integer(I4P),      intent(in)  :: hs                                 !< Half stencil.
+   integer(I4P),      intent(in)  :: ngc                                !< Ghost cells.
+   integer(I4P),      intent(in)  :: ni, nj, nk                         !< Interior cells.
+   real(R8P),         intent(in)  :: x_cell(1-ngc:)                     !< Cell centres along x.
+   real(R8P),         intent(in)  :: y_cell(1-ngc:)                     !< Cell centres along y.
+   real(R8P),         intent(in)  :: z_cell(1-ngc:)                     !< Cell centres along z.
+   real(R8P),         intent(in)  :: dxyz(3)                            !< Space steps.
+   real(R8P),         intent(in)  :: x_c, y_c, z_c                      !< Coil axis point.
+   character(len=2 ), intent(in)  :: normal                             !< Coil axis.
+   real(R8P),         intent(in)  :: Radius                             !< Coil radius.
+   integer(I4P),      intent(in)  :: N_points                           !< Polyline points.
+   real(R8P),         intent(in)  :: s_map(1:N_points)                  !< Polyline s = R theta.
+   real(R8P),         intent(in)  :: csi_map(1:N_points)                !< Polyline axial coordinates.
+   real(R8P),         intent(in)  :: eta                                !< Current sense.
+   real(R8P),         intent(in)  :: theta_c                            !< Reference azimuth.
+   real(R8P),         intent(in)  :: sigma                              !< Smearing.
+   real(R8P),         intent(out) :: Ae(1:,1-ngc-hs:,1-ngc-hs:,1-ngc-hs:) !< Extended potential.
+   real(R8P), allocatable         :: G(:,:,:)                           !< Radial primitive.
+   real(R8P)                      :: xs(1-ngc-2*hs:ni+ngc+2*hs)         !< Cell centres along x.
+   real(R8P)                      :: ys(1-ngc-2*hs:nj+ngc+2*hs)         !< Cell centres along y.
+   real(R8P)                      :: zs(1-ngc-2*hs:nk+ngc+2*hs)         !< Cell centres along z.
+   real(R8P)                      :: r, theta, axial                    !< Cylindrical coordinates.
+   real(R8P)                      :: chi                                !< Inside indicator.
+   real(R8P)                      :: grad_G(3)                          !< Gradient of G.
+   integer(I4P)                   :: i, j, k, ng, ng2                   !< Counters, extended ghosts.
 
-   ! the centred curl reads only the three axial lines through the centre: the other points of the cube stay 0
-   A_gc = 0.0_R8P
-   do k=1, 2*hs+1
-      do j=1, 2*hs+1
-         do i=1, 2*hs+1
-            if (count([i, j, k] /= hs+1) > 1) cycle
-            coord = gc_coord + [real(i-1-hs, kind=R8P)*dxyz(1), &
-                                real(j-1-hs, kind=R8P)*dxyz(2), &
-                                real(k-1-hs, kind=R8P)*dxyz(3)]
-            A_gc(:,i,j,k) = helicon_coil_A_at_point(hs=hs, dxyz=dxyz, cell_coord=coord, &
-                                                     x_c=x_c, y_c=y_c, z_c=z_c,         &
-                                                     normal=normal, Radius=r_coil,      &
-                                                     N_points=N_points, s_map=s_map,    &
-                                                     csi_map=csi_map, eta=eta,          &
-                                                     theta_c=theta_c, sigma=sigma)
+   ng = ngc + hs ; ng2 = ngc + 2*hs
+   do i=1-ng2, ni+ng2 ; xs(i) = coil_ext_coord(ngc=ngc, xc=x_cell, n=ni, ds=dxyz(1), i=i) ; enddo
+   do j=1-ng2, nj+ng2 ; ys(j) = coil_ext_coord(ngc=ngc, xc=y_cell, n=nj, ds=dxyz(2), i=j) ; enddo
+   do k=1-ng2, nk+ng2 ; zs(k) = coil_ext_coord(ngc=ngc, xc=z_cell, n=nk, ds=dxyz(3), i=k) ; enddo
+   allocate(G(1-ng2:ni+ng2,1-ng2:nj+ng2,1-ng2:nk+ng2))
+   do k=1-ng2, nk+ng2
+      do j=1-ng2, nj+ng2
+         do i=1-ng2, ni+ng2
+            call cartesian_to_cylindrical(x=xs(i), y=ys(j), z=zs(k), x_c=x_c, y_c=y_c, z_c=z_c, normal=normal, &
+                                          r=r, theta=theta, axial=axial)
+            G(i,j,k) = helicon_radial_primitive(r=r, Radius=Radius, sigma=sigma)
          enddo
       enddo
    enddo
-   endfunction build_A_ghost_stencil_helicon
+   Ae = 0._R8P
+   do k=1-ng, nk+ng
+      do j=1-ng, nj+ng
+         do i=1-ng, ni+ng
+            if (count([i < 1-ngc .or. i > ni+ngc, j < 1-ngc .or. j > nj+ngc, k < 1-ngc .or. k > nk+ngc]) > 1) cycle
+            chi = helicon_coil_chi_at_point(cell_coord=[xs(i), ys(j), zs(k)], x_c=x_c, y_c=y_c, z_c=z_c, normal=normal, &
+                                            Radius=Radius, N_points=N_points, s_map=s_map, csi_map=csi_map,           &
+                                            theta_c=theta_c, sigma=sigma)
+            if (chi == 0._R8P) cycle
+            call compute_derivative1_fd_centered(s=hs, ds=dxyz(1), q=G(i-hs:i+hs,j,k), dq_ds=grad_G(1))
+            call compute_derivative1_fd_centered(s=hs, ds=dxyz(2), q=G(i,j-hs:j+hs,k), dq_ds=grad_G(2))
+            call compute_derivative1_fd_centered(s=hs, ds=dxyz(3), q=G(i,j,k-hs:k+hs), dq_ds=grad_G(3))
+            Ae(:,i,j,k) = eta * chi * grad_G
+         enddo
+      enddo
+   enddo
+   endsubroutine helicon_coil_block_A
 
    function crossproduct(a, b) result(cross)
    real(R8P), intent(in) :: a(3)     !< Left hand side.
