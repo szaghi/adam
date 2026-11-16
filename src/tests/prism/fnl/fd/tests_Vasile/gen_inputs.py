@@ -33,6 +33,7 @@ p.add_argument('--basename', required=True)
 p.add_argument('--slices_every', type=int, default=0,
                help='>0: write the production slices (planes z=0, x=0, axial line, control-volume box) every N iterations')
 p.add_argument('--restart_save', type=int, default=0)
+p.add_argument('--no_aux_fields', action='store_true', help='residual and divergence fields off in the 3D output')
 a = p.parse_args()
 
 dx0 = 2 * a.hx / a.ni
@@ -68,7 +69,7 @@ setkey('IO', 'output_basename', a.basename)
 setkey('IO', 'restart_basename', a.basename + '-restart')
 setkey('IO', 'it_save', it_save)
 if a.restart_save: setkey('IO', 'restart_save', a.restart_save)
-if a.slices_every:
+if a.slices_every or a.no_aux_fields:
     setkey('IO', 'save_residual_fields', '.false.')
     setkey('IO', 'save_divergence_fields', '.false.')
 setkey('grms', 'radius', 0.015)   # Ansys Volume_controllo: cylinder D30 x L50
