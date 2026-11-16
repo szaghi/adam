@@ -349,6 +349,34 @@ Measured by `test_wall_model`: with no convection and $R=ry$, the model is the p
 $10^{-10}$; $R=0$ is the convection-fed model; with the scale from $\tau_w$ alone, no forcing is the equilibrium model and
 $R=ry$ is the model with $dp/dx-r$, within $10^{-10}$.
 
+### Viscosity coupling
+
+`wall_model_coupling = viscosity` changes how the model's stress reaches the flow, whatever the model ([#126](https://github.com/szaghi/adam/issues/126)).
+With the default `flux` the ghosts mirror as `wall-inviscid` and the face takes the model's $\tau_w$ along the sample velocity:
+the wall stress can reverse only where the model's output does, which for the equilibrium model means where the velocity at the
+matching height reverses on average. In the shock/boundary-layer interaction the first cells reverse in the mean below a
+forward sample ([S4k](./verification/streams/sbli#the-matching-height-fixed-s4k)) and the face keeps the drag of a forward flow.
+
+With `viscosity`, after De Vanna, Bernardini, Picano & Benini (2022), the no-slip condition is kept and the model enters through the
+wall viscosity: the ghosts are `wall-noslip`'s (velocity reflected about the resting wall, the inviscid fluxes through the face
+closed but the pressure, [above](#no-slip-walls-closed-inviscid-fluxes)), and the parallel momentum through the face is the stress of
+the first cell's no-slip gradient, $(\mu_w+\mu_w^{sgs})\,2\boldsymbol v_1/\Delta y$, with $\mu_w^{sgs}\ge0$ raised until its
+magnitude reaches the model's:
+
+$$\boldsymbol\tau_w=\max\left(\mu_w\frac{2\lvert\boldsymbol v_1\rvert}{\Delta y},\ \lvert\tau_w^{wm}\rvert\right)\frac{\boldsymbol v_1}{\lvert\boldsymbol v_1\rvert},$$
+
+$\boldsymbol v_1$ the wall-parallel velocity of the first cell, $\mu_w$ the viscosity at the wall temperature (`wall_coupling_viscosity`,
+`adam_flume_wall_model_library.F90`). The direction follows the first cell, so a reversed first cell reverses the wall stress; the
+magnitude is the model's, or the molecular no-slip stress where that is larger (a resolved wall). The heat flux stays the model's:
+a conductivity raised on the first cell's temperature difference would flip the heat flux where that difference changes sign near
+the recovery temperature (not done). The wall history records the stress applied, so its $C_f$ turns negative where the first cell
+reverses. De Vanna et al. also switch the model off where the wall is resolved ($\Delta x^+<40$, $\Delta y^+<3$,
+$\Delta z^+<15$); FLUME's wall grids never are (not done).
+
+Measured by `test_wall_model`: forward and reversed first cells, the larger of the two stresses, an oblique velocity, none at rest.
+Leg wm14 of `turbulence/check.sh`: the key acts against `flux`, an explicit `flux` agrees with the default, the block layouts and rank
+counts agree, the CPU and the GPU agree, and on a laminar channel the history's $\tau_w$ balances the driving force.
+
 ### Limits
 
 - Isothermal walls only.

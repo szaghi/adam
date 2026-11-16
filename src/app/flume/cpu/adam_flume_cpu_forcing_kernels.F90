@@ -5,8 +5,8 @@ module adam_flume_cpu_forcing_kernels
 
 use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
-                                         wall_model_solve_convective, WM_CONV_CELLS
+use :: adam_flume_wall_model_library, only : sample_cells, wall_coupling_viscosity, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, &
+                                         wall_model_solve_pressure, wall_model_solve_convective, WM_CONV_CELLS
 use :: penf,                  only : I4P, R8P
 
 implicit none
@@ -68,9 +68,10 @@ contains
    !$omp end parallel do
    endsubroutine add_uniform_momentum
    subroutine overwrite_wall_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces, tw, hwm, sl, tf, dt, commit, fresh, &
-                                    avg, inv, ue, te, pg, yp, cv, rsf, tsf, tp, is_null, dxyz, q_aux, fl)
+                                    avg, inv, ue, te, pg, yp, cv, rsf, tsf, vc, tp, is_null, dxyz, q_aux, fl)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
-   !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
+   !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure. With the viscosity coupling (`vc`, #126)
+   !< the parallel momentum takes the first cell's no-slip stress raised to the model's (`wall_coupling_viscosity`) instead.
    !< With a filter time `tf` the sample is `(1 - e) a + e s`, `e = min(dt / tf, 1)` (1 when `fresh`), from the averages `a` of the face, which take it when `commit`
    !< (once per step, Kawai & Larsson 2012): `tf` -> 0 is the unfiltered model, bit for bit.
    integer(I4P), intent(in)    :: d                               !< Direction, 1=x, 2=y, 3=z.
@@ -95,6 +96,7 @@ contains
    logical,      intent(in)    :: cv(6)                           !< The model fed with the resolved convection per face (#121 P2).
    logical,      intent(in)    :: rsf(6)                          !< Its resolved shear stress removed per face (#121 P3).
    logical,      intent(in)    :: tsf(6)                          !< Its eddy viscosity on sqrt(|tau_w|/rho) per face (#121 P4b), else on the sum.
+   logical,      intent(in)    :: vc(6)                           !< Coupled through the wall viscosity per face (#126), else by the flux.
    real(R8P),    intent(in)    :: tp(6)                           !< Filter time of the pressure gradient per face, 0 for none.
    logical,      intent(in)    :: is_null(3)                      !< Null directions.
    real(R8P),    intent(in)    :: dxyz(1:,1:)                    !< Blocks space steps.
@@ -102,6 +104,7 @@ contains
    real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)      !< Face fluxes of direction `d`.
    real(R8P)                   :: u(3), us, ts, ps, rs, tau, q, cp, h, s, w, e, px, ep, cc(WM_CONV_CELLS), rc(WM_CONV_CELLS) !< Work.
    real(R8P)                   :: rv(4), ue_, un_, rr, sdr     !< Resolved-stress work: the four averages, u_e, u_eta, rho, sign away from the wall.
+   real(R8P)                   :: v1(3), taum                  !< Viscosity coupling: the first cell's wall-parallel velocity, the stress magnitude.
    integer(I4P)                :: n, side, f, b, i, j, k, l, m, o1, o2, ia, ja, ka, nc, c, oc, kk, ab, cl(3) !< Counters.
 
    n = ni * di + nj * dj + nk * dk
@@ -190,7 +193,16 @@ contains
                   else
                      call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=tw(f), R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, semilocal=sl(f))
                   endif
-                  if (us > 0._R8P) u = u / us
+                  if (vc(f)) then ! the viscosity coupling (#126): the first cell's no-slip stress, its wall viscosity raised to the model's stress
+                     oc = merge(1_I4P, 0_I4P, side == 1)
+                     v1 = q_aux(IA_U:IA_W,i+di*oc,j+dj*oc,k+dk*oc,b) ; v1(d) = 0._R8P
+                     call wall_coupling_viscosity(tau=tau, v1=v1(1), v2=v1(2), v3=v1(3), dy=dxyz(d,b), &
+                                                  muw=mu0 * temperature_law(t=tw(f), tref=tref, suth=suth, omega=omega_mu), &
+                                                  t1=u(1), t2=u(2), t3=u(3), taum=taum)
+                     tau = taum
+                  elseif (us > 0._R8P) then
+                     u = u / us
+                  endif
                   fl(IQ_R,i,j,k,b) = 0._R8P
                   fl(IQ_RU:IQ_RW,i,j,k,b) = merge(fl(IQ_RU:IQ_RW,i,j,k,b), -s * tau * u, [1,2,3] == d)
                   fl(IQ_RE,i,j,k,b) = -s * q

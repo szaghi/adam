@@ -51,6 +51,12 @@ module adam_flume_bc_object
 !< sqrt((|tau_w| + |S|) / rho); the default is `tau` with `wall_model_resolved_stress` and `sum` without it (the models above, bit for bit).
 !< `sum` with the resolved stress removed and a filter long against the forcing's fluctuation (`wall_model_pressure_gradient_filter`) is
 !< the slow-forcing model: the scale keeps the eddy viscosity under an adverse gradient, where tau_w's alone vanishes.
+!< `wall_model_coupling = flux | viscosity` (default `flux`, any model; issue #126) sets how the model's stress reaches the flow. `flux`: the
+!< ghosts mirror as `wall-inviscid` and the face takes the model's `tau_w` along the sample velocity, whatever the first cell does. `viscosity`
+!< (De Vanna et al. 2022): the ghosts are `wall-noslip`'s (velocity reflected, the inviscid fluxes through the face closed but the pressure), and
+!< the face takes the stress of the first cell's no-slip gradient with the wall viscosity raised until it reaches the model's: magnitude
+!< `max(mu_w 2 |v_1| / dy, |tau_w|)` along the first cell's wall-parallel velocity `v_1` (`wall_coupling_viscosity`), so a reversed first cell
+!< reverses the wall stress. The heat flux stays the model's. The wall history records the stress applied.
 !<
 !< **Hydrostatic** (issue #73, M7-G0). `hydrostatic` closes a stratified atmosphere under the constant gravity of
 !< `[gravity]`: the ghost density and pressure continue the isothermal hydrostatic equilibrium from the first interior
@@ -157,6 +163,7 @@ type :: flume_bc_object
    logical                :: wm_conv(6)=.false.         !< Wall model: fed with the resolved convection per face (#121 P2).
    logical                :: wm_rstress(6)=.false.      !< Wall model: the resolved shear stress removed from the convection's forcing per face (#121 P3).
    logical                :: wm_ftau(6)=.false.         !< Wall model: the convection-fed model's eddy viscosity on sqrt(|tau_w|/rho) per face (#121 P4b).
+   logical                :: wm_vcoupling(6)=.false.    !< Wall model: coupled through the wall viscosity, no-slip kept, per face (#126), else by the flux.
    real(R8P)              :: wm_edge_u(6)=0._R8P        !< Inverse model: speed at the edge of the layer per face.
    real(R8P)              :: wm_edge_t(6)=0._R8P        !< Inverse model: temperature at the edge of the layer per face.
    real(R8P)              :: wall_temperature(6)=0._R8P !< Isothermal walls: wall temperature of each face.
@@ -343,6 +350,19 @@ contains
             endselect
             if (.not.self%wm_conv(f)) &
                call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_velocity_scale) needs wall_model_convection = .true.')
+         endif
+         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_coupling', val=buff, error=error)
+         if (error == 0) then
+            select case(trim(adjustl(strip_control(buff))))
+            case('flux')
+               self%wm_vcoupling(f) = .false.
+            case('viscosity')
+               self%wm_vcoupling(f) = .true.
+               self%bc_type(f) = BC_WALL_NOSLIP ! the no-slip ghosts of a resting wall (wall_velocity 0) and the closed inviscid face fluxes
+            case default
+               call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_coupling)='//trim(adjustl(strip_control(buff)))// &
+                                        ' unknown: flux or viscosity')
+            endselect
          endif
       case(BC_WALL_INVISCID_STR)
          self%bc_type(f) = BC_WALL_INVISCID

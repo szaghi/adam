@@ -52,6 +52,7 @@ def main() -> int:
     ap.add_argument("--wm-convection", action="store_true", help="[bc] wall_model_convection: the model fed with the resolved convection (#121 P2)")
     ap.add_argument("--wm-resolved-stress", action="store_true", help="[bc] wall_model_resolved_stress: its resolved shear stress removed (#121 P3)")
     ap.add_argument("--wm-velocity-scale", choices=("tau", "sum"), help="[bc] wall_model_velocity_scale of the convection-fed model (#121 P4b)")
+    ap.add_argument("--wm-coupling", choices=("flux", "viscosity"), help="[bc] wall_model_coupling: the face flux, or the wall viscosity with no-slip kept (#126)")
     ap.add_argument("--wm-edge-velocity", type=float, default=1.5, help="[bc] wall_model_edge_velocity (inverse model), the bulk speed being 1")
     ap.add_argument("--wm-edge-heat", type=float, default=1.0, help="[bc] wall_model_edge_temperature (inverse model) over the gas temperature of the start")
     ap.add_argument("--amr-box", action="store_true", help="one more level on the middle half along x, over the whole height: 2:1 faces along the walls")
@@ -106,6 +107,7 @@ def main() -> int:
             keys |= {"wall_model_convection": ".true."} if args.wm_convection else {}
             keys |= {"wall_model_resolved_stress": ".true."} if args.wm_resolved_stress else {}
             keys |= {"wall_model_velocity_scale": args.wm_velocity_scale} if args.wm_velocity_scale else {}
+            keys |= {"wall_model_coupling": args.wm_coupling} if args.wm_coupling else {}
             if args.wm_model:
                 keys["wall_model"] = args.wm_model
             if args.wm_model == "inverse-transformation":

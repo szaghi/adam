@@ -6,10 +6,11 @@ program test_wall_model
 !< of either sign, px = 0 against the equilibrium model, a fine-grid reference, robustness; its Bernoulli-consistent variant (#121 P1): the
 !< laminar limit with y_pg above and below h, ypg 0 bit for bit, y_pg >> h, a fine-grid reference, robustness; the model fed with the convection
 !< (#121 P2): a zero convection against the pressure model, the laminar limit with a convection linear in y, a fine-grid reference, robustness;
-!< the resolved shear stress removed (#121 P3): a stress linear in y against the pressure model with px - r.
+!< the resolved shear stress removed (#121 P3): a stress linear in y against the pressure model with px - r; the viscosity coupling (#126): the
+!< direction of the first cell, forward and reversed, the larger of the model's |tau| and the molecular no-slip stress, none at rest.
 
 use :: adam_flume_dissipation_library, only : temperature_law
-use :: adam_flume_wall_model_library, only : inverse_strain, sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
+use :: adam_flume_wall_model_library, only : inverse_strain, sample_cells, wall_coupling_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
                                          wall_model_solve_convective, WM_CONV_CELLS
 use :: penf,                          only : I4P, I8P, R8P
 
@@ -25,6 +26,7 @@ integer(I4P)         :: n
 integer(I4P), parameter :: NF=4000000_I4P
 logical              :: ok
 real(R8P)            :: cc(WM_CONV_CELLS), ac, rcv(WM_CONV_CELLS)
+real(R8P)            :: e1, e2, e3, tm
 
 ok = .true.
 ! laminar limit: h+ small, so mu_t vanishes: tau = mu U / h, q = cp mu / Pr (Ts - Tw) / h with Couette work
@@ -123,6 +125,21 @@ ok1 = ok1 .and. mm == 3 .and. abs(ww - 0.5_R8P) < 1.e-12_R8P .and. abs(hh - 0.3_
 call sample_cells(hwm=2._R8P, dx=0.1_R8P, n=8_I4P, m=mm, w=ww, h=hh)
 ok1 = ok1 .and. mm == 7 .and. ww == 1._R8P .and. abs(hh - 0.75_R8P) < 1.e-12_R8P
 print '(A,L1)', 'sample cells: ', ok1
+ok = ok .and. ok1
+! the viscosity coupling (#126): mu_w 2 |v| / dy = 0.04 here; the model's |tau| when larger, along the first cell's velocity, reversed with it
+call wall_coupling_viscosity(tau=0.5_R8P, v1=2._R8P, v2=0._R8P, v3=0._R8P, dy=0.1_R8P, muw=1.e-3_R8P, t1=e1, t2=e2, t3=e3, taum=tm)
+ok1 = e1 == 1._R8P .and. e2 == 0._R8P .and. e3 == 0._R8P .and. tm == 0.5_R8P
+call wall_coupling_viscosity(tau=0.5_R8P, v1=-2._R8P, v2=0._R8P, v3=0._R8P, dy=0.1_R8P, muw=1.e-3_R8P, t1=e1, t2=e2, t3=e3, taum=tm)
+ok1 = ok1 .and. e1 == -1._R8P .and. tm == 0.5_R8P
+call wall_coupling_viscosity(tau=-0.5_R8P, v1=2._R8P, v2=0._R8P, v3=0._R8P, dy=0.1_R8P, muw=1.e-3_R8P, t1=e1, t2=e2, t3=e3, taum=tm)
+ok1 = ok1 .and. e1 == 1._R8P .and. tm == 0.5_R8P
+call wall_coupling_viscosity(tau=0.01_R8P, v1=2._R8P, v2=0._R8P, v3=0._R8P, dy=0.1_R8P, muw=1.e-3_R8P, t1=e1, t2=e2, t3=e3, taum=tm)
+ok1 = ok1 .and. abs(tm - 0.04_R8P) < 1.e-15_R8P
+call wall_coupling_viscosity(tau=0.5_R8P, v1=3._R8P, v2=0._R8P, v3=4._R8P, dy=0.1_R8P, muw=1.e-3_R8P, t1=e1, t2=e2, t3=e3, taum=tm)
+ok1 = ok1 .and. abs(e1 - 0.6_R8P) < 1.e-15_R8P .and. abs(e3 - 0.8_R8P) < 1.e-15_R8P .and. tm == 0.5_R8P
+call wall_coupling_viscosity(tau=0.5_R8P, v1=0._R8P, v2=0._R8P, v3=0._R8P, dy=0.1_R8P, muw=1.e-3_R8P, t1=e1, t2=e2, t3=e3, taum=tm)
+ok1 = ok1 .and. e1 == 0._R8P .and. e2 == 0._R8P .and. e3 == 0._R8P .and. tm == 0._R8P
+print '(A,L1)', 'viscosity coupling: ', ok1
 ok = ok .and. ok1
 ! Sutherland's law: the library's temperature_law against the formula; the power law and a zero exponent unchanged bit for bit
 err = abs(temperature_law(t=2.3_R8P, tref=1.1_R8P, suth=0.4_R8P, omega=1.5_R8P) - sqrt(2.3_R8P / 1.1_R8P)**3 * 1.5_R8P / 2.7_R8P)

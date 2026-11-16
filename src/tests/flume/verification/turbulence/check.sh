@@ -96,6 +96,12 @@
 #        #121 P3) acts, the force differs from (a)'s by more than 1e-6, and the same cells in 2 or 4 blocks per direction agree; the restart of (d)
 #        and (e) runs with it (averages 7-26 of the .wmf); (g) with it the velocity scale sum (wall_model_velocity_scale, #121 P4b) acts against the
 #        default tau of (f), the same cells in 2 or 4 blocks per direction agree, and an explicit tau agrees with (f).
+#   wm14 the viscosity coupling (wall_model_coupling = viscosity, #126: no-slip ghosts, the face stress the first cell's no-slip one raised to the
+#        model's): on wm12's channel without the gradient: (a) it acts, the force differs from the flux coupling's by more than 1e-6, and an explicit
+#        flux agrees with the default; (b) the same cells in 2 or 4 blocks per direction agree; (c) one rank against N; CPU against GPU with --agree;
+#        (d) the wall history records the stress applied: on tb2's laminar channel at CFL 0.5 and 0.25 the history's tau_w against the driving force,
+#        the offset first order in dt (the forcing's momentum added after the stages: the stages' first cell lags the committed one by about f dt) and
+#        within 1e-3 extrapolated to dt -> 0 (at CFL 0.5 alone it is 3.7e-3, the flux coupling's tb2 3.9e-4, its stress set at h, not at the first cell).
 #   tb1  the digital-filter inflow (T3.7): (a) test_inflow_df, the generator alone: Reynolds stresses within 3 % of the table (summed over the layer), the
 #        temporal correlation exp(-pi t / 2T) within 0.03, the spanwise integral length within 10 % of 2 L / pi, a periodic span, a bitwise restart of the plane;
 #        (b) a Mach 2.5 box (make_tbl.py on the M2p5 table of the Zhang-Duan-Choudhari DNS), 20 steps: the inflow ghosts carry the table's mean u at delta / 2
@@ -119,7 +125,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11 wm12 wm13 tb1 tb2"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11 wm12 wm13 wm14 tb1 tb2"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -571,6 +577,23 @@ if has_leg wm13; then
       fi
    done
 fi
+if has_leg wm14; then
+   echo "== wm14: the viscosity coupling"
+   E=(--nx 32 --ny 32 --nz 32 --wall wall-modelled --wm-height 0.3 --reynolds 1000 --perturbation 0.1 --it-max 10 --wm-eddy-viscosity)
+   a=$(channel_run wm14-on "$NP" "${E[@]}" --wm-coupling viscosity)
+   b=$(channel_run wm14-off "$NP" "${E[@]}")
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" differ --tol 1e-6 "$a" "$b"
+   c=$(channel_run wm14-flux "$NP" "${E[@]}" --wm-coupling flux)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$b" "$c"
+   b=$(channel_run wm14-l1 "$NP" "${E[@]}" --wm-coupling viscosity --levels 1)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+   a=$(channel_run wm14-np1 1 "${E[@]}" --wm-coupling viscosity)
+   b=$(channel_run wm14-npN "$NP" "${E[@]}" --wm-coupling viscosity)
+   "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$a" "$b"
+   a=$(channel_run wm14-force "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0 --wall-history 10 --wm-coupling viscosity)
+   b=$(channel_run wm14-force-dt2 "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0 --wall-history 20 --wm-coupling viscosity --cfl 0.25)
+   "$VENV_PY" "$CASE_DIR/tbl_oracle.py" wall-force-dt "$a" "$b"
+fi
 tbl_run() { # tbl_run <name> <np> <make_tbl options>: echo the work directory
    local name="$1" np="$2" work="$CASE_DIR/work-$TAG-$1" ; shift 2
    rm -rf "${work:?}" ; mkdir -p "$work"
@@ -612,7 +635,7 @@ if has_leg tb2; then
 fi
 if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
-   for c in wm4-npN wm7-npN wm8-npN wm11-npN wm12-npN; do # the channel legs run here: CPU against GPU on the same input
+   for c in wm4-npN wm7-npN wm8-npN wm11-npN wm12-npN wm14-npN; do # the channel legs run here: CPU against GPU on the same input
       [[ -d "$CASE_DIR/work-$AGREE-$c" && -d "$CASE_DIR/work-$TAG-$c" ]] && "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$CASE_DIR/work-$TAG-$c" "$CASE_DIR/work-$AGREE-$c"
    done
    "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-tt2-npN" "$CASE_DIR/work-$AGREE-tt2-npN"

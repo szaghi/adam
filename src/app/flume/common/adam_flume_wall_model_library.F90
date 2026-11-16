@@ -19,6 +19,7 @@ use :: penf, only : I4P, R8P
 implicit none
 private
 public :: sample_cells
+public :: wall_coupling_viscosity
 public :: wall_eddy_viscosity
 public :: wall_model_solve
 public :: wall_model_solve_inverse
@@ -84,6 +85,29 @@ contains
       m = 3_I4P ; w = 0._R8P ; h = 2.5_R8P * dx
    endif
    endsubroutine sample_cells
+
+   pure subroutine wall_coupling_viscosity(tau, v1, v2, v3, dy, muw, t1, t2, t3, taum)
+   !< The viscosity coupling of a modelled wall (`wall_model_coupling = viscosity`, issue #126, after De Vanna et al. 2022): the stress of the no-slip
+   !< gradient of the first cell, `(mu_w + mu_w^sgs) 2 v / dy`, with the wall's subgrid viscosity `mu_w^sgs >= 0` raised until its magnitude reaches the
+   !< model's `|tau|`. It takes the direction `t` of the first cell's wall-parallel velocity `v` and the magnitude `max(mu_w 2 |v| / dy, |tau|)`, so a
+   !< reversed first cell reverses the wall stress whatever the sample does; a first cell at rest gives none.
+   real(R8P), intent(in)  :: tau        !< The model's wall shear stress.
+   real(R8P), intent(in)  :: v1, v2, v3 !< Wall-parallel velocity of the first cell (its normal component zero).
+   real(R8P), intent(in)  :: dy         !< Cell spacing along the normal.
+   real(R8P), intent(in)  :: muw        !< Molecular viscosity at the wall temperature.
+   real(R8P), intent(out) :: t1, t2, t3 !< Direction of the stress, the unit vector of v (zero at rest).
+   real(R8P), intent(out) :: taum       !< Magnitude of the stress.
+   real(R8P)              :: vm         !< |v|.
+   !$acc routine seq
+   !$omp declare target
+
+   vm = sqrt(v1 * v1 + v2 * v2 + v3 * v3)
+   t1 = 0._R8P ; t2 = 0._R8P ; t3 = 0._R8P ; taum = 0._R8P
+   if (vm > 0._R8P) then
+      t1 = v1 / vm ; t2 = v2 / vm ; t3 = v3 / vm
+      taum = max(2._R8P * muw * vm / dy, abs(tau))
+   endif
+   endsubroutine wall_coupling_viscosity
 
    pure subroutine wall_model_solve(h, us, ts, ps, tw, R, cp, pr, mu0, tref, suth, omega_mu, tau, q, semilocal)
    !< Return the wall shear stress `tau` and the heat flux `q` (`k dT/dy` at the wall, positive when the gas is hotter than the wall) of an isothermal wall.

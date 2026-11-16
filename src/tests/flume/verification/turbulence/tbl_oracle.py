@@ -15,6 +15,10 @@ van Driest velocity u+_VD against y+ (with the run's own u_tau) and the rms of u
 Recorded, not judged: the result is the result.
 `wall-force <channel work>`: the wall-model history of a channel at a steady state: the mean tau_w of both walls (all bins, the last quarter of the rows)
 equals the driving force of the forcing history (per unit wall area, the half height 1) within 1e-3.
+`wall-force-dt <work dt> <work dt/2>`: the same balance at two time steps, signed: the forcing adds its momentum once per step after the Runge-Kutta stages, so
+the stages run on a state slower by about f dt, and a stress linear in the first cell's velocity (the viscosity coupling's molecular branch, #126) lags the
+committed state's by about f dt / (2 rho u_1), first order in dt. Passes when the offset halves with dt (ratio 1.6-2.4) and the extrapolation to dt -> 0,
+2 r(dt/2) - r(dt), is within 1e-3.
 `wall-agree <a> <b> [--tol T]`: two runs' wall-model histories (every face file) within T (default 1e-12) of each column's scale.
 `inflow <work>`: the ghost layer of the inflow face in the last checkpoint (saved with ghosts): the spanwise mean of u at y = delta / 2 within 10 % of the table,
 and fluctuations present (the rms of the spanwise and wall-normal velocity above 1e-3 U_inf below delta).
@@ -356,6 +360,31 @@ def wall_force(work_s: str) -> int:
     return 0 if ok else 1
 
 
+def wall_balance(work: Path) -> tuple[float, float]:
+    """The mean tau_w of both walls and the mean driving force over the last quarter of the rows."""
+    taus = []
+    for face in ("y_min", "y_max"):
+        w = wall_rows(work / f"channel-wall_{face}_history.dat")
+        nb = (w.shape[1] - 2) // 2
+        taus.append(w[int(len(w) * 0.75) :, 2 : 2 + nb].mean())
+    f = np.loadtxt(work / "channel-forcing_history.dat", ndmin=2, comments="VARIABLES")
+    return 0.5 * (taus[0] + taus[1]), float(f[int(len(f) * 0.75) :, 2].mean())
+
+
+def wall_force_dt(work_a: str, work_b: str) -> int:
+    """The balance of wall-force at dt and dt/2: the offset first order in dt, the extrapolation to dt -> 0 within 1e-3."""
+    rel = []
+    for w in (work_a, work_b):
+        tau, force = wall_balance(Path(w))
+        rel.append((tau - force) / force)
+        print(f"{Path(w).name}: wall history tau_w {tau:.6e} against the force {force:.6e}: signed relative {rel[-1]:+.2e}")
+    ratio = rel[0] / rel[1] if rel[1] != 0.0 else float("inf")
+    zero = 2.0 * rel[1] - rel[0]
+    ok = 1.6 < ratio < 2.4 and abs(zero) < 1e-3
+    print(f"offset ratio dt : dt/2 {ratio:.2f} (1.6-2.4), extrapolated to dt -> 0 {zero:+.2e} (bound 1e-3)  {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def wall_agree(a: str, b: str, tol: float) -> int:
     """Every wall-model history of two runs within tol of each column's scale."""
     ok = True
@@ -389,6 +418,9 @@ def main() -> int:
     p.add_argument("work")
     p = sub.add_parser("wall-force")
     p.add_argument("work")
+    p = sub.add_parser("wall-force-dt")
+    p.add_argument("a")
+    p.add_argument("b")
     p = sub.add_parser("wall-agree")
     p.add_argument("a")
     p.add_argument("b")
@@ -406,6 +438,8 @@ def main() -> int:
         return agree(a.a, a.b)
     if a.what == "wall-force":
         return wall_force(a.work)
+    if a.what == "wall-force-dt":
+        return wall_force_dt(a.a, a.b)
     if a.what == "wall-agree":
         return wall_agree(a.a, a.b, a.tol)
     if a.what == "compare":

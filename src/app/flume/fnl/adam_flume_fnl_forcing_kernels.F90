@@ -7,7 +7,7 @@ module adam_flume_fnl_forcing_kernels
 
 use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_parameters, only : IA_P, IA_R, IA_U, IA_V, IA_W, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW
-use :: adam_flume_wall_model_library, only : sample_cells, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
+use :: adam_flume_wall_model_library, only : sample_cells, wall_coupling_viscosity, wall_eddy_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
                                          wall_model_solve_convective, WM_CONV_CELLS
 use :: penf,                  only : I4P, R8P
 
@@ -76,9 +76,10 @@ contains
    enddo
    endsubroutine add_uniform_momentum_dev
    subroutine overwrite_wall_fluxes_dev(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, R, pr, mu0, tref, suth, omega_mu, faces_gpu, tw, hwm, sl, tf, dt, commit, &
-                                        fresh, avg_gpu, inv, ue, te, pg, yp, cv, rsf, tsf, tp, is_null, dxyz_gpu, q_aux_gpu, fl_gpu)
+                                        fresh, avg_gpu, inv, ue, te, pg, yp, cv, rsf, tsf, vc, tp, is_null, dxyz_gpu, q_aux_gpu, fl_gpu)
    !< Overwrite the flux through the modelled wall faces of direction `d` (issue #119, T3.3): no mass, the parallel momentum by the modelled shear, the energy by the heat
-   !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure.
+   !< flux; the sample is the 3rd cell off the wall. The normal momentum keeps the mirrored inviscid flux, the pressure. With the viscosity coupling (`vc`, #126)
+   !< the parallel momentum takes the first cell's no-slip stress raised to the model's (`wall_coupling_viscosity`) instead, as the CPU kernel.
    !< With a filter time `tf` the sample is `(1 - e) a + e s`, `e = min(dt / tf, 1)` (1 when `fresh`), from the averages `a` of the face, which take it when `commit`.
    integer(I4P), intent(in)    :: d                               !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)    :: di, dj, dk                      !< Unit step along `d`.
@@ -102,6 +103,7 @@ contains
    logical,      intent(in)    :: cv(6)                           !< The model fed with the resolved convection per face (#121 P2).
    logical,      intent(in)    :: rsf(6)                          !< Its resolved shear stress removed per face (#121 P3).
    logical,      intent(in)    :: tsf(6)                          !< Its eddy viscosity on sqrt(|tau_w|/rho) per face (#121 P4b), else on the sum.
+   logical,      intent(in)    :: vc(6)                           !< Coupled through the wall viscosity per face (#126), else by the flux.
    real(R8P),    intent(in)    :: tp(6)                           !< Filter time of the pressure gradient per face, 0 for none.
    logical,      intent(in)    :: is_null(3)                      !< Null directions.
    real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Blocks space steps.
@@ -117,6 +119,8 @@ contains
    logical                     :: cvf                                !< Convection-fed model of the face (#121 P2).
    logical                     :: rsff                               !< Its resolved shear stress removed on the face (#121 P3).
    logical                     :: tsff                               !< Its eddy viscosity on sqrt(|tau_w|/rho) on the face (#121 P4b).
+   logical                     :: vcf                                !< Coupled through the wall viscosity on the face (#126).
+   real(R8P)                   :: va1, va2, va3, taum                !< Viscosity coupling: the first cell's wall-parallel velocity, the stress magnitude.
    real(R8P)                   :: rc(WM_CONV_CELLS), rv1, rv2, rv3, rv4, ue_, un_, rr !< Resolved stress of the cells; its averages; u_e, u_eta, rho.
    integer(I4P)                :: ab                                 !< Average slot.
    real(R8P)                   :: cc(WM_CONV_CELLS), sd, fcv, ut, gp, gm, g0 !< Convection of the cells, sign away from the wall, work.
@@ -130,7 +134,7 @@ contains
       l = merge(0_I4P, n, side == 1)
       s = merge(1._R8P, -1._R8P, side == 1)
       twf = tw(f) ; hwf = hwm(f) ; slf = sl(f) ; tff = tf(f) ; ivf = inv(f) ; uef = ue(f) ; tef = te(f)
-      pgf = pg(f) ; nl1 = is_null(1) ; nl2 = is_null(2) ; nl3 = is_null(3) ; tpf = tp(f) ; ypf = yp(f) ; cvf = cv(f) ; rsff = rsf(f) ; tsff = tsf(f)
+      pgf = pg(f) ; nl1 = is_null(1) ; nl2 = is_null(2) ; nl3 = is_null(3) ; tpf = tp(f) ; ypf = yp(f) ; cvf = cv(f) ; rsff = rsf(f) ; tsff = tsf(f) ; vcf = vc(f)
       ep = 1._R8P
       if (tpf > 0._R8P .and. .not.fresh) ep = min(dt / tpf, 1._R8P)
       e = 1._R8P
@@ -139,11 +143,11 @@ contains
       j0 = merge(l, 1_I4P, dj == 1_I4P) ; j1 = merge(l, nj, dj == 1_I4P)
       k0 = merge(l, 1_I4P, dk == 1_I4P) ; k1 = merge(l, nk, dk == 1_I4P)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                 &
-      !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,cvf,rsff,tsff,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
-      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,cc,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj,rc,rv1,rv2,rv3,rv4,ue_,un_,rr,ab)
+      !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,cvf,rsff,tsff,vcf,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
+      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,cc,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj,rc,rv1,rv2,rv3,rv4,ue_,un_,rr,ab,va1,va2,va3,taum)
       !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                                &
-      !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,cvf,rsff,tsff,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
-      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,cc,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj,rc,rv1,rv2,rv3,rv4,ue_,un_,rr,ab)
+      !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,cvf,rsff,tsff,vcf,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
+      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,cc,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj,rc,rv1,rv2,rv3,rv4,ue_,un_,rr,ab,va1,va2,va3,taum)
       do k=k0, k1
       do j=j0, j1
       do i=i0, i1
@@ -275,7 +279,15 @@ contains
                call wall_model_solve(h=h, us=us, ts=ts, ps=ps, tw=twf, R=R, cp=cp, pr=pr, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, semilocal=slf)
             endif
             t1 = 0._R8P ; t2 = 0._R8P ; t3 = 0._R8P
-            if (us > 0._R8P) then
+            if (vcf) then ! the viscosity coupling (#126): the first cell's no-slip stress, its wall viscosity raised to the model's stress
+               oc = merge(1_I4P, 0_I4P, side == 1)
+               va1 = q_aux_gpu(b,i+di*oc,j+dj*oc,k+dk*oc,IA_U) * (1._R8P - real(di, R8P))
+               va2 = q_aux_gpu(b,i+di*oc,j+dj*oc,k+dk*oc,IA_V) * (1._R8P - real(dj, R8P))
+               va3 = q_aux_gpu(b,i+di*oc,j+dj*oc,k+dk*oc,IA_W) * (1._R8P - real(dk, R8P))
+               call wall_coupling_viscosity(tau=tau, v1=va1, v2=va2, v3=va3, dy=dxyz_gpu(b,d), &
+                                            muw=mu0 * temperature_law(t=twf, tref=tref, suth=suth, omega=omega_mu), t1=t1, t2=t2, t3=t3, taum=taum)
+               tau = taum
+            elseif (us > 0._R8P) then
                t1 = u1 / us ; t2 = u2 / us ; t3 = u3 / us
             endif
             fl_gpu(b,i,j,k,IQ_R) = 0._R8P

@@ -30,6 +30,7 @@ use :: adam_mpih_global,              only : mpih
 ! FLUME modules
 use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, flume_bc_object
 use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
+use :: adam_flume_dissipation_library, only : temperature_law
 use :: adam_flume_forcing_object,      only : flume_forcing_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_euler_baro_library, only : conservative_to_auxiliary_baro=>conservative_to_auxiliary
@@ -60,7 +61,7 @@ use :: adam_flume_physics_object,     only : flume_physics_object
 use :: adam_flume_reference_object,   only : flume_reference_object
 use :: adam_flume_sinks_object,       only : flume_sinks_object
 use :: adam_flume_time_object,        only : flume_time_object
-use :: adam_flume_wall_model_library, only : sample_cells, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
+use :: adam_flume_wall_model_library, only : sample_cells, wall_coupling_viscosity, wall_model_solve, wall_model_solve_inverse, wall_model_solve_pressure, &
                                          wall_model_solve_convective, WM_CONV_CELLS
 ! third party modules
 use :: finer,                         only : file_ini
@@ -1603,6 +1604,7 @@ contains
    real(R8P), allocatable                    :: acc(:,:)              !< Per bin: stress times area, heat flux times area, area [3, bins].
    real(R8P)                                 :: tref, suth, omega_mu, omega_k, mu0, cp, h, w, us, ts, ps, rs, tau, q, area, lo, len !< Work.
    real(R8P)                                 :: u(3), p1(5), p2(5), xyz(3), px, g(2), cc(WM_CONV_CELLS), rc(WM_CONV_CELLS) !< Work.
+   real(R8P)                                 :: v1(3), ev(3), taum    !< Viscosity coupling: the first cell's wall-parallel velocity, direction, magnitude.
    real(R8P), allocatable                    :: av(:)                 !< The averages of a face column.
    integer(I4P)                              :: f, d, a, side, n, m, b, i, j, k, c(3), o1, o2, ib, nbins, t1, t2, t, oo, nc, ab !< Counters.
    integer(I4P)                              :: lb(3), ub(3)          !< Face cell ranges.
@@ -1703,7 +1705,17 @@ contains
                                            pr=self%physics%dissipation%prandtl, mu0=mu0, tref=tref, suth=suth, omega_mu=omega_mu, tau=tau, q=q, &
                                            semilocal=self%bc%wm_semilocal(f))
                   endif
-                  if (us > 0._R8P) tau = tau * u(a) / us ! the component along the axis: the drag of a flow along +axis is positive
+                  if (self%bc%wm_vcoupling(f)) then ! the stress the viscosity coupling applies (#126), along the first cell's velocity: its component
+                     c = [i, j, k] ; c(d) = merge(1_I4P, n, side == 1_I4P)
+                     p2 = primitive(c, b)
+                     v1 = p2(2:4) ; v1(d) = 0._R8P
+                     call wall_coupling_viscosity(tau=tau, v1=v1(1), v2=v1(2), v3=v1(3), dy=self%adam%field%dxyz(d,b), &
+                                                  muw=mu0 * temperature_law(t=self%bc%wall_temperature(f), tref=tref, suth=suth, omega=omega_mu), &
+                                                  t1=ev(1), t2=ev(2), t3=ev(3), taum=taum)
+                     tau = taum * ev(a)
+                  elseif (us > 0._R8P) then
+                     tau = tau * u(a) / us ! the component along the axis: the drag of a flow along +axis is positive
+                  endif
                   xyz = [self%adam%field%x_cell(i,b), self%adam%field%y_cell(j,b), self%adam%field%z_cell(k,b)]
                   ib = min(nbins, max(1_I4P, int((xyz(a) - lo) / len * real(nbins, R8P), I4P) + 1_I4P))
                   acc(:,ib) = acc(:,ib) + [tau * area, q * area, area]
