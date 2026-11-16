@@ -804,9 +804,49 @@ sample weighs $e^{-3}$; the olive line of [the figure above](#the-pressure-gradi
   to the mean, the zero-gradient layer is right, and the interaction returns to the equilibrium model's. Whether S4h's gain came
   from its response to the moving shock foot or from the bias of its incoming layer is not separated by these runs (a hypothesis).
 
+## Where the wall-modelled interaction stands
+
+The S4 wall-model line is closed ([#121](https://github.com/szaghi/adam/issues/121)). Eleven runs after S4b changed one thing each: the
+grid near the wall, the model's balance, its eddy viscosity, its matching height, its coupling to the face. The criterion throughout:
+consistent on the zero-gradient layer (its $C_f$ within about 2 % of the reference) and closer to the DNS in the interaction.
+
+| run | what changed against S4b | $L_{int}/\delta_0$ | $L_{sep}/\delta_0$ from $\tau_w$ | 5 % of the rise ahead of $x_{imp}$ | incoming $C_f$ against S4b |
+|---|---|---|---|---|---|
+| S4b | the equilibrium model, $\delta_i/12$ | 3.15 | 0 | $2.34\,\delta_0$ | |
+| S4c | a 2:1 box at the wall, $h$ halved in it | 3.04 | 0 | 2.33 | +10.9 % |
+| S4d | the pressure gradient in the model | 3.12 | 0.60 | 2.12 | $-1.7$ % |
+| S4e | no eddy viscosity below $h$ | 3.51 | 0 | 3.55 | +4.8 % |
+| S4f | S4d without the eddy viscosity below $h$ | 3.37 | 0.14 | 3.07 | |
+| S4g | the Bernoulli-consistent pressure gradient | 3.24 | 0 | 2.44 | |
+| S4h | fed with the resolved convection | 3.36 | 0.18 | 2.63 | +5 to +12 % |
+| S4i | and the resolved stress removed | 2.94 | 3.01, under a forward first cell | 1.85 | $-0.4$ to $-6$ % |
+| S4j | the slow forcing | 3.12 | 0.14 | 2.09 | within 2 % |
+| S4k | S4c's box, $h$ fixed in $\delta_i$ | 3.26 | 0 (first cell reversed over 1.10) | 2.58 | +1.7 % |
+| S4l | S4k with the viscosity coupling | 3.64 | **1.66** | 3.48 | +3.3 % (the flat plate $-8.7$ %) |
+| DNS, $Re_\theta=6882$ | | 3.30 | 2.16 | 4.13 | |
+
+The incoming $C_f$ is measured over $35\le x\le48$ (S4c, S4k, S4l), $35\le x\le50$ (S4d) or $35\le x\le45$ (S4e), and as the range
+over the upstream bands for S4h, S4i and S4j; S4f and S4g were not measured there.
+
+- **No variant passes both.** Those consistent on the zero-gradient layer (S4d, S4j, S4k) keep the compression at least
+  $1.5\,\delta_0$ behind the DNS's, and their wall stress separates over at most $0.6\,\delta_0$, S4d's by an inconsistent balance
+  (the Bernoulli-consistent S4g has none). Those that move the onset or the bubble toward the DNS (S4e, S4h, S4l) shift the
+  zero-gradient layer by 3 to 12 % (S4l by $-8.7$ % on the flat plate), or reverse the stress under a forward flow (S4i).
+- **The interaction length is within 10 % of the DNS's in every run but S4i (10.9 % short) and S4l (10.3 % long, the longest
+  bubble)**; the separation and the onset are not reproduced by any.
+- **Where the gap is.** The runs' reversed flow lies below the wall model's sample, in the first two or three cells
+  ([above](#the-reversed-flow-the-dns-s-bubble-and-the-runs-below-the-sample)); a model that sees only the sample keeps a forward
+  stress over it (S4k), and coupling the stress to the first cell (S4l) makes it separate but slows the near-wall cells of the
+  zero-gradient layer too.
+- **Not taken:** a hybrid RANS/LES near the wall ([#127](https://github.com/szaghi/adam/issues/127)); the viscosity coupling without
+  the lower bound on the wall's subgrid viscosity ([#126](https://github.com/szaghi/adam/issues/126)); a wall-resolved grid over the
+  interaction.
+
 ## Not done
 
-- A separation of the right length and place. The equilibrium-type models do not give it: the pressure gradient alone opens $0.6\,\delta_0$ by an inconsistent balance, the consistent one none, the slower near-wall layer $0.14\,\delta_0$ ([above](#the-pressure-gradient-without-the-convection-with-it-and-without-the-eddy-viscosity)). The model fed with the resolved convection (S4h) moves the onset and $L_{int}$ the right way and opens $0.18\,\delta_0$ where the DNS's bubble begins, but counts the resolved stress twice ($C_f$ of the zero-gradient layer +5 to +12 %). With the resolved stress removed and the velocity scale from $\tau_w$ (S4i) it passes the zero-gradient layer, but the scale collapses under the adverse gradient: $\tau_w<0$ under a forward first cell and a shorter interaction ([above](#the-run-s4i)). Velocity scales meant to keep the mean forcing without its fluctuation, tested a priori on both flows ([above](#a-priori-the-velocity-scale-of-the-eddy-viscosity)): only the slow forcing, in both the balance and S4h's scale $|\tau_w|+|\bar S|$, keeps the zero-gradient layer; run as S4j ([above](#the-run-s4j)) it keeps the incoming layer and returns the interaction to S4b's (no bubble beyond $0.14\,\delta_0$, the compression $0.25\,\delta_0$ later). No wall model tried here, equilibrium-type or fed with the resolved convection, both consistent on the zero-gradient layer and closer to the DNS in the interaction. A matching height fixed in $\delta_i$ across the levels, with 5 cells below it in a 2:1 box (S4k, [above](#the-matching-height-fixed-s4k)), keeps the zero-gradient layer within 1.7 % and gives $L_{int}$ 3.26 and a mean reversed first cell over $1.10\,\delta_0$, under a wall stress that stays positive: the bubble lies below the matching height, which the flux coupling of the face cannot see. Coupled through the wall viscosity with the no-slip condition kept (De Vanna et al. 2022; S4l, [above](#the-viscosity-coupling-s4l)) the wall stress separates in the mean over $1.66\,\delta_0$, three quarters of the DNS's bubble, and the compression starts $0.9\,\delta_0$ earlier, but $L_{int}$ overshoots by 10.3 % and the zero-gradient stretch is 3.3 % above S4b's; on the flat plate the same coupling lowers $C_f$ by 8.7 % ([boundary layer](../turbulence/boundary-layer#the-viscosity-coupling)), so it is not consistent on the zero-gradient layer. The variant without the lower bound on the wall's subgrid viscosity (De Vanna et al.'s exact match) is not tested. Left: the onset still $0.25\,\delta_0$ behind the DNS's bubble, and a matching height fixed in $\delta$ above the DNS's bubble (about $4h$ tall).
+- A separation of the right length and place, and the onset: no wall model tried here gives them with the zero-gradient layer kept
+  ([where the interaction stands](#where-the-wall-modelled-interaction-stands)); the S4 wall-model line is closed. The routes left:
+  a hybrid RANS/LES near the wall (#127), a wall-resolved grid over the interaction.
 - The late compression ($x^*\approx-0.6$ half-way against the DNS's $-1.1$), unchanged by the near-wall grid and by the pressure-gradient term; moved 40 % of the way by taking out the eddy viscosity below $h$ (S4e), which also moves the incoming layer off the DNS's: the matching between the model and the resolved near-wall cells.
 - The wall-pressure fluctuations and the low-frequency unsteadiness.
 - The recycling–rescaling inflow (S5).
