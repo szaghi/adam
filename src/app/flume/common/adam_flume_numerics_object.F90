@@ -245,12 +245,17 @@ contains
       character(*),              intent(in)  :: key         !< Key name.
       character(:), allocatable, intent(out) :: val         !< Loaded value.
       character(*),              intent(in)  :: accepted(:) !< Accepted values (blank-padded).
+      character(len(buff))                   :: text        !< Option value, local (see below).
       character(:), allocatable              :: list        !< Accepted values list for the message.
       integer(I4P)                           :: a           !< Counter.
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name=key, val=buff, error=error)
+      ! A local buffer, not the host's `buff`: nvfortran 26.9 does not see that FiNeR's get (its value an unlimited
+      ! polymorphic dummy) wrote the host-associated buffer, and read back the value of the key loaded before
+      ! (`riemann_solver` came back "characteristic"; on medooza the stale state crashed in the string copy). The
+      ! `strip_control(buff)` call this line had until #80 P1 happened to force a fresh read.
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name=key, val=text, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//key//')')
-      val = trim(adjustl(buff))
+      val = trim(adjustl(text))
       if (any(accepted == val)) return
       list = trim(accepted(1))
       do a=2, size(accepted)
