@@ -14,7 +14,6 @@ The `common/` directory contains all backend-independent modules shared by the C
 | `adam_prism_common_object.F90` | `adam_prism_common_object` | Base aggregate type for all backends |
 | `adam_prism_bc_object.F90` | `adam_prism_bc_object` | Boundary conditions handler |
 | `adam_prism_ic_object.F90` | `adam_prism_ic_object` | Initial conditions handler |
-| `adam_prism_io_object.F90` | `adam_prism_io_object` | I/O configuration and output routines |
 | `adam_prism_time_object.F90` | `adam_prism_time_object` | Time integration control |
 | `adam_prism_coil_object.F90` | `adam_prism_coil_object` | Current-carrying coil current density sources |
 | `adam_prism_fWLayer_object.F90` | `adam_prism_fWLayer_object` | Far-wave absorbing boundary layer |

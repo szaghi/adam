@@ -10,7 +10,6 @@ use :: adam_prism_external_fields_object
 use :: adam_prism_fWLayer_object
 use :: adam_prism_grms_object
 use :: adam_prism_ic_object
-use :: adam_prism_io_object
 use :: adam_prism_leapfrog_pic_object
 use :: adam_prism_magnetic_field_at_center_domain_object
 use :: adam_prism_numerics_object

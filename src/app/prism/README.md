@@ -16,7 +16,6 @@ src/app/prism/
 │   ├── adam_prism_bc_object.F90                 # Boundary conditions handler
 │   ├── adam_prism_ic_object.F90                 # Initial conditions handler
 │   ├── adam_prism_rk_bc_object.F90              # RK sub-stepping for boundary conditions
-│   ├── adam_prism_io_object.F90                 # I/O handler
 │   ├── adam_prism_time_object.F90               # Time integration handler
 │   ├── adam_prism_coil_object.F90               # Current-carrying coil sources
 │   ├── adam_prism_fWLayer_object.F90            # Far-wave layer (absorbing BC layer)
