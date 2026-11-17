@@ -5,7 +5,6 @@ module adam_prism_bc_object
 ! ADAM singleton objects
 use :: adam_mpih_global, only : mpih
 use :: adam_parameters,  only : BC_PERIODIC
-use :: adam_prism_parameters, only : strip_control
 ! third party modules
 use :: finer
 use :: penf
@@ -82,7 +81,7 @@ contains
       sname = INI_SECTION_NAMES(b)
       call file_parameters%get(section_name=sname, option_name='type', val=buff_c, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
-      select case(trim(adjustl(strip_control(buff_c))))
+      select case(trim(adjustl(buff_c)))
       case('extrapolation')
          self%bc_type(b) = BC_EXTRAPOLATION
       case('Neumann')
@@ -100,7 +99,7 @@ contains
       case('PEC', 'pec')
          self%bc_type(b) = BC_PEC
       case default
-         call mpih%error_stop(msg=': unknown boundary condition "'//trim(adjustl(strip_control(buff_c)))//'" in ['// &
+         call mpih%error_stop(msg=': unknown boundary condition "'//trim(adjustl(buff_c))//'" in ['// &
                                   sname//'].(type); '//&
                                   'expected one of extrapolation, Neumann, Dirichlet, Silver_Muller, periodic, PEC')
       endselect

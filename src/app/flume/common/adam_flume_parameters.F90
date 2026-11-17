@@ -95,7 +95,6 @@ public :: REFLUX_POLICY_ALWAYS
 public :: REFLUX_POLICY_TROUBLED
 public :: REFLUX_CADENCE_STEP
 public :: REFLUX_CADENCE_STAGE
-public :: strip_control
 public :: is_hydrodynamic
 public :: has_inert_energy
 public :: has_mixed_glm
@@ -210,21 +209,6 @@ real(R8P),         parameter :: POSITIVITY_LIMITER_KAPPA=0.1_R8P      !< Floor o
 
 contains
    ! public procedures
-   pure function strip_control(string) result(stripped)
-   !< Return a copy of an INI value with control characters (e.g. a CRLF carriage return) blanked.
-   !<
-   !< `trim(adjustl())` does not remove a trailing carriage return, so a value read from a CRLF file would miss every
-   !< `case` of an option parser and hit its fatal `case default`. Blank them before matching.
-   character(len=*), intent(in) :: string   !< Raw value as read from the INI file.
-   character(len=len(string))   :: stripped !< Value with control characters blanked.
-   integer(I4P)                 :: c        !< Counter.
-
-   stripped = string
-   do c=1, len(stripped)
-      if (iachar(stripped(c:c)) < 32) stripped(c:c) = ' '
-   enddo
-   endfunction strip_control
-
    elemental function is_hydrodynamic(model) result(yes)
    !< Return true for the hydrodynamic models (Euler, Euler with dual energy, issue #91), false for the MHD ones: the
    !< predicate behind every "no magnetic field" branch of the host controllers.

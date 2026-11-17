@@ -29,7 +29,7 @@ module adam_flume_dissipation_object
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
-use :: adam_flume_parameters, only : is_hydrodynamic, strip_control
+use :: adam_flume_parameters, only : is_hydrodynamic
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
@@ -142,7 +142,7 @@ contains
    ! viscosity law
    self%viscosity_law = VISCOSITY_LAW_CONSTANT
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='viscosity_law', val=buff, error=error)
-   if (error <= 0) self%viscosity_law = trim(adjustl(strip_control(buff)))
+   if (error <= 0) self%viscosity_law = trim(adjustl(buff))
    select case(self%viscosity_law)
    case(VISCOSITY_LAW_CONSTANT)
       if (has('viscosity_exponent') .or. has('reference_temperature') .or. has('sutherland_temperature')) &

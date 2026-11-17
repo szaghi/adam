@@ -31,8 +31,7 @@ use :: adam_flume_parameters,    only : DUAL_ENERGY_ETA, EOS_BAROTROPIC, EOS_IDE
                                         MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO,            &
                                         NS_MAX, NV_AUX, NV_AUX_DE, NV_AUX_DE_PS, NV_AUX_MHD, NV_AUX_PS, NV_EULER,        &
                                         NV_EULER_DE, NV_EULER_DE_PS, NV_EULER_PS, NV_MHD, NV_MHD_EGLM, NV_MHD_GLM,       &
-                                        PHYSICAL_MODEL_EULER, PHYSICAL_MODEL_EULER_DE, PHYSICAL_MODEL_MHD_IDEAL,          &
-                                        strip_control
+                                        PHYSICAL_MODEL_EULER, PHYSICAL_MODEL_EULER_DE, PHYSICAL_MODEL_MHD_IDEAL
 ! third party modules
 use :: finer,                    only : file_ini
 use :: penf,                     only : I4P, R8P, str
@@ -262,7 +261,7 @@ contains
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='physical_model', val=buff, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(physical_model)')
-   self%physical_model = trim(adjustl(strip_control(buff)))
+   self%physical_model = trim(adjustl(buff))
    select case(self%physical_model)
    case(PHYSICAL_MODEL_EULER, PHYSICAL_MODEL_EULER_DE, PHYSICAL_MODEL_MHD_IDEAL)
    case default
@@ -296,7 +295,7 @@ contains
    if (file_parameters%has_section(section_name='eos')) then
       call file_parameters%get(section_name='eos', option_name='type', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load [eos].(type)')
-      self%eos = trim(adjustl(strip_control(buff)))
+      self%eos = trim(adjustl(buff))
       select case(self%eos)
       case(EOS_IDEAL)
       case(EOS_ISOTHERMAL)

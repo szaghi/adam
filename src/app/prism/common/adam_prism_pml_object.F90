@@ -8,7 +8,6 @@ use :: adam_field_object,     only : field_object
 use :: adam_tree_object,      only : tree_object
 use :: adam_prism_absorbing_layer_geometry, only : compute_absorbing_face_range
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
-use :: adam_prism_parameters, only : strip_control
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
@@ -243,7 +242,7 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='PML_type', val=buff, error=error)
    if (error > 0_I4P) return
 
-   select case (trim(adjustl(strip_control(buff))))
+   select case (trim(adjustl(buff)))
    case ('NO', 'no', 'No', 'nO', 'NONE', 'none', 'None')
       self%pml_type = PML_TYPE_NONE
    case ('PML', 'pml', 'Pml', 'CLASSIC', 'classic', 'Classic', 'STANDARD', 'standard', 'Standard')
@@ -255,7 +254,7 @@ contains
    case ('BERMUDEZ', 'bermudez', 'Bermudez')
       self%pml_type = PML_TYPE_BERMUDEZ
    case default
-      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(PML_type) "'//trim(adjustl(strip_control(buff)))// &
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(PML_type) "'//trim(adjustl(buff))// &
                                '"; expected one of '//&
                                'no, CLASSIC, CLASSIC_DIRECT, CFS or BERMUDEZ')
    endselect

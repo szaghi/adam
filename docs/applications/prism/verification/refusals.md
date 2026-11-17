@@ -24,7 +24,7 @@ $\mathbf D$ and $\mathbf B$. It anchors the state layout that [#11](https://gith
 
 | Item | Choice | Code |
 |---|---|---|
-| Parsing | every value checked at initialization; values pass through `strip_control` (CRLF-safe) | [`adam_prism_numerics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_numerics_object.F90), [`adam_prism_physics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_physics_object.F90), [`adam_prism_bc_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_bc_object.F90), [`adam_prism_ic_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_ic_object.F90) |
+| Parsing | every value checked at initialization; CRLF-safe (FiNeR drops the carriage return) | [`adam_prism_numerics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_numerics_object.F90), [`adam_prism_physics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_physics_object.F90), [`adam_prism_bc_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_bc_object.F90), [`adam_prism_ic_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_ic_object.F90) |
 | `rmf-hyperbolic` | `rmf` with `constrained_transport = DB`, `divergence_correction = hyperbolic`, `chi = 1`, damping `alpha = 1e9` 1/s ($\alpha t \approx 0.1$ over 10 steps) | [models](../models#divergence-correction) |
 | Refused combinations | the list and the reasons | [hazards](../hazards#refused-combinations) |
 

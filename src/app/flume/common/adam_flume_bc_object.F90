@@ -92,7 +92,7 @@ use :: adam_mpih_global,          only : mpih
 use :: adam_flume_parameters,     only : IQ_BX, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RW, MODEL_EULER, MODEL_EULER_DE, &
                                         MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM, &
                                         MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO, &
-                                        MODEL_EULER_ISO, MODEL_EULER_BARO, has_inert_energy, strip_control
+                                        MODEL_EULER_ISO, MODEL_EULER_BARO, has_inert_energy
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 use :: adam_flume_inflow_df_object, only : flume_inflow_df_object
 use :: adam_flume_inflow_rr_object, only : flume_inflow_rr_object
@@ -254,7 +254,7 @@ contains
    do f=1, 6
       call file_parameters%get(section_name=SECTION_NAME(f), option_name='type', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(type)')
-      bc_str = trim(adjustl(strip_control(buff)))
+      bc_str = trim(adjustl(buff))
       select case(bc_str)
       case(BC_EXTRAPOLATION_STR)
          self%bc_type(f) = BC_EXTRAPOLATION
@@ -290,7 +290,7 @@ contains
          if (self%wm_height(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_height) must be >= 0')
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model', val=buff, error=error)
          if (error /= 0) buff = 'equilibrium'
-         select case(trim(adjustl(strip_control(buff))))
+         select case(trim(adjustl(buff)))
          case('equilibrium')
          case('inverse-transformation')
             self%wm_inverse(f) = .true.
@@ -307,7 +307,7 @@ contains
          if (error == 0 .and. self%wm_inverse(f)) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_damping) belongs to wall_model = equilibrium (the inverse model has no damping choice)')
          if (error /= 0) buff = 'classical'
-         select case(trim(adjustl(strip_control(buff))))
+         select case(trim(adjustl(buff)))
          case('classical')
          case('semi-local')
             self%wm_semilocal(f) = .true.
@@ -348,13 +348,13 @@ contains
          if (error /= 0) then
             self%wm_ftau(f) = self%wm_rstress(f) ! the default: P3's models bit for bit
          else
-            select case(trim(adjustl(strip_control(buff))))
+            select case(trim(adjustl(buff)))
             case('tau')
                self%wm_ftau(f) = .true.
             case('sum')
                self%wm_ftau(f) = .false.
             case default
-               call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_velocity_scale)='//trim(adjustl(strip_control(buff)))// &
+               call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_velocity_scale)='//trim(adjustl(buff))// &
                                         ' unknown: tau or sum')
             endselect
             if (.not.self%wm_conv(f)) &
@@ -362,14 +362,14 @@ contains
          endif
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_coupling', val=buff, error=error)
          if (error == 0) then
-            select case(trim(adjustl(strip_control(buff))))
+            select case(trim(adjustl(buff)))
             case('flux')
                self%wm_vcoupling(f) = .false.
             case('viscosity')
                self%wm_vcoupling(f) = .true.
                self%bc_type(f) = BC_WALL_NOSLIP ! the no-slip ghosts of a resting wall (wall_velocity 0) and the closed inviscid face fluxes
             case default
-               call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_coupling)='//trim(adjustl(strip_control(buff)))// &
+               call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_coupling)='//trim(adjustl(buff))// &
                                         ' unknown: flux or viscosity')
             endselect
          endif

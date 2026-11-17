@@ -92,7 +92,7 @@ contains
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
-   select case(trim(adjustl(strip_control(buff))))
+   select case(trim(adjustl(buff)))
    case('BLANES_MOAN', 'blanes_moan', 'Blanes_Moan')
       self%scheme_time = NUM_SCHEME_TIME_BLANES_MOAN
    case('COMMUTATOR_FREE_MAGNUS', 'commutator_free_magnus', 'Commutator_Free_Magnus')
@@ -102,13 +102,13 @@ contains
    case('RUNGE_KUTTA', 'runge_kutta', 'Runge_Kutta')
       self%scheme_time = NUM_SCHEME_TIME_RUNGE_KUTTA
    case default ! issue #57: a typo used to fall back to Runge-Kutta with a warning
-      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(scheme_time) "'//trim(adjustl(strip_control(buff)))// &
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(scheme_time) "'//trim(adjustl(buff))// &
                                '"; accepted: runge_kutta, leapfrog, blanes_moan, commutator_free_magnus')
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_space', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
-   select case(trim(adjustl(strip_control(buff))))
+   select case(trim(adjustl(buff)))
    case('WENO', 'weno', 'Weno')
       self%scheme_space = NUM_SCHEME_SPACE_WENO
    case('FD_CENTERED', 'fd_centered', 'FD_Centered')
@@ -116,27 +116,27 @@ contains
    case('FV_CENTERED', 'fv_centered', 'FV_Centered')
       self%scheme_space = NUM_SCHEME_SPACE_FV_CENTERED
    case default ! issue #57: a typo used to fall back to WENO with a warning
-      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(scheme_space) "'//trim(adjustl(strip_control(buff)))// &
+      call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(scheme_space) "'//trim(adjustl(buff))// &
                                '"; accepted: weno, fd_centered, fv_centered')
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reconstruction_variables)')
-   select case(trim(adjustl(strip_control(buff))))
+   select case(trim(adjustl(buff)))
    case('CONSERVATIVE', 'conservative', 'Conservative')
       self%reconstruction_vars = RECONSTRUCTION_VARS_CONS
    case('CHARACTERISTICS', 'characteristics', 'Characteristics')
       self%reconstruction_vars = RECONSTRUCTION_VARS_CHAR
    case default ! issue #57: a typo used to fall back to conservative with a warning
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(reconstruction_variables) "'// &
-                               trim(adjustl(strip_control(buff)))//'"; accepted: conservative, characteristics')
+                               trim(adjustl(buff))//'"; accepted: conservative, characteristics')
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='constrained_transport', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(constrained_transport)')
-   select case(trim(adjustl(strip_control(buff))))
+   select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%constrained_transport_D = .false.
       self%constrained_transport_B = .false.
@@ -151,13 +151,13 @@ contains
       self%constrained_transport_B = .true.
    case default ! issue #57: a typo used to disable constrained transport with a warning
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(constrained_transport) "'// &
-                               trim(adjustl(strip_control(buff)))//'"; accepted: no, D, B, DB')
+                               trim(adjustl(buff))//'"; accepted: no, D, B, DB')
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_correction', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
-   select case(trim(adjustl(strip_control(buff))))
+   select case(trim(adjustl(buff)))
    case('POISSON', 'poisson', 'Poisson')
       call mpih%error_stop(msg=': [numerics].(divergence_correction)=poisson is not implemented for PRISM CPU/FNL')
    case('HYPERBOLIC', 'hyperbolic', 'Hyperbolic')
@@ -174,7 +174,7 @@ contains
       self%constrained_transport_B = .false.
    case default ! issue #57: a typo used to disable the correction (and constrained transport) with a warning
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(divergence_correction) "'// &
-                               trim(adjustl(strip_control(buff)))//'"; accepted: no, hyperbolic, poisson')
+                               trim(adjustl(buff))//'"; accepted: no, hyperbolic, poisson')
    endselect
 
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='d_divergence_cleaner', &

@@ -34,7 +34,7 @@ module adam_flume_reference_object
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
-use :: adam_flume_parameters, only : EOS_IDEAL, strip_control
+use :: adam_flume_parameters, only : EOS_IDEAL
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
@@ -189,8 +189,8 @@ contains
       ! conversion reads the gas (this layer runs before the physics, so the physics cannot refuse it first)
       if (file_parameters%has_section(section_name='eos')) then
          call file_parameters%get(section_name='eos', option_name='type', val=buff, error=error)
-         if (error <= 0 .and. trim(adjustl(strip_control(buff))) /= EOS_IDEAL) &
-            call mpih%error_stop(msg=': [reference] is refused with [eos].(type)='//trim(adjustl(strip_control(buff)))// &
+         if (error <= 0 .and. trim(adjustl(buff)) /= EOS_IDEAL) &
+            call mpih%error_stop(msg=': [reference] is refused with [eos].(type)='//trim(adjustl(buff))// &
                                      ' (issue #100)')
       endif
       call self%load_context(file_parameters=file_parameters)
@@ -716,8 +716,8 @@ contains
       do while (file_parameters%loop(section_name=sname, option_pairs=pair))
          key = pair(1)
          val_str = pair(2)
-         names = [character(999) :: names, adjustl(strip_control(key))]
-         opt_values = [character(999) :: opt_values, adjustl(strip_control(val_str))]
+         names = [character(999) :: names, adjustl(key)]
+         opt_values = [character(999) :: opt_values, adjustl(val_str)]
          n = n + 1_I4P
       enddo
       do o=1, n
@@ -731,7 +731,7 @@ contains
             has_gas = .true.
          case(KIND_SCALED, KIND_TEMPERATURE, KIND_CONDUCTIVITY, KIND_PER_TEMPERATURE)
             if (sname == 'mhd' .and. trim(names(o)) == 'glm_damping_length' .and. &
-                trim(adjustl(strip_control(opt_values(o)))) == 'min-cell') cycle
+                trim(adjustl(opt_values(o))) == 'min-cell') cycle
             ! a list (the cooling nodes, issue #93) converts value by value, each with the rule of a single value
             nvals = file_parameters%count_values(section_name=sname, option_name=trim(names(o)))
             if (allocated(vals)) deallocate(vals)
@@ -797,7 +797,7 @@ contains
       if (error > 0) then
          val = default
       else
-         val = trim(adjustl(strip_control(buff)))
+         val = trim(adjustl(buff))
       endif
       endfunction raw
    endsubroutine load_context
@@ -823,8 +823,8 @@ contains
       ! the deferred-length array to a procedure, or matches it in a select case, as garbage (issue #49, N2a)
       key = pair(1)
       val_str = pair(2)
-      key = adjustl(strip_control(key))
-      val_str = adjustl(strip_control(val_str))
+      key = adjustl(key)
+      val_str = adjustl(val_str)
       select case(trim(key))
       case('density')
          self%density = positive(key, val_str)

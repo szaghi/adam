@@ -41,7 +41,6 @@ module adam_flume_gravity_object
 ! ADAM singleton objects
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
-use :: adam_flume_parameters, only : strip_control
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
@@ -141,13 +140,13 @@ contains
    ! the string keys first: under nvfortran (26.1) a character get that follows the failed get of an absent numeric key
    ! (an unused g_* or froude) returns an empty value (FiNeR, class(*) dummy); found by M7-G2b on FNL
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='equilibrium', val=buff, error=error)
-   if (error <= 0) self%equilibrium = trim(adjustl(strip_control(buff)))
+   if (error <= 0) self%equilibrium = trim(adjustl(buff))
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='potential', val=buff, error=error)
-   if (error <= 0) self%potential = trim(adjustl(strip_control(buff)))
+   if (error <= 0) self%potential = trim(adjustl(buff))
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='poisson_solver', val=buff, error=error)
-   if (error <= 0) self%poisson_solver = trim(adjustl(strip_control(buff)))
+   if (error <= 0) self%poisson_solver = trim(adjustl(buff))
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='poisson_bc', val=buff, error=error)
-   if (error <= 0) self%poisson_bc = trim(adjustl(strip_control(buff)))
+   if (error <= 0) self%poisson_bc = trim(adjustl(buff))
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='self_gravity', val=self%self_gravity, error=error)
    if (error > 0) self%self_gravity = .false.
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='G', val=self%grav_const, error=error)
@@ -172,7 +171,7 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='axis', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(froude) needs ['//INI_SECTION_NAME// &
                                               '].(axis), one of +x, -x, +y, -y, +z, -z')
-      axis = trim(adjustl(strip_control(buff)))
+      axis = trim(adjustl(buff))
       d = findloc(AXIS_STR, axis, dim=1)
       if (d == 0) call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(axis) "'//axis//'"; expected one '// &
                                            'of +x, -x, +y, -y, +z, -z')

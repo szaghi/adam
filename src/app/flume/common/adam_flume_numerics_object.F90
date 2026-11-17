@@ -28,7 +28,7 @@ use :: adam_flume_parameters, only : FLUX_CORRECTION_4TH, FLUX_CORRECTION_6TH, F
                                      RECON_CONSERVATIVE, RECON_PRIMITIVE, RIEMANN_SOLVER_HLL, RIEMANN_SOLVER_HLLC,         &
                                      RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF, SCHEME_SPACE_WENO, REFLUX_POLICY_ALWAYS,     &
                                      REFLUX_POLICY_TROUBLED, REFLUX_CADENCE_STAGE, REFLUX_CADENCE_STEP,             &
-                                     SCHEME_SPACE_WENO_RIEMANN, strip_control
+                                     SCHEME_SPACE_WENO_RIEMANN
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
@@ -140,7 +140,7 @@ contains
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_space', val=buff, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
-   self%scheme_space = trim(adjustl(strip_control(buff)))
+   self%scheme_space = trim(adjustl(buff))
    ! issue #119, T2: the central flux overwrites the `weno` one, which every other path goes on seeing
    if (self%scheme_space == 'hybrid-kep-weno') then
       self%is_hybrid = .true.
@@ -153,7 +153,7 @@ contains
       if (error > 0) self%hybrid_jump = 0.1_R8P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_skin', val=buff, error=error)
       if (error > 0) buff = 'weno'
-      select case(trim(adjustl(strip_control(buff))))
+      select case(trim(adjustl(buff)))
       case('weno')
       case('central-seams')
          self%hybrid_skin_seams = .false.
@@ -177,7 +177,7 @@ contains
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reconstruction_variables)')
-   self%reconstruction_variables = trim(adjustl(strip_control(buff)))
+   self%reconstruction_variables = trim(adjustl(buff))
    if (self%scheme_space == SCHEME_SPACE_WENO) then
       select case(self%reconstruction_variables)
       case(RECON_CHARACTERISTIC, RECON_CONSERVATIVE)
@@ -250,7 +250,7 @@ contains
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name=key, val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//key//')')
-      val = trim(adjustl(strip_control(buff)))
+      val = trim(adjustl(buff))
       if (any(accepted == val)) return
       list = trim(accepted(1))
       do a=2, size(accepted)

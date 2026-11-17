@@ -919,7 +919,7 @@ contains
    if (error > 0) then
       self%elliptic_initialization_closure = ELLIPTIC_CLOSURE_GROUNDED
    else
-      select case(trim(adjustl(strip_control(buff))))
+      select case(trim(adjustl(buff)))
       case(ELLIPTIC_CLOSURE_GROUNDED)
          self%elliptic_initialization_closure = ELLIPTIC_CLOSURE_GROUNDED
       case(ELLIPTIC_CLOSURE_ISOLATED)

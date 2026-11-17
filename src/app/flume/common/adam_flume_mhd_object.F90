@@ -18,7 +18,7 @@ use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : DIVERGENCE_CONTROL_EGLM, DIVERGENCE_CONTROL_GLM, DIVERGENCE_CONTROL_NONE, &
                                      GLM_CH_CHECK_ERROR,                                                    &
-                                     GLM_CH_CHECK_WARNING, GLM_DAMPING_LENGTH_MIN_CELL, strip_control
+                                     GLM_CH_CHECK_WARNING, GLM_DAMPING_LENGTH_MIN_CELL
 ! third party modules
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P, str
@@ -98,7 +98,7 @@ contains
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_control', val=buff, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_control)')
-   self%divergence_control = trim(adjustl(strip_control(buff)))
+   self%divergence_control = trim(adjustl(buff))
    select case(self%divergence_control)
    case(DIVERGENCE_CONTROL_GLM)
       self%has_glm = .true.
@@ -120,7 +120,7 @@ contains
       if (.not.(self%glm_alpha >= 0._R8P)) call range_error(key='glm_alpha', val=self%glm_alpha, expected='>= 0')
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='glm_damping_length', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(glm_damping_length)')
-      buff = trim(adjustl(strip_control(buff)))
+      buff = trim(adjustl(buff))
       self%glm_damping_min_cell = trim(buff) == GLM_DAMPING_LENGTH_MIN_CELL
       if (.not.self%glm_damping_min_cell) then
          read(buff, *, iostat=error) self%glm_damping_length
@@ -131,7 +131,7 @@ contains
       endif
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='glm_ch_check', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(glm_ch_check)')
-      self%glm_ch_check = trim(adjustl(strip_control(buff)))
+      self%glm_ch_check = trim(adjustl(buff))
       select case(self%glm_ch_check)
       case(GLM_CH_CHECK_WARNING, GLM_CH_CHECK_ERROR)
       case default

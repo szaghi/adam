@@ -8,7 +8,6 @@ use :: penf
 implicit none
 private
 public :: NV_MAX
-public :: strip_control
 public :: MU0
 public :: EPS0
 public :: MU0_SQ
@@ -194,21 +193,4 @@ real(R8P), target      :: IERL_D_B(8,8,3) =reshape([1._R8P,0._R8P,0._R8P,0._R8P,
                                                     0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,1._R8P,0._R8P, &
                                                     0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,0._R8P,1._R8P],&
                                                  [8,8,3])   !< Identity eigenvectors, D & B divergence cleaning.
-contains
-   pure function strip_control(string) result(cleaned)
-   !< Return `string` with control characters (CR, TAB, ...) replaced by blanks.
-   !<
-   !< INI files authored on Windows carry a trailing CR that `trim`/`adjustl` do
-   !< not remove, so a value would miss every `case` and hit the `case default`
-   !< error path purely because of its line ending. Blank them first: the
-   !< subsequent trim/adjustl then yields the intended token.
-   character(len=*), intent(in)  :: string          !< Raw value as read from the INI file.
-   character(len=len(string))    :: cleaned         !< Value with control characters blanked.
-   integer(I4P)                  :: c               !< Counter.
-
-   cleaned = string
-   do c=1, len(cleaned)
-      if (iachar(cleaned(c:c)) < 32_I4P) cleaned(c:c) = ' '
-   enddo
-   endfunction strip_control
 endmodule adam_prism_parameters

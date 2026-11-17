@@ -8,8 +8,8 @@ the exchange machinery instead (below).
 ## Input
 
 There are six sections, `[bc_x_min]`, `[bc_x_max]`, `[bc_y_min]`, `[bc_y_max]`, `[bc_z_min]` and `[bc_z_max]`, which are
-faces 1–6. Each section **requires** `type`. The value goes through
-`strip_control`, so CRLF files are accepted. Eleven values are accepted, and matching is case-sensitive:
+faces 1–6. Each section **requires** `type`. CRLF files are accepted (FiNeR drops the carriage return). Eleven values
+are accepted, and matching is case-sensitive:
 
 | `type` | id | Meaning | per-face keys |
 |---|---|---|---|

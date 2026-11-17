@@ -170,8 +170,7 @@ use :: adam_flume_parameters,     only : has_entropy, is_hydrodynamic, has_inert
                                         MODEL_MHD_EGLM, MODEL_MHD_GLM, MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, &
                                         MODEL_MHD_GLM_BARO, &
                                         NV_AUX_MHD, &
-                                        NV_EULER, NV_MHD, &
-                                        strip_control
+                                        NV_EULER, NV_MHD
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 use :: adam_flume_inflow_df_object, only : load_profile, profile_mean
 ! third party modules
@@ -486,7 +485,7 @@ contains
    self%amr_iterations = max(0_I4P, self%amr_iterations)
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='type', val=buff, error=error)
    if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(type)')
-   self%ic_type = trim(adjustl(strip_control(buff)))
+   self%ic_type = trim(adjustl(buff))
    select case(self%ic_type)
    case(IC_UNIFORM_STR)
       self%regions_number = 1_I4P
@@ -514,7 +513,7 @@ contains
       if (error /= 0) self%bl(5) = 0._R8P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bl_profile', val=buff, error=error)
       if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bl_profile)')
-      call load_profile(filename=trim(adjustl(strip_control(buff))), prof=self%bl_prof)
+      call load_profile(filename=trim(adjustl(buff)), prof=self%bl_prof)
    case(IC_TAYLOR_GREEN_STR)
       if (self%model /= MODEL_EULER .and. self%model /= MODEL_EULER_DE) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_TAYLOR_GREEN_STR//' requires '// &
@@ -560,7 +559,7 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='shock_x', val=buff, error=error)
       self%has_shock = error == 0
       if (self%has_shock) then
-         ios = verify(trim(adjustl(strip_control(buff))), '0123456789+-.eEdD')
+         ios = verify(trim(adjustl(buff)), '0123456789+-.eEdD')
          if (ios == 0) read(buff, *, iostat=ios) self%shock_x
          if (ios /= 0) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(shock_x) is not a number')
       endif
@@ -571,7 +570,7 @@ contains
       self%regions_number = 1_I4P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='pulse_axis', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(pulse_axis)')
-      select case(trim(adjustl(strip_control(buff))))
+      select case(trim(adjustl(buff)))
       case('x')
          self%pulse_axis = 1_I4P
       case('y')
@@ -606,7 +605,7 @@ contains
       self%regions_number = 1_I4P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(wave)')
-      self%wave = trim(adjustl(strip_control(buff)))
+      self%wave = trim(adjustl(buff))
       select case(self%wave)
       case('fast', 'alfven', 'slow', 'entropy')
       case default
@@ -629,7 +628,7 @@ contains
       self%regions_number = 1_I4P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='polarisation', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(polarisation)')
-      select case(trim(adjustl(strip_control(buff))))
+      select case(trim(adjustl(buff)))
       case('right')
          self%polarisation =  1._R8P
       case('left')
@@ -709,7 +708,7 @@ contains
       self%regions_number = 2_I4P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='axis', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(axis)')
-      select case(trim(adjustl(strip_control(buff))))
+      select case(trim(adjustl(buff)))
       case('x')
          self%shu_osher_axis = 1_I4P
       case('y')
@@ -778,7 +777,7 @@ contains
       self%regions_number = 1_I4P
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave_mode', val=buff, error=error)
       if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(wave_mode)')
-      self%sine_mode = trim(adjustl(strip_control(buff)))
+      self%sine_mode = trim(adjustl(buff))
       select case(self%sine_mode)
       case(SINE_MODE_SHEAR, SINE_MODE_ACOUSTIC, SINE_MODE_ENTROPY)
       case(SINE_MODE_JEANS)

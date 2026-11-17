@@ -11,7 +11,7 @@ The pointwise libraries (`*_library.F90`) are `pure`, take explicit-size argumen
 
 | File | Content |
 |------|---------|
-| `adam_flume_parameters.F90` | Variable indexes (conservative `IQ_*`, auxiliary `IA_*`), model ids, accepted option values, `strip_control` |
+| `adam_flume_parameters.F90` | Variable indexes (conservative `IQ_*`, auxiliary `IA_*`), model ids, accepted option values |
 | `adam_flume_physics_object.F90` | `[physics]` and `[eos]`: physical model (`euler`, `euler-de`, `mhd-ideal`), passive scalars, `gamma` or `cp`, `cv`, the equation of state (ideal, isothermal, barotropic), variable counts; primitive-to-conservative dispatch |
 | `adam_flume_reference_object.F90` | `[reference]`: dimensional input converted to code units on the host (issue #49) |
 | `adam_flume_gravity_object.F90` | `[gravity]`: external gravity (issue #73) and the self-gravity keys, the Poisson solver and its boundaries (issue #81) |
