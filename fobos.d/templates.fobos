@@ -22,7 +22,16 @@ ext_libs     = z hdf5_fortran dl
 libs         = $HDF5_PREFIX/lib/libhdf5_fortran.a $HDF5_PREFIX/lib/libhdf5_f90cstub.a $HDF5_PREFIX/lib/libhdf5.a
 lib_dir      = $HDF5_PREFIX/lib
 include      = $HDF5_PREFIX/include
+# The fetched dependencies' docs/ hold documentation snippets (1968 of the tree's 4243 Fortran files), never used by a
+# target: before FoBiS 3.19 every non-module one was compiled serially (FoBiS#218), and every one is still parsed.
 exclude_dirs = references/
+               FiNeR/docs/
+               FOSSIL/docs/
+               FoXy/docs/
+               FUNDAL/docs/
+               StringiFor/docs/
+               VecFor/docs/
+               VTKFortran/docs/
                BeFoR64/src/tests/
                BeFoR64/src/third_party/
                FACE/src/tests/
