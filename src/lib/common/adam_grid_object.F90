@@ -259,6 +259,7 @@ contains
    integer(I4P)                             :: i, j, k, l      !< Counter.
    integer(I4P)                             :: nijk(3)         !< Cells number.
    integer(I4P)                             :: ratio           !< AMR ratio.
+   integer(I4P)                             :: error           !< Error status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('grid_object%initialize start')
@@ -267,7 +268,8 @@ contains
       self%domain_emin(:) = self%domain_emin(:) / L0
       self%domain_emax(:) = self%domain_emax(:) / L0
    endif
-   call file_parameters%get(section_name='amr', option_name='ratio', val=ratio)
+   call file_parameters%get(section_name='amr', option_name='ratio', val=ratio, error=error)
+   if (error /= 0) call mpih%error_stop(msg=': failed to load [amr].(ratio)')
 
    self%block_weight = (self%ngc+self%ni+self%ngc) * (self%ngc+self%nj+self%ngc) * (self%ngc+self%nk+self%ngc)
 
@@ -293,6 +295,8 @@ contains
          self%block_dxyz(3,l) = (self%domain_emax(3) - self%domain_emin(3))
       case(8_I4P)
          self%block_dxyz(:,l) = (self%domain_emax(:) - self%domain_emin(:)) / self%nb_max(l)
+      case default
+         call mpih%error_stop(msg=': [amr].(ratio) = '//trim(str(ratio))//' is not 2, 4 or 8')
       endselect
       self%cell_dxyz(:,l) = self%block_dxyz(:,l) / nijk(:)
       do i=0-self%ngc, self%ni+self%ngc

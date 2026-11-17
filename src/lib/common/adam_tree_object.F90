@@ -654,17 +654,31 @@ contains
 
    subroutine load_from_ini_file(self, file_parameters)
    !< Load object data from INI file.
+   !<
+   !< Every key is required: a missing or unreadable one stops the run (issue #80, defect 3.1). The reads used to share one
+   !< buffer without an error check, so a missing key silently took the value of the key read before it.
    class(tree_object), intent(inout) :: self            !< The tree.
    type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
-   integer(I4P)                      :: buff_I4P        !< I4P buffer.
 
-   call file_parameters%get(section_name='amr', option_name='ratio'        , val=buff_I4P) ; self%ratio         = buff_I4P
-   call file_parameters%get(section_name='amr', option_name='max_level'    , val=buff_I4P) ; self%max_level     = buff_I4P
-   call file_parameters%get(section_name='amr', option_name='iu_ref_levels', val=buff_I4P) ; self%iu_ref_levels = buff_I4P
-   call file_parameters%get(section_name='amr', option_name='i_prune'      , val=buff_I4P) ; self%ijkl_prune(1) = buff_I4P
-   call file_parameters%get(section_name='amr', option_name='j_prune'      , val=buff_I4P) ; self%ijkl_prune(2) = buff_I4P
-   call file_parameters%get(section_name='amr', option_name='k_prune'      , val=buff_I4P) ; self%ijkl_prune(3) = buff_I4P
-   call file_parameters%get(section_name='amr', option_name='l_prune'      , val=buff_I4P) ; self%ijkl_prune(4) = buff_I4P
+   call get_required('ratio'        , self%ratio        )
+   call get_required('max_level'    , self%max_level    )
+   call get_required('iu_ref_levels', self%iu_ref_levels)
+   call get_required('i_prune'      , self%ijkl_prune(1))
+   call get_required('j_prune'      , self%ijkl_prune(2))
+   call get_required('k_prune'      , self%ijkl_prune(3))
+   call get_required('l_prune'      , self%ijkl_prune(4))
+   contains
+      subroutine get_required(option, val)
+      !< Read the [amr] option into val, or stop.
+      character(*), intent(in)    :: option !< Option name.
+      integer(I4P), intent(inout) :: val    !< Value.
+      integer(I4P)                :: buff   !< Buffer: val is left untouched on a failed read.
+      integer(I4P)                :: error  !< Error status.
+
+      call file_parameters%get(section_name='amr', option_name=option, val=buff, error=error)
+      if (error /= 0) call mpih%error_stop(msg=': failed to load [amr].('//option//')')
+      val = buff
+      endsubroutine get_required
    endsubroutine load_from_ini_file
 
    function loop(self, iter, code, node_ptr) result(again)
