@@ -88,10 +88,13 @@ obj_dir  = ./obj/nvf/
 compiler = nvfortran
 # $NVF_LTO (fobos [common-variables]): device link-time optimisation where the varset enables it; the modes that
 # override lflags (the cuFFT links) repeat it, the debug modes leave it out. cflags_heritage: a change of the flags
-# (switching $NVF_LTO) recompiles every file, so LTO never links objects compiled without it
+# (switching $NVF_LTO) recompiles every file, so LTO never links objects compiled without it.
+# -Wnvlink,--split-compile=16: the device LTO runs on 16 threads instead of one (nvfortran 26.9, flume-fnl-nvf, link
+# only: 491 s -> 157 s, peak memory 6.2 -> 17.0 GB; other device code: kernel times to be checked against the
+# one-thread LTO); without ,lto nvlink ignores it. --split-compile-extended=16 needs 2.5 GB (212 s) where memory is tight
 cflags_heritage = True
 cflags   = -cpp -c -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all
-lflags   =         -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all
+lflags   =         -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -Wnvlink,--split-compile=16
 
 [template-nvf-debug]
 template = template-nvf
