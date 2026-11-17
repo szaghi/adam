@@ -383,9 +383,10 @@ contains
          if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
       enddo
    else
-      ! allocate anyway a single element array for backends compatibility
+      ! allocate anyway a single element array for backends compatibility; 0: no variable (it was left undefined,
+      ! and the description printed whatever the memory held)
       allocate(self%ror_ivar(1))
-      ! self%ror_ivar(1) = 1
+      self%ror_ivar = 0
    endif
    call file_parameters%get(section_name=sname, option_name='enable_ror_stats', val=self%enable_ror_stats, error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(enable_ror_stats)')

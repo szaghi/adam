@@ -139,15 +139,20 @@ class Run:
             shutil.rmtree(self.dir)
         self.dir.mkdir(parents=True)
         (self.dir / "input.ini").write_text(edit_ini((REPO / self.input).read_text(), self.edits))
-        with open(self.dir / "log.txt", "w") as log:
+        # stderr apart: the launcher forwards each rank's streams in chunks that need not end at a line, so a rank's
+        # error line merged into the stdout file can land inside another rank's line (CI run 44025316236)
+        with open(self.dir / "log.txt", "w") as log, open(self.dir / "err.txt", "w") as err:
             self.status = subprocess.run([MPIRUN, "-np", str(self.np), str(self.exe_dir / self.exe), "input.ini"],
-                                         cwd=self.dir, stdout=log, stderr=subprocess.STDOUT).returncode
+                                         cwd=self.dir, stdout=log, stderr=err).returncode
 
     def ok(self):
         return (self.status != 0) if self.must_fail else (self.status == 0)
 
     def log(self):
-        return (self.dir / "log.txt").read_text(errors="replace").splitlines()
+        """The run's stdout lines, then its stderr lines (the error stops)."""
+        err = self.dir / "err.txt"
+        text = (self.dir / "log.txt").read_text(errors="replace") + (err.read_text(errors="replace") if err.exists() else "")
+        return text.splitlines()
 
     def first(self, text):
         """The first log line holding `text`, rank 0's when it printed one (the ranks print in no fixed order)."""
@@ -253,7 +258,7 @@ def snippets(R):
         return ["…"] + log[first:first + 5] + ["…"] + log[last:]
 
     def sod_files():
-        names = sorted(p.name for p in R["sod"].dir.iterdir() if p.name not in ("input.ini", "log.txt"))
+        names = sorted(p.name for p in R["sod"].dir.iterdir() if p.name not in ("input.ini", "log.txt", "err.txt"))
         saves = sorted({re.match(r"(.*-\d{9})", n).group(1) for n in names if re.match(r".*-\d{9}", n)})
         lines = ["  ".join(sorted(n for n in names if n.startswith(s))[::-1][:1] +
                            sorted(n for n in names if n.startswith(s) and n.endswith(".h5"))) for s in saves]
