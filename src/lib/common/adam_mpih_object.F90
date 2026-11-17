@@ -29,6 +29,7 @@ type :: mpih_object
    character(:), allocatable :: myrankstr           !< MPI rank process stringified.
    integer(I4P)              :: procs_number=1_I4P  !< Number of MPI processes (MPI_COMM_WORLD).
    integer(I4P)              :: node_comm=0_I4P     !< Node-local (shared-memory) communicator.
+   logical                   :: has_node_comm=.false. !< node_comm split already (initialize may run more than once).
    integer(I4P)              :: node_procs_number=1_I4P !< Number of MPI processes sharing THIS node's RAM.
    real(R8P)                 :: memory_avail=0._R8P !< CPU memory available (GB) for each process.
    integer(I4P)              :: error=0_I4P         !< Error traping flag.
@@ -234,7 +235,12 @@ contains
    ! bought no capacity at all. Split by MPI_COMM_TYPE_SHARED and divide by that
    ! communicator's size instead -- the same primitive the device backends already
    ! use to bind one GPU per node-local rank (adam_mpih_nvf_object.F90:58).
-   call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%node_comm, self%error)
+   ! Split once (issue #80, defect 3.6): initialize runs once per caller (backend, app common object, realm), and each call
+   ! used to create a new communicator with no MPI_COMM_FREE of the previous one, two leaked per realm.
+   if (.not.self%has_node_comm) then
+      call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%node_comm, self%error)
+      self%has_node_comm = .true.
+   endif
    call MPI_COMM_SIZE(self%node_comm, self%node_procs_number, self%error)
    if (self%node_procs_number < 1_I4P) self%node_procs_number = 1_I4P
    call get_memory_info(mem_free=mem_free, mem_total=mem_total)
