@@ -25,7 +25,7 @@
 #       CPU runs of r1 and r2 (run those first, in the CPU environment: the two executables need their own MPI), within
 #       1e-12; the FNL total of u dV constant as in r2.
 #
-# Usage: ./check.sh [--legs LIST]   (legs r1 r2 r3 r4 r5 r6, comma-separated; default r1,r2,r3,r5,r6)
+# Usage: ./check.sh [--legs LIST]   (legs r1 r2 r3 r4 r5 r6, comma- or space-separated; default r1,r2,r3,r5,r6)
 #
 # RIPPLE_CPU_EXE, RIPPLE_FNL_EXE, RIPPLE_CRIT_EXE override the executables (default exe/adam_ripple_cpu,
 # exe/adam_ripple_fnl, exe/test_ripple_crest_criterion), MPIRUN
@@ -47,6 +47,7 @@ while [[ $# -gt 0 ]]; do
       *)      echo "check.sh: unknown argument '$1' (accepted: --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
+LEGS="${LEGS// /,}"  # a space-separated list too: has_leg matches comma-delimited names only, and found none (a vacuous PASS)
 for leg in ${LEGS//,/ }; do
    case "$leg" in
       r1|r2|r3|r4|r5|r6) ;;
