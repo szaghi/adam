@@ -95,24 +95,21 @@ contains
    desc = desc//self%myrankstr//'  cblk:       '//trim(str(self%cblk      ))
    endfunction description
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(mpih_nvf_object) , intent(inout)        :: self              !< MPI handler.
    type(file_ini),          intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                 intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                       :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                                  :: buffer          !< Buffer.
    integer(I4P)                                  :: err             !< Error status.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='block_x', val=buffer, error=err)
-   if (.not.go_on_fail_.and.err>0) call self%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(block_x)')
+   if (err>0) call self%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(block_x)')
    self%cblk(1) = buffer
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='block_y', val=buffer, error=err)
-   if (.not.go_on_fail_.and.err>0) call self%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(block_x)')
+   if (err>0) call self%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(block_x)')
    self%cblk(2) = buffer
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='block_z', val=buffer, error=err)
-   if (.not.go_on_fail_.and.err>0) call self%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(block_x)')
+   if (err>0) call self%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(block_x)')
    self%cblk(3) = buffer
    endsubroutine load_from_file
 

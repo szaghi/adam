@@ -179,20 +179,17 @@ contains
    print '(A)', mpih%myrankstr//'prism_external_fields_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(prism_external_fields_object), intent(inout)  :: self            !< External fields.
    type(file_ini),           intent(in)                :: file_parameters !< Simulation parameters ini file handler.
-   logical,                  intent(in), optional      :: go_on_fail      !< Go on if load fails.
-   logical                                             :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                                        :: error           !< Error status.
    character(99)                                       :: buff_char       !< Option character buffer.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='external_fields_applied', &
                             val=buff_char, error=error)
-	if (.not.go_on_fail_.and.error>0) &
+	if (error>0) &
 	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(external field applied)')
 
    select case(trim(adjustl(buff_char)))
@@ -216,17 +213,17 @@ contains
    case(EF_TYPE_RMF)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
       val=self%RMF_frequency, error=error)
-      if (.not.go_on_fail_.and.error>0) &
+      if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
       val=self%RMF_B_amplitude, error=error)
-      if (.not.go_on_fail_.and.error>0) &
+      if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
                            val=buff_char, error=error)
-      if (.not.go_on_fail_.and.error>0) &
+      if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
       self%RMF_rotation_axis = trim(buff_char)
       self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
@@ -249,21 +246,21 @@ contains
                                val=self%Uniform_D_amplitude, error=error)
       if (error>0) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_D_amplitude', &
                                             val=self%Uniform_D_amplitude, error=error)
-      if (.not.go_on_fail_.and.error>0) &
+      if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Uniform_field_D_amplitude)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_field_B_amplitude', &
                                val=self%Uniform_B_amplitude, error=error)
       if (error>0) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_B_amplitude', &
                                             val=self%Uniform_B_amplitude, error=error)
-      if (.not.go_on_fail_.and.error>0) &
+      if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Uniform_field_B_amplitude)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_field_direction', &
                                val=buff_char, error=error)
       if (error>0) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_direction', &
                                             val=buff_char, error=error)
-      if (.not.go_on_fail_.and.error>0) &
+      if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Uniform_field_direction)')
       self%Uniform_direction = trim(buff_char)
       select case(trim(adjustl(self%Uniform_direction)))
@@ -281,17 +278,17 @@ contains
    case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
       val=self%RMF_frequency, error=error)
-      if (.not.go_on_fail_.and.error>0) &
+      if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
       val=self%RMF_B_amplitude, error=error)
-      if (.not.go_on_fail_.and.error>0) &
+      if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
                            val=buff_char, error=error)
-      if (.not.go_on_fail_.and.error>0) &
+      if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
       self%RMF_rotation_axis = trim(buff_char)
       self%RMF_rotation_axis = trim(self%RMF_rotation_axis)

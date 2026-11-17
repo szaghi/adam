@@ -438,22 +438,19 @@ contains
    print '(A)', mpih%myrankstr//'prism_physics_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail, div_corr_var)
+   subroutine load_from_file(self, file_parameters, div_corr_var)
    !< Load config from file.
    class(prism_physics_object), intent(inout)        :: self            !< Physics.
    type(file_ini),              intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                     intent(in), optional :: go_on_fail      !< Go on if load fails.
    character(*),                intent(in), optional :: div_corr_var
                                                                         !< Type of divergence correction variables (poisson,
                                                                         !< hyperbolic,...).
-   logical                                           :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                                      :: error           !< Error status.
    character(99)                                     :: buff            !< Character buffer.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='physical_model', val=buff, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(physical_model)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(physical_model)')
    select case(trim(adjustl(buff)))
 	case('Electromagnetic', 'Maxwell', 'EM', 'em', 'maxwell', 'electromagnetic')
 		self%physical_model = EM_PHYSICAL_MODEL
@@ -469,9 +466,9 @@ contains
 
    if (is_adim_model(self%physical_model)) then
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='L0', val=self%L0, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(L0)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(L0)')
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
       if (self%L0 <= 0._R8P .or. self%B0 <= 0._R8P) &
          call mpih%error_stop(msg=': [physics] L0 and B0 must be positive')
       self%T0 = self%L0/C0
@@ -482,13 +479,13 @@ contains
       self%M0 = self%Q0*self%B0*self%T0
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
          if (self%chi <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(chi) must be positive')
          self%alpha = 0._R8P
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alpha', val=self%alpha, error=error)
          if (self%alpha < 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(alpha) must be non-negative')
          !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
-         !if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
+         !if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
 
          !In case of hyperbolic divergence cleaning, set evmax to physical max eigenvalue
          self%evmax = max(1._R8P, self%chi)
@@ -509,13 +506,13 @@ contains
       self%M0 = 1._R8P
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
          if (self%chi <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(chi) must be positive')
          self%alpha = 0._R8P
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alpha', val=self%alpha, error=error)
          if (self%alpha < 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(alpha) must be non-negative')
          !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
-         !if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
+         !if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
 
          !In case of hyperbolic divergence cleaning, set evmax to physical max eigenvalue
          self%evmax = max(1._R8P, self%chi)*C0

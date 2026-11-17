@@ -89,22 +89,19 @@ contains
        ((self%it_max> 0).and.(self%it>=self%it_max)))) is_to_save = .true.
    endfunction is_to_save
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(prism_time_object), intent(inout)        :: self            !< Time handler.
    type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                  intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                        :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                                   :: error           !< Error status.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='it_max', val=self%it_max, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(it_max)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(it_max)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_max', val=self%time_max, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_max)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_max)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='CFL', val=self%CFL, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(CFL)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(CFL)')
    endsubroutine load_from_file
 
    subroutine print_progress(self, nodes_number)

@@ -114,19 +114,16 @@ contains
       endsubroutine associate_adam_data
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(blanesmoan_object), intent(inout)        :: self            !< Blanes-Moan object.
    type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                  intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                        :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                                   :: error           !< Error status.
    character(99)                                  :: buff            !< Buffer variable.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme', val=buff, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
    self%scheme = trim(adjustl(buff))
    endsubroutine load_from_file
 endmodule adam_blanes_moan_object

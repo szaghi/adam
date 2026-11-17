@@ -79,7 +79,7 @@ contains
    endif
    endfunction is_to_save
 
-   subroutine load_from_file(self, file_parameters, go_on_fail, grid, L0)
+   subroutine load_from_file(self, file_parameters, grid, L0)
    !< Load config from file.
    !<
    !< The `[slice_N]` extents are in the units of the `[grid]` ones: with `L0` (an adimensional model) they are divided by
@@ -88,16 +88,13 @@ contains
    !< [domain_emin, domain_emax): one outside would abort the run in `grid%get_closest_block` at the first save.
    class(slices_object), intent(inout)        :: self            !< Slices.
    type(file_ini),       intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,              intent(in), optional :: go_on_fail      !< Go on if load fails.
    type(grid_object),    intent(in), optional :: grid            !< Grid of the realm, the points must lie in its domain.
    real(R8P),            intent(in), optional :: L0              !< Adimensionalization length.
-   logical                                    :: go_on_fail_     !< Go on if load fails.
    character(999)                             :: sname           !< Section name.
    real(R8P)                                  :: dxyz(3)         !< Space steps.
    integer(I4P)                               :: i, j, k, s      !< Counter.
    integer(I4P)                               :: error           !< Error status.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call ini_get(file_parameters, INI_SECTION_NAME, 'slices_number', self%slices_number, default=0_I4P)
    if (self%slices_number < 0) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(slices_number) = '// &

@@ -61,17 +61,14 @@ contains
    endif
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load Grms config from the shared input file.
    class(prism_grms_object), intent(inout)        :: self
    type(file_ini),           intent(in)           :: file_parameters
-   logical,                  intent(in), optional :: go_on_fail
-   logical                                        :: go_on_fail_
    character(99)                                  :: buff_c
    integer(I4P)                                   :: error
    real(R8P)                                      :: axis_norm
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='save_history', &
                             val=self%do_save_history, error=error)
@@ -93,21 +90,21 @@ contains
    case('cylinder')
       self%use_cylindrical_region = .true.
       call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='center_x', val=self%center(1), error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load [grms].(center_x)')
+      if (error>0) call mpih%error_stop(msg=': failed to load [grms].(center_x)')
       call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='center_y', val=self%center(2), error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load [grms].(center_y)')
+      if (error>0) call mpih%error_stop(msg=': failed to load [grms].(center_y)')
       call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='center_z', val=self%center(3), error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load [grms].(center_z)')
+      if (error>0) call mpih%error_stop(msg=': failed to load [grms].(center_z)')
       call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='axis_x', val=self%axis(1), error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load [grms].(axis_x)')
+      if (error>0) call mpih%error_stop(msg=': failed to load [grms].(axis_x)')
       call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='axis_y', val=self%axis(2), error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load [grms].(axis_y)')
+      if (error>0) call mpih%error_stop(msg=': failed to load [grms].(axis_y)')
       call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='axis_z', val=self%axis(3), error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load [grms].(axis_z)')
+      if (error>0) call mpih%error_stop(msg=': failed to load [grms].(axis_z)')
       call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='radius', val=self%radius, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load [grms].(radius)')
+      if (error>0) call mpih%error_stop(msg=': failed to load [grms].(radius)')
       call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='length', val=self%length, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load [grms].(length)')
+      if (error>0) call mpih%error_stop(msg=': failed to load [grms].(length)')
       axis_norm = sqrt(sum(self%axis**2))
       if (axis_norm <= 0._R8P) call mpih%error_stop(msg=': [grms].axis must be non-zero')
       if (self%radius <= 0._R8P) call mpih%error_stop(msg=': [grms].radius must be positive')

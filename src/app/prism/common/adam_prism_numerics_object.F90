@@ -78,20 +78,17 @@ contains
    print '(A)', mpih%myrankstr//'prism_numerics_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(prism_numerics_object), intent(inout)        :: self            !< numerics.
    type(file_ini),               intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                      intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                            :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                                       :: s               !< Counter.
    integer(I4P)                                       :: error           !< Error status.
    character(99)                                      :: buff            !< Character buffer.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
    select case(trim(adjustl(buff)))
    case('BLANES_MOAN', 'blanes_moan', 'Blanes_Moan')
       self%scheme_time = NUM_SCHEME_TIME_BLANES_MOAN
@@ -107,7 +104,7 @@ contains
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_space', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
    select case(trim(adjustl(buff)))
    case('WENO', 'weno', 'Weno')
       self%scheme_space = NUM_SCHEME_SPACE_WENO
@@ -121,7 +118,7 @@ contains
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reconstruction_variables)')
    select case(trim(adjustl(buff)))
    case('CONSERVATIVE', 'conservative', 'Conservative')
@@ -134,7 +131,7 @@ contains
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='constrained_transport', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(constrained_transport)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
@@ -155,7 +152,7 @@ contains
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_correction', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
    select case(trim(adjustl(buff)))
    case('POISSON', 'poisson', 'Poisson')
@@ -179,16 +176,16 @@ contains
 
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='d_divergence_cleaner', &
    !                          val=self%d_divergence_cleaner,error=error)
-   ! if (.not.go_on_fail_.and.error>0) &
+   ! if (error>0) &
    !    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(d_divergence_cleaner)')
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='b_divergence_cleaner', &
    !                          val=self%b_divergence_cleaner,error=error)
-   ! if (.not.go_on_fail_.and.error>0) &
+   ! if (error>0) &
    !    call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(b_divergence_cleaner)')
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
-   ! if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+   ! if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
-   ! if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
+   ! if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
    ! ! increase variables number if q if cleaners are used
    ! if     (self%d_divergence_cleaner.and..not.self%b_divergence_cleaner.and.self%div_corr_var==DIV_CORR_VAR_HYPER)then
    !    self%nv = self%nv + 1_I4P

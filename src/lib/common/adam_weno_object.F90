@@ -335,23 +335,20 @@ contains
    if (self%S >= 5) call self%initialize_interpolation_S5
    endsubroutine initialize_interpolation
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(weno_object), intent(inout)        :: self            !< WENO object.
    type(file_ini),     intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,            intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                  :: go_on_fail_     !< Go on if load fails.
    character(99)                            :: buff_c          !< Character buffer.
    character(:), allocatable                :: sname           !< Section name.
    character(:), allocatable                :: oname           !< Option name.
    integer(I4P)                             :: error           !< Error status.
    integer(I4P)                             :: r               !< Counter.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    sname = INI_SECTION_NAME
    call file_parameters%get(section_name=sname, option_name='scheme', val=buff_c, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
    self%scheme = trim(adjustl(buff_c))
    ! optional: the Jiang-Shu weights unless the scale-invariant ones are asked for
    buff_c = WENO_WEIGHTS_JS
@@ -363,7 +360,7 @@ contains
       do r=1, self%ror_number
          oname = 'ror_scheme_'//trim(str(r,.true.))
          call file_parameters%get(section_name=sname, option_name=oname, val=self%ror_schemes(r), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
       enddo
       self%S = self%ror_schemes(1) ! first ROR schemes must be the highest order used
    else
@@ -378,7 +375,7 @@ contains
       do r=1, self%ror_vars_number
          oname = 'ror_ivar_'//trim(str(r,.true.))
          call file_parameters%get(section_name=sname, option_name=oname, val=self%ror_ivar(r), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
       enddo
    else
       ! allocate anyway a single element array for backends compatibility; 0: no variable (it was left undefined,

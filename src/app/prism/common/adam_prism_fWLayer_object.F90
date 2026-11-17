@@ -177,22 +177,19 @@ contains
    print '(A)', mpih%myrankstr//'prism_fWLayer_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(prism_fWLayer_object), intent(inout)        :: self            !< Physics.
    type(file_ini),              intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                     intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                           :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                                      :: error           !< Error status.
    character(99)                                     :: buff            !< Character buffer.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='width', val=self%width, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(width)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(width)')
    if (self%width < 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(width), must be >= 0')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_minus_layer', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_minus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
@@ -204,7 +201,7 @@ contains
                                '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_plus_layer', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_plus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
@@ -216,7 +213,7 @@ contains
                                '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_minus_layer', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_minus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
@@ -228,7 +225,7 @@ contains
                                '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_plus_layer', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_plus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
@@ -240,7 +237,7 @@ contains
                                '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_minus_layer', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_minus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
@@ -252,7 +249,7 @@ contains
                                '"; accepted: yes, no')
    endselect
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_plus_layer', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_plus_layer)')
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')

@@ -314,48 +314,45 @@ contains
    if (verbose_) call mpih%print_message('grid_object%initialize finish')
    endsubroutine initialize
 
-   subroutine load_from_ini_file(self, file_parameters, go_on_fail)
+   subroutine load_from_ini_file(self, file_parameters)
    !< Load object data from INI file.
    class(grid_object), intent(inout)        :: self            !< The grid.
    type(file_ini),     intent(inout)        :: file_parameters !< INI file handler.
-   logical,            intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                  :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                             :: buff_I4P        !< I4P buffer.
    real(R8P)                                :: buff_R8P        !< R8P buffer.
    logical                                  :: buff_log        !< Logical buffer.
    integer(I4P)                             :: error           !< Error status.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ni', val=buff_I4P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ni)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ni)')
    self%ni=buff_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nj', val=buff_I4P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nj)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nj)')
    self%nj=buff_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nk', val=buff_I4P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nk)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nk)')
    self%nk=buff_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ngc', val=buff_I4P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ngc)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ngc)')
    self%ngc=buff_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_x', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_x)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_x)')
    self%domain_emin(1)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_y', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_y)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_y)')
    self%domain_emin(2)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_z', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_z)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_z)')
    self%domain_emin(3)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_x', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_x)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_x)')
    self%domain_emax(1)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_y', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_y)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_y)')
    self%domain_emax(2)=buff_R8P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_z', val=buff_R8P, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_z)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_z)')
    self%domain_emax(3)=buff_R8P
    call ini_get(file_parameters, INI_SECTION_NAME, 'null_x', buff_log, default=.false.)
    self%null_xyz(1)=buff_log

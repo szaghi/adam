@@ -65,22 +65,19 @@ contains
    print '(A)', mpih%myrankstr//'prism_bc_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(prism_bc_object), intent(inout)        :: self            !< BC.
    type(file_ini),         intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                      :: go_on_fail_     !< Go on if load fails.
    character(8)                                 :: sname           !< Section name.
    character(99)                                :: buff_c          !< Character buffer.
    integer(I4P)                                 :: b               !< Counter.
    integer(I4P)                                 :: error           !< Error status.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    do b=1, 6
       sname = INI_SECTION_NAMES(b)
       call file_parameters%get(section_name=sname, option_name='type', val=buff_c, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
       select case(trim(adjustl(buff_c)))
       case('extrapolation')
          self%bc_type(b) = BC_EXTRAPOLATION

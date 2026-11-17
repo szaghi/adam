@@ -408,20 +408,17 @@ contains
       endsubroutine check_amr_block_cells
    endsubroutine initialize
 
-   subroutine load_fdv_from_file(self, file_parameters, go_on_fail)
+   subroutine load_fdv_from_file(self, file_parameters)
    !< Load FDV config from file.
    class(realm_object), intent(inout)        :: self                   !< The equation.
    type(file_ini),      intent(in)           :: file_parameters        !< Simulation parameters ini file handler.
-   logical,             intent(in), optional :: go_on_fail             !< Go on if load fails.
-   logical                                   :: go_on_fail_            !< Go on if load fails.
    integer(I4P)                              :: error                  !< Error status.
    character(99)                             :: buff                   !< Character buffer.
    character(len=3), parameter               :: INI_SECTION_NAME='fdv' !< INI file section name containing FDV config.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='fdv_scheme', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_scheme)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_scheme)')
    select case(trim(adjustl(buff)))
    case('FD', 'fd', 'Fd', 'fD')
       self%fdv_scheme = 'FD'
@@ -450,7 +447,7 @@ contains
    endselect
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='fdv_order', val=self%fdv_order,error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_order)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_order)')
    ! valid only for centered schems
    self%fdv_half_stencil = self%fdv_order / 2
    self%fdv_half_stencils(1) = self%fdv_half_stencil + 0

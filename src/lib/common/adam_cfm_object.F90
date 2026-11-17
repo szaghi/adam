@@ -183,19 +183,16 @@ contains
    ! to be implemented
    endsubroutine initialize_CFM_8
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(cfm_object), intent(inout)        :: self            !< CFM object.
    type(file_ini),    intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,           intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                 :: go_on_fail_     !< Go on if load fails.
    character(99)                           :: buff_c          !< Character buffer.
    integer(I4P)                            :: error           !< Error status.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme', val=buff_c, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
    self%scheme = trim(adjustl(buff_c))
    endsubroutine load_from_file
 endmodule adam_cfm_object

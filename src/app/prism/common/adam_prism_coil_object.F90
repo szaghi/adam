@@ -243,60 +243,54 @@ contains
    print '(A)', mpih%myrankstr//'prism_coil_object%initialize finish'
    endsubroutine initialize
 
-   subroutine load_coils_number(self, file_parameters, go_on_fail)
+   subroutine load_coils_number(self, file_parameters)
    !< Load the number of coils of each kind from file, and their total.
    !<
    !< Separate from `load_from_file` because it needs no grid or field: the solver reads it before the blocks budget
    !< is computed, since the coils current density is a block-sized field per coil.
    class(prism_coil_object), intent(inout)        :: self            !< Coils.
    type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                  intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                        :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                                   :: error           !< Error status.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='circular_coils_number', &
                             val=self%circular_coils_number, error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(circular_coils_number)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='rectangular_coils_number', &
                             val=self%rectangular_coils_number, error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='solenoid_coils_number', &
                             val=self%solenoid_coils_number, error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(solenoid_coils_number)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='helicon_coils_number', &
                             val=self%helicon_coils_number, error=error)
-   if (.not.go_on_fail_.and.error>0) &
+   if (error>0) &
       call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(helicon_coils_number)')
 
    self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number &
                               + self%solenoid_coils_number + self%helicon_coils_number
    endsubroutine load_coils_number
 
-   subroutine load_from_file(self, field, grid, physics, file_parameters, go_on_fail)
+   subroutine load_from_file(self, field, grid, physics, file_parameters)
    !< Load config from file.
    class(prism_coil_object),   intent(inout)        :: self            !< coils.
    type(field_object),         intent(in)           :: field           !< Field (sibling realm component, threaded in).
    type(grid_object),          intent(in), target   :: grid            !< Grid (sibling realm component, threaded in).
    type(prism_physics_object), intent(in)           :: physics         !< PRISM physics.
    type(file_ini),             intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                    intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                          :: go_on_fail_     !< Go on if load fails.
    character(:), allocatable                        :: sname           !< Section name.
    integer(I4P)                                     :: i,j             !< Counter.
    integer(I4P)                                     :: error           !< Error status.
    character(99)                                    :: buff_char       !< Option character buffer.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
-   call self%load_coils_number(file_parameters=file_parameters, go_on_fail=go_on_fail_)
+   call self%load_coils_number(file_parameters=file_parameters)
    if (self%total_coils_number==0_I4P) return
 
    call associate_adam_data
@@ -304,108 +298,108 @@ contains
    call self%allocate_coil(field=field, grid=grid)
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_delay', val=self%td, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')
 
    do i=1, self%total_coils_number
       sname = INI_SECTION_NAME//'_coil_'//trim(str(i,.true.))
 
       call file_parameters%get(section_name=sname, option_name='coil_type', val=buff_char, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(coil_type)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(coil_type)')
       self%coil_type(i) = trim(buff_char)
       self%coil_type(i) = trim(self%coil_type(i))
 
       call file_parameters%get(section_name=sname, option_name='current_type', val=buff_char, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(current_type)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(current_type)')
       self%current_type(i) = trim(buff_char)
       self%current_type(i) = trim(self%current_type(i))
 
       call file_parameters%get(section_name=sname, option_name='sigma', val=self%sigma(i), error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sigma)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sigma)')
 
       select case(self%coil_type(i))
       case(COIL_TYPE_CIRCULAR)
          call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
 
          call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
 
          call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
 
          call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
          call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
       case(COIL_TYPE_RECTANGULAR)
          call file_parameters%get(section_name=sname, option_name='lx', val=self%lx(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(lx)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(lx)')
 
          call file_parameters%get(section_name=sname, option_name='ly', val=self%ly(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ly)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ly)')
 
          call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
 
          call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
 
          call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
          call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
       case(COIL_TYPE_SOLENOID)
          call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
 
          call file_parameters%get(section_name=sname, option_name='l_solenoid', val=self%l_solenoid(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(l_solenoid)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(l_solenoid)')
 
          call file_parameters%get(section_name=sname, option_name='windings', val=self%windings(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(windings)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(windings)')
 
          call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
 
          call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
 
          call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
          call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
       case(COIL_TYPE_HELICON)
          call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
 
          call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
 
          call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
          call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
 
          call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
          call file_parameters%get(section_name=sname, option_name='N_points', val=self%N_points(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(N_points)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(N_points)')
          if (self%N_points(i) > 50.0_R8P) then
             call mpih%error_stop(msg=': too many points for ['//sname//'].(N_points). Max allowed is 50.')
          end if
@@ -413,17 +407,17 @@ contains
          do j=1, self%N_points(i)
             call file_parameters%get(section_name=sname, option_name='x_point_'//trim(str(j,.true.)), &
                                      val=self%x_points(i,j), error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_point_' & 
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_point_' & 
                                                                      //trim(str(j,.true.))//')')
 
             call file_parameters%get(section_name=sname, option_name='y_point_'//trim(str(j,.true.)), &
                                      val=self%y_points(i,j), error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_point_' & 
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_point_' & 
                                                                      //trim(str(j,.true.))//')')
 
             call file_parameters%get(section_name=sname, option_name='z_point_'//trim(str(j,.true.)), &
                                      val=self%z_points(i,j), error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_point_' & 
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_point_' & 
                                                                      //trim(str(j,.true.))//')')
          enddo
       endselect
@@ -432,18 +426,18 @@ contains
       case(CURRENT_TYPE_DC)
 
          call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
 
       case(CURRENT_TYPE_AC)
 
          call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
 
          call file_parameters%get(section_name=sname, option_name='Frequency', val=self%f(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Frequency)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Frequency)')
 
          call file_parameters%get(section_name=sname, option_name='Phase', val=self%phase(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Phase)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Phase)')
 
       endselect
    enddo

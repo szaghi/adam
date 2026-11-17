@@ -648,23 +648,20 @@ contains
    endif
    endsubroutine load_blocks
 
-   subroutine load_from_ini_file(self, file_parameters, nv, go_on_fail)
+   subroutine load_from_ini_file(self, file_parameters, nv)
    !< Load object data from INI file.
    class(field_object), intent(inout)        :: self            !< The field.
    type(file_ini),      intent(inout)        :: file_parameters !< INI file handler.
    integer(I4P),        intent(in), optional :: nv              !< Number of field variables.
-   logical,             intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                   :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                              :: error           !< Error status.
    integer(I4P)                              :: buff_I4P        !< I4P buffer.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    if (present(nv)) then
       self%nv = nv
    else
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nv', val=buff_I4P, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nv)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nv)')
       self%nv = buff_I4P
    endif
    endsubroutine load_from_ini_file

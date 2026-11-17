@@ -120,12 +120,11 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, file_parameters, s, go_on_fail, physics, mu, kd, dha, cp, cv, gam, R, verbose)
+   subroutine initialize(self, file_parameters, s, physics, mu, kd, dha, cp, cv, gam, R, verbose)
    !< Initialize fluid physics.
    class(eos_ic_object), intent(inout)        :: self            !< Fluid physics.
    type(file_ini),       intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),         intent(in), optional :: s               !< Fluid specie number.
-   logical,              intent(in), optional :: go_on_fail      !< Go on if load fails.
    type(eos_ic_object),  intent(in), optional :: physics         !< Fluid physics.
    real(R8P),            intent(in), optional :: mu              !< Dynamic viscosity.
    real(R8P),            intent(in), optional :: kd              !< Thermal diffusivity.
@@ -138,7 +137,7 @@ contains
 
    self%id = 1_I4P ; if (present(s)) self%id = s
    if     (present(file_parameters)) then
-      call self%load_from_file(file_parameters=file_parameters, s=self%id, go_on_fail=go_on_fail)
+      call self%load_from_file(file_parameters=file_parameters, s=self%id)
    elseif (present(physics)) then
       self = physics
    else
@@ -149,31 +148,28 @@ contains
    endif
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, s, go_on_fail)
+   subroutine load_from_file(self, file_parameters, s)
    !< Load from file.
    class(eos_ic_object), intent(inout)        :: self            !< Fluid physics.
    type(file_ini),       intent(in)           :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),         intent(in)           :: s               !< Fluid specie number.
-   logical,              intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                    :: go_on_fail_     !< Go on if load fails.
    integer(I4P)                               :: error           !< Error status.
    character(:), allocatable                  :: sname           !< Section name.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    sname = INI_SECTION_NAME//trim(str(s,.true.))
 
    call self%destroy
    call file_parameters%get(section_name=sname, option_name='cp', val=self%cp, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(cp)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(cp)')
    call file_parameters%get(section_name=sname, option_name='cv', val=self%cv, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(cv)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(cv)')
    call self%compute_derivate
    call file_parameters%get(section_name=sname, option_name='mu', val=self%mu, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(mu)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(mu)')
    call file_parameters%get(section_name=sname, option_name='kd', val=self%kd, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(kd)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(kd)')
    call file_parameters%get(section_name=sname, option_name='dha', val=self%dha, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(dha)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(dha)')
    endsubroutine load_from_file
 
    pure function primitive2conservative(self, primitive) result(conservative)

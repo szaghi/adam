@@ -350,20 +350,17 @@ contains
 	endif
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, pic, go_on_fail)
+   subroutine load_from_file(self, file_parameters, pic)
    !< Load PIC configuration from file.
 	class(prism_particle_injection_object), intent(inout)   		 :: self             !< Particle injection object.
 	type(file_ini),          					 intent(in)		  		 :: file_parameters  !< File handler.
 	type(prism_pic_object), 					 intent(in)				 :: pic					!< PIC object
-   logical,                 					 intent(in), optional :: go_on_fail      	!< Go on if load fails.
-   logical                                          				 :: go_on_fail_     	!< Go on if load fails.
    integer(I4P)                                     				 :: error           	!< Error status.
    character(99)                                    				 :: buff       		!< Option character buffer.
 
-	go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
 		!call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_distribution', val=buff,error=error)
-   	!if (.not.go_on_fail_.and.error>0) &
+   	!if (error>0) &
    	!   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_distribution) from file')
    	!select case(trim(adjustl(buff)))
    	!case('Domain_uniform', 'domain_uniform', 'domain_Uniform')
@@ -382,7 +379,7 @@ contains
 		if (error > 0) self%seed = -1_I4P
 		call file_parameters%get(section_name=INI_SECTION_NAME, &
 										 option_name='space_random_number_generator', val=buff,error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	   call mpih%error_stop(msg=': failed to load [' &
 													//INI_SECTION_NAME//'].(space_random_number_generator) from file')
    	select case(trim(adjustl(buff)))
@@ -398,12 +395,12 @@ contains
 		!if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
 		!	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_number', &
    	!	val=self%box_number, error=error)
-   	!	if (.not.go_on_fail_.and.error>0) &
+   	!	if (error>0) &
    	!	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_number)')
 		!endif
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_pairing', val=buff,error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_pairing)')
    	select case(trim(adjustl(buff)))
    	case('NO', 'no', 'No', 'nO')
@@ -416,7 +413,7 @@ contains
 		endselect
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ions_velocity_distribution', val=buff,error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_velocity_distribution) from file')
    	select case(trim(adjustl(buff)))
    	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
@@ -434,28 +431,28 @@ contains
 		if (self%ions_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ionic_temperature', &
    		val=self%T_i, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ionic_temperature)')
 
 		elseif (self%ions_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ionic_temperature_x', &
    		val=self%T_i_x, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ionic_temperature_x)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ionic_temperature_y', &
    		val=self%T_i_y, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ionic_temperature_y)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ionic_temperature_z', &
    		val=self%T_i_z, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ionic_temperature_z)')
 		endif
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electrons_velocity_distribution', val=buff,error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electrons_velocity_distribution) from file')
    	select case(trim(adjustl(buff)))
    	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
@@ -473,28 +470,28 @@ contains
 		if (self%electrons_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electronic_temperature', &
    		val=self%T_e, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electronic_temperature)')
 
 		elseif (self%electrons_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electronic_temperature_x', &
    		val=self%T_e_x, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electronic_temperature_x)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electronic_temperature_y', &
    		val=self%T_e_y, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electronic_temperature_y)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electronic_temperature_z', &
    		val=self%T_e_z, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electronic_temperature_z)')
 		endif
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_velocity_distribution', val=buff,error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_velocity_distribution) from file')
    	select case(trim(adjustl(buff)))
    	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
@@ -512,23 +509,23 @@ contains
 		if (self%neutrals_velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_temperature', &
    		val=self%T_n, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_temperature)')
 
 		elseif (self%neutrals_velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_temperature_x', &
    		val=self%T_n_x, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_temperature_x)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_temperature_y', &
    		val=self%T_n_y, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_temperature_y)')
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_temperature_z', &
    		val=self%T_n_z, error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_temperature_z)')
 		endif
 
@@ -541,7 +538,7 @@ contains
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, &
 											 option_name='velocity_random_number_generator', val=buff,error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		   call mpih%error_stop(msg=': failed to load [' &
 														//INI_SECTION_NAME//'].(velocity_random_number_generator) from file')
    		select case(trim(adjustl(buff)))
@@ -555,7 +552,7 @@ contains
 			endselect
 
 			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='velocity_pairing', val=buff,error=error)
-   		if (.not.go_on_fail_.and.error>0) &
+   		if (error>0) &
    		   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_pairing)')
    		select case(trim(adjustl(buff)))
    		case('NO', 'no', 'No', 'nO')
@@ -570,51 +567,51 @@ contains
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ions_drift_x', &
    	val=self%ions_drift_x, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_drift_x)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ions_drift_y', &
    			val=self%ions_drift_y, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_drift_y)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ions_drift_z', &
    			val=self%ions_drift_z, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_drift_z)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electrons_drift_x', &
    			val=self%electrons_drift_x, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electrons_drift_x)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electrons_drift_y', &
    			val=self%electrons_drift_y, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electrons_drift_y)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electrons_drift_z', &
    			val=self%electrons_drift_z, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electrons_drift_z)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_drift_x', &
    			val=self%neutrals_drift_x, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_drift_x)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_drift_y', &
    			val=self%neutrals_drift_y, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_drift_y)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_drift_z', &
    			val=self%neutrals_drift_z, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_drift_z)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_av_correction', val=buff,error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_av_correction)')
    	select case(trim(adjustl(buff)))
    	case('NO', 'no', 'No', 'nO')
@@ -646,42 +643,42 @@ contains
 	elseif (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_position', &
    		val=self%x_position, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_position)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_position', &
    		val=self%y_position, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_position)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_position', &
    		val=self%z_position, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_position)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='charge', &
    		val=self%charge, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(charge)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='mass', &
    		val=self%mass, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(mass)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_x', &
    			val=self%v_drift_x, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_x)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_y', &
    			val=self%v_drift_y, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_y)')
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_z', &
    			val=self%v_drift_z, error=error)
-   	if (.not.go_on_fail_.and.error>0) &
+   	if (error>0) &
    		call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_z)')
 	endif
    endsubroutine load_from_file

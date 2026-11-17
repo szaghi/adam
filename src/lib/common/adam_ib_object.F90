@@ -186,18 +186,15 @@ contains
    call mpih%print_message('ib_object%initialize finish')
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(ib_object), intent(inout)        :: self            !< IB.
    type(file_ini),   intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,          intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                :: go_on_fail_     !< Go on if load fails.
    character(:), allocatable              :: sname           !< Section name.
    integer(I4P)                           :: i               !< Counter.
    integer(I4P)                           :: c               !< Character counter.
    integer(I4P)                           :: err             !< Error status.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call ini_get(file_parameters, INI_SECTION_NAME//'s', 'number', self%solids_number, default=0_I4P)
    call ini_get(file_parameters, INI_SECTION_NAME//'s', 'n_eikonal', self%n_eikonal, default=2_I4P)
 
@@ -211,49 +208,49 @@ contains
       do i=1, self%solids_number
          sname = INI_SECTION_NAME//'_'//trim(str(i,.true.))
          call file_parameters%get(section_name=sname, option_name='name', val=self%s_name(i), error=err)
-         if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(name)')
+         if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(name)')
          call file_parameters%get(section_name=sname, option_name='bc_type', val=self%bc_type(i), error=err)
-         if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(bc_type)')
+         if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(bc_type)')
          call file_parameters%get(section_name=sname, option_name='definition', val=self%definition(i), error=err)
-         if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(definition)')
+         if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(definition)')
          do c=1, len(self%definition(i)) ! blank the control characters (a CR of a Windows input)
             if (iachar(self%definition(i)(c:c)) < 32) self%definition(i)(c:c) = ' '
          enddo
          select case(trim(adjustl(self%definition(i))))
          case(trim(IB_ANALYTICAL_SPHERE))
             call file_parameters%get(section_name=sname, option_name='sphere_center_x', val=self%sphere(i)%center(1), error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_x)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_x)')
             call file_parameters%get(section_name=sname, option_name='sphere_center_y', val=self%sphere(i)%center(2), error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_y)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_y)')
             call file_parameters%get(section_name=sname, option_name='sphere_center_z', val=self%sphere(i)%center(3), error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_z)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_z)')
             call file_parameters%get(section_name=sname, option_name='sphere_radius', val=self%sphere(i)%radius, error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_radius)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_radius)')
          case(trim(IB_ANALYTICAL_CIRCLE))
             call file_parameters%get(section_name=sname, option_name='circle_center_x', val=self%sphere(i)%center(1), error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_center_x)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_center_x)')
             call file_parameters%get(section_name=sname, option_name='circle_center_y', val=self%sphere(i)%center(2), error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_center_y)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_center_y)')
             call file_parameters%get(section_name=sname, option_name='circle_center_z', val=self%sphere(i)%center(3), error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_center_z)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_center_z)')
             call file_parameters%get(section_name=sname, option_name='circle_radius', val=self%sphere(i)%radius, error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_radius)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_radius)')
             call file_parameters%get(section_name=sname, option_name='circle_axis', val=self%sphere(i)%axis, error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_axis)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(circle_axis)')
             call check_axis(axis=self%sphere(i)%axis, option='circle_axis')
          case(trim(IB_ANALYTICAL_RECTANGLE))
             call file_parameters%get(section_name=sname,option_name='rectangle_center_x',val=self%rectangle(i)%center(1),error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_center_x)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_center_x)')
             call file_parameters%get(section_name=sname,option_name='rectangle_center_y',val=self%rectangle(i)%center(2),error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_center_y)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_center_y)')
             call file_parameters%get(section_name=sname,option_name='rectangle_center_z',val=self%rectangle(i)%center(3),error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_center_z)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_center_z)')
             call file_parameters%get(section_name=sname, option_name='rectangle_edge_1', val=self%rectangle(i)%edge(1), error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_edge_1)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_edge_1)')
             call file_parameters%get(section_name=sname, option_name='rectangle_edge_2', val=self%rectangle(i)%edge(2), error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_edge_2)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_edge_2)')
             call file_parameters%get(section_name=sname, option_name='rectangle_axis', val=self%rectangle(i)%axis, error=err)
-            if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_axis)')
+            if (err>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_axis)')
             call check_axis(axis=self%rectangle(i)%axis, option='rectangle_axis')
          case default ! issue #57: compute_phi has no case for any other definition, so the solid got no phi, silently
             call mpih%error_stop(msg=': unknown ['//sname//'].(definition) "'//trim(adjustl(self%definition(i)))// &

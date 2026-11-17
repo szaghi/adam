@@ -129,22 +129,19 @@ contains
    call mpih%print_message('amr_object%initialize finish')
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters)
    !< Load config from file.
    class(amr_object), intent(inout)        :: self            !< AMR.
    type(file_ini),    intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,           intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                 :: go_on_fail_     !< Go on if load fails.
    character(:), allocatable               :: sname           !< Section name.
    character(99)                           :: buff_c          !< Character buffer.
    integer(I4P)                            :: i_marker        !< Counter.
    integer(I4P)                            :: error           !< Error status.
 
-   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='frequency', val=self%frequency, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(frequency)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(frequency)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='iters', val=self%iters, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iters)')
+   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iters)')
    call ini_get(file_parameters, INI_SECTION_NAME, 'markers_number', self%markers_number, default=0_I4P)
    ! optional: how a refined block's children are filled; an app may choose its own default when it is absent
    buff_c = ''
@@ -170,18 +167,18 @@ contains
    do i_marker=1, self%markers_number
       sname = INI_SECTION_NAME//'_marker_'//trim(str(i_marker,.true.))
       call file_parameters%get(section_name=sname, option_name='mode', val=self%markers(i_marker)%mode, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(mode)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(mode)')
       call file_parameters%get(section_name=sname, option_name='delta_type', val=buff_c, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_type)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_type)')
       self%markers(i_marker)%delta_type = trim(adjustl(buff_c))
       call file_parameters%get(section_name=sname, option_name='delta_fine', val=self%markers(i_marker)%delta_fine, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_fine)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_fine)')
       call file_parameters%get(section_name=sname, option_name='delta_coarse', val=self%markers(i_marker)%delta_coarse, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_coarse)')
+      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_coarse)')
       select case(self%markers(i_marker)%mode)
       case(AMR_GEO)
          call file_parameters%get(section_name=sname, option_name='geo_type', val=buff_c, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(geo_type)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(geo_type)')
          select case(trim(adjustl(buff_c)))
          case('solid')         ; self%markers(i_marker)%geo_type = AMR_GEO_SOLID
          case('primitive-box') ; self%markers(i_marker)%geo_type = AMR_GEO_PRIMITIVE_BOX
@@ -193,41 +190,41 @@ contains
          select case(self%markers(i_marker)%geo_type)
          case(AMR_GEO_SOLID)
             call file_parameters%get(section_name=sname, option_name='solid', val=self%markers(i_marker)%solid, error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(solid)')
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(solid)')
          case(AMR_GEO_PRIMITIVE_BOX)
             call file_parameters%get(section_name=sname, option_name='box_xmin', &
                                      val=self%markers(i_marker)%box_emin(1), error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_xmin)')
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_xmin)')
             call file_parameters%get(section_name=sname, option_name='box_ymin', &
                                      val=self%markers(i_marker)%box_emin(2), error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_ymin)')
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_ymin)')
             call file_parameters%get(section_name=sname, option_name='box_zmin', &
                                      val=self%markers(i_marker)%box_emin(3), error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_zmin)')
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_zmin)')
             call file_parameters%get(section_name=sname, option_name='box_xmax', &
                                      val=self%markers(i_marker)%box_emax(1), error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_xmax)')
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_xmax)')
             call file_parameters%get(section_name=sname, option_name='box_ymax', &
                                      val=self%markers(i_marker)%box_emax(2), error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_ymax)')
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_ymax)')
             call file_parameters%get(section_name=sname, option_name='box_zmax', &
                                      val=self%markers(i_marker)%box_emax(3), error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_zmax)')
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_zmax)')
             call file_parameters%get(section_name=sname, option_name='target_level', &
                                      val=self%markers(i_marker)%target_level, error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(target_level)')
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(target_level)')
          case(AMR_GEO_STL)
             call file_parameters%get(section_name=sname, option_name='stl_filename', val=buff_c, error=error)
-            if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(stl_filename)')
+            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(stl_filename)')
             self%markers(i_marker)%stl_filename = trim(adjustl(buff_c))
          endselect
       case(AMR_GRAD,AMR_TV)
          call file_parameters%get(section_name=sname, option_name='field', val=self%markers(i_marker)%field, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
          call file_parameters%get(section_name=sname, option_name='var', val=self%markers(i_marker)%ivar, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
          call file_parameters%get(section_name=sname, option_name='tol', val=self%markers(i_marker)%tol, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(tol)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(tol)')
       case(AMR_LOHNER)
          ! Loehner (1987) normalized second derivative, E in [0, 1]: refine above refine_tol, derefine below
          ! derefine_tol, keep between (the hysteresis band); epsilon filters small ripples relative to the variable,
@@ -235,15 +232,15 @@ contains
          ! relative filter alone reads E ~ 1 on round-off noise); buffer is the number of ghost layers the estimator
          ! reads, so a feature at a neighbour's edge marks this block too
          call file_parameters%get(section_name=sname, option_name='field', val=self%markers(i_marker)%field, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
          call file_parameters%get(section_name=sname, option_name='var', val=self%markers(i_marker)%ivar, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
          call file_parameters%get(section_name=sname, option_name='refine_tol', val=self%markers(i_marker)%refine_tol, &
                                   error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(refine_tol)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(refine_tol)')
          call file_parameters%get(section_name=sname, option_name='derefine_tol', &
                                   val=self%markers(i_marker)%derefine_tol, error=error)
-         if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(derefine_tol)')
+         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(derefine_tol)')
          ! optional, defaults kept when absent
          call file_parameters%get(section_name=sname, option_name='epsilon', val=self%markers(i_marker)%epsilon, error=error)
          call file_parameters%get(section_name=sname, option_name='buffer', val=self%markers(i_marker)%buffer, error=error)

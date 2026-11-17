@@ -105,7 +105,7 @@ This is the only NVF object that uses Fortran type extension (`type, extends(mpi
 | `set_cuda_dimensions(cgrd, cblk)` | Computes `tBlock = dim3(cblk)` and `grid = dim3(⌈cgrd/tBlock⌉)` for a subsequent kernel launch. |
 | `check_cuda_error(error_code, msg)` | Calls `cudaDeviceSynchronize` then `cudaGetLastError`; aborts with a formatted message on any CUDA error. |
 | `print_device_properties(device_properties)` | Logs total memory, shared memory, warp size, compute capability, SM count, L2 cache size, and clock rate. |
-| `load_from_file(file_parameters, go_on_fail)` | Reads `[cuda]` section from INI file: `block_x`, `block_y`, `block_z` → `cblk(1:3)`. |
+| `load_from_file(file_parameters)` | Reads `[cuda]` section from INI file: `block_x`, `block_y`, `block_z` → `cblk(1:3)`. |
 
 INI configuration section: `[cuda]`.
 
