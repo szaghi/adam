@@ -30,7 +30,7 @@ interaction continues T3.7 under [#121](https://github.com/szaghi/adam/issues/12
 | [Subgrid-scale models](./sgs-models) | T1 | sg1–sg4 | P+C |
 | [The hybrid central/WENO scheme](./hybrid-scheme) | T2.1–T2.7 | hy1–hy13 | P+C |
 | [Plane channel and the wall model](./channel) | T3.1–T3.6 | wm1–wm12 | P+C |
-| [Compressible boundary layer](./boundary-layer) | T3.7 | tb1–tb2 | P+C |
+| [Compressible boundary layer](./boundary-layer) | T3.7, S5 | tb1–tb3 | P+C |
 
 | Phase | What | Legs | Page |
 |---|---|---|---|
@@ -58,3 +58,4 @@ interaction continues T3.7 under [#121](https://github.com/szaghi/adam/issues/12
 | ([#121](https://github.com/szaghi/adam/issues/121) S4d) | The pressure gradient in the equilibrium model | wm12 | [Channel](./channel) |
 | ([#126](https://github.com/szaghi/adam/issues/126)) | The wall model coupled through the wall viscosity, no-slip kept; on the Mach 2.5 zero-gradient layer $C_f$ 8.7 % below the flux coupling's (the gate fails) | wm14 | [Channel](./channel), [Boundary layer](./boundary-layer#the-viscosity-coupling) |
 | T3.7 | Compressible boundary layer, Mach 2.5 and 5.86, digital-filter inflow | tb1, tb2 | [Boundary layer](./boundary-layer) |
+| ([#121](https://github.com/szaghi/adam/issues/121) S5) | Recycling-rescaling inflow (the STREAmS variant); on the Mach 2.5 layer no $C_f$ dip, within 4 % of the developed level from $x=10\,\delta_i$ against 53 for the digital filter | tb3 | [Boundary layer](./boundary-layer#recycling-inflow) |

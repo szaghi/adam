@@ -486,7 +486,7 @@ All six sections are required, even along null directions.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `type` | string | yes (every face) | `extrapolation`, `inflow`, `inflow-digital-filter`, `non-reflecting`, `shock-generator`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `wall-modelled`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
+| `type` | string | yes (every face) | `extrapolation`, `inflow`, `inflow-digital-filter`, `inflow-recycling`, `non-reflecting`, `shock-generator`, `wall-inviscid`, `wall-noslip`, `wall-isothermal`, `wall-modelled`, `periodic`, `hydrostatic`. Other → fatal. The two faces of an axis must be **both** periodic or **neither** (fatal). | See the list below. |
 | `r`, `u`, `v`, `w`, `p` | real | `type = inflow` | no range check | Prescribed primitive inflow state. |
 | `bx`, `by`, `bz` | real | `type = inflow` **and** `mhd-ideal` | no range check | Prescribed inflow magnetic field. `psi` is set to 0. |
 | `s1` .. `sN` | real | no (`type = inflow` with `passive_scalars = N`) | default 0, no range check | Specific values (mass fractions) of the passive scalars of the inflow. |
@@ -511,6 +511,12 @@ All six sections are required, even along null directions.
 | `df_wall_axis` | string | with `inflow-digital-filter` | `x`, `y`, `z`, not the face normal (fatal) | Wall-normal axis, the wall on its minimum side; the span is the third axis (wrapped when periodic). |
 | `df_length_streamwise`, `df_length_normal`, `df_length_spanwise` | real | with `inflow-digital-filter` | `> 0` | Integral lengths in units of `df_delta`; the streamwise one becomes the time scale $L_x / U_\infty$. |
 | `df_seed` | integer | no (1) | | Seed of the random stream (the same plane on every rank). |
+| `r`, `u`, `p` with `inflow-recycling` | real | yes | `> 0`, otherwise fatal | Free-stream density, speed along the inward normal, pressure. **Euler** only, one such face per realm. |
+| `rr_profile`, `rr_delta`, `rr_wall_axis` | | with `inflow-recycling` | as `df_profile`, `df_delta`, `df_wall_axis` | The mean: the digital filter's table (its stresses unused), the layer thickness at the face, the wall-normal axis (the wall on its minimum side). |
+| `rr_spacing` | real | with `inflow-recycling` | `> 0`; must divide the face (fatal) | The cell spacing of the plane: the cells at the face and at the station must have it (one level there; fatal otherwise). |
+| `rr_x` | real | with `inflow-recycling` | `> 0`; at least the ghost layers, inside the domain (fatal) | The recycling station, its distance from the face (rounded to cells). |
+| `rr_delta_ratio`, `rr_beta` | real | with `inflow-recycling` | `> 0` | $\delta(x_r)/\delta(0)$ and $\delta_v(x_r)/\delta_v(0)$, the outer and inner rescaling; `make_tbl.py --inflow recycling` sets them from a correlation. |
+| `rr_shift` | real | no (0.5) | `[0, 1)`; non-zero needs a periodic span (fatal) | The span shift of the recycled plane, a fraction of the span. |
 | `r`, `u`, `v`, `w`, `p` with `non-reflecting` | real | yes | `r, p > 0` (fatal) | The target state: its pressure is the one the face relaxes to, its entropy and tangential velocity those of flow entering through it. **Euler** only (no dual energy, no passive scalars). |
 | `nr_length` | real | with `non-reflecting` | `> 0` (fatal) | $L$ of the relaxation $K = \sigma(1 - M^2)c/L$, a length of the domain. |
 | `nr_sigma` | real | no (0.28) | `>= 0` (fatal) | $\sigma$: 0 is extrapolation at an outflow; larger holds the pressure faster and reflects more. |
@@ -526,6 +532,7 @@ What each `type` does:
 - `non-reflecting` ([#121](https://github.com/szaghi/adam/issues/121)): characteristic outflow and far field, the incoming acoustic wave relaxed toward the target pressure ([boundary conditions](./boundary-conditions#non-reflecting-a-characteristic-outflow-and-far-field)).
 - `shock-generator` ([#121](https://github.com/szaghi/adam/issues/121)): the post-shock state of an oblique shock in a range of x on a y face, extrapolation elsewhere ([boundary conditions](./boundary-conditions#shock-generator-an-oblique-shock-through-a-y-face)).
 - `inflow-digital-filter` ([#119](https://github.com/szaghi/adam/issues/119)): a turbulent boundary layer through the face ([turbulence](./turbulence#digital-filter-inflow)).
+- `inflow-recycling` ([#121](https://github.com/szaghi/adam/issues/121)): the same, its fluctuations recycled from a plane downstream and rescaled ([turbulence](./turbulence#recycling-rescaling-inflow)).
 - `wall-inviscid`: slip wall (mirror state with the normal momentum negated; for MHD the normal B is negated too).
 - `wall-noslip`: adiabatic no-slip wall; `wall-isothermal`: isothermal no-slip wall
   ([boundary conditions](./boundary-conditions#wall-noslip-and-wall-isothermal-no-slip-walls)).

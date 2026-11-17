@@ -10,6 +10,7 @@ FLUME runs large-eddy simulations of compressible wall-bounded and free turbulen
 | Impermeable no-slip walls | `wall-noslip`, `wall-isothermal` faces | [Closed inviscid fluxes](#no-slip-walls-closed-inviscid-fluxes) |
 | Equilibrium and inverse-transformation wall models | `wall-modelled` faces | [Wall model](#wall-model) |
 | Turbulent boundary-layer inflow | `inflow-digital-filter` faces | [Digital-filter inflow](#digital-filter-inflow) |
+| Turbulent boundary-layer inflow from the layer itself | `inflow-recycling` faces | [Recycling-rescaling inflow](#recycling-rescaling-inflow) |
 | Constant mass flow in a periodic channel | `[forcing] type = mass-flow` | [Mass-flow forcing](#mass-flow-forcing) |
 | Kinetic-energy budget and wall histories | `[diagnostics]` | [Diagnostics](#turbulence-diagnostics) |
 
@@ -430,7 +431,61 @@ fills the domain with the mean of the same table.
 - With a periodic span, the ghosts beyond the face and the span are filled by the periodic exchange, so they lag the
   plane by one boundary fill.
 - A digital filter needs a recovery length after the inlet, about $40\,\delta_i$ at Mach 2.5 against $20\,\delta_i$
-  for recycling (Huang, Duan & Choudhari 2022).
+  for recycling (Huang, Duan & Choudhari 2022); measured here, $C_f$ is within 4 % of its developed level from
+  $x=53\,\delta_i$, 24 % below it at $x\approx27$ ([boundary layer](./verification/turbulence/boundary-layer#recycling-inflow)).
+
+## Recycling-rescaling inflow
+
+An `inflow-recycling` face ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max),
+[#121](https://github.com/szaghi/adam/issues/121)) feeds the layer with its own turbulence: the mean of the digital
+filter's table plus the fluctuations at a station `rr_x` downstream, rescaled to the face. It is the variant of the
+STREAmS solver (Pirozzoli, Bernardini & Grasso; read from the STREAmS-2 source, `recyc_prepare` and `bcrecyc`) of the
+method of Lund, Wu & Squires (1998): the mean stays prescribed, only the fluctuations are recycled.
+
+1. **Plane.** The `ngc` cell layers ending at the station, a translation of the ghost layers by
+   $L=\mathrm{nint}(x_r/\Delta)\,\Delta$: ghost layer $g$, at $x=-(g-\tfrac12)\Delta$, takes the cells at
+   $x=L-(g-\tfrac12)\Delta$. Every rank writes the cells it owns into one global plane and an allreduce sums it, so the
+   plane is the same on every rank whatever the decomposition (a count of the writes checks that each entry is written
+   once).
+2. **Fluctuations.** Per layer and wall-normal row, the spanwise Favre mean $\tilde u=\sum\rho u/\sum\rho$ and the mean
+   density: $u''=u-\tilde u$ (three components) and $\rho'=\rho-\bar\rho$.
+3. **Rescaling.** A ghost at height $y$ takes the fluctuations at $\beta y$ (inner: the viscous length grows by
+   $\beta=\delta_v(x_r)/\delta_v(0)$) and at $(\delta(x_r)/\delta(0))\,y$ (outer), linear between the plane's rows,
+   blended by $W(\eta)=\tfrac12\left(1+\tanh\frac{4(\eta-0.2)}{0.2+0.6\eta}/\tanh4\right)$, $\eta=y/\delta$, and damped
+   by $\tfrac12(1-\tanh 4(\eta-2))$. The velocity fluctuations are scaled by $\beta$, the friction velocity ratio; the
+   density one is clipped to $[-0.75, 4]\,\bar\rho$. A source above the plane gives none.
+4. **Span shift.** The plane is read `rr_shift` of the span away (half by default), which breaks the streamwise locking
+   of the recycled structures.
+5. **State.** The table's mean plus the fluctuations at the free-stream pressure.
+
+$\beta$ and the thickness ratio are keys: `make_tbl.py --inflow recycling` sets them from the momentum integral
+$d\theta/dx=C_f/2$ with van Driest II (Kármán–Schoenherr) from the table's $\theta$ to $x_r$, $\delta$ growing as
+$\theta$ and $\delta_v$ as $1/\sqrt{C_f}$, as STREAmS sets them from its mean-profile model, never from the run. Unlike
+STREAmS, the first cell keeps its fluctuation: STREAmS zeroes it, a DNS cell below $y^+=1$, where here it is the wall
+model's log-layer cell.
+
+Once per step, before the first stage, from the committed state: each rank gathers its plane cells (on FNL from the
+device), the plane is summed and its fluctuations taken, and the ghost rows are listed where the digital filter's are
+(the CPU at every boundary fill, FNL when copying them to the device, also after a map rebuild) and written by the same
+kernel. Edges and corners are extrapolated. The face keeps no state: a restart continues bit for bit.
+
+**Measured** on the Mach 2.5 layer at $\delta_i/12$ against the digital filter, same restart, model and window
+([boundary layer](./verification/turbulence/boundary-layer#recycling-inflow)): the digital filter's dip, $C_f$ 24 % below
+the downstream level at $x\approx27\,\delta_i$, is gone; beyond the station $C_f$ over van Driest II stays within $-2.0$ and
+$+3.8$ % of that level and is within 4 % of it from $x=10\,\delta_i$ (the digital filter from 53). The recovery length of the
+gate's measure (3 % of the run's own developed mean) is $26\,\delta_i$ against 50; against the common downstream level at
+3 %, both reach it at $x=55$, because the recycled layer runs up to 3.8 % above it around $x=50$ (cause not identified).
+
+**Limits.**
+
+- Euler only, one face per realm, the wall on the minimum side of its axis; the cells at the face and at the station on
+  one level, at `rr_spacing`.
+- The ratios are those of a correlation, fixed for the run.
+- Recycling is known to add a spurious frequency, the recycling period $x_r/U$, to the incoming layer (Morgan et al.,
+  as cited in the llm-wiki's inflow-generation page); not measured here.
+- The plane costs a device gather, an allreduce of $5\times n_{gc}\times n_y\times n_z$ values and a host pass over
+  the ghost rows every step: 3 % of the wall time per step on the Mach 2.5 case (0.63 s against the digital filter's
+  0.61 s, one A30 node each, a single pair of runs).
 
 ## Mass-flow forcing
 

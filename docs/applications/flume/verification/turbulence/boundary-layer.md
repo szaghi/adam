@@ -2,7 +2,7 @@
 
 | ID | Milestone | Type | Legs | Backends | Figure |
 |---|---|---|---|---|---|
-| TB | [#119](https://github.com/szaghi/adam/issues/119) · T3.7 | P+C | tb1–tb2 | CPU, FNL | yes |
+| TB | [#119](https://github.com/szaghi/adam/issues/119) · T3.7, [#121](https://github.com/szaghi/adam/issues/121) · S5 | P+C | tb1–tb3 | CPU, FNL | yes |
 
 ## Case and scope
 
@@ -22,6 +22,7 @@ measures $C_f$, $B_q$, the shape factor and the profiles against the DNS.
 |---|---|---|
 | tb1 | digital-filter inflow: the generator's stresses, temporal and spanwise correlations, periodic span, plane restart (`test_inflow_df`); a Mach 2.5 box: the inflow ghosts carry the table; one rank against 2; restart with the `.dff` against straight, control without it | stresses 0.4–0.7 % (bound 3 %), correlation exact, integral length 5 % short (bound 10 %); $\langle u\rangle$ at $\delta/2$ 0.877 against 0.891; $2\cdot10^{-16}$; fields and histories bit for bit (CPU and FNL), the control differs; FNL against CPU $10^{-15}$ |
 | tb2 | wall-model history: $\tau_w$ of wm5's laminar channel against the driving force; one rank against 2 on the Mach 2.5 box; CPU against GPU | $3.9\cdot10^{-4}$ (bound $10^{-3}$); $4\cdot10^{-16}$; $1.1\cdot10^{-13}$ |
+| tb3 | recycling-rescaling inflow ([turbulence](../../turbulence#recycling-rescaling-inflow)): blend, damping, plane, zero spanwise means and the rescaling on a synthetic block (`test_inflow_rr`); the Mach 2.5 box, 120 digital-filter steps then the recycling face (station 2.5, ratios 1): the ghosts rebuilt independently by `tbl_oracle.py` from the saved state on one rank and 2; restart at step 122 against straight; a rescaled run's inflow mean and fluctuations | to round-off; $6.7\cdot10^{-16}$ over 768 ghosts on both, one rank against 2 $1.6\cdot10^{-16}$; bit for bit (CPU and FNL); $\langle u\rangle$ at $\delta/2$ 0.888 against 0.891, $v_{rms}$, $w_{rms}$ 0.010, 0.011 (floor $10^{-3}$); FNL against CPU $2.7\cdot10^{-15}$ |
 
 ## Mach 2.5
 
@@ -325,6 +326,56 @@ gate's band. Bottom: the van Driest velocity at the station against the DNS; $C_
   molecular stress where the wall is resolved, is what lets the first cell's no-slip gradient win. The variant without it, the
   model's magnitude along the first cell's velocity, is not tested.
 
+## Recycling inflow
+
+The recovery gate of the `inflow-recycling` face ([turbulence](../../turbulence#recycling-rescaling-inflow),
+[#121](https://github.com/szaghi/adam/issues/121) S5): the digital filter's layer needs about $50\,\delta_i$ to reach its
+developed $C_f$ (the dip in [the flow](#the-flow)); recycling should shorten it. The measure, fixed before the run: $C_f$ over
+van Driest II at the run's own $Re_\theta(x)$, and the first $x$ beyond which that ratio stays within 3 % of its mean over
+$45\le x\le75$ (the outflow end excluded). The reference is #126's ctrl ([the viscosity coupling](#the-viscosity-coupling)):
+the same restart, model, window and grid, the digital filter at the face.
+
+| Setup | |
+|---|---|
+| run | rs's state at $t=540$ restarted to 900 as ctrl (the plain equilibrium model, its eddy viscosity below $h$), the face `inflow-recycling` at station $x_r=20\,\delta_i$ (240 cells; `make_tbl.py --inflow recycling --rr-x 20`: thickness ratio 1.3305, $\beta=1.0343$, span shift one half); statistics over the 34 checkpoints of $720<t\le900$ (`tbl_oracle.py compare --t0 720`); one prod-gn node (4 A30), 4 h 36 min |
+| grid | the baseline's: $\delta_i/12$, $1080\times72\times72$ over $90\times6\times6\,\delta_i$ |
+
+![The recycling inflow against the digital filter on the Mach 2.5 layer](/flume/tbl-recycling.png)
+
+*Left: $C_f$ (the stress applied) against $x$, the dots at each run's station. Middle: $C_f$ over van Driest II at the run's
+$Re_\theta$, the band 3 % around each run's mean over $45\le x\le75$ and the recovery length (dotted); the recycling station
+dashed. Right: the van Driest velocity at the station against the DNS. `make_doc_figures.py --only tbl-recycling`.*
+
+| | ctrl, digital filter | rr, recycling |
+|---|---|---|
+| recovery length, 3 % of the run's own mean over $45\le x\le75$ (the gate's measure) | $50\,\delta_i$ (baseline 52) | **$26\,\delta_i$** |
+| deepest departure beyond $x=20$ from the common level (1.004, the digital filter runs over $60\le x\le80$) | $-23.9$ % at $x=27$ | $+3.8$ % at $x=50$, $-2.0$ % at $x=22$ |
+| first $x$ within 4 %, 3 % of the common level | 53, 55 | **10**, 55 |
+| $C_f$ over $60\le x\le80$ against van Driest II | 1.004 | 1.005 |
+| station ($Re_\theta=2835$): $x$, $C_f$ against the DNS, the ratio against the common level | 55.9, $-4.3$ %, $-2.8$ % | 43.3, $+1.4$ %, $+3.0$ % |
+| $H$ at the station (DNS 4.10); $Re_\theta$ at the face | 4.10; 1469 | 3.98; 1518 |
+| $u^+_{VD}$ at $y^+=30$, 100, 200 (DNS 13.6, 16.7, 18.8) | 13.0, 17.5, 19.9 | 13.1, 17.6, 19.8 |
+| $u_{rms}$, $v_{rms}$, $w_{rms}$ over $u_\tau$ at $y/\delta=0.2$ (DNS 1.49, 0.93, 1.12) | 1.91, 0.81, 1.23 | 1.90, 0.74, 1.09 |
+| wall time per step (whole run, one node; ctrl ran beside vc on a second node) | 0.61 s | 0.63 s (+3 %) |
+
+- **Recycling removes the digital filter's dip.** Beyond the station the ratio never falls more than 2 % below the level both
+  digital-filter runs reach downstream, against 24 % at $x\approx27$ under the digital filter; it is within 4 % of that level
+  from $x=10$, the digital filter from $x=53$. The gate's measure gives $26\,\delta_i$ against 50, half.
+- **The 3 % criterion against the common level does not separate them: both enter at $x=55$.** The recycled layer runs up to
+  3.8 % *above* the downstream level (more than 3 % over $43<x<55$, more than 2 % over $42<x<59$) before it joins it; the
+  gate's measure, which takes each run's own mean (1.020 for rr), absorbs that bump into its band. Which of the two references
+  is right is a choice of criterion; the departure (4 % against 24 %) is not.
+- **The station comparison is not a better wall model.** rr's $+1.4$ % and ctrl's $-4.3$ % against the DNS are each run's
+  departure from the same downstream level ($+3.0$ and $-2.8$ %), taken where $Re_\theta=2835$ falls: inside rr's bump
+  ($x=43$), at the end of ctrl's recovery ($x=56$). The level itself, carried to $Re_\theta=2835$ by van Driest II, is $-1.6$ %
+  against the DNS for both. The profiles at the station agree within 0.1 in $u^+_{VD}$; the recycled layer's $v_{rms}$ and
+  $w_{rms}$ at $0.2\,\delta$ are 9 and 11 % lower than ctrl's.
+- **The cause of the bump is not identified.** The face's layer is 4 % thicker than the table's ($\delta$ 1.04 against 1.00,
+  $Re_\theta$ 1518 against 1469): the correlation's ratios, fixed for the run, against the layer's own growth to the station are
+  the first suspect, not tested.
+- **The cost is 3 %**, the whole run's wall time per step against ctrl's on another node of the same kind; the first minutes ran
+  at 0.82 s per step, a start-up transient.
+
 ## Not done
 
 - The matching height at fixed grid; the outer-layer and near-wall stresses at $\delta_i/12$.
@@ -332,3 +383,5 @@ gate's band. Bottom: the van Driest velocity at the station against the DNS; $C_
 - $Re_\theta$ and the station against the edge state: they use the nominal free stream.
 - Mean profiles against the DNS beyond the station.
 - The viscosity coupling without the lower bound on the wall's subgrid viscosity (the model's stress along the first cell's velocity).
+- Recycling: the bump above the downstream level (ratios measured from the run against the correlation's), the station's
+  distance, the recycling frequency $U/x_r$ in the incoming layer, a longer window.

@@ -3411,6 +3411,75 @@ def fig_tbl_convection(out: Path, runs: Path) -> None:
     fig.savefig(out / "tbl-convection.png", dpi=DPI)
     plt.close(fig)
 
+def _tbl_recovery(j: dict, mach: float = 2.5, tw_te: float = 2.1037, mu_ratio: float = 2.1037**0.76) -> tuple[np.ndarray, np.ndarray, float, float]:
+    """#121 S5: C_f of a tbl_oracle.py compare JSON over van Driest II at the run's own Re_theta(x) (make_tbl.cf_van_driest, the Mach 2.5 wall), its
+    mean over the developed stretch 45 <= x <= 75, and the recovery length: the first x beyond which the ratio stays within 3 % of that mean up to x = 75
+    (the outflow end excluded). Returns x, the ratio, the mean, the recovery length."""
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import make_tbl as mt  # noqa: PLC0415
+
+    x = np.array(j["x"])
+    cf = np.array([np.nan if c is None else c for c in j["cf"]])
+    r = cf / np.array([mt.cf_van_driest(v, mach, tw_te, mu_ratio) for v in j["re_theta"]])
+    ref = float(np.nanmean(r[(x >= 45.0) & (x <= 75.0)]))
+    bad = np.nonzero((np.abs(r / ref - 1.0) > 0.03) & (x <= 75.0))[0]
+    return x, r, ref, float(x[bad[-1] + 1] if len(bad) else x[0])
+
+
+def fig_tbl_recycling(out: Path, runs: Path) -> None:
+    """#121 S5: the recycling-rescaling inflow against the digital filter on the Mach 2.5 layer: rs's state at t = 540 restarted to 900 with the plain
+    equilibrium model and its eddy viscosity below h, the digital filter (#126's ctrl) or the recycling face (rr, station 20); statistics t >= 720; the
+    baseline (the digital filter, t 180-360). Data: <runs>/tbl/m2p5-wm-l90-{base,ctrl,rr}-compare.json. Left: C_f against x, the DNS at each run's station;
+    middle: C_f over van Driest II at the run's own Re_theta, the band 3 % around its mean over 45-75 and the recovery length; right: the van Driest
+    velocity at the station against the DNS."""
+    import json  # noqa: PLC0415
+
+    cases = (("base", "C0", "digital filter, the baseline (t 180-360)"), ("ctrl", "k", "digital filter (ctrl)"), ("rr", "C3", "recycling, station 20"))
+    cases = tuple(c for c in cases if (runs / "tbl" / f"m2p5-wm-l90-{c[0]}-compare.json").exists())
+    js = {k: json.loads((runs / "tbl" / f"m2p5-wm-l90-{k}-compare.json").read_text()) for k, _, _ in cases}
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import tbl_oracle as to  # noqa: PLC0415
+
+    _, d = to.read_stat(HERE / "turbulence" / "reference" / "M2p5_Stat.txt")
+    fig, axs = plt.subplots(1, 3, figsize=(16.0, 4.4), constrained_layout=True)
+    for k, c, lab in cases:
+        j = js[k]
+        x, cf = np.array(j["x"]), np.array([np.nan if v is None else v for v in j["cf"]])
+        ist = j["station"]
+        axs[0].plot(x, 1e3 * cf, "-", color=c, lw=1.2, label=f"{lab}: {100.0 * (cf[ist] / j['cf_dns'] - 1.0):+.1f} % at the station")
+        axs[0].plot(x[ist], 1e3 * cf[ist], "o", color=c, ms=5)
+        xr, r, ref, xrec = _tbl_recovery(j)
+        axs[1].plot(xr, r, "-", color=c, lw=1.2, label=f"{lab.split(',')[0].split(' (')[0]}: recovered at x = {xrec:.0f}")
+        axs[1].axhspan(0.97 * ref, 1.03 * ref, xmin=0.0, xmax=1.0, color=c, alpha=0.06, lw=0)
+        axs[1].axvline(xrec, color=c, ls=":", lw=1.0)
+        axs[2].semilogx(j["yplus"], j["uvd"], "o-", color=c, ms=2.5, lw=1.0, label=lab)
+    if "rr" in js:
+        for ax in axs[:2]:
+            ax.axvline(20.0, color="C3", ls="--", lw=0.8, alpha=0.6)
+        axs[1].text(20.5, 1.13, "recycling station", color="C3", fontsize=7.5)
+    j = js[cases[0][0]]
+    axs[0].axhline(1e3 * j["cf_dns"], color="0.4", ls=":", lw=1.0, label=rf"DNS, $Re_\theta$ {j['re_dns']:.0f}")
+    axs[0].set_xlim(0.0, 85.0)
+    axs[0].set_ylim(1.4, 3.2)
+    axs[0].set_xlabel(r"$x/\delta_i$")
+    axs[0].set_ylabel(r"$10^3 C_f$ (the wall model's $\tau_w$)")
+    axs[0].legend(fontsize=7.5, loc="upper right")
+    axs[1].set_xlim(0.0, 85.0)
+    axs[1].set_ylim(0.75, 1.15)
+    axs[1].set_xlabel(r"$x/\delta_i$")
+    axs[1].set_ylabel(r"$C_f$ over van Driest II at the run's $Re_\theta$")
+    axs[1].legend(fontsize=7.5, loc="lower right")
+    axs[2].semilogx(d[1:, 2], d[1:, 24], "-", color="0.4", lw=1.0, label="DNS")
+    axs[2].set_xlim(5.0, 3000.0)
+    axs[2].set_xlabel(r"$y^+$ (the cell centres)")
+    axs[2].set_ylabel(r"$u^+_{VD}$ at the station")
+    axs[2].legend(fontsize=7.5, loc="upper left")
+    for ax in axs:
+        ax.grid(alpha=0.3)
+    fig.savefig(out / "tbl-recycling.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_tbl_coupling(out: Path, runs: Path) -> None:
     """#126: the zero-gradient gate of the viscosity coupling on the Mach 2.5 boundary layer (m2p5-wm-l90): rs's state at t = 540 restarted to
     900 with the plain equilibrium model and its eddy viscosity below h (the baseline's setting), wall_model_coupling = viscosity (vc) and the
@@ -5337,7 +5406,7 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "barotropic-eos": fig_barotropic_eos,
            "tgv-iles": fig_tgv_iles, "tgv-models": fig_tgv_models, "hit": fig_hit, "tgv-hybrid": fig_tgv_hybrid, "channel-wm": fig_channel_wm,
            "channel-m3": fig_channel_m3, "channel-m3-ev": fig_channel_m3_ev, "tbl-m2p5": fig_tbl_m2p5, "tbl-m6": fig_tbl_m6, "tbl-m2p5-res": fig_tbl_m2p5_res, "tbl-m2p5-hdef": fig_tbl_hdef, "tbl-edge": fig_tbl_edge, "nrbc": fig_nrbc, "shockgen": fig_shockgen, "shockgen-reflect": fig_shockgen_reflect,
-           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-fixed-h": fig_sbli_fixed_h,"sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "tbl-convection": fig_tbl_convection, "tbl-coupling": fig_tbl_coupling, "sbli-reversal": fig_sbli_reversal, "sbli-convective": fig_sbli_convective, "sbli-scales": fig_sbli_scales, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
+           "sbli": fig_sbli, "sbli-fields": fig_sbli_fields, "sbli-refined": fig_sbli_refined, "sbli-fixed-h": fig_sbli_fixed_h,"sbli-apriori": fig_sbli_apriori, "sbli-pg": fig_sbli_pg, "sbli-onset": fig_sbli_onset, "sbli-nonu": fig_sbli_nonu, "sbli-cells": fig_sbli_cells, "tbl-convection": fig_tbl_convection, "tbl-coupling": fig_tbl_coupling, "tbl-recycling": fig_tbl_recycling, "sbli-reversal": fig_sbli_reversal, "sbli-convective": fig_sbli_convective, "sbli-scales": fig_sbli_scales, "sbli-pg-runs": fig_sbli_pg_runs, "sbli-pg-fields": fig_sbli_pg_fields, "sbli-refined-fields": fig_sbli_refined_fields, "tbl-fields": fig_tbl_fields, "tbl-3d": fig_tbl_3d, "channel-fields": fig_channel_fields, "tgv-fields": fig_tgv_fields,
            "barotropic-gravity": fig_barotropic_gravity,
            "barotropic-mhd": fig_barotropic_mhd,
            "sink-particles": fig_sink_particles,

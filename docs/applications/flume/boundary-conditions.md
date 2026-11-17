@@ -16,6 +16,7 @@ faces 1–6. Each section **requires** `type`. The value goes through
 | `extrapolation` | `BC_EXTRAPOLATION = 1` | zeroth-order extrapolation (outflow) | none |
 | `inflow` | `BC_INFLOW = 2` | prescribed state | `r, u, v, w, p` (+ `bx, by, bz` for MHD), all required |
 | `inflow-digital-filter` | `BC_INFLOW_DF = 7` | turbulent boundary-layer inflow: a mean profile table plus digital-filter fluctuations ([turbulence](./turbulence#digital-filter-inflow)) | `r, u, p`, `df_profile`, `df_delta`, `df_spacing`, `df_wall_axis`, `df_length_*` (required), `df_seed`; Euler only, one face per realm ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), [#119](https://github.com/szaghi/adam/issues/119)) |
+| `inflow-recycling` | `BC_INFLOW_RR = 10` | turbulent boundary-layer inflow: the table's mean plus the layer's own fluctuations, recycled from a downstream station and rescaled ([turbulence](./turbulence#recycling-rescaling-inflow)) | `r, u, p`, `rr_profile`, `rr_delta`, `rr_wall_axis`, `rr_spacing`, `rr_x`, `rr_delta_ratio`, `rr_beta`; `rr_shift` optional |
 | `wall-inviscid` | `BC_WALL_INVISCID = 3` | slip wall | none |
 | `wall-modelled` | `BC_WALL_INVISCID = 3` + wall-model flag | isothermal wall whose face flux comes from a wall model; ghosts mirrored as `wall-inviscid` ([turbulence](./turbulence#wall-model)) | `wall_temperature` (required, $> 0$), `wall_model`, `wall_model_height`, `wall_model_damping`, `wall_model_filter`, `wall_model_eddy_viscosity`, `wall_model_pressure_gradient`, `wall_model_pressure_gradient_filter`, `wall_model_edge_velocity`, `wall_model_edge_temperature` ([input](./input#bc-x-min-bc-x-max-bc-y-min-bc-y-max-bc-z-min-bc-z-max), [#119](https://github.com/szaghi/adam/issues/119)) |
 | `wall-noslip` | `BC_WALL_NOSLIP = 4` | no-slip adiabatic wall | `wall_u, wall_v, wall_w` (optional, default 0; the normal one must be 0); refused with `[eos]` `isothermal` or `barotropic` |
@@ -204,6 +205,12 @@ limits are on the [turbulence](./turbulence#wall-model) page.
 
 A turbulent boundary layer entering through the face: the mean of a profile table plus digital-filter fluctuations with
 its Reynolds stresses. The method is on the [turbulence](./turbulence#digital-filter-inflow) page.
+
+### `inflow-recycling`
+
+A turbulent boundary layer entering through the face: the mean of the same profile table plus the fluctuations of the
+layer itself at a station downstream, rescaled to the face. The method is on the
+[turbulence](./turbulence#recycling-rescaling-inflow) page.
 
 ### `periodic`
 
