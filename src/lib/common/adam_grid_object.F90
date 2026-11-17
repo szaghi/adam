@@ -5,6 +5,7 @@ module adam_grid_object
 ! ADAM classes, libraries, parameters
 use :: adam_parameters
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer, only : file_ini
@@ -356,14 +357,11 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_z', val=buff_R8P, error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_z)')
    self%domain_emax(3)=buff_R8P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='null_x', val=buff_log, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_x)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'null_x', buff_log, default=.false.)
    self%null_xyz(1)=buff_log
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='null_y', val=buff_log, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_y)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'null_y', buff_log, default=.false.)
    self%null_xyz(2)=buff_log
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='null_z', val=buff_log, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_z)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'null_z', buff_log, default=.false.)
    self%null_xyz(3)=buff_log
    endsubroutine load_from_ini_file
 

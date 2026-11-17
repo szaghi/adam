@@ -18,6 +18,9 @@ The input is an INI file read by [FiNeR](https://github.com/szaghi/FiNeR):
   `finer_option_t.F90`). Most readers then stop the run (`failed to load [section].(key)`); the readers that ignore the
   error are marked **no check** below, and the variable keeps its declared default, or stays undefined when it has
   none. Integers are accepted for reals (`1` is a valid real).
+- **Optional keys with a default** (Req. *no*, read through the library's `ini_get`, [#80](https://github.com/szaghi/adam/issues/80)
+  P1): an absent key takes the default in the table; a key that is present but does not convert stops the run, like a
+  required one.
 - **Logical keys.** FiNeR reads the value when its first character is one of `.tTfF` (`.true.`, `T`, `true`,
   `.false.`, ...); any other value (`yes`, `1`) is a conversion error, as above.
 - **CRLF files** (Windows line endings) read as LF ones on every compiler: FiNeR drops every CR before splitting the
@@ -48,19 +51,19 @@ PRISM `save_fields`.
 |-----|------|------|---------|--------------------|------|---------|
 | `output_basename` | string | yes | — | any path prefix | both | Prefix of every output file (fields, histories, slices). |
 | `it_save` | int | yes | — | `<= 0` disables field saves | both | Field (XH5F) save cadence in steps. |
-| `restart` | logical | yes | — | logical | both | `.true.`: skip the initial conditions and load the `restart_basename` restart files. |
+| `restart` | logical | no | `.false.` | logical | both | `.true.`: skip the initial conditions and load the `restart_basename` restart files. |
 | `restart_basename` | string | yes (even when `restart = .false.`) | — | path prefix | both | Basename of the restart files, read and written. |
 | `restart_save` | int | yes | — | `<= 0` disables | both | Restart save cadence in steps. |
 | `residuals_save` | int | yes | — | `<= 0` disables | both | Residual L2-norm history cadence (`<output_basename>-residuals.dat`). |
-| `divergence_history_save` | int | no | 10 | no check | neither | Read, never used: PRISM writes its divergence history at every diagnostic step, FLUME has its own cadence (`[diagnostics]`). |
-| `save_memory_status` | logical | yes | — | logical | PRISM | Print the memory status at the diagnostic steps. |
-| `save_residual_fields` | logical | yes | — | logical | both | Also write the residuals `dq_*` into the field files. |
-| `save_curl_fields` | logical | yes | — | logical | PRISM | Also write the curl fields. |
-| `save_divergence_fields` | logical | yes | — | logical | PRISM | Also write the divergence fields. |
-| `save_gradient_fields` | logical | yes | — | logical | neither | Read, never used. |
-| `save_laplacian_fields` | logical | yes | — | logical | neither | Read, never used. |
-| `seam_divB_tol` | real | no | -1 (off) | no check | PRISM | 2:1 seam div(B) monitor: warn (or stop, below) when the seam `max\|div B\|` exceeds it on an AMR run ([#29](https://github.com/szaghi/adam/issues/29)). FLUME uses `[mhd] divb_tol`. |
-| `seam_divB_error` | logical | no | `.false.` | no check | PRISM | `.true.`: the seam monitor stops the run instead of warning. |
+| `divergence_history_save` | int | no | 10 | integer | neither | Read, never used: PRISM writes its divergence history at every diagnostic step, FLUME has its own cadence (`[diagnostics]`). |
+| `save_memory_status` | logical | no | `.false.` | logical | PRISM | Print the memory status at the diagnostic steps. |
+| `save_residual_fields` | logical | no | `.false.` | logical | both | Also write the residuals `dq_*` into the field files. |
+| `save_curl_fields` | logical | no | `.false.` | logical | PRISM | Also write the curl fields. |
+| `save_divergence_fields` | logical | no | `.false.` | logical | PRISM | Also write the divergence fields. |
+| `save_gradient_fields` | logical | no | `.false.` | logical | neither | Read, never used. |
+| `save_laplacian_fields` | logical | no | `.false.` | logical | neither | Read, never used. |
+| `seam_divB_tol` | real | no | -1 (off) | real | PRISM | 2:1 seam div(B) monitor: warn (or stop, below) when the seam `max\|div B\|` exceeds it on an AMR run ([#29](https://github.com/szaghi/adam/issues/29)). FLUME uses `[mhd] divb_tol`. |
+| `seam_divB_error` | logical | no | `.false.` | logical | PRISM | `.true.`: the seam monitor stops the run instead of warning. |
 
 **Output files.** The library writes the fields as one `<output_basename>-<it:9 digits>-procNNNNNN.h5` per rank plus one
 `.xdmf` (XH5F, ghost cells included), the restart files as `<restart_basename>.time`, `.tnd` and
@@ -78,7 +81,7 @@ PRISM `save_fields`.
 | `ngc` | int | yes | each application checks it against its stencils: `>= [weno] S`, `>= fdv_order/2`, and more (see their pages) | both | Ghost cells per side. |
 | `emin_x`, `emin_y`, `emin_z` | real | yes | no check | both | Domain minimum corner. Divided by `L0` in a PRISM non-dimensional model. |
 | `emax_x`, `emax_y`, `emax_z` | real | yes | no check (`emax > emin` is not validated) | both | Domain maximum corner. |
-| `null_x`, `null_y`, `null_z` | logical | yes | logical | both | Null (inactive) direction: excluded from the fluxes and the time step. |
+| `null_x`, `null_y`, `null_z` | logical | no (default `.false.`) | logical | both | Null (inactive) direction: excluded from the fluxes and the time step. |
 
 ---
 
@@ -92,18 +95,19 @@ the cadence and the markers.
 | `ratio` | int | yes | — | `2` (binary), `4` (quadtree), `8` (octree); any other value is fatal. | both | Refinement ratio of the tree. |
 | `max_level` | int | yes | — | Refinements beyond it are cancelled silently. | both | Maximum refinement level. |
 | `iu_ref_levels` | int | yes | — | `<= 0`: none | both | Uniform refinement levels applied at initialisation, before the initial conditions. During the AMR updates the blocks are spread over the ranks by whole sibling families (`ratio` blocks each), in contiguous Morton runs that minimise the busiest rank's block count ([#123](https://github.com/szaghi/adam/issues/123)), so a grid with fewer families than ranks leaves ranks with no block; a static grid is then balanced by block count (`balance_static`). |
-| `i_prune`, `j_prune`, `k_prune`, `l_prune` | int | yes | — | see the notes below | both | Pruning of a "simple initial forest". No application calls `prune`, but the values enter the neighbour/boundary search: if all four are `>= 0` the tree sizes its search box `2**(l-l_prune)*(ijk_prune+1)`. **Keep at least one negative** (all four `-1` is safest; `0, 0, 0, -1` is equivalent). |
+| `i_prune`, `j_prune`, `k_prune`, `l_prune` | int | no | -1 | see the notes below | both | Pruning of a "simple initial forest". No application calls `prune`, but the values enter the neighbour/boundary search: if all four are `>= 0` the tree sizes its search box `2**(l-l_prune)*(ijk_prune+1)`. **Keep at least one negative** (all four `-1` is safest; `0, 0, 0, -1` is equivalent). |
 | `frequency` | int | yes | 100 | `>= 0` | FLUME | Runtime regrid cadence ([#74](https://github.com/szaghi/adam/issues/74)): `0` no runtime regridding, `n > 0` regrid after every `n`-th step. PRISM reads it and refines at initialization only. |
 | `balance_static` | logical | no | `.true.` | `.true.`, `.false.` | both | After the initial AMR, balance a grid that is never regridded at runtime (FLUME: `frequency = 0`; PRISM: always) by block count: the Morton-ordered blocks are cut into `floor` or `ceiling` of blocks/ranks per rank, sibling families split where the cut falls in them, no rank empty when there are at least as many blocks as ranks ([#123](https://github.com/szaghi/adam/issues/123)). The S4c grid of [#121](https://github.com/szaghi/adam/issues/121), 120 blocks on 8 ranks, goes from 20/13/19/17/13/19/19/0 (the greedy walk before the min-max split of the sibling sets; busiest 18 with it) to 15 each. `.false.` keeps the family-preserving layout of the AMR updates. Runtime AMR always keeps the families whole: derefinement averages a parent's children on one rank (`tree%derefine` stops if it finds a family split). |
 | `iters` | int | yes | 5 | any | both | Maximum marker sweeps per AMR update (it stops early when the grid is stable); a sweep refines or coarsens one level. |
-| `markers_number` | int | yes | 0 | `>= 0` | both | Number of `[amr_marker_N]` sections. |
+| `markers_number` | int | no | 0 | `>= 0` | both | Number of `[amr_marker_N]` sections. |
 | `regrid_prolongation` | string | no | `linear` (FLUME: `conservative`) | `linear`, `conservative`, `conservative-state`; any other value is fatal | FLUME | How a refined block's children are filled from the parent at a runtime regrid; FLUME's [input reference](/applications/flume/input#setting-up-runtime-amr) describes the three. |
 | `seam_ghost_fill` | string | no | `tricubic` | `injection`, `restriction-compatible`, `tricubic`, `quintic`, `weno6`, `quintic-mp`; any other value is fatal. The 6-point fills (`quintic`, `weno6`, `quintic-mp`) need at least 6 cells per refined axis in every block (fatal otherwise); on a `coupling = refined` forest seam both realms must declare the same value. | both | Coarse-to-fine ghost fill at 2:1 AMR seams ([#68](https://github.com/szaghi/adam/issues/68) D1, D2). `tricubic`: the tensor 4-point Lagrange interpolation, exact for per-direction degree 3. `quintic`: the 6-point one, exact for degree 5. `weno6`: a WENO-Z combination of the cubics of the 4-point sub-stencils, dropping those that hold a jump. `quintic-mp`: the quintic clamped to a monotonicity-preserving bound. With every regime, an app that sets `maps%seam_density_var` (FLUME) has the density and the velocity of a fine ghost clamped to a monotonicity-preserving bound of the coarse cells around it, and a ghost whose clamped density is below 0.1 times its coarse cell's take that cell's state ([#101](https://github.com/szaghi/adam/issues/101)). |
 | `seam_restriction` | string | no | `mean` | `mean`, `lagrange6`, `weno6`; any other value is fatal. `lagrange6` and `weno6` need at least 6 cells per refined axis in every block (fatal otherwise); on a `coupling = refined` forest seam both realms must declare the same value. | both | Fine-to-coarse ghost fill at 2:1 AMR seams ([#68](https://github.com/szaghi/adam/issues/68) C1–C3). `mean`: the mean of the fine cells, second order. `lagrange6`: the tensor 6-point Lagrange interpolation to the coarse centre, exact for degree 5. `weno6`: a WENO-Z combination of the 4-point cubics, falling back to the mean across a jump. |
 
-The seven tree keys are required: a missing or unreadable one stops the run with `failed to load [amr].(<key>)`. Before
-[#80](https://github.com/szaghi/adam/issues/80) P0 the tree reader ignored the error and passed one buffer to every key,
-so a missing key silently took the value of the key read before it.
+`ratio`, `max_level` and `iu_ref_levels` are required and the four prune indexes default to -1: a missing required key,
+or any unreadable value, stops the run with `failed to load [amr].(<key>)`. Before [#80](https://github.com/szaghi/adam/issues/80)
+the tree reader ignored the error and passed one buffer to every key, so a missing key silently took the value of the key
+read before it.
 
 **When the markers act.** At initialization, during the `[initial_conditions] amr_iterations` passes (each pass sets the
 initial condition and runs one AMR update of up to `iters` sweeps), in both applications; in FLUME also at the runtime
@@ -192,14 +196,14 @@ path (the FNL backend refuses it).
 |-----|------|------|---------|--------------------|------|---------|
 | `scheme` | string | yes | — | see the table below; an unknown name is fatal | both | WENO order (stencil half-width `S`). `ngc >= S` is checked by FLUME always, by PRISM with `scheme_space = weno`. |
 | `weights` | string | no | `js` | `js` (Jiang–Shu, absolute ε), `si` (scale-invariant); an unknown value is fatal | both | Nonlinear weights (PRISM uses them with `scheme_space = weno`). |
-| `ror_number` | int | yes | 0 | `>= 0` | neither | Number of order-reduction (ROR) stages. `S` always comes from `scheme`: `initialize` sets it after reading the ROR keys. |
+| `ror_number` | int | no | 0 | `>= 0` | neither | Number of order-reduction (ROR) stages. `S` always comes from `scheme`: `initialize` sets it after reading the ROR keys. |
 | `ror_scheme_1` … `ror_scheme_<ror_number>` | int | cond. (`ror_number > 0`) | — | — | neither | ROR stencil sizes. |
-| `ror_threshold` | real | yes | 0.9 | — | neither | ROR trigger. |
-| `ror_vars_number` | int | yes | 2 | `>= 0` | neither | Number of ROR check variables. |
+| `ror_threshold` | real | no | 0.9 | — | neither | ROR trigger. |
+| `ror_vars_number` | int | no | 0 | `>= 0` | neither | Number of ROR check variables. |
 | `ror_ivar_1` … `ror_ivar_<ror_vars_number>` | int | cond. (`ror_vars_number > 0`) | — | — | neither | ROR check variables. |
-| `enable_ror_stats` | logical | yes | `.false.` | logical | neither (`.true.` allocates an `nb x cells x 3` integer array) | ROR statistics. |
-| `ib_reduction_extent` | int | yes | 0 | — | neither | Order reduction near immersed solids. |
-| `ib_reduced_order` | int | yes | 1 | — | neither | Reduced `S` near solids. |
+| `enable_ror_stats` | logical | no | `.false.` | logical | neither (`.true.` allocates an `nb x cells x 3` integer array) | ROR statistics. |
+| `ib_reduction_extent` | int | no | 0 | — | neither | Order reduction near immersed solids. |
+| `ib_reduced_order` | int | no | 1 | — | neither | Reduced `S` near solids. |
 
 | Name | S | Order | Kind |
 |------|---|-------|------|
@@ -229,8 +233,8 @@ function to its Runge-Kutta stages, and no committed PRISM input uses them.
 
 | Key | Type | Req. | Default | Meaning |
 |-----|------|------|---------|---------|
-| `number` | int | yes | 0 | Number of `[solid_N]` sections. `0`: no immersed boundary. |
-| `n_eikonal` | int | yes | 2 | Eikonal extrapolation sweeps per residual evaluation, filling the solid cells. |
+| `number` | int | no | 0 | Number of `[solid_N]` sections. `0`: no immersed boundary. |
+| `n_eikonal` | int | no | 2 | Eikonal extrapolation sweeps per residual evaluation, filling the solid cells. |
 
 ### [solid_N] (N = 1..number)
 
@@ -256,7 +260,7 @@ function to its Runge-Kutta stages, and no committed PRISM input uses them.
 
 | Key | Type | Req. | Accepted / invalid | Meaning |
 |-----|------|------|--------------------|---------|
-| `slices_number` | int | yes | `>= 0`, negative is fatal | Number of `[slice_N]` sections. `0`: no slices. |
+| `slices_number` | int | no (default 0) | `>= 0`, negative is fatal | Number of `[slice_N]` sections. `0`: no slices. |
 
 ### [slice_N] (N = 1..slices_number)
 

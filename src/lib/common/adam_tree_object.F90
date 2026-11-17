@@ -133,6 +133,7 @@ use :: adam_tree_bucket_object,       only : tree_bucket_object, iterator_interf
 use :: adam_refinement_plan_object,   only : refinement_plan_object
 use :: adam_parameters
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_get
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 ! third party modules
@@ -655,30 +656,19 @@ contains
    subroutine load_from_ini_file(self, file_parameters)
    !< Load object data from INI file.
    !<
-   !< Every key is required: a missing or unreadable one stops the run (issue #80, defect 3.1). The reads used to share one
-   !< buffer without an error check, so a missing key silently took the value of the key read before it.
+   !< `ratio`, `max_level` and `iu_ref_levels` are required; the four prune indexes default to -1 (no pruning). A
+   !< missing required key or an unreadable value stops the run (issue #80): the reads used to share one buffer without an
+   !< error check, so a missing key silently took the value of the key read before it.
    class(tree_object), intent(inout) :: self            !< The tree.
    type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
 
-   call get_required('ratio'        , self%ratio        )
-   call get_required('max_level'    , self%max_level    )
-   call get_required('iu_ref_levels', self%iu_ref_levels)
-   call get_required('i_prune'      , self%ijkl_prune(1))
-   call get_required('j_prune'      , self%ijkl_prune(2))
-   call get_required('k_prune'      , self%ijkl_prune(3))
-   call get_required('l_prune'      , self%ijkl_prune(4))
-   contains
-      subroutine get_required(option, val)
-      !< Read the [amr] option into val, or stop.
-      character(*), intent(in)    :: option !< Option name.
-      integer(I4P), intent(inout) :: val    !< Value.
-      integer(I4P)                :: buff   !< Buffer: val is left untouched on a failed read.
-      integer(I4P)                :: error  !< Error status.
-
-      call file_parameters%get(section_name='amr', option_name=option, val=buff, error=error)
-      if (error /= 0) call mpih%error_stop(msg=': failed to load [amr].('//option//')')
-      val = buff
-      endsubroutine get_required
+   call ini_get(file_parameters, 'amr', 'ratio'        , self%ratio        )
+   call ini_get(file_parameters, 'amr', 'max_level'    , self%max_level    )
+   call ini_get(file_parameters, 'amr', 'iu_ref_levels', self%iu_ref_levels)
+   call ini_get(file_parameters, 'amr', 'i_prune'      , self%ijkl_prune(1), default=-1_I4P)
+   call ini_get(file_parameters, 'amr', 'j_prune'      , self%ijkl_prune(2), default=-1_I4P)
+   call ini_get(file_parameters, 'amr', 'k_prune'      , self%ijkl_prune(3), default=-1_I4P)
+   call ini_get(file_parameters, 'amr', 'l_prune'      , self%ijkl_prune(4), default=-1_I4P)
    endsubroutine load_from_ini_file
 
    function loop(self, iter, code, node_ptr) result(again)

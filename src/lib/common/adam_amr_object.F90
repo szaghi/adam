@@ -5,6 +5,7 @@ module adam_amr_object
 ! ADAM classes, libraries, parameters
 use :: adam_parameters, only : AMR_PROLONGATION_LINEAR, AMR_PROLONGATION_CONSERVATIVE, AMR_PROLONGATION_CONSERVATIVE_STATE
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_get
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 ! third party modules
@@ -144,8 +145,7 @@ contains
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(frequency)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='iters', val=self%iters, error=error)
    if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iters)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='markers_number', val=self%markers_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(markers_number)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'markers_number', self%markers_number, default=0_I4P)
    ! optional: how a refined block's children are filled; an app may choose its own default when it is absent
    buff_c = ''
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regrid_prolongation', val=buff_c, error=error)

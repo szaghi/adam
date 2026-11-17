@@ -6,6 +6,7 @@ module adam_slices_object
 use :: adam_adam_object, only : adam_object
 use :: adam_grid_object, only : grid_object
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
@@ -97,8 +98,7 @@ contains
    integer(I4P)                               :: error           !< Error status.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slices_number', val=self%slices_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slices_number)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'slices_number', self%slices_number, default=0_I4P)
    if (self%slices_number < 0) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(slices_number) = '// &
                                trim(str(self%slices_number))//' must be >= 0') ! negative here, str keeps its sign

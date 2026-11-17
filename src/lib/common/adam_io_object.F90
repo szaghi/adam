@@ -3,6 +3,7 @@ module adam_io_object
 !< ADAM, IO class definition.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_get
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 use :: finer
@@ -145,8 +146,7 @@ contains
       self%output_basename = trim(adjustl(buff_c))
       call file_parameters%get(section_name=ISN, option_name='it_save', val=self%it_save, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(it_save)')
-      call file_parameters%get(section_name=ISN, option_name='restart', val=self%restart, error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(restart)')
+      call ini_get(file_parameters, ISN, 'restart', self%restart, default=.false.)
       call file_parameters%get(section_name=ISN, option_name='restart_basename', val=buff_c, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_basename)')
       self%restart_basename = trim(adjustl(buff_c))
@@ -154,25 +154,17 @@ contains
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_save)')
       call file_parameters%get(section_name=ISN, option_name='residuals_save', val=self%residuals_save, error=error)
       if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(residuals_save)')
-      ! Optional: divergence-history save cadence. Absent in legacy INIs -> keep the
-      ! default (10). Never error_stop on absence so existing inputs stay valid.
-      call file_parameters%get(section_name=ISN, option_name='divergence_history_save', &
-                               val=self%divergence_history_save, error=error)
-      call file_parameters%get(section_name=ISN,option_name='save_memory_status',val=self%save_memory_status,error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_memory_status)')
-      call file_parameters%get(section_name=ISN,option_name='save_residual_fields',val=self%save_residual_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_residual_fields)')
-      call file_parameters%get(section_name=ISN,option_name='save_curl_fields',val=self%save_curl_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_curl_fields)')
-      call file_parameters%get(section_name=ISN,option_name='save_divergence_fields',val=self%save_divergence_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_divergence_fields)')
-      call file_parameters%get(section_name=ISN,option_name='save_gradient_fields',val=self%save_gradient_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_gradient_fields)')
-      call file_parameters%get(section_name=ISN,option_name='save_laplacian_fields',val=self%save_laplacian_fields,error=error)
-      if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(save_laplacian_fields)')
+      ! Optional: divergence-history save cadence (absent: 10).
+      call ini_get(file_parameters, ISN, 'divergence_history_save', self%divergence_history_save, default=10_I4P)
+      call ini_get(file_parameters, ISN, 'save_memory_status', self%save_memory_status, default=.false.)
+      call ini_get(file_parameters, ISN, 'save_residual_fields', self%save_residual_fields, default=.false.)
+      call ini_get(file_parameters, ISN, 'save_curl_fields', self%save_curl_fields, default=.false.)
+      call ini_get(file_parameters, ISN, 'save_divergence_fields', self%save_divergence_fields, default=.false.)
+      call ini_get(file_parameters, ISN, 'save_gradient_fields', self%save_gradient_fields, default=.false.)
+      call ini_get(file_parameters, ISN, 'save_laplacian_fields', self%save_laplacian_fields, default=.false.)
       ! Optional seam div(B) guard-rail (issue #29). Absent → monitor disabled (tol=-1).
-      call file_parameters%get(section_name=ISN,option_name='seam_divB_tol',val=self%seam_divB_tol,error=error)
-      call file_parameters%get(section_name=ISN,option_name='seam_divB_error',val=self%seam_divB_error,error=error)
+      call ini_get(file_parameters, ISN, 'seam_divB_tol', self%seam_divB_tol, default=-1._R8P)
+      call ini_get(file_parameters, ISN, 'seam_divB_error', self%seam_divB_error, default=.false.)
    endassociate
    endsubroutine load_from_file
 

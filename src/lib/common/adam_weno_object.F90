@@ -41,6 +41,7 @@ module adam_weno_object
 !< Non TBP procedures are also provided for use without class object in device backend kernels.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
@@ -106,7 +107,7 @@ type :: weno_object
    integer(I4P)              :: ror_number=0_I4P          !< Number of ROR iterations.
    integer(I4P), allocatable :: ror_schemes(:)            !< Scheme (S value) for each ROR iteration.
    real(R8P)                 :: ror_threshold=0.9_R8P     !< ROR threshold triggering.
-   integer(I4P)              :: ror_vars_number=2         !< Number of variables to check in ROR iterations.
+   integer(I4P)              :: ror_vars_number=0_I4P         !< Number of variables to check in ROR iterations.
    integer(I4P), allocatable :: ror_ivar(:)               !< Index of each variable to check in ROR iterations.
    logical                   :: enable_ror_stats=.false.  !< Enable ror statistic saving.
    integer(I4P)              :: ib_reduction_extent=0_I4P !< Extent of order reduction close to IB solids.
@@ -356,8 +357,7 @@ contains
    buff_c = WENO_WEIGHTS_JS
    call file_parameters%get(section_name=sname, option_name='weights', val=buff_c, error=error)
    self%weights = trim(adjustl(buff_c))
-   call file_parameters%get(section_name=sname, option_name='ror_number', val=self%ror_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ror_number)')
+   call ini_get(file_parameters, sname, 'ror_number', self%ror_number, default=0_I4P)
    if (self%ror_number>0) then
       allocate(self%ror_schemes(self%ror_number))
       do r=1, self%ror_number
@@ -371,10 +371,8 @@ contains
       allocate(self%ror_schemes(1))
       self%ror_schemes = self%S
    endif
-   call file_parameters%get(section_name=sname, option_name='ror_threshold', val=self%ror_threshold, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ror_threshold)')
-   call file_parameters%get(section_name=sname, option_name='ror_vars_number', val=self%ror_vars_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ror_vars_number)')
+   call ini_get(file_parameters, sname, 'ror_threshold', self%ror_threshold, default=0.9_R8P)
+   call ini_get(file_parameters, sname, 'ror_vars_number', self%ror_vars_number, default=0_I4P)
    if (self%ror_vars_number>0) then
       allocate(self%ror_ivar(self%ror_vars_number))
       do r=1, self%ror_vars_number
@@ -388,12 +386,9 @@ contains
       allocate(self%ror_ivar(1))
       self%ror_ivar = 0
    endif
-   call file_parameters%get(section_name=sname, option_name='enable_ror_stats', val=self%enable_ror_stats, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(enable_ror_stats)')
-   call file_parameters%get(section_name=sname, option_name='ib_reduction_extent', val=self%ib_reduction_extent, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ib_reduction_extent)')
-   call file_parameters%get(section_name=sname, option_name='ib_reduced_order', val=self%ib_reduced_order, error=error)
-   if (.not.go_on_fail_.and.error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ib_reduced_order)')
+   call ini_get(file_parameters, sname, 'enable_ror_stats', self%enable_ror_stats, default=.false.)
+   call ini_get(file_parameters, sname, 'ib_reduction_extent', self%ib_reduction_extent, default=0_I4P)
+   call ini_get(file_parameters, sname, 'ib_reduced_order', self%ib_reduced_order, default=1_I4P)
    endsubroutine load_from_file
 
    pure subroutine reconstruct_upwind(self, S, v, vr)

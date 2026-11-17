@@ -5,6 +5,7 @@ module adam_ib_object
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
+use :: adam_ini_library, only : ini_get
 use :: adam_mpih_global,  only : mpih
 ! third party modules
 use :: finer
@@ -197,10 +198,8 @@ contains
    integer(I4P)                           :: err             !< Error status.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
-   call file_parameters%get(section_name=INI_SECTION_NAME//'s', option_name='number', val=self%solids_number, error=err)
-   if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'s].(number)')
-   call file_parameters%get(section_name=INI_SECTION_NAME//'s', option_name='n_eikonal', val=self%n_eikonal, error=err)
-   if (.not.go_on_fail_.and.err>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'s].(n_eikonal)')
+   call ini_get(file_parameters, INI_SECTION_NAME//'s', 'number', self%solids_number, default=0_I4P)
+   call ini_get(file_parameters, INI_SECTION_NAME//'s', 'n_eikonal', self%n_eikonal, default=2_I4P)
 
    if (self%solids_number>=1) then
       allocate(self%s_name(self%solids_number))
