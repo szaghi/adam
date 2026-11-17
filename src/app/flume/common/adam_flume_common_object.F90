@@ -189,6 +189,9 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: wm_filter_to_device   !< Send the host filter averages where the backend reads them (FNL: the device).
       procedure, pass(self) :: advance_inflow_df     !< Move the digital-filter inflow on by the step (issue #119, T3.7).
       procedure, pass(self) :: inflow_df_to_device   !< Send the inflow ghost rows where the backend reads them (FNL: the device).
+      procedure, pass(self) :: advance_inflow_rr     !< Rebuild the recycling inflow's ghost rows from the committed state (issue #121, S5).
+      procedure, pass(self) :: inflow_rr_gather      !< Gather the recycling plane's cells of this rank on the host (FNL: from the device).
+      procedure, pass(self) :: inflow_rr_to_device   !< Send the recycling inflow's ghost rows where the backend reads them (FNL: the device).
       procedure, pass(self) :: save_wall_history     !< Save the wall-model history on its cadence (issue #119, T3.7).
       procedure, pass(self) :: wall_history_to_host  !< Bring the state to the host for the wall-model history (FNL: from the device).
       procedure, pass(self) :: save_slices           !< Save the slices on their cadence.
@@ -1214,6 +1217,8 @@ contains
    call self%adam%make_comm_local_maps_ghost_bc
    call self%bc%df%setup(emin=self%adam%grid%domain_emin, emax=self%adam%grid%domain_emax, &
                          periodic=self%adam%grid%is_ijk_periodic) ! issue #119, T3.7 (nothing without the face)
+   call self%bc%rr%setup(emin=self%adam%grid%domain_emin, emax=self%adam%grid%domain_emax, &
+                         periodic=self%adam%grid%is_ijk_periodic, ngc=self%ngc) ! issue #121, S5 (nothing without the face)
    ! issue #101: the density and momenta (IQ_RU..IQ_RW follow IQ_R) of a coarse->fine seam ghost are clamped to the MP
    ! bound of the coarse cells around it, and a ghost whose clamped density is below 0.1 times its coarse anchor's takes
    ! the anchor's state (the injection value): the tricubic overshoots made the corner cells of a refined region run
@@ -1582,10 +1587,51 @@ contains
    !< every rank alike (the forest's step is global); then the backend refreshes its ghost rows.
    class(flume_common_object), intent(inout) :: self !< The equation.
 
-   if (.not.self%bc%df%is_active) return
-   call self%bc%df%advance(dt=self%time%dt)
-   call self%inflow_df_to_device
+   if (self%bc%df%is_active) then
+      call self%bc%df%advance(dt=self%time%dt)
+      call self%inflow_df_to_device
+   endif
+   call self%advance_inflow_rr ! issue #121, S5: the step hook of the recycling inflow too
    endsubroutine advance_inflow_df
+
+   subroutine advance_inflow_rr(self)
+   !< Rebuild the recycling inflow's plane from the committed state (issue #121, S5): once per step, before the first stage, on
+   !< every rank alike (the plane's allreduce is collective); the backend gathers this rank's plane cells. The ghost rows are
+   !< listed from the plane where the backend lists the digital filter's (the CPU at every boundary fill, FNL when it copies
+   !< them to the device), so they follow the map. Nothing without the face.
+   class(flume_common_object), intent(inout) :: self  !< The equation.
+   real(R8P), allocatable                    :: q_rec(:,:) !< This rank's plane cells, conservative [5, nrec].
+
+   if (.not.self%bc%rr%is_active) return
+   if (.not.allocated(self%adam%maps%local_map_bc_crown)) return
+   call self%bc%rr%list_recycle_cells(nb=self%blocks_number, nc=[self%ni, self%nj, self%nk], ngc=self%ngc,          &
+                                      x_cell=self%adam%field%x_cell, y_cell=self%adam%field%y_cell,                  &
+                                      z_cell=self%adam%field%z_cell, dxyz=self%adam%field%dxyz)
+   allocate(q_rec(5, self%bc%rr%nrec))
+   call self%inflow_rr_gather(q_rec)
+   call self%bc%rr%build_plane(q_rec=q_rec)
+   call self%inflow_rr_to_device
+   endsubroutine advance_inflow_rr
+
+   subroutine inflow_rr_gather(self, q_rec)
+   !< Gather the recycling plane's cells of this rank (`bc%rr%rec_cells`) from the committed state: the host field on the CPU
+   !< backend (FNL overrides it: from the device).
+   class(flume_common_object), intent(inout) :: self       !< The equation.
+   real(R8P),                  intent(inout) :: q_rec(:,:) !< Conservative state of the cells [5, nrec].
+   integer(I4P)                              :: m          !< Counter.
+
+   do m=1, self%bc%rr%nrec
+      associate(c=>self%bc%rr%rec_cells(:,m))
+      q_rec(:,m) = self%q(1:5,c(1),c(2),c(3),c(4))
+      endassociate
+   enddo
+   endsubroutine inflow_rr_gather
+
+   subroutine inflow_rr_to_device(self)
+   !< List the recycling inflow's ghost rows and send them where the backend reads them: nothing on the CPU backend, which lists
+   !< and writes them at every boundary fill (FNL overrides it).
+   class(flume_common_object), intent(inout) :: self !< The equation.
+   endsubroutine inflow_rr_to_device
 
    subroutine inflow_df_to_device(self)
    !< Send the inflow ghost rows where the backend reads them: nothing on the CPU backend, which lists them at every boundary

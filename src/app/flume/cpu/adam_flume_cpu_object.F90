@@ -28,7 +28,7 @@ use :: adam_flume_common_library,      only : flume_common_object, regrid_phases
                                               seam_face_cells, seam_fine_to_coarse, seam_skin_cell, seam_skin_index,   &
                                               reflux_positivity_theta,                                                 &
                                               BC_EXTRAPOLATION,                                                        &
-                                              BC_INFLOW, BC_INFLOW_DF, BC_NONREFLECTING, BC_SHOCK_GENERATOR, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL,        &
+                                              BC_INFLOW, BC_INFLOW_DF, BC_INFLOW_RR, BC_NONREFLECTING, BC_SHOCK_GENERATOR, BC_WALL_INVISCID, BC_WALL_ISOTHERMAL,        &
                                               BC_WALL_NOSLIP, nonreflecting_ghost,                                                     &
                                               realm_edge_donor, realm_edge_face, wall_noslip_ghost,                     &
                                               BC_HYDROSTATIC, hydrostatic_ghost,                                        &
@@ -2072,6 +2072,16 @@ contains
             endassociate
          enddo
       endif
+      ! the recycling inflow (issue #121, S5): the same, from the plane of the step (none before the first step's)
+      if (pass == 2_I4P .and. self%bc%rr%is_active .and. self%bc%rr%has_plane) then
+         call self%bc%rr%build_rows(crown_map=crown_map, x_cell=self%adam%field%x_cell, y_cell=self%adam%field%y_cell, &
+                                    z_cell=self%adam%field%z_cell)
+         do c=1, self%bc%rr%nrows
+            associate(r=>self%bc%rr%rows(:,c))
+            q(1:5,r(2),r(3),r(4),r(1)) = self%bc%rr%q_rows(:,c)
+            endassociate
+         enddo
+      endif
       do crown=1, self%ngc
          do c=1, size(crown_map, dim=1)
             b = int(crown_map(c,1,crown), I4P)
@@ -2166,8 +2176,8 @@ contains
                                         iref=iref, jref=jref, kref=kref)
                   q(:,i,j,k,b) = q(:,iref,jref,kref,b)
                endif
-            case(BC_INFLOW_DF)
-               ! digital-filter inflow: written after this pass (issue #119, T3.7)
+            case(BC_INFLOW_DF, BC_INFLOW_RR)
+               ! digital-filter and recycling inflows: written after this pass (issue #119, T3.7; #121, S5)
             case default
                call mpih%error_stop(msg=': unexpected boundary condition type '//trim(str(bc_type))//' on the crown map')
             endselect

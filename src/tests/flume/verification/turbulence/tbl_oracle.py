@@ -22,6 +22,10 @@ committed state's by about f dt / (2 rho u_1), first order in dt. Passes when th
 `wall-agree <a> <b> [--tol T]`: two runs' wall-model histories (every face file) within T (default 1e-12) of each column's scale.
 `inflow <work>`: the ghost layer of the inflow face in the last checkpoint (saved with ghosts): the spanwise mean of u at y = delta / 2 within 10 % of the table,
 and fluctuations present (the rms of the spanwise and wall-normal velocity above 1e-3 U_inf below delta).
+`recycling <work> [--from TAG --to TAG]`: the recycling-rescaling inflow (#121 S5) with no rescaling (rr_delta_ratio = rr_beta = 1), exactly: the ghosts
+written in step TO are the table's mean plus the damped fluctuations of the committed state of step FROM (the previous checkpoint, saved every step), cell
+for cell: ghost layer g (x = -(g - 1/2) dx) takes the cell at x = (n_r - g + 1/2) dx, the span shifted by rr_shift, rho' the spanwise mean removed, the
+velocity's spanwise Favre mean; every interior ghost cell of the face within 1e-10 (an independent rebuild of the method, not the Fortran).
 
 Checkpoint blocks are (z, y, x) arrays with the ghosts, their origin (the ghost corner) and spacing ordered (z, y, x) too; gamma 1.4."""
 
@@ -97,6 +101,18 @@ def ini_value(work: Path, key: str) -> str:
     raise KeyError(key)
 
 
+def ini_section_value(work: Path, sec: str, key: str) -> str:
+    """Return `key` of section `[sec]` of the run's input.ini."""
+    inside = False
+    for line in (work / "input.ini").read_text().splitlines():
+        t = line.strip()
+        if t.startswith("["):
+            inside = t == f"[{sec}]"
+        elif inside and t.split("=")[0].strip() == key:
+            return t.split("=", 1)[1].strip()
+    raise KeyError(f"[{sec}] {key}")
+
+
 def inflow(work_s: str) -> int:
     """The ghost layer of the inflow face (x_min) in the last checkpoint."""
     import h5py
@@ -104,8 +120,9 @@ def inflow(work_s: str) -> int:
     work = Path(work_s)
     tags = sorted({p.name.split("-")[1] for p in work.glob("tbl-*-proc*.h5") if p.name.split("-")[1].isdigit()})
     tag = tags[-1]
-    delta = float(ini_value(work, "df_delta"))
-    table = np.loadtxt(work / ini_value(work, "df_profile"), comments="#")
+    kind = "rr" if ini_section_value(work, "bc_x_min", "type") == "inflow-recycling" else "df"
+    delta = float(ini_value(work, f"{kind}_delta"))
+    table = np.loadtxt(work / ini_value(work, f"{kind}_profile"), comments="#")
     u_ref = float(np.interp(0.5, table[:, 0], table[:, 1]))
     ys, us, vs, ws = [], [], [], []
     for f5 in sorted(work.glob(f"tbl-{tag}-proc*.h5")):
@@ -134,6 +151,81 @@ def inflow(work_s: str) -> int:
     print(f"inflow ghosts at checkpoint {tag}: <u> at y = delta/2 {um:.4f} against the table {u_ref:.4f} (bound 10 %)  {'PASS' if ok_u else 'FAIL'}")
     print(f"inflow ghosts below delta: rms v {vr:.2e}, rms w {wr:.2e} (min 1e-3)  {'PASS' if ok_f else 'FAIL'}")
     return 0 if ok_u and ok_f else 1
+
+
+def grid_fields(work: Path, tag: str) -> tuple[dict[str, np.ndarray], float, list[tuple[np.ndarray, np.ndarray, dict]]]:
+    """Return the interior conservative fields of checkpoint `tag` on the global uniform grid (keys r, ru, rv, rw, E; arrays [i, j, k]), its spacing, and
+    the blocks (origin, spacing, fields with ghosts, each (z, y, x)): one level only."""
+    import h5py
+
+    blocks = []
+    for f5 in sorted(work.glob(f"tbl-{tag}-proc*.h5")):
+        with h5py.File(f5, "r") as h:
+            for b in {k.rsplit("-", 1)[0] for k in h if k.endswith("-origin")}:
+                blocks.append((h[b + "-origin"][()], h[b + "-dxdydz"][()], {v: h[f"{b}-{v}"][()] for v in ("r", "ru", "rv", "rw", "rE")}))
+    dx = float(blocks[0][1][2])
+    if any(abs(float(o[1][2]) - dx) > 1e-12 * dx for o in blocks):
+        raise SystemExit("recycling: blocks of several levels; the oracle needs one")
+    lo = np.min([o[0] for o in blocks], axis=0) + NGC * dx
+    hi = np.max([o + (np.array(f["r"].shape) - NGC) * d for o, d, f in blocks], axis=0)  # the ghost corner plus interior and one ghost band
+    n = np.rint((hi - lo) / dx).astype(int)  # (z, y, x)
+    g = {v: np.full((n[2], n[1], n[0]), np.nan) for v in ("r", "ru", "rv", "rw", "rE")}
+    for o, d, f in blocks:
+        c = np.rint((o + NGC * d - lo) / dx).astype(int)
+        for v in g:
+            a = f[v][NGC:-NGC, NGC:-NGC, NGC:-NGC]  # (z, y, x)
+            g[v][c[2]:c[2] + a.shape[2], c[1]:c[1] + a.shape[1], c[0]:c[0] + a.shape[0]] = a.transpose(2, 1, 0)
+    return g, dx, blocks
+
+
+def recycling(work_s: str, tag_from: str | None, tag_to: str | None) -> int:
+    """The recycling inflow's ghosts of checkpoint `tag_to` against an independent rebuild from the committed state of `tag_from`."""
+    work = Path(work_s)
+    tags = sorted({p.name.split("-")[1] for p in work.glob("tbl-*-proc*.h5") if p.name.split("-")[1].isdigit()})
+    tag_to = tag_to or tags[-1]
+    tag_from = tag_from or tags[tags.index(tag_to) - 1]
+    if abs(float(ini_value(work, "rr_delta_ratio")) - 1.0) > 0 or abs(float(ini_value(work, "rr_beta")) - 1.0) > 0:
+        print("recycling: the exact check needs rr_delta_ratio = rr_beta = 1  FAIL")
+        return 1
+    g, dx, _ = grid_fields(work, tag_from)
+    nz = g["r"].shape[2]
+    nr = round(float(ini_value(work, "rr_x")) / dx)
+    shift = round(float(ini_value(work, "rr_shift")) * nz) % nz
+    delta = float(ini_value(work, "rr_delta"))
+    table = np.loadtxt(work / ini_value(work, "rr_profile"), comments="#")
+    p_inf = float(ini_value(work, "p"))
+    _, _, blocks = grid_fields(work, tag_to)
+    err, cells = 0.0, 0
+    for o, d, f in blocks:
+        if abs(o[2] + NGC * d[2]) > 1e-12:  # blocks at the inflow face only
+            continue
+        ny_b, nz_b = f["r"].shape[1] - 2 * NGC, f["r"].shape[0] - 2 * NGC
+        j0 = round((o[1] + NGC * d[1]) / dx)
+        k0 = round((o[0] + NGC * d[0]) / dx)
+        for gl in range(1, NGC + 1):
+            i_src = nr - gl  # 0-based global cell of layer g
+            r, ru, rv, rw = (g[v][i_src] for v in ("r", "ru", "rv", "rw"))  # [j, k]
+            fr = r - r.mean(axis=1, keepdims=True)
+            fu = [m / r - m.sum(axis=1, keepdims=True) / r.sum(axis=1, keepdims=True) for m in (ru, rv, rw)]
+            for jb in range(ny_b):
+                j = j0 + jb
+                eta = (j + 0.5) * dx / delta
+                um = np.interp(eta, table[:, 0], table[:, 1], right=1.0)
+                tm = np.interp(eta, table[:, 0], table[:, 2], right=1.0)
+                rm = 1.0 / tm
+                damp = 0.5 * (1.0 - np.tanh(4.0 * (eta - 2.0)))
+                for kb in range(nz_b):
+                    ks = (k0 + kb + shift) % nz
+                    rho = rm + max(-0.75 * rm, min(4.0 * rm, fr[j, ks] * damp))
+                    vel = np.array([um + fu[0][j, ks] * damp, fu[1][j, ks] * damp, fu[2][j, ks] * damp])
+                    qe = np.array([rho, *(rho * vel), p_inf / (GAMMA - 1.0) + 0.5 * rho * float(vel @ vel)])
+                    qg = np.array([f[v][NGC + kb, NGC + jb, NGC - gl] for v in ("r", "ru", "rv", "rw", "rE")])
+                    err = max(err, float(np.max(np.abs(qg - qe))))
+                    cells += 1
+    ok = cells > 0 and err < 1e-10
+    print(f"recycling: the ghosts of checkpoint {tag_to} from the state of {tag_from}: {cells} ghost cells, largest difference {err:.2e} (bound 1e-10)"
+          f"  {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
 
 
 def checkpoints(work: Path) -> list[tuple[float, str]]:
@@ -416,6 +508,10 @@ def main() -> int:
     p.add_argument("b")
     p = sub.add_parser("inflow")
     p.add_argument("work")
+    p = sub.add_parser("recycling")
+    p.add_argument("work")
+    p.add_argument("--from", dest="tag_from", default=None)
+    p.add_argument("--to", dest="tag_to", default=None)
     p = sub.add_parser("wall-force")
     p.add_argument("work")
     p = sub.add_parser("wall-force-dt")
@@ -444,6 +540,8 @@ def main() -> int:
         return wall_agree(a.a, a.b, a.tol)
     if a.what == "compare":
         return compare(a.work, a.stat, a.t0, a.json, a.re_inf)
+    if a.what == "recycling":
+        return recycling(a.work, a.tag_from, a.tag_to)
     return inflow(a.work)
 
 

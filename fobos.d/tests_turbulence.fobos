@@ -1,5 +1,5 @@
 [modes]
-modes = test-sgs-gnu test-kep-gnu test-wm-gnu test-df-gnu
+modes = test-sgs-gnu test-kep-gnu test-wm-gnu test-df-gnu test-rr-gnu
 
 # The pointwise subgrid-scale formulas of the library against an independent computation (issue #119, T1): verification/turbulence
 # leg sg1. No MPI, no HDF5: the program reads the tensors on stdin.
@@ -29,3 +29,11 @@ template = template-gnu
 mod_dir  = ./mod/gnu-df/
 obj_dir  = ./obj/gnu-df/
 target   = test_inflow_df.F90
+
+# The recycling-rescaling inflow (issue #121, S5), leg tb3: blend and damping, the plane cells and their fluctuations, the ghost rows end to end
+# without rescaling, the rescaling of linear fluctuations.
+[test-rr-gnu]
+template = template-gnu
+mod_dir  = ./mod/gnu-rr/
+obj_dir  = ./obj/gnu-rr/
+target   = test_inflow_rr.F90

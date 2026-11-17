@@ -80,6 +80,9 @@ module adam_flume_bc_object
 !< **Digital-filter inflow** (issue #119, T3.7). `inflow-digital-filter` feeds a turbulent boundary layer through the face:
 !< the keys and the method are in `adam_flume_inflow_df_object` (component `df`). The backends write its ghost states after
 !< the face pass; in the edge and corner passes it is extrapolated.
+!< **Recycling-rescaling inflow** (issue #121, S5). `inflow-recycling` feeds a turbulent boundary layer through the face with
+!< the fluctuations of a plane downstream, rescaled: the keys and the method are in `adam_flume_inflow_rr_object` (component
+!< `rr`); its ghost states are written as the digital filter's.
 
 ! ADAM classes, libraries, parameters
 use :: adam_parameters,           only : BC_PERIODIC, BC_SEAM, FEC_TO_DELTA
@@ -92,6 +95,7 @@ use :: adam_flume_parameters,     only : IQ_BX, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RW
                                         MODEL_EULER_ISO, MODEL_EULER_BARO, has_inert_energy, strip_control
 use :: adam_flume_physics_object, only : flume_physics_object, primitive_state_to_conservative
 use :: adam_flume_inflow_df_object, only : flume_inflow_df_object
+use :: adam_flume_inflow_rr_object, only : flume_inflow_rr_object
 ! third party modules
 use :: finer,                     only : file_ini
 use :: penf,                      only : I4P, R8P, str
@@ -106,6 +110,7 @@ public :: BC_WALL_NOSLIP
 public :: BC_WALL_ISOTHERMAL
 public :: BC_HYDROSTATIC
 public :: BC_INFLOW_DF
+public :: BC_INFLOW_RR
 public :: BC_NONREFLECTING
 public :: BC_SHOCK_GENERATOR
 public :: oblique_shock
@@ -125,6 +130,7 @@ integer(I4P), parameter :: BC_HYDROSTATIC = 6_I4P     !< Hydrostatic ghosts unde
 integer(I4P), parameter :: BC_INFLOW_DF = 7_I4P       !< Digital-filter turbulent inflow (issue #119, T3.7).
 integer(I4P), parameter :: BC_NONREFLECTING = 8_I4P   !< Characteristic non-reflecting outflow (issue #121, S2).
 integer(I4P), parameter :: BC_SHOCK_GENERATOR = 9_I4P !< Oblique-shock generator on a y face (issue #121, S3).
+integer(I4P), parameter :: BC_INFLOW_RR = 10_I4P      !< Recycling-rescaling turbulent inflow (issue #121, S5).
 
 character(len=13), parameter :: BC_EXTRAPOLATION_STR="extrapolation"          !< Accepted spelling of BC_EXTRAPOLATION.
 character(len=6),  parameter :: BC_INFLOW_STR="inflow"                        !< Accepted spelling of BC_INFLOW.
@@ -137,6 +143,7 @@ character(len=11), parameter :: BC_HYDROSTATIC_STR="hydrostatic"              !<
 character(len=21), parameter :: BC_INFLOW_DF_STR="inflow-digital-filter"      !< Accepted spelling of BC_INFLOW_DF.
 character(len=14), parameter :: BC_NONREFLECTING_STR="non-reflecting"        !< Accepted spelling of BC_NONREFLECTING.
 character(len=15), parameter :: BC_SHOCK_GENERATOR_STR="shock-generator"     !< Accepted spelling of BC_SHOCK_GENERATOR.
+character(len=16), parameter :: BC_INFLOW_RR_STR="inflow-recycling"           !< Accepted spelling of BC_INFLOW_RR.
 real(R8P),         parameter :: NR_SIGMA_DEFAULT=0.28_R8P                     !< Non-reflecting: relaxation (Rudy & Strikwerda 1980).
 character(len=6),  parameter :: WALL_VELOCITY_KEY(3)=['wall_u', 'wall_v', 'wall_w'] !< Wall velocity keys.
 character(len=2),  parameter :: INFLOW_KEY(8)=['r ', 'u ', 'v ', 'w ', &
@@ -170,6 +177,7 @@ type :: flume_bc_object
    real(R8P)              :: nr_par(7,6)=0._R8P         !< Non-reflecting faces: target r, u, v, w, p, then sigma and L.
    real(R8P)              :: sg_par(7,6)=0._R8P         !< Shock generators: the post-shock conservative state, then the x range [x0, x1).
    type(flume_inflow_df_object) :: df                   !< Digital-filter inflow (issue #119, T3.7).
+   type(flume_inflow_rr_object) :: rr                   !< Recycling-rescaling inflow (issue #121, S5).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -222,6 +230,7 @@ contains
    allocate(self%q_inflow(physics%nv,6), self%wall_sign(physics%nv,3))
    self%q_inflow = 0._R8P
    self%df = flume_inflow_df_object() ! a fresh inflow: load counts its faces
+   self%rr = flume_inflow_rr_object()
    ! wall rule (issue #41, section 3.6): the mirror state negates the wall-normal momentum; MHD (perfectly conducting
    ! reflecting wall, D-12) also negates the wall-normal magnetic field, psi stays even
    self%wall_sign = 1._R8P
@@ -396,6 +405,10 @@ contains
          self%bc_type(f) = BC_INFLOW_DF
          call self%df%load(file_parameters=file_parameters, section=SECTION_NAME(f), face=f, model=physics%model, &
                            gamma=physics%gamma)
+      case(BC_INFLOW_RR_STR)
+         self%bc_type(f) = BC_INFLOW_RR
+         call self%rr%load(file_parameters=file_parameters, section=SECTION_NAME(f), face=f, model=physics%model, &
+                           gamma=physics%gamma)
       case(BC_NONREFLECTING_STR)
          if (physics%model /= MODEL_EULER .or. physics%passive_scalars > 0_I4P) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(type)='//bc_str//' needs [physics].(physical_model)=euler '// &
@@ -427,7 +440,8 @@ contains
          call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(type) "'//bc_str//'"; expected one of '// &
                                   BC_EXTRAPOLATION_STR//', '//BC_INFLOW_STR//', '//BC_WALL_INVISCID_STR//', '// &
                                   BC_WALL_NOSLIP_STR//', '//BC_WALL_ISOTHERMAL_STR//', '//BC_WALL_MODELLED_STR//', '//BC_PERIODIC_STR//', '// &
-                                  BC_HYDROSTATIC_STR//', '//BC_INFLOW_DF_STR//', '//BC_NONREFLECTING_STR//', '//BC_SHOCK_GENERATOR_STR)
+                                  BC_HYDROSTATIC_STR//', '//BC_INFLOW_DF_STR//', '//BC_INFLOW_RR_STR//', '//BC_NONREFLECTING_STR//', '// &
+                                  BC_SHOCK_GENERATOR_STR)
       endselect
    enddo
    do f=1, 5, 2

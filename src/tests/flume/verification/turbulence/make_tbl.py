@@ -28,6 +28,44 @@ def section(text: str, name: str, keys: dict[str, str]) -> str:
     return text[: m.start(1)] + body + text[m.end(1) :]
 
 
+def cf_van_driest(re_theta: float, mach: float, tw_te: float, mu_ratio: float, gamma: float = 1.4, recovery: float = 0.89) -> float:
+    """Return C_f of a zero-pressure-gradient layer by van Driest II (Hopkins & Inouye 1971): the Karman-Schoenherr incompressible C_f at
+    Re_theta mu_e / mu_w, divided by F_c; `tw_te` the wall over the edge temperature, `mu_ratio` mu_w / mu_e."""
+    import math  # noqa: PLC0415
+
+    taw = 1.0 + recovery * 0.5 * (gamma - 1.0) * mach**2
+    a = math.sqrt(recovery * 0.5 * (gamma - 1.0) * mach**2 / tw_te)
+    b = taw / tw_te - 1.0
+    den = math.sqrt(b * b + 4.0 * a * a)
+    fc = (taw - 1.0) / (math.asin((2.0 * a * a - b) / den) + math.asin(b / den)) ** 2
+    lr = math.log10(re_theta / mu_ratio)
+    return 1.0 / (17.08 * lr * lr + 25.11 * lr + 6.012) / fc
+
+
+def recycling_ratios(profile: Path, reynolds: float, mach: float, tw_te: float, mu_ratio: float, x_r: float) -> tuple[float, float, float, float]:
+    """Return delta(x_r) / delta(0), beta = delta_v(x_r) / delta_v(0), Re_theta at the face and at x_r (#121 S5, the role of STREAmS's mean-profile model):
+    theta at the face from the table (delta 1, rho / rho_inf = T_inf / T), then d theta / dx = C_f / 2 (van Driest II) to x_r; delta grows as theta
+    (a self-similar profile) and delta_v as 1 / sqrt(C_f) (the wall density and viscosity fixed)."""
+    rows = [[float(v) for v in line.split()[:3]] for line in profile.read_text().splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    theta0 = 0.0
+    for (e1, u1, t1), (e2, u2, t2) in zip(rows[:-1], rows[1:], strict=True):
+        theta0 += 0.5 * (e2 - e1) * (u1 * (1.0 - u1) / t1 + u2 * (1.0 - u2) / t2)
+    n = max(200, int(20.0 * x_r))
+    h = x_r / n
+    theta = theta0
+    for _ in range(n):  # RK4 on d theta / dx = C_f(Re_theta) / 2
+        def f(th: float) -> float:
+            return 0.5 * cf_van_driest(reynolds * th, mach, tw_te, mu_ratio)
+        k1 = f(theta)
+        k2 = f(theta + 0.5 * h * k1)
+        k3 = f(theta + 0.5 * h * k2)
+        k4 = f(theta + h * k3)
+        theta += h * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+    cf0 = cf_van_driest(reynolds * theta0, mach, tw_te, mu_ratio)
+    cfr = cf_van_driest(reynolds * theta, mach, tw_te, mu_ratio)
+    return theta / theta0, (cf0 / cfr) ** 0.5, reynolds * theta0, reynolds * theta
+
+
 def main() -> int:
     """Write the input and copy the profile table next to it."""
     ap = argparse.ArgumentParser(description=__doc__)
@@ -59,6 +97,12 @@ def main() -> int:
     ap.add_argument("--wm-pg-ypg", type=float, default=0.0, help="[bc] wall_model_pressure_gradient_ypg: the Bernoulli-consistent y_pg (Hickel et al. 2012: 4; #121 P1)")
     ap.add_argument("--df-lengths", default="0.8,0.3,0.3", help="integral lengths streamwise, normal, spanwise in units of delta_i")
     ap.add_argument("--df-seed", type=int, default=1)
+    ap.add_argument("--inflow", choices=("digital-filter", "recycling"), default="digital-filter",
+                    help="the x_min face: the digital filter (#119 T3.7) or the recycling-rescaling inflow (#121 S5)")
+    ap.add_argument("--rr-x", type=float, default=0.0, help="--inflow recycling: the station, delta_i downstream of the face")
+    ap.add_argument("--rr-shift", type=float, default=0.5, help="--inflow recycling: the span shift, a fraction of the span")
+    ap.add_argument("--rr-delta-ratio", type=float, default=0.0, help="--inflow recycling: delta(x_r) / delta(0) (default: the correlation)")
+    ap.add_argument("--rr-beta", type=float, default=0.0, help="--inflow recycling: delta_v(x_r) / delta_v(0) (default: the correlation)")
     ap.add_argument("--scheme-space", default="hybrid-kep-weno")
     ap.add_argument("--sgs-model", default="none")
     ap.add_argument("--cfl", type=float, default=0.5)
@@ -104,9 +148,26 @@ def main() -> int:
     text = section(text, "numerics", {"scheme_space": args.scheme_space})
     dx = args.lx / args.nx
     dy = args.ly / args.ny
-    text = section(text, "bc_x_min", {"type": "inflow-digital-filter", "r": "1.0", "u": "1.0", "p": repr(p_inf), "df_profile": "profile.txt",
-                                      "df_delta": "1.0", "df_wall_axis": "y", "df_spacing": repr(dy), "df_length_streamwise": lengths[0],
-                                      "df_length_normal": lengths[1], "df_length_spanwise": lengths[2], "df_seed": str(args.df_seed)})
+    if args.inflow == "recycling":  # issue #121, S5: the ratios from the correlation unless given
+        if not args.rr_x > 0.0:
+            sys.exit("--inflow recycling needs --rr-x")
+        if args.sutherland > 0.0:
+            s = args.sutherland
+            mu_ratio = args.wall_heat**1.5 * (1.0 + s) / (args.wall_heat + s)
+        else:
+            mu_ratio = args.wall_heat**args.power_law
+        ratio, beta, rt0, rtr = recycling_ratios(args.profile, args.reynolds, args.mach, args.wall_heat, mu_ratio, args.rr_x)
+        ratio = args.rr_delta_ratio if args.rr_delta_ratio > 0.0 else ratio
+        beta = args.rr_beta if args.rr_beta > 0.0 else beta
+        print(f"inflow-recycling: station {args.rr_x}, Re_theta {rt0:.0f} -> {rtr:.0f} (van Driest II), delta ratio {ratio:.4f}, beta {beta:.4f}",
+              file=sys.stderr)  # stdout is check.sh's work directory
+        text = section(text, "bc_x_min", {"type": "inflow-recycling", "r": "1.0", "u": "1.0", "p": repr(p_inf), "rr_profile": "profile.txt",
+                                          "rr_delta": "1.0", "rr_wall_axis": "y", "rr_spacing": repr(dy), "rr_x": repr(args.rr_x),
+                                          "rr_delta_ratio": repr(ratio), "rr_beta": repr(beta), "rr_shift": repr(args.rr_shift)})
+    else:
+        text = section(text, "bc_x_min", {"type": "inflow-digital-filter", "r": "1.0", "u": "1.0", "p": repr(p_inf), "df_profile": "profile.txt",
+                                          "df_delta": "1.0", "df_wall_axis": "y", "df_spacing": repr(dy), "df_length_streamwise": lengths[0],
+                                          "df_length_normal": lengths[1], "df_length_spanwise": lengths[2], "df_seed": str(args.df_seed)})
     text = section(text, "bc_x_max", {"type": "extrapolation"})
     if args.top_shock > 0.0:  # the incident shock of an interaction (issue #121, S4): the free stream upstream of it
         text = section(text, "bc_y_max", {"type": "shock-generator", "r": "1.0", "u": "1.0", "v": "0.0", "w": "0.0", "p": repr(p_inf),

@@ -410,6 +410,8 @@ type, extends(flume_common_object) :: flume_fnl_object
    real(R8P), pointer     :: q_inflow_gpu(:,:)=>null()    !< Conservative inflow state of each face [nv, 6].
    integer(I4P), pointer  :: df_rows_gpu(:,:)=>null()     !< Digital-filter inflow: block and cell of each ghost row [4, rows] (#119).
    real(R8P), pointer     :: df_q_gpu(:,:)=>null()        !< Digital-filter inflow: state of each ghost row [5, rows] (#119).
+   integer(I4P), pointer  :: rr_rows_gpu(:,:)=>null()     !< Recycling inflow: block and cell of each ghost row [4, rows] (#121, S5).
+   real(R8P), pointer     :: rr_q_gpu(:,:)=>null()        !< Recycling inflow: state of each ghost row [5, rows] (#121, S5).
    real(R8P), pointer     :: wall_sign_gpu(:,:)=>null()   !< Wall mirror sign per variable and direction [nv, 3].
    integer(I4P), pointer  :: divb_seam_gpu(:,:)=>null()   !< Seam faces flags of the div(B) history [nb, 6].
    integer(I4P), pointer  :: bc_rows_gpu(:,:)=>null()     !< BC crown map rows grouped by pass [rows, ngc] (#90 F-A').
@@ -459,6 +461,8 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: wm_filter_to_host       !< Copy the wall-model filter averages from the device to the host arrays (issue #119).
       procedure, pass(self) :: wm_filter_to_device     !< Copy the host wall-model filter averages to the device (issue #119).
       procedure, pass(self) :: inflow_df_to_device     !< Copy the digital-filter inflow ghost rows to the device (issue #119).
+      procedure, pass(self) :: inflow_rr_gather        !< Gather the recycling plane's cells from the device (issue #121, S5).
+      procedure, pass(self) :: inflow_rr_to_device     !< Copy the recycling inflow ghost rows to the device (issue #121, S5).
       procedure, pass(self) :: wall_history_to_host    !< Copy the state to the host for the wall-model history (issue #119).
       procedure, pass(self) :: copy_phi_gpu            !< Copy the immersed solids distance function to the device.
       procedure, pass(self) :: refresh_potential       !< Set the gravitational potential and copy it to the device.
@@ -1776,6 +1780,7 @@ contains
       nullify(self%q_inflow_gpu)
    endif
    call free_inflow_df_rows(self)
+   call free_inflow_rr_rows(self)
    if (associated(self%wall_sign_gpu)) then
       call dev_free(self%wall_sign_gpu, mydev)
       nullify(self%wall_sign_gpu)
@@ -2634,6 +2639,10 @@ contains
       if (pass == 2_I4P .and. self%bc%df%is_active .and. associated(self%df_rows_gpu)) &
          call set_inflow_df_dev(ngc=self%ngc, nrows=self%bc%df%nrows, df_rows_gpu=self%df_rows_gpu, df_q_gpu=self%df_q_gpu, &
                                 q_gpu=q_gpu)
+      ! the recycling inflow (issue #121, S5): the same kernel, its own rows
+      if (pass == 2_I4P .and. self%bc%rr%is_active .and. associated(self%rr_rows_gpu)) &
+         call set_inflow_df_dev(ngc=self%ngc, nrows=self%bc%rr%nrows, df_rows_gpu=self%rr_rows_gpu, df_q_gpu=self%rr_q_gpu, &
+                                q_gpu=q_gpu)
       do crown=1, self%ngc
          if (self%bc_pass_range(2,pass,crown) < self%bc_pass_range(1,pass,crown)) cycle ! no row of this pass
          call set_boundary_conditions_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv,               &
@@ -2692,6 +2701,7 @@ contains
    endassociate
    call dev_assign_to_device(src=rows, dst=self%bc_rows_gpu)
    call self%inflow_df_to_device ! the digital-filter rows follow the map (issue #119, T3.7)
+   call self%inflow_rr_to_device ! the recycling rows too (issue #121, S5)
    endsubroutine build_bc_pass_rows
 
    subroutine inflow_df_to_device(self)
@@ -2733,6 +2743,62 @@ contains
    call copy_blocks_transposed(blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                nv=self%nv, a=self%q, a_gpu=self%q_gpu, to_device=.false.)
    endsubroutine wall_history_to_host
+
+   subroutine inflow_rr_gather(self, q_rec)
+   !< Gather the recycling plane's cells of this rank (`bc%rr%rec_cells`, (i, j, k, b)) from the device state (issue #121, S5).
+   class(flume_fnl_object), intent(inout) :: self       !< The equation.
+   real(R8P),               intent(inout) :: q_rec(:,:) !< Conservative state of the cells [5, nrec].
+
+   if (self%bc%rr%nrec == 0_I4P) return
+   call seam_gather_cells(cells=self%bc%rr%rec_cells, nv=5_I4P, ngc=self%ngc, a_gpu=self%q_gpu, out=q_rec)
+   endsubroutine inflow_rr_gather
+
+   subroutine inflow_rr_to_device(self)
+   !< List the recycling inflow ghost rows from the host map and the plane of the step, and copy them and their states to the
+   !< device (issue #121, S5): once per step (the plane changes) and after every copy of the map; none before the first plane.
+   !< The device arrays hold at least one column, so a rank without rows copies no zero-size array (issue #82).
+   class(flume_fnl_object), intent(inout) :: self      !< The equation.
+   integer(I4P), allocatable              :: rows(:,:) !< Rows, padded to one column.
+   real(R8P),    allocatable              :: qr(:,:)   !< States, padded to one column.
+   integer(I4P)                           :: n         !< Columns.
+
+   if (.not.self%bc%rr%is_active) return
+   if (.not.self%bc%rr%has_plane) return
+   if (.not.allocated(self%adam%maps%local_map_bc_crown)) return
+   call self%bc%rr%build_rows(crown_map=self%adam%maps%local_map_bc_crown, x_cell=self%adam%field%x_cell, &
+                              y_cell=self%adam%field%y_cell, z_cell=self%adam%field%z_cell)
+   n = max(1_I4P, self%bc%rr%nrows)
+   allocate(rows(4, n), source=1_I4P)
+   allocate(qr(5, n), source=0._R8P)
+   if (self%bc%rr%nrows > 0_I4P) then
+      rows(:,1:self%bc%rr%nrows) = self%bc%rr%rows(:,1:self%bc%rr%nrows)
+      qr(:,1:self%bc%rr%nrows) = self%bc%rr%q_rows(:,1:self%bc%rr%nrows)
+   endif
+   if (associated(self%rr_rows_gpu)) then
+      if (size(self%rr_rows_gpu, dim=2) /= n) call free_inflow_rr_rows(self)
+   endif
+   if (associated(self%rr_rows_gpu)) then
+      call dev_memcpy_to_device(dst=self%rr_rows_gpu, src=rows)
+      call dev_memcpy_to_device(dst=self%rr_q_gpu, src=qr)
+   else
+      call dev_assign_to_device(src=rows, dst=self%rr_rows_gpu)
+      call dev_assign_to_device(src=qr, dst=self%rr_q_gpu)
+   endif
+   endsubroutine inflow_rr_to_device
+
+   subroutine free_inflow_rr_rows(self)
+   !< Free the device recycling inflow rows.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   if (associated(self%rr_rows_gpu)) then
+      call dev_free(self%rr_rows_gpu, mydev)
+      nullify(self%rr_rows_gpu)
+   endif
+   if (associated(self%rr_q_gpu)) then
+      call dev_free(self%rr_q_gpu, mydev)
+      nullify(self%rr_q_gpu)
+   endif
+   endsubroutine free_inflow_rr_rows
 
    subroutine free_inflow_df_rows(self)
    !< Free the device digital-filter inflow rows.

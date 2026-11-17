@@ -125,7 +125,7 @@ BUDGET_LADDER="32 64"
 SGS_LADDER="32 64"
 HY_N=32
 source "$VERIF_DIR/legs.sh"
-legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11 wm12 wm13 wm14 tb1 tb2"
+legs_declare "tt1 tt2 tt3 tt4 tt6 ht1 ht2 sg1 sg2 sg3 sg4 hy1 hy2 hy3 hy4 hy5 hy6 hy7 hy8 hy9 hy10 hy11 hy12 hy13 wm1 wm2 wm3 wm4 wm5 wm6 wm7 wm8 wm9 wm10 wm11 wm12 wm13 wm14 tb1 tb2 tb3"
 while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)    NP="$2" ; shift 2 ;;
@@ -625,6 +625,38 @@ if has_leg tb1; then
       fi
    done
 fi
+if has_leg tb3; then
+   echo "== tb3: the recycling-rescaling inflow"
+   [[ "${RR_TEST_EXE:-}" == skip ]] || (cd "$CASE_DIR" && "${RR_TEST_EXE:-$REPO_ROOT/exe/test_inflow_rr}")  # a host program: RR_TEST_EXE=skip on the GPU side
+   # the digital filter for 120 steps (its eddies cross the station, t about 5.4), then the recycling face, the station 2.5 (beyond the face's blocks, which end at x = 2),
+   # no rescaling, every step saved: the ghosts of each step against the state of the step before, exactly, on one rank and on NP
+   R=(--inflow recycling --rr-x 2.5 --rr-delta-ratio 1 --rr-beta 1 --restart)
+   for n in 1 N; do
+      np=$([[ $n == 1 ]] && echo 1 || echo "$NP")
+      w=$(tbl_run "tb3-np$n" "$np" --it-max 120 --it-save 120 --restart-save 120)
+      python3 -I "$CASE_DIR/make_tbl.py" "$w/input.ini" --profile "$CASE_DIR/reference/tbl_m2p5_profile.txt" "${R[@]}" --it-max 124 --it-save 1 --restart-save 122 2> /dev/null
+      (cd "$w" && mpirun -np "$np" "$EXE" input.ini > log2.txt 2>&1) || { echo "check.sh: tb3-np$n failed, see $w/log2.txt" >&2 ; exit 1 ; }
+      "$VENV_PY" "$CASE_DIR/tbl_oracle.py" recycling "$w" --from 000000120 --to 000000121
+      "$VENV_PY" "$CASE_DIR/tbl_oracle.py" recycling "$w" --from 000000123 --to 000000124
+   done
+   "$VENV_PY" "$CASE_DIR/tbl_oracle.py" agree "$CASE_DIR/work-$TAG-tb3-np1" "$CASE_DIR/work-$TAG-tb3-npN"
+   # a restart at step 122 continues bit for bit (the inflow keeps no state of its own)
+   b="$CASE_DIR/work-$TAG-tb3-npN"
+   c=$(tbl_run tb3-restart "$NP" --it-max 120 --it-save 120 --restart-save 120)
+   python3 -I "$CASE_DIR/make_tbl.py" "$c/input.ini" --profile "$CASE_DIR/reference/tbl_m2p5_profile.txt" "${R[@]}" --it-max 122 --it-save 1 --restart-save 122 2> /dev/null
+   (cd "$c" && mpirun -np "$NP" "$EXE" input.ini > log2.txt 2>&1) || { echo "check.sh: tb3-restart failed, see $c/log2.txt" >&2 ; exit 1 ; }
+   python3 -I "$CASE_DIR/make_tbl.py" "$c/input.ini" --profile "$CASE_DIR/reference/tbl_m2p5_profile.txt" "${R[@]}" --it-max 124 --it-save 1 --restart-save 122 2> /dev/null
+   (cd "$c" && mpirun -np "$NP" "$EXE" input.ini > log3.txt 2>&1) || { echo "check.sh: tb3-restart failed, see $c/log3.txt" >&2 ; exit 1 ; }
+   result="$("$VENV_PY" "$VERIF_DIR/scaling/scaling.py" compare "$b" "$c" --ngc 3 --conservative)" && bitwise=1 || bitwise=0
+   for h in "$b"/*_history.dat; do cmp -s "$h" "$c/$(basename "$h")" || { bitwise=0 ; result="$result; $(basename "$h") differs" ; } ; done
+   [[ $bitwise -eq 1 ]] && echo "restart at step 122: $result  PASS" || { echo "restart at step 122: $result  FAIL" ; exit 1 ; }
+   # with the correlation's rescaling (rr_x 2.5: delta ratio and beta of make_tbl.py): the inflow's mean and its fluctuations
+   d=$(tbl_run tb3-rescaled 1 --it-max 120 --it-save 120 --restart-save 120)
+   python3 -I "$CASE_DIR/make_tbl.py" "$d/input.ini" --profile "$CASE_DIR/reference/tbl_m2p5_profile.txt" --inflow recycling --rr-x 2.5 --restart \
+      --it-max 124 --it-save 124 2> /dev/null
+   (cd "$d" && mpirun -np 1 "$EXE" input.ini > log2.txt 2>&1) || { echo "check.sh: tb3-rescaled failed, see $d/log2.txt" >&2 ; exit 1 ; }
+   "$VENV_PY" "$CASE_DIR/tbl_oracle.py" inflow "$d"
+fi
 if has_leg tb2; then
    echo "== tb2: the wall-model history"
    a=$(channel_run tb2-channel "$NP" --ny 32 --wall wall-modelled --wm-height 0.3 --reynolds 5 --time-max 5.0 --wall-history 10)
@@ -637,6 +669,9 @@ if [[ -n "$AGREE" ]]; then
    echo "== tt5: $TAG against $AGREE"
    for c in wm4-npN wm7-npN wm8-npN wm11-npN wm12-npN wm14-npN; do # the channel legs run here: CPU against GPU on the same input
       [[ -d "$CASE_DIR/work-$AGREE-$c" && -d "$CASE_DIR/work-$TAG-$c" ]] && "$VENV_PY" "$CASE_DIR/channel_oracle.py" agree "$CASE_DIR/work-$TAG-$c" "$CASE_DIR/work-$AGREE-$c"
+   done
+   for c in tb3-npN; do # the recycling inflow: CPU against GPU on the same input (the conservation history)
+      [[ -d "$CASE_DIR/work-$AGREE-$c" && -d "$CASE_DIR/work-$TAG-$c" ]] && "$VENV_PY" "$CASE_DIR/tbl_oracle.py" agree "$CASE_DIR/work-$TAG-$c" "$CASE_DIR/work-$AGREE-$c"
    done
    "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-tt2-npN" "$CASE_DIR/work-$AGREE-tt2-npN"
    [[ -d "$CASE_DIR/work-$AGREE-hy2-npN" ]] && "$VENV_PY" "$CASE_DIR/tgv_oracle.py" agree "$CASE_DIR/work-$TAG-hy2-npN" "$CASE_DIR/work-$AGREE-hy2-npN"
