@@ -434,7 +434,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: v    !< Counter.
 
-   if (self%time%is_to_save(it_save=self%io%residuals_save)) then
+   if (self%time%is_to_save(cadence=self%io%residuals_save)) then
       call self%adam%field%compute_normL2_residuals(grid=self%adam%grid, dq=self%dq, norm=self%adam%field%residuals)
       do v=1, self%nv
          call MPI_ALLREDUCE(MPI_IN_PLACE, self%adam%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
@@ -450,15 +450,15 @@ contains
    class(prism_cpu_object), intent(inout) :: self    !< The equation.
    real(R8P), allocatable :: q_view(:,:,:,:,:)
 
-   if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
-       (self%time%is_to_save(it_save=self%io%restart_save)).or. &
+   if ((self%time%is_to_save(cadence=self%io%it_save)).or.      &
+       (self%time%is_to_save(cadence=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
       call self%update_ghost(q=self%q)
       call self%compute_auxiliary_fields
       ! slices first: they refresh the ghost cells of the auxiliary fields, which the XH5F output then carries
       call self%save_slices
 
-      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
+      if (self%time%is_to_save(cadence=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
       if (self%time%is_on_cadence(self%io%restart_save)) call self%save_restart_files
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &

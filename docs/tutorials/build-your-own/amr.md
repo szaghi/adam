@@ -67,11 +67,11 @@ RIPPLE returns from its SSP scheme.
    class(ripple_cpu_object), intent(inout)                   :: self     !< The realm.
    integer(I4P),             intent(in)                      :: k        !< Stage index.
    integer(I4P),             intent(in)                      :: K_total  !< Unused: the forest's stage count.
-   real(R8P),                intent(in)                      :: dt       !< Unused: the capped dt is self%dt.
+   real(R8P),                intent(in)                      :: dt       !< Unused: the capped dt is self%time%dt.
    type(realm_pointer),      intent(inout), optional, target :: realm(:) !< Unused.
 
    self%stage_active = k
-   call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%dt)
+   call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%time%dt)
    endsubroutine begin_stage_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -90,10 +90,10 @@ RIPPLE returns from its SSP scheme.
    subroutine close_step_forest(self, dt)
    !< Close a step: commit q, advance the time, clear the active stage.
    class(ripple_cpu_object), intent(inout) :: self !< The realm.
-   real(R8P),                intent(in)    :: dt   !< Unused: the capped dt is self%dt.
+   real(R8P),                intent(in)    :: dt   !< Unused: the capped dt is self%time%dt.
 
-   call self%rk%update_q(field=self%adam%field, dt=self%dt, q=self%q, dq=self%dq)
-   self%time = self%time + self%dt
+   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   self%time%time = self%time%time + self%time%dt
    self%stage_active = 0_I4P
    endsubroutine close_step_forest
 
@@ -101,7 +101,7 @@ RIPPLE returns from its SSP scheme.
    !< Reflux the committed step (the forest calls it after `close_step_forest`, with the last stage).
    class(ripple_cpu_object),    intent(inout) :: self          !< The realm.
    integer(I4P),                intent(in)    :: stage         !< Stage: the correction acts at the last one.
-   real(R8P),                   intent(in)    :: dt            !< Unused: the capped dt is self%dt.
+   real(R8P),                   intent(in)    :: dt            !< Unused: the capped dt is self%time%dt.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
 
    if (stage == self%rk%nrk) call self%apply_reflux(flux_register=flux_register)
@@ -142,7 +142,7 @@ The step is the fast path's loop, split at the stage boundaries. Two rules come 
          case default; i = 1 + mod(c - 1, self%ni) ; j = 1 + (c - 1) / self%ni ; k = merge(self%nk, 1_I4P, sgn > 0)
          endselect
          self%q(1,i,j,k,face%coarse_block) = self%q(1,i,j,k,face%coarse_block) +                              &
-            sgn * self%dt / self%adam%field%dxyz(axis,face%coarse_block) * (face%F_coarse(1,c,1) - face%F_fine_sum(1,c,1))
+            sgn * self%time%dt / self%adam%field%dxyz(axis,face%coarse_block) * (face%F_coarse(1,c,1) - face%F_fine_sum(1,c,1))
       enddo
       endassociate
    enddo

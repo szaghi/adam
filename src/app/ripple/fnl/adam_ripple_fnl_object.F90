@@ -263,12 +263,12 @@ contains
    call self%advance_time(dt=dt)
    call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
-      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%dt)
+      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
       call self%compute_residuals(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s))
       call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
    enddo
-   call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%dt, q_gpu=self%q_gpu)
-   self%time = self%time + self%dt
+   call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   self%time%time = self%time%time + self%time%dt
    endsubroutine advance_one_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
@@ -286,7 +286,7 @@ contains
    logical                                                   :: done, fields      !< The run is over, save the fields.
 
    call self%is_done_forest(done=done)
-   fields = done .or. (self%io%it_save > 0 .and. mod(self%it, max(self%io%it_save, 1)) == 0)
+   fields = done .or. (self%io%it_save > 0 .and. mod(self%time%it, max(self%io%it_save, 1)) == 0)
    if (fields) call self%copy_state(to_device=.false.)
    call self%save_output(fields=fields)
    endsubroutine post_step_forest
@@ -339,11 +339,11 @@ contains
    class(ripple_fnl_object), intent(inout)                   :: self     !< The realm.
    integer(I4P),             intent(in)                      :: k        !< Stage index.
    integer(I4P),             intent(in)                      :: K_total  !< Unused.
-   real(R8P),                intent(in)                      :: dt       !< Unused: the capped dt is self%dt.
+   real(R8P),                intent(in)                      :: dt       !< Unused: the capped dt is self%time%dt.
    type(realm_pointer),      intent(inout), optional, target :: realm(:) !< Unused.
 
    self%stage_active = k
-   call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=k, dt=self%dt)
+   call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=k, dt=self%time%dt)
    endsubroutine begin_stage_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -362,10 +362,10 @@ contains
    subroutine close_step_forest(self, dt)
    !< Close a step: commit q, advance the time, clear the active stage.
    class(ripple_fnl_object), intent(inout) :: self !< The realm.
-   real(R8P),                intent(in)    :: dt   !< Unused: the capped dt is self%dt.
+   real(R8P),                intent(in)    :: dt   !< Unused: the capped dt is self%time%dt.
 
-   call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%dt, q_gpu=self%q_gpu)
-   self%time = self%time + self%dt
+   call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   self%time%time = self%time%time + self%time%dt
    self%stage_active = 0_I4P
    endsubroutine close_step_forest
 
@@ -375,7 +375,7 @@ contains
    !< `sgn dt / dx`, to its coarse skin cells.
    class(ripple_fnl_object),    intent(inout) :: self          !< The realm.
    integer(I4P),                intent(in)    :: stage         !< Stage: the correction acts at the last one.
-   real(R8P),                   intent(in)    :: dt            !< Unused: the capped dt is self%dt.
+   real(R8P),                   intent(in)    :: dt            !< Unused: the capped dt is self%time%dt.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
    integer(I4P)                               :: f, axis, sgn  !< Face counter, face normal and side.
 
@@ -389,7 +389,7 @@ contains
       call dev_memcpy_to_device(dst=self%face_gpu, src=self%face)
       call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk,   &
                                  ngc=self%ngc, nface_cells=face%nface_cells,                                    &
-                                 scale=sgn * self%dt / self%adam%field%dxyz(axis,face%coarse_block),          &
+                                 scale=sgn * self%time%dt / self%adam%field%dxyz(axis,face%coarse_block),          &
                                  delta_gpu=self%face_gpu, q_gpu=self%q_gpu)
       endassociate
    enddo

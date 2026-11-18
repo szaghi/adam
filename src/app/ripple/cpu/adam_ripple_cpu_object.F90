@@ -176,12 +176,12 @@ contains
    call self%advance_time(dt=dt)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    do s=1, self%rk%nrk
-      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%dt)
+      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s))
       call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
    enddo
-   call self%rk%update_q(field=self%adam%field, dt=self%dt, q=self%q, dq=self%dq)
-   self%time = self%time + self%dt
+   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   self%time%time = self%time%time + self%time%dt
    endsubroutine advance_one_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
@@ -198,7 +198,7 @@ contains
    logical                                                   :: done              !< The run is over.
 
    call self%is_done_forest(done=done)
-   call self%save_output(fields=done .or. (self%io%it_save > 0 .and. mod(self%it, max(self%io%it_save, 1)) == 0))
+   call self%save_output(fields=done .or. (self%io%it_save > 0 .and. mod(self%time%it, max(self%io%it_save, 1)) == 0))
    endsubroutine post_step_forest
 
    subroutine finalize_forest(self)
@@ -223,11 +223,11 @@ contains
    class(ripple_cpu_object), intent(inout)                   :: self     !< The realm.
    integer(I4P),             intent(in)                      :: k        !< Stage index.
    integer(I4P),             intent(in)                      :: K_total  !< Unused: the forest's stage count.
-   real(R8P),                intent(in)                      :: dt       !< Unused: the capped dt is self%dt.
+   real(R8P),                intent(in)                      :: dt       !< Unused: the capped dt is self%time%dt.
    type(realm_pointer),      intent(inout), optional, target :: realm(:) !< Unused.
 
    self%stage_active = k
-   call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%dt)
+   call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%time%dt)
    endsubroutine begin_stage_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -246,10 +246,10 @@ contains
    subroutine close_step_forest(self, dt)
    !< Close a step: commit q, advance the time, clear the active stage.
    class(ripple_cpu_object), intent(inout) :: self !< The realm.
-   real(R8P),                intent(in)    :: dt   !< Unused: the capped dt is self%dt.
+   real(R8P),                intent(in)    :: dt   !< Unused: the capped dt is self%time%dt.
 
-   call self%rk%update_q(field=self%adam%field, dt=self%dt, q=self%q, dq=self%dq)
-   self%time = self%time + self%dt
+   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   self%time%time = self%time%time + self%time%dt
    self%stage_active = 0_I4P
    endsubroutine close_step_forest
 
@@ -257,7 +257,7 @@ contains
    !< Reflux the committed step (the forest calls it after `close_step_forest`, with the last stage).
    class(ripple_cpu_object),    intent(inout) :: self          !< The realm.
    integer(I4P),                intent(in)    :: stage         !< Stage: the correction acts at the last one.
-   real(R8P),                   intent(in)    :: dt            !< Unused: the capped dt is self%dt.
+   real(R8P),                   intent(in)    :: dt            !< Unused: the capped dt is self%time%dt.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
 
    if (stage == self%rk%nrk) call self%apply_reflux(flux_register=flux_register)

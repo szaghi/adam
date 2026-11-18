@@ -22,6 +22,7 @@ use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_PERIODIC, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,         only : realm_object, realm_pointer
 use :: adam_rk_object,            only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
+use :: adam_time_object,          only : time_object
 use :: adam_weno_object,          only : WENO_WEIGHTS_JS
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
@@ -41,12 +42,7 @@ type, extends(realm_object) :: ripple_common_object
    real(R8P), allocatable :: q(:,:,:,:,:)            !< State, point values u [1, 1-ngc:ni+ngc, ..., nb].
    real(R8P), allocatable :: dq(:,:,:,:,:)           !< Residuals, same shape.
    real(R8P)              :: a(3)=0._R8P             !< Advection velocity.
-   real(R8P)              :: cfl=0.5_R8P             !< CFL number.
-   real(R8P)              :: time=0._R8P             !< Current time.
-   real(R8P)              :: time_max=0._R8P         !< Final time.
-   real(R8P)              :: dt=0._R8P               !< Current time step.
-   integer(I4P)           :: it=0_I4P                !< Current iteration.
-   integer(I4P)           :: it_max=0_I4P            !< Iterations number; <= 0: run to time_max.
+   type(time_object)      :: time                    !< Time handler (library): it, time, dt and the [time] keys.
    integer(I4P)           :: history_unit=0_I4P      !< Unit of the history file (rank 0).
    type(amr_criterion_pointer), allocatable :: amr_criteria(:) !< Registered refinement criteria (issue #110).
    contains
@@ -93,9 +89,7 @@ contains
       call ini_get(fp, 'ripple', 'velocity_x', self%a(1))
       call ini_get(fp, 'ripple', 'velocity_y', self%a(2))
       call ini_get(fp, 'ripple', 'velocity_z', self%a(3))
-      call ini_get(fp, 'time', 'time_max', self%time_max)
-      call ini_get(fp, 'time', 'it_max', self%it_max)
-      call ini_get(fp, 'time', 'CFL', self%cfl)
+      call self%time%load_from_file(file_parameters=fp) ! [time] time_max, it_max, CFL: the library parser
    endassociate
    call ini_check()
    call self%check_input
@@ -269,11 +263,11 @@ contains
          open(newunit=self%history_unit, file=trim(self%io%output_basename)//'-history.dat', action='write')
          write(self%history_unit, '(A)') '# it time total(u dV)'
       endif
-      write(self%history_unit, '(I9,2(1X,ES23.15E3))') self%it, self%time, total
+      write(self%history_unit, '(I9,2(1X,ES23.15E3))') self%time%it, self%time%time, total
       flush(self%history_unit)
    endif
-   if (fields) call self%save_q_xh5f(basename=trim(self%io%output_basename)//'-'//trim(strz(self%it, 9)), q=self%q, &
-                                     q_name=['u'], t=self%it, time=self%time)
+   if (fields) call self%save_q_xh5f(basename=trim(self%io%output_basename)//'-'//trim(strz(self%time%it, 9)), q=self%q, &
+                                     q_name=['u'], t=self%time%it, time=self%time%time)
    endsubroutine save_output
 
    subroutine advance_time(self, dt)
@@ -281,9 +275,9 @@ contains
    class(ripple_common_object), intent(inout) :: self !< The realm.
    real(R8P),                   intent(in)    :: dt   !< Time step from the forest.
 
-   self%it = self%it + 1_I4P
-   self%dt = dt
-   if (self%it_max <= 0_I4P .and. self%time + dt > self%time_max) self%dt = self%time_max - self%time
+   self%time%it = self%time%it + 1_I4P
+   self%time%dt = dt
+   if (self%time%it_max <= 0_I4P .and. self%time%time + dt > self%time%time_max) self%time%dt = self%time%time_max - self%time%time
    endsubroutine advance_time
 
    subroutine accumulate_seam_skin(self, flux_register, b, fec, weight, skin)
@@ -346,7 +340,7 @@ contains
          case default; i = 1 + mod(c - 1, self%ni) ; j = 1 + (c - 1) / self%ni ; k = merge(self%nk, 1_I4P, sgn > 0)
          endselect
          self%q(1,i,j,k,face%coarse_block) = self%q(1,i,j,k,face%coarse_block) +                              &
-            sgn * self%dt / self%adam%field%dxyz(axis,face%coarse_block) * (face%F_coarse(1,c,1) - face%F_fine_sum(1,c,1))
+            sgn * self%time%dt / self%adam%field%dxyz(axis,face%coarse_block) * (face%F_coarse(1,c,1) - face%F_fine_sum(1,c,1))
       enddo
       endassociate
    enddo
@@ -361,7 +355,7 @@ contains
 
    dt_local = huge(1._R8P)
    do b=1, self%blocks_number
-      dt_local = min(dt_local, self%cfl / max(sum(abs(self%a) / self%adam%field%dxyz(:,b)), tiny(1._R8P)))
+      dt_local = min(dt_local, self%time%CFL / max(sum(abs(self%a) / self%adam%field%dxyz(:,b)), tiny(1._R8P)))
    enddo
    endsubroutine compute_local_dt_forest
 
@@ -370,10 +364,10 @@ contains
    class(ripple_common_object), intent(in)  :: self !< The realm.
    logical,                     intent(out) :: done !< True if the realm is done.
 
-   if (self%it_max > 0_I4P) then
-      done = self%it >= self%it_max
+   if (self%time%it_max > 0_I4P) then
+      done = self%time%it >= self%time%it_max
    else
-      done = self%time >= self%time_max * (1._R8P - 10._R8P * epsilon(1._R8P))
+      done = self%time%time >= self%time%time_max * (1._R8P - 10._R8P * epsilon(1._R8P))
    endif
    endsubroutine is_done_forest
 

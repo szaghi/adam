@@ -30,6 +30,7 @@ use :: adam_turbulence_object
 use :: adam_seam_exchange
 use :: adam_riemann_euler_library
 use :: adam_slices_object
+use :: adam_time_object
 use :: adam_tree_node_object
 use :: adam_tree_bucket_object
 use :: adam_tree_object

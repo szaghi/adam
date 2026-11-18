@@ -78,12 +78,7 @@ type, extends(realm_object) :: ripple_common_object
    real(R8P), allocatable :: q(:,:,:,:,:)            !< State, point values u [1, 1-ngc:ni+ngc, ..., nb].
    real(R8P), allocatable :: dq(:,:,:,:,:)           !< Residuals, same shape.
    real(R8P)              :: a(3)=0._R8P             !< Advection velocity.
-   real(R8P)              :: cfl=0.5_R8P             !< CFL number.
-   real(R8P)              :: time=0._R8P             !< Current time.
-   real(R8P)              :: time_max=0._R8P         !< Final time.
-   real(R8P)              :: dt=0._R8P               !< Current time step.
-   integer(I4P)           :: it=0_I4P                !< Current iteration.
-   integer(I4P)           :: it_max=0_I4P            !< Iterations number; <= 0: run to time_max.
+   type(time_object)      :: time                    !< Time handler (library): it, time, dt and the [time] keys.
    integer(I4P)           :: history_unit=0_I4P      !< Unit of the history file (rank 0).
    contains
       ! ... the type-bound procedures (lines 50-63 of the source)
@@ -164,7 +159,7 @@ The forest asks every realm for its local time step and takes the minimum over t
 
    dt_local = huge(1._R8P)
    do b=1, self%blocks_number
-      dt_local = min(dt_local, self%cfl / max(sum(abs(self%a) / self%adam%field%dxyz(:,b)), tiny(1._R8P)))
+      dt_local = min(dt_local, self%time%CFL / max(sum(abs(self%a) / self%adam%field%dxyz(:,b)), tiny(1._R8P)))
    enddo
    endsubroutine compute_local_dt_forest
 ```
@@ -181,12 +176,12 @@ On the fast path (one realm, no 2:1 face) the forest hands the whole step to the
    call self%advance_time(dt=dt)
    call self%rk%initialize_stages(field=self%adam%field, q=self%q)
    do s=1, self%rk%nrk
-      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%dt)
+      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s))
       call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
    enddo
-   call self%rk%update_q(field=self%adam%field, dt=self%dt, q=self%q, dq=self%dq)
-   self%time = self%time + self%dt
+   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   self%time%time = self%time%time + self%time%dt
    endsubroutine advance_one_step_forest
 ```
 
@@ -200,10 +195,10 @@ fields every `[IO] it_save` steps and at the end), then `is_done_forest`:
    class(ripple_common_object), intent(in)  :: self !< The realm.
    logical,                     intent(out) :: done !< True if the realm is done.
 
-   if (self%it_max > 0_I4P) then
-      done = self%it >= self%it_max
+   if (self%time%it_max > 0_I4P) then
+      done = self%time%it >= self%time%it_max
    else
-      done = self%time >= self%time_max * (1._R8P - 10._R8P * epsilon(1._R8P))
+      done = self%time%time >= self%time%time_max * (1._R8P - 10._R8P * epsilon(1._R8P))
    endif
    endsubroutine is_done_forest
 ```

@@ -1,65 +1,43 @@
-!< ADAM, PRISM time handler class definition, CPU backend.
+!< ADAM, PRISM time handler class definition.
 module adam_prism_time_object
-!< ADAM, PRISM time handler class definition, CPU backend.
+!< ADAM, PRISM time handler class definition.
+!<
+!< The library time handler (`adam_time_object`, issue #80 P3) plus what PRISM needs: the origin of the time step and
+!< the plasma-frequency bound of a PIC run (printed with the progress), the initial `dt` of 1e-4, the cadence predicate
+!< and a save predicate that also saves at `it == it_max`. The adimensional models pass `time_unit = T0`.
 
-! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
-use :: adam_mpih_global,  only : mpih
-use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
-! third party modules
-use :: finer
-use :: penf
+use :: adam_mpih_global, only : mpih
+use :: adam_time_object, only : time_object
+use :: finer,            only : file_ini
+use :: penf,             only : I4P, R8P, str
 
 implicit none
 private
 public :: prism_time_object
 
-character(len=4), parameter :: INI_SECTION_NAME="time" !< INI (config) file section name containing time configs.
-
-type :: prism_time_object
-   !< prism time handler class definition, CPU backend.
-   integer(I4P)      :: it_max=-1_I4P   !< Maximum number of integration time steps.
-   real(R8P)         :: time_max=1._R8P !< Maximum integration time.
-   real(R8P)         :: CFL=0.3_R8P     !< CFL time limit.
-   integer(I4P)      :: it=0_I4P        !< Time steps counter.
-   real(R8P)         :: time=0._R8P     !< Time.
-   real(R8P)         :: dt=0.0001_R8P   !< Maximum time step accordingly to CFL criterion.
+type, extends(time_object) :: prism_time_object
+   !< PRISM time handler class definition.
    character(len=18) :: dt_source='CFL' !< Origin of dt: CFL (fields) or plasma_frequencies (PIC).
    real(R8P)         :: omega_dt=0._R8P  !< PIC: highest plasma frequency times dt (0: not a PIC run).
    contains
-      procedure, pass(self) :: description    !< Return pretty-printed object description.
-      procedure, pass(self) :: initialize     !< Initialize time handler.
+      ! public methods
+      procedure, pass(self) :: initialize     !< Initialize time handler (dt = 1e-4 until the first compute_dt).
       procedure, pass(self) :: is_on_cadence  !< Return true if the current step is a multiple of a cadence.
       procedure, pass(self) :: is_to_save     !< Return true if data are to save.
-      procedure, pass(self) :: load_from_file !< Load config from file.
       procedure, pass(self) :: print_progress !< Print simulation progress.
 endtype prism_time_object
 
 contains
    ! public methods
-   pure function description(self) result(desc)
-   !< Return a pretty-formatted object description.
-   class(prism_time_object), intent(in) :: self             !< Time handler.
-   character(len=:), allocatable        :: desc             !< Description.
-   character(len=1), parameter          :: NL=new_line('a') !< New line character.
+   subroutine initialize(self, file_parameters, time_unit, verbose)
+   !< Initialize time handler: the library `[time]` keys, and `dt = 1e-4` until the first `compute_dt`.
+   class(prism_time_object), intent(inout)        :: self            !< Time handler.
+   type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+   real(R8P),                intent(in), optional :: time_unit       !< Unit of a scaled time (T0 of the adim models).
+   logical,                  intent(in), optional :: verbose         !< Trigger verbose output (default .true.).
 
-   desc =       mpih%myrankstr//'Time main data'//NL
-   desc = desc//mpih%myrankstr//'  it_max: '  //trim(str(self%it_max  ))//NL
-   desc = desc//mpih%myrankstr//'  time_max: '//trim(str(self%time_max))//NL
-   desc = desc//mpih%myrankstr//'  CFL:      '//trim(str(self%CFL     ))
-   endfunction description
-
-   subroutine initialize(self, file_parameters, physics)
-   !< Initialize time handler.
-   class(prism_time_object), intent(inout) :: self            !< Time handler.
-   type(file_ini),           intent(in)    :: file_parameters !< Simulation parameters ini file handler.
-   type(prism_physics_object), intent(in) :: physics
-
-   print '(A)', mpih%myrankstr//'prism_time_object%initialize start'
-   call self%load_from_file(file_parameters=file_parameters)
-   if (is_adim_model(physics%physical_model)) self%time_max = self%time_max/physics%T0
-   print '(A)', self%description()
-   print '(A)', mpih%myrankstr//'prism_time_object%initialize finish'
+   self%dt = 0.0001_R8P
+   call self%time_object%initialize(file_parameters=file_parameters, time_unit=time_unit, verbose=verbose)
    endsubroutine initialize
 
    pure function is_on_cadence(self, cadence)
@@ -75,33 +53,20 @@ contains
    if (cadence > 0_I4P) is_on_cadence = (mod(self%it, cadence) == 0_I4P)
    endfunction is_on_cadence
 
-   function is_to_save(self, it_save)
-   !< Return true if data are to save: every `it_save` steps and at the end of the run.
+   function is_to_save(self, cadence) result(is_to)
+   !< Return true if data are to save: every `cadence` steps, at `it == it_max` and at the end of the run.
    !<
-   !< A non-positive `it_save` disables saving, end of run included (as FLUME, issue #97).
-   class(prism_time_object), intent(inout) :: self       !< Time handler.
-   integer(I4P),             intent(in)    :: it_save    !< Save iterations frequency.
-   logical                                 :: is_to_save !< Check result.
+   !< A non-positive cadence disables saving, end of run included (as FLUME, issue #97).
+   class(prism_time_object), intent(in) :: self    !< Time handler.
+   integer(I4P),             intent(in) :: cadence !< Save iterations frequency.
+   logical                              :: is_to   !< Check result.
 
-   is_to_save = .false.
-   if (it_save <= 0_I4P) return
-   if (self%is_on_cadence(it_save).or.self%it==self%it_max.or. &
+   is_to = .false.
+   if (cadence <= 0_I4P) return
+   if (self%is_on_cadence(cadence).or.self%it==self%it_max.or. &
       (((self%it_max<=0).and.(self%time>=self%time_max)).or. &
-       ((self%it_max> 0).and.(self%it>=self%it_max)))) is_to_save = .true.
+       ((self%it_max> 0).and.(self%it>=self%it_max)))) is_to = .true.
    endfunction is_to_save
-
-   subroutine load_from_file(self, file_parameters)
-   !< Load config from file.
-   class(prism_time_object), intent(inout)        :: self            !< Time handler.
-   type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   integer(I4P)                                   :: error           !< Error status.
-
-
-   call ini_get(file_parameters, INI_SECTION_NAME, 'it_max', self%it_max)
-   call ini_get(file_parameters, INI_SECTION_NAME, 'time_max', self%time_max)
-   call ini_get(file_parameters, INI_SECTION_NAME, 'CFL', self%CFL)
-   call ini_check()
-   endsubroutine load_from_file
 
    subroutine print_progress(self, nodes_number)
    !< Print simulation progress.

@@ -504,7 +504,11 @@ contains
                                physics=self%physics)
    if (is_pic_model(self%physics%physical_model)) &
       call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic, physics=self%physics)
-   call self%time%initialize(file_parameters=file_parameters, physics=self%physics)
+   if (is_adim_model(self%physics%physical_model)) then ! adimensional models integrate in units of T0
+      call self%time%initialize(file_parameters=file_parameters, time_unit=self%physics%T0)
+   else
+      call self%time%initialize(file_parameters=file_parameters)
+   endif
    if (is_pic_model(self%physics%physical_model)) then
       if (allocated(self%rk%scheme)) then
          call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, rk_scheme=self%rk%scheme)
@@ -1267,7 +1271,7 @@ contains
    logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
 
-   if (self%grms%do_save_history .and. self%time%is_to_save(it_save=self%grms%history_save)) then
+   if (self%grms%do_save_history .and. self%time%is_to_save(cadence=self%grms%history_save)) then
       call self%grms%save_history(it=self%time%it, time=self%time%time, blocks_number=self%blocks_number, &
                                   is_to_open=is_to_open, is_to_close=is_to_close)
    endif
@@ -1280,7 +1284,7 @@ contains
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
 
    if (self%magnetic_field_at_center_domain%do_save_history .and. &
-       self%time%is_to_save(it_save=self%magnetic_field_at_center_domain%history_save)) then
+       self%time%is_to_save(cadence=self%magnetic_field_at_center_domain%history_save)) then
       call self%magnetic_field_at_center_domain%save_history(it=self%time%it, time=self%time%time, &
                                                              blocks_number=self%blocks_number, &
                                                              is_to_open=is_to_open, is_to_close=is_to_close)
@@ -1304,7 +1308,7 @@ contains
          call self%probes%open_files(q_name=self%q_name)
       endif
    endif
-   if (.not.self%time%is_to_save(it_save=self%probes%save_every)) return
+   if (.not.self%time%is_to_save(cadence=self%probes%save_every)) return
    call self%sample_probes
    call self%probes%save_history(it=self%time%it, time=self%time%time)
    endsubroutine save_probes_history
@@ -1327,7 +1331,7 @@ contains
    logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
 
-   if (self%time%is_to_save(it_save=self%io%energy_error_save)) then
+   if (self%time%is_to_save(cadence=self%io%energy_error_save)) then
       call self%io%save_energy_error(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                  &
                                      energy_D=self%energy_D,energy_B=self%energy_B,                                         &
                                      rms_energy_error_D=self%rms_energy_error_D,rms_energy_error_B=self%rms_energy_error_B, &
@@ -1341,7 +1345,7 @@ contains
    logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
 
-   if (self%time%is_to_save(it_save=self%io%energy_history_save)) then
+   if (self%time%is_to_save(cadence=self%io%energy_history_save)) then
       call self%io%save_energy_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
                                        energy_D=self%energy_D,energy_B=self%energy_B,                        &
                                        coil_power=self%coil_power,Poynting_flux=self%Poynting_flux,          &
