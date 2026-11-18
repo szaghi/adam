@@ -89,12 +89,14 @@ compiler = nvfortran
 # $NVF_LTO (fobos [common-variables]): device link-time optimisation where the varset enables it; the modes that
 # override lflags (the cuFFT links) repeat it, the debug modes leave it out. cflags_heritage: a change of the flags
 # (switching $NVF_LTO) recompiles every file, so LTO never links objects compiled without it.
-# -Wnvlink,--split-compile=16: the device LTO runs on 16 threads instead of one (nvfortran 26.9, flume-fnl-nvf, link
-# only: 491 s -> 157 s, peak memory 6.2 -> 17.0 GB; other device code: kernel times to be checked against the
-# one-thread LTO); without ,lto nvlink ignores it. --split-compile-extended=16 needs 2.5 GB (212 s) where memory is tight
+# $NVF_SPLIT (fobos [common-variables], issue #131): the parallel device LTO link where the varset sets it, in every
+# lflags that has $NVF_LTO. local_nvf (CUDA 13.3): --split-compile=16, flume-fnl-nvf link only 491 s -> 157 s, peak
+# memory 6.2 -> 17.0 GB; --split-compile-extended=16 needs 2.5 GB (212 s) where memory is tight. iac_nvf (CUDA 12.9):
+# one thread, since 12.9's --split-compile never reaches its threads and the extended split (overlay `fastlink`)
+# costs the A30 7-10 % of run time.
 cflags_heritage = True
 cflags   = -cpp -c -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all
-lflags   =         -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -Wnvlink,--split-compile=16
+lflags   =         -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all $NVF_SPLIT
 
 [template-nvf-debug]
 template = template-nvf

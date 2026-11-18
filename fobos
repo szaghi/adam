@@ -53,6 +53,16 @@ $GPU_ARCH = gfx942
 # local_nvf, iac_nvf); the overlay varset `nolto` turns it off again, e.g. --varset "iac_nvf nolto". The NVF templates
 # keep their compile flags (cflags_heritage), so switching it recompiles everything instead of mixing objects.
 $NVF_LTO =
+# Parallel device LTO link (a link flag, ignored without ,lto), issue #131:
+# `-Wnvlink,--split-compile=N` runs nvvm on N threads, `-Wnvlink,--split-compile-extended=N` splits at the linker.
+# - CUDA 13.3 (local_nvf): --split-compile=16 links flume-fnl-nvf in 157 s instead of 491 s.
+# - CUDA 12.9 (iac_nvf): --split-compile=4 or 16 never reaches its threads (one thread at 100 % for 25-50 min, killed);
+#   --split-compile-extended=16 links in 531 s instead of 1001 s, but the A30 runs 7-10 % slower (profile-couette3d
+#   medium, 1 rank: loop 18.0 -> 19.3 s refined walls, 33.4 -> 36.8 s uniform), so iac_nvf links on one thread and
+#   the overlay varset `fastlink` (--varset "iac_nvf fastlink") takes the faster link for development builds.
+# Off by default; a varset sets it once its CUDA is measured. local_nvf (WSL, correctness only) trades the run time
+# of the split link, not measured there, for the build time.
+$NVF_SPLIT =
 
 [varsets]
 default = local_gnu
@@ -69,6 +79,7 @@ $HDF5_PREFIX = lib/hdf5/develop/gnu/14.2.0
 $HDF5_PREFIX = lib/hdf5/develop/nvf/26.9
 $NVF_CC      = cc89
 $NVF_LTO     = ,lto
+$NVF_SPLIT   = -Wnvlink,--split-compile=16
 
 [varset:local_amd]
 $HDF5_PREFIX = lib/hdf5/develop/amd/latest
@@ -115,6 +126,11 @@ $NVF_CC      = cc80
 [varset:nolto]
 # overlay (after an NVF varset): the optimized NVF modes without device link-time optimisation, the build before it
 $NVF_LTO =
+
+[varset:fastlink]
+# overlay (after an NVF varset): the device LTO link split at the linker on 16 threads, any CUDA (issue #131): about
+# half the link time, 7-10 % slower device code on an A30 (CUDA 12.9); for development builds, not for timings
+$NVF_SPLIT = -Wnvlink,--split-compile-extended=16
 
 [varset:iac_gnu]
 $HDF5_PREFIX = lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11

@@ -350,6 +350,14 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
     `flume-fnl-nvf`). `template-nvf` sets `cflags_heritage`, so switching it recompiles everything. nvfortran's own
     `-Minline` is NOT a substitute: it does not inline across files, and forcing it (`-Minline=reshape` on included
     library bodies) leaves the inlined arrays out of the OpenACC `private` clauses (implicit copies, launch fault).
+  - **`$NVF_SPLIT`**: the parallel device LTO link, appended to every `lflags` that has `$NVF_LTO` (a link flag; not part
+    of `cflags`). Which nvlink option works depends on the **CUDA of the link**
+    ([issue #131](https://github.com/szaghi/adam/issues/131)). `local_nvf` (CUDA 13.3) uses `-Wnvlink,--split-compile=16`
+    (`flume-fnl-nvf` link 491 s -> 157 s, peak 17 GB). `iac_nvf` (CUDA 12.9) links on **one thread**: 12.9's
+    `--split-compile` (4 or 16) never reaches its threads (one thread at 100 % for 25-50 min with flat memory, which
+    looked like a hang), and `--split-compile-extended=16` halves the link (1001 s -> 531 s) but the A30 runs 7-10 %
+    slower (profile-couette3d medium, 1 rank). The overlay varset `fastlink` (`--varset "iac_nvf fastlink"`) takes the
+    extended split for development builds; never time with it. Empty elsewhere until measured.
 
   - **The toolchain must match the varset exactly** (since 2026-10-16, HDF5 2.3.0 develop `ab5df552` for the
     `local_*`/`iac_*` rows): Fortran `.mod` files work only with the compiler version that wrote them. A mismatch
