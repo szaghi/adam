@@ -412,8 +412,8 @@ contains
    fields_number = self%physics%nv * (4_I4P + flux_fields + stages_number) + 3_I4P * self%coil%total_coils_number
    if (is_pic_model(self%physics%physical_model)) then
       ! the two charge-continuity accumulators exist only with [PIC].(charge_conservation_save) > 0 (issue #111)
-      call file_parameters%get(section_name='PIC', option_name='charge_conservation_save', val=save_cc, error=error)
-      if (error > 0) save_cc = 0_I4P
+      call ini_get(file_parameters, 'PIC', 'charge_conservation_save', save_cc, default=0_I4P)
+      call ini_check()
       if (save_cc > 0_I4P) fields_number = fields_number + 2_I4P
    endif
    endsubroutine compute_fields_number
@@ -468,8 +468,8 @@ contains
    ! the library gives the blocks fraction*memory: passing memory - reserved/fraction leaves them fraction*memory -
    ! reserved, so the headroom stays (1 - fraction)*memory however large the reserve (issue #112); the fraction is the
    ! library's [amr].(memory_fraction) key, read here with the same default
-   call file_parameters%get(section_name='amr', option_name='memory_fraction', val=fraction, error=error)
-   if (error > 0) fraction = 0.85_R8P
+   call ini_get(file_parameters, 'amr', 'memory_fraction', fraction, default=0.85_R8P)
+   call ini_check()
    if (.not.(fraction > 0._R8P .and. fraction <= 1._R8P)) &
       call mpih%error_stop(msg=': [amr].(memory_fraction) must be in (0, 1], got '//trim(str(fraction)))
    memory_blocks = memory_avail
@@ -566,8 +566,8 @@ contains
       integer(I4P)  :: c     !< Counter.
       integer(I4P)  :: error !< Error status.
 
-      call self%io%file_parameters%get(section_name='IO', option_name='save_fields', val=buff, error=error)
-      if (error > 0) buff = 'all'
+      call ini_get(self%io%file_parameters, 'IO', 'save_fields', buff, default='all')
+      call ini_check()
       do c=1, len(buff) ! blank the control characters (a CR of a Windows input)
          if (iachar(buff(c:c)) < 32) buff(c:c) = ' '
       enddo

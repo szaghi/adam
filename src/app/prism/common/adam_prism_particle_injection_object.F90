@@ -376,8 +376,8 @@ contains
 		!endselect
 
 		! optional: a fixed seed makes the injected plasma reproducible (default: the processor-dependent seed)
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='random_seed', val=self%seed, error=error)
-		if (error > 0) self%seed = -1_I4P
+		call ini_get(file_parameters, INI_SECTION_NAME, 'random_seed', self%seed, default=-1_I4P)
+		call ini_check()
 		call file_parameters%get(section_name=INI_SECTION_NAME, &
 										 option_name='space_random_number_generator', val=buff,error=error)
    	if (error>0) &

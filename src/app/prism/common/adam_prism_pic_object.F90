@@ -808,9 +808,8 @@ contains
       ! the deposit gives the input density with w times fewer particles; only the sampling noise grows (~ w^(1/2))
       self%particle_weight = 1.0_R8P
       call ini_check()
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weight', &
-                               val=self%particle_weight, error=error)
-      if (error > 0) self%particle_weight = 1.0_R8P
+      call ini_get(file_parameters, INI_SECTION_NAME, 'particle_weight', self%particle_weight, default=1.0_R8P)
+      call ini_check()
       if (.not.(self%particle_weight > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(particle_weight) must be > 0, got '// &
                               trim(str(self%particle_weight)))
@@ -847,14 +846,10 @@ contains
 
    ! optional: the t0 elliptic solves for D and B, each on by default (the fields are then the IC ones plus the solves)
    self%electric_field_elliptic_initialization = .true.
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electric_field_elliptic_initialization', &
-                            val=self%electric_field_elliptic_initialization, error=error)
-   if (error > 0) self%electric_field_elliptic_initialization = .true.
+   call ini_get(file_parameters, INI_SECTION_NAME, 'electric_field_elliptic_initialization', self%electric_field_elliptic_initialization, default=.true.)
 
    self%magnetic_field_elliptic_initialization = .true.
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='magnetic_field_elliptic_initialization', &
-                            val=self%magnetic_field_elliptic_initialization, error=error)
-   if (error > 0) self%magnetic_field_elliptic_initialization = .true.
+   call ini_get(file_parameters, INI_SECTION_NAME, 'magnetic_field_elliptic_initialization', self%magnetic_field_elliptic_initialization, default=.true.)
 
    ! optional, grounded by default (the closure before the key existed: no input changes). The t0 solves on a domain
    ! periodic but along one axis with PEC faces leave two invariants of the cavity free, the potential difference
@@ -863,6 +858,7 @@ contains
    ! other modes keep the images in the walls (e^(-k_perp d) off open space at a distance d). D and B together, so
    ! isolated needs both solves
    buff = ELLIPTIC_CLOSURE_GROUNDED
+   call ini_check()
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='elliptic_initialization_closure', &
                             val=buff, error=error)
    if (error > 0) then
@@ -889,8 +885,8 @@ contains
    ! initialization and never reallocated: a rank that has to hold more particles stops the run.
    ! threshold of the time-step limit set by the plasma frequencies (adam_prism_plasma_frequencies_object): optional
    self%omega_dt_max = 0.05_R8P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='omega_dt_max', val=self%omega_dt_max, error=error)
-   if (error > 0) self%omega_dt_max = 0.05_R8P
+   call ini_get(file_parameters, INI_SECTION_NAME, 'omega_dt_max', self%omega_dt_max, default=0.05_R8P)
+   call ini_check()
    if (.not.(self%omega_dt_max > 0._R8P)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(omega_dt_max) must be > 0, got '//trim(str(self%omega_dt_max)))
    self%particle_capacity_factor = 0._R8P
@@ -904,24 +900,20 @@ contains
    ! optional (issue #111): the charge-conservation history (<output_basename>-charge_conservation_history.dat) every N
    ! steps; absent or 0, no history, no diagnostic arrays and no stage div(J) (it costs a ghost exchange per RK stage).
    self%charge_conservation_save = 0_I4P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='charge_conservation_save', &
-                            val=self%charge_conservation_save, error=error)
-   if (error > 0) self%charge_conservation_save = 0_I4P
+   call ini_get(file_parameters, INI_SECTION_NAME, 'charge_conservation_save', self%charge_conservation_save, default=0_I4P)
+   call ini_check()
    if (self%charge_conservation_save < 0_I4P) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(charge_conservation_save) must be >= 0, got '// &
                                trim(str(self%charge_conservation_save)))
 
    self%esirkepov_tail_cleanup = .false.
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='esirkepov_tail_cleanup', &
-                            val=self%esirkepov_tail_cleanup, error=error)
-   if (error > 0) self%esirkepov_tail_cleanup = .false.
+   call ini_get(file_parameters, INI_SECTION_NAME, 'esirkepov_tail_cleanup', self%esirkepov_tail_cleanup, default=.false.)
 
    self%filter_deposition = .false.
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='filter_deposition', &
-                            val=self%filter_deposition, error=error)
-   if (error > 0) self%filter_deposition = .false.
+   call ini_get(file_parameters, INI_SECTION_NAME, 'filter_deposition', self%filter_deposition, default=.false.)
 
    buff = ''
+   call ini_check()
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weighting_model', val=buff,error=error)
    if (error>0) &
       call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].(particle_weighting_model) from file')
@@ -1068,9 +1060,8 @@ contains
          call ini_get(file_parameters, INI_SECTION_NAME, 'cutoff_sigma', self%cutoff_sigma)
          self%gaussian_support_cells = -1_I4P
          call ini_check()
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gaussian_support_cells', &
-                                  val=self%gaussian_support_cells, error=error)
-         if (error > 0) self%gaussian_support_cells = -1_I4P
+         call ini_get(file_parameters, INI_SECTION_NAME, 'gaussian_support_cells', self%gaussian_support_cells, default=-1_I4P)
+         call ini_check()
          if (self%sigma <= 0._R8P .or. self%cutoff_sigma <= 0._R8P) &
             call mpih%error_stop(msg=': PIC Gaussian weighting requires positive sigma and cutoff_sigma')
    endif

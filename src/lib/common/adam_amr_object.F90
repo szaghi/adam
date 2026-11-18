@@ -159,9 +159,9 @@ contains
 
    ! optional: a grid that is never regridded at runtime (the apps decide which: FLUME `frequency = 0`, PRISM always) is balanced
    ! by block count after the initial AMR, complete sibling sets split (issue #123); `.false.` keeps the sibling-preserving layout
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='balance_static', val=self%balance_static, error=error)
-   if (error > 0) self%balance_static = .true.
+   call ini_get(file_parameters, INI_SECTION_NAME, 'balance_static', self%balance_static, default=.true.)
 
+   call ini_check()
    allocate(self%markers(self%markers_number))
    do i_marker=1, self%markers_number
       sname = INI_SECTION_NAME//'_marker_'//trim(str(i_marker,.true.))

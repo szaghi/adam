@@ -146,14 +146,11 @@ contains
    if (self%scheme_space == 'hybrid-kep-weno') then
       self%is_hybrid = .true.
       self%scheme_space = SCHEME_SPACE_WENO
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_threshold', val=self%hybrid_threshold, error=error)
-      if (error > 0) self%hybrid_threshold = 0.2_R8P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_floor', val=self%hybrid_floor, error=error)
-      if (error > 0) self%hybrid_floor = 1.e-8_R8P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_jump', val=self%hybrid_jump, error=error)
-      if (error > 0) self%hybrid_jump = 0.1_R8P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hybrid_skin', val=buff, error=error)
-      if (error > 0) buff = 'weno'
+      call ini_get(file_parameters, INI_SECTION_NAME, 'hybrid_threshold', self%hybrid_threshold, default=0.2_R8P)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'hybrid_floor', self%hybrid_floor, default=1.e-8_R8P)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'hybrid_jump', self%hybrid_jump, default=0.1_R8P)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'hybrid_skin', buff, default='weno')
+      call ini_check()
       select case(trim(adjustl(buff)))
       case('weno')
       case('central-seams')
@@ -220,9 +217,8 @@ contains
 
    ! optional (default 4): the order of the dissipative face fluxes (issue #65, D-M4-2), read only by the dissipative
    ! kernels
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='dissipative_order', val=self%dissipative_order, &
-                            error=error)
-   if (error > 0) self%dissipative_order = 4_I4P
+   call ini_get(file_parameters, INI_SECTION_NAME, 'dissipative_order', self%dissipative_order, default=4_I4P)
+   call ini_check()
    if (.not.any(self%dissipative_order == [2_I4P, 4_I4P])) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(dissipative_order) must be 2 or 4, got '// &
                                trim(str(self%dissipative_order)))
@@ -246,8 +242,10 @@ contains
       ! their default, instead of being probed with a get into `buff`.
       if (present(default)) then
          call ini_get(file_parameters, INI_SECTION_NAME, key, text, default=default)
+         call ini_check()
       else
          call ini_get(file_parameters, INI_SECTION_NAME, key, text)
+         call ini_check()
       endif
       val = trim(adjustl(text))
       call ini_check()

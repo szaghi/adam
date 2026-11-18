@@ -508,8 +508,7 @@ contains
          call ini_check()
          if (.not.(self%bl(k) > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(buff)//') must be positive')
       enddo
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bl_wall', val=self%bl(5), error=error)
-      if (error /= 0) self%bl(5) = 0._R8P
+      call ini_get(file_parameters, INI_SECTION_NAME, 'bl_wall', self%bl(5), default=0._R8P)
       call ini_get(file_parameters, INI_SECTION_NAME, 'bl_profile', buff)
       call ini_check()
       call load_profile(filename=trim(adjustl(buff)), prof=self%bl_prof)
@@ -525,8 +524,8 @@ contains
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(TG_KEY(k))//') must be positive')
       enddo
       self%tg(4) = 1._R8P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='tg_length', val=self%tg(4), error=error)
-      if (error > 0) self%tg(4) = 1._R8P
+      call ini_get(file_parameters, INI_SECTION_NAME, 'tg_length', self%tg(4), default=1._R8P)
+      call ini_check()
       if (.not.(self%tg(4) > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(tg_length) must be positive')
    case(IC_ISOTROPIC_TURB_STR)
       if (self%model /= MODEL_EULER .and. self%model /= MODEL_EULER_DE) &
@@ -540,8 +539,8 @@ contains
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(HIT_KEY(k))//') must be positive')
       enddo
       self%hit_seed = 1_I4P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='hit_seed', val=self%hit_seed, error=error)
-      if (error > 0) self%hit_seed = 1_I4P
+      call ini_get(file_parameters, INI_SECTION_NAME, 'hit_seed', self%hit_seed, default=1_I4P)
+      call ini_check()
       if (self%hit_seed <= 0_I4P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(hit_seed) must be positive')
    case(IC_ISENTROPIC_VORTEX_STR)
       if (.not.is_hydrodynamic(self%model)) &
@@ -786,16 +785,14 @@ contains
       if (.not.(self%wave_par(3) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
       ! a wave packet (issue #121, S2): the wave times exp(-((n . x - centre) / width)^2), optional
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave_envelope_width', val=self%wave_env(1), &
-                               error=error)
-      if (error > 0) self%wave_env(1) = 0._R8P
+      call ini_get(file_parameters, INI_SECTION_NAME, 'wave_envelope_width', self%wave_env(1), default=0._R8P)
+      call ini_check()
       if (self%wave_env(1) < 0._R8P) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave_envelope_width) must not be negative')
       if (self%wave_env(1) > 0._R8P .and. self%sine_mode == SINE_MODE_JEANS) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave_envelope_width) is refused with wave_mode = '//SINE_MODE_JEANS)
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave_envelope_center', val=self%wave_env(2), &
-                               error=error)
-      if (error > 0) self%wave_env(2) = 0._R8P
+      call ini_get(file_parameters, INI_SECTION_NAME, 'wave_envelope_center', self%wave_env(2), default=0._R8P)
+      call ini_check()
    case(IC_ISOTHERMAL_ATM_STR, IC_POLYTROPIC_ATM_STR)
       if (.not.physics%gravity%is_active) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//self%ic_type//' needs [gravity]')
@@ -811,9 +808,8 @@ contains
       ! optional relative pressure pulse p (1 + A exp(-|x - x_0|^2 / w^2)) on the atmosphere (issue #73, M7-G2b)
       self%atm_pulse = 0._R8P
       do k=1, 5
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(ATM_PULSE_KEY(k)), &
-                                  val=self%atm_pulse(k), error=error)
-         if (error > 0) self%atm_pulse(k) = 0._R8P
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(ATM_PULSE_KEY(k)), self%atm_pulse(k), default=0._R8P)
+         call ini_check()
       enddo
       if (self%atm_pulse(1) /= 0._R8P .and. .not.(self%atm_pulse(5) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(pulse_amplitude) needs a positive pulse_width')
@@ -866,9 +862,8 @@ contains
                                   '([physics].(physical_model) = euler or euler-de)')
       self%regions_number = 1_I4P
       do k=1, 4
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(SIS_KEY(k)), val=self%sis(k), &
-                                  error=error)
-         if (error > 0) self%sis(k) = merge(2._R8P, 0._R8P, k == 4)
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(SIS_KEY(k)), self%sis(k), default=merge(2._R8P, 0._R8P, k == 4))
+         call ini_check()
       enddo
       if (.not.(self%sis(4) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(sis_overdensity) must be positive')
@@ -956,9 +951,8 @@ contains
       call primitive_state_to_conservative(model=self%model, gamma=physics%gamma, prim=prim, q=self%q_region(:,r))
       ! passive scalars (issue #92): the specific values s1 .. sN, optional, 0 when absent
       do k=1, self%passive_scalars
-         call file_parameters%get(section_name=sname, option_name='s'//trim(str(k, .true.)), val=self%scalars(k,r), &
-                                  error=error)
-         if (error > 0) self%scalars(k,r) = 0._R8P
+         call ini_get(file_parameters, sname, 's'//trim(str(k, .true.)), self%scalars(k,r), default=0._R8P)
+         call ini_check()
       enddo
       if (r == 1_I4P) self%prim_1 = prim
       if (r == 2_I4P) self%prim_2 = prim

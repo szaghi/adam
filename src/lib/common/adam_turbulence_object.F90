@@ -7,6 +7,7 @@ module adam_turbulence_object
 !< selection of the kernel of the model: `adam_turbulence_kernels` (CPU), `adam_fnl_turbulence_kernels` (FNL).
 
 ! ADAM modules
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer,            only : file_ini
@@ -56,8 +57,8 @@ contains
    integer(I4P)                            :: error           !< Error status.
 
    model = 'none'
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='sgs_model', val=model, error=error)
-   if (error > 0) model = 'none'
+   call ini_get(file_parameters, INI_SECTION_NAME, 'sgs_model', model, default='none')
+   call ini_check()
    select case(trim(adjustl(model)))
    case('none')
       self%model = SGS_NONE ; self%constant = 0._R8P

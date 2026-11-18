@@ -15,6 +15,7 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object,                only : tree_object, tree_iterator_object
 use :: adam_parameters
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer, only : file_ini
@@ -272,8 +273,8 @@ contains
    else
       call self%grid%initialize(file_parameters=file_parameters,verbose=verbose_) ! remember to call self%grid%set_bc_type
    endif
-   call file_parameters%get(section_name='amr', option_name='memory_fraction', val=memory_fraction, error=error)
-   if (error > 0) memory_fraction = 0.85_R8P
+   call ini_get(file_parameters, 'amr', 'memory_fraction', memory_fraction, default=0.85_R8P)
+   call ini_check()
    if (.not.(memory_fraction > 0._R8P .and. memory_fraction <= 1._R8P)) &
       call mpih%error_stop(msg=': [amr].(memory_fraction) must be in (0, 1], got '//trim(str(memory_fraction)))
    call self%compute_blocks_number(memory_avail=memory_avail,      &

@@ -166,15 +166,11 @@ contains
    self%x = 0._R8P ; self%v = 0._R8P ; self%a = 0._R8P
    allocate(self%is_new(self%n))
    self%is_new = .false.
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='creation', val=self%creation, error=error)
-   if (error /= 0) self%creation = .false.
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='accretion', val=self%accretion, error=error)
-   if (error /= 0) self%accretion = .true.
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='merging', val=self%merging, error=error)
-   if (error /= 0) self%merging = .true.
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='accretion_radius_cells', val=self%r_acc_cells, &
-                            error=error)
-   if (error /= 0) self%r_acc_cells = 2.5_R8P
+   call ini_get(file_parameters, INI_SECTION_NAME, 'creation', self%creation, default=.false.)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'accretion', self%accretion, default=.true.)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'merging', self%merging, default=.true.)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'accretion_radius_cells', self%r_acc_cells, default=2.5_R8P)
+   call ini_check()
    if (.not.(self%r_acc_cells >= 1._R8P .and. self%r_acc_cells <= real(ngc, R8P))) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(accretion_radius_cells) must lie in [1, ngc = '// &
                                trim(str(ngc, .true.))//'], got '//trim(str(self%r_acc_cells)))

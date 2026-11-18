@@ -123,8 +123,8 @@ contains
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(particle_mass) must be > 0, got '// &
                                trim(str(self%particle_mass)))
    self%dt_factor = 0._R8P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='dt_factor', val=self%dt_factor, error=error)
-   if (error /= 0) self%dt_factor = 0._R8P
+   call ini_get(file_parameters, INI_SECTION_NAME, 'dt_factor', self%dt_factor, default=0._R8P)
+   call ini_check()
    if (self%dt_factor < 0._R8P) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(dt_factor) must be >= 0 (0: off), got '// &
                                trim(str(self%dt_factor)))

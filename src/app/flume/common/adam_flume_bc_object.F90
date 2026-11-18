@@ -276,10 +276,9 @@ contains
          call primitive_state_to_conservative(model=physics%model, gamma=physics%gamma, prim=prim, q=self%q_inflow(:,f))
          ! passive scalars (issue #92): the specific values s1 .. sN of the inflow, optional, 0 when absent
          do k=1, physics%passive_scalars
-            call file_parameters%get(section_name=SECTION_NAME(f), option_name='s'//trim(str(k, .true.)), val=sk, &
-                                     error=error)
-            if (error > 0) sk = 0._R8P
+            call ini_get(file_parameters, SECTION_NAME(f), 's'//trim(str(k, .true.)), sk, default=0._R8P)
             self%q_inflow(physics%iq_scalar1+k-1,f) = prim(1) * sk
+            call ini_check()
          enddo
       case(BC_WALL_MODELLED_STR)
          self%bc_type(f) = BC_WALL_INVISCID
@@ -287,11 +286,11 @@ contains
          call ini_get(file_parameters, SECTION_NAME(f), 'wall_temperature', self%wall_temperature(f))
          call ini_check()
          if (.not.(self%wall_temperature(f) > 0._R8P)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_temperature) must be positive')
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_height', val=self%wm_height(f), error=error)
-         if (error /= 0) self%wm_height(f) = 0._R8P
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_model_height', self%wm_height(f), default=0._R8P)
+         call ini_check()
          if (self%wm_height(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_height) must be >= 0')
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model', val=buff, error=error)
-         if (error /= 0) buff = 'equilibrium'
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_model', buff, default='equilibrium')
+         call ini_check()
          select case(trim(adjustl(buff)))
          case('equilibrium')
          case('inverse-transformation')
@@ -316,25 +315,24 @@ contains
          case default
             call mpih%error_stop(msg=': unknown ['//SECTION_NAME(f)//'].(wall_model_damping); expected classical or semi-local')
          endselect
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_filter', val=self%wm_filter(f), error=error)
-         if (error /= 0) self%wm_filter(f) = 0._R8P
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_model_filter', self%wm_filter(f), default=0._R8P)
+         call ini_check()
          if (self%wm_filter(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_filter) must be >= 0')
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_eddy_viscosity', val=self%wm_viscosity(f), error=error)
-         if (error /= 0) self%wm_viscosity(f) = .false.
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_pressure_gradient', val=self%wm_pressure(f), error=error)
-         if (error /= 0) self%wm_pressure(f) = .false.
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_model_eddy_viscosity', self%wm_viscosity(f), default=.false.)
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_model_pressure_gradient', self%wm_pressure(f), default=.false.)
+         call ini_check()
          if (self%wm_pressure(f) .and. self%wm_inverse(f)) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_pressure_gradient) belongs to wall_model = equilibrium')
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_pressure_gradient_filter', val=self%wm_pg_filter(f), error=error)
-         if (error /= 0) self%wm_pg_filter(f) = 0._R8P
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_model_pressure_gradient_filter', self%wm_pg_filter(f), default=0._R8P)
+         call ini_check()
          if (self%wm_pg_filter(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_pressure_gradient_filter) must be >= 0')
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_pressure_gradient_ypg', val=self%wm_ypg(f), error=error)
-         if (error /= 0) self%wm_ypg(f) = 0._R8P
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_model_pressure_gradient_ypg', self%wm_ypg(f), default=0._R8P)
+         call ini_check()
          if (self%wm_ypg(f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_pressure_gradient_ypg) must be >= 0')
          if (.not.self%wm_pressure(f)) self%wm_pg_filter(f) = 0._R8P
          if (.not.self%wm_pressure(f)) self%wm_ypg(f) = 0._R8P
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_convection', val=self%wm_conv(f), error=error)
-         if (error /= 0) self%wm_conv(f) = .false.
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_model_convection', self%wm_conv(f), default=.false.)
+         call ini_check()
          if (self%wm_conv(f) .and. .not.self%wm_pressure(f)) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_convection) needs wall_model_pressure_gradient = .true.')
          if (self%wm_conv(f) .and. .not.(self%wm_pg_filter(f) > 0._R8P)) &
@@ -342,8 +340,8 @@ contains
                                  '(the instantaneous convection is as noisy as the gradient)')
          if (self%wm_conv(f) .and. self%wm_ypg(f) > 0._R8P) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_convection) excludes wall_model_pressure_gradient_ypg')
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_resolved_stress', val=self%wm_rstress(f), error=error)
-         if (error /= 0) self%wm_rstress(f) = .false.
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_model_resolved_stress', self%wm_rstress(f), default=.false.)
+         call ini_check()
          if (self%wm_rstress(f) .and. .not.self%wm_conv(f)) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_model_resolved_stress) needs wall_model_convection = .true.')
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_velocity_scale', val=buff, error=error)
@@ -386,9 +384,8 @@ contains
          if (bc_str == BC_WALL_ISOTHERMAL_STR) self%bc_type(f) = BC_WALL_ISOTHERMAL
          ! the wall velocity: tangential, optional (a resting wall by default)
          do d=1, 3
-            call file_parameters%get(section_name=SECTION_NAME(f), option_name=WALL_VELOCITY_KEY(d), &
-                                     val=self%wall_velocity(d,f), error=error)
-            if (error > 0) self%wall_velocity(d,f) = 0._R8P
+            call ini_get(file_parameters, SECTION_NAME(f), WALL_VELOCITY_KEY(d), self%wall_velocity(d,f), default=0._R8P)
+            call ini_check()
          enddo
          if (self%wall_velocity((f+1)/2,f) /= 0._R8P) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].('//WALL_VELOCITY_KEY((f+1)/2)//') is the normal '// &
@@ -424,8 +421,8 @@ contains
          call ini_check()
          if (.not.(self%nr_par(1,f) > 0._R8P .and. self%nr_par(5,f) > 0._R8P)) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(r, p) must be positive')
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='nr_sigma', val=self%nr_par(6,f), error=error)
-         if (error > 0) self%nr_par(6,f) = NR_SIGMA_DEFAULT
+         call ini_get(file_parameters, SECTION_NAME(f), 'nr_sigma', self%nr_par(6,f), default=NR_SIGMA_DEFAULT)
+         call ini_check()
          if (self%nr_par(6,f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(nr_sigma) must be >= 0')
          call ini_get(file_parameters, SECTION_NAME(f), 'nr_length', self%nr_par(7,f))
          call ini_check()
@@ -484,8 +481,8 @@ contains
       if (by_angle) deg = beta
       call ini_get(file_parameters, SECTION_NAME(f), 'shock_x', x0)
       call ini_check()
-      call file_parameters%get(section_name=SECTION_NAME(f), option_name='shock_x_end', val=x1, error=error)
-      if (error > 0) x1 = huge(1._R8P)
+      call ini_get(file_parameters, SECTION_NAME(f), 'shock_x_end', x1, default=huge(1._R8P))
+      call ini_check()
       if (.not.(x1 > x0)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(shock_x_end) must be greater than shock_x')
       call oblique_shock(gamma=physics%gamma, s=merge(1._R8P, -1._R8P, f == 4_I4P), up=up, deg=deg, by_angle=by_angle, &
                          post=post, beta=beta, theta=theta, error=error)

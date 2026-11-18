@@ -272,9 +272,8 @@ contains
    endselect
    ! passive scalars (issue #92): optional, 0 by default, the hydrodynamic models only
    self%passive_scalars = 0_I4P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='passive_scalars', val=self%passive_scalars, &
-                            error=error)
-   if (error > 0) self%passive_scalars = 0_I4P
+   call ini_get(file_parameters, INI_SECTION_NAME, 'passive_scalars', self%passive_scalars, default=0_I4P)
+   call ini_check()
    if (self%passive_scalars < 0_I4P .or. self%passive_scalars > NS_MAX) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(passive_scalars) must lie in 0..'//trim(str(NS_MAX, .true.))// &
                                ', got '//trim(str(self%passive_scalars, .true.)))
@@ -284,9 +283,8 @@ contains
    ! the dual-energy switch (issue #91): optional, read only for euler-de
    self%dual_energy_eta = DUAL_ENERGY_ETA
    if (self%physical_model == PHYSICAL_MODEL_EULER_DE) then
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='dual_energy_eta', val=self%dual_energy_eta, &
-                               error=error)
-      if (error > 0) self%dual_energy_eta = DUAL_ENERGY_ETA
+      call ini_get(file_parameters, INI_SECTION_NAME, 'dual_energy_eta', self%dual_energy_eta, default=DUAL_ENERGY_ETA)
+      call ini_check()
       if (.not.(self%dual_energy_eta > 0._R8P .and. self%dual_energy_eta < 1._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(dual_energy_eta) must lie in (0, 1), got '// &
                                   trim(str(self%dual_energy_eta)))
@@ -397,8 +395,8 @@ contains
                                            EOS_BAROTROPIC//')')
    if (.not.(self%sound_speed > 0._R8P)) &
       call mpih%error_stop(msg=': [eos].(sound_speed) must be positive, got '//trim(str(self%sound_speed)))
-   call file_parameters%get(section_name='eos', option_name='reference_density', val=self%rho_ref, error=error)
-   if (error > 0) self%rho_ref = 1._R8P
+   call ini_get(file_parameters, 'eos', 'reference_density', self%rho_ref, default=1._R8P)
+   call ini_check()
    if (.not.(self%rho_ref > 0._R8P)) &
       call mpih%error_stop(msg=': [eos].(reference_density) must be positive, got '//trim(str(self%rho_ref)))
    n_breaks = file_parameters%count_values(section_name='eos', option_name='densities')

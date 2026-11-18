@@ -71,9 +71,8 @@ contains
    real(R8P)                                      :: axis_norm
 
 
-   call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='save_history', &
-                            val=self%do_save_history, error=error)
-   if (error > 0) self%do_save_history = .false.
+   call ini_get(file_parameters, GRMS_SECTION_NAME, 'save_history', self%do_save_history, default=.false.)
+   call ini_check()
    call file_parameters%get(section_name=GRMS_SECTION_NAME, option_name='history_save', &
                             val=self%history_save, error=error)
 

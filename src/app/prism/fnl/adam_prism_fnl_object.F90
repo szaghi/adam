@@ -15,6 +15,7 @@ use :: adam_prism_fnl_library
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 #endif
 ! third party modules
+use :: adam_ini_library, only : ini_check, ini_get
 use :: finer, only : file_ini
 use :: fundal, save_memory_status_gpu=>save_memory_status
 use :: penf,   save_memory_status_cpu=>save_memory_status
@@ -470,13 +471,12 @@ contains
 
    if (conserving) then
       ! virtual block: the whole domain at the finest uniform level, on every rank
-      call file_parameters%get(section_name='amr', option_name='ratio', val=ratio, error=error)
-      if (error /= 0) ratio = 8_I4P
-      call file_parameters%get(section_name='amr', option_name='iu_ref_levels', val=levels, error=error)
-      if (error /= 0) levels = 0_I4P
+      call ini_get(file_parameters, 'amr', 'ratio', ratio, default=8_I4P)
+      call ini_get(file_parameters, 'amr', 'iu_ref_levels', levels, default=0_I4P)
       levels = max(0_I4P, levels)
       n = [grid%ni, grid%nj, grid%nk]
       n(1) = n(1)*2**levels
+      call ini_check()
       if (ratio >= 4_I4P) n(2) = n(2)*2**levels
       if (ratio >= 8_I4P) n(3) = n(3)*2**levels
       ngc = grid%ngc

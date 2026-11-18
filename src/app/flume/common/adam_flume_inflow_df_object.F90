@@ -138,8 +138,7 @@ contains
    endselect
    if (self%axis_w == self%axis_n) call mpih%error_stop(msg=': ['//section//'].(df_wall_axis) is the face normal')
    self%axis_s = 6_I4P - self%axis_n - self%axis_w
-   call file_parameters%get(section_name=section, option_name='df_seed', val=seed, error=error)
-   if (error /= 0) seed = 1._R8P
+   call ini_get(file_parameters, section, 'df_seed', seed, default=1._R8P)
    self%seed = max(1_I8P, int(seed, I8P))
    call ini_get(file_parameters, section, 'df_profile', self%profile_file)
    self%profile_file = trim(adjustl(self%profile_file))

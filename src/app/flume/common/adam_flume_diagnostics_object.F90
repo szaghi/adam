@@ -128,26 +128,21 @@ contains
    ! to NaN, then refilled in the order of a stage (seams, exchange, boundary conditions), so a ghost that the fill
    ! does not reach, or reads before its donor is filled, is written as NaN instead of a stale value
    call ini_check()
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ghost_poison', val=self%ghost_poison, &
-                            error=error)
-   if (error > 0) self%ghost_poison = .false.
+   call ini_get(file_parameters, INI_SECTION_NAME, 'ghost_poison', self%ghost_poison, default=.false.)
    ! optional (default .false.): the D_flux columns of the div(B) history (issue #68 A2); each history row then costs one
    ! residual evaluation of the committed state (about one RK stage)
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divb_flux', val=self%divb_flux, error=error)
-   if (error > 0) self%divb_flux = .false.
+   call ini_get(file_parameters, INI_SECTION_NAME, 'divb_flux', self%divb_flux, default=.false.)
    ! optional (default 0, disabled): the turbulence history (issue #119, T0.1)
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='turbulence_history_save', &
-                            val=self%turbulence_history_save, error=error)
-   if (error > 0) self%turbulence_history_save = 0_I4P
+   call ini_get(file_parameters, INI_SECTION_NAME, 'turbulence_history_save', self%turbulence_history_save, default=0_I4P)
    ! optional (default 0, disabled): the wall-model history (issue #119, T3.7): wall_history_bins (required with it) bins along wall_history_axis
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wall_history_save', val=self%wall_history_save, error=error)
-   if (error > 0) self%wall_history_save = 0_I4P
+   call ini_get(file_parameters, INI_SECTION_NAME, 'wall_history_save', self%wall_history_save, default=0_I4P)
+   call ini_check()
    if (self%wall_history_save > 0_I4P) then
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wall_history_bins', val=self%wall_history_bins, error=error)
       if (error > 0 .or. self%wall_history_bins < 1_I4P) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wall_history_bins) must be given and >= 1 with wall_history_save')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wall_history_axis', val=buff, error=error)
-      if (error > 0) buff = 'x'
+      call ini_get(file_parameters, INI_SECTION_NAME, 'wall_history_axis', buff, default='x')
+      call ini_check()
       select case(trim(adjustl(buff)))
       case('x')
          self%wall_history_axis = 1_I4P

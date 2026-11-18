@@ -126,8 +126,8 @@ contains
    call get_real('rr_x', self%x_r)
    call get_real('rr_delta_ratio', self%delta_ratio)
    call get_real('rr_beta', self%beta)
-   call file_parameters%get(section_name=section, option_name='rr_shift', val=self%shift, error=error)
-   if (error /= 0) self%shift = 0.5_R8P
+   call ini_get(file_parameters, section, 'rr_shift', self%shift, default=0.5_R8P)
+   call ini_check()
    if (self%shift < 0._R8P .or. self%shift >= 1._R8P) call mpih%error_stop(msg=': ['//section//'].(rr_shift) must be in [0, 1)')
    call ini_get(file_parameters, section, 'rr_wall_axis', buff)
    call ini_check()

@@ -39,6 +39,7 @@ module adam_flume_gravity_object
 !< order), which reads the face beyond each block end: gravity needs one more ghost layer than the WENO stencil.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 ! third party modules
@@ -147,8 +148,8 @@ contains
    if (error <= 0) self%poisson_solver = trim(adjustl(buff))
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='poisson_bc', val=buff, error=error)
    if (error <= 0) self%poisson_bc = trim(adjustl(buff))
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='self_gravity', val=self%self_gravity, error=error)
-   if (error > 0) self%self_gravity = .false.
+   call ini_get(file_parameters, INI_SECTION_NAME, 'self_gravity', self%self_gravity, default=.false.)
+   call ini_check()
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='G', val=self%grav_const, error=error)
    has_g = error <= 0
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='G_star', val=g_star, error=error)

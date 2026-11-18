@@ -2,6 +2,7 @@
 module adam_prism_magnetic_field_at_center_domain_object
 !< ADAM, PRISM magnetic-field-at-domain-center diagnostic object.
 
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 use :: finer
 use :: penf
@@ -52,14 +53,12 @@ contains
    type(file_ini),                                      intent(in)    :: file_parameters
    integer(I4P)                                                       :: error
 
-   call file_parameters%get(section_name=MFCD_SECTION_NAME, option_name='save_history', &
-                            val=self%do_save_history, error=error)
-   if (error > 0) self%do_save_history = .false.
+   call ini_get(file_parameters, MFCD_SECTION_NAME, 'save_history', self%do_save_history, default=.false.)
+   call ini_check()
    if (.not. self%do_save_history) return
 
-   call file_parameters%get(section_name=MFCD_SECTION_NAME, option_name='history_save', &
-                            val=self%history_save, error=error)
-   if (error > 0) self%history_save = 10_I4P
+   call ini_get(file_parameters, MFCD_SECTION_NAME, 'history_save', self%history_save, default=10_I4P)
+   call ini_check()
    endsubroutine load_from_file
 
    subroutine save_history(self, it, time, blocks_number, is_to_open, is_to_close)
