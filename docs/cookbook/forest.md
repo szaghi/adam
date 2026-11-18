@@ -58,43 +58,45 @@ to round-off or to a tolerance, the recipe says so and why.
 
 **Problem.** Write the `program` of an application so that the same executable runs a plain input and a manifest.
 
-**Code** (`src/app/flume/cpu/adam_flume_cpu.F90`; the FNL driver `adam_flume_fnl.F90` is the same with
-`flume_fnl_object`):
+**Code.** The library does it (`src/lib/common/adam_run_library.F90`, issue #80 P3); an application's program
+names its realm type and calls it (`src/app/flume/cpu/adam_flume_cpu.F90`; every FLUME, PRISM and RIPPLE driver is the
+same with its own type):
 
 ```fortran
-type(flume_cpu_object), allocatable, target :: realm(:)          ! 1 for a single input, N for a manifest
-type(realm_pointer),    allocatable         :: realm_pointers(:) ! what the forest takes (#96)
-type(forest_object)                         :: forest
-type(forest_manifest_t)                     :: manifest
-...
+use :: adam_run_library,      only : run_forest
+use :: adam_flume_cpu_object, only : flume_cpu_object
+implicit none
+type(flume_cpu_object) :: prototype !< The realm type to run (only its type is used).
+
+call run_forest(prototype=prototype)
+```
+
+and `run_forest` itself:
+
+```fortran
+realms_number = 1
 if (is_forest_manifest(trim(input_file_name))) then
    call read_forest_manifest(filename=trim(input_file_name), manifest=manifest)
-   allocate(realm(manifest%realms_number))
-   call point_realms
+   realms_number = manifest%realms_number
+endif
+allocate(realm_pointers(realms_number))
+do i=1, realms_number
+   allocate(realm_pointers(i)%ptr, mold=prototype)
+enddo
+if (is_forest_manifest(trim(input_file_name))) then
    call forest%simulate_from_manifest(realm=realm_pointers, manifest=manifest)
 else
-   allocate(realm(1))
-   call point_realms
    call forest%simulate(realm=realm_pointers, filename=trim(input_file_name))
 endif
-contains
-   subroutine point_realms
-   integer :: i
-   allocate(realm_pointers(size(realm)))
-   do i = 1, size(realm)
-      realm_pointers(i)%ptr => realm(i)
-   enddo
-   endsubroutine point_realms
 ```
 
 **What it does.** `is_forest_manifest` reports whether the file has a `[forest]` section with `realms_number >= 1`.
-The realms live in a **monomorphic** array of the concrete type, and the forest receives an array of `realm_pointer`:
-it never indexes a polymorphic array, which nvfortran addresses wrongly
+Each realm is a scalar of its own, allocated through its `realm_pointer` with the prototype's type, and the forest
+receives the array of pointers: there is no polymorphic array to index, which nvfortran addresses wrongly
 ([#96](https://github.com/szaghi/adam/issues/96)). `simulate` and `simulate_from_manifest` initialize the realms, run
-the time loop (fast path or staged path, R1 and R2) and finalize them.
-
-A single-realm application can be smaller: RIPPLE's driver (`src/app/ripple/cpu/adam_ripple_cpu.F90`) declares one
-realm and one pointer and calls `forest%simulate` only.
+the time loop (fast path or staged path, R1 and R2) and finalize them. A test driver that must act on the realms before
+the run (register a refinement criterion, say) builds the same array itself, as
+`src/tests/ripple/test_ripple_crest_criterion.F90` does.
 
 **Reference.** [Forest concepts](/concepts/forest); [RIPPLE](https://github.com/szaghi/adam/tree/develop/src/app/ripple).
 

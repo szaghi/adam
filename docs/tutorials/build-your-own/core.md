@@ -26,9 +26,9 @@ layer; [chapter 3](./amr) adds the staged one; RIPPLE has no seams layer (see [c
 
 | File | Lines | Content |
 |---|---|---|
-| `common/adam_ripple_common_object.F90` | 353 | the realm: state, input, initial condition, AMR, outputs, the backend-independent procedures |
-| `cpu/adam_ripple_cpu_object.F90` | 263 | the CPU realm: residuals, Runge–Kutta, flux register, reflux |
-| `cpu/adam_ripple_cpu.F90` | 25 | the driver |
+| `common/adam_ripple_common_object.F90` | 447 | the realm: state, input, initial condition, AMR, outputs, the backend-independent procedures |
+| `cpu/adam_ripple_cpu_object.F90` | 264 | the CPU realm: residuals, Runge–Kutta, flux register, reflux |
+| `cpu/adam_ripple_cpu.F90` | 16 | the driver |
 | `fnl/adam_ripple_fnl_object.F90`, `fnl/adam_ripple_fnl_kernels.F90`, `fnl/adam_ripple_fnl.F90` | | the GPU twin ([chapter 4](./gpu)) |
 
 ## The driver
@@ -40,33 +40,24 @@ The whole program, `src/app/ripple/cpu/adam_ripple_cpu.F90`:
 program adam_ripple_cpu
 !< RIPPLE, scalar linear advection on the ADAM library, CPU backend.
 !<
-!< Usage: `adam_ripple_cpu [input.ini]`. One realm, driven by the library's forest: `forest%simulate` initializes the
-!< realm, loops over the steps (dt, advance, post-step, termination) and finalizes it.
+!< The library's generic driver (`adam_run_library%run_forest`, issue #80 P3) on this application's realm type: one
+!< realm for a single input file, one per realm of a forest manifest (the first argument, default `input.ini`).
 
-! ADAM classes, libraries, parameters
-use :: adam_forest_object,     only : forest_object
-use :: adam_realm_object,      only : realm_pointer
-! RIPPLE modules
+use :: adam_run_library, only : run_forest
 use :: adam_ripple_cpu_object, only : ripple_cpu_object
 
 implicit none
 
-type(ripple_cpu_object), target :: realm(1)          !< The realm.
-type(realm_pointer)             :: realm_pointers(1) !< A pointer to it: what the forest takes (issue #96).
-type(forest_object)             :: forest            !< Orchestrator.
-character(999)                  :: input_file_name   !< Input file name.
+type(ripple_cpu_object) :: prototype !< The realm type to run (only its type is used).
 
-input_file_name = 'input.ini'
-if (command_argument_count() > 0) call get_command_argument(1, input_file_name)
-realm_pointers(1)%ptr => realm(1)
-call forest%simulate(realm=realm_pointers, filename=trim(adjustl(input_file_name)))
+call run_forest(prototype=prototype)
 endprogram adam_ripple_cpu
 ```
 
-The forest takes an array of `realm_pointer`, not an array of realms: a realm is polymorphic, and an array of
-`class(realm_object)` cannot be indexed safely. `forest%simulate` initializes the realm, loops (dt, advance, post-step,
-termination) and finalizes. FLUME's driver adds one branch, `simulate_from_manifest` for a forest manifest
-([forest cookbook](/cookbook/forest)).
+The application names its realm type; the library's `run_forest` reads the input file name, allocates the realm (or
+one per realm of a forest manifest), hands the forest an array of `realm_pointer`, not an array of realms (a realm is
+polymorphic, and an array of `class(realm_object)` cannot be indexed safely), and calls `forest%simulate`, which
+initializes the realm, loops (dt, advance, post-step, termination) and finalizes ([forest cookbook](/cookbook/forest)).
 
 ## The realm
 
@@ -81,7 +72,7 @@ type, extends(realm_object) :: ripple_common_object
    type(time_object)      :: time                    !< Time handler (library): it, time, dt and the [time] keys.
    integer(I4P)           :: history_unit=0_I4P      !< Unit of the history file (rank 0).
    contains
-      ! ... the type-bound procedures (lines 50-63 of the source)
+      ! ... the type-bound procedures (lines 50-68 of the source)
 endtype ripple_common_object
 ```
 

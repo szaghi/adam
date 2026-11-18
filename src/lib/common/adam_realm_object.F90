@@ -226,9 +226,9 @@ type :: realm_pointer
    !< A pointer to one realm of the forest. The forest and every routine that receives the sibling realms take an array of
    !< these, `type(realm_pointer) :: realm(:)`, never a polymorphic array `class(realm_object) :: realm(:)`: indexing a
    !< polymorphic array dummy is miscompiled by nvfortran 25.11 and 26.9, which may address element `is` with the stride of
-   !< the declared type instead of the dynamic one (issue #96, first worked around in 0062a237). The driver points each
-   !< element at an element of its own monomorphic array (`type(prism_fnl_object), target :: realm(:)`), whose indexing
-   !< is plain fixed-stride arithmetic.
+   !< the declared type instead of the dynamic one (issue #96, first worked around in 0062a237). The driver
+   !< (`adam_run_library%run_forest`) allocates each realm as a scalar of its own through its pointer
+   !< (`allocate(realm(i)%ptr, mold=prototype)`), so no polymorphic array exists at all.
    class(realm_object), pointer :: ptr => null() !< The realm.
 endtype realm_pointer
 
