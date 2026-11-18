@@ -133,7 +133,7 @@ use :: adam_tree_bucket_object,       only : tree_bucket_object, iterator_interf
 use :: adam_refinement_plan_object,   only : refinement_plan_object
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_get
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 ! third party modules
@@ -669,6 +669,7 @@ contains
    call ini_get(file_parameters, 'amr', 'j_prune'      , self%ijkl_prune(2), default=-1_I4P)
    call ini_get(file_parameters, 'amr', 'k_prune'      , self%ijkl_prune(3), default=-1_I4P)
    call ini_get(file_parameters, 'amr', 'l_prune'      , self%ijkl_prune(4), default=-1_I4P)
+   call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_ini_file
 
    function loop(self, iter, code, node_ptr) result(again)

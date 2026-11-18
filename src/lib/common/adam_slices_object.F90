@@ -6,7 +6,7 @@ module adam_slices_object
 use :: adam_adam_object, only : adam_object
 use :: adam_grid_object, only : grid_object
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_get
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
@@ -147,6 +147,7 @@ contains
          if (present(grid)) call check_in_domain
       enddo
    endif
+   call ini_check() ! report every option of this parser that failed to load (#80 P2)
    contains
       subroutine check_loaded(option)
       !< Stop if the option of the current slice section failed to load.

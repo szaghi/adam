@@ -3,7 +3,7 @@ module adam_io_object
 !< ADAM, IO class definition.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_get
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 use :: finer
@@ -163,6 +163,7 @@ contains
       call ini_get(file_parameters, ISN, 'seam_divB_tol', self%seam_divB_tol, default=-1._R8P)
       call ini_get(file_parameters, ISN, 'seam_divB_error', self%seam_divB_error, default=.false.)
    endassociate
+   call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_file
 
    ! auxiliary fields IO

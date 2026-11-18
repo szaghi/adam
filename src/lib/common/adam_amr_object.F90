@@ -5,7 +5,7 @@ module adam_amr_object
 ! ADAM classes, libraries, parameters
 use :: adam_parameters, only : AMR_PROLONGATION_LINEAR, AMR_PROLONGATION_CONSERVATIVE, AMR_PROLONGATION_CONSERVATIVE_STATE
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_get
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 ! third party modules
@@ -277,6 +277,7 @@ contains
          endassociate
       endselect
    enddo
+   call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_file
 
    ! non TBP

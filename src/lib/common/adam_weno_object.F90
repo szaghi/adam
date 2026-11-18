@@ -41,7 +41,7 @@ module adam_weno_object
 !< Non TBP procedures are also provided for use without class object in device backend kernels.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_get
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
@@ -386,6 +386,7 @@ contains
    call ini_get(file_parameters, sname, 'enable_ror_stats', self%enable_ror_stats, default=.false.)
    call ini_get(file_parameters, sname, 'ib_reduction_extent', self%ib_reduction_extent, default=0_I4P)
    call ini_get(file_parameters, sname, 'ib_reduced_order', self%ib_reduced_order, default=1_I4P)
+   call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_file
 
    pure subroutine reconstruct_upwind(self, S, v, vr)

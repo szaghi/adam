@@ -5,7 +5,7 @@ module adam_ib_object
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
-use :: adam_ini_library, only : ini_get
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 ! third party modules
 use :: finer
@@ -259,6 +259,7 @@ contains
          endselect
       enddo
    endif
+   call ini_check() ! report every option of this parser that failed to load (#80 P2)
    contains
       subroutine check_axis(axis, option)
       !< Stop on an axis the phi kernels do not select: they would leave the solid without phi (issue #57).

@@ -5,7 +5,7 @@ module adam_grid_object
 ! ADAM classes, libraries, parameters
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_get
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer, only : file_ini
@@ -360,6 +360,7 @@ contains
    self%null_xyz(2)=buff_log
    call ini_get(file_parameters, INI_SECTION_NAME, 'null_z', buff_log, default=.false.)
    self%null_xyz(3)=buff_log
+   call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_ini_file
 
    subroutine node_xyz(self, coordinates, x_node, y_node, z_node)
