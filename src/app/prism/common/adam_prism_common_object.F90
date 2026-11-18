@@ -122,6 +122,11 @@ type, extends(realm_object) :: prism_common_object
    contains
       ! AMR methods (issue #22 F0: promoted from prism_cpu_object — host-side, backend-agnostic)
       procedure, pass(self) :: amr_update                    !< Do AMR update (init-time only where amr_locked_).
+      ! hooks of the library initialize_forest template shared by the backends (#80 P3)
+      procedure, pass(self) :: amr_update_initial_forest     !< Template hook: one initial regrid (host).
+      procedure, pass(self) :: initial_amr_iterations_forest !< Template hook: [initial_conditions] AMR passes.
+      procedure, pass(self) :: rebalance_initial_forest      !< Template hook: the static rebalance (issue #123).
+      procedure, pass(self) :: reset_time_forest             !< Template hook: time and step counter to zero.
       procedure, pass(self) :: rebalance                     !< Balance the static grid's blocks by count (issue #123).
       procedure, pass(self) :: mark_by_geometry              !< Mark blocks to be refined by a primitive geometric box.
       procedure, pass(self) :: mark_by_j_vec_total_variation !< Mark by j_vec total variation (backend override; common
@@ -178,6 +183,37 @@ contains
    ! marker registration + adam%amr_update on the host q. Backends with device state must
    ! resync topology after calling this (FNL: copy_cpu_gpu after the IC loop) and set
    ! amr_locked_ once initialization completes.)
+   ! hooks of the library initialize_forest template shared by the backends (#80 P3)
+   subroutine amr_update_initial_forest(self)
+   !< One initial regrid on the host (the FNL override of amr_update follows it with the device PML twins).
+   class(prism_common_object), intent(inout) :: self !< The equation.
+
+   call self%amr_update
+   endsubroutine amr_update_initial_forest
+
+   function initial_amr_iterations_forest(self) result(n)
+   !< The passes of initial conditions + regrid before the final initial conditions, `ic%amr_iterations`.
+   class(prism_common_object), intent(in) :: self !< The equation.
+   integer(I4P)                           :: n    !< Passes.
+
+   n = self%ic%amr_iterations
+   endfunction initial_amr_iterations_forest
+
+   subroutine rebalance_initial_forest(self)
+   !< PRISM regrids at initialization only: balance the blocks by count, sibling sets split (issue #123).
+   class(prism_common_object), intent(inout) :: self !< The equation.
+
+   if (self%amr%balance_static) call self%rebalance
+   endsubroutine rebalance_initial_forest
+
+   subroutine reset_time_forest(self)
+   !< The time and the step counter of a run from scratch to zero (dt is kept: the conserving PIC t0 path set it).
+   class(prism_common_object), intent(inout) :: self !< The equation.
+
+   self%time%time = 0._R8P
+   self%time%it = 0
+   endsubroutine reset_time_forest
+
    subroutine amr_update(self)
    !< Do AMR update.
    class(prism_common_object), intent(inout) :: self                !< The equation.

@@ -40,10 +40,12 @@ the [hazards](./hazards#refused-combinations).
 Both programs hand the realm (one, or the manifest's realms) to the library's forest, `forest%simulate` or
 `forest%simulate_from_manifest`, which drives the realm contract ([forest](/concepts/forest)):
 
-1. **`initialize_forest`.** The common initialization (below), the backend's dispatch and checks, then the initial
-   conditions: `[initial_conditions] amr_iterations` passes of initial condition and AMR markers, the coils, the t0
-   elliptic solves, the far-wave correction; or the restart files. The initial divergences are printed and the first
-   outputs written.
+1. **`initialize_forest`**, the library template ([library](/developer/library)) on PRISM's hooks. The common
+   initialization (below), the backend's dispatch and checks (`initialize_app_forest`), then the initial conditions:
+   `[initial_conditions] amr_iterations` passes of initial condition and AMR markers, the coils, the t0 elliptic solves,
+   the far-wave correction (`set_initial_state_forest`, `amr_update_initial_forest`), the static rebalance; or the
+   restart files (`restart_state_forest`). The initial divergences are printed and the first outputs written
+   (`post_initial_state_forest`; FNL pushes the final topology to the device first).
 2. **Every step.** The forest reduces the time step over the realms (`compute_local_dt_forest`), then advances each
    realm (`advance_one_step_forest`: one call of the dispatched integrator) or, with 2:1 faces or several realms, runs
    the staged path stage by stage (`open_step`, `begin_stage`, `end_stage`, `close_step`, the reflux).

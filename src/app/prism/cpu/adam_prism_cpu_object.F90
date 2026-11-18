@@ -77,7 +77,10 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: update_ghost               !< Update ghost cells and set boundary conditions.
       procedure, pass(self) :: compute_field_mean_value   !< Compute field mean value.
       ! forest orchestrator contract methods overridings
-      procedure, pass(self) :: initialize_forest            !< Invoked by forest%initialize per realm at startup.
+      procedure, pass(self) :: initialize_app_forest             !< Template hook: the PRISM backend.
+      procedure, pass(self) :: restart_state_forest              !< Template hook: the state from the restart files.
+      procedure, pass(self) :: set_initial_state_forest          !< Template hook: the initial conditions.
+      procedure, pass(self) :: post_initial_state_forest         !< Template hook: ghosts, t0 diagnostics, history files.
       procedure, pass(self) :: compute_local_dt_forest      !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest      !< Invoked by forest%evolve_one_step per realm per timestep.
       procedure, pass(self) :: stages_per_step_forest       !< Number of integrator stages this realm exposes per step.
@@ -1462,19 +1465,38 @@ contains
    endsubroutine update_ghost
 
    ! forest orchestrator contract methods overridings
-   subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
-   !< Initialize this realm from scratch: PRISM init, IC injection (or restart load), initial ghost update,
-   !< initial diagnostics dump, IO files open, plus PIC/leapfrog priming if those schemes are active.
-   !<
-   !< Invoked by forest%initialize. The forest writes `self%realm_index = is`
-   !< BEFORE calling this routine, so the body can already read the 1-based
-   !< forest position from `self%realm_index` if needed.
-   class(prism_cpu_object), intent(inout)           :: self          !< The realm.
-   character(*),            intent(in)              :: filename      !< Input parameters file name.
-   integer(I4P),            intent(in),    optional :: realms_number !< Realm count; divides the per-process budget.
-   real(R8P),               intent(in),    optional :: memory_avail  !< Per-process memory budget override.
-   integer(I4P),            intent(in),    optional :: nv            !< Number of field variables override.
-   logical,                 intent(in),    optional :: verbose       !< Trigger verbose output.
+   ! hooks of the library initialize_forest template (#80 P3)
+   subroutine initialize_app_forest(self, filename, realms_number)
+   !< Template hook: the PRISM backend (common data, dispatch, backend data).
+   class(prism_cpu_object), intent(inout)        :: self          !< The realm.
+   character(*),            intent(in)           :: filename      !< Input parameters file name.
+   integer(I4P),            intent(in), optional :: realms_number !< Realm count; divides the budget.
+
+   call self%initialize_prism(filename=filename, realms_number=realms_number)
+   if (.not.self%io%restart) call mpih%print_message('impose initial conditions start')
+   endsubroutine initialize_app_forest
+
+   subroutine restart_state_forest(self)
+   !< Template hook: the state from the restart files, then the coils and the t0 state on it.
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+
+   call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
+   call self%load_restart_files(t=self%time%it, time=self%time%time)
+   call mpih%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
+   call self%set_initial_conditions(is_restart=.true.)
+   endsubroutine restart_state_forest
+
+   subroutine set_initial_state_forest(self)
+   !< Template hook: the initial conditions on the current grid (and the coils, the t0 solves).
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
+
+   call self%set_initial_conditions(is_restart=.false.)
+   endsubroutine set_initial_state_forest
+
+   subroutine post_initial_state_forest(self)
+   !< Template hook: the ghost update, the t0 diagnostics, the history files (and the priming of the leapfrog schemes,
+   !< which initialize refuses).
+   class(prism_cpu_object), intent(inout) :: self !< The realm.
    real(R8P)                                        :: max_div_D     !< Maximum of divergence of D field.
    real(R8P)                                        :: max_div_B     !< Maximum of divergence of B
    real(R8P)                                        :: max_div_J     !< Maximum of divergence of J field.
@@ -1482,27 +1504,7 @@ contains
    real(R8P)                                        :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
    integer(I4P)                                     :: i, n, b, ind  !< Counters.
 
-   call self%initialize_prism(filename=filename, realms_number=realms_number)
-   if (self%io%restart) then
-      call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
-      call self%load_restart_files(t=self%time%it, time=self%time%time)
-      call mpih%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
-      call self%set_initial_conditions(is_restart=self%io%restart)
-   else
-      call mpih%print_message('impose initial conditions start')
-      do i=1, self%ic%amr_iterations
-         call mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
-         call self%set_initial_conditions(is_restart=self%io%restart)
-         call self%amr_update
-      enddo
-      ! PRISM regrids at initialization only: balance the blocks by count, sibling sets split (issue #123)
-      if (self%amr%balance_static) call self%rebalance
-      call self%set_initial_conditions(is_restart=self%io%restart)
-      call self%adam%make_comm_local_maps_ghost_bc
-      self%time%time = 0._R8P
-      self%time%it = 0
-      call mpih%print_message('impose initial conditions finish')
-   endif
+   if (.not.self%io%restart) call mpih%print_message('impose initial conditions finish')
    call self%update_ghost(q=self%q)
    !Il controllo sulla divergenza dei campi a t = 0 lo metterai poi a valle di questo update ghost
    call mpih%print_message('Coils initialization values')
@@ -1593,7 +1595,7 @@ contains
       call self%compute_residuals(q=self%q, dq=self%dq)
       self%q = self%q + self%time%dt * self%dq
    endif
-   endsubroutine initialize_forest
+   endsubroutine post_initial_state_forest
 
    subroutine compute_local_dt_forest(self, dt_local)
    !< Compute this realm's local stability-limited dt (no MPI reduction).
