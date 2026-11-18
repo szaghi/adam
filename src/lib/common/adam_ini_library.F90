@@ -39,7 +39,7 @@ integer(I4P)                  :: pending_number=0 !< Number of errors recorded.
 
 interface ini_get
    !< Read an INI option strictly, with an optional default when absent.
-   module procedure ini_get_I4P, ini_get_R8P, ini_get_logical, ini_get_character
+   module procedure ini_get_I4P, ini_get_R8P, ini_get_logical, ini_get_character, ini_get_I4P_array, ini_get_R8P_array
 endinterface ini_get
 
 contains
@@ -216,4 +216,35 @@ contains
    call ini%get(section_name=section, option_name=option, val=val, error=error)
    if (error /= 0) call record_failed(section, option)
    endsubroutine ini_get_character
+   subroutine ini_get_I4P_array(ini, section, option, val)
+   !< Read an integer list (values separated by blanks) into val, whose size is the number of values expected.
+   type(file_ini), intent(in)    :: ini     !< INI file.
+   character(*),   intent(in)    :: section !< Section name.
+   character(*),   intent(in)    :: option  !< Option name.
+   integer(I4P),   intent(inout) :: val(:)  !< Values.
+   integer(I4P)                  :: error   !< Error status.
+
+   if (.not.is_present(ini, section, option)) then
+      call record_failed(section, option)
+      return
+   endif
+   call ini%get(section_name=section, option_name=option, val=val, error=error)
+   if (error /= 0) call record_failed(section, option)
+   endsubroutine ini_get_I4P_array
+
+   subroutine ini_get_R8P_array(ini, section, option, val)
+   !< Read a real list (values separated by blanks) into val, whose size is the number of values expected.
+   type(file_ini), intent(in)    :: ini     !< INI file.
+   character(*),   intent(in)    :: section !< Section name.
+   character(*),   intent(in)    :: option  !< Option name.
+   real(R8P),      intent(inout) :: val(:)  !< Values.
+   integer(I4P)                  :: error   !< Error status.
+
+   if (.not.is_present(ini, section, option)) then
+      call record_failed(section, option)
+      return
+   endif
+   call ini%get(section_name=section, option_name=option, val=val, error=error)
+   if (error /= 0) call record_failed(section, option)
+   endsubroutine ini_get_R8P_array
 endmodule adam_ini_library

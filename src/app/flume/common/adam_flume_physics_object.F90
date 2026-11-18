@@ -13,6 +13,7 @@ module adam_flume_physics_object
 !< the first `N` carrying `rho s_k`, the others zero.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,         only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library, only : primitive_to_conservative
@@ -259,9 +260,9 @@ contains
    character(999)                             :: buff            !< Option value buffer.
    integer(I4P)                               :: error           !< Error status.
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='physical_model', val=buff, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(physical_model)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'physical_model', buff)
    self%physical_model = trim(adjustl(buff))
+   call ini_check()
    select case(self%physical_model)
    case(PHYSICAL_MODEL_EULER, PHYSICAL_MODEL_EULER_DE, PHYSICAL_MODEL_MHD_IDEAL)
    case default
@@ -293,9 +294,9 @@ contains
    ! the equation of state (issue #100): [eos] optional, type ideal (the gas below) by default, or isothermal
    self%eos = EOS_IDEAL
    if (file_parameters%has_section(section_name='eos')) then
-      call file_parameters%get(section_name='eos', option_name='type', val=buff, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load [eos].(type)')
+      call ini_get(file_parameters, 'eos', 'type', buff)
       self%eos = trim(adjustl(buff))
+      call ini_check()
       select case(self%eos)
       case(EOS_IDEAL)
       case(EOS_ISOTHERMAL)
@@ -414,11 +415,11 @@ contains
                                   trim(str(EOS_SEGMENTS_MAX, .true.))//' are accepted')
       allocate(self%eos_breaks(n_breaks), self%eos_exponents(n_exponents))
       if (n_breaks > 0_I4P) then
-         call file_parameters%get(section_name='eos', option_name='densities', val=self%eos_breaks, error=error)
-         if (error /= 0) call mpih%error_stop(msg=': failed to load [eos].(densities)')
+         call ini_get(file_parameters, 'eos', 'densities', self%eos_breaks)
+         call ini_check()
       endif
-      call file_parameters%get(section_name='eos', option_name='exponents', val=self%eos_exponents, error=error)
-      if (error /= 0) call mpih%error_stop(msg=': failed to load [eos].(exponents)')
+      call ini_get(file_parameters, 'eos', 'exponents', self%eos_exponents)
+      call ini_check()
    endif
    n_breaks = size(self%eos_breaks, kind=I4P)
    if (.not.all(self%eos_breaks > 0._R8P)) call mpih%error_stop(msg=': [eos].(densities) must all be > 0')

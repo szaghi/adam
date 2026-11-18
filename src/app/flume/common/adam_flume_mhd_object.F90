@@ -14,6 +14,7 @@ module adam_flume_mhd_object
 !< tolerance fatal. `rho_floor` and `p_floor` are the positivity floors (0 disables them).
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : DIVERGENCE_CONTROL_EGLM, DIVERGENCE_CONTROL_GLM, DIVERGENCE_CONTROL_NONE, &
@@ -96,9 +97,9 @@ contains
    character(999)                         :: buff            !< Option value buffer.
    integer(I4P)                           :: error           !< Error status.
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_control', val=buff, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_control)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'divergence_control', buff)
    self%divergence_control = trim(adjustl(buff))
+   call ini_check()
    select case(self%divergence_control)
    case(DIVERGENCE_CONTROL_GLM)
       self%has_glm = .true.
@@ -118,10 +119,10 @@ contains
       if (.not.(self%glm_ch > 0._R8P)) call range_error(key='glm_ch', val=self%glm_ch, expected='> 0')
       call load_real(key='glm_alpha', val=self%glm_alpha)
       if (.not.(self%glm_alpha >= 0._R8P)) call range_error(key='glm_alpha', val=self%glm_alpha, expected='>= 0')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='glm_damping_length', val=buff, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(glm_damping_length)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'glm_damping_length', buff)
       buff = trim(adjustl(buff))
       self%glm_damping_min_cell = trim(buff) == GLM_DAMPING_LENGTH_MIN_CELL
+      call ini_check()
       if (.not.self%glm_damping_min_cell) then
          read(buff, *, iostat=error) self%glm_damping_length
          if (error /= 0) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(glm_damping_length) = "'//trim(buff)// &
@@ -129,9 +130,9 @@ contains
          if (.not.(self%glm_damping_length > 0._R8P)) &
             call range_error(key='glm_damping_length', val=self%glm_damping_length, expected='> 0')
       endif
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='glm_ch_check', val=buff, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(glm_ch_check)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'glm_ch_check', buff)
       self%glm_ch_check = trim(adjustl(buff))
+      call ini_check()
       select case(self%glm_ch_check)
       case(GLM_CH_CHECK_WARNING, GLM_CH_CHECK_ERROR)
       case default
@@ -144,8 +145,8 @@ contains
 
    call load_real(key='divb_tol', val=self%divb_tol)
    if (.not.(self%divb_tol >= 0._R8P)) call range_error(key='divb_tol', val=self%divb_tol, expected='>= 0')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divb_error', val=self%divb_error, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divb_error)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'divb_error', self%divb_error)
+   call ini_check()
    call load_real(key='rho_floor', val=self%rho_floor)
    if (.not.(self%rho_floor >= 0._R8P)) call range_error(key='rho_floor', val=self%rho_floor, expected='>= 0')
    call load_real(key='p_floor', val=self%p_floor)
@@ -156,8 +157,8 @@ contains
       character(*), intent(in)  :: key !< Option name.
       real(R8P),    intent(out) :: val !< Option value.
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name=key, val=val, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//key//')')
+      call ini_get(file_parameters, INI_SECTION_NAME, key, val)
+      call ini_check()
       endsubroutine load_real
 
       subroutine range_error(key, val, expected)

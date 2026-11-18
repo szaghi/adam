@@ -20,6 +20,7 @@ module adam_flume_numerics_object
 !< local Lax-Friedrichs backbone so that each stage keeps the density and the pressure positive.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : FLUX_CORRECTION_4TH, FLUX_CORRECTION_6TH, FLUX_CORRECTION_NONE,                  &
@@ -138,10 +139,10 @@ contains
    character(999)                              :: buff            !< Option value buffer.
    integer(I4P)                                :: error           !< Error status.
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_space', val=buff, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'scheme_space', buff)
    self%scheme_space = trim(adjustl(buff))
    ! issue #119, T2: the central flux overwrites the `weno` one, which every other path goes on seeing
+   call ini_check()
    if (self%scheme_space == 'hybrid-kep-weno') then
       self%is_hybrid = .true.
       self%scheme_space = SCHEME_SPACE_WENO
@@ -175,9 +176,9 @@ contains
                                '"; expected one of '//SCHEME_SPACE_WENO//', '//SCHEME_SPACE_WENO_RIEMANN//', hybrid-kep-weno')
    endselect
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reconstruction_variables)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'reconstruction_variables', buff)
    self%reconstruction_variables = trim(adjustl(buff))
+   call ini_check()
    if (self%scheme_space == SCHEME_SPACE_WENO) then
       select case(self%reconstruction_variables)
       case(RECON_CHARACTERISTIC, RECON_CONSERVATIVE)
@@ -202,10 +203,10 @@ contains
                        accepted=[character(4) :: FLUX_CORRECTION_SENSOR_WENO, FLUX_CORRECTION_SENSOR_NONE])
    endif
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux', val=self%reflux, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reflux)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'reflux', self%reflux)
    ! optional (default always, issue #68 E1): with `troubled` the reflux corrects only the seam face cells the WENO
    ! sensor (FLUX_CORRECTION_SENSOR_TAU) or the positivity limiter flags in a stage of the step
+   call ini_check()
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux_policy', val=buff, error=error)
    if (error > 0) then
       self%reflux_policy = REFLUX_POLICY_ALWAYS
@@ -253,9 +254,9 @@ contains
       ! polymorphic dummy) wrote the host-associated buffer, and read back the value of the key loaded before
       ! (`riemann_solver` came back "characteristic"; on medooza the stale state crashed in the string copy). The
       ! `strip_control(buff)` call this line had until #80 P1 happened to force a fresh read.
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name=key, val=text, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//key//')')
+      call ini_get(file_parameters, INI_SECTION_NAME, key, text)
       val = trim(adjustl(text))
+      call ini_check()
       if (any(accepted == val)) return
       list = trim(accepted(1))
       do a=2, size(accepted)

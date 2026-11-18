@@ -24,6 +24,7 @@ module adam_flume_cooling_object
 !< `dy_rate = (gamma - 1) Lambda_N / (m^2 R T_N)` (`n^2 / rho = rho / m^2`).
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,           only : mpih
 ! FLUME modules
 use :: adam_flume_cooling_library, only : cooling_segment_y
@@ -115,9 +116,8 @@ contains
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(temperatures) must be strictly increasing')
    if (.not.all(self%l_nodes > 0._R8P)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(lambdas) must all be > 0')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_mass', val=self%particle_mass, &
-                            error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_mass)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'particle_mass', self%particle_mass)
+   call ini_check()
    if (.not.(self%particle_mass > 0._R8P)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(particle_mass) must be > 0, got '// &
                                trim(str(self%particle_mass)))

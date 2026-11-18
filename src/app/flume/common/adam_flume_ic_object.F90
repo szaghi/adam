@@ -153,6 +153,7 @@ module adam_flume_ic_object
 ! ADAM classes, libraries, parameters
 use :: adam_field_object,         only : field_object
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_eos_tables_library, only : barotropic_c2
@@ -479,24 +480,22 @@ contains
    endselect
    prim = 0._R8P
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='amr_iterations', val=self%amr_iterations, &
-                            error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(amr_iterations)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'amr_iterations', self%amr_iterations)
    self%amr_iterations = max(0_I4P, self%amr_iterations)
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='type', val=buff, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(type)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'type', buff)
    self%ic_type = trim(adjustl(buff))
+   call ini_check()
    select case(self%ic_type)
    case(IC_UNIFORM_STR)
       self%regions_number = 1_I4P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='s', val=self%s, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(s)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 's', self%s)
+      call ini_check()
    case(IC_CHANNEL_STR)
       if (self%model /= MODEL_EULER) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_CHANNEL_STR//' requires [physics].(physical_model) = euler')
       self%regions_number = 0_I4P
       do k=1, 7
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(CHANNEL_KEY(k)), val=self%channel(k), error=error)
-         if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(CHANNEL_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(CHANNEL_KEY(k)), self%channel(k))
+         call ini_check()
          if (k < 7 .and. .not.(self%channel(k) > 0._R8P)) &
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(CHANNEL_KEY(k))//') must be positive')
       enddo
@@ -505,14 +504,14 @@ contains
       self%regions_number = 0_I4P
       do k=1, 4
          buff = trim(BL_KEY(k))
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(buff), val=self%bl(k), error=error)
-         if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(buff)//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(buff), self%bl(k))
+         call ini_check()
          if (.not.(self%bl(k) > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(buff)//') must be positive')
       enddo
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bl_wall', val=self%bl(5), error=error)
       if (error /= 0) self%bl(5) = 0._R8P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bl_profile', val=buff, error=error)
-      if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bl_profile)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'bl_profile', buff)
+      call ini_check()
       call load_profile(filename=trim(adjustl(buff)), prof=self%bl_prof)
    case(IC_TAYLOR_GREEN_STR)
       if (self%model /= MODEL_EULER .and. self%model /= MODEL_EULER_DE) &
@@ -520,8 +519,8 @@ contains
                                   '[physics].(physical_model) = euler or euler-de')
       self%regions_number = 0_I4P
       do k=1, 3
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(TG_KEY(k)), val=self%tg(k), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(TG_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(TG_KEY(k)), self%tg(k))
+         call ini_check()
          if (.not.(self%tg(k) > 0._R8P)) &
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(TG_KEY(k))//') must be positive')
       enddo
@@ -535,8 +534,8 @@ contains
                                   '[physics].(physical_model) = euler or euler-de')
       self%regions_number = 0_I4P
       do k=1, 4
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(HIT_KEY(k)), val=self%hit(k), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(HIT_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(HIT_KEY(k)), self%hit(k))
+         call ini_check()
          if (.not.(self%hit(k) > 0._R8P)) &
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//trim(HIT_KEY(k))//') must be positive')
       enddo
@@ -550,9 +549,8 @@ contains
                                   '[physics].(physical_model) = euler or euler-de')
       self%regions_number = 1_I4P
       do k=1, 4
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(VORTEX_KEY(k)), val=self%vortex(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(VORTEX_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(VORTEX_KEY(k)), self%vortex(k))
+         call ini_check()
       enddo
       if (self%vortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
       ! issue #119, T2.7: optional, a stationary shock normal to x; region 1 is its supersonic upstream state, the vortex meant to lie in it
@@ -568,8 +566,8 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_GLM_PULSE_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='pulse_axis', val=buff, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(pulse_axis)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'pulse_axis', buff)
+      call ini_check()
       select case(trim(adjustl(buff)))
       case('x')
          self%pulse_axis = 1_I4P
@@ -582,9 +580,8 @@ contains
                                   '"; expected one of x, y, z')
       endselect
       do k=1, 3
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(PULSE_KEY(k)), val=self%pulse(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(PULSE_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(PULSE_KEY(k)), self%pulse(k))
+         call ini_check()
       enddo
       if (self%pulse(2) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(pulse_width) must be positive')
    case(IC_DIVB_PEAK_STR)
@@ -593,9 +590,8 @@ contains
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
       do k=1, 4
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(PEAK_KEY(k)), val=self%peak(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(PEAK_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(PEAK_KEY(k)), self%peak(k))
+         call ini_check()
       enddo
       if (self%peak(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(peak_radius) must be positive')
    case(IC_MHD_LINEAR_WAVE_STR)
@@ -603,9 +599,9 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_LINEAR_WAVE_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave', val=buff, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(wave)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'wave', buff)
       self%wave = trim(adjustl(buff))
+      call ini_check()
       select case(self%wave)
       case('fast', 'alfven', 'slow', 'entropy')
       case default
@@ -616,9 +612,8 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wave) = entropy: a barotropic gas has no entropy mode '// &
                                   '(issue #100, P5); expected one of fast, alfven, slow')
       do k=1, 3
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(WAVE_KEY(k)), val=self%wave_par(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(WAVE_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(WAVE_KEY(k)), self%wave_par(k))
+         call ini_check()
       enddo
       if (self%wave_par(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
    case(IC_MHD_CPAW_STR)
@@ -626,8 +621,8 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_MHD_CPAW_STR//' requires '// &
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='polarisation', val=buff, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(polarisation)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'polarisation', buff)
+      call ini_check()
       select case(trim(adjustl(buff)))
       case('right')
          self%polarisation =  1._R8P
@@ -638,13 +633,12 @@ contains
                                   '"; expected one of right, left')
       endselect
       do k=1, 3
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(WAVE_KEY(k)), val=self%wave_par(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(WAVE_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(WAVE_KEY(k)), self%wave_par(k))
+         call ini_check()
       enddo
       if (self%wave_par(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='b_par', val=self%b_par, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(b_par)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'b_par', self%b_par)
+      call ini_check()
       if (self%b_par == 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(b_par) must be non-zero')
    case(IC_MHD_VORTEX_STR)
       if (is_hydrodynamic(self%model)) &
@@ -652,10 +646,8 @@ contains
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
       do k=1, 5
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(MHD_VORTEX_KEY(k)), &
-                                  val=self%mvortex(k), error=error)
-         if (error > 0) &
-            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(MHD_VORTEX_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(MHD_VORTEX_KEY(k)), self%mvortex(k))
+         call ini_check()
       enddo
       if (self%mvortex(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(radius) must be positive')
    case(IC_ORSZAG_TANG_STR)
@@ -669,9 +661,8 @@ contains
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
       do k=1, 6
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(ROTOR_KEY(k)), val=self%rotor(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(ROTOR_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(ROTOR_KEY(k)), self%rotor(k))
+         call ini_check()
       enddo
       if (self%rotor(3) <= 0._R8P .or. self%rotor(4) <= self%rotor(3)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs 0 < r0 < r1')
@@ -682,17 +673,15 @@ contains
                                   '[physics].(physical_model) = mhd-ideal')
       self%regions_number = 1_I4P
       do k=1, 4
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(LOOP_KEY(k)), val=self%loop(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(LOOP_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(LOOP_KEY(k)), self%loop(k))
+         call ini_check()
       enddo
       if (self%loop(3) <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(loop_radius) must be positive')
    case(IC_ROTATED_RIEMANN_STR)
       self%regions_number = 2_I4P
       do k=1, 6
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(ROTATED_KEY(k)), val=self%rotated(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(ROTATED_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(ROTATED_KEY(k)), self%rotated(k))
+         call ini_check()
       enddo
       if (self%rotated(1) == 0._R8P .and. self%rotated(2) == 0._R8P) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(normal_x, normal_y) must not both be 0')
@@ -706,8 +695,8 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(type) = '//IC_SHU_OSHER_STR//' requires '// &
                                   '[physics].(physical_model) = euler or euler-de')
       self%regions_number = 2_I4P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='axis', val=buff, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(axis)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'axis', buff)
+      call ini_check()
       select case(trim(adjustl(buff)))
       case('x')
          self%shu_osher_axis = 1_I4P
@@ -720,21 +709,19 @@ contains
                                   '"; expected one of x, y, z')
       endselect
       do k=1, 3
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(SHU_OSHER_KEY(k)), &
-                                  val=self%shu_osher(k), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(SHU_OSHER_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(SHU_OSHER_KEY(k)), self%shu_osher(k))
+         call ini_check()
       enddo
    case(IC_LINEAR_STR, IC_POLYNOMIAL_STR)
       self%regions_number = 1_I4P
       do k=1, 3
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(LINEAR_KEY(k)), &
-                                  val=self%gradient(k), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(LINEAR_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(LINEAR_KEY(k)), self%gradient(k))
+         call ini_check()
       enddo
       self%degree = 1_I4P
       if (self%ic_type == IC_POLYNOMIAL_STR) then
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='degree', val=self%degree, error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(degree)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'degree', self%degree)
+         call ini_check()
          if (self%degree < 1_I4P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(degree) must be >= 1')
       endif
    case(IC_BECKER_STR)
@@ -748,9 +735,8 @@ contains
                                   'constant viscosity and [physics].(prandtl) = 0.75')
       self%regions_number = 1_I4P
       do k=1, 2
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(BECKER_KEY(k)), &
-                                  val=self%becker(k), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(BECKER_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(BECKER_KEY(k)), self%becker(k))
+         call ini_check()
       enddo
       if (.not.(self%becker(1) > 1._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(mach) must exceed 1')
       self%becker_mu = physics%dissipation%mu
@@ -766,18 +752,17 @@ contains
                                   '[physics].(viscosity_law) = constant')
       self%regions_number = 1_I4P
       do k=1, 4
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(COUETTE_KEY(k)), &
-                                  val=self%couette(k), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(COUETTE_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(COUETTE_KEY(k)), self%couette(k))
+         call ini_check()
       enddo
       if (.not.(self%couette(2) > 0._R8P .and. self%couette(4) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(height, wall_temperature) must be positive')
       self%couette_heat = physics%dissipation%mu * self%couette(3)**2 / (physics%dissipation%k * self%couette(2))
    case(IC_SINE_WAVE_STR)
       self%regions_number = 1_I4P
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='wave_mode', val=buff, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(wave_mode)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'wave_mode', buff)
       self%sine_mode = trim(adjustl(buff))
+      call ini_check()
       select case(self%sine_mode)
       case(SINE_MODE_SHEAR, SINE_MODE_ACOUSTIC, SINE_MODE_ENTROPY)
       case(SINE_MODE_JEANS)
@@ -795,9 +780,8 @@ contains
                                   SINE_MODE_ENTROPY//', '//SINE_MODE_MAGNETIC//', '//SINE_MODE_JEANS)
       endselect
       do k=1, 3
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(WAVE_KEY(k)), val=self%wave_par(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(WAVE_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(WAVE_KEY(k)), self%wave_par(k))
+         call ini_check()
       enddo
       if (.not.(self%wave_par(3) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(wavelength) must be positive')
@@ -818,9 +802,8 @@ contains
       self%regions_number = 1_I4P
       self%g = physics%gravity%g
       if (self%ic_type == IC_POLYTROPIC_ATM_STR) then
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='polytropic_gamma', &
-                                  val=self%polytropic_gamma, error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(polytropic_gamma)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'polytropic_gamma', self%polytropic_gamma)
+         call ini_check()
          if (.not.(self%polytropic_gamma > 1._R8P)) &
             call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(polytropic_gamma) must be > 1 (1 is the '// &
                                      IC_ISOTHERMAL_ATM_STR//')')
@@ -845,9 +828,8 @@ contains
       self%rt_axis = maxloc(abs(self%g), dim=1)
       self%rt_t1 = merge(2_I4P, 1_I4P, self%rt_axis == 1_I4P)
       do k=1, 6
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(RT_KEY(k)), val=self%rt(k), &
-                                  error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(RT_KEY(k))//')')
+         call ini_get(file_parameters, INI_SECTION_NAME, trim(RT_KEY(k)), self%rt(k))
+         call ini_check()
       enddo
       if (.not.(self%rt(2) > 0._R8P .and. self%rt(3) > 0._R8P .and. self%rt(4) > 0._R8P .and. self%rt(6) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(rt_width, rt_density_ratio, rt_wavelength, '// &
@@ -926,9 +908,8 @@ contains
       if (.not.(self%bb(1) > 0._R8P .and. self%bb(2) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(bb_radius, bb_density) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, &
-                               error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(regions_number)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'regions_number', self%regions_number)
+      call ini_check()
       if (self%regions_number < 1_I4P) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(regions_number) must be positive')
    case default
@@ -988,8 +969,8 @@ contains
       endif
       if (self%ic_type == IC_RIEMANN_PROBLEM_STR) then
          do k=1, 6
-            call file_parameters%get(section_name=sname, option_name=EXTENT_KEY(k), val=extent(k), error=error)
-            if (error > 0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//EXTENT_KEY(k)//')')
+            call ini_get(file_parameters, sname, EXTENT_KEY(k), extent(k))
+            call ini_check()
          enddo
          self%emin(:,r) = extent(1:3)
          self%emax(:,r) = extent(4:6)

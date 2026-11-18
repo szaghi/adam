@@ -30,6 +30,7 @@ module adam_flume_sinks_object
 !< doubles). History: `<output_basename>-sinks_history.dat`, one row per sink per save (`it time id m x y z u v w`).
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : is_hydrodynamic
@@ -178,8 +179,8 @@ contains
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(accretion_radius_cells) must lie in [1, ngc = '// &
                                trim(str(ngc, .true.))//'], got '//trim(str(self%r_acc_cells)))
    if (self%n == 0_I4P) return
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='mass', val=self%m, error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(mass)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'mass', self%m)
+   call ini_check()
    if (.not.all(self%m > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(mass) must all be > 0')
    do d=1, 3
       call load_list(key=XYZ(d), required=.true., val=self%x(d,:))
@@ -207,8 +208,8 @@ contains
       if (count_ /= self%n) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//key//') has '//trim(str(count_, .true.))// &
                                   ' values, (mass) '//trim(str(self%n, .true.)))
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name=key, val=val, error=error)
-      if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//key//')')
+      call ini_get(file_parameters, INI_SECTION_NAME, key, val)
+      call ini_check()
       endsubroutine load_list
    endsubroutine load_from_file
 

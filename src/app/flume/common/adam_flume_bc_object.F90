@@ -87,6 +87,7 @@ module adam_flume_bc_object
 ! ADAM classes, libraries, parameters
 use :: adam_parameters,           only : BC_PERIODIC, BC_SEAM, FEC_TO_DELTA
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_parameters,     only : IQ_BX, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RW, MODEL_EULER, MODEL_EULER_DE, &
@@ -252,9 +253,9 @@ contains
    endselect
    prim = 0._R8P
    do f=1, 6
-      call file_parameters%get(section_name=SECTION_NAME(f), option_name='type', val=buff, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(type)')
+      call ini_get(file_parameters, SECTION_NAME(f), 'type', buff)
       bc_str = trim(adjustl(buff))
+      call ini_check()
       select case(bc_str)
       case(BC_EXTRAPOLATION_STR)
          self%bc_type(f) = BC_EXTRAPOLATION
@@ -282,8 +283,8 @@ contains
       case(BC_WALL_MODELLED_STR)
          self%bc_type(f) = BC_WALL_INVISCID
          self%wall_modelled(f) = .true.
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_temperature', val=self%wall_temperature(f), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(wall_temperature)')
+         call ini_get(file_parameters, SECTION_NAME(f), 'wall_temperature', self%wall_temperature(f))
+         call ini_check()
          if (.not.(self%wall_temperature(f) > 0._R8P)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_temperature) must be positive')
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_model_height', val=self%wm_height(f), error=error)
          if (error /= 0) self%wm_height(f) = 0._R8P
@@ -393,9 +394,8 @@ contains
                                      'component of the wall velocity and must be 0 (the wall does not move through '// &
                                      'the domain)')
          if (self%bc_type(f) == BC_WALL_ISOTHERMAL) then
-            call file_parameters%get(section_name=SECTION_NAME(f), option_name='wall_temperature', &
-                                     val=self%wall_temperature(f), error=error)
-            if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(wall_temperature)')
+            call ini_get(file_parameters, SECTION_NAME(f), 'wall_temperature', self%wall_temperature(f))
+            call ini_check()
             if (.not.(self%wall_temperature(f) > 0._R8P)) &
                call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(wall_temperature) must be positive')
          endif
@@ -425,8 +425,8 @@ contains
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='nr_sigma', val=self%nr_par(6,f), error=error)
          if (error > 0) self%nr_par(6,f) = NR_SIGMA_DEFAULT
          if (self%nr_par(6,f) < 0._R8P) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(nr_sigma) must be >= 0')
-         call file_parameters%get(section_name=SECTION_NAME(f), option_name='nr_length', val=self%nr_par(7,f), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(nr_length)')
+         call ini_get(file_parameters, SECTION_NAME(f), 'nr_length', self%nr_par(7,f))
+         call ini_check()
          if (.not.(self%nr_par(7,f) > 0._R8P)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(nr_length) must be positive')
       case(BC_SHOCK_GENERATOR_STR)
          call load_shock_generator
@@ -479,8 +479,8 @@ contains
          call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'] needs exactly one of shock_deflection and shock_angle (degrees)')
       by_angle = e2 == 0
       if (by_angle) deg = beta
-      call file_parameters%get(section_name=SECTION_NAME(f), option_name='shock_x', val=x0, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].(shock_x)')
+      call ini_get(file_parameters, SECTION_NAME(f), 'shock_x', x0)
+      call ini_check()
       call file_parameters%get(section_name=SECTION_NAME(f), option_name='shock_x_end', val=x1, error=error)
       if (error > 0) x1 = huge(1._R8P)
       if (.not.(x1 > x0)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(shock_x_end) must be greater than shock_x')

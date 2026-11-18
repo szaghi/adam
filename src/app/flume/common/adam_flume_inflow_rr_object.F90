@@ -40,6 +40,7 @@ module adam_flume_inflow_rr_object
 
 use :: adam_flume_inflow_df_object, only : load_profile, profile_mean
 use :: adam_flume_parameters,       only : MODEL_EULER
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,            only : mpih
 use :: adam_parameters,             only : FEC_1_6_ARRAY, FEC_TO_DELTA
 use :: finer,                       only : file_ini
@@ -128,8 +129,8 @@ contains
    call file_parameters%get(section_name=section, option_name='rr_shift', val=self%shift, error=error)
    if (error /= 0) self%shift = 0.5_R8P
    if (self%shift < 0._R8P .or. self%shift >= 1._R8P) call mpih%error_stop(msg=': ['//section//'].(rr_shift) must be in [0, 1)')
-   call file_parameters%get(section_name=section, option_name='rr_wall_axis', val=buff, error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load ['//section//'].(rr_wall_axis)')
+   call ini_get(file_parameters, section, 'rr_wall_axis', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('x')
       self%axis_w = 1_I4P
@@ -142,9 +143,9 @@ contains
    endselect
    if (self%axis_w == self%axis_n) call mpih%error_stop(msg=': ['//section//'].(rr_wall_axis) is the face normal')
    self%axis_s = 6_I4P - self%axis_n - self%axis_w
-   call file_parameters%get(section_name=section, option_name='rr_profile', val=self%profile_file, error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load ['//section//'].(rr_profile)')
+   call ini_get(file_parameters, section, 'rr_profile', self%profile_file)
    self%profile_file = trim(adjustl(self%profile_file))
+   call ini_check()
    call load_profile(filename=trim(self%profile_file), prof=self%prof)
    contains
       subroutine get_real(key, val)
@@ -152,8 +153,8 @@ contains
       character(*), intent(in)  :: key !< Key.
       real(R8P),    intent(out) :: val !< Value.
 
-      call file_parameters%get(section_name=section, option_name=key, val=val, error=error)
-      if (error /= 0) call mpih%error_stop(msg=': failed to load ['//section//'].('//key//')')
+      call ini_get(file_parameters, section, key, val)
+      call ini_check()
       if (.not.(val > 0._R8P)) call mpih%error_stop(msg=': ['//section//'].('//key//') must be positive')
       endsubroutine get_real
    endsubroutine load

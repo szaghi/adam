@@ -10,6 +10,7 @@ module adam_flume_forcing_object
 !< balances the wall friction. Without the section nothing changes, bitwise.
 
 use :: adam_flume_parameters, only : MODEL_EULER
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,      only : mpih
 use :: finer,                 only : file_ini
 use :: penf,                  only : I4P, R8P
@@ -52,8 +53,8 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(type); expected none or mass-flow')
    endselect
    if (model /= MODEL_EULER) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] requires [physics].(physical_model) = euler')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='axis', val=buff, error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(axis)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'axis', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('x')
       self%axis = 1_I4P
@@ -64,8 +65,8 @@ contains
    case default
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(axis); expected x, y or z')
    endselect
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='bulk_momentum', val=self%bulk_momentum, error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(bulk_momentum)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'bulk_momentum', self%bulk_momentum)
+   call ini_check()
    endsubroutine load_from_file
 
    subroutine save_row(self, output_basename, it, time, force, is_restart)

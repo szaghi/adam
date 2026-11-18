@@ -24,6 +24,7 @@ module adam_flume_diagnostics_object
 !< ghosts and the auxiliary variables of the committed state.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer,            only : file_ini
@@ -122,12 +123,11 @@ contains
    integer(I4P)                                   :: error           !< Error status.
    character(999)                                 :: buff            !< Buffer.
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='conservation_history_save', &
-                            val=self%conservation_history_save, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(conservation_history_save)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'conservation_history_save', self%conservation_history_save)
    ! optional (default .false.): a verification instrument (issue #65): before each field write every ghost cell is set
    ! to NaN, then refilled in the order of a stage (seams, exchange, boundary conditions), so a ghost that the fill
    ! does not reach, or reads before its donor is filled, is written as NaN instead of a stale value
+   call ini_check()
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ghost_poison', val=self%ghost_poison, &
                             error=error)
    if (error > 0) self%ghost_poison = .false.

@@ -26,6 +26,7 @@ use :: adam_tree_node_object,         only : tree_node_object
 use :: adam_grid_object,              only : grid_object
 use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,              only : mpih
 ! FLUME modules
 use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, flume_bc_object
@@ -1117,9 +1118,9 @@ contains
    integer(I4P)                              :: f               !< Face counter.
    character(len=8), parameter               :: BC_SECTIONS(6)=['bc_x_min', 'bc_x_max', 'bc_y_min', 'bc_y_max', 'bc_z_min', 'bc_z_max'] !< Face sections.
 
-   call file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load [runge_kutta].(scheme)')
+   call ini_get(file_parameters, 'runge_kutta', 'scheme', rk_scheme)
    stages_number = rk_stored_stages_number(scheme=rk_scheme)
+   call ini_check()
    if (stages_number < 0_I4P) &
       call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//trim(adjustl(rk_scheme))//'" in [runge_kutta].(scheme)')
    fields_number = self%physics%nv * (2_I4P + 3_I4P + stages_number) + self%physics%nv_aux
@@ -1227,9 +1228,8 @@ contains
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters, physics=self%physics)
    call self%diagnostics%initialize(file_parameters=file_parameters)
-   call file_parameters%get(section_name='IO', option_name='save_auxiliary_fields', val=self%save_auxiliary_fields, &
-                            error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load [IO].(save_auxiliary_fields)')
+   call ini_get(file_parameters, 'IO', 'save_auxiliary_fields', self%save_auxiliary_fields)
+   call ini_check()
    call self%check_slices
    call self%check_weno_scheme
    call self%initialize_riemann_scheme

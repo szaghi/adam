@@ -27,6 +27,7 @@ module adam_flume_dissipation_object
 !< ignored silently.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : is_hydrodynamic
@@ -228,8 +229,8 @@ contains
       real(R8P),    intent(out) :: val   !< Value.
       integer(I4P)              :: error !< Error status.
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name=key, val=val, error=error)
-      if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//key//')')
+      call ini_get(file_parameters, INI_SECTION_NAME, key, val)
+      call ini_check()
       endsubroutine required
 
       function has(key) result(is_present)
