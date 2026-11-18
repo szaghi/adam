@@ -369,7 +369,11 @@ type, extends(flume_common_object) :: flume_cpu_object
       procedure, pass(self) :: pack_seam_cells_forest       !< Pack own cells of the cross-rank seam send rows.
       procedure, pass(self) :: unpack_seam_cells_forest     !< Unpack the cross-rank seam receive rows into own ghosts.
       procedure, pass(self) :: finalize_forest              !< Finalize the realm.
-      procedure, pass(self) :: initialize_forest            !< Initialize the realm.
+      procedure, pass(self) :: initialize_app_forest        !< Template hook: the backend.
+      procedure, pass(self) :: restart_state_forest         !< Template hook: the state from the restart files.
+      procedure, pass(self) :: amr_update_initial_forest    !< Template hook: one initial regrid.
+      procedure, pass(self) :: rebalance_initial_forest     !< Template hook: the static rebalance (issue #123).
+      procedure, pass(self) :: post_initial_state_forest    !< Template hook: device, ghosts, output files, t0 output.
       procedure, pass(self) :: is_done_forest               !< Return true if the realm is done.
       procedure, pass(self) :: open_step_forest             !< Open a step (staged path).
       procedure, pass(self) :: post_step_forest             !< Post-step IO and diagnostics.
@@ -2707,44 +2711,52 @@ contains
    nullify(self%integrate)
    endsubroutine finalize_forest
 
-   subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
-   !< Initialize the realm (issue #35, section 6.1): backend init, IC (or restart), initial AMR, ghost update, initial
-   !< output, output files open, AMR lock.
-   class(flume_cpu_object), intent(inout)           :: self          !< The equation.
-   character(*),            intent(in)              :: filename      !< Input file name.
-   integer(I4P),            intent(in),    optional :: realms_number !< Realm count; divides the per-process budget.
-   real(R8P),               intent(in),    optional :: memory_avail  !< Unused: the budget comes from the MPI handler.
-   integer(I4P),            intent(in),    optional :: nv            !< Unused: nv is decided by the physics.
-   logical,                 intent(in),    optional :: verbose       !< Unused: initialization is always verbose.
-   integer(I4P)                                     :: i             !< Counter.
+   ! hooks of the library initialize_forest template (#80 P3; issue #35, section 6.1)
+   subroutine initialize_app_forest(self, filename, realms_number)
+   !< Template hook: the CPU backend, then the potential (the grid exists: the boundary conditions may read it, #81).
+   class(flume_cpu_object), intent(inout)        :: self          !< The equation.
+   character(*),            intent(in)           :: filename      !< Input file name.
+   integer(I4P),            intent(in), optional :: realms_number !< Realm count; divides the per-process budget.
 
    call self%initialize_flume(filename=filename, realms_number=realms_number)
-   call self%set_potential ! the grid exists: the boundary conditions may read the potential (issue #81)
-   if (self%io%restart) then
-      call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
-      call self%load_restart_files(t=self%time%it, time=self%time%time)
-      call self%compute_phi
+   call self%set_potential
+   endsubroutine initialize_app_forest
+
+   subroutine restart_state_forest(self)
+   !< Template hook: the state from the restart files, the solids distance and the potential on it.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+
+   call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
+   call self%load_restart_files(t=self%time%it, time=self%time%time)
+   call self%compute_phi
+   call self%set_potential
+   endsubroutine restart_state_forest
+
+   subroutine amr_update_initial_forest(self)
+   !< Template hook: one initial regrid, then the potential of the new grid.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+
+   call self%amr_update
+   call self%set_potential
+   endsubroutine amr_update_initial_forest
+
+   subroutine rebalance_initial_forest(self)
+   !< Template hook: a static grid is never derefined again: balance its blocks by count, sibling sets split (issue #123,
+   !< key [amr] balance_static, default on); the initial conditions are imposed on the final layout after it, and the
+   !< potential (the self-gravity solver's setup is built per layout) is set again on it, as after every amr_update.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+
+   if (self%amr%frequency == 0_I4P .and. self%amr%balance_static) then
+      call self%adam%rebalance(q=self%q)
       call self%set_potential
-   else
-      do i=1, self%ic%amr_iterations
-         call self%set_initial_conditions
-         call self%compute_phi
-         call self%amr_update
-         call self%set_potential
-      enddo
-      ! a static grid is never derefined again: balance its blocks by count, sibling sets split (issue #123, key
-      ! [amr] balance_static, default on); the initial conditions below are imposed on the final layout, and the
-      ! potential (the self-gravity solver's setup is built per layout) is set again on it, as after every amr_update
-      if (self%amr%frequency == 0_I4P .and. self%amr%balance_static) then
-         call self%adam%rebalance(q=self%q)
-         call self%set_potential
-      endif
-      call self%set_initial_conditions
-      call self%compute_phi
-      call self%adam%make_comm_local_maps_ghost_bc
-      self%time%time = 0._R8P
-      self%time%it   = 0_I4P
    endif
+   endsubroutine rebalance_initial_forest
+
+   subroutine post_initial_state_forest(self)
+   !< Template hook: the self-gravity potential and the sinks of the initial state, ghost update, auxiliary fields, the
+   !< faces of the wall model and of the hybrid scheme, the output files, the initial output, the AMR lock.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+
    if (self%physics%gravity%self_gravity) call self%solve_potential(q=self%q) ! the final initial state (issue #81)
    if (self%sinks%is_active) then ! the sinks' first kick needs their acceleration (issue #94)
       call self%compute_sink_accelerations
@@ -2767,16 +2779,12 @@ contains
    if (.not.self%io%restart) then
       call self%compute_divb_history
       ! with sibling realms the seam ghosts do not exist yet: the stencils would read them unfilled
-      if (.not.present(realms_number)) then
-         call self%compute_turbulence_history
-      elseif (realms_number <= 1_I4P) then
-         call self%compute_turbulence_history
-      endif
+      if (self%realms_number <= 1_I4P) call self%compute_turbulence_history
       call self%save_simulation_data
    endif
    call self%io%open_file_residuals(nv=self%nv, is_restart=self%io%restart)
    self%amr_locked_ = .true.
-   endsubroutine initialize_forest
+   endsubroutine post_initial_state_forest
 
    subroutine is_done_forest(self, done)
    !< Return true if the realm has reached its end.

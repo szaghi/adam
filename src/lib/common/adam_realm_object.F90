@@ -116,6 +116,7 @@ type :: realm_object
    !< forest position. Keeps the realm self-aware so the forest doesn't have
    !< to thread `is` through every dispatch.
    integer(I4P) :: realm_index = 0_I4P
+   integer(I4P) :: realms_number = 1_I4P !< Realms in the forest (set by initialize_forest, #80 P3).
    !< Inter-realm seam coupling — currently-published stage buffer key.
    !<
    !< Integrator-agnostic: the forest sees an opaque `k = 1..K` clock, where
@@ -503,6 +504,7 @@ contains
    logical,             intent(in),    optional :: verbose       !< Unused by the template.
    integer(I4P)                                 :: i             !< Counter.
 
+   self%realms_number = 1_I4P ; if (present(realms_number)) self%realms_number = max(1_I4P, realms_number)
    call self%initialize_app_forest(filename=filename, realms_number=realms_number)
    if (self%io%restart) then
       call self%restart_state_forest

@@ -151,6 +151,10 @@ type, extends(realm_object) :: flume_common_object
    contains
       ! AMR methods
       procedure, pass(self) :: amr_update       !< Do AMR update (initialization-time only).
+      ! hooks of the library initialize_forest template shared by the backends (#80 P3)
+      procedure, pass(self) :: initial_amr_iterations_forest !< Template hook: [initial_conditions] AMR passes.
+      procedure, pass(self) :: reset_time_forest             !< Template hook: time and step counter to zero.
+      procedure, pass(self) :: set_initial_state_forest      !< Template hook: initial conditions and solids distance.
       procedure, pass(self) :: runtime_amr_forest !< Whether this realm regrids during the run (issue #74).
       procedure, pass(self) :: mark_by_geometry !< Mark blocks to be refined by a primitive geometric box.
       procedure, pass(self) :: mark_by_gradient !< Mark blocks by the gradient of a conservative or auxiliary variable.
@@ -282,6 +286,31 @@ endtype flume_jeans_marker
 
 contains
    ! AMR methods
+   ! hooks of the library initialize_forest template shared by the backends (#80 P3)
+   function initial_amr_iterations_forest(self) result(n)
+   !< The passes of initial conditions + regrid before the final initial conditions, `ic%amr_iterations`.
+   class(flume_common_object), intent(in) :: self !< The equation.
+   integer(I4P)                           :: n    !< Passes.
+
+   n = self%ic%amr_iterations
+   endfunction initial_amr_iterations_forest
+
+   subroutine reset_time_forest(self)
+   !< The time and the step counter of a run from scratch to zero.
+   class(flume_common_object), intent(inout) :: self !< The equation.
+
+   self%time%time = 0._R8P
+   self%time%it   = 0_I4P
+   endsubroutine reset_time_forest
+
+   subroutine set_initial_state_forest(self)
+   !< The initial conditions on the current grid (host) and the solids distance function.
+   class(flume_common_object), intent(inout) :: self !< The equation.
+
+   call self%ic%set_initial_conditions(field=self%adam%field, q=self%q)
+   call self%compute_phi
+   endsubroutine set_initial_state_forest
+
    subroutine amr_update(self)
    !< Do AMR update: `amr%iters` sweeps over the markers until the grid stabilizes (initialization-time only). The
    !< markers are the criteria of `amr_marker_list` (issue #110, P4.2), each marking with `initial = .true.` and followed
