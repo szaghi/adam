@@ -31,6 +31,7 @@ public :: ini_check
 public :: ini_error
 public :: ini_get
 public :: ini_stop
+public :: ini_warn_unused
 
 integer(I4P), parameter :: TEXT_LEN = 999 !< Length of the text buffer used to detect an option.
 
@@ -247,4 +248,24 @@ contains
    call ini%get(section_name=section, option_name=option, val=val, error=error)
    if (error /= 0) call record_failed(section, option)
    endsubroutine ini_get_R8P_array
+   subroutine ini_warn_unused(ini, label)
+   !< Warn (rank 0) about every option of the file that no parser has read since it was loaded (issue #80, P2, F2):
+   !< a misspelled key or a key no longer used is otherwise silently ignored. Warn-only: the run goes on.
+   type(file_ini), intent(in)           :: ini   !< INI file, after every parser has read it.
+   character(*),   intent(in), optional :: label !< What the file is (e.g. the realm), for the message.
+   character(len=:), allocatable        :: items(:,:) !< Unused options, section/option pairs.
+   character(len=:), allocatable        :: label_     !< Label, local variable.
+   integer(I4P)                         :: o          !< Counter.
+
+   if (mpih%myrank /= 0) return
+   call ini%unused_options(items=items)
+   if (size(items, dim=1) == 0) return
+   label_ = '' ; if (present(label)) label_ = ' of '//label
+   if (allocated(ini%filename)) label_ = label_//' ('//trim(ini%filename)//')'
+   print '(A)', mpih%myrankstr//'warning: '//trim(str(size(items, dim=1), .true.))//' input option(s)'//label_// &
+                ' never read, ignored:'
+   do o=1, size(items, dim=1)
+      print '(A)', mpih%myrankstr//'warning:   ['//trim(items(o, 1))//'].('//trim(items(o, 2))//')'
+   enddo
+   endsubroutine ini_warn_unused
 endmodule adam_ini_library

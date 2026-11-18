@@ -21,6 +21,15 @@ The input is an INI file read by [FiNeR](https://github.com/szaghi/FiNeR):
 - **Optional keys with a default** (Req. *no*, read through the library's `ini_get`, [#80](https://github.com/szaghi/adam/issues/80)
   P1): an absent key takes the default in the table; a key that is present but does not convert stops the run, like a
   required one.
+- **Every error of a block at once.** The parsers record a missing or malformed key and go on reading the keys of the
+  same block (section), then stop with all of them ([#80](https://github.com/szaghi/adam/issues/80) P2): one error keeps
+  the message `failed to load [section].(key)`; several give `N input errors:` and one line each. A value outside its
+  accepted set still stops at once, with the errors recorded so far.
+- **Keys nobody reads.** After the initialization of each realm, rank 0 lists the keys of its input file that no parser
+  has read, as warnings (`warning: N input option(s) ... never read, ignored:` and one `[section].(key)` per line): a
+  misspelled key, a key no longer used, or the keys of a feature switched off (the `[slice_N]` sections with
+  `slices_number = 0`, the ROR schemes with `ror_number = 0`, `[field] nv`, which the applications set themselves). The run
+  goes on; refusing them is planned for a later phase of #80. It needs FiNeR with `unused_options`.
 - **Logical keys.** FiNeR reads the value when its first character is one of `.tTfF` (`.true.`, `T`, `true`,
   `.false.`, ...); any other value (`yes`, `1`) is a conversion error, as above.
 - **CRLF files** (Windows line endings) read as LF ones on every compiler: FiNeR drops every CR before splitting the
