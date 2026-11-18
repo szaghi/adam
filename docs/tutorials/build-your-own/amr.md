@@ -224,8 +224,8 @@ mode         = 6             ; a registered criterion (AMR_USER), selected by na
 name         = crest
 ```
 
-The initial condition is set before the initial AMR, so a criterion can read the state (`initialize_forest` of each
-backend), and again after it, on the refined grid. In RIPPLE, `register_amr_criterion` and the `mode = 6` branch of
+The initial condition is set before the initial AMR, so a criterion can read the state (the library `initialize_forest`
+template: `set_initial_state_forest`, then `amr_update_initial_forest`), and again after it, on the refined grid. In RIPPLE, `register_amr_criterion` and the `mode = 6` branch of
 `amr_update` are about twenty lines of the common object, the same as in FLUME.
 
 ```bash

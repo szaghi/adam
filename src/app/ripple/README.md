@@ -13,7 +13,8 @@ from the code.
 - **The scheme** is Shu-Osher conservative finite difference on point values. The split fluxes `a+ u` and `a- u` are
   reconstructed at every face by the library's upwind WENO and advanced by the library's SSP Runge-Kutta.
 - **The realm contract, two of its three layers:**
-  - **core** (the forest's fast path, a uniform grid): `initialize_forest`, `compute_local_dt_forest`,
+  - **core** (the forest's fast path, a uniform grid): the hooks of the library `initialize_forest` template
+    (`initialize_app_forest`, `set_initial_state_forest`, `post_initial_state_forest`, ...), `compute_local_dt_forest`,
     `advance_one_step_forest`, `post_step_forest`, `is_done_forest`, `finalize_forest`;
   - **staged** (any 2:1 AMR face): `stages_per_step_forest`, `open_step_forest`, `begin_stage_forest` (sets
     `stage_active`), `end_stage_forest` (the seam skins into the flux register), `close_step_forest` (resets

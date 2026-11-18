@@ -123,27 +123,51 @@ Three rules of the library show here:
 - **Refuse what you cannot honour.** `check_input` stops on every library key RIPPLE would otherwise ignore: a non-SSP
   scheme, a centred WENO, `weights = si`, `ngc` below the WENO stencil, runtime AMR, solids.
 
-The forest has started MPI already, once per process (the realm hook `initialize_process_context`). The CPU realm's
-`initialize_forest` then allocates the fluxes, refines, sets the initial condition and writes the first output:
+The forest has started MPI already, once per process (the realm hook `initialize_process_context`), and the library
+drives the rest: `realm_object%initialize_forest` is a template whose steps are hooks of the realm (`*_forest`), the same
+sequence for every application:
 
 ```fortran
-   subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
-   !< Initialize the realm: common data, face fluxes, initial AMR, initial condition, first output.
+call self%initialize_app_forest(filename, realms_number) ! parse, build the library and app objects, the backend
+if (self%io%restart) then
+   call self%restart_state_forest                        ! the state from the restart files
+else
+   do i=1, self%initial_amr_iterations_forest()          ! the initial state, then a regrid on it, n times
+      call self%set_initial_state_forest
+      call self%amr_update_initial_forest
+   enddo
+   call self%rebalance_initial_forest                    ! [amr].(balance_static)
+   call self%set_initial_state_forest                    ! the initial state on the final grid
+   call self%adam%make_comm_local_maps_ghost_bc          ! the maps of the final grid
+   call self%reset_time_forest
+endif
+call self%post_initial_state_forest                     ! device push, ghosts, t0 diagnostics, history files
+```
+
+A hook the application does not implement stops the run with its name, so nothing is skipped silently; the restart hook
+refuses `[IO].(restart) = .true.` by default, which is what RIPPLE keeps. The common object implements the hooks the two
+backends share (one regrid when there are markers, the initial profile, no static rebalance, the time reset), and the
+CPU realm the two that are its own, the face fluxes before the state and the first output after it:
+
+```fortran
+   subroutine initialize_app_forest(self, filename, realms_number)
+   !< Template hook (the library initialize_forest drives the initial AMR and state, #80 P3): common data, face fluxes.
    class(ripple_cpu_object), intent(inout)        :: self          !< The realm.
    character(*),             intent(in)           :: filename      !< Input file name.
    integer(I4P),             intent(in), optional :: realms_number !< Unused: RIPPLE is single-realm.
-   real(R8P),                intent(in), optional :: memory_avail  !< Unused: the budget comes from the MPI handler.
-   integer(I4P),             intent(in), optional :: nv            !< Unused: nv = 1.
-   logical,                  intent(in), optional :: verbose       !< Unused.
 
    call self%initialize_ripple(filename=filename, memory_avail=mpih%memory_avail)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
       allocate(self%flx(1,0:ni,1:nj,1:nk,nb), self%fly(1,1:ni,0:nj,1:nk,nb), self%flz(1,1:ni,1:nj,0:nk,nb), source=0._R8P)
    endassociate
-   if (self%amr%markers_number > 0) call self%amr_update
-   call self%set_initial_conditions
+   endsubroutine initialize_app_forest
+
+   subroutine post_initial_state_forest(self)
+   !< Template hook: the first output.
+   class(ripple_cpu_object), intent(inout) :: self !< The realm.
+
    call self%save_output(fields=.true.)
-   endsubroutine initialize_forest
+   endsubroutine post_initial_state_forest
 ```
 
 ## The time step, the step, the end

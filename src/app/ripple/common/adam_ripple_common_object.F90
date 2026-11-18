@@ -58,6 +58,11 @@ type, extends(realm_object) :: ripple_common_object
       procedure, pass(self) :: accumulate_seam_skin     !< Route one seam face skin to the flux register.
       procedure, pass(self) :: apply_reflux             !< Berger-Colella correction of the coarse seam cells of q.
       ! forest methods (backend-independent)
+      procedure, pass(self) :: amr_update_initial_forest     !< Template hook: the initial regrid.
+      procedure, pass(self) :: initial_amr_iterations_forest !< Template hook: one initial regrid with markers, none without.
+      procedure, pass(self) :: rebalance_initial_forest      !< Template hook: no static rebalance.
+      procedure, pass(self) :: reset_time_forest             !< Template hook: time and step counter to zero.
+      procedure, pass(self) :: set_initial_state_forest      !< Template hook: the initial profile.
       procedure, pass(self) :: compute_local_dt_forest  !< Local CFL time step.
       procedure, pass(self) :: is_done_forest           !< True when the run is over.
       procedure, pass(self) :: stages_per_step_forest   !< Runge-Kutta stages per step (staged path).
@@ -151,6 +156,42 @@ contains
       c = 0_I4P
       endfunction criterion_index
    endsubroutine check_input
+
+   ! hooks of the library initialize_forest template (#80 P3)
+   subroutine amr_update_initial_forest(self)
+   !< The initial regrid: box markers and registered criteria, on the initial profile.
+   class(ripple_common_object), intent(inout) :: self !< The realm.
+
+   call self%amr_update
+   endsubroutine amr_update_initial_forest
+
+   function initial_amr_iterations_forest(self) result(n)
+   !< One initial regrid when there are markers (a registered criterion may mark on the initial state, issue #110).
+   class(ripple_common_object), intent(in) :: self !< The realm.
+   integer(I4P)                            :: n    !< Passes.
+
+   n = 0_I4P ; if (self%amr%markers_number > 0) n = 1_I4P
+   endfunction initial_amr_iterations_forest
+
+   subroutine rebalance_initial_forest(self)
+   !< No static rebalance: RIPPLE keeps the blocks where the initial regrid put them ([amr].(balance_static) unused).
+   class(ripple_common_object), intent(inout) :: self !< The realm.
+   endsubroutine rebalance_initial_forest
+
+   subroutine reset_time_forest(self)
+   !< The time and the step counter of a run from scratch to zero.
+   class(ripple_common_object), intent(inout) :: self !< The realm.
+
+   self%time%time = 0._R8P
+   self%time%it = 0_I4P
+   endsubroutine reset_time_forest
+
+   subroutine set_initial_state_forest(self)
+   !< The initial profile on the interior cells.
+   class(ripple_common_object), intent(inout) :: self !< The realm.
+
+   call self%set_initial_conditions
+   endsubroutine set_initial_state_forest
 
    subroutine set_initial_conditions(self)
    !< Set the initial profile `u0` (`exact_solution` at t = 0) on the interior cells of every block.

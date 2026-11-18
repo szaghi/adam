@@ -57,18 +57,16 @@ and fails on the device ([GPU cookbook](/cookbook/gpu)).
 
 ## Initialization
 
-`initialize_forest`, whole:
+The library `initialize_forest` template ([chapter 1](./core)) is the same; the FNL realm implements its two backend
+hooks, the device setup before the state and the device push after it:
 
 ```fortran
-   subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
-   !< Initialize the realm: the common data within the device budget, the FNL helpers, the device data; initial AMR and
-   !< initial condition on the host, then the state to the device.
+   subroutine initialize_app_forest(self, filename, realms_number)
+   !< Template hook (the library initialize_forest drives the initial AMR and state on the host, #80 P3): the common data
+   !< within the device budget, the FNL helpers, the device data.
    class(ripple_fnl_object), intent(inout)        :: self          !< The realm.
    character(*),             intent(in)           :: filename      !< Input file name.
    integer(I4P),             intent(in), optional :: realms_number !< Unused: RIPPLE is single-realm.
-   real(R8P),                intent(in), optional :: memory_avail  !< Unused: the budget comes from the device.
-   integer(I4P),             intent(in), optional :: nv            !< Unused: nv = 1.
-   logical,                  intent(in), optional :: verbose       !< Unused.
 
    ! the blocks budget is the device memory, shared by the ranks bound to the same device
    call self%initialize_ripple(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / &
@@ -77,17 +75,22 @@ and fails on the device ([GPU cookbook](/cookbook/gpu)).
    call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
-   if (self%amr%markers_number > 0) call self%amr_update
-   call self%set_initial_conditions
+   endsubroutine initialize_app_forest
+
+   subroutine post_initial_state_forest(self)
+   !< Template hook: the final grid and the initial state to the device, the first output.
+   class(ripple_fnl_object), intent(inout) :: self !< The realm.
+
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%copy_state(to_device=.true.)
    call self%save_output(fields=.true.)
-   endsubroutine initialize_forest
+   endsubroutine post_initial_state_forest
 ```
 
 The block budget is the device memory divided by the ranks that share the device; the initial AMR and the initial
 condition run on the host, then the maps and the state go to the device once. The backend also overrides
-`finalize_mpi_forest`, which the forest calls once after every realm is finalized, to close `mpih_fnl`.
+`initialize_process_context` and `finalize_mpi_forest`, which the forest calls once each, before the first realm and
+after the last, to open and close `mpih_fnl`.
 
 ## A kernel
 

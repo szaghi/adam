@@ -159,6 +159,15 @@ type :: realm_object
       ! forest orchestrator contract methods
       procedure, pass(self) :: initialize_process_context        !< Process-global MPI (+ device) init; forest calls it ONCE first.
       procedure, pass(self) :: initialize_forest                 !< Invoked by forest%initialize per realm at startup.
+      ! hooks of the initialize_forest template (#80 P3): an app either overrides initialize_forest or implements these
+      procedure, pass(self) :: initialize_app_forest             !< Template hook: parse, build, backend, before the state.
+      procedure, pass(self) :: restart_state_forest              !< Template hook: the state from the restart files.
+      procedure, pass(self) :: initial_amr_iterations_forest     !< Template hook: initial state + regrid passes.
+      procedure, pass(self) :: set_initial_state_forest          !< Template hook: the initial condition, from scratch.
+      procedure, pass(self) :: amr_update_initial_forest         !< Template hook: one initial regrid.
+      procedure, pass(self) :: rebalance_initial_forest          !< Template hook: the static rebalance of the initial grid.
+      procedure, pass(self) :: reset_time_forest                 !< Template hook: time and step counter to zero.
+      procedure, pass(self) :: post_initial_state_forest         !< Template hook: everything after the initial state.
       procedure, pass(self) :: compute_local_dt_forest           !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest           !< Invoked by forest%evolve_one_step per realm per timestep.
       procedure, pass(self) :: stages_per_step_forest            !< Number of integrator stages this realm exposes per step.
@@ -462,30 +471,116 @@ contains
 
    ! forest orchestrator contract methods
    subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
-   !< Initialize this realm from scratch: app-level initialize, IC injection (or restart load), initial
-   !< AMR, IO file open, initial diagnostics dump.
+   !< Initialize this realm, the library template (issue #80 P3): the sequence every application shares, its steps
+   !< delegated to the `*_forest` hooks below.
    !<
-   !< Invoked by forest%initialize once per realm at startup, before the time loop begins. This is the
-   !< single per-realm setup entry point the orchestrator uses: it both runs the basic per-realm initialize
-   !< (which the legacy simulate did via `realm%initialize_prism(filename)` or equivalent) and performs
-   !< the post-init / pre-loop setup that has to happen before `forest%evolve_one_step` can be called.
+   !<```fortran
+   !< call self%initialize_app_forest(filename, realms_number) ! parse, build the library and app objects, the backend
+   !< if (self%io%restart) then
+   !<    call self%restart_state_forest                        ! the state from the restart files
+   !< else
+   !<    do i=1, self%initial_amr_iterations_forest()          ! the initial state, then a regrid on it, n times
+   !<       call self%set_initial_state_forest
+   !<       call self%amr_update_initial_forest
+   !<    enddo
+   !<    call self%rebalance_initial_forest                    ! [amr].(balance_static)
+   !<    call self%set_initial_state_forest                    ! the initial state on the final grid
+   !<    call self%adam%make_comm_local_maps_ghost_bc          ! the maps of the final grid
+   !<    call self%reset_time_forest
+   !< endif
+   !< call self%post_initial_state_forest                     ! device push, ghosts, t0 diagnostics, history files
+   !<```
    !<
-   !< Realm-position context: the forest sets `self%realm_index = is` BEFORE
-   !< invoking this TBP, so the override body can already read its own
-   !< 1-based forest position from `self%realm_index` for per-realm IO
-   !< filenames, log prefixes, etc.
-   !<
-   !< Default implementation error-stops: every consumer app MUST override this method (the initial-condition
-   !< catalog, AMR strategy, and which IO files to open are app-specific).
+   !< Invoked by forest%initialize once per realm at startup, before the time loop; MPI and the device are up already
+   !< (`initialize_process_context`). The forest sets `self%realm_index = is` BEFORE invoking it, so the hooks can read
+   !< their forest position for per-realm IO filenames, log prefixes, etc. An application may still override the whole
+   !< procedure; the hook defaults error-stop, except `restart_state_forest`, which refuses `[IO].(restart) = .true.`.
    class(realm_object), intent(inout)           :: self          !< The realm.
    character(*),        intent(in)              :: filename      !< Input parameters file name.
    integer(I4P),        intent(in),    optional :: realms_number !< Realm count in the forest.
-   real(R8P),           intent(in),    optional :: memory_avail  !< Per-process memory budget override.
-   integer(I4P),        intent(in),    optional :: nv            !< Number of field variables override.
-   logical,             intent(in),    optional :: verbose       !< Trigger verbose output.
+   real(R8P),           intent(in),    optional :: memory_avail  !< Unused by the template (the app sizes its budget).
+   integer(I4P),        intent(in),    optional :: nv            !< Unused by the template.
+   logical,             intent(in),    optional :: verbose       !< Unused by the template.
+   integer(I4P)                                 :: i             !< Counter.
 
-   call mpih%error_stop(msg='realm_object%initialize_forest: not overridden by app extension')
+   call self%initialize_app_forest(filename=filename, realms_number=realms_number)
+   if (self%io%restart) then
+      call self%restart_state_forest
+   else
+      do i=1, self%initial_amr_iterations_forest()
+         call self%set_initial_state_forest
+         call self%amr_update_initial_forest
+      enddo
+      call self%rebalance_initial_forest
+      call self%set_initial_state_forest
+      call self%adam%make_comm_local_maps_ghost_bc
+      call self%reset_time_forest
+   endif
+   call self%post_initial_state_forest
    endsubroutine initialize_forest
+
+   subroutine initialize_app_forest(self, filename, realms_number)
+   !< Template hook: everything before the initial state (parse the input, build the library and app objects, set up
+   !< the backend); `realms_number` divides the memory budget in a forest. Default error-stops.
+   class(realm_object), intent(inout)        :: self          !< The realm.
+   character(*),        intent(in)           :: filename      !< Input parameters file name.
+   integer(I4P),        intent(in), optional :: realms_number !< Realm count in the forest.
+
+   call mpih%error_stop(msg='realm_object%initialize_app_forest: not overridden by app extension')
+   endsubroutine initialize_app_forest
+
+   subroutine restart_state_forest(self)
+   !< Template hook: the state from the restart files (time and step counter included). Default refuses the restart.
+   class(realm_object), intent(inout) :: self !< The realm.
+
+   call mpih%error_stop(msg=': [IO].(restart) = .true., but this application cannot restart')
+   endsubroutine restart_state_forest
+
+   function initial_amr_iterations_forest(self) result(n)
+   !< Template hook: the passes of initial state + regrid before the final initial state. Default error-stops.
+   class(realm_object), intent(in) :: self !< The realm.
+   integer(I4P)                    :: n    !< Passes.
+
+   n = 0_I4P
+   call mpih%error_stop(msg='realm_object%initial_amr_iterations_forest: not overridden by app extension')
+   endfunction initial_amr_iterations_forest
+
+   subroutine set_initial_state_forest(self)
+   !< Template hook: the initial condition on the current grid (and what derives from it). Default error-stops.
+   class(realm_object), intent(inout) :: self !< The realm.
+
+   call mpih%error_stop(msg='realm_object%set_initial_state_forest: not overridden by app extension')
+   endsubroutine set_initial_state_forest
+
+   subroutine amr_update_initial_forest(self)
+   !< Template hook: one regrid of the initial grid on the current state. Default error-stops.
+   class(realm_object), intent(inout) :: self !< The realm.
+
+   call mpih%error_stop(msg='realm_object%amr_update_initial_forest: not overridden by app extension')
+   endsubroutine amr_update_initial_forest
+
+   subroutine rebalance_initial_forest(self)
+   !< Template hook: the static rebalance of the initial grid, `[amr].(balance_static)` (default .true.: every
+   !< application decides what it does with it). Default error-stops.
+   class(realm_object), intent(inout) :: self !< The realm.
+
+   call mpih%error_stop(msg='realm_object%rebalance_initial_forest: not overridden by app extension')
+   endsubroutine rebalance_initial_forest
+
+   subroutine reset_time_forest(self)
+   !< Template hook: the time and the step counter of a run from scratch to zero. Default error-stops.
+   class(realm_object), intent(inout) :: self !< The realm.
+
+   call mpih%error_stop(msg='realm_object%reset_time_forest: not overridden by app extension')
+   endsubroutine reset_time_forest
+
+   subroutine post_initial_state_forest(self)
+   !< Template hook: everything after the initial state, restart or not (device push, ghost update, t0 diagnostics,
+   !< history files, the AMR lock). Default error-stops.
+   class(realm_object), intent(inout) :: self !< The realm.
+
+   call mpih%error_stop(msg='realm_object%post_initial_state_forest: not overridden by app extension')
+   endsubroutine post_initial_state_forest
 
    subroutine compute_local_dt_forest(self, dt_local)
    !< Compute this realm's local stability-limited dt (no MPI reduction).

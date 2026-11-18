@@ -346,7 +346,13 @@ A forest couples several realms in one synchronized time loop. The user view (ma
 
 | TBP | Role | Default |
 |---|---|---|
-| `initialize_forest(filename, realms_number, memory_avail, nv, verbose)` | Load the INI, allocate the state, set initial conditions, open I/O | `error_stop` |
+| `initialize_process_context(verbose)` | Process-global MPI (+ device) init, once, before the first realm (FNL overrides it) | `mpih%initialize` |
+| `initialize_forest(filename, realms_number, memory_avail, nv, verbose)` | The initialization template: `initialize_app_forest`, then `restart_state_forest` or the initial state and regrids, then `post_initial_state_forest` (below) | the template |
+| `initialize_app_forest(filename, realms_number)` | Template hook: parse, build the library and app objects, set up the backend | `error_stop` |
+| `restart_state_forest()` | Template hook: the state from the restart files | refuses `[IO].(restart)` |
+| `initial_amr_iterations_forest()`, `set_initial_state_forest()`, `amr_update_initial_forest()` | Template hooks: `n` passes of initial state + regrid, then the final initial state | `error_stop` |
+| `rebalance_initial_forest()`, `reset_time_forest()` | Template hooks: `[amr].(balance_static)` on the initial grid; time and step counter to zero | `error_stop` |
+| `post_initial_state_forest()` | Template hook: device push, ghosts, t0 diagnostics, history files, AMR lock | `error_stop` |
 | `finalize_forest()` | Close I/O, release resources | `error_stop` |
 | `finalize_mpi_forest()` | Process-global MPI finalize, once, after every realm's `finalize_forest` (FNL overrides it) | `mpih%finalize` |
 | `compute_local_dt_forest(dt_local)` | This realm's CFL-limited dt; the forest min-reduces | `error_stop` |

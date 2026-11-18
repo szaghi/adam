@@ -34,7 +34,8 @@ type, extends(ripple_common_object) :: ripple_cpu_object
       procedure, pass(self) :: compute_residuals       !< Residuals of one state.
       procedure, pass(self) :: accumulate_seam_fluxes  !< Seam face fluxes of one stage to the flux register.
       ! forest methods: core layer (single realm, no 2:1 face)
-      procedure, pass(self) :: initialize_forest       !< Initialize the realm.
+      procedure, pass(self) :: initialize_app_forest   !< Template hook: common data and face fluxes.
+      procedure, pass(self) :: post_initial_state_forest !< Template hook: the first output.
       procedure, pass(self) :: advance_one_step_forest !< Advance one whole step.
       procedure, pass(self) :: post_step_forest        !< Save the outputs on their cadence.
       procedure, pass(self) :: finalize_forest         !< Finalize the realm.
@@ -146,26 +147,24 @@ contains
    endsubroutine accumulate_seam_fluxes
 
    ! forest methods: core layer
-   subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
-   !< Initialize the realm: common data, face fluxes, initial AMR, initial condition, first output.
+   subroutine initialize_app_forest(self, filename, realms_number)
+   !< Template hook (the library initialize_forest drives the initial AMR and state, #80 P3): common data, face fluxes.
    class(ripple_cpu_object), intent(inout)        :: self          !< The realm.
    character(*),             intent(in)           :: filename      !< Input file name.
    integer(I4P),             intent(in), optional :: realms_number !< Unused: RIPPLE is single-realm.
-   real(R8P),                intent(in), optional :: memory_avail  !< Unused: the budget comes from the MPI handler.
-   integer(I4P),             intent(in), optional :: nv            !< Unused: nv = 1.
-   logical,                  intent(in), optional :: verbose       !< Unused.
 
    call self%initialize_ripple(filename=filename, memory_avail=mpih%memory_avail)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
       allocate(self%flx(1,0:ni,1:nj,1:nk,nb), self%fly(1,1:ni,0:nj,1:nk,nb), self%flz(1,1:ni,1:nj,0:nk,nb), source=0._R8P)
    endassociate
-   if (self%amr%markers_number > 0) then
-      call self%set_initial_conditions ! a registered criterion may mark on the initial state (issue #110)
-      call self%amr_update
-   endif
-   call self%set_initial_conditions
+   endsubroutine initialize_app_forest
+
+   subroutine post_initial_state_forest(self)
+   !< Template hook: the first output.
+   class(ripple_cpu_object), intent(inout) :: self !< The realm.
+
    call self%save_output(fields=.true.)
-   endsubroutine initialize_forest
+   endsubroutine post_initial_state_forest
 
    subroutine advance_one_step_forest(self, dt)
    !< Advance one whole SSP Runge-Kutta step (fast path: no 2:1 face).
