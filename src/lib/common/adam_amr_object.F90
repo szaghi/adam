@@ -138,13 +138,12 @@ contains
    integer(I4P)                            :: i_marker        !< Counter.
    integer(I4P)                            :: error           !< Error status.
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='frequency', val=self%frequency, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(frequency)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='iters', val=self%iters, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iters)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'frequency', self%frequency)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'iters', self%iters)
    call ini_get(file_parameters, INI_SECTION_NAME, 'markers_number', self%markers_number, default=0_I4P)
    ! optional: how a refined block's children are filled; an app may choose its own default when it is absent
    buff_c = ''
+   call ini_check()
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regrid_prolongation', val=buff_c, error=error)
    self%regrid_prolongation_given = error == 0
    if (self%regrid_prolongation_given) then
@@ -166,19 +165,16 @@ contains
    allocate(self%markers(self%markers_number))
    do i_marker=1, self%markers_number
       sname = INI_SECTION_NAME//'_marker_'//trim(str(i_marker,.true.))
-      call file_parameters%get(section_name=sname, option_name='mode', val=self%markers(i_marker)%mode, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(mode)')
-      call file_parameters%get(section_name=sname, option_name='delta_type', val=buff_c, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_type)')
+      call ini_get(file_parameters, sname, 'mode', self%markers(i_marker)%mode)
+      call ini_get(file_parameters, sname, 'delta_type', buff_c)
       self%markers(i_marker)%delta_type = trim(adjustl(buff_c))
-      call file_parameters%get(section_name=sname, option_name='delta_fine', val=self%markers(i_marker)%delta_fine, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_fine)')
-      call file_parameters%get(section_name=sname, option_name='delta_coarse', val=self%markers(i_marker)%delta_coarse, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(delta_coarse)')
+      call ini_get(file_parameters, sname, 'delta_fine', self%markers(i_marker)%delta_fine)
+      call ini_get(file_parameters, sname, 'delta_coarse', self%markers(i_marker)%delta_coarse)
+      call ini_check()
       select case(self%markers(i_marker)%mode)
       case(AMR_GEO)
-         call file_parameters%get(section_name=sname, option_name='geo_type', val=buff_c, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(geo_type)')
+         call ini_get(file_parameters, sname, 'geo_type', buff_c)
+         call ini_check()
          select case(trim(adjustl(buff_c)))
          case('solid')         ; self%markers(i_marker)%geo_type = AMR_GEO_SOLID
          case('primitive-box') ; self%markers(i_marker)%geo_type = AMR_GEO_PRIMITIVE_BOX
@@ -189,59 +185,39 @@ contains
          endselect
          select case(self%markers(i_marker)%geo_type)
          case(AMR_GEO_SOLID)
-            call file_parameters%get(section_name=sname, option_name='solid', val=self%markers(i_marker)%solid, error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(solid)')
+            call ini_get(file_parameters, sname, 'solid', self%markers(i_marker)%solid)
+            call ini_check()
          case(AMR_GEO_PRIMITIVE_BOX)
-            call file_parameters%get(section_name=sname, option_name='box_xmin', &
-                                     val=self%markers(i_marker)%box_emin(1), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_xmin)')
-            call file_parameters%get(section_name=sname, option_name='box_ymin', &
-                                     val=self%markers(i_marker)%box_emin(2), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_ymin)')
-            call file_parameters%get(section_name=sname, option_name='box_zmin', &
-                                     val=self%markers(i_marker)%box_emin(3), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_zmin)')
-            call file_parameters%get(section_name=sname, option_name='box_xmax', &
-                                     val=self%markers(i_marker)%box_emax(1), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_xmax)')
-            call file_parameters%get(section_name=sname, option_name='box_ymax', &
-                                     val=self%markers(i_marker)%box_emax(2), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_ymax)')
-            call file_parameters%get(section_name=sname, option_name='box_zmax', &
-                                     val=self%markers(i_marker)%box_emax(3), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(box_zmax)')
-            call file_parameters%get(section_name=sname, option_name='target_level', &
-                                     val=self%markers(i_marker)%target_level, error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(target_level)')
+            call ini_get(file_parameters, sname, 'box_xmin', self%markers(i_marker)%box_emin(1))
+            call ini_get(file_parameters, sname, 'box_ymin', self%markers(i_marker)%box_emin(2))
+            call ini_get(file_parameters, sname, 'box_zmin', self%markers(i_marker)%box_emin(3))
+            call ini_get(file_parameters, sname, 'box_xmax', self%markers(i_marker)%box_emax(1))
+            call ini_get(file_parameters, sname, 'box_ymax', self%markers(i_marker)%box_emax(2))
+            call ini_get(file_parameters, sname, 'box_zmax', self%markers(i_marker)%box_emax(3))
+            call ini_get(file_parameters, sname, 'target_level', self%markers(i_marker)%target_level)
+            call ini_check()
          case(AMR_GEO_STL)
-            call file_parameters%get(section_name=sname, option_name='stl_filename', val=buff_c, error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(stl_filename)')
+            call ini_get(file_parameters, sname, 'stl_filename', buff_c)
             self%markers(i_marker)%stl_filename = trim(adjustl(buff_c))
+            call ini_check()
          endselect
       case(AMR_GRAD,AMR_TV)
-         call file_parameters%get(section_name=sname, option_name='field', val=self%markers(i_marker)%field, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
-         call file_parameters%get(section_name=sname, option_name='var', val=self%markers(i_marker)%ivar, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
-         call file_parameters%get(section_name=sname, option_name='tol', val=self%markers(i_marker)%tol, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(tol)')
+         call ini_get(file_parameters, sname, 'field', self%markers(i_marker)%field)
+         call ini_get(file_parameters, sname, 'var', self%markers(i_marker)%ivar)
+         call ini_get(file_parameters, sname, 'tol', self%markers(i_marker)%tol)
+         call ini_check()
       case(AMR_LOHNER)
          ! Loehner (1987) normalized second derivative, E in [0, 1]: refine above refine_tol, derefine below
          ! derefine_tol, keep between (the hysteresis band); epsilon filters small ripples relative to the variable,
          ! floor (absolute, default 0) the variations of a variable that vanishes in quiet regions (issue #74 P4: the
          ! relative filter alone reads E ~ 1 on round-off noise); buffer is the number of ghost layers the estimator
          ! reads, so a feature at a neighbour's edge marks this block too
-         call file_parameters%get(section_name=sname, option_name='field', val=self%markers(i_marker)%field, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(field)')
-         call file_parameters%get(section_name=sname, option_name='var', val=self%markers(i_marker)%ivar, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(var)')
-         call file_parameters%get(section_name=sname, option_name='refine_tol', val=self%markers(i_marker)%refine_tol, &
-                                  error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(refine_tol)')
-         call file_parameters%get(section_name=sname, option_name='derefine_tol', &
-                                  val=self%markers(i_marker)%derefine_tol, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(derefine_tol)')
+         call ini_get(file_parameters, sname, 'field', self%markers(i_marker)%field)
+         call ini_get(file_parameters, sname, 'var', self%markers(i_marker)%ivar)
+         call ini_get(file_parameters, sname, 'refine_tol', self%markers(i_marker)%refine_tol)
+         call ini_get(file_parameters, sname, 'derefine_tol', self%markers(i_marker)%derefine_tol)
          ! optional, defaults kept when absent
+         call ini_check()
          call file_parameters%get(section_name=sname, option_name='epsilon', val=self%markers(i_marker)%epsilon, error=error)
          call file_parameters%get(section_name=sname, option_name='buffer', val=self%markers(i_marker)%buffer, error=error)
          call file_parameters%get(section_name=sname, option_name='floor', val=self%markers(i_marker)%floor, error=error)

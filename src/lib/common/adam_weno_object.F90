@@ -355,12 +355,13 @@ contains
    call file_parameters%get(section_name=sname, option_name='weights', val=buff_c, error=error)
    self%weights = trim(adjustl(buff_c))
    call ini_get(file_parameters, sname, 'ror_number', self%ror_number, default=0_I4P)
+   call ini_check()
    if (self%ror_number>0) then
       allocate(self%ror_schemes(self%ror_number))
       do r=1, self%ror_number
          oname = 'ror_scheme_'//trim(str(r,.true.))
-         call file_parameters%get(section_name=sname, option_name=oname, val=self%ror_schemes(r), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
+         call ini_get(file_parameters, sname, oname, self%ror_schemes(r))
+         call ini_check()
       enddo
       self%S = self%ror_schemes(1) ! first ROR schemes must be the highest order used
    else
@@ -370,12 +371,13 @@ contains
    endif
    call ini_get(file_parameters, sname, 'ror_threshold', self%ror_threshold, default=0.9_R8P)
    call ini_get(file_parameters, sname, 'ror_vars_number', self%ror_vars_number, default=0_I4P)
+   call ini_check()
    if (self%ror_vars_number>0) then
       allocate(self%ror_ivar(self%ror_vars_number))
       do r=1, self%ror_vars_number
          oname = 'ror_ivar_'//trim(str(r,.true.))
-         call file_parameters%get(section_name=sname, option_name=oname, val=self%ror_ivar(r), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
+         call ini_get(file_parameters, sname, oname, self%ror_ivar(r))
+         call ini_check()
       enddo
    else
       ! allocate anyway a single element array for backends compatibility; 0: no variable (it was left undefined,
@@ -386,6 +388,7 @@ contains
    call ini_get(file_parameters, sname, 'enable_ror_stats', self%enable_ror_stats, default=.false.)
    call ini_get(file_parameters, sname, 'ib_reduction_extent', self%ib_reduction_extent, default=0_I4P)
    call ini_get(file_parameters, sname, 'ib_reduced_order', self%ib_reduced_order, default=1_I4P)
+   call ini_check()
    call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_file
 

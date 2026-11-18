@@ -3,6 +3,7 @@ module adam_eos_ic_object
 !< ADAM, Equations Of State (EOS) and physics for Ideal Compressible fluids, class definition, common to all backends.
 
 ! ADAM modules
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only: mpih
 ! Third party modules
 use :: finer, only : file_ini
@@ -159,17 +160,14 @@ contains
    sname = INI_SECTION_NAME//trim(str(s,.true.))
 
    call self%destroy
-   call file_parameters%get(section_name=sname, option_name='cp', val=self%cp, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(cp)')
-   call file_parameters%get(section_name=sname, option_name='cv', val=self%cv, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(cv)')
+   call ini_get(file_parameters, sname, 'cp', self%cp)
+   call ini_get(file_parameters, sname, 'cv', self%cv)
+   call ini_check()
    call self%compute_derivate
-   call file_parameters%get(section_name=sname, option_name='mu', val=self%mu, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(mu)')
-   call file_parameters%get(section_name=sname, option_name='kd', val=self%kd, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(kd)')
-   call file_parameters%get(section_name=sname, option_name='dha', val=self%dha, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(dha)')
+   call ini_get(file_parameters, sname, 'mu', self%mu)
+   call ini_get(file_parameters, sname, 'kd', self%kd)
+   call ini_get(file_parameters, sname, 'dha', self%dha)
+   call ini_check()
    endsubroutine load_from_file
 
    pure function primitive2conservative(self, primitive) result(conservative)

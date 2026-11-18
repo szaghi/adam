@@ -70,6 +70,7 @@ use :: adam_parameters
 use :: adam_grid_object, only : grid_object
 use :: adam_tree_object, only : tree_object
 use :: adam_maps_object, only : maps_object
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_QUINTIC, SEAM_SUB_COINCIDENT, SEAM_DENSITY_GUARD, &
                                                SEAM_FILL_WENO6, seam_interpolate_weno6, seam_mp_bound, &
@@ -660,9 +661,9 @@ contains
    if (present(nv)) then
       self%nv = nv
    else
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nv', val=buff_I4P, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nv)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'nv', buff_I4P)
       self%nv = buff_I4P
+      call ini_check()
    endif
    endsubroutine load_from_ini_file
 

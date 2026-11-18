@@ -269,11 +269,11 @@ contains
       self%domain_emin(:) = self%domain_emin(:) / L0
       self%domain_emax(:) = self%domain_emax(:) / L0
    endif
-   call file_parameters%get(section_name='amr', option_name='ratio', val=ratio, error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load [amr].(ratio)')
+   call ini_get(file_parameters, 'amr', 'ratio', ratio)
 
    self%block_weight = (self%ngc+self%ni+self%ngc) * (self%ngc+self%nj+self%ngc) * (self%ngc+self%nk+self%ngc)
 
+   call ini_check()
    call self%compute_weight_neighbor
 
    nijk = [self%ni, self%nj, self%nk]
@@ -324,35 +324,25 @@ contains
    integer(I4P)                             :: error           !< Error status.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ni', val=buff_I4P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ni)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'ni', buff_I4P)
    self%ni=buff_I4P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nj', val=buff_I4P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nj)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'nj', buff_I4P)
    self%nj=buff_I4P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nk', val=buff_I4P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nk)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'nk', buff_I4P)
    self%nk=buff_I4P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ngc', val=buff_I4P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ngc)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'ngc', buff_I4P)
    self%ngc=buff_I4P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_x', val=buff_R8P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_x)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'emin_x', buff_R8P)
    self%domain_emin(1)=buff_R8P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_y', val=buff_R8P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_y)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'emin_y', buff_R8P)
    self%domain_emin(2)=buff_R8P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_z', val=buff_R8P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_z)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'emin_z', buff_R8P)
    self%domain_emin(3)=buff_R8P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_x', val=buff_R8P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_x)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'emax_x', buff_R8P)
    self%domain_emax(1)=buff_R8P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_y', val=buff_R8P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_y)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'emax_y', buff_R8P)
    self%domain_emax(2)=buff_R8P
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_z', val=buff_R8P, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_z)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'emax_z', buff_R8P)
    self%domain_emax(3)=buff_R8P
    call ini_get(file_parameters, INI_SECTION_NAME, 'null_x', buff_log, default=.false.)
    self%null_xyz(1)=buff_log
@@ -360,6 +350,7 @@ contains
    self%null_xyz(2)=buff_log
    call ini_get(file_parameters, INI_SECTION_NAME, 'null_z', buff_log, default=.false.)
    self%null_xyz(3)=buff_log
+   call ini_check()
    call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_ini_file
 

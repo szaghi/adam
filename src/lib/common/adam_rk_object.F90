@@ -4,6 +4,7 @@ module adam_rk_object
 
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_object,  only : grid_object
 ! third party modules
@@ -563,9 +564,9 @@ contains
    integer(I4P)                           :: error           !< Error status.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme', val=buff_c, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'scheme', buff_c)
    self%scheme = trim(adjustl(buff_c))
+   call ini_check()
    endsubroutine load_from_file
 
    subroutine update_q(self, field, dt, phi, q, dq)

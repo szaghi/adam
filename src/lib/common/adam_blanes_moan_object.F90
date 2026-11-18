@@ -3,6 +3,7 @@ module adam_blanes_moan_object
 !< ADAM, Blanes-Moan solver class definition.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_object,  only : grid_object
 ! third party modules
@@ -122,8 +123,8 @@ contains
    character(99)                                  :: buff            !< Buffer variable.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme', val=buff, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'scheme', buff)
    self%scheme = trim(adjustl(buff))
+   call ini_check()
    endsubroutine load_from_file
 endmodule adam_blanes_moan_object

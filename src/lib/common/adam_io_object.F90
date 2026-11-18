@@ -138,19 +138,14 @@ contains
    integer(I4P)                           :: error           !< Error status.
 
    associate(ISN=>INI_SECTION_NAME)
-      call file_parameters%get(section_name=ISN, option_name='output_basename', val=buff_c, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(output_basename)')
+      call ini_get(file_parameters, ISN, 'output_basename', buff_c)
       self%output_basename = trim(adjustl(buff_c))
-      call file_parameters%get(section_name=ISN, option_name='it_save', val=self%it_save, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(it_save)')
+      call ini_get(file_parameters, ISN, 'it_save', self%it_save)
       call ini_get(file_parameters, ISN, 'restart', self%restart, default=.false.)
-      call file_parameters%get(section_name=ISN, option_name='restart_basename', val=buff_c, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_basename)')
+      call ini_get(file_parameters, ISN, 'restart_basename', buff_c)
       self%restart_basename = trim(adjustl(buff_c))
-      call file_parameters%get(section_name=ISN, option_name='restart_save', val=self%restart_save, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_save)')
-      call file_parameters%get(section_name=ISN, option_name='residuals_save', val=self%residuals_save, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//ISN//'].(residuals_save)')
+      call ini_get(file_parameters, ISN, 'restart_save', self%restart_save)
+      call ini_get(file_parameters, ISN, 'residuals_save', self%residuals_save)
       ! Optional: divergence-history save cadence (absent: 10).
       call ini_get(file_parameters, ISN, 'divergence_history_save', self%divergence_history_save, default=10_I4P)
       call ini_get(file_parameters, ISN, 'save_memory_status', self%save_memory_status, default=.false.)
@@ -162,6 +157,7 @@ contains
       ! Optional seam div(B) guard-rail (issue #29). Absent → monitor disabled (tol=-1).
       call ini_get(file_parameters, ISN, 'seam_divB_tol', self%seam_divB_tol, default=-1._R8P)
       call ini_get(file_parameters, ISN, 'seam_divB_error', self%seam_divB_error, default=.false.)
+      call ini_check()
    endassociate
    call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_file

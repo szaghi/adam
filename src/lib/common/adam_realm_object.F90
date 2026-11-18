@@ -56,6 +56,7 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_globals, only : mpih
 ! third party modules
 use :: finer
@@ -417,8 +418,8 @@ contains
    character(len=3), parameter               :: INI_SECTION_NAME='fdv' !< INI file section name containing FDV config.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='fdv_scheme', val=buff,error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_scheme)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'fdv_scheme', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('FD', 'fd', 'Fd', 'fD')
       self%fdv_scheme = 'FD'
@@ -446,8 +447,7 @@ contains
       call mpih%error_stop(msg=': unknown FDV scheme "'//trim(adjustl(buff))//'"')
    endselect
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='fdv_order', val=self%fdv_order,error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_order)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'fdv_order', self%fdv_order)
    ! valid only for centered schems
    self%fdv_half_stencil = self%fdv_order / 2
    self%fdv_half_stencils(1) = self%fdv_half_stencil + 0
@@ -456,6 +456,7 @@ contains
    self%fdv_half_stencils(4) = self%fdv_half_stencil + 1
    self%fdv_half_stencils(5) = self%fdv_half_stencil + 2
    self%fdv_half_stencils(6) = self%fdv_half_stencil + 2
+   call ini_check()
    endsubroutine load_fdv_from_file
 
    ! forest orchestrator contract methods
