@@ -207,30 +207,16 @@ contains
    ! optional (default always, issue #68 E1): with `troubled` the reflux corrects only the seam face cells the WENO
    ! sensor (FLUX_CORRECTION_SENSOR_TAU) or the positivity limiter flags in a stage of the step
    call ini_check()
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux_policy', val=buff, error=error)
-   if (error > 0) then
-      self%reflux_policy = REFLUX_POLICY_ALWAYS
-   else
-      call load_choice(key='reflux_policy', val=self%reflux_policy,                                           &
-                       accepted=[character(8) :: REFLUX_POLICY_ALWAYS, REFLUX_POLICY_TROUBLED])
-   endif
+   call load_choice(key='reflux_policy', val=self%reflux_policy,                                              &
+                    accepted=[character(8) :: REFLUX_POLICY_ALWAYS, REFLUX_POLICY_TROUBLED], default=REFLUX_POLICY_ALWAYS)
    ! optional (default step, issue #81 P5c): the end-of-step correction, or the per-stage one
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reflux_cadence', val=buff, error=error)
-   if (error > 0) then
-      self%reflux_cadence = REFLUX_CADENCE_STEP
-   else
-      call load_choice(key='reflux_cadence', val=self%reflux_cadence,                                         &
-                       accepted=[character(5) :: REFLUX_CADENCE_STEP, REFLUX_CADENCE_STAGE])
-   endif
+   call load_choice(key='reflux_cadence', val=self%reflux_cadence,                                            &
+                    accepted=[character(5) :: REFLUX_CADENCE_STEP, REFLUX_CADENCE_STAGE], default=REFLUX_CADENCE_STEP)
 
    ! optional (default none): an absent key keeps every pre-M3-P5 input valid
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='positivity_limiter', val=buff, error=error)
-   if (error > 0) then
-      self%positivity_limiter = POSITIVITY_LIMITER_NONE
-   else
-      call load_choice(key='positivity_limiter', val=self%positivity_limiter,                                 &
-                       accepted=[character(4) :: POSITIVITY_LIMITER_NONE, POSITIVITY_LIMITER_CELL])
-   endif
+   call load_choice(key='positivity_limiter', val=self%positivity_limiter,                                    &
+                    accepted=[character(4) :: POSITIVITY_LIMITER_NONE, POSITIVITY_LIMITER_CELL],                   &
+                    default=POSITIVITY_LIMITER_NONE)
 
    ! optional (default 4): the order of the dissipative face fluxes (issue #65, D-M4-2), read only by the dissipative
    ! kernels
@@ -241,12 +227,13 @@ contains
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(dissipative_order) must be 2 or 4, got '// &
                                trim(str(self%dissipative_order)))
    contains
-      subroutine load_choice(key, val, accepted)
-      !< Load a required key whose value must be one of `accepted`.
+      subroutine load_choice(key, val, accepted, default)
+      !< Load a key whose value must be one of `accepted`: required, or `default` when absent.
       character(*),              intent(in)  :: key         !< Key name.
       character(:), allocatable, intent(out) :: val         !< Loaded value.
       character(*),              intent(in)  :: accepted(:) !< Accepted values (blank-padded).
-      character(len(buff))                   :: text        !< Option value, local (see below).
+      character(*), optional,    intent(in)  :: default     !< Value when the key is absent (optional key).
+      character(999)                         :: text        !< Option value, local (see below).
       character(:), allocatable              :: list        !< Accepted values list for the message.
       integer(I4P)                           :: a           !< Counter.
 
@@ -254,7 +241,14 @@ contains
       ! polymorphic dummy) wrote the host-associated buffer, and read back the value of the key loaded before
       ! (`riemann_solver` came back "characteristic"; on medooza the stale state crashed in the string copy). The
       ! `strip_control(buff)` call this line had until #80 P1 happened to force a fresh read.
-      call ini_get(file_parameters, INI_SECTION_NAME, key, text)
+      ! Nothing of the host here, not even len(buff): nvfortran 26.9 then passed the host's `buff` badly through FiNeR's
+      ! class(*) get (a crash in the string copy on medooza, #80 P2), so the optional keys are read here too, with
+      ! their default, instead of being probed with a get into `buff`.
+      if (present(default)) then
+         call ini_get(file_parameters, INI_SECTION_NAME, key, text, default=default)
+      else
+         call ini_get(file_parameters, INI_SECTION_NAME, key, text)
+      endif
       val = trim(adjustl(text))
       call ini_check()
       if (any(accepted == val)) return
