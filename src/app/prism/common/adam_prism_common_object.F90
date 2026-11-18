@@ -3,6 +3,7 @@ module adam_prism_common_object
 
 ! ADAM common library
 use :: adam_common_library
+use :: adam_ini_library, only : ini_check, ini_get
 ! PRISM classes, libraries, parameters
 use :: adam_prism_bc_object
 use :: adam_prism_coil_object
@@ -397,9 +398,9 @@ contains
    integer(I4P)                              :: save_cc         !< [PIC].(charge_conservation_save).
    integer(I4P)                              :: error           !< Error status.
 
-   call file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load [runge_kutta].(scheme)')
+   call ini_get(file_parameters, 'runge_kutta', 'scheme', rk_scheme)
    stages_number = rk_stored_stages_number(scheme=rk_scheme)
+   call ini_check()
    if (stages_number < 0_I4P) &
       call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//trim(adjustl(rk_scheme))//'" in [runge_kutta].(scheme)')
    call self%coil%load_coils_number(file_parameters=file_parameters)

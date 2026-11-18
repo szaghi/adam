@@ -3,6 +3,7 @@ module adam_prism_time_object
 !< ADAM, PRISM time handler class definition, CPU backend.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
 ! third party modules
@@ -96,12 +97,10 @@ contains
    integer(I4P)                                   :: error           !< Error status.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='it_max', val=self%it_max, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(it_max)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_max', val=self%time_max, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_max)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='CFL', val=self%CFL, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(CFL)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'it_max', self%it_max)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'time_max', self%time_max)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'CFL', self%CFL)
+   call ini_check()
    endsubroutine load_from_file
 
    subroutine print_progress(self, nodes_number)

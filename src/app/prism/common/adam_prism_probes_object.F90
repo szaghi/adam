@@ -32,6 +32,7 @@ module adam_prism_probes_object
 !< The former input, `probes_number` and one `[probe_N]` section per probe, is refused.
 
 use :: adam_common_library, only : field_object, grid_object
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 use :: finer
 use :: mpi
@@ -251,8 +252,8 @@ contains
    enddo
    self%plane_first(self%planes_number+1) = self%probes_number + 1_I4P
    if (self%probes_number == 0_I4P) return
-   call file_parameters%get(section_name=PROBES_SECTION_NAME, option_name='save_every', val=self%save_every, error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load ['//PROBES_SECTION_NAME//'].(save_every)')
+   call ini_get(file_parameters, PROBES_SECTION_NAME, 'save_every', self%save_every)
+   call ini_check()
    if (self%save_every <= 0_I4P) call mpih%error_stop(msg=': ['//PROBES_SECTION_NAME//'].(save_every) must be > 0')
    if (allocated(self%point)) deallocate(self%point)
    if (allocated(self%point_input)) deallocate(self%point_input)

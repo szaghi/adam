@@ -7,6 +7,7 @@ use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
 use :: adam_fdv_operators_library, only : FV1_CC
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 use :: mpi
 ! PRISM modules
@@ -729,20 +730,16 @@ contains
 
 
    buff = ''
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='problem_type', &
-   val=buff, error=error)
-   if (error>0) &
-   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'problem_type', buff)
    self%problem_type = trim(adjustl(buff))
 
+   call ini_check()
    if(self%problem_type == PLASMA_TYPE_PROBLEM) then
       buff = ''
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_domain', &
-      val=buff, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_domain)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'plasma_domain', buff)
       buff = trim(adjustl(buff))
 
+      call ini_check()
       select case(trim(adjustl(buff)))
       case('uniform', 'Uniform', 'UNIFORM', 'uniform_domain', 'all', 'full', 'Full', 'FULL')
          self%plasma_domain = UNIFORM_DOMAIN
@@ -758,40 +755,22 @@ contains
       endselect
 
       if (self%plasma_domain == UNIFORM_CILINDER) then
-	      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_radius', &
-         val=self%cilinder_radius, error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_radius)')
+	      call ini_get(file_parameters, INI_SECTION_NAME, 'cilinder_radius', self%cilinder_radius)
 
-	      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_length', &
-         val=self%cilinder_length, error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_length)')
+	      call ini_get(file_parameters, INI_SECTION_NAME, 'cilinder_length', self%cilinder_length)
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_x_center', &
-         val=self%cilinder_center(1), error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_x_center)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'cilinder_x_center', self%cilinder_center(1))
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_y_center', &
-         val=self%cilinder_center(2), error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_y_center)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'cilinder_y_center', self%cilinder_center(2))
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_z_center', &
-         val=self%cilinder_center(3), error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_z_center)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'cilinder_z_center', self%cilinder_center(3))
 
-	      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cilinder_axis', &
-         val=self%cilinder_axis, error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cilinder_axis)')
+	      call ini_get(file_parameters, INI_SECTION_NAME, 'cilinder_axis', self%cilinder_axis)
+	      call ini_check()
       elseif (self%plasma_domain == UNIFORM_SLAB) then
          buff = ''
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slab_normal', val=buff, error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slab_normal)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'slab_normal', buff)
+         call ini_check()
          select case(trim(adjustl(buff)))
          case('x', 'X') ; self%slab_normal = 'x'
          case('y', 'Y') ; self%slab_normal = 'y'
@@ -801,61 +780,34 @@ contains
                                      '], accepted: x, y, z')
          endselect
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slab_thickness', &
-         val=self%slab_thickness, error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slab_thickness)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'slab_thickness', self%slab_thickness)
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slab_center', &
-         val=self%slab_center, error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(slab_center)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'slab_center', self%slab_center)
+         call ini_check()
       elseif (self%plasma_domain == UNIFORM_BOX) then
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_length_x', &
-         val=self%box_length(1), error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_length_x)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'box_length_x', self%box_length(1))
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_length_y', &
-         val=self%box_length(2), error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_length_y)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'box_length_y', self%box_length(2))
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_length_z', &
-         val=self%box_length(3), error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_length_z)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'box_length_z', self%box_length(3))
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_x_center', &
-         val=self%box_center(1), error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_x_center)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'box_x_center', self%box_center(1))
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_y_center', &
-         val=self%box_center(2), error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_y_center)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'box_y_center', self%box_center(2))
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_z_center', &
-         val=self%box_center(3), error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_z_center)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'box_z_center', self%box_center(3))
+         call ini_check()
       endif
 
-	   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &
-      val=self%plasma_density, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_density)')
+	   call ini_get(file_parameters, INI_SECTION_NAME, 'plasma_density', self%plasma_density)
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
-      val=self%neutral_fraction, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'neutral_fraction', self%neutral_fraction)
 
       ! optional, 1 by default (one particle per real particle, the model before the key existed: no input changes).
       ! A macroparticle carries w times the charge and the mass of its species, so q/m and the push are unchanged and
       ! the deposit gives the input density with w times fewer particles; only the sampling noise grows (~ w^(1/2))
       self%particle_weight = 1.0_R8P
+      call ini_check()
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weight', &
                                val=self%particle_weight, error=error)
       if (error > 0) self%particle_weight = 1.0_R8P
@@ -1111,16 +1063,11 @@ contains
    if (self%particle_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
          self%current_weighting_model == GAUSSIAN_WEIGHTING_MODEL .or. &
          self%field_weighting_model == GAUSSIAN_WEIGHTING_MODEL) then
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='sigma', &
-         val=self%sigma, error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sigma)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'sigma', self%sigma)
 
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cutoff_sigma', &
-         val=self%cutoff_sigma, error=error)
-         if (error>0) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cutoff_sigma)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'cutoff_sigma', self%cutoff_sigma)
          self%gaussian_support_cells = -1_I4P
+         call ini_check()
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gaussian_support_cells', &
                                   val=self%gaussian_support_cells, error=error)
          if (error > 0) self%gaussian_support_cells = -1_I4P
@@ -1129,9 +1076,9 @@ contains
    endif
 
    buff = ''
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'scheme_time', buff)
    buff = trim(adjustl(buff))
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('LEAPFROG', 'leapfrog', 'Leapfrog')
       self%scheme_time = NUM_SCHEME_TIME_PIC_LEAPFROG

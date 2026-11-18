@@ -4,6 +4,7 @@ module adam_prism_numerics_object
 !<
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 ! PRISM modules
 use :: adam_prism_parameters
@@ -87,8 +88,8 @@ contains
    character(99)                                      :: buff            !< Character buffer.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'scheme_time', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('BLANES_MOAN', 'blanes_moan', 'Blanes_Moan')
       self%scheme_time = NUM_SCHEME_TIME_BLANES_MOAN
@@ -103,8 +104,8 @@ contains
                                '"; accepted: runge_kutta, leapfrog, blanes_moan, commutator_free_magnus')
    endselect
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_space', val=buff,error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'scheme_space', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('WENO', 'weno', 'Weno')
       self%scheme_space = NUM_SCHEME_SPACE_WENO
@@ -117,9 +118,8 @@ contains
                                '"; accepted: weno, fd_centered, fv_centered')
    endselect
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff,error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reconstruction_variables)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'reconstruction_variables', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('CONSERVATIVE', 'conservative', 'Conservative')
       self%reconstruction_vars = RECONSTRUCTION_VARS_CONS
@@ -130,9 +130,8 @@ contains
                                trim(adjustl(buff))//'"; accepted: conservative, characteristics')
    endselect
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='constrained_transport', val=buff,error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(constrained_transport)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'constrained_transport', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%constrained_transport_D = .false.
@@ -151,9 +150,8 @@ contains
                                trim(adjustl(buff))//'"; accepted: no, D, B, DB')
    endselect
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_correction', val=buff,error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'divergence_correction', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('POISSON', 'poisson', 'Poisson')
       call mpih%error_stop(msg=': [numerics].(divergence_correction)=poisson is not implemented for PRISM CPU/FNL')

@@ -3,6 +3,7 @@ module adam_prism_external_fields_object
 !< ADAM, PRISM external fields definition, CPU backend.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_object,  only : grid_object
 use :: adam_field_object, only : field_object
@@ -211,22 +212,14 @@ contains
 
    selectcase(self%ef_type)
    case(EF_TYPE_RMF)
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
-      val=self%RMF_frequency, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'RMF_frequency', self%RMF_frequency)
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
-      val=self%RMF_B_amplitude, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'RMF_B_amplitude', self%RMF_B_amplitude)
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
-                           val=buff_char, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'RMF_rotation_axis', buff_char)
       self%RMF_rotation_axis = trim(buff_char)
       self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
+      call ini_check()
       select case(self%RMF_rotation_axis)
       case('X', 'x')
          self%alpha = 2_I4P
@@ -276,22 +269,14 @@ contains
    case(EF_TYPE_MAGNETIC_NOZZLE)
 
    case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
-      val=self%RMF_frequency, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'RMF_frequency', self%RMF_frequency)
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
-      val=self%RMF_B_amplitude, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'RMF_B_amplitude', self%RMF_B_amplitude)
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
-                           val=buff_char, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'RMF_rotation_axis', buff_char)
       self%RMF_rotation_axis = trim(buff_char)
       self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
+      call ini_check()
       select case(self%RMF_rotation_axis)
       case('X', 'x')
          self%alpha = 2_I4P

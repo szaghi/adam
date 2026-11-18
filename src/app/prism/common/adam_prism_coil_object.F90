@@ -5,6 +5,7 @@ module adam_prism_coil_object
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
@@ -253,28 +254,17 @@ contains
    integer(I4P)                                   :: error           !< Error status.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='circular_coils_number', &
-                            val=self%circular_coils_number, error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(circular_coils_number)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'circular_coils_number', self%circular_coils_number)
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='rectangular_coils_number', &
-                            val=self%rectangular_coils_number, error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'rectangular_coils_number', self%rectangular_coils_number)
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='solenoid_coils_number', &
-                            val=self%solenoid_coils_number, error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(solenoid_coils_number)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'solenoid_coils_number', self%solenoid_coils_number)
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='helicon_coils_number', &
-                            val=self%helicon_coils_number, error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(helicon_coils_number)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'helicon_coils_number', self%helicon_coils_number)
 
    self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number &
                               + self%solenoid_coils_number + self%helicon_coils_number
+   call ini_check()
    endsubroutine load_coils_number
 
    subroutine load_from_file(self, field, grid, physics, file_parameters)
@@ -297,109 +287,87 @@ contains
 
    call self%allocate_coil(field=field, grid=grid)
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_delay', val=self%td, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'time_delay', self%td)
 
+   call ini_check()
    do i=1, self%total_coils_number
       sname = INI_SECTION_NAME//'_coil_'//trim(str(i,.true.))
 
-      call file_parameters%get(section_name=sname, option_name='coil_type', val=buff_char, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(coil_type)')
+      call ini_get(file_parameters, sname, 'coil_type', buff_char)
       self%coil_type(i) = trim(buff_char)
       self%coil_type(i) = trim(self%coil_type(i))
 
-      call file_parameters%get(section_name=sname, option_name='current_type', val=buff_char, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(current_type)')
+      call ini_get(file_parameters, sname, 'current_type', buff_char)
       self%current_type(i) = trim(buff_char)
       self%current_type(i) = trim(self%current_type(i))
 
-      call file_parameters%get(section_name=sname, option_name='sigma', val=self%sigma(i), error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(sigma)')
+      call ini_get(file_parameters, sname, 'sigma', self%sigma(i))
 
+      call ini_check()
       select case(self%coil_type(i))
       case(COIL_TYPE_CIRCULAR)
-         call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+         call ini_get(file_parameters, sname, 'r_coil', self%r_coil(i))
 
-         call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         call ini_get(file_parameters, sname, 'x_center', self%x_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         call ini_get(file_parameters, sname, 'y_center', self%y_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         call ini_get(file_parameters, sname, 'z_center', self%z_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         call ini_get(file_parameters, sname, 'normal', buff_char)
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
+         call ini_check()
       case(COIL_TYPE_RECTANGULAR)
-         call file_parameters%get(section_name=sname, option_name='lx', val=self%lx(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(lx)')
+         call ini_get(file_parameters, sname, 'lx', self%lx(i))
 
-         call file_parameters%get(section_name=sname, option_name='ly', val=self%ly(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(ly)')
+         call ini_get(file_parameters, sname, 'ly', self%ly(i))
 
-         call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         call ini_get(file_parameters, sname, 'x_center', self%x_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         call ini_get(file_parameters, sname, 'y_center', self%y_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         call ini_get(file_parameters, sname, 'z_center', self%z_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         call ini_get(file_parameters, sname, 'normal', buff_char)
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
+         call ini_check()
       case(COIL_TYPE_SOLENOID)
-         call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+         call ini_get(file_parameters, sname, 'r_coil', self%r_coil(i))
 
-         call file_parameters%get(section_name=sname, option_name='l_solenoid', val=self%l_solenoid(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(l_solenoid)')
+         call ini_get(file_parameters, sname, 'l_solenoid', self%l_solenoid(i))
 
-         call file_parameters%get(section_name=sname, option_name='windings', val=self%windings(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(windings)')
+         call ini_get(file_parameters, sname, 'windings', self%windings(i))
 
-         call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         call ini_get(file_parameters, sname, 'x_center', self%x_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         call ini_get(file_parameters, sname, 'y_center', self%y_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         call ini_get(file_parameters, sname, 'z_center', self%z_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         call ini_get(file_parameters, sname, 'normal', buff_char)
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
+         call ini_check()
       case(COIL_TYPE_HELICON)
-         call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         call ini_get(file_parameters, sname, 'x_center', self%x_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         call ini_get(file_parameters, sname, 'y_center', self%y_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         call ini_get(file_parameters, sname, 'z_center', self%z_center(i))
 
-         call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+         call ini_get(file_parameters, sname, 'r_coil', self%r_coil(i))
 
-         call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         call ini_get(file_parameters, sname, 'normal', buff_char)
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
-         call file_parameters%get(section_name=sname, option_name='N_points', val=self%N_points(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(N_points)')
+         call ini_get(file_parameters, sname, 'N_points', self%N_points(i))
+         call ini_check()
          if (self%N_points(i) > 50.0_R8P) then
             call mpih%error_stop(msg=': too many points for ['//sname//'].(N_points). Max allowed is 50.')
          end if
@@ -425,20 +393,18 @@ contains
       select case(self%current_type(i))
       case(CURRENT_TYPE_DC)
 
-         call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
+         call ini_get(file_parameters, sname, 'Amplitude', self%A(i))
 
+         call ini_check()
       case(CURRENT_TYPE_AC)
 
-         call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
+         call ini_get(file_parameters, sname, 'Amplitude', self%A(i))
 
-         call file_parameters%get(section_name=sname, option_name='Frequency', val=self%f(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Frequency)')
+         call ini_get(file_parameters, sname, 'Frequency', self%f(i))
 
-         call file_parameters%get(section_name=sname, option_name='Phase', val=self%phase(i), error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Phase)')
+         call ini_get(file_parameters, sname, 'Phase', self%phase(i))
 
+         call ini_check()
       endselect
    enddo
 

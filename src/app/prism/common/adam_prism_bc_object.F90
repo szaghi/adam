@@ -3,6 +3,7 @@ module adam_prism_bc_object
 !< ADAM, PRISM Boundary Conditions class definition, CPU backend.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 use :: adam_parameters,  only : BC_PERIODIC
 ! third party modules
@@ -76,8 +77,8 @@ contains
 
    do b=1, 6
       sname = INI_SECTION_NAMES(b)
-      call file_parameters%get(section_name=sname, option_name='type', val=buff_c, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
+      call ini_get(file_parameters, sname, 'type', buff_c)
+      call ini_check()
       select case(trim(adjustl(buff_c)))
       case('extrapolation')
          self%bc_type(b) = BC_EXTRAPOLATION

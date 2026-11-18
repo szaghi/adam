@@ -36,6 +36,7 @@ module adam_prism_leapfrog_pic_object
 !< Weather Review, vol. 139(6), pages 1996--2007, June 2011.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,      only : mpih
 use :: adam_grid_object,      only : grid_object
 use :: adam_prism_pic_object, only : prism_pic_object
@@ -120,14 +121,12 @@ contains
    integer(I4P)                	                         :: error           !< Error status.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='is_filtered', val=self%is_filtered, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(is_filtered)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'is_filtered', self%is_filtered)
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nu', val=self%nu, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nu)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'nu', self%nu)
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alpha', val=self%alpha, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(alpha)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'alpha', self%alpha)
+   call ini_check()
    endsubroutine load_from_file
 
    ! public methods

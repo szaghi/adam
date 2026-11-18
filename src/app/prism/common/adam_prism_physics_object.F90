@@ -28,6 +28,7 @@ module adam_prism_physics_object
 !<```
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global, only : mpih
 ! PRISM modules
 use :: adam_prism_numerics_object, only : RECONSTRUCTION_VARS_CONS, RECONSTRUCTION_VARS_CHAR, &
@@ -449,8 +450,8 @@ contains
    character(99)                                     :: buff            !< Character buffer.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='physical_model', val=buff, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(physical_model)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'physical_model', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
 	case('Electromagnetic', 'Maxwell', 'EM', 'em', 'maxwell', 'electromagnetic')
 		self%physical_model = EM_PHYSICAL_MODEL
@@ -465,10 +466,9 @@ contains
 	endselect
 
    if (is_adim_model(self%physical_model)) then
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='L0', val=self%L0, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(L0)')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'L0', self%L0)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'B0', self%B0)
+      call ini_check()
       if (self%L0 <= 0._R8P .or. self%B0 <= 0._R8P) &
          call mpih%error_stop(msg=': [physics] L0 and B0 must be positive')
       self%T0 = self%L0/C0
@@ -478,8 +478,8 @@ contains
       self%Q0 = self%rho0*self%L0**3
       self%M0 = self%Q0*self%B0*self%T0
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'chi', self%chi)
+         call ini_check()
          if (self%chi <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(chi) must be positive')
          self%alpha = 0._R8P
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alpha', val=self%alpha, error=error)
@@ -505,8 +505,8 @@ contains
       self%Q0 = 1._R8P
       self%M0 = 1._R8P
       if (div_corr_var == DIV_CORR_VAR_HYPER) then
-         call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
-         if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
+         call ini_get(file_parameters, INI_SECTION_NAME, 'chi', self%chi)
+         call ini_check()
          if (self%chi <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(chi) must be positive')
          self%alpha = 0._R8P
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alpha', val=self%alpha, error=error)

@@ -5,6 +5,7 @@ module adam_prism_ic_object
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
@@ -131,11 +132,10 @@ contains
    character(99)                                :: buff_char       !< Option character buffer.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='amr_iterations', val=self%amr_iterations, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(amr_iterations)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'amr_iterations', self%amr_iterations)
    self%amr_iterations = max(0_I4P, self%amr_iterations)
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='type', val=buff_char, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(type)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'type', buff_char)
+   call ini_check()
    do i=1, len(buff_char) ! blank the control characters (a CR of a Windows input)
       if (iachar(buff_char(i:i)) < 32) buff_char(i:i) = ' '
    enddo
@@ -157,82 +157,60 @@ contains
                                IC_TYPES_ACCEPTED)
    endselect
    if (self%ic_type == IC_TYPE_RP) then
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(regions_number)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'regions_number', self%regions_number)
+      call ini_check()
       if (self%regions_number>=1) then
          allocate(   self%q(1:9, 1:self%regions_number))
          allocate(self%emin(1:3, 1:self%regions_number))
          allocate(self%emax(1:3, 1:self%regions_number))
          do i=1, self%regions_number
             sname = INI_SECTION_NAME//'_region_'//trim(str(i,.true.))
-            call file_parameters%get(section_name=sname, option_name='Dx', val=self%q(1,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Dx)')
-            call file_parameters%get(section_name=sname, option_name='Dy', val=self%q(2,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Dy)')
-            call file_parameters%get(section_name=sname, option_name='Dz', val=self%q(3,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Dz)')
-            call file_parameters%get(section_name=sname, option_name='Bx', val=self%q(4,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Bx)')
-            call file_parameters%get(section_name=sname, option_name='By', val=self%q(5,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(By)')
-            call file_parameters%get(section_name=sname, option_name='Bz', val=self%q(6,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Bz)')
+            call ini_get(file_parameters, sname, 'Dx', self%q(1,i))
+            call ini_get(file_parameters, sname, 'Dy', self%q(2,i))
+            call ini_get(file_parameters, sname, 'Dz', self%q(3,i))
+            call ini_get(file_parameters, sname, 'Bx', self%q(4,i))
+            call ini_get(file_parameters, sname, 'By', self%q(5,i))
+            call ini_get(file_parameters, sname, 'Bz', self%q(6,i))
 
-            call file_parameters%get(section_name=sname, option_name='Jx', val=self%q(7,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Jx)')
-            call file_parameters%get(section_name=sname, option_name='Jy', val=self%q(8,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Jy)')
-            call file_parameters%get(section_name=sname, option_name='Jz', val=self%q(9,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(Jz)')
-            call file_parameters%get(section_name=sname, option_name='emin_x', val=self%emin(1,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(emin_x)')
-            call file_parameters%get(section_name=sname, option_name='emin_y', val=self%emin(2,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(emin_y)')
-            call file_parameters%get(section_name=sname, option_name='emin_z', val=self%emin(3,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(emin_z)')
-            call file_parameters%get(section_name=sname, option_name='emax_x', val=self%emax(1,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(emax_x)')
-            call file_parameters%get(section_name=sname, option_name='emax_y', val=self%emax(2,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(emax_y)')
-            call file_parameters%get(section_name=sname, option_name='emax_z', val=self%emax(3,i), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(emax_z)')
+            call ini_get(file_parameters, sname, 'Jx', self%q(7,i))
+            call ini_get(file_parameters, sname, 'Jy', self%q(8,i))
+            call ini_get(file_parameters, sname, 'Jz', self%q(9,i))
+            call ini_get(file_parameters, sname, 'emin_x', self%emin(1,i))
+            call ini_get(file_parameters, sname, 'emin_y', self%emin(2,i))
+            call ini_get(file_parameters, sname, 'emin_z', self%emin(3,i))
+            call ini_get(file_parameters, sname, 'emax_x', self%emax(1,i))
+            call ini_get(file_parameters, sname, 'emax_y', self%emax(2,i))
+            call ini_get(file_parameters, sname, 'emax_z', self%emax(3,i))
+            call ini_check()
          enddo
       endif
    endif
    if (self%ic_type == IC_TYPE_PLANE_WAVE) then
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='kx', val=self%kx, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(kx)')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ky', val=self%ky, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ky)')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='kz', val=self%kz, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(kz)')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='lambda', val=self%lambda, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(lambda)')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'kx', self%kx)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'ky', self%ky)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'kz', self%kz)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'lambda', self%lambda)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'B0', self%B0)
+      call ini_check()
    endif
    if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE .or. self%ic_type == IC_TYPE_GAUSSIAN_DERIVATIVE_PULSE) then
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'B0', self%B0)
       ! k0: required by the Gaussian pulse; optional carrier of the Gaussian-derivative pulse, 0 by default (the
       ! single-cycle pulse before the key existed: no input changes)
       self%k0 = 0.0_R8P
+      call ini_check()
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='k0', val=self%k0, error=error)
       if (error > 0) then
          self%k0 = 0.0_R8P
          if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE) &
             call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(k0)')
       endif
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='r0', val=self%r0, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(r0)')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='pulse_direction', &
-                           val=buff_char, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(pulse_direction)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'r0', self%r0)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'pulse_direction', buff_char)
       self%pulse_direction = trim(buff_char)
       self%pulse_direction = trim(self%pulse_direction)   
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='sigma', val=self%sigma, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sigma)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'sigma', self%sigma)
+      call ini_check()
       if (self%sigma <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(sigma) must be > 0')
    endif
    if (self%ic_type == IC_TYPE_RMF) then
@@ -275,12 +253,10 @@ contains
       if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
    endif
    if (self%ic_type == IC_TYPE_UNIFORM_FIELD) then
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B_x', val=self%B_x, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B_x)')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B_y', val=self%B_y, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B_y)')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B_z', val=self%B_z, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B_z)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'B_x', self%B_x)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'B_y', self%B_y)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'B_z', self%B_z)
+      call ini_check()
    endif
    endsubroutine load_from_file
 

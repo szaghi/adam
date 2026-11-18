@@ -7,6 +7,7 @@ module adam_prism_fWLayer_object
     ! grids and AMR levels.
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,       only : mpih
 use :: adam_grid_object,       only : grid_object
 use :: adam_field_object,      only : field_object
@@ -185,12 +186,11 @@ contains
    character(99)                                     :: buff            !< Character buffer.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='width', val=self%width, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(width)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'width', self%width)
+   call ini_check()
    if (self%width < 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(width), must be >= 0')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_minus_layer', val=buff,error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_minus_layer)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'x_minus_layer', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(1) = .false.
@@ -200,9 +200,8 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(x_minus_layer) "'//trim(adjustl(buff))// &
                                '"; accepted: yes, no')
    endselect
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_plus_layer', val=buff,error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_plus_layer)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'x_plus_layer', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(2) = .false.
@@ -212,9 +211,8 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(x_plus_layer) "'//trim(adjustl(buff))// &
                                '"; accepted: yes, no')
    endselect
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_minus_layer', val=buff,error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_minus_layer)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'y_minus_layer', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(3) = .false.
@@ -224,9 +222,8 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(y_minus_layer) "'//trim(adjustl(buff))// &
                                '"; accepted: yes, no')
    endselect
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_plus_layer', val=buff,error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_plus_layer)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'y_plus_layer', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(4) = .false.
@@ -236,9 +233,8 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(y_plus_layer) "'//trim(adjustl(buff))// &
                                '"; accepted: yes, no')
    endselect
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_minus_layer', val=buff,error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_minus_layer)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'z_minus_layer', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(5) = .false.
@@ -248,9 +244,8 @@ contains
       call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].(z_minus_layer) "'//trim(adjustl(buff))// &
                                '"; accepted: yes, no')
    endselect
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_plus_layer', val=buff,error=error)
-   if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_plus_layer)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'z_plus_layer', buff)
+   call ini_check()
    select case(trim(adjustl(buff)))
    case('NO', 'no', 'No', 'nO')
       self%layer(6) = .false.

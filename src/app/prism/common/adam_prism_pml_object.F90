@@ -2,6 +2,7 @@
 module adam_prism_pml_object
 
 ! ADAM singleton objects
+use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,      only : mpih
 use :: adam_grid_object,      only : grid_object
 use :: adam_field_object,     only : field_object
@@ -258,33 +259,22 @@ contains
 
    if (trim(self%pml_type) == PML_TYPE_NONE) return
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='width', val=self%width, error=error)
-   if (error > 0_I4P) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(width)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'width', self%width)
+   call ini_check()
    if (self%width <= 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(width), must be > 0')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='C_gamma', val=self%C_gamma, error=error)
    if (error > 0_I4P) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='c_gamma', val=self%C_gamma, error=error)
    if (self%C_gamma <= 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(C_gamma), must be > 0')
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_minus_layer', val=self%layer(PML_FACE_X_M), error=error)
-   if (error > 0_I4P) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_minus_layer)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_plus_layer', val=self%layer(PML_FACE_X_P), error=error)
-   if (error > 0_I4P) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_plus_layer)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_minus_layer', val=self%layer(PML_FACE_Y_M), error=error)
-   if (error > 0_I4P) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_minus_layer)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_plus_layer', val=self%layer(PML_FACE_Y_P), error=error)
-   if (error > 0_I4P) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_plus_layer)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_minus_layer', val=self%layer(PML_FACE_Z_M), error=error)
-   if (error > 0_I4P) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_minus_layer)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_plus_layer', val=self%layer(PML_FACE_Z_P), error=error)
-   if (error > 0_I4P) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_plus_layer)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'x_minus_layer', self%layer(PML_FACE_X_M))
+   call ini_get(file_parameters, INI_SECTION_NAME, 'x_plus_layer', self%layer(PML_FACE_X_P))
+   call ini_get(file_parameters, INI_SECTION_NAME, 'y_minus_layer', self%layer(PML_FACE_Y_M))
+   call ini_get(file_parameters, INI_SECTION_NAME, 'y_plus_layer', self%layer(PML_FACE_Y_P))
+   call ini_get(file_parameters, INI_SECTION_NAME, 'z_minus_layer', self%layer(PML_FACE_Z_M))
+   call ini_get(file_parameters, INI_SECTION_NAME, 'z_plus_layer', self%layer(PML_FACE_Z_P))
 
+   call ini_check()
    if (.not. any(self%layer)) then
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] active but all face flags are false; '// &
                                'enable at least one among x/y/z +/- layer')
@@ -292,40 +282,33 @@ contains
 
    select case (trim(self%pml_type))
    case (PML_TYPE_CLASSIC, PML_TYPE_CLASSIC_DIRECT)
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gamma_max', val=self%gamma_max, error=error)
-      if (error > 0_I4P) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(gamma_max)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'gamma_max', self%gamma_max)
+      call ini_check()
       if (self%gamma_max < 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(gamma_max), must be >= 0')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gamma_exponent', val=self%gamma_exponent, error=error)
-      if (error > 0_I4P) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(gamma_exponent)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'gamma_exponent', self%gamma_exponent)
+      call ini_check()
       if (self%gamma_exponent <= 0._R8P) &
          call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(gamma_exponent), must be > 0')
       self%gamma_eff_max = self%gamma_max
    case (PML_TYPE_CFS)
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gamma_max', val=self%gamma_max, error=error)
-      if (error > 0_I4P) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(gamma_max)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'gamma_max', self%gamma_max)
+      call ini_check()
       if (self%gamma_max < 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(gamma_max), must be >= 0')
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='alfa_max', val=self%alpha_max, error=error)
-      if (error > 0_I4P) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(alfa_max)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'alfa_max', self%alpha_max)
+      call ini_check()
       if (self%alpha_max < 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(alfa_max), must be >= 0')
 
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='k_max', val=self%k_max, error=error)
-      if (error > 0_I4P) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(k_max)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'k_max', self%k_max)
+      call ini_check()
       if (self%k_max <= 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(k_max), must be > 0')
       self%gamma_eff_max = self%gamma_max
    case (PML_TYPE_BERMUDEZ)
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='beta', val=self%beta, error=error)
-      if (error > 0_I4P) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(beta)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'beta', self%beta)
+      call ini_check()
       if (self%beta < 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(beta), must be >= 0')
-      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='gamma_exponent', val=self%gamma_exponent, error=error)
-      if (error > 0_I4P) &
-         call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(gamma_exponent)')
+      call ini_get(file_parameters, INI_SECTION_NAME, 'gamma_exponent', self%gamma_exponent)
+      call ini_check()
       if (self%gamma_exponent <= 0._R8P) &
          call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(gamma_exponent), must be > 0')
    endselect
