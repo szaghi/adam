@@ -7,7 +7,7 @@ use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
 use :: adam_fdv_operators_library, only : FV1_CC
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_get, ini_stop
 use :: adam_mpih_global,  only : mpih
 use :: mpi
 ! PRISM modules
@@ -924,7 +924,7 @@ contains
    buff = ''
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weighting_model', val=buff,error=error)
    if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_weighting_model) from file')
+      call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].(particle_weighting_model) from file')
    buff = trim(adjustl(buff))
    select case(trim(adjustl(buff)))
    case('CIC', 'cic', 'Cic')
@@ -951,7 +951,7 @@ contains
    buff = ''
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='current_weighting_model', val=buff,error=error)
    if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(current_weighting_model) from file')
+      call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].(current_weighting_model) from file')
    buff = trim(adjustl(buff))
    select case(trim(adjustl(buff)))
    case('CIC', 'cic', 'Cic')
@@ -982,7 +982,7 @@ contains
    self%gather_q = 0_I4P
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='field_weighting_model', val=buff,error=error)
    if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(field_weighting_model) from file')
+      call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].(field_weighting_model) from file')
    buff = trim(adjustl(buff))
    select case(trim(adjustl(buff)))
    case('0D', '0d', '0_d', '0_D')

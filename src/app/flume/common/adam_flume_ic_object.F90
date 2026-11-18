@@ -153,7 +153,7 @@ module adam_flume_ic_object
 ! ADAM classes, libraries, parameters
 use :: adam_field_object,         only : field_object
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_error, ini_get
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_eos_tables_library, only : barotropic_c2
@@ -847,10 +847,11 @@ contains
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(STAR_KEY(k)), val=self%star(k), &
                                   error=error)
          if (error > 0 .and. k <= 2) &
-            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(STAR_KEY(k))//')')
+            call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].('//trim(STAR_KEY(k))//')')
          if (error > 0 .and. k == 6) self%star(6) = 1._R8P
          if (error > 0 .and. k > 2 .and. k < 6) self%star(k) = 0._R8P
       enddo
+      call ini_check()
       if (.not.(self%star(1) > 0._R8P .and. self%star(2) > 0._R8P .and. self%star(6) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(star_radius, star_density, star_pressure_factor) '// &
                                   'must be positive')
@@ -884,9 +885,10 @@ contains
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(BE_KEY(k)), val=self%be(k), &
                                   error=error)
          if (error > 0 .and. k == 4) &
-            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(BE_KEY(k))//')')
+            call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].('//trim(BE_KEY(k))//')')
          if (error > 0) self%be(k) = merge(1._R8P, 0._R8P, k == 5)
       enddo
+      call ini_check()
       if (.not.(self%be(4) > 0._R8P .and. self%be(5) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(be_density, be_overdensity) must be positive')
       self%be(6) = sqrt(physics%eos_arg / (physics%gravity%four_pi_g * self%be(4)))
@@ -902,9 +904,10 @@ contains
          call file_parameters%get(section_name=INI_SECTION_NAME, option_name=trim(BB_KEY(k)), val=self%bb(k), &
                                   error=error)
          if (error > 0 .and. k <= 3) &
-            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//trim(BB_KEY(k))//')')
+            call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].('//trim(BB_KEY(k))//')')
          if (error > 0) self%bb(k) = merge(0.1_R8P, 0._R8P, k == 4)
       enddo
+      call ini_check()
       if (.not.(self%bb(1) > 0._R8P .and. self%bb(2) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(bb_radius, bb_density) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
@@ -946,8 +949,9 @@ contains
             prim(k) = 0._R8P
             cycle
          endif
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//sname//'].('//trim(PRIM_KEY(k))//')')
+         if (error > 0) call ini_error(msg='failed to load ['//sname//'].('//trim(PRIM_KEY(k))//')')
       enddo
+      call ini_check()
       if (self%ic_type == IC_ROTATED_RIEMANN_STR) call rotate_to_global(normal=self%rotated(1:2), nprim=self%nprim, prim=prim)
       call primitive_state_to_conservative(model=self%model, gamma=physics%gamma, prim=prim, q=self%q_region(:,r))
       ! passive scalars (issue #92): the specific values s1 .. sN, optional, 0 when absent

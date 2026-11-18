@@ -17,6 +17,7 @@ use :: adam_amr_criterion_object, only : amr_criterion_object, amr_criterion_poi
 use :: adam_amr_object,           only : amr_marker_object, AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_USER
 use :: adam_flux_register_object, only : flux_register_object, face_tangential_ratios, restrict_fine_face_to_quadrant, &
                                          SEAM_KIND_INTRA_REALM_AMR
+use :: adam_ini_library,          only : ini_check, ini_get, ini_stop
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_PERIODIC, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,         only : realm_object, realm_pointer
@@ -82,7 +83,7 @@ contains
    ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the stored stages
    call self%io%file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
    stages = rk_stored_stages_number(scheme=rk_scheme)
-   if (error > 0 .or. stages < 0_I4P) call mpih%error_stop(msg=': failed to load [runge_kutta].(scheme)')
+   if (error > 0 .or. stages < 0_I4P) call ini_stop(msg='failed to load [runge_kutta].(scheme)')
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=1_I4P, &
                                      fields_number=5_I4P + stages, verbose=.true.)
    ! every face periodic; the tree and the maps were built before the faces were known: rebuild them (issue #103)
@@ -90,13 +91,14 @@ contains
    call self%adam%tree%rebuild_neighborhood(grid=self%adam%grid)
    call self%adam%make_comm_local_maps_ghost_bc
    associate(fp=>self%io%file_parameters)
-      call fp%get(section_name='ripple', option_name='velocity_x', val=self%a(1), error=error) ; call check('velocity_x')
-      call fp%get(section_name='ripple', option_name='velocity_y', val=self%a(2), error=error) ; call check('velocity_y')
-      call fp%get(section_name='ripple', option_name='velocity_z', val=self%a(3), error=error) ; call check('velocity_z')
-      call fp%get(section_name='time', option_name='time_max', val=self%time_max, error=error) ; call check('time_max')
-      call fp%get(section_name='time', option_name='it_max', val=self%it_max, error=error)     ; call check('it_max')
-      call fp%get(section_name='time', option_name='CFL', val=self%cfl, error=error)           ; call check('CFL')
+      call ini_get(fp, 'ripple', 'velocity_x', self%a(1))
+      call ini_get(fp, 'ripple', 'velocity_y', self%a(2))
+      call ini_get(fp, 'ripple', 'velocity_z', self%a(3))
+      call ini_get(fp, 'time', 'time_max', self%time_max)
+      call ini_get(fp, 'time', 'it_max', self%it_max)
+      call ini_get(fp, 'time', 'CFL', self%cfl)
    endassociate
+   call ini_check()
    call self%check_input
    where (self%adam%grid%null_xyz) self%a = 0._R8P
    associate(ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
@@ -106,13 +108,6 @@ contains
    if (self%adam%tree%iu_ref_levels > 0) &
       call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
                                     do_blocks_reorder=.false., q=self%q)
-   contains
-      subroutine check(key)
-      !< Stop on a missing key.
-      character(*), intent(in) :: key !< Key name.
-
-      if (error > 0) call mpih%error_stop(msg=': failed to load the RIPPLE input key "'//key//'"')
-      endsubroutine check
    endsubroutine initialize_ripple
 
    subroutine check_input(self)

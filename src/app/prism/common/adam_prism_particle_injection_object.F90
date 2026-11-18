@@ -5,7 +5,7 @@ module adam_prism_particle_injection_object
 ! ADAM classes, libraries, parameters
 use :: adam_field_object, only : field_object
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_get, ini_stop
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
@@ -381,7 +381,7 @@ contains
 		call file_parameters%get(section_name=INI_SECTION_NAME, &
 										 option_name='space_random_number_generator', val=buff,error=error)
    	if (error>0) &
-   	   call mpih%error_stop(msg=': failed to load [' &
+   	   call ini_stop(msg='failed to load [' &
 													//INI_SECTION_NAME//'].(space_random_number_generator) from file')
    	select case(trim(adjustl(buff)))
    	case('Random', 'random', 'RANDOM')
@@ -414,7 +414,7 @@ contains
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ions_velocity_distribution', val=buff,error=error)
    	if (error>0) &
-   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ions_velocity_distribution) from file')
+   	   call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].(ions_velocity_distribution) from file')
    	select case(trim(adjustl(buff)))
    	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
 				'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
@@ -443,7 +443,7 @@ contains
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='electrons_velocity_distribution', val=buff,error=error)
    	if (error>0) &
-   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(electrons_velocity_distribution) from file')
+   	   call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].(electrons_velocity_distribution) from file')
    	select case(trim(adjustl(buff)))
    	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
 				'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
@@ -472,7 +472,7 @@ contains
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutrals_velocity_distribution', val=buff,error=error)
    	if (error>0) &
-   	   call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutrals_velocity_distribution) from file')
+   	   call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].(neutrals_velocity_distribution) from file')
    	select case(trim(adjustl(buff)))
    	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', &
 				'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
@@ -509,7 +509,7 @@ contains
 			call file_parameters%get(section_name=INI_SECTION_NAME, &
 											 option_name='velocity_random_number_generator', val=buff,error=error)
    		if (error>0) &
-   		   call mpih%error_stop(msg=': failed to load [' &
+   		   call ini_stop(msg='failed to load [' &
 														//INI_SECTION_NAME//'].(velocity_random_number_generator) from file')
    		select case(trim(adjustl(buff)))
    		case('Random', 'random', 'RANDOM')

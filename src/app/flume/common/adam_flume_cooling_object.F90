@@ -24,7 +24,7 @@ module adam_flume_cooling_object
 !< `dy_rate = (gamma - 1) Lambda_N / (m^2 R T_N)` (`n^2 / rho = rho / m^2`).
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_error, ini_get
 use :: adam_mpih_global,           only : mpih
 ! FLUME modules
 use :: adam_flume_cooling_library, only : cooling_segment_y
@@ -107,9 +107,10 @@ contains
    allocate(self%t_nodes(self%n_nodes), self%l_nodes(self%n_nodes), self%alpha(self%n_nodes), &
             self%y_nodes(self%n_nodes))
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='temperatures', val=self%t_nodes, error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(temperatures)')
+   if (error /= 0) call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(temperatures)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='lambdas', val=self%l_nodes, error=error)
-   if (error /= 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(lambdas)')
+   if (error /= 0) call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(lambdas)')
+   call ini_check()
    if (.not.all(self%t_nodes > 0._R8P)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(temperatures) must all be > 0')
    if (.not.all(self%t_nodes(2:) > self%t_nodes(:self%n_nodes-1))) &

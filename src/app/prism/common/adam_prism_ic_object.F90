@@ -5,7 +5,7 @@ module adam_prism_ic_object
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_error, ini_get
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
@@ -203,7 +203,7 @@ contains
       if (error > 0) then
          self%k0 = 0.0_R8P
          if (self%ic_type == IC_TYPE_GAUSSIAN_PULSE) &
-            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(k0)')
+            call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(k0)')
       endif
       call ini_get(file_parameters, INI_SECTION_NAME, 'r0', self%r0)
       call ini_get(file_parameters, INI_SECTION_NAME, 'pulse_direction', buff_char)
@@ -214,14 +214,10 @@ contains
       if (self%sigma <= 0._R8P) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(sigma) must be > 0')
    endif
    if (self%ic_type == IC_TYPE_RMF) then
-      call file_parameters%get(section_name='external_fields', option_name='RMF_frequency', val=self%RMF_frequency, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
-      call file_parameters%get(section_name='external_fields', option_name='RMF_B_amplitude', val=self%RMF_B_amplitude, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
-      call file_parameters%get(section_name='external_fields', option_name='RMF_rotation_axis', &
-                           val=buff_char, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
+      call ini_get(file_parameters, 'external_fields', 'RMF_frequency', self%RMF_frequency)
+      call ini_get(file_parameters, 'external_fields', 'RMF_B_amplitude', self%RMF_B_amplitude)
+      call ini_get(file_parameters, 'external_fields', 'RMF_rotation_axis', buff_char)
+      call ini_check()
       self%RMF_rotation_axis = trim(buff_char)
       self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
 	   select case(self%RMF_rotation_axis)
@@ -247,10 +243,9 @@ contains
       ! to be added load magnetic nozzle parameters
    endif
    if (self%ic_type == IC_TYPE_RMF_NOZZLE) then
-      call file_parameters%get(section_name='external_fields', option_name='RMF_frequency', val=self%RMF_frequency, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
-      call file_parameters%get(section_name='external_fields', option_name='RMF_B_amplitude', val=self%RMF_B_amplitude, error=error)
-      if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
+      call ini_get(file_parameters, 'external_fields', 'RMF_frequency', self%RMF_frequency)
+      call ini_get(file_parameters, 'external_fields', 'RMF_B_amplitude', self%RMF_B_amplitude)
+      call ini_check()
    endif
    if (self%ic_type == IC_TYPE_UNIFORM_FIELD) then
       call ini_get(file_parameters, INI_SECTION_NAME, 'B_x', self%B_x)

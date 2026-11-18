@@ -351,7 +351,6 @@ contains
    call ini_get(file_parameters, INI_SECTION_NAME, 'null_z', buff_log, default=.false.)
    self%null_xyz(3)=buff_log
    call ini_check()
-   call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_ini_file
 
    subroutine node_xyz(self, coordinates, x_node, y_node, z_node)

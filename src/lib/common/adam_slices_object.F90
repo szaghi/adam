@@ -6,7 +6,7 @@ module adam_slices_object
 use :: adam_adam_object, only : adam_object
 use :: adam_grid_object, only : grid_object
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_get, ini_stop
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
@@ -153,7 +153,7 @@ contains
       !< Stop if the option of the current slice section failed to load.
       character(*), intent(in) :: option !< Option name.
 
-      if (error/=0) call mpih%error_stop(msg=': failed to load ['//trim(sname)//'].('//option//')')
+      if (error/=0) call ini_stop(msg='failed to load ['//trim(sname)//'].('//option//')')
       endsubroutine check_loaded
 
       subroutine check_slice

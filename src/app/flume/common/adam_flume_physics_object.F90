@@ -13,7 +13,7 @@ module adam_flume_physics_object
 !< the first `N` carrying `rho s_k`, the others zero.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_error, ini_get, ini_stop
 use :: adam_mpih_global,         only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library, only : primitive_to_conservative
@@ -301,7 +301,7 @@ contains
       case(EOS_IDEAL)
       case(EOS_ISOTHERMAL)
          call file_parameters%get(section_name='eos', option_name='sound_speed', val=self%sound_speed, error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load [eos].(sound_speed) (needed by type = '// &
+         if (error > 0) call ini_stop(msg='failed to load [eos].(sound_speed) (needed by type = '// &
                                                  EOS_ISOTHERMAL//')')
          if (.not.(self%sound_speed > 0._R8P)) &
             call mpih%error_stop(msg=': [eos].(sound_speed) must be positive, got '//trim(str(self%sound_speed)))
@@ -343,9 +343,10 @@ contains
       return
    endif
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cp', val=self%cp, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cp) (or give gamma)')
+   if (error > 0) call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(cp) (or give gamma)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='cv', val=self%cv, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cv) (or give gamma)')
+   if (error > 0) call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(cv) (or give gamma)')
+   call ini_check()
    if (.not.(self%cp > self%cv .and. self%cv > 0._R8P)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] requires cp > cv > 0, got cp='//trim(str(self%cp))// &
                                ', cv='//trim(str(self%cv)))
@@ -392,7 +393,7 @@ contains
    integer(I4P)         :: error                 !< Error status.
 
    call file_parameters%get(section_name='eos', option_name='sound_speed', val=self%sound_speed, error=error)
-   if (error > 0) call mpih%error_stop(msg=': failed to load [eos].(sound_speed) (needed by type = '// &
+   if (error > 0) call ini_stop(msg='failed to load [eos].(sound_speed) (needed by type = '// &
                                            EOS_BAROTROPIC//')')
    if (.not.(self%sound_speed > 0._R8P)) &
       call mpih%error_stop(msg=': [eos].(sound_speed) must be positive, got '//trim(str(self%sound_speed)))

@@ -41,7 +41,7 @@ module adam_weno_object
 !< Non TBP procedures are also provided for use without class object in device backend kernels.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_get, ini_stop
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
@@ -348,7 +348,7 @@ contains
 
    sname = INI_SECTION_NAME
    call file_parameters%get(section_name=sname, option_name='scheme', val=buff_c, error=error)
-   if (error>0) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
+   if (error>0) call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].(scheme)')
    self%scheme = trim(adjustl(buff_c))
    ! optional: the Jiang-Shu weights unless the scale-invariant ones are asked for
    buff_c = WENO_WEIGHTS_JS
@@ -389,7 +389,6 @@ contains
    call ini_get(file_parameters, sname, 'ib_reduction_extent', self%ib_reduction_extent, default=0_I4P)
    call ini_get(file_parameters, sname, 'ib_reduced_order', self%ib_reduced_order, default=1_I4P)
    call ini_check()
-   call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_file
 
    pure subroutine reconstruct_upwind(self, S, v, vr)

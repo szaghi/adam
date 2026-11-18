@@ -30,7 +30,7 @@ module adam_flume_sinks_object
 !< doubles). History: `<output_basename>-sinks_history.dat`, one row per sink per save (`it time id m x y z u v w`).
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_get, ini_stop
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : is_hydrodynamic
@@ -201,7 +201,7 @@ contains
 
       count_ = file_parameters%count_values(section_name=INI_SECTION_NAME, option_name=key)
       if (count_ == 0_I4P) then
-         if (required) call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].('//key//')')
+         if (required) call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].('//key//')')
          val = 0._R8P
          return
       endif

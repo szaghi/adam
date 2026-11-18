@@ -3,7 +3,7 @@ module adam_prism_external_fields_object
 !< ADAM, PRISM external fields definition, CPU backend.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_error, ini_get
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_object,  only : grid_object
 use :: adam_field_object, only : field_object
@@ -188,10 +188,8 @@ contains
    character(99)                                       :: buff_char       !< Option character buffer.
 
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='external_fields_applied', &
-                            val=buff_char, error=error)
-	if (error>0) &
-	call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(external field applied)')
+   call ini_get(file_parameters, INI_SECTION_NAME, 'external_fields_applied', buff_char)
+   call ini_check()
 
    select case(trim(adjustl(buff_char)))
    case('none', 'None', 'NONE', 'no', 'No', 'NO')
@@ -239,22 +237,20 @@ contains
                                val=self%Uniform_D_amplitude, error=error)
       if (error>0) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_D_amplitude', &
                                             val=self%Uniform_D_amplitude, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Uniform_field_D_amplitude)')
+      if (error>0) call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(Uniform_field_D_amplitude)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_field_B_amplitude', &
                                val=self%Uniform_B_amplitude, error=error)
       if (error>0) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_B_amplitude', &
                                             val=self%Uniform_B_amplitude, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Uniform_field_B_amplitude)')
+      if (error>0) call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(Uniform_field_B_amplitude)')
 
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_field_direction', &
                                val=buff_char, error=error)
       if (error>0) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Uniform_direction', &
                                             val=buff_char, error=error)
-      if (error>0) &
-      call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Uniform_field_direction)')
+      if (error>0) call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(Uniform_field_direction)')
+      call ini_check()
       self%Uniform_direction = trim(buff_char)
       select case(trim(adjustl(self%Uniform_direction)))
       case('X', 'x')

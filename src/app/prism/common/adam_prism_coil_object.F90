@@ -373,21 +373,11 @@ contains
          end if
 
          do j=1, self%N_points(i)
-            call file_parameters%get(section_name=sname, option_name='x_point_'//trim(str(j,.true.)), &
-                                     val=self%x_points(i,j), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(x_point_' & 
-                                                                     //trim(str(j,.true.))//')')
-
-            call file_parameters%get(section_name=sname, option_name='y_point_'//trim(str(j,.true.)), &
-                                     val=self%y_points(i,j), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(y_point_' & 
-                                                                     //trim(str(j,.true.))//')')
-
-            call file_parameters%get(section_name=sname, option_name='z_point_'//trim(str(j,.true.)), &
-                                     val=self%z_points(i,j), error=error)
-            if (error>0) call mpih%error_stop(msg=': failed to load ['//sname//'].(z_point_' & 
-                                                                     //trim(str(j,.true.))//')')
+            call ini_get(file_parameters, sname, 'x_point_'//trim(str(j,.true.)), self%x_points(i,j))
+            call ini_get(file_parameters, sname, 'y_point_'//trim(str(j,.true.)), self%y_points(i,j))
+            call ini_get(file_parameters, sname, 'z_point_'//trim(str(j,.true.)), self%z_points(i,j))
          enddo
+         call ini_check()
       endselect
 
       select case(self%current_type(i))

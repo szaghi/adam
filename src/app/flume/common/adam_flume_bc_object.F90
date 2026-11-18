@@ -87,7 +87,7 @@ module adam_flume_bc_object
 ! ADAM classes, libraries, parameters
 use :: adam_parameters,           only : BC_PERIODIC, BC_SEAM, FEC_TO_DELTA
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_error, ini_get
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_parameters,     only : IQ_BX, IQ_BZ, IQ_R, IQ_RE, IQ_RU, IQ_RW, MODEL_EULER, MODEL_EULER_DE, &
@@ -270,8 +270,9 @@ contains
                cycle
             endif
             if (error > 0) &
-               call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))//')')
+               call ini_error(msg='failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))//')')
          enddo
+         call ini_check()
          call primitive_state_to_conservative(model=physics%model, gamma=physics%gamma, prim=prim, q=self%q_inflow(:,f))
          ! passive scalars (issue #92): the specific values s1 .. sN of the inflow, optional, 0 when absent
          do k=1, physics%passive_scalars
@@ -417,9 +418,10 @@ contains
          do k=1, 5
             call file_parameters%get(section_name=SECTION_NAME(f), option_name=trim(INFLOW_KEY(k)), val=self%nr_par(k,f), &
                                      error=error)
-            if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))// &
+            if (error > 0) call ini_error(msg='failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))// &
                                                     ') (the target state of '//bc_str//')')
          enddo
+         call ini_check()
          if (.not.(self%nr_par(1,f) > 0._R8P .and. self%nr_par(5,f) > 0._R8P)) &
             call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(r, p) must be positive')
          call file_parameters%get(section_name=SECTION_NAME(f), option_name='nr_sigma', val=self%nr_par(6,f), error=error)
@@ -469,9 +471,10 @@ contains
       self%bc_type(f) = BC_SHOCK_GENERATOR
       do k=1, 5
          call file_parameters%get(section_name=SECTION_NAME(f), option_name=trim(INFLOW_KEY(k)), val=up(k), error=error)
-         if (error > 0) call mpih%error_stop(msg=': failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))// &
+         if (error > 0) call ini_error(msg='failed to load ['//SECTION_NAME(f)//'].('//trim(INFLOW_KEY(k))// &
                                                  ') (the upstream state of '//bc_str//')')
       enddo
+      call ini_check()
       if (.not.(up(1) > 0._R8P .and. up(5) > 0._R8P)) call mpih%error_stop(msg=': ['//SECTION_NAME(f)//'].(r, p) must be positive')
       call file_parameters%get(section_name=SECTION_NAME(f), option_name='shock_deflection', val=deg, error=e1)
       call file_parameters%get(section_name=SECTION_NAME(f), option_name='shock_angle', val=beta, error=e2)

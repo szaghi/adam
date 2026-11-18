@@ -27,7 +27,7 @@ module adam_flume_dissipation_object
 !< ignored silently.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_get, ini_stop
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : is_hydrodynamic
@@ -173,7 +173,7 @@ contains
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(reference_temperature) must be positive')
       if (has('sutherland_temperature') .or. .not.(kelvin > 0._R8P)) then
          if (.not.has('sutherland_temperature')) &
-            call mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(sutherland_temperature) (or give '// &
+            call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].(sutherland_temperature) (or give '// &
                                      '['//INI_SECTION_NAME//'].(temperature_unit_kelvin): S is then 110.4 K, air)')
          call required(key='sutherland_temperature', val=self%sutherland_temperature)
       else
