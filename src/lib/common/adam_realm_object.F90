@@ -157,6 +157,7 @@ type :: realm_object
       procedure, pass(self) :: initialize         !< Initialize common data.
       procedure, pass(self) :: load_fdv_from_file !< Load FDV config from file.
       ! forest orchestrator contract methods
+      procedure, pass(self) :: initialize_process_context        !< Process-global MPI (+ device) init; forest calls it ONCE first.
       procedure, pass(self) :: initialize_forest                 !< Invoked by forest%initialize per realm at startup.
       procedure, pass(self) :: compute_local_dt_forest           !< Invoked by forest%compute_global_dt during the min reduction.
       procedure, pass(self) :: advance_one_step_forest           !< Invoked by forest%evolve_one_step per realm per timestep.
@@ -329,7 +330,7 @@ contains
    integer(I4P)                               :: nb            !< Number of allocated blocks.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call mpih%initialize(verbose=verbose_)
+   ! MPI (and the device, on the device backends) is up already: the forest calls initialize_process_context once (#80 P3)
    if (verbose_) call mpih%print_message('realm_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)
@@ -740,6 +741,19 @@ contains
 
    call mpih%error_stop(msg='realm_object%finalize_forest: not overridden by app extension')
    endsubroutine finalize_forest
+
+   subroutine initialize_process_context(self, verbose)
+   !< Initialize the process-global MPI handler (and the device, on the device backends).
+   !<
+   !< MPI and the device context are process-global: the forest calls this ONCE, on a single realm, before any realm is
+   !< initialized (issue #80 P3, the mirror of `finalize_mpi_forest`); a realm never initializes them itself. The default
+   !< initializes the CPU `mpih` singleton; the FNL backends override it to initialize `mpih_fnl` (device binding, the
+   !< ranks sharing a device) first. `mpih%initialize` is once-only, so a test driver that called it already is harmless.
+   class(realm_object), intent(inout)        :: self    !< The realm (carries no MPI state; dispatch picks the backend).
+   logical,             intent(in), optional :: verbose !< Trigger verbose output.
+
+   call mpih%initialize(verbose=verbose)
+   endsubroutine initialize_process_context
 
    subroutine finalize_mpi_forest(self)
    !< Finalize the process-global MPI handler.

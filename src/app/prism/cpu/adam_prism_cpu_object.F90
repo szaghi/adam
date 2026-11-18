@@ -265,7 +265,6 @@ contains
    integer(I4P)                                  :: realms_number_!< Local realm count (>=1).
 
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(realms_number, 1_I4P)
-   call mpih%initialize(verbose=.true.)
    call mpih%print_message('prism_cpu_object%initialize start')
    memory_avail_ = mpih%memory_avail / real(realms_number_, R8P)
    call self%prism_common_object%initialize(filename=filename,memory_avail=memory_avail_,verbose=.true.)
@@ -2737,6 +2736,7 @@ contains
    character(*),            intent(in)    :: filename  !< Input file name.
    logical                                :: loop_done !< Termination predicate.
 
+   call self%initialize_process_context(verbose=.true.) ! the forest does it once; this legacy entry bypasses it
    call self%initialize_forest(filename=filename)
    integration: do
       call self%compute_dt

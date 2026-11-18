@@ -1184,7 +1184,6 @@ contains
    integer(I4P)                                      :: error          !< Error status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call mpih%initialize(verbose=verbose_)
    if (verbose_) call mpih%print_message('flume_common_object%initialize start')
    call self%io%initialize(filename=trim(filename), verbose=verbose_)
    ! dimensional input: convert it to code units in the loaded file, before any parser reads it (the IO options, read

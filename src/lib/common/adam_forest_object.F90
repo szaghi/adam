@@ -137,6 +137,7 @@ contains
    if (int(size(realm), I4P) > 1_I4P) &
       call mpih%error_stop(msg='forest_object%initialize: multi-realm forest requires initialize_from_manifest')
    self%n = int(size(realm), I4P)
+   call realm(1)%ptr%initialize_process_context(verbose=.true.) ! MPI (+ device) once per process, before any realm (#80 P3)
    do is = 1, self%n
       ! Set the realm's self-aware forest position BEFORE invoking the per-
       ! realm initialize; downstream forest TBPs (apply_reflux_to_stage_forest,
@@ -171,6 +172,7 @@ contains
    if (size(realm) /= manifest%realms_number) &
       call mpih%error_stop(msg='forest_object%initialize_from_manifest: size(realm) /= manifest%realms_number')
    self%n = int(size(realm), I4P)
+   call realm(1)%ptr%initialize_process_context(verbose=.true.) ! MPI (+ device) once per process, before any realm (#80 P3)
    do is = 1, self%n
       ! Set the realm's self-aware forest position BEFORE invoking the per-
       ! realm initialize; downstream forest TBPs (apply_reflux_to_stage_forest,

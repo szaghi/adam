@@ -15,14 +15,14 @@ module adam_fnl_mpih_global
 !<
 !< Init-once discipline: FUNDAL's `initialize` is `intent(out)` (it wipes self) and runs the
 !< device init + communicator split under `do_device_init`. It must therefore be called
-!< exactly once per process. `is_initialized` guards that: the first realm initializes the
-!< singleton; subsequent realms skip. See `prism_fnl_object%initialize_prism`.
+!< exactly once per process: `initialize_mpih_fnl` does it, guarded, and the FNL backends call it
+!< from their `initialize_process_context` override, which the forest runs once before any realm
+!< (issue #80 P3; the guard idiom used to be copied in every FNL backend's per-realm init):
 !<```fortran
-!< if (.not. mpih_fnl_is_initialized) then
-!<    call mpih_fnl%initialize(do_mpi_init=..., do_device_init=.true., verbose=.true.)
-!<    mpih_fnl_is_initialized = .true.
-!<    mpih_fnl_device_sharers = count_device_sharers()
-!< endif
+!< subroutine initialize_process_context(self, verbose)
+!<    call initialize_mpih_fnl()            ! device binding first: it may also be the MPI init
+!<    call mpih%initialize(verbose=verbose) ! the CPU handler, once-only
+!< endsubroutine initialize_process_context
 !<```
 !<
 !< `mpih_fnl_device_sharers` is the number of node-local ranks bound to this process's device, itself included. The
@@ -34,20 +34,35 @@ use :: adam_fnl_mpih_object, only : mpih_fnl_object
 ! external libraries
 use :: fundal, only : dev_is_host_fallback
 use :: mpi
-use :: penf,   only : I4P
+use :: penf,   only : I4P, str
 
 implicit none
 private
 public :: count_device_sharers
+public :: initialize_mpih_fnl
 public :: mpih_fnl
 public :: mpih_fnl_device_sharers
-public :: mpih_fnl_is_initialized
 
 type(mpih_fnl_object), target :: mpih_fnl                        !< Program-scope GPU MPI handler singleton.
 integer(I4P)                  :: mpih_fnl_device_sharers=1_I4P   !< Node-local ranks bound to this process's device.
 logical                       :: mpih_fnl_is_initialized=.false. !< Init-once guard (FUNDAL initialize is intent(out)).
 
 contains
+   subroutine initialize_mpih_fnl()
+   !< Initialize the FNL MPI handler once per process: device binding, local communicator, ranks sharing the device.
+   !<
+   !< Called by the FNL backends' `initialize_process_context` (the forest runs it once, before any realm); the guard
+   !< keeps a second call harmless. FUNDAL initializes MPI too when nobody has.
+   logical :: is_mpi_initialized !< MPI already initialized.
+
+   if (mpih_fnl_is_initialized) return
+   call MPI_INITIALIZED(is_mpi_initialized, mpih_fnl%error)
+   call mpih_fnl%initialize(do_mpi_init=.not.is_mpi_initialized, do_device_init=.true., verbose=.true.)
+   mpih_fnl_is_initialized = .true.
+   mpih_fnl_device_sharers = count_device_sharers()
+   call mpih_fnl%print_message('device shared by '//trim(str(mpih_fnl_device_sharers, no_sign=.true.))//' rank(s)')
+   endsubroutine initialize_mpih_fnl
+
    function count_device_sharers() result(sharers)
    !< Count the node-local ranks bound to the same physical device as this process, itself included.
    !<

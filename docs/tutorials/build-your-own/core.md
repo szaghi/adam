@@ -126,8 +126,8 @@ Three rules of the library show here:
 - **Refuse what you cannot honour.** `check_input` stops on every library key RIPPLE would otherwise ignore: a non-SSP
   scheme, a centred WENO, `weights = si`, `ngc` below the WENO stencil, runtime AMR, solids.
 
-The CPU realm's `initialize_forest` then starts MPI, allocates the fluxes, refines, sets the initial condition and
-writes the first output:
+The forest has started MPI already, once per process (the realm hook `initialize_process_context`). The CPU realm's
+`initialize_forest` then allocates the fluxes, refines, sets the initial condition and writes the first output:
 
 ```fortran
    subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
@@ -139,7 +139,6 @@ writes the first output:
    integer(I4P),             intent(in), optional :: nv            !< Unused: nv = 1.
    logical,                  intent(in), optional :: verbose       !< Unused.
 
-   call mpih%initialize(do_mpi_init=.true., verbose=.true.)
    call self%initialize_ripple(filename=filename, memory_avail=mpih%memory_avail)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
       allocate(self%flx(1,0:ni,1:nj,1:nk,nb), self%fly(1,1:ni,0:nj,1:nk,nb), self%flz(1,1:ni,1:nj,0:nk,nb), source=0._R8P)

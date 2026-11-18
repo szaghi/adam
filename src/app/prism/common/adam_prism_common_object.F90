@@ -436,7 +436,6 @@ contains
    integer(I4P)                                      :: error          !< Error status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call mpih%initialize(verbose=verbose_)
    if (verbose_) call mpih%print_message('prism_common_object%initialize start')
    call self%io%initialize(filename=trim(filename),verbose=verbose_)
    associate(file_parameters=>self%io%file_parameters)

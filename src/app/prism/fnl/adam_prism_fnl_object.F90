@@ -179,6 +179,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: is_done_forest                    !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
       procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize (mpih_fnl).
+      procedure, pass(self) :: initialize_process_context        !< Process-global MPI init (mpih_fnl + mpih), once.
       ! inter-realm seam ghost-fill contract (agnostic-dummy redesign)
       procedure, pass(self) :: fill_seam_from_peer_forest !< OpenACC device-direct copy of peer's GPU interior into self's GPU
          !< ghosts.
@@ -662,18 +663,10 @@ contains
    integer(I4P),            intent(in), optional  :: realms_number
                                                                          !< Forest realm count; divides the per-device budget
                                                                          !< (default 1).
-   logical                                        :: is_mpih_initialized !< Flag to check if MPI has been inizialied.
    real(R8P)                                      :: memory_avail_       !< Per-realm device budget (GB) after the forest split.
    integer(I4P)                                   :: realms_number_      !< Local realm count (>=1).
 
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(realms_number, 1_I4P)
-   if (.not. mpih_fnl_is_initialized) then
-      call MPI_INITIALIZED(is_mpih_initialized, mpih_fnl%error)
-      call mpih_fnl%initialize(do_mpi_init=.not.is_mpih_initialized, do_device_init=.true., verbose=.true.)
-      mpih_fnl_is_initialized = .true.
-      mpih_fnl_device_sharers = count_device_sharers()
-      call mpih_fnl%print_message('device shared by '//trim(str(mpih_fnl_device_sharers, no_sign=.true.))//' rank(s)')
-   endif
    call mpih_fnl%print_message('prism_fnl_object%initialize start')
    ! TOTAL device memory, not free: the capacity budget must be a machine
    ! property, else nb varies with whatever was resident at init and the grid
@@ -5861,6 +5854,16 @@ contains
    call self%destroy()
    endsubroutine finalize_forest
 
+   subroutine initialize_process_context(self, verbose)
+   !< Initialize the process context once (the forest calls it before any realm, #80 P3): the FNL handler (device binding,
+   !< ranks sharing the device) first, since it may also be the MPI init, then the CPU handler.
+   class(prism_fnl_object), intent(inout)        :: self    !< The equation (carries no MPI state).
+   logical,          intent(in), optional :: verbose !< Trigger verbose output.
+
+   call initialize_mpih_fnl()
+   call mpih%initialize(verbose=verbose)
+   endsubroutine initialize_process_context
+
    subroutine finalize_mpi_forest(self)
    !< Finalize the process-global FNL MPI handler (mpih_fnl).
    !<
@@ -5878,6 +5881,7 @@ contains
    character(*),            intent(in)    :: filename  !< Input file name.
    logical                                :: loop_done !< Termination predicate.
 
+   call self%initialize_process_context(verbose=.true.) ! the forest does it once; this legacy entry bypasses it
    call self%initialize_forest(filename=filename)
    integration: do
       call self%compute_dt

@@ -20,7 +20,8 @@ use :: adam_fnl_field_object,     only : field_fnl_object
 use :: adam_fnl_rk_object,        only : rk_fnl_object
 use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
-use :: adam_fnl_mpih_global,      only : count_device_sharers, mpih_fnl, mpih_fnl_device_sharers, mpih_fnl_is_initialized
+use :: adam_fnl_mpih_global,      only : initialize_mpih_fnl, mpih_fnl, mpih_fnl_device_sharers
+use :: adam_mpih_global,          only : mpih
 ! RIPPLE modules
 use :: adam_ripple_common_object, only : ripple_common_object
 use :: adam_ripple_fnl_kernels,   only : apply_reflux_face_dev, compute_face_fluxes_dev, compute_flux_difference_dev, &
@@ -60,6 +61,7 @@ type, extends(ripple_common_object) :: ripple_fnl_object
       procedure, pass(self) :: post_step_forest        !< Save the outputs on their cadence.
       procedure, pass(self) :: finalize_forest         !< Finalize the realm.
       procedure, pass(self) :: finalize_mpi_forest     !< Finalize the FNL MPI handler.
+      procedure, pass(self) :: initialize_process_context !< Initialize the FNL and CPU MPI handlers, once per process.
       ! forest methods: staged layer
       procedure, pass(self) :: open_step_forest             !< Open a step.
       procedure, pass(self) :: begin_stage_forest           !< Begin a stage.
@@ -226,22 +228,15 @@ contains
 
    ! forest methods: core layer
    subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
-   !< Initialize the realm: MPI and the device (once per process), the common data within the device budget, the FNL
-   !< helpers, the device data; initial AMR and initial condition on the host, then the state to the device.
+   !< Initialize the realm: the common data within the device budget, the FNL helpers, the device data; initial AMR and
+   !< initial condition on the host, then the state to the device.
    class(ripple_fnl_object), intent(inout)        :: self          !< The realm.
    character(*),             intent(in)           :: filename      !< Input file name.
    integer(I4P),             intent(in), optional :: realms_number !< Unused: RIPPLE is single-realm.
    real(R8P),                intent(in), optional :: memory_avail  !< Unused: the budget comes from the device.
    integer(I4P),             intent(in), optional :: nv            !< Unused: nv = 1.
    logical,                  intent(in), optional :: verbose       !< Unused.
-   logical                                        :: is_mpi        !< MPI already initialized.
 
-   if (.not.mpih_fnl_is_initialized) then
-      call MPI_INITIALIZED(is_mpi, mpih_fnl%error)
-      call mpih_fnl%initialize(do_mpi_init=.not.is_mpi, do_device_init=.true., verbose=.true.)
-      mpih_fnl_is_initialized = .true.
-      mpih_fnl_device_sharers = count_device_sharers()
-   endif
    ! the blocks budget is the device memory, shared by the ranks bound to the same device
    call self%initialize_ripple(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / &
                                                                real(mpih_fnl_device_sharers, R8P))
@@ -311,6 +306,16 @@ contains
    call self%rk_fnl%destroy
    call self%field_fnl%destroy
    endsubroutine finalize_forest
+
+   subroutine initialize_process_context(self, verbose)
+   !< Initialize the process context once (the forest calls it before any realm, #80 P3): the FNL handler (device binding,
+   !< ranks sharing the device) first, since it may also be the MPI init, then the CPU handler.
+   class(ripple_fnl_object), intent(inout)        :: self    !< The equation (carries no MPI state).
+   logical,           intent(in), optional :: verbose !< Trigger verbose output.
+
+   call initialize_mpih_fnl()
+   call mpih%initialize(verbose=verbose)
+   endsubroutine initialize_process_context
 
    subroutine finalize_mpi_forest(self)
    !< Finalize the FNL MPI handler (the forest calls it once, after every realm is finalized).

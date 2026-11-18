@@ -36,7 +36,8 @@ use :: adam_fnl_ib_object,        only : ib_fnl_object
 use :: adam_fnl_rk_object,        only : rk_fnl_object
 use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
-use :: adam_fnl_mpih_global,      only : count_device_sharers, mpih_fnl, mpih_fnl_device_sharers, mpih_fnl_is_initialized
+use :: adam_fnl_mpih_global,      only : initialize_mpih_fnl, mpih_fnl, mpih_fnl_device_sharers
+use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, regrid_phases_t, flume_seam_sync_object,        &
                                               seam_face_cells,                                                         &
@@ -495,6 +496,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: unpack_seam_cells_forest     !< Unpack the cross-rank seam receive rows into own ghosts.
       procedure, pass(self) :: finalize_forest              !< Finalize the realm.
       procedure, pass(self) :: finalize_mpi_forest          !< Finalize the FNL MPI handler.
+      procedure, pass(self) :: initialize_process_context   !< Initialize the FNL and CPU MPI handlers, once per process.
       procedure, pass(self) :: initialize_forest            !< Initialize the realm.
       procedure, pass(self) :: is_done_forest               !< Return true if the realm is done.
       procedure, pass(self) :: open_step_forest             !< Open a step (staged path).
@@ -1829,18 +1831,10 @@ contains
    class(flume_fnl_object), intent(inout), target :: self               !< The equation.
    character(*),            intent(in)            :: filename           !< Input file name.
    integer(I4P),            intent(in), optional  :: realms_number      !< Realm count; divides the device budget.
-   logical                                        :: is_mpi_initialized !< MPI initialization status.
    integer(I4P)                                   :: realms_number_     !< Realm count, local variable.
    real(R8P)                                      :: memory_avail_      !< Per-realm device budget (GB).
 
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(1_I4P, realms_number)
-   if (.not.mpih_fnl_is_initialized) then
-      call MPI_INITIALIZED(is_mpi_initialized, mpih_fnl%error)
-      call mpih_fnl%initialize(do_mpi_init=.not.is_mpi_initialized, do_device_init=.true., verbose=.true.)
-      mpih_fnl_is_initialized = .true.
-      mpih_fnl_device_sharers = count_device_sharers()
-      call mpih_fnl%print_message('device shared by '//trim(str(mpih_fnl_device_sharers, .true.))//' rank(s)')
-   endif
    ! Split among the realms and among the ranks bound to the same device (#96).
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
@@ -3338,6 +3332,16 @@ contains
    call self%diagnostics%close_file
    call self%destroy
    endsubroutine finalize_forest
+
+   subroutine initialize_process_context(self, verbose)
+   !< Initialize the process context once (the forest calls it before any realm, #80 P3): the FNL handler (device binding,
+   !< ranks sharing the device) first, since it may also be the MPI init, then the CPU handler.
+   class(flume_fnl_object), intent(inout)        :: self    !< The equation (carries no MPI state).
+   logical,           intent(in), optional :: verbose !< Trigger verbose output.
+
+   call initialize_mpih_fnl()
+   call mpih%initialize(verbose=verbose)
+   endsubroutine initialize_process_context
 
    subroutine finalize_mpi_forest(self)
    !< Finalize the FNL MPI handler (called once by the forest after every realm is finalized).

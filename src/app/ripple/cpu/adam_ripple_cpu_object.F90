@@ -155,7 +155,6 @@ contains
    integer(I4P),             intent(in), optional :: nv            !< Unused: nv = 1.
    logical,                  intent(in), optional :: verbose       !< Unused.
 
-   call mpih%initialize(do_mpi_init=.true., verbose=.true.)
    call self%initialize_ripple(filename=filename, memory_avail=mpih%memory_avail)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
       allocate(self%flx(1,0:ni,1:nj,1:nk,nb), self%fly(1,1:ni,0:nj,1:nk,nb), self%flz(1,1:ni,1:nj,0:nk,nb), source=0._R8P)

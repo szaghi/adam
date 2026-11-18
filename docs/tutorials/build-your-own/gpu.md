@@ -61,22 +61,15 @@ and fails on the device ([GPU cookbook](/cookbook/gpu)).
 
 ```fortran
    subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
-   !< Initialize the realm: MPI and the device (once per process), the common data within the device budget, the FNL
-   !< helpers, the device data; initial AMR and initial condition on the host, then the state to the device.
+   !< Initialize the realm: the common data within the device budget, the FNL helpers, the device data; initial AMR and
+   !< initial condition on the host, then the state to the device.
    class(ripple_fnl_object), intent(inout)        :: self          !< The realm.
    character(*),             intent(in)           :: filename      !< Input file name.
    integer(I4P),             intent(in), optional :: realms_number !< Unused: RIPPLE is single-realm.
    real(R8P),                intent(in), optional :: memory_avail  !< Unused: the budget comes from the device.
    integer(I4P),             intent(in), optional :: nv            !< Unused: nv = 1.
    logical,                  intent(in), optional :: verbose       !< Unused.
-   logical                                        :: is_mpi        !< MPI already initialized.
 
-   if (.not.mpih_fnl_is_initialized) then
-      call MPI_INITIALIZED(is_mpi, mpih_fnl%error)
-      call mpih_fnl%initialize(do_mpi_init=.not.is_mpi, do_device_init=.true., verbose=.true.)
-      mpih_fnl_is_initialized = .true.
-      mpih_fnl_device_sharers = count_device_sharers()
-   endif
    ! the blocks budget is the device memory, shared by the ranks bound to the same device
    call self%initialize_ripple(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / &
                                                                real(mpih_fnl_device_sharers, R8P))

@@ -29,7 +29,8 @@ type :: mpih_object
    character(:), allocatable :: myrankstr           !< MPI rank process stringified.
    integer(I4P)              :: procs_number=1_I4P  !< Number of MPI processes (MPI_COMM_WORLD).
    integer(I4P)              :: node_comm=0_I4P     !< Node-local (shared-memory) communicator.
-   logical                   :: has_node_comm=.false. !< node_comm split already (initialize may run more than once).
+   logical                   :: has_node_comm=.false. !< node_comm split already.
+   logical                   :: is_initialized=.false. !< initialize ran: later calls return at once (#80 P3).
    integer(I4P)              :: node_procs_number=1_I4P !< Number of MPI processes sharing THIS node's RAM.
    real(R8P)                 :: memory_avail=0._R8P !< CPU memory available (GB) for each process.
    integer(I4P)              :: error=0_I4P         !< Error traping flag.
@@ -218,6 +219,9 @@ contains
    integer(I8P)                              :: mem_limit              !< Cgroup memory limit (bytes), -1 if none.
    logical                                   :: is_initialized         !< Flag to check if MPI has been inizialied.
 
+   ! Once-only (#80 P3): the process context is set up once, by the forest (realm_object%initialize_process_context) or
+   ! by a test driver; a later call would only repeat the node memory query and the verbose description.
+   if (self%is_initialized) return
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    myrankstr_char_length_ = 5 ; if (present(myrankstr_char_length)) myrankstr_char_length_ = myrankstr_char_length
 
@@ -235,8 +239,8 @@ contains
    ! bought no capacity at all. Split by MPI_COMM_TYPE_SHARED and divide by that
    ! communicator's size instead -- the same primitive the device backends already
    ! use to bind one GPU per node-local rank (adam_mpih_nvf_object.F90:58).
-   ! Split once (issue #80, defect 3.6): initialize runs once per caller (backend, app common object, realm), and each call
-   ! used to create a new communicator with no MPI_COMM_FREE of the previous one, two leaked per realm.
+   ! Split once (issue #80, defect 3.6): initialize used to run once per caller (backend, app common object, realm), each
+   ! call creating a new communicator with no MPI_COMM_FREE of the previous one; it is once-only since #80 P3.
    if (.not.self%has_node_comm) then
       call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%node_comm, self%error)
       self%has_node_comm = .true.
@@ -250,6 +254,7 @@ contains
    mem_limit = cgroup_memory_limit()
    if (mem_limit > 0_I8P) mem_total = min(mem_total, int(mem_limit/1024_I8P, kind(mem_total))) ! meminfo is in kB
    self%memory_avail = real(mem_total, R8P)/1e6/self%node_procs_number
+   self%is_initialized = .true.
    if (verbose_) then
       print '(A)', self%description()
       call self%print_message('mpih_object%initialize finish')

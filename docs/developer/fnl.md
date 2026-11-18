@@ -16,15 +16,13 @@ exceptions are listed in the [module summary](#module-summary)).
 ## Program-scope singletons
 
 The only FNL singleton is `mpih_fnl` (`adam_fnl_mpih_global`, type `mpih_fnl_object`): the GPU-aware MPI handler,
-which also owns the device context and is initialised once per process. The other FNL objects are components of the
-application's FNL type, one set per realm, initialised after the common initialisation from the realm's own objects
-(PRISM, `adam_prism_fnl_object.F90`):
+which also owns the device context and is initialised once per process: the forest calls the realm hook
+`initialize_process_context` once, before any realm, and the FNL backends override it with `initialize_mpih_fnl()`
+(`adam_fnl_mpih_global`: device binding and the ranks sharing the device) followed by the CPU `mpih%initialize`. The
+other FNL objects are components of the application's FNL type, one set per realm, initialised after the common
+initialisation from the realm's own objects (PRISM, `adam_prism_fnl_object.F90`):
 
 ```fortran
-if (.not.mpih_fnl_is_initialized) then                                           ! once per process
-   call mpih_fnl%initialize(do_mpi_init=..., do_device_init=.true., verbose=.true.)
-   mpih_fnl_is_initialized = .true.
-endif
 call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)

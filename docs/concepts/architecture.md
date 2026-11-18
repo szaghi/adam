@@ -70,14 +70,15 @@ The only program-scope singletons are the MPI handlers, which are genuinely one 
 
 ### FNL initialization order
 
-FNL helpers (`field_fnl`, `ib_fnl`, `rk_fnl`, `weno_fnl`, and app-specific ones such as PRISM's `coil_fnl`) are components of the application's FNL type, one set per realm. They are initialised **after** the common (CPU) initialisation, from the realm's own objects:
+MPI and the device are process-global: the forest initializes them once, before any realm, through the realm hook `initialize_process_context` (the mirror of `finalize_mpi_forest`); a realm never initializes them itself. FNL helpers (`field_fnl`, `ib_fnl`, `rk_fnl`, `weno_fnl`, and app-specific ones such as PRISM's `coil_fnl`) are components of the application's FNL type, one set per realm. They are initialised **after** the common (CPU) initialisation, from the realm's own objects:
 
 ```fortran
-! prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90)
-if (.not.mpih_fnl_is_initialized) then                                           ! once per process
-   call mpih_fnl%initialize(do_mpi_init=..., do_device_init=.true.)
-   mpih_fnl_is_initialized = .true.
-endif
+! the forest, once per process, before any realm (adam_forest_object.F90)
+call realm(1)%ptr%initialize_process_context(verbose=.true.)
+! FNL backends override it (e.g. adam_prism_fnl_object.F90): the device handler first, then the CPU one
+call initialize_mpih_fnl()            ! adam_fnl_mpih_global: device binding, ranks sharing the device, guarded
+call mpih%initialize(verbose=verbose) ! once-only
+! then, per realm, prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90)
 call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
