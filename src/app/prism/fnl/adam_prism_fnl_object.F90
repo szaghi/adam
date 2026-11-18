@@ -393,7 +393,7 @@ contains
    endsubroutine free_prism_core_gpu
 
    ! auxiliary methods
-   subroutine estimate_backend_memory_fnl(physics, file_parameters, extra_fields, reserved_memory)
+   subroutine estimate_backend_memory_fnl(physics, file_parameters, rk_scheme, extra_fields, reserved_memory)
    !< Device memory of the PIC that the block fields of compute_fields_number do not count, estimated from the input before
    !< the grid exists (issue #112), so that the blocks budget leaves it free. Set as prism_common_object%estimate_backend_memory
    !< before the common initialize.
@@ -410,19 +410,18 @@ contains
    !< runtime context are left to the `[amr].(memory_fraction)` headroom.
    type(prism_physics_object), intent(in) :: physics         !< Physics (initialized).
    type(file_ini),          intent(inout) :: file_parameters !< Simulation parameters ini file handler.
+   character(*),            intent(in)    :: rk_scheme       !< Runge-Kutta scheme (parsed by `rk`).
    integer(I4P),            intent(out)   :: extra_fields    !< Correction to the block-sized fields per block.
    real(R8P),               intent(out)   :: reserved_memory !< Memory of the allocations not block-sized (GB).
    type(grid_object)                      :: grid            !< Grid read from the input (domain and block cells only).
    type(prism_pic_object)                 :: pic             !< PIC read from the input.
    type(prism_external_fields_object)     :: external_fields !< External fields read from the input.
    type(amr_object)                       :: amr             !< AMR markers read from the input.
-   character(99)                          :: rk_scheme       !< Runge-Kutta scheme name.
    integer(I4P)                           :: nrk             !< Runge-Kutta stages.
    integer(I4P)                           :: ratio           !< AMR ratio.
    integer(I4P)                           :: levels          !< Initial uniform refinement levels.
    integer(I4P)                           :: n(3)            !< Virtual block cells (whole domain, finest level).
    integer(I4P)                           :: ngc             !< Ghost cells.
-   integer(I4P)                           :: error           !< Error status.
    logical                                :: conserving      !< Conserving current.
    real(R8P)                              :: per_particle    !< Device bytes per particle.
    real(R8P)                              :: cells           !< Virtual block interior cells.
@@ -452,8 +451,7 @@ contains
    endif
    call pic%load_from_file(file_parameters=file_parameters)
    call pic%set_particle_number(emin=grid%domain_emin, emax=grid%domain_emax, physics=physics)
-   call file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
-   nrk = 1_I4P ; if (error == 0) nrk = max(1_I4P, rk_stored_stages_number(scheme=rk_scheme))
+   nrk = max(1_I4P, rk_stored_stages_number(scheme=rk_scheme))
    conserving = trim(pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL
 
    ! particle arrays (bytes per particle of capacity)

@@ -1106,23 +1106,21 @@ contains
    !< (`rk_stored_stages_number` nv), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange),
    !< the fourth-order gravity energy correction (1, every run, issue #73 M7-G2a), the equilibrium residual of the
    !< well-balanced mode (nv, M7-G2b), the gravitational potential (1, issue #81) and the eddy viscosity (1, issue #119).
-   !< Requires `physics`, `numerics` and `turbulence`
-   !< initialized.
+   !< Requires `physics`, `numerics` and `turbulence` initialized; parses `[runge_kutta]` into `rk` (its library parser).
    class(flume_common_object), intent(inout) :: self            !< The equation.
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),               intent(out)   :: fields_number   !< Block-sized fields allocated per block.
-   character(99)                             :: rk_scheme       !< Runge-Kutta scheme name.
    integer(I4P)                              :: stages_number   !< Runge-Kutta stage fields.
    integer(I4P)                              :: error           !< Error status.
    logical                                   :: ev, has_ev      !< A face's wall-model eddy viscosity, any face's.
    integer(I4P)                              :: f               !< Face counter.
    character(len=8), parameter               :: BC_SECTIONS(6)=['bc_x_min', 'bc_x_max', 'bc_y_min', 'bc_y_max', 'bc_z_min', 'bc_z_max'] !< Face sections.
 
-   call ini_get(file_parameters, 'runge_kutta', 'scheme', rk_scheme)
-   stages_number = rk_stored_stages_number(scheme=rk_scheme)
-   call ini_check()
+   ! [runge_kutta] through the library parser, before rk%initialize exists (#80 P3: no app peek of a library section)
+   call self%rk%load_from_file(file_parameters=file_parameters)
+   stages_number = rk_stored_stages_number(scheme=self%rk%scheme)
    if (stages_number < 0_I4P) &
-      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//trim(adjustl(rk_scheme))//'" in [runge_kutta].(scheme)')
+      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
    fields_number = self%physics%nv * (2_I4P + 3_I4P + stages_number) + self%physics%nv_aux
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) fields_number = fields_number + self%physics%nv
    fields_number = fields_number + 1_I4P

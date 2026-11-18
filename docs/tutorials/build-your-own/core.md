@@ -104,10 +104,11 @@ keys, calls `check_input`, allocates `q` and `dq` and refines uniformly:
 
 ```fortran
    call self%io%initialize(filename=trim(filename), verbose=.true.)
-   ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the stored stages
-   call self%io%file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
-   stages = rk_stored_stages_number(scheme=rk_scheme)
-   if (error > 0 .or. stages < 0_I4P) call mpih%error_stop(msg=': failed to load [runge_kutta].(scheme)')
+   ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the stored stages; the
+   ! scheme is read by the library parser of rk, before rk%initialize
+   call self%rk%load_from_file(file_parameters=self%io%file_parameters)
+   stages = rk_stored_stages_number(scheme=self%rk%scheme)
+   if (stages < 0_I4P) call ini_stop(msg='unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=1_I4P, &
                                      fields_number=5_I4P + stages, verbose=.true.)
    ! every face periodic; the tree and the maps were built before the faces were known: rebuild them (issue #103)
@@ -119,7 +120,8 @@ keys, calls `check_input`, allocates `q` and `dq` and refines uniformly:
 Three rules of the library show here:
 - **`fields_number`** is the number of block-sized scalar arrays the application allocates per block. The library
   divides the memory by it to decide how many blocks a rank can hold; under-count it and the run over-commits memory
-  ([GPU cookbook](/cookbook/gpu)).
+  ([GPU cookbook](/cookbook/gpu)). A library section it depends on (here `[runge_kutta]`) is read by the library
+  object's own parser (`rk%load_from_file`), never peeked by the application.
 - **The face kinds come after `realm_object%initialize`**, which builds the tree and the maps before they are known;
   `set_bc_type` must be followed by `rebuild_neighborhood` and `make_comm_local_maps_ghost_bc`, or a periodic face of
   an unrefined grid stays a boundary row ([#103](https://github.com/szaghi/adam/issues/103)).

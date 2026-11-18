@@ -43,7 +43,7 @@ real(R8P), parameter :: COIL_SATURATION_SIGMAS = 10._R8P !< Beyond this many sig
                                                          !< double precision (erf(x/(sqrt(2) sigma)) = +-1 for |x| > 8.4 sigma).
 
 abstract interface
-   subroutine estimate_backend_memory_interface(physics, file_parameters, extra_fields, reserved_memory)
+   subroutine estimate_backend_memory_interface(physics, file_parameters, rk_scheme, extra_fields, reserved_memory)
    !< Estimate the backend allocations that `compute_fields_number` does not count, before the grid exists (issue #112):
    !< `extra_fields`, the backend's correction to the block-sized fields (its own arrays, minus those of
    !< `compute_fields_number` it does not allocate: may be negative), joins `fields_number`; `reserved_memory` (GB per process),
@@ -54,6 +54,7 @@ abstract interface
    import :: prism_physics_object, file_ini, I4P, R8P
    type(prism_physics_object), intent(in)    :: physics         !< Physics (initialized).
    type(file_ini),             intent(inout) :: file_parameters !< Simulation parameters ini file handler.
+   character(*),               intent(in)    :: rk_scheme       !< Runge-Kutta scheme (parsed by `rk`).
    integer(I4P),               intent(out)   :: extra_fields    !< Correction to the block-sized fields per block.
    real(R8P),                  intent(out)   :: reserved_memory !< Memory of the allocations not block-sized (GB).
    endsubroutine estimate_backend_memory_interface
@@ -388,21 +389,19 @@ contains
    !< none for centered FD (issue #112). Backend-only arrays are added by the backend estimate of `initialize`; face-local PML
    !< storage is not block-sized and is not counted. The FNL estimate also takes `curl` and `divergence` off the count:
    !< there they are host arrays only, recomputed from `q` at the saves (issue #112 C).
-   !< Requires `physics` and `numerics` initialized; loads the coils number (it needs no grid or field).
+   !< Requires `physics` and `numerics` initialized and `[runge_kutta]` parsed into `rk`; loads the coils number (it needs no
+   !< grid or field).
    class(prism_common_object), intent(inout) :: self            !< The equation.
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),               intent(out)   :: fields_number   !< Block-sized fields allocated per block.
-   character(99)                             :: rk_scheme       !< Runge-Kutta scheme name.
    integer(I4P)                              :: stages_number   !< Runge-Kutta stage fields.
    integer(I4P)                              :: flux_fields     !< Flux fields per variable of the space scheme.
    integer(I4P)                              :: save_cc         !< [PIC].(charge_conservation_save).
    integer(I4P)                              :: error           !< Error status.
 
-   call ini_get(file_parameters, 'runge_kutta', 'scheme', rk_scheme)
-   stages_number = rk_stored_stages_number(scheme=rk_scheme)
-   call ini_check()
+   stages_number = rk_stored_stages_number(scheme=self%rk%scheme)
    if (stages_number < 0_I4P) &
-      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//trim(adjustl(rk_scheme))//'" in [runge_kutta].(scheme)')
+      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
    call self%coil%load_coils_number(file_parameters=file_parameters)
    select case(self%numerics%scheme_space)
    case(NUM_SCHEME_SPACE_FV_CENTERED) ; flux_fields = 9_I4P + 3_I4P
@@ -453,6 +452,8 @@ contains
    ! NV_MAX sizes the CPU WENO flux stack arrays: a wider state would write past them (issue #57)
    if (self%physics%nv > NV_MAX) call mpih%error_stop(msg=': nv = '//trim(str(self%physics%nv))//' exceeds NV_MAX = '// &
                                                           trim(str(NV_MAX)))
+   ! [runge_kutta] through the library parser, before rk%initialize exists: the stage count sizes the budget (#80 P3)
+   call self%rk%load_from_file(file_parameters=file_parameters)
    if (present(fields_number)) then
       fields_number_ = fields_number
    else
@@ -461,8 +462,8 @@ contains
    ! the memory the backend needs outside the block slots, taken off the budget before the slots fill it (issue #112)
    extra_fields = 0_I4P ; reserved = 0._R8P
    if (associated(self%estimate_backend_memory)) &
-      call self%estimate_backend_memory(physics=self%physics, file_parameters=file_parameters, extra_fields=extra_fields, &
-                                   reserved_memory=reserved)
+      call self%estimate_backend_memory(physics=self%physics, file_parameters=file_parameters, rk_scheme=self%rk%scheme, &
+                                        extra_fields=extra_fields, reserved_memory=reserved)
    if (.not.present(fields_number)) fields_number_ = fields_number_ + extra_fields
    ! the library gives the blocks fraction*memory: passing memory - reserved/fraction leaves them fraction*memory -
    ! reserved, so the headroom stays (1 - fraction)*memory however large the reserve (issue #112); the fraction is the

@@ -71,19 +71,18 @@ contains
    ! common methods
    subroutine initialize_ripple(self, filename, memory_avail)
    !< Initialize the common data: the library objects (`realm_object%initialize`), periodic faces, `[ripple]` and
-   !< `[time]`, the state, the uniform refinement. MPI is initialized by the backend, before.
+   !< `[time]`, the state, the uniform refinement. MPI is up already: the forest initializes it once, before any realm.
    class(ripple_common_object), intent(inout) :: self          !< The realm.
    character(*),                intent(in)    :: filename      !< Input file name.
    real(R8P),                   intent(in)    :: memory_avail  !< Memory (GB) the blocks budget may use.
    integer(I4P)                               :: stages        !< Runge-Kutta stage fields.
-   character(99)                              :: rk_scheme     !< Runge-Kutta scheme name.
-   integer(I4P)                               :: error         !< Error status.
 
    call self%io%initialize(filename=trim(filename), verbose=.true.)
-   ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the stored stages
-   call self%io%file_parameters%get(section_name='runge_kutta', option_name='scheme', val=rk_scheme, error=error)
-   stages = rk_stored_stages_number(scheme=rk_scheme)
-   if (error > 0 .or. stages < 0_I4P) call ini_stop(msg='failed to load [runge_kutta].(scheme)')
+   ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the stored stages; the
+   ! scheme is read by the library parser of rk, before rk%initialize
+   call self%rk%load_from_file(file_parameters=self%io%file_parameters)
+   stages = rk_stored_stages_number(scheme=self%rk%scheme)
+   if (stages < 0_I4P) call ini_stop(msg='unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=1_I4P, &
                                      fields_number=5_I4P + stages, verbose=.true.)
    ! every face periodic; the tree and the maps were built before the faces were known: rebuild them (issue #103)
