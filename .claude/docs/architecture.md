@@ -138,7 +138,10 @@ contains
    ! Forest contract — `_forest`-suffixed TBPs the orchestrator dispatches.
    ! Default bodies are error_stop; every multi-realm participant overrides.
    ! Per-step contract (N=1 fast path uses advance_one_step_forest only):
-   procedure, pass(self) :: initialize_forest          ! per-realm init (manifest or shared INI)
+   procedure, pass(self) :: initialize_process_context ! process-global MPI (+ device), forest calls it ONCE (#80 P3)
+   procedure, pass(self), non_overridable :: initialize_forest ! per-realm init TEMPLATE (#80 P3): app implements hooks
+   !   initialize_app_forest, restart_state_forest, initial_amr_iterations_forest, set_initial_state_forest,
+   !   amr_update_initial_forest, rebalance_initial_forest, reset_time_forest, post_initial_state_forest
    procedure, pass(self) :: finalize_forest            ! per-realm shutdown
    procedure, pass(self) :: compute_local_dt_forest    ! report CFL dt → forest min-reduce
    procedure, pass(self) :: advance_one_step_forest    ! N=1 fast path: realm owns whole step

@@ -159,8 +159,8 @@ type :: realm_object
       procedure, pass(self) :: load_fdv_from_file !< Load FDV config from file.
       ! forest orchestrator contract methods
       procedure, pass(self) :: initialize_process_context        !< Process-global MPI (+ device) init; forest calls it ONCE first.
-      procedure, pass(self) :: initialize_forest                 !< Invoked by forest%initialize per realm at startup.
-      ! hooks of the initialize_forest template (#80 P3): an app either overrides initialize_forest or implements these
+      procedure, pass(self), non_overridable :: initialize_forest !< Invoked by forest%initialize per realm: the template.
+      ! hooks of the initialize_forest template (#80 P3): every app implements them
       procedure, pass(self) :: initialize_app_forest             !< Template hook: parse, build, backend, before the state.
       procedure, pass(self) :: restart_state_forest              !< Template hook: the state from the restart files.
       procedure, pass(self) :: initial_amr_iterations_forest     !< Template hook: initial state + regrid passes.
@@ -471,7 +471,7 @@ contains
    endsubroutine load_fdv_from_file
 
    ! forest orchestrator contract methods
-   subroutine initialize_forest(self, filename, realms_number, memory_avail, nv, verbose)
+   subroutine initialize_forest(self, filename, realms_number)
    !< Initialize this realm, the library template (issue #80 P3): the sequence every application shares, its steps
    !< delegated to the `*_forest` hooks below.
    !<
@@ -494,14 +494,11 @@ contains
    !<
    !< Invoked by forest%initialize once per realm at startup, before the time loop; MPI and the device are up already
    !< (`initialize_process_context`). The forest sets `self%realm_index = is` BEFORE invoking it, so the hooks can read
-   !< their forest position for per-realm IO filenames, log prefixes, etc. An application may still override the whole
-   !< procedure; the hook defaults error-stop, except `restart_state_forest`, which refuses `[IO].(restart) = .true.`.
+   !< their forest position for per-realm IO filenames, log prefixes, etc. The template is non-overridable: an application
+   !< implements the hooks, whose defaults error-stop, except `restart_state_forest`, which refuses `[IO].(restart) = .true.`.
    class(realm_object), intent(inout)           :: self          !< The realm.
    character(*),        intent(in)              :: filename      !< Input parameters file name.
    integer(I4P),        intent(in),    optional :: realms_number !< Realm count in the forest.
-   real(R8P),           intent(in),    optional :: memory_avail  !< Unused by the template (the app sizes its budget).
-   integer(I4P),        intent(in),    optional :: nv            !< Unused by the template.
-   logical,             intent(in),    optional :: verbose       !< Unused by the template.
    integer(I4P)                                 :: i             !< Counter.
 
    self%realms_number = 1_I4P ; if (present(realms_number)) self%realms_number = max(1_I4P, realms_number)
