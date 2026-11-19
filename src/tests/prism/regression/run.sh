@@ -42,8 +42,16 @@ set -euo pipefail
 export ADAM_UNUSED_KEYS="${ADAM_UNUSED_KEYS:-error}"
 # A regression case is tiny: without a cap every case allocates and initializes a block pool that fills 85 % of the node
 # (or of the GPU), most of a case's time (#80 P5: PRISM FNL rmf, ~74 s of ~2 min before step 0). The override caps
-# [amr] memory_fraction for every case; a caller may set another value.
-export ADAM_MEMORY_FRACTION="${ADAM_MEMORY_FRACTION:-0.05}"
+# [amr] memory_fraction for every case; a caller may set another value. The fraction is of the node memory, so on a
+# small machine 5 % leaves the AMR cases fewer blocks than they need (a 16 GB CI runner: 108 blocks per rank, PRISM rmf
+# aborts "a rank needs more blocks than it can store"): the cap is 5 %, but at least 2.5 GB of the node (on the WSL box
+# and medooza that is 5 %).
+if [[ -z "${ADAM_MEMORY_FRACTION:-}" ]]; then
+   ADAM_MEMORY_FRACTION=$(awk '/^MemTotal:/ {f = 2.5e6 / $2; if (f < 0.05) f = 0.05; if (f > 0.85) f = 0.85;
+                                            printf "%.4f", f; found = 1} END {if (!found) printf "0.05"}' /proc/meminfo 2>/dev/null)
+   [[ -n "$ADAM_MEMORY_FRACTION" ]] || ADAM_MEMORY_FRACTION=0.05
+fi
+export ADAM_MEMORY_FRACTION
 
 # ---------------------------------------------------------------------------
 # Argument parsing

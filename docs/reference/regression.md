@@ -33,7 +33,7 @@ Both suites share one harness pattern, `run.sh {cpu|fnl} [--no-build] [--varset 
 | `REGRESSION_GPUS_PER_JOB` | fnl, with `REGRESSION_JOBS`: GPUs per case (default 2, one per rank; `CUDA_VISIBLE_DEVICES` set per worker) |
 | `REGRESSION_GPUS` | fnl, with `REGRESSION_JOBS`: the GPU indexes to split (default every GPU `nvidia-smi` lists), e.g. `0,1,2,3` |
 | `ADAM_UNUSED_KEYS` | exported as `error` unless set: a committed input with a key no parser reads fails its case ([parsing rules](/reference/library-input#parsing-rules)) |
-| `ADAM_MEMORY_FRACTION` | exported as `0.05` unless set: caps `[amr] memory_fraction` of every case, so a case does not allocate and initialize a block pool that fills the node (it was most of a PRISM FNL case's time, [#80](https://github.com/szaghi/adam/issues/80) P5) |
+| `ADAM_MEMORY_FRACTION` | exported unless set as `0.05`, or as the fraction that is 2.5 GB of the node when 5 % is less (a 16 GB CI runner: about `0.15`; at 5 % its AMR cases ran out of blocks): caps `[amr] memory_fraction` of every case, so a case does not allocate and initialize a block pool that fills the node (it was most of a PRISM FNL case's time, [#80](https://github.com/szaghi/adam/issues/80) P5) |
 
 A case **fails** when its outputs differ from its goldens, and also when its run exits non-zero (a crash or the hard
 timeout), even if the outputs match: a crash after the last checkpoint is still a crash. The outputs are compared
@@ -77,9 +77,9 @@ workstation; the CI runners have no GPU.
 ## Running
 
 ```bash
-src/tests/flume/regression/run.sh cpu                      # builds flume-cpu-gnu and flume-cpu-gnu-fft; the CI job
+src/tests/flume/regression/run.sh cpu                      # builds flume-cpu-gnu and flume-cpu-gnu-fft; the CI job (REGRESSION_JOBS=2)
 src/tests/flume/regression/run.sh fnl --varset local_nvf   # builds flume-fnl-nvf and flume-fnl-nvf-fft
-src/tests/prism/regression/run.sh cpu                      # builds prism-cpu-gnu; the CI job
+src/tests/prism/regression/run.sh cpu                      # builds prism-cpu-gnu; the CI job (REGRESSION_JOBS=2)
 src/tests/prism/regression/run.sh fnl --varset local_nvf   # builds prism-fnl-nvf
 REGRESSION_CASES="sod-x brio-wu" src/tests/flume/regression/run.sh cpu --no-build
 ```

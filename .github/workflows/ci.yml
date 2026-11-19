@@ -55,7 +55,9 @@ jobs:
     - name: Run PRISM CPU regression
       # The ci_gnu varset (fobos) points HDF5 at lib/hdf5/develop/gnu/14.2.0:
       # the runner's apt gfortran-14 cannot read the default local_gnu HDF5,
-      # built by gfortran 16.2.
+      # built by gfortran 16.2. Two cases at a time (np 2 each) fill the 4-core runner (#80 P5 dispatcher).
+      env:
+        REGRESSION_JOBS: 2
       run: ./src/tests/prism/regression/run.sh cpu --varset ci_gnu
 
     - name: Upload regression work outputs
@@ -99,7 +101,9 @@ jobs:
     - name: Run FLUME CPU regression
       # The ci_gnu varset (fobos) points HDF5 at lib/hdf5/develop/gnu/14.2.0:
       # the runner's apt gfortran-14 cannot read the default local_gnu HDF5,
-      # built by gfortran 16.2.
+      # built by gfortran 16.2. Two cases at a time (np 2 each) fill the 4-core runner (#80 P5 dispatcher).
+      env:
+        REGRESSION_JOBS: 2
       run: ./src/tests/flume/regression/run.sh cpu --varset ci_gnu
 
     - name: Check FLUME OpenMP-CPU bitwise against serial
