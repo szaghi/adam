@@ -53,6 +53,10 @@ exclude_dirs = references/
                MOTIOn/src/third_party/
                MOTIOn/lib
                PENF/src/tests/
+               SELAH/docs/
+               SELAH/src/bench/
+               SELAH/src/tests/
+               SELAH/src/third_party/
                StringiFor/src/tests/
                StringiFor/src/third_party/
                VecFor/src/tests/

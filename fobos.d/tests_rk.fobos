@@ -1,5 +1,6 @@
 [modes]
 modes = test-rk-ssp-tableau-gnu                        test-rk-ssp-tableau-gnu-debug
+        test-selah-stepper-smoke-gnu                   test-selah-stepper-smoke-fnl-nvf
 
 # The SSP Runge-Kutta Butcher tableaux (issue #104): order conditions in quadruple precision, constant forcing exact,
 # the convergence order on y' = -y. Pure, no MPI calls.
@@ -12,3 +13,19 @@ target   = test_rk_ssp_tableau.F90
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = test_rk_ssp_tableau.F90
+
+# SELAH, the time integrators (SELAH M7, ADAM #132 0.3): a SELAH stepper takes one SSP-33 step on an ADAM-shaped field,
+# Butcher and two-register forms. The host build (the CPU modes' flags) and the OpenACC build (the FNL modes' macros,
+# -DDEV_OAC -DCOMPILER_NVF: the field and SELAH's registers in device memory, the residual a device loop).
+[test-selah-stepper-smoke-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_selah_stepper_smoke.F90
+
+[test-selah-stepper-smoke-fnl-nvf]
+template = template-nvf
+mod_dir  = ./mod/nvf/selah-smoke/
+obj_dir  = ./obj/nvf/selah-smoke/
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = test_selah_stepper_smoke.F90
+output   = test_selah_stepper_smoke_fnl
