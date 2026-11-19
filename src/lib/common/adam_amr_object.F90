@@ -138,8 +138,9 @@ contains
    integer(I4P)                            :: i_marker        !< Counter.
    integer(I4P)                            :: error           !< Error status.
 
-   call ini_get(file_parameters, INI_SECTION_NAME, 'frequency', self%frequency)
-   call ini_get(file_parameters, INI_SECTION_NAME, 'iters', self%iters)
+   ! no runtime regrid and one marking sweep unless the input asks otherwise (issue #80)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'frequency', self%frequency, default=0_I4P)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'iters', self%iters, default=1_I4P)
    call ini_get(file_parameters, INI_SECTION_NAME, 'markers_number', self%markers_number, &
                default=ini_count_sections(file_parameters, INI_SECTION_NAME//'_marker_'))
    ! optional: how a refined block's children are filled; an app may choose its own default when it is absent

@@ -656,7 +656,8 @@ contains
    subroutine load_from_ini_file(self, file_parameters)
    !< Load object data from INI file.
    !<
-   !< `ratio`, `max_level` and `iu_ref_levels` are required; the four prune indexes default to -1 (no pruning). A
+   !< `ratio`, `max_level` and `iu_ref_levels` are required; the four prune indexes default to -1 (no pruning), and
+   !< `i/j/k_prune` are read only when `l_prune >= 0`: they take no effect otherwise (issue #80). A
    !< missing required key or an unreadable value stops the run (issue #80): the reads used to share one buffer without an
    !< error check, so a missing key silently took the value of the key read before it.
    class(tree_object), intent(inout) :: self            !< The tree.
@@ -665,10 +666,13 @@ contains
    call ini_get(file_parameters, 'amr', 'ratio'        , self%ratio        )
    call ini_get(file_parameters, 'amr', 'max_level'    , self%max_level    )
    call ini_get(file_parameters, 'amr', 'iu_ref_levels', self%iu_ref_levels)
-   call ini_get(file_parameters, 'amr', 'i_prune'      , self%ijkl_prune(1), default=-1_I4P)
-   call ini_get(file_parameters, 'amr', 'j_prune'      , self%ijkl_prune(2), default=-1_I4P)
-   call ini_get(file_parameters, 'amr', 'k_prune'      , self%ijkl_prune(3), default=-1_I4P)
    call ini_get(file_parameters, 'amr', 'l_prune'      , self%ijkl_prune(4), default=-1_I4P)
+   self%ijkl_prune(1:3) = -1_I4P
+   if (self%ijkl_prune(4) >= 0_I4P) then
+      call ini_get(file_parameters, 'amr', 'i_prune', self%ijkl_prune(1), default=-1_I4P)
+      call ini_get(file_parameters, 'amr', 'j_prune', self%ijkl_prune(2), default=-1_I4P)
+      call ini_get(file_parameters, 'amr', 'k_prune', self%ijkl_prune(3), default=-1_I4P)
+   endif
    call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_ini_file
 

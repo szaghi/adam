@@ -197,7 +197,9 @@ contains
 
    call ini_get(file_parameters, INI_SECTION_NAME//'s', 'number', self%solids_number, &
                default=ini_count_sections(file_parameters, INI_SECTION_NAME//'_'))
-   call ini_get(file_parameters, INI_SECTION_NAME//'s', 'n_eikonal', self%n_eikonal, default=2_I4P)
+   ! the eikonal sweeps act only on solids (issue #80: read on demand)
+   if (self%solids_number >= 1_I4P) &
+      call ini_get(file_parameters, INI_SECTION_NAME//'s', 'n_eikonal', self%n_eikonal, default=2_I4P)
 
    call ini_check()
    if (self%solids_number>=1) then

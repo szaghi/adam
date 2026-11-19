@@ -69,7 +69,8 @@ def domain(work: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     a = np.array([float(ini["ripple"][f"velocity_{c}"]) for c in "xyz"])
     emin = np.array([float(ini["grid"][f"emin_{c}"]) for c in "xyz"])
     emax = np.array([float(ini["grid"][f"emax_{c}"]) for c in "xyz"])
-    null = np.array([ini["grid"][f"null_{c}"].strip().lower() in (".true.", "true") for c in "xyz"])
+    # an absent null_<axis> is the parser's default, .false. (the inputs omit default-valued keys, issue #80)
+    null = np.array([ini["grid"].get(f"null_{c}", ".false.").strip().lower() in (".true.", "true") for c in "xyz"])
     return np.where(null, 0.0, a), emin, emax, null
 
 
