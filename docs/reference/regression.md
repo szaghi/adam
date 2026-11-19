@@ -97,6 +97,25 @@ On a one-GPU box the two ranks share the device. Each FNL rank counts the node-l
 (through `CUDA_VISIBLE_DEVICES`, `ROCR_VISIBLE_DEVICES`, `HIP_VISIBLE_DEVICES` and the device it picks) and sizes its
 block pool for its share; the startup log prints `device shared by N rank(s)`.
 
+### A/B: two executables, bit for bit
+
+`run.sh` compares a run with its goldens within the tolerances above, so it cannot tell an identical result from one
+that moved at round-off. A refactoring that must not change the arithmetic (ADAM's integrators replaced by
+[SELAH](https://github.com/szaghi/SELAH)'s, [#132](https://github.com/szaghi/adam/issues/132)) is checked with
+`src/tests/regression-ab.sh`: one case, run by executable A (the build before the change) and by executable B (after),
+one run at a time, every history log compared byte for byte and every checkpoint dataset bit for bit
+(`src/tests/regression_ab.py`). On a difference it prints the first divergent row and the largest deviation.
+`--scheme` overrides `[runge_kutta] scheme` in the run directory's copies of the inputs, so the integrators no
+committed case runs are checked without committing an input:
+
+```bash
+src/tests/regression-ab.sh --case src/tests/flume/regression/vortex-rk3 \
+   --exe-a exe-develop/adam_flume_cpu --exe-b exe/adam_flume_cpu --scheme runge-kutta-2
+```
+
+The outputs go to `<case>/work-ab-<scheme>/{a,b}`; the exit status is 0 bitwise, 1 different, 3 a run that did not
+complete.
+
 ## FLUME suite
 
 Each case directory `src/tests/flume/regression/<case>/` holds a frozen `input.ini` (a multi-realm case: a forest

@@ -10,6 +10,7 @@ src/tests/euler_cpu
 *.sh
 # tracked scripts the *.sh rule would hide from a plain git add (the others were force-added)
 !src/tests/regression-dispatch.sh
+!src/tests/regression-ab.sh
 *.log
 doc/html/
 .DS_Store
