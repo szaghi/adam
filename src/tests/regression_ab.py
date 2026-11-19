@@ -12,9 +12,10 @@ cannot tell an identical result from one that moved at round-off. A refactoring 
 A file only one run wrote is a difference. Exit 0 when everything is identical, 1 otherwise, 2 on a usage error.
 
 With `--ngc N` a block dataset (rank 3, ghosts included) that differs only in its N ghost layers is not a difference:
-it is reported as a note. The FNL backend leaves some ghost cells unwritten (the edge and corner ghosts of a null axis,
-#45), and two runs of the same executable store different contents there (measured on develop 61fa3344, #132 A1: 3 of
-56 FLUME cases, histories and interiors bitwise); the interior and the histories are what a run computes.
+it is reported as a note. Two runs of the same FNL executable store different values in some ghost cells of a null
+axis (measured on develop 61fa3344, #132 A1: 3 of 56 FLUME cases, histories and interiors bitwise; q and q_gpu are
+zeroed at allocation, so these cells are written, with run-dependent values: cause not identified); the interior and
+the histories are what a run computes.
 
 Usage:
     regression_ab.py RUN_A RUN_B [--ngc N]
