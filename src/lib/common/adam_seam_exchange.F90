@@ -38,6 +38,7 @@ public :: seam_fill
 public :: seam_fill_all
 public :: seam_fill_batch
 public :: seam_ghosts_to_stages
+public :: seam_ghosts_to_state
 public :: seam_peer_slot
 public :: pack_seam_rows
 public :: unpack_seam_rows
@@ -313,6 +314,38 @@ contains
       enddo
    enddo
    endsubroutine seam_ghosts_to_stages
+
+   subroutine seam_ghosts_to_state(maps, cadence, ngc, q, u)
+   !< Copy the seam ghosts of `q` into the stage state `u`, for the peer slots of the given cadence: the cells of
+   !< `seam_ghosts_to_stages`, one stage state instead of every stage buffer (#132 rule 1).
+   !<
+   !< SELAH's Butcher form keeps the state of the active stage in one register and never writes a ghost cell: called
+   !< when each stage opens, after the stepper built its state, it gives that stage the peer state of the step's alpha
+   !< fill, as `seam_ghosts_to_stages` gave every stage buffer at the start of the step.
+   type(maps_object), intent(in)    :: maps                             !< Maps of the realm owning the ghosts.
+   integer(I4P),      intent(in)    :: cadence                          !< Cadence of the slots copied.
+   integer(I4P),      intent(in)    :: ngc                              !< Ghost cells number.
+   real(R8P),         intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Committed state (v, i, j, k, b).
+   real(R8P),         intent(inout) :: u(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Stage state (v, i, j, k, b).
+   integer(I4P)                     :: p, c, row, b, i, j, k            !< Counters and cell.
+
+   if (.not.allocated(maps%seam_local_cadence)) return
+   do p=1_I4P, int(size(maps%seam_local_cadence), I4P)
+      if (maps%seam_local_cadence(p) /= cadence) cycle
+      do c=1_I4P, maps%seam_local_peer_row_count(p)
+         row = maps%seam_local_peer_row_start(p) + c - 1_I4P
+         b = maps%seam_local_map_ghost_cell(row,3) ; i = maps%seam_local_map_ghost_cell(row,7)
+         j = maps%seam_local_map_ghost_cell(row,8) ; k = maps%seam_local_map_ghost_cell(row,9)
+         u(:,i,j,k,b) = q(:,i,j,k,b)
+      enddo
+      do c=1_I4P, maps%seam_mpi_recv_row_count(p)
+         row = maps%seam_mpi_recv_row_start(p) + c - 1_I4P
+         b = maps%seam_mpi_recv_cell(row,2) ; i = maps%seam_mpi_recv_cell(row,3)
+         j = maps%seam_mpi_recv_cell(row,4) ; k = maps%seam_mpi_recv_cell(row,5)
+         u(:,i,j,k,b) = q(:,i,j,k,b)
+      enddo
+   enddo
+   endsubroutine seam_ghosts_to_state
 
    subroutine pack_seam_rows(rows, row_start, row_count, regime, ngc, q, buf, density_var, ratio)
    !< Pack the ghost values of the send rows `[rank, b, i, j, k, kind, meta]` `row_start..row_start+row_count-1` from

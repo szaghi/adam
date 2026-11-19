@@ -25,6 +25,7 @@ use :: adam_tree_object,              only : NODE_BOUNDARY_CONDITION, NODE_STAND
 use :: adam_tree_node_object,         only : tree_node_object
 use :: adam_grid_object,              only : grid_object
 use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
+use :: adam_stepper_object,           only : stepper_stored_fields
 ! ADAM singleton objects
 use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,              only : mpih
@@ -1132,7 +1133,8 @@ contains
    !<
    !< Both backends allocate the same nb-sized arrays, on the host (CPU) or on the device (FNL): `q`, `dq` (2 nv),
    !< `q_aux` (nv_aux), the three face fluxes (3 nv, counted as full block fields) and the Runge-Kutta stages
-   !< (`rk_stored_stages_number` nv), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange),
+   !< (`rk_stored_stages_number` nv; with SELAH, `with_selah`, the stepper's registers, `stepper_stored_fields` nv:
+   !< one more, its residual register, #132), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange),
    !< the fourth-order gravity energy correction (1, every run, issue #73 M7-G2a), the equilibrium residual of the
    !< well-balanced mode (nv, M7-G2b), the gravitational potential (1, issue #81) and the eddy viscosity (1, issue #119).
    !< Requires `physics`, `numerics` and `turbulence` initialized; parses `[runge_kutta]` into `rk` (its library parser).
@@ -1147,7 +1149,11 @@ contains
 
    ! [runge_kutta] through the library parser, before rk%initialize exists (#80 P3: no app peek of a library section)
    call self%rk%load_from_file(file_parameters=file_parameters)
-   stages_number = rk_stored_stages_number(scheme=self%rk%scheme)
+   if (self%with_selah) then
+      stages_number = stepper_stored_fields(scheme=self%rk%scheme)
+   else
+      stages_number = rk_stored_stages_number(scheme=self%rk%scheme)
+   endif
    if (stages_number < 0_I4P) &
       call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
    fields_number = self%physics%nv * (2_I4P + 3_I4P + stages_number) + self%physics%nv_aux
@@ -1171,6 +1177,7 @@ contains
 
    if (allocated(self%q))          deallocate(self%q)
    if (allocated(self%dq))         deallocate(self%dq)
+   call self%ts%destroy
    if (allocated(self%q_aux))      deallocate(self%q_aux)
    if (allocated(self%phi_grav))   deallocate(self%phi_grav)
    call self%flail%destroy
@@ -3501,7 +3508,8 @@ contains
    if (.not.has_mixed_glm(self%physics%model) .and. self%physics%model /= MODEL_MHD_EGLM) &
       call mpih%error_stop(msg=': [diagnostics].(divb_flux) needs [mhd].(divergence_control) = glm or eglm: D_flux '// &
                                'is read from the psi face fluxes')
-   if (self%rk%nrk < 2_I4P) &
+   ! with SELAH every Runge-Kutta form has at least two registers, scratch between steps (#132 rule 3, #128 D1)
+   if (.not.self%with_selah .and. self%rk%nrk < 2_I4P) &
       call mpih%error_stop(msg=': [diagnostics].(divb_flux) needs a Runge-Kutta scheme of at least two stages (its '// &
                                'residual evaluation runs on the idle stage buffers)')
    endsubroutine check_divb_flux

@@ -208,22 +208,30 @@ FLUME's page lists its variable indices and the [runtime AMR setup](/application
 
 ## [runge_kutta]
 
-`rk_object%load_from_file`; each application also reads `scheme` first, to size the per-block memory budget.
+`rk_object%load_from_file`, or on FLUME CPU `stepper_object%load_from_file` (the integrator on
+[SELAH](https://github.com/szaghi/SELAH), [#132](https://github.com/szaghi/adam/issues/132)), the same key; each
+application also reads `scheme` first, to size the per-block memory budget.
 
 | Key | Type | Req. | Accepted / invalid | Used | Meaning |
 |-----|------|------|--------------------|------|---------|
 | `scheme` | string | yes | see the table below; an unknown name is fatal | both | Time integrator. It also sizes the per-block memory budget (stage fields). |
 
-| Name | Kind | Stored stage fields | FLUME | PRISM |
-|------|------|---------------------|-------|-------|
-| `runge-kutta-1` | low-storage, forward Euler | 1 | accepted | EM: accepted; PIC, PML, 2:1 faces: refused |
-| `runge-kutta-2` | low-storage TVD, 2nd order | 1 | accepted | as above |
-| `runge-kutta-3` | low-storage TVD, 3rd order | 1 | accepted | as above |
-| `runge-kutta-ssp-11` | SSP, forward Euler | 1 | accepted | EM and PML: accepted; PIC: refused |
-| `runge-kutta-ssp-22` | SSP, 2nd order | 2 | accepted | accepted |
-| `runge-kutta-ssp-33` | SSP, 3rd order | 3 | accepted | accepted |
-| `runge-kutta-ssp-54` | SSP, 5 stages, 4th order | 5 | accepted | accepted |
-| `runge-kutta-yoshida` | symplectic, 4th order, 4 stages | 0 | **refused** | EM on CPU: accepted; FNL, PIC, PML, 2:1 faces: refused |
+| Name | Kind | Stored stage fields | SELAH scheme, form (registers) | FLUME | PRISM |
+|------|------|---------------------|--------------------------------|-------|-------|
+| `runge-kutta-1` | low-storage, forward Euler | 1 | `euler`, two-register (2) | accepted | EM: accepted; PIC, PML, 2:1 faces: refused |
+| `runge-kutta-2` | low-storage TVD, 2nd order | 1 | `ssp-22`, two-register (2) | accepted | as above |
+| `runge-kutta-3` | low-storage TVD, 3rd order | 1 | `ssp-33`, two-register (2) | accepted | as above |
+| `runge-kutta-ssp-11` | SSP, forward Euler | 1 | `euler`, Butcher (2) | accepted | EM and PML: accepted; PIC: refused |
+| `runge-kutta-ssp-22` | SSP, 2nd order | 2 | `ssp-22`, Butcher (3) | accepted | accepted |
+| `runge-kutta-ssp-33` | SSP, 3rd order | 3 | `ssp-33`, Butcher (4) | accepted | accepted |
+| `runge-kutta-ssp-54` | SSP, 5 stages, 4th order | 5 | `ssp-54`, Butcher (6) | accepted | accepted |
+| `runge-kutta-yoshida` | symplectic, 4th order, 4 stages | 0 | `yoshida-4`, splitting (1) | **refused** | EM on CPU: accepted; FNL, PIC, PML, 2:1 faces: refused |
+
+The stored stage fields are `adam_rk_object`'s (FLUME FNL, PRISM, RIPPLE); FLUME CPU allocates SELAH's registers
+instead, the residual register included (`stepper_stored_fields`): one block field (of `nv` variables) more than the
+stage fields, whatever the scheme. `[diagnostics] divb_flux` borrows two of them between steps, so on
+FLUME CPU it is accepted with every scheme ([#128](https://github.com/szaghi/adam/issues/128) D1; FLUME FNL still needs
+two stages).
 
 The staged path of the forest (any 2:1 AMR face, any multi-realm forest) needs an SSP scheme in both applications. In
 a forest manifest, seams with `coupling_cadence = stage_coincident` require both realms to use the same `scheme`

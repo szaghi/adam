@@ -447,13 +447,22 @@ digital-filter inflow, the mass-flow forcing and the turbulence diagnostics are 
 ## Time integration
 
 The library Runge–Kutta schemes (`[runge_kutta] scheme`, listed in the [input reference](./input)) integrate the
-semi-discrete system: strong-stability-preserving (SSP) and low-storage schemes. Each stage refills the ghost cells,
+semi-discrete system: strong-stability-preserving (SSP) and low-storage schemes. On the CPU backend the integrator is
+[SELAH](https://github.com/szaghi/SELAH)'s, through the library adapter `adam_stepper_object`
+([#132](https://github.com/szaghi/adam/issues/132); the FNL backend still runs `adam_rk_object` and its device twin
+until phase 3 of #132): the low-storage `runge-kutta-1/2/3` are SELAH's two-register Shu–Osher forms of Euler, SSP(2,2)
+and SSP(3,3), every stage on the solution itself, and the `runge-kutta-ssp-*` schemes its Butcher forms, every stage on
+its own state register. The coefficients are ADAM's, bit for bit. SELAH sums the stages of the Butcher update in the FNL
+order (`q + dt sum_s b_s R_s`), so the CPU SSP runs moved at round-off from the former stage-by-stage sum, and with
+immersed solids the step residual is 0 in the solid cells ([#128](https://github.com/szaghi/adam/issues/128) D4).
+Each stage refills the ghost cells,
 recomputes the auxiliary variables, applies the positivity floors (MHD) and evaluates the residual. The time step follows
 the [CFL bound](./models#time-step-bound), with the diffusive part of the
 [dissipative fluxes](#dissipative-fluxes-navier–stokes) when they are on; `[time] it_max` and `time_max` stop the run.
 
-The SSP Butcher tableaux have one source, `ssp_tableau` of `adam_rk_object` (the PRISM boundary and PIC integrators
-call it too). SSP(5,4) is the optimal five-stage fourth-order scheme of Spiteri & Ruuth (2002, SIAM J. Numer. Anal.
+The SSP Butcher tableaux of the FNL backend and of PRISM have one source, `ssp_tableau` of `adam_rk_object` (the
+PRISM boundary and PIC integrators call it too); SELAH's are the same numbers, bit for bit (SELAH's
+`selah_test_adam_parity`). SSP(5,4) is the optimal five-stage fourth-order scheme of Spiteri & Ruuth (2002, SIAM J. Numer. Anal.
 40, 469), SSP coefficient 1.508, stored in the Shu–Osher form printed with 15 digits by Isherwood, Grant & Gottlieb
 (2018, arXiv:1810.04800, §4). The
 order conditions then hold to $6\cdot10^{-16}$, and a refinement in time keeps fourth order down to $10^{-13}$. The unit test `test_rk_ssp_tableau` pins every SSP tableau

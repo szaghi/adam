@@ -17,8 +17,8 @@ use :: adam_flume_cpu_forcing_kernels, only : add_wall_mu_t, close_wall_fluxes, 
 use :: adam_flume_cpu_hybrid_kernels, only : compute_hybrid_sensor, mask_mu_t, overwrite_central_fluxes
 use :: adam_turbulence_kernels, only : compute_mu_t_sigma, compute_mu_t_vreman, compute_mu_t_wale
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
-use :: adam_seam_exchange,        only : seam_fill_all, seam_ghosts_to_stages, pack_seam_rows, unpack_seam_rows
-use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
+use :: adam_seam_exchange,        only : seam_fill_all, seam_ghosts_to_state, pack_seam_rows, unpack_seam_rows
+use :: adam_stepper_object,       only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
@@ -414,7 +414,8 @@ endinterface
 contains
    ! public methods
    subroutine accumulate_seam_fluxes(self, s, flux_register, weight, with_gravity_work)
-   !< Accumulate the seam face fluxes of stage `s`, weighted by its SSP coefficient, into the forest's flux register.
+   !< Accumulate the seam face fluxes of stage `s`, weighted by its effective Butcher weight b_s (SELAH's
+   !< `stage_weight`), into the forest's flux register.
    !<
    !< Every stage contributes (issue #35, P5): the register holds `sum_s beta_s F_s`, the flux of the committed step.
    !< `weight` replaces the SSP coefficient (the D_flux diagnostic accumulates one evaluation with weight 1, #68 A2).
@@ -430,7 +431,7 @@ contains
    integer(I4P)                                      :: b, fec        !< Block, face counters.
    integer(I4P)                                      :: i, j, k, c    !< Cell counters.
 
-   w = self%rk%beta(s) ; if (present(weight)) w = weight
+   w = self%ts%stage_weight(s) ; if (present(weight)) w = weight
    gw = .not.present(weight) ; if (present(with_gravity_work)) gw = with_gravity_work
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv=>self%nv)
    do b=1, self%blocks_number
@@ -1147,9 +1148,9 @@ contains
    !<
    !< D_flux is the divergence the cleaning acts on: that of the interface normal field `B_n = F_psi / s` of the scheme's
    !< own psi face fluxes (`s = c_h^2` with GLM, `c_h` with EGLM), not the centred divergence of the cell values. One
-   !< residual evaluation of the committed state gives the face fluxes: the state is copied into the idle first RK
-   !< stage buffer (the residual applies the floors and the immersed-boundary extrapolation to its argument) and the
-   !< residual goes into the second. Its seam face fluxes are accumulated, with weight 1, into the realm's copy of the
+   !< residual evaluation of the committed state gives the face fluxes: the state is copied into the stepper's first
+   !< register, scratch between steps (the residual applies the floors and the immersed-boundary extrapolation to its
+   !< argument), and the residual goes into the second (#132 rule 3: every Runge-Kutta form has at least two). Its seam face fluxes are accumulated, with weight 1, into the realm's copy of the
    !< forest's flux register and completed across the ranks; at the coarse side of an intra-realm 2:1 seam the coarse
    !< face flux is then replaced by the fine one, as the reflux does at the end of the step, so the sum of D_flux dV
    !< over a composite region is the flux of B_n through its boundary. An inter-realm seam keeps each side's own flux
@@ -1166,12 +1167,16 @@ contains
    logical                                :: is_seam                 !< Seam-local cell.
    integer(I4P)                           :: f, c, axis, sgn         !< Register face, skin cell, face axis and side.
    integer(I4P)                           :: b, i, j, k              !< Counters.
+   real(R8P), pointer                     :: q_s(:,:,:,:,:)          !< Copy of the committed state (scratch register).
+   real(R8P), pointer                     :: dq_s(:,:,:,:,:)         !< Its residual (scratch register).
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%blocks_number, dxyz=>self%adam%field%dxyz, &
              is_null=>self%adam%grid%null_xyz, reg=>self%flux_register_copy, band=>self%ngc)
-   self%rk%q_rk(:,:,:,:,1:nb,1) = self%q(:,:,:,:,1:nb)
+   q_s => self%ts%scratch(1_I4P) ! the stepper's registers are scratch between steps (#132 rule 3)
+   dq_s => self%ts%scratch(2_I4P)
+   q_s(:,:,:,:,1:nb) = self%q(:,:,:,:,1:nb)
    call reg%reset
-   call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,1), dq=self%rk%q_rk(:,:,:,:,:,2), flux_register=reg)
+   call self%compute_residuals(q=q_s, dq=dq_s, flux_register=reg)
    if (self%numerics%reflux .and. reg%nfaces > 0_I4P) then
       call self%accumulate_seam_fluxes(s=1_I4P, flux_register=reg, weight=1._R8P)
       if (self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) call self%flag_troubled_seam_cells(flux_register=reg)
@@ -1289,6 +1294,7 @@ contains
    integer(I4P)                                  :: realms_number_ !< Realm count, local variable.
 
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(1_I4P, realms_number)
+   self%with_selah = .true. ! the time integrator is SELAH's (stepper_object, #132): the realm builds it instead of rk
    call self%flume_common_object%initialize(filename=filename, memory_avail=mpih%memory_avail/realms_number_, &
                                             verbose=.true.)
    if (self%numerics%is_hybrid) then
@@ -1323,13 +1329,13 @@ contains
    case default
       call mpih%error_stop(msg=': no CPU space operator for scheme_space "'//self%numerics%scheme_space//'"')
    endselect
-   select case(self%rk%scheme)
+   select case(self%ts%scheme)
    case(RK_1, RK_2, RK_3)
       self%integrate => integrate_rk_ls
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
       self%integrate => integrate_rk_ssp
    case default
-      call mpih%error_stop(msg=': no CPU time integrator for [runge_kutta].(scheme) "'//trim(self%rk%scheme)//'"')
+      call mpih%error_stop(msg=': no CPU time integrator for [runge_kutta].(scheme) "'//trim(self%ts%scheme)//'"')
    endselect
    endsubroutine initialize_flume
 
@@ -2332,7 +2338,7 @@ contains
    if (.not.flux_register%is_initialized_) return
    if (flux_register%nfaces == 0_I4P) return
    if (.not.allocated(flux_register%face)) return
-   if (stage /= self%rk%nrk) return
+   if (stage /= self%ts%stages()) return
    if (self%numerics%reflux_cadence == REFLUX_CADENCE_STAGE) return ! corrected at every stage (reflux_stage)
    troubled_only = self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED
    nflag = 0_I4P
@@ -2395,7 +2401,11 @@ contains
    type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    self%stage_active = k
-   call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%time%dt, phi=self%ib%phi)
+   call self%ts%begin_stage(k=k, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
+   ! the end_of_step seams (#132 rule 1): SELAH never writes a ghost cell, so the stage state, when it is not q itself,
+   ! takes the seam ghosts of q, which hold the peer state of the step's alpha fill (#113)
+   if (.not.self%ts%state_is_q(k)) call seam_ghosts_to_state(maps=self%adam%maps, cadence=CADENCE_END_OF_STEP, &
+                                                            ngc=self%ngc, q=self%q, u=self%ts%stage_state())
    endsubroutine begin_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -2403,8 +2413,7 @@ contains
    class(flume_cpu_object), intent(inout) :: self !< The equation.
    real(R8P),               intent(in)    :: dt   !< Time step from the forest (the local capped value is time%dt).
 
-   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q, dq=self%dq)
-   if (allocated(self%ib%phi)) call compute_rk_ssp_residual(self)
+   call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq, phi=self%ib%phi)
    call self%save_residuals
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -2552,22 +2561,35 @@ contains
    endsubroutine compute_local_dt_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
-   !< End integrator stage `k` (staged path): residuals on the stage state, then stage assignment.
+   !< End integrator stage `k` (staged path): the residual of the stage state into the stepper's residual register (the
+   !< per-stage reflux corrects it there), then the stepper closes the stage.
    class(flume_cpu_object),     intent(inout)                   :: self          !< The equation.
    integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
    integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count.
    real(R8P),                   intent(in)                      :: dt            !< Time step from the forest.
    type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Sibling realms (parity only).
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register.
+   real(R8P), pointer                                           :: u(:,:,:,:,:)  !< State of the stage.
+   real(R8P), pointer                                           :: r(:,:,:,:,:)  !< Residual register of the stage.
 
-   if (present(flux_register)) then
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,k), dq=self%dq, s=k, flux_register=flux_register)
+   r => self%ts%rhs_register()
+   if (self%ts%state_is_q(k)) then
+      if (present(flux_register)) then
+         call self%compute_residuals(q=self%q, dq=r, s=k, flux_register=flux_register)
+      else
+         call self%compute_residuals(q=self%q, dq=r, s=k)
+      endif
    else
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,k), dq=self%dq, s=k)
+      u => self%ts%stage_state()
+      if (present(flux_register)) then
+         call self%compute_residuals(q=u, dq=r, s=k, flux_register=flux_register)
+      else
+         call self%compute_residuals(q=u, dq=r, s=k)
+      endif
    endif
    if (present(flux_register) .and. self%numerics%reflux .and. self%numerics%reflux_cadence == REFLUX_CADENCE_STAGE) &
-      call self%reflux_stage(s=k, dq=self%dq)
-   call self%rk%assign_stage(field=self%adam%field, s=k, q=self%dq, phi=self%ib%phi)
+      call self%reflux_stage(s=k, dq=r)
+   call self%ts%end_stage(k=k, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
    endsubroutine end_stage_forest
 
    subroutine reflux_stage(self, s, dq)
@@ -2616,34 +2638,40 @@ contains
    endsubroutine reflux_stage
 
    subroutine fill_seam_from_peer_forest(self, peer, p_idx)
-   !< Fill this realm's seam ghosts for peer slot `p_idx` from the peer's interior, on the active buffers (`q` when
-   !< `stage_active == 0`, else the active stage of `q_rk`) of both realms.
+   !< Fill this realm's seam ghosts for peer slot `p_idx` from the peer's interior, on the active buffers of both realms
+   !< (#132 rule 2): the stepper's stage state while a stage is open and its state is not `q` itself, else `q`.
    class(flume_cpu_object), intent(inout)         :: self                           !< The equation.
    class(realm_object),     intent(in),    target :: peer                           !< Peer realm.
    integer(I4P),            intent(in)            :: p_idx                          !< Peer slot.
    integer(I4P)                                   :: c, row_start, row_count, row   !< Counters and seam map rows.
    integer(I4P)                                   :: b_send, i_send, j_send, k_send !< Peer interior cell.
    integer(I4P)                                   :: b_recv, i_recv, j_recv, k_recv !< Own seam ghost cell.
+   logical                                        :: on_stage, peer_on_stage        !< Active buffer is a stage state.
+   real(R8P), pointer                             :: u(:,:,:,:,:), u_peer(:,:,:,:,:) !< The stage states.
 
    row_start = self%adam%maps%seam_local_peer_row_start(p_idx)
    row_count = self%adam%maps%seam_local_peer_row_count(p_idx)
    select type(peer)
    class is(flume_cpu_object)
+      on_stage = .false. ; peer_on_stage = .false.
+      if (self%stage_active > 0_I4P) on_stage = .not.self%ts%state_is_q(self%stage_active)
+      if (peer%stage_active > 0_I4P) peer_on_stage = .not.peer%ts%state_is_q(peer%stage_active)
+      if (on_stage) u => self%ts%stage_state()
+      if (peer_on_stage) u_peer => peer%ts%stage_state()
       associate(rows=>self%adam%maps%seam_local_map_ghost_cell)
       do c=1_I4P, row_count
          row = row_start + c - 1_I4P
          b_send = rows(row,2) ; i_send = rows(row,4) ; j_send = rows(row,5) ; k_send = rows(row,6)
          b_recv = rows(row,3) ; i_recv = rows(row,7) ; j_recv = rows(row,8) ; k_recv = rows(row,9)
-         if (self%stage_active > 0_I4P) then
-            if (peer%stage_active > 0_I4P) then
-               self%rk%q_rk(:,i_recv,j_recv,k_recv,b_recv,self%stage_active) = &
-                  peer%rk%q_rk(:,i_send,j_send,k_send,b_send,peer%stage_active)
+         if (on_stage) then
+            if (peer_on_stage) then
+               u(:,i_recv,j_recv,k_recv,b_recv) = u_peer(:,i_send,j_send,k_send,b_send)
             else
-               self%rk%q_rk(:,i_recv,j_recv,k_recv,b_recv,self%stage_active) = peer%q(:,i_send,j_send,k_send,b_send)
+               u(:,i_recv,j_recv,k_recv,b_recv) = peer%q(:,i_send,j_send,k_send,b_send)
             endif
          else
-            if (peer%stage_active > 0_I4P) then
-               self%q(:,i_recv,j_recv,k_recv,b_recv) = peer%rk%q_rk(:,i_send,j_send,k_send,b_send,peer%stage_active)
+            if (peer_on_stage) then
+               self%q(:,i_recv,j_recv,k_recv,b_recv) = u_peer(:,i_send,j_send,k_send,b_send)
             else
                self%q(:,i_recv,j_recv,k_recv,b_recv) = peer%q(:,i_send,j_send,k_send,b_send)
             endif
@@ -2656,19 +2684,23 @@ contains
    endsubroutine fill_seam_from_peer_forest
 
    subroutine pack_seam_cells_forest(self, p_idx, buf)
-   !< Pack the ghost values of the cross-rank seam send rows of peer slot `p_idx` from the active buffer (`q` when
-   !< `stage_active == 0`, else the active stage of `q_rk`): cell copies, or the 2:1 interpolations and restrictions of a
-   !< refined seam (issues #40, #52; `adam_seam_exchange%pack_seam_rows`).
-   class(flume_cpu_object), intent(in)  :: self   !< The realm.
-   integer(I4P),            intent(in)  :: p_idx  !< Peer slot (the realm owning the ghosts).
-   real(R8P),               intent(out) :: buf(:) !< Packed values.
+   !< Pack the ghost values of the cross-rank seam send rows of peer slot `p_idx` from the active buffer (#132 rule 2:
+   !< the stepper's stage state while a stage is open and its state is not `q`, else `q`): cell copies, or the 2:1
+   !< interpolations and restrictions of a refined seam (issues #40, #52; `adam_seam_exchange%pack_seam_rows`).
+   class(flume_cpu_object), intent(in)  :: self          !< The realm.
+   integer(I4P),            intent(in)  :: p_idx         !< Peer slot (the realm owning the ghosts).
+   real(R8P),               intent(out) :: buf(:)        !< Packed values.
+   real(R8P), pointer                   :: u(:,:,:,:,:)  !< Stage state.
+   logical                              :: on_stage      !< The active buffer is the stage state.
 
+   on_stage = .false.
+   if (self%stage_active > 0_I4P) on_stage = .not.self%ts%state_is_q(self%stage_active)
    associate(maps=>self%adam%maps)
-   if (self%stage_active > 0_I4P) then
+   if (on_stage) then
+      u => self%ts%stage_state()
       call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
                           row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
-                          q=self%rk%q_rk(:,:,:,:,:,self%stage_active), buf=buf, density_var=maps%seam_density_var, &
-                          ratio=maps%refine_ratio)
+                          q=u, buf=buf, density_var=maps%seam_density_var, ratio=maps%refine_ratio)
    else
       call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
                           row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
@@ -2680,15 +2712,19 @@ contains
    subroutine unpack_seam_cells_forest(self, p_idx, buf)
    !< Unpack `buf` into this realm's seam ghosts of the cross-rank receive rows of peer slot `p_idx`, on the active
    !< buffer (issue #40; `adam_seam_exchange%unpack_seam_rows`).
-   class(flume_cpu_object), intent(inout) :: self   !< The realm.
-   integer(I4P),            intent(in)    :: p_idx  !< Peer slot (the realm owning the cells).
-   real(R8P),               intent(in)    :: buf(:) !< Packed values.
+   class(flume_cpu_object), intent(inout) :: self         !< The realm.
+   integer(I4P),            intent(in)    :: p_idx        !< Peer slot (the realm owning the cells).
+   real(R8P),               intent(in)    :: buf(:)       !< Packed values.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state.
+   logical                                :: on_stage     !< The active buffer is the stage state.
 
+   on_stage = .false.
+   if (self%stage_active > 0_I4P) on_stage = .not.self%ts%state_is_q(self%stage_active)
    associate(maps=>self%adam%maps)
-   if (self%stage_active > 0_I4P) then
+   if (on_stage) then
+      u => self%ts%stage_state()
       call unpack_seam_rows(rows=maps%seam_mpi_recv_cell, row_start=maps%seam_mpi_recv_row_start(p_idx),          &
-                            row_count=maps%seam_mpi_recv_row_count(p_idx), ngc=self%ngc, buf=buf,                   &
-                            q=self%rk%q_rk(:,:,:,:,:,self%stage_active))
+                            row_count=maps%seam_mpi_recv_row_count(p_idx), ngc=self%ngc, buf=buf, q=u)
    else
       call unpack_seam_rows(rows=maps%seam_mpi_recv_cell, row_start=maps%seam_mpi_recv_row_start(p_idx),          &
                             row_count=maps%seam_mpi_recv_row_count(p_idx), ngc=self%ngc, buf=buf, q=self%q)
@@ -2806,9 +2842,9 @@ contains
    call self%log_gravity_regime
    call self%refresh_equilibrium_residual
    call self%advance_inflow_df
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
-   ! the end_of_step seams: every stage reads the peer state of the last exchange, held by the ghosts of q (#113)
-   call seam_ghosts_to_stages(maps=self%adam%maps, cadence=CADENCE_END_OF_STEP, ngc=self%ngc, q=self%q, q_rk=self%rk%q_rk)
+   ! the end_of_step seams: every stage reads the peer state of the last exchange, held by the ghosts of q (#113); the
+   ! stage states take them at begin_stage_forest (#132 rule 1)
+   call self%ts%begin_step(field=self%adam%field, q=self%q, phi=self%ib%phi)
    endsubroutine open_step_forest
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
@@ -3104,12 +3140,12 @@ contains
    class(flume_cpu_object), intent(in) :: self !< The equation.
    integer(I4P)                        :: K    !< Integrator stages per step.
 
-   select case(self%rk%scheme)
+   select case(self%ts%scheme)
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
-      K = self%rk%nrk
+      K = self%ts%stages()
    case default
       K = 0_I4P
-      call mpih%error_stop(msg=': RK scheme "'//trim(self%rk%scheme)//'" is not stage-splittable: the staged forest '// &
+      call mpih%error_stop(msg=': RK scheme "'//trim(self%ts%scheme)//'" is not stage-splittable: the staged forest '// &
                                'path (multi-realm, or AMR seam faces) requires an SSP scheme (runge-kutta-ssp-*)')
    endselect
    endfunction stages_per_step_forest
@@ -3430,7 +3466,8 @@ contains
    !< restart, regrid; issue #73, M7-G2b), at the start of a step: the forest's flux register is then the current
    !< grid's.
    !<
-   !< The equilibrium (`ic%set_equilibrium`) goes into the idle first stage buffer and its residual into `dq_e`, with
+   !< The equilibrium (`ic%set_equilibrium`) goes into the stepper's first register (scratch between steps, #132 rule
+   !< 3) and its residual into `dq_e`, with
    !< the space operator of the run (ghosts, boundary conditions, seam fill, limiter, every source): at the equilibrium
    !< every stage residual then vanishes, at AMR 2:1 seams too (the seam ghosts of the two states are the same). The
    !< end-of-step reflux replaces the coarse face flux with the fine one, which at the equilibrium would add
@@ -3441,18 +3478,20 @@ contains
    !< and the residual each conserve, for the state and for the equilibrium, so the difference does.
    class(flume_cpu_object), intent(inout) :: self          !< The equation.
    integer(I4P)                           :: f             !< Register face counter.
+   real(R8P), pointer                     :: q_e(:,:,:,:,:) !< The equilibrium (a scratch register).
 
    if (.not.self%physics%gravity%is_balanced) return
    if (.not.self%equilibrium_stale) return
+   q_e => self%ts%scratch(1_I4P)
    associate(nb=>self%blocks_number, reg=>self%flux_register_copy)
-   self%rk%q_rk(:,:,:,:,1:nb,1) = 0._R8P
-   call self%ic%set_equilibrium(field=self%adam%field, q=self%rk%q_rk(:,:,:,:,:,1))
+   q_e(:,:,:,:,1:nb) = 0._R8P
+   call self%ic%set_equilibrium(field=self%adam%field, q=q_e)
    self%dq_e = 0._R8P
    if (allocated(self%seam_e)) deallocate(self%seam_e)
    self%equilibrium_computing = .true.
    if (self%numerics%reflux .and. reg%is_initialized_ .and. reg%nfaces > 0_I4P) then
       call reg%reset
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,1), dq=self%dq_e, flux_register=reg)
+      call self%compute_residuals(q=q_e, dq=self%dq_e, flux_register=reg)
       call self%accumulate_seam_fluxes(s=1_I4P, flux_register=reg, weight=1._R8P)
       call reg%reduce_fine_sums
       allocate(self%seam_e(reg%nfaces))
@@ -3468,7 +3507,7 @@ contains
       endif
       call reg%reset
    else
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,1), dq=self%dq_e)
+      call self%compute_residuals(q=q_e, dq=self%dq_e)
    endif
    self%equilibrium_computing = .false.
    self%equilibrium_stale = .false.
@@ -3603,30 +3642,6 @@ contains
    endif
    endassociate
    endsubroutine compute_gravity_correction
-
-   subroutine compute_rk_ssp_residual(self)
-   !< Compute the residual of a strong stability preserving step, `dq = sum_s beta_s dq_s`, from the stored stages.
-   !<
-   !< Used with immersed solids only: the library `update_q` computes the step residual on its unmasked path but not on
-   !< the masked one. Same summation order as the FNL kernel `compute_rk_ssp_residual_dev`.
-   class(flume_cpu_object), intent(inout) :: self          !< The equation.
-   integer(I4P)                           :: b, i, j, k, s !< Counters.
-
-   self%dq(:,:,:,:,1:self%blocks_number) = 0._R8P ! the blocks in use, not the whole pool (issue #89)
-   !$omp parallel do collapse(4) default(firstprivate) shared(self)
-   do b=1, self%blocks_number
-      do k=1, self%nk
-         do j=1, self%nj
-            do i=1, self%ni
-               do s=1, self%rk%nrk
-                  self%dq(:,i,j,k,b) = self%dq(:,i,j,k,b) + self%rk%beta(s) * self%rk%q_rk(:,i,j,k,b,s)
-               enddo
-            enddo
-         enddo
-      enddo
-   enddo
-   !$omp end parallel do
-   endsubroutine compute_rk_ssp_residual
 
    subroutine compute_residuals_weno(self, q, dq, s, flux_register)
    !< Compute the residuals with the WENO space operator: ghost update, auxiliary variables, face fluxes of the active
@@ -4129,31 +4144,64 @@ contains
    endsubroutine compute_residuals_riemann
 
    subroutine integrate_rk_ls(self)
-   !< Integrate one time step with a low-storage Runge-Kutta scheme.
-   class(flume_cpu_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Counter.
+   !< Integrate one time step with a low-storage Runge-Kutta scheme: SELAH's two-register form, every stage on `q`.
+   !<
+   !< The residual of each stage goes into `dq` (the step's residual log is the first stage's, the residual fields the
+   !< last stage's, as before #132) and is copied into the stepper's residual register, which the stage update reads.
+   class(flume_cpu_object), intent(inout) :: self         !< The equation.
+   real(R8P), pointer                     :: r(:,:,:,:,:) !< Residual register of the stage.
+   integer(I4P)                           :: s            !< Counter.
 
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
-   do s=1, self%rk%nrk
+   call self%ts%begin_step(field=self%adam%field, q=self%q, phi=self%ib%phi)
+   do s=1, self%ts%stages()
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s == 1) call self%save_residuals
-      call self%rk%compute_stage_ls(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi, dq=self%dq, q=self%q)
+      r => self%ts%rhs_register()
+      call copy_interior(self, src=self%dq, dst=r)
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
    enddo
+   call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
    endsubroutine integrate_rk_ls
 
    subroutine integrate_rk_ssp(self)
-   !< Integrate one time step with a strong stability preserving Runge-Kutta scheme.
-   class(flume_cpu_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Counter.
+   !< Integrate one time step with a strong stability preserving Runge-Kutta scheme: SELAH's Butcher form, each stage
+   !< state on the stepper's register, its residual written into the stepper's residual register; the step closes with
+   !< the step residual `dq = sum_s b_s R_s` (0 in the solid cells, #128 D4).
+   class(flume_cpu_object), intent(inout) :: self         !< The equation.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< State of the stage.
+   real(R8P), pointer                     :: r(:,:,:,:,:) !< Residual register of the stage.
+   integer(I4P)                           :: s            !< Counter.
 
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
-   do s=1, self%rk%nrk
-      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
-      call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
+   call self%ts%begin_step(field=self%adam%field, q=self%q, phi=self%ib%phi)
+   do s=1, self%ts%stages()
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
+      u => self%ts%stage_state()
+      r => self%ts%rhs_register()
+      call self%compute_residuals(q=u, dq=r, s=s)
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
    enddo
-   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q, dq=self%dq)
-   if (allocated(self%ib%phi)) call compute_rk_ssp_residual(self)
+   call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq, phi=self%ib%phi)
    call self%save_residuals
    endsubroutine integrate_rk_ssp
+
+   subroutine copy_interior(self, src, dst)
+   !< Copy the interior cells of the active blocks of `src` into `dst` (the residual into the stepper's register).
+   class(flume_cpu_object), intent(in)    :: self                                              !< The equation.
+   real(R8P),               intent(in)    :: src(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Source.
+   real(R8P),               intent(inout) :: dst(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Destination.
+   integer(I4P)                           :: b, i, j, k                                        !< Counters.
+
+   !$omp parallel do collapse(4) default(none) shared(self, src, dst) private(b, k, j, i)
+   do b=1, self%blocks_number
+      do k=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               dst(:,i,j,k,b) = src(:,i,j,k,b)
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine copy_interior
 endmodule adam_flume_cpu_object

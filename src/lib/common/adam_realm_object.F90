@@ -49,6 +49,7 @@ use :: adam_leapfrog_object
 use :: adam_maps_object
 use :: adam_parameters
 use :: adam_rk_object
+use :: adam_stepper_object, only : stepper_object
 use :: adam_riemann_euler_library
 use :: adam_slices_object
 use :: adam_tree_node_object
@@ -87,7 +88,10 @@ type :: realm_object
    logical                 :: with_weno=.true. !< Read [weno] and initialize `weno` (the app clears it when unused, #80 P5).
    logical                 :: with_fdv=.true.  !< Read [fdv] and bind the FD/FV operators (cleared when unused, #80 P5).
    type(ib_object)         :: ib         !< Immersed boundary.
-   type(rk_object)         :: rk         !< Runge-Kutta integrator.
+   type(rk_object)         :: rk         !< Runge-Kutta integrator (the apps not yet wired to SELAH, #132).
+   type(stepper_object)    :: ts         !< Time integrator on SELAH (stepper_object, #132), with `with_selah`.
+   logical                 :: with_selah=.false. !< Integrate with `ts` instead of `rk` (the app sets it, #132): `rk`
+                                                 !< then holds the scheme name only, its stages are not allocated.
    type(adam_object)       :: adam       !< ADAM, grid + tree + field + maps orchestrator.
    ! FDV data
    character(:), allocatable :: fdv_scheme                   !< FDV scheme, fd/fv.
@@ -376,7 +380,12 @@ contains
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
       ! call self%cfm%initialize(file_parameters=file_parameters)
       ! call self%leapfrog%initialize(file_parameters=file_parameters)
-      call self%rk%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
+      if (self%with_selah) then
+         call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
+         self%rk%scheme = self%ts%scheme ! the scheme name the forest's coupling descriptor reads
+      else
+         call self%rk%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
+      endif
       self%ngc           => self%adam%grid%ngc
       self%ni            => self%adam%grid%ni
       self%nj            => self%adam%grid%nj

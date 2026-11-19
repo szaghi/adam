@@ -253,6 +253,10 @@ registers) and `test-stepper-object-xfail-gnu` (an unknown scheme stops the run)
 ### `adam_rk_object`
 
 Explicit Runge-Kutta, `[runge_kutta]` section. The stage storage `q_rk(nv, ni, nj, nk, nb, nrk)` is preallocated.
+The integrator of FLUME FNL, PRISM and RIPPLE until phases 3-5 of [#132](https://github.com/szaghi/adam/issues/132);
+FLUME CPU integrates with SELAH through `adam_stepper_object` (above). A realm builds one or the other:
+`realm_object%with_selah`, set by the application before the realm initializes, builds `ts` and leaves `rk` with the
+scheme name only.
 
 | Constant | Scheme | Stages | Order |
 |----------|--------|--------|-------|
