@@ -4,7 +4,8 @@
 # Why this script exists: run.sh compares a run with its goldens within rtol = 1e-6, so it cannot tell an identical
 # result from one that moved at round-off. The A/B runs the same case with executable A (e.g. the develop build) and
 # executable B (the refactored build) and requires every history log byte for byte and every checkpoint dataset bit for
-# bit (regression_ab.py); on a difference it prints the first divergent row and the largest deviation.
+# bit (regression_ab.py, the ghost layers apart: a dataset that differs only in them is a note); on a difference it
+# prints the first divergent row and the largest deviation.
 #
 # --scheme overrides `[runge_kutta] scheme` in the run directory's copies of the case inputs (every INI with a
 # [runge_kutta] section; a realm INI that extends another inherits it): the old integrators no committed case runs,
@@ -15,6 +16,9 @@
 # Environment: PYTHON (default exe/.regression-venv/bin/python, with h5py and numpy), ADAM_MEMORY_FRACTION and
 # ADAM_UNUSED_KEYS (defaults as run.sh), MPIRUN_ARGS (extra mpirun arguments).
 # Exit status: 0 bitwise, 1 different, 2 usage error, 3 a run did not complete.
+# The script runs one mpirun at a time; a caller that runs several cases at once must turn the core binding off
+# (PRTE_MCA_hwloc_default_binding_policy=none with Open MPI 5, as regression-dispatch.sh does), or every launch binds
+# to the same cores.
 
 set -uo pipefail
 
@@ -32,7 +36,7 @@ while [[ $# -gt 0 ]]; do
    esac
    shift
 done
-[[ -n "$CASE" && -n "$EXE_A" && -n "$EXE_B" ]] || { sed -n 2,17p "$0" >&2 ; exit 2 ; }
+[[ -n "$CASE" && -n "$EXE_A" && -n "$EXE_B" ]] || { sed -n 2,21p "$0" >&2 ; exit 2 ; }
 [[ -f "$CASE/input.ini" ]] || { echo "ERROR: $CASE/input.ini not found" >&2 ; exit 2 ; }
 for e in "$EXE_A" "$EXE_B"; do [[ -x "$e" ]] || { echo "ERROR: executable $e not found" >&2 ; exit 2 ; } ; done
 CASE="$(cd "$CASE" && pwd)"
@@ -82,7 +86,9 @@ prepare "$WORK/b" || exit 2
 echo "AB $(basename "$CASE") $label: A = $EXE_A, B = $EXE_B, np $NP"
 run "$WORK/a" "$EXE_A" || exit 3
 run "$WORK/b" "$EXE_B" || exit 3
-"$PYTHON" "$REPO_ROOT/src/tests/regression_ab.py" "$WORK/a" "$WORK/b" > "$WORK/compare.txt" 2>&1
+# the ghost layers of the case ([grid] ngc of the inputs, the largest): a dataset that differs only there is a note
+ngc=$(sed -n -E 's/^[[:space:]]*ngc[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' "$CASE"/*.ini | sort -n | tail -1)
+"$PYTHON" "$REPO_ROOT/src/tests/regression_ab.py" "$WORK/a" "$WORK/b" ${ngc:+--ngc $ngc} > "$WORK/compare.txt" 2>&1
 rc=$?
 sed 's/^/   /' "$WORK/compare.txt"
 case $rc in

@@ -11,8 +11,13 @@ cannot tell an identical result from one that moved at round-off. A refactoring 
   on a difference, the dataset and the largest deviations.
 A file only one run wrote is a difference. Exit 0 when everything is identical, 1 otherwise, 2 on a usage error.
 
+With `--ngc N` a block dataset (rank 3, ghosts included) that differs only in its N ghost layers is not a difference:
+it is reported as a note. The FNL backend leaves some ghost cells unwritten (the edge and corner ghosts of a null axis,
+#45), and two runs of the same executable store different contents there (measured on develop 61fa3344, #132 A1: 3 of
+56 FLUME cases, histories and interiors bitwise); the interior and the histories are what a run computes.
+
 Usage:
-    regression_ab.py RUN_A RUN_B
+    regression_ab.py RUN_A RUN_B [--ngc N]
 """
 
 from __future__ import annotations
@@ -62,19 +67,21 @@ def compare_log(a: Path, b: Path) -> bool:
     return False
 
 
-def compare_h5(a: Path, b: Path) -> bool:
-    """Compare every dataset of two checkpoints bit for bit."""
+def compare_h5(a: Path, b: Path, ngc: int | None = None) -> tuple[bool, int]:
+    """Compare every dataset of two checkpoints bit for bit; with ngc, a rank-3 dataset that differs in its ghost layers
+    only is counted apart. Return (identical, datasets differing in the ghosts only)."""
     import h5py
     import numpy as np
 
     same = True
+    ghost_only = 0
     with h5py.File(a, "r") as fa, h5py.File(b, "r") as fb:
         names_a, names_b = [], []
         fa.visititems(lambda n, o: names_a.append(n) if isinstance(o, h5py.Dataset) else None)
         fb.visititems(lambda n, o: names_b.append(n) if isinstance(o, h5py.Dataset) else None)
         if sorted(names_a) != sorted(names_b):
             print(f"DIFF {a.name}: the datasets differ ({len(names_a)} vs {len(names_b)})")
-            return False
+            return False, 0
         worst = (0.0, 0.0, "")
         ndiff = 0
         for name in sorted(names_a):
@@ -89,6 +96,11 @@ def compare_h5(a: Path, b: Path) -> bool:
                 eq = np.array_equal(xa, xb)
             if eq:
                 continue
+            if ngc and np.ndim(xa) == 3 and min(np.shape(xa)) > 2 * ngc:
+                core = (slice(ngc, -ngc),) * 3
+                if np.array_equal(np.asarray(xa)[core], np.asarray(xb)[core], equal_nan=True):
+                    ghost_only += 1
+                    continue
             ndiff += 1
             same = False
             if np.asarray(xa).dtype.kind in "fc":
@@ -100,11 +112,17 @@ def compare_h5(a: Path, b: Path) -> bool:
         if ndiff:
             print(f"DIFF {a.name}: {ndiff} of {len(names_a)} datasets differ; largest abs {worst[0]:.3e} "
                   f"(rel to the dataset max {worst[1]:.3e}) in {worst[2]}")
-    return same
+        if ghost_only:
+            print(f"NOTE {a.name}: {ghost_only} datasets differ in their ghost cells only (--ngc {ngc})")
+    return same, ghost_only
 
 
 def main(argv: list[str]) -> int:
     """Compare the two run directories; print a one-line verdict."""
+    ngc = None
+    if len(argv) == 5 and argv[3] == "--ngc":
+        ngc = int(argv[4])
+        argv = argv[:3]
     if len(argv) != 3:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
         return 2
@@ -122,11 +140,17 @@ def main(argv: list[str]) -> int:
     if not common:
         print("regression_ab: no history log and no checkpoint to compare")
         return 1
+    ghosts = 0
     for name in common:
-        same = compare_log(ra / name, rb / name) if name.endswith(".dat") else compare_h5(ra / name, rb / name)
+        if name.endswith(".dat"):
+            same = compare_log(ra / name, rb / name)
+        else:
+            same, g = compare_h5(ra / name, rb / name, ngc)
+            ghosts += g
         ok = ok and same
     nlog = sum(1 for n in common if n.endswith(".dat"))
-    print(f"{'BITWISE' if ok else 'DIFFERENT'}: {nlog} history logs, {len(common) - nlog} checkpoints compared")
+    note = f" (ghost cells differ in {ghosts} datasets)" if ghosts else ""
+    print(f"{'BITWISE' if ok else 'DIFFERENT'}: {nlog} history logs, {len(common) - nlog} checkpoints compared{note}")
     return 0 if ok else 1
 
 

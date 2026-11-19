@@ -114,7 +114,10 @@ src/tests/regression-ab.sh --case src/tests/flume/regression/vortex-rk3 \
 ```
 
 The outputs go to `<case>/work-ab-<scheme>/{a,b}`; the exit status is 0 bitwise, 1 different, 3 a run that did not
-complete.
+complete. A block dataset that differs only in its ghost layers (`[grid] ngc` of the case) is a note, not a difference:
+the FNL backend leaves some ghost cells unwritten (the edge and corner ghosts of a null axis,
+[#45](https://github.com/szaghi/adam/issues/45)), and two runs of the same FNL executable store different contents there
+(3 of the 56 FLUME cases on an A30, their histories and interiors bitwise).
 
 ## FLUME suite
 
