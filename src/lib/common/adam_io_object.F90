@@ -3,7 +3,7 @@ module adam_io_object
 !< ADAM, IO class definition.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_get, ini_load
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 use :: finer
@@ -121,8 +121,7 @@ contains
    if (.not.self%is_initialized) then
       verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
       print '(A)', mpih%myrankstr//'io_object%initialize start'
-      call self%file_parameters%initialize(filename=trim(filename))
-      call self%file_parameters%load
+      call ini_load(filename=trim(filename), ini=self%file_parameters) ! resolves "extends = <base file>" (#80 P4)
       call self%load_from_file(file_parameters=self%file_parameters)
       self%is_initialized = .true.
       print '(A)', self%description()

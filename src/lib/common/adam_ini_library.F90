@@ -21,6 +21,11 @@ module adam_ini_library
 !< The recorded errors are module state of this library, kept only between a parser's reads and its `ini_check`.
 !< Absence is told apart from a bad value by reading the option first as text, which fails only when the option is not in
 !< the section (FiNeR's `has_option` searches every section, not one).
+!<
+!< `ini_load(filename, ini)` loads an input file that may extend another (issue #80, P4): a global option (before the
+!< first section) `extends = <file>` names a base file, read first (recursively, its path relative to the including
+!< file's directory); the including file's options are then added onto it, replacing the values of the options both
+!< define and adding the others, sections included. `extends` itself is consumed: it is not an option of the result.
 use :: adam_mpih_global, only : mpih
 use :: finer, only : file_ini
 use :: penf, only : I4P, R8P, str
@@ -30,10 +35,12 @@ private
 public :: ini_check
 public :: ini_error
 public :: ini_get
+public :: ini_load
 public :: ini_stop
 public :: ini_warn_unused
 
 integer(I4P), parameter :: TEXT_LEN = 999 !< Length of the text buffer used to detect an option.
+integer(I4P), parameter :: EXTENDS_DEPTH_MAX = 8 !< Longest chain of files extending one another.
 
 character(len=:), allocatable :: pending          !< Errors recorded since the last ini_check, one per line.
 integer(I4P)                  :: pending_number=0 !< Number of errors recorded.
@@ -44,6 +51,63 @@ interface ini_get
 endinterface ini_get
 
 contains
+   recursive subroutine ini_load(filename, ini, depth)
+   !< Load an input file into `ini`, resolving `extends = <file>` (a global option) recursively: the base file first, then
+   !< the including file's options added onto it (an option both define takes the including file's value).
+   !<
+   !< A missing file loads empty, as FiNeR does (the required options then fail to load); a missing base file, a chain
+   !< longer than `EXTENDS_DEPTH_MAX` (a cycle) and an empty `extends` stop the run.
+   character(*),           intent(in)    :: filename  !< Input file name.
+   type(file_ini),         intent(inout) :: ini       !< Loaded (and merged) INI.
+   integer(I4P), optional, intent(in)    :: depth     !< Extension depth of this file (0 for the input itself).
+   type(file_ini)                        :: base      !< The file extended, merged.
+   type(file_ini)                        :: own       !< This file alone.
+   character(len=TEXT_LEN)               :: extends   !< `extends` value.
+   character(len=:), allocatable         :: sections(:) !< Sections of this file.
+   character(len=:), allocatable         :: pairs(:)  !< Option name/value pair.
+   character(len=:), allocatable         :: path      !< Base file path.
+   integer(I4P)                          :: depth_    !< Extension depth, local variable.
+   integer(I4P)                          :: error     !< Error status.
+   integer(I4P)                          :: s         !< Counter.
+   integer(I4P)                          :: slash     !< Last directory separator of filename.
+   logical                               :: exists    !< Base file found.
+
+   depth_ = 0_I4P ; if (present(depth)) depth_ = depth
+   call own%initialize(filename=trim(filename))
+   call own%load
+   extends = ''
+   call own%get(section_name='', option_name='extends', val=extends, error=error)
+   if (error /= 0) then ! no extension: the file as it is
+      ini = own
+      return
+   endif
+   if (len_trim(extends) == 0) call mpih%error_stop(msg=': '//trim(filename)//': empty "extends"')
+   if (depth_ >= EXTENDS_DEPTH_MAX) &
+      call mpih%error_stop(msg=': '//trim(filename)//': "extends" chain longer than '//trim(str(EXTENDS_DEPTH_MAX, .true.))// &
+                               ' files (a file extending itself?)')
+   path = trim(adjustl(extends))
+   if (path(1:1) /= '/') then ! relative to the including file's directory
+      slash = index(trim(filename), '/', back=.true.)
+      if (slash > 0) path = filename(1:slash)//path
+   endif
+   inquire(file=path, exist=exists)
+   if (.not.exists) call mpih%error_stop(msg=': '//trim(filename)//': the file it extends, "'//path//'", does not exist')
+   call ini_load(filename=path, ini=base, depth=depth_ + 1_I4P)
+   call own%get_sections_list(sections)
+   if (allocated(sections)) then
+      do s=1, size(sections, dim=1)
+         do while (own%loop(section_name=trim(sections(s)), option_pairs=pairs))
+            if (len_trim(sections(s)) == 0 .and. trim(pairs(1)) == 'extends') cycle ! consumed, not an option
+            call base%add(section_name=trim(sections(s)), option_name=trim(pairs(1)), val=trim(pairs(2)), error=error)
+            if (error /= 0) call mpih%error_stop(msg=': '//trim(filename)//': cannot merge ['//trim(sections(s))//'].('// &
+                                                     trim(pairs(1))//') onto "'//path//'"')
+         enddo
+      enddo
+   endif
+   ini = base
+   ini%filename = trim(filename)
+   endsubroutine ini_load
+
    logical function is_present(ini, section, option)
    !< True if the option is in the section.
    type(file_ini), intent(in) :: ini     !< INI file.

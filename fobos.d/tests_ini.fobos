@@ -1,0 +1,13 @@
+[modes]
+modes = test-ini-extends-gnu test-ini-extends-gnu-debug
+
+# adam_ini_library%ini_load, an input file extending another (issue #80, P4): src/tests/ini/check.sh runs it
+[test-ini-extends-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_ini_extends.F90
+
+[test-ini-extends-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_ini_extends.F90
