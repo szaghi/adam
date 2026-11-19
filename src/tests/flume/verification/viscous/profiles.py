@@ -44,13 +44,8 @@ restart                = .false.
 restart_basename       = profile-restart
 restart_save           = 0
 residuals_save         = 0
-save_memory_status     = .false.
 save_residual_fields   = .false.
 save_auxiliary_fields  = .false.
-save_curl_fields       = .false.
-save_divergence_fields = .false.
-save_gradient_fields   = .false.
-save_laplacian_fields  = .false.
 
 [grid]
 ni     = {ni}
@@ -79,9 +74,6 @@ frequency      = 0
 iters          = 1
 markers_number = 0
 
-[field]
-nv = 5
-
 [runge_kutta]
 scheme = runge-kutta-ssp-54
 
@@ -93,10 +85,6 @@ ror_vars_number     = 0
 enable_ror_stats    = .false.
 ib_reduction_extent = 0
 ib_reduced_order    = 2
-
-[fdv]
-fdv_scheme = fd
-fdv_order  = 2
 
 [solids]
 number    = 0

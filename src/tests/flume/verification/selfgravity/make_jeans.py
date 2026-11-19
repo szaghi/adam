@@ -57,9 +57,8 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
     lines = [
         f"; FLUME self-gravity case {case} (verification/selfgravity/make_jeans.py, issue #81 M8-P3)",
         "[IO]", f"output_basename = {case}", f"it_save = {it_save}", "restart = .false.",
-        f"restart_basename = {case}-restart", "restart_save = 0", "residuals_save = 1", "save_memory_status = .false.",
-        "save_residual_fields = .false.", "save_auxiliary_fields = .false.", "save_curl_fields = .false.",
-        "save_divergence_fields = .false.", "save_gradient_fields = .false.", "save_laplacian_fields = .false.",
+        f"restart_basename = {case}-restart", "restart_save = 0", "residuals_save = 1",
+        "save_residual_fields = .false.", "save_auxiliary_fields = .false.",
         "[grid]", f"ni = {cells}", f"nj = {cells}", f"nk = {cells if is3d else 1}", "ngc = 4",
         f"emin_x = {lo!r}", f"emin_y = {lo!r}", f"emin_z = {0.0!r}", f"emax_x = {lo + 1.0!r}", f"emax_y = {lo + 1.0!r}",
         f"emax_z = {1.0!r}",
@@ -78,10 +77,10 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
         lines += [f"[amr_marker_{int(box) + 1}]", "mode = 4", "delta_type = max", "delta_fine = 0.0",
                   "delta_coarse = 0.0", "field = 1", "var = 1", "refine_tol = 0.3", "derefine_tol = 0.1", "floor = 1e-4", "buffer = 2"]
     lines += [
-        "[field]", "nv = 5", "[runge_kutta]", "scheme = runge-kutta-ssp-33",
+        "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5", "ror_number = 0", "ror_threshold = 0.9", "ror_vars_number = 0",
         "enable_ror_stats = .false.", "ib_reduction_extent = 0", "ib_reduced_order = 2",
-        "[fdv]", "fdv_scheme = fd", "fdv_order = 2", "[solids]", "number = 0", "n_eikonal = 0",
+        "[solids]", "number = 0", "n_eikonal = 0",
         "[slices]", "slices_number = 0",
         "[physics]", "physical_model = euler", f"gamma = {GAMMA!r}",
         "[numerics]", "scheme_space = weno", "reconstruction_variables = characteristic", "reflux = .true.",

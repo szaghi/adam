@@ -109,14 +109,15 @@ def case_ini(a: argparse.Namespace) -> str:
         s = set_key(s, "initial_conditions_region_2", "u", repr(-a.mach * a.c0))
     else:  # the acoustic wave on the periodic box
         s = set_key(s, "initial_conditions", "type", "sine-wave")
-        s = set_key(s, "initial_conditions", "regions_number", "1")
+        s = unset_key(s, "initial_conditions", "regions_number")  # the sine wave reads region 1's state only
         s = set_key(s, "initial_conditions", "wave_mode", "acoustic")
         s = set_key(s, "initial_conditions", "wave_angle", "0.0")
         s = set_key(s, "initial_conditions", "wave_amplitude", "1.0e-6")
         s = set_key(s, "initial_conditions", "wavelength", "1.0")
-        s = set_key(s, "initial_conditions_region_1", "emax_x", "1.0")
+        for key in ("emin_x", "emin_y", "emin_z", "emax_x", "emax_y", "emax_z"):
+            s = unset_key(s, "initial_conditions_region_1", key)
         s = set_key(s, "initial_conditions_region_1", "r", repr(a.rho0))
-        s = set_key(s, "initial_conditions_region_2", "r", repr(a.rho0))
+        s = re.sub(r"(?m)^\[initial_conditions_region_2\][^\[]*", "", s)
         for face in ("bc_x_min", "bc_x_max"):
             s = set_key(s, face, "type", "periodic")
     if a.case != "wave":  # --left/--right "r u v": the Riemann states (missing values keep the case's)

@@ -48,9 +48,8 @@ def realm_ini(name: str, extent: tuple[float, ...], cells: int, levels: int, rat
     lines = [
         f"; ghost probe realm {name} (make_probe.py, issue #65 P0)",
         "[IO]", f"output_basename = {name}", "it_save = 1000000", "restart = .false.",
-        f"restart_basename = {name}-restart", "restart_save = 0", "residuals_save = 1", "save_memory_status = .false.",
-        "save_residual_fields = .false.", "save_auxiliary_fields = .false.", "save_curl_fields = .false.",
-        "save_divergence_fields = .false.", "save_gradient_fields = .false.", "save_laplacian_fields = .false.",
+        f"restart_basename = {name}-restart", "restart_save = 0", "residuals_save = 1",
+        "save_residual_fields = .false.", "save_auxiliary_fields = .false.",
         "[grid]", f"ni = {cells}", f"nj = {cells}", f"nk = {1 if null_z else cells}", "ngc = 3",
         f"emin_x = {extent[0]!r}", f"emin_y = {extent[2]!r}", f"emin_z = {extent[4]!r}",
         f"emax_x = {extent[1]!r}", f"emax_y = {extent[3]!r}", f"emax_z = {extent[5]!r}",
@@ -65,10 +64,10 @@ def realm_ini(name: str, extent: tuple[float, ...], cells: int, levels: int, rat
                   f"box_xmax = {box[1]!r}", f"box_ymax = {box[3]!r}", f"box_zmax = {box[5]!r}",
                   f"target_level = {levels + 1}"]
     lines += [
-        "[field]", f"nv = {9 if model == 'mhd' else 5}", "[runge_kutta]", "scheme = runge-kutta-ssp-33",
+        "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5", "ror_number = 0", "ror_threshold = 0.9", "ror_vars_number = 0",
         "enable_ror_stats = .false.", "ib_reduction_extent = 0", "ib_reduced_order = 2",
-        "[fdv]", "fdv_scheme = fd", "fdv_order = 2", "[solids]", "number = 0", "n_eikonal = 0",
+        *(["[fdv]", "fdv_scheme = fd", "fdv_order = 2"] if model == 'mhd' else []), "[solids]", "number = 0", "n_eikonal = 0",
         "[slices]", "slices_number = 0",
         "[physics]", f"physical_model = {'mhd-ideal' if model == 'mhd' else 'euler'}", "gamma = 1.4",
         "[numerics]", "scheme_space = weno", "reconstruction_variables = characteristic", "reflux = .true.",

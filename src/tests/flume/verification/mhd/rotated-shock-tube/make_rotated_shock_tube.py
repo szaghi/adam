@@ -63,7 +63,7 @@ def main() -> None:
     ini["mhd"] = {"divergence_control": "glm", "divb_tol": "0.0", "divb_error": ".false.", "rho_floor": "0.0",
                   "p_floor": "0.0", "glm_ch": args.glm_ch, "glm_alpha": "0.18", "glm_damping_length": "1.0",
                   "glm_ch_check": "error"}
-    ini["field"]["nv"] = "9"
+    ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
     if args.reference:
         # 4 blocks along x: 4 N cells; one cell on the null axes (their extent is irrelevant, the cost is not)
         ini["grid"].update({"ni": str(args.cells), "nj": "1", "nk": "1", "emin_x": "0.0", "emax_x": repr(1.0 / norm)})

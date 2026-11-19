@@ -47,7 +47,7 @@ def main() -> None:
         # bitwise); the c_h check warns, as it should
         ini["mhd"].update({"glm_ch": "2.0", "glm_alpha": "0.18", "glm_damping_length": "1.0",
                            "glm_ch_check": "warning"})
-    ini["field"]["nv"] = "8" if args.divergence_control == "none" else "9"
+    ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
     if args.cells is not None:
         ini["grid"]["n" + "ijk"["xyz".index(args.axis)]] = str(args.cells // 4)  # four blocks along the axis
     frame = FRAME[args.axis]

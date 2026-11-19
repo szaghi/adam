@@ -32,6 +32,7 @@ module adam_flume_reference_object
 !< output units, the references and the factor of every written variable.
 
 ! ADAM singleton objects
+use :: adam_ini_library,      only : ini_mark_read
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : EOS_IDEAL
@@ -842,6 +843,7 @@ contains
          call mpih%error_stop(msg=': unknown ['//INI_SECTION_NAME//'].('//trim(key)//'); accepted: density, '// &
                                   'length, velocity, pressure, field, output_units')
       endselect
+      call ini_mark_read(file_parameters, INI_SECTION_NAME, trim(key)) ! loop does not count as a read (#80 P5)
    enddo
    select case(output_units)
    case('code')

@@ -67,6 +67,8 @@ def main() -> None:
     text = TEMPLATE.read_text()
     text = re.sub(r"\A(?:;.*\n)+", "", text)  # the template's own header
     text = re.sub(r"^\[initial_conditions_region_\d+\][^\[]*", "", text, flags=re.M)
+    ic = re.search(r"^\[initial_conditions\][^\[]*", text, flags=re.M)  # the template vortex's keys: unread by the TGV
+    text = text[: ic.start()] + re.sub(r"^(?:x0|y0|radius|strength)\s*=.*\n", "", ic.group(0), flags=re.M) + text[ic.end() :]
     box = 2.0 * math.pi
     text = section(text, "IO", {"output_basename": "tgv", "it_save": str(args.it_save), "restart_basename": "tgv-restart",
                                  "restart_save": str(args.restart_save), "restart": ".true." if args.restart else ".false."})

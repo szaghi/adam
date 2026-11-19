@@ -36,6 +36,7 @@ public :: ini_check
 public :: ini_error
 public :: ini_get
 public :: ini_load
+public :: ini_mark_read
 public :: ini_stop
 public :: ini_warn_unused
 
@@ -107,6 +108,17 @@ contains
    ini = base
    ini%filename = trim(filename)
    endsubroutine ini_load
+
+   subroutine ini_mark_read(ini, section, option)
+   !< Count an option as read (issue #80 P5). FiNeR counts only the options read through `get`, so a parser that walks a
+   !< section with `loop` (to refuse the options it does not know) marks each one it accepts, or `ini_warn_unused` would
+   !< report it never read.
+   type(file_ini), intent(in) :: ini     !< INI file.
+   character(*),   intent(in) :: section !< Section name.
+   character(*),   intent(in) :: option  !< Option name.
+
+   if (is_present(ini, section, option)) return
+   endsubroutine ini_mark_read
 
    logical function is_present(ini, section, option)
    !< True if the option is in the section.

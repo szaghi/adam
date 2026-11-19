@@ -48,7 +48,7 @@ def main() -> None:
     ini["physics"].update({"physical_model": "mhd-ideal", "cp": "2.5", "cv": "1.5"})  # gamma = 5/3
     ini["mhd"] = {"divergence_control": args.divergence_control, "divb_tol": "0.0", "divb_error": ".false.",
                   "rho_floor": "0.0", "p_floor": "0.0"}
-    ini["field"]["nv"] = "8" if args.divergence_control == "none" else "9"
+    ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
     angle = math.degrees(math.atan(TAN_A)) if args.geometry == "2d" else 0.0
     c, s = math.cos(math.radians(angle)), math.sin(math.radians(angle))
     if args.geometry == "1d":

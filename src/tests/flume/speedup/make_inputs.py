@@ -123,9 +123,7 @@ def case_ini(case: str, conf: dict[str, str]) -> str:
         f"; Mach 2 shock over a {body}, streamwise axis {a}, {what}",
         "[IO]", f"output_basename        = {basename}", f"it_save                = {conf['FULL_IT_SAVE']}",
         "restart                = .false.", f"restart_basename       = {basename}-restart", "restart_save           = 0",
-        "residuals_save         = 1", "save_memory_status     = .false.", "save_residual_fields   = .false.",
-        "save_auxiliary_fields  = .false.", "save_curl_fields       = .false.", "save_divergence_fields = .false.",
-        "save_gradient_fields   = .false.", "save_laplacian_fields  = .false.",
+        "residuals_save         = 1", "save_residual_fields   = .false.", "save_auxiliary_fields  = .false.",
         "", "[grid]", f"ni     = {cells['x']}", f"nj     = {cells['y']}", f"nk     = {cells['z']}", "ngc    = 3",
         "emin_x = 0.0", "emin_y = 0.0", "emin_z = 0.0", "emax_x = 1.0", "emax_y = 1.0", "emax_z = 1.0",
     ]
@@ -147,10 +145,9 @@ def case_ini(case: str, conf: dict[str, str]) -> str:
             f"tol          = {tol}   ; {conf['GRAD_TOL_FACTOR']} * drho / h(base), drho = {DRHO:.4f}",
         ]
     lines += [
-        "", "[field]", "nv = 5", "", "[runge_kutta]", "scheme = runge-kutta-ssp-33",
+        "", "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "", "[weno]", "scheme              = weno-u-5", "ror_number          = 0", "ror_threshold       = 0.9",
         "ror_vars_number     = 0", "enable_ror_stats    = .false.", "ib_reduction_extent = 0", "ib_reduced_order    = 2",
-        "", "[fdv]", "fdv_scheme = fd", "fdv_order  = 2",
         "", "[solids]", "number    = 1", "n_eikonal = 2",
         "", "[solid_1]", f"name            = {body}", "bc_type         = 2                 ; Euler wall",
     ]

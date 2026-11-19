@@ -49,7 +49,7 @@ def main() -> None:
         # glm_ch_check = error: the fastest wave never outruns c_h here, so a trip is a defect
         ini["mhd"].update({"glm_ch": repr(CH), "glm_alpha": args.alpha, "glm_damping_length": args.damping_length,
                            "glm_ch_check": "error"})
-    ini["field"]["nv"] = "8" if args.divergence_control == "none" else "9"
+    ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
     ini["grid"].update({"ni": str(args.cells // 4), "nj": "2", "nk": "2"})  # four blocks along x, thin transverse
     bc = "periodic" if args.bc == "periodic" else "wall-inviscid"
     ini["bc_x_min"]["type"] = bc

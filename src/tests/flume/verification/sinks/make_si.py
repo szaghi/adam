@@ -90,7 +90,7 @@ def case_ini(a: argparse.Namespace) -> str:
     if a.case == "shu":  # the singular isothermal sphere in place of the polytrope
         i = s.index("[initial_conditions]")
         s = s[:i] + (
-            "[initial_conditions]\ntype = singular-isothermal-sphere\nregions_number = 1\namr_iterations = 0\n"
+            "[initial_conditions]\ntype = singular-isothermal-sphere\namr_iterations = 0\n"
             f"sis_overdensity = {a.overdensity!r}\n\n"
             f"[initial_conditions_region_1]\nr = {a.rho!r}\nu = 0.0\nv = 0.0\nw = 0.0\np = {a.p!r}\n"
         )

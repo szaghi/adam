@@ -79,7 +79,7 @@ def main() -> None:
         ini = generate(VERIF / "mhd" / "cpaw" / "make_cpaw.py",
                        ["--polarisation", "right", "--geometry", "2d", "--cells", str(args.cells)])
         ini["mhd"] = {"divergence_control": "glm", "glm_ch": "2.0", **GLM}  # c_h above the fast speed, ~1.08
-        ini["field"]["nv"] = "9"
+        ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
         ini["time"].update({"it_max": "-1", "time_max": repr(args.periods), "CFL": "0.4"})
     else:
         ini = generate(VERIF / "mhd" / "field-loop" / "make_field_loop.py",

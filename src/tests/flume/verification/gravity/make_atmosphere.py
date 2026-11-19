@@ -113,9 +113,8 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
     lines = [
         f"; FLUME gravity case {case} (verification/gravity/make_atmosphere.py, issue #73 M7)",
         "[IO]", f"output_basename = {case}", f"it_save = {it_save or (10 if g1 else 1000000)}", "restart = .false.",
-        f"restart_basename = {case}-restart", "restart_save = 0", "residuals_save = 1", "save_memory_status = .false.",
-        "save_residual_fields = .false.", "save_auxiliary_fields = .false.", "save_curl_fields = .false.",
-        "save_divergence_fields = .false.", "save_gradient_fields = .false.", "save_laplacian_fields = .false.",
+        f"restart_basename = {case}-restart", "restart_save = 0", "residuals_save = 1",
+        "save_residual_fields = .false.", "save_auxiliary_fields = .false.",
         "[grid]", f"ni = {cells}", f"nj = {cells}", f"nk = {cells if is3d else 1}", "ngc = 4",
         "emin_x = 0.0", f"emin_y = {lo_y!r}", "emin_z = 0.0", f"emax_x = {hi_x!r}", f"emax_y = {hi_y!r}",
         "emax_z = 1.0",
@@ -129,7 +128,7 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
                   "delta_coarse = 0.0", f"box_xmin = {box[0]!r}", f"box_ymin = {box[2]!r}", f"box_zmin = {box[4]!r}",
                   f"box_xmax = {box[1]!r}", f"box_ymax = {box[3]!r}", f"box_zmax = {box[5]!r}", "target_level = 3"]
     lines += [
-        "[field]", f"nv = {(8 if clean['divergence_control'] == 'none' else 9) if mhd else 5}", "[runge_kutta]",
+        "[runge_kutta]",
         "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5", "ror_number = 0", "ror_threshold = 0.9", "ror_vars_number = 0",
         "enable_ror_stats = .false.", "ib_reduction_extent = 0", "ib_reduced_order = 2",
@@ -137,7 +136,7 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
     if weights:
         lines += [f"weights = {weights}"]
     lines += [
-        "[fdv]", "fdv_scheme = fd", "fdv_order = 2", "[solids]", "number = 0", "n_eikonal = 0",
+        *(["[fdv]", "fdv_scheme = fd", "fdv_order = 2"] if mhd else []), "[solids]", "number = 0", "n_eikonal = 0",
         "[slices]", "slices_number = 0",
         "[physics]", f"physical_model = {'mhd-ideal' if mhd else 'euler'}", "gamma = 1.4",
         "[numerics]", f"scheme_space = {'weno-riemann' if riemann else 'weno'}",
@@ -149,9 +148,10 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
         lines += ["positivity_limiter = cell"]
     if mhd:
         lines += ["[mhd]", f"divergence_control = {clean['divergence_control']}", "divb_tol = 0.0",
-                  "divb_error = .false.", "rho_floor = 0.0", "p_floor = 0.0", f"glm_ch = {clean['glm_ch']}",
-                  f"glm_alpha = {clean['glm_alpha']}", f"glm_damping_length = {clean['glm_damping_length']}",
-                  "glm_ch_check = warning"]
+                  "divb_error = .false.", "rho_floor = 0.0", "p_floor = 0.0"]
+        if clean["divergence_control"] != "none":  # the cleaning keys: unread without cleaning
+            lines += [f"glm_ch = {clean['glm_ch']}", f"glm_alpha = {clean['glm_alpha']}",
+                      f"glm_damping_length = {clean['glm_damping_length']}", "glm_ch_check = warning"]
     for face in ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max"):
         axis = face[0]
         if axis == "z" and not is3d:

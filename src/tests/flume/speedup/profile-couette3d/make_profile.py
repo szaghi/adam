@@ -80,9 +80,7 @@ def profile_ini(size: str, steps: int, frequency: int, uniform: bool = False, sc
         "[IO]", f"output_basename        = {basename}", "it_save                = 0",
         "restart                = .false.",
         f"restart_basename       = {basename}-restart", "restart_save           = 0", "residuals_save         = 0",
-        "save_memory_status     = .false.", "save_residual_fields   = .false.", "save_auxiliary_fields  = .false.",
-        "save_curl_fields       = .false.", "save_divergence_fields = .false.", "save_gradient_fields   = .false.",
-        "save_laplacian_fields  = .false.",
+        "save_residual_fields   = .false.", "save_auxiliary_fields  = .false.",
         "", "[grid]", f"ni     = {ni_x}", f"nj     = {ni}", f"nk     = {ni}", f"ngc    = {ngc}",
         f"emin_x = {xmin!r}", "emin_y = 0.0", "emin_z = 0.0", f"emax_x = {xmax!r}", "emax_y = 1.0", "emax_z = 1.0",
         "null_x = .false.", "null_y = .false.", "null_z = .false.",
@@ -99,10 +97,10 @@ def profile_ini(size: str, steps: int, frequency: int, uniform: bool = False, sc
             "box_xmax     = 1.0e30", f"box_ymax     = {hi!r}", "box_zmax     = 1.0e30", f"target_level = {base + 1}",
         ]
     lines += [
-        "", "[field]", "nv = 5", "", "[runge_kutta]", "scheme = runge-kutta-ssp-54",
+        "", "[runge_kutta]", "scheme = runge-kutta-ssp-54",
         "", "[weno]", f"scheme              = {scheme}", "ror_number          = 0", "ror_threshold       = 0.9",
         "ror_vars_number     = 0", "enable_ror_stats    = .false.", "ib_reduction_extent = 0", "ib_reduced_order    = 2",
-        "", "[fdv]", "fdv_scheme = fd", "fdv_order  = 2", "", "[solids]", "number    = 0", "n_eikonal = 0",
+        "", "[solids]", "number    = 0", "n_eikonal = 0",
         "", "[slices]", "slices_number = 0",
         "", "[physics]", "physical_model = euler", "gamma          = 1.4", "viscosity      = 0.01", "prandtl        = 0.75",
         "", "[numerics]", "scheme_space             = weno", "reconstruction_variables = characteristic",

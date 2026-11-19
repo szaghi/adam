@@ -51,13 +51,15 @@ def main() -> None:
     if args.divergence_control == "glm":
         ini["mhd"].update({"glm_ch": repr(CH), "glm_alpha": args.alpha, "glm_damping_length": "min-cell",
                            "glm_ch_check": "error"})
-    ini["field"]["nv"] = "9" if args.divergence_control == "glm" else "8"
+    ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
     ini["grid"].update({"ni": args.cells_per_block, "nj": args.cells_per_block, "nk": "4", "emin_x": "-0.5", "emin_y": "-0.5", "emax_x": "1.5",
                         "emax_y": "1.5", "null_z": ".true."})
     ini["amr"].update({"iu_ref_levels": "2", "max_level": "3", "markers_number": "1" if args.amr else "0"})
     # the box spans the whole null z extent: a partial one would put 2:1 seams across z
     ini["amr_marker_1"].update({"box_xmin": "-0.5", "box_ymin": "-0.5", "box_zmin": "-1.0", "box_xmax": "0.5",
                                 "box_ymax": "0.5", "box_zmax": "2.0", "target_level": "3"})
+    if not args.amr:  # no marker: its section would be unread
+        ini.remove_section("amr_marker_1")
     ini["initial_conditions"] = {"type": "divb-peak", "amr_iterations": "1" if args.amr else "0", "peak_x0": "0.0",
                                  "peak_y0": "0.0", "peak_radius": "0.125", "peak_amplitude": repr(1.0 / S4PI)}
     ini["initial_conditions_region_1"] = {"r": "1.0", "u": "1.0", "v": "1.0", "w": "0.0", "p": "6.0", "bx": "0.0",

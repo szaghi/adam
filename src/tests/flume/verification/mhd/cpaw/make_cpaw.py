@@ -42,7 +42,7 @@ def main() -> None:
     ini["physics"].update({"physical_model": "mhd-ideal", "cp": "2.5", "cv": "1.5"})  # gamma = 5/3
     ini["mhd"] = {"divergence_control": "none", "divb_tol": "0.0", "divb_error": ".false.", "rho_floor": "0.0",
                   "p_floor": "0.0"}
-    ini["field"]["nv"] = "8"
+    ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
     angle = math.degrees(math.atan(TAN_A)) if args.geometry == "2d" else 0.0
     if args.geometry == "1d":
         ini["grid"]["ni"] = str(args.cells // 4)  # four blocks along x

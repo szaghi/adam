@@ -34,7 +34,7 @@ def main() -> None:
     if args.divergence_control == "glm":
         ini["mhd"].update({"glm_ch": "3.0", "glm_alpha": "0.18", "glm_damping_length": "1.0",
                            "glm_ch_check": "warning"})
-    ini["field"]["nv"] = "9" if args.divergence_control == "glm" else "8"
+    ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
     for name in ini.sections():
         if name.startswith("initial_conditions_region_") or (name.startswith("bc_") and ini[name]["type"] == "inflow"):
             for key, val in zip(("bx", "by", "bz"), args.b, strict=True):
@@ -43,6 +43,9 @@ def main() -> None:
         key, val = item.split("=", 1)
         section, option = key.split(".", 1)
         ini[section][option] = val
+    if ini["amr"]["markers_number"].split(";")[0].strip() == "0":  # no marker: its sections would be unread
+        for name in [n for n in ini.sections() if n.startswith("amr_marker_")]:
+            ini.remove_section(name)
     with args.out.open("w") as out:
         ini.write(out)
 

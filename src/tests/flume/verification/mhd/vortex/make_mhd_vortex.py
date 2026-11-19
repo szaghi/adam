@@ -45,7 +45,7 @@ def main() -> None:
     ini["mhd"] = {"divergence_control": "glm", "divb_tol": "0.0", "divb_error": ".false.", "rho_floor": "0.0",
                   "p_floor": "0.0", "glm_ch": "3.0", "glm_alpha": "0.18", "glm_damping_length": "1.0",
                   "glm_ch_check": "error"}
-    ini["field"]["nv"] = "9"
+    ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
     ini["grid"].update({"ni": str(args.cells // 4), "nj": str(args.cells // 4), "emin_x": repr(-half),
                         "emin_y": repr(-half), "emax_x": repr(half), "emax_y": repr(half)})
     for f in ("x", "y"):

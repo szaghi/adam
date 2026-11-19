@@ -67,13 +67,8 @@ restart                = .false.
 restart_basename       = wave-restart
 restart_save           = 0
 residuals_save         = 0
-save_memory_status     = .false.
 save_residual_fields   = .false.
 save_auxiliary_fields  = .false.
-save_curl_fields       = .false.
-save_divergence_fields = .false.
-save_gradient_fields   = .false.
-save_laplacian_fields  = .false.
 
 [grid]
 ni     = {ni}
@@ -102,9 +97,6 @@ frequency      = 0
 iters          = 1
 markers_number = 0
 
-[field]
-nv = {nv}
-
 [runge_kutta]
 scheme = runge-kutta-ssp-54
 
@@ -117,11 +109,7 @@ enable_ror_stats    = .false.
 ib_reduction_extent = 0
 ib_reduced_order    = 2
 
-[fdv]
-fdv_scheme = fd
-fdv_order  = 2
-
-[solids]
+{fdv_section}[solids]
 number    = 0
 n_eikonal = 0
 
@@ -184,11 +172,12 @@ divb_tol           = 0.0
 divb_error         = .false.
 rho_floor          = 0.0
 p_floor            = 0.0
-glm_ch             = 3.0
+{glm}"""
+GLM_KEYS = """glm_ch             = 3.0
 glm_alpha          = 0.0
 glm_damping_length = 1.0
 glm_ch_check       = error
-"""
+"""  # read only with cleaning (divergence_control glm or eglm)
 
 
 def read_ini(path: Path) -> configparser.ConfigParser:
@@ -223,8 +212,9 @@ def make(args: argparse.Namespace) -> int:
     elif angle % 180.0 == 90.0:
         ni, null_x = thin, null_thin
     vv = {"shear": "VV-1", "acoustic": "VV-2", "magnetic": "VV-5"}[args.mode]
-    text = TEMPLATE.format(vv=vv, ni=ni, nj=nj, null_x=null_x, null_y=null_y, nv=(9 if control in ("glm", "eglm") else 8)
-                           if mhd else 5, model="mhd-ideal" if mhd else "euler", gamma=GAMMA, mu=args.mu,
+    text = TEMPLATE.format(vv=vv, ni=ni, nj=nj, null_x=null_x, null_y=null_y,
+                           fdv_section="[fdv]\nfdv_scheme = fd\nfdv_order  = 2\n\n" if mhd else "",  # MHD only
+                           model="mhd-ideal" if mhd else "euler", gamma=GAMMA, mu=args.mu,
                            kappa=args.kappa, resistivity=f"resistivity    = {args.eta!r}\n" if mhd else "",
                            order=args.order, mode=args.mode, angle=angle,
                            amplitude=args.amplitude if args.amplitude is not None else
@@ -233,7 +223,8 @@ def make(args: argparse.Namespace) -> int:
                            wavelength=wavelength, rho0=RHO0, p0=P0,
                            field_keys=f"bx = {float(b0[0])!r}\nby = {float(b0[1])!r}\nbz = 0.0\n" if mhd else "",
                            time=args.time, cfl=args.cfl,
-                           mhd_section=MHD_SECTION.format(control=control) if mhd else "")
+                           mhd_section=MHD_SECTION.format(control=control, glm=GLM_KEYS if control != "none" else "")
+                           if mhd else "")
     if args.refine is not None or args.reflux != "true" or args.bc_x != "periodic":
         ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
         ini.optionxform = str  # FLUME keys are case-sensitive (e.g. [time] CFL)

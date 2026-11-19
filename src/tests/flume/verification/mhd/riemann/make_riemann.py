@@ -48,7 +48,7 @@ def main() -> None:
     if args.divergence_control == "glm":
         ini["mhd"].update({"glm_ch": "4.0", "glm_alpha": "0.18", "glm_damping_length": "1.0",
                            "glm_ch_check": "warning"})
-    ini["field"]["nv"] = "9" if args.divergence_control == "glm" else "8"
+    ini["fdv"] = {"fdv_scheme": "fd", "fdv_order": "2"}  # MHD only: the div(B) stencil
     ini["grid"]["ni"] = str(args.cells // 4)
     ini["IO"]["save_auxiliary_fields"] = ".true."
     ini["IO"]["it_save"] = "100000"
