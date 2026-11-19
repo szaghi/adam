@@ -7,6 +7,8 @@ use :: adam_field_object, only : field_object
 use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 use :: adam_grid_object,  only : grid_object
+! the scheme names: their one home is the SELAH adapter (#132), re-exported here
+use :: adam_stepper_object, only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54, RK_YOSHIDA
 ! third party modules
 use :: finer
 use :: penf
@@ -24,15 +26,6 @@ public :: RK_SSP_54
 public :: RK_YOSHIDA
 public :: rk_stored_stages_number
 public :: ssp_tableau
-
-character(len=13), parameter :: RK_1       ="runge-kutta-1"       !< Parameter of time scheme, Runge-Kutta 1.
-character(len=13), parameter :: RK_2       ="runge-kutta-2"       !< Parameter of time scheme, Runge-Kutta 2.
-character(len=13), parameter :: RK_3       ="runge-kutta-3"       !< Parameter of time scheme, Runge-Kutta 3.
-character(len=18), parameter :: RK_SSP_11  ="runge-kutta-ssp-11"  !< Parameter of time scheme, Runge-Kutta SSP 11 (forward Euler).
-character(len=18), parameter :: RK_SSP_22  ="runge-kutta-ssp-22"  !< Parameter of time scheme, Runge-Kutta SSP 22.
-character(len=18), parameter :: RK_SSP_33  ="runge-kutta-ssp-33"  !< Parameter of time scheme, Runge-Kutta SSP 33.
-character(len=18), parameter :: RK_SSP_54  ="runge-kutta-ssp-54"  !< Parameter of time scheme, Runge-Kutta SSP 54.
-character(len=19), parameter :: RK_YOSHIDA ="runge-kutta-yoshida" !< Parameter of time scheme, Runge-Kutta Yoshida, symplectic 4.
 
 character(len=11), parameter :: INI_SECTION_NAME="runge_kutta" !< INI (config) file section name containing configs.
 

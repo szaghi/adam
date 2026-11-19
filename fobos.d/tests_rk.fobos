@@ -1,6 +1,7 @@
 [modes]
 modes = test-rk-ssp-tableau-gnu                        test-rk-ssp-tableau-gnu-debug
         test-selah-stepper-smoke-gnu                   test-selah-stepper-smoke-fnl-nvf
+        test-stepper-object-gnu                        test-stepper-object-xfail-gnu
 
 # The SSP Runge-Kutta Butcher tableaux (issue #104): order conditions in quadruple precision, constant forcing exact,
 # the convergence order on y' = -y. Pure, no MPI calls.
@@ -29,3 +30,16 @@ obj_dir  = ./obj/nvf/selah-smoke/
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = test_selah_stepper_smoke.F90
 output   = test_selah_stepper_smoke_fnl
+
+# The SELAH adapter stepper_object (SELAH M7, ADAM #132 box 1.2): the scheme mapping, the stored fields, one step of
+# y' = -y per scheme on an ADAM-shaped field, unmasked and masked, the stage weights and times, the scratch registers.
+# The xfail program stops on an unknown scheme (exit 1); with a known scheme as argument it exits 0. No MPI run.
+[test-stepper-object-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_stepper_object.F90
+
+[test-stepper-object-xfail-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_stepper_object_xfail.F90

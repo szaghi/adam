@@ -1,0 +1,385 @@
+!< ADAM, the time integrator adapter: ADAM's `[runge_kutta]` schemes on a SELAH stepper (SELAH M7, issue #132).
+module adam_stepper_object
+!< ADAM, the time integrator adapter: ADAM's `[runge_kutta]` schemes on a SELAH stepper (SELAH M7, issue #132).
+!<
+!< [SELAH](https://github.com/szaghi/SELAH) owns the time operators (the coefficients, the registers and the stage
+!< kernels); this object is the thin ADAM side of it:
+!<
+!< - the input: `[runge_kutta] scheme`, read as `rk_object` reads it (no other key), and the mapping of ADAM's scheme
+!<   names onto a SELAH scheme and storage form (`stepper_map`);
+!< - the field: ADAM's `q(nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nb)`, the box of each call built from the active
+!<   blocks (`field%blocks_number`, never stored: it changes at every regrid);
+!< - the immersed boundary: `ib%phi` is SELAH's mask (a cell is active where the last component, the all-solids
+!<   distance, is negative, as in `rk_object`);
+!< - the registers: allocated here and passed to SELAH (`registers=`), zeroed block by block the first time a block is
+!<   active (issue #45: zeroing the whole fill-the-node pool at allocation would commit all of it), and reachable
+!<   between steps as scratch (`scratch(n)`, the D_flux diagnostic and the equilibrium residual, #132 rule 3).
+!<
+!< **The scheme mapping** (#132): `runge-kutta-1/2/3` are the two-register Shu-Osher forms of Euler, SSP-22 and SSP-33
+!< (ADAM's low-storage coefficients are these, bitwise); `runge-kutta-ssp-11/22/33/54` are the Butcher forms of Euler,
+!< SSP-22, SSP-33 and SSP-54 (bitwise ADAM's tableaux), every stage on its own register (`stages_on_q` off), as ADAM's
+!< stages are; `runge-kutta-yoshida` is SELAH's Yoshida-4 splitting (the PRISM integrator of phase 4: it needs the
+!< components of its two partitions).
+!<
+!< **The stage window.** Between `begin_stage(k)` and `end_stage(k)` the state of stage k is `q` itself when
+!< `state_is_q(k)` (every stage of the two-register forms), else `stage_state()`; the caller fills its ghost cells and
+!< writes the residual into `rhs_register()`. In the Butcher form the masked (solid) cells of the stage state start the
+!< stage as a copy of `q`, as every stage buffer of `rk_object` does: the immersed-boundary extrapolation of the
+!< residual starts from them.
+!<
+!< This first version runs on the host (the CPU backend); the device build (FNL) is phase 3 of #132.
+use :: adam_field_object, only : field_object
+use :: adam_grid_object,  only : grid_object
+use :: adam_ini_library,  only : ini_check, ini_get
+use :: adam_mpih_global,  only : mpih
+use :: fundal,            only : dev_alloc, dev_free
+use :: selah,             only : stepper, box, box_range, registers_needed, R_P,                                      &
+                                 FORM_BUTCHER, FORM_SHU_OSHER_2R, FORM_SPLITTING,                                     &
+                                 SCHEME_EULER, SCHEME_SSP_22, SCHEME_SSP_33, SCHEME_SSP_54, SCHEME_YOSHIDA_4
+! third party modules
+use :: finer
+use :: penf
+
+implicit none
+private
+public :: stepper_object
+public :: stepper_map
+public :: stepper_stored_fields
+public :: RK_1
+public :: RK_2
+public :: RK_3
+public :: RK_SSP_11
+public :: RK_SSP_22
+public :: RK_SSP_33
+public :: RK_SSP_54
+public :: RK_YOSHIDA
+
+character(len=13), parameter :: RK_1       ="runge-kutta-1"       !< Parameter of time scheme, Runge-Kutta 1.
+character(len=13), parameter :: RK_2       ="runge-kutta-2"       !< Parameter of time scheme, Runge-Kutta 2.
+character(len=13), parameter :: RK_3       ="runge-kutta-3"       !< Parameter of time scheme, Runge-Kutta 3.
+character(len=18), parameter :: RK_SSP_11  ="runge-kutta-ssp-11"  !< Parameter of time scheme, Runge-Kutta SSP 11 (forward Euler).
+character(len=18), parameter :: RK_SSP_22  ="runge-kutta-ssp-22"  !< Parameter of time scheme, Runge-Kutta SSP 22.
+character(len=18), parameter :: RK_SSP_33  ="runge-kutta-ssp-33"  !< Parameter of time scheme, Runge-Kutta SSP 33.
+character(len=18), parameter :: RK_SSP_54  ="runge-kutta-ssp-54"  !< Parameter of time scheme, Runge-Kutta SSP 54.
+character(len=19), parameter :: RK_YOSHIDA ="runge-kutta-yoshida" !< Parameter of time scheme, Runge-Kutta Yoshida, symplectic 4.
+
+character(len=11), parameter :: INI_SECTION_NAME="runge_kutta" !< INI (config) file section name containing configs.
+
+type :: stepper_object
+   !< ADAM's `[runge_kutta]` scheme on a SELAH stepper.
+   character(:), allocatable          :: scheme                       !< ADAM scheme name (`[runge_kutta] scheme`).
+   character(:), allocatable          :: selah_scheme                 !< SELAH scheme.
+   character(:), allocatable          :: form                         !< SELAH storage form.
+   type(stepper)                      :: st                           !< SELAH stepper.
+   real(R8P), pointer, contiguous     :: regs(:,:,:,:,:,:) => null()  !< Registers (v, i, j, k, b, slot).
+   integer(I4P)                       :: nregs=0_I4P                  !< Registers number.
+   integer(I4P)                       :: blocks_zeroed=0_I4P          !< Block slots of `regs` zeroed so far (issue #45).
+   integer(I4P)                       :: nv=0_I4P                     !< Number of variables.
+   integer(I4P)                       :: ni=0_I4P, nj=0_I4P, nk=0_I4P !< Cells per block, per direction.
+   integer(I4P)                       :: ngc=0_I4P                    !< Ghost cells.
+   integer(I4P)                       :: nb=0_I4P                     !< Block slots of the pool.
+   contains
+      ! public methods
+      procedure, pass(self) :: begin_step      !< Open a step.
+      procedure, pass(self) :: begin_stage     !< Open stage k: build its state.
+      procedure, pass(self) :: description     !< Return pretty-printed object description.
+      procedure, pass(self) :: destroy         !< Free the registers.
+      procedure, pass(self) :: end_stage       !< Close stage k.
+      procedure, pass(self) :: finish_step     !< Close the step.
+      procedure, pass(self) :: initialize      !< Initialize the stepper and its registers.
+      procedure, pass(self) :: is_butcher      !< The form is Butcher's (the stages on their own registers).
+      procedure, pass(self) :: load_from_file  !< Load config from file.
+      procedure, pass(self) :: rhs_register    !< Residual register of the active stage.
+      procedure, pass(self) :: scratch         !< A register as scratch, between steps.
+      procedure, pass(self) :: stage_state     !< State register of the active stage (null when it is q).
+      procedure, pass(self) :: stage_time      !< Fraction of the step at which stage k is evaluated.
+      procedure, pass(self) :: stage_weight    !< Effective Butcher weight of stage k.
+      procedure, pass(self) :: stages          !< Stages per step.
+      procedure, pass(self) :: state_is_q      !< The state of stage k is q itself.
+      ! private methods
+      procedure, pass(self), private :: interior_box !< Box of the interior cells of the active blocks.
+endtype stepper_object
+
+contains
+   ! public procedures
+   pure subroutine stepper_map(scheme, selah_scheme, form)
+   !< Map an ADAM `[runge_kutta]` scheme name onto a SELAH scheme and storage form; an unknown name gives empty strings.
+   character(*),              intent(in)  :: scheme       !< ADAM scheme name.
+   character(:), allocatable, intent(out) :: selah_scheme !< SELAH scheme.
+   character(:), allocatable, intent(out) :: form         !< SELAH storage form.
+
+   selah_scheme = '' ; form = ''
+   select case(trim(adjustl(scheme)))
+   case(RK_1)       ; selah_scheme = SCHEME_EULER     ; form = FORM_SHU_OSHER_2R
+   case(RK_2)       ; selah_scheme = SCHEME_SSP_22    ; form = FORM_SHU_OSHER_2R
+   case(RK_3)       ; selah_scheme = SCHEME_SSP_33    ; form = FORM_SHU_OSHER_2R
+   case(RK_SSP_11)  ; selah_scheme = SCHEME_EULER     ; form = FORM_BUTCHER
+   case(RK_SSP_22)  ; selah_scheme = SCHEME_SSP_22    ; form = FORM_BUTCHER
+   case(RK_SSP_33)  ; selah_scheme = SCHEME_SSP_33    ; form = FORM_BUTCHER
+   case(RK_SSP_54)  ; selah_scheme = SCHEME_SSP_54    ; form = FORM_BUTCHER
+   case(RK_YOSHIDA) ; selah_scheme = SCHEME_YOSHIDA_4 ; form = FORM_SPLITTING
+   endselect
+   endsubroutine stepper_map
+
+   pure function stepper_stored_fields(scheme) result(fields)
+   !< Return the block-sized fields (of nv variables) the stepper of a scheme allocates: SELAH's `registers_needed`, the
+   !< residual register included. It lets an app size its memory budget before the stepper exists; an unknown scheme
+   !< returns -1.
+   character(*), intent(in)  :: scheme       !< ADAM scheme name.
+   integer(I4P)              :: fields       !< Block-sized fields.
+   character(:), allocatable :: selah_scheme !< SELAH scheme.
+   character(:), allocatable :: form         !< SELAH storage form.
+
+   call stepper_map(scheme=scheme, selah_scheme=selah_scheme, form=form)
+   fields = -1_I4P
+   if (len(form) > 0) fields = registers_needed(selah_scheme, form)
+   endfunction stepper_stored_fields
+
+   ! public methods
+   subroutine begin_step(self, field, q, phi)
+   !< Open a step: zero the block slots active for the first time, then let SELAH keep what its form needs of `q`.
+   class(stepper_object), intent(inout)        :: self    !< Stepper.
+   type(field_object),    intent(in)           :: field   !< Field (sibling realm component, threaded in).
+   real(R8P),             intent(in)           :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< State.
+   real(R8P),             intent(in), optional :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< IB distance.
+
+   if (field%blocks_number > self%blocks_zeroed) then
+      self%regs(:,:,:,:,self%blocks_zeroed+1:field%blocks_number,:) = 0._R8P
+      self%blocks_zeroed = field%blocks_number
+   endif
+   call self%st%begin_step(self%interior_box(field), q, mask=phi)
+   endsubroutine begin_step
+
+   subroutine begin_stage(self, k, field, dt, q, phi)
+   !< Open stage `k`: SELAH builds its state; in the Butcher form the masked cells of the state start as `q`.
+   class(stepper_object), intent(inout)        :: self    !< Stepper.
+   integer(I4P),          intent(in)           :: k       !< Stage.
+   type(field_object),    intent(in)           :: field   !< Field (sibling realm component, threaded in).
+   real(R8P),             intent(in)           :: dt      !< Time step.
+   real(R8P),             intent(in)           :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< State.
+   real(R8P),             intent(in), optional :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< IB distance.
+   real(R8P), pointer                          :: u(:,:,:,:,:) !< Stage state.
+   integer(I4P)                                :: mc           !< Mask component (all solids).
+   integer(I4P)                                :: b, i, j, kk  !< Counters.
+
+   call self%st%begin_stage(k, self%interior_box(field), dt, q, mask=phi)
+   if (.not.present(phi)) return
+   if (self%st%stage_state_is_q(k)) return
+   u => self%st%stage_state()
+   mc = ubound(phi, dim=1)
+   !$omp parallel do collapse(4) default(none) shared(field, self, q, phi, u, mc) private(b, kk, j, i)
+   do b=1, field%blocks_number
+      do kk=1, self%nk
+         do j=1, self%nj
+            do i=1, self%ni
+               if (phi(mc,i,j,kk,b) >= 0._R8P) u(:,i,j,kk,b) = q(:,i,j,kk,b)
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine begin_stage
+
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(stepper_object), intent(in) :: self             !< Stepper.
+   character(len=:), allocatable     :: desc             !< Description.
+   character(len=1), parameter       :: NL=new_line('a') !< New line character.
+   integer(I4P)                      :: k                !< Counter.
+
+   desc = mpih%myrankstr//'Time integrator (SELAH stepper)'//NL
+   desc = desc//mpih%myrankstr//'  scheme:    '//self%scheme//' -> SELAH '//self%selah_scheme//', form '//self%form//NL
+   desc = desc//mpih%myrankstr//'  stages:    '//trim(str(self%st%stages(), .true.))//NL
+   desc = desc//mpih%myrankstr//'  registers: '//trim(str(self%nregs, .true.))
+   if (self%form /= FORM_SPLITTING) then
+      desc = desc//NL//mpih%myrankstr//'  b:        '
+      do k=1, self%st%stages()
+         desc = desc//' '//trim(str(self%st%stage_weight(k)))
+      enddo
+   endif
+   endfunction description
+
+   subroutine destroy(self)
+   !< Free the stepper and its registers.
+   class(stepper_object), intent(inout) :: self !< Stepper.
+
+   call self%st%destroy
+   if (associated(self%regs)) call dev_free(self%regs)
+   nullify(self%regs)
+   self%nregs = 0_I4P
+   self%blocks_zeroed = 0_I4P
+   endsubroutine destroy
+
+   subroutine end_stage(self, k, field, dt, q, phi)
+   !< Close stage `k`, its residual written into `rhs_register()`: the two-register forms advance `q` here.
+   class(stepper_object), intent(inout)        :: self    !< Stepper.
+   integer(I4P),          intent(in)           :: k       !< Stage.
+   type(field_object),    intent(in)           :: field   !< Field (sibling realm component, threaded in).
+   real(R8P),             intent(in)           :: dt      !< Time step.
+   real(R8P),             intent(inout)        :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< State.
+   real(R8P),             intent(in), optional :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< IB distance.
+
+   call self%st%end_stage(k, self%interior_box(field), dt, q, mask=phi)
+   endsubroutine end_stage
+
+   subroutine finish_step(self, field, dt, q, dq, phi)
+   !< Close the step: the Butcher form advances `q` now and gives the step residual `dq = sum_k b_k R_k` (0 in the masked
+   !< cells, #128 D4); the two-register forms already advanced `q` and leave `dq` as the caller wrote it.
+   class(stepper_object), intent(inout)           :: self    !< Stepper.
+   type(field_object),    intent(in)              :: field   !< Field (sibling realm component, threaded in).
+   real(R8P),             intent(in)              :: dt      !< Time step.
+   real(R8P),             intent(inout)           :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< State.
+   real(R8P),             intent(inout), optional :: dq(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)  !< Step residual.
+   real(R8P),             intent(in),    optional :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< IB distance.
+
+   if (self%is_butcher()) then
+      call self%st%finish_step(self%interior_box(field), dt, q, dq=dq, mask=phi)
+   else
+      call self%st%finish_step(self%interior_box(field), dt, q, mask=phi)
+   endif
+   endsubroutine finish_step
+
+   subroutine initialize(self, field, grid, file_parameters, scheme, partitions)
+   !< Initialize the stepper of `[runge_kutta] scheme` (or of `scheme`) and its registers, the field's pool shape.
+   class(stepper_object), intent(inout)        :: self            !< Stepper.
+   type(field_object),    intent(in)           :: field           !< Field (sibling realm component, threaded in).
+   type(grid_object),     intent(in)           :: grid            !< Grid (sibling realm component, threaded in).
+   type(file_ini),        intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
+   character(*),          intent(in), optional :: scheme          !< Runge-Kutta scheme.
+   integer(I4P),          intent(in), optional :: partitions(2,2) !< Splitting: the variables of its two partitions.
+   integer(I4P)                                :: ierr            !< Error status.
+
+   call mpih%print_message('stepper_object%initialize start')
+   call self%destroy
+   if (R_P /= R8P) call mpih%error_stop(msg=': SELAH must be built with R8P reals in ADAM (no -D_R_P_IS_R4P)')
+   if (present(file_parameters)) then
+      call self%load_from_file(file_parameters=file_parameters)
+   elseif (present(scheme)) then
+      self%scheme = trim(adjustl(scheme))
+   else
+      call mpih%error_stop(msg=': failed to initialize the stepper, one between file parameters and scheme must be passed')
+   endif
+   call stepper_map(scheme=self%scheme, selah_scheme=self%selah_scheme, form=self%form)
+   if (len(self%form) == 0) call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//self%scheme//'"')
+   if (self%form == FORM_SPLITTING .and. .not.present(partitions)) &
+      call mpih%error_stop(msg=': the Runge-Kutta scheme "'//self%scheme//'" is a splitting: the stepper needs the '// &
+                               'variables of its two partitions')
+   self%nv = field%nv ; self%nb = field%nb
+   self%ni = grid%ni ; self%nj = grid%nj ; self%nk = grid%nk ; self%ngc = grid%ngc
+   self%nregs = registers_needed(self%selah_scheme, self%form)
+   ! not zeroed here: begin_step zeroes each block slot the first time it is active (issue #45)
+   call dev_alloc(fptr_dev=self%regs,                                                                                &
+                  lbounds=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P, 1_I4P],                  &
+                  ubounds=[self%nv, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nb, self%nregs], &
+                  ierr=ierr)
+   if (ierr /= 0) call mpih%error_stop(msg=': stepper_object%initialize: the '//trim(str(self%nregs, .true.))// &
+                                           ' registers could not be allocated')
+   self%blocks_zeroed = 0_I4P
+   call self%st%initialize(scheme=self%selah_scheme, form=self%form,                                       &
+                           lb=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P],             &
+                           ub=[self%nv, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nb], &
+                           partitions=partitions, registers=self%regs, stages_on_q=.false.)
+   print '(A)', self%description()
+   call mpih%print_message('stepper_object%initialize finish')
+   endsubroutine initialize
+
+   elemental function is_butcher(self) result(yes)
+   !< Return true if the form is Butcher's: every stage on its own state register, the step closed by `finish_step`.
+   class(stepper_object), intent(in) :: self !< Stepper.
+   logical                           :: yes  !< True for the Butcher form.
+
+   yes = .false.
+   if (allocated(self%form)) yes = self%form == FORM_BUTCHER
+   endfunction is_butcher
+
+   subroutine load_from_file(self, file_parameters)
+   !< Load config from file: `[runge_kutta] scheme`, the only key (as `rk_object` reads it).
+   class(stepper_object), intent(inout) :: self            !< Stepper.
+   type(file_ini),        intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   character(99)                        :: buff_c          !< Character buffer.
+
+   call ini_get(file_parameters, INI_SECTION_NAME, 'scheme', buff_c)
+   self%scheme = trim(adjustl(buff_c))
+   call ini_check()
+   endsubroutine load_from_file
+
+   function rhs_register(self) result(r)
+   !< Return the residual register of the active stage, with the field's bounds (null outside a stage window).
+   class(stepper_object), intent(in) :: self         !< Stepper.
+   real(R8P), pointer                :: r(:,:,:,:,:) !< Residual register.
+
+   r => self%st%rhs_register()
+   if (.not.associated(r)) call mpih%error_stop(msg=': stepper_object%rhs_register: no active stage')
+   endfunction rhs_register
+
+   function scratch(self, n) result(r)
+   !< Return register `n` as scratch, between steps (SELAH's registers are scratch after `finish_step`): every form has
+   !< at least two registers (#132 rule 3, #128 D1). Writing them leaves the next step unchanged: each step rebuilds
+   !< what it reads of them.
+   class(stepper_object), intent(in) :: self         !< Stepper.
+   integer(I4P),          intent(in) :: n            !< Register.
+   real(R8P), pointer                :: r(:,:,:,:,:) !< The register, with the field's bounds.
+
+   if (self%st%k_active /= 0_I4P) &
+      call mpih%error_stop(msg=': stepper_object%scratch: register '//trim(str(n, .true.))//' asked inside a stage')
+   if (n < 1_I4P .or. n > self%nregs) &
+      call mpih%error_stop(msg=': stepper_object%scratch: register '//trim(str(n, .true.))//' of '// &
+                               trim(str(self%nregs, .true.)))
+   r(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) => self%regs(:,:,:,:,:,n)
+   endfunction scratch
+
+   function stage_state(self) result(u)
+   !< Return the state register of the active stage, with the field's bounds; null when the stage's state is q itself.
+   class(stepper_object), intent(in) :: self         !< Stepper.
+   real(R8P), pointer                :: u(:,:,:,:,:) !< Stage state.
+
+   u => self%st%stage_state()
+   endfunction stage_state
+
+   pure function stage_time(self, k) result(c)
+   !< Return the fraction of the step at which the residual of stage `k` is evaluated (the abscissa c_k).
+   class(stepper_object), intent(in) :: self !< Stepper.
+   integer(I4P),          intent(in) :: k    !< Stage.
+   real(R8P)                         :: c    !< Stage time, fraction of the step.
+
+   c = self%st%stage_time(k)
+   endfunction stage_time
+
+   pure function stage_weight(self, k) result(w)
+   !< Return the effective Butcher weight b_k of stage `k`: the weight of its fluxes in the step (the flux register's).
+   class(stepper_object), intent(in) :: self !< Stepper.
+   integer(I4P),          intent(in) :: k    !< Stage.
+   real(R8P)                         :: w    !< Stage weight.
+
+   w = self%st%stage_weight(k)
+   endfunction stage_weight
+
+   pure function stages(self) result(n)
+   !< Return the stages per step.
+   class(stepper_object), intent(in) :: self !< Stepper.
+   integer(I4P)                      :: n    !< Stages.
+
+   n = self%st%stages()
+   endfunction stages
+
+   pure function state_is_q(self, k) result(yes)
+   !< Return true if the state of stage `k` is `q` itself (every stage of the two-register forms).
+   class(stepper_object), intent(in) :: self !< Stepper.
+   integer(I4P),          intent(in) :: k    !< Stage.
+   logical                           :: yes  !< True if the stage state is q.
+
+   yes = self%st%stage_state_is_q(k)
+   endfunction state_is_q
+
+   ! private methods
+   pure function interior_box(self, field) result(bx)
+   !< Return the box of the interior cells of the active blocks (`field%blocks_number`, at the time of the call).
+   class(stepper_object), intent(in) :: self  !< Stepper.
+   type(field_object),    intent(in) :: field !< Field.
+   type(box)                         :: bx    !< Box.
+
+   bx = box_range(lb=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P],       &
+                  lo=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P],                                  &
+                  hi=[self%nv, self%ni, self%nj, self%nk, field%blocks_number], components=.true.)
+   endfunction interior_box
+endmodule adam_stepper_object

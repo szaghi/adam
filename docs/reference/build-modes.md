@@ -2,7 +2,7 @@
 
 # Build modes
 
-The fobos files define 133 modes. Build one with `fobis build --mode <mode>`; the executables go to `exe/`.
+The fobos files define 135 modes. Build one with `fobis build --mode <mode>`; the executables go to `exe/`.
 
 - **Varsets.** A varset selects the machine and toolchain: the HDF5 build (`$HDF5_PREFIX`) and, for nvfortran, the GPU compute capability (`$NVF_CC`). The default varset is `local_gnu`. Every nvfortran mode needs `--varset` with an NVF varset, or `-gpu=$NVF_CC` stays unexpanded and the first nvfortran call fails. The varset table is on the [install page](/start/install#varsets-one-per-machine-and-toolchain). In the tables, **default** is `local_gnu` (or the machine's GNU varset: `ci_gnu`, `iac_gnu`); **NVF** is a varset that sets `$NVF_CC` (`local_nvf`, `iac_nvf`, `leonardo`, `spacehpc`); **AMD** is a varset that sets the amdflang HDF5 (`local_amd`, `thera_amd`), combined with a `gfx*` varset to change `$GPU_ARCH` from its default, gfx942.
 - **Names.** `<target>-<backend>-<compiler>[-<variant>]`: `cpu` is the CPU backend (MPI, optionally OpenMP), `fnl` the GPU backend (OpenACC with `nvf`, OpenMP offload with `omp-amd`). Build clean after switching compiler: `.mod` files work only with the compiler that wrote them.
@@ -190,6 +190,8 @@ Status: does not build.
 | `test-rk-ssp-tableau-gnu-debug` | CPU (gfortran) | debug flags | default |
 | `test-selah-stepper-smoke-gnu` | CPU (gfortran) | — | default |
 | `test-selah-stepper-smoke-fnl-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
+| `test-stepper-object-gnu` | CPU (gfortran) | — | default |
+| `test-stepper-object-xfail-gnu` | CPU (gfortran) | — | default |
 | `test-sgs-gnu` | CPU (gfortran) | — | default |
 | `test-kep-gnu` | CPU (gfortran) | — | default |
 | `test-wm-gnu` | CPU (gfortran) | — | default |
