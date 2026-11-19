@@ -40,6 +40,10 @@ set -euo pipefail
 # (the user default of [IO] unused_keys is error too; the export keeps the harness strict if a default changes, and a
 # caller may set it to warn).
 export ADAM_UNUSED_KEYS="${ADAM_UNUSED_KEYS:-error}"
+# A regression case is tiny: without a cap every case allocates and initializes a block pool that fills 85 % of the node
+# (or of the GPU), most of a case's time (#80 P5: PRISM FNL rmf, ~74 s of ~2 min before step 0). The override caps
+# [amr] memory_fraction for every case; a caller may set another value.
+export ADAM_MEMORY_FRACTION="${ADAM_MEMORY_FRACTION:-0.05}"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -157,9 +161,11 @@ done
 # GPU race-shape lint gate (issue #26 G1.d): fail the sweep BEFORE any run if a
 # forbidden device-code pattern reappears — the gate fires at the first firewall
 # run, where FNL development actually happens (no CI GPU runners).
+if [[ -z "${REGRESSION_CHILD:-}" ]]; then  # once, in the parent of a REGRESSION_JOBS run
 "$REGRESSION_DIR/../../lint/check-gpu-race-shapes.sh"
 # Removed-input-key lint gate (issues #58, #84 E4): no committed PRISM, FLUME or AMR input may carry a removed key.
 "$REGRESSION_DIR/../../lint/check-removed-input-keys.sh"
+fi
 
 if ! command -v mpirun >/dev/null 2>&1; then
    echo "ERROR: mpirun not on PATH" >&2
@@ -234,6 +240,22 @@ if [[ -n "$stale_sources" ]]; then
    echo "ERROR: $EXE is older than $(wc -l <<< "$stale_sources") of its sources; rebuild it (check the build log) first:" >&2
    head -n 5 <<< "$stale_sources" | sed "s|^$REPO_ROOT/|   |" >&2
    exit 2
+fi
+
+# REGRESSION_JOBS > 1 (issue #80 P5): the selected cases run concurrently, each a child of this script restricted to it
+# (src/tests/regression-dispatch.sh: one GPU group per worker on fnl).
+if [[ "${REGRESSION_JOBS:-1}" -gt 1 && -z "${REGRESSION_CHILD:-}" ]]; then
+   selected=()
+   for case_dir in "$REGRESSION_DIR"/*/; do
+      case_name="$(basename "$case_dir")"
+      [[ "$case_name" == "golden" || ! -f "$case_dir/input.ini" ]] && continue
+      if [[ -n "${REGRESSION_CASES:-}" && " $REGRESSION_CASES " != *" $case_name "* ]]; then continue; fi
+      selected+=("$case_name")
+   done
+   source "$REPO_ROOT/src/tests/regression-dispatch.sh"
+   set +e
+   regression_dispatch "$REGRESSION_DIR/run.sh" "$BACKEND" "${selected[@]}"
+   exit $?
 fi
 
 # ---------------------------------------------------------------------------

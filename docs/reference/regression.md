@@ -29,6 +29,11 @@ Both suites share one harness pattern, `run.sh {cpu|fnl} [--no-build] [--varset 
 | `REGRESSION_CASES="a b"` | run only the named cases; in PRISM a name that is not a case directory stops the harness with exit 2 before the build |
 | `REGRESSION_RUN_GOLDENLESS=1` | run the cases that have no golden for the backend (golden capture) |
 | `REGRESSION_ALLOW_MPIRUN_FAILURE=1` | turn the failure of a run that exits non-zero into a warning, on an environment whose crash is known |
+| `REGRESSION_JOBS=N` | run up to N cases at once ([#80](https://github.com/szaghi/adam/issues/80) P5): after the lints and the build, each case is a child `run.sh --no-build` restricted to it, its log printed in the case order, then one summary. On `fnl` every worker owns its GPUs and there are never more workers than GPU groups |
+| `REGRESSION_GPUS_PER_JOB` | fnl, with `REGRESSION_JOBS`: GPUs per case (default 2, one per rank; `CUDA_VISIBLE_DEVICES` set per worker) |
+| `REGRESSION_GPUS` | fnl, with `REGRESSION_JOBS`: the GPU indexes to split (default every GPU `nvidia-smi` lists), e.g. `0,1,2,3` |
+| `ADAM_UNUSED_KEYS` | exported as `error` unless set: a committed input with a key no parser reads fails its case ([parsing rules](/reference/library-input#parsing-rules)) |
+| `ADAM_MEMORY_FRACTION` | exported as `0.05` unless set: caps `[amr] memory_fraction` of every case, so a case does not allocate and initialize a block pool that fills the node (it was most of a PRISM FNL case's time, [#80](https://github.com/szaghi/adam/issues/80) P5) |
 
 A case **fails** when its outputs differ from its goldens, and also when its run exits non-zero (a crash or the hard
 timeout), even if the outputs match: a crash after the last checkpoint is still a crash. The outputs are compared
@@ -37,6 +42,13 @@ its end-of-run marker. A case **skips** when it has no golden for the backend. T
 and the exit status is non-zero on any failure.
 
 Every case runs on 2 ranks, so a golden is a two-rank golden: a one-rank rerun does not match it.
+
+With `REGRESSION_JOBS` the cases share a node: the harness turns MPI core binding off in them, else every
+`mpirun -np 2` binds its ranks to cores 0 and 1 and the cases pile onto two cores
+(`PRTE_MCA_hwloc_default_binding_policy=none` for Open MPI 5, `OMPI_MCA_hwloc_base_binding_policy=none` for Open MPI 4),
+and `ADAM_MEMORY_FRACTION` keeps every case's block pool small. Under Slurm every `mpirun` is a job step: give the job
+2 tasks per worker (`--ntasks-per-node=16` for `REGRESSION_JOBS=8`). On a node
+with 4 GPUs, `REGRESSION_JOBS=2 run.sh fnl` runs two cases at a time on two GPUs each.
 
 ### Goldens and tolerance
 
@@ -75,6 +87,11 @@ REGRESSION_CASES="sod-x brio-wu" src/tests/flume/regression/run.sh cpu --no-buil
 On the WSL2 workstation the FNL suites run through `run-fnl-local.sh [--no-build]` in each suite directory: it loads
 the `nvhpc` module, exports the WSL-only MPI settings of [GPU5](/cookbook/gpu#gpu5-run-on-a-development-box-with-wsl2-not-on-a-cluster)
 and calls `run.sh fnl --varset local_nvf`. It needs Lmod; on any other machine call `run.sh` directly.
+
+On medooza a gate builds the four FNL modes (`flume-fnl-nvf`, `flume-fnl-nvf-fft`, `prism-fnl-nvf`, `ripple-fnl-nvf`)
+in parallel (their object and module directories are separate) with the `fastlink` overlay, `--varset "iac_nvf
+fastlink"`: a regression gate checks correctness, not timings, and the split device link halves the link
+([#131](https://github.com/szaghi/adam/issues/131)). Timings stay with the plain `iac_nvf` build.
 
 On a one-GPU box the two ranks share the device. Each FNL rank counts the node-local ranks bound to its device
 (through `CUDA_VISIBLE_DEVICES`, `ROCR_VISIBLE_DEVICES`, `HIP_VISIBLE_DEVICES` and the device it picks) and sizes its

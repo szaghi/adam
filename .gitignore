@@ -8,6 +8,8 @@ src/tests/euler_cpu
 *.xdmf 
 *.h5
 *.sh
+# tracked scripts the *.sh rule would hide from a plain git add (the others were force-added)
+!src/tests/regression-dispatch.sh
 *.log
 doc/html/
 .DS_Store

@@ -3,7 +3,7 @@ module adam_prism_common_object
 
 ! ADAM common library
 use :: adam_common_library
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_env_override, ini_get
 ! PRISM classes, libraries, parameters
 use :: adam_prism_bc_object
 use :: adam_prism_coil_object
@@ -508,6 +508,7 @@ contains
    ! library's [amr].(memory_fraction) key, read here with the same default
    call ini_get(file_parameters, 'amr', 'memory_fraction', fraction, default=0.85_R8P)
    call ini_check()
+   call ini_env_override('ADAM_MEMORY_FRACTION', fraction) ! the same override as the library's (#80 P5)
    if (.not.(fraction > 0._R8P .and. fraction <= 1._R8P)) &
       call mpih%error_stop(msg=': [amr].(memory_fraction) must be in (0, 1], got '//trim(str(fraction)))
    memory_blocks = memory_avail

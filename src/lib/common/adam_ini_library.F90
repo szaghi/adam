@@ -33,6 +33,7 @@ use :: penf, only : I4P, R8P, str
 implicit none
 private
 public :: ini_check
+public :: ini_env_override
 public :: ini_error
 public :: ini_get
 public :: ini_load
@@ -108,6 +109,25 @@ contains
    ini = base
    ini%filename = trim(filename)
    endsubroutine ini_load
+
+   subroutine ini_env_override(name, val)
+   !< Override a real option by the environment variable `name`, when it is set (issue #80 P5). The regression harnesses
+   !< set `ADAM_MEMORY_FRACTION` so that a tiny case does not allocate and initialize a block pool that fills the node
+   !< (the init of a PRISM FNL case took ~74 s of its ~2 min); a value that is not a number stops the run.
+   character(*), intent(in)    :: name  !< Environment variable name.
+   real(R8P),    intent(inout) :: val   !< Value, replaced when the variable is set.
+   character(64)               :: text  !< Variable value.
+   integer                     :: length !< Variable length.
+   integer                     :: status !< Query status.
+   integer                     :: ios    !< Conversion status.
+   real(R8P)                   :: parsed !< Converted value.
+
+   call get_environment_variable(name, text, length, status)
+   if (status /= 0 .or. length == 0) return
+   read(text, *, iostat=ios) parsed
+   if (ios /= 0) call ini_stop(msg='environment variable '//name//' = "'//trim(text)//'" is not a number')
+   val = parsed
+   endsubroutine ini_env_override
 
    subroutine ini_mark_read(ini, section, option)
    !< Count an option as read (issue #80 P5). FiNeR counts only the options read through `get`, so a parser that walks a

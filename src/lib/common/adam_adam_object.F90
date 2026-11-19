@@ -15,7 +15,7 @@ use :: adam_tree_bucket_object
 use :: adam_tree_object,                only : tree_object, tree_iterator_object
 use :: adam_parameters
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_env_override, ini_get
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer, only : file_ini
@@ -275,6 +275,7 @@ contains
    endif
    call ini_get(file_parameters, 'amr', 'memory_fraction', memory_fraction, default=0.85_R8P)
    call ini_check()
+   call ini_env_override('ADAM_MEMORY_FRACTION', memory_fraction) ! the regression harnesses cap the pool (#80 P5)
    if (.not.(memory_fraction > 0._R8P .and. memory_fraction <= 1._R8P)) &
       call mpih%error_stop(msg=': [amr].(memory_fraction) must be in (0, 1], got '//trim(str(memory_fraction)))
    call self%compute_blocks_number(memory_avail=memory_avail,      &
