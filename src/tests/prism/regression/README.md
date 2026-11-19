@@ -55,7 +55,6 @@ families:
 | `plane_wave` | `cpu/fd` | plane wave, Gaussian pulse, and `gaussian_pulse_PEC` (1-D PEC reflection) |
 | `Gaussian_pulse` | `cpu/fv`, `fnl/fv` | the FV twin of the pulse case (`[weno] scheme = weno-c-4`) |
 | `Helicon_antenna`, `magnetic_nozzle` | `cpu/fd` | long-integration application cases (helicon coil, solenoid nozzle) |
-| `infinite_wire` | `fnl/fd` | single rectangular coil, `fdv_order = 4` |
 
 None of these has a `check.sh`, none is goldened, and `run.sh` never descends
 into them — it iterates only the immediate subdirectories of *this* directory.
