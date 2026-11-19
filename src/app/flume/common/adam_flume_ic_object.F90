@@ -153,7 +153,7 @@ module adam_flume_ic_object
 ! ADAM classes, libraries, parameters
 use :: adam_field_object,         only : field_object
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_error, ini_get
+use :: adam_ini_library, only : ini_check, ini_count_sections, ini_error, ini_get
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_eos_tables_library, only : barotropic_c2
@@ -906,7 +906,8 @@ contains
       if (.not.(self%bb(1) > 0._R8P .and. self%bb(2) > 0._R8P)) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(bb_radius, bb_density) must be positive')
    case(IC_RIEMANN_PROBLEM_STR)
-      call ini_get(file_parameters, INI_SECTION_NAME, 'regions_number', self%regions_number)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'regions_number', self%regions_number, &
+                   default=ini_count_sections(file_parameters, INI_SECTION_NAME//'_region_'))
       call ini_check()
       if (self%regions_number < 1_I4P) &
          call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(regions_number) must be positive')

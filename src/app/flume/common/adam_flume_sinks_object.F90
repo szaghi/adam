@@ -30,7 +30,7 @@ module adam_flume_sinks_object
 !< doubles). History: `<output_basename>-sinks_history.dat`, one row per sink per save (`it time id m x y z u v w`).
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get, ini_stop
+use :: adam_ini_library, only : ini_check, ini_get, ini_get_list
 use :: adam_mpih_global,      only : mpih
 ! FLUME modules
 use :: adam_flume_parameters, only : is_hydrodynamic
@@ -149,7 +149,6 @@ contains
    integer(I4P),              intent(in)    :: ngc             !< Ghost cells number (bounds the accretion radius).
    character(len=1), parameter              :: XYZ(3)=['x', 'y', 'z'] !< Position keys.
    character(len=1), parameter              :: UVW(3)=['u', 'v', 'w'] !< Velocity keys.
-   integer(I4P)                             :: error           !< Error status.
    integer(I4P)                             :: d, s            !< Counters.
 
    self%is_active = file_parameters%has_section(section_name=INI_SECTION_NAME)
@@ -160,9 +159,10 @@ contains
    if (.not.self_gravity) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs [gravity].(self_gravity) = .true.: sinks act through '// &
                                'the self-gravity solve (issue #94, D-M12-2)')
-   ! FiNeR's has_option searches every section: an absent key of this section counts zero values
-   self%n = file_parameters%count_values(section_name=INI_SECTION_NAME, option_name='mass')
-   allocate(self%m(self%n), self%x(3,self%n), self%v(3,self%n), self%a(3,self%n))
+   ! the masses list the initial sinks, none when absent (creation forms them)
+   call ini_get_list(file_parameters, INI_SECTION_NAME, 'mass', self%m, default=[real(R8P)::])
+   self%n = size(self%m, kind=I4P)
+   allocate(self%x(3,self%n), self%v(3,self%n), self%a(3,self%n))
    self%x = 0._R8P ; self%v = 0._R8P ; self%a = 0._R8P
    allocate(self%is_new(self%n))
    self%is_new = .false.
@@ -175,8 +175,6 @@ contains
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(accretion_radius_cells) must lie in [1, ngc = '// &
                                trim(str(ngc, .true.))//'], got '//trim(str(self%r_acc_cells)))
    if (self%n == 0_I4P) return
-   call ini_get(file_parameters, INI_SECTION_NAME, 'mass', self%m)
-   call ini_check()
    if (.not.all(self%m > 0._R8P)) call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(mass) must all be > 0')
    do d=1, 3
       call load_list(key=XYZ(d), required=.true., val=self%x(d,:))
@@ -193,19 +191,18 @@ contains
       character(*), intent(in)    :: key      !< Option name.
       logical,      intent(in)    :: required !< True if the option is required.
       real(R8P),    intent(inout) :: val(:)   !< Values.
-      integer(I4P)                :: count_   !< Values number.
+      real(R8P), allocatable      :: list(:)  !< Values given.
 
-      count_ = file_parameters%count_values(section_name=INI_SECTION_NAME, option_name=key)
-      if (count_ == 0_I4P) then
-         if (required) call ini_stop(msg='failed to load ['//INI_SECTION_NAME//'].('//key//')')
-         val = 0._R8P
-         return
+      if (required) then
+         call ini_get_list(file_parameters, INI_SECTION_NAME, key, list)
+         call ini_check()
+      else
+         call ini_get_list(file_parameters, INI_SECTION_NAME, key, list, default=spread(0._R8P, dim=1, ncopies=self%n))
       endif
-      if (count_ /= self%n) &
-         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//key//') has '//trim(str(count_, .true.))// &
+      if (size(list, dim=1) /= self%n) &
+         call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].('//key//') has '//trim(str(size(list, dim=1), .true.))// &
                                   ' values, (mass) '//trim(str(self%n, .true.)))
-      call ini_get(file_parameters, INI_SECTION_NAME, key, val)
-      call ini_check()
+      val = list
       endsubroutine load_list
    endsubroutine load_from_file
 

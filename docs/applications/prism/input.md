@@ -151,13 +151,15 @@ Coil current sources, stamped into the current density J as a Gaussian distribut
 
 | Key | Type | Req. | Meaning |
 |-----|------|------|---------|
-| `rectangular_coils_number` | int | yes | Rectangular loops. |
-| `circular_coils_number` | int | yes | Circular loops. |
-| `solenoid_coils_number` | int | yes | Solenoids. |
-| `helicon_coils_number` | int | yes | Helicon antennas (polylines). |
+| `rectangular_coils_number` | int | no | Rectangular loops. |
+| `circular_coils_number` | int | no | Circular loops. |
+| `solenoid_coils_number` | int | no | Solenoids. |
+| `helicon_coils_number` | int | no | Helicon antennas (polylines). |
 | `time_delay` | real | cond. (any coil) | Ramp-up time: the current is multiplied by `g(s) = 10s³ − 15s⁴ + 6s⁵`, `s = t/time_delay` clamped to [0, 1], so it grows smoothly from zero at t0 to full at `time_delay`. With `time_delay <= 0` the coils carry full current at t0, and the t0 magnetic field is solved for (see `[PIC] magnetic_field_elliptic_initialization`). |
 
-The four counts are always required, even when they are all zero.
+Each count defaults to the number of `[coils_input_coil_N]` sections whose `coil_type` is that kind ([#80](https://github.com/szaghi/adam/issues/80) F5), so an
+input lists its coils and need not count them; the coil sections are numbered 1..N without gaps. No coil section and no
+count: no coils.
 
 ### [coils_input_coil_N] (N = 1..total coils)
 

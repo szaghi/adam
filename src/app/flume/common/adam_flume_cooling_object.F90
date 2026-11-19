@@ -24,7 +24,7 @@ module adam_flume_cooling_object
 !< `dy_rate = (gamma - 1) Lambda_N / (m^2 R T_N)` (`n^2 / rho = rho / m^2`).
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_error, ini_get
+use :: adam_ini_library, only : ini_check, ini_get, ini_get_list
 use :: adam_mpih_global,           only : mpih
 ! FLUME modules
 use :: adam_flume_cooling_library, only : cooling_segment_y
@@ -85,7 +85,6 @@ contains
    real(R8P),                   intent(in)    :: gamma           !< Specific heats ratio.
    real(R8P),                   intent(in)    :: R               !< Gas constant.
    integer(I4P)                               :: n_lambdas       !< Number of Lambda values.
-   integer(I4P)                               :: error           !< Error status.
    integer(I4P)                               :: k               !< Counter.
 
    self%is_active = file_parameters%has_section(section_name=INI_SECTION_NAME)
@@ -93,8 +92,11 @@ contains
    if (.not.is_hydrodynamic(model)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'] needs a hydrodynamic physical_model (euler, euler-de): '// &
                                'MHD cooling is not implemented (issue #93, D-M11-3)')
-   self%n_nodes = file_parameters%count_values(section_name=INI_SECTION_NAME, option_name='temperatures')
-   n_lambdas = file_parameters%count_values(section_name=INI_SECTION_NAME, option_name='lambdas')
+   call ini_get_list(file_parameters, INI_SECTION_NAME, 'temperatures', self%t_nodes)
+   call ini_get_list(file_parameters, INI_SECTION_NAME, 'lambdas', self%l_nodes)
+   call ini_check()
+   self%n_nodes = size(self%t_nodes, kind=I4P)
+   n_lambdas = size(self%l_nodes, kind=I4P)
    if (self%n_nodes < 2_I4P) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(temperatures) needs at least 2 nodes, got '// &
                                trim(str(self%n_nodes, .true.)))
@@ -104,13 +106,7 @@ contains
    if (n_lambdas /= self%n_nodes) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(lambdas) has '//trim(str(n_lambdas, .true.))// &
                                ' values, (temperatures) '//trim(str(self%n_nodes, .true.)))
-   allocate(self%t_nodes(self%n_nodes), self%l_nodes(self%n_nodes), self%alpha(self%n_nodes), &
-            self%y_nodes(self%n_nodes))
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='temperatures', val=self%t_nodes, error=error)
-   if (error /= 0) call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(temperatures)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='lambdas', val=self%l_nodes, error=error)
-   if (error /= 0) call ini_error(msg='failed to load ['//INI_SECTION_NAME//'].(lambdas)')
-   call ini_check()
+   allocate(self%alpha(self%n_nodes), self%y_nodes(self%n_nodes))
    if (.not.all(self%t_nodes > 0._R8P)) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(temperatures) must all be > 0')
    if (.not.all(self%t_nodes(2:) > self%t_nodes(:self%n_nodes-1))) &

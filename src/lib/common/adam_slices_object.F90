@@ -6,7 +6,7 @@ module adam_slices_object
 use :: adam_adam_object, only : adam_object
 use :: adam_grid_object, only : grid_object
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get, ini_stop
+use :: adam_ini_library, only : ini_check, ini_count_sections, ini_get, ini_stop
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
@@ -95,7 +95,8 @@ contains
    integer(I4P)                               :: i, j, k, s      !< Counter.
    integer(I4P)                               :: error           !< Error status.
 
-   call ini_get(file_parameters, INI_SECTION_NAME, 'slices_number', self%slices_number, default=0_I4P)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'slices_number', self%slices_number, &
+               default=ini_count_sections(file_parameters, 'slice_'))
    if (self%slices_number < 0) &
       call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(slices_number) = '// &
                                trim(str(self%slices_number))//' must be >= 0') ! negative here, str keeps its sign

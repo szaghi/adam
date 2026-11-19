@@ -26,6 +26,14 @@ module adam_ini_library
 !< first section) `extends = <file>` names a base file, read first (recursively, its path relative to the including
 !< file's directory); the including file's options are then added onto it, replacing the values of the options both
 !< define and adding the others, sections included. `extends` itself is consumed: it is not an option of the result.
+!<
+!< `ini_get_list(ini, section, option, val[, default])` reads a list whose length is the number of values given (issue
+!< #80, F4): `val` is allocatable and takes that length, so no input states how many values follow. Absent, `val` takes
+!< `default` (a zero-size default makes the list optional); absent without `default` is a recorded error.
+!<
+!< `ini_count_sections(ini, prefix)` counts the enumerated sections `<prefix>1`, `<prefix>2`, ... (issue #80, F5): a
+!< parser uses it as the default of its count key (`[amr] markers_number`, `[slices] slices_number`, ...), so an input
+!< lists its sections and need not count them. The sections must be numbered 1..N without gaps.
 use :: adam_mpih_global, only : mpih
 use :: finer, only : file_ini
 use :: penf, only : I4P, R8P, str
@@ -33,9 +41,11 @@ use :: penf, only : I4P, R8P, str
 implicit none
 private
 public :: ini_check
+public :: ini_count_sections
 public :: ini_env_override
 public :: ini_error
 public :: ini_get
+public :: ini_get_list
 public :: ini_load
 public :: ini_mark_read
 public :: ini_stop
@@ -51,6 +61,11 @@ interface ini_get
    !< Read an INI option strictly, with an optional default when absent.
    module procedure ini_get_I4P, ini_get_R8P, ini_get_logical, ini_get_character, ini_get_I4P_array, ini_get_R8P_array
 endinterface ini_get
+
+interface ini_get_list
+   !< Read an INI list into an allocatable array sized by the number of values given.
+   module procedure ini_get_list_I4P, ini_get_list_R8P
+endinterface ini_get_list
 
 contains
    recursive subroutine ini_load(filename, ini, depth)
@@ -344,6 +359,94 @@ contains
    call ini%get(section_name=section, option_name=option, val=val, error=error)
    if (error /= 0) call record_failed(section, option)
    endsubroutine ini_get_R8P_array
+
+   subroutine ini_get_list_I4P(ini, section, option, val, default)
+   !< Read an integer list (values separated by blanks); val takes the number of values given.
+   type(file_ini),            intent(in)           :: ini        !< INI file.
+   character(*),              intent(in)           :: section    !< Section name.
+   character(*),              intent(in)           :: option     !< Option name.
+   integer(I4P), allocatable, intent(inout)        :: val(:)     !< Values.
+   integer(I4P),              intent(in), optional :: default(:) !< Default, when the option is absent.
+   integer(I4P), allocatable                       :: buff(:)    !< Buffer: val is left untouched on a failed read.
+   integer(I4P)                                    :: error      !< Error status.
+
+   if (.not.is_present(ini, section, option)) then
+      if (present(default)) then
+         val = default
+      else
+         call record_failed(section, option)
+      endif
+      return
+   endif
+   allocate(buff(ini%count_values(section_name=section, option_name=option)))
+   if (size(buff, dim=1) > 0) then
+      call ini%get(section_name=section, option_name=option, val=buff, error=error)
+      if (error /= 0) then
+         call record_failed(section, option)
+         return
+      endif
+   endif
+   call move_alloc(from=buff, to=val)
+   endsubroutine ini_get_list_I4P
+
+   subroutine ini_get_list_R8P(ini, section, option, val, default)
+   !< Read a real list (values separated by blanks); val takes the number of values given.
+   type(file_ini),         intent(in)           :: ini        !< INI file.
+   character(*),           intent(in)           :: section    !< Section name.
+   character(*),           intent(in)           :: option     !< Option name.
+   real(R8P), allocatable, intent(inout)        :: val(:)     !< Values.
+   real(R8P),              intent(in), optional :: default(:) !< Default, when the option is absent.
+   real(R8P), allocatable                       :: buff(:)    !< Buffer: val is left untouched on a failed read.
+   integer(I4P)                                 :: error      !< Error status.
+
+   if (.not.is_present(ini, section, option)) then
+      if (present(default)) then
+         val = default
+      else
+         call record_failed(section, option)
+      endif
+      return
+   endif
+   allocate(buff(ini%count_values(section_name=section, option_name=option)))
+   if (size(buff, dim=1) > 0) then
+      call ini%get(section_name=section, option_name=option, val=buff, error=error)
+      if (error /= 0) then
+         call record_failed(section, option)
+         return
+      endif
+   endif
+   call move_alloc(from=buff, to=val)
+   endsubroutine ini_get_list_R8P
+
+   function ini_count_sections(ini, prefix) result(n)
+   !< Number of the enumerated sections `<prefix>1` .. `<prefix>N`; stops the run when their numbers have a gap.
+   type(file_ini), intent(in)    :: ini    !< INI file.
+   character(*),   intent(in)    :: prefix !< Sections name before the number (e.g. `slice_`).
+   integer(I4P)                  :: n      !< Sections number.
+   character(len=:), allocatable :: sname  !< Section name.
+   character(len=:), allocatable :: tail   !< Section name after the prefix.
+   integer(I4P)                  :: n_max  !< Highest number found.
+   integer(I4P)                  :: k      !< Section number.
+   integer(I4P)                  :: ios    !< I/O status.
+   integer(I4P)                  :: s      !< Counter.
+
+   n = 0_I4P
+   n_max = 0_I4P
+   do s=1, ini%sections_number()
+      sname = ini%section(s)
+      if (len(sname) <= len(prefix)) cycle
+      if (sname(1:len(prefix)) /= prefix) cycle
+      tail = sname(len(prefix)+1:)
+      if (verify(tail, '0123456789') /= 0) cycle
+      read(tail, *, iostat=ios) k
+      if (ios /= 0) cycle
+      n = n + 1_I4P
+      n_max = max(n_max, k)
+   enddo
+   if (n_max /= n) call ini_stop(msg='the sections ['//prefix//'N] must be numbered 1..'//trim(str(n, .true.))// &
+                                     ' without gaps (the highest is ['//prefix//trim(str(n_max, .true.))//'])')
+   endfunction ini_count_sections
+
    subroutine ini_warn_unused(ini, label, as_error)
    !< Report (rank 0) every option of the file that no parser has read since it was loaded (issue #80, P2, F2): a
    !< misspelled key or a key no longer used is otherwise silently ignored. As warnings, the run goes on; `as_error`

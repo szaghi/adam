@@ -173,7 +173,8 @@ p = 1.0
 
 ## `riemann-problem`: piecewise-constant axis-aligned regions
 
-*Model:* any. *Keys:* `[initial_conditions] regions_number` (integer, required, must be $\ge 1$). Each
+*Model:* any. *Keys:* `[initial_conditions] regions_number` (integer, must be $\ge 1$; default: the number of
+`[initial_conditions_region_N]` sections ([#80](https://github.com/szaghi/adam/issues/80) F5)). Each
 region section also needs the six extent keys.
 
 A cell with centre $\mathbf c$ belongs to region $r$ if, for every axis $d$, $e_{\min,d}^{(r)} < c_d \le e_{\max,d}^{(r)}$. The region sections are scanned in order and **the first match wins**, so overlapping

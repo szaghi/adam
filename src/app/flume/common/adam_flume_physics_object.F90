@@ -13,7 +13,7 @@ module adam_flume_physics_object
 !< the first `N` carrying `rho s_k`, the others zero.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_error, ini_get, ini_stop
+use :: adam_ini_library, only : ini_check, ini_error, ini_get, ini_get_list, ini_stop
 use :: adam_mpih_global,         only : mpih
 ! FLUME modules
 use :: adam_flume_euler_library, only : primitive_to_conservative
@@ -399,8 +399,11 @@ contains
    call ini_check()
    if (.not.(self%rho_ref > 0._R8P)) &
       call mpih%error_stop(msg=': [eos].(reference_density) must be positive, got '//trim(str(self%rho_ref)))
-   n_breaks = file_parameters%count_values(section_name='eos', option_name='densities')
-   n_exponents = file_parameters%count_values(section_name='eos', option_name='exponents')
+   ! the piecewise law: both lists absent take the MF2021 default table
+   call ini_get_list(file_parameters, 'eos', 'densities', self%eos_breaks, default=[real(R8P)::])
+   call ini_get_list(file_parameters, 'eos', 'exponents', self%eos_exponents, default=[real(R8P)::])
+   n_breaks = size(self%eos_breaks, kind=I4P)
+   n_exponents = size(self%eos_exponents, kind=I4P)
    if (n_breaks == 0_I4P .and. n_exponents == 0_I4P) then
       self%eos_breaks = MF2021_BREAKS
       self%eos_exponents = MF2021_EXPONENTS
@@ -412,13 +415,6 @@ contains
       if (n_exponents > EOS_SEGMENTS_MAX) &
          call mpih%error_stop(msg=': [eos] has '//trim(str(n_exponents, .true.))//' segments, at most '// &
                                   trim(str(EOS_SEGMENTS_MAX, .true.))//' are accepted')
-      allocate(self%eos_breaks(n_breaks), self%eos_exponents(n_exponents))
-      if (n_breaks > 0_I4P) then
-         call ini_get(file_parameters, 'eos', 'densities', self%eos_breaks)
-         call ini_check()
-      endif
-      call ini_get(file_parameters, 'eos', 'exponents', self%eos_exponents)
-      call ini_check()
    endif
    n_breaks = size(self%eos_breaks, kind=I4P)
    if (.not.all(self%eos_breaks > 0._R8P)) call mpih%error_stop(msg=': [eos].(densities) must all be > 0')

@@ -5,7 +5,7 @@ module adam_ib_object
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_count_sections, ini_get
 use :: adam_mpih_global,  only : mpih
 ! third party modules
 use :: finer
@@ -195,7 +195,8 @@ contains
    integer(I4P)                           :: c               !< Character counter.
    integer(I4P)                           :: err             !< Error status.
 
-   call ini_get(file_parameters, INI_SECTION_NAME//'s', 'number', self%solids_number, default=0_I4P)
+   call ini_get(file_parameters, INI_SECTION_NAME//'s', 'number', self%solids_number, &
+               default=ini_count_sections(file_parameters, INI_SECTION_NAME//'_'))
    call ini_get(file_parameters, INI_SECTION_NAME//'s', 'n_eikonal', self%n_eikonal, default=2_I4P)
 
    call ini_check()

@@ -5,7 +5,7 @@ module adam_amr_object
 ! ADAM classes, libraries, parameters
 use :: adam_parameters, only : AMR_PROLONGATION_LINEAR, AMR_PROLONGATION_CONSERVATIVE, AMR_PROLONGATION_CONSERVATIVE_STATE
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_count_sections, ini_get
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 ! third party modules
@@ -140,7 +140,8 @@ contains
 
    call ini_get(file_parameters, INI_SECTION_NAME, 'frequency', self%frequency)
    call ini_get(file_parameters, INI_SECTION_NAME, 'iters', self%iters)
-   call ini_get(file_parameters, INI_SECTION_NAME, 'markers_number', self%markers_number, default=0_I4P)
+   call ini_get(file_parameters, INI_SECTION_NAME, 'markers_number', self%markers_number, &
+               default=ini_count_sections(file_parameters, INI_SECTION_NAME//'_marker_'))
    ! optional: how a refined block's children are filled; an app may choose its own default when it is absent
    buff_c = ''
    call ini_check()

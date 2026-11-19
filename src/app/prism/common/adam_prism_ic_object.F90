@@ -5,7 +5,7 @@ module adam_prism_ic_object
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
-use :: adam_ini_library, only : ini_check, ini_error, ini_get
+use :: adam_ini_library, only : ini_check, ini_count_sections, ini_error, ini_get
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
@@ -157,7 +157,8 @@ contains
                                IC_TYPES_ACCEPTED)
    endselect
    if (self%ic_type == IC_TYPE_RP) then
-      call ini_get(file_parameters, INI_SECTION_NAME, 'regions_number', self%regions_number)
+      call ini_get(file_parameters, INI_SECTION_NAME, 'regions_number', self%regions_number, &
+                   default=ini_count_sections(file_parameters, INI_SECTION_NAME//'_region_'))
       call ini_check()
       if (self%regions_number>=1) then
          allocate(   self%q(1:9, 1:self%regions_number))

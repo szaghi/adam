@@ -5,7 +5,7 @@ module adam_prism_coil_object
 ! ADAM singleton objects
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
-use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_ini_library, only : ini_check, ini_count_sections, ini_get
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
 use :: adam_prism_physics_object, only : prism_physics_object, is_adim_model
@@ -251,20 +251,40 @@ contains
    !< is computed, since the coils current density is a block-sized field per coil.
    class(prism_coil_object), intent(inout)        :: self            !< Coils.
    type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   integer(I4P)                                   :: error           !< Error status.
+   integer(I4P)                                   :: counts(4)       !< Coil sections by type.
 
 
-   call ini_get(file_parameters, INI_SECTION_NAME, 'circular_coils_number', self%circular_coils_number)
-
-   call ini_get(file_parameters, INI_SECTION_NAME, 'rectangular_coils_number', self%rectangular_coils_number)
-
-   call ini_get(file_parameters, INI_SECTION_NAME, 'solenoid_coils_number', self%solenoid_coils_number)
-
-   call ini_get(file_parameters, INI_SECTION_NAME, 'helicon_coils_number', self%helicon_coils_number)
-
+   ! each count defaults to the number of [coils_input_coil_N] sections of that coil_type (issue #80, F5)
+   call count_coil_sections
+   call ini_get(file_parameters, INI_SECTION_NAME, 'circular_coils_number', self%circular_coils_number, &
+                default=counts(1))
+   call ini_get(file_parameters, INI_SECTION_NAME, 'rectangular_coils_number', self%rectangular_coils_number, &
+                default=counts(2))
+   call ini_get(file_parameters, INI_SECTION_NAME, 'solenoid_coils_number', self%solenoid_coils_number, &
+                default=counts(3))
+   call ini_get(file_parameters, INI_SECTION_NAME, 'helicon_coils_number', self%helicon_coils_number, &
+                default=counts(4))
    self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number &
                               + self%solenoid_coils_number + self%helicon_coils_number
    call ini_check()
+   contains
+      subroutine count_coil_sections
+      !< Count the coil sections by coil_type.
+      character(99) :: buff_char !< Option character buffer.
+      integer(I4P)  :: c         !< Counter.
+
+      counts = 0_I4P
+      do c=1, ini_count_sections(file_parameters, INI_SECTION_NAME//'_coil_')
+         buff_char = ''
+         call ini_get(file_parameters, INI_SECTION_NAME//'_coil_'//trim(str(c, .true.)), 'coil_type', buff_char)
+         select case(trim(buff_char))
+         case(COIL_TYPE_CIRCULAR)    ; counts(1) = counts(1) + 1_I4P
+         case(COIL_TYPE_RECTANGULAR) ; counts(2) = counts(2) + 1_I4P
+         case(COIL_TYPE_SOLENOID)    ; counts(3) = counts(3) + 1_I4P
+         case(COIL_TYPE_HELICON)     ; counts(4) = counts(4) + 1_I4P
+         endselect
+      enddo
+      endsubroutine count_coil_sections
    endsubroutine load_coils_number
 
    subroutine load_from_file(self, field, grid, physics, file_parameters)
