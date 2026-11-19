@@ -97,7 +97,8 @@
 
 set -euo pipefail
 # The committed regression inputs carry no key that no parser reads (issue #80 P5): enforce it, a stale key stops the case
-# (the user default of [IO] unused_keys is warn; ADAM_UNUSED_KEYS overrides it, and a caller may set it to warn).
+# (the user default of [IO] unused_keys is error too; the export keeps the harness strict if a default changes, and a
+# caller may set it to warn).
 export ADAM_UNUSED_KEYS="${ADAM_UNUSED_KEYS:-error}"
 
 # ---------------------------------------------------------------------------

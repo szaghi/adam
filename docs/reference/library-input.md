@@ -50,9 +50,10 @@ The input is an INI file read by [FiNeR](https://github.com/szaghi/FiNeR):
   used, or the keys of a feature switched off (the `[slice_N]` sections with `slices_number = 0`, the ROR schemes with
   `ror_number = 0`, `[field] nv`, which the applications set themselves). No key is read after the initialization, so
   the list is final ([#80](https://github.com/szaghi/adam/issues/80) P5). `[IO] unused_keys` sets what happens:
-  `warn` (default) prints them as warnings and the run goes on; `error` prints them as errors and stops the run. The
-  environment variable `ADAM_UNUSED_KEYS` (`warn` or `error`), when set, overrides the key: the FLUME and PRISM
-  regression harnesses set it to `error`, so a committed regression input cannot carry a dead key. To sweep inputs
+  `error` (default) prints them as errors and stops the run; `warn` prints them as warnings and the run goes on (an old
+  input, while you clean it). The environment variable `ADAM_UNUSED_KEYS` (`warn` or `error`), when set, overrides the
+  key; the FLUME and PRISM regression harnesses set it to `error`, so a committed regression input cannot carry a dead
+  key whatever the default. To sweep inputs
   without running them, `ADAM_INIT_ONLY=1` stops every run right after the initialization (the list printed). It needs
   FiNeR with `unused_options`.
 - **Logical keys.** FiNeR reads the value when its first character is one of `.tTfF` (`.true.`, `T`, `true`,
@@ -93,7 +94,7 @@ they are unread keys). `divergence_history_save`, `save_gradient_fields` and `sa
 | `restart_save` | int | yes | — | `<= 0` disables | both | Restart save cadence in steps. |
 | `residuals_save` | int | yes | — | `<= 0` disables | both | Residual L2-norm history cadence (`<output_basename>-residuals.dat`). |
 | `save_residual_fields` | logical | no | `.false.` | logical | both | Also write the residuals `dq_*` into the field files. |
-| `unused_keys` | string | no | `warn` | `warn`, `error`; other values are fatal. The environment variable `ADAM_UNUSED_KEYS` overrides it. | both | What the keys no parser read do ([parsing rules](#parsing-rules)): warnings, or an error that stops the run ([#80](https://github.com/szaghi/adam/issues/80) P5). |
+| `unused_keys` | string | no | `error` | `warn`, `error`; other values are fatal. The environment variable `ADAM_UNUSED_KEYS` overrides it. | both | What the keys no parser read do ([parsing rules](#parsing-rules)): warnings, or an error that stops the run ([#80](https://github.com/szaghi/adam/issues/80) P5). |
 
 **Output files.** The library writes the fields as one `<output_basename>-<it:9 digits>-procNNNNNN.h5` per rank plus one
 `.xdmf` (XH5F, ghost cells included), the restart files as `<restart_basename>.time`, `.tnd` and

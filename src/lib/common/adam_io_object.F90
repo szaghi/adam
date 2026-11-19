@@ -25,7 +25,7 @@ type :: io_object
    integer(I4P)                :: it_save=100_I4P                !< Main output iteration save frequency.
    character(:), allocatable   :: output_basename                !< Basename of output files.
    logical                     :: restart=.false.                !< Enable restart from old output data.
-   logical                     :: unused_keys_error=.false.      !< [IO] unused_keys = error: an unread key stops the run.
+   logical                     :: unused_keys_error=.true.       !< [IO] unused_keys = error (default): an unread key stops the run.
    character(:), allocatable   :: restart_basename               !< Basename of restart files.
    integer(I4P)                :: restart_save=100_I4P           !< Restart output iteration save frequency.
    integer(I4P)                :: residuals_save=10_I4P          !< Residuals (norm) output iteration save frequency.
@@ -139,9 +139,9 @@ contains
       call ini_get(file_parameters, ISN, 'save_residual_fields', self%save_residual_fields, default=.false.)
       ! the [IO] options only PRISM consumes (save_memory_status, save_curl_fields, save_divergence_fields, seam_divB_*)
       ! are read by PRISM (prism_io_object, issue #80 P5)
-      ! the keys no parser reads (issue #80 P5): reported as warnings (default) or an error that stops the run; the
+      ! the keys no parser reads (issue #80 P5): an error that stops the run (default) or warnings; the
       ! environment variable ADAM_UNUSED_KEYS, when set, overrides the key (the regression harnesses set it to error)
-      call ini_get(file_parameters, ISN, 'unused_keys', buff_c, default='warn')
+      call ini_get(file_parameters, ISN, 'unused_keys', buff_c, default='error')
       call get_environment_variable('ADAM_UNUSED_KEYS', env_value, env_length, env_status)
       if (env_status == 0 .and. env_length > 0) buff_c = env_value
       select case(trim(adjustl(buff_c)))
