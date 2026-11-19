@@ -194,8 +194,8 @@ coupling         = mirror      ; the default
 coupling_cadence = stage_coincident
 ```
 
-The realm INIs are complete inputs, or one realm's input extends another's and lists only what it changes (`extends =
-<file>`, a key before the first section, the path relative to the including file;
+The realm INIs are complete inputs, or one realm's input extends another's and lists only what it changes
+(`extends = <file>`, a key before the first section, the path relative to the including file;
 [library input](/reference/library-input#parsing-rules), [#80](https://github.com/szaghi/adam/issues/80) P4). For a split
 of a single-realm domain, each realm keeps the cell size and the block layout and takes its part of the extent:
 
