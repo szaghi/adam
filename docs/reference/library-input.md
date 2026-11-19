@@ -50,6 +50,13 @@ The input is an INI file read by [FiNeR](https://github.com/szaghi/FiNeR):
   regions_number`, the PRISM coil counts) defaults to the number of sections present, `[<prefix>1]` .. `[<prefix>N]`,
   which must be numbered without gaps (a gap stops the run); stating it is still accepted. A list key (`[cooling]
   temperatures`, `[eos] densities`, `[sinks] mass`, ...) takes as many values as are written.
+- **Keys set to their default, and the defaults taken** ([#80](https://github.com/szaghi/adam/issues/80) F6, the
+  `--dump-defaults` of the plan). With `ADAM_REPORT_DEFAULTS=1` in the environment, rank 0 prints after the
+  initialization of each realm one line per key read with a default: `[ini-defaults] equal [section].(key)` when the
+  input sets it to its default at every read (the line can be deleted with no effect), `[ini-defaults] taken
+  [section].(key) = value` when the input omits it. A multi-realm run appends `(realm N)`. Keys read without a default,
+  or by a parser that does not use the library's `ini_get`, are not listed. With `ADAM_INIT_ONLY=1` it lists the
+  defaults of an input without running it.
 - **Keys nobody reads.** After the initialization of each realm, rank 0 lists the keys of its input file that no parser
   has read (`N input option(s) ... never read` and one `[section].(key)` per line): a misspelled key, a key no longer
   used, or the keys of a feature switched off (the `[slice_N]` sections with `slices_number = 0`, the `[weno]` ROR keys,

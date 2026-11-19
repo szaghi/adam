@@ -34,6 +34,17 @@ module adam_ini_library
 !< `ini_count_sections(ini, prefix)` counts the enumerated sections `<prefix>1`, `<prefix>2`, ... (issue #80, F5): a
 !< parser uses it as the default of its count key (`[amr] markers_number`, `[slices] slices_number`, ...), so an input
 !< lists its sections and need not count them. The sections must be numbered 1..N without gaps.
+!<
+!< `ADAM_REPORT_DEFAULTS=1` in the environment (issue #80, F6) makes every read through `ini_get`/`ini_get_list` noted,
+!< and `ini_report_defaults` (called by the forest once a realm is initialized, before the unread-key check) prints, on
+!< rank 0, one line per option:
+!<
+!< + `[ini-defaults] equal [<section>].(<option>)`: the input sets the option to its default, at every read of it, so the
+!<   line can be deleted with no effect;
+!< + `[ini-defaults] taken [<section>].(<option>) = <value>`: the input omits the option and the run takes its default.
+!<
+!< An option read without a default anywhere (required), or set to a value other than a default, is not listed; options
+!< read by parsers that bypass this library are not listed either.
 use :: adam_mpih_global, only : mpih
 use :: finer, only : file_ini
 use :: penf, only : I4P, R8P, str
@@ -48,6 +59,7 @@ public :: ini_get
 public :: ini_get_list
 public :: ini_load
 public :: ini_mark_read
+public :: ini_report_defaults
 public :: ini_stop
 public :: ini_warn_unused
 
@@ -56,6 +68,16 @@ integer(I4P), parameter :: EXTENDS_DEPTH_MAX = 8 !< Longest chain of files exten
 
 character(len=:), allocatable :: pending          !< Errors recorded since the last ini_check, one per line.
 integer(I4P)                  :: pending_number=0 !< Number of errors recorded.
+
+integer(I4P), parameter :: NOTE_LEN = 512         !< Length of a read note.
+integer(I4P), parameter :: NOTE_REQUIRED = 0      !< Read without default.
+integer(I4P), parameter :: NOTE_EQUAL = 1         !< Read with default, present and equal to it.
+integer(I4P), parameter :: NOTE_DIFFERS = 2       !< Read with default, present and different from it.
+integer(I4P), parameter :: NOTE_TAKEN = 3         !< Read with default, absent: the default is taken.
+integer(I4P)            :: report_state=-1        !< ADAM_REPORT_DEFAULTS: -1 not yet inquired, 0 off, 1 on.
+character(len=NOTE_LEN), allocatable :: notes(:)  !< Reads noted: section, option, default as text.
+integer(I4P),            allocatable :: kinds(:)  !< Kind of each noted read.
+integer(I4P)                         :: notes_number=0 !< Number of reads noted.
 
 interface ini_get
    !< Read an INI option strictly, with an optional default when absent.
@@ -130,7 +152,7 @@ contains
    !< set `ADAM_MEMORY_FRACTION` so that a tiny case does not allocate and initialize a block pool that fills the node
    !< (the init of a PRISM FNL case took ~74 s of its ~2 min); a value that is not a number stops the run.
    character(*), intent(in)    :: name  !< Environment variable name.
-   real(R8P),    intent(inout) :: val   !< Value, replaced when the variable is set.
+   real(R8P),      intent(inout)        :: val   !< Value, replaced when the variable is set.
    character(64)               :: text  !< Variable value.
    integer                     :: length !< Variable length.
    integer                     :: status !< Query status.
@@ -243,6 +265,7 @@ contains
    if (.not.is_present(ini, section, option)) then
       if (present(default)) then
          val = default
+         call note_read(section, option, NOTE_TAKEN, trim(str(default, .true.)))
       else
          call record_failed(section, option)
       endif
@@ -254,6 +277,11 @@ contains
       return
    endif
    val = buff
+   if (present(default)) then
+      call note_read(section, option, merge(NOTE_EQUAL, NOTE_DIFFERS, val == default))
+   else
+      call note_read(section, option, NOTE_REQUIRED)
+   endif
    endsubroutine ini_get_I4P
 
    subroutine ini_get_R8P(ini, section, option, val, default)
@@ -269,6 +297,7 @@ contains
    if (.not.is_present(ini, section, option)) then
       if (present(default)) then
          val = default
+         call note_read(section, option, NOTE_TAKEN, trim(str(default)))
       else
          call record_failed(section, option)
       endif
@@ -280,6 +309,11 @@ contains
       return
    endif
    val = buff
+   if (present(default)) then
+      call note_read(section, option, merge(NOTE_EQUAL, NOTE_DIFFERS, val == default))
+   else
+      call note_read(section, option, NOTE_REQUIRED)
+   endif
    endsubroutine ini_get_R8P
 
    subroutine ini_get_logical(ini, section, option, val, default)
@@ -295,6 +329,7 @@ contains
    if (.not.is_present(ini, section, option)) then
       if (present(default)) then
          val = default
+         call note_read(section, option, NOTE_TAKEN, merge('.true. ', '.false.', default))
       else
          call record_failed(section, option)
       endif
@@ -306,6 +341,11 @@ contains
       return
    endif
    val = buff
+   if (present(default)) then
+      call note_read(section, option, merge(NOTE_EQUAL, NOTE_DIFFERS, val .eqv. default))
+   else
+      call note_read(section, option, NOTE_REQUIRED)
+   endif
    endsubroutine ini_get_logical
 
    subroutine ini_get_character(ini, section, option, val, default)
@@ -320,22 +360,33 @@ contains
    if (.not.is_present(ini, section, option)) then
       if (present(default)) then
          val = default
+         call note_read(section, option, NOTE_TAKEN, default)
       else
          call record_failed(section, option)
       endif
       return
    endif
    call ini%get(section_name=section, option_name=option, val=val, error=error)
-   if (error /= 0) call record_failed(section, option)
+   if (error /= 0) then
+      call record_failed(section, option)
+      return
+   endif
+   if (present(default)) then
+      call note_read(section, option, merge(NOTE_EQUAL, NOTE_DIFFERS, trim(adjustl(val)) == trim(adjustl(default))))
+   else
+      call note_read(section, option, NOTE_REQUIRED)
+   endif
    endsubroutine ini_get_character
+
    subroutine ini_get_I4P_array(ini, section, option, val)
-   !< Read an integer list (values separated by blanks) into val, whose size is the number of values expected.
+   !< Read a integer list (values separated by blanks) into val, whose size is the number of values expected.
    type(file_ini), intent(in)    :: ini     !< INI file.
    character(*),   intent(in)    :: section !< Section name.
    character(*),   intent(in)    :: option  !< Option name.
-   integer(I4P),   intent(inout) :: val(:)  !< Values.
+   integer(I4P), intent(inout) :: val(:)  !< Values.
    integer(I4P)                  :: error   !< Error status.
 
+   call note_read(section, option, NOTE_REQUIRED)
    if (.not.is_present(ini, section, option)) then
       call record_failed(section, option)
       return
@@ -349,9 +400,10 @@ contains
    type(file_ini), intent(in)    :: ini     !< INI file.
    character(*),   intent(in)    :: section !< Section name.
    character(*),   intent(in)    :: option  !< Option name.
-   real(R8P),      intent(inout) :: val(:)  !< Values.
+   real(R8P)   , intent(inout) :: val(:)  !< Values.
    integer(I4P)                  :: error   !< Error status.
 
+   call note_read(section, option, NOTE_REQUIRED)
    if (.not.is_present(ini, section, option)) then
       call record_failed(section, option)
       return
@@ -361,7 +413,7 @@ contains
    endsubroutine ini_get_R8P_array
 
    subroutine ini_get_list_I4P(ini, section, option, val, default)
-   !< Read an integer list (values separated by blanks); val takes the number of values given.
+   !< Read a integer list (values separated by blanks); val takes the number of values given.
    type(file_ini),            intent(in)           :: ini        !< INI file.
    character(*),              intent(in)           :: section    !< Section name.
    character(*),              intent(in)           :: option     !< Option name.
@@ -369,10 +421,12 @@ contains
    integer(I4P),              intent(in), optional :: default(:) !< Default, when the option is absent.
    integer(I4P), allocatable                       :: buff(:)    !< Buffer: val is left untouched on a failed read.
    integer(I4P)                                    :: error      !< Error status.
+   logical                                         :: same       !< Values equal to the default.
 
    if (.not.is_present(ini, section, option)) then
       if (present(default)) then
          val = default
+         call note_read(section, option, NOTE_TAKEN, trim(str(default)))
       else
          call record_failed(section, option)
       endif
@@ -385,23 +439,32 @@ contains
          call record_failed(section, option)
          return
       endif
+   endif
+   if (present(default)) then
+      same = size(buff, dim=1) == size(default, dim=1)
+      if (same) same = all(buff == default)
+      call note_read(section, option, merge(NOTE_EQUAL, NOTE_DIFFERS, same))
+   else
+      call note_read(section, option, NOTE_REQUIRED)
    endif
    call move_alloc(from=buff, to=val)
    endsubroutine ini_get_list_I4P
 
    subroutine ini_get_list_R8P(ini, section, option, val, default)
    !< Read a real list (values separated by blanks); val takes the number of values given.
-   type(file_ini),         intent(in)           :: ini        !< INI file.
-   character(*),           intent(in)           :: section    !< Section name.
-   character(*),           intent(in)           :: option     !< Option name.
-   real(R8P), allocatable, intent(inout)        :: val(:)     !< Values.
-   real(R8P),              intent(in), optional :: default(:) !< Default, when the option is absent.
-   real(R8P), allocatable                       :: buff(:)    !< Buffer: val is left untouched on a failed read.
-   integer(I4P)                                 :: error      !< Error status.
+   type(file_ini),            intent(in)           :: ini        !< INI file.
+   character(*),              intent(in)           :: section    !< Section name.
+   character(*),              intent(in)           :: option     !< Option name.
+   real(R8P), allocatable,    intent(inout)        :: val(:)     !< Values.
+   real(R8P),                 intent(in), optional :: default(:) !< Default, when the option is absent.
+   real(R8P), allocatable                          :: buff(:)    !< Buffer: val is left untouched on a failed read.
+   integer(I4P)                                    :: error      !< Error status.
+   logical                                         :: same       !< Values equal to the default.
 
    if (.not.is_present(ini, section, option)) then
       if (present(default)) then
          val = default
+         call note_read(section, option, NOTE_TAKEN, trim(str(default)))
       else
          call record_failed(section, option)
       endif
@@ -414,6 +477,13 @@ contains
          call record_failed(section, option)
          return
       endif
+   endif
+   if (present(default)) then
+      same = size(buff, dim=1) == size(default, dim=1)
+      if (same) same = all(buff == default)
+      call note_read(section, option, merge(NOTE_EQUAL, NOTE_DIFFERS, same))
+   else
+      call note_read(section, option, NOTE_REQUIRED)
    endif
    call move_alloc(from=buff, to=val)
    endsubroutine ini_get_list_R8P
@@ -446,6 +516,92 @@ contains
    if (n_max /= n) call ini_stop(msg='the sections ['//prefix//'N] must be numbered 1..'//trim(str(n, .true.))// &
                                      ' without gaps (the highest is ['//prefix//trim(str(n_max, .true.))//'])')
    endfunction ini_count_sections
+
+   logical function report_on()
+   !< True if the environment asks for the defaults report (`ADAM_REPORT_DEFAULTS` set, not `0`).
+   character(len=8) :: value  !< Environment value.
+   integer          :: length !< Value length.
+   integer          :: status !< Environment status.
+
+   if (report_state < 0) then
+      call get_environment_variable('ADAM_REPORT_DEFAULTS', value, length, status)
+      report_state = 0
+      if (status == 0 .and. length > 0) then
+         if (trim(value) /= '0') report_state = 1
+      endif
+   endif
+   report_on = report_state == 1
+   endfunction report_on
+
+   subroutine note_read(section, option, kind, default_text)
+   !< Note one read for the defaults report.
+   character(*), intent(in)           :: section      !< Section name.
+   character(*), intent(in)           :: option       !< Option name.
+   integer(I4P), intent(in)           :: kind         !< Kind of read.
+   character(*), intent(in), optional :: default_text !< Default as text.
+   character(len=NOTE_LEN), allocatable :: notes_(:)  !< Grown notes.
+   integer(I4P),            allocatable :: kinds_(:)  !< Grown kinds.
+
+   if (.not.report_on()) return
+   if (.not.allocated(notes)) then
+      allocate(notes(64), kinds(64))
+      notes_number = 0
+   endif
+   if (notes_number == size(notes, dim=1)) then
+      allocate(notes_(2*notes_number), kinds_(2*notes_number))
+      notes_(:notes_number) = notes(:notes_number)
+      kinds_(:notes_number) = kinds(:notes_number)
+      call move_alloc(from=notes_, to=notes)
+      call move_alloc(from=kinds_, to=kinds)
+   endif
+   notes_number = notes_number + 1
+   notes(notes_number) = '['//section//'].('//option//')'
+   if (present(default_text)) notes(notes_number) = trim(notes(notes_number))//' = '//trim(adjustl(default_text))
+   kinds(notes_number) = kind
+   endsubroutine note_read
+
+   subroutine ini_report_defaults(label)
+   !< Print (rank 0) the options set to their default and the defaults taken since the last report, then forget them.
+   character(*), intent(in), optional :: label  !< What the file is (e.g. the realm), for the message.
+   character(len=:), allocatable      :: key    !< Option, `[section].(option)`.
+   character(len=:), allocatable      :: label_ !< Label, local variable.
+   logical,          allocatable      :: done(:) !< Note already reported.
+   integer(I4P)                       :: kind   !< Kind of the option over all its reads.
+   integer(I4P)                       :: n, m   !< Counters.
+
+   if (.not.report_on()) return
+   if (notes_number == 0) return
+   label_ = '' ; if (present(label)) label_ = ' ('//label//')'
+   allocate(done(notes_number))
+   done = .false.
+   do n=1, notes_number
+      if (done(n)) cycle
+      key = option_key(notes(n))
+      kind = kinds(n)
+      do m=n+1, notes_number
+         if (done(m)) cycle
+         if (option_key(notes(m)) /= key) cycle
+         done(m) = .true.
+         if (kinds(m) /= kind) kind = NOTE_DIFFERS ! mixed reads (required somewhere, or other defaults): not reported
+      enddo
+      if (mpih%myrank /= 0) cycle
+      select case(kind)
+      case(NOTE_EQUAL) ; print '(A)', '[ini-defaults] equal '//key//label_
+      case(NOTE_TAKEN) ; print '(A)', '[ini-defaults] taken '//trim(notes(n))//label_
+      endselect
+   enddo
+   notes_number = 0
+   contains
+      function option_key(note) result(key_)
+      !< The `[section].(option)` part of a note.
+      character(*), intent(in)      :: note !< Note.
+      character(len=:), allocatable :: key_ !< Key.
+      integer(I4P)                  :: c    !< Character counter.
+
+      c = index(note, ')')
+      key_ = note(:c)
+      endfunction option_key
+   endsubroutine ini_report_defaults
 
    subroutine ini_warn_unused(ini, label, as_error)
    !< Report (rank 0) every option of the file that no parser has read since it was loaded (issue #80, P2, F2): a

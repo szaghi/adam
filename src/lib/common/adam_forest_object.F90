@@ -48,7 +48,7 @@ use :: adam_seam_interpolation_library, only : SEAM_SUB_COINCIDENT, seam_meta_pa
                                                seam_quintic_centered_pos, SEAM_FILL_QUINTIC, &
                                                seam_compatible_centered_pos, SEAM_RESTRICT_MEAN, &
                                                seam_restriction_code, seam_restriction_meta_pack
-use :: adam_ini_library,          only : ini_warn_unused
+use :: adam_ini_library,          only : ini_report_defaults, ini_warn_unused
 use :: adam_globals,              only : mpih
 use :: mpi
 use :: penf
@@ -145,6 +145,7 @@ contains
       ! plumbed through every dispatch.
       realm(is)%ptr%realm_index = is
       call realm(is)%ptr%initialize_forest(filename=filename, realms_number=self%n)
+      call ini_report_defaults() ! ADAM_REPORT_DEFAULTS (#80)
       call ini_warn_unused(realm(is)%ptr%io%file_parameters, as_error=realm(is)%ptr%io%unused_keys_error) ! #80 P2, P5
    enddo
    ! Register intra-realm AMR coarse-fine faces. In the manifest-less (N=1) path
@@ -180,6 +181,7 @@ contains
       ! plumbed through every dispatch.
       realm(is)%ptr%realm_index = is
       call realm(is)%ptr%initialize_forest(filename=trim(manifest%realm_ini(is)), realms_number=self%n)
+      call ini_report_defaults(label='realm '//trim(str(is, .true.))) ! ADAM_REPORT_DEFAULTS (#80)
       call ini_warn_unused(realm(is)%ptr%io%file_parameters, label='realm '//trim(str(is, .true.)), &
                            as_error=realm(is)%ptr%io%unused_keys_error)
    enddo
