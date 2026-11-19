@@ -65,8 +65,8 @@ def realm_text(name: str, x0: str, x1: str, bmin: str, bmax: str, it_save: int |
     if text.count("type = periodic") != 2:  # y only
         sys.exit(f"make_vortex_forest.py: realm {name}: the x faces of the vortex input are not periodic")
     return text.replace(
-        "[field]",
-        mr.LOHNER.format(n=1, field=1, var=1, refine="0.3", derefine="0.1", floor="0.0") + "[field]",
+        "[runge_kutta]",
+        mr.LOHNER.format(n=1, field=1, var=1, refine="0.3", derefine="0.1", floor="0.0") + "[runge_kutta]",
         1,
     )
 

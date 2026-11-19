@@ -128,7 +128,7 @@ def vortex(args: argparse.Namespace) -> str:
     ):
         text = setkey(text, key, value)
     return text.replace(
-        "[field]", LOHNER.format(n=1, field=1, var=1, refine="0.3", derefine="0.1", floor="0.0") + "[field]", 1
+        "[runge_kutta]", LOHNER.format(n=1, field=1, var=1, refine="0.3", derefine="0.1", floor="0.0") + "[runge_kutta]", 1
     )
 
 
@@ -157,7 +157,7 @@ def vortex_av(args: argparse.Namespace) -> str:
         # starts on the finest level: the finest spacing where |grad rho| > tol, the base spacing elsewhere
         fine, coarse = f"{1.01 / (16 * 2**args.max_level):.6g}", f"{1.01 / (16 * 2**args.base_level):.6g}"
         text = text.replace(
-            "[field]", GRADIENT.format(n=1, field=1, var=1, fine=fine, coarse=coarse, tol=args.tol) + "[field]", 1
+            "[runge_kutta]", GRADIENT.format(n=1, field=1, var=1, fine=fine, coarse=coarse, tol=args.tol) + "[runge_kutta]", 1
         )
     return text
 
@@ -193,7 +193,7 @@ def sod_av(args: argparse.Namespace) -> str:
         coarse = f"{1.01 * args.length / (12 * 2**args.base_level):.6g}"
         markers = GRADIENT.format(n=1, field=1, var=1, fine=fine, coarse=coarse, tol=args.tol)
         markers += LOHNER.format(n=2, field=1, var=1, refine=args.refine, derefine=args.derefine, floor="0.0")
-        text = text.replace("[field]", markers + "[field]", 1)
+        text = text.replace("[runge_kutta]", markers + "[runge_kutta]", 1)
     return text
 
 
@@ -221,7 +221,7 @@ def blast_av(args: argparse.Namespace) -> str:
         coarse = f"{1.01 / (16 * 2**args.base_level):.6g}"
         markers = GRADIENT.format(n=1, field=2, var=5, fine=fine, coarse=coarse, tol=args.tol)
         markers += LOHNER.format(n=2, field=2, var=5, refine=args.refine, derefine=args.derefine, floor="0.0")
-        text = text.replace("[field]", markers + "[field]", 1)
+        text = text.replace("[runge_kutta]", markers + "[runge_kutta]", 1)
     return text
 
 
@@ -266,7 +266,7 @@ def loop_av(args: argparse.Namespace) -> str:
         # filter alone reads as E ~ 1 (#74 P4)
         markers += LOHNER.format(n=2, field=1, var=6, refine=args.refine, derefine=args.derefine, floor="1e-4")
         markers += LOHNER.format(n=3, field=1, var=7, refine=args.refine, derefine=args.derefine, floor="1e-4")
-        text = text.replace("[field]", markers + "[field]", 1)
+        text = text.replace("[runge_kutta]", markers + "[runge_kutta]", 1)
     return text
 
 
@@ -282,7 +282,7 @@ def cylinder_av(args: argparse.Namespace) -> str:
     for key, value in (("frequency", str(args.frequency)), ("markers_number", "2")):
         text = setkey(text, key, value)
     return text.replace(
-        "[field]", LOHNER.format(n=2, field=1, var=1, refine="0.6", derefine="0.2", floor="0.0") + "[field]", 1
+        "[runge_kutta]", LOHNER.format(n=2, field=1, var=1, refine="0.6", derefine="0.2", floor="0.0") + "[runge_kutta]", 1
     )
 
 
@@ -296,7 +296,7 @@ def cylinder(args: argparse.Namespace) -> str:
     ):
         text = setkey(text, key, value)
     return text.replace(
-        "[field]", LOHNER.format(n=2, field=1, var=1, refine="0.6", derefine="0.2", floor="0.0") + "[field]", 1
+        "[runge_kutta]", LOHNER.format(n=2, field=1, var=1, refine="0.6", derefine="0.2", floor="0.0") + "[runge_kutta]", 1
     )
 
 

@@ -46,10 +46,15 @@ The input is an INI file read by [FiNeR](https://github.com/szaghi/FiNeR):
   the message `failed to load [section].(key)`; several give `N input errors:` and one line each. A value outside its
   accepted set still stops at once, with the errors recorded so far.
 - **Keys nobody reads.** After the initialization of each realm, rank 0 lists the keys of its input file that no parser
-  has read, as warnings (`warning: N input option(s) ... never read, ignored:` and one `[section].(key)` per line): a
-  misspelled key, a key no longer used, or the keys of a feature switched off (the `[slice_N]` sections with
-  `slices_number = 0`, the ROR schemes with `ror_number = 0`, `[field] nv`, which the applications set themselves). The run
-  goes on; refusing them is planned for a later phase of #80. It needs FiNeR with `unused_options`.
+  has read (`N input option(s) ... never read` and one `[section].(key)` per line): a misspelled key, a key no longer
+  used, or the keys of a feature switched off (the `[slice_N]` sections with `slices_number = 0`, the ROR schemes with
+  `ror_number = 0`, `[field] nv`, which the applications set themselves). No key is read after the initialization, so
+  the list is final ([#80](https://github.com/szaghi/adam/issues/80) P5). `[IO] unused_keys` sets what happens:
+  `warn` (default) prints them as warnings and the run goes on; `error` prints them as errors and stops the run. The
+  environment variable `ADAM_UNUSED_KEYS` (`warn` or `error`), when set, overrides the key: the FLUME and PRISM
+  regression harnesses set it to `error`, so a committed regression input cannot carry a dead key. To sweep inputs
+  without running them, `ADAM_INIT_ONLY=1` stops every run right after the initialization (the list printed). It needs
+  FiNeR with `unused_options`.
 - **Logical keys.** FiNeR reads the value when its first character is one of `.tTfF` (`.true.`, `T`, `true`,
   `.false.`, ...); any other value (`yes`, `1`) is a conversion error, as above.
 - **CRLF files** (Windows line endings) read as LF ones on every compiler: FiNeR drops every CR before splitting the
@@ -93,6 +98,7 @@ PRISM `save_fields`.
 | `save_laplacian_fields` | logical | no | `.false.` | logical | neither | Read, never used. |
 | `seam_divB_tol` | real | no | -1 (off) | real | PRISM | 2:1 seam div(B) monitor: warn (or stop, below) when the seam `max\|div B\|` exceeds it on an AMR run ([#29](https://github.com/szaghi/adam/issues/29)). FLUME uses `[mhd] divb_tol`. |
 | `seam_divB_error` | logical | no | `.false.` | logical | PRISM | `.true.`: the seam monitor stops the run instead of warning. |
+| `unused_keys` | string | no | `warn` | `warn`, `error`; other values are fatal. The environment variable `ADAM_UNUSED_KEYS` overrides it. | both | What the keys no parser read do ([parsing rules](#parsing-rules)): warnings, or an error that stops the run ([#80](https://github.com/szaghi/adam/issues/80) P5). |
 
 **Output files.** The library writes the fields as one `<output_basename>-<it:9 digits>-procNNNNNN.h5` per rank plus one
 `.xdmf` (XH5F, ghost cells included), the restart files as `<restart_basename>.time`, `.tnd` and

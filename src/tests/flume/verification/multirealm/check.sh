@@ -204,7 +204,7 @@ s = open(src).read()
 s = re.sub(r"\n\[amr_marker_\d+\][^\[]*", "\n", s)  # drop the input's markers
 lohner = ("[amr_marker_1]\nmode         = 4\ndelta_type   = max\ndelta_fine   = 0.0\ndelta_coarse = 0.0\n"
        "field        = 1\nvar          = 1\nrefine_tol   = 0.3\nderefine_tol = 0.1\nfloor        = 0.0\nbuffer       = 2\n\n")
-s = s.replace("\n[field]", "\n" + lohner + "[field]", 1)
+s = s.replace("\n[runge_kutta]", "\n" + lohner + "[runge_kutta]", 1)
 for key, val in (("ni", ni), ("nj", nj), ("nk", nk), ("iu_ref_levels", base), ("max_level", top),
               ("frequency", "4"), ("markers_number", "1"), ("amr_iterations", "0")):
  s, n = re.subn(rf"^{key}\s*=.*$", f"{key} = {val}", s, count=1, flags=re.M)
@@ -228,7 +228,7 @@ box = ("[amr_marker_{m}]\nmode         = 1\ngeo_type     = primitive-box\ndelta_
        "box_ymax     = {y1}\nbox_zmax     = 1.0\ntarget_level = {t}\n\n")
 boxes = (box.format(m=1, x0=0.5, x1=0.75, y0=0.0, y1=0.5, t=target) +
          box.format(m=2, x0=0.25, x1=0.5, y0=0.5, y1=1.0, t=target))
-s = s.replace("\n[field]", "\n" + boxes + "[field]", 1)
+s = s.replace("\n[runge_kutta]", "\n" + boxes + "[runge_kutta]", 1)
 for key, val in (("ni", ni), ("nj", nj), ("nk", nk), ("iu_ref_levels", base), ("max_level", top),
                  ("frequency", "4"), ("markers_number", "2"), ("amr_iterations", "1")):
     s, n = re.subn(rf"^{key}\s*=.*$", f"{key} = {val}", s, count=1, flags=re.M)

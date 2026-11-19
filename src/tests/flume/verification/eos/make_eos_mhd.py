@@ -68,7 +68,7 @@ def mhd(s: str, dc: str, nv: int) -> str:
         for key, val in (("glm_ch", "8.0"), ("glm_alpha", "0.18"), ("glm_damping_length", "1.0"),
                          ("glm_ch_check", "warning")):
             s = set_key(s, "mhd", key, val)
-    return set_key(s, "field", "nv", str(nv + (dc == "glm")))
+    return s  # nv: the application sets it from the model ([field] nv is read by no parser, issue #80 P5)
 
 
 def numerics(s: str, a: argparse.Namespace) -> str:
