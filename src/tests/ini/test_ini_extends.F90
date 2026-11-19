@@ -8,7 +8,11 @@ program test_ini_extends
 !< With `missing` or `cycle`: loads a file extending a missing file, or a file of a cycle; both must stop the run (the
 !< checker, check.sh, expects a non-zero exit and the message). With `dump <file>`: loads the file (extends resolved) and
 !< prints every option as `[section].(option) = value`, sorted, to compare two inputs as the applications read them.
-use :: adam_ini_library, only : ini_load
+!<
+!< It also checks `ini_get_list` (a list takes as many values as are written; absent, its default, possibly empty) and
+!< `ini_count_sections` (the enumerated sections `<prefix>N`), F4 and F5 of issue #80. With `gap`: counts sections
+!< numbered with a gap, which must stop the run.
+use :: adam_ini_library, only : ini_count_sections, ini_get_list, ini_load
 use :: finer,            only : file_ini
 use :: penf,             only : I4P, R8P
 
@@ -17,6 +21,8 @@ implicit none
 type(file_ini) :: ini      !< Loaded INI.
 character(99)  :: arg      !< Command line argument.
 integer(I4P)   :: failed=0 !< Failed checks.
+real(R8P),    allocatable :: rlist(:) !< Real list.
+integer(I4P), allocatable :: ilist(:) !< Integer list.
 
 arg = ''
 if (command_argument_count() > 0) call get_command_argument(1, arg)
@@ -31,6 +37,12 @@ case('dump')
    call ini_load(filename=trim(arg), ini=ini)
    call dump
    stop
+case('gap')
+   call write_file('gap.ini', '[slice_1]'//new_line('a')//'k = 1'//new_line('a')//'[slice_3]'//new_line('a')//'k = 3')
+   call ini_load(filename='gap.ini', ini=ini)
+   failed = ini_count_sections(ini, 'slice_') ! not inside the print: the function prints its error (recursive I/O)
+   print '(A,I0)', 'FAIL: sections numbered with a gap counted ', failed
+   stop 1
 case('cycle')
    call write_file('ca.ini', 'extends = cb.ini'//new_line('a')//'[grid]'//new_line('a')//'ni = 4')
    call write_file('cb.ini', 'extends = ca.ini'//new_line('a')//'[grid]'//new_line('a')//'nj = 4')
@@ -60,6 +72,23 @@ call check_i('sub/c: [grid] nj from c', 'grid', 'nj', 2)
 call ini%free
 call ini_load(filename='base.ini', ini=ini)
 call check_i('base: a file without extends loads as it is', 'grid', 'ni', 16)
+call ini%free
+call write_file('lists.ini', '[cooling]'//new_line('a')//'temperatures = 10 100 1000'//new_line('a')// &
+                             'ids = 4 5'//new_line('a')//'[slice_1]'//new_line('a')//'k = 1'//new_line('a')// &
+                             '[slice_2]'//new_line('a')//'k = 2'//new_line('a')//'[slice_x]'//new_line('a')//'k = 0'// &
+                             new_line('a')//'[slices]'//new_line('a')//'k = 0')
+call ini_load(filename='lists.ini', ini=ini)
+call ini_get_list(ini, 'cooling', 'temperatures', rlist)
+call verdict('lists: a real list takes the 3 values written', size(rlist) == 3)
+if (size(rlist) == 3) call verdict('lists: the real values', all(rlist == [10._R8P, 100._R8P, 1000._R8P]))
+call ini_get_list(ini, 'cooling', 'ids', ilist)
+call verdict('lists: an integer list takes the 2 values written', size(ilist) == 2)
+call ini_get_list(ini, 'cooling', 'lambdas', rlist, default=[real(R8P)::])
+call verdict('lists: an absent list with an empty default is empty', size(rlist) == 0)
+call ini_get_list(ini, 'cooling', 'lambdas', rlist, default=[1._R8P, 2._R8P])
+call verdict('lists: an absent list takes its default', size(rlist) == 2)
+call verdict('sections: [slice_1], [slice_2] counted (not [slice_x], [slices])', ini_count_sections(ini, 'slice_') == 2)
+call verdict('sections: no [solid_N] counts 0', ini_count_sections(ini, 'solid_') == 0)
 if (failed > 0) then
    print '(A,I0,A)', 'test_ini_extends: ', failed, ' check(s) FAILED'
    stop 1
