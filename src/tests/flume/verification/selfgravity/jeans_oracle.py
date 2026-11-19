@@ -77,7 +77,7 @@ class Jeans:
         self.w2 = self.c2 * self.k**2 - 4.0 * math.pi * big_g * self.rho0
         self.corner = np.array([value(ini["grid"], f"emin_{x}") for x in "xyz"])
         self.length = np.array([value(ini["grid"], f"emax_{x}") for x in "xyz"]) - self.corner
-        self.null = [ini["grid"][f"null_{x}"].strip() == ".true." for x in "xyz"]
+        self.null = [ini["grid"].get(f"null_{x}", ".false.").strip() == ".true." for x in "xyz"]
 
     @property
     def stable(self) -> bool:

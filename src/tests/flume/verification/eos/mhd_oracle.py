@@ -529,7 +529,7 @@ def tube_line(work: Path, it: int | None = None) -> tuple[np.ndarray, dict[str, 
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None, strict=False)
     ini.read(work / "input.ini")
     ng = int(ini["grid"]["ngc"])
-    axis = next(ax for ax in "xyz" if ini["grid"][f"null_{ax}"].strip().lower() == ".false.")
+    axis = next(ax for ax in "xyz" if ini["grid"].get(f"null_{ax}", ".false.").strip().lower() == ".false.")
     k = "xyz".index(axis)
     steps = sorted({int(f.name.rsplit("-", 2)[-2]) for f in work.glob("*-proc*.h5")})
     it = steps[-1] if it is None else it

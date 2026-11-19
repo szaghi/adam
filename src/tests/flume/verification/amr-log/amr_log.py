@@ -123,7 +123,7 @@ def sensor(work: Path, seam_x: float | None, box: list[float] | None, tau: float
     ini = read_ini(work)
     ngc = int(ini["grid"]["ngc"])
     gamma = float(ini["physics"]["cp"]) / float(ini["physics"]["cv"])
-    axes = [a for a, x in enumerate("xyz") if ini["grid"][f"null_{x}"].strip().lower() != ".true."]
+    axes = [a for a, x in enumerate("xyz") if ini["grid"].get(f"null_{x}", ".false.").strip().lower() != ".true."]
     lo = np.array([float(ini["grid"][f"emin_{x}"]) for x in "xy"])
     size = np.array([float(ini["grid"][f"emax_{x}"]) for x in "xy"]) - lo
     files = sorted(p for p in work.glob("*-proc*.h5") if "restart" not in p.name)

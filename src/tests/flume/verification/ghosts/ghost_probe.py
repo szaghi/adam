@@ -74,7 +74,7 @@ class Realm:
         self.ngc = int(grid["ngc"])
         self.lo = np.array([float(grid[f"emin_{a}"]) for a in AXES])
         self.hi = np.array([float(grid[f"emax_{a}"]) for a in AXES])
-        self.null = np.array([is_true(grid[f"null_{a}"]) for a in AXES])
+        self.null = np.array([is_true(grid.get(f"null_{a}", ".false.")) for a in AXES])
         self.seams = seams
         if "gamma" in ini["physics"]:
             self.gamma, self.gas = float(ini["physics"]["gamma"]), 1.0

@@ -200,7 +200,8 @@ def main() -> int:
     ngc = int(ini["grid"]["ngc"])
     r1, r2 = ini["initial_conditions_region_1"], ini["initial_conditions_region_2"]
     # the normal velocity is the component along the input's only non-null axis
-    active = [a for a in "xyz" if ini["grid"][f"null_{a}"].strip().lower() != ".true."]
+    # a null_* key absent from the input takes ADAM's default, .false. (#80: the regression inputs drop default keys)
+    active = [a for a in "xyz" if ini["grid"].get(f"null_{a}", ".false.").strip().lower() != ".true."]
     if len(active) != 1:
         sys.exit(f"sod_oracle: {args.ini} must have exactly one non-null axis")
     un = {"x": "u", "y": "v", "z": "w"}[active[0]]

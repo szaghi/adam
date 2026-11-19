@@ -120,7 +120,7 @@ def profile(args: argparse.Namespace) -> int:
     ngc = int(ini["grid"]["ngc"])
     lo = np.array([float(ini["grid"][f"emin_{x}"]) for x in "xyz"])
     hi = np.array([float(ini["grid"][f"emax_{x}"]) for x in "xyz"])
-    active = np.array([ini["grid"][f"null_{x}"].strip() != ".true." for x in "xyz"])
+    active = np.array([ini["grid"].get(f"null_{x}", ".false.").strip() != ".true." for x in "xyz"])
     bc = [ini[f"bc_{f}"]["type"].split(";")[0].strip() for f in FACES]
     basename = next(args.work.glob("*-residuals.dat")).name.removesuffix("-residuals.dat")
     files = sorted(args.work.glob(f"{basename}-*-proc*.h5"))
@@ -242,7 +242,7 @@ def interior(ini: configparser.ConfigParser, paths: list[Path]):
 def interior_steps(ini: configparser.ConfigParser, paths: list[Path]):
     """Yield (centre, space steps, volume, conservative state) of every interior cell of one checkpoint."""
     ngc = int(ini["grid"]["ngc"])
-    active = np.array([ini["grid"][f"null_{x}"].strip() != ".true." for x in "xyz"])
+    active = np.array([ini["grid"].get(f"null_{x}", ".false.").strip() != ".true." for x in "xyz"])
     for path in paths:
         with h5py.File(path, "r") as h5:
             for blk in sorted({k.rsplit("-", 1)[0] for k in h5}):
