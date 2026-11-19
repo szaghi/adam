@@ -8,6 +8,9 @@
 #   golden/<backend>/*-residuals.dat                per-iteration residuals log
 #   golden/<backend>/*-conservation_history.dat     per-iteration volume integrals of the conservative variables
 #   golden/<backend>/*-turbulence_history.dat       the same for the turbulence integrals, when a case writes them (#119)
+#   golden/<backend>/*-divb_history.dat             the div(B) and D_flux norms, when a golden holds them (#132): compared
+#                                                   with an absolute floor of 1e-12 instead of 1e-3 (the norms are
+#                                                   1e-6..1e-4, every value would pass the default floor)
 # The two logs are compared with digest.py compare-residuals (header verbatim, integer columns exact, float columns
 # within the digest tolerances).
 #
@@ -51,6 +54,10 @@
 #                            equivalent_to rj2a-x
 #   rj2a-2realm-alpha        rj2a-2realm with the lagged (alpha, end_of_step) seam cadence (#113): the time integrator's
 #                            copy of the end-of-step seam ghosts into its stages (SELAH M7, #132)
+#   orszag-tang-dflux        orszag-tang with [diagnostics] divb_flux, final state digested: the D_flux diagnostic on the
+#                            time integrator's registers between steps, its div(B) history compared (#132 rule 3)
+#   strat2d-amr-balanced     the well-balanced mode on 2:1 seams with a pressure pulse, 20 steps (GV-8 of
+#                            verification/gravity): the equilibrium residual on the time integrator's register (#132)
 #   brio-wu                  Brio-Wu shock tube, MHD + GLM, N = 128, t = 0.1 (verification/mhd/riemann)
 #   glm-pulse                MV-3 GLM pulse, periodic x, N = 128, t = 0.3: the psi / B_n telegraph system
 #   uniform-amr-mhd          MV-2 uniform MHD state (rho, u, p, B) across the V3 2:1 patch, GLM, 10 steps
@@ -420,6 +427,19 @@ for case_dir in "$REGRESSION_DIR"/*/; do
             continue
          fi
          if ! "$VENV_PY" "$DIGEST_PY" compare-residuals "$produced" "$log_golden"; then
+            echo "FAIL [$case_name/$BACKEND] log differs: $fname"
+            case_failed=1
+         fi
+      done
+      for log_golden in "$golden_dir"/*-divb_history.dat; do
+         fname="$(basename "$log_golden")"
+         produced="$workdir/$fname"
+         if [[ ! -f "$produced" ]]; then
+            echo "FAIL [$case_name/$BACKEND] missing log: $fname"
+            case_failed=1
+            continue
+         fi
+         if ! "$VENV_PY" "$DIGEST_PY" compare-residuals "$produced" "$log_golden" --atol 1e-12; then
             echo "FAIL [$case_name/$BACKEND] log differs: $fname"
             case_failed=1
          fi
