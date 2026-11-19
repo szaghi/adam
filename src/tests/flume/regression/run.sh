@@ -49,6 +49,8 @@
 #   rj2a-x, rj2a-y, rj2a-z   MV-4 Ryu-Jones 2a along each direction, MHD, no cleaning, N = 128, t = 0.2 (M2-P8)
 #   rj2a-2realm              rj2a-x split in two realms at the diaphragm (mhd/multirealm/make_split.py, MV-14);
 #                            equivalent_to rj2a-x
+#   rj2a-2realm-alpha        rj2a-2realm with the lagged (alpha, end_of_step) seam cadence (#113): the time integrator's
+#                            copy of the end-of-step seam ghosts into its stages (SELAH M7, #132)
 #   brio-wu                  Brio-Wu shock tube, MHD + GLM, N = 128, t = 0.1 (verification/mhd/riemann)
 #   glm-pulse                MV-3 GLM pulse, periodic x, N = 128, t = 0.3: the psi / B_n telegraph system
 #   uniform-amr-mhd          MV-2 uniform MHD state (rho, u, p, B) across the V3 2:1 patch, GLM, 10 steps

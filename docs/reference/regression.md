@@ -146,6 +146,7 @@ cuFFT on FNL), since every self-gravity solve needs an FFT; the CI job installs 
 | `rj2a-x`, `rj2a-y`, `rj2a-z` | [Ryu–Jones 2a](/applications/flume/verification/mhd/ryu-jones-2a) | [#41](https://github.com/szaghi/adam/issues/41) |
 | `rj2a-hlld` | Ryu–Jones 2a on `weno-riemann`, HLLD | [#47](https://github.com/szaghi/adam/issues/47) |
 | `rj2a-2realm` | Ryu–Jones 2a in two realms | [#41](https://github.com/szaghi/adam/issues/41) |
+| `rj2a-2realm-alpha` | `rj2a-2realm` with the lagged seam cadence (`end_of_step`, α): the time integrator's copy of the end-of-step seam ghosts into its stages ([#113](https://github.com/szaghi/adam/issues/113)); goldens captured with the executables before SELAH | [#132](https://github.com/szaghi/adam/issues/132) |
 | `brio-wu` | [Brio–Wu](/applications/flume/verification/mhd/brio-wu-rj4d) | [#41](https://github.com/szaghi/adam/issues/41) |
 | `glm-pulse` | [GLM cleaning](/applications/flume/verification/mhd/glm-cleaning) | [#41](https://github.com/szaghi/adam/issues/41) |
 | `orszag-tang` | [Orszag–Tang](/applications/flume/verification/mhd/orszag-tang) | [#41](https://github.com/szaghi/adam/issues/41) |
@@ -315,7 +316,9 @@ The library and application unit tests are separate build modes (`test-*` in [bu
 run as `mpirun -np <N> exe/<test_executable>`. The families are the FDV operators on trigonometric and step fields
 (`test-fdv-*`, CPU and FNL), AMR (`test-amr-*`, `test-tree-closest-block`, `test-periodic-ghost`), seams
 (`test-seam-interpolation`, `test-quadtree-seam-ghost`), the Poisson solvers and FLAIL (`test-poisson-fft`,
-`test-poisson-mg`, `test-flail-bc`), the RK tableaux (`test-rk-ssp-tableau`), PRISM reflux (`test-prism-reflux-apply`),
+`test-poisson-mg`, `test-flail-bc`), the RK tableaux (`test-rk-ssp-tableau`), the SELAH time integrators (`test-selah-stepper-smoke`, CPU and FNL: the
+dependency builds and steps on each backend; `test-stepper-object`, `test-stepper-object-xfail`: the adapter,
+[#132](https://github.com/szaghi/adam/issues/132)), PRISM reflux (`test-prism-reflux-apply`),
 turbulence (`test-sgs`, `test-kep`, `test-wm`, `test-df`), and FLUME's libraries and user criteria (`test-flume-*`,
 `test-ripple-crest-criterion`). The tests the FLUME cases rely on are described in
 [FLUME unit tests](/applications/flume/verification/unit-tests).
