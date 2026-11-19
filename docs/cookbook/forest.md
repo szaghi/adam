@@ -194,8 +194,10 @@ coupling         = mirror      ; the default
 coupling_cadence = stage_coincident
 ```
 
-The realm INIs are complete inputs. For a split of a single-realm domain, each realm keeps the cell size and the
-block layout and takes its part of the extent:
+The realm INIs are complete inputs, or one realm's input extends another's and lists only what it changes (`extends =
+<file>`, a key before the first section, the path relative to the including file;
+[library input](/reference/library-input#parsing-rules), [#80](https://github.com/szaghi/adam/issues/80) P4). For a split
+of a single-realm domain, each realm keeps the cell size and the block layout and takes its part of the extent:
 
 ```ini
 ; realm 1, x in [0, 0.5]                     ; realm 2, x in [0.5, 1]
@@ -207,6 +209,9 @@ emax_x = 0.5                                   emax_x = 1.0
 output_basename  = sod-2realm-r1               output_basename  = sod-2realm-r2
 restart_basename = sod-2realm-r1-restart       restart_basename = sod-2realm-r2-restart
 ```
+
+so `sod-2realm-r2.ini` is `extends = sod-2realm-r1.ini` and the keys of the right-hand column that differ (the committed
+2-realm regression cases are written this way).
 
 What happens:
 - **Ghosts.** Every seam ghost is a **copy** of the peer cell with the same centre. The forest builds the rows at

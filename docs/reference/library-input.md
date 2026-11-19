@@ -21,6 +21,26 @@ The input is an INI file read by [FiNeR](https://github.com/szaghi/FiNeR):
 - **Optional keys with a default** (Req. *no*, read through the library's `ini_get`, [#80](https://github.com/szaghi/adam/issues/80)
   P1): an absent key takes the default in the table; a key that is present but does not convert stops the run, like a
   required one.
+- **An input may extend another** ([#80](https://github.com/szaghi/adam/issues/80) P4): a key before the first section,
+  `extends = <file>`, names a base input, read first; the including file's keys are then added onto it, replacing the
+  value of every key both define and adding the others (sections included). The base may extend another in turn (up to
+  8 files; a file extending itself stops the run, so does a base file that does not exist). The path is relative to the
+  **including file's directory**, unlike the manifest's `[realm.N] ini`. `extends` is not a key of the result: the
+  unused-keys warning never lists it. Any input of any application may use it; the per-realm inputs of a forest
+  typically do (realm 2 = realm 1 with its extent and its output names changed):
+
+  ```ini
+  ; realm_2.ini
+  extends = realm_1.ini
+
+  [IO]
+  output_basename  = rmf_2realm_r2
+  restart_basename = HF_fnl-restart_r2
+
+  [grid]
+  emin_x = 0.0
+  emax_x = 0.06
+  ```
 - **Every error of a block at once.** The parsers record a missing or malformed key and go on reading the keys of the
   same block (section), then stop with all of them ([#80](https://github.com/szaghi/adam/issues/80) P2): one error keeps
   the message `failed to load [section].(key)`; several give `N input errors:` and one line each. A value outside its
@@ -287,7 +307,8 @@ Every key is required (fatal when missing) and checked at initialization.
 ## Forest manifest (multi-realm)
 
 `adam_forest_manifest` reads it, for both applications: a separate INI whose `[realm.N]` entries point at full realm
-inputs (each with the sections above and the application's own). If the file passed to the executable has a `[forest]`
+inputs (each with the sections above and the application's own; one realm input may [extend](#parsing-rules) another,
+`extends = <file>`, and list only the keys it changes). If the file passed to the executable has a `[forest]`
 section with `realms_number >= 1`, it is a manifest; otherwise it is itself a single-realm input. Manifest errors use
 Fortran `error stop`, not the library's `error_stop`.
 
