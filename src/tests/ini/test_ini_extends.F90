@@ -6,7 +6,8 @@ program test_ini_extends
 !< directory and checks the merged values: the including file's value wins, the base's other options and sections stay,
 !< new options and sections are added, `extends` is consumed, a relative path is relative to the including file.
 !< With `missing` or `cycle`: loads a file extending a missing file, or a file of a cycle; both must stop the run (the
-!< checker, check.sh, expects a non-zero exit and the message).
+!< checker, check.sh, expects a non-zero exit and the message). With `dump <file>`: loads the file (extends resolved) and
+!< prints every option as `[section].(option) = value`, sorted, to compare two inputs as the applications read them.
 use :: adam_ini_library, only : ini_load
 use :: finer,            only : file_ini
 use :: penf,             only : I4P, R8P
@@ -25,6 +26,11 @@ case('missing')
    call ini_load(filename='bad.ini', ini=ini)
    print '(A)', 'FAIL: a missing base file did not stop the run'
    stop 1
+case('dump')
+   call get_command_argument(2, arg)
+   call ini_load(filename=trim(arg), ini=ini)
+   call dump
+   stop
 case('cycle')
    call write_file('ca.ini', 'extends = cb.ini'//new_line('a')//'[grid]'//new_line('a')//'ni = 4')
    call write_file('cb.ini', 'extends = ca.ini'//new_line('a')//'[grid]'//new_line('a')//'nj = 4')
@@ -60,6 +66,36 @@ if (failed > 0) then
 endif
 print '(A)', 'test_ini_extends: all checks PASSED'
 contains
+   subroutine dump()
+   !< Print every option as `[section].(option) = value`, one per line, sorted by section then option.
+   character(len=:), allocatable :: sections(:) !< Sections.
+   character(len=:), allocatable :: pairs(:)    !< Option name/value pair.
+   character(len=999), allocatable :: lines(:)  !< Output lines.
+   character(len=999)              :: swap      !< Swap buffer.
+   integer(I4P)                    :: s, i, j, n !< Counters.
+
+   allocate(lines(0)) ; n = 0
+   call ini%get_sections_list(sections)
+   if (allocated(sections)) then
+      do s=1, size(sections, dim=1)
+         do while (ini%loop(section_name=trim(sections(s)), option_pairs=pairs))
+            lines = [lines, '['//trim(sections(s))//'].('//trim(pairs(1))//') = '//trim(pairs(2))] ; n = n + 1
+         enddo
+      enddo
+   endif
+   do i=2, n ! insertion sort, inputs are small
+      swap = lines(i) ; j = i - 1
+      do while (j >= 1)
+         if (lines(j) <= swap) exit
+         lines(j+1) = lines(j) ; j = j - 1
+      enddo
+      lines(j+1) = swap
+   enddo
+   do i=1, n
+      print '(A)', trim(lines(i))
+   enddo
+   endsubroutine dump
+
    subroutine write_file(name, text)
    !< Write a text file.
    character(*), intent(in) :: name !< File name.
