@@ -28,29 +28,17 @@ type :: io_object
    logical                     :: unused_keys_error=.false.      !< [IO] unused_keys = error: an unread key stops the run.
    character(:), allocatable   :: restart_basename               !< Basename of restart files.
    integer(I4P)                :: restart_save=100_I4P           !< Restart output iteration save frequency.
-   logical                     :: save_memory_status=.false.     !< Enable save of memory status during allocations.
    integer(I4P)                :: residuals_save=10_I4P          !< Residuals (norm) output iteration save frequency.
    integer(I4P)                :: residuals_unit                 !< Residuals file unit.
    integer(I4P)                :: energy_error_save=10_I4P       !< Energy error output iteration save frequency.
    integer(I4P)                :: energy_error_unit              !< Energy error hystory file unit.
    integer(I4P)                :: energy_history_save=10_I4P     !< Energy history output iteration save frequency.
    integer(I4P)                :: energy_history_unit            !< Energy history file unit.
-   integer(I4P)                :: divergence_history_save=10_I4P !< Divergence history output iteration save frequency.
    integer(I4P)                :: divergence_history_unit        !< Divergence history file unit.
    logical                     :: is_initialized=.false.         !< Initialization status.
    integer(I4P) :: charge_conservation_history_unit = 0_I4P
    ! auxiliary fields saving
    logical :: save_residual_fields  =.false. !< Flag to activate residual fields saving.
-   logical :: save_curl_fields      =.false. !< Flag to activate curl fields saving.
-   logical :: save_divergence_fields=.false. !< Flag to activate divergence fields saving.
-   logical :: save_gradient_fields  =.false. !< Flag to activate gradient fields saving.
-   logical :: save_laplacian_fields =.false. !< Flag to activate gradient fields saving.
-   ! seam div(B) guard-rail (issue #29 — accept-truncation): the 2:1 AMR seam injects an
-   ! O(h^p) div(B) source that is refinement-convergent but UNBOUNDED in t at fixed h; no
-   ! local collocated-FD fix exists (E1/E2/E3/E/A all ruled out). This monitor turns the
-   ! otherwise-SILENT growth into a visible signal on AMR runs. Disabled by default.
-   real(R8P) :: seam_divB_tol = -1.0_R8P     !< Seam max|div(B)| tolerance; <=0 disables the monitor.
-   logical   :: seam_divB_error = .false.    !< If .true., exceeding seam_divB_tol is fatal; else warn-only.
    contains
       ! public methods
       procedure, pass(self) :: description          !< Return pretty-printed object description.
@@ -108,7 +96,6 @@ contains
    desc = desc//mpih%myrankstr//'  restart:             '//trim(str(self%restart))           //NL
    desc = desc//mpih%myrankstr//'  restart basename:    '//self%restart_basename             //NL
    desc = desc//mpih%myrankstr//'  restart (it) save:   '//trim(str(self%restart_save))      //NL
-   desc = desc//mpih%myrankstr//'  save memory status:  '//trim(str(self%save_memory_status))//NL
    desc = desc//mpih%myrankstr//'  residuals (it) save: '//trim(str(self%residuals_save))
    endfunction description
 
@@ -149,17 +136,9 @@ contains
       self%restart_basename = trim(adjustl(buff_c))
       call ini_get(file_parameters, ISN, 'restart_save', self%restart_save)
       call ini_get(file_parameters, ISN, 'residuals_save', self%residuals_save)
-      ! Optional: divergence-history save cadence (absent: 10).
-      call ini_get(file_parameters, ISN, 'divergence_history_save', self%divergence_history_save, default=10_I4P)
-      call ini_get(file_parameters, ISN, 'save_memory_status', self%save_memory_status, default=.false.)
       call ini_get(file_parameters, ISN, 'save_residual_fields', self%save_residual_fields, default=.false.)
-      call ini_get(file_parameters, ISN, 'save_curl_fields', self%save_curl_fields, default=.false.)
-      call ini_get(file_parameters, ISN, 'save_divergence_fields', self%save_divergence_fields, default=.false.)
-      call ini_get(file_parameters, ISN, 'save_gradient_fields', self%save_gradient_fields, default=.false.)
-      call ini_get(file_parameters, ISN, 'save_laplacian_fields', self%save_laplacian_fields, default=.false.)
-      ! Optional seam div(B) guard-rail (issue #29). Absent → monitor disabled (tol=-1).
-      call ini_get(file_parameters, ISN, 'seam_divB_tol', self%seam_divB_tol, default=-1._R8P)
-      call ini_get(file_parameters, ISN, 'seam_divB_error', self%seam_divB_error, default=.false.)
+      ! the [IO] options only PRISM consumes (save_memory_status, save_curl_fields, save_divergence_fields, seam_divB_*)
+      ! are read by PRISM (prism_io_object, issue #80 P5)
       ! the keys no parser reads (issue #80 P5): reported as warnings (default) or an error that stops the run; the
       ! environment variable ADAM_UNUSED_KEYS, when set, overrides the key (the regression harnesses set it to error)
       call ini_get(file_parameters, ISN, 'unused_keys', buff_c, default='warn')

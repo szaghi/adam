@@ -2006,7 +2006,7 @@ contains
    real(R8P)                                                :: max_div_B         !< Maximum of divergence of B
    real(R8P)                                                :: max_div_J         !< Maximum of divergence of J field.
 
-   if (self%io%save_memory_status) then
+   if (self%io_prism%save_memory_status) then
       call save_memory_status(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
    endif
    if (self%time%is_on_cadence(self%amr%frequency)) then

@@ -84,6 +84,7 @@ contains
    call self%rk%load_from_file(file_parameters=self%io%file_parameters)
    stages = rk_stored_stages_number(scheme=self%rk%scheme)
    if (stages < 0_I4P) call ini_stop(msg='unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
+   self%with_fdv = .false. ! RIPPLE uses no FD/FV operator: [fdv] is not read (#80 P5)
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=1_I4P, &
                                      fields_number=5_I4P + stages, verbose=.true.)
    ! every face periodic; the tree and the maps were built before the faces were known: rebuild them (issue #103)

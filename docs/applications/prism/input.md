@@ -34,12 +34,16 @@ by `B0` and `D0 = B0 c0 ε0`, times by `T0 = L0/c0`; the input stays in SI and P
 
 ## [IO]
 
-The library keys are in the [library reference](/reference/library-input#io); PRISM uses `save_memory_status`,
-`save_curl_fields`, `save_divergence_fields` and the seam div(B) monitor `seam_divB_tol` / `seam_divB_error`, which FLUME
-does not. PRISM adds one key.
+The library keys are in the [library reference](/reference/library-input#io). PRISM reads these keys itself
+(`prism_io_object`, [#80](https://github.com/szaghi/adam/issues/80) P5).
 
 | Key | Type | Req. | Default | Accepted / invalid | Meaning |
 |-----|------|------|---------|--------------------|---------|
+| `save_memory_status` | logical | no | `.false.` | logical | Print the memory status at the diagnostic steps. |
+| `save_curl_fields` | logical | no | `.false.` | logical | Also write the curl fields. |
+| `save_divergence_fields` | logical | no | `.false.` | logical | Also write the divergence fields. |
+| `seam_divB_tol` | real | no | -1 (off) | real | 2:1 seam div(B) monitor: warn (or stop, below) when the seam `max\|div B\|` exceeds it on an AMR run ([#29](https://github.com/szaghi/adam/issues/29)). |
+| `seam_divB_error` | logical | no | `.false.` | logical | `.true.`: the seam monitor stops the run instead of warning. |
 | `save_fields` | string | no | `all` | `all`, `em`; other values are fatal | `all`: every field in the field files. `em`: D and B only (production runs); the `save_residual/curl/divergence_fields` flags still add their arrays. |
 
 A cadence `<= 0` disables that output, end of run included ([#97](https://github.com/szaghi/adam/issues/97)).
@@ -80,7 +84,7 @@ Every key is required; an unknown value is fatal.
 | `[amr]` | Refinement at initialization only, during the `[initial_conditions] amr_iterations` passes; `frequency` is read and unused, `regrid_prolongation` is unused. `memory_fraction` (default 0.85, in (0, 1]) is the share of the memory budget given to the blocks ([backends](./backends#memory-budget)). After the initial AMR the grid is balanced by block count, `balance_static` (default `.true.`, [#123](https://github.com/szaghi/adam/issues/123), [library input](/reference/library-input)). |
 | `[amr_marker_N]` | Mode 1 `primitive-box` refines; mode 3 (`AMR_TV`) refines on the total variation of the coils' current density (`tol`, `delta_type`, `delta_fine`, `delta_coarse`). `stl` is fatal. **Mode 1 `solid`, mode 2, mode 4 and mode 5 do nothing, silently.** |
 | `[runge_kutta]` | EM on CPU: every scheme, Yoshida included. EM on FNL: Yoshida is refused. PIC: `runge-kutta-ssp-22/33/54` only. The PML, the charge-conserving PIC current and the staged path (2:1 faces, forests) need an SSP scheme (the PIC current one of SSP-22/33/54). |
-| `[weno]` | Used only with `scheme_space = weno` (CPU). `weights` (`js`, `si`) is used; ROR is not implemented. |
+| `[weno]` | Read only with `scheme_space = weno` (CPU); with another scheme its keys are unread. `weights` (`js`, `si`) is used; ROR is not implemented. |
 | `[fdv]` | `fdv_scheme` (`FD`, `FV`) selects PRISM's operators and the coil stamping; `fdv_order` the order of the centred operators, which the t0 elliptic solves also use (they accept 2, 4, 6, 8). |
 | `[solids]` | Loaded and passed to the Runge-Kutta stages; no committed PRISM input uses solids. |
 

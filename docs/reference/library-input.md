@@ -79,7 +79,10 @@ The input is an INI file read by [FiNeR](https://github.com/szaghi/FiNeR):
 ## [IO]
 
 `io_object%load_from_file`. Each application adds keys of its own to this section: FLUME `save_auxiliary_fields`,
-PRISM `save_fields`.
+PRISM `save_fields`, `save_memory_status`, `save_curl_fields`, `save_divergence_fields` and the seam div(B) monitor
+`seam_divB_tol` / `seam_divB_error` ([PRISM input](/applications/prism/input#io); in the input of another application
+they are unread keys). `divergence_history_save`, `save_gradient_fields` and `save_laplacian_fields` are no longer read
+([#80](https://github.com/szaghi/adam/issues/80) P5): nothing ever used them.
 
 | Key | Type | Req. | Default | Accepted / invalid | Used | Meaning |
 |-----|------|------|---------|--------------------|------|---------|
@@ -89,15 +92,7 @@ PRISM `save_fields`.
 | `restart_basename` | string | yes (even when `restart = .false.`) | — | path prefix | both | Basename of the restart files, read and written. |
 | `restart_save` | int | yes | — | `<= 0` disables | both | Restart save cadence in steps. |
 | `residuals_save` | int | yes | — | `<= 0` disables | both | Residual L2-norm history cadence (`<output_basename>-residuals.dat`). |
-| `divergence_history_save` | int | no | 10 | integer | neither | Read, never used: PRISM writes its divergence history at every diagnostic step, FLUME has its own cadence (`[diagnostics]`). |
-| `save_memory_status` | logical | no | `.false.` | logical | PRISM | Print the memory status at the diagnostic steps. |
 | `save_residual_fields` | logical | no | `.false.` | logical | both | Also write the residuals `dq_*` into the field files. |
-| `save_curl_fields` | logical | no | `.false.` | logical | PRISM | Also write the curl fields. |
-| `save_divergence_fields` | logical | no | `.false.` | logical | PRISM | Also write the divergence fields. |
-| `save_gradient_fields` | logical | no | `.false.` | logical | neither | Read, never used. |
-| `save_laplacian_fields` | logical | no | `.false.` | logical | neither | Read, never used. |
-| `seam_divB_tol` | real | no | -1 (off) | real | PRISM | 2:1 seam div(B) monitor: warn (or stop, below) when the seam `max\|div B\|` exceeds it on an AMR run ([#29](https://github.com/szaghi/adam/issues/29)). FLUME uses `[mhd] divb_tol`. |
-| `seam_divB_error` | logical | no | `.false.` | logical | PRISM | `.true.`: the seam monitor stops the run instead of warning. |
 | `unused_keys` | string | no | `warn` | `warn`, `error`; other values are fatal. The environment variable `ADAM_UNUSED_KEYS` overrides it. | both | What the keys no parser read do ([parsing rules](#parsing-rules)): warnings, or an error that stops the run ([#80](https://github.com/szaghi/adam/issues/80) P5). |
 
 **Output files.** The library writes the fields as one `<output_basename>-<it:9 digits>-procNNNNNN.h5` per rank plus one
@@ -224,8 +219,9 @@ a forest manifest, seams with `coupling_cadence = stage_coincident` require both
 
 ## [weno]
 
-`weno_object%load_from_file`. FLUME reconstructs with it always; PRISM only with `[numerics] scheme_space = weno`, a CPU
-path (the FNL backend refuses it).
+`weno_object%load_from_file`, read on demand ([#80](https://github.com/szaghi/adam/issues/80) P5): FLUME and RIPPLE
+always; PRISM only with `[numerics] scheme_space = weno`, a CPU path (the FNL backend refuses it). With another PRISM
+scheme the section is not read, so its keys are unread keys.
 
 | Key | Type | Req. | Default | Accepted / invalid | Used | Meaning |
 |-----|------|------|---------|--------------------|------|---------|
@@ -250,7 +246,9 @@ path (the FNL backend refuses it).
 ## [fdv]
 
 `realm_object` reads it: the finite-difference/finite-volume operators (gradient, divergence, curl, Laplacian) of
-`adam_fdv_operators_library`.
+`adam_fdv_operators_library`. Read on demand ([#80](https://github.com/szaghi/adam/issues/80) P5): PRISM always, FLUME
+only for an MHD model (its div(B) diagnostic and derived fields), RIPPLE never; where it is not read, its keys are unread
+keys.
 
 | Key | Type | Req. | Accepted / invalid | Used | Meaning |
 |-----|------|------|--------------------|------|---------|

@@ -1230,6 +1230,7 @@ contains
       call self%compute_fields_number(file_parameters=file_parameters, fields_number=fields_number_)
    endif
    if (verbose_) call mpih%print_message('flume_common_object%initialize fields_number: '//trim(str(fields_number_)))
+   self%with_fdv = .not.is_hydrodynamic(self%physics%model) ! [fdv] only for MHD: its stencil measures div(B) (#80 P5)
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=self%physics%nv, &
                                      fields_number=fields_number_, verbose=verbose_)
    if (.not.is_hydrodynamic(self%physics%model) .and. self%ib%solids_number > 0_I4P) &

@@ -6567,7 +6567,7 @@ contains
    type(realm_pointer),     intent(inout), optional, target :: realm(:)          !< Sibling realms for inter-realm halo refresh.
    real(R8P)                                                :: current_residual  !< Max conserving-current solver residual.
 
-   if (self%io%save_memory_status) then
+   if (self%io_prism%save_memory_status) then
       call save_memory_status_cpu(file_name='memory_cpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
       call save_memory_status_gpu(file_name='memory_gpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
    endif

@@ -74,7 +74,7 @@ rm -rf "$SINGLE" "$SPLIT" ; mkdir -p "$SINGLE" "$SPLIT"
 cp "$SINGLE_INI" "$SINGLE/input.ini"
 cp "$CASE_DIR/input.ini" "$SPLIT/"
 for r in 1 2; do # leg 4: arm the seam div(B) monitor, warn-only
-   sed 's/^divergence_history_save = 1 .*/&\nseam_divB_tol           = 1.0/' "$CASE_DIR/realm_$r.ini" > "$SPLIT/realm_$r.ini"
+   sed 's/^\[IO\].*/&\nseam_divB_tol           = 1.0/' "$CASE_DIR/realm_$r.ini" > "$SPLIT/realm_$r.ini"
 done
 echo ">> [rmf-2realm-fd-pulse-refined] single-realm rmf-amr-fd-pulse ($TAG)"
 run_in "$SINGLE"

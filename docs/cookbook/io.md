@@ -19,13 +19,8 @@ restart                = .false.
 restart_basename       = sod-x-restart
 restart_save           = 0
 residuals_save         = 1
-save_memory_status     = .false.
 save_residual_fields   = .false.
 save_auxiliary_fields  = .false.
-save_curl_fields       = .false.
-save_divergence_fields = .false.
-save_gradient_fields   = .false.
-save_laplacian_fields  = .false.
 ```
 
 **What you get.**

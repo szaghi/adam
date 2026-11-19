@@ -11,6 +11,7 @@ use :: adam_prism_external_fields_object
 use :: adam_prism_fWLayer_object
 use :: adam_prism_grms_object
 use :: adam_prism_ic_object
+use :: adam_prism_io_object
 use :: adam_prism_leapfrog_pic_object
 use :: adam_prism_magnetic_field_at_center_domain_object
 use :: adam_prism_numerics_object
@@ -106,6 +107,7 @@ type, extends(realm_object) :: prism_common_object
    type(prism_fWLayer_object)            :: fWLayer            !< Far-field weighted layer.
    type(prism_grms_object)               :: grms               !< Grms diagnostic.
    type(prism_ic_object)                 :: ic                 !< Initial conditions.
+   type(prism_io_object)                 :: io_prism           !< The [IO] options only PRISM reads.
    type(prism_leapfrog_pic_object)       :: leapfrog_pic       !< Leapfrog PIC integrator.
    type(prism_magnetic_field_at_center_domain_object) :: magnetic_field_at_center_domain !< Domain-center B diagnostic.
    type(prism_numerics_object)           :: numerics           !< Numerics configuration.
@@ -401,12 +403,12 @@ contains
    class(prism_common_object), intent(inout) :: self !< The equation.
 
    associate(hs=>self%fdv_half_stencil,var_jx=>self%physics%var_jx)
-   if (self%io%save_divergence_fields) then
+   if (self%io_prism%save_divergence_fields) then
       call self%compute_divergence(hs=hs,ivar=VAR_DX,q=self%q,divergence=self%divergence(1,:,:,:,:))
       call self%compute_divergence(hs=hs,ivar=VAR_BX,q=self%q,divergence=self%divergence(2,:,:,:,:))
       call self%compute_divergence(hs=hs,ivar=var_jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    endif
-   if (self%io%save_curl_fields) then
+   if (self%io_prism%save_curl_fields) then
       call self%compute_curl(hs=hs,ivar=VAR_DX,q=self%q,curl=self%curl(1:3,:,:,:,:))
       call self%compute_curl(hs=hs,ivar=VAR_BX,q=self%q,curl=self%curl(4:6,:,:,:,:))
       call self%compute_curl(hs=hs,ivar=var_jx,q=self%q,curl=self%curl(7:9,:,:,:,:))
@@ -522,6 +524,7 @@ contains
    self%blocks_fields_number = fields_number_
    self%reserved_memory = reserved
    if (verbose_) call mpih%print_message('prism_common_object%initialize fields_number: '//trim(str(fields_number_)))
+   self%with_weno = self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO ! [weno] only for the WENO space scheme (#80 P5)
    if (is_adim_model(self%physics%physical_model)) then
       call self%realm_object%initialize(filename=filename, memory_avail=memory_blocks, nv=self%physics%nv, &
                                        fields_number=fields_number_, verbose=verbose_, L0=self%physics%L0)
@@ -529,6 +532,7 @@ contains
       call self%realm_object%initialize(filename=filename, memory_avail=memory_blocks, nv=self%physics%nv, &
                                        fields_number=fields_number_, verbose=verbose_)
    endif
+   call self%io_prism%load_from_file(file_parameters=file_parameters)
    call self%bc%initialize(file_parameters=file_parameters)
    call self%adam%grid%set_bc_type(bc_type=self%bc%bc_type)
    ! the tree and the maps were built by realm_object%initialize before the BC types were known: rebuild them, or a
@@ -1281,17 +1285,17 @@ contains
    ! extend runs: enable divergence_correction=hyperbolic + tune [physics].alpha (delays, not
    ! cures). Route 2 (CT/staggered B at the seam) is parked (activates only if a workload
    ! needs it beyond this monitor's tolerance).
-   if (self%io%seam_divB_tol > 0.0_R8P .and. allocated(self%adam%maps%amr_seam_quadrant)) then
-      if (div_B > self%io%seam_divB_tol) then
-         if (self%io%seam_divB_error) then
+   if (self%io_prism%seam_divB_tol > 0.0_R8P .and. allocated(self%adam%maps%amr_seam_quadrant)) then
+      if (div_B > self%io_prism%seam_divB_tol) then
+         if (self%io_prism%seam_divB_error) then
             call mpih%error_stop(msg=mpih%myrankstr//'prism: seam div(B) '//trim(str(div_B))//              &
-                                     ' exceeds [IO].seam_divB_tol '//trim(str(self%io%seam_divB_tol))//     &
+                                     ' exceeds [IO].seam_divB_tol '//trim(str(self%io_prism%seam_divB_tol))//     &
                                      ' at it '//trim(str(self%time%it))//' — 2:1 AMR seam O(h^p) source '// &
                                      '(issue #29, no local FD fix; refine h, shorten the run, or enable '// &
                                      'hyperbolic+alpha cleaning to delay it).')
          else
             call mpih%print_message(mpih%myrankstr//'WARNING: seam div(B) '//trim(str(div_B))//             &
-                                    ' exceeds [IO].seam_divB_tol '//trim(str(self%io%seam_divB_tol))//      &
+                                    ' exceeds [IO].seam_divB_tol '//trim(str(self%io_prism%seam_divB_tol))//      &
                                     ' at it '//trim(str(self%time%it))//' — 2:1 AMR seam O(h^p) source, '// &
                                     'unbounded in t at fixed h (issue #29). Refine h, shorten the run, or ' &
                                     //'enable hyperbolic+alpha cleaning to delay it.')
@@ -1541,10 +1545,10 @@ contains
       if (self%io%save_residual_fields) &
          call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%dq(:,:,:,:,b), &
                                  q_name=self%dq_name)
-      if (self%io%save_curl_fields) &
+      if (self%io_prism%save_curl_fields) &
          call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk,q=self%curl(:,:,:,:,b), &
                                  q_name=self%curl_name)
-      if (self%io%save_divergence_fields) &
+      if (self%io_prism%save_divergence_fields) &
          call self%io%save_field(xh5f=xh5f, grid=self%adam%grid,block_name=bn,ijk=ijk,nijk=nijk, &
                                  q=self%divergence(:,:,:,:,b), q_name=self%div_name)
 
@@ -1577,12 +1581,12 @@ contains
    else
       call save_set(q=self%q, q_name=self%q_name, basename=self%io%output_basename)
    endif
-   if (self%io%save_curl_fields) then
+   if (self%io_prism%save_curl_fields) then
       call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%curl)
       call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%curl)
       call save_set(q=self%curl, q_name=self%curl_name, basename=trim(self%io%output_basename)//'-curl')
    endif
-   if (self%io%save_divergence_fields) then
+   if (self%io_prism%save_divergence_fields) then
       call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%divergence)
       call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=self%divergence)
       call save_set(q=self%divergence, q_name=self%div_name, basename=trim(self%io%output_basename)//'-div')

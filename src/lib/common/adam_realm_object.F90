@@ -84,6 +84,8 @@ type :: realm_object
    type(leapfrog_object)   :: leapfrog   !< Leapfrog integrator.
    type(flail_object)        :: flail        !< FLAIL, the elliptic solver library (issue #84).
    type(weno_object)       :: weno       !< WENO reconstructor.
+   logical                 :: with_weno=.true. !< Read [weno] and initialize `weno` (the app clears it when unused, #80 P5).
+   logical                 :: with_fdv=.true.  !< Read [fdv] and bind the FD/FV operators (cleared when unused, #80 P5).
    type(ib_object)         :: ib         !< Immersed boundary.
    type(rk_object)         :: rk         !< Runge-Kutta integrator.
    type(adam_object)       :: adam       !< ADAM, grid + tree + field + maps orchestrator.
@@ -328,6 +330,11 @@ contains
    ! public methods
    subroutine initialize(self, filename, memory_avail, nv, fields_number, verbose, L0)
    !< Initialize common data: MPI, ADAM, grid, field and data replica pointers.
+   !<
+   !< `[weno]` and `[fdv]` are read on demand (issue #80 P5): before calling this, the application says whether its
+   !< configuration uses the WENO coefficients (`self%with_weno`) and the realm's FD/FV operators (`self%with_fdv`), both
+   !< `.true.` by default. A component not wanted is not initialized and its section is not read, so an input that carries
+   !< it anyway reports its keys unread.
    class(realm_object), intent(inout), target :: self          !< The equation.
    character(*),        intent(in)            :: filename      !< Input parameters file name.
    real(R8P),           intent(in), value     :: memory_avail  !< Memory available for single MPI process.
@@ -377,8 +384,9 @@ contains
       self%nb            => self%adam%field%nb
       self%blocks_number => self%adam%field%blocks_number
       self%nv            => self%adam%field%nv
-      call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
-      call self%load_fdv_from_file(file_parameters=file_parameters)
+      if (self%with_weno) &
+         call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+      if (self%with_fdv) call self%load_fdv_from_file(file_parameters=file_parameters)
    endassociate
 
    contains
