@@ -41,7 +41,7 @@ module adam_weno_object
 !< Non TBP procedures are also provided for use without class object in device backend kernels.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get, ini_stop
+use :: adam_ini_library, only : ini_check, ini_stop
 use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
@@ -341,9 +341,7 @@ contains
    type(file_ini),     intent(in)           :: file_parameters !< Simulation parameters ini file handler.
    character(99)                            :: buff_c          !< Character buffer.
    character(:), allocatable                :: sname           !< Section name.
-   character(:), allocatable                :: oname           !< Option name.
    integer(I4P)                             :: error           !< Error status.
-   integer(I4P)                             :: r               !< Counter.
 
 
    sname = INI_SECTION_NAME
@@ -354,40 +352,17 @@ contains
    buff_c = WENO_WEIGHTS_JS
    call file_parameters%get(section_name=sname, option_name='weights', val=buff_c, error=error)
    self%weights = trim(adjustl(buff_c))
-   call ini_get(file_parameters, sname, 'ror_number', self%ror_number, default=0_I4P)
-   call ini_check()
-   if (self%ror_number>0) then
-      allocate(self%ror_schemes(self%ror_number))
-      do r=1, self%ror_number
-         oname = 'ror_scheme_'//trim(str(r,.true.))
-         call ini_get(file_parameters, sname, oname, self%ror_schemes(r))
-         call ini_check()
-      enddo
-      self%S = self%ror_schemes(1) ! first ROR schemes must be the highest order used
-   else
-      ! allocate anyway a single element array for backends compatibility
-      allocate(self%ror_schemes(1))
-      self%ror_schemes = self%S
-   endif
-   call ini_get(file_parameters, sname, 'ror_threshold', self%ror_threshold, default=0.9_R8P)
-   call ini_get(file_parameters, sname, 'ror_vars_number', self%ror_vars_number, default=0_I4P)
-   call ini_check()
-   if (self%ror_vars_number>0) then
-      allocate(self%ror_ivar(self%ror_vars_number))
-      do r=1, self%ror_vars_number
-         oname = 'ror_ivar_'//trim(str(r,.true.))
-         call ini_get(file_parameters, sname, oname, self%ror_ivar(r))
-         call ini_check()
-      enddo
-   else
-      ! allocate anyway a single element array for backends compatibility; 0: no variable (it was left undefined,
-      ! and the description printed whatever the memory held)
-      allocate(self%ror_ivar(1))
-      self%ror_ivar = 0
-   endif
-   call ini_get(file_parameters, sname, 'enable_ror_stats', self%enable_ror_stats, default=.false.)
-   call ini_get(file_parameters, sname, 'ib_reduction_extent', self%ib_reduction_extent, default=0_I4P)
-   call ini_get(file_parameters, sname, 'ib_reduced_order', self%ib_reduced_order, default=1_I4P)
+   ! The order reduction (ROR: ror_number, ror_scheme_N, ror_threshold, ror_vars_number, ror_ivar_N, enable_ror_stats)
+   ! and the IB order reduction (ib_reduction_extent, ib_reduced_order) have no consumer in the maintained applications
+   ! (ROR was never implemented, reduce_cell_order_phi_* is never called): their keys are no longer read (issue #80),
+   ! so an input that sets them reports them unread. The components keep their defaults (no reduction); the one-element
+   ! arrays stay allocated for the backends that copy them.
+   self%ror_number = 0_I4P
+   allocate(self%ror_schemes(1))
+   self%ror_schemes = self%S
+   self%ror_vars_number = 0_I4P
+   allocate(self%ror_ivar(1))
+   self%ror_ivar = 0
    call ini_check()
    endsubroutine load_from_file
 

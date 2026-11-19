@@ -85,7 +85,7 @@ FLUME adds these rules:
 | `[amr]` | `frequency > 0` regrids at runtime ([#74](https://github.com/szaghi/adam/issues/74)): negative is fatal, and so is runtime regridding without markers. On a multi-realm forest each realm regrids by its own `[amr]` section and the forest balances the marks of the realms across each seam ([#110](https://github.com/szaghi/adam/issues/110); see [Setting up runtime AMR](#setting-up-runtime-amr)). `regrid_prolongation` defaults to `conservative` in FLUME (the library default is `linear`); `conservative-state` ([#88](https://github.com/szaghi/adam/issues/88)) is for self-gravitating collapse ([numerics](./numerics#runtime-regridding)). Derefinement is always the mean of the children. A static grid (`frequency = 0`) is balanced by block count after the initial AMR, `balance_static` ([#123](https://github.com/szaghi/adam/issues/123), [library input](/reference/library-input)). |
 | `[amr_marker_N]` | Modes 1 (`solid`, `primitive-box`), 2, 4, 5 and 6 (a registered criterion); mode 3, `stl` and an unknown mode are fatal at initialisation. A Löhner marker (mode 4) acts at the runtime regrids only, with `buffer <= ngc - 1` (fatal otherwise). A Jeans marker (mode 5) reads `jeans_cells` (default 8) and `jeans_cells_derefine` (default twice `jeans_cells`) and needs `[gravity] self_gravity = .true.` (fatal otherwise) ([numerics](./numerics#runtime-regridding)). At a runtime regrid the markers vote per block: refine when any asks, coarsen only when all agree, keep otherwise, never below `iu_ref_levels`; the box marker votes to coarsen outside its box. The gradient is centred, across the faces between blocks too ([#76](https://github.com/szaghi/adam/issues/76)), one-sided at the domain boundary. |
 | `[runge_kutta]` | `runge-kutta-yoshida` is fatal (no FLUME integrator); the staged path (2:1 faces, forests) and the positivity limiter need an SSP scheme. |
-| `[weno]` | `weno-c-*` is fatal. `weights = si` makes the scheme independent of the units of the data ([numerics](./numerics#weno-reconstruction)); `si` with `weno-riemann` and `reconstruction_variables = primitive` is fatal. With `scheme_space = weno-riemann` the same `scheme` sets the order of the WENO interpolation tables. ROR is not implemented: its keys are read and unused. |
+| `[weno]` | `weno-c-*` is fatal. `weights = si` makes the scheme independent of the units of the data ([numerics](./numerics#weno-reconstruction)); `si` with `weno-riemann` and `reconstruction_variables = primitive` is fatal. With `scheme_space = weno-riemann` the same `scheme` sets the order of the WENO interpolation tables. ROR is not implemented: its keys are no longer read. |
 | `[fdv]` | Read only by an MHD model; an Euler input reports its keys unread. `fdv_scheme` is read and unused (the div(B) diagnostic is always centred FD); `fdv_order` sets the order of that diagnostic. |
 | `[solids]` | Euler only: `number > 0` with `mhd-ideal` is fatal. |
 | `[slices]` | Only the conservative variables are sliced. |
@@ -700,12 +700,6 @@ scheme = runge-kutta-ssp-33
 
 [weno]
 scheme              = weno-u-5
-ror_number          = 0
-ror_threshold       = 0.9
-ror_vars_number     = 0
-enable_ror_stats    = .false.
-ib_reduction_extent = 0
-ib_reduced_order    = 2
 
 [fdv]
 fdv_scheme = fd
@@ -789,7 +783,7 @@ conservation_history_save = 1
 - **`it_save = 100000`.** This is effectively "first and last step only", because the last step is always saved.
 - **`restart_save = 0` and `residuals_save = 1`.** Restarts are disabled, and the residual history is written every
   step.
-- **Keys FLUME ignores.** `[field] nv`, `fdv_scheme` and the `ror_*`/`ib_*` keys of `[weno]` are ignored by FLUME.
+- **Keys FLUME ignores.** `fdv_scheme` is read and ignored by FLUME; `[field] nv` and the `ror_*`/`ib_*` keys of `[weno]` are no longer read by any application (an input that sets them reports them unread).
   All of them except `[field]` must still be present.
 - **Riemann-problem regions.** The regions tile x at 0.5: region 1 owns `0 < x <= 0.5` and region 2 owns
   `0.5 < x <= 1`. The domain minimum corner is covered because `emin` is the domain minimum and cell centres are
@@ -861,12 +855,6 @@ scheme = runge-kutta-ssp-54
 
 [weno]
 scheme = weno-u-5
-ror_number = 0
-ror_threshold = 0.9
-ror_vars_number = 0
-enable_ror_stats = .false.
-ib_reduction_extent = 0
-ib_reduced_order = 2
 
 [fdv]
 fdv_scheme = fd

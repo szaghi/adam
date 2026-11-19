@@ -98,8 +98,7 @@ def profile_ini(size: str, steps: int, frequency: int, uniform: bool = False, sc
         ]
     lines += [
         "", "[runge_kutta]", "scheme = runge-kutta-ssp-54",
-        "", "[weno]", f"scheme              = {scheme}", "ror_number          = 0", "ror_threshold       = 0.9",
-        "ror_vars_number     = 0", "enable_ror_stats    = .false.", "ib_reduction_extent = 0", "ib_reduced_order    = 2",
+        "", "[weno]", f"scheme              = {scheme}",
         "", "[solids]", "number    = 0", "n_eikonal = 0",
         "", "[slices]", "slices_number = 0",
         "", "[physics]", "physical_model = euler", "gamma          = 1.4", "viscosity      = 0.01", "prandtl        = 0.75",

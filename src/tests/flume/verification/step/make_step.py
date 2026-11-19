@@ -107,9 +107,9 @@ def realm_ini(name: str, tree: str, cells: int, refine: bool, time_max: str, it_
                   "box_zmax     = 1.0e30", f"target_level = {levels + 1}"]
     lines += [
         "[runge_kutta]", "scheme = runge-kutta-ssp-54",
-        "[weno]", "scheme              = weno-u-5", "ror_number          = 0", "ror_threshold       = 0.9",
-        "ror_vars_number     = 0", "enable_ror_stats    = .false.", "ib_reduction_extent = 0",
-        "ib_reduced_order    = 2",
+        "[weno]", "scheme              = weno-u-5", 
+        
+        
         "[solids]", "number    = 0", "n_eikonal = 0",
         "[slices]", "slices_number = 0",
         "[physics]", "physical_model = euler", f"cp             = {GAMMA_CP!r}", f"cv             = {GAMMA_CV!r}",

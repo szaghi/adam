@@ -47,8 +47,8 @@ The input is an INI file read by [FiNeR](https://github.com/szaghi/FiNeR):
   accepted set still stops at once, with the errors recorded so far.
 - **Keys nobody reads.** After the initialization of each realm, rank 0 lists the keys of its input file that no parser
   has read (`N input option(s) ... never read` and one `[section].(key)` per line): a misspelled key, a key no longer
-  used, or the keys of a feature switched off (the `[slice_N]` sections with `slices_number = 0`, the ROR schemes with
-  `ror_number = 0`, `[field] nv`, which the applications set themselves). No key is read after the initialization, so
+  used, or the keys of a feature switched off (the `[slice_N]` sections with `slices_number = 0`, the `[weno]` ROR keys,
+  `[field] nv`, which the applications set themselves). No key is read after the initialization, so
   the list is final ([#80](https://github.com/szaghi/adam/issues/80) P5). `[IO] unused_keys` sets what happens:
   `error` (default) prints them as errors and stops the run; `warn` prints them as warnings and the run goes on (an old
   input, while you clean it). The environment variable `ADAM_UNUSED_KEYS` (`warn` or `error`), when set, overrides the
@@ -229,14 +229,11 @@ scheme the section is not read, so its keys are unread keys.
 |-----|------|------|---------|--------------------|------|---------|
 | `scheme` | string | yes | — | see the table below; an unknown name is fatal | both | WENO order (stencil half-width `S`). `ngc >= S` is checked by FLUME always, by PRISM with `scheme_space = weno`. |
 | `weights` | string | no | `js` | `js` (Jiang–Shu, absolute ε), `si` (scale-invariant); an unknown value is fatal | both | Nonlinear weights (PRISM uses them with `scheme_space = weno`). |
-| `ror_number` | int | no | 0 | `>= 0` | neither | Number of order-reduction (ROR) stages. `S` always comes from `scheme`: `initialize` sets it after reading the ROR keys. |
-| `ror_scheme_1` … `ror_scheme_<ror_number>` | int | cond. (`ror_number > 0`) | — | — | neither | ROR stencil sizes. |
-| `ror_threshold` | real | no | 0.9 | — | neither | ROR trigger. |
-| `ror_vars_number` | int | no | 0 | `>= 0` | neither | Number of ROR check variables. |
-| `ror_ivar_1` … `ror_ivar_<ror_vars_number>` | int | cond. (`ror_vars_number > 0`) | — | — | neither | ROR check variables. |
-| `enable_ror_stats` | logical | no | `.false.` | logical | neither (`.true.` allocates an `nb x cells x 3` integer array) | ROR statistics. |
-| `ib_reduction_extent` | int | no | 0 | — | neither | Order reduction near immersed solids. |
-| `ib_reduced_order` | int | no | 1 | — | neither | Reduced `S` near solids. |
+
+The order-reduction keys (`ror_number`, `ror_scheme_N`, `ror_threshold`, `ror_vars_number`, `ror_ivar_N`,
+`enable_ror_stats`) and the immersed-boundary order reduction (`ib_reduction_extent`, `ib_reduced_order`) are no longer
+read ([#80](https://github.com/szaghi/adam/issues/80)): nothing in FLUME, PRISM or RIPPLE used them. An input that sets
+them reports them unread.
 
 | Name | S | Order | Kind |
 |------|---|-------|------|

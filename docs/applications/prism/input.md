@@ -84,7 +84,7 @@ Every key is required; an unknown value is fatal.
 | `[amr]` | Refinement at initialization only, during the `[initial_conditions] amr_iterations` passes; `frequency` is read and unused, `regrid_prolongation` is unused. `memory_fraction` (default 0.85, in (0, 1]) is the share of the memory budget given to the blocks ([backends](./backends#memory-budget)). After the initial AMR the grid is balanced by block count, `balance_static` (default `.true.`, [#123](https://github.com/szaghi/adam/issues/123), [library input](/reference/library-input)). |
 | `[amr_marker_N]` | Mode 1 `primitive-box` refines; mode 3 (`AMR_TV`) refines on the total variation of the coils' current density (`tol`, `delta_type`, `delta_fine`, `delta_coarse`). `stl` is fatal. **Mode 1 `solid`, mode 2, mode 4 and mode 5 do nothing, silently.** |
 | `[runge_kutta]` | EM on CPU: every scheme, Yoshida included. EM on FNL: Yoshida is refused. PIC: `runge-kutta-ssp-22/33/54` only. The PML, the charge-conserving PIC current and the staged path (2:1 faces, forests) need an SSP scheme (the PIC current one of SSP-22/33/54). |
-| `[weno]` | Read only with `scheme_space = weno` (CPU); with another scheme its keys are unread. `weights` (`js`, `si`) is used; ROR is not implemented. |
+| `[weno]` | Read only with `scheme_space = weno` (CPU); with another scheme its keys are unread. `weights` (`js`, `si`) is used; the ROR keys are no longer read. |
 | `[fdv]` | `fdv_scheme` (`FD`, `FV`) selects PRISM's operators and the coil stamping; `fdv_order` the order of the centred operators, which the t0 elliptic solves also use (they accept 2, 4, 6, 8). |
 | `[solids]` | Loaded and passed to the Runge-Kutta stages; no committed PRISM input uses solids. |
 

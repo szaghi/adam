@@ -78,8 +78,7 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
                   "delta_coarse = 0.0", "field = 1", "var = 1", "refine_tol = 0.3", "derefine_tol = 0.1", "floor = 1e-4", "buffer = 2"]
     lines += [
         "[runge_kutta]", "scheme = runge-kutta-ssp-33",
-        "[weno]", "scheme = weno-u-5", "ror_number = 0", "ror_threshold = 0.9", "ror_vars_number = 0",
-        "enable_ror_stats = .false.", "ib_reduction_extent = 0", "ib_reduced_order = 2",
+        "[weno]", "scheme = weno-u-5",
         "[solids]", "number = 0", "n_eikonal = 0",
         "[slices]", "slices_number = 0",
         "[physics]", "physical_model = euler", f"gamma = {GAMMA!r}",

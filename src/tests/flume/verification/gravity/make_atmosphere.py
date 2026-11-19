@@ -130,8 +130,8 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
     lines += [
         "[runge_kutta]",
         "scheme = runge-kutta-ssp-33",
-        "[weno]", "scheme = weno-u-5", "ror_number = 0", "ror_threshold = 0.9", "ror_vars_number = 0",
-        "enable_ror_stats = .false.", "ib_reduction_extent = 0", "ib_reduced_order = 2",
+        "[weno]", "scheme = weno-u-5", 
+        
     ]
     if weights:
         lines += [f"weights = {weights}"]
