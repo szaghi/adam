@@ -145,7 +145,7 @@ contains
       ! plumbed through every dispatch.
       realm(is)%ptr%realm_index = is
       call realm(is)%ptr%initialize_forest(filename=filename, realms_number=self%n)
-      call ini_warn_unused(realm(is)%ptr%io%file_parameters) ! #80 P2: the input keys no parser read (warn-only)
+      call ini_warn_unused(realm(is)%ptr%io%file_parameters, as_error=realm(is)%ptr%io%unused_keys_error) ! #80 P2, P5
    enddo
    ! Register intra-realm AMR coarse-fine faces. In the manifest-less (N=1) path
    ! there is no inter-realm seam pass, so this also owns the flux-register
@@ -180,7 +180,8 @@ contains
       ! plumbed through every dispatch.
       realm(is)%ptr%realm_index = is
       call realm(is)%ptr%initialize_forest(filename=trim(manifest%realm_ini(is)), realms_number=self%n)
-      call ini_warn_unused(realm(is)%ptr%io%file_parameters, label='realm '//trim(str(is, .true.)))
+      call ini_warn_unused(realm(is)%ptr%io%file_parameters, label='realm '//trim(str(is, .true.)), &
+                           as_error=realm(is)%ptr%io%unused_keys_error)
    enddo
    self%manifest = manifest
    self%has_manifest = .true.

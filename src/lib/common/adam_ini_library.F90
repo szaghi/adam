@@ -312,24 +312,37 @@ contains
    call ini%get(section_name=section, option_name=option, val=val, error=error)
    if (error /= 0) call record_failed(section, option)
    endsubroutine ini_get_R8P_array
-   subroutine ini_warn_unused(ini, label)
-   !< Warn (rank 0) about every option of the file that no parser has read since it was loaded (issue #80, P2, F2):
-   !< a misspelled key or a key no longer used is otherwise silently ignored. Warn-only: the run goes on.
-   type(file_ini), intent(in)           :: ini   !< INI file, after every parser has read it.
-   character(*),   intent(in), optional :: label !< What the file is (e.g. the realm), for the message.
+   subroutine ini_warn_unused(ini, label, as_error)
+   !< Report (rank 0) every option of the file that no parser has read since it was loaded (issue #80, P2, F2): a
+   !< misspelled key or a key no longer used is otherwise silently ignored. As warnings, the run goes on; `as_error`
+   !< (`[IO].(unused_keys) = error`, P5) prints the same list as errors and stops the run.
+   type(file_ini), intent(in)           :: ini      !< INI file, after every parser has read it.
+   character(*),   intent(in), optional :: label    !< What the file is (e.g. the realm), for the message.
+   logical,        intent(in), optional :: as_error !< Stop the run when an option was never read.
    character(len=:), allocatable        :: items(:,:) !< Unused options, section/option pairs.
    character(len=:), allocatable        :: label_     !< Label, local variable.
+   character(len=:), allocatable        :: kind_      !< "warning" or "error".
+   logical                              :: as_error_  !< Stop the run, local variable.
    integer(I4P)                         :: o          !< Counter.
 
    if (mpih%myrank /= 0) return
    call ini%unused_options(items=items)
    if (size(items, dim=1) == 0) return
+   as_error_ = .false. ; if (present(as_error)) as_error_ = as_error
+   kind_ = 'warning' ; if (as_error_) kind_ = 'error'
    label_ = '' ; if (present(label)) label_ = ' of '//label
    if (allocated(ini%filename)) label_ = label_//' ('//trim(ini%filename)//')'
-   print '(A)', mpih%myrankstr//'warning: '//trim(str(size(items, dim=1), .true.))//' input option(s)'//label_// &
-                ' never read, ignored:'
+   if (as_error_) then
+      print '(A)', mpih%myrankstr//kind_//': '//trim(str(size(items, dim=1), .true.))//' input option(s)'//label_// &
+                   ' never read ([IO] unused_keys = error):'
+   else
+      print '(A)', mpih%myrankstr//kind_//': '//trim(str(size(items, dim=1), .true.))//' input option(s)'//label_// &
+                   ' never read, ignored:'
+   endif
    do o=1, size(items, dim=1)
-      print '(A)', mpih%myrankstr//'warning:   ['//trim(items(o, 1))//'].('//trim(items(o, 2))//')'
+      print '(A)', mpih%myrankstr//kind_//':   ['//trim(items(o, 1))//'].('//trim(items(o, 2))//')'
    enddo
+   if (as_error_) call mpih%error_stop(msg=': '//trim(str(size(items, dim=1), .true.))//' input option(s)'//label_// &
+                                           ' never read (listed above); remove them, or set [IO] unused_keys = warn')
    endsubroutine ini_warn_unused
 endmodule adam_ini_library

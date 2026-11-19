@@ -3,7 +3,7 @@ module adam_io_object
 !< ADAM, IO class definition.
 
 ! ADAM singleton objects
-use :: adam_ini_library, only : ini_check, ini_get, ini_load
+use :: adam_ini_library, only : ini_check, ini_get, ini_load, ini_stop
 use :: adam_mpih_global, only : mpih
 use :: adam_grid_object, only : grid_object
 use :: finer
@@ -25,6 +25,7 @@ type :: io_object
    integer(I4P)                :: it_save=100_I4P                !< Main output iteration save frequency.
    character(:), allocatable   :: output_basename                !< Basename of output files.
    logical                     :: restart=.false.                !< Enable restart from old output data.
+   logical                     :: unused_keys_error=.false.      !< [IO] unused_keys = error: an unread key stops the run.
    character(:), allocatable   :: restart_basename               !< Basename of restart files.
    integer(I4P)                :: restart_save=100_I4P           !< Restart output iteration save frequency.
    logical                     :: save_memory_status=.false.     !< Enable save of memory status during allocations.
@@ -134,6 +135,9 @@ contains
    class(io_object), intent(inout)        :: self            !< IO handler.
    type(file_ini),   intent(in)           :: file_parameters !< Simulation parameters ini file handler.
    character(99)                          :: buff_c          !< Character buffer.
+   character(16)                          :: env_value       !< ADAM_UNUSED_KEYS value.
+   integer                                :: env_length      !< ADAM_UNUSED_KEYS length.
+   integer                                :: env_status      !< ADAM_UNUSED_KEYS query status.
    integer(I4P)                           :: error           !< Error status.
 
    associate(ISN=>INI_SECTION_NAME)
@@ -156,6 +160,17 @@ contains
       ! Optional seam div(B) guard-rail (issue #29). Absent → monitor disabled (tol=-1).
       call ini_get(file_parameters, ISN, 'seam_divB_tol', self%seam_divB_tol, default=-1._R8P)
       call ini_get(file_parameters, ISN, 'seam_divB_error', self%seam_divB_error, default=.false.)
+      ! the keys no parser reads (issue #80 P5): reported as warnings (default) or an error that stops the run; the
+      ! environment variable ADAM_UNUSED_KEYS, when set, overrides the key (the regression harnesses set it to error)
+      call ini_get(file_parameters, ISN, 'unused_keys', buff_c, default='warn')
+      call get_environment_variable('ADAM_UNUSED_KEYS', env_value, env_length, env_status)
+      if (env_status == 0 .and. env_length > 0) buff_c = env_value
+      select case(trim(adjustl(buff_c)))
+      case('warn')  ; self%unused_keys_error = .false.
+      case('error') ; self%unused_keys_error = .true.
+      case default  ; call ini_stop(msg='[IO].(unused_keys) (or ADAM_UNUSED_KEYS) = "'//trim(adjustl(buff_c))// &
+                                        '"; accepted: warn, error')
+      endselect
       call ini_check()
    endassociate
    call ini_check() ! report every option of this parser that failed to load (#80 P2)
