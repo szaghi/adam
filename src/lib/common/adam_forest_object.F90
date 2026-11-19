@@ -1043,6 +1043,24 @@ contains
    call seam_fill_batch(realm=realm, cadence=CADENCE_STAGE_COINCIDENT, wtime=self%wtime(6:7))
    endsubroutine fill_all_seams
 
+   function is_init_only(realm) result(stop_here)
+   !< True when the environment asks to stop after the initialization (`ADAM_INIT_ONLY` set, not `0`): MPI is finalized
+   !< and the caller returns. An inventory mode (issue #80 P5): the input is parsed, every component built, the initial
+   !< state set and the keys no parser read reported, without the time loop.
+   type(realm_pointer), intent(inout) :: realm(:)  !< The realms.
+   logical                            :: stop_here !< Stop after the initialization.
+   character(len=8)                   :: value     !< Environment value.
+   integer                            :: length    !< Value length.
+   integer                            :: status    !< Query status.
+
+   call get_environment_variable('ADAM_INIT_ONLY', value, length, status)
+   stop_here = status == 0 .and. length > 0 .and. trim(value) /= '0'
+   if (stop_here) then
+      call mpih%print_message('forest: ADAM_INIT_ONLY is set: stopping after the initialization')
+      call realm(1)%ptr%finalize_mpi_forest
+   endif
+   endfunction is_init_only
+
    subroutine simulate(self, realm, filename)
    !< Drive the full simulation: initialize, time-loop, finalize.
    !<
@@ -1055,6 +1073,7 @@ contains
    logical                             :: done     !< Forest-global termination predicate.
 
    call self%initialize(realm, filename=filename)
+   if (is_init_only(realm)) return
    call self%start_timing(realm=realm)
    done = .false.
    if (self%timing) self%wtime(1) = MPI_Wtime()
@@ -1085,6 +1104,7 @@ contains
    logical                                 :: done     !< Forest-global termination predicate.
 
    call self%initialize_from_manifest(realm=realm, manifest=manifest)
+   if (is_init_only(realm)) return
    call self%start_timing(realm=realm)
    done = .false.
    if (self%timing) self%wtime(1) = MPI_Wtime()
