@@ -41,7 +41,7 @@ What the cases catch:
 |---|---|---|
 | Equations | Maxwell, SI; 4 AC coils (`rmf-amr-fd`) or no source (`rmf-amr-fd-pulse`) | [models](../models#models) |
 | Space | centred finite differences of order 6 | `compute_curl_fd_centered`, `compute_divergence_fd_centered`, [`adam_fdv_operators_library.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_fdv_operators_library.F90) |
-| Time | SSP Runge–Kutta (5,4), CFL 0.5; SSP (1,1) and `runge-kutta-1` in the RK legs | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time | SSP Runge–Kutta (5,4), CFL 0.5; SSP (1,1) and `runge-kutta-1` in the RK legs | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | Seam ghosts | coarse→fine tricubic interpolation over the full ghost slab (`[amr] seam_ghost_fill`, default `tricubic`), fine→coarse restriction | `seam_interpolate_tricubic`, [`adam_seam_interpolation_library.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_seam_interpolation_library.F90); [`adam_field_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_field_object.F90) |
 | RK contract | the staged forest path accepts SSP schemes only | `stages_per_step_forest`, [`adam_prism_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/cpu/adam_prism_cpu_object.F90) |
 | Diagnostic | max $\lvert\nabla\cdot\mathbf D\rvert$, $\lvert\nabla\cdot\mathbf B\rvert$, $\lvert\nabla\cdot\mathbf J\rvert$ per step, `-divergence_history.dat` | `save_divergence_history`, [`adam_prism_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_common_object.F90) |

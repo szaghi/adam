@@ -29,7 +29,7 @@ reads, and a sign that the plan in #65 printed wrong (an anti-diffusion; see
 | Ohmic flux | curl form, `dissipative_order` 4 or 2 | `add_resistive_fluxes_o4`, `add_resistive_fluxes_o2`, [`adam_flume_cpu_dissipation_kernels.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_dissipation_kernels.F90); `compute_resistive_flux`, [`adam_flume_dissipation_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_dissipation_library.F90); [numerics](../../numerics#dissipative-fluxes-navier–stokes) |
 | Viscous and heat fluxes | as in VV-1, the temperature from the MHD auxiliary state | `add_dissipative_fluxes_o4`, [`adam_flume_cpu_dissipation_kernels.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_dissipation_kernels.F90) |
 | Inviscid fluxes | WENO5 flux splitting, characteristic variables | `compute_residuals_weno`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
-| Time | `runge-kutta-ssp-54`, CFL 0.2 | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time | `runge-kutta-ssp-54`, CFL 0.2 | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | FNL backend | the same fluxes as device kernels | `add_resistive_fluxes_o4_dev`, [`adam_flume_fnl_dissipation_kernels.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_dissipation_kernels.F90) |
 
 ## Initial and boundary conditions

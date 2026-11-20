@@ -31,7 +31,7 @@ scheme-aware coil stamping (`bad09954`).
 |---|---|---|
 | Equations | Maxwell, SI, 4 AC rectangular coils | [models](../models#models); [coils](../initial-conditions#coils) |
 | Space | centred finite volumes of order 6 (`fv_centered`) | [numerics](../numerics#centred-finite-volumes-fv-centered) |
-| Time | SSP Runge–Kutta (5,4), CFL 0.5 | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time | SSP Runge–Kutta (5,4), CFL 0.5 | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | Refinement | AMR_GEO `primitive-box` marker, fired once at initialization (`amr_iterations = 1`) | [numerics](../numerics#adaptive-mesh-refinement) |
 | Seam registration | intra-realm 2:1 faces registered from the tree adjacency | `register_intra_realm_amr_seams`, [`adam_forest_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_forest_object.F90) |
 | Reflux | fine fluxes accumulated per RK stage with the stage weight, applied to the coarse cells | `apply_reflux_corrections`, [`adam_forest_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_forest_object.F90); `apply_reflux_to_stage_forest`, [`adam_prism_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/cpu/adam_prism_cpu_object.F90); [`adam_flux_register_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_flux_register_object.F90) |

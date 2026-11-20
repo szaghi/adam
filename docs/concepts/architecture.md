@@ -44,7 +44,7 @@ The SDK provides physics-agnostic building blocks reused identically by every ap
 | `adam_tree_object` | Octree/quadtree with Morton-order linearization: blocks sorted along the Z-order curve |
 | `adam_field_object` | Per-block geometry and metrics, ghost exchange (`update_ghost_local`, `update_ghost_mpi`), refinement/derefinement of the block data, restart blocks (`save_blocks`, `load_blocks`) |
 | `adam_weno_object` | WENO reconstruction: upwind orders 1, 3, 5, 7, 9 (`weno-u-N`, `ngc = (N+1)/2`), centred orders 2, 4, 6, 8 (`weno-c-N`, `ngc = N/2`); Jiang–Shu (`js`, the default) or scale-invariant (`si`) weights; conservative or characteristic variables. ROR (stencil lowering where a variable check fails, order reduction near solids) is library only: used by no maintained application |
-| `adam_rk_object` | Runge-Kutta integration: `runge-kutta-1/2/3`, SSP `runge-kutta-ssp-11`, `-22`, `-33`, `-54`, and the 4-stage symplectic `runge-kutta-yoshida`; the time step comes from the CFL condition |
+| `adam_stepper_object` | Time integration on [SELAH](https://github.com/szaghi/SELAH) ([#132](https://github.com/szaghi/adam/issues/132)): `runge-kutta-1/2/3`, SSP `runge-kutta-ssp-11`, `-22`, `-33`, `-54`, and the symplectic `runge-kutta-yoshida`; the time step comes from the CFL condition |
 | `adam_ib_object` | Immersed boundary method: solids on the Cartesian grid as eikonal signed-distance fields, boundary conditions reconstructed at the cut cells; in FLUME an `AMR_GEO_SOLID` marker refines around a solid (PRISM does not implement it); moving bodies are library only |
 | `adam_io_object` | `[IO]` configuration, history files (residuals, energy, divergence, charge), the XH5F field writer `save_field`: one HDF5 file per rank plus an XDMF index; restart and slice files in [cookbook IO](/cookbook/io) |
 | `adam_mpih_object` | MPI wrapper: initialize/finalize, `error_stop`, barrier, timers |
@@ -61,7 +61,7 @@ Every library object belongs to a **realm** — the per-domain solver instance �
 | `adam` | `adam_object` | owns `grid`, `tree`, `field`, `maps` as value components |
 | `io` | `io_object` | INI file handle, output/restart configuration |
 | `amr` | `amr_object` | refinement markers |
-| `weno`, `rk`, `ib` | `weno_object`, `rk_object`, `ib_object` | reconstruction, time integration, immersed boundary |
+| `weno`, `ts`, `ib` | `weno_object`, `stepper_object`, `ib_object` | reconstruction, time integration (SELAH), immersed boundary |
 | `slices`, `flail`, `leapfrog`, `blanesmoan`, `cfm` | … | slices output, the FLAIL elliptic solver library (FFT and multigrid Poisson solvers), the leapfrog, Blanes–Moan (`blanes-moan4`) and commutator-free Magnus (`CFM-4`) integrators (library only: used by no maintained application; PRISM refuses them) |
 
 Library routines that need another object receive it **as an argument**, e.g. `call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)`. Because each realm owns its objects, several realms (a multi-realm *forest*) coexist in one process without sharing state.
@@ -70,7 +70,7 @@ The only program-scope singletons are the MPI handlers, which are genuinely one 
 
 ### FNL initialization order
 
-MPI and the device are process-global: the forest initializes them once, before any realm, through the realm hook `initialize_process_context` (the mirror of `finalize_mpi_forest`); a realm never initializes them itself. FNL helpers (`field_fnl`, `ib_fnl`, `rk_fnl`, `weno_fnl`, and app-specific ones such as PRISM's `coil_fnl`) are components of the application's FNL type, one set per realm. They are initialised **after** the common (CPU) initialisation, from the realm's own objects:
+MPI and the device are process-global: the forest initializes them once, before any realm, through the realm hook `initialize_process_context` (the mirror of `finalize_mpi_forest`); a realm never initializes them itself. FNL helpers (`field_fnl`, `ib_fnl`, `weno_fnl`, and app-specific ones such as PRISM's `coil_fnl`) are components of the application's FNL type, one set per realm. They are initialised **after** the common (CPU) initialisation, from the realm's own objects:
 
 ```fortran
 ! the forest, once per process, before any realm (adam_forest_object.F90)
@@ -82,7 +82,6 @@ call mpih%initialize(verbose=verbose) ! once-only
 call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
 call self%weno_fnl%initialize(weno=self%weno)
 ```
 

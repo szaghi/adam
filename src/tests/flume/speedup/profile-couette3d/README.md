@@ -19,7 +19,7 @@ size sees the same work, whatever the step.
 |---|---|---|
 | Convective residual | WENO-5 flux splitting on characteristic variables (`compute_residuals_weno`, FLUME cpu/fnl objects and Euler kernels) | x, y and z (3-D octree, nothing null) |
 | Dissipative residual | viscous stress and heat flux, 4th order (`adam_flume_dissipation_library`, cpu/fnl dissipation kernels) | μ = 0.01: the viscous time step bound is of the order of the convective one |
-| Time integration | SSP Runge–Kutta 5 stages (`adam_rk_object`, FNL `rk_fnl`) | stage buffers, a ghost exchange per stage |
+| Time integration | SSP Runge–Kutta 5 stages (SELAH, `adam_stepper_object`, both backends) | stage buffers, a ghost exchange per stage |
 | Boundary conditions | `adam_flume_bc_object`, `set_boundary_conditions` | isothermal and moving no-slip walls, periodic x and z, edges and corners |
 | Ghost exchange | `update_ghost` (local copies and MPI, GPU-direct on FNL) | every stage, across ranks when np > 1 |
 | AMR seams and reflux | 2:1 seam ghost fill (restriction, prolongation), the forest flux register (`adam_forest_object`) | the block layer along each wall is one level finer (two box markers): 2:1 seams parallel to the walls, reflux every step |

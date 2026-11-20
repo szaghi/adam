@@ -461,13 +461,12 @@ recomputes the auxiliary variables, applies the positivity floors (MHD) and eval
 the [CFL bound](./models#time-step-bound), with the diffusive part of the
 [dissipative fluxes](#dissipative-fluxes-navier–stokes) when they are on; `[time] it_max` and `time_max` stop the run.
 
-The SSP Butcher tableaux of the FNL backend and of PRISM have one source, `ssp_tableau` of `adam_rk_object` (the
-PRISM boundary and PIC integrators call it too); SELAH's are the same numbers, bit for bit (SELAH's
-`selah_test_adam_parity`). SSP(5,4) is the optimal five-stage fourth-order scheme of Spiteri & Ruuth (2002, SIAM J. Numer. Anal.
+The SSP Butcher tableaux have one source, SELAH's (every backend, PRISM's PIC particles and PML auxiliary fields
+included); they are the numbers of ADAM's former `ssp_tableau`, bit for bit (SELAH's `selah_test_adam_parity`). SSP(5,4) is the optimal five-stage fourth-order scheme of Spiteri & Ruuth (2002, SIAM J. Numer. Anal.
 40, 469), SSP coefficient 1.508, stored in the Shu–Osher form printed with 15 digits by Isherwood, Grant & Gottlieb
 (2018, arXiv:1810.04800, §4). The
-order conditions then hold to $6\cdot10^{-16}$, and a refinement in time keeps fourth order down to $10^{-13}$. The unit test `test_rk_ssp_tableau` pins every SSP tableau
-([unit tests](./verification/unit-tests)).
+order conditions then hold to $6\cdot10^{-16}$, and a refinement in time keeps fourth order down to $10^{-13}$. SELAH's tests pin every SSP tableau (order
+conditions, SSP coefficients); ADAM's `test_stepper_object` the adapter ([unit tests](./verification/unit-tests)).
 
 ## Adaptive mesh refinement
 

@@ -61,7 +61,7 @@ src/
 | `adam_tree_object` | Octree/quadtree with Morton ordering |
 | `adam_field_object` | Field variable storage and interpolation |
 | `adam_weno_object` | High-order WENO reconstruction |
-| `adam_rk_object` | Runge-Kutta temporal integration |
+| `adam_stepper_object` | Time integration on SELAH (the realm's `ts`, #132) |
 | `adam_ib_object` | Immersed boundary method |
 | `adam_io_object` | HDF5 and restart file I/O |
 | `adam_mpih_object` | MPI wrapper and communication |
@@ -75,14 +75,13 @@ src/
 
 The only program-scope singletons are **`mpih`** (`adam_mpih_global`) and **`mpih_fnl`** (`adam_fnl_mpih_global`). The former `adam_{grid,field,maps,tree,weno,ib,rk}_global` and `adam_fnl_{field,ib,rk,weno}_global` / `adam_prism_fnl_{coil,fwlayer}_global` modules **no longer exist**. Every other object is a per-realm component:
 
-- CPU library objects live in `realm_object` (`self%adam%grid`, `self%adam%field`, `self%adam%maps`, `self%rk`, `self%weno`, `self%ib`, …) and are passed **as arguments** to library calls (e.g. `self%adam%field%update_ghost_local(q=q, grid=self%adam%grid, maps=self%adam%maps)`).
-- FNL helpers are components of the backend type (`prism_fnl_object%field_fnl/ib_fnl/rk_fnl/weno_fnl/coil_fnl`, `adam_prism_fnl_object.F90:47-56`), initialised **after** the common init by argument passing:
+- CPU library objects live in `realm_object` (`self%adam%grid`, `self%adam%field`, `self%adam%maps`, `self%ts`, `self%weno`, `self%ib`, …) and are passed **as arguments** to library calls (e.g. `self%adam%field%update_ghost_local(q=q, grid=self%adam%grid, maps=self%adam%maps)`).
+- FNL helpers are components of the backend type (`prism_fnl_object%field_fnl/ib_fnl/weno_fnl/coil_fnl`, `adam_prism_fnl_object.F90`), initialised **after** the common init by argument passing:
 
 ```fortran
-call self%prism_common_object%initialize(...)                                        ! builds self%adam, self%rk, ...
+call self%prism_common_object%initialize(...)                                        ! builds self%adam, self%ts, ...
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
 call self%weno_fnl%initialize(weno=self%weno)
 ```
 

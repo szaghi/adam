@@ -33,7 +33,7 @@ What the case catches:
 | Seams (PV-5) | per-stage seam flux synchronisation; ghost positivity blend of the tricubic seam ghosts | `seam_sync_fluxes`, `seam_sync_factors`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90); `blend_inadmissible_ghosts`, [`adam_flume_cpu_ghost_kernels_agnostic.INC`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_ghost_kernels_agnostic.INC) |
 | Equations | ideal MHD with EGLM (PV-1, PV-2, PV-5), $\gamma = 1.4$; Euler (PV-3), $\gamma = 5/3$ (LeBlanc) or 1.4 | [models](../../models#divergence-control-eglm) |
 | Space | WENO5 flux splitting; `weno-riemann` HLLD (MHD) or HLLC (Euler), characteristic, `6th`, `weno` sensor | `compute_residuals_weno`, `compute_residuals_riemann`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
-| Time | MHD: SSP Runge–Kutta 5 stages, CFL 0.4 (the Orszag–Tang setup); Euler: SSP-33, CFL 0.5 (the Sod setup) | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time | MHD: SSP Runge–Kutta 5 stages, CFL 0.4 (the Orszag–Tang setup); Euler: SSP-33, CFL 0.5 (the Sod setup) | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | Floors | disabled | [models](../../models#positivity-floors) |
 | FNL backend | the same limiter on the device | `limit_positivity_dev`, `seam_sync_fluxes_dev`, [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90) |
 

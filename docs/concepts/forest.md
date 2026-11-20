@@ -203,7 +203,7 @@ K-gating in Phases 1 and 3: realm `is` participates only when `k ≤ K_realm(is)
 `flux_register`'s third axis is collapsed to size 1 (α.r1; PRD #16 M2). Realms gate their reflux body on each realm's final RK substage:
 
 ```fortran
-if (stage /= self%rk%nrk) return    ! α.r1 end-of-step gate
+if (stage /= self%ts%stages()) return    ! α.r1 end-of-step gate
 ```
 
 The forest reduces the register once after the stage loop and applies the correction once per step, after `close_step_forest` has committed `q`. This is independent of α/β: **β does not restore Wang 2018 per-stage RK-weighted reflux** — that refinement is deferred to a future milestone.

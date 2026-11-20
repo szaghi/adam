@@ -34,7 +34,7 @@ What the case catches:
 | Seam gravity work | added per stage to the flux register's energy entry: the coarse side takes its own seam source back, the fine side adds the exact two-point work less its own source | `add_seam_gravity_work`, [`adam_flume_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_common_object.F90); `accumulate_seam_fluxes`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90), [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90) |
 | Reflux | `reflux = .true.`; `reflux_cadence = step` (default, end of step) or `stage` (P5c: the coarse seam cells corrected at every Runge–Kutta stage) | `reflux_stage`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90); [`adam_flume_numerics_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_numerics_object.F90); [numerics](../../numerics#adaptive-mesh-refinement) |
 | Space | WENO5 (`weno-u-5`) flux splitting on characteristic variables (`weno`) | [numerics](../../numerics#scheme-space-weno-flux-splitting) |
-| Time | SSP Runge–Kutta, 3 stages, CFL 0.4 (collapse: 0.4, 0.2, 0.1) | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time | SSP Runge–Kutta, 3 stages, CFL 0.4 (collapse: 0.4, 0.2, 0.1) | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 
 ## Initial and boundary conditions
 

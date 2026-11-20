@@ -225,19 +225,19 @@ The time integrator adapter on [SELAH](https://github.com/szaghi/SELAH), the lib
 ADAM ([#132](https://github.com/szaghi/adam/issues/132), SELAH milestone M7). SELAH owns the coefficients, the
 registers and the stage kernels; the adapter is the ADAM side of it:
 
-- **Input.** `[runge_kutta] scheme`, read as `adam_rk_object` reads it (no other key). The scheme names are defined here
-  and re-exported by `adam_rk_object`.
+- **Input.** `[runge_kutta] scheme` (no other key), the names of the table below, defined here.
 - **Mapping** (`stepper_map`). `runge-kutta-1/2/3` are the two-register Shu–Osher forms of Euler, SSP-22 and SSP-33
   (ADAM's low-storage coefficients, bitwise); `runge-kutta-ssp-11/22/33/54` are the Butcher forms of Euler, SSP-22,
-  SSP-33 and SSP-54 (ADAM's tableaux, bitwise), each stage on its own state register as in `adam_rk_object`;
+  SSP-33 and SSP-54 (ADAM's tableaux, bitwise), each stage on its own state register as in ADAM's former
+  integrator (`adam_rk_object`, deleted in phase 6 of #132);
   `runge-kutta-yoshida` is SELAH's Yoshida-4 splitting, which needs the variables of its two partitions.
 - **Storage** (`stepper_stored_fields`). SELAH's `registers_needed`, the residual register included: 2 for the
-  two-register forms, s + 1 for the Butcher forms (one field more than `adam_rk_object`'s `nrk` stages, whose residual
-  went to the application's `dq`). The registers are allocated once, at the pool size, and each block slot is zeroed
+  two-register forms, s + 1 for the Butcher forms (one field more than the former integrator's `nrk` stages, whose
+  residual went to the application's `dq`). The registers are allocated once, at the pool size, and each block slot is zeroed
   the first time it is active ([#45](https://github.com/szaghi/adam/issues/45)).
 - **Field and mask.** Each call takes the field and builds the box of the active blocks (`field%blocks_number` at the
   time of the call: it changes at every regrid). `ib%phi` is the mask: a cell is advanced where the last component (the
-  all-solids distance) is negative, as in `adam_rk_object`; in the Butcher form the masked cells of each stage state
+  all-solids distance) is negative, as in the former integrator; in the Butcher form the masked cells of each stage state
   start as `q`, where the immersed-boundary extrapolation of the residual starts from.
 - **Step.** `begin_step`, then per stage `begin_stage(k)`, the residual of the stage state (`q` itself when
   `state_is_q(k)`, else `stage_state()`) written into `rhs_register()`, `end_stage(k)`; then `finish_step`, which in
@@ -252,14 +252,14 @@ computed into the application's own array copied into the residual register with
 `test-stepper-object-gnu` (the mapping, the stored fields, one step per scheme, masked and unmasked, the scratch
 registers) and `test-stepper-object-xfail-gnu` (an unknown scheme stops the run).
 
-### `adam_rk_object`
+### Scheme names
 
-Explicit Runge-Kutta, `[runge_kutta]` section. The stage storage `q_rk(nv, ni, nj, nk, nb, nrk)` is preallocated.
-No application integrates with it since phase 4 of [#132](https://github.com/szaghi/adam/issues/132): FLUME, PRISM and
-RIPPLE integrate with SELAH through `adam_stepper_object` (above), on both backends; realms keep `rk` for the scheme
-name, and PRISM's PIC particle integrator builds its own SSP tableau from it, until phase 6 deletes the object. A realm builds one or the other:
-`realm_object%with_selah`, set by the application before the realm initializes, builds `ts` and leaves `rk` with the
-scheme name only.
+The `[runge_kutta] scheme` names (`adam_stepper_object` constants). ADAM's own integrators (`adam_rk_object`, the FNL
+`adam_fnl_rk_object` and its kernels, the NVF and GMP twins, PRISM's boundary clone) were deleted in phase 6 of
+[#132](https://github.com/szaghi/adam/issues/132): every application integrates with SELAH, and
+`scripts/check_time_separation.py` (CI) keeps a Runge–Kutta combination from being written again in `src/app` or
+`src/lib`. PRISM's PIC particles and PML auxiliary fields advance in step with the field stepper on its SELAH tableau
+(the check waives those four files by name).
 
 | Constant | Scheme | Stages | Order |
 |----------|--------|--------|-------|
@@ -585,7 +585,6 @@ The keys live on `adam_io_object`. The monitor covers intra-realm 2:1 faces and 
 | `adam_fdv_operators_library` | Numerics, spatial | `adam_fdv_operators_library.F90` |
 | `adam_riemann_euler_library` | Numerics, spatial (unused) | `adam_riemann_euler_library.F90` |
 | `adam_stepper_object` | Numerics, temporal (SELAH adapter) | `adam_stepper_object.F90` |
-| `adam_rk_object` | Numerics, temporal | `adam_rk_object.F90` |
 | `adam_leapfrog_object` | Numerics, temporal (unused) | `adam_leapfrog_object.F90` |
 | `adam_blanes_moan_object` | Numerics, temporal (unused) | `adam_blanes_moan_object.F90` |
 | `adam_cfm_object` | Numerics, temporal (unused) | `adam_cfm_object.F90` |

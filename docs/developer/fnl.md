@@ -26,8 +26,10 @@ initialisation from the realm's own objects (PRISM, `adam_prism_fnl_object.F90`)
 call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
 ```
+
+The time integrator is not among them: the realm builds it (`ts`, SELAH's stepper on the device fields, see
+[Runge-Kutta integration](#runge-kutta-integration)).
 
 Application FNL objects follow the same pattern (PRISM's `coil_fnl`, `pic_fnl`, `pml_fnl`). An application that
 reconstructs with the library WENO coefficients on the device also calls `self%weno_fnl%initialize(weno=self%weno)`;
@@ -151,54 +153,16 @@ bitwise the same. The generic routines stay for callers whose width is a run-tim
 
 ## Runge-Kutta integration
 
-FLUME FNL and RIPPLE FNL integrate with [SELAH](https://github.com/szaghi/SELAH)'s device build through the library
-adapter `adam_stepper_object` ([#132](https://github.com/szaghi/adam/issues/132), phases 3 and 5): the application sets
-`realm_object%with_selah` and `selah_layout = LAYOUT_V_LAST` before the realm initializes, and the realm builds `ts`
-on the `(b, i, j, k, v)` device fields (`q_gpu`, `dq_gpu`, `phi_gpu`). The registers are device memory, zeroed at
-allocation; the stage state, the residual register and the scratch registers are device pointers the FNL kernels take
-as they took `q_rk_gpu`. The residual of a stage goes into `dq_gpu` (the per-stage reflux corrects it there) and
+Every FNL backend (FLUME, PRISM, RIPPLE) integrates with [SELAH](https://github.com/szaghi/SELAH)'s device build through
+the library adapter `adam_stepper_object` ([#132](https://github.com/szaghi/adam/issues/132), phases 3-5; ADAM's own
+device integrator, `adam_fnl_rk_object` and its kernels, was deleted in phase 6): the application sets
+`selah_layout = LAYOUT_V_LAST` before the realm initializes, and the realm builds `ts` on the `(b, i, j, k, v)` device
+fields (`q_gpu`, `dq_gpu`, `phi_gpu`). The registers are device memory, zeroed at
+allocation; the stage state, the residual register and the scratch registers are device pointers the FNL kernels take. The residual of a stage goes into `dq_gpu` (the per-stage reflux corrects it there) and
 `ts%set_rhs` copies it into the residual register with SELAH's copy kernel. SELAH's kernels sum the stages in the order
-of the kernels below, so FLUME FNL is bitwise the integration it replaced (every regression case and the #132 overlays,
+of the deleted ADAM kernels, so FLUME FNL is bitwise the integration it replaced (every regression case and the #132 overlays,
 A/B on an A30), except the step residual in the solid cells, now 0 ([#128](https://github.com/szaghi/adam/issues/128)
 D4). The end_of_step seam ghosts reach each stage state through `seam_ghosts_to_state_dev` (#132 rule 1).
-
-### `adam_fnl_rk_object`
-
-PRISM FNL's integrator until phase 4 of #132. A plain type, initialised from the realm's `grid`, `field` and `rk`. It
-holds the stage storage on the device and runs the stage updates.
-
-| Device array | Shape | Purpose |
-|--------------|-------|---------|
-| `q_rk_gpu` | `(nb, ni, nj, nk, nv, nrk)` | Stage values (1 slot for low-storage, `nrk` for SSP) |
-| `alph_gpu` | `(nrk, nrk)` | SSP alpha coefficients |
-| `beta_gpu`, `gamm_gpu` | `(nrk)` | SSP beta and gamma coefficients |
-
-| Scheme | Storage | Stages |
-|--------|---------|--------|
-| `RK_1`, `RK_2`, `RK_3` | Low-storage, overwrites `q_gpu` | 1 slot |
-| `RK_SSP_11`, `RK_SSP_22`, `RK_SSP_33` | Multi-stage | 1 / 2 / 3 |
-| `RK_SSP_54` | Multi-stage | 5 |
-
-| Method | Purpose |
-|--------|---------|
-| `initialize(grid, field, rk)` | Allocate `q_rk_gpu` for the scheme |
-| `initialize_stages(q_gpu)` | Copy `q_gpu` into every stage slot |
-| `assign_stage(s, q_gpu, phi_gpu)` | Copy `q_gpu` into stage `s`, skipping solid cells |
-| `compute_stage(s, dt, phi_gpu)` | Accumulate stages 1…s−1 into stage `s` (SSP) |
-| `compute_stage_ls(s, dt, phi_gpu, dq_gpu, q_gpu)` | Low-storage update `q = ark·q_n + brk·q + dt·crk·dq` |
-| `update_q(s, dt, phi_gpu)` | Final assembly `q += dt·beta(s)·q_rk(:,:,:,:,:,s)` |
-
-### `adam_fnl_rk_kernels`
-
-All kernels carry `!$acc parallel loop independent` and skip solid cells.
-
-| Kernel | Purpose |
-|--------|---------|
-| `rk_assign_stage_dev` | `q_rk(:,s) ← q_gpu` (fluid cells) |
-| `rk_initialize_stages_dev` | `q_rk(:,all_s) ← q_gpu` |
-| `rk_compute_stage_dev` | `q_rk(:,s) += dt·α(s,ss)·q_rk(:,ss)`, `ss = 1…s−1` |
-| `rk_compute_stage_ls_dev` | `q = ark·q_n + brk·q + dt·crk·dq` |
-| `rk_update_q_dev` | `q += dt·β(s)·q_rk(:,s)`, `s = 1…nrk` |
 
 ## Immersed boundary method
 
@@ -346,8 +310,6 @@ FUNDAL's MPI handler under the alias `mpih_fnl_object`: rank and size, rank-pref
 | `adam_fnl_weno_object` | WENO coefficient mirror (+ unused ROR tables) | — |
 | `adam_fnl_weno_kernels` | Upwind WENO reconstruction, run-time width | — |
 | `adam_fnl_weno_width_kernels` | Upwind WENO reconstruction, one routine per width (not re-exported) | — |
-| `adam_fnl_rk_object` | RK stage storage and updates | — |
-| `adam_fnl_rk_kernels` | Stage assign, accumulate, low-storage, final update | — |
 | `adam_fnl_ib_object` | Signed distance and eikonal wall condition | — |
 | `adam_fnl_ib_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
 | `adam_fnl_maps_object` | Communication tables and MPI buffers | — |

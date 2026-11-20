@@ -226,8 +226,8 @@ FLUME's page lists its variable indices and the [runtime AMR setup](/application
 | `runge-kutta-ssp-54` | SSP, 5 stages, 4th order | 5 | `ssp-54`, Butcher (6) | accepted | accepted |
 | `runge-kutta-yoshida` | symplectic, 4th order, 4 stages | 0 | `yoshida-4`, splitting (1) | **refused** | EM on CPU: accepted; FNL, PIC, PML, 2:1 faces: refused |
 
-The stored stage fields were `adam_rk_object`'s; since #132 FLUME, PRISM and RIPPLE allocate SELAH's registers
-instead, the residual register included (`stepper_stored_fields`): one block field (of `nv` variables) more than the
+The stored stage fields were those of ADAM's own integrator (`adam_rk_object`, deleted in phase 6 of #132); FLUME, PRISM
+and RIPPLE allocate SELAH's registers instead, the residual register included (`stepper_stored_fields`): one block field (of `nv` variables) more than the
 stage fields, whatever the scheme (Yoshida: 1 instead of 0). `[diagnostics] divb_flux` borrows two of them between steps, so it is
 accepted with every scheme ([#128](https://github.com/szaghi/adam/issues/128) D1).
 

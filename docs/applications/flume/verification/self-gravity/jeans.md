@@ -28,7 +28,7 @@ What the case catches:
 | Poisson solver | FFT, periodic ([SV-2](./fft-poisson)): FFTW on CPU, cuFFT on FNL | [`adam_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_poisson_fft_object.F90), [`adam_fnl_poisson_fft_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/fnl/adam_fnl_poisson_fft_object.F90) |
 | Potential sources | the face form of SV-1 | `add_potential_sources`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
 | Space | WENO5 (`weno-u-5`) flux splitting on characteristic variables (`weno`) | [numerics](../../numerics#scheme-space-weno-flux-splitting) |
-| Time | SSP Runge–Kutta, 3 stages (`runge-kutta-ssp-33`), CFL 0.4 (collapse: 0.4, 0.2, 0.1) | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time | SSP Runge–Kutta, 3 stages (`runge-kutta-ssp-33`), CFL 0.4 (collapse: 0.4, 0.2, 0.1) | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | Scaling (SV-5) | `[reference]` converts $G$ by $u_0^2/(\rho_0L_0^2)$ | [`adam_flume_gravity_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_gravity_object.F90); [models](../../models#units-and-scaling) |
 | Executable | the FFT build: `exe/adam_flume_cpu_fft` (mode `flume-cpu-gnu-fft`), `exe/adam_flume_fnl_fft` (mode `flume-fnl-nvf-fft`) | `fobos.d/flume.fobos` |
 

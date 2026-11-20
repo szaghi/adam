@@ -141,7 +141,7 @@ orthogonal to the per-stage vs end-of-step cadence change.
 ## FNL status
 
 The FNL backend is fully exercised by this case. The architectural
-prerequisites — per-realm `field_fnl`, `rk_fnl`, `ib_fnl`, `weno_fnl`,
+prerequisites — per-realm `field_fnl`, `rk_fnl` (deleted in #132 phase 6: the realm's SELAH stepper), `ib_fnl`, `weno_fnl`,
 plus PRISM-specific `coil_fnl` and `fwlayer_fnl`, all promoted from
 program-scope singletons to value components on `prism_fnl_object` —
 landed during PRD #16 (commits `8000ae7b`, `d2fb7bc8`, `90d0343e`,

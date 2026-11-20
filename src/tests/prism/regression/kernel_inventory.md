@@ -65,20 +65,6 @@ when those backends come back into scope (out of scope per issue #10).
 |------|------------|-------|-------|
 | 151 | `set_q_to_q_t_dev` (in `field_fnl_object` method) | A | `q_gpu`, `q_t_gpu` dummies. Methods on field_fnl_object that wrap a kernel call have already adopted the dummy-arg pattern internally. |
 
-### `src/lib/fnl/adam_fnl_rk_kernels.F90`
-
-| Line | Subroutine | Class | Notes |
-|------|------------|-------|-------|
-|  39 | `rk_assign_stage_dev` (phi branch) | A | All dummies; phi optional. |
-|  55 | `rk_assign_stage_dev` (no-phi branch) | A | All dummies. |
-|  90 | `rk_compute_stage_dev` (phi branch) | A | All dummies; phi optional. |
-| 111 | `rk_compute_stage_dev` (no-phi branch) | A | All dummies. |
-| 151 | `rk_initialize_stages_dev` (phi branch) | A | All dummies. |
-| 167 | `rk_initialize_stages_dev` (no-phi branch) | A | All dummies. |
-| 195 | `rk_compute_stage_ls_dev` | A | All dummies; LS = low-storage RK. |
-| 234 | `rk_update_q_dev` (phi branch) | A | All dummies. |
-| 257 | `rk_update_q_dev` (no-phi branch) | A | All dummies. |
-
 ### `src/lib/fnl/adam_fnl_ib_kernels.F90`
 
 | Line | Subroutine | Class | Notes |

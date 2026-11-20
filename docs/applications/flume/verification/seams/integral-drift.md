@@ -23,7 +23,7 @@ What the case catches:
 |---|---|---|
 | Equations | compressible Euler, ideal gas, $\gamma = 1.4$ | [models](../../models#compressible-euler) |
 | Space | WENO5 (`weno-u-5`) flux splitting on characteristic variables | `compute_residuals_weno`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
-| Time | `vortex`: SSP Runge–Kutta 5 stages (`runge-kutta-ssp-54`), CFL 0.4; `sod`: SSP Runge–Kutta 3 stages (`runge-kutta-ssp-33`), CFL 0.5 | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time | `vortex`: SSP Runge–Kutta 5 stages (`runge-kutta-ssp-54`), CFL 0.4; `sod`: SSP Runge–Kutta 3 stages (`runge-kutta-ssp-33`), CFL 0.5 | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | Seam operators | `mean` restriction, `tricubic` fill | [numerics](../../numerics#adaptive-mesh-refinement) |
 | Reflux | Berger–Colella on, or off (`--no-reflux`, a measurement, not a supported configuration) | `apply_reflux_to_stage_forest`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
 | Conservation history | `[diagnostics] conservation_history_save` | `compute_conservation`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |

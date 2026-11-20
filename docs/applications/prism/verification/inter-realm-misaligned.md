@@ -24,7 +24,7 @@ What the case catches:
 |---|---|---|
 | Equations | Maxwell, SI, no source | [models](../models#models) |
 | Space | centred finite volumes of order 6 (`fv_centered`) | [numerics](../numerics#centred-finite-volumes-fv-centered) |
-| Time | SSP Runge–Kutta (5,4), CFL 0.5, β cadence | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time | SSP Runge–Kutta (5,4), CFL 0.5, β cadence | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | Register | fine skins scattered over the overlapping register faces (`maps%seam_overlap`) | `accumulate_fine_overlaps`, [`adam_flux_register_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_flux_register_object.F90); [`adam_maps_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_maps_object.F90) |
 | Peer lookup | closest block of the peer tree (`get_closest_block`) | [`adam_tree_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_tree_object.F90) |
 

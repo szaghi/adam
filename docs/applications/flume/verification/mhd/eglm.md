@@ -33,7 +33,7 @@ through the `--divergence-control eglm` option of the glm-pulse, Orszag–Tang a
 | Space, splitting | WENO5 flux splitting on characteristic variables | `mhd_eglm_face_split_fluxes`, [`adam_flume_mhd_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_mhd_library.F90) |
 | Space, `weno-riemann` | HLLD, characteristic interpolation (and primitive on the blast) | `mhd_eglm_riemann_hlld`, [`adam_flume_mhd_riemann_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_mhd_riemann_library.F90) |
 | Sources and damping | the nonconservative sources above; the damped cleaning energy becomes heat | `add_eglm_sources`, `add_glm_damping`, [`adam_flume_cpu_mhd_eglm_kernels.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_mhd_eglm_kernels.F90) |
-| Time, boundaries | as in each verification (SSP-33 for the pulse and Ryu–Jones 2a, SSP-54 for Orszag–Tang, the waves and the blast) | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time, boundaries | as in each verification (SSP-33 for the pulse and Ryu–Jones 2a, SSP-54 for Orszag–Tang, the waves and the blast) | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | FNL backend | the same kernels on the device | [`adam_flume_fnl_mhd_eglm_kernels.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_mhd_eglm_kernels.F90), [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90) |
 
 ## Initial and boundary conditions

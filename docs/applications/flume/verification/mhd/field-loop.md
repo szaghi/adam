@@ -30,7 +30,7 @@ What the case catches:
 | Equations | ideal MHD, $\gamma = 5/3$ | [models](../../models#ideal-mhd) |
 | Space | WENO5 flux splitting on characteristic variables; `weno-riemann` under `--numerics` | `mhd_glm_face_split_fluxes`, `mhd_eigenvectors_core`, [`adam_flume_mhd_library.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/common/adam_flume_mhd_library.F90); [numerics](../../numerics#scheme-space-weno-flux-splitting) |
 | Divergence control | GLM, $c_h = 4$ (`glm_ch_check = error`), `glm_alpha = 0.18`, `glm_damping_length = 1.0` | [models](../../models#divergence-control-mixed-glm) |
-| Time | SSP Runge–Kutta, 5 stages (`runge-kutta-ssp-54`), CFL 0.4 | [`adam_rk_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_rk_object.F90) |
+| Time | SSP Runge–Kutta, 5 stages (`runge-kutta-ssp-54`), CFL 0.4 | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | AMR (`--amr`) | `primitive-box` marker at initialisation; 2:1 restriction, tricubic ghost fill, reflux; seam div(B) column of the history | `interp_seam_ghost`, [`adam_field_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_field_object.F90); `compute_divb_history`, [`adam_flume_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/cpu/adam_flume_cpu_object.F90) |
 | Boundaries | periodic | [boundary conditions](../../boundary-conditions#periodic) |
 | FNL backend | the same kernels on the device | [`adam_flume_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/flume/fnl/adam_flume_fnl_object.F90) |
