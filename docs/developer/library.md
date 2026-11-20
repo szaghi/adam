@@ -258,8 +258,11 @@ The `[runge_kutta] scheme` names (`adam_stepper_object` constants). ADAM's own i
 `adam_fnl_rk_object` and its kernels, the NVF and GMP twins, PRISM's boundary clone) were deleted in phase 6 of
 [#132](https://github.com/szaghi/adam/issues/132): every application integrates with SELAH, and
 `scripts/check_time_separation.py` (CI) keeps a Runge–Kutta combination from being written again in `src/app` or
-`src/lib`. PRISM's PIC particles and PML auxiliary fields advance in step with the field stepper on its SELAH tableau
-(the check waives those four files by name).
+`src/lib`: a time step times a stage coefficient or a stage-indexed element, a literal fraction or multiple of the
+time step, a direct read of the stepper's tableau, a literal SSP-RK3/RK4 stage. What remains is waived statement by
+statement, each with the issue that removes it ([#134](https://github.com/szaghi/adam/issues/134)): PRISM's PIC particles,
+PML auxiliary fields and charge-conserving current ([SELAH#4](https://github.com/szaghi/SELAH/issues/4)), FLUME's sink
+kick and positivity limiter ([SELAH#5](https://github.com/szaghi/SELAH/issues/5)), PRISM's t0 centring drift (kept).
 
 | Constant | Scheme | Stages | Order |
 |----------|--------|--------|-------|
