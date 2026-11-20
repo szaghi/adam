@@ -21,12 +21,15 @@ program test_stepper_object
 !<   4. Writing garbage into the scratch registers between two steps leaves the second step bitwise unchanged
 !<      (#132 rule 3).
 !<   5. The stage weights and stage times are the tableau's b and c.
+!<   6. The FNL layout (b, i, j, k, v), `layout=LAYOUT_V_LAST`: the same step on the transposed field and mask gives the
+!<      transposed result bitwise, masked cells of the stage states and cells outside the box included.
 !< The refusal of an unknown scheme (`mpih%error_stop`) is checked by test_stepper_object_xfail.
 use adam_field_object,   only : field_object
 use adam_grid_object,    only : grid_object
 use adam_mpih_global,    only : mpih
 use adam_stepper_object, only : stepper_object, stepper_map, stepper_stored_fields, &
-                                RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54, RK_YOSHIDA
+                                RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54, RK_YOSHIDA, &
+                                LAYOUT_V_LAST
 use selah,               only : butcher, butcher_tableau, registers_needed, FORM_BUTCHER, FORM_SHU_OSHER_2R,        &
                                 FORM_SPLITTING, SCHEME_EULER, SCHEME_SSP_22, SCHEME_SSP_33, SCHEME_SSP_54,          &
                                 SCHEME_YOSHIDA_4
@@ -65,6 +68,8 @@ call check(stepper_stored_fields('runge-kutta-4') == -1, 'unknown scheme: -1 sto
 do m=1, 7
    call one_step(scheme=NAMES(m), tableau=butcher(trim(SELAH(m))), masked=.false.)
    call one_step(scheme=NAMES(m), tableau=butcher(trim(SELAH(m))), masked=.true.)
+   call check_v_last(scheme=NAMES(m), masked=.false.)
+   call check_v_last(scheme=NAMES(m), masked=.true.)
 enddo
 if (failures > 0) then
    print '(A,I0,A)', 'test_stepper_object: ', failures, ' check(s) FAILED'
@@ -165,6 +170,89 @@ contains
    call check(all(q == q2), label//': scratch registers written between steps, next step bitwise unchanged')
    call ts%destroy
    endsubroutine one_step
+
+   subroutine check_v_last(scheme, masked)
+   !< Two steps in the layout (b, i, j, k, v) against the same two steps in (v, i, j, k, b): bitwise, every cell.
+   character(*), intent(in) :: scheme  !< ADAM scheme.
+   logical,      intent(in) :: masked  !< Half the cells solid.
+   type(field_object)       :: field   !< Field.
+   type(grid_object)        :: grid    !< Grid.
+   type(stepper_object)     :: ts, tt  !< Steppers, (v,...,b) and (b,...,v).
+   real(R8P), allocatable   :: q(:,:,:,:,:), dq(:,:,:,:,:), phi(:,:,:,:,:)    !< Layout (v, i, j, k, b).
+   real(R8P), allocatable   :: qt(:,:,:,:,:), dqt(:,:,:,:,:), phit(:,:,:,:,:) !< Layout (b, i, j, k, v).
+   integer(I4P)             :: n, nm, v, i, jj, kk, b, s  !< Misses, counters.
+
+   field%nv = NV ; field%nb = NB ; field%blocks_number = BN
+   grid%ni = NI ; grid%nj = NJ ; grid%nk = NK ; grid%ngc = NGC
+   allocate(q(1:NV,1-NGC:NI+NGC,1-NGC:NJ+NGC,1-NGC:NK+NGC,1:NB), phi(1:2,1-NGC:NI+NGC,1-NGC:NJ+NGC,1-NGC:NK+NGC,1:NB))
+   allocate(qt(1:NB,1-NGC:NI+NGC,1-NGC:NJ+NGC,1-NGC:NK+NGC,1:NV), phit(1:NB,1-NGC:NI+NGC,1-NGC:NJ+NGC,1-NGC:NK+NGC,1:2))
+   do b=1, NB ; do kk=1-NGC, NK+NGC ; do jj=1-NGC, NJ+NGC ; do i=1-NGC, NI+NGC
+      do v=1, NV
+         q(v,i,jj,kk,b) = 1._R8P + 0.01_R8P * v + 0.1_R8P * i - 0.05_R8P * jj + 0.02_R8P * kk + 0.3_R8P * b
+         qt(b,i,jj,kk,v) = q(v,i,jj,kk,b)
+      enddo
+      phi(:,i,jj,kk,b) = merge(1._R8P, -1._R8P, masked .and. mod(i + jj + kk, 2) == 0)
+      phit(b,i,jj,kk,:) = phi(:,i,jj,kk,b)
+   enddo ; enddo ; enddo ; enddo
+   dq = q ; dqt = qt
+   call ts%initialize(field=field, grid=grid, scheme=scheme)
+   call tt%initialize(field=field, grid=grid, scheme=scheme, layout=LAYOUT_V_LAST)
+   do s=1, 2
+      call take_step(ts, field, q, dq, phi, masked, nm)
+      call take_step_v_last(tt, field, qt, dqt, phit, masked)
+   enddo
+   n = 0
+   do b=1, NB ; do kk=1-NGC, NK+NGC ; do jj=1-NGC, NJ+NGC ; do i=1-NGC, NI+NGC ; do v=1, NV
+      if (qt(b,i,jj,kk,v) /= q(v,i,jj,kk,b)) n = n + 1
+      if (ts%is_butcher() .and. dqt(b,i,jj,kk,v) /= dq(v,i,jj,kk,b)) n = n + 1
+   enddo ; enddo ; enddo ; enddo ; enddo
+   call check(n == 0, trim(scheme)//merge(' masked  ', ' unmasked', masked)//': layout (b,i,j,k,v) bitwise the '// &
+              '(v,i,j,k,b) result, two steps (cells differing '//trim(is(n))//')')
+   call ts%destroy
+   call tt%destroy
+   endsubroutine check_v_last
+
+   subroutine take_step_v_last(ts, field, q, dq, phi, masked)
+   !< take_step in the layout (b, i, j, k, v).
+   type(stepper_object), intent(inout) :: ts                                      !< Stepper.
+   type(field_object),   intent(in)    :: field                                   !< Field.
+   real(R8P), target,    intent(inout) :: q(1:,1-NGC:,1-NGC:,1-NGC:,1:)           !< State.
+   real(R8P),            intent(inout) :: dq(1:,1-NGC:,1-NGC:,1-NGC:,1:)          !< Step residual.
+   real(R8P),            intent(in)    :: phi(1:,1-NGC:,1-NGC:,1-NGC:,1:)         !< IB distance.
+   logical,              intent(in)    :: masked                                  !< Pass the mask.
+   real(R8P), pointer                  :: u(:,:,:,:,:), r(:,:,:,:,:)              !< Stage state, residual.
+   integer(I4P)                        :: s                                       !< Counter.
+
+   if (masked) then
+      call ts%begin_step(field=field, q=q, phi=phi)
+   else
+      call ts%begin_step(field=field, q=q)
+   endif
+   do s=1, ts%stages()
+      if (masked) then
+         call ts%begin_stage(k=s, field=field, dt=DT, q=q, phi=phi)
+      else
+         call ts%begin_stage(k=s, field=field, dt=DT, q=q)
+      endif
+      if (ts%state_is_q(s)) then
+         u(1:,1-NGC:,1-NGC:,1-NGC:,1:) => q
+      else
+         u => ts%stage_state()
+      endif
+      r => ts%rhs_register()
+      r(1:BN,1:NI,1:NJ,1:NK,:) = -u(1:BN,1:NI,1:NJ,1:NK,:)
+      if (masked) then
+         call ts%end_stage(k=s, field=field, dt=DT, q=q, phi=phi)
+      else
+         call ts%end_stage(k=s, field=field, dt=DT, q=q)
+      endif
+   enddo
+   if (masked) then
+      call ts%finish_step(field=field, dt=DT, q=q, dq=dq, phi=phi)
+   else
+      call ts%finish_step(field=field, dt=DT, q=q, dq=dq)
+   endif
+   endsubroutine take_step_v_last
 
    subroutine take_step(ts, field, q, dq, phi, masked, nmask)
    !< One step of y' = -y through the adapter, the residual written into SELAH's register.

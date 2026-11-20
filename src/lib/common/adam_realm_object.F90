@@ -49,7 +49,7 @@ use :: adam_leapfrog_object
 use :: adam_maps_object
 use :: adam_parameters
 use :: adam_rk_object
-use :: adam_stepper_object, only : stepper_object
+use :: adam_stepper_object, only : stepper_object, LAYOUT_V_FIRST
 use :: adam_riemann_euler_library
 use :: adam_slices_object
 use :: adam_tree_node_object
@@ -92,6 +92,8 @@ type :: realm_object
    type(stepper_object)    :: ts         !< Time integrator on SELAH (stepper_object, #132), with `with_selah`.
    logical                 :: with_selah=.false. !< Integrate with `ts` instead of `rk` (the app sets it, #132): `rk`
                                                  !< then holds the scheme name only, its stages are not allocated.
+   integer(I4P)            :: selah_layout=LAYOUT_V_FIRST !< Layout of the fields `ts` integrates (the FNL apps set
+                                                          !< LAYOUT_V_LAST, their (b, i, j, k, v) device fields).
    type(adam_object)       :: adam       !< ADAM, grid + tree + field + maps orchestrator.
    ! FDV data
    character(:), allocatable :: fdv_scheme                   !< FDV scheme, fd/fv.
@@ -381,7 +383,8 @@ contains
       ! call self%cfm%initialize(file_parameters=file_parameters)
       ! call self%leapfrog%initialize(file_parameters=file_parameters)
       if (self%with_selah) then
-         call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
+         call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
+                                 layout=self%selah_layout)
          self%rk%scheme = self%ts%scheme ! the scheme name the forest's coupling descriptor reads
       else
          call self%rk%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)

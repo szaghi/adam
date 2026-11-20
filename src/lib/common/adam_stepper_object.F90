@@ -1,4 +1,7 @@
 !< ADAM, the time integrator adapter: ADAM's `[runge_kutta]` schemes on a SELAH stepper (SELAH M7, issue #132).
+
+#include "fundal.H"
+
 module adam_stepper_object
 !< ADAM, the time integrator adapter: ADAM's `[runge_kutta]` schemes on a SELAH stepper (SELAH M7, issue #132).
 !<
@@ -7,13 +10,16 @@ module adam_stepper_object
 !<
 !< - the input: `[runge_kutta] scheme`, read as `rk_object` reads it (no other key), and the mapping of ADAM's scheme
 !<   names onto a SELAH scheme and storage form (`stepper_map`);
-!< - the field: ADAM's `q(nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nb)`, the box of each call built from the active
-!<   blocks (`field%blocks_number`, never stored: it changes at every regrid);
+!< - the field: ADAM's `q(nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nb)` (`LAYOUT_V_FIRST`, the CPU backends) or
+!<   `q_gpu(nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nv)` (`LAYOUT_V_LAST`, the FNL backends), the box of each call
+!<   built from the active blocks (`field%blocks_number`, never stored: it changes at every regrid);
 !< - the immersed boundary: `ib%phi` is SELAH's mask (a cell is active where the last component, the all-solids
 !<   distance, is negative, as in `rk_object`);
-!< - the registers: allocated here and passed to SELAH (`registers=`), zeroed block by block the first time a block is
-!<   active (issue #45: zeroing the whole fill-the-node pool at allocation would commit all of it), and reachable
-!<   between steps as scratch (`scratch(n)`, the D_flux diagnostic and the equilibrium residual, #132 rule 3).
+!< - the registers: allocated here through FUNDAL (device memory in a device build) and passed to SELAH (`registers=`);
+!<   on the host zeroed block by block the first time a block is active (issue #45: zeroing the whole fill-the-node
+!<   pool at allocation would commit all of it), on the device zeroed at allocation (as the FNL stage buffers always
+!<   were); reachable between steps as scratch (`scratch(n)`, the D_flux diagnostic and the equilibrium residual, #132
+!<   rule 3).
 !<
 !< **The scheme mapping** (#132): `runge-kutta-1/2/3` are the two-register Shu-Osher forms of Euler, SSP-22 and SSP-33
 !< (ADAM's low-storage coefficients are these, bitwise); `runge-kutta-ssp-11/22/33/54` are the Butcher forms of Euler,
@@ -27,13 +33,16 @@ module adam_stepper_object
 !< stage as a copy of `q`, as every stage buffer of `rk_object` does: the immersed-boundary extrapolation of the
 !< residual starts from them.
 !<
-!< This first version runs on the host (the CPU backend); the device build (FNL) is phase 3 of #132.
+!< The same source serves the CPU backends (host build) and the FNL backends (OpenACC build, `-DDEV_OAC`): the arrays
+!< passed (`q`, `phi`, `dq`) are host arrays in the first, device arrays (FUNDAL pointers) in the second, and the
+!< adapter's own loop (the masked stage-state copy) is a FUNDAL kernel (`fundal.H`), as SELAH's are.
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
 use :: adam_ini_library,  only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 use :: fundal,            only : dev_alloc, dev_free
-use :: selah,             only : stepper, box, box_range, registers_needed, R_P,                                      &
+use :: selah,             only : stepper, box, box_interior, registers_needed, R_P, LAYOUT_V_FIRST, LAYOUT_V_LAST,  &
+                                 selah_copy,                                                                          &
                                  FORM_BUTCHER, FORM_SHU_OSHER_2R, FORM_SPLITTING,                                     &
                                  SCHEME_EULER, SCHEME_SSP_22, SCHEME_SSP_33, SCHEME_SSP_54, SCHEME_YOSHIDA_4
 ! third party modules
@@ -45,6 +54,8 @@ private
 public :: stepper_object
 public :: stepper_map
 public :: stepper_stored_fields
+public :: LAYOUT_V_FIRST
+public :: LAYOUT_V_LAST
 public :: RK_1
 public :: RK_2
 public :: RK_3
@@ -78,6 +89,7 @@ type :: stepper_object
    integer(I4P)                       :: ni=0_I4P, nj=0_I4P, nk=0_I4P !< Cells per block, per direction.
    integer(I4P)                       :: ngc=0_I4P                    !< Ghost cells.
    integer(I4P)                       :: nb=0_I4P                     !< Block slots of the pool.
+   integer(I4P)                       :: layout=LAYOUT_V_FIRST        !< Field layout: (v, i, j, k, b) or (b, i, j, k, v).
    contains
       ! public methods
       procedure, pass(self) :: begin_step      !< Open a step.
@@ -91,6 +103,7 @@ type :: stepper_object
       procedure, pass(self) :: load_from_file  !< Load config from file.
       procedure, pass(self) :: rhs_register    !< Residual register of the active stage.
       procedure, pass(self) :: scratch         !< A register as scratch, between steps.
+      procedure, pass(self) :: set_rhs         !< Copy a residual into the residual register of the active stage.
       procedure, pass(self) :: stage_state     !< State register of the active stage (null when it is q).
       procedure, pass(self) :: stage_time      !< Fraction of the step at which stage k is evaluated.
       procedure, pass(self) :: stage_weight    !< Effective Butcher weight of stage k.
@@ -143,8 +156,13 @@ contains
    real(R8P),             intent(in)           :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< State.
    real(R8P),             intent(in), optional :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< IB distance.
 
+   ! the host registers are zeroed block by block (issue #45); the device ones at allocation (blocks_zeroed = nb)
    if (field%blocks_number > self%blocks_zeroed) then
-      self%regs(:,:,:,:,self%blocks_zeroed+1:field%blocks_number,:) = 0._R8P
+      if (self%layout == LAYOUT_V_FIRST) then
+         self%regs(:,:,:,:,self%blocks_zeroed+1:field%blocks_number,:) = 0._R8P
+      else
+         self%regs(self%blocks_zeroed+1:field%blocks_number,:,:,:,:,:) = 0._R8P
+      endif
       self%blocks_zeroed = field%blocks_number
    endif
    call self%st%begin_step(self%interior_box(field), q, mask=phi)
@@ -159,25 +177,18 @@ contains
    real(R8P),             intent(in)           :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< State.
    real(R8P),             intent(in), optional :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< IB distance.
    real(R8P), pointer                          :: u(:,:,:,:,:) !< Stage state.
-   integer(I4P)                                :: mc           !< Mask component (all solids).
-   integer(I4P)                                :: b, i, j, kk  !< Counters.
 
    call self%st%begin_stage(k, self%interior_box(field), dt, q, mask=phi)
    if (.not.present(phi)) return
    if (self%st%stage_state_is_q(k)) return
    u => self%st%stage_state()
-   mc = ubound(phi, dim=1)
-   !$omp parallel do collapse(4) default(none) shared(field, self, q, phi, u, mc) private(b, kk, j, i)
-   do b=1, field%blocks_number
-      do kk=1, self%nk
-         do j=1, self%nj
-            do i=1, self%ni
-               if (phi(mc,i,j,kk,b) >= 0._R8P) u(:,i,j,kk,b) = q(:,i,j,kk,b)
-            enddo
-         enddo
-      enddo
-   enddo
-   !$omp end parallel do
+   if (self%layout == LAYOUT_V_FIRST) then
+      call masked_copy_v_first(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
+                               blocks_number=field%blocks_number, phi=phi, q=q, u=u)
+   else
+      call masked_copy_v_last(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
+                              blocks_number=field%blocks_number, phi=phi, q=q, u=u)
+   endif
    endsubroutine begin_stage
 
    pure function description(self) result(desc)
@@ -239,7 +250,7 @@ contains
    endif
    endsubroutine finish_step
 
-   subroutine initialize(self, field, grid, file_parameters, scheme, partitions)
+   subroutine initialize(self, field, grid, file_parameters, scheme, partitions, layout)
    !< Initialize the stepper of `[runge_kutta] scheme` (or of `scheme`) and its registers, the field's pool shape.
    class(stepper_object), intent(inout)        :: self            !< Stepper.
    type(field_object),    intent(in)           :: field           !< Field (sibling realm component, threaded in).
@@ -247,7 +258,9 @@ contains
    type(file_ini),        intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
    character(*),          intent(in), optional :: scheme          !< Runge-Kutta scheme.
    integer(I4P),          intent(in), optional :: partitions(2,2) !< Splitting: the variables of its two partitions.
+   integer(I4P),          intent(in), optional :: layout          !< Field layout (default LAYOUT_V_FIRST).
    integer(I4P)                                :: ierr            !< Error status.
+   integer(I4P)                                :: lb(5), ub(5)    !< Bounds of the field.
 
    call mpih%print_message('stepper_object%initialize start')
    call self%destroy
@@ -266,19 +279,27 @@ contains
                                'variables of its two partitions')
    self%nv = field%nv ; self%nb = field%nb
    self%ni = grid%ni ; self%nj = grid%nj ; self%nk = grid%nk ; self%ngc = grid%ngc
+   self%layout = LAYOUT_V_FIRST ; if (present(layout)) self%layout = layout
    self%nregs = registers_needed(self%selah_scheme, self%form)
-   ! not zeroed here: begin_step zeroes each block slot the first time it is active (issue #45)
-   call dev_alloc(fptr_dev=self%regs,                                                                                &
-                  lbounds=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P, 1_I4P],                  &
-                  ubounds=[self%nv, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nb, self%nregs], &
-                  ierr=ierr)
+   lb = [1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P]
+   if (self%layout == LAYOUT_V_FIRST) then
+      ub = [self%nv, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nb]
+   else
+      ub = [self%nb, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nv]
+   endif
+#if defined DEV_OAC || defined DEV_OMP
+   ! device memory: zeroed once at allocation, as the FNL stage buffers always were
+   call dev_alloc(fptr_dev=self%regs, lbounds=[lb, 1_I4P], ubounds=[ub, self%nregs], init_value=0._R8P, ierr=ierr)
+   self%blocks_zeroed = self%nb
+#else
+   ! host memory, not zeroed here: begin_step zeroes each block slot the first time it is active (issue #45)
+   call dev_alloc(fptr_dev=self%regs, lbounds=[lb, 1_I4P], ubounds=[ub, self%nregs], ierr=ierr)
+   self%blocks_zeroed = 0_I4P
+#endif
    if (ierr /= 0) call mpih%error_stop(msg=': stepper_object%initialize: the '//trim(str(self%nregs, .true.))// &
                                            ' registers could not be allocated')
-   self%blocks_zeroed = 0_I4P
-   call self%st%initialize(scheme=self%selah_scheme, form=self%form,                                       &
-                           lb=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P],             &
-                           ub=[self%nv, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nb], &
-                           partitions=partitions, registers=self%regs, stages_on_q=.false.)
+   call self%st%initialize(scheme=self%selah_scheme, form=self%form, lb=lb, ub=ub, partitions=partitions, &
+                           registers=self%regs, stages_on_q=.false.)
    print '(A)', self%description()
    call mpih%print_message('stepper_object%initialize finish')
    endsubroutine initialize
@@ -327,6 +348,19 @@ contains
                                trim(str(self%nregs, .true.)))
    r(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) => self%regs(:,:,:,:,:,n)
    endfunction scratch
+
+   subroutine set_rhs(self, field, dq)
+   !< Copy the residual `dq` into the residual register of the active stage, the interior cells of the active blocks
+   !< (SELAH's copy kernel: on the device in a device build). For a caller that evaluates the residual into its own
+   !< array (the residual log reads it, a correction acts on it) before the stage update reads the register.
+   class(stepper_object), intent(in) :: self    !< Stepper.
+   type(field_object),    intent(in) :: field   !< Field (sibling realm component, threaded in).
+   real(R8P),             intent(in) :: dq(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Residual.
+   real(R8P), pointer                :: r(:,:,:,:,:) !< Residual register.
+
+   r => self%rhs_register()
+   call selah_copy(self%interior_box(field), dq, r)
+   endsubroutine set_rhs
 
    function stage_state(self) result(u)
    !< Return the state register of the active stage, with the field's bounds; null when the stage's state is q itself.
@@ -378,8 +412,57 @@ contains
    type(field_object),    intent(in) :: field !< Field.
    type(box)                         :: bx    !< Box.
 
-   bx = box_range(lb=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P],       &
-                  lo=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P],                                  &
-                  hi=[self%nv, self%ni, self%nj, self%nk, field%blocks_number], components=.true.)
+   bx = box_interior(self%layout, self%nv, self%ni, self%nj, self%nk, self%ngc, field%blocks_number)
    endfunction interior_box
+
+   ! private procedures
+   subroutine masked_copy_v_first(ni, nj, nk, ngc, nv, blocks_number, phi, q, u)
+   !< Copy `q` into the masked (solid) interior cells of the stage state `u`, layout (v, i, j, k, b): the cells SELAH
+   !< leaves untouched start the stage as `q`, as every `rk_object` stage did (the residual's immersed-boundary
+   !< extrapolation starts from them). The mask component is the last one, the all-solids distance.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, nv, blocks_number     !< Dimensions, active blocks.
+   real(R8P),    intent(in)    :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:)        !< IB distance.
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< State.
+   real(R8P),    intent(inout) :: u(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< Stage state.
+   integer(I4P)                :: mc, b, i, j, k, v                      !< Mask component, counters.
+
+   mc = ubound(phi, dim=1)
+   !$acc parallel loop independent collapse(5) DEVICEVAR(phi, q, u)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(phi, q, u)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               do v=1, nv
+                  if (phi(mc,i,j,k,b) >= 0._R8P) u(v,i,j,k,b) = q(v,i,j,k,b)
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine masked_copy_v_first
+
+   subroutine masked_copy_v_last(ni, nj, nk, ngc, nv, blocks_number, phi, q, u)
+   !< `masked_copy_v_first` for the layout (b, i, j, k, v) of the FNL backends.
+   integer(I4P), intent(in)    :: ni, nj, nk, ngc, nv, blocks_number     !< Dimensions, active blocks.
+   real(R8P),    intent(in)    :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:)        !< IB distance.
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< State.
+   real(R8P),    intent(inout) :: u(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< Stage state.
+   integer(I4P)                :: mc, b, i, j, k, v                      !< Mask component, counters.
+
+   mc = ubound(phi, dim=5)
+   !$acc parallel loop independent collapse(5) DEVICEVAR(phi, q, u)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(phi, q, u)
+   do v=1, nv
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               do b=1, blocks_number
+                  if (phi(b,i,j,k,mc) >= 0._R8P) u(b,i,j,k,v) = q(b,i,j,k,v)
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine masked_copy_v_last
 endmodule adam_stepper_object
