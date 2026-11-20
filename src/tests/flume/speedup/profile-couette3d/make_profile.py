@@ -85,8 +85,8 @@ def profile_ini(size: str, steps: int, frequency: int, uniform: bool = False, sc
         f"emin_x = {xmin!r}", "emin_y = 0.0", "emin_z = 0.0", f"emax_x = {xmax!r}", "emax_y = 1.0", "emax_z = 1.0",
         "null_x = .false.", "null_y = .false.", "null_z = .false.",
         "", "[amr]", f"max_level      = {base if uniform else base + 1}", "ratio          = 8",
-        f"iu_ref_levels  = {base}", "i_prune        = 0", "j_prune        = 0", "k_prune        = 0",
-        "l_prune        = -1", f"frequency      = {0 if uniform else frequency}", "iters          = 1",
+        f"iu_ref_levels  = {base}", "l_prune        = -1", f"frequency      = {0 if uniform else frequency}",
+        "iters          = 1",
         f"markers_number = {0 if uniform else 2}",
     ]
     for n, (lo, hi) in enumerate(() if uniform else ((-1.0e30, layer), (1.0 - layer, 1.0e30)), start=1):
@@ -99,7 +99,7 @@ def profile_ini(size: str, steps: int, frequency: int, uniform: bool = False, sc
     lines += [
         "", "[runge_kutta]", "scheme = runge-kutta-ssp-54",
         "", "[weno]", f"scheme              = {scheme}",
-        "", "[solids]", "number    = 0", "n_eikonal = 0",
+        "", "[solids]", "number    = 0",
         "", "[slices]", "slices_number = 0",
         "", "[physics]", "physical_model = euler", "gamma          = 1.4", "viscosity      = 0.01", "prandtl        = 0.75",
         "", "[numerics]", "scheme_space             = weno", "reconstruction_variables = characteristic",
