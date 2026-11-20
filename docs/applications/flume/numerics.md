@@ -447,13 +447,14 @@ digital-filter inflow, the mass-flow forcing and the turbulence diagnostics are 
 ## Time integration
 
 The library Runge–Kutta schemes (`[runge_kutta] scheme`, listed in the [input reference](./input)) integrate the
-semi-discrete system: strong-stability-preserving (SSP) and low-storage schemes. On the CPU backend the integrator is
+semi-discrete system: strong-stability-preserving (SSP) and low-storage schemes. On both backends the integrator is
 [SELAH](https://github.com/szaghi/SELAH)'s, through the library adapter `adam_stepper_object`
-([#132](https://github.com/szaghi/adam/issues/132); the FNL backend still runs `adam_rk_object` and its device twin
-until phase 3 of #132): the low-storage `runge-kutta-1/2/3` are SELAH's two-register Shu–Osher forms of Euler, SSP(2,2)
+([#132](https://github.com/szaghi/adam/issues/132); the FNL backend runs SELAH's OpenACC build on the device fields):
+the low-storage `runge-kutta-1/2/3` are SELAH's two-register Shu–Osher forms of Euler, SSP(2,2)
 and SSP(3,3), every stage on the solution itself, and the `runge-kutta-ssp-*` schemes its Butcher forms, every stage on
 its own state register. The coefficients are ADAM's, bit for bit. SELAH sums the stages of the Butcher update in the FNL
-order (`q + dt sum_s b_s R_s`), so the CPU SSP runs moved at round-off from the former stage-by-stage sum, and with
+order (`q + dt sum_s b_s R_s`), so the CPU SSP runs moved at round-off from the former stage-by-stage sum (the FNL runs are bitwise the former ones,
+whose kernels summed in that order), and with
 immersed solids the step residual is 0 in the solid cells ([#128](https://github.com/szaghi/adam/issues/128) D4).
 Each stage refills the ghost cells,
 recomputes the auxiliary variables, applies the positivity floors (MHD) and evaluates the residual. The time step follows

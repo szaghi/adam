@@ -21,7 +21,7 @@ use :: adam_ini_library,          only : ini_check, ini_get, ini_stop
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_PERIODIC, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,         only : realm_object, realm_pointer
-use :: adam_rk_object,            only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
+use :: adam_stepper_object,       only : stepper_stored_fields, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 use :: adam_time_object,          only : time_object
 use :: adam_weno_object,          only : WENO_WEIGHTS_JS
 ! ADAM singleton objects
@@ -79,12 +79,14 @@ contains
    integer(I4P)                               :: stages        !< Runge-Kutta stage fields.
 
    call self%io%initialize(filename=trim(filename), verbose=.true.)
-   ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the stored stages; the
-   ! scheme is read by the library parser of rk, before rk%initialize
+   ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the time integrator's
+   ! registers (SELAH's, the residual register included, #132); the scheme is read by the library parser, before the
+   ! realm builds the integrator
    call self%rk%load_from_file(file_parameters=self%io%file_parameters)
-   stages = rk_stored_stages_number(scheme=self%rk%scheme)
+   stages = stepper_stored_fields(scheme=self%rk%scheme)
    if (stages < 0_I4P) call ini_stop(msg='unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
    self%with_fdv = .false. ! RIPPLE uses no FD/FV operator: [fdv] is not read (#80 P5)
+   self%with_selah = .true. ! the time integrator is SELAH's (stepper_object, #132); the FNL backend sets the layout
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=1_I4P, &
                                      fields_number=5_I4P + stages, verbose=.true.)
    ! every face periodic; the tree and the maps were built before the faces were known: rebuild them (issue #103)
@@ -119,7 +121,7 @@ contains
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
    case default
       call mpih%error_stop(msg=': [runge_kutta].(scheme) must be an SSP scheme (runge-kutta-ssp-11/22/33/54): the '// &
-                               'step combines the stages with the SSP alpha/beta tableau')
+                               'step is the Butcher form of an SSP tableau')
    endselect
    if (self%weno%is_centered) call mpih%error_stop(msg=': [weno].(scheme) must be upwind (weno-u-*): the split '// &
                                                        'fluxes a+ u and a- u are upwinded')
@@ -418,9 +420,9 @@ contains
    class(ripple_common_object), intent(in) :: self !< The realm.
    integer(I4P)                            :: K    !< Stages per step.
 
-   select case(self%rk%scheme)
+   select case(self%ts%scheme)
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
-      K = self%rk%nrk
+      K = self%ts%stages()
    case default
       K = 0_I4P
       call mpih%error_stop(msg=': the staged path (2:1 AMR faces) needs an SSP Runge-Kutta scheme')

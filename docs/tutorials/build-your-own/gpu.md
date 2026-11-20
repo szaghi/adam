@@ -24,7 +24,6 @@ CPU driver's)
 type, extends(ripple_common_object) :: ripple_fnl_object
    !< RIPPLE FNL realm.
    type(field_fnl_object) :: field_fnl                !< Field helper: coordinates, maps, ghost exchange.
-   type(rk_fnl_object)    :: rk_fnl                   !< Runge-Kutta helper: the stages on the device.
    type(weno_fnl_object)  :: weno_fnl                 !< WENO helper: the coefficients on the device.
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null() !< State [nb, 1-ngc:ni+ngc, ..., 1].
    real(R8P), pointer     :: dq_gpu(:,:,:,:,:)=>null()  !< Residuals, same shape.
@@ -34,14 +33,16 @@ type, extends(ripple_common_object) :: ripple_fnl_object
    real(R8P), pointer     :: face_gpu(:,:)=>null()      !< One face's skin or reflux mismatch [1, largest face].
    real(R8P), allocatable :: face(:,:)                  !< Its host copy, the same extent.
    contains
-      ! ... the type-bound procedures (lines 50-68 of the source)
+      ! ... the type-bound procedures (lines 49-69 of the source)
 endtype ripple_fnl_object
 ```
 
 Three things change from the CPU realm:
-- **The library's FNL helpers.** `field_fnl`, `rk_fnl` and `weno_fnl` are the device side of the library objects the
-  common realm already owns: the ghost exchange (GPU-direct MPI), the Runge–Kutta stages, the WENO coefficients. They
-  are components of the realm, initialized from the common objects by argument.
+- **The library's FNL helpers.** `field_fnl` and `weno_fnl` are the device side of the library objects the common
+  realm already owns: the ghost exchange (GPU-direct MPI), the WENO coefficients. They are components of the realm,
+  initialized from the common objects by argument. The time integrator needs no helper: the realm's stepper (`ts`,
+  SELAH's OpenACC build) keeps its registers on the device when the backend sets `selah_layout = LAYOUT_V_LAST` before
+  the realm initializes (below), and takes the device arrays (`q_gpu`, `dq_gpu`) as the CPU realm's take host arrays.
 - **The layout is transposed**, `(b, i, j, k, v)` against the host `(v, i, j, k, b)`: the block index is stride-1, so
   it is the innermost loop of every kernel and adjacent threads touch adjacent memory.
 - **Device arrays are FUNDAL pointers**, allocated by `dev_alloc`, each call checked:
@@ -68,11 +69,12 @@ hooks, the device setup before the state and the device push after it:
    character(*),             intent(in)           :: filename      !< Input file name.
    integer(I4P),             intent(in), optional :: realms_number !< Unused: RIPPLE is single-realm.
 
-   ! the blocks budget is the device memory, shared by the ranks bound to the same device
+   ! the blocks budget is the device memory, shared by the ranks bound to the same device; the time integrator (SELAH,
+   ! #132) integrates the (b, i, j, k, v) device fields
+   self%selah_layout = LAYOUT_V_LAST
    call self%initialize_ripple(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / &
                                                                real(mpih_fnl_device_sharers, R8P))
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
-   call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
    endsubroutine initialize_app_forest

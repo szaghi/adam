@@ -26,8 +26,8 @@ layer; [chapter 3](./amr) adds the staged one; RIPPLE has no seams layer (see [c
 
 | File | Lines | Content |
 |---|---|---|
-| `common/adam_ripple_common_object.F90` | 447 | the realm: state, input, initial condition, AMR, outputs, the backend-independent procedures |
-| `cpu/adam_ripple_cpu_object.F90` | 264 | the CPU realm: residuals, Runge–Kutta, flux register, reflux |
+| `common/adam_ripple_common_object.F90` | 450 | the realm: state, input, initial condition, AMR, outputs, the backend-independent procedures |
+| `cpu/adam_ripple_cpu_object.F90` | 272 | the CPU realm: residuals, Runge–Kutta, flux register, reflux |
 | `cpu/adam_ripple_cpu.F90` | 16 | the driver |
 | `fnl/adam_ripple_fnl_object.F90`, `fnl/adam_ripple_fnl_kernels.F90`, `fnl/adam_ripple_fnl.F90` | | the GPU twin ([chapter 4](./gpu)) |
 
@@ -90,11 +90,14 @@ keys, calls `check_input`, allocates `q` and `dq` and refines uniformly:
 
 ```fortran
    call self%io%initialize(filename=trim(filename), verbose=.true.)
-   ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the stored stages; the
-   ! scheme is read by the library parser of rk, before rk%initialize
+   ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the time integrator's
+   ! registers (SELAH's, the residual register included, #132); the scheme is read by the library parser, before the
+   ! realm builds the integrator
    call self%rk%load_from_file(file_parameters=self%io%file_parameters)
-   stages = rk_stored_stages_number(scheme=self%rk%scheme)
+   stages = stepper_stored_fields(scheme=self%rk%scheme)
    if (stages < 0_I4P) call ini_stop(msg='unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
+   self%with_fdv = .false. ! RIPPLE uses no FD/FV operator: [fdv] is not read (#80 P5)
+   self%with_selah = .true. ! the time integrator is SELAH's (stepper_object, #132); the FNL backend sets the layout
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=1_I4P, &
                                      fields_number=5_I4P + stages, verbose=.true.)
    ! every face periodic; the tree and the maps were built before the faces were known: rebuild them (issue #103)
@@ -107,7 +110,9 @@ Three rules of the library show here:
 - **`fields_number`** is the number of block-sized scalar arrays the application allocates per block. The library
   divides the memory by it to decide how many blocks a rank can hold; under-count it and the run over-commits memory
   ([GPU cookbook](/cookbook/gpu)). A library section it depends on (here `[runge_kutta]`) is read by the library
-  object's own parser (`rk%load_from_file`), never peeked by the application.
+  object's own parser (`rk%load_from_file`), never peeked by the application. `with_selah` asks the realm for the time
+  integrator on [SELAH](https://github.com/szaghi/SELAH) (`ts`, `adam_stepper_object`), whose registers
+  `stepper_stored_fields` counts.
 - **The face kinds come after `realm_object%initialize`**, which builds the tree and the maps before they are known;
   `set_bc_type` must be followed by `rebuild_neighborhood` and `make_comm_local_maps_ghost_bc`, or a periodic face of
   an unrefined grid stays a boundary row ([#103](https://github.com/szaghi/adam/issues/103)).
@@ -187,21 +192,27 @@ On the fast path (one realm, no 2:1 face) the forest hands the whole step to the
    class(ripple_cpu_object), intent(inout) :: self !< The realm.
    real(R8P),                intent(in)    :: dt   !< Time step from the forest.
    integer(I4P)                            :: s    !< Stage counter.
+   real(R8P), pointer                      :: u(:,:,:,:,:) !< Stage state.
 
+   ! SELAH's Butcher form (stepper_object, #132): each stage state on the stepper's register, the residual into dq
+   ! (compute_residuals), copied into the stepper's residual register
    call self%advance_time(dt=dt)
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
-   do s=1, self%rk%nrk
-      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s))
-      call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
+   call self%ts%begin_step(field=self%adam%field, q=self%q)
+   do s=1, self%ts%stages()
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
+      u => self%ts%stage_state()
+      call self%compute_residuals(q=u)
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
    enddo
-   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    self%time%time = self%time%time + self%time%dt
    endsubroutine advance_one_step_forest
 ```
 
-The Runge–Kutta object holds the stages; the application supplies only the residuals of a state
-([chapter 2](./numerics)). After the step the forest calls `post_step_forest` (RIPPLE writes a history row, and the
+The stepper (`self%ts`) holds the stages and combines them: each stage opens with its state built, the application
+writes the residual of that state ([chapter 2](./numerics)) and hands it over (`set_rhs`), and `finish_step` advances
+`q` with the scheme's weights. After the step the forest calls `post_step_forest` (RIPPLE writes a history row, and the
 fields every `[IO] it_save` steps and at the end), then `is_done_forest`:
 
 ```fortran

@@ -151,10 +151,21 @@ bitwise the same. The generic routines stay for callers whose width is a run-tim
 
 ## Runge-Kutta integration
 
+FLUME FNL and RIPPLE FNL integrate with [SELAH](https://github.com/szaghi/SELAH)'s device build through the library
+adapter `adam_stepper_object` ([#132](https://github.com/szaghi/adam/issues/132), phases 3 and 5): the application sets
+`realm_object%with_selah` and `selah_layout = LAYOUT_V_LAST` before the realm initializes, and the realm builds `ts`
+on the `(b, i, j, k, v)` device fields (`q_gpu`, `dq_gpu`, `phi_gpu`). The registers are device memory, zeroed at
+allocation; the stage state, the residual register and the scratch registers are device pointers the FNL kernels take
+as they took `q_rk_gpu`. The residual of a stage goes into `dq_gpu` (the per-stage reflux corrects it there) and
+`ts%set_rhs` copies it into the residual register with SELAH's copy kernel. SELAH's kernels sum the stages in the order
+of the kernels below, so FLUME FNL is bitwise the integration it replaced (every regression case and the #132 overlays,
+A/B on an A30), except the step residual in the solid cells, now 0 ([#128](https://github.com/szaghi/adam/issues/128)
+D4). The end_of_step seam ghosts reach each stage state through `seam_ghosts_to_state_dev` (#132 rule 1).
+
 ### `adam_fnl_rk_object`
 
-A plain type, initialised from the realm's `grid`, `field` and `rk`. It holds the stage storage on the device and runs
-the stage updates.
+PRISM FNL's integrator until phase 4 of #132. A plain type, initialised from the realm's `grid`, `field` and `rk`. It
+holds the stage storage on the device and runs the stage updates.
 
 | Device array | Shape | Purpose |
 |--------------|-------|---------|

@@ -133,13 +133,13 @@ contains
          f = merge(0_I4P, 1_I4P, mod(fec, 2_I4P) == 1_I4P) ! the min face is face 0, the max face is face n
          select case(fec)
          case(1, 2)
-            call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%rk%beta(s), &
+            call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%ts%stage_weight(s), &
                                            skin=reshape(self%flx(1:1,f*self%ni,1:self%nj,1:self%nk,b), [1, self%nj*self%nk]))
          case(3, 4)
-            call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%rk%beta(s), &
+            call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%ts%stage_weight(s), &
                                            skin=reshape(self%fly(1:1,1:self%ni,f*self%nj,1:self%nk,b), [1, self%ni*self%nk]))
          case default
-            call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%rk%beta(s), &
+            call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%ts%stage_weight(s), &
                                            skin=reshape(self%flz(1:1,1:self%ni,1:self%nj,f*self%nk,b), [1, self%ni*self%nj]))
          endselect
       enddo
@@ -171,15 +171,20 @@ contains
    class(ripple_cpu_object), intent(inout) :: self !< The realm.
    real(R8P),                intent(in)    :: dt   !< Time step from the forest.
    integer(I4P)                            :: s    !< Stage counter.
+   real(R8P), pointer                      :: u(:,:,:,:,:) !< Stage state.
 
+   ! SELAH's Butcher form (stepper_object, #132): each stage state on the stepper's register, the residual into dq
+   ! (compute_residuals), copied into the stepper's residual register
    call self%advance_time(dt=dt)
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
-   do s=1, self%rk%nrk
-      call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s))
-      call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
+   call self%ts%begin_step(field=self%adam%field, q=self%q)
+   do s=1, self%ts%stages()
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
+      u => self%ts%stage_state()
+      call self%compute_residuals(q=u)
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
    enddo
-   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    self%time%time = self%time%time + self%time%dt
    endsubroutine advance_one_step_forest
 
@@ -209,12 +214,12 @@ contains
 
    ! forest methods: staged layer
    subroutine open_step_forest(self, dt)
-   !< Open a step: count it, cap dt, copy q into every stage.
+   !< Open a step: count it, cap dt, open the stepper's step.
    class(ripple_cpu_object), intent(inout) :: self !< The realm.
    real(R8P),                intent(in)    :: dt   !< Time step from the forest.
 
    call self%advance_time(dt=dt)
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
+   call self%ts%begin_step(field=self%adam%field, q=self%q)
    endsubroutine open_step_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -226,7 +231,7 @@ contains
    type(realm_pointer),      intent(inout), optional, target :: realm(:) !< Unused.
 
    self%stage_active = k
-   call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%time%dt)
+   call self%ts%begin_stage(k=k, field=self%adam%field, dt=self%time%dt, q=self%q)
    endsubroutine begin_stage_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -237,9 +242,12 @@ contains
    real(R8P),                   intent(in)                      :: dt            !< Unused.
    type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Unused.
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register.
+   real(R8P), pointer                                           :: u(:,:,:,:,:)  !< Stage state.
 
-   call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,k), s=k, flux_register=flux_register)
-   call self%rk%assign_stage(field=self%adam%field, s=k, q=self%dq)
+   u => self%ts%stage_state()
+   call self%compute_residuals(q=u, s=k, flux_register=flux_register)
+   call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
+   call self%ts%end_stage(k=k, field=self%adam%field, dt=self%time%dt, q=self%q)
    endsubroutine end_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -247,7 +255,7 @@ contains
    class(ripple_cpu_object), intent(inout) :: self !< The realm.
    real(R8P),                intent(in)    :: dt   !< Unused: the capped dt is self%time%dt.
 
-   call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
    self%time%time = self%time%time + self%time%dt
    self%stage_active = 0_I4P
    endsubroutine close_step_forest
@@ -259,6 +267,6 @@ contains
    real(R8P),                   intent(in)    :: dt            !< Unused: the capped dt is self%time%dt.
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
 
-   if (stage == self%rk%nrk) call self%apply_reflux(flux_register=flux_register)
+   if (stage == self%ts%stages()) call self%apply_reflux(flux_register=flux_register)
    endsubroutine apply_reflux_to_stage_forest
 endmodule adam_ripple_cpu_object

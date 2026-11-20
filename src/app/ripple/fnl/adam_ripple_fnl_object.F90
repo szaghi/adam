@@ -15,9 +15,9 @@ module adam_ripple_fnl_object
 use :: adam_flux_register_object, only : flux_register_object
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_realm_object,         only : realm_pointer
+use :: adam_stepper_object,       only : LAYOUT_V_LAST
 use :: adam_fnl_field_kernels,    only : pack_blocks_transposed_dev, unpack_blocks_transposed_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
-use :: adam_fnl_rk_object,        only : rk_fnl_object
 use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
 use :: adam_fnl_mpih_global,      only : initialize_mpih_fnl, mpih_fnl, mpih_fnl_device_sharers
@@ -38,7 +38,6 @@ public :: ripple_fnl_object
 type, extends(ripple_common_object) :: ripple_fnl_object
    !< RIPPLE FNL realm.
    type(field_fnl_object) :: field_fnl                !< Field helper: coordinates, maps, ghost exchange.
-   type(rk_fnl_object)    :: rk_fnl                   !< Runge-Kutta helper: the stages on the device.
    type(weno_fnl_object)  :: weno_fnl                 !< WENO helper: the coefficients on the device.
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null() !< State [nb, 1-ngc:ni+ngc, ..., 1].
    real(R8P), pointer     :: dq_gpu(:,:,:,:,:)=>null()  !< Residuals, same shape.
@@ -189,7 +188,7 @@ contains
          case(3, 4) ; n = self%ni * self%nk
          case default ; n = self%ni * self%nj
          endselect
-         call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%rk%beta(s), &
+         call self%accumulate_seam_skin(flux_register=flux_register, b=b, fec=fec, weight=self%ts%stage_weight(s), &
                                         skin=self%face(:,1:n))
       enddo
    enddo
@@ -235,11 +234,12 @@ contains
    character(*),             intent(in)           :: filename      !< Input file name.
    integer(I4P),             intent(in), optional :: realms_number !< Unused: RIPPLE is single-realm.
 
-   ! the blocks budget is the device memory, shared by the ranks bound to the same device
+   ! the blocks budget is the device memory, shared by the ranks bound to the same device; the time integrator (SELAH,
+   ! #132) integrates the (b, i, j, k, v) device fields
+   self%selah_layout = LAYOUT_V_LAST
    call self%initialize_ripple(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / &
                                                                real(mpih_fnl_device_sharers, R8P))
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
-   call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
    endsubroutine initialize_app_forest
@@ -258,15 +258,20 @@ contains
    class(ripple_fnl_object), intent(inout) :: self !< The realm.
    real(R8P),                intent(in)    :: dt   !< Time step from the forest.
    integer(I4P)                            :: s    !< Stage counter.
+   real(R8P), pointer                      :: u(:,:,:,:,:) !< Stage state (device).
 
+   ! SELAH's Butcher form on the device (stepper_object, #132): the residual into dq_gpu, copied into the stepper's
+   ! residual register
    call self%advance_time(dt=dt)
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
-   do s=1, self%rk%nrk
-      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
-      call self%compute_residuals(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s))
-      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
+   call self%ts%begin_step(field=self%adam%field, q=self%q_gpu)
+   do s=1, self%ts%stages()
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
+      u => self%ts%stage_state()
+      call self%compute_residuals(q_gpu=u)
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
    enddo
-   call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
    self%time%time = self%time%time + self%time%dt
    endsubroutine advance_one_step_forest
 
@@ -302,7 +307,6 @@ contains
    call dev_free(self%flz_gpu, mydev)
    call dev_free(self%face_gpu, mydev)
    call self%weno_fnl%destroy
-   call self%rk_fnl%destroy
    call self%field_fnl%destroy
    endsubroutine finalize_forest
 
@@ -330,7 +334,7 @@ contains
    real(R8P),                intent(in)    :: dt   !< Time step from the forest.
 
    call self%advance_time(dt=dt)
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
+   call self%ts%begin_step(field=self%adam%field, q=self%q_gpu)
    endsubroutine open_step_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -342,7 +346,7 @@ contains
    type(realm_pointer),      intent(inout), optional, target :: realm(:) !< Unused.
 
    self%stage_active = k
-   call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=k, dt=self%time%dt)
+   call self%ts%begin_stage(k=k, field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
    endsubroutine begin_stage_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -353,9 +357,12 @@ contains
    real(R8P),                   intent(in)                      :: dt            !< Unused.
    type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Unused.
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register.
+   real(R8P), pointer                                           :: u(:,:,:,:,:)  !< Stage state (device).
 
-   call self%compute_residuals(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), s=k, flux_register=flux_register)
-   call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=k, q_gpu=self%dq_gpu)
+   u => self%ts%stage_state()
+   call self%compute_residuals(q_gpu=u, s=k, flux_register=flux_register)
+   call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+   call self%ts%end_stage(k=k, field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
    endsubroutine end_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -363,7 +370,7 @@ contains
    class(ripple_fnl_object), intent(inout) :: self !< The realm.
    real(R8P),                intent(in)    :: dt   !< Unused: the capped dt is self%time%dt.
 
-   call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+   call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
    self%time%time = self%time%time + self%time%dt
    self%stage_active = 0_I4P
    endsubroutine close_step_forest
@@ -378,7 +385,7 @@ contains
    class(flux_register_object), intent(in)    :: flux_register !< Forest's flux register.
    integer(I4P)                               :: f, axis, sgn  !< Face counter, face normal and side.
 
-   if (stage /= self%rk%nrk .or. flux_register%nfaces == 0_I4P .or. .not.allocated(flux_register%face)) return
+   if (stage /= self%ts%stages() .or. flux_register%nfaces == 0_I4P .or. .not.allocated(flux_register%face)) return
    do f=1, flux_register%nfaces
       associate(face=>flux_register%face(f))
       if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle

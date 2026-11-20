@@ -246,15 +246,17 @@ registers and the stage kernels; the adapter is the ADAM side of it:
 - **Scratch.** `scratch(n)` gives register `n` between steps (every Runge–Kutta form has at least two): the D_flux
   diagnostic and the equilibrium residual borrow registers 1 and 2. A step rebuilds what it reads of them.
 
-The adapter runs on the host; its device build (the FNL backends) is phase 3 of #132. Tests:
+The same adapter serves the device fields of the FNL backends: `layout=LAYOUT_V_LAST` (`realm_object%selah_layout`), the
+registers in device memory (zeroed at allocation), its own masked-cell copy a FUNDAL kernel, and `set_rhs` (a residual
+computed into the application's own array copied into the residual register with SELAH's copy kernel). Tests:
 `test-stepper-object-gnu` (the mapping, the stored fields, one step per scheme, masked and unmasked, the scratch
 registers) and `test-stepper-object-xfail-gnu` (an unknown scheme stops the run).
 
 ### `adam_rk_object`
 
 Explicit Runge-Kutta, `[runge_kutta]` section. The stage storage `q_rk(nv, ni, nj, nk, nb, nrk)` is preallocated.
-The integrator of FLUME FNL, PRISM and RIPPLE until phases 3-5 of [#132](https://github.com/szaghi/adam/issues/132);
-FLUME CPU integrates with SELAH through `adam_stepper_object` (above). A realm builds one or the other:
+PRISM's integrator until phase 4 of [#132](https://github.com/szaghi/adam/issues/132); FLUME and RIPPLE integrate
+with SELAH through `adam_stepper_object` (above), on both backends. A realm builds one or the other:
 `realm_object%with_selah`, set by the application before the realm initializes, builds `ts` and leaves `rk` with the
 scheme name only.
 

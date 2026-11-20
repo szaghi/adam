@@ -208,7 +208,7 @@ FLUME's page lists its variable indices and the [runtime AMR setup](/application
 
 ## [runge_kutta]
 
-`rk_object%load_from_file`, or on FLUME CPU `stepper_object%load_from_file` (the integrator on
+`rk_object%load_from_file`, or on FLUME and RIPPLE `stepper_object%load_from_file` (the integrator on
 [SELAH](https://github.com/szaghi/SELAH), [#132](https://github.com/szaghi/adam/issues/132)), the same key; each
 application also reads `scheme` first, to size the per-block memory budget.
 
@@ -227,11 +227,10 @@ application also reads `scheme` first, to size the per-block memory budget.
 | `runge-kutta-ssp-54` | SSP, 5 stages, 4th order | 5 | `ssp-54`, Butcher (6) | accepted | accepted |
 | `runge-kutta-yoshida` | symplectic, 4th order, 4 stages | 0 | `yoshida-4`, splitting (1) | **refused** | EM on CPU: accepted; FNL, PIC, PML, 2:1 faces: refused |
 
-The stored stage fields are `adam_rk_object`'s (FLUME FNL, PRISM, RIPPLE); FLUME CPU allocates SELAH's registers
-instead, the residual register included (`stepper_stored_fields`): one block field (of `nv` variables) more than the
-stage fields, whatever the scheme. `[diagnostics] divb_flux` borrows two of them between steps, so on
-FLUME CPU it is accepted with every scheme ([#128](https://github.com/szaghi/adam/issues/128) D1; FLUME FNL still needs
-two stages).
+The stored stage fields are `adam_rk_object`'s (PRISM until phase 4 of #132); FLUME and RIPPLE allocate SELAH's
+registers instead, the residual register included (`stepper_stored_fields`): one block field (of `nv` variables) more
+than the stage fields, whatever the scheme. `[diagnostics] divb_flux` borrows two of them between steps, so it is
+accepted with every scheme ([#128](https://github.com/szaghi/adam/issues/128) D1).
 
 The staged path of the forest (any 2:1 AMR face, any multi-realm forest) needs an SSP scheme in both applications. In
 a forest manifest, seams with `coupling_cadence = stage_coincident` require both realms to use the same `scheme`

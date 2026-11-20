@@ -1,6 +1,6 @@
 # 2. The library's numerics
 
-The realm of [chapter 1](./core) advances its state with the library's Runge–Kutta object; this chapter supplies what
+The realm of [chapter 1](./core) advances its state with the library's time integrator (the SELAH stepper); this chapter supplies what
 that object needs, the residuals, and builds them from the library's WENO. Then the first oracle measures the order.
 
 ## The scheme
@@ -86,8 +86,8 @@ What comes from the library:
 - **The reconstruction.** `weno_reconstruct_upwind` is the library's upwind primitive; the WENO object holds its
   coefficients (`self%weno%a`, `p`, `d`, `zeps`) for the scheme the input names. The application only packs the
   stencil: `v(2,:)` the $a^+u$ values left of the face, `v(1,:)` the $a^-u$ values right of it.
-- **The integration.** The Runge–Kutta object of chapter 1 (`initialize_stages`, `compute_stage`, `assign_stage`,
-  `update_q`) combines the residuals of each stage with the scheme's SSP coefficients.
+- **The integration.** The stepper of chapter 1 (`begin_step`, `begin_stage`, `set_rhs`, `end_stage`,
+  `finish_step`) combines the residuals of each stage with the scheme's SSP coefficients.
 
 The optional `s` and `flux_register` arguments serve the staged path of [chapter 3](./amr); on the fast path they are
 absent.

@@ -25,15 +25,14 @@ use :: adam_flume_fnl_hybrid_kernels, only : compute_hybrid_sensor_dev, mask_mu_
 use :: adam_fnl_turbulence_kernels, only : compute_mu_t_sigma_dev, compute_mu_t_vreman_dev, compute_mu_t_wale_dev
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
 use :: adam_seam_exchange,        only : seam_fill_all
-use :: adam_rk_object,            only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
+use :: adam_stepper_object,       only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54, LAYOUT_V_LAST
 ! ADAM FNL classes, libraries
 use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev, pack_blocks_transposed_dev, pack_seam_rows_dev, &
-                                         seam_ghosts_to_stages_dev, unpack_blocks_transposed_dev, unpack_seam_rows_dev
+                                         seam_ghosts_to_state_dev, unpack_blocks_transposed_dev, unpack_seam_rows_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 use :: adam_fnl_poisson_mg_object, only : poisson_mg_fnl_object
 use :: adam_fnl_ib_object,        only : ib_fnl_object
-use :: adam_fnl_rk_object,        only : rk_fnl_object
 use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
 use :: adam_fnl_mpih_global,      only : initialize_mpih_fnl, mpih_fnl, mpih_fnl_device_sharers
@@ -354,7 +353,7 @@ use :: adam_flume_fnl_kernels,         only : apply_cooling_dev, apply_cooling_e
                                               add_gravity_sources_dev, add_potential_sources_dev,                      &
                                               add_gravity_limited_correction_dev, clear_inert_energy_dev,              &
                                               compute_gravity_correction_faces_dev, subtract_equilibrium_residual_dev, &
-                                              compute_rk_ssp_residual_dev, fill_seam_copy_dev, gather_seam_cells_dev,  &
+                                              fill_seam_copy_dev, gather_seam_cells_dev,                               &
                                               gather_seam_faces_dev, gather_seam_stencils_dev, pack_seam_skins_dev,    &
                                               pack_density_dev, unpack_potential_dev,                                  &
                                               scatter_seam_cells_dev, scatter_seam_faces_dev,                          &
@@ -379,7 +378,6 @@ type, extends(flume_common_object) :: flume_fnl_object
    ! FNL helpers
    type(field_fnl_object) :: field_fnl                    !< Field helper (coordinates, maps, ghost exchange).
    type(ib_fnl_object)    :: ib_fnl                       !< Immersed boundary helper.
-   type(rk_fnl_object)    :: rk_fnl                       !< Runge-Kutta helper.
    type(weno_fnl_object)  :: weno_fnl                     !< WENO helper.
    ! device data
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null()     !< Conservative variables [nb, i, j, k, nv].
@@ -472,7 +470,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: destroy                 !< Free device and host data.
       procedure, pass(self) :: initialize_flume        !< Initialize the FNL backend.
       procedure, pass(self) :: limit_positivity_dev    !< Apply the positivity limiter to the stage face fluxes.
-      procedure, pass(self) :: seam_ghosts_to_stages   !< Copy the end_of_step seam ghosts into the stages (#113).
+      procedure, pass(self) :: seam_ghosts_to_state    !< Copy the end_of_step seam ghosts into the stage state (#132).
       procedure, pass(self) :: seam_lists              !< Host lists of the seam skin cells and faces (issue #50).
       procedure, pass(self) :: seam_sync_blend_dev     !< Set the seam face fluxes with the seam factors (issue #50).
       procedure, pass(self) :: seam_sync_factors_dev   !< Recompute the seam cells' factors (issue #50).
@@ -560,7 +558,7 @@ contains
    integer(I4P)                                      :: cells, cols   !< Skin cells of a face, columns of all.
    integer(I4P)                                      :: ierr          !< Error status.
 
-   w = self%rk%beta(s) ; if (present(weight)) w = weight
+   w = self%ts%stage_weight(s) ; if (present(weight)) w = weight
    gw = .not.present(weight) ; if (present(with_gravity_work)) gw = with_gravity_work
    if (.not.allocated(self%adam%maps%inter_realm_face_register_index)) return
    ! One pack and one copy for all the register faces of the rank (issue #90, F-B), instead of a device allocation, a
@@ -1446,15 +1444,18 @@ contains
    integer(I4P)                           :: f, c, axis, sgn         !< Register face, skin cell, face axis and side.
    integer(I4P)                           :: i, j, k                 !< Skin cell indexes.
    integer(I4P)                           :: ierr                    !< Error status.
+   real(R8P), pointer                     :: q_s(:,:,:,:,:)          !< Copy of the committed state (scratch register).
+   real(R8P), pointer                     :: dq_s(:,:,:,:,:)         !< Its residual (scratch register).
 
    norms = 0._R8P
    if (self%blocks_number < 1_I4P) return
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%blocks_number, reg=>self%flux_register_copy)
-   call copy_state_dev(ni=ni, nj=nj, nk=nk, ngc=self%ngc, nv=self%nv, blocks_number=nb, src_gpu=self%q_gpu, &
-                       dst_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,1))
+   ! the stepper's registers 1 and 2, scratch between steps (#132 rule 3)
+   q_s => self%ts%scratch(1_I4P)
+   dq_s => self%ts%scratch(2_I4P)
+   call copy_state_dev(ni=ni, nj=nj, nk=nk, ngc=self%ngc, nv=self%nv, blocks_number=nb, src_gpu=self%q_gpu, dst_gpu=q_s)
    call reg%reset
-   call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,1), dq_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,2), &
-                                   flux_register=reg)
+   call self%compute_residuals_dev(q_gpu=q_s, dq_gpu=dq_s, flux_register=reg)
    if (self%numerics%reflux .and. reg%nfaces > 0_I4P) then
       call self%accumulate_seam_fluxes(s=1_I4P, flux_register=reg, weight=1._R8P)
       if (self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) call self%flag_troubled_seam_cells(flux_register=reg)
@@ -1810,7 +1811,6 @@ contains
    endif
    if (allocated(self%skin_faces)) deallocate(self%skin_faces)
    if (allocated(self%buf_5D_R8P)) deallocate(self%buf_5D_R8P)
-   call self%rk_fnl%destroy()
    call self%weno_fnl%destroy()
    call self%ib_fnl%destroy()
    call self%field_fnl%destroy()
@@ -1841,6 +1841,9 @@ contains
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(1_I4P, realms_number)
    ! Split among the realms and among the ranks bound to the same device (#96).
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
+   ! the time integrator is SELAH's (stepper_object, #132), on the (b, i, j, k, v) device fields
+   self%with_selah = .true.
+   self%selah_layout = LAYOUT_V_LAST
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
    ! the barotropic tables (issue #100, P3): registered on the host by the physics, read by the device kernels; the
    ! whole registry, so after the last realm every realm's table is on the device
@@ -1869,7 +1872,6 @@ contains
    endif
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-   call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    call self%weno_fnl%initialize(weno=self%weno)
    if (self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN) call self%weno_fnl%initialize_interpolation(weno=self%weno)
    call self%allocate_gpu
@@ -1881,13 +1883,13 @@ contains
    case default
       call mpih_fnl%error_stop(msg=': no FNL space operator for scheme_space "'//self%numerics%scheme_space//'"')
    endselect
-   select case(self%rk%scheme)
+   select case(self%ts%scheme)
    case(RK_1, RK_2, RK_3)
       self%integrate_dev => integrate_rk_ls_dev
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
       self%integrate_dev => integrate_rk_ssp_dev
    case default
-      call mpih_fnl%error_stop(msg=': no FNL time integrator for [runge_kutta].(scheme) "'//trim(self%rk%scheme)//'"')
+      call mpih_fnl%error_stop(msg=': no FNL time integrator for [runge_kutta].(scheme) "'//trim(self%ts%scheme)//'"')
    endselect
    endsubroutine initialize_flume
 
@@ -2935,7 +2937,7 @@ contains
    if (.not.flux_register%is_initialized_) return
    if (flux_register%nfaces == 0_I4P) return
    if (.not.allocated(flux_register%face)) return
-   if (stage /= self%rk%nrk) return
+   if (stage /= self%ts%stages()) return
    if (self%numerics%reflux_cadence == REFLUX_CADENCE_STAGE) return ! corrected at every stage (reflux_stage)
    troubled_only = self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED
    nflag = 0_I4P
@@ -3001,7 +3003,10 @@ contains
    type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    self%stage_active = k
-   call rk_compute_stage(self, s=k)
+   call ts_begin_stage(self, s=k)
+   ! the end_of_step seams (#132 rule 1): SELAH never writes a ghost cell, so the stage state, when it is not q itself,
+   ! takes the seam ghosts of q_gpu, which hold the peer state of the step's alpha fill (#113)
+   if (.not.self%ts%state_is_q(k)) call self%seam_ghosts_to_state
    endsubroutine begin_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -3009,10 +3014,7 @@ contains
    class(flume_fnl_object), intent(inout) :: self !< The equation.
    real(R8P),               intent(in)    :: dt   !< Time step from the forest (the local capped value is time%dt).
 
-   call compute_rk_ssp_residual_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv,                     &
-                                    blocks_number=self%blocks_number, nrk=self%rk%nrk, beta_gpu=self%rk_fnl%beta_gpu, &
-                                    q_rk_gpu=self%rk_fnl%q_rk_gpu, dq_gpu=self%dq_gpu)
-   call rk_update_q(self)
+   call ts_finish_step(self)
    call self%save_residuals
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -3155,23 +3157,30 @@ contains
    endsubroutine compute_local_dt_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
-   !< End integrator stage `k` (staged path): residuals on the stage state, then stage assignment.
+   !< End integrator stage `k` (staged path): the residual of the stage state into `dq_gpu` (the per-stage reflux
+   !< corrects it there), copied into the stepper's residual register, then the stepper closes the stage.
    class(flume_fnl_object),     intent(inout)                   :: self          !< The equation.
    integer(I4P),                intent(in)                      :: k             !< Stage index (1..K_total).
    integer(I4P),                intent(in)                      :: K_total       !< Forest-wide stage count.
    real(R8P),                   intent(in)                      :: dt            !< Time step from the forest.
    type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Sibling realms (parity only).
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register.
+   real(R8P), pointer                                           :: u(:,:,:,:,:)  !< State of the stage.
 
-   if (present(flux_register)) then
-      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k, &
-                                      flux_register=flux_register)
+   if (self%ts%state_is_q(k)) then
+      u => self%q_gpu
    else
-      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k)
+      u => self%ts%stage_state()
+   endif
+   if (present(flux_register)) then
+      call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=k, flux_register=flux_register)
+   else
+      call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=k)
    endif
    if (present(flux_register) .and. self%numerics%reflux .and. self%numerics%reflux_cadence == REFLUX_CADENCE_STAGE) &
       call self%reflux_stage(s=k)
-   call rk_assign_stage(self, s=k)
+   call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+   call ts_end_stage(self, s=k)
    endsubroutine end_stage_forest
 
    subroutine reflux_stage(self, s)
@@ -3228,8 +3237,8 @@ contains
    endsubroutine reflux_stage
 
    subroutine fill_seam_from_peer_forest(self, peer, p_idx)
-   !< Fill this realm's seam ghosts for peer slot `p_idx` from the peer's interior, on the active device buffers
-   !< (`q_gpu` when `stage_active == 0`, else the active stage of `q_rk_gpu`) of both realms.
+   !< Fill this realm's seam ghosts for peer slot `p_idx` from the peer's interior, on the active device buffers of both
+   !< realms (#132 rule 2): the stepper's stage state while a stage is open and its state is not `q_gpu`, else `q_gpu`.
    class(flume_fnl_object), intent(inout)         :: self      !< The equation.
    class(realm_object),     intent(in),    target :: peer      !< Peer realm.
    integer(I4P),            intent(in)            :: p_idx     !< Peer slot.
@@ -3237,6 +3246,8 @@ contains
    integer(I4P)                                   :: row_count !< Seam map rows of the peer.
    integer(I4P)                                   :: s_self    !< Own active stage (0: committed state).
    integer(I4P)                                   :: s_peer    !< Peer active stage (0: committed state).
+   real(R8P), pointer                             :: src(:,:,:,:,:) !< Peer active buffer.
+   real(R8P), pointer                             :: dst(:,:,:,:,:) !< Own active buffer.
 
    row_start = self%adam%maps%seam_local_peer_row_start(p_idx)
    row_count = self%adam%maps%seam_local_peer_row_count(p_idx)
@@ -3244,23 +3255,17 @@ contains
    select type(peer)
    class is(flume_fnl_object)
       s_peer = peer%stage_active
-      associate(rows_gpu=>self%field_fnl%maps%seam_local_map_ghost_cell_gpu)
-      if (s_self > 0_I4P .and. s_peer > 0_I4P) then
-         call fill_seam_copy_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc, &
-                                 rows_gpu=rows_gpu, src_gpu=peer%rk_fnl%q_rk_gpu(:,:,:,:,:,s_peer),  &
-                                 dst_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s_self))
-      elseif (s_self > 0_I4P) then
-         call fill_seam_copy_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc, &
-                                 rows_gpu=rows_gpu, src_gpu=peer%q_gpu,                              &
-                                 dst_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s_self))
-      elseif (s_peer > 0_I4P) then
-         call fill_seam_copy_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc, &
-                                 rows_gpu=rows_gpu, src_gpu=peer%rk_fnl%q_rk_gpu(:,:,:,:,:,s_peer),  &
-                                 dst_gpu=self%q_gpu)
-      else
-         call fill_seam_copy_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc, &
-                                 rows_gpu=rows_gpu, src_gpu=peer%q_gpu, dst_gpu=self%q_gpu)
+      dst => self%q_gpu
+      if (s_self > 0_I4P) then
+         if (.not.self%ts%state_is_q(s_self)) dst => self%ts%stage_state()
       endif
+      src => peer%q_gpu
+      if (s_peer > 0_I4P) then
+         if (.not.peer%ts%state_is_q(s_peer)) src => peer%ts%stage_state()
+      endif
+      associate(rows_gpu=>self%field_fnl%maps%seam_local_map_ghost_cell_gpu)
+      call fill_seam_copy_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc, &
+                              rows_gpu=rows_gpu, src_gpu=src, dst_gpu=dst)
       endassociate
    class default
       call mpih_fnl%error_stop(msg=': flume_fnl_object%fill_seam_from_peer_forest: peer realm is not a flume_fnl_object')
@@ -3268,13 +3273,14 @@ contains
    endsubroutine fill_seam_from_peer_forest
 
    subroutine pack_seam_cells_forest(self, p_idx, buf)
-   !< Pack the ghost values of the seam send rows of peer slot `p_idx` from the active device buffer (`q_gpu` when
-   !< `stage_active == 0`, else the active stage of `q_rk_gpu`) into the host `buf`, `nv` values per row: cell copies, or
-   !< the 2:1 interpolations and restrictions of a refined seam (issues #40, #52).
+   !< Pack the ghost values of the seam send rows of peer slot `p_idx` from the active device buffer (#132 rule 2: the
+   !< stepper's stage state while a stage is open and its state is not `q_gpu`, else `q_gpu`) into the host `buf`, `nv`
+   !< values per row: cell copies, or the 2:1 interpolations and restrictions of a refined seam (issues #40, #52).
    class(flume_fnl_object), intent(in)  :: self       !< The equation.
    integer(I4P),            intent(in)  :: p_idx      !< Peer slot (the realm owning the ghosts).
    real(R8P),               intent(out) :: buf(:)     !< Packed values.
    real(R8P), pointer                   :: buf_gpu(:) !< Device packed values.
+   real(R8P), pointer                   :: a(:,:,:,:,:) !< Active buffer.
    integer(I4P)                         :: row_start  !< First send row.
    integer(I4P)                         :: row_count  !< Send rows.
    integer(I4P)                         :: ierr       !< Error status.
@@ -3284,18 +3290,14 @@ contains
    if (row_count == 0_I4P) return
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in pack_seam_cells_forest')
+   a => self%q_gpu
    if (self%stage_active > 0_I4P) then
-      call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
-                              regime=self%adam%maps%seam_ghost_fill,                                          &
-                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu,                            &
-                              q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active), buf_gpu=buf_gpu,       &
-                              density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio)
-   else
-      call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
-                              regime=self%adam%maps%seam_ghost_fill,                                          &
-                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=self%q_gpu, buf_gpu=buf_gpu, &
-                              density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio)
+      if (.not.self%ts%state_is_q(self%stage_active)) a => self%ts%stage_state()
    endif
+   call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
+                           regime=self%adam%maps%seam_ghost_fill,                                          &
+                           rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=a, buf_gpu=buf_gpu,  &
+                           density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio)
    call dev_memcpy_from_device(dst=buf, src=buf_gpu)
    call dev_free(buf_gpu, mydev)
    endsubroutine pack_seam_cells_forest
@@ -3307,6 +3309,7 @@ contains
    integer(I4P),            intent(in)    :: p_idx      !< Peer slot (the realm owning the cells).
    real(R8P),               intent(in)    :: buf(:)     !< Packed values.
    real(R8P), pointer                     :: buf_gpu(:) !< Device packed values.
+   real(R8P), pointer                     :: a(:,:,:,:,:) !< Active buffer.
    integer(I4P)                           :: row_start  !< First receive row.
    integer(I4P)                           :: row_count  !< Receive rows.
    integer(I4P)                           :: ierr       !< Error status.
@@ -3317,14 +3320,12 @@ contains
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in unpack_seam_cells_forest')
    call dev_memcpy_to_device(dst=buf_gpu, src=buf)
+   a => self%q_gpu
    if (self%stage_active > 0_I4P) then
-      call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
-                                rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu,          &
-                                q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active))
-   else
-      call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
-                                rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu, q_gpu=self%q_gpu)
+      if (.not.self%ts%state_is_q(self%stage_active)) a => self%ts%stage_state()
    endif
+   call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
+                             rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu, q_gpu=a)
    call dev_free(buf_gpu, mydev)
    endsubroutine unpack_seam_cells_forest
 
@@ -3445,35 +3446,36 @@ contains
    call self%log_gravity_regime
    call self%refresh_equilibrium_residual
    call self%advance_inflow_df
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
-   call self%seam_ghosts_to_stages
+   ! the end_of_step seams: every stage reads the peer state of the last exchange, held by the ghosts of q_gpu (#113);
+   ! the stage states take them at begin_stage_forest (#132 rule 1)
+   call ts_begin_step(self)
    endsubroutine open_step_forest
 
-   subroutine seam_ghosts_to_stages(self)
-   !< Copy the ghosts of `q_gpu` of the end_of_step seams into every stage of `q_rk_gpu` (issue #113): every stage of the
-   !< step reads the peer state of the last exchange (the device twin of `adam_seam_exchange%seam_ghosts_to_stages`).
-   class(flume_fnl_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: p    !< Peer slot.
+   subroutine seam_ghosts_to_state(self)
+   !< Copy the ghosts of `q_gpu` of the end_of_step seams into the stepper's stage state (#132 rule 1, issue #113): the
+   !< stage reads the peer state of the last exchange (the device twin of `adam_seam_exchange%seam_ghosts_to_state`).
+   class(flume_fnl_object), intent(inout) :: self         !< The equation.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state.
+   integer(I4P)                           :: p            !< Peer slot.
 
+   u => self%ts%stage_state()
    associate(maps=>self%adam%maps, maps_fnl=>self%field_fnl%maps)
    if (.not.allocated(maps%seam_local_cadence)) return
    do p=1_I4P, int(size(maps%seam_local_cadence), I4P)
       if (maps%seam_local_cadence(p) /= CADENCE_END_OF_STEP) cycle
       if (maps%seam_local_peer_row_count(p) > 0_I4P)                                                                   &
-         call seam_ghosts_to_stages_dev(row_start=maps%seam_local_peer_row_start(p),                                  &
-                                        row_count=maps%seam_local_peer_row_count(p), nv=self%nv, ngc=self%ngc,        &
-                                        ns=int(size(self%rk_fnl%q_rk_gpu, dim=6), I4P), cols=[3_I4P, 7_I4P, 8_I4P, 9_I4P], &
-                                        rows_gpu=maps_fnl%seam_local_map_ghost_cell_gpu, q_gpu=self%q_gpu,            &
-                                        q_rk_gpu=self%rk_fnl%q_rk_gpu)
+         call seam_ghosts_to_state_dev(row_start=maps%seam_local_peer_row_start(p),                                   &
+                                       row_count=maps%seam_local_peer_row_count(p), nv=self%nv, ngc=self%ngc,         &
+                                       cols=[3_I4P, 7_I4P, 8_I4P, 9_I4P],                                             &
+                                       rows_gpu=maps_fnl%seam_local_map_ghost_cell_gpu, q_gpu=self%q_gpu, u_gpu=u)
       if (maps%seam_mpi_recv_row_count(p) > 0_I4P)                                                                     &
-         call seam_ghosts_to_stages_dev(row_start=maps%seam_mpi_recv_row_start(p),                                    &
-                                        row_count=maps%seam_mpi_recv_row_count(p), nv=self%nv, ngc=self%ngc,          &
-                                        ns=int(size(self%rk_fnl%q_rk_gpu, dim=6), I4P), cols=[2_I4P, 3_I4P, 4_I4P, 5_I4P], &
-                                        rows_gpu=maps_fnl%seam_mpi_recv_cell_gpu, q_gpu=self%q_gpu,                   &
-                                        q_rk_gpu=self%rk_fnl%q_rk_gpu)
+         call seam_ghosts_to_state_dev(row_start=maps%seam_mpi_recv_row_start(p),                                     &
+                                       row_count=maps%seam_mpi_recv_row_count(p), nv=self%nv, ngc=self%ngc,           &
+                                       cols=[2_I4P, 3_I4P, 4_I4P, 5_I4P],                                             &
+                                       rows_gpu=maps_fnl%seam_mpi_recv_cell_gpu, q_gpu=self%q_gpu, u_gpu=u)
    enddo
    endassociate
-   endsubroutine seam_ghosts_to_stages
+   endsubroutine seam_ghosts_to_state
 
    subroutine post_step_forest(self, dt, t, it, do_save_state, do_save_residuals, do_save_restart, do_amr, realm)
    !< Post-step work: the non-finite state check, the GLM c_h check, the div(B) history (MHD), fields, restart and
@@ -3732,12 +3734,12 @@ contains
    class(flume_fnl_object), intent(in) :: self !< The equation.
    integer(I4P)                        :: K    !< Integrator stages per step.
 
-   select case(self%rk%scheme)
+   select case(self%ts%scheme)
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
-      K = self%rk%nrk
+      K = self%ts%stages()
    case default
       K = 0_I4P
-      call mpih_fnl%error_stop(msg=': RK scheme "'//trim(self%rk%scheme)//'" is not stage-splittable: the staged '// &
+      call mpih_fnl%error_stop(msg=': RK scheme "'//trim(self%ts%scheme)//'" is not stage-splittable: the staged '// &
                                    'forest path (multi-realm, or AMR seam faces) requires an SSP scheme')
    endselect
    endfunction stages_per_step_forest
@@ -4572,87 +4574,89 @@ contains
    endsubroutine compute_residuals_riemann_dev
 
    subroutine integrate_rk_ls_dev(self)
-   !< Integrate one time step with a low-storage Runge-Kutta scheme on the device.
+   !< Integrate one time step with a low-storage Runge-Kutta scheme on the device: SELAH's two-register form, every stage
+   !< on `q_gpu`; the residual of each stage into `dq_gpu` (the residual log is stage 1's), copied into the stepper's
+   !< residual register.
    class(flume_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
-   do s=1, self%rk%nrk
+   call ts_begin_step(self)
+   do s=1, self%ts%stages()
+      call ts_begin_stage(self, s=s)
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
       if (s == 1) call self%save_residuals
-      call rk_compute_stage_ls(self, s=s)
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+      call ts_end_stage(self, s=s)
    enddo
+   call ts_finish_step(self)
    endsubroutine integrate_rk_ls_dev
 
    subroutine integrate_rk_ssp_dev(self)
-   !< Integrate one time step with a strong stability preserving Runge-Kutta scheme on the device.
-   class(flume_fnl_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Counter.
+   !< Integrate one time step with a strong stability preserving Runge-Kutta scheme on the device: SELAH's Butcher form,
+   !< each stage state on the stepper's register; the residual into `dq_gpu`, copied into the residual register; the
+   !< step closes with the step residual `dq = sum_s b_s R_s` (0 in the solid cells, #128 D4).
+   class(flume_fnl_object), intent(inout) :: self         !< The equation.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< State of the stage.
+   integer(I4P)                           :: s            !< Counter.
 
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
-   do s=1, self%rk%nrk
-      call rk_compute_stage(self, s=s)
-      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
-      call rk_assign_stage(self, s=s)
+   call ts_begin_step(self)
+   do s=1, self%ts%stages()
+      call ts_begin_stage(self, s=s)
+      u => self%ts%stage_state()
+      call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=s)
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+      call ts_end_stage(self, s=s)
    enddo
-   call compute_rk_ssp_residual_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv,                     &
-                                    blocks_number=self%blocks_number, nrk=self%rk%nrk, beta_gpu=self%rk_fnl%beta_gpu, &
-                                    q_rk_gpu=self%rk_fnl%q_rk_gpu, dq_gpu=self%dq_gpu)
-   call rk_update_q(self)
+   call ts_finish_step(self)
    call self%save_residuals
    endsubroutine integrate_rk_ssp_dev
 
-   subroutine rk_assign_stage(self, s)
-   !< Assign the residual of stage `s` to the Runge-Kutta stage buffer; the solid cells are masked with immersed solids.
+   subroutine ts_begin_step(self)
+   !< Open the stepper's step on `q_gpu`; the solid cells are masked with immersed solids.
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   if (associated(self%ib_fnl%phi_gpu)) then
+      call self%ts%begin_step(field=self%adam%field, q=self%q_gpu, phi=self%ib_fnl%phi_gpu)
+   else
+      call self%ts%begin_step(field=self%adam%field, q=self%q_gpu)
+   endif
+   endsubroutine ts_begin_step
+
+   subroutine ts_begin_stage(self, s)
+   !< Open stage `s` of the stepper: its state; the solid cells are masked with immersed solids.
    class(flume_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P),            intent(in)    :: s    !< Stage.
 
    if (associated(self%ib_fnl%phi_gpu)) then
-      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
-                                    phi_gpu=self%ib_fnl%phi_gpu)
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu, phi=self%ib_fnl%phi_gpu)
    else
-      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
    endif
-   endsubroutine rk_assign_stage
+   endsubroutine ts_begin_stage
 
-   subroutine rk_compute_stage(self, s)
-   !< Compute the state of stage `s`; the solid cells are masked with immersed solids.
+   subroutine ts_end_stage(self, s)
+   !< Close stage `s` of the stepper (the two-register forms advance `q_gpu` here); masked with immersed solids.
    class(flume_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P),            intent(in)    :: s    !< Stage.
 
    if (associated(self%ib_fnl%phi_gpu)) then
-      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, &
-                                     phi_gpu=self%ib_fnl%phi_gpu)
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu, phi=self%ib_fnl%phi_gpu)
    else
-      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
    endif
-   endsubroutine rk_compute_stage
+   endsubroutine ts_end_stage
 
-   subroutine rk_compute_stage_ls(self, s)
-   !< Advance low-storage stage `s`; the solid cells are masked with immersed solids.
-   class(flume_fnl_object), intent(inout) :: self !< The equation.
-   integer(I4P),            intent(in)    :: s    !< Stage.
-
-   if (associated(self%ib_fnl%phi_gpu)) then
-      call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, &
-                                        phi_gpu=self%ib_fnl%phi_gpu, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
-   else
-      call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, &
-                                        dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
-   endif
-   endsubroutine rk_compute_stage_ls
-
-   subroutine rk_update_q(self)
-   !< Assemble the committed state of a strong stability preserving step; the solid cells are masked with immersed solids.
+   subroutine ts_finish_step(self)
+   !< Close the stepper's step: the Butcher form advances `q_gpu` and gives the step residual in `dq_gpu`.
    class(flume_fnl_object), intent(inout) :: self !< The equation.
 
    if (associated(self%ib_fnl%phi_gpu)) then
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
-                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
+      call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q_gpu, dq=self%dq_gpu, &
+                               phi=self%ib_fnl%phi_gpu)
    else
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
+      call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q_gpu, dq=self%dq_gpu)
    endif
-   endsubroutine rk_update_q
+   endsubroutine ts_finish_step
 
    subroutine seam_gather_cells(cells, nv, ngc, a_gpu, out)
    !< Gather on the host `out(v, m)` = the first `nv` components of the device field `a_gpu` at `cells(:, m)` (issue #50).
