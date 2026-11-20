@@ -71,8 +71,6 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: apply_fWL_correction       !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current      !< Compute current coils sources.
       procedure, pass(self) :: set_boundary_conditions    !< Set boundary conditions of equation.
-      !procedure, pass(self) :: compute_residuals_BC
-      !procedure, pass(self) :: update_q_BC
       procedure, pass(self) :: set_initial_conditions     !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost               !< Update ghost cells and set boundary conditions.
       procedure, pass(self) :: compute_field_mean_value   !< Compute field mean value.
@@ -292,16 +290,14 @@ contains
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. &
          self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       select case(self%numerics%scheme_time)
+      ! the time integrators are SELAH's (szaghi/adam#134); those ADAM never made functional moved to SELAH (szaghi/SELAH#3)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
-         ! self%blanesmoan is never initialized (adam_realm_object initialize, call commented out): its coefficients
-         ! are unallocated (issue #55)
-         call mpih%error_stop(msg=': Blanes-Moan time integration is not functional (blanesmoan object never initialized)')
+         call mpih%error_stop(msg=': Blanes-Moan time integration is not available in ADAM (moved to SELAH, szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_CFM)
-         ! self%cfm is never initialized either (issue #55)
-         call mpih%error_stop(msg=': Commutator-Free Magnus time integration is not functional (cfm object never initialized)')
+         call mpih%error_stop(msg=': Commutator-Free Magnus time integration is not available in ADAM (moved to SELAH, '// &
+                                  'szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_LEAPFROG)
-         ! self%leapfrog is never initialized (adam_realm_object initialize, call commented out): q_old unallocated
-         call mpih%error_stop(msg=': leapfrog time integration is not functional (leapfrog object never initialized)')
+         call mpih%error_stop(msg=': leapfrog time integration is not available in ADAM (moved to SELAH, szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%ts%scheme)
          case(RK_1, RK_2, RK_3)                ; self%integrate => integrate_rk_ls
@@ -312,13 +308,12 @@ contains
    elseif (is_pic_model(self%physics%physical_model)) then
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
-         ! integrate_leapfrog_pic relies on self%leapfrog, which is never initialized (adam_realm_object initialize,
-         ! call commented out): fail here instead of running on unallocated leapfrog storage
-         call mpih%error_stop(msg=': PIC leapfrog time integration is not functional (leapfrog object never initialized)')
+         call mpih%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, szaghi/SELAH#4)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-            call mpih%error_stop(msg=': PIC leapfrog time integration is not functional (leapfrog object never initialized)')
+            call mpih%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, '// &
+                                     'szaghi/SELAH#4)')
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
             select case(self%rk_pic%scheme)
             case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -816,66 +811,6 @@ contains
                                                                                              !Al momento scritta per funzionare solo
                                                                                              !con un secondo ordine
       call mpih%error_stop(msg='radiative BC not already implemented')
-
-      !if (present(s)) then
-      !   if (s==1_I4P) call self%rk_bc%initialize_stages(field=self%adam%field, q=q)
-      !   if (self%ib%solids_number>0) then !calcolo stadio per le BC
-      !      call self%rk_bc%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
-      !   else
-      !      call self%rk_bc%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
-      !   endif
-      !   !Calcolo i residui per l'integrazione temporale delle BC (in un futuro da allineare con operatore spaziale qualsiasi)
-      !   call self%compute_residuals_BC(s=s)
-      !   !Imponi effettivamente la BC su q: unico punto del ciclo in cui si "uniscono"
-      !   !Quindi basta cambiare gli indici di quel do per imporlo su una sola variabile, eventualmente
-      !   !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
-      !   if (allocated(self%adam%maps%local_map_bc_crown)) then
-      !      do crown=1, ngc
-      !         do c=1, size(local_map_bc_crown, dim=1)
-      !            b = local_map_bc_crown(c, 1 ,crown)
-      !            if (b>0) then
-      !               i       = local_map_bc_crown(c, 2 ,crown)
-      !               j       = local_map_bc_crown(c, 3 ,crown)
-      !               k       = local_map_bc_crown(c, 4 ,crown)
-      !               idelta  = local_map_bc_crown(c, 5 ,crown)
-      !               jdelta  = local_map_bc_crown(c, 6 ,crown)
-      !               kdelta  = local_map_bc_crown(c, 7 ,crown)
-      !               bc_type = local_map_bc_crown(c, 8 ,crown)
-      !               fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
-      !               fec_1_6 = fec_1_6_array(fec)
-      !               if (bc_type == BC_radiative) then
-      !                  do v=1, nv_c
-      !                     q(v,i,j,k,b) = 2*self%rk_bc%q_bc_rk(v,i,j,k,b,s)-q(v,i-idelta,j-jdelta,k-kdelta,b)
-      !                  enddo
-      !               endif
-      !            endif
-      !         enddo
-      !      enddo
-      !   endif
-      !   !Concludi assegnando lo stadio
-      !   if (self%ib%solids_number>0) then
-      !      call self%rk_bc%assign_stage(field=self%adam%field, s=s, phi=self%ib%phi)
-      !   else
-      !      call self%rk_bc%assign_stage(field=self%adam%field, s=s)
-      !   endif
-      !else !Mi serve solo per il t0, tanto ic è il vuoto praticamente sempre
-      !   !q(v,i,j,k,b) = 0.0_R8P this is bugged, which are v,i,j,k,b? below the fix
-      !   if (allocated(self%adam%maps%local_map_bc_crown)) then
-      !      do crown=1, ngc
-      !         do c=1, size(local_map_bc_crown, dim=1)
-      !            b = local_map_bc_crown(c, 1 ,crown)
-      !            if (b>0) then
-      !               i = local_map_bc_crown(c, 2, crown)
-      !               j = local_map_bc_crown(c, 3, crown)
-      !               k = local_map_bc_crown(c, 4, crown)
-      !               do v=1, nv_c
-      !                  q(v,i,j,k,b) = 0.0_R8P
-      !               enddo
-      !            endif
-      !         enddo
-      !      enddo
-      !   endif
-      !endif
    endif
    endassociate
    endsubroutine set_boundary_conditions
@@ -1278,89 +1213,6 @@ contains
    endselect
    endfunction component_along_direction_cpu
 
-   !subroutine compute_residuals_BC(self,s)
-   !!< Compute residuals BCs.
-   !!< La sua scrittura si lega all'ordine di interpolazione dell'operatore spaziale. Al momento
-   !!< e' scritto per operatore di secondo ordine (1 punto ghost).
-   !class(prism_cpu_object), intent(inout) :: self                    !< The equation.
-   !integer(I4P),            intent(in)    :: s                       !< Stage counter.
-   !real(R8P)                              :: ds                      !< Distanza tra le celle in x, y o z.
-   !integer(I4P)                           :: i,j,k,b,c,v             !< Counter
-   !integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
-   !integer(I4P)                           :: bc_type                 !< Boundary condition type.
-   !integer(I4P)                           :: crown                   !< Crown counter.
-   !integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
-   !integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
-   !associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                          &
-   !          nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), &
-   !          dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
-   !          nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,                   &
-   !          constrained_transport_B=>self%numerics%constrained_transport_B,                                                 &
-   !          constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>self%rk%q_rk,                             &
-   !          q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
-   !if (allocated(self%adam%maps%local_map_bc_crown)) then
-   !   do crown=1, ngc
-   !      do c=1, size(local_map_bc_crown, dim=1)
-   !         b = local_map_bc_crown(c, 1 ,crown)
-   !         if (b>0) then
-   !            bc_type = local_map_bc_crown(c, 8 ,crown)
-   !            i       = local_map_bc_crown(c, 2 ,crown)
-   !            j       = local_map_bc_crown(c, 3 ,crown)
-   !            k       = local_map_bc_crown(c, 4 ,crown)
-   !            idelta  = local_map_bc_crown(c, 5 ,crown)
-   !            jdelta  = local_map_bc_crown(c, 6 ,crown)
-   !            kdelta  = local_map_bc_crown(c, 7 ,crown)
-   !            fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
-   !            fec_1_6 = fec_1_6_array(fec)
-   !            if (fec <= 6) then
-   !               select case(fec)
-   !               case(1) !xmin
-   !                  ds = dx(b)
-   !               case(2) !xmax
-   !                  ds = dx(b)
-   !               case(3) !ymin
-   !                  ds = dy(b)
-   !               case(4) !ymax
-   !                  ds = dy(b)
-   !               case(5) !zmin
-   !                  ds = dz(b)
-   !               case(6) !zmax
-   !                  ds = dz(b)
-   !               end select
-   !               do v = 1,6
-   !                  dq_bc_rk(v,i,j,k,b) = -C0*(q_bc_rk(v,i,j,k,b,s)-q_rk(v,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-   !               enddo
-   !               if (nv_cl == 1_I4P) then
-   !                  dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-   !                                             q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-   !               elseif (nv_cl == 2_I4P) then
-   !                  dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
-   !                                             q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-   !                  dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-   !                                             q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-   !               endif
-   !               !if (div_corr_var == DIV_CORR_VAR_HYPER) then
-   !               !   if (constrained_transport_D .and. .not.constrained_transport_B) &
-   !               !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-   !               !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-   !               !   if (.not.constrained_transport_D .and. constrained_transport_B) &
-   !               !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-   !               !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-   !               !   if (constrained_transport_D .and. constrained_transport_B) &
-   !               !      dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
-   !               !                                 q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-   !               !   if (constrained_transport_D .and. constrained_transport_B) &
-   !               !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-   !               !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-   !               !endif
-   !            endif
-   !         endif
-   !      enddo
-   !   enddo
-   !endif
-   !endassociate
-   !endsubroutine compute_residuals_BC
-
    subroutine set_initial_conditions(self, is_restart) !DA CORREGGERE CON NV_PIC QUANDO SERVE PER BC CARICA SE MODELLO PIC ATTIVO
    !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self       !< The equation.
@@ -1497,15 +1349,13 @@ contains
    endsubroutine set_initial_state_forest
 
    subroutine post_initial_state_forest(self)
-   !< Template hook: the ghost update, the t0 diagnostics, the history files (and the priming of the leapfrog schemes,
-   !< which initialize refuses).
+   !< Template hook: the ghost update, the t0 diagnostics, the history files.
    class(prism_cpu_object), intent(inout) :: self !< The realm.
    real(R8P)                                        :: max_div_D     !< Maximum of divergence of D field.
    real(R8P)                                        :: max_div_B     !< Maximum of divergence of B
    real(R8P)                                        :: max_div_J     !< Maximum of divergence of J field.
    integer(I4P)                                     :: r             !< Auxiliary variable to identify fWL presence
-   real(R8P)                                        :: F_l(3)        !< Lorentz force for leapfrog preliminary integration.
-   integer(I4P)                                     :: i, n, b, ind  !< Counters.
+   integer(I4P)                                     :: n, b, ind     !< Counters.
 
    if (.not.self%io%restart) call mpih%print_message('impose initial conditions finish')
    call self%update_ghost(q=self%q)
@@ -1564,39 +1414,6 @@ contains
    if (self%plasma_freq%active) then
       call self%compute_plasma_frequencies
       call mpih%print_message(self%plasma_freq%description())
-   endif
-
-   if (.not.self%io%restart .and. is_pic_model(self%physics%physical_model)) then
-      if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
-         ! first time integration done apart with explicit euler scheme to iniziale leapfrog
-         call self%leapfrog_pic%assign_step(grid=self%adam%grid, s=1, q_pic=self%q_pic)
-         call self%compute_dt
-         !< Pic residual computation
-         !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
-         !ma devi metterlo nell'inizializzazione per coerenza
-         !< Integration of equations
-         self%q_pic(1,:) = self%q_pic(1,:) + self%time%dt * self%q_pic(4,:)
-         self%q_pic(2,:) = self%q_pic(2,:) + self%time%dt * self%q_pic(5,:)
-         self%q_pic(3,:) = self%q_pic(3,:) + self%time%dt * self%q_pic(6,:)
-         do i = 1, self%pic%particle_number
-            F_l = crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i))
-            self%q_pic(4,i) = self%q_pic(4,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(1,i)+F_l(1))
-            self%q_pic(5,i) = self%q_pic(5,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(2,i)+F_l(2))
-            self%q_pic(6,i) = self%q_pic(6,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(3,i)+F_l(3))
-            !self%q_pic(4:6,i) = self%q_pic(4:6,i) + self%time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
-            !                  (pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), pic_fields(4:6,i)))
-         enddo
-      endif
-   endif
-
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
-      ! first time integration done apart with explicit euler scheme to iniziale leapfrog
-      call self%leapfrog%assign_step(field=self%adam%field, s=1, q=self%q)
-      call self%compute_dt
-      !Qua c'era il calcolo delle correnti delle particelle se PIC
-      !Ora è nelle condizioni iniziali per coerenza con if legato a se ho pic o meno
-      call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q = self%q + self%time%dt * self%dq
    endif
    endsubroutine post_initial_state_forest
 
@@ -1744,7 +1561,7 @@ contains
    !< residual save, coil source refresh, time advance, progress print.
    !<
    !< Mirrors the post-substage tail of `integrate_rk_ssp`:
-   !< `rk%update_q + update_q_BC + save_residuals + compute_coils_current +
+   !< `ts%finish_step + save_residuals + compute_coils_current +
    !< external_fields add`, plus the post-loop time
    !< advance + progress print that `advance_one_step_forest` does inline.
    class(prism_cpu_object), intent(inout) :: self !< The realm.
@@ -4147,100 +3964,6 @@ contains
    endassociate
    endsubroutine compute_residuals_weno
 
-   subroutine integrate_blanesmoan(self)
-   !< Integrate equation, time operator, Yoshida RK scheme.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Counter.
-
-   associate(nc=>self%blanesmoan%nc,a=>self%blanesmoan%a,b=>self%blanesmoan%b)
-   call self%compute_coils_current(q=self%q)
-   do s=1, nc
-      call self%compute_residuals(q=self%q, dq=self%dq)
-      if (s==1) call self%save_residuals
-      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-      call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
-   enddo
-   call self%apply_fWL_correction(q=self%q)
-   call self%compute_coils_current(q=self%q)
-   endassociate
-   endsubroutine integrate_blanesmoan
-
-   subroutine integrate_cfm(self)
-   !< Integrate equation, time operator, Commutator-Free Magnus integrator.
-   class(prism_cpu_object), intent(inout) :: self             !< The equation.
-   real(R8P), parameter                   :: toll=1.0e-14_R8P !< CFM coefficients tollerance.
-   integer(I4P)                           :: s,ss             !< Counter.
-
-   call self%compute_coils_current(q=self%q)
-   associate(dt=>self%time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
-   self%cfm%q = self%q
-   call self%compute_residuals(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,1))
-   do s=2, self%cfm%n_stages
-      do ss=1, s-1
-         if (abs(s_coeffs(s,ss))>toll) &
-            call self%cfm%compute_exponential_update(alpha=dt*s_coeffs(s,ss),dq=self%cfm%dq(:,:,:,:,:,ss),q=self%cfm%q)
-      enddo
-      call self%compute_residuals(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,s))
-   enddo
-   self%cfm%q = self%q
-   do s=1, self%cfm%n_stages
-      if (abs(self%cfm%e_coeffs(s))>toll) &
-         call self%cfm%compute_exponential_update(alpha=dt*e_coeffs(s),dq=self%cfm%dq(:,:,:,:,:,s),q=self%cfm%q)
-   enddo
-   self%q = self%cfm%q
-   endassociate
-   call self%apply_fWL_correction(q=self%q)
-   call self%compute_coils_current(q=self%q)
-   endsubroutine integrate_cfm
-
-   subroutine integrate_leapfrog(self)
-   !< Integrate equation, time operator, leapfrog scheme.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-
-   call self%compute_coils_current(q=self%q)
-   call self%compute_residuals(q=self%q, dq=self%dq)
-   call self%save_residuals
-   call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
-   call self%apply_fWL_correction(q=self%q)
-   call self%compute_coils_current(q=self%q)
-   endsubroutine integrate_leapfrog
-
-   subroutine integrate_leapfrog_pic(self)
-   !< Integrate equation, time operator, leapfrog scheme for particle in cell
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-
-   !< Maxwell source terms computation: particles and coils
-   call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
-   call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   call self%adam%field%reduce_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=self%q, &
-                                         v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
-   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., &
-                                               context='integrate_leapfrog_pic(current)')
-   call self%compute_coils_current(q=self%q)
-   !< Maxwell residuals computation
-   call self%compute_residuals(q=self%q, dq=self%dq)
-   call self%save_residuals
-   !< Pic residual computation
-   if (self%external_fields%ef_type /= EF_TYPE_NONE) &
-      call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                    time=self%time%time, dt=0._R8P, q=self%q)
-   call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, &
-                                 pic_fields=self%pic_fields, nv=self%nv)
-   if (self%external_fields%ef_type /= EF_TYPE_NONE) &
-      call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                    time=self%time%time, dt=0._R8P, q=self%q)
-   !< Integration of equations
-   call self%leapfrog%integrate(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
-   call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
-   call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
-   call self%apply_fWL_correction(q=self%q)
-   endsubroutine integrate_leapfrog_pic
-
    subroutine integrate_rk_ls(self)
    !< Integrate equation, time operator, RK classical low storage schemes: SELAH's two-register form (#132), every stage
    !< on q; the residual of each stage into dq (the residual log is stage 1's), copied into the stepper's register.
@@ -4369,95 +4092,6 @@ contains
    ! hand the particles that left the blocks of this rank to their new owners
    call self%pic%migrate_particles(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    endsubroutine integrate_rk_ssp_pic
-
-   !subroutine update_q_BC(self, dt, phi)
-   !!< Update RK q ghost cells.
-   !class(prism_cpu_object), intent(inout) :: self             !< RK object.
-   !real(R8P),        intent(in)           :: dt               !< Current time step.
-   !real(R8P),        intent(in), optional :: phi(1:,          &
-   !                                              1-self%ngc:, &
-   !                                              1-self%ngc:, &
-   !                                              1-self%ngc:, &
-   !                                              1:)          !< IB distance.
-   !integer(I4P)                           :: all_solids       !< Last phi index, all solids summary.
-   !integer(I4P)                           :: i, j, k, b, v, s, c !< Counter.
-!
-   !integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
-   !integer(I4P)                           :: bc_type                 !< Boundary condition type.
-   !integer(I4P)                           :: crown                   !< Crown counter.
-   !associate(local_map_bc_crown=>self%adam%maps%local_map_bc_crown,                                                             &
-   !             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), &
-   !             dz=>self%adam%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
-   !             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                             &
-   !             constrained_transport_B=>self%numerics%constrained_transport_B,                                                 &
-   !             constrained_transport_D=>self%numerics%constrained_transport_D, nrk=>self%rk_bc%nrk,                            &
-   !             q_bc_rk=>self%rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>self%rk_bc%beta)
-!
-   !if (present(phi)) then
-   !   all_solids = ubound(phi, dim=1)
-   !   !$omp parallel do collapse(6) default(firstprivate) shared(phi,self)
-   !   do s=1, nrk
-   !      do b=1, blocks_number
-   !         do k=1-ngc, nk+ngc
-   !            do j=1-ngc, nj+ngc
-   !               do i=1-ngc, ni+ngc
-   !                  !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
-   !                  do v=1, nv_c
-   !                     if (phi(all_solids,i,j,k,b) < 0._R8P) then
-   !                        q_bc_rk(v,i,j,k,b,nrk+1) = q_bc_rk(v,i,j,k,b,nrk+1) + dt * beta(s) * q_bc_rk(1,i,j,k,b,s)
-   !                     endif
-   !                  enddo
-   !               enddo
-   !            enddo
-   !         enddo
-   !      enddo
-   !   enddo
-   !   !$omp end parallel do
-   !else
-   !   !$omp parallel do collapse(6) default(firstprivate) shared(self)
-   !   do s=1, nrk
-   !      do b=1, blocks_number
-   !         do k=1-ngc, nk+ngc
-   !            do j=1-ngc, nj+ngc
-   !               do i=1-ngc, ni+ngc
-   !                  do v=1, nv_c
-   !                     q_bc_rk(v,i,j,k,b,nrk+1) = q_bc_rk(v,i,j,k,b,nrk+1) + dt * beta(s) * q_bc_rk(1,i,j,k,b,s)
-   !                  enddo
-   !               enddo
-   !            enddo
-   !         enddo
-   !      enddo
-   !   enddo
-   !   !$omp end parallel do
-   !endif
-   !if (allocated(self%adam%maps%local_map_bc_crown)) then
-   !   do crown=1, ngc
-   !      do c=1, size(local_map_bc_crown, dim=1)
-   !         b = local_map_bc_crown(c, 1 ,crown)
-   !         if (b>0) then
-   !            bc_type = local_map_bc_crown(c, 8 ,crown)
-   !            if (bc_type == BC_radiative) then
-   !               i       = local_map_bc_crown(c, 2 ,crown)
-   !               j       = local_map_bc_crown(c, 3 ,crown)
-   !               k       = local_map_bc_crown(c, 4 ,crown)
-   !               idelta  = local_map_bc_crown(c, 5 ,crown)
-   !               jdelta  = local_map_bc_crown(c, 6 ,crown)
-   !               kdelta  = local_map_bc_crown(c, 7 ,crown)
-   !               do v=1, nv_c
-   !                  ! this seems bugged, loop over v and using always nv_c or 1...
-   !                  ! self%q(nv_c,i,j,k,b) = 2*q_bc_rk(1,i,j,k,b,nrk+1)-self%q(nv_c,i-idelta,j-jdelta,k-kdelta,b)
-   !                  ! probable fix below
-   !                  self%q(v,i,j,k,b) = 2*q_bc_rk(v,i,j,k,b,nrk+1)-self%q(v,i-idelta,j-jdelta,k-kdelta,b)
-   !               enddo
-   !               !print *, 'Updating BC SM', b, ' cell (', i, ',', j, ',', k, ')'
-   !            endif
-   !         endif
-   !         !Qua ci aggiungi gli altri if a seconda elle variabili su cui vuoi implementare questa BC
-   !      enddo
-   !   enddo
-   !endif
-   !endassociate
-   !endsubroutine update_q_BC
 
    subroutine integrate_rk_ssp_pic_charge_conserving(self)
    !< Integrate PIC equations with SSP RK and charge-conserving current reconstruction.

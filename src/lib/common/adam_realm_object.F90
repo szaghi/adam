@@ -36,8 +36,6 @@ module adam_realm_object
 ! ADAM classes, libraries, parameters
 use :: adam_adam_object
 use :: adam_amr_object
-use :: adam_blanes_moan_object
-use :: adam_cfm_object
 use :: adam_eos_ic_object
 use :: adam_fdv_operators_library
 use :: adam_field_object
@@ -45,7 +43,6 @@ use :: adam_flail_object
 use :: adam_flux_register_object
 use :: adam_ib_object
 use :: adam_io_object
-use :: adam_leapfrog_object
 use :: adam_maps_object
 use :: adam_parameters
 use :: adam_stepper_object, only : stepper_object, LAYOUT_V_FIRST
@@ -79,9 +76,6 @@ type :: realm_object
    type(io_object)         :: io         !< IO handler.
    type(amr_object)        :: amr        !< AMR marker handler.
    type(slices_object)     :: slices     !< Slices handler.
-   type(blanesmoan_object) :: blanesmoan !< Blanes-Moan integrator.
-   type(cfm_object)        :: cfm        !< Commutator-Free Magnus integrator.
-   type(leapfrog_object)   :: leapfrog   !< Leapfrog integrator.
    type(flail_object)        :: flail        !< FLAIL, the elliptic solver library (issue #84).
    type(weno_object)       :: weno       !< WENO reconstructor.
    logical                 :: with_weno=.true. !< Read [weno] and initialize `weno` (the app clears it when unused, #80 P5).
@@ -377,9 +371,6 @@ contains
       call check_amr_block_cells
       call self%ib%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
       call self%slices%initialize(file_parameters=file_parameters, grid=self%adam%grid, L0=L0)
-      ! call self%blanesmoan%initialize(file_parameters=file_parameters)
-      ! call self%cfm%initialize(file_parameters=file_parameters)
-      ! call self%leapfrog%initialize(file_parameters=file_parameters)
       if (any(self%selah_partitions /= 0_I4P)) then
          call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
                                  layout=self%selah_layout, partitions=self%selah_partitions)

@@ -272,12 +272,14 @@ The `[runge_kutta] scheme` names (`adam_stepper_object` constants). ADAM's own i
 | `RK_SSP_54` | SSP(5,4) | 5 | 4 |
 | `RK_YOSHIDA` | Yoshida symplectic | 4 | 4 |
 
-### Unused integrators
+### Removed integrators
 
-`adam_leapfrog_object` (leapfrog with Robert–Asselin–Williams filter, `[leapfrog]`), `adam_blanes_moan_object`
-(Blanes–Moan splitting of order 4 and 6, `[blanes_moan]`) and `adam_cfm_object` (commutator-free Magnus of order 4,
-6, 8, `[commutator_free_magnus]`) are declared by `realm_object` but not initialized. No application can use them, and
-PRISM refuses them at initialization.
+The leapfrog with the Robert–Asselin–Williams filter, the Blanes–Moan splitting and the commutator-free Magnus
+integrators (`adam_leapfrog_object`, `adam_blanes_moan_object`, `adam_cfm_object`), never initialized by any
+application, were deleted ([#134](https://github.com/szaghi/adam/issues/134)) and move to SELAH
+([SELAH#3](https://github.com/szaghi/SELAH/issues/3)), which re-implements them against the theory (ADAM's RAW filter,
+Blanes–Moan loop and CFM exponentials were defective). PRISM refuses `scheme_time = leapfrog`, `blanes_moan` and
+`commutator_free_magnus` at initialization.
 
 ## Physics support
 
@@ -471,7 +473,7 @@ No manifest is read at step time.
 
 | Constant | Value | Fill |
 |----------|-------|------|
-| `CADENCE_END_OF_STEP` (α, default) | 0 | Once per step, before `open_step_forest` (phase 0). FLUME's `open_step_forest` copies the ghosts into every stage buffer (`seam_ghosts_to_stages`) |
+| `CADENCE_END_OF_STEP` (α, default) | 0 | Once per step, before `open_step_forest` (phase 0). `begin_stage_forest` copies them into each stage state (`seam_ghosts_to_state`) |
 | `CADENCE_STAGE_COINCIDENT` (β) | 1 | Every stage, before `end_stage_forest` (phase 2) |
 
 A 1:1 same-resolution mirror seam in PRISM must use β to stay div-free: PRISM's α stages read seam ghosts that were
@@ -495,7 +497,7 @@ ghost values. Same-rank interpolate and restrict rows travel as messages to self
 |-----------|------|
 | `seam_fill(realm, p)` | One (realm, peer slot) pair: local copy, pack (`pack_seam_cells_forest`), point-to-point transfer, unpack |
 | `seam_fill_all`, `seam_fill_batch(realm, cadence, wtime)` | Every pair, or every pair of one cadence in one batch |
-| `seam_ghosts_to_stages` | Copy the seam ghosts into the stage buffers (α) |
+| `seam_ghosts_to_state` | Copy the seam ghosts into the active stage state (α, #132 rule 1) |
 | `pack_seam_rows`, `unpack_seam_rows` | Row packing shared by the realm TBPs |
 
 Every rank calls `seam_fill` for the same pairs in the same order (the peer slots come from the manifest). A rank with
@@ -585,9 +587,6 @@ The keys live on `adam_io_object`. The monitor covers intra-realm 2:1 faces and 
 | `adam_fdv_operators_library` | Numerics, spatial | `adam_fdv_operators_library.F90` |
 | `adam_riemann_euler_library` | Numerics, spatial (unused) | `adam_riemann_euler_library.F90` |
 | `adam_stepper_object` | Numerics, temporal (SELAH adapter) | `adam_stepper_object.F90` |
-| `adam_leapfrog_object` | Numerics, temporal (unused) | `adam_leapfrog_object.F90` |
-| `adam_blanes_moan_object` | Numerics, temporal (unused) | `adam_blanes_moan_object.F90` |
-| `adam_cfm_object` | Numerics, temporal (unused) | `adam_cfm_object.F90` |
 | `adam_eos_ic_object` | Physics (unused) | `adam_eos_ic_object.F90` |
 | `adam_ib_object` | Physics | `adam_ib_object.F90` |
 | `adam_turbulence_object` | Physics | `adam_turbulence_object.F90` |

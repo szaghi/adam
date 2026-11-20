@@ -37,7 +37,6 @@ private
 public :: seam_fill
 public :: seam_fill_all
 public :: seam_fill_batch
-public :: seam_ghosts_to_stages
 public :: seam_ghosts_to_state
 public :: seam_peer_slot
 public :: pack_seam_rows
@@ -278,50 +277,12 @@ contains
    enddo
    endsubroutine seam_fill_all
 
-   subroutine seam_ghosts_to_stages(maps, cadence, ngc, q, q_rk)
-   !< Copy the seam ghosts of `q` into every stage buffer of `q_rk`, for the peer slots of the given cadence (issue
-   !< #113): the local rows and the receive rows of each slot, the cells the seam fill writes in this realm.
-   !<
-   !< The `end_of_step` (alpha) fill writes the committed `q` only, while the stages compute on the stepper's stage
-   !< states, whose ghosts the stage loop never refills from a peer (a stage state starts as a copy of `q`). Called when a step
-   !< opens, right after the forest's alpha fill, it gives every stage of the step the peer state at the start of the
-   !< step, the lagged coupling alpha means.
-   type(maps_object), intent(in)    :: maps                                !< Maps of the realm owning the ghosts.
-   integer(I4P),      intent(in)    :: cadence                             !< Cadence of the slots copied.
-   integer(I4P),      intent(in)    :: ngc                                 !< Ghost cells number.
-   real(R8P),         intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Committed state (v, i, j, k, b).
-   real(R8P),         intent(inout) :: q_rk(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:) !< Stage buffers (v, i, j, k, b, s).
-   integer(I4P)                     :: p, c, row, s, b, i, j, k            !< Counters and cell.
-
-   if (.not.allocated(maps%seam_local_cadence)) return
-   do p=1_I4P, int(size(maps%seam_local_cadence), I4P)
-      if (maps%seam_local_cadence(p) /= cadence) cycle
-      do c=1_I4P, maps%seam_local_peer_row_count(p)
-         row = maps%seam_local_peer_row_start(p) + c - 1_I4P
-         b = maps%seam_local_map_ghost_cell(row,3) ; i = maps%seam_local_map_ghost_cell(row,7)
-         j = maps%seam_local_map_ghost_cell(row,8) ; k = maps%seam_local_map_ghost_cell(row,9)
-         do s=1_I4P, int(size(q_rk, dim=6), I4P)
-            q_rk(:,i,j,k,b,s) = q(:,i,j,k,b)
-         enddo
-      enddo
-      do c=1_I4P, maps%seam_mpi_recv_row_count(p)
-         row = maps%seam_mpi_recv_row_start(p) + c - 1_I4P
-         b = maps%seam_mpi_recv_cell(row,2) ; i = maps%seam_mpi_recv_cell(row,3)
-         j = maps%seam_mpi_recv_cell(row,4) ; k = maps%seam_mpi_recv_cell(row,5)
-         do s=1_I4P, int(size(q_rk, dim=6), I4P)
-            q_rk(:,i,j,k,b,s) = q(:,i,j,k,b)
-         enddo
-      enddo
-   enddo
-   endsubroutine seam_ghosts_to_stages
-
    subroutine seam_ghosts_to_state(maps, cadence, ngc, q, u)
-   !< Copy the seam ghosts of `q` into the stage state `u`, for the peer slots of the given cadence: the cells of
-   !< `seam_ghosts_to_stages`, one stage state instead of every stage buffer (#132 rule 1).
+   !< Copy the seam ghosts of `q` into the stage state `u`, for the peer slots of the given cadence (#132 rule 1).
    !<
    !< SELAH's Butcher form keeps the state of the active stage in one register and never writes a ghost cell: called
    !< when each stage opens, after the stepper built its state, it gives that stage the peer state of the step's alpha
-   !< fill, as `seam_ghosts_to_stages` gave every stage buffer at the start of the step.
+   !< fill, the peer state at the start of the step (the alpha cadence).
    type(maps_object), intent(in)    :: maps                             !< Maps of the realm owning the ghosts.
    integer(I4P),      intent(in)    :: cadence                          !< Cadence of the slots copied.
    integer(I4P),      intent(in)    :: ngc                              !< Ghost cells number.

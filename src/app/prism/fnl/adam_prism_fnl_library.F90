@@ -10,7 +10,6 @@ use :: adam_prism_common_library
 use :: adam_prism_fnl_coil_object
 use :: adam_prism_fnl_external_fields_kernels
 use :: adam_prism_fnl_fwlayer_object
-use :: adam_prism_fnl_leapfrog_pic_object
 use :: adam_prism_fnl_pml_object
 use :: adam_prism_fnl_pic_object
 use :: adam_prism_fnl_pic_conserving_object

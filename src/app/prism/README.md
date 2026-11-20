@@ -26,7 +26,6 @@ src/app/prism/
 │   ├── adam_prism_pic_object.F90                # Particle-in-Cell configuration
 │   ├── adam_prism_pic_bc_object.F90             # Particle closure at the domain faces
 │   ├── adam_prism_particle_injection_object.F90 # Particle injection handler
-│   ├── adam_prism_leapfrog_pic_object.F90       # Leapfrog PIC time integrator
 │   ├── adam_prism_rk_pic_object.F90             # Runge-Kutta PIC time integrator
 │   ├── adam_prism_probes_object.F90             # Field probes: time histories at fixed points
 │   ├── adam_prism_grms_object.F90               # Grms diagnostic
@@ -46,7 +45,6 @@ src/app/prism/
     ├── adam_prism_fnl_rk_pml_object.F90         # GPU RK support for the PML auxiliary variables
     ├── adam_prism_fnl_pic_object.F90            # GPU Particle-in-Cell
     ├── adam_prism_fnl_pic_conserving_object.F90 # GPU charge-conserving currents
-    ├── adam_prism_fnl_leapfrog_pic_object.F90   # GPU PIC leapfrog integrator
     ├── adam_prism_fnl_rk_pic_object.F90         # GPU PIC Runge-Kutta integrator
     ├── adam_prism_fnl_probes_object.F90         # GPU field probes
     └── adam_prism_fnl_library.F90               # Barrel re-export of all FNL modules

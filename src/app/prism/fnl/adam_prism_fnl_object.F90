@@ -54,7 +54,6 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(ib_fnl_object)            :: ib_fnl      !< GPU immersed boundary.
    type(weno_fnl_object)          :: weno_fnl    !< GPU WENO reconstructor.
    type(prism_fnl_coil_object)    :: coil_fnl    !< GPU coil source.
-   type(prism_fnl_leapfrog_pic_object) :: leapfrog_pic_fnl !< GPU PIC leapfrog integrator.
    type(prism_fnl_pic_object)     :: pic_fnl     !< GPU PIC support state.
    type(prism_fnl_rk_pic_object)  :: rk_pic_fnl  !< GPU PIC RK integrator.
    type(prism_fnl_pic_conserving_object) :: conserving_fnl !< GPU charge-conserving PIC current.
@@ -139,7 +138,6 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: migrate_particles       !< Migrate particles between ranks (end of a time step).
       procedure, pass(self) :: sync_particle_number    !< Align the device helpers to the local particle count.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
-      procedure, pass(self) :: update_rk_ghost         !< Update RK stage ghost cells.
       ! numerical methods, FDV operators
       procedure, pass(self) :: compute_curl_fd_dev        !< Compute curl of vector field by finite difference.
       procedure, pass(self) :: compute_curl_fv_dev        !< Compute curl of vector field by finite volume.
@@ -160,12 +158,8 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! procedure, pass(self) :: compute_residuals_fv_centered !< Compute residuals, centered finite volume schemes.
       ! procedure, pass(self) :: compute_residuals_weno        !< Compute residuals, WENO schemes.
       ! numerical methods, time operators
-      procedure, pass(self) :: integrate_blanesmoan_dev !< Blanes and Moan scheme.
-      procedure, pass(self) :: integrate_cfm_dev        !< Commutator-Free Magnus scheme.
-      procedure, pass(self) :: integrate_leapfrog_dev   !< Leapfrog scheme.
       procedure, pass(self) :: integrate_rk_ls_dev      !< RK classical low storage schemes.
       procedure, pass(self) :: integrate_rk_ssp_dev     !< SSP RK schemes.
-      procedure, pass(self) :: integrate_rk_yoshida_dev !< Yoshida schemes.
       ! forest orchestrator contract methods overridings
       procedure, pass(self) :: initialize_app_forest             !< Template hook: the PRISM backend.
       procedure, pass(self) :: restart_state_forest              !< Template hook: the state from the restart files.
@@ -328,7 +322,6 @@ contains
    call self%conserving_fnl%destroy()
    call self%plasma_freq_fnl%destroy()
    call self%rk_pic_fnl%destroy()
-   call self%leapfrog_pic_fnl%destroy()
    call self%pic_fnl%destroy()
    call self%coil_fnl%destroy()
    call self%weno_fnl%destroy()
@@ -409,7 +402,7 @@ contains
    !< time scheme stages, the migration buffers, the conserving histories), and the virtual block of the conserving
    !< current, the whole domain at the
    !< finest uniform level (`h_gpu`, `work_a/b_gpu`, `line_gpu`, `jv_gpu`, the tail-cleanup arrays). Each term mirrors an
-   !< allocation of pic_fnl, rk_pic_fnl, leapfrog_pic_fnl and conserving_fnl: keep them in step. PML storage and the
+   !< allocation of pic_fnl, rk_pic_fnl and conserving_fnl: keep them in step. PML storage and the
    !< runtime context are left to the `[amr].(memory_fraction)` headroom.
    type(prism_physics_object), intent(in) :: physics         !< Physics (initialized).
    type(file_ini),          intent(inout) :: file_parameters !< Simulation parameters ini file handler.
@@ -461,7 +454,6 @@ contains
    per_particle = 8._R8P*(PARTICLE_VARIABLES + PARTICLE_FIELDS) + 4._R8P*PARTICLE_NEIGHBOURS
    if (mpih_fnl%procs_number > 1_I4P) per_particle = per_particle + 4._R8P*2 + 8._R8P*PARTICLE_VARIABLES ! migration
    if (pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*nrk
-   if (pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG)    per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*2
    if (conserving) then
       per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*2                               ! q_next, q_ref
       if (pic%esirkepov_tail_cleanup) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*nrk ! q_hist
@@ -603,8 +595,6 @@ contains
    if (is_pic_model(self%physics%physical_model)) &
       call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
                                      verbose=verbose)
-   if (is_pic_model(self%physics%physical_model) .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
-      call self%leapfrog_pic_fnl%copy_cpu_gpu(q_pic_old=self%leapfrog_pic%q_pic_old, verbose=verbose)
    if (allocated(self%buf_6D_R8P)) then
       call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid, buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
    else
@@ -633,8 +623,6 @@ contains
    if (is_pic_model(self%physics%physical_model)) &
       call self%pic_fnl%copy_gpu_cpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
                                      verbose=verbose)
-   if (is_pic_model(self%physics%physical_model) .and. self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
-      call self%leapfrog_pic_fnl%copy_gpu_cpu(q_pic_old=self%leapfrog_pic%q_pic_old, verbose=verbose)
    if (allocated(self%buf_6D_R8P)) then
       call self%coil_fnl%copy_gpu_cpu(coil=self%coil, grid=self%adam%grid, buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
    else
@@ -705,34 +693,35 @@ contains
    ! (an FNL Yoshida run under-budgets its stages and died in allocate_gpu, issue #55)
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
       select case(self%numerics%scheme_time)
+      ! the time integrators are SELAH's (szaghi/adam#134); those ADAM never made functional moved to SELAH (szaghi/SELAH#3)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
-         ! integrate_blanesmoan_dev is an empty stub: dispatching to it would silently freeze the solution (issue #55)
-         call mpih_fnl%error_stop(msg=': Blanes-Moan time integration not ported to FNL backend')
+         call mpih_fnl%error_stop(msg=': Blanes-Moan time integration is not available in ADAM (moved to SELAH, '// &
+                                      'szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_CFM)
-         ! integrate_cfm_dev is an empty stub too (issue #55)
-         call mpih_fnl%error_stop(msg=': Commutator-Free Magnus time integration not ported to FNL backend')
+         call mpih_fnl%error_stop(msg=': Commutator-Free Magnus time integration is not available in ADAM (moved to '// &
+                                      'SELAH, szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_LEAPFROG)
-         ! integrate_leapfrog_dev is an empty stub: dispatching to it would silently freeze the solution
-         call mpih_fnl%error_stop(msg=': leapfrog time integration not ported to FNL backend')
+         call mpih_fnl%error_stop(msg=': leapfrog time integration is not available in ADAM (moved to SELAH, '// &
+                                      'szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%ts%scheme)
          case(RK_1, RK_2, RK_3)                ; self%integrate_dev => integrate_rk_ls_dev
          case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate_dev => integrate_rk_ssp_dev
          case(RK_YOSHIDA)
-            ! integrate_rk_yoshida_dev is an empty stub: dispatching to it would silently freeze the solution (issue #55)
+            ! SELAH's Yoshida splitting runs on the CPU backend only (issue #55)
             call mpih_fnl%error_stop(msg=': Yoshida Runge-Kutta time integration not ported to FNL backend')
          endselect
       endselect
    elseif (is_pic_model(self%physics%physical_model)) then
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
-         ! integrate_leapfrog_pic (and the leapfrog priming step) are empty stubs on FNL: dispatching to them
-         ! would silently freeze both fields and particles
-         call mpih_fnl%error_stop(msg=': PIC leapfrog time integration not ported to FNL backend')
+         call mpih_fnl%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, '// &
+                                      'szaghi/SELAH#4)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-            call mpih_fnl%error_stop(msg=': PIC leapfrog time integration not ported to FNL backend')
+            call mpih_fnl%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, '// &
+                                         'szaghi/SELAH#4)')
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
             select case(self%rk_pic%scheme)
             case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -771,8 +760,6 @@ contains
    endif
    if (is_pic_model(self%physics%physical_model)) then
       call self%pic_fnl%initialize(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
-      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) &
-         call self%leapfrog_pic_fnl%initialize(pic=self%pic, leapfrog_pic=self%leapfrog_pic)
       if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
          call self%rk_pic_fnl%initialize(pic=self%pic, rk_pic=self%rk_pic)
       if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
@@ -2249,18 +2236,6 @@ contains
       call self%compute_coils_current(q_gpu=q_gpu)
    endif
    endsubroutine update_ghost
-
-   subroutine update_rk_ghost(self, dt, phi_gpu)
-   !< Update RK ghost cells.
-   class(prism_fnl_object), intent(inout)        :: self        !< RK object.
-   real(R8P),               intent(in)           :: dt          !< Current time step.
-   real(R8P),               intent(in), optional :: phi_gpu(1:,          &
-                                                            1-self%ngc:, &
-                                                            1-self%ngc:, &
-                                                            1-self%ngc:, &
-                                                            1:) !< IB distance.
-   ! to be implemented
-   endsubroutine update_rk_ghost
 
    ! numerical methods, FDV operators
    subroutine compute_curl_fd_dev(self, ivar, q_gpu, curl_gpu)
@@ -5278,84 +5253,6 @@ contains
    endsubroutine fv_apply_reflux_face_dev_kernel
 
    ! numerical methods, time operators
-   subroutine integrate_blanesmoan_dev(self)
-   !< Integrate equation, time operator, Blanes and Moan scheme.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Counter.
-
-   ! associate(nc=>self%blanesmoan%nc,a=>self%blanesmoan%a,b=>self%blanesmoan%b)
-   ! call self%compute_coils_current(q_gpu=self%q_gpu)
-   ! do s=1, nc
-   !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   !    if (s==1) call self%save_residuals
-   !    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   !    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   !    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-   !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   !    self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-   !    self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-   !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
-   ! enddo
-   ! endassociate
-   endsubroutine integrate_blanesmoan_dev
-
-   subroutine integrate_cfm_dev(self)
-   !< Integrate equation, time operator, Commutator-Free Magnus integrator.
-   class(prism_fnl_object), intent(inout) :: self             !< The equation.
-   real(R8P), parameter                   :: toll=1.0e-14_R8P !< CFM coefficients tollerance.
-   integer(I4P)                           :: s,ss             !< Counter.
-
-   ! call self%compute_coils_current(q_gpu=self%q_gpu)
-   ! associate(dt=>self%time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
-   ! self%cfm%q = self%q
-   ! call self%compute_residuals_dev(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,1))
-   ! do s=2, self%cfm%n_stages
-   !    do ss=1, s-1
-   !       if (abs(s_coeffs(s,ss))>toll) &
-   !          call self%cfm%compute_exponential_update(alpha=dt*s_coeffs(s,ss),dq=self%cfm%dq(:,:,:,:,:,ss),q=self%cfm%q)
-   !    enddo
-   !    call self%compute_residuals_dev(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,s))
-   ! enddo
-   ! self%cfm%q = self%q
-   ! do s=1, self%cfm%n_stages
-   !    if (abs(self%cfm%e_coeffs(s))>toll) &
-   !       call self%cfm%compute_exponential_update(alpha=dt*e_coeffs(s),dq=self%cfm%dq(:,:,:,:,:,s),q=self%cfm%q)
-   ! enddo
-   ! self%q = self%cfm%q
-   ! endassociate
-   endsubroutine integrate_cfm_dev
-
-   subroutine integrate_leapfrog_dev(self)
-   !< Integrate equation, time operator, leapfrog scheme.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
-
-   ! call self%compute_coils_current(q_gpu=self%q_gpu)
-   ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   ! call self%save_residuals
-   ! call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
-   endsubroutine integrate_leapfrog_dev
-
-   subroutine integrate_leapfrog_pic(self)
-   !< Integrate equation, time operator, leapfrog scheme.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
-
-   !!Fai check su come si parlano questa subroutine e quella che calcola la corrente associata alle particelle
-   !call self%compute_coils_current(q_gpu=self%q_gpu)
-
-   !! qua ci va la chiamata alla subroutine che aggiorna la neighbour list delle particelle
-   !! qua ci va la chiamata alla subroutine che calcola la corrente associata alle particelle
-
-   !call self%compute_residuals_dev(q=self%q, dq=self%dq) !< Calcolo i residui relativi ai campi E e B
-   !call self%save_residuals
-
-   !call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
-
-   !!Qua ci va la chiamata alla subroutine che integra aggiornando le velocita e le posizioni delle particelle
-   !            !decidi se fare qui all'inizio del tempo successivo l'aggiornamento della neighbour list delle particelle
-
-   !!call self%apply_fWL_correction
-   endsubroutine integrate_leapfrog_pic
-
    subroutine integrate_rk_ssp_pic(self)
    !< Integrate PIC equations with SSP RK on device: the field on SELAH's Butcher form (#132), the stage state the
    !< stepper's device register (the stage current is deposited into it, as into the former stage buffer).
@@ -5494,7 +5391,6 @@ contains
 
    self%pic_fnl%particle_number = self%pic%particle_number
    self%rk_pic_fnl%particle_number = self%pic%particle_number
-   self%leapfrog_pic_fnl%particle_number = self%pic%particle_number
    if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
       self%conserving_fnl%particle_number = self%pic%particle_number
    endsubroutine sync_particle_number
@@ -5798,29 +5694,6 @@ contains
    endif
    endsubroutine ts_finish_step
 
-   subroutine integrate_rk_yoshida_dev(self)
-   !< Integrate equation, time operator, Yoshida RK scheme.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Counter.
-
-   ! call self%compute_coils_current(q_gpu=self%q_gpu)
-   ! do s=1, rk%nrk - 1
-   !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   !    if (s==1) call self%save_residuals
-   !    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   !    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   !    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-   !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   !    self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-   !    self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-   !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
-   ! enddo
-   ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   ! self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   ! self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   ! self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + rk%ssa(rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-   endsubroutine integrate_rk_yoshida_dev
-
    subroutine is_done_forest(self, done)
    !< Decide whether this realm has reached its local termination criterion.
    !<
@@ -5941,8 +5814,7 @@ contains
    endsubroutine set_initial_state_forest
 
    subroutine post_initial_state_forest(self)
-   !< Template hook: the ghost update, the t0 diagnostics, the history files (and the priming of the leapfrog schemes,
-   !< which initialize refuses).
+   !< Template hook: the ghost update, the t0 diagnostics, the history files.
    class(prism_fnl_object), intent(inout) :: self !< The realm.
    integer(I4P)                                     :: i             !< Counter.
    integer(I4P)                                     :: n             !< Coil counter.
@@ -6028,20 +5900,6 @@ contains
                                                     Gauss_L1=0._R8P, Gauss_L2=0._R8P, Gauss_Linf=0._R8P, &
                                                     is_to_open=.true., do_write=.false.)
    call self%io%open_file_residuals(nv=self%nv)
-
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
-      ! to be implemented leapfrog on device
-      ! call self%leapfrog%assign_step(s=1, q=self%q)
-      ! call self%compute_dt
-      ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
-      ! self%q = self%q + self%time%dt * self%dq
-   endif
-
-   if (is_pic_model(self%physics%physical_model)) then
-      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
-         ! to be implemented
-      endif
-   endif
 
    if (self%plasma_freq%active) then
       call self%plasma_freq_fnl%initialize(nb=self%nb, ni=self%adam%grid%ni, nj=self%adam%grid%nj, nk=self%adam%grid%nk)

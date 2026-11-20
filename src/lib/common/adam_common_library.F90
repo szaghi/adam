@@ -5,8 +5,6 @@ module adam_common_library
 ! ADAM classes, libraries, parameters
 use :: adam_adam_object
 use :: adam_amr_object
-use :: adam_blanes_moan_object
-use :: adam_cfm_object
 use :: adam_eos_ic_object
 use :: adam_realm_object
 use :: adam_forest_object
@@ -18,7 +16,6 @@ use :: adam_flux_register_object
 use :: adam_grid_object
 use :: adam_ib_object
 use :: adam_io_object
-use :: adam_leapfrog_object
 use :: adam_maps_object
 use :: adam_mpih_object
 use :: adam_parameters

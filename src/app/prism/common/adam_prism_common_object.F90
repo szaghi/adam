@@ -12,7 +12,6 @@ use :: adam_prism_fWLayer_object
 use :: adam_prism_grms_object
 use :: adam_prism_ic_object
 use :: adam_prism_io_object
-use :: adam_prism_leapfrog_pic_object
 use :: adam_prism_magnetic_field_at_center_domain_object
 use :: adam_prism_numerics_object
 use :: adam_prism_parameters
@@ -108,7 +107,6 @@ type, extends(realm_object) :: prism_common_object
    type(prism_grms_object)               :: grms               !< Grms diagnostic.
    type(prism_ic_object)                 :: ic                 !< Initial conditions.
    type(prism_io_object)                 :: io_prism           !< The [IO] options only PRISM reads.
-   type(prism_leapfrog_pic_object)       :: leapfrog_pic       !< Leapfrog PIC integrator.
    type(prism_magnetic_field_at_center_domain_object) :: magnetic_field_at_center_domain !< Domain-center B diagnostic.
    type(prism_numerics_object)           :: numerics           !< Numerics configuration.
    type(prism_particle_injection_object) :: particle_injection !< Particle injection.
@@ -570,8 +568,6 @@ contains
                                   grid=self%adam%grid)
    endif
    if (is_pic_model(self%physics%physical_model)) then
-      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
-         call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
          call self%rk_pic%initialize(ts=self%ts, pic=self%pic, physics=self%physics)
    endif
@@ -1207,7 +1203,7 @@ contains
    integer(I4P)                              :: particle_variables    !< Stored PIC state width.
    integer(I4P)                              :: particle_number       !< Stored particle count.
    integer(I4P)                              :: total_number          !< Stored particle count, all ranks.
-   integer(I4P)                              :: history_slots         !< Stored leapfrog history depth.
+   integer(I4P)                              :: history_slots         !< Stored leapfrog history depth (0: none).
    logical                                   :: file_exist            !< File-existence flag.
 
    if (.not. is_pic_model(self%physics%physical_model)) return
@@ -1239,18 +1235,10 @@ contains
 
    read(unit=file_unit) self%q_pic
 
-   if (history_slots > 0_I4P) then
-      if (.not. allocated(self%leapfrog_pic%q_pic_old)) then
-         call mpih%error_stop(msg=': PIC restart contains leapfrog history but host leapfrog storage is not allocated')
-      endif
-      if (history_slots /= size(self%leapfrog_pic%q_pic_old, dim=3)) then
-         call mpih%error_stop(msg=': PIC restart leapfrog history depth "'//trim(str(history_slots))// &
-                                  '" differs from allocated depth "'//trim(str(size(self%leapfrog_pic%q_pic_old, dim=3)))//'"')
-      endif
-      read(unit=file_unit) self%leapfrog_pic%q_pic_old
-   elseif (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) then
-      call mpih%error_stop(msg=': PIC leapfrog restart requires q_pic_old history, but the restart file contains none')
-   endif
+   ! the file keeps the history depth of the PIC leapfrog it once stored: removed from ADAM (szaghi/SELAH#4)
+   if (history_slots > 0_I4P) &
+      call mpih%error_stop(msg=': PIC restart "'//filename//'" holds a PIC leapfrog history: PIC leapfrog is not '// &
+                               'available in ADAM (moved to SELAH, szaghi/SELAH#4)')
 
    close(file_unit)
    endsubroutine load_pic_restart_files
@@ -1453,23 +1441,14 @@ contains
    class(prism_common_object), intent(in) :: self                  !< The equation.
    character(:), allocatable              :: filename              !< PIC restart file name.
    integer(I4P)                           :: file_unit             !< Restart file unit.
-   integer(I4P)                           :: history_slots         !< Stored leapfrog history depth.
+   integer(I4P), parameter                :: history_slots=0_I4P   !< Leapfrog history depth: none (the file format keeps it).
 
    if (.not. is_pic_model(self%physics%physical_model)) return
-
-   history_slots = 0_I4P
-   if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_LEAPFROG) then
-      if (.not. allocated(self%leapfrog_pic%q_pic_old)) then
-         call mpih%error_stop(msg=': PIC leapfrog restart save requested without allocated q_pic_old history')
-      endif
-      history_slots = size(self%leapfrog_pic%q_pic_old, dim=3)
-   endif
 
    filename = trim(adjustl(self%io%restart_basename))//'-proc'//trim(strz(mpih%myrank,6))//'.pbd'
    open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM')
    write(unit=file_unit) size(self%q_pic, dim=1), self%pic%particle_number, history_slots
    write(unit=file_unit) self%q_pic
-   if (history_slots > 0_I4P) write(unit=file_unit) self%leapfrog_pic%q_pic_old
    close(file_unit)
    endsubroutine save_pic_restart_files
 
