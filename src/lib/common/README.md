@@ -18,7 +18,6 @@ The common library is the **portable, physics-agnostic core** of the ADAM SDK. T
 | `adam_weno_object` | Numerics — spatial | `adam_weno_object.F90` |
 | `adam_fdv_operators_library` | Numerics — spatial | `adam_fdv_operators_library.F90` |
 | `adam_riemann_euler_library` | Numerics — spatial | `adam_riemann_euler_library.F90` |
-| `adam_rk_object` | Numerics — temporal | `adam_rk_object.F90` |
 | `adam_eos_ic_object` | Physics | `adam_eos_ic_object.F90` |
 | `adam_ib_object` | Physics | `adam_ib_object.F90` |
 | `adam_amr_object` | Physics | `adam_amr_object.F90` |

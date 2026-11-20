@@ -307,6 +307,10 @@ contains
    self%hs                     = hs
    self%bni = grid%ni ; self%bnj = grid%nj ; self%bnk = grid%nk ; self%ngc = grid%ngc
    self%bnb = nb ; self%nv = nv ; self%nrk = nrk
+   ! the stage coefficients live in fixed-size device-private arrays (c(1:8), coeff(1:8): build_stage_target,
+   ! combine_stage_source, the current check): a longer scheme would overflow them (#134 L3)
+   if (nrk > 8_I4P) call mpih%error_stop(msg=': the charge-conserving PIC current supports at most 8 stages, the '// &
+                                             'scheme has '//trim(str(nrk, .true.)))
    self%nb = 1_I4P ; self%blocks_number = 1_I4P
    call self%build_virtual_geometry(field=field, grid=grid)
    ! per-particle arrays at the capacity of the rank (issue #112); the particles in them are set by sync_particle_number

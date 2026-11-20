@@ -271,51 +271,8 @@ Holds a pointer to the common `weno_object` and mirrors all coefficient arrays t
 
 ## Runge-Kutta integration
 
-### `adam_rk_gmp_object` — GPU RK stage manager
-
-Holds a pointer to the common `rk_object` for scheme metadata and allocates stage storage on the device.
-
-**Device arrays:**
-
-| Array | Shape | Purpose |
-|-------|-------|---------|
-| `q_rk_gpu` | `(nb, ni, nj, nk, nv, nrk_stage)` | Stage values; `nrk_stage=1` for low-storage, `nrk_stage=nrk` for SSP |
-| `alph_gpu` | `(nrk, nrk)` | SSP alpha coefficients |
-| `beta_gpu` | `(nrk)` | SSP beta coefficients |
-| `gamm_gpu` | `(nrk)` | SSP gamma coefficients |
-
-**Scheme allocation strategy:**
-
-| Scheme | `nrk_stage` | Mode |
-|--------|------------|------|
-| `RK_1`, `RK_2`, `RK_3` | 1 | Low-storage — overwrites stage in place |
-| `RK_SSP_22`, `RK_SSP_33` | 2 / 3 | Multi-stage |
-| `RK_SSP_54` | 5 | Multi-stage |
-
-**Key methods:**
-
-| Method | Purpose |
-|--------|---------|
-| `initialize(rk, nb, ngc, ni, nj, nk, nv)` | Allocate coefficient and stage arrays sized to scheme |
-| `initialize_stages(q_gpu)` | Broadcast `q_gpu` into all stage slots |
-| `assign_stage(s, q_gpu, phi_gpu)` | Copy `q_gpu` into stage `s`, skipping solid cells |
-| `compute_stage(s, dt, phi_gpu)` | SSP accumulation: `q_rk(:,s) += dt·α(s,ss)·q_rk(:,ss)` |
-| `compute_stage_ls(s, dt, phi_gpu, dq_gpu, q_gpu)` | Low-storage update: `q = ark·q_n + brk·q + dt·crk·dq` |
-| `update_q(dt, phi_gpu, q_gpu)` | Final assembly: `q += dt·β(s)·q_rk(:,s)` for `s=1…nrk` |
-
-### `adam_rk_gmp_kernels` — RK OpenMP kernels
-
-All kernels use `!$omp target teams distribute parallel do` with `has_device_addr` on device arrays. Solid cells are skipped when `phi_gpu` is present (`phi_gpu(b,i,j,k,all_solids) < 0`).
-
-| Kernel | `collapse(N)` | Purpose |
-|--------|--------------|---------|
-| `rk_assign_stage_gmp` | `collapse(5)` | `q_rk(:,s) ← q_gpu` (fluid cells only) |
-| `rk_initialize_stages_gmp` | `collapse(6)` | `q_rk(:,all_s) ← q_gpu` |
-| `rk_compute_stage_gmp` | `collapse(6)` | `q_rk(:,s) += dt·α(s,ss)·q_rk(:,ss)` |
-| `rk_compute_stage_ls_gmp` | `collapse(5)` | `q = ark·q_n + brk·q + dt·crk·dq` |
-| `rk_update_q_gmp` | `collapse(6)` | `q += dt·β(s)·q_rk(:,s)` for `s=1…nrk` |
-
----
+The GMP Runge-Kutta twins were deleted (#128 D5, #132 phase 6): time integration is SELAH's, through
+`adam_stepper_object` ([#134](https://github.com/szaghi/adam/issues/134)).
 
 ## Immersed boundary method
 
@@ -397,8 +354,6 @@ All arrays are transferred via `assign_allocatable_gpu`. The send and receive bu
 | `adam_field_gmp_object` | GPU field wrapper + host↔device transfer | `field_object` (pointer) |
 | `adam_field_gmp_kernels` | Gradient, L2 norm, transpose, ghost-cell pack/unpack | — |
 | `adam_weno_gmp_object` | GPU WENO coefficient mirror + ROR tables | `weno_object` (pointer) |
-| `adam_rk_gmp_object` | GPU RK stage storage and update dispatch | `rk_object` (pointer) |
-| `adam_rk_gmp_kernels` | Stage assign, accumulate, low-storage, final update | — |
 | `adam_ib_gmp_object` | GPU distance field + eikonal BC wrapper | `ib_object` (pointer) |
 | `adam_ib_gmp_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
 | `adam_maps_gmp_object` | GPU communication index tables + MPI buffer staging | `maps_object` (pointer) |

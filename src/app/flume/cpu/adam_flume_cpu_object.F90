@@ -4147,17 +4147,15 @@ contains
    !<
    !< The residual of each stage goes into `dq` (the step's residual log is the first stage's, the residual fields the
    !< last stage's, as before #132) and is copied into the stepper's residual register, which the stage update reads.
-   class(flume_cpu_object), intent(inout) :: self         !< The equation.
-   real(R8P), pointer                     :: r(:,:,:,:,:) !< Residual register of the stage.
-   integer(I4P)                           :: s            !< Counter.
+   class(flume_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: s    !< Counter.
 
    call self%ts%begin_step(field=self%adam%field, q=self%q, phi=self%ib%phi)
    do s=1, self%ts%stages()
       call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s == 1) call self%save_residuals
-      r => self%ts%rhs_register()
-      call copy_interior(self, src=self%dq, dst=r)
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq) ! SELAH's copy, as the FNL backend and RIPPLE (#134)
       call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
    enddo
    call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
@@ -4184,23 +4182,4 @@ contains
    call self%save_residuals
    endsubroutine integrate_rk_ssp
 
-   subroutine copy_interior(self, src, dst)
-   !< Copy the interior cells of the active blocks of `src` into `dst` (the residual into the stepper's register).
-   class(flume_cpu_object), intent(in)    :: self                                              !< The equation.
-   real(R8P),               intent(in)    :: src(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Source.
-   real(R8P),               intent(inout) :: dst(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Destination.
-   integer(I4P)                           :: b, i, j, k                                        !< Counters.
-
-   !$omp parallel do collapse(4) default(none) shared(self, src, dst) private(b, k, j, i)
-   do b=1, self%blocks_number
-      do k=1, self%nk
-         do j=1, self%nj
-            do i=1, self%ni
-               dst(:,i,j,k,b) = src(:,i,j,k,b)
-            enddo
-         enddo
-      enddo
-   enddo
-   !$omp end parallel do
-   endsubroutine copy_interior
 endmodule adam_flume_cpu_object

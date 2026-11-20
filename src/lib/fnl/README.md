@@ -13,8 +13,6 @@ The FNL backend is ADAM's **GPU acceleration layer**, built on top of the [FUNDA
 | `adam_fnl_field_kernels` | Gradient, L2 norm, ghost-cell pack/unpack | — |
 | `adam_fnl_weno_object` | GPU WENO coefficient mirror + ROR tables | — |
 | `adam_fnl_weno_kernels` | Upwind WENO reconstruction (`!$acc routine seq`) | — |
-| `adam_fnl_rk_object` | GPU RK stage storage and update dispatch | — |
-| `adam_fnl_rk_kernels` | Stage assign, accumulate, low-storage, final update | — |
 | `adam_fnl_ib_object` | GPU distance field + eikonal BC wrapper | — |
 | `adam_fnl_ib_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
 | `adam_fnl_maps_object` | GPU communication index tables + MPI buffer staging | — |

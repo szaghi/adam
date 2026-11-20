@@ -8,8 +8,8 @@ module adam_ripple_fnl_object
 !< The CPU backend's twin with the state on the device: a sibling of `ripple_cpu_object`, extending the same common
 !< realm. The initial condition and the initial AMR run on the host, then the state goes to the device and stays
 !< there; it comes back only for the outputs. The library's FNL helpers do the device side of the library objects:
-!< `field_fnl` the ghost exchange (local copies, 2:1 transfers, GPU-direct MPI), `rk_fnl` the Runge-Kutta stages,
-!< `weno_fnl` the WENO coefficients. Device arrays are transposed, `(b, i, j, k, v)`.
+!< `field_fnl` the ghost exchange (local copies, 2:1 transfers, GPU-direct MPI), `weno_fnl` the WENO coefficients
+!< (the Runge-Kutta stages are SELAH's, the realm's `ts`). Device arrays are transposed, `(b, i, j, k, v)`.
 
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : flux_register_object

@@ -6042,9 +6042,8 @@ contains
    !< Begin integrator stage `k` on the multi-realm path (FNL).
    !<
    !< Mirrors the FIRST line of `integrate_rk_ssp`'s substage body:
-   !< `rk_fnl%compute_stage(s=k, dt=self%time%dt [, phi_gpu=ib_fnl%phi_gpu])`.
-   !< This populates `rk_fnl%q_rk_gpu(:,:,:,:,:,k)` from previously computed
-   !< substages and from `self%q_gpu`, and publishes the stage buffer to
+   !< `ts_begin_stage(self, s=k)`: SELAH builds the device stage state of k
+   !< from the previous stages and `self%q_gpu`, and this publishes the stage buffer to
    !< peers by setting `self%stage_active = k`. No ghost reads, no
    !< peer-realm access — peer realms may not yet have opened their
    !< stage-`k` buffer when this fires.
@@ -6096,10 +6095,10 @@ contains
    !< Close integrator stage `k`: residuals + stage assignment in one sweep (FNL).
    !<
    !< This is the FNL forest's Phase 3 TBP. Inter-realm seam ghost cells
-   !< on `rk_fnl%q_rk_gpu(:,...,k)` are already filled by Phase 2 (which
+   !< on the stage state of k are already filled by Phase 2 (which
    !< called `fill_seam_from_peer_forest` on this realm and its
    !< peers), so `compute_residuals_dev` reads valid halo data and
-   !< `rk_fnl%assign_stage`'s in-place overwrite of the stage interior
+   !< the stage's residual write
    !< no longer races with peer reads.
    !<
    !< `realm` accepted on contract for parity but unused: the seam has
@@ -6145,7 +6144,7 @@ contains
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    ! Clear active-stage marker (mirror of CPU). Inter-step get_cell /
    ! `fill_seam_from_peer_forest` queries read self%q_gpu (committed) instead of
-   ! a stale q_rk_gpu slot from the previous step.
+   ! a stale stage state of the previous step.
    self%stage_active = 0_I4P
    endsubroutine close_step_forest
 
@@ -6222,7 +6221,7 @@ contains
 
    subroutine pack_seam_cells_forest(self, p_idx, buf)
    !< Pack the ghost values of the seam send rows of peer slot `p_idx` from the active device buffer (`q_gpu` when
-   !< `stage_active == 0`, else the active stage of `q_rk_gpu`) into the host `buf`, `nv` values per row: cell copies, or
+   !< `stage_active == 0`, else the active stage state) into the host `buf`, `nv` values per row: cell copies, or
    !< the 2:1 interpolations and restrictions of a refined seam (issues #40, #52).
    class(prism_fnl_object), intent(in)  :: self       !< The realm.
    integer(I4P),            intent(in)  :: p_idx      !< Peer slot (the realm owning the ghosts).
@@ -6293,7 +6292,7 @@ contains
    !< (issue #23 R4, M4 semantics).
    !<
    !< **α.r1 cadence: end-of-step barrier.** Fires exactly once per realm
-   !< per step at `stage == self%rk%nrk`; earlier substages return
+   !< per step at `stage == self%ts%stages()`; earlier substages return
    !< immediately. For each register face whose coarse side this realm —
    !< and this RANK (#28 D4) — owns, the correction
    !< `sign*(dt/dx_coarse)*(F_coarse − F_fine_sum)(:,:,1)` is applied to

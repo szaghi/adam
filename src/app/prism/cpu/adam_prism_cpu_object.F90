@@ -1517,9 +1517,8 @@ contains
    !< Begin integrator stage `k` on the multi-realm path.
    !<
    !< Mirrors the FIRST line of `integrate_rk_ssp`'s substage body:
-   !< `rk%compute_stage(s=k, dt=self%time%dt [, phi=ib%phi])`. This populates
-   !< `rk%q_rk(:,:,:,:,:,k)` from previously computed substages and from
-   !< `self%q`, and publishes the stage buffer to peers by setting
+   !< `ts_begin_stage(self, s=k)`. SELAH builds the stage state of k from
+   !< the previous stages and `self%q`, and this publishes the stage buffer to peers by setting
    !< `self%stage_active = k`. No ghost reads, no peer-realm access — peer
    !< realms may not yet have opened their stage-`k` buffer when this fires.
    class(prism_cpu_object), intent(inout)                   :: self     !< The realm.
@@ -1598,7 +1597,7 @@ contains
    !<     peer's INTERIOR(b_send, i_send, j_send, k_send, v)
    !<  →  self's GHOST (b_recv, i_recv, j_recv, k_recv, v)
    !< on the active conservative buffer (`q` when `stage_active == 0`, or
-   !< `rk%q_rk(:,...,stage_active)` when active). The PEER's `stage_active`
+   !< the stepper's stage state when active). The PEER's `stage_active`
    !< controls its read source; SELF's `stage_active` controls its write
    !< target.
    !<
@@ -1652,7 +1651,7 @@ contains
 
    subroutine pack_seam_cells_forest(self, p_idx, buf)
    !< Pack the ghost values of the cross-rank seam send rows of peer slot `p_idx` from the active buffer (`q` when
-   !< `stage_active == 0`, else the active stage of `q_rk`): cell copies, or the 2:1 interpolations and restrictions of a
+   !< `stage_active == 0`, else the active stage state): cell copies, or the 2:1 interpolations and restrictions of a
    !< refined seam (issues #40, #52; `adam_seam_exchange%pack_seam_rows`).
    class(prism_cpu_object), intent(in)  :: self   !< The realm.
    integer(I4P),            intent(in)  :: p_idx  !< Peer slot (the realm owning the ghosts).
@@ -1703,7 +1702,7 @@ contains
    !< PRISM-CPU override of the Berger-Colella reflux correction TBP.
    !<
    !< **α.r1 cadence: end-of-step barrier.** The body fires exactly once per
-   !< realm per step, at `stage == self%rk%nrk` (the realm's own final RK
+   !< realm per step, at `stage == self%ts%stages()` (the realm's own final RK
    !< substage). Earlier stages return immediately as a no-op. The
    !< accumulators `F_coarse(:,:,1)` / `F_fine_sum(:,:,1)` hold the step
    !< flux `sum_s beta_s F_s` of each side (`accumulate_seam_fluxes_fv`
@@ -1713,14 +1712,13 @@ contains
    !< own beta. This is the AMReX non-subcycled `Reflux` cadence.
    !<
    !< For each face in `flux_register` where `face%coarse_realm == self%realm_index`,
-   !< writes the per-cell correction
-   !<     q_rk(:, seam_cell, b_coarse, stage) +=
-   !<         ark(stage) * sign * (dt / dx_coarse) * (F_coarse(:,:,1) - F_fine_sum(:,:,1))
+   !< writes the per-cell correction to the committed `q` (after `close_step_forest`)
+   !<     q(:, seam_cell, b_coarse) +=
+   !<         sign * (dt / dx_coarse) * (F_coarse(:,:,1) - F_fine_sum(:,:,1))
    !< on the matching one-cell-thick seam slice (i ∈ {1, ni} for x-normal
    !< faces, etc.). The third-axis index is **hardcoded to 1** under α.r1
    !< (register collapsed by M2); the `stage` parameter is retained on the
-   !< signature for API stability and used only for the cadence gate and
-   !< as the write target into `self%rk%q_rk(:, ..., stage)`.
+   !< signature for API stability and used only for the cadence gate.
    !<
    !< Empty-register / out-of-range guards short-circuit to a no-op, so a
    !< realm with no seam faces returns cleanly.
@@ -4023,7 +4021,7 @@ contains
 
    subroutine integrate_rk_ssp_pic(self)
    !< Integrate equation, time operator, SSP RK schemes.
-   !< SSP RK working on q_rk as stages.
+   !< SSP RK on SELAH's Butcher form, the stage states on the stepper's registers.
    implicit none
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
