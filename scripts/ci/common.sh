@@ -3,6 +3,7 @@
 # (exe/.regression-venv, which the regression scripts would otherwise create with pip), and ARTIFACTS, the directory
 # matrix.yml uploads whatever the outcome.
 set -uo pipefail
+shopt -s globstar nullglob   # the artifact globs of the legs (expanded where collect is called)
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 fobis fetch
 mkdir -p exe
@@ -11,7 +12,5 @@ ARTIFACTS=ci-artifacts
 mkdir -p "$ARTIFACTS"
 collect() { # copy the files matching the globs into $ARTIFACTS, keeping their paths
    local f
-   shopt -s globstar nullglob
    for f in "$@"; do mkdir -p "$ARTIFACTS/$(dirname "$f")" && cp "$f" "$ARTIFACTS/$f"; done
-   shopt -u globstar nullglob
 }
