@@ -2,15 +2,24 @@
 """Generate PRISM input.ini for the Tesi_Vasile 'Final' geometry (Ansys Maxwell reference).
 
 Geometry (conductor centre-lines, from Final.aedtresults):
-  rectangular: 4 planar loops 40 (transverse) x 50 (axial) mm, planes x,y = +-30.5 mm, I = 100 A
+  rectangular: 4 planar loops 40 (transverse) x 50 (axial) mm, planes x,y = +-28 mm, I = 100 A
+               (Ansys Final_v4: the double-saddle section R 25/28 mm is inscribed in the square; centre field
+               1.4618 mT, thin-wire Biot-Savart)
                Y coils (By) phase 0, X coils (Bx) phase -90
-               Ansys convention: By = -B0 cos(wt), Bx = +B0 sin(wt)
-               PRISM `normal` is the magnetic-moment direction (right-handed): Y coils -y, X coils +x
-               (checked 2026-11-16 on the t0 centre field, X and Y pairs separately)
+               PRISM `normal` is the magnetic-moment direction (right-handed): Y coils +y, X coils +x,
+               the same clockwise rotation as the double saddle (Ansys Final_v3)
   saddle     : 120 deg arcs at z = +-25 mm, axial wires 50 mm
-               X pair R = 25 mm, I = 43.95 A, phase -90 ; Y pair R = 28 mm, I = 50.32 A, phase 0
+               X pair R = 25 mm, I = 49.73 A, phase -90 ; Y pair R = 28 mm, I = 56.99 A, phase 0
+               (currents rescaled to the rectangular-array centre field, Ansys Final_v4)
                Ansys convention: By = +B0 cos(wt), Bx = +B0 sin(wt)
 sigma = 2 * dh (finest level).
+The values match the committed Final inputs that ran on the cluster (a77a1937, 390381ca, b25228d5).
+
+The committed Final inputs are reproduced byte for byte by (from tests_Vasile/, the input itself as template):
+  ./gen_inputs.py --template Rectangular_array_Final/input.ini --outdir Rectangular_array_Final --case rect \
+      --hx 0.24 --hz 0.3 --ni 60 --nk 75 --levels 3 --freq 25e6 --time_delay 15e-9 --it_save 3000 \
+      --no_aux_fields --basename RMF_rectangular_array_Final
+  (saddle: Double_saddle_Final, --case saddle, --basename RMF_double_saddle_Final)
 """
 import argparse, math, re, pathlib
 
@@ -44,9 +53,9 @@ sigma = 2 * dh
 # empirical dt of PRISM FD6/RK-SSP54 runs: dt = 1.66670847797719e-12 s at dh = 2 mm, CFL 0.4997
 dt = 1.66670847797719e-12 * (dh / 2e-3) * (a.cfl / 0.499666666666666)
 t_end = a.time_delay + a.periods / a.freq
-it_max = a.it_max or math.ceil(t_end / dt)
 T_it = 1 / a.freq / dt
 it_save = a.it_save or max(1, round(T_it / 8))   # 8 snapshots per period
+it_max = a.it_max or it_save * math.ceil(t_end / dt / it_save)   # rounded up to a whole number of saves
 
 txt = pathlib.Path(a.template).read_text()
 
@@ -90,14 +99,14 @@ for s in ('bc_x_min', 'bc_x_max', 'bc_y_min', 'bc_y_max', 'bc_z_min', 'bc_z_max'
 i0 = txt.index('[coils_input]')
 i1 = txt.index('[external_fields]')
 f = f'{a.freq:.10g}'
-coils = ['; Coils input (geometry from Ansys Maxwell Final.aedtresults)', '[coils_input]',
-         'circular_coils_number = 0']
+head = '; Coils input (geometry from Ansys Maxwell Final.aedtresults)'
+coils = ([] if txt[:i0].rstrip('\n').endswith(head) else [head]) + ['[coils_input]', 'circular_coils_number = 0']
 if a.case == 'rect':
     coils += ['rectangular_coils_number = 4', 'solenoid_coils_number = 0', 'helicon_coils_number = 0',
               f'time_delay = {a.time_delay:.6e}']
     # (centre, normal, phase): Y coils phase 0, X coils phase -90 (Ansys Final)
-    for n, (xc, yc, nrm, ph) in enumerate([(0, 0.0305, '-y', 0), (0, -0.0305, '-y', 0),
-                                           (0.0305, 0, '+x', -90), (-0.0305, 0, '+x', -90)], 1):
+    for n, (xc, yc, nrm, ph) in enumerate([(0, 0.028, '+y', 0), (0, -0.028, '+y', 0),
+                                           (0.028, 0, '+x', -90), (-0.028, 0, '+x', -90)], 1):
         coils += [f'[coils_input_coil_{n}]', 'coil_type = rectangular', 'current_type = AC_current',
                   'lx = 0.040', 'ly = 0.050', f'sigma = {sigma:.6g}',
                   f'x_center = {xc}', f'y_center = {yc}', 'z_center = 0', f'normal = {nrm}',
@@ -113,10 +122,10 @@ else:
         (x1, y1), (x2, y2) = c(phi_wire_minus_z), c(phi_other)
         return [(x1, y1, L), (x1, y1, -L), (x2, y2, -L), (x2, y2, L), (x1, y1, L)]
     # (R, phi of -z wire, phi of +z wire, amplitude, phase)  -> Ansys Final terminals
-    spec = [(0.025, -60, 60, 43.95, -90),    # Saddle_X_pos
-            (0.025, 240, 120, 43.95, -90),   # Saddle_X_neg
-            (0.028, 30, 150, 50.32, 0),      # Saddle_Y_pos
-            (0.028, 330, 210, 50.32, 0)]     # Saddle_Y_neg (terminal +z at 210 deg == -z at 330 deg)
+    spec = [(0.025, -60, 60, 49.73, -90),    # Saddle_X_pos
+            (0.025, 240, 120, 49.73, -90),   # Saddle_X_neg
+            (0.028, 30, 150, 56.99, 0),      # Saddle_Y_pos
+            (0.028, 330, 210, 56.99, 0)]     # Saddle_Y_neg (terminal +z at 210 deg == -z at 330 deg)
     for n, (R, pm, pp, I, ph) in enumerate(spec, 1):
         pts = sad(R, pm, pp)
         coils += [f'[coils_input_coil_{n}]', 'coil_type = helicon', 'current_type = AC_current',
