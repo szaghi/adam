@@ -48,6 +48,12 @@ jobs:
       toolchains: 'linux-gnu'
       script: 'scripts/ci/docs-modes.sh'
 
+  time-separation:
+    uses: szaghi/fortran-toolchains/.github/workflows/matrix.yml@v1
+    with:
+      toolchains: 'linux-gnu'
+      script: 'scripts/ci/time-separation.sh'
+
   docs-tutorials:
     uses: szaghi/fortran-toolchains/.github/workflows/matrix.yml@v1
     with:
