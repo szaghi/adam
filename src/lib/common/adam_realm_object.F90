@@ -48,7 +48,6 @@ use :: adam_io_object
 use :: adam_leapfrog_object
 use :: adam_maps_object
 use :: adam_parameters
-use :: adam_rk_object
 use :: adam_stepper_object, only : stepper_object, LAYOUT_V_FIRST
 use :: adam_riemann_euler_library
 use :: adam_slices_object
@@ -88,10 +87,7 @@ type :: realm_object
    logical                 :: with_weno=.true. !< Read [weno] and initialize `weno` (the app clears it when unused, #80 P5).
    logical                 :: with_fdv=.true.  !< Read [fdv] and bind the FD/FV operators (cleared when unused, #80 P5).
    type(ib_object)         :: ib         !< Immersed boundary.
-   type(rk_object)         :: rk         !< Runge-Kutta integrator (the apps not yet wired to SELAH, #132).
-   type(stepper_object)    :: ts         !< Time integrator on SELAH (stepper_object, #132), with `with_selah`.
-   logical                 :: with_selah=.false. !< Integrate with `ts` instead of `rk` (the app sets it, #132): `rk`
-                                                 !< then holds the scheme name only, its stages are not allocated.
+   type(stepper_object)    :: ts         !< Time integrator on SELAH (stepper_object, #132).
    integer(I4P)            :: selah_layout=LAYOUT_V_FIRST !< Layout of the fields `ts` integrates (the FNL apps set
                                                           !< LAYOUT_V_LAST, their (b, i, j, k, v) device fields).
    integer(I4P)            :: selah_partitions(2,2)=0_I4P !< The variables (first, last) of the two partitions of a
@@ -140,7 +136,7 @@ type :: realm_object
    !<   * set to `k` by `begin_stage_forest(k)` (each override must set it)
    !<   * read by `fill_seam_from_peer_forest` (on both sides) to select the
    !<     active buffer (`q` when 0, integrator-private stage buffer when > 0;
-   !<     for RK realms that buffer is `rk%q_rk(:,...,stage_active)`).
+   !<     for SELAH realms that buffer is the stepper's `ts%stage_state()`).
    !<
    !< Invariant: MUST be 0 entering `open_step_forest`. The base type's
    !< `close_step_forest` default clears it; overrides chain via base call
@@ -384,17 +380,12 @@ contains
       ! call self%blanesmoan%initialize(file_parameters=file_parameters)
       ! call self%cfm%initialize(file_parameters=file_parameters)
       ! call self%leapfrog%initialize(file_parameters=file_parameters)
-      if (self%with_selah) then
-         if (any(self%selah_partitions /= 0_I4P)) then
-            call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
-                                    layout=self%selah_layout, partitions=self%selah_partitions)
-         else
-            call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
-                                    layout=self%selah_layout)
-         endif
-         self%rk%scheme = self%ts%scheme ! the scheme name the forest's coupling descriptor reads
+      if (any(self%selah_partitions /= 0_I4P)) then
+         call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
+                                 layout=self%selah_layout, partitions=self%selah_partitions)
       else
-         call self%rk%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)
+         call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
+                                 layout=self%selah_layout)
       endif
       self%ngc           => self%adam%grid%ngc
       self%ni            => self%adam%grid%ni
@@ -656,7 +647,7 @@ contains
    !<
    !< Integrator-agnostic: `K` is the number of inter-realm seam-coherence
    !< boundaries the realm wants visible to the forest. For SSP-RK realms
-   !< `K = rk%nrk`; for Leapfrog realms `K = 2` (kick, drift); for Yoshida
+   !< `K = ts%stages()`; for Leapfrog realms `K = 2` (kick, drift); for Yoshida
    !< composition `K` is the number of sub-operators; for an operator-split
    !< realm that does all its work atomically and only needs one peer-sync
    !< per step, `K = 1`.
@@ -690,7 +681,7 @@ contains
    !< Default implementation returns empty strings and sentinel `nv = -1`:
    !< a realm that does not override this TBP cannot participate in β.
    !< App-side overrides (e.g. `prism_common_object`) report
-   !< `numerics%scheme_time`, `rk%scheme`, `physics%nv`.
+   !< `numerics%scheme_time`, `ts%scheme`, `physics%nv`.
    class(realm_object),       intent(in)  :: self        !< The realm.
    character(:), allocatable, intent(out) :: scheme_time !< Time-integration family tag ("runge_kutta", "leapfrog", ...).
    character(:), allocatable, intent(out) :: rk_scheme   !< Within-family scheme tag ("runge-kutta-ssp-54", ...).
@@ -709,7 +700,7 @@ contains
    !< Invoked once per realm per timestep, BEFORE the forest's stage loop
    !< starts. Body owns whatever the integrator does once per step before
    !< its first stage: external-field prelude, integrator-private state
-   !< initialization (for RK realms: `rk%initialize_stages`), time
+   !< initialization (for SELAH realms: `ts%begin_step`), time
    !< bookkeeping (it increment, dt capping for time_max), progress prints.
    !<
    !< Default implementation error-stops: every multi-realm participant MUST
@@ -726,8 +717,8 @@ contains
    !< Invoked once per (realm, stage) by the forest, with `k` iterating
    !< from 1 to `K_total`. Body publishes the realm's stage-`k` buffer to
    !< peers: it runs whatever integrator-private work is needed BEFORE
-   !< residuals (for RK realms: `rk%compute_stage(s=k)` populating
-   !< `rk%q_rk(:,...,k)` from prior stages and `self%q`), and assigns
+   !< residuals (for SELAH realms: `ts%begin_stage(k)` building the stage
+   !< state from `self%q` and the prior stages), and assigns
    !< `self%stage_active = k` so peer-realm reads pick up the right buffer.
    !< Crucially it does NOT touch ghost cells from peer realms; peer realms
    !< may not yet have opened their own stage-`k` buffer when this fires.
@@ -754,8 +745,8 @@ contains
    !< Invoked once per (realm, stage) by the forest AFTER its Phase 2
    !< inter-realm seam fill has populated the seam ghost cells. The body
    !< runs the integrator's per-stage work that needs valid peer ghosts:
-   !< residual computation and stage assignment in a single sweep (for RK
-   !< realms: `compute_residuals + rk%assign_stage`). The read-after-
+   !< residual computation and stage assignment in a single sweep (for SELAH
+   !< realms: `compute_residuals + ts%set_rhs`). The read-after-
    !< overwrite race that originally required a three-phase split is
    !< eliminated by the upstream seam fill, which decouples peer state
    !< reads from the in-place overwrite of the stage buffer's interior.
@@ -783,8 +774,8 @@ contains
    !<
    !< Invoked once per realm per timestep, AFTER the forest's stage loop
    !< completes. Body owns whatever the integrator does once per step at the
-   !< end: assembly of the committed state from stage buffers (for RK realms:
-   !< `rk%update_q`), BC update, divergence cleaning, coil current refresh,
+   !< end: assembly of the committed state from stage buffers (for SELAH realms:
+   !< `ts%finish_step`), BC update, divergence cleaning, coil current refresh,
    !< residual save, time advance. Should also clear `self%stage_active = 0`
    !< so any inter-step `fill_seam_from_peer_forest` query reads from the
    !< committed state rather than a stale stage buffer.
@@ -1049,9 +1040,8 @@ contains
    !< AFTER `flux_register%reduce_fine_sums` has globalised the fine-side
    !< accumulators. The realm filters the register's face array by
    !< `face%coarse_realm == self%realm_index`, picks up its OWN integrator-
-   !< specific stage weight (for RK realms: `self%rk%ark(stage)`), and writes
-   !< the correction delta into its OWN stage buffer (for RK realms:
-   !< `self%rk%q_rk(:, i, j, k, b, stage)`).
+   !< specific stage weight (`self%ts%stage_weight(stage)`), and writes
+   !< the correction delta into its OWN stage buffer (the stepper's registers).
    !<
    !< Architectural role: this TBP keeps the per-realm reflux write
    !< integrator-private. The forest never names `q_rk`, `ark`, or any

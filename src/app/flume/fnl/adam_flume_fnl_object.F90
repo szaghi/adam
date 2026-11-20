@@ -1842,7 +1842,6 @@ contains
    ! Split among the realms and among the ranks bound to the same device (#96).
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
    ! the time integrator is SELAH's (stepper_object, #132), on the (b, i, j, k, v) device fields
-   self%with_selah = .true.
    self%selah_layout = LAYOUT_V_LAST
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
    ! the barotropic tables (issue #100, P3): registered on the host by the physics, read by the device kernels; the

@@ -82,11 +82,10 @@ contains
    ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the time integrator's
    ! registers (SELAH's, the residual register included, #132); the scheme is read by the library parser, before the
    ! realm builds the integrator
-   call self%rk%load_from_file(file_parameters=self%io%file_parameters)
-   stages = stepper_stored_fields(scheme=self%rk%scheme)
-   if (stages < 0_I4P) call ini_stop(msg='unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
+   call self%ts%load_from_file(file_parameters=self%io%file_parameters)
+   stages = stepper_stored_fields(scheme=self%ts%scheme)
+   if (stages < 0_I4P) call ini_stop(msg='unknown Runge-Kutta scheme "'//self%ts%scheme//'" in [runge_kutta].(scheme)')
    self%with_fdv = .false. ! RIPPLE uses no FD/FV operator: [fdv] is not read (#80 P5)
-   self%with_selah = .true. ! the time integrator is SELAH's (stepper_object, #132); the FNL backend sets the layout
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=1_I4P, &
                                      fields_number=5_I4P + stages, verbose=.true.)
    ! every face periodic; the tree and the maps were built before the faces were known: rebuild them (issue #103)
@@ -117,7 +116,7 @@ contains
    class(ripple_common_object), intent(in) :: self !< The realm.
    integer(I4P)                            :: m, c !< Counters.
 
-   select case(self%rk%scheme)
+   select case(self%ts%scheme)
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
    case default
       call mpih%error_stop(msg=': [runge_kutta].(scheme) must be an SSP scheme (runge-kutta-ssp-11/22/33/54): the '// &

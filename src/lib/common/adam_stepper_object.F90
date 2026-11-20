@@ -42,7 +42,7 @@ use :: adam_ini_library,  only : ini_check, ini_get
 use :: adam_mpih_global,  only : mpih
 use :: fundal,            only : dev_alloc, dev_free
 use :: selah,             only : stepper, box, box_interior, registers_needed, R_P, LAYOUT_V_FIRST, LAYOUT_V_LAST,  &
-                                 selah_copy,                                                                          &
+                                 selah_copy, butcher, butcher_tableau,                                                &
                                  FORM_BUTCHER, FORM_SHU_OSHER_2R, FORM_SPLITTING,                                     &
                                  SCHEME_EULER, SCHEME_SSP_22, SCHEME_SSP_33, SCHEME_SSP_54, SCHEME_YOSHIDA_4
 ! third party modules
@@ -54,6 +54,7 @@ private
 public :: stepper_object
 public :: stepper_map
 public :: stepper_stored_fields
+public :: stepper_butcher_stages
 public :: LAYOUT_V_FIRST
 public :: LAYOUT_V_LAST
 public :: RK_1
@@ -147,6 +148,22 @@ contains
    fields = -1_I4P
    if (len(form) > 0) fields = registers_needed(selah_scheme, form)
    endfunction stepper_stored_fields
+
+   pure function stepper_butcher_stages(scheme) result(stages)
+   !< Return the stages of a scheme of the Butcher form (the SSP schemes), from SELAH's tableau; -1 for any other scheme.
+   !< It lets an app size what follows the field's stages (PRISM's particle stages) before the stepper exists.
+   character(*), intent(in)  :: scheme       !< ADAM scheme name.
+   integer(I4P)              :: stages       !< Stages per step.
+   character(:), allocatable :: selah_scheme !< SELAH scheme.
+   character(:), allocatable :: form         !< SELAH storage form.
+   type(butcher_tableau)     :: bt           !< SELAH tableau.
+
+   call stepper_map(scheme=scheme, selah_scheme=selah_scheme, form=form)
+   stages = -1_I4P
+   if (form /= FORM_BUTCHER) return
+   bt = butcher(selah_scheme)
+   stages = bt%stages
+   endfunction stepper_butcher_stages
 
    ! public methods
    subroutine begin_step(self, field, q, phi)

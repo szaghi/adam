@@ -1,9 +1,9 @@
-!< PRISM, RK for BC integration.
+!< PRISM, the particles' Runge-Kutta integrator (PIC), on the field stepper's SELAH tableau.
 module adam_prism_rk_pic_object
-!< ADAM, RK-BC class definition.
+!< PRISM, the particles' Runge-Kutta integrator (PIC), on the field stepper's SELAH tableau.
 
 ! ADAM classes, libraries, parameters
-use :: adam_rk_object
+use :: adam_stepper_object, only : stepper_object, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
 use :: adam_mpih_global,  only : mpih
 ! PRISM modules
@@ -21,19 +21,13 @@ public :: prism_rk_pic_object
 
 type :: prism_rk_pic_object
    !< RK class definition.
-   character(:), pointer     :: scheme    !< RK scheme.
-   integer(I4P)              :: nrk=3_I4P !< Runge-Kutta stages number.
+   character(:), allocatable :: scheme    !< RK scheme, the field stepper's.
+   integer(I4P)              :: nrk=0_I4P !< Runge-Kutta stages number (0: no SSP scheme, the app refuses it).
    real(R8P)                 :: inv_eps_scale = 1._R8P/EPS0 !< Convert D to E in the particle force.
-   ! classic, Butcher schemes
-   real(R8P), allocatable    :: ark(:)    !< Runge-Kutta low storage alpha coefficients.
-   real(R8P), allocatable    :: brk(:)    !< Runge-Kutta low storage beta coefficients.
-   real(R8P), allocatable    :: crk(:)    !< Runge-Kutta low storage beta coefficients.
-   real(R8P), allocatable    :: alph(:,:) !< Runge-Kutta SSP alpha coefficients.
-   real(R8P), allocatable    :: beta(:)   !< Runge-Kutta SSP beta coefficients.
-   real(R8P), allocatable    :: gamm(:)   !< Runge-Kutta SSP gamma coefficients.
-   ! symplectic (splitting) schemes
-   real(R8P), allocatable :: ssa(:) !< Runge-Kutta sympletic-splitting part A coefficients.
-   real(R8P), allocatable :: ssb(:) !< Runge-Kutta sympletic-splitting part B coefficients.
+   ! the SSP Butcher tableau, the field stepper's (SELAH's)
+   real(R8P), allocatable    :: alph(:,:) !< Butcher matrix A.
+   real(R8P), allocatable    :: beta(:)   !< Butcher weights b.
+   real(R8P), allocatable    :: gamm(:)   !< Butcher abscissas c.
    ! RK data
    real(R8P), allocatable    :: q_pic_rk(:,:,:) !< RK stages for pic variables [particle, variable, stage].
    ! adam data replica for easy handling
@@ -66,12 +60,6 @@ contains
    integer(I4P)                  :: s                !< Counter.
 
    desc =       mpih%myrankstr//'Pic Runge-Kutta scheme main data'//NL
-   if (allocated(self%ark)) &
-   desc = desc//mpih%myrankstr//'  ark:                             '//trim(str(self%ark                ))//NL
-   if (allocated(self%brk)) &
-   desc = desc//mpih%myrankstr//'  brk:                             '//trim(str(self%brk                ))//NL
-   if (allocated(self%crk)) &
-   desc = desc//mpih%myrankstr//'  crk:                             '//trim(str(self%crk                ))//NL
    if (allocated(self%alph)) then
    do s=1, self%nrk
    desc = desc//mpih%myrankstr//'  alph('//trim(str(s,.true.))//'): '//trim(str(self%alph(:,s)          ))//NL
@@ -84,86 +72,36 @@ contains
    desc = desc//mpih%myrankstr//'  nrk:                             '//trim(str(self%nrk                ))
    endfunction description
 
-   subroutine initialize(self, file_parameters, rk, pic, physics)
-   !< Initialize class.
-   class(prism_rk_pic_object),  intent(inout)        :: self            !< RK object.
-   type(file_ini),              intent(in), optional :: file_parameters !< Simulation parameters ini file handler.
-   !type(grid_object),           intent(in), target   :: grid            !< The grid.
-   !type(field_object),          intent(in), target   :: field           !< The field.
-   type(rk_object),             intent(in), target   :: rk              !< RK scheme
-   type(prism_pic_object),  	  intent(in), target   :: pic         		!< Physics object
-   type(prism_physics_object), intent(in) :: physics
-   real(R8P)                                         :: w0, w1          !< Sympletic RK coefficients.
+   subroutine initialize(self, ts, pic, physics)
+   !< Initialize class: the particles advance in step with the field's stepper, with its SELAH Butcher tableau (A, b, c:
+   !< bitwise the former `rk_object` tableau, SELAH's selah_test_adam_parity; #132 phase 6). A scheme other than SSP-22,
+   !< -33, -54 leaves `nrk = 0` and nothing allocated: the backends refuse it for PIC.
+   class(prism_rk_pic_object),  intent(inout)      :: self    !< RK object.
+   type(stepper_object),        intent(in)         :: ts      !< The field's stepper (initialized).
+   type(prism_pic_object),      intent(in), target :: pic     !< Particle in Cell object.
+   type(prism_physics_object),  intent(in)         :: physics !< Physics.
 
    call mpih%print_message('rk_pic_object%initialize start')
-   call associate_adam_data(rk=rk, pic=pic)
+   self%particle_number => pic%particle_number
+   self%scheme = trim(ts%scheme)
    self%inv_eps_scale = 1._R8P/EPS0
    if (is_adim_model(physics%physical_model)) self%inv_eps_scale = 1._R8P
    select case(self%scheme)
-   case(RK_1) ! 1 stage, 1st order, Euler
-      self%nrk = 1
-      allocate(self%ark(self%nrk), self%brk(self%nrk), self%crk(self%nrk))
-      self%ark(1) = 1._R8P ; self%brk(1) = 0._R8P ; self%crk(1) = 1._R8P
-   case(RK_2) ! 2 stages, low storage, 2nd order TVD
-      self%nrk = 2
-      allocate(self%ark(self%nrk), self%brk(self%nrk), self%crk(self%nrk))
-      self%ark(1) = 1._R8P  ; self%brk(1) = 0._R8P  ; self%crk(1) = 1._R8P
-      self%ark(2) = 0.5_R8P ; self%brk(2) = 0.5_R8P ; self%crk(2) = 0.5_R8P
-   case(RK_3) ! 3 stages, low storage, 3rd order TVD
-      self%nrk = 3
-      allocate(self%ark(self%nrk), self%brk(self%nrk), self%crk(self%nrk))
-      self%ark(1) = 1._R8P        ; self%brk(1) = 0._R8P        ; self%crk(1) = 1._R8P
-      self%ark(2) = 0.75_R8P      ; self%brk(2) = 0.25_R8P      ; self%crk(2) = 0.25_R8P
-      self%ark(3) = 1._R8P/3._R8P ; self%brk(3) = 2._R8P/3._R8P ; self%crk(3) = 2._R8P/3._R8P
-   case(RK_SSP_22, RK_SSP_33, RK_SSP_54) ! the library's SSP tableaux (issue #104)
-      call ssp_tableau(scheme=self%scheme, nrk=self%nrk, alph=self%alph, beta=self%beta, gamm=self%gamm)
-   case(RK_YOSHIDA)
-      self%nrk = 4
-      w0 = -1.702414383919315_R8P
-      w1 =  1.351207191959658_R8P
-      allocate(self%ssa(self%nrk), self%ssb(self%nrk-1))
-      self%ssa = [w1/2.0_R8P,(w0+w1)/2.0_R8P,(w0+w1)/2.0_R8P,w1/2.0_R8P]
-      self%ssb = [w1,w0,w1]
-   case default
-      !@TODO write error trap
-   endselect
-
-   !associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, particle_number=>self%particle_number, &
-	!			 nb=>self%nb, nrk=>self%nrk)
-	associate(particle_number=>self%particle_number, nrk=>self%nrk)
-   select case(self%scheme)
-   case(RK_1, RK_2, RK_3) ! low storage, only stage 1 is necessary
-
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
-      call allocate_variable(var=self%q_pic_rk,         		 &
-                             ulb=reshape([1,8, 					 &
-                                          1,pic%particle_capacity, &
-                                          1,nrk+1],[2,3]),   &
+      self%nrk  = ts%stages()
+      self%alph = ts%st%bt%a
+      self%beta = ts%st%bt%b
+      self%gamm = ts%st%bt%c
+      call allocate_variable(var=self%q_pic_rk,                         &
+                             ulb=reshape([1,8,                          &
+                                          1,pic%particle_capacity,      &
+                                          1,self%nrk+1],[2,3]),         &
                              msg=mpih%myrankstr//'rk_pic_object%initialize allocate q_pic_rk')
+   case default
+      self%nrk = 0_I4P
    endselect
-   endassociate
    print '(A)', self%description()
    call mpih%print_message('rk_pic_object%initialize finish')
-   contains
-      subroutine associate_adam_data(rk, pic)
-      !< Associate objects data to equation for easy handling.
-      !type(grid_object),        intent(in), target :: grid   !< The grid.
-      !type(field_object),       intent(in), target :: field  !< The field.
-      type(rk_object),          intent(in), target :: rk     !< The RK scheme.
-      type(prism_pic_object),   intent(in), target :: pic    !< Particle in Cell object.
-
-      !self%grid          	=> grid
-      !self%field         	=> field
-      !self%blocks_number 	=> field%blocks_number
-      !self%ni            	=> field%grid%ni
-      !self%nj            	=> field%grid%nj
-      !self%nk            	=> field%grid%nk
-      !self%ngc           	=> field%grid%ngc
-      !self%nb            	=> field%nb
-      !self%nv            	=> field%nv
-      self%particle_number => pic%particle_number
-      self%scheme        	=> rk%scheme
-      endsubroutine associate_adam_data
    endsubroutine initialize
 
    subroutine initialize_stages(self, q_pic)

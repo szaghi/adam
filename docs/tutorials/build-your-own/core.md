@@ -77,7 +77,7 @@ endtype ripple_common_object
 ```
 
 `realm_object` already owns the grid, the tree, the field (block geometry), the maps, the WENO and Runge–Kutta objects
-(`self%adam%grid`, `self%adam%field`, `self%weno`, `self%rk`, …). The application owns its state: `q` has the library's
+(`self%adam%grid`, `self%adam%field`, `self%weno`, `self%ts`, …). The application owns its state: `q` has the library's
 5-D layout `(nv, i, j, k, b)` with the ghost cells, here `nv = 1`.
 
 The CPU realm extends it again, `ripple_cpu_object` in `cpu/adam_ripple_cpu_object.F90`, adding the face fluxes and
@@ -93,11 +93,10 @@ keys, calls `check_input`, allocates `q` and `dq` and refines uniformly:
    ! the blocks budget counts the block-sized fields per block: q, dq, the three face fluxes, the time integrator's
    ! registers (SELAH's, the residual register included, #132); the scheme is read by the library parser, before the
    ! realm builds the integrator
-   call self%rk%load_from_file(file_parameters=self%io%file_parameters)
-   stages = stepper_stored_fields(scheme=self%rk%scheme)
-   if (stages < 0_I4P) call ini_stop(msg='unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
+   call self%ts%load_from_file(file_parameters=self%io%file_parameters)
+   stages = stepper_stored_fields(scheme=self%ts%scheme)
+   if (stages < 0_I4P) call ini_stop(msg='unknown Runge-Kutta scheme "'//self%ts%scheme//'" in [runge_kutta].(scheme)')
    self%with_fdv = .false. ! RIPPLE uses no FD/FV operator: [fdv] is not read (#80 P5)
-   self%with_selah = .true. ! the time integrator is SELAH's (stepper_object, #132); the FNL backend sets the layout
    call self%realm_object%initialize(filename=filename, memory_avail=memory_avail, nv=1_I4P, &
                                      fields_number=5_I4P + stages, verbose=.true.)
    ! every face periodic; the tree and the maps were built before the faces were known: rebuild them (issue #103)
@@ -110,9 +109,9 @@ Three rules of the library show here:
 - **`fields_number`** is the number of block-sized scalar arrays the application allocates per block. The library
   divides the memory by it to decide how many blocks a rank can hold; under-count it and the run over-commits memory
   ([GPU cookbook](/cookbook/gpu)). A library section it depends on (here `[runge_kutta]`) is read by the library
-  object's own parser (`rk%load_from_file`), never peeked by the application. `with_selah` asks the realm for the time
-  integrator on [SELAH](https://github.com/szaghi/SELAH) (`ts`, `adam_stepper_object`), whose registers
-  `stepper_stored_fields` counts.
+  object's own parser (`ts%load_from_file`), never peeked by the application. The realm's time integrator is
+  [SELAH](https://github.com/szaghi/SELAH)'s (`ts`, `adam_stepper_object`), whose registers `stepper_stored_fields`
+  counts.
 - **The face kinds come after `realm_object%initialize`**, which builds the tree and the maps before they are known;
   `set_bc_type` must be followed by `rebuild_neighborhood` and `make_comm_local_maps_ghost_bc`, or a periodic face of
   an unrefined grid stays a boundary row ([#103](https://github.com/szaghi/adam/issues/103)).

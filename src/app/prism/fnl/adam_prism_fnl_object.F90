@@ -16,7 +16,7 @@ use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 #endif
 ! third party modules
 use :: adam_ini_library, only : ini_check, ini_get
-use :: adam_stepper_object, only : LAYOUT_V_LAST
+use :: adam_stepper_object, only : LAYOUT_V_LAST, stepper_butcher_stages
 use :: finer, only : file_ini
 use :: fundal, save_memory_status_gpu=>save_memory_status
 use :: penf,   save_memory_status_cpu=>save_memory_status
@@ -413,7 +413,7 @@ contains
    !< runtime context are left to the `[amr].(memory_fraction)` headroom.
    type(prism_physics_object), intent(in) :: physics         !< Physics (initialized).
    type(file_ini),          intent(inout) :: file_parameters !< Simulation parameters ini file handler.
-   character(*),            intent(in)    :: rk_scheme       !< Runge-Kutta scheme (parsed by `rk`).
+   character(*),            intent(in)    :: rk_scheme       !< Runge-Kutta scheme (parsed by `ts`).
    integer(I4P),            intent(out)   :: extra_fields    !< Correction to the block-sized fields per block.
    real(R8P),               intent(out)   :: reserved_memory !< Memory of the allocations not block-sized (GB).
    type(grid_object)                      :: grid            !< Grid read from the input (domain and block cells only).
@@ -454,7 +454,7 @@ contains
    endif
    call pic%load_from_file(file_parameters=file_parameters)
    call pic%set_particle_number(emin=grid%domain_emin, emax=grid%domain_emax, physics=physics)
-   nrk = max(1_I4P, rk_stored_stages_number(scheme=rk_scheme))
+   nrk = max(1_I4P, stepper_butcher_stages(scheme=rk_scheme)) ! the particle stages (prism_rk_pic_object): SSP only
    conserving = trim(pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL
 
    ! particle arrays (bytes per particle of capacity)
@@ -678,7 +678,6 @@ contains
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P)/1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
    self%estimate_backend_memory => estimate_backend_memory_fnl
    ! the time integrator is SELAH's (stepper_object, #132 phase 4), on the (b, i, j, k, v) device fields
-   self%with_selah = .true.
    self%selah_layout = LAYOUT_V_LAST
    ! the partitions of the Yoshida splitting (B, D), so that the stepper initializes and the backend's own refusal of
    ! Yoshida (not ported to FNL) is the one that stops the run
@@ -691,7 +690,7 @@ contains
              self%numerics%scheme_time /= NUM_SCHEME_TIME_RUNGE_KUTTA .or. &
              self%pic%scheme_time /= NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
             call mpih%error_stop(msg=': conserving PIC current requires centered FD and SSP Runge-Kutta')
-         if (self%rk%scheme /= RK_SSP_22 .and. self%rk%scheme /= RK_SSP_33 .and. self%rk%scheme /= RK_SSP_54) &
+         if (self%ts%scheme /= RK_SSP_22 .and. self%ts%scheme /= RK_SSP_33 .and. self%ts%scheme /= RK_SSP_54) &
             call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
          call self%pic%check_esirkepov_q_order(fdv_order=self%fdv_order)
       endif
@@ -716,7 +715,7 @@ contains
          ! integrate_leapfrog_dev is an empty stub: dispatching to it would silently freeze the solution
          call mpih_fnl%error_stop(msg=': leapfrog time integration not ported to FNL backend')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-         select case(self%rk%scheme)
+         select case(self%ts%scheme)
          case(RK_1, RK_2, RK_3)                ; self%integrate_dev => integrate_rk_ls_dev
          case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate_dev => integrate_rk_ssp_dev
          case(RK_YOSHIDA)
@@ -907,7 +906,7 @@ contains
          call mpih_fnl%error_stop(msg=': FNL PML is currently available only with scheme_space = FD_centered')
       if (self%numerics%scheme_time /= NUM_SCHEME_TIME_RUNGE_KUTTA) &
          call mpih_fnl%error_stop(msg=': FNL PML is currently available only with scheme_time = Runge_Kutta')
-      select case (trim(self%rk%scheme))
+      select case (trim(self%ts%scheme))
       case (RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
          continue
       case default

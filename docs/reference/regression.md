@@ -321,7 +321,7 @@ The library and application unit tests are separate build modes (`test-*` in [bu
 run as `mpirun -np <N> exe/<test_executable>`. The families are the FDV operators on trigonometric and step fields
 (`test-fdv-*`, CPU and FNL), AMR (`test-amr-*`, `test-tree-closest-block`, `test-periodic-ghost`), seams
 (`test-seam-interpolation`, `test-quadtree-seam-ghost`), the Poisson solvers and FLAIL (`test-poisson-fft`,
-`test-poisson-mg`, `test-flail-bc`), the RK tableaux (`test-rk-ssp-tableau`), the SELAH time integrators (`test-selah-stepper-smoke`, CPU and FNL: the
+`test-poisson-mg`, `test-flail-bc`), the SELAH time integrators (`test-selah-stepper-smoke`, CPU and FNL: the
 dependency builds and steps on each backend; `test-stepper-object`, `test-stepper-object-xfail`: the adapter,
 [#132](https://github.com/szaghi/adam/issues/132)), PRISM reflux (`test-prism-reflux-apply`),
 turbulence (`test-sgs`, `test-kep`, `test-wm`, `test-df`), and FLUME's libraries and user criteria (`test-flume-*`,

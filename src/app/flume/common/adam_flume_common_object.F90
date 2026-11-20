@@ -24,8 +24,7 @@ use :: adam_turbulence_object,        only : turbulence_object
 use :: adam_tree_object,              only : NODE_BOUNDARY_CONDITION, NODE_STANDARD
 use :: adam_tree_node_object,         only : tree_node_object
 use :: adam_grid_object,              only : grid_object
-use :: adam_rk_object,                only : rk_stored_stages_number, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
-use :: adam_stepper_object,           only : stepper_stored_fields
+use :: adam_stepper_object,           only : stepper_stored_fields, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
 use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,              only : mpih
@@ -1133,11 +1132,10 @@ contains
    !<
    !< Both backends allocate the same nb-sized arrays, on the host (CPU) or on the device (FNL): `q`, `dq` (2 nv),
    !< `q_aux` (nv_aux), the three face fluxes (3 nv, counted as full block fields) and the Runge-Kutta stages
-   !< (`rk_stored_stages_number` nv; with SELAH, `with_selah`, the stepper's registers, `stepper_stored_fields` nv:
-   !< one more, its residual register, #132), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange),
+   !< (the SELAH stepper's registers, `stepper_stored_fields` nv, its residual register included, #132), plus the positivity limiter's cell factors (nv, q-shaped for the ghost exchange),
    !< the fourth-order gravity energy correction (1, every run, issue #73 M7-G2a), the equilibrium residual of the
    !< well-balanced mode (nv, M7-G2b), the gravitational potential (1, issue #81) and the eddy viscosity (1, issue #119).
-   !< Requires `physics`, `numerics` and `turbulence` initialized; parses `[runge_kutta]` into `rk` (its library parser).
+   !< Requires `physics`, `numerics` and `turbulence` initialized; parses `[runge_kutta]` into `ts` (its library parser).
    class(flume_common_object), intent(inout) :: self            !< The equation.
    type(file_ini),             intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    integer(I4P),               intent(out)   :: fields_number   !< Block-sized fields allocated per block.
@@ -1147,15 +1145,11 @@ contains
    integer(I4P)                              :: f               !< Face counter.
    character(len=8), parameter               :: BC_SECTIONS(6)=['bc_x_min', 'bc_x_max', 'bc_y_min', 'bc_y_max', 'bc_z_min', 'bc_z_max'] !< Face sections.
 
-   ! [runge_kutta] through the library parser, before rk%initialize exists (#80 P3: no app peek of a library section)
-   call self%rk%load_from_file(file_parameters=file_parameters)
-   if (self%with_selah) then
-      stages_number = stepper_stored_fields(scheme=self%rk%scheme)
-   else
-      stages_number = rk_stored_stages_number(scheme=self%rk%scheme)
-   endif
+   ! [runge_kutta] through the library parser, before ts%initialize (#80 P3: no app peek of a library section)
+   call self%ts%load_from_file(file_parameters=file_parameters)
+   stages_number = stepper_stored_fields(scheme=self%ts%scheme)
    if (stages_number < 0_I4P) &
-      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
+      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//self%ts%scheme//'" in [runge_kutta].(scheme)')
    fields_number = self%physics%nv * (2_I4P + 3_I4P + stages_number) + self%physics%nv_aux
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) fields_number = fields_number + self%physics%nv
    fields_number = fields_number + 1_I4P
@@ -2834,7 +2828,7 @@ contains
    integer(I4P),               intent(out) :: nv          !< Number of conserved variables on this realm.
 
    scheme_time = SCHEME_TIME_TAG
-   rk_scheme   = trim(self%rk%scheme)
+   rk_scheme   = trim(self%ts%scheme)
    nv          = self%physics%nv
    endsubroutine coupling_descriptor_forest
 
@@ -3222,9 +3216,9 @@ contains
    if (has_mixed_glm(self%physics%model)) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is refused with [mhd].(divergence_control)=glm: '//&
                                'use eglm (issue #47, D-10)')
-   if (.not.any(self%rk%scheme == [character(18) :: RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54])) &
+   if (.not.any(self%ts%scheme == [character(18) :: RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54])) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell needs an SSP Runge-Kutta scheme, not '// &
-                               '[runge_kutta].(scheme)='//self%rk%scheme)
+                               '[runge_kutta].(scheme)='//self%ts%scheme)
    if (self%ib%solids_number > 0_I4P) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported with immersed solids')
    if (any(self%bc%bc_type == BC_WALL_NOSLIP .or. self%bc%bc_type == BC_WALL_ISOTHERMAL)) &
@@ -3508,10 +3502,7 @@ contains
    if (.not.has_mixed_glm(self%physics%model) .and. self%physics%model /= MODEL_MHD_EGLM) &
       call mpih%error_stop(msg=': [diagnostics].(divb_flux) needs [mhd].(divergence_control) = glm or eglm: D_flux '// &
                                'is read from the psi face fluxes')
-   ! with SELAH every Runge-Kutta form has at least two registers, scratch between steps (#132 rule 3, #128 D1)
-   if (.not.self%with_selah .and. self%rk%nrk < 2_I4P) &
-      call mpih%error_stop(msg=': [diagnostics].(divb_flux) needs a Runge-Kutta scheme of at least two stages (its '// &
-                               'residual evaluation runs on the idle stage buffers)')
+   ! every SELAH form has at least two registers, scratch between steps: any scheme hosts D_flux (#132 rule 3, #128 D1)
    endsubroutine check_divb_flux
 
    function runtime_amr_forest(self) result(yes)

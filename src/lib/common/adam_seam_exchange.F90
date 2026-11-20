@@ -282,8 +282,8 @@ contains
    !< Copy the seam ghosts of `q` into every stage buffer of `q_rk`, for the peer slots of the given cadence (issue
    !< #113): the local rows and the receive rows of each slot, the cells the seam fill writes in this realm.
    !<
-   !< The `end_of_step` (alpha) fill writes the committed `q` only, while the stages compute on `q_rk`, whose ghosts
-   !< the stage loop never refills from a peer (`rk_object%initialize_stages` copies the interior). Called when a step
+   !< The `end_of_step` (alpha) fill writes the committed `q` only, while the stages compute on the stepper's stage
+   !< states, whose ghosts the stage loop never refills from a peer (a stage state starts as a copy of `q`). Called when a step
    !< opens, right after the forest's alpha fill, it gives every stage of the step the peer state at the start of the
    !< step, the lagged coupling alpha means.
    type(maps_object), intent(in)    :: maps                                !< Maps of the realm owning the ghosts.

@@ -1294,7 +1294,6 @@ contains
    integer(I4P)                                  :: realms_number_ !< Realm count, local variable.
 
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(1_I4P, realms_number)
-   self%with_selah = .true. ! the time integrator is SELAH's (stepper_object, #132): the realm builds it instead of rk
    call self%flume_common_object%initialize(filename=filename, memory_avail=mpih%memory_avail/realms_number_, &
                                             verbose=.true.)
    if (self%numerics%is_hybrid) then

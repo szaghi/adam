@@ -83,7 +83,7 @@ contains
    ! end of the stability region on the imaginary axis: |R(i y)| <= 1 for |y| <= beta_I (0: none, R(i y) > 1 at once)
    select case(trim(rk_scheme))
    case(RK_SSP_54)
-      self%beta_i = 3.278_R8P            ! computed from the Shu-Osher coefficients of ssp_tableau
+      self%beta_i = 3.278_R8P            ! computed from the Shu-Osher coefficients of the SSP-54 tableau
    case(RK_3, RK_SSP_33)
       self%beta_i = sqrt(3._R8P)
    case default

@@ -301,7 +301,7 @@ contains
    !<
    !<   The flux register's third axis is collapsed to 1. PRISM realms
    !<   gate `apply_reflux_to_stage_forest` and `accumulate_seam_fluxes_fv`
-   !<   on the realm's own final RK substage (`stage == rk%nrk`). Earlier
+   !<   on the realm's own final RK substage (`stage == ts%stages()`). Earlier
    !<   substages no-op. The mid-step `apply_reflux_corrections` call below
    !<   therefore fires for every k, but only the k == K_realm(is)
    !<   invocation does real work on realm `is`. Independent of α/β: β
@@ -382,8 +382,8 @@ contains
          ! realms have completed `begin_stage_forest(k)` (their stage-k
          ! interior buffer is written), so reading peer's stage-k interior
          ! is well-defined. The TBP's buffer-selection logic in
-         ! `fill_seam_from_peer_forest` reads peer's `rk%q_rk(:,...,
-         ! peer%stage_active)` = peer's stage-k slice and writes self's
+         ! `fill_seam_from_peer_forest` reads peer's stage state of
+         ! `peer%stage_active` = peer's stage-k buffer and writes self's
          ! stage-k ghosts. Race-free under the Phase-A replicated-forest
          ! layout (serial inner loops within a rank); the
          ! Phase 2 → Phase 3 ordering invariant the pre-α three-phase
@@ -3026,7 +3026,7 @@ contains
    !< role is purely orchestration: it iterates the realm array and invokes
    !< each realm's `apply_reflux_to_stage_forest` TBP, passing that realm's
    !< OWN final stage (`stages_per_step_forest()`) so the realm-side
-   !< end-of-step gate (`stage == self%rk%nrk`) fires for every realm,
+   !< end-of-step gate (`stage == self%ts%stages()`) fires for every realm,
    !< asymmetric-K included. The realm-side body filters `flux_register%face(:)`
    !< by `face%coarse_realm == self%realm_index` and adds the per-cell
    !< end-of-step correction directly into its committed `self%q` (full

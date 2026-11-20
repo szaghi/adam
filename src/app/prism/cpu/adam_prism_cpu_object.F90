@@ -272,7 +272,6 @@ contains
    memory_avail_ = mpih%memory_avail / real(realms_number_, R8P)
    ! the time integrator is SELAH's (stepper_object, #132 phase 4); Yoshida is SELAH's splitting of the two partitions,
    ! B (VAR_BX:VAR_BZ, advanced first) and D (VAR_DX:VAR_DZ)
-   self%with_selah = .true.
    self%selah_partitions = reshape([VAR_BX, VAR_BZ, VAR_DX, VAR_DZ], [2, 2])
    call self%prism_common_object%initialize(filename=filename,memory_avail=memory_avail_,verbose=.true.)
    if (is_pic_model(self%physics%physical_model)) then
@@ -281,7 +280,7 @@ contains
              self%numerics%scheme_time /= NUM_SCHEME_TIME_RUNGE_KUTTA .or. &
              self%pic%scheme_time /= NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
             call mpih%error_stop(msg=': conserving PIC current requires centered FD and SSP Runge-Kutta')
-         if (self%rk%scheme /= RK_SSP_22 .and. self%rk%scheme /= RK_SSP_33 .and. self%rk%scheme /= RK_SSP_54) &
+         if (self%ts%scheme /= RK_SSP_22 .and. self%ts%scheme /= RK_SSP_33 .and. self%ts%scheme /= RK_SSP_54) &
             call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
          call self%pic%check_esirkepov_q_order(fdv_order=self%fdv_order)
       endif
@@ -304,7 +303,7 @@ contains
          ! self%leapfrog is never initialized (adam_realm_object initialize, call commented out): q_old unallocated
          call mpih%error_stop(msg=': leapfrog time integration is not functional (leapfrog object never initialized)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-         select case(self%rk%scheme)
+         select case(self%ts%scheme)
          case(RK_1, RK_2, RK_3)                ; self%integrate => integrate_rk_ls
          case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate => integrate_rk_ssp
          case(RK_YOSHIDA)                      ; self%integrate => integrate_rk_yoshida
@@ -410,8 +409,8 @@ contains
 
       if (.not. self%pml%enabled) return
 
-      is_supported_ssp = trim(self%rk%scheme) == RK_SSP_11 .or. trim(self%rk%scheme) == RK_SSP_22 .or. &
-                         trim(self%rk%scheme) == RK_SSP_33 .or. trim(self%rk%scheme) == RK_SSP_54
+      is_supported_ssp = trim(self%ts%scheme) == RK_SSP_11 .or. trim(self%ts%scheme) == RK_SSP_22 .or. &
+                         trim(self%ts%scheme) == RK_SSP_33 .or. trim(self%ts%scheme) == RK_SSP_54
 
       if (trim(self%pml%pml_type) /= 'CLASSIC' .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT' .and. &
           trim(self%pml%pml_type) /= 'BERMUDEZ' .and. &

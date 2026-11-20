@@ -25,7 +25,6 @@ use :: adam_prism_probes_object
 use :: adam_prism_rk_pic_object
 use :: adam_prism_rk_pml_object
 use :: adam_stepper_object, only : stepper_stored_fields
-!use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! third party modules
 use :: finer, only : file_ini
@@ -118,7 +117,6 @@ type, extends(realm_object) :: prism_common_object
    type(prism_plasma_frequencies_object) :: plasma_freq        !< Plasma frequencies and the PIC time-step limit.
    type(prism_pml_object)                :: pml                !< Perfectly matched layer.
    type(prism_probes_object)             :: probes             !< Field probes.
-   !type(prism_rk_bc_object)              :: rk_bc              !< Runge-Kutta BC handler.
    type(prism_rk_pic_object)             :: rk_pic             !< Runge-Kutta PIC handler.
    type(prism_rk_pml_object)             :: rk_pml             !< Runge-Kutta PML auxiliary handler.
    type(prism_time_object)               :: time               !< Time integration state.
@@ -439,13 +437,9 @@ contains
    integer(I4P)                              :: save_cc         !< [PIC].(charge_conservation_save).
    integer(I4P)                              :: error           !< Error status.
 
-   if (self%with_selah) then
-      stages_number = stepper_stored_fields(scheme=self%rk%scheme)
-   else
-      stages_number = rk_stored_stages_number(scheme=self%rk%scheme)
-   endif
+   stages_number = stepper_stored_fields(scheme=self%ts%scheme)
    if (stages_number < 0_I4P) &
-      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
+      call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//self%ts%scheme//'" in [runge_kutta].(scheme)')
    call self%coil%load_coils_number(file_parameters=file_parameters)
    select case(self%numerics%scheme_space)
    case(NUM_SCHEME_SPACE_FV_CENTERED) ; flux_fields = 9_I4P + 3_I4P
@@ -496,8 +490,8 @@ contains
    ! NV_MAX sizes the CPU WENO flux stack arrays: a wider state would write past them (issue #57)
    if (self%physics%nv > NV_MAX) call mpih%error_stop(msg=': nv = '//trim(str(self%physics%nv))//' exceeds NV_MAX = '// &
                                                           trim(str(NV_MAX)))
-   ! [runge_kutta] through the library parser, before rk%initialize exists: the stage count sizes the budget (#80 P3)
-   call self%rk%load_from_file(file_parameters=file_parameters)
+   ! [runge_kutta] through the library parser, before ts%initialize: the stage count sizes the budget (#80 P3)
+   call self%ts%load_from_file(file_parameters=file_parameters)
    if (present(fields_number)) then
       fields_number_ = fields_number
    else
@@ -506,7 +500,7 @@ contains
    ! the memory the backend needs outside the block slots, taken off the budget before the slots fill it (issue #112)
    extra_fields = 0_I4P ; reserved = 0._R8P
    if (associated(self%estimate_backend_memory)) &
-      call self%estimate_backend_memory(physics=self%physics, file_parameters=file_parameters, rk_scheme=self%rk%scheme, &
+      call self%estimate_backend_memory(physics=self%physics, file_parameters=file_parameters, rk_scheme=self%ts%scheme, &
                                         extra_fields=extra_fields, reserved_memory=reserved)
    if (.not.present(fields_number)) fields_number_ = fields_number_ + extra_fields
    ! the library gives the blocks fraction*memory: passing memory - reserved/fraction leaves them fraction*memory -
@@ -557,8 +551,8 @@ contains
       call self%time%initialize(file_parameters=file_parameters)
    endif
    if (is_pic_model(self%physics%physical_model)) then
-      if (allocated(self%rk%scheme)) then
-         call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, rk_scheme=self%rk%scheme)
+      if (allocated(self%ts%scheme)) then
+         call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, rk_scheme=self%ts%scheme)
       else
          call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, rk_scheme='')
       endif
@@ -575,14 +569,11 @@ contains
       call self%probes%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, &
                                   grid=self%adam%grid)
    endif
-   !if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-   !   call self%rk_bc%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
-   !                              rk=self%rk, physics=self%physics)
    if (is_pic_model(self%physics%physical_model)) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic%initialize(file_parameters=file_parameters, pic=self%pic)
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-         call self%rk_pic%initialize(file_parameters=file_parameters, rk=self%rk, pic=self%pic, physics=self%physics)
+         call self%rk_pic%initialize(ts=self%ts, pic=self%pic, physics=self%physics)
    endif
    call check_ngc_number
    call self%allocate_common
@@ -5210,7 +5201,7 @@ contains
    integer(I4P),               intent(out) :: nv          !< Number of conserved variables on this realm.
 
    scheme_time = self%numerics%scheme_time
-   rk_scheme   = self%rk%scheme
+   rk_scheme   = self%ts%scheme
    nv          = self%physics%nv
    endsubroutine coupling_descriptor_forest
 
