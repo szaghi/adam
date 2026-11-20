@@ -2226,11 +2226,9 @@ contains
    ! extent (interiors + ghosts) after every ghost refresh -- the ghost machinery never
    ! has the last word on J. The call was dropped on FNL in the fWL resequencing (the `s`
    ! dummy survived as "API symmetry"); its absence left the committed q with a
-   ! one-dt-lagged J interior and stale J ghosts. The allocated() guard reproduces the
-   ! CPU low-storage behavior exactly: CPU LS calls compute_residuals without `s`, so its
-   ! stamp is the bare-time one; FNL LS threads `s` through, and gamm does not exist for
-   ! LS schemes.
-   if (present(s) .and. self%ts%is_butcher()) then ! the SSP schemes (#132: SELAH's stage_time, the tableau's c)
+   ! one-dt-lagged J interior and stale J ghosts. With a stage, the coils are stamped at its time, every form
+   ! (SELAH's stage_time: the tableau's c, the two-register form's c; #134 L2).
+   if (present(s)) then
       call self%compute_coils_current(q_gpu=q_gpu, gamm=self%ts%stage_time(s))
    else
       call self%compute_coils_current(q_gpu=q_gpu)
@@ -6026,10 +6024,10 @@ contains
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
    real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
 
-   if (is_pic_model(self%physics%physical_model)) then
-      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
-         call mpih%error_stop(msg=': conserving PIC current is not implemented in the staged forest path')
-   endif
+   ! the staged path steps the fields and the PML only: the particles need a SELAH companion state (szaghi/SELAH#4)
+   if (is_pic_model(self%physics%physical_model)) &
+      call mpih%error_stop(msg=': PIC is not implemented in the staged forest path (multi-realm runs, or a refined '// &
+                               'grid with coarse-fine faces): the particles would not be pushed (szaghi/adam#134)')
    self%time%it = self%time%it + 1
    dt_step = dt
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time

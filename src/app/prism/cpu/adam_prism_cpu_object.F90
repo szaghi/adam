@@ -1500,15 +1500,17 @@ contains
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
    real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
 
-   if (is_pic_model(self%physics%physical_model)) then
-      if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
-         call mpih%error_stop(msg=': conserving PIC current is not implemented in the staged forest path')
-   endif
+   ! the staged path steps the fields and the PML only: the particles need a SELAH companion state (szaghi/SELAH#4)
+   if (is_pic_model(self%physics%physical_model)) &
+      call mpih%error_stop(msg=': PIC is not implemented in the staged forest path (multi-realm runs, or a refined '// &
+                               'grid with coarse-fine faces): the particles would not be pushed (szaghi/adam#134)')
    self%time%it = self%time%it + 1
    dt_step = dt
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
    self%time%dt = dt_step
    call ts_begin_step(self)
+   ! the PML auxiliary fields advance with the field stages, as on the fused path and the FNL backend (#134 L1)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
    endsubroutine open_step_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -1532,6 +1534,7 @@ contains
    ! not q itself, takes the seam ghosts of q, which hold the peer state of the step's alpha fill (#113)
    if (.not.self%ts%state_is_q(k)) call seam_ghosts_to_state(maps=self%adam%maps, cadence=CADENCE_END_OF_STEP, &
                                                             ngc=self%ngc, q=self%q, u=self%ts%stage_state())
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=k, dt=self%time%dt)
    endsubroutine begin_stage_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -1554,6 +1557,7 @@ contains
    endif
    call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
    call ts_end_stage(self, s=k)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=k)
    endsubroutine end_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -1575,13 +1579,15 @@ contains
       call ts_finish_step(self, with_dq=.true.)
       call self%save_residuals
    endif
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
+      call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    self%time%time = self%time%time + self%time%dt
    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
    ! Clear active-stage marker so any `fill_seam_from_peer_forest`
    ! query between steps reads from self%q (committed state) rather than
-   ! a stale q_rk slot from the previous step's last stage.
+   ! a stale stage state of the previous step's last stage.
    self%stage_active = 0_I4P
    endsubroutine close_step_forest
 
@@ -3970,11 +3976,11 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti
+   call self%compute_coils_current(q=self%q)
    call ts_begin_step(self)
    do s=1, self%ts%stages()
       call ts_begin_stage(self, s=s)
-      call self%compute_residuals(q=self%q, dq=self%dq)
+      call self%compute_residuals(q=self%q, dq=self%dq, s=s) ! the coils at the stage time (#134 L2)
       if (s==1) call self%save_residuals
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
       call ts_end_stage(self, s=s)
@@ -5874,7 +5880,7 @@ contains
    call self%ts%begin_step(field=self%adam%field, q=self%q)
    do s=1, self%ts%stages()
       call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
-      call self%compute_residuals(q=self%q, dq=self%dq)
+      call self%compute_residuals(q=self%q, dq=self%dq, s=s) ! the coils at the flow's time (#134 L2)
       if (s==1) call self%save_residuals
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
       call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
