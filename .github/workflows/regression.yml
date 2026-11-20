@@ -1,0 +1,55 @@
+name: Regression
+# ADAM's own CI legs, each a script of scripts/ci/ run in the linux-gnu toolchain image (gfortran 16.2, Open MPI, HDF5,
+# FFTW, h5py) by the reusable matrix workflow of fortran-toolchains (https://github.com/szaghi/fortran-toolchains); the
+# toolchain id carries no version, so a toolchain bump reaches these legs without touching them. Each script leaves
+# its outputs in ci-artifacts/, uploaded whatever the outcome (a golden is captured from a known-good run, a failing
+# one is diagnosed). Not managed by fobis scaffold (ci.yml, the tests with coverage, is). The FNL legs need a GPU and
+# run on medooza.
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]   # a release tag points at a commit already tested on its branch push
+  pull_request:
+
+# a newer push to the same ref supersedes the running checks
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  regression-prism-cpu:
+    uses: szaghi/fortran-toolchains/.github/workflows/matrix.yml@v1
+    with:
+      toolchains: 'linux-gnu'
+      script: 'scripts/ci/regression-prism-cpu.sh'
+      artifacts: 'ci-artifacts'
+      artifacts-name: 'prism-regression-cpu-work'
+
+  regression-flume-cpu:
+    uses: szaghi/fortran-toolchains/.github/workflows/matrix.yml@v1
+    with:
+      toolchains: 'linux-gnu'
+      script: 'scripts/ci/regression-flume-cpu.sh'
+      artifacts: 'ci-artifacts'
+      artifacts-name: 'flume-regression-cpu-work'
+
+  ripple-cpu:
+    uses: szaghi/fortran-toolchains/.github/workflows/matrix.yml@v1
+    with:
+      toolchains: 'linux-gnu'
+      script: 'scripts/ci/ripple-cpu.sh'
+
+  docs-modes:
+    uses: szaghi/fortran-toolchains/.github/workflows/matrix.yml@v1
+    with:
+      toolchains: 'linux-gnu'
+      script: 'scripts/ci/docs-modes.sh'
+
+  docs-tutorials:
+    uses: szaghi/fortran-toolchains/.github/workflows/matrix.yml@v1
+    with:
+      toolchains: 'linux-gnu'
+      script: 'scripts/ci/docs-tutorials.sh'

@@ -11,6 +11,8 @@ src/tests/euler_cpu
 # tracked scripts the *.sh rule would hide from a plain git add (the others were force-added)
 !src/tests/regression-dispatch.sh
 !src/tests/regression-ab.sh
+!scripts/*.sh
+!scripts/ci/*.sh
 *.log
 doc/html/
 .DS_Store
@@ -39,3 +41,4 @@ docs/api/
 # Committed test material the patterns above would hide: verification scripts and the golden logs
 !src/tests/flume/verification/**/*.sh
 !src/tests/**/golden/**/*.dat
+ci-artifacts/

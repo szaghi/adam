@@ -109,7 +109,8 @@ scripts/bump.sh v2.1.0  # explicit version
 
 Pushing the tag triggers the release workflow (`.github/workflows/release.yml`). It runs no test and builds no
 documentation. It:
-- packages a versioned tarball `adam-vX.Y.Z.tar.gz` (without `.git`, `exe`, `obj`, `mod` and the docs build);
+- packages a versioned tarball `adam-vX.Y.Z.tar.gz` with the fobos dependencies bundled (fortran-toolchains' reusable
+  `release.yml`);
 - extracts the tag's section of `CHANGELOG.md` as the release notes;
 - publishes a GitHub release with the tarball and `scripts/install.sh` attached.
 
@@ -117,8 +118,8 @@ The other workflows:
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci.yml` | every branch push and pull request (not tags) | the coverage rule (`fobis rule --ex makecoverage-analysis`); the PRISM and FLUME CPU regression suites (`--varset ci_gnu`); the FLUME OpenMP-vs-serial bitwise check; the RIPPLE CPU oracles; the check of the build modes named in the docs |
-| `docs.yml` | a push to the default branch, or manual | the coverage rule and the coverage badge, the build-modes page, the API reference, the VitePress build, and the deploy to GitHub Pages |
-| `install.yml` | after a successful release | installs the release through `install.sh` with FoBiS, with fpm, and with CMake when the tag has a `CMakeLists.txt` |
+| `ci.yml` | every branch push and pull request (not tags) | the coverage rule (`fobis rule --ex makecoverage-analysis`) in the fortran-toolchains `linux-gnu` image, by its reusable `test.yml`; managed by `fobis scaffold` |
+| `regression.yml` | every branch push and pull request (not tags) | ADAM's own legs, each a script of `scripts/ci/` run in the same image by the reusable `matrix.yml`: the PRISM and FLUME CPU regression suites (`--varset ci_gnu`), the FLUME OpenMP-vs-serial bitwise check, the RIPPLE CPU oracles, the build modes named in the docs, the tutorials' output |
+| `docs.yml` | after CI on the default branch, or manual | the coverage badge from CI's artifact, the build-modes page, the API reference, the VitePress build, and the deploy to GitHub Pages, by the reusable `docs.yml` |
 
-Coverage is not uploaded to any external service: `docs.yml` writes it to the badge `docs/public/coverage-badge.json`.
+Coverage is not uploaded to any external service: `docs.yml` writes it to the badge `docs/public/coverage.json`.

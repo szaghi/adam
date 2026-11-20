@@ -12,7 +12,7 @@
 
 [![Version](https://img.shields.io/github/v/tag/szaghi/adam?sort=semver&label=version)](https://github.com/szaghi/adam/releases/latest)
 [![CI](https://github.com/szaghi/adam/actions/workflows/ci.yml/badge.svg)](https://github.com/szaghi/adam/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://szaghi.github.io/adam/coverage-badge.json)](https://szaghi.github.io/adam/)
+[![Coverage](https://img.shields.io/endpoint?url=https://szaghi.github.io/adam/coverage.json)](https://szaghi.github.io/adam/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![License: LGPLv3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
 

@@ -13,7 +13,7 @@ ADAM has two types of dependencies: source libraries fetched by FoBiS (into `src
 | Compiler | Status |
 |----------|--------|
 | NVIDIA HPC SDK, nvfortran **26.9** (HPC-X Open MPI bundled) | GPU (OpenACC, `*-fnl-nvf`) and CPU builds; see [Install NVIDIA HPC SDK](#install-nvidia-hpc-sdk) |
-| GNU gfortran **16.2.0** + Open MPI **5.0.11** | CPU builds (`*-cpu-gnu`); CI uses Ubuntu 24.04's gfortran 14 (varset `ci_gnu`) |
+| GNU gfortran **16.2.0** + Open MPI **5.0.11** | CPU builds (`*-cpu-gnu`); CI uses the same toolchain in the fortran-toolchains `gnu-16.2` image (varset `ci_gnu`) |
 | AMD flang (ROCm) | OpenMP offload builds (`*-omp-amd`) |
 | Intel oneAPI (ifx) | OpenMP offload templates, experimental |
 
@@ -160,7 +160,7 @@ variable, not a shell environment variable: exporting it has no effect. NVF vars
 |---|---|---|---|---|
 | `local_gnu` (default) | workstation: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/gnu/16.2.0` | — | — |
 | `local_nvf` | workstation: nvfortran 26.9 | `lib/hdf5/develop/nvf/26.9` | `cc89` | `,lto` |
-| `ci_gnu` | GitHub Actions: Ubuntu 24.04 gfortran 14 + Open MPI | `lib/hdf5/develop/gnu/14.2.0` | — | — |
+| `ci_gnu` | GitHub Actions: the fortran-toolchains `gnu-16.2` image | `/opt/hdf5` (the image's) | — | — |
 | `iac_gnu` | medooza cluster: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — | — |
 | `iac_nvf` | medooza cluster: nvfortran 26.9, CUDA 12.9 | `lib/hdf5/develop/iac/nvf/26.9` | `cc80,cuda12.9` | `,lto` |
 | `leonardo` | Leonardo, Spack NVHPC 24.5 | Spack path | `cc80` | (off) |

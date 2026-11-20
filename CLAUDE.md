@@ -335,7 +335,7 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
     |---|---|---|---|
     | `local_gnu` (**default**) | WSL: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/gnu/16.2.0` | — |
     | `local_nvf` | WSL: nvfortran 26.9 | `lib/hdf5/develop/nvf/26.9` | `cc89` |
-    | `ci_gnu` | GitHub Actions: Ubuntu 24.04 apt gfortran-14 + Open MPI | `lib/hdf5/develop/gnu/14.2.0` | — |
+    | `ci_gnu` | GitHub Actions: the fortran-toolchains `gnu-16.2` image (gfortran 16.2.0 + Open MPI 5.0.11) | `/opt/hdf5` (the image's) | — |
     | `leonardo` | Spack path (NVHPC 24.5) | Spack | `cc80` |
     | `iac_gnu` | medooza: gfortran 16.2.0 + Open MPI 5.0.11 (`source /ifs/hpc/home/szaghi/gnu/gnu.sh`) | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — |
     | `iac_nvf` | medooza: nvfortran 26.9, CUDA 12.9 (`source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh`) | `lib/hdf5/develop/iac/nvf/26.9` | `cc80,cuda12.9` |
@@ -363,8 +363,8 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
     `local_*`/`iac_*` rows): Fortran `.mod` files work only with the compiler version that wrote them. A mismatch
     stops the build at `use hdf5` ("created by a different version of GNU Fortran") or, under nvfortran, as an
     internal compiler error ("mpi_f08_types ... member symbol not found"). Build clean after switching compilers.
-    On medooza never use the cluster modules (nvhpc 25.5, gcc 12). CI runs `--varset ci_gnu` (jobs pinned to
-    `ubuntu-24.04`) because its apt gfortran-14 cannot read the 16.2 HDF5.
+    On medooza never use the cluster modules (nvhpc 25.5, gcc 12). CI runs in the fortran-toolchains `gnu-16.2`
+    image (`scripts/ci/*.sh`, `--varset ci_gnu`: the image's HDF5 at `/opt/hdf5`), the workstation's compiler and MPI.
   - The `local_*` HDF5 builds were made on Ubuntu 24.04 and need glibc ≥ 2.38: an `undefined reference to
     __isoc23_strtol` means the HDF5 was built on a newer glibc than the machine that links, so rebuild it there
     (the `iac_*` ones are built on medooza). With the WSL `cuda_13.3` NVHPC bundle, an older Windows driver needs the

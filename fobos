@@ -23,6 +23,24 @@ StringiFor = https://github.com/szaghi/StringiFor
 VTKFortran = https://github.com/szaghi/VTKFortran
 VecFor     = https://github.com/szaghi/VecFor
 
+# fobis scaffold (fortran-toolchains reusable workflows, the gnu-16.2 image): `fobis scaffold status`, `fobis scaffold sync`.
+# The skipped files are ADAM's own:
+# - docs.yml, docs/package.json: the build-modes page regenerated, formal run by the build, the 8 GB Node heap,
+#   VitePress 2 (the scaffold's package.json pins 1.6);
+# - release.yml, install.yml, fpm.toml: ADAM builds only with MPI and HDF5 (no fpm, no fresh-runner install test): the
+#   release is the reusable release workflow alone;
+# - LICENSE.gpl3.md, docs/guide/contributing.md: ADAM is LGPL3/MIT, its contributing page is docs/project/contributing.md.
+# ADAM's own CI legs (regressions, RIPPLE, the docs checks) are .github/workflows/regression.yml, not managed.
+[scaffold]
+toolchain = linux-gnu
+skip      = .github/workflows/docs.yml
+            docs/package.json
+            .github/workflows/release.yml
+            .github/workflows/install.yml
+            fpm.toml
+            LICENSE.gpl3.md
+            docs/guide/contributing.md
+
 [include]
 paths =  fobos.d/templates.fobos
          fobos.d/rules.fobos
@@ -72,10 +90,10 @@ default = local_gnu
 [varset:local_gnu]
 $HDF5_PREFIX = lib/hdf5/develop/gnu/16.2.0
 
-# GitHub Actions CI: Ubuntu 24.04's apt gfortran-14 (.github/actions/setup-build-env) cannot read the .mod files of the
-# gfortran 16.2 HDF5 above, so CI builds against the gfortran 14 HDF5 kept in the repo (ci.yml passes --varset ci_gnu).
+# GitHub Actions CI: the fortran-toolchains gnu-16.2 image (gfortran 16.2.0, Open MPI 5.0.11), its HDF5 at /opt/hdf5
+# (HDF5_ROOT; static, parallel, deflate). The CI scripts (scripts/ci/) pass --varset ci_gnu.
 [varset:ci_gnu]
-$HDF5_PREFIX = lib/hdf5/develop/gnu/14.2.0
+$HDF5_PREFIX = /opt/hdf5
 
 [varset:local_nvf]
 $HDF5_PREFIX = lib/hdf5/develop/nvf/26.9

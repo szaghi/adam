@@ -70,8 +70,8 @@ metadata that differs only by block partitioning (`dxdydz`, `origin`, `time_iter
 Bitwise identity is checked separately where it is the contract: FLUME's OpenMP build against the serial one
 (`run-omp-bitwise.sh`, in CI), and RIPPLE's rank and CRLF legs.
 
-**Golden authority.** The CPU goldens are captured in CI (Ubuntu 24.04, gfortran 14, varset `ci_gnu`); a golden captured
-on a workstation with another compiler can fail in CI with no real change. The FNL goldens are captured on the GPU
+**Golden authority.** The CPU goldens are checked in CI (the fortran-toolchains `gnu-16.2` image: gfortran 16.2.0, Open MPI 5.0.11, varset `ci_gnu`), the
+workstation's toolchain; a golden captured with another compiler can fail in CI with no real change. The FNL goldens are captured on the GPU
 workstation; the CI runners have no GPU.
 
 ## Running

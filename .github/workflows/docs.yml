@@ -1,98 +1,34 @@
 name: Docs
-
+# After a CI run on the default branch: the VitePress site built in the toolchain image, with the coverage badge from
+# CI's coverage-docs artifact, deployed to GitHub Pages, by the reusable workflow of fortran-toolchains
+# (https://github.com/szaghi/fortran-toolchains). A manual dispatch runs the coverage itself.
+# Project-owned (fobos [scaffold] skip), not the scaffold's docs.yml, for ADAM's build command:
+# - docs/reference/build-modes.md regenerated from `fobis build --lmodes`, so the published list cannot drift from the
+#   fobos files (issue #60, P3);
+# - formal run here (ADAM's docs/package.json has no predocs:build hook);
+# - Node's heap raised: the site (API reference + MathJax pages) peaks at about 4.3 GB, past Node's default (~4 GB).
 on:
-  push:
-    branches: ["**"]
-    tags-ignore: ["**"]   # tags are handled by release.yml
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
   workflow_dispatch:
-  workflow_call:
-
-# Permissions required by the deploy job (OIDC-based GitHub Pages deployment).
-# The caller (release.yml) must grant at least these same permissions.
+# all four, even when nothing deploys: GitHub checks what the called workflow's jobs request at startup
 permissions:
   contents: read
+  actions: read     # the coverage-docs artifact of the CI run
   pages: write
   id-token: write
-
-# Only one Pages deployment at a time; do not cancel in-progress deployments.
+# one docs run at a time, none cancelled half-way
 concurrency:
   group: pages
   cancel-in-progress: false
-
 jobs:
-
-  build:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    runs-on: ubuntu-24.04
-
-    steps:
-
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Setup build environment
-      uses: ./.github/actions/setup-build-env
-      with:
-        extra-pip-packages: formal-ford2vitepress
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
-    - name: Fetch dependencies
-      if: hashFiles('**/.deps_config.ini') != ''
-      run: fobis fetch
-
-    - name: Run coverage analysis
-      id: cov
-      uses: ./.github/actions/run-coverage-analysis
-
-    - name: Generate coverage badge JSON
-      env:
-        PCT: ${{ steps.cov.outputs.pct }}
-      run: |
-        python3 - <<'EOF'
-        import os, json
-        pct = float(os.environ["PCT"])
-        color = "brightgreen" if pct >= 80 else "yellow" if pct >= 60 else "red"
-        badge = {"schemaVersion": 1, "label": "coverage", "message": f"{pct:.1f}%", "color": color}
-        with open("docs/public/coverage-badge.json", "w") as f:
-            json.dump(badge, f)
-        EOF
-
-    - name: Regenerate the build-modes page
-      # docs/reference/build-modes.md lists the modes of `fobis build --lmodes` (FoBiS comes with setup-build-env):
-      # regenerated here so the published list cannot drift from the fobos files (issue #60, P3).
-      run: python3 scripts/make_build_modes_page.py
-
-    - name: Build documentation
-      env:
-        COVERAGE_PCT: ${{ steps.cov.outputs.pct }}
-        # The site (API reference + MathJax-rendered pages) peaks at about 4.3 GB, past Node 20's default heap
-        # (~4 GB): the build died with "JavaScript heap out of memory". The runner has 16 GB.
-        NODE_OPTIONS: --max-old-space-size=8192
-      run: |
-        formal generate --mirror-sources --diagrams --project docs/ford.md --output docs/api
-        cd docs && npm ci && npm run docs:build
-
-    - name: Upload Pages artifact
-      uses: actions/upload-pages-artifact@v3
-      with:
-        path: docs/.vitepress/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    permissions:
-      pages: write
-      id-token: write
-
-    steps:
-
-    - name: Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v4
+  docs:
+    uses: szaghi/fortran-toolchains/.github/workflows/docs.yml@v1
+    with:
+      toolchain: 'linux-gnu'
+      build-command: >-
+        python3 scripts/make_build_modes_page.py &&
+        formal generate --mirror-sources --diagrams --project docs/ford.md --output docs/api &&
+        cd docs && npm ci --no-audit --no-fund &&
+        NODE_OPTIONS=--max-old-space-size=8192 npm run docs:build

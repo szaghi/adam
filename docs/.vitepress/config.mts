@@ -481,6 +481,9 @@ export default withMermaid({
   },
   mermaid: {},
   vite: {
+    build: {
+      target: 'es2022',
+    },
     optimizeDeps: {
       include: ['mermaid'],
     },

@@ -226,8 +226,8 @@ HDF5 library paths and `NVF_CC` are **fobos variables**, defined per
 harness does not set them and does not need them in the environment.
 
 - **CPU** (`run.sh cpu`) builds with fobos's *default* varset, `local_gnu`,
-  which resolves HDF5 to `lib/hdf5/develop/gnu/14.2.0`. CI relies on this
-  default — no varset flag, no `HDF5_PREFIX`.
+  which resolves HDF5 to `lib/hdf5/develop/gnu/16.2.0`. CI passes
+  `--varset ci_gnu` (the toolchain image's HDF5, `scripts/ci/regression-prism-cpu.sh`).
 - **FNL** (`run.sh fnl`) needs `--varset local_nvf`, which resolves the
   nvf-built HDF5 and `NVF_CC`. `run-fnl-local.sh` supplies that flag.
 
