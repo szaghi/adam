@@ -24,6 +24,7 @@ use :: adam_prism_particle_injection_object
 use :: adam_prism_probes_object
 use :: adam_prism_rk_pic_object
 use :: adam_prism_rk_pml_object
+use :: adam_stepper_object, only : stepper_stored_fields
 !use :: adam_prism_rk_bc_object
 use :: adam_prism_time_object
 ! third party modules
@@ -420,7 +421,8 @@ contains
    !< Compute the block-sized fields PRISM allocates per block, the `fields_number` of the blocks budget.
    !<
    !< Both backends allocate the same nb-sized arrays, on the host (CPU) or on the device (FNL), so one count serves
-   !< both: `q`, `dq`, `curl`, `divergence` (4 nv), the Runge-Kutta stages (`rk_stored_stages_number` nv), the coils
+   !< both: `q`, `dq`, `curl`, `divergence` (4 nv), the time integrator's registers (SELAH's, `stepper_stored_fields` nv:
+   !< the stage states and residuals, the residual register included, #132), the coils
    !< current density (3 per coil), the two PIC charge-continuity accumulators (only with a charge-conservation history), and
    !< the flux arrays of the scheme in use:
    !< the cell fluxes `flxyz_c` (9 nv) for FV and WENO, the face fluxes (3 nv, counted as full block fields) for FV only,
@@ -437,7 +439,11 @@ contains
    integer(I4P)                              :: save_cc         !< [PIC].(charge_conservation_save).
    integer(I4P)                              :: error           !< Error status.
 
-   stages_number = rk_stored_stages_number(scheme=self%rk%scheme)
+   if (self%with_selah) then
+      stages_number = stepper_stored_fields(scheme=self%rk%scheme)
+   else
+      stages_number = rk_stored_stages_number(scheme=self%rk%scheme)
+   endif
    if (stages_number < 0_I4P) &
       call mpih%error_stop(msg=': unknown Runge-Kutta scheme "'//self%rk%scheme//'" in [runge_kutta].(scheme)')
    call self%coil%load_coils_number(file_parameters=file_parameters)
@@ -694,7 +700,7 @@ contains
                   tree=self%adam%tree, file_parameters=file_parameters, physics=self%physics)
    call self%pml%initialize(field=self%adam%field, grid=self%adam%grid, tree=self%adam%tree, &
                             file_parameters=file_parameters, physics=self%physics)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize(rk=self%rk, pml=self%pml)
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize(ts=self%ts, pml=self%pml)
    endassociate
    endsubroutine initialize_block_face_data
 

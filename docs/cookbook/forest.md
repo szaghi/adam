@@ -243,7 +243,9 @@ across the seam).
 
 **Choose β** whenever both realms use the same time integrator. It is the cadence under which a split reproduces the
 single-realm run, and the only one that keeps a PRISM 1:1 seam divergence-free
-([#31](https://github.com/szaghi/adam/issues/31): under α the substage ghosts are stale and div(B) leaks).
+([#31](https://github.com/szaghi/adam/issues/31): under α the substages read the peer state of the start of the step,
+lagged, and div(B) leaks; before [#132](https://github.com/szaghi/adam/issues/132) PRISM's α substage ghosts were even
+stale, [#116](https://github.com/szaghi/adam/issues/116)).
 
 **Choose α** for different RK schemes per realm (for example SSP-33 next to SSP-54): the realm with fewer stages idles
 the trailing ones.

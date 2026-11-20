@@ -4,7 +4,7 @@
 
 module adam_prism_fnl_rk_pml_object
 
-use :: adam_rk_object,            only : rk_object
+use :: adam_stepper_object,       only : stepper_object
 use :: adam_prism_fnl_pml_object, only : prism_fnl_pml_object
 use :: adam_fnl_mpih_global,      only : mpih_fnl
 use :: fundal
@@ -112,18 +112,22 @@ contains
    self%nrk = 0_I4P
    endsubroutine destroy
 
-   subroutine initialize(self, rk, pml_fnl)
+   subroutine initialize(self, ts, pml_fnl)
+   !< The PML auxiliary fields keep their own device stage storage and kernels, advanced in step with the field's
+   !< stepper, with the stepper's SELAH Butcher tableau (bitwise the former `rk_object` one; #132 phase 4).
    class(prism_fnl_rk_pml_object), intent(inout) :: self
-   type(rk_object),                intent(in)    :: rk
+   type(stepper_object),           intent(in)    :: ts
    type(prism_fnl_pml_object),     intent(in)    :: pml_fnl
+   real(R8P), allocatable                        :: a(:,:), b(:), c(:) !< Contiguous copies of the tableau.
 
    call self%destroy()
    if (.not. pml_fnl%enabled) return
    self%enabled = .true.
-   self%nrk = rk%nrk
-   if (allocated(rk%alph)) call dev_assign_to_device(src=rk%alph, dst=self%alph_gpu)
-   if (allocated(rk%beta)) call dev_assign_to_device(src=rk%beta, dst=self%beta_gpu)
-   if (allocated(rk%gamm)) call dev_assign_to_device(src=rk%gamm, dst=self%gamm_gpu)
+   self%nrk = ts%stages()
+   a = ts%st%bt%a ; b = ts%st%bt%b ; c = ts%st%bt%c
+   call dev_assign_to_device(src=a, dst=self%alph_gpu)
+   call dev_assign_to_device(src=b, dst=self%beta_gpu)
+   call dev_assign_to_device(src=c, dst=self%gamm_gpu)
 
    call allocate_face_buffers(q_face_gpu=pml_fnl%q_pml_x_m_gpu, nrk=self%nrk, q_face_rk_gpu=self%q_pml_x_m_rk_gpu, &
                               dq_face_gpu=self%dq_pml_x_m_gpu, label='x-')

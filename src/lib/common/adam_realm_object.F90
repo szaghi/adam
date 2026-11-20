@@ -94,6 +94,8 @@ type :: realm_object
                                                  !< then holds the scheme name only, its stages are not allocated.
    integer(I4P)            :: selah_layout=LAYOUT_V_FIRST !< Layout of the fields `ts` integrates (the FNL apps set
                                                           !< LAYOUT_V_LAST, their (b, i, j, k, v) device fields).
+   integer(I4P)            :: selah_partitions(2,2)=0_I4P !< The variables (first, last) of the two partitions of a
+                                                          !< splitting scheme (PRISM's Yoshida: B then D); 0 for none.
    type(adam_object)       :: adam       !< ADAM, grid + tree + field + maps orchestrator.
    ! FDV data
    character(:), allocatable :: fdv_scheme                   !< FDV scheme, fd/fv.
@@ -383,8 +385,13 @@ contains
       ! call self%cfm%initialize(file_parameters=file_parameters)
       ! call self%leapfrog%initialize(file_parameters=file_parameters)
       if (self%with_selah) then
-         call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
-                                 layout=self%selah_layout)
+         if (any(self%selah_partitions /= 0_I4P)) then
+            call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
+                                    layout=self%selah_layout, partitions=self%selah_partitions)
+         else
+            call self%ts%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters, &
+                                    layout=self%selah_layout)
+         endif
          self%rk%scheme = self%ts%scheme ! the scheme name the forest's coupling descriptor reads
       else
          call self%rk%initialize(field=self%adam%field, grid=self%adam%grid, file_parameters=file_parameters)

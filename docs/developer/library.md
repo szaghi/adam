@@ -255,8 +255,9 @@ registers) and `test-stepper-object-xfail-gnu` (an unknown scheme stops the run)
 ### `adam_rk_object`
 
 Explicit Runge-Kutta, `[runge_kutta]` section. The stage storage `q_rk(nv, ni, nj, nk, nb, nrk)` is preallocated.
-PRISM's integrator until phase 4 of [#132](https://github.com/szaghi/adam/issues/132); FLUME and RIPPLE integrate
-with SELAH through `adam_stepper_object` (above), on both backends. A realm builds one or the other:
+No application integrates with it since phase 4 of [#132](https://github.com/szaghi/adam/issues/132): FLUME, PRISM and
+RIPPLE integrate with SELAH through `adam_stepper_object` (above), on both backends; realms keep `rk` for the scheme
+name, and PRISM's PIC particle integrator builds its own SSP tableau from it, until phase 6 deletes the object. A realm builds one or the other:
 `realm_object%with_selah`, set by the application before the realm initializes, builds `ts` and leaves `rk` with the
 scheme name only.
 

@@ -270,6 +270,10 @@ contains
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(realms_number, 1_I4P)
    call mpih%print_message('prism_cpu_object%initialize start')
    memory_avail_ = mpih%memory_avail / real(realms_number_, R8P)
+   ! the time integrator is SELAH's (stepper_object, #132 phase 4); Yoshida is SELAH's splitting of the two partitions,
+   ! B (VAR_BX:VAR_BZ, advanced first) and D (VAR_DX:VAR_DZ)
+   self%with_selah = .true.
+   self%selah_partitions = reshape([VAR_BX, VAR_BZ, VAR_DX, VAR_DZ], [2, 2])
    call self%prism_common_object%initialize(filename=filename,memory_avail=memory_avail_,verbose=.true.)
    if (is_pic_model(self%physics%physical_model)) then
       if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
@@ -1458,7 +1462,7 @@ contains
       call self%set_boundary_conditions(q=q, s=s)
    endif
    if (present(s)) then
-      call self%compute_coils_current(q=q, gamma=self%rk%gamm(s))
+      call self%compute_coils_current(q=q, gamma=self%ts%stage_time(s))
    else
       call self%compute_coils_current(q=q)
    endif
@@ -1658,12 +1662,12 @@ contains
    class(prism_cpu_object), intent(in) :: self !< The realm.
    integer(I4P)                        :: K    !< Number of integrator stages per step.
 
-   select case(self%rk%scheme)
+   select case(self%ts%scheme)
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
-      K = self%rk%nrk
+      K = self%ts%stages()
    case default
       K = 0
-      call mpih%error_stop(msg=': RK scheme "'//trim(adjustl(self%rk%scheme))//'" is not stage-splittable: '// &
+      call mpih%error_stop(msg=': RK scheme "'//trim(adjustl(self%ts%scheme))//'" is not stage-splittable: '// &
                                'the staged forest path (multi-realm, or intra-realm AMR seam faces) requires '// &
                                'an SSP scheme (runge-kutta-ssp-*); low-storage schemes run only on the fused '// &
                                'single-realm/no-seam fast path')
@@ -1688,7 +1692,7 @@ contains
    dt_step = dt
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
    self%time%dt = dt_step
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
+   call ts_begin_step(self)
    endsubroutine open_step_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -1707,11 +1711,11 @@ contains
    type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
 
    self%stage_active = k
-   if (self%ib%solids_number>0) then
-      call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%time%dt, phi=self%ib%phi)
-   else
-      call self%rk%compute_stage(field=self%adam%field, s=k, dt=self%time%dt)
-   endif
+   call ts_begin_stage(self, s=k)
+   ! the end_of_step seams (#132 rule 1, closes #116): SELAH never writes a ghost cell, so the stage state, when it is
+   ! not q itself, takes the seam ghosts of q, which hold the peer state of the step's alpha fill (#113)
+   if (.not.self%ts%state_is_q(k)) call seam_ghosts_to_state(maps=self%adam%maps, cadence=CADENCE_END_OF_STEP, &
+                                                            ngc=self%ngc, q=self%q, u=self%ts%stage_state())
    endsubroutine begin_stage_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -1723,17 +1727,17 @@ contains
    type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Sibling realms (FNL parity only).
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
+   real(R8P), pointer                                           :: u(:,:,:,:,:)  !< Stage state.
+
    if (present(realm)) continue
+   u => self%ts%stage_state()
    if (present(flux_register)) then
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,k), dq=self%dq, s=k, flux_register=flux_register)
+      call self%compute_residuals(q=u, dq=self%dq, s=k, flux_register=flux_register)
    else
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,k), dq=self%dq, s=k)
+      call self%compute_residuals(q=u, dq=self%dq, s=k)
    endif
-   if (self%ib%solids_number>0) then
-      call self%rk%assign_stage(field=self%adam%field, s=k, q=self%dq, phi=self%ib%phi)
-   else
-      call self%rk%assign_stage(field=self%adam%field, s=k, q=self%dq)
-   endif
+   call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
+   call ts_end_stage(self, s=k)
    endsubroutine end_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -1750,11 +1754,9 @@ contains
    associate(dt_unused => dt) ! dt is the global reduction; self%time%dt is the local capped value
    end associate
    if (self%ib%solids_number>0) then
-      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
-      !call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
+      call ts_finish_step(self, with_dq=.false.)
    else
-      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
-      !call self%update_q_BC(dt=self%time%dt)
+      call ts_finish_step(self, with_dq=.true.)
       call self%save_residuals
    endif
    call self%apply_fWL_correction(q=self%q)
@@ -1788,28 +1790,33 @@ contains
    integer(I4P)                                   :: c, row_start, row_count, row
    integer(I4P)                                   :: b_send, i_send, j_send, k_send
    integer(I4P)                                   :: b_recv, i_recv, j_recv, k_recv
+   logical                                        :: on_stage, peer_on_stage
+   real(R8P), pointer                             :: u(:,:,:,:,:), u_peer(:,:,:,:,:)
 
    row_start = self%adam%maps%seam_local_peer_row_start(p_idx)
    row_count = self%adam%maps%seam_local_peer_row_count(p_idx)
    select type (peer)
    class is (prism_cpu_object)
+      ! the active buffers (#132 rule 2): the stepper's stage state while a stage is open and its state is not q, else q
+      on_stage = .false. ; peer_on_stage = .false.
+      if (self%stage_active > 0_I4P) on_stage = .not.self%ts%state_is_q(self%stage_active)
+      if (peer%stage_active > 0_I4P) peer_on_stage = .not.peer%ts%state_is_q(peer%stage_active)
+      if (on_stage) u => self%ts%stage_state()
+      if (peer_on_stage) u_peer => peer%ts%stage_state()
       associate(rows => self%adam%maps%seam_local_map_ghost_cell)
       do c = 1_I4P, row_count
          row = row_start + c - 1_I4P
          b_send = rows(row, 2) ; i_send = rows(row, 4) ; j_send = rows(row, 5) ; k_send = rows(row, 6)
          b_recv = rows(row, 3) ; i_recv = rows(row, 7) ; j_recv = rows(row, 8) ; k_recv = rows(row, 9)
-         if (self%stage_active > 0_I4P) then
-            if (peer%stage_active > 0_I4P) then
-               self%rk%q_rk(:, i_recv, j_recv, k_recv, b_recv, self%stage_active) = &
-                  peer%rk%q_rk(:, i_send, j_send, k_send, b_send, peer%stage_active)
+         if (on_stage) then
+            if (peer_on_stage) then
+               u(:, i_recv, j_recv, k_recv, b_recv) = u_peer(:, i_send, j_send, k_send, b_send)
             else
-               self%rk%q_rk(:, i_recv, j_recv, k_recv, b_recv, self%stage_active) = &
-                  peer%q(:, i_send, j_send, k_send, b_send)
+               u(:, i_recv, j_recv, k_recv, b_recv) = peer%q(:, i_send, j_send, k_send, b_send)
             endif
          else
-            if (peer%stage_active > 0_I4P) then
-               self%q(:, i_recv, j_recv, k_recv, b_recv) = &
-                  peer%rk%q_rk(:, i_send, j_send, k_send, b_send, peer%stage_active)
+            if (peer_on_stage) then
+               self%q(:, i_recv, j_recv, k_recv, b_recv) = u_peer(:, i_send, j_send, k_send, b_send)
             else
                self%q(:, i_recv, j_recv, k_recv, b_recv) = peer%q(:, i_send, j_send, k_send, b_send)
             endif
@@ -1828,13 +1835,17 @@ contains
    class(prism_cpu_object), intent(in)  :: self   !< The realm.
    integer(I4P),            intent(in)  :: p_idx  !< Peer slot (the realm owning the ghosts).
    real(R8P),               intent(out) :: buf(:) !< Packed values.
+   real(R8P), pointer                   :: u(:,:,:,:,:) !< Stage state.
+   logical                              :: on_stage     !< The active buffer is the stage state (#132 rule 2).
 
+   on_stage = .false.
+   if (self%stage_active > 0_I4P) on_stage = .not.self%ts%state_is_q(self%stage_active)
    associate(maps=>self%adam%maps)
-   if (self%stage_active > 0_I4P) then
+   if (on_stage) then
+      u => self%ts%stage_state()
       call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
                           row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
-                          q=self%rk%q_rk(:,:,:,:,:,self%stage_active), buf=buf, density_var=maps%seam_density_var, &
-                          ratio=maps%refine_ratio)
+                          q=u, buf=buf, density_var=maps%seam_density_var, ratio=maps%refine_ratio)
    else
       call pack_seam_rows(rows=maps%seam_mpi_send_cell, row_start=maps%seam_mpi_send_row_start(p_idx),            &
                           row_count=maps%seam_mpi_send_row_count(p_idx), regime=maps%seam_ghost_fill, ngc=self%ngc, &
@@ -1849,12 +1860,16 @@ contains
    class(prism_cpu_object), intent(inout) :: self   !< The realm.
    integer(I4P),            intent(in)    :: p_idx  !< Peer slot (the realm owning the cells).
    real(R8P),               intent(in)    :: buf(:) !< Packed values.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state.
+   logical                                :: on_stage     !< The active buffer is the stage state (#132 rule 2).
 
+   on_stage = .false.
+   if (self%stage_active > 0_I4P) on_stage = .not.self%ts%state_is_q(self%stage_active)
    associate(maps=>self%adam%maps)
-   if (self%stage_active > 0_I4P) then
+   if (on_stage) then
+      u => self%ts%stage_state()
       call unpack_seam_rows(rows=maps%seam_mpi_recv_cell, row_start=maps%seam_mpi_recv_row_start(p_idx),          &
-                            row_count=maps%seam_mpi_recv_row_count(p_idx), ngc=self%ngc, buf=buf,                   &
-                            q=self%rk%q_rk(:,:,:,:,:,self%stage_active))
+                            row_count=maps%seam_mpi_recv_row_count(p_idx), ngc=self%ngc, buf=buf, q=u)
    else
       call unpack_seam_rows(rows=maps%seam_mpi_recv_cell, row_start=maps%seam_mpi_recv_row_start(p_idx),          &
                             row_count=maps%seam_mpi_recv_row_count(p_idx), ngc=self%ngc, buf=buf, q=self%q)
@@ -1900,10 +1915,10 @@ contains
    if (.not. flux_register%is_initialized_)    return
    if (flux_register%nfaces == 0_I4P)          return
    if (.not. allocated(flux_register%face))    return
-   if (stage < 1_I4P .or. stage > self%rk%nrk) return
+   if (stage < 1_I4P .or. stage > self%ts%stages()) return
    ! α.r1 end-of-step gate: reflux fires once per realm per step at the
    ! realm's own final RK substage. Earlier stages no-op.
-   if (stage /= self%rk%nrk)         return
+   if (stage /= self%ts%stages())    return
 
    ni_ = self%adam%grid%ni
    nj_ = self%adam%grid%nj
@@ -3852,7 +3867,7 @@ contains
       if (present(flux_register) .and. stage_idx >= 1_I4P &
                                   .and. allocated(self%adam%maps%inter_realm_face_register_index)) then
          if (flux_register%nfaces > 0_I4P) then
-            call accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, self%rk%beta(stage_idx), flux_register)
+            call accumulate_seam_fluxes_fv(self, ni, nj, nk, nv_c, blocks_number, self%ts%stage_weight(stage_idx), flux_register)
          endif
       endif
       ! compute fluxes difference for RHS, dF/ds = (F(i+1/2)-F(i-1/2))/Ds
@@ -4228,57 +4243,48 @@ contains
    endsubroutine integrate_leapfrog_pic
 
    subroutine integrate_rk_ls(self)
-   !< Integrate equation, time operator, RK classical low storage schemes.
-   !< Low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place.
+   !< Integrate equation, time operator, RK classical low storage schemes: SELAH's two-register form (#132), every stage
+   !< on q; the residual of each stage into dq (the residual log is stage 1's), copied into the stepper's register.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
    call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
-   do s=1, self%rk%nrk
+   call ts_begin_step(self)
+   do s=1, self%ts%stages()
+      call ts_begin_stage(self, s=s)
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
-      if (self%ib%solids_number>0) then
-         call self%rk%compute_stage_ls(field=self%adam%field, s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
-      else
-         call self%rk%compute_stage_ls(field=self%adam%field, s=s,dt=self%time%dt,dq=self%dq,q=self%q)
-      endif
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
+      call ts_end_stage(self, s=s)
    enddo
+   call ts_finish_step(self, with_dq=.false.)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    endsubroutine integrate_rk_ls
 
    subroutine integrate_rk_ssp(self)
-   !< Integrate equation, time operator, SSP RK schemes.
-   !< SSP RK working on q_rk as stages.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Counter.
+   !< Integrate equation, time operator, SSP RK schemes: SELAH's Butcher form (#132), each stage state on the stepper's
+   !< register, its residual into dq, copied into the stepper's residual register; the PML auxiliary fields advance in
+   !< step on their own storage with the same tableau.
+   class(prism_cpu_object), intent(inout) :: self         !< The equation.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state.
+   integer(I4P)                           :: s            !< Counter.
 
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
+   call ts_begin_step(self)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
-   do s=1, self%rk%nrk
-      if (self%ib%solids_number>0) then
-         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
-      else
-         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
-      endif
+   do s=1, self%ts%stages()
+      call ts_begin_stage(self, s=s)
       if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
-      !call self%compute_coils_current(q=rk%q_rk(:,:,:,:,:,s), gamma=rk%gamm(s)) !Spostato in update_ghost
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
-      !if (s==1) call self%save_residuals
-      if (self%ib%solids_number>0) then
-         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
-      else
-         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
-      endif
+      u => self%ts%stage_state()
+      call self%compute_residuals(q=u, dq=self%dq, s=s)
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
+      call ts_end_stage(self, s=s)
       if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=s)
    enddo
    if (self%ib%solids_number>0) then
-      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
-      !call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
+      call ts_finish_step(self, with_dq=.false.)
    else
-      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
-      !call self%update_q_BC(dt=self%time%dt)
+      call ts_finish_step(self, with_dq=.true.)
       call self%save_residuals
    endif
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
@@ -4296,7 +4302,7 @@ contains
    real(R8P), allocatable                 :: q_stage(:,:,:,:,:) !< Contiguous stage scratch to avoid huge slice temporaries.
 
    !Inizializzo stadi RK per campi e PIC
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
+   call ts_begin_step(self)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
    call allocate_variable(var=q_stage,                              &
@@ -4309,54 +4315,41 @@ contains
 
    call self%initialize_charge_conservation_diagnostic
 
-   do s=1, self%rk%nrk
+   do s=1, self%ts%stages()
       !Calcolo stadio RK per campi e PIC
-      if (self%ib%solids_number>0) then
-         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
-      else
-         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
-      endif
+      call ts_begin_stage(self, s=s)
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
       if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
-      q_stage = self%rk%q_rk(:,:,:,:,:,s)
+      call copy_stage_state(self, q=q_stage)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
       call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
       call self%fold_deposited_ghosts(q=q_stage, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
-      call self%accumulate_charge_conservation_current(q=q_stage, weight=self%rk%beta(s))
+      call self%accumulate_charge_conservation_current(q=q_stage, weight=self%ts%stage_weight(s))
       call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
                                                   context='integrate_rk_ssp_pic(stage current)')
-      call self%compute_coils_current(q=q_stage, gamma=self%rk%gamm(s))
+      call self%compute_coils_current(q=q_stage, gamma=self%ts%stage_time(s))
       !Calcolo residui Maxwell
       call self%compute_residuals(q=q_stage, dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       if (self%external_fields%ef_type/=EF_TYPE_NONE) &
          call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                       time=self%time%time, dt=self%time%dt, gamm=self%rk%gamm(s), q=q_stage)
+                                                       time=self%time%time, dt=self%time%dt, gamm=self%ts%stage_time(s), q=q_stage)
       call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
                                     q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       if (self%external_fields%ef_type/=EF_TYPE_NONE) &
          call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
-                                                       time=self%time%time, dt=self%time%dt, gamm=self%rk%gamm(s), q=q_stage)
+                                                       time=self%time%time, dt=self%time%dt, gamm=self%ts%stage_time(s), q=q_stage)
       !Assegno lo stadio RK per campi e PIC
-      if (self%ib%solids_number>0) then
-         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
-      else
-         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
-      endif
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
+      call ts_end_stage(self, s=s)
       call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
       if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=s)
    enddo
    ! Completo l'integrazione temporale
-   if (self%ib%solids_number>0) then
-      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
-      !call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
-   else
-      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q)
-      !call self%update_q_BC(dt=self%time%dt)
-   endif
+   call ts_finish_step(self, with_dq=.false.)
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
       call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
@@ -4490,8 +4483,8 @@ contains
    ! the line solve of the summed source is kept bitwise (the box current reproduces it to roundoff only)
    box_current = self%pic%matched_current() .and. (.not.self%pic%esirkepov_tail_cleanup) .and. any(self%pic%bc%is_periodic)
    np = self%pic%particle_number
-   nrk = self%rk%nrk
-   call self%rk%initialize_stages(field=self%adam%field, q=self%q)
+   nrk = self%ts%stages()
+   call ts_begin_step(self)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
 
@@ -4520,15 +4513,11 @@ contains
    call self%initialize_charge_conservation_diagnostic
 
    do s=1, nrk
-      if (self%ib%solids_number>0) then
-         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt, phi=self%ib%phi)
-      else
-         call self%rk%compute_stage(field=self%adam%field, s=s, dt=self%time%dt)
-      endif
+      call ts_begin_stage(self, s=s)
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
       if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
 
-      q_stage = self%rk%q_rk(:,:,:,:,:,s)
+      call copy_stage_state(self, q=q_stage)
       ! compute_stage fills only the interior cells and the stage ghosts are refreshed by compute_residuals, which here
       ! runs after the gather: refresh them now, or the gather reads stale ghosts at the walls
       ! (no coil re-stamp: the stage current is solved and stamped below)
@@ -4542,7 +4531,7 @@ contains
          q_gather = q_stage
          call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
                                                        time=self%time%time, dt=self%time%dt, &
-                                                       gamm=self%rk%gamm(s), q=q_gather)
+                                                       gamm=self%ts%stage_time(s), q=q_gather)
          call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_gather, &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       else
@@ -4554,9 +4543,9 @@ contains
       coeff = 0._R8P
       q_pic_next = self%q_pic
       if (s < nrk) then
-         coeff(1:s) = self%rk%alph(s+1, 1:s)
+         coeff(1:s) = self%ts%st%bt%a(s+1, 1:s)
       else
-         coeff(1:s) = self%rk%beta(1:s)
+         coeff(1:s) = self%ts%st%bt%b(1:s)
       endif
       do r=1, s
          q_pic_next(1:6,:) = q_pic_next(1:6,:) + self%time%dt * coeff(r) * self%rk_pic%q_pic_rk(1:6,:,r)
@@ -4589,10 +4578,10 @@ contains
       else
          call solve_pic_charge_conserving_current_dispatch(self=self, q=q_stage, hq=h_q(:,:,:,:,:,s,1))
       endif
-      call self%accumulate_charge_conservation_current(q=q_stage, weight=self%rk%beta(s))
+      call self%accumulate_charge_conservation_current(q=q_stage, weight=self%ts%stage_weight(s))
       call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
                                                   context='integrate_rk_ssp_pic_charge_conserving(stage current)')
-      call self%compute_coils_current(q=q_stage, gamma=self%rk%gamm(s))
+      call self%compute_coils_current(q=q_stage, gamma=self%ts%stage_time(s))
       ! the field ghosts were exchanged before the gather and since then only the current changed, which the residual
       ! reads pointwise: skip the residual's exchange (#111), keep its boundary conditions and coil re-stamp
       self%stage_ghosts_fresh = .true.
@@ -4600,19 +4589,12 @@ contains
       self%stage_ghosts_fresh = .false.
       if (s==1) call self%save_residuals
 
-      if (self%ib%solids_number>0) then
-         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq, phi=self%ib%phi)
-      else
-         call self%rk%assign_stage(field=self%adam%field, s=s, q=self%dq)
-      endif
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
+      call ts_end_stage(self, s=s)
       if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=s)
    enddo
 
-   if (self%ib%solids_number>0) then
-      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, phi=self%ib%phi, q=self%q)
-   else
-      call self%rk%update_q(field=self%adam%field, dt=self%time%dt, q=self%q)
-   endif
+   call ts_finish_step(self, with_dq=.false.)
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
    if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
       call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
@@ -5738,7 +5720,7 @@ contains
    integer(I4P), intent(in) :: active_stage
    real(R8P), optional, intent(in) :: mixed_source(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
    real(R8P), allocatable :: source(:,:,:,:,:), source_stage(:,:,:,:,:,:), q_particle(:,:,:,:,:)
-   real(R8P) :: coeff(1:self%rk%nrk), shift(3)
+   real(R8P) :: coeff(1:self%ts%stages()), shift(3)
    integer(I4P) :: particle, t, r, stage_count, slot_count, b, bt, i, j, k, rx, ry, rz
    integer(I4P) :: support_lo(3), support_hi(3), cell(3)
 
@@ -5765,10 +5747,10 @@ contains
                source_stage(:,:,:,:,:,t) = source
             else
                coeff = 0._R8P
-               if (t < self%rk%nrk) then
-                  coeff(1:t) = self%rk%alph(t+1,1:t)
+               if (t < self%ts%stages()) then
+                  coeff(1:t) = self%ts%st%bt%a(t+1,1:t)
                else
-                  coeff(1:t) = self%rk%beta(1:t)
+                  coeff(1:t) = self%ts%st%bt%b(1:t)
                endif
                do r=1,t-1
                   source = source - coeff(r)*source_stage(:,:,:,:,:,r)
@@ -6249,29 +6231,91 @@ contains
 
 
    subroutine integrate_rk_yoshida(self)
-   !< Integrate equation, time operator, Yoshida RK scheme.
+   !< Integrate equation, time operator, Yoshida RK scheme: SELAH's yoshida-4 splitting (#132 phase 4), its 7 flows
+   !< alternating the partitions B (VAR_BX:VAR_BZ, first) and D (VAR_DX:VAR_DZ), a residual per flow on q, the flow's
+   !< partition advanced by its fraction of the step (the interior cells; not masked, as before).
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
    call self%compute_coils_current(q=self%q)
-   do s=1, self%rk%nrk - 1
+   call self%ts%begin_step(field=self%adam%field, q=self%q)
+   do s=1, self%ts%stages()
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
-      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-      call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
    enddo
-   call self%compute_residuals(q=self%q, dq=self%dq)
-   self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-   self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-   self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    endsubroutine integrate_rk_yoshida
+
+   subroutine ts_begin_step(self)
+   !< Open the stepper's step on q; the solid cells are masked with immersed solids.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   if (self%ib%solids_number>0) then
+      call self%ts%begin_step(field=self%adam%field, q=self%q, phi=self%ib%phi)
+   else
+      call self%ts%begin_step(field=self%adam%field, q=self%q)
+   endif
+   endsubroutine ts_begin_step
+
+   subroutine ts_begin_stage(self, s)
+   !< Open stage `s` of the stepper: its state; the solid cells are masked with immersed solids.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: s    !< Stage.
+
+   if (self%ib%solids_number>0) then
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
+   else
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
+   endif
+   endsubroutine ts_begin_stage
+
+   subroutine ts_end_stage(self, s)
+   !< Close stage `s` of the stepper (the two-register forms advance q here); masked with immersed solids.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: s    !< Stage.
+
+   if (self%ib%solids_number>0) then
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
+   else
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q)
+   endif
+   endsubroutine ts_end_stage
+
+   subroutine ts_finish_step(self, with_dq)
+   !< Close the stepper's step: the Butcher form advances q, with the step residual in dq when asked (as the former
+   !< update_q, whose callers asked for it on the unmasked SSP path only).
+   class(prism_cpu_object), intent(inout) :: self    !< The equation.
+   logical,                 intent(in)    :: with_dq !< Compute the step residual into dq.
+
+   if (self%ib%solids_number>0) then
+      if (with_dq) then
+         call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq, phi=self%ib%phi)
+      else
+         call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
+      endif
+   else
+      if (with_dq) then
+         call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq)
+      else
+         call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q)
+      endif
+   endif
+   endsubroutine ts_finish_step
+
+   subroutine copy_stage_state(self, q)
+   !< Copy the stepper's stage state, ghosts included, into `q` (the PIC stage scratch, as `q_rk(:,...,s)` was).
+   class(prism_cpu_object), intent(in)    :: self         !< The equation.
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Copy.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state.
+
+   u => self%ts%stage_state()
+   q = u
+   endsubroutine copy_stage_state
 
    ! non TBP
    subroutine compute_dxyz_min(blocks_number, dxyz, dxyz_min)

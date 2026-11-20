@@ -69,7 +69,17 @@ with the right eigenvectors, and differenced. `ngc >= [weno] S` is checked. The 
 | Yoshida (4-stage symplectic) | yes (EM) | refused |
 
 PIC runs, the PML, the charge-conserving current and the staged path (2:1 faces, forests) need an SSP scheme (PIC:
-SSP-22, 33 or 54). At every stage the coils' current is evaluated at the stage time $t + \gamma_s\Delta t$.
+SSP-22, 33 or 54). At every stage the coils' current is evaluated at the stage time $t + c_s\Delta t$ (the stepper's
+`stage_time(s)`, the tableau's abscissa).
+
+The integrator is [SELAH](https://github.com/szaghi/SELAH)'s, on both backends, through the library adapter
+`adam_stepper_object` ([#132](https://github.com/szaghi/adam/issues/132) phase 4): the SSP schemes in the Butcher form
+(every stage on the stepper's own state register), the low-storage ones in the two-register form (every stage on `q`),
+Yoshida as SELAH's `yoshida-4` splitting of the partitions B (advanced first) and D, seven sub-flows, a residual each,
+interior cells. The coefficients are ADAM's former ones, bit for bit, except Yoshida's (SELAH's triple-jump weights,
+exact to the last bit; ADAM's were 16-digit literals). The PML auxiliary fields and the PIC particles keep their own
+stage storage, advanced in step with the same tableau. On the CPU the SSP update sums the stages in the FNL order, so CPU
+runs moved at round-off.
 
 **Time step.** $\Delta t = \mathrm{CFL}\,(\Delta x_{\min}/2)/\lambda_{\max}$, with $\Delta x_{\min}$ the smallest cell
 size over every block and rank and $\lambda_{\max} = \max(1,\chi)\,c_0$: both backends halve the smallest cell size
@@ -112,7 +122,9 @@ mitigation are in the [hazards](./hazards#seam-div-b).
 A [forest manifest](/reference/library-input#forest-manifest-multi-realm) glues several PRISM realms through seams.
 Both backends implement the realm contract of the forest, fast and staged paths and the seam exchange. A seam fills its
 ghosts once per step (`coupling_cadence = end_of_step`, α, the default) or at every Runge–Kutta stage
-(`stage_coincident`, β). **A 1:1 same-resolution seam needs β to stay divergence-free** ([hazards](./hazards#seam-div-b)). The divergence diagnostic refills the
+(`stage_coincident`, β). Under α every stage reads the peer state of the step's fill: each stage state takes the seam
+ghosts of `q` when it opens ([#116](https://github.com/szaghi/adam/issues/116), #132 rule 1; before, PRISM's stages
+read stale seam ghosts). **A 1:1 same-resolution seam needs β to stay divergence-free** ([hazards](./hazards#seam-div-b)). The divergence diagnostic refills the
 inter-realm seam on the committed state before it measures. Worked cases:
 `src/tests/prism/regression/rmf-2realm*/`; the cadences are explained on the
 [forest page](/concepts/forest#coupling-cadence-α-vs-β).

@@ -16,6 +16,7 @@ use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 #endif
 ! third party modules
 use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_stepper_object, only : LAYOUT_V_LAST
 use :: finer, only : file_ini
 use :: fundal, save_memory_status_gpu=>save_memory_status
 use :: penf,   save_memory_status_cpu=>save_memory_status
@@ -51,7 +52,6 @@ type, extends(prism_common_object) :: prism_fnl_object
    !< PRISM equations system class definition, GPU (FNL) backend.
    type(field_fnl_object)         :: field_fnl   !< GPU field handler.
    type(ib_fnl_object)            :: ib_fnl      !< GPU immersed boundary.
-   type(rk_fnl_object)            :: rk_fnl      !< GPU Runge-Kutta integrator.
    type(weno_fnl_object)          :: weno_fnl    !< GPU WENO reconstructor.
    type(prism_fnl_coil_object)    :: coil_fnl    !< GPU coil source.
    type(prism_fnl_leapfrog_pic_object) :: leapfrog_pic_fnl !< GPU PIC leapfrog integrator.
@@ -185,6 +185,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: initialize_process_context        !< Process-global MPI init (mpih_fnl + mpih), once.
       ! inter-realm seam ghost-fill contract (agnostic-dummy redesign)
       procedure, pass(self) :: fill_seam_from_peer_forest !< OpenACC device-direct copy of peer's GPU interior into self's GPU
+      procedure, pass(self) :: seam_ghosts_to_state       !< Copy the end_of_step seam ghosts into the stage state (#132).
          !< ghosts.
       procedure, pass(self) :: pack_seam_cells_forest     !< Pack own cells of the cross-rank seam send rows.
       procedure, pass(self) :: unpack_seam_cells_forest   !< Unpack the cross-rank seam receive rows into own ghosts.
@@ -330,7 +331,6 @@ contains
    call self%leapfrog_pic_fnl%destroy()
    call self%pic_fnl%destroy()
    call self%coil_fnl%destroy()
-   call self%rk_fnl%destroy()
    call self%weno_fnl%destroy()
    call self%ib_fnl%destroy()
    call self%field_fnl%destroy()
@@ -677,6 +677,12 @@ contains
    ! Bytes -> GB via 1e9 to match compute_blocks_number's memory_avail*1e9.
    memory_avail_ = real(mpih_fnl%dev_memory_total, R8P)/1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
    self%estimate_backend_memory => estimate_backend_memory_fnl
+   ! the time integrator is SELAH's (stepper_object, #132 phase 4), on the (b, i, j, k, v) device fields
+   self%with_selah = .true.
+   self%selah_layout = LAYOUT_V_LAST
+   ! the partitions of the Yoshida splitting (B, D), so that the stepper initializes and the backend's own refusal of
+   ! Yoshida (not ported to FNL) is the one that stops the run
+   self%selah_partitions = reshape([VAR_BX, VAR_BZ, VAR_DX, VAR_DZ], [2, 2])
    call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
    if (is_pic_model(self%physics%physical_model)) then
       ! CPU-parity validation (prism_cpu_object%initialize)
@@ -754,7 +760,6 @@ contains
 #endif
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-   call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
    ! no weno_fnl%initialize (issue #112 C): FNL refuses scheme_space = weno, and the copy of weno%cell_scheme (3 integers
    ! per cell and block slot) was device memory outside the blocks budget that nothing read
    call self%initialize_pml_fnl
@@ -773,7 +778,7 @@ contains
          call self%rk_pic_fnl%initialize(pic=self%pic, rk_pic=self%rk_pic)
       if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
          call self%conserving_fnl%initialize(pic=self%pic, grid=self%adam%grid, field=self%adam%field, nb=self%nb, &
-                                             nv=self%nv, nrk=self%rk%nrk, &
+                                             nv=self%nv, nrk=self%ts%stages(), &
                                              fdv_order=self%fdv_order, hs=self%fdv_half_stencils(1))
          if (self%external_fields%ef_type /= EF_TYPE_NONE) call self%conserving_fnl%allocate_gather
          call self%conserving_fnl%initialize_coherent_gather(pic=self%pic)
@@ -923,7 +928,7 @@ contains
 
    call self%pml_fnl%initialize(pml=self%pml, grid=self%adam%grid, field=self%adam%field)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%initialize(rk=self%rk, pml_fnl=self%pml_fnl)
+      call self%rk_pml_fnl%initialize(ts=self%ts, pml_fnl=self%pml_fnl)
    endsubroutine initialize_pml_fnl
 
    subroutine amr_update(self)
@@ -2239,8 +2244,8 @@ contains
    ! CPU low-storage behavior exactly: CPU LS calls compute_residuals without `s`, so its
    ! stamp is the bare-time one; FNL LS threads `s` through, and gamm does not exist for
    ! LS schemes.
-   if (present(s) .and. allocated(self%rk%gamm)) then
-      call self%compute_coils_current(q_gpu=q_gpu, gamm=self%rk%gamm(s))
+   if (present(s) .and. self%ts%is_butcher()) then ! the SSP schemes (#132: SELAH's stage_time, the tableau's c)
+      call self%compute_coils_current(q_gpu=q_gpu, gamm=self%ts%stage_time(s))
    else
       call self%compute_coils_current(q_gpu=q_gpu)
    endif
@@ -4421,7 +4426,7 @@ contains
       if (present(flux_register) .and. stage_idx >= 1_I4P &
                                  .and. allocated(self%adam%maps%inter_realm_face_register_index)) then
          if (flux_register%nfaces > 0_I4P) then
-            call accumulate_seam_fluxes_fv_dev(self, self%rk%beta(stage_idx), flux_register)
+            call accumulate_seam_fluxes_fv_dev(self, self%ts%stage_weight(stage_idx), flux_register)
          endif
       endif
       alpha = self%physics%alpha
@@ -5353,25 +5358,23 @@ contains
    endsubroutine integrate_leapfrog_pic
 
    subroutine integrate_rk_ssp_pic(self)
-   !< Integrate PIC equations with SSP RK on device.
+   !< Integrate PIC equations with SSP RK on device: the field on SELAH's Butcher form (#132), the stage state the
+   !< stepper's device register (the stage current is deposited into it, as into the former stage buffer).
    implicit none
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Counter.
+   class(prism_fnl_object), intent(inout) :: self         !< The equation.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state (device).
+   integer(I4P)                           :: s            !< Counter.
 
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
+   call ts_begin_step(self)
    call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
 
    call self%initialize_charge_conservation_diagnostic
 
-   do s=1, self%rk%nrk
-      if (self%ib%solids_number>0) then
-         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, &
-                                        phi_gpu=self%ib_fnl%phi_gpu)
-      else
-         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
-      endif
+   do s=1, self%ts%stages()
+      call ts_begin_stage(self, s=s)
+      u => self%ts%stage_state()
       call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
       if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
          call self%rk_pml_fnl%compute_stage(s=s, dt=self%time%dt)
@@ -5379,45 +5382,36 @@ contains
       call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
                                                           grid=self%adam%grid, q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s))
       call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
-                                              q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                              q_gpu=u, &
                                               q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
-      call self%fold_deposited_ghosts_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+      call self%fold_deposited_ghosts_dev(q_gpu=u, &
                                           v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
-      call self%accumulate_charge_conservation_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
-                                                       weight=self%rk%beta(s), s=s)
-      call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), check_current=.true., &
+      call self%accumulate_charge_conservation_current(q_gpu=u, &
+                                                       weight=self%ts%stage_weight(s), s=s)
+      call self%verify_no_pic_deposition_on_coils_dev(q_gpu=u, check_current=.true., &
                                                       context='integrate_rk_ssp_pic(stage current)')
-      call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
-      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+      call self%compute_coils_current(q_gpu=u, gamm=self%ts%stage_time(s))
+      call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
 
       if (self%external_fields%ef_type/=EF_TYPE_NONE) &
          call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                      dt=self%time%dt, time=self%time%time, q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
-                                      gamm=self%rk%gamm(s))
-      call self%gather_pic_fields_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
+                                      dt=self%time%dt, time=self%time%time, q_gpu=u, &
+                                      gamm=self%ts%stage_time(s))
+      call self%gather_pic_fields_dev(q_gpu=u, &
                                       q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s))
       if (self%external_fields%ef_type/=EF_TYPE_NONE) &
          call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                      dt=self%time%dt, time=self%time%time, q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), &
-                                      gamm=self%rk%gamm(s))
+                                      dt=self%time%dt, time=self%time%time, q_gpu=u, &
+                                      gamm=self%ts%stage_time(s))
 
-      if (self%ib%solids_number>0) then
-         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
-                                       phi_gpu=self%ib_fnl%phi_gpu)
-      else
-         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
-      endif
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+      call ts_end_stage(self, s=s)
       call self%rk_pic_fnl%assign_stage(s=s, pic_fields_gpu=self%pic_fnl%pic_fields_gpu)
       if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) call self%rk_pml_fnl%assign_stage(s=s)
    enddo
 
-   if (self%ib%solids_number>0) then
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
-                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
-   else
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
-   endif
+   call ts_finish_step(self)
    call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
@@ -5512,16 +5506,19 @@ contains
    !< buffer itself (the CPU copies it into q_stage, which is only read until assign_stage overwrites the buffer).
    implicit none
    class(prism_fnl_object), intent(inout) :: self  !< The equation.
-   real(R8P)                              :: coeff(1:self%rk%nrk)
+   real(R8P)                              :: coeff(1:self%ts%stages())
+   real(R8P), allocatable                 :: alph(:,:), beta(:) !< The stepper's SELAH tableau (A, b), host copies.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state (device).
    integer(I4P)                           :: s, nrk, var_jx
    logical                                :: cleanup
 
-   associate(cc=>self%conserving_fnl, q_rk_gpu=>self%rk_fnl%q_rk_gpu, q_pic_rk_gpu=>self%rk_pic_fnl%q_pic_rk_gpu)
-   nrk = self%rk%nrk
+   alph = self%ts%st%bt%a ; beta = self%ts%st%bt%b
+   associate(cc=>self%conserving_fnl, q_pic_rk_gpu=>self%rk_pic_fnl%q_pic_rk_gpu)
+   nrk = self%ts%stages()
    var_jx = self%physics%var_jx
    cleanup = cc%tail_cleanup
    call cc%prepare(field=self%adam%field, grid=self%adam%grid)
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
+   call ts_begin_step(self)
    call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
@@ -5530,12 +5527,8 @@ contains
    call self%initialize_charge_conservation_diagnostic
 
    do s=1, nrk
-      if (self%ib%solids_number>0) then
-         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, &
-                                        phi_gpu=self%ib_fnl%phi_gpu)
-      else
-         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
-      endif
+      call ts_begin_stage(self, s=s)
+      u => self%ts%stage_state()
       call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
       if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
          call self%rk_pml_fnl%compute_stage(s=s, dt=self%time%dt)
@@ -5543,23 +5536,23 @@ contains
       ! compute_stage fills only the interior cells and the stage ghosts are refreshed by compute_residuals_dev, which
       ! here runs after the gather: refresh them now, or the gather reads stale ghosts at block interfaces and walls
       ! (no coil re-stamp: the stage current is solved and stamped below)
-      call self%field_fnl%update_ghost_local_gpu(q_gpu=q_rk_gpu(:,:,:,:,:,s))
+      call self%field_fnl%update_ghost_local_gpu(q_gpu=u)
       call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
                                                comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
-                                               q_gpu=q_rk_gpu(:,:,:,:,:,s))
-      call self%set_boundary_conditions(q_gpu=q_rk_gpu(:,:,:,:,:,s))
+                                               q_gpu=u)
+      call self%set_boundary_conditions(q_gpu=u)
 
       ! gather at the stage particles, then the particle right-hand side
       call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
                                                           grid=self%adam%grid, q_pic_gpu=q_pic_rk_gpu(:,:,s))
       if (self%external_fields%ef_type /= EF_TYPE_NONE) then
-         call cc%copy_field(src=q_rk_gpu(:,:,:,:,:,s), dst=cc%gather_gpu)
+         call cc%copy_field(src=u, dst=cc%gather_gpu)
          call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
-                                      dt=self%time%dt, time=self%time%time, q_gpu=cc%gather_gpu, gamm=self%rk%gamm(s))
+                                      dt=self%time%dt, time=self%time%time, q_gpu=cc%gather_gpu, gamm=self%ts%stage_time(s))
          call self%gather_pic_fields_dev(q_gpu=cc%gather_gpu, &
                                          q_pic_gpu=q_pic_rk_gpu(:,:,s))
       else
-         call self%gather_pic_fields_dev(q_gpu=q_rk_gpu(:,:,:,:,:,s), &
+         call self%gather_pic_fields_dev(q_gpu=u, &
                                          q_pic_gpu=q_pic_rk_gpu(:,:,s))
       endif
       call self%rk_pic_fnl%assign_stage(s=s, pic_fields_gpu=self%pic_fnl%pic_fields_gpu)
@@ -5567,9 +5560,9 @@ contains
       ! stage trajectory end point and its directional charge change
       coeff = 0._R8P
       if (s < nrk) then
-         coeff(1:s) = self%rk%alph(s+1,1:s)
+         coeff(1:s) = alph(s+1,1:s)
       else
-         coeff(1:s) = self%rk%beta(1:s)
+         coeff(1:s) = beta(1:s)
       endif
       call cc%build_stage_target(q_pic=self%pic_fnl%q_pic_gpu, q_pic_rk=q_pic_rk_gpu, s=s, coeff=coeff, dt=self%time%dt)
       if (cleanup) call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,s))
@@ -5588,42 +5581,33 @@ contains
 
       ! stage current
       if (cc%box_current) then
-         call cc%store_box_current(q=q_rk_gpu(:,:,:,:,:,s), var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,s))
+         call cc%store_box_current(q=u, var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,s))
       elseif (cleanup) then
-         call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=q_rk_gpu(:,:,:,:,:,s), &
+         call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=u, &
                                              var_jx=var_jx, q_ref=self%pic_fnl%q_pic_gpu, q_hist=cc%q_hist_gpu, &
-                                             active_stage=s, alph=self%rk%alph, beta=self%rk%beta, dt=self%time%dt, &
+                                             active_stage=s, alph=alph, beta=beta, dt=self%time%dt, &
                                              mixed_source=cc%h_gpu(:,:,:,:,:,s))
       else
-         call cc%solve_dispatch(field_fnl=self%field_fnl, q=q_rk_gpu(:,:,:,:,:,s), var_jx=var_jx, &
+         call cc%solve_dispatch(field_fnl=self%field_fnl, q=u, var_jx=var_jx, &
                                 hq=cc%h_gpu(:,:,:,:,:,s), dt=self%time%dt)
       endif
-      call self%accumulate_charge_conservation_current(q_gpu=q_rk_gpu(:,:,:,:,:,s), weight=self%rk%beta(s), s=s)
-      call self%verify_no_pic_deposition_on_coils_dev(q_gpu=q_rk_gpu(:,:,:,:,:,s), check_current=.true., &
+      call self%accumulate_charge_conservation_current(q_gpu=u, weight=self%ts%stage_weight(s), s=s)
+      call self%verify_no_pic_deposition_on_coils_dev(q_gpu=u, check_current=.true., &
                                                       context='integrate_rk_ssp_pic_charge_conserving(stage current)')
-      call self%compute_coils_current(q_gpu=q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
+      call self%compute_coils_current(q_gpu=u, gamm=self%ts%stage_time(s))
       ! the field ghosts were exchanged before the gather and since then only the current changed, which the residual
       ! reads pointwise: skip the residual's exchange (#111), keep its boundary conditions and coil re-stamp
       self%stage_ghosts_fresh = .true.
-      call self%compute_residuals_dev(q_gpu=q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+      call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=s)
       self%stage_ghosts_fresh = .false.
       if (s==1) call self%save_residuals
 
-      if (self%ib%solids_number>0) then
-         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
-                                       phi_gpu=self%ib_fnl%phi_gpu)
-      else
-         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
-      endif
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+      call ts_end_stage(self, s=s)
       if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) call self%rk_pml_fnl%assign_stage(s=s)
    enddo
 
-   if (self%ib%solids_number>0) then
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
-                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
-   else
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
-   endif
+   call ts_finish_step(self)
    call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
@@ -5645,8 +5629,8 @@ contains
       call cc%store_box_current(q=self%q_gpu, var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,nrk))
    elseif (cleanup) then
       call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=self%q_gpu, var_jx=var_jx, &
-                                          q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, active_stage=nrk, alph=self%rk%alph, &
-                                          beta=self%rk%beta, dt=self%time%dt, mixed_source=cc%h_gpu(:,:,:,:,:,nrk))
+                                          q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, active_stage=nrk, alph=alph, &
+                                          beta=beta, dt=self%time%dt, mixed_source=cc%h_gpu(:,:,:,:,:,nrk))
    else
       call cc%solve_dispatch(field_fnl=self%field_fnl, q=self%q_gpu, var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,nrk), &
                              dt=self%time%dt)
@@ -5667,7 +5651,9 @@ contains
    !< set_initial_conditions (before the host-side elliptic solves that read rho and J).
    implicit none
    class(prism_fnl_object), intent(inout) :: self !< The equation.
+   real(R8P), allocatable                 :: alph(:,:), beta(:) !< The stepper's SELAH tableau (A, b), host copies.
 
+   alph = self%ts%st%bt%a ; beta = self%ts%st%bt%b
    associate(cc=>self%conserving_fnl)
    ! geometry may have changed in the IC/AMR loop: refresh the device copies the kernels read
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps)
@@ -5700,7 +5686,7 @@ contains
       call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,1))
       call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=self%q_gpu, &
                                           var_jx=self%physics%var_jx, q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, &
-                                          active_stage=0_I4P, alph=self%rk%alph, beta=self%rk%beta, dt=self%time%dt, &
+                                          active_stage=0_I4P, alph=alph, beta=beta, dt=self%time%dt, &
                                           mixed_source=cc%h_gpu(:,:,:,:,:,1))
    else
       call cc%solve_dispatch(field_fnl=self%field_fnl, q=self%q_gpu, var_jx=self%physics%var_jx, &
@@ -5713,74 +5699,105 @@ contains
    endsubroutine initialize_pic_conserving_current_time_zero
 
    subroutine integrate_rk_ls_dev(self)
-   !< Integrate equation, time operator, RK classical low storage schemes.
-   !< Low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place.
+   !< Integrate equation, time operator, RK classical low storage schemes on the device: SELAH's two-register form (#132),
+   !< every stage on q_gpu; the residual of each stage into dq_gpu (the residual log is stage 1's), copied into the
+   !< stepper's residual register.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
    call self%compute_coils_current(q_gpu=self%q_gpu)
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
-   do s=1, self%rk%nrk
+   call ts_begin_step(self)
+   do s=1, self%ts%stages()
+      call ts_begin_stage(self, s=s)
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
-      if (self%ib%solids_number>0) then
-         call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, &
-                                           phi_gpu=self%ib_fnl%phi_gpu, &
-                                           dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
-      else
-         call self%rk_fnl%compute_stage_ls(grid=self%adam%grid, field=self%adam%field, rk=self%rk, s=s, dt=self%time%dt, &
-                                           dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
-      endif
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+      call ts_end_stage(self, s=s)
    enddo
+   call ts_finish_step(self)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
 
    endsubroutine integrate_rk_ls_dev
 
    subroutine integrate_rk_ssp_dev(self)
-   !< Integrate equation, time operator, SSP RK schemes.
-   !< SSP RK working on q_rk as stages.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Counter.
+   !< Integrate equation, time operator, SSP RK schemes on the device: SELAH's Butcher form (#132), each stage state on
+   !< the stepper's device register, its residual into dq_gpu, copied into the stepper's residual register (dq_gpu keeps
+   !< the last stage's residual, as before: the step residual is not asked); the PML auxiliary fields advance in step on
+   !< their own storage with the same tableau.
+   class(prism_fnl_object), intent(inout) :: self         !< The equation.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state (device).
+   integer(I4P)                           :: s            !< Counter.
 
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
+   call ts_begin_step(self)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
-   do s=1, self%rk%nrk
-      if (self%ib%solids_number>0) then
-         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt, &
-                                        phi_gpu=self%ib_fnl%phi_gpu)
-      else
-         call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=s, dt=self%time%dt)
-      endif
+   do s=1, self%ts%stages()
+      call ts_begin_stage(self, s=s)
+      u => self%ts%stage_state()
       if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
          call self%rk_pml_fnl%compute_stage(s=s, dt=self%time%dt)
-      call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
-      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
-      ! if (s==1) call self%save_residuals
-      if (self%ib%solids_number>0) then
-         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu, &
-                                       phi_gpu=self%ib_fnl%phi_gpu)
-      else
-         call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=s, q_gpu=self%dq_gpu)
-      endif
+      call self%compute_coils_current(q_gpu=u, gamm=self%ts%stage_time(s))
+      call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=s)
+      call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+      call ts_end_stage(self, s=s)
       if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) call self%rk_pml_fnl%assign_stage(s=s)
    enddo
-   if (self%ib%solids_number>0) then
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
-                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
-      ! call self%update_rk_ghost(dt=self%time%dt, phi_gpu=ib_fnl%phi_gpu)
-   else
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
-      ! call self%update_rk_ghost(dt=self%time%dt)
-      call self%save_residuals
-   endif
+   call ts_finish_step(self)
+   if (self%ib%solids_number<=0) call self%save_residuals
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
 
    endsubroutine integrate_rk_ssp_dev
+
+   subroutine ts_begin_step(self)
+   !< Open the stepper's step on q_gpu; the solid cells are masked with immersed solids.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   if (self%ib%solids_number>0) then
+      call self%ts%begin_step(field=self%adam%field, q=self%q_gpu, phi=self%ib_fnl%phi_gpu)
+   else
+      call self%ts%begin_step(field=self%adam%field, q=self%q_gpu)
+   endif
+   endsubroutine ts_begin_step
+
+   subroutine ts_begin_stage(self, s)
+   !< Open stage `s` of the stepper: its state; the solid cells are masked with immersed solids.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: s    !< Stage.
+
+   if (self%ib%solids_number>0) then
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu, phi=self%ib_fnl%phi_gpu)
+   else
+      call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
+   endif
+   endsubroutine ts_begin_stage
+
+   subroutine ts_end_stage(self, s)
+   !< Close stage `s` of the stepper (the two-register forms advance q_gpu here); masked with immersed solids.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: s    !< Stage.
+
+   if (self%ib%solids_number>0) then
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu, phi=self%ib_fnl%phi_gpu)
+   else
+      call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
+   endif
+   endsubroutine ts_end_stage
+
+   subroutine ts_finish_step(self)
+   !< Close the stepper's step: the Butcher form advances q_gpu (no step residual: dq_gpu keeps the last stage's
+   !< residual, as the former device update_q left it).
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   if (self%ib%solids_number>0) then
+      call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q_gpu, phi=self%ib_fnl%phi_gpu)
+   else
+      call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q_gpu)
+   endif
+   endsubroutine ts_finish_step
 
    subroutine integrate_rk_yoshida_dev(self)
    !< Integrate equation, time operator, Yoshida RK scheme.
@@ -6126,16 +6143,16 @@ contains
    class(prism_fnl_object), intent(in) :: self !< The realm.
    integer(I4P)                        :: K    !< Number of integrator stages per step.
 
-   select case(self%rk%scheme)
+   select case(self%ts%scheme)
    case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
-      K = self%rk%nrk
+      K = self%ts%stages()
    case default
       K = 0
       ! Routed through the ADAM (CPU) mpih handler, NOT mpih_fnl: FUNDAL's error_stop
       ! ends with a plain `stop` (exit code 0), so a refusal through it looks SUCCESSFUL
       ! to the calling shell/harness (upstream FUNDAL defect, flagged in issue #25).
       ! This is host code; both handlers wrap the same communicator.
-      call mpih%error_stop(msg=': RK scheme "'//trim(adjustl(self%rk%scheme))//'" is not stage-splittable: '  // &
+      call mpih%error_stop(msg=': RK scheme "'//trim(adjustl(self%ts%scheme))//'" is not stage-splittable: '  // &
                                'the staged forest path (multi-realm, or intra-realm AMR seam faces) requires '// &
                                'an SSP scheme (runge-kutta-ssp-*); low-storage schemes run only on the fused '// &
                                'single-realm/no-seam fast path')
@@ -6161,7 +6178,7 @@ contains
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
    self%time%dt = dt_step
 
-   call self%rk_fnl%initialize_stages(grid=self%adam%grid, field=self%adam%field, q_gpu=self%q_gpu)
+   call ts_begin_step(self)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
    endsubroutine open_step_forest
@@ -6181,17 +6198,44 @@ contains
    integer(I4P),            intent(in)                      :: K_total  !< Forest-wide stage count for this step.
    real(R8P),               intent(in)                      :: dt       !< Timestep size from the forest.
    type(realm_pointer),     intent(inout), optional, target :: realm(:) !< Sibling realms (contract parity).
+   real(R8P), pointer                                       :: u(:,:,:,:,:) !< Stage state (device).
 
    self%stage_active = k
-   if (self%ib%solids_number>0) then
-      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=k, dt=self%time%dt, phi_gpu=self%ib_fnl%phi_gpu)
-   else
-      call self%rk_fnl%compute_stage(grid=self%adam%grid, field=self%adam%field, s=k, dt=self%time%dt)
-   endif
+   call ts_begin_stage(self, s=k)
+   ! the end_of_step seams (#132 rule 1, closes #116): SELAH never writes a ghost cell, so the stage state, when it is
+   ! not q_gpu itself, takes the seam ghosts of q_gpu, which hold the peer state of the step's alpha fill (#113)
+   if (.not.self%ts%state_is_q(k)) call self%seam_ghosts_to_state
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%compute_stage(s=k, dt=self%time%dt)
-   call self%compute_coils_current(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), gamm=self%rk%gamm(k))
+   u => self%ts%stage_state()
+   call self%compute_coils_current(q_gpu=u, gamm=self%ts%stage_time(k))
    endsubroutine begin_stage_forest
+
+   subroutine seam_ghosts_to_state(self)
+   !< Copy the ghosts of `q_gpu` of the end_of_step seams into the stepper's stage state (#132 rule 1, #116): the stage
+   !< reads the peer state of the last exchange (the device twin of `adam_seam_exchange%seam_ghosts_to_state`).
+   class(prism_fnl_object), intent(inout) :: self         !< The realm.
+   real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state (device).
+   integer(I4P)                           :: p            !< Peer slot.
+
+   u => self%ts%stage_state()
+   associate(maps=>self%adam%maps, maps_fnl=>self%field_fnl%maps)
+   if (.not.allocated(maps%seam_local_cadence)) return
+   do p=1_I4P, int(size(maps%seam_local_cadence), I4P)
+      if (maps%seam_local_cadence(p) /= CADENCE_END_OF_STEP) cycle
+      if (maps%seam_local_peer_row_count(p) > 0_I4P)                                                                  &
+         call seam_ghosts_to_state_dev(row_start=maps%seam_local_peer_row_start(p),                                  &
+                                       row_count=maps%seam_local_peer_row_count(p), nv=self%nv, ngc=self%ngc,        &
+                                       cols=[3_I4P, 7_I4P, 8_I4P, 9_I4P],                                            &
+                                       rows_gpu=maps_fnl%seam_local_map_ghost_cell_gpu, q_gpu=self%q_gpu, u_gpu=u)
+      if (maps%seam_mpi_recv_row_count(p) > 0_I4P)                                                                    &
+         call seam_ghosts_to_state_dev(row_start=maps%seam_mpi_recv_row_start(p),                                    &
+                                       row_count=maps%seam_mpi_recv_row_count(p), nv=self%nv, ngc=self%ngc,          &
+                                       cols=[2_I4P, 3_I4P, 4_I4P, 5_I4P],                                            &
+                                       rows_gpu=maps_fnl%seam_mpi_recv_cell_gpu, q_gpu=self%q_gpu, u_gpu=u)
+   enddo
+   endassociate
+   endsubroutine seam_ghosts_to_state
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
    !< Close integrator stage `k`: residuals + stage assignment in one sweep (FNL).
@@ -6215,18 +6259,17 @@ contains
    type(realm_pointer),         intent(inout), optional, target :: realm(:)      !< Sibling realms (FNL parity only; unused).
    class(flux_register_object), intent(inout), optional         :: flux_register !< Forest's flux register for FV reflux.
 
+   real(R8P), pointer                                           :: u(:,:,:,:,:)  !< Stage state (device).
+
    if (present(realm)) continue
+   u => self%ts%stage_state()
    if (present(flux_register)) then
-      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k, &
-                                      flux_register=flux_register)
+      call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=k, flux_register=flux_register)
    else
-      call self%compute_residuals_dev(q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,k), dq_gpu=self%dq_gpu, s=k)
+      call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=k)
    endif
-   if (self%ib%solids_number>0) then
-      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=k, q_gpu=self%dq_gpu, phi_gpu=self%ib_fnl%phi_gpu)
-   else
-      call self%rk_fnl%assign_stage(grid=self%adam%grid, field=self%adam%field, s=k, q_gpu=self%dq_gpu)
-   endif
+   call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
+   call ts_end_stage(self, s=k)
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) call self%rk_pml_fnl%assign_stage(s=k)
    endsubroutine end_stage_forest
 
@@ -6236,13 +6279,8 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The realm.
    real(R8P),               intent(in)    :: dt   !< Timestep size from the forest.
 
-   if (self%ib%solids_number>0) then
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, &
-                                phi_gpu=self%ib_fnl%phi_gpu, q_gpu=self%q_gpu)
-   else
-      call self%rk_fnl%update_q(grid=self%adam%grid, field=self%adam%field, rk=self%rk, dt=self%time%dt, q_gpu=self%q_gpu)
-      call self%save_residuals
-   endif
+   call ts_finish_step(self)
+   if (self%ib%solids_number<=0) call self%save_residuals
    if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
       call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
@@ -6286,6 +6324,8 @@ contains
    integer(I4P)                                   :: nv_loc, ngc_loc
    integer(I4P)                                   :: self_s, peer_s
    integer(I4P), pointer                          :: rows_gpu(:,:)
+   real(R8P),    pointer                          :: dst_gpu(:,:,:,:,:) !< Own active buffer.
+   real(R8P),    pointer                          :: src_gpu(:,:,:,:,:) !< Peer active buffer.
 
    row_start = self%adam%maps%seam_local_peer_row_start(p_idx)
    row_count = self%adam%maps%seam_local_peer_row_count(p_idx)
@@ -6296,79 +6336,30 @@ contains
    select type (peer)
    class is (prism_fnl_object)
       peer_s = peer%stage_active
-      if (self_s > 0_I4P .and. peer_s > 0_I4P) then
-         associate(self_q_rk_gpu => self%rk_fnl%q_rk_gpu, peer_q_rk_gpu => peer%rk_fnl%q_rk_gpu)
-         !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_rk_gpu) &
-         !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s, peer_s)
-         !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu, self_q_rk_gpu, peer_q_rk_gpu) &
-         !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s, peer_s)
-         do c = 1, row_count
-            do v = 1, nv_loc
-               row    = row_start + c - 1
-               b_send = rows_gpu(row, 2) ; i_send = rows_gpu(row, 4)
-               j_send = rows_gpu(row, 5) ; k_send = rows_gpu(row, 6)
-               b_recv = rows_gpu(row, 3) ; i_recv = rows_gpu(row, 7)
-               j_recv = rows_gpu(row, 8) ; k_recv = rows_gpu(row, 9)
-               self_q_rk_gpu(b_recv, i_recv, j_recv, k_recv, v, self_s) = &
-                  peer_q_rk_gpu(b_send, i_send, j_send, k_send, v, peer_s)
-            enddo
-         enddo
-         endassociate
-      else if (self_s > 0_I4P) then
-         associate(self_q_rk_gpu => self%rk_fnl%q_rk_gpu, peer_q_gpu => peer%q_gpu)
-         !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_rk_gpu, peer_q_gpu) &
-         !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s)
-         !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu, self_q_rk_gpu, peer_q_gpu) &
-         !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count, self_s)
-         do c = 1, row_count
-            do v = 1, nv_loc
-               row    = row_start + c - 1
-               b_send = rows_gpu(row, 2) ; i_send = rows_gpu(row, 4)
-               j_send = rows_gpu(row, 5) ; k_send = rows_gpu(row, 6)
-               b_recv = rows_gpu(row, 3) ; i_recv = rows_gpu(row, 7)
-               j_recv = rows_gpu(row, 8) ; k_recv = rows_gpu(row, 9)
-               self_q_rk_gpu(b_recv, i_recv, j_recv, k_recv, v, self_s) = &
-                  peer_q_gpu(b_send, i_send, j_send, k_send, v)
-            enddo
-         enddo
-         endassociate
-      else if (peer_s > 0_I4P) then
-         associate(self_q_gpu => self%q_gpu, peer_q_rk_gpu => peer%rk_fnl%q_rk_gpu)
-         !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_gpu, peer_q_rk_gpu) &
-         !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count, peer_s)
-         !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu, self_q_gpu, peer_q_rk_gpu) &
-         !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count, peer_s)
-         do c = 1, row_count
-            do v = 1, nv_loc
-               row    = row_start + c - 1
-               b_send = rows_gpu(row, 2) ; i_send = rows_gpu(row, 4)
-               j_send = rows_gpu(row, 5) ; k_send = rows_gpu(row, 6)
-               b_recv = rows_gpu(row, 3) ; i_recv = rows_gpu(row, 7)
-               j_recv = rows_gpu(row, 8) ; k_recv = rows_gpu(row, 9)
-               self_q_gpu(b_recv, i_recv, j_recv, k_recv, v) = &
-                  peer_q_rk_gpu(b_send, i_send, j_send, k_send, v, peer_s)
-            enddo
-         enddo
-         endassociate
-      else
-         associate(self_q_gpu => self%q_gpu, peer_q_gpu => peer%q_gpu)
-         !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, self_q_gpu, peer_q_gpu) &
-         !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count)
-         !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu, self_q_gpu, peer_q_gpu) &
-         !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count)
-         do c = 1, row_count
-            do v = 1, nv_loc
-               row    = row_start + c - 1
-               b_send = rows_gpu(row, 2) ; i_send = rows_gpu(row, 4)
-               j_send = rows_gpu(row, 5) ; k_send = rows_gpu(row, 6)
-               b_recv = rows_gpu(row, 3) ; i_recv = rows_gpu(row, 7)
-               j_recv = rows_gpu(row, 8) ; k_recv = rows_gpu(row, 9)
-               self_q_gpu(b_recv, i_recv, j_recv, k_recv, v) = &
-                  peer_q_gpu(b_send, i_send, j_send, k_send, v)
-            enddo
-         enddo
-         endassociate
+      ! the active device buffers (#132 rule 2): the stepper's stage state while a stage is open and its state is not
+      ! q_gpu, else q_gpu
+      dst_gpu => self%q_gpu
+      if (self_s > 0_I4P) then
+         if (.not.self%ts%state_is_q(self_s)) dst_gpu => self%ts%stage_state()
       endif
+      src_gpu => peer%q_gpu
+      if (peer_s > 0_I4P) then
+         if (.not.peer%ts%state_is_q(peer_s)) src_gpu => peer%ts%stage_state()
+      endif
+      !$acc parallel loop collapse(2) independent DEVICEVAR(rows_gpu, dst_gpu, src_gpu) &
+      !$acc&                                     firstprivate(ngc_loc, nv_loc, row_start, row_count)
+      !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu, dst_gpu, src_gpu) &
+      !$omp& firstprivate(ngc_loc, nv_loc, row_start, row_count)
+      do c = 1, row_count
+         do v = 1, nv_loc
+            row    = row_start + c - 1
+            b_send = rows_gpu(row, 2) ; i_send = rows_gpu(row, 4)
+            j_send = rows_gpu(row, 5) ; k_send = rows_gpu(row, 6)
+            b_recv = rows_gpu(row, 3) ; i_recv = rows_gpu(row, 7)
+            j_recv = rows_gpu(row, 8) ; k_recv = rows_gpu(row, 9)
+            dst_gpu(b_recv, i_recv, j_recv, k_recv, v) = src_gpu(b_send, i_send, j_send, k_send, v)
+         enddo
+      enddo
    class default
       call mpih_fnl%error_stop(msg='prism_fnl_object%fill_seam_from_peer_forest: peer realm is not prism_fnl_object')
    end select
@@ -6382,6 +6373,7 @@ contains
    integer(I4P),            intent(in)  :: p_idx      !< Peer slot (the realm owning the ghosts).
    real(R8P),               intent(out) :: buf(:)     !< Packed values.
    real(R8P), pointer                   :: buf_gpu(:) !< Device packed values.
+   real(R8P), pointer                   :: a(:,:,:,:,:) !< Active buffer.
    integer(I4P)                         :: row_start  !< First send row.
    integer(I4P)                         :: row_count  !< Send rows.
    integer(I4P)                         :: ierr       !< Error status.
@@ -6391,18 +6383,14 @@ contains
    if (row_count == 0_I4P) return
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in pack_seam_cells_forest')
+   a => self%q_gpu ! the active buffer (#132 rule 2)
    if (self%stage_active > 0_I4P) then
-      call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
-                              regime=self%adam%maps%seam_ghost_fill,                                          &
-                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu,                            &
-                              q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active), buf_gpu=buf_gpu,       &
-                              density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio)
-   else
-      call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
-                              regime=self%adam%maps%seam_ghost_fill,                                          &
-                              rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=self%q_gpu, buf_gpu=buf_gpu, &
-                              density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio)
+      if (.not.self%ts%state_is_q(self%stage_active)) a => self%ts%stage_state()
    endif
+   call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
+                           regime=self%adam%maps%seam_ghost_fill,                                          &
+                           rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=a, buf_gpu=buf_gpu,  &
+                           density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio)
    call dev_memcpy_from_device(dst=buf, src=buf_gpu)
    call dev_free(buf_gpu, mydev)
    endsubroutine pack_seam_cells_forest
@@ -6414,6 +6402,7 @@ contains
    integer(I4P),            intent(in)    :: p_idx      !< Peer slot (the realm owning the cells).
    real(R8P),               intent(in)    :: buf(:)     !< Packed values.
    real(R8P), pointer                     :: buf_gpu(:) !< Device packed values.
+   real(R8P), pointer                     :: a(:,:,:,:,:) !< Active buffer.
    integer(I4P)                           :: row_start  !< First receive row.
    integer(I4P)                           :: row_count  !< Receive rows.
    integer(I4P)                           :: ierr       !< Error status.
@@ -6424,14 +6413,12 @@ contains
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in unpack_seam_cells_forest')
    call dev_memcpy_to_device(dst=buf_gpu, src=buf)
+   a => self%q_gpu ! the active buffer (#132 rule 2)
    if (self%stage_active > 0_I4P) then
-      call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
-                                rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu,          &
-                                q_gpu=self%rk_fnl%q_rk_gpu(:,:,:,:,:,self%stage_active))
-   else
-      call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
-                                rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu, q_gpu=self%q_gpu)
+      if (.not.self%ts%state_is_q(self%stage_active)) a => self%ts%stage_state()
    endif
+   call unpack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,            &
+                             rows_gpu=self%field_fnl%maps%seam_mpi_recv_cell_gpu, buf_gpu=buf_gpu, q_gpu=a)
    call dev_free(buf_gpu, mydev)
    endsubroutine unpack_seam_cells_forest
 
@@ -6480,7 +6467,7 @@ contains
 
    ! α.r1 end-of-step gate: parity with PRISM-CPU M3. Returns immediately
    ! for any non-final substage.
-   if (stage /= self%rk%nrk) return
+   if (stage /= self%ts%stages()) return
    if (.not. flux_register%is_initialized_) return
    if (flux_register%nfaces == 0_I4P)       return
    if (.not. allocated(flux_register%face)) return

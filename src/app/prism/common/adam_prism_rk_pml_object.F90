@@ -1,7 +1,7 @@
 !< PRISM, RK support for PML auxiliary variables.
 module adam_prism_rk_pml_object
 
-use :: adam_rk_object,        only : rk_object, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
+use :: adam_stepper_object,   only : stepper_object, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 use :: adam_mpih_global,      only : mpih
 use :: adam_prism_pml_object, only : prism_pml_object
 use :: penf
@@ -40,33 +40,37 @@ endtype prism_rk_pml_object
 
 contains
 
-   subroutine initialize(self, rk, pml)
+   subroutine initialize(self, ts, pml)
    !< Mirror the SSP RK metadata and allocate stage storage for active PML faces.
+   !<
+   !< The PML auxiliary fields are face-local arrays, not block fields: they keep their own stage storage and kernels,
+   !< advanced in step with the field's stepper, with the stepper's SELAH Butcher tableau (A, b, c: bitwise the former
+   !< `rk_object` tableau, SELAH's selah_test_adam_parity; #132 phase 4).
    class(prism_rk_pml_object), intent(inout) :: self
-   type(rk_object),            intent(in)    :: rk
+   type(stepper_object),       intent(in)    :: ts
    type(prism_pml_object),     intent(in)    :: pml
 
    call reset_rk_pml_object(self=self)
    if (.not. pml%enabled) return
 
-   select case (trim(rk%scheme))
+   select case (trim(ts%scheme))
    case (RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
       continue
    case default
       call mpih%error_stop(msg=': PML auxiliary RK storage is available only for SSP RK schemes, found "'// &
-                               trim(rk%scheme)//'"')
+                               trim(ts%scheme)//'"')
    endselect
 
    self%enabled = .true.
-   self%scheme  = rk%scheme
-   self%nrk     = rk%nrk
+   self%scheme  = ts%scheme
+   self%nrk     = ts%stages()
 
    allocate(self%alph(1:self%nrk,1:self%nrk))
    allocate(self%beta(1:self%nrk))
    allocate(self%gamm(1:self%nrk))
-   self%alph = rk%alph
-   self%beta = rk%beta
-   self%gamm = rk%gamm
+   self%alph = ts%st%bt%a
+   self%beta = ts%st%bt%b
+   self%gamm = ts%st%bt%c
 
    call allocate_face_buffers(q_face=pml%q_pml_x_m, nrk=self%nrk, q_face_rk=self%q_pml_x_m_rk, dq_face=self%dq_pml_x_m)
    call allocate_face_buffers(q_face=pml%q_pml_x_p, nrk=self%nrk, q_face_rk=self%q_pml_x_p_rk, dq_face=self%dq_pml_x_p)

@@ -92,10 +92,10 @@ Each inter-realm seam carries a `coupling_cadence` selected independently in the
 
 ### α — end_of_step (default)
 
-Mid-step peer ghosts are intentionally frozen at the start of the step. At the top of every global timestep, before any realm opens it, the forest fires one synchronized inter-realm exchange across all α seams, into each realm's committed state `q`; the realm copies those seam ghosts into its stage states, so all the stages of the step read the peers' state at `t^n` (FLUME FNL and PRISM in `open_step_forest`, into every RK stage buffer; FLUME CPU, on [SELAH](https://github.com/szaghi/SELAH), in `begin_stage_forest`, into the stage state SELAH built, see below). Filling at the top of the step, not after `close_step_forest`, makes the stages read the peers' final committed state, after their post-step work (dual-energy sync, cooling, sinks): the result does not depend on the output cadence, and a restart reproduces the uninterrupted run bitwise ([#113](https://github.com/szaghi/adam/issues/113)).
+Mid-step peer ghosts are intentionally frozen at the start of the step. At the top of every global timestep, before any realm opens it, the forest fires one synchronized inter-realm exchange across all α seams, into each realm's committed state `q`; the realm copies those seam ghosts into its stage states, so all the stages of the step read the peers' state at `t^n` (FLUME, PRISM and RIPPLE, on [SELAH](https://github.com/szaghi/SELAH), in `begin_stage_forest`, into the stage state SELAH built, on both backends, see below). Filling at the top of the step, not after `close_step_forest`, makes the stages read the peers' final committed state, after their post-step work (dual-energy sync, cooling, sinks): the result does not depend on the output cadence, and a restart reproduces the uninterrupted run bitwise ([#113](https://github.com/szaghi/adam/issues/113)).
 
 ::: info The time integrator's side of the stage contract (SELAH, [#132](https://github.com/szaghi/adam/issues/132))
-FLUME CPU integrates with SELAH's stepper (`adam_stepper_object`), whose stage contract the forest's phases follow with
+FLUME, PRISM and RIPPLE (CPU and FNL) integrate with SELAH's stepper (`adam_stepper_object`), whose stage contract the forest's phases follow with
 three rules:
 
 1. **α seams.** SELAH never writes a ghost cell. In its in-place forms (the low-storage schemes) the stage state is `q`
@@ -112,7 +112,7 @@ $b_k$ in every form.
 :::
 
 ::: warning α before #113, and α in PRISM
-Before [#113](https://github.com/szaghi/adam/issues/113) the α fill reached the committed state only, never the stage buffers the residuals are computed on, so the α stages read seam ghosts that no fill wrote (zero). FLUME copies the ghosts into its stages since #113. PRISM does not yet: its α stages still read stale seam ghosts, which is part of why an α 1:1 seam leaks div(B) there ([#31](https://github.com/szaghi/adam/issues/31)).
+Before [#113](https://github.com/szaghi/adam/issues/113) the α fill reached the committed state only, never the stage buffers the residuals are computed on, so the α stages read seam ghosts that no fill wrote (zero). FLUME copies the ghosts into its stages since #113; PRISM since [#132](https://github.com/szaghi/adam/issues/132) phase 4 ([#116](https://github.com/szaghi/adam/issues/116)): before, its α stages read stale seam ghosts, part of why an α 1:1 seam leaks div(B) there ([#31](https://github.com/szaghi/adam/issues/31)).
 :::
 
 This is the **AMReX `FillCoarsePatch` convention** (Berger-Oliger 1984; AMReX `Amr.cpp::timeStep`). It is well-understood numerically and admits **asymmetric per-realm K**: a forest may mix SSP-RK-3 and SSP-RK-5 realms without restructuring.
