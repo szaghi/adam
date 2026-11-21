@@ -79,8 +79,11 @@ tol          = {tol}
 """
 
 
-def setkey(text: str, key: str, value: str) -> str:
-    """Return ``text`` with every ``key = ...`` line set to ``value`` (the key must exist).
+def setkey(text: str, key: str, value: str, section: str | None = None) -> str:
+    """Return ``text`` with every ``key = ...`` line set to ``value``.
+
+    The key must exist, unless ``section`` is given: an absent key is then added at the head of that section (the
+    committed inputs drop the keys set to their defaults, issue #80, e.g. ``[amr] iters`` of ``blast-limiter``).
 
     Parameters
     ----------
@@ -90,6 +93,8 @@ def setkey(text: str, key: str, value: str) -> str:
         Option name.
     value : str
         New value.
+    section : str or None
+        Section that receives the key when it is absent.
 
     Returns
     -------
@@ -99,11 +104,14 @@ def setkey(text: str, key: str, value: str) -> str:
     Raises
     ------
     KeyError
-        If the key is not in the text.
+        If the key is not in the text and no section (or an absent one) is given.
     """
     pattern = re.compile(rf"(?m)^({re.escape(key)}\s*=).*$")
     if not pattern.search(text):
-        raise KeyError(key)
+        head = re.compile(rf"(?m)^\[{re.escape(section)}\][^\n]*\n") if section else None
+        if head is None or not head.search(text):
+            raise KeyError(key)
+        return head.sub(lambda m: f"{m.group(0)}{key} = {value}\n", text, count=1)
     return pattern.sub(lambda m: f"{m.group(1)} {value}", text)
 
 
@@ -201,19 +209,19 @@ def blast_av(args: argparse.Namespace) -> str:
     """Return the input of the MHD blast accuracy case: tracked (frequency > 0) or uniform at the base level."""
     text = BLAST.read_text()
     tracked = args.frequency > 0
-    for key, value in (
-        ("iu_ref_levels", str(args.base_level)),
-        ("max_level", str(args.max_level)),
-        ("iters", "2"),
-        ("frequency", str(args.frequency)),
-        ("markers_number", "2" if tracked else "0"),
-        ("amr_iterations", str(args.max_level - args.base_level) if tracked else "0"),
-        ("output_basename", "blast-av"),
-        ("restart_basename", "blast-av-restart"),
-        ("it_max", "-1"),
-        ("time_max", args.time_max),
+    for key, value, section in (
+        ("iu_ref_levels", str(args.base_level), None),
+        ("max_level", str(args.max_level), None),
+        ("iters", "2", "amr"),
+        ("frequency", str(args.frequency), "amr"),
+        ("markers_number", "2" if tracked else "0", "amr"),
+        ("amr_iterations", str(args.max_level - args.base_level) if tracked else "0", None),
+        ("output_basename", "blast-av", None),
+        ("restart_basename", "blast-av-restart", None),
+        ("it_max", "-1", None),
+        ("time_max", args.time_max, None),
     ):
-        text = setkey(text, key, value)
+        text = setkey(text, key, value, section)
     if tracked:
         # the pressure (auxiliary variable 5): the gradient marker refines the disk at initialisation, the Loehner one
         # follows the waves at the regrids
