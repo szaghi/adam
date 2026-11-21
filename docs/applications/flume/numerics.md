@@ -191,8 +191,13 @@ solution depend on the units of the input ([#49](https://github.com/szaghi/adam/
 from the backbone by $O(\Delta x)$, so the relative floor does not act there.
 
 **Face blend.** A face takes the smaller factor of its two cells, $F \leftarrow F^{LF} + \theta(F - F^{LF})$ (Xu 2014;
-Christlieb et al. 2015). The update is conservative and each forward-Euler step of size $\Delta t$ is admissible. An SSP
-Runge–Kutta stage is a convex combination of such steps, which is why the limiter requires an SSP scheme. A face whose
+Christlieb et al. 2015). The update is conservative and the forward-Euler step of the stage is admissible. An SSP
+Runge–Kutta stage is a convex combination of forward-Euler steps, which is why the limiter requires an SSP scheme
+(SELAH's SSP coefficient $C > 0$). The step is the one the stage's residual actually takes in the scheme's Shu–Osher form,
+$f_k\,\Delta t$ with $f_k = \max_i \beta_{ik}/\alpha_{ik}$ (SELAH's `stage_euler_fraction`, $\max_k f_k = 1/C$): a stage
+state plus $f_k\Delta t$ times its residual kept admissible keeps every later stage and the step admissible. $f_k = 1$ for
+every stage of SSP-11/22/33; SSP-54 has $f_k = 0.392, 0.663, 0.663, 0.663, 0.584$, so its stages are limited less than a
+step of the whole $\Delta t$ would ([#134](https://github.com/szaghi/adam/issues/134) D4). A face whose
 two cells keep $\Lambda = 1$ is not touched, so smooth runs are bitwise unchanged. The cell factors are exchanged like a
 field (intra-realm copies and MPI); a physical-boundary face takes the interior cell's factor.
 
@@ -328,7 +333,9 @@ registry.
 
 Cooling ([model](./models#radiative-cooling)) is operator split: once per step, after the dual-energy sync,
 `apply_cooling` cools every cell isochorically over the step just advanced. The coupling with the dynamics is first order
-in $\Delta t$ (Lie splitting); the cooling itself is exact.
+in $\Delta t$ (Lie splitting, the field step first); the cooling itself is exact. SELAH owns the composition
+(`additive_splitting`, `lie`): the post-step flows, cooling and sinks, run over its flow substep, one of the whole
+$\Delta t$ after the forest's field step.
 
 $\Lambda$ is a piecewise power law, so Townsend's exact integration (Townsend 2009) applies. Isochorically
 $dT/dt = -(\gamma - 1)\rho\Lambda(T)/(m^2 R)$. With the temporal evolution function
@@ -360,15 +367,18 @@ a uniform one ([verification](./verification/sinks/sink-particles)).
 
 **Time stepping.** The gas step runs with the sinks at their positions $x^n$ in the Poisson source. Then, once per step
 on the committed state, kick-drift-kick: $v \mathrel{+}= \tfrac{\Delta t}2 a$, $x \mathrel{+}= \Delta t\,v$, the
-potential re-solved, $a$ gathered at the new positions, $v \mathrel{+}= \tfrac{\Delta t}2 a$. This is second order for
-the sinks and first order in their coupling with the gas. Two time-step limits apply: a sink moves at most half a cell
+potential re-solved, $a$ gathered at the new positions, $v \mathrel{+}= \tfrac{\Delta t}2 a$. The kick-drift-kick is
+SELAH's Strang splitting of the velocities (the kick, residual $a$) and the positions (the drift, residual $v$), each an
+exact sub-flow: SELAH gives the fractions and the update, FLUME the accelerations, re-solved after the drift. This is
+second order for the sinks and first order in their coupling with the gas (the Lie composition above). Two time-step limits apply: a sink moves at most half a cell
 of its level per step, and gas a cell away from it, pulled by $Gm/h^2$, at most half a cell from rest,
 $\Delta t \le \tfrac12\sqrt{h^3/(Gm)}$ (the acceleration limit of Federrath et al. 2010: a cold dense medium has a CFL
 step far longer than its fall onto a sink, and the self-gravity source is not limited by the CFL condition). Creation,
 accretion and mergers run once per step on the committed state, its ghost cells and its potential refreshed.
 
-**Backends.** CPU and FNL run the same arithmetic, and their sink histories agree to round-off. The deposit, the gather
-and the kick-drift-kick are host work on both (FNL solves the Poisson equation on the host). Accretion runs on the
+**Backends.** CPU and FNL run the same arithmetic, and their sink histories agree to round-off. The deposit and the
+gather are host work on both (FNL solves the Poisson equation on the host); the kick-drift-kick runs where SELAH's
+kernels run (the few sinks packed into a SELAH field, on the device in the FNL build). Accretion runs on the
 cells within the radii, which FNL gathers from the device and scatters back. Creation reads the whole committed state,
 which FNL copies to the host every step when `creation` is on: correct, not scalable.
 

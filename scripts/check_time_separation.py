@@ -19,7 +19,8 @@ space operators in GIDEON and SETH. A finding is an assignment that
 
 The patterns are regular expressions, not a Fortran parser: a statement is the joined continuation lines, comments
 cut; the sources are the .F90 and .INC files of src/app and src/lib (the archived apps excluded). A remaining
-statement is waived in WAIVERS by file name and a pattern it matches, with the reason and the issue that removes it.
+statement is waived in WAIVERS by file name and a pattern it matches, with the reason (what it is, if not a time
+integrator; or the issue that removes it).
 `--self-test` plants each kind in a scratch file and checks that the rule catches it, and that a plain dt product (a
 CFL, a flux) does not.
 

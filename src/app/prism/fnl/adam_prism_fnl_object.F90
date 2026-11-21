@@ -6192,10 +6192,12 @@ contains
    real(R8P),               intent(in)    :: dt      !< Timestep size from the forest.
    real(R8P)                              :: dt_step !< Local copy, possibly capped for time_max.
 
-   ! the staged path steps the fields and the PML only: the particles need a SELAH companion state (szaghi/SELAH#4)
+   ! the staged path steps the fields and the PML only: the particles' SELAH companion could follow the stages, but the
+   ! per-stage deposit and gather across the forest's realms and 2:1 faces and the migration across realms do not exist
    if (is_pic_model(self%physics%physical_model)) &
       call mpih%error_stop(msg=': PIC is not implemented in the staged forest path (multi-realm runs, or a refined '// &
-                               'grid with coarse-fine faces): the particles would not be pushed (szaghi/adam#134)')
+                               'grid with coarse-fine faces): the particles are not deposited, gathered and migrated across realms and '// &
+                               '2:1 faces there (szaghi/adam#134)')
    self%time%it = self%time%it + 1
    dt_step = dt
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time
