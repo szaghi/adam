@@ -69,10 +69,15 @@ strip region per cell row for the disc). PV-3 setups as Zhang & Shu (2010) and G
 cd src/tests/flume/verification/mhd/positivity
 ./check.sh                       # PV-1, PV-2, PV-3, PV-4 (about 70 min on the CPU, PV-3 takes 55)
 ./check.sh --legs pv1-3d         # the blast as a sphere on 64^3 (about 1 h per scheme on the CPU)
-./check.sh --legs pv5            # the blast across 2:1 AMR seams (about 14 min per scheme on the CPU, 19 on FNL)
+./check.sh --legs pv5            # the blast across 2:1 AMR seams (about 30 min per scheme on the CPU, 1.5 on FNL)
 ```
 
 ## Results
+
+The MHD legs (PV-1, PV-2, PV-4, PV-5) were rerun after [#134](https://github.com/szaghi/adam/issues/134) D4, which
+limits each stage of SSP-54 for its own forward-Euler step instead of the whole $\Delta t$
+([numerics](../../numerics#positivity-limiter)): on medooza, CPU gfortran 16.2 and FNL on A30. PV-3 runs on SSP-33,
+which #134 D4 left bitwise, and was not rerun.
 
 ![Balsara-Spicer blast with the limiter](/flume/blast.png)
 
@@ -90,18 +95,18 @@ HLLC, with the exact solutions of LeBlanc and of the double rarefaction.*
 
 | Problem | Without the limiter | Splitting + limiter | Riemann + limiter |
 |---|---|---|---|
-| PV-1, Balsara–Spicer blast, $\beta = 2.5\cdot10^{-4}$, $128^2$, EGLM | splitting fails at step 3; HLLD runs | passes, up to 1540 faces limited per stage | passes, up to 280 |
-| PV-1 as a sphere, $64^3$ (FNL) | not run | passes, up to 51566 | passes, up to 2976 |
-| PV-2, Wu–Shu blast, $\beta = 2.51\cdot10^{-6}$, $128^2$, EGLM | splitting fails at step 1, HLLD at step 41 | passes, up to 10333 | passes, up to 352 |
+| PV-1, Balsara–Spicer blast, $\beta = 2.5\cdot10^{-4}$, $128^2$, EGLM | splitting fails at step 3; HLLD runs | passes, up to 1429 faces limited per stage | passes, up to 280 |
+| PV-1 as a sphere, $64^3$ (FNL) | not run | passes, up to 48873 | passes, up to 2976 |
+| PV-2, Wu–Shu blast, $\beta = 2.51\cdot10^{-6}$, $128^2$, EGLM | splitting fails at step 1, HLLD at step 41 | passes, up to 10433 | passes, up to 308 |
 | PV-3, LeBlanc shock tube, 400 cells | both run | passes, never limited | passes, up to 512 |
 | PV-3, double rarefaction, 400 cells | splitting runs; HLLC fails at step 79 | passes, never limited | passes, up to 1024 |
 | PV-3, planar Sedov blast, 800 cells | splitting runs; HLLC fails at step 69 | passes, never limited | passes, up to 768 |
 | PV-4, isentropic vortex ($64^2$, $128^2$) and fast wave (16, 32 cells, EGLM) | — | bitwise equal to the run without the limiter | — |
-| PV-5, PV-1 at $64^2$ with $[0.25, 0.75]^2$ refined 2:1 (issue #50) | not run (uniform: splitting fails at step 3) | passes; mass to round-off, seam flux mismatch $3.6\cdot10^{-12}$ | passes; the same |
+| PV-5, PV-1 at $64^2$ with $[0.25, 0.75]^2$ refined 2:1 (issue #50) | not run (uniform: splitting fails at step 3) | passes, up to 23296; mass to round-off, seam flux mismatch $5.5\cdot10^{-12}$ | passes, up to 8960; mass to round-off, $3.6\cdot10^{-12}$ |
 
 The face counts include the copies along the null directions (256 per 1-D face). They are those of the CPU; the device
-ones differ in the splitting blasts (1468 and 10955), whose limited runs are not bitwise reproducible across backends,
-and agree elsewhere. The 3-D blast was run with the relative floor on the device only.
+ones differ in the splitting blasts (1432 and 10569; PV-5 splitting takes 539 steps on FNL, 610 on the CPU), whose
+limited runs are not bitwise reproducible across backends, and agree elsewhere. The 3-D blast was run with the relative floor on the device only.
 
 | Assertion | Bound | CPU | FNL |
 |---|---|---|---|
@@ -109,7 +114,7 @@ and agree elsewhere. The 3-D blast was run with the relative floor on the device
 | PV-3: final $\rho$, $p$ positive | $> 0$ | $\rho \ge 9.9\cdot10^{-4}$, $p \ge 4\cdot10^{-13}$ | pass |
 | PV-4: interior of the last checkpoint, limiter on against off | bitwise | bitwise | bitwise |
 | PV-5: relative mass drift | $10^{-12}$ | round-off | round-off |
-| PV-5: forest $\max\lvert F_\text{coarse} - F_\text{fine}\rvert$ at the end-of-step reflux | $10^{-9}$ | $3.6\cdot10^{-12}$ | the same |
+| PV-5: forest $\max\lvert F_\text{coarse} - F_\text{fine}\rvert$ at the end-of-step reflux | $10^{-9}$ | $5.5\cdot10^{-12}$ | $3.6\cdot10^{-12}$ |
 
 Related cases: [EGLM cleaning](./eglm) shows the blast failing without the limiter; [quadtree AMR](./quadtree-amr) runs
 the limited blast on a quadtree; [the MHD blast symmetry](../runtime-amr/mhd-blast-symmetry) studies the blast under
@@ -134,8 +139,12 @@ runtime AMR; [Sod](../euler/sod) and [Lax](../euler/lax) are the Euler Riemann p
   by $10^6$), and the next stage, whose time step is that of the step's first state, had no admissible backbone. With
   the relative floor ($\kappa = 0.1$) the limiter acts in 15 stages and the run completes; the smooth cases of PV-4
   stay bitwise.
-- The splitting scheme takes 614 steps on PV-2 against 284 for HLLD (779 with the absolute floor alone): its limited
-  states keep low-density cells with large Alfvén speeds, which cost time steps but not admissibility.
+- The splitting scheme takes 930 steps on PV-2 against 284 for HLLD: its limited states keep low-density cells with
+  large Alfvén speeds, which cost time steps but not admissibility. Before #134 D4 it took 614 (779 with the absolute
+  floor alone): limiting each SSP-54 stage for its own, shorter forward-Euler step lets more of the high-order update
+  through, and the splitting density of PV-2 carries more grid-scale noise (maximum 5.4 against 4.9 before); HLLD is
+  unchanged (284 steps). The same holds, milder, on PV-1 (399 steps against 396 for HLLD) and PV-5 (610 against
+  433).
 - PV-4 is bitwise because a face whose two cells keep $\Lambda = 1$ is not touched, and the EGLM sources with
   $\Lambda = 1$ take the unlimited arithmetic.
 - Before issue [#50](https://github.com/szaghi/adam/issues/50) neither scheme reached the end of PV-5. The splitting

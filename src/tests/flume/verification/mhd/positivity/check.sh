@@ -23,7 +23,7 @@
 #           max|F_coarse - F_fine_sum| must stay below 1e-9: the limiter synchronises the seam flux at every stage, so
 #           the end-of-step reflux corrects round-off only. Before the synchronisation the splitting scheme stopped at
 #           step 184 (the reflux drove coarse seam cells to rho e < 0) and HLLD at step 261 (inadmissible tricubic seam
-#           ghosts, fixed by the ghost positivity blend). About 14 min per scheme on the CPU, 19 on FNL; not a
+#           ghosts, fixed by the ghost positivity blend). About 30 min per scheme on the CPU, 1.5 on FNL; not a
 #           default leg;
 #   pv4     inactive on smooth problems: with the limiter on, the isentropic vortex (Euler, N = 64, 128) and the 1-D
 #           fast wave (EGLM, N = 16, 32) are BITWISE equal to the runs without it (interior cells; a face whose two
