@@ -70,16 +70,16 @@ FLUME_EXE=$PWD/../../../../../exe/adam_flume_fnl quadtree/check.sh    # FNL
 | Leg | Quadtree `nk = 1` against the octree | Octree z spread | Quadtree `nk = 4` z spread |
 |---|---|---|---|
 | Orszag–Tang, $32^2$ + $[0.25, 0.75]^2$ refined, $t = 0.2$ | $4.1\cdot10^{-12}$ ($\psi$; $\le 3\cdot10^{-13}$ elsewhere) | $5.7\cdot10^{-12}$ | 0 |
-| Balsara–Spicer blast, limiter on, $t = 0.006$ | $1.9\cdot10^{-5}$ ($\psi$), $3.7\cdot10^{-6}$ ($\rho$) | $2.8\cdot10^{-5}$, $9.3\cdot10^{-6}$ | — |
+| Balsara–Spicer blast, limiter on, $t = 0.006$ | $3.5\cdot10^{-4}$ ($\psi$), $1.0\cdot10^{-4}$ ($\rho$) | $1.9\cdot10^{-3}$, $3.0\cdot10^{-4}$ | — |
 
 | Check | Bound | CPU | FNL |
 |---|---|---|---|
 | `ot`: quadtree `nk = 1` against the octree, relative | $10^{-10}$ | $4.1\cdot10^{-12}$ | $6.4\cdot10^{-12}$ |
 | `ot`: octree $z$ spread | $10^{-10}$ | $5.7\cdot10^{-12}$ | pass |
 | `ot`: quadtree `nk = 4` $z$ spread | 0 (bitwise) | 0 | 0 |
-| `blast`: octree $z$ spread | $10^{-4}$ | $2.8\cdot10^{-5}$ ($\psi$) | pass |
-| `blast`: quadtree against the octree, per variable | $\max(10^{-10}, 2\times$ the octree $z$ spread$)$ | ratio 0.40 to 0.80 | ratio 0.87 to 1.02 |
-| `blast`: limited stages | reported | 579 | 579 |
+| `blast`: octree $z$ spread | $10^{-4}$ | $1.9\cdot10^{-3}$ ($\psi$): fails since #134 D4 ([findings](#findings)) | $2.5\cdot10^{-3}$: the same |
+| `blast`: quadtree against the octree, per variable | $\max(10^{-10}, 2\times$ the octree $z$ spread$)$ | ratio 0.09 to 0.33 | ratio 0.56 to 1.06 |
+| `blast`: limited stages | reported | 578 | 578 |
 
 Related cases: [Orszag–Tang](./orszag-tang) is the `--amr` problem of MV-12; [positivity limiter](./positivity-limiter)
 PV-5 runs the limited blast across octree seams; [forward-facing step](../euler/forward-facing-step) runs a forest on
@@ -90,9 +90,17 @@ quadtrees; [ghost probe](../infrastructure/ghost-probe) checks every seam ghost 
 - The runs agree to round-off, not bit for bit: an octree restriction averages 8 fine cells (two identical $z$ layers),
   a quadtree 4, and even the octree's identical layers differ at round-off, its tricubic weights depending on the $z$
   sub-position.
-- In the blast the limiter's switches amplify that round-off: the octree's own layers drift apart by
-  $2.8\cdot10^{-5}$, and the quadtree differs from the octree by no more than that spread (the same 579 limited stages
-  on both backends). The leg therefore bounds the agreement by twice the reference spread, not by a fixed tolerance.
+- In the blast the octree's own layers drift apart: the tricubic seam ghosts start them apart at round-off, the
+  flux-splitting scheme's low-β grid-scale instability (the one of [the MHD blast symmetry
+  study](../runtime-amr/mhd-blast-symmetry)) grows the difference by an e-fold about every 10 steps, and when the outer
+  shock reaches the 2:1 seam the limiter's switches amplify it erratically, by an order of magnitude from one step to
+  the next. At $t = 0.006$ the spread is $1.9\cdot10^{-3}$ ($\psi$) since [#134](https://github.com/szaghi/adam/issues/134)
+  D4, $2.3\cdot10^{-5}$ before it, and $1.8\cdot10^{-4}$ on SSP-33, which D4 leaves bitwise: D4 changes the sample at
+  the seam crossing, not the growth before it (a factor $\le 2$ at step 88). On `weno-riemann` HLLD the spread stays
+  at $10^{-10}$. The quadtree differs from the octree by less than that spread (ratio 0.09 to 0.33 on the CPU, 0.56 to 1.06 on
+  FNL, whose octree spread is $2.5\cdot10^{-3}$; the same 578 limited stages): the leg bounds the agreement by twice the reference spread, not by a fixed tolerance. The
+  fixed bound on the octree spread itself ($10^{-4}$, 3.5 times the single pre-D4 measurement) lies inside the
+  spread's variability and fails since D4; its value is under review.
 - FNL gives the same picture on Orszag–Tang ($6.4\cdot10^{-12}$ against the octree, $z$ spread 0 with `nk = 4`).
 - The `nk = 4` quadtree computes the $z$ fluxes and keeps the solution $z$-invariant bit for bit. Its $z$ cells enter
   the time step, so its step sequence differs and it is compared with itself only.

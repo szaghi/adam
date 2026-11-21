@@ -33,7 +33,7 @@ rotation), a grid-scale instability, or a backend divergence hidden behind a sym
 | Grid | the uniform blast of av3b: quadtree, $N = 128$ ($8 \times 8$ blocks of $16^2$ cells); $N = 64$ and $256$ in the resolution probe |
 | Ranks | 2 |
 | Initial condition | [`riemann-problem`](../../initial-conditions#riemann-problem-piecewise-constant-axis-aligned-regions) regions: $\rho = 1$; $p = 1000$ in the disc $r < 0.1$ around $(0.5, 0.5)$ (sampled at the cell centres of $N = 64$), $p = 0.1$ outside; $\mathbf B = 100/\sqrt{4\pi}$ at 45°, $\beta = 2.5\cdot10^{-4}$ outside the hot disc |
-| Final time | $t = 0.01$ (428 steps at $N = 128$); a checkpoint every 10 or 20 steps |
+| Final time | $t = 0.01$ (425 steps at $N = 128$ on the splitting scheme, 433 on HLLD); a checkpoint every 10 or 20 steps |
 | Asymmetry of a field | $\max\lvert f(\mathbf x) - s f(\mathbf 1 - \mathbf x)\rvert / \max\lvert f\rvert$, $s = \pm1$ the parity of the field |
 
 ## Input files
@@ -58,7 +58,10 @@ The probes of the table below are investigation runs, not legs of a script.
 
 ![The MHD blast point-symmetry defect](/flume/mhd-blast-symmetry.png)
 
-*The uniform $N = 128$ blast on FNL (2 ranks), a checkpoint every 20 steps. Left: the splitting scheme's density at $t = 0.01$. Centre: its point-symmetry defect $|\rho(\mathbf x) - \rho(\mathbf 1 - \mathbf x)| / \max\rho$, spread over the whole blast, not along the grid axes. Right: the largest defect of $\rho$ and $B_y$ against the step: on the splitting scheme it leaves round-off by step 20, grows exponentially and saturates at 0.18 (this measure) by step 260; on `weno-riemann` HLLD it stays near $10^{-12}$, under the av3c bound.*
+*The uniform $N = 128$ blast on FNL (2 ranks), a checkpoint every 20 steps. Left: the splitting scheme's density at $t = 0.01$. Centre: its point-symmetry defect $|\rho(\mathbf x) - \rho(\mathbf 1 - \mathbf x)| / \max\rho$, spread over the whole blast, not along the grid axes. Right: the largest defect of $\rho$ and $B_y$ against the step: on the splitting scheme it leaves round-off by step 20, grows exponentially, reaches 0.1 (this measure) by step 260 and stays between 0.1 and 0.22 to the end (0.17); on `weno-riemann` HLLD it stays between $5\cdot10^{-13}$ and $3\cdot10^{-12}$, under the av3c bound. Rerun after [#134](https://github.com/szaghi/adam/issues/134) D4 (each SSP-54 stage limited for its own forward-Euler step): the same picture as before it.*
+
+The probes below were measured before #134 D4 (investigation runs, not rerun); the figure above and the av3c bound
+below were rerun after it.
 
 | Probe | Result |
 |---|---|
@@ -76,8 +79,8 @@ The bound that closes the study (av3c, `weno-riemann` with `riemann_solver = hll
 
 | Check | Bound | CPU | FNL |
 |---|---|---|---|
-| point symmetry, uniform $N = 128$ | $10^{-10}$ | $6.1\cdot10^{-12}$ | $2.6\cdot10^{-12}$ |
-| point symmetry, tracked (3 regrids) | $10^{-10}$ | $3.3\cdot10^{-12}$ | $2.6\cdot10^{-12}$ |
+| point symmetry, uniform $N = 128$ | $10^{-10}$ | $4.8\cdot10^{-12}$ | $2.7\cdot10^{-12}$ |
+| point symmetry, tracked (3 regrids) | $10^{-10}$ | $4.6\cdot10^{-12}$ | $6.0\cdot10^{-12}$ |
 | shock radius on the four half-axes | — | the same on both runs | — |
 
 Related cases: the regridded blast is av3b and av3c of [AV](./accuracy); the limiter itself is the

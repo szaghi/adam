@@ -87,14 +87,16 @@ The bounds:
 | av7 | bow-shock stand-off within 2 finest cells of uniform at V6's finest level; mirror symmetry 1e-10; positivity (the init-AMR V6 run's stand-off reported) |
 | av8 | the same regrids; per field, the tracked CPU–FNL difference ≤ 2× the uniform-fine runs' (or ≤ 1e-10) |
 
-The measured values (np 2; CPU numbers, FNL the same within the av8 agreement):
+The measured values (np 2; CPU numbers, FNL the same within the av8 agreement; av3b and av3c rerun after
+[#134](https://github.com/szaghi/adam/issues/134) D4, which limits each SSP-54 stage for its own forward-Euler step,
+without av8):
 
 | Leg | Tracked run | Reference | Measured | Regrids | Cost (tracked / uniform-fine) |
 |---|---|---|---|---|---|
 | av2 | L1(ρ) 1.039e-5 | uniform-128 8.43e-6; uniform-32 1.91e-3 | 1.23× fine, 0.005× coarse | 4 | 28 blocks / 64; 58 s / 67 s |
 | av3a | L1(ρ) 3.5392e-3 | uniform-192 3.5420e-3 | 0.999× (2.56× before #76); contact and shock on finest cells | 7 | 144 cells / 192; 32 s / 33 s |
-| av3b | shock radius 0.4219–0.4375 | uniform-128 0.4297 | 1 finest cell on each half-axis; ρ drift 5.6e-16, ρE 5.33e-5 against 5.35e-5 | 3 | ends fully refined; 115 s / 122 s |
-| av3c | symmetry 3.3e-12 (FNL 2.6e-12) | uniform-128 6.1e-12 (FNL 2.6e-12) | both within 1e-10; shock radius 0.4297 on every half-axis, 0 finest cells from uniform | 3 | 128 s / 155 s |
+| av3b | shock radius 0.4297 on every half-axis | uniform-128 0.4297 | 0 finest cells on each half-axis; ρ drift 1.1e-16, ρE 5.386e-5 against 5.388e-5 | 3 | ends fully refined; 120 s / 136 s |
+| av3c | symmetry 4.6e-12 (FNL 6.0e-12) | uniform-128 4.8e-12 (FNL 2.7e-12) | both within 1e-10; shock radius 0.4297 on every half-axis, 0 finest cells from uniform | 3 | 115 s / 136 s |
 | av4 GLM | E_B 0.943937, ⟨\|B_z\|⟩ 5.75e-4, div B 2.56e-4 | 0.943953, 6.86e-4, 2.76e-4 | ⟨\|B_z\|⟩ 0.84×, div B 0.93×; at the regrids max \|div B\| changes by ×0.94–1.05 | 78 | 40–46 blocks / 64; 237 s / 244 s |
 | av4 EGLM | E_B 0.943769, ⟨\|B_z\|⟩ 2.37e-5, div B 2.58e-4 | 0.943774, 2.72e-6, 2.72e-4 | ⟨\|B_z\|⟩ 8.7× (reported, #78), div B 0.95× | 82 | 242 s / 250 s |
 | av6 | np 2 and 3 against np 1 (FNL: np 2, two GPUs) | — | the same 4 regrids, fields bitwise on both backends | 4 | 97 / 55 / 48 s |

@@ -39,8 +39,9 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 TOL="1.0e-10"               # agreement with the octree reference, relative (measured 4.1e-12, psi)
 Z_TOL="1.0e-10"             # z invariance of the octree reference (measured 5.7e-12, psi)
-BLAST_Z_TOL="1.0e-4"        # z invariance of the blast reference (measured 2.8e-5, psi)
-BLAST_SPREAD_FACTOR="2.0"   # blast agreement over the reference z spread (measured 0.40-0.80 CPU, 0.87-1.02 FNL)
+# z invariance of the blast reference, psi: 2.3e-5 before #134 D4, 1.9e-3 CPU / 2.5e-3 FNL after (bound under review)
+BLAST_Z_TOL="1.0e-4"
+BLAST_SPREAD_FACTOR="2.0"   # blast agreement over the reference z spread (0.09-0.33 CPU, 0.56-1.06 FNL)
 KEEP=0
 source "$VERIF_DIR/legs.sh"
 legs_declare "ot blast"
