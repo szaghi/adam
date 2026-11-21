@@ -65,13 +65,13 @@ type :: prism_plasma_frequencies_object
 endtype prism_plasma_frequencies_object
 
 contains
-   subroutine initialize(self, pic, physics, numerics, rk_scheme)
-   !< Activate for the PIC models, read the threshold from pic, set beta_I from the RK scheme.
+   subroutine initialize(self, pic, physics, numerics, beta_i)
+   !< Activate for the PIC models, read the threshold from pic, take beta_I of the RK scheme (SELAH's, #134 D5).
    class(prism_plasma_frequencies_object), intent(inout) :: self      !< Plasma frequencies.
    type(prism_pic_object),                 intent(in)    :: pic       !< PIC (omega_dt_max, time scheme).
    type(prism_physics_object),             intent(in)    :: physics   !< Physics.
    type(prism_numerics_object),            intent(in)    :: numerics  !< Numerics (field time scheme).
-   character(*),                           intent(in)    :: rk_scheme !< RK scheme name.
+   real(R8P),                              intent(in)    :: beta_i    !< Imaginary-axis bound of the RK scheme.
 
    self%active = is_pic_model(physics%physical_model)
    if (.not.self%active) return
@@ -80,15 +80,9 @@ contains
    if (is_adim_model(physics%physical_model)) self%inv_eps = 1._R8P
    self%single_step = trim(numerics%scheme_time) == NUM_SCHEME_TIME_RUNGE_KUTTA .and. &
                       trim(pic%scheme_time) == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
-   ! end of the stability region on the imaginary axis: |R(i y)| <= 1 for |y| <= beta_I (0: none, R(i y) > 1 at once)
-   select case(trim(rk_scheme))
-   case(RK_SSP_54)
-      self%beta_i = 3.278_R8P            ! computed from the Shu-Osher coefficients of the SSP-54 tableau
-   case(RK_3, RK_SSP_33)
-      self%beta_i = sqrt(3._R8P)
-   case default
-      self%beta_i = 0._R8P
-   endselect
+   ! end of the stability region on the imaginary axis: |R(i y)| <= 1 for |y| <= beta_I (0: none, R(i y) > 1 at once),
+   ! SELAH's from the scheme's stability polynomial (sqrt(3) for SSP-33, 3.2783556 for SSP-54, 0 for Euler and SSP-22)
+   self%beta_i = beta_i
    endsubroutine initialize
 
    function description(self) result(desc)

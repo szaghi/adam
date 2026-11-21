@@ -549,10 +549,12 @@ contains
       call self%time%initialize(file_parameters=file_parameters)
    endif
    if (is_pic_model(self%physics%physical_model)) then
-      if (allocated(self%ts%scheme)) then
-         call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, rk_scheme=self%ts%scheme)
+      ! beta_I from SELAH (#134 D5): the Runge-Kutta forms only (a splitting has no stability polynomial)
+      if (self%ts%is_butcher() .or. self%ts%is_two_register()) then
+         call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, &
+                                          beta_i=self%ts%imag_axis_bound())
       else
-         call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, rk_scheme='')
+         call self%plasma_freq%initialize(pic=self%pic, physics=self%physics, numerics=self%numerics, beta_i=0._R8P)
       endif
    endif
    call self%ic%initialize(file_parameters=file_parameters)
