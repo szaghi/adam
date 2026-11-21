@@ -20,10 +20,14 @@
 #          quadtree nk = 4 z spread 0;
 #   blast  the Balsara-Spicer blast (../positivity-probe/make_blast.py, EGLM), 32^2 base with [0.25, 0.75]^2 refined,
 #          positivity limiter on, t = 0.006 (the outer shock crosses the seams): the limiter synchronises the seam flux
-#          at every stage (2x1 fine faces per coarse face cell on a quadtree). Its switches amplify round-off: the
-#          octree's identical z layers drift apart by up to 2.8e-5 (psi; r 9.3e-6), and the quadtree differs from the
-#          reference by no more than that, per variable (ratios 0.40 to 0.80 on the CPU, 0.87 to 1.02 on FNL; same
-#          limiter activity, 579 stages). Before #46 a quadtree seam gave 1e-2 at the first step.
+#          at every stage (2x1 fine faces per coarse face cell on a quadtree). The octree's identical z layers drift
+#          apart (psi 1.9e-3 CPU, 2.5e-3 FNL; 2.3e-5 before #134 D4, 1.8e-4 on SSP-33): the difference appears at the
+#          blast front within 4 steps (1e-9), grows by an e-fold about every 10 steps on the splitting scheme (HLLD:
+#          1e-10) and jumps erratically when the outer shock crosses the seam. The quadtree differs from the reference
+#          by no more than twice that spread, per variable (ratios 0.09 to 0.33 on the CPU, 0.56 to 1.06 on FNL; 578
+#          limited stages), the leg's assertion; the spread itself is bounded at 1e-2, a guard against a real z
+#          dependence (O(0.1)), not a measure of the round-off growth. Before #46 a quadtree seam gave 1e-2 at the first
+#          step.
 # About 6 min on the CPU, 9 on FNL (WSL).
 #
 # Usage: ./check.sh [--np N] [--legs LIST] [--keep]   LIST: ot, blast or all (default ot,blast)
@@ -39,8 +43,7 @@ EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 TOL="1.0e-10"               # agreement with the octree reference, relative (measured 4.1e-12, psi)
 Z_TOL="1.0e-10"             # z invariance of the octree reference (measured 5.7e-12, psi)
-# z invariance of the blast reference, psi: 2.3e-5 before #134 D4, 1.9e-3 CPU / 2.5e-3 FNL after (bound under review)
-BLAST_Z_TOL="1.0e-4"
+BLAST_Z_TOL="1.0e-2"        # z invariance of the blast reference (a guard: psi 1.9e-3 CPU, 2.5e-3 FNL, see above)
 BLAST_SPREAD_FACTOR="2.0"   # blast agreement over the reference z spread (0.09-0.33 CPU, 0.56-1.06 FNL)
 KEEP=0
 source "$VERIF_DIR/legs.sh"

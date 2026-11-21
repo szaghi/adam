@@ -71,6 +71,7 @@ below were rerun after it.
 | CFL 0.4 → 0.2 | 10⁻² at t = 0.0047 / 0.0041: the spatial operator, not the time integrator |
 | β × 10 / × 100 (B / √10, B / 10) | 6.8·10⁻⁸ at t = 0.01, still growing / 2·10⁻¹⁰, flat: a low-β effect |
 | conservative reconstruction | the same growth, about 100 steps later |
+| scale-invariant WENO weights (`[weno] weights = si`; measured after #134 D4, CPU) | the seed 4 decades lower (5e-12 against 2e-8 at step 20), the same growth, about 120 steps later: 0.08 at t = 0.01 against 0.18 with `js` |
 | limiter off (floors 0.01), EGLM or GLM | NaN at step 8: the limiter keeps the run alive |
 | `weno-riemann`: HLLD with and without the 6th-order correction, LLF, HLLD with primitive interpolation | symmetric to 10⁻¹² – 10⁻¹⁰ through t = 0.01 |
 | positivity limiter activity | flux splitting: faces limited at every step (428 of 428; β × 100: 46 of 384); `weno-riemann`: only in the first 17–27 steps. The backbone flux the limiter falls back to is the same on both paths |
