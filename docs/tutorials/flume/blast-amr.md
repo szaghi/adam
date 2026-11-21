@@ -52,7 +52,7 @@ faces cross the blast centre. Every refined axis needs an even block cell count 
 mpirun -np 2 ../../exe/adam_flume_cpu input.ini > log.txt
 ```
 
-The case stops after `it_max = 100` steps, at $t = 2.604\cdot10^{-3}$. Counting the blocks of the field files, step 0
+The case stops after `it_max = 100` steps, at $t = 2.472\cdot10^{-3}$. Counting the blocks of the field files, step 0
 and step 100 both hold 92 blocks with two spacings, $\Delta x = 1/64$ and $1/128$: the 4 blocks of the box column
 (the null $z$ axis keeps 4 copies) became 32.
 
@@ -65,7 +65,7 @@ half the cell size.
 
 <<< @/snippets/tutorials/flume-blast-amr-history.txt
 
-On a periodic box the mass is conserved exactly by the scheme, and it is here to $3\cdot10^{-16}$ although the blast
+On a periodic box the mass is conserved exactly by the scheme, and it is here to the last printed digit although the blast
 crosses the 2:1 faces: at the end of each step the reflux replaces the coarse face flux with the sum of the fine ones,
 so both sides exchange the same flux. The [AMR conservation page](/applications/flume/verification/euler/amr-conservation)
 checks the same property on a dedicated case, and the [positivity limiter page](/applications/flume/verification/mhd/positivity-limiter)

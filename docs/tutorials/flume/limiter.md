@@ -39,7 +39,7 @@ The same input with `cell`, the last row of `blast-limiter-residuals.dat`:
 
 <<< @/snippets/tutorials/flume-limiter-cell.txt
 
-It reaches $t = 0.01$ in 193 steps (the row shows the time at the start of the last step). The limiter changes only
+It reaches $t = 0.01$ in 194 steps (the row shows the time at the start of the last step). The limiter changes only
 the cells where the high-order update would leave the admissible set; elsewhere the scheme is unchanged. The
 [positivity limiter page](/applications/flume/verification/mhd/positivity-limiter) runs this blast at $128^2$ with
 figures, its 3-D and AMR versions, and the near-vacuum tests.
