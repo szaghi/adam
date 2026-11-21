@@ -363,6 +363,7 @@ use :: fundal,                    only : dev_alloc, dev_assign_to_device, dev_fr
                                          dev_memcpy_to_device, mydev
 use :: mpi
 use :: penf,                      only : I4P, I8P, R8P, str
+use :: selah,                     only : OPERATOR_FLOW
 
 implicit none
 private
@@ -453,6 +454,7 @@ type, extends(flume_common_object) :: flume_fnl_object
       procedure, pass(self) :: check_nonfinite         !< Stop on a non-finite committed state.
       procedure, pass(self) :: sync_dual_energy        !< Synchronise the total energy and the entropy (issue #91).
       procedure, pass(self) :: apply_cooling           !< Radiative cooling of the committed state (issue #93).
+      procedure, pass(self) :: refresh_sink_accelerations => refresh_sink_accelerations_fnl !< The device potential (#94).
       procedure, pass(self) :: cooling_time_min        !< Shortest cooling time of the committed state (issue #93).
       procedure, pass(self) :: accrete_sinks_gpu       !< Threshold accretion of the committed device state (issue #94).
       procedure, pass(self) :: copy_cpu_gpu            !< Copy state and topology from host to device.
@@ -3490,29 +3492,32 @@ contains
    logical,                 intent(in),    optional         :: do_save_restart   !< Unused: cadence is internal.
    logical,                 intent(in),    optional         :: do_amr            !< Unused: the forest regrids (regrid_forest).
    type(realm_pointer),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
+   real(R8P)                                                :: h                 !< Step of a flow.
+   integer(I4P)                                             :: m                 !< Substep.
 
    if (has_entropy(self%physics%model)) call self%sync_dual_energy
    call self%apply_forcing
-   if (self%physics%cooling%is_active) call self%apply_cooling(dt=self%time%dt) ! the forest passes no dt (0)
-   if (self%sinks%is_active) then
-      ! sinks (issue #94): creation on a host copy of the committed state (its ghost cells refreshed on the device, the
-      ! potential re-solved; the host checks of the CPU backend), accretion on the device cells within the radii,
-      ! mergers, then kick-drift-kick, the potential re-solved at the new positions
-      if (self%sinks%creation) then
-         call self%update_ghost(q_gpu=self%q_gpu)
-         call self%copy_gpu_cpu
-         call self%solve_potential_gpu(q_gpu=self%q_gpu)
-         call self%create_sinks
+   ! the flows composed with the forest's field step by SELAH (lie, the field first: one flow of the whole dt; #134 D4)
+   do m=1, self%flows%substeps()
+      if (self%flows%substep_operator(m) /= OPERATOR_FLOW) cycle
+      h = self%flows%substep_fraction(m) * self%time%dt ! the forest passes no dt (0)
+      if (self%physics%cooling%is_active) call self%apply_cooling(dt=h)
+      if (self%sinks%is_active) then
+         ! sinks (issue #94): creation on a host copy of the committed state (its ghost cells refreshed on the device,
+         ! the potential re-solved; the host checks of the CPU backend), accretion on the device cells within the radii,
+         ! mergers, then kick-drift-kick (SELAH's Strang), the potential re-solved at the new positions
+         if (self%sinks%creation) then
+            call self%update_ghost(q_gpu=self%q_gpu)
+            call self%copy_gpu_cpu
+            call self%solve_potential_gpu(q_gpu=self%q_gpu)
+            call self%create_sinks
+         endif
+         if (self%sinks%accretion .or. self%sinks%creation) call self%accrete_sinks_gpu
+         call self%merge_sinks
+         call self%step_sinks(dt=h)
+         self%sinks%dt_limit = self%sinks_dt_limit()
       endif
-      if (self%sinks%accretion .or. self%sinks%creation) call self%accrete_sinks_gpu
-      call self%merge_sinks
-      call self%kick_sinks(dt=self%time%dt)
-      call self%drift_sinks(dt=self%time%dt)
-      call self%solve_potential_gpu(q_gpu=self%q_gpu)
-      call self%compute_sink_accelerations
-      call self%kick_sinks(dt=self%time%dt)
-      self%sinks%dt_limit = self%sinks_dt_limit()
-   endif
+   enddo
    call self%check_nonfinite
    call self%check_glm_ch
    call self%update_wall_model_faces
@@ -3538,6 +3543,14 @@ contains
       print '(A)', 'dual energy: '//trim(str(nint(sums(2), I8P)))//' cold cells lifted to their adiabat at step '// &
                    trim(str(self%time%it))//', total energy raised by '//trim(str(sums(1)))
    endsubroutine sync_dual_energy
+
+   subroutine refresh_sink_accelerations_fnl(self)
+   !< Re-solve the self-gravity potential of the committed device state and the mesh gravity at the sinks (issue #94).
+   class(flume_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%solve_potential_gpu(q_gpu=self%q_gpu)
+   call self%compute_sink_accelerations
+   endsubroutine refresh_sink_accelerations_fnl
 
    subroutine apply_cooling(self, dt)
    !< Cool the committed device state over the step just advanced, once per step (issue #93): the device twin of the CPU

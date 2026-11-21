@@ -285,6 +285,7 @@ use :: adam_flume_cpu_mhd_glm_baro_kernels, only : &
 use, intrinsic :: ieee_arithmetic, only : ieee_quiet_nan, ieee_value
 use :: mpi
 use :: penf,                      only : I4P, I8P, R8P, str
+use :: selah,                     only : OPERATOR_FLOW
 
 implicit none
 private
@@ -2859,27 +2860,30 @@ contains
    logical,                 intent(in),    optional         :: do_save_restart   !< Unused: cadence is internal.
    logical,                 intent(in),    optional         :: do_amr            !< Unused: the forest regrids (regrid_forest).
    type(realm_pointer),     intent(inout), optional, target :: realm(:)          !< Sibling realms.
+   real(R8P)                                                :: h                 !< Step of a flow.
+   integer(I4P)                                             :: m                 !< Substep.
 
    if (has_entropy(self%physics%model)) call self%sync_dual_energy
    call self%apply_forcing
-   if (self%physics%cooling%is_active) call self%apply_cooling(dt=self%time%dt) ! the forest passes no dt (0)
-   if (self%sinks%is_active) then
-      ! sinks (issue #94): creation (the ghost cells and the potential of the committed state), accretion, mergers,
-      ! then kick-drift-kick, the potential re-solved at the new positions
-      if (self%sinks%creation) then
-         call self%update_ghost(q=self%q)
-         call self%solve_potential(q=self%q)
-         call self%create_sinks
+   ! the flows composed with the forest's field step by SELAH (lie, the field first: one flow of the whole dt; #134 D4)
+   do m=1, self%flows%substeps()
+      if (self%flows%substep_operator(m) /= OPERATOR_FLOW) cycle
+      h = self%flows%substep_fraction(m) * self%time%dt ! the forest passes no dt (0)
+      if (self%physics%cooling%is_active) call self%apply_cooling(dt=h)
+      if (self%sinks%is_active) then
+         ! sinks (issue #94): creation (the ghost cells and the potential of the committed state), accretion, mergers,
+         ! then kick-drift-kick (SELAH's Strang), the potential re-solved at the new positions
+         if (self%sinks%creation) then
+            call self%update_ghost(q=self%q)
+            call self%solve_potential(q=self%q)
+            call self%create_sinks
+         endif
+         if (self%sinks%accretion .or. self%sinks%creation) call self%accrete_sinks
+         call self%merge_sinks
+         call self%step_sinks(dt=h)
+         self%sinks%dt_limit = self%sinks_dt_limit()
       endif
-      if (self%sinks%accretion .or. self%sinks%creation) call self%accrete_sinks
-      call self%merge_sinks
-      call self%kick_sinks(dt=self%time%dt)
-      call self%drift_sinks(dt=self%time%dt)
-      call self%solve_potential(q=self%q)
-      call self%compute_sink_accelerations
-      call self%kick_sinks(dt=self%time%dt)
-      self%sinks%dt_limit = self%sinks_dt_limit()
-   endif
+   enddo
    call self%check_nonfinite
    call self%check_glm_ch
    call self%update_wall_model_faces

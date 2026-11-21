@@ -66,9 +66,12 @@ use :: adam_flume_wall_model_library, only : sample_cells, wall_coupling_viscosi
                                          wall_model_solve_convective, WM_CONV_CELLS
 ! third party modules
 use :: finer,                         only : file_ini
+use :: fundal,                        only : dev_alloc, dev_free, dev_memcpy_from_device, dev_memcpy_to_device
 use :: motion,                        only : xh5f_file_object
 use :: mpi
 use :: penf,                          only : I4P, I8P, R8P, str, strz
+use :: selah,                         only : additive_splitting, box, box_interior, stepper, FORM_SPLITTING,          &
+                                             OPERATOR_FIELD, OPERATOR_FLOW, SCHEME_LIE, SCHEME_STRANG
 use :: stringifor,                    only : string
 
 implicit none
@@ -148,6 +151,8 @@ type, extends(realm_object) :: flume_common_object
    type(flume_reference_object)   :: units               !< Reference layer (dimensional input, issue #49).
    real(R8P)                      :: limiter_dt=0._R8P   !< Forward-Euler step the positivity limiter makes
                                                          !< admissible: the active stage's (#134 D4).
+   type(additive_splitting)       :: flows               !< The field step and the post-step flows (cooling, sinks):
+                                                         !< SELAH's composition (lie, the field first; #134 D4).
    type(flume_sinks_object)       :: sinks               !< Sink particles (issue #94).
    type(flume_time_object)        :: time                !< Time handler.
    contains
@@ -210,9 +215,10 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: solve_potential_packed !< Solve the self-gravity potential of a packed density.
       procedure, pass(self) :: compute_sink_accelerations !< Mesh gravity at the sinks (issue #94).
       procedure, pass(self) :: deposit_sinks         !< Add the sinks' CIC mass to a packed density (issue #94).
-      procedure, pass(self) :: drift_sinks           !< Drift the sinks by a step (issue #94).
       procedure, pass(self) :: set_limiter_dt        !< The positivity limiter's forward-Euler step of a stage.
-      procedure, pass(self) :: kick_sinks            !< Kick the sinks by half a step (issue #94).
+      procedure, pass(self) :: refresh_sink_accelerations !< Re-solve the potential, the sinks' accelerations (#94).
+      procedure, pass(self) :: step_sinks            !< Kick-drift-kick of the sinks, SELAH's Strang (#94, #134 D4).
+      procedure, pass(self) :: wrap_sinks            !< Wrap the sinks on periodic faces, refuse a sink outside (#94).
       procedure, pass(self) :: sink_stencil          !< CIC stencil of a point: target points and weights (issue #94).
       procedure, pass(self) :: sinks_dt_limit        !< Time step limit of the sinks (issue #94).
       procedure, pass(self) :: accrete_sinks         !< Threshold accretion of the committed host state (issue #94).
@@ -1213,6 +1219,7 @@ contains
    logical                                           :: verbose_       !< Trigger verbose output, local variable.
    integer(I4P)                                      :: fields_number_ !< Block-sized fields per block, local variable.
    integer(I4P)                                      :: error          !< Error status.
+   integer(I4P)                                      :: m, nfield      !< Counter, field substeps of the flows.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih%print_message('flume_common_object%initialize start')
@@ -1314,6 +1321,16 @@ contains
       call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_mpi_redistribute=.true., &
                                     do_blocks_reorder=.false., q=self%q)
    endassociate
+   ! the post-step flows follow the forest's field step (lie, the field first): SELAH owns the composition, the forest
+   ! takes exactly one field step of the whole dt per step, which the composition must match (#134 D4)
+   call self%flows%initialize(SCHEME_LIE, first=OPERATOR_FIELD)
+   nfield = 0_I4P
+   do m=1, self%flows%substeps()
+      if (self%flows%substep_operator(m) == OPERATOR_FIELD) nfield = nfield + 1_I4P
+   enddo
+   if (nfield /= 1_I4P .or. self%flows%substep_operator(1) /= OPERATOR_FIELD .or. &
+       self%flows%substep_fraction(1) /= 1._R8P) &
+      call mpih%error_stop(msg=': the post-step flows need a composition with one field step of the whole dt, first')
    if (verbose_) call mpih%print_message('flume_common_object%initialize finish')
    endsubroutine initialize
 
@@ -2286,20 +2303,81 @@ contains
    if (present(s)) self%limiter_dt = self%ts%stage_euler_fraction(s) * self%time%dt
    endsubroutine set_limiter_dt
 
-   subroutine kick_sinks(self, dt)
-   !< Kick the sinks by half a step with their current acceleration, `v += dt/2 a` (issue #94, KDK).
+   subroutine refresh_sink_accelerations(self)
+   !< Re-solve the self-gravity potential of the committed state and the mesh gravity at the sinks (issue #94): the CPU
+   !< backend's (`solve_potential` of the host state); the FNL backend overrides it with its device state.
    class(flume_common_object), intent(inout) :: self !< The equation.
-   real(R8P),                  intent(in)    :: dt   !< Time step.
 
-   if (.not.self%sinks%is_active .or. self%sinks%n == 0_I4P) return
-   self%sinks%v = self%sinks%v + 0.5_R8P * dt * self%sinks%a
-   endsubroutine kick_sinks
+   call self%solve_potential(q=self%q)
+   call self%compute_sink_accelerations
+   endsubroutine refresh_sink_accelerations
 
-   subroutine drift_sinks(self, dt)
-   !< Drift the sinks by a step, `x += dt v` (issue #94, KDK): a periodic direction wraps, a sink that leaves a closed
-   !< domain is fatal (no outflow for sinks).
+   subroutine step_sinks(self, dt)
+   !< Advance the sinks over `dt` by kick-drift-kick (issue #94) through SELAH (#134 D4): the stepper's Strang splitting
+   !< of the velocities (partition 1, the kick v' = a) and the positions (partition 2, the drift x' = v), each an exact
+   !< sub-flow, so the composition is Stoermer-Verlet with SELAH's fractions (1/2, 1, 1/2) and SELAH's update. A kick
+   !< takes the accelerations of the last computation; after a drift they are recomputed at the new positions
+   !< (`refresh_sink_accelerations`, the potential re-solved) before the next kick. A direction the grid does not have
+   !< does not drift (its residual is 0); after a drift a periodic direction wraps and a sink outside a closed domain is
+   !< fatal (`wrap_sinks`). The list is replicated on every rank and short: it is packed into a SELAH field p(6, n)
+   !< (positions, velocities; device memory in a device build) and unpacked after every flow.
    class(flume_common_object), intent(inout) :: self   !< The equation.
-   real(R8P),                  intent(in)    :: dt     !< Time step.
+   real(R8P),                  intent(in)    :: dt     !< Time step of the flow.
+   integer(I4P), parameter :: KICK_DRIFT(2,2) = reshape([4_I4P, 6_I4P, 1_I4P, 3_I4P], [2, 2]) !< v: partition 1; x: 2.
+   type(stepper)                             :: st     !< SELAH splitting stepper.
+   type(box)                                 :: bx     !< The sinks, all components.
+   real(R8P), pointer                        :: p(:,:) !< Packed sinks (SELAH field).
+   real(R8P), pointer                        :: r(:,:) !< Residual register.
+   real(R8P), allocatable                    :: ph(:,:), rh(:,:) !< Host copies of the field and of the residual.
+   integer(I4P)                              :: n, k, d, ierr    !< Sinks number, counters, error status.
+   logical                                   :: moved  !< The positions moved since the accelerations were computed.
+
+   n = self%sinks%n
+   if (.not.self%sinks%is_active .or. n == 0_I4P) return
+   allocate(ph(6,n), rh(6,n))
+   ph(1:3,:) = self%sinks%x(:,1:n) ; ph(4:6,:) = self%sinks%v(:,1:n)
+   p => null()
+   call dev_alloc(fptr_dev=p, lbounds=[1_I4P, 1_I4P], ubounds=[6_I4P, n], ierr=ierr)
+   if (ierr /= 0) call mpih%error_stop(msg=': step_sinks: the packed sinks could not be allocated')
+   call dev_memcpy_to_device(dst=p, src=ph)
+   bx = box_interior(lb=[1_I4P, 1_I4P], ub=[6_I4P, n], ngc=0_I4P, components=.true.)
+   call st%initialize(SCHEME_STRANG, FORM_SPLITTING, lb=[1_I4P, 1_I4P], ub=[6_I4P, n], components=.true., &
+                      partitions=KICK_DRIFT)
+   moved = .false.
+   call st%begin_step(bx, p)
+   do k=1, st%stages()
+      call st%begin_stage(k, bx, dt, p)
+      rh = 0._R8P
+      if (st%stage_partition(k) == 1_I4P) then ! kick
+         if (moved) call self%refresh_sink_accelerations
+         moved = .false.
+         rh(4:6,:) = self%sinks%a(:,1:n)
+      else ! drift
+         do d=1, 3
+            if (.not.self%adam%grid%null_xyz(d)) rh(d,:) = self%sinks%v(d,1:n)
+         enddo
+         moved = .true.
+      endif
+      call st%rhs_register_view(r)
+      call dev_memcpy_to_device(dst=r, src=rh)
+      call st%end_stage(k, bx, dt, p)
+      call dev_memcpy_from_device(dst=ph, src=p)
+      self%sinks%x(:,1:n) = ph(1:3,:) ; self%sinks%v(:,1:n) = ph(4:6,:)
+      if (st%stage_partition(k) == 2_I4P) then
+         call self%wrap_sinks
+         ph(1:3,:) = self%sinks%x(:,1:n)
+         call dev_memcpy_to_device(dst=p, src=ph)
+      endif
+   enddo
+   call st%finish_step(bx, dt, p)
+   call st%destroy
+   call dev_free(p)
+   endsubroutine step_sinks
+
+   subroutine wrap_sinks(self)
+   !< Bring a sink that left the domain through a periodic direction back in it; a sink outside a closed domain is fatal
+   !< (no outflow for sinks, issue #94).
+   class(flume_common_object), intent(inout) :: self   !< The equation.
    real(R8P)                                 :: extent !< Domain extent.
    integer(I4P)                              :: s, d   !< Counters.
 
@@ -2308,7 +2386,6 @@ contains
    do s=1, self%sinks%n
       do d=1, 3
          if (grid%null_xyz(d)) cycle
-         self%sinks%x(d,s) = self%sinks%x(d,s) + dt * self%sinks%v(d,s)
          extent = grid%domain_emax(d) - grid%domain_emin(d)
          if (grid%is_ijk_periodic(d)) then
             if (self%sinks%x(d,s) < grid%domain_emin(d)) self%sinks%x(d,s) = self%sinks%x(d,s) + extent
@@ -2320,7 +2397,7 @@ contains
       enddo
    enddo
    endassociate
-   endsubroutine drift_sinks
+   endsubroutine wrap_sinks
 
    function sink_accretion_radius(self, point) result(r_acc)
    !< Return the accretion radius at a point: `accretion_radius_cells` cells of the level of the block that holds it (the
@@ -2495,7 +2572,7 @@ contains
          self%sinks%v(:,sk) = (self%sinks%m(sk) * self%sinks%v(:,sk) + sums(2:4,sk)) / (self%sinks%m(sk) + sums(1,sk))
          self%sinks%x(:,sk) = self%sinks%x(:,sk) + sums(5:7,sk) / (self%sinks%m(sk) + sums(1,sk))
          self%sinks%m(sk) = self%sinks%m(sk) + sums(1,sk)
-         call self%drift_sinks(dt=0._R8P) ! wraps a periodic position that left the domain
+         call self%wrap_sinks ! a periodic position that left the domain
          self%sinks%is_new(sk) = .false.
       else ! a sink formed this step that accreted nothing
          call self%sinks%remove(s=sk)
@@ -2762,7 +2839,7 @@ contains
          enddo
       enddo pairs
    enddo
-   call self%drift_sinks(dt=0._R8P) ! wraps a periodic position that left the domain
+   call self%wrap_sinks ! a periodic position that left the domain
    endsubroutine merge_sinks
 
    function sinks_dt_limit(self) result(dt)

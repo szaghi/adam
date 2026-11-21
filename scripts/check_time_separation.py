@@ -61,7 +61,6 @@ WAIVERS: dict[str, list[tuple[str, str]]] = {
                                   (r'q_pic_(minus|plus)|0\.5_R8P\s*\*\s*self%time%dt\s*\*\s*self%q_pic', _T0)],
     'adam_prism_fnl_object.F90': [(r'%st%bt%[ab]\b', _CC)],
     'adam_prism_fnl_pic_conserving_object.F90': [(r'coeff|\bc\(r\)', _CC), (r'half_dt|0\.5_R8P\s*\*\s*dt', _T0)],
-    'adam_flume_common_object.F90': [(r'sinks%v\s*\+\s*0\.5_R8P', "FLUME's sink kick, Strang's 1/2 (szaghi/SELAH#5)")],
     'adam_flume_cpu_positivity_kernels_agnostic.INC': [(r'0\.5_R8P\s*\*\s*dt\s*\*\s*q', _LIM)],
     'adam_flume_fnl_positivity_kernels_agnostic.INC': [(r'0\.5_R8P\s*\*\s*dt\s*\*\s*q', _LIM)],
 }
