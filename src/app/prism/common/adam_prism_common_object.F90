@@ -21,9 +21,9 @@ use :: adam_prism_plasma_frequencies_object
 use :: adam_prism_pml_object
 use :: adam_prism_particle_injection_object
 use :: adam_prism_probes_object
-use :: adam_prism_rk_pic_object
 use :: adam_prism_pml_stepper_object
-use :: adam_stepper_object, only : stepper_stored_fields
+use :: adam_stepper_object, only : stepper_stored_fields, LAYOUT_V_FIRST
+use :: selah,               only : stepper
 use :: adam_prism_time_object
 ! third party modules
 use :: finer, only : file_ini
@@ -115,7 +115,7 @@ type, extends(realm_object) :: prism_common_object
    type(prism_plasma_frequencies_object) :: plasma_freq        !< Plasma frequencies and the PIC time-step limit.
    type(prism_pml_object)                :: pml                !< Perfectly matched layer.
    type(prism_probes_object)             :: probes             !< Field probes.
-   type(prism_rk_pic_object)             :: rk_pic             !< Runge-Kutta PIC handler.
+   type(stepper)                         :: pic_st             !< Particles: a SELAH companion (#134 D5).
    type(prism_pml_stepper_object)        :: pml_st             !< PML auxiliary fields: SELAH companions (#134 D5).
    type(prism_time_object)               :: time               !< Time integration state.
    contains
@@ -569,9 +569,17 @@ contains
       call self%probes%initialize(file_parameters=file_parameters, output_basename=self%io%output_basename, &
                                   grid=self%adam%grid)
    endif
-   if (is_pic_model(self%physics%physical_model)) then
-      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-         call self%rk_pic%initialize(ts=self%ts, pic=self%pic, physics=self%physics)
+   ! the particles advance with the field stages as a SELAH companion of the field stepper (#134 D5): the particle array
+   ! q_pic(8, capacity) of the CPU backend here, the FNL backend's q_pic_gpu(capacity, 8) in its own initialization;
+   ! the box of each step is the active particles (the PIC integrators refuse a form other than Butcher's)
+   call self%pic_st%destroy
+   if (is_pic_model(self%physics%physical_model) .and. self%selah_layout == LAYOUT_V_FIRST) then
+      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA .and. self%ts%is_butcher()) then
+         if (self%pic%particle_capacity < 1_I4P) &
+            call mpih%error_stop(msg=': a PIC model with no particles (the particle problem gives none): use the EM model')
+         call self%pic_st%initialize_companion(self%ts%st, lb=[1_I4P, 1_I4P], ub=[8_I4P, self%pic%particle_capacity], &
+                                               components=.true.)
+      endif
    endif
    call check_ngc_number
    call self%allocate_common
@@ -694,7 +702,7 @@ contains
    ! the auxiliary fields as SELAH companions of the field stepper, on the host face arrays (the FNL backend rebuilds them
    ! on its device arrays, initialize_pml_fnl)
    call self%pml_st%destroy
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') then
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT' .and. self%selah_layout == LAYOUT_V_FIRST) then
       shapes = 1_I4P ; active = .false.
       ! faces 1..6: x-, x+, y-, y+, z-, z+ (the PML_FACE_* of prism_pml_object, private there)
       call face(1_I4P, self%pml%q_pml_x_m) ; call face(2_I4P, self%pml%q_pml_x_p)

@@ -406,7 +406,7 @@ type(prism_coil_object)                :: coil
 type(prism_external_fields_object)     :: external_fields
 type(prism_pic_object)                 :: pic
 type(prism_leapfrog_pic_object)        :: leapfrog_pic
-type(prism_rk_pic_object)              :: rk_pic
+type(stepper)                          :: pic_st   ! the particles, a SELAH companion of ts (#134 D5)
 real(R8P), allocatable :: q(:,:,:,:,:)       ! [nv, ni+2ngc, nj+2ngc, nk+2ngc, nb]
 real(R8P), allocatable :: dq(:,:,:,:,:)
 real(R8P), allocatable :: curl(:,:,:,:,:), divergence(:,:,:,:,:)
@@ -476,7 +476,7 @@ adam_prism_common_library
  ├── adam_prism_fwlayer_object, adam_prism_ic_object, adam_prism_numerics_object
  ├── adam_prism_physics_object, adam_prism_pic_object, adam_prism_particle_injection_object
  ├── adam_prism_external_fields_object, adam_prism_leapfrog_pic_object
- ├── adam_prism_rk_bc_object, adam_prism_rk_pic_object
+ ├── adam_prism_rk_bc_object, adam_prism_pml_stepper_object
  ├── adam_prism_time_object, adam_prism_riemann_library, adam_prism_parameters
  └── (uses adam_common_library via realm_object chain)
 
@@ -484,7 +484,7 @@ adam_prism_fnl_library
  ├── adam_prism_common_library
  ├── adam_fnl_library
  ├── adam_prism_fnl_coil_object, adam_prism_fnl_fwlayer_object (kernel only, no device state)
- ├── adam_prism_fnl_pic_object, adam_prism_fnl_leapfrog_pic_object, adam_prism_fnl_rk_pic_object
+ ├── adam_prism_fnl_pic_object, adam_prism_fnl_leapfrog_pic_object
  ├── adam_prism_fnl_pml_object
  └── adam_prism_fnl_external_fields_kernels
 ```

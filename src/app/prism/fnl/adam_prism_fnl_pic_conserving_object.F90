@@ -45,6 +45,7 @@ use :: adam_prism_fnl_pic_object
 use :: fundal
 use :: mpi
 use :: penf
+use :: selah, only : box, box_interior, stepper, selah_copy
 
 implicit none
 private
@@ -136,6 +137,7 @@ type :: prism_fnl_pic_conserving_object
    real(R8P),    pointer :: qw_gpu(:)                 => null() !< Q kernel [0:9].
    real(R8P),    pointer :: fv1_gpu(:)                => null() !< FV1_CC(1:hs,hs), face reconstruction coefficients.
    real(R8P),    pointer :: h_gpu(:,:,:,:,:,:)        => null() !< Stage directional charge changes [nb,ni,nj,nk,3,nrk].
+   real(R8P),    pointer :: hs_gpu(:,:,:,:,:)         => null() !< A stage current, scratch [nb,ni,nj,nk,3].
    real(R8P),    pointer :: q_next_gpu(:,:)           => null() !< Particle stage target [np,8].
    real(R8P),    pointer :: q_ref_gpu(:,:)            => null() !< Particle reference (step start / t0 minus) [np,8].
    real(R8P),    pointer :: q_hist_gpu(:,:,:)         => null() !< Particle stage targets history [np,8,nrk].
@@ -165,10 +167,9 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self) :: coherent_field_weighting    !< Gather E, B with P^T and the base shape.
       procedure, pass(self) :: copy_field                  !< Copy a q-like device field.
       procedure, pass(self) :: copy_particles              !< Copy a device particle array.
-      procedure, pass(self) :: build_stage_target          !< q_next = q_pic + dt sum_r c_r k_r.
       procedure, pass(self) :: build_centered_trajectory   !< t=0 virtual trajectory q_pic -/+ dt/2 v.
       procedure, pass(self) :: esirkepov_displacement      !< Esirkepov directional charge change.
-      procedure, pass(self) :: combine_stage_source        !< H_s = (H_s - sum_r c_r H_r)/c_s.
+      procedure, pass(self) :: combine_stage_source        !< H_s <- (H_s - sum_r c_r H_r)/c_s (SELAH).
       procedure, pass(self) :: solve_dispatch              !< Select the configured current solver.
       procedure, pass(self) :: solve_lines                 !< Londrillo line solves.
       procedure, pass(self) :: solve_modified              !< Matched current (totorica, esirkepov_Q<N>).
@@ -222,6 +223,7 @@ contains
    call free_r5(self%jv_gpu)
    call free_r5(self%src_gpu)
    call free_r6(self%h_gpu)
+   call free_r5(self%hs_gpu)
    call free_r6(self%src_stage_gpu)
    call free_i2(self%piv_x_gpu)
    call free_i2(self%piv_y_gpu)
@@ -307,10 +309,6 @@ contains
    self%hs                     = hs
    self%bni = grid%ni ; self%bnj = grid%nj ; self%bnk = grid%nk ; self%ngc = grid%ngc
    self%bnb = nb ; self%nv = nv ; self%nrk = nrk
-   ! the stage coefficients live in fixed-size device-private arrays (c(1:8), coeff(1:8): build_stage_target,
-   ! combine_stage_source, the current check): a longer scheme would overflow them (#134 L3)
-   if (nrk > 8_I4P) call mpih%error_stop(msg=': the charge-conserving PIC current supports at most 8 stages, the '// &
-                                             'scheme has '//trim(str(nrk, .true.)))
    self%nb = 1_I4P ; self%blocks_number = 1_I4P
    call self%build_virtual_geometry(field=field, grid=grid)
    ! per-particle arrays at the capacity of the rank (issue #112); the particles in them are set by sync_particle_number
@@ -362,6 +360,7 @@ contains
                                trim(str(MAX_SPAN,.true.))//')')
 
    call alloc_r6(self%h_gpu, [1,ni,nj,nk,3,nrk], [1,1,1,1,1,1], 'h_gpu')
+   call alloc_r5(self%hs_gpu, [1,ni,nj,nk,3], [1,1,1,1,1], 'hs_gpu')
    call alloc_r4(self%work_a_gpu, [1,ni,nj,nk], 'work_a_gpu')
    call alloc_r4(self%work_b_gpu, [1,ni,nj,nk], 'work_b_gpu')
    ! the line scratch serves the line solves and scans of the non-periodic path only (issue #112)
@@ -802,39 +801,6 @@ contains
    enddo
    endsubroutine copy_particles
 
-   subroutine build_stage_target(self, q_pic, q_pic_rk, s, coeff, dt)
-   !< q_next(1:6) = q_pic(1:6) + dt sum_{r<=s} coeff(r) k_r(1:6), q_next(7:8) = q_pic(7:8).
-   !< CPU twin: the q_pic_next loop of integrate_rk_ssp_pic_charge_conserving (same r order).
-   class(prism_fnl_pic_conserving_object), intent(inout) :: self             !< Conserving current object.
-   real(R8P),                              intent(in)    :: q_pic(1:,1:)     !< Particles at step start [np,8].
-   real(R8P),                              intent(in)    :: q_pic_rk(1:,1:,1:) !< Stage right-hand sides [np,8,nrk].
-   integer(I4P),                           intent(in)    :: s                !< Current stage.
-   real(R8P),                              intent(in)    :: coeff(1:)        !< Stage coefficients (1:s used).
-   real(R8P),                              intent(in)    :: dt               !< Time step.
-   real(R8P), pointer                                    :: q_next(:,:)
-   real(R8P)                                             :: c(1:8), val
-   integer(I4P)                                          :: n, v, r, np
-
-   np = self%particle_number
-   if (np == 0_I4P) return
-   q_next => self%q_next_gpu
-   c = 0._R8P ; c(1:s) = coeff(1:s)
-   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(q_pic,q_pic_rk,q_next) copyin(c) private(val)
-   !$omp OMPLOOP collapse(2) DEVICEPTR(q_pic,q_pic_rk,q_next) map(to:c) private(val)
-   do v=1, 8
-   do n=1, np
-      val = q_pic(n,v)
-      if (v <= 6) then
-         !$acc loop seq
-         do r=1, s
-            val = val + dt * c(r) * q_pic_rk(n,v,r)
-         enddo
-      endif
-      q_next(n,v) = val
-   enddo
-   enddo
-   endsubroutine build_stage_target
-
    subroutine build_centered_trajectory(self, q_pic, dt)
    !< q_ref = q_pic - dt/2 v, q_next = q_pic + dt/2 v (positions only). CPU twin: initialize_pic_conserving_current_time_zero.
    class(prism_fnl_pic_conserving_object), intent(inout) :: self         !< Conserving current object.
@@ -1194,36 +1160,19 @@ contains
    call self%scatter_current(q=q, var_jx=var_jx)
    endsubroutine store_box_current
 
-   subroutine combine_stage_source(self, h, s, coeff)
-   !< H_s = (H_s - sum_{r<s} coeff(r) H_r) / coeff(s). CPU twin: the h_q SSP combination of the conserving integrator.
-   class(prism_fnl_pic_conserving_object), intent(in)    :: self                 !< Conserving current object.
-   real(R8P),                              intent(inout) :: h(1:,1:,1:,1:,1:,1:) !< Stage sources [nb,ni,nj,nk,3,nrk].
-   integer(I4P),                           intent(in)    :: s                    !< Current stage.
-   real(R8P),                              intent(in)    :: coeff(1:)            !< Stage coefficients (1:s used).
-   real(R8P)                                             :: c(1:8), val
-   integer(I4P)                                          :: b, i, j, k, d, r, ni, nj, nk, nbl
+   subroutine combine_stage_source(self, st, s)
+   !< H_s <- J_s = (H_s - sum_{r<s} a(s+1,r) J_r) / a(s+1,s) (b at the last stage): the stage current whose weighted sum
+   !< with the earlier ones is the stage source, SELAH's `stage_current` of the field stepper (#134 D5; CPU twin: the
+   !< stage current of the conserving integrator). Through the scratch hs_gpu, so that no argument aliases another.
+   class(prism_fnl_pic_conserving_object), intent(inout) :: self !< Conserving current object.
+   type(stepper),                          intent(in)    :: st   !< The field's stepper.
+   integer(I4P),                           intent(in)    :: s    !< Current stage.
+   type(box)                                             :: bx   !< The stage sources [1, ni, nj, nk, 3].
 
-   if (abs(coeff(s)) <= tiny(1._R8P)) call mpih%error_stop(msg=': zero SSP coefficient in charge-conserving PIC current')
-   ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number
-   c = 0._R8P ; c(1:s) = coeff(1:s)
-   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(h) copyin(c) private(val)
-   !$omp OMPLOOP collapse(5) DEVICEPTR(h) map(to:c) private(val)
-   do d=1, 3
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-   do b=1, nbl
-      val = h(b,i,j,k,d,s)
-      !$acc loop seq
-      do r=1, s-1
-         val = val - c(r) * h(b,i,j,k,d,r)
-      enddo
-      h(b,i,j,k,d,s) = val / c(s)
-   enddo
-   enddo
-   enddo
-   enddo
-   enddo
+   bx = box_interior(lb=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ub=[1_I4P, self%ni, self%nj, self%nk, 3_I4P], ngc=0_I4P, &
+                     components=.false.)
+   call st%stage_current(s, bx, self%h_gpu(:,:,:,:,:,s), self%h_gpu, self%hs_gpu)
+   call selah_copy(bx, self%hs_gpu, self%h_gpu(:,:,:,:,:,s))
    endsubroutine combine_stage_source
 
    subroutine solve_dispatch(self, field_fnl, q, var_jx, hq, dt)
@@ -1465,7 +1414,7 @@ contains
    call self%impose_virtual_ghosts(q=q, var_jx=var_jx)
    endsubroutine solve_modified
 
-   subroutine solve_modified_with_cleanup(self, pic_fnl, field_fnl, q, var_jx, q_ref, q_hist, active_stage, alph, beta, dt, &
+   subroutine solve_modified_with_cleanup(self, pic_fnl, field_fnl, q, var_jx, q_ref, q_hist, active_stage, st, dt, &
                                           mixed_source)
    !< Per-particle modified current with tail cleanup, then accumulation. CPU twins: solve_modified_current_with_cleanup,
    !< cleanup_modified_particle_current, report_particle_tail_error.
@@ -1483,11 +1432,11 @@ contains
    real(R8P),                              intent(in)           :: q_ref(1:,1:)  !< Trajectory start [np,8].
    real(R8P),                              intent(in)           :: q_hist(1:,1:,1:) !< Stage targets [np,8,>=stages].
    integer(I4P),                           intent(in)           :: active_stage  !< Active stage (0 = t0 virtual step).
-   real(R8P),                              intent(in)           :: alph(1:,1:)   !< SSP alpha coefficients (host).
-   real(R8P),                              intent(in)           :: beta(1:)      !< SSP beta coefficients (host).
+   type(stepper),                          intent(in)           :: st            !< The field's stepper.
    real(R8P),                              intent(in)           :: dt            !< Time step.
    real(R8P),                              intent(in), optional :: mixed_source(1:,1:,1:,1:,1:) !< Mixed stage source.
-   real(R8P)                                                    :: coeff(1:8), j_max(3), j_ref, bad
+   real(R8P)                                                    :: j_max(3), j_ref, bad
+   type(box)                                                    :: bxs           !< The sources [1, ni, nj, nk, 3].
    integer(I4P)                                                 :: stage_count, particle, t, r, block, dir, np
    integer(I4P)                                                 :: slo(3), shi(3), lo(3,3), hi(3,3)
    integer(I4P)                                                 :: p_min, p_max, q_min, q_max, s
@@ -1495,6 +1444,8 @@ contains
 
    np = self%particle_number
    stage_count = max(1_I4P, active_stage)
+   bxs = box_interior(lb=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ub=[1_I4P, self%ni, self%nj, self%nk, 3_I4P], ngc=0_I4P, &
+                      components=.false.)
    ! the mixed stage source is the whole source: it is the particle's own only with one particle in the whole run
    single = self%particle_number_global == 1_I4P .and. np == 1_I4P .and. present(mixed_source)
    call zero_current(self=self, q=self%jv_gpu, var_jx=1_I4P)
@@ -1518,15 +1469,9 @@ contains
             if (active_stage == 0_I4P) then
                call copy_source(src=self%src_gpu, dst=self%src_stage_gpu(:,:,:,:,:,t))
             else
-               coeff = 0._R8P
-               if (t < self%nrk) then
-                  coeff(1:t) = alph(t+1,1:t)
-               else
-                  coeff(1:t) = beta(1:t)
-               endif
-               if (abs(coeff(t)) <= tiny(1._R8P)) &
-                  call mpih%error_stop(msg=': zero SSP coefficient in particle current cleanup')
-               call combine_particle_source(t=t, coeff=coeff)
+               ! the particle's stage source: SELAH's stage current of its look-ahead sources (#134 D5), through hs_gpu
+               call st%stage_current(t, bxs, self%src_gpu, self%src_stage_gpu, self%hs_gpu)
+               call selah_copy(bxs, self%hs_gpu, self%src_stage_gpu(:,:,:,:,:,t))
             endif
          enddo
       endif
@@ -1595,35 +1540,6 @@ contains
       enddo
       enddo
       endsubroutine copy_source
-
-      subroutine combine_particle_source(t, coeff)
-      !< src_stage(t) = (src - sum_{r<t} coeff(r) src_stage(r)) / coeff(t).
-      integer(I4P), intent(in) :: t
-      real(R8P),    intent(in) :: coeff(1:8)
-      real(R8P), pointer       :: src(:,:,:,:,:), stg(:,:,:,:,:,:)
-      real(R8P)                :: val
-      integer(I4P)             :: b, i, j, k, d, ni, nj, nk, nbl
-      src => self%src_gpu ; stg => self%src_stage_gpu
-      ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number
-      !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(src,stg) copyin(coeff) private(val)
-      !$omp OMPLOOP collapse(5) DEVICEPTR(src,stg) map(to:coeff) private(val)
-      do d=1, 3
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-      do b=1, nbl
-         val = src(b,i,j,k,d)
-         !$acc loop seq
-         do r=1, t-1
-            val = val - coeff(r)*stg(b,i,j,k,d,r)
-         enddo
-         stg(b,i,j,k,d,t) = val/coeff(t)
-      enddo
-      enddo
-      enddo
-      enddo
-      enddo
-      endsubroutine combine_particle_source
 
       subroutine particle_support(particle, block, slo, shi)
       !< Virtual-block cell box spanned by the particle shape over its reference and stage positions (min/max reductions).

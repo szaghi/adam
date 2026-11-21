@@ -33,7 +33,9 @@ The particles obey the non-relativistic Lorentz equations,
 $$\frac{\mathrm d\mathbf x}{\mathrm dt} = \mathbf v, \qquad
 \frac{\mathrm d\mathbf v}{\mathrm dt} = \frac{q}{m}\Big(\frac{\mathbf D}{\varepsilon_0} + \mathbf v\times\mathbf B\Big),$$
 
-integrated with the field in the same SSP Runge–Kutta stages (`[PIC] scheme_time = runge_kutta`; SSP-22, 33 or 54).
+integrated with the field in the same Runge–Kutta stages (`[PIC] scheme_time = runge_kutta`; any `runge-kutta-ssp-*`):
+the particle array is a SELAH companion of the field stepper, the same scheme driven through the same stage window,
+SELAH building the particles' stage states and the update, PRISM writing their residual.
 `leapfrog` is refused at initialization on both backends. An [external field](./initial-conditions#external-fields), when
 present, is added to the gathered field.
 
@@ -45,7 +47,7 @@ of the previous step, which bounds $\omega_{UH}$, $\omega_{pe}$ and $\Omega_{ce}
 
 One step, per stage $s$: locate the particles in the grid; deposit $\mathbf J$ (and fold the deposit that spilled into
 ghost cells back onto the cells it belongs to, across blocks and ranks); add the coils' current; evaluate the Maxwell
-residual; gather $\mathbf D$, $\mathbf B$ at the particles; assign the field and particle stages. After the last stage:
+residual; gather $\mathbf D$, $\mathbf B$ at the particles; write the field and particle residuals. After the last stage:
 combine the stages, deposit $\mathbf J$ and $\rho$ of the new positions, wrap the particles across periodic faces,
 and migrate the particles that left a rank's blocks.
 
@@ -73,8 +75,12 @@ $$\frac{\rho^{n+1} - \rho^n}{\Delta t} + \sum_s \beta_s\,\nabla_h\cdot\mathbf J_
 
 with PRISM's own divergence and the stage weights $\beta_s$; the matched solver is `current_conserving_solver`
 (`londrillo`, the default; `totorica`, which adapts to any centred FD order; `esirkepov_Q5/Q6/Q8/Q10`, which need
-`fdv_order = 6`). It requires `fd_centered`, `runge_kutta` and SSP-22, 33 or 54. **On the CPU backend it runs on one
-block and one rank only.**
+`fdv_order = 6`). It requires `fd_centered`, `runge_kutta` and a scheme whose stage currents exist (SELAH's
+`stage_current_admissible`: $a_{k+1,k} \neq 0$, $b_s \neq 0$; every `runge-kutta-ssp-*`). At stage $s$ SELAH gives the
+look-ahead state of the particles (the state of stage $s+1$, the step's result at the last stage), PRISM deposits the
+current $H$ of the displacement $q^n \to$ that state, and SELAH's stage current
+$J_s = (H - \sum_{r<s} a_{s+1,r} J_r)/a_{s+1,s}$ makes the weighted sum of the stage currents conserve the charge at
+every stage. **On the CPU backend it runs on one block and one rank only.**
 
 **With periodic faces** (totorica and esirkepov_Q\<N\>; `londrillo` and `esirkepov_tail_cleanup` stop at initialization)
 the matched current is built particle by particle on the box its trajectory spans and folded modulo the periodic

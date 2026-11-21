@@ -16,10 +16,11 @@ use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 #endif
 ! third party modules
 use :: adam_ini_library, only : ini_check, ini_get
-use :: adam_stepper_object, only : LAYOUT_V_LAST, stepper_butcher_stages
+use :: adam_stepper_object, only : LAYOUT_V_LAST, stepper_butcher_stages, stepper_stored_fields
 use :: finer, only : file_ini
 use :: fundal, save_memory_status_gpu=>save_memory_status
 use :: penf,   save_memory_status_cpu=>save_memory_status
+use :: selah,  only : box, box_interior
 ! sdk modules
 use :: mpi
 
@@ -55,7 +56,6 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(weno_fnl_object)          :: weno_fnl    !< GPU WENO reconstructor.
    type(prism_fnl_coil_object)    :: coil_fnl    !< GPU coil source.
    type(prism_fnl_pic_object)     :: pic_fnl     !< GPU PIC support state.
-   type(prism_fnl_rk_pic_object)  :: rk_pic_fnl  !< GPU PIC RK integrator.
    type(prism_fnl_pic_conserving_object) :: conserving_fnl !< GPU charge-conserving PIC current.
    type(prism_fnl_plasma_frequencies_object) :: plasma_freq_fnl !< GPU plasma frequencies (PIC time-step limit).
    type(prism_fnl_pml_object)     :: pml_fnl     !< GPU PML compact metadata/state.
@@ -319,7 +319,7 @@ contains
    call self%probes_fnl%destroy()
    call self%conserving_fnl%destroy()
    call self%plasma_freq_fnl%destroy()
-   call self%rk_pic_fnl%destroy()
+   call self%pic_st%destroy
    call self%pic_fnl%destroy()
    call self%coil_fnl%destroy()
    call self%weno_fnl%destroy()
@@ -400,7 +400,7 @@ contains
    !< time scheme stages, the migration buffers, the conserving histories), and the virtual block of the conserving
    !< current, the whole domain at the
    !< finest uniform level (`h_gpu`, `work_a/b_gpu`, `line_gpu`, `jv_gpu`, the tail-cleanup arrays). Each term mirrors an
-   !< allocation of pic_fnl, rk_pic_fnl and conserving_fnl: keep them in step. PML storage and the
+   !< allocation of pic_fnl, the particles' companion and conserving_fnl: keep them in step. PML storage and the
    !< runtime context are left to the `[amr].(memory_fraction)` headroom.
    type(prism_physics_object), intent(in) :: physics         !< Physics (initialized).
    type(file_ini),          intent(inout) :: file_parameters !< Simulation parameters ini file handler.
@@ -445,13 +445,15 @@ contains
    endif
    call pic%load_from_file(file_parameters=file_parameters)
    call pic%set_particle_number(emin=grid%domain_emin, emax=grid%domain_emax, physics=physics)
-   nrk = max(1_I4P, stepper_butcher_stages(scheme=rk_scheme)) ! the particle stages (prism_rk_pic_object): SSP only
+   nrk = max(1_I4P, stepper_butcher_stages(scheme=rk_scheme)) ! the field stages (the conserving current's history)
    conserving = trim(pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL
 
    ! particle arrays (bytes per particle of capacity)
    per_particle = 8._R8P*(PARTICLE_VARIABLES + PARTICLE_FIELDS) + 4._R8P*PARTICLE_NEIGHBOURS
    if (mpih_fnl%procs_number > 1_I4P) per_particle = per_particle + 4._R8P*2 + 8._R8P*PARTICLE_VARIABLES ! migration
-   if (pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*nrk
+   ! the particles' SELAH companion: its registers, a stage state and a residual per stage (#134 D5)
+   if (pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
+      per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*max(1_I4P, stepper_stored_fields(scheme=rk_scheme))
    if (conserving) then
       per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*2                               ! q_next, q_ref
       if (pic%esirkepov_tail_cleanup) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*nrk ! q_hist
@@ -676,8 +678,10 @@ contains
              self%numerics%scheme_time /= NUM_SCHEME_TIME_RUNGE_KUTTA .or. &
              self%pic%scheme_time /= NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
             call mpih%error_stop(msg=': conserving PIC current requires centered FD and SSP Runge-Kutta')
-         if (self%ts%scheme /= RK_SSP_22 .and. self%ts%scheme /= RK_SSP_33 .and. self%ts%scheme /= RK_SSP_54) &
-            call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
+         ! SELAH's admissibility of the stage currents (#134 D5): the Butcher form, a(k+1,k) /= 0, b(s) /= 0
+         if (.not.(self%ts%is_butcher() .and. self%ts%st%stage_current_admissible())) &
+            call mpih%error_stop(msg=': conserving PIC current requires a Runge-Kutta scheme of the Butcher form '// &
+                                     'whose stage currents exist, a(k+1,k) /= 0 and b(s) /= 0 (runge-kutta-ssp-*)')
          call self%pic%check_esirkepov_q_order(fdv_order=self%fdv_order)
       endif
       call self%pic%set_coherent_gather(hs=self%fdv_half_stencils(1))
@@ -723,16 +727,16 @@ contains
             call mpih_fnl%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, '// &
                                          'szaghi/SELAH#4)')
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-            select case(self%rk_pic%scheme)
-            case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+            ! the particles are a SELAH companion of the field stepper (#134 D5): the Butcher form
+            if (self%ts%is_butcher()) then
                if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
                   self%integrate_dev => integrate_rk_ssp_pic_charge_conserving
                else
                   self%integrate_dev => integrate_rk_ssp_pic
                endif
-            case default
-               call mpih_fnl%error_stop(msg=': PIC RK scheme not ported to FNL backend')
-            endselect
+            else
+               call mpih%error_stop(msg=': PIC needs a Runge-Kutta scheme of the Butcher form (runge-kutta-ssp-*)')
+            endif
          case default
             call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
          endselect
@@ -760,8 +764,14 @@ contains
    endif
    if (is_pic_model(self%physics%physical_model)) then
       call self%pic_fnl%initialize(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields)
-      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-         call self%rk_pic_fnl%initialize(pic=self%pic, rk_pic=self%rk_pic)
+      ! the particles as a SELAH companion of the field stepper on the device array q_pic_gpu(capacity, 8) (#134 D5)
+      call self%pic_st%destroy
+      if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA .and. self%ts%is_butcher()) then
+         if (self%pic%particle_capacity < 1_I4P) &
+            call mpih%error_stop(msg=': a PIC model with no particles (the particle problem gives none): use the EM model')
+         call self%pic_st%initialize_companion(self%ts%st, lb=[1_I4P, 1_I4P], ub=[self%pic%particle_capacity, 8_I4P], &
+                                               components=.false.)
+      endif
       if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
          call self%conserving_fnl%initialize(pic=self%pic, grid=self%adam%grid, field=self%adam%field, nb=self%nb, &
                                              nv=self%nv, nrk=self%ts%stages(), &
@@ -5295,10 +5305,11 @@ contains
    implicit none
    class(prism_fnl_object), intent(inout) :: self         !< The equation.
    real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state (device).
+   real(R8P), pointer                     :: up(:,:)      !< Particles' stage state (companion, device).
    integer(I4P)                           :: s            !< Counter.
 
    call ts_begin_step(self)
-   call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   call pic_begin_step(self)
    call pml_begin_step(self)
 
    call self%initialize_charge_conservation_diagnostic
@@ -5306,14 +5317,14 @@ contains
    do s=1, self%ts%stages()
       call ts_begin_stage(self, s=s)
       u => self%ts%stage_state()
-      call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
+      call pic_begin_stage(self, k=s, up=up)
       call pml_begin_stage(self, k=s)
 
       call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
-                                                          grid=self%adam%grid, q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s))
+                                                          grid=self%adam%grid, q_pic_gpu=up)
       call self%pic_fnl%current_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                               q_gpu=u, &
-                                              q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s), nv=self%nv)
+                                              q_pic_gpu=up, nv=self%nv)
       call self%fold_deposited_ghosts_dev(q_gpu=u, &
                                           v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
       call self%accumulate_charge_conservation_current(q_gpu=u, &
@@ -5329,7 +5340,7 @@ contains
                                       dt=self%time%dt, time=self%time%time, q_gpu=u, &
                                       gamm=self%ts%stage_time(s))
       call self%gather_pic_fields_dev(q_gpu=u, &
-                                      q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s))
+                                      q_pic_gpu=up)
       if (self%external_fields%ef_type/=EF_TYPE_NONE) &
          call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                       dt=self%time%dt, time=self%time%time, q_gpu=u, &
@@ -5337,12 +5348,13 @@ contains
 
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
       call ts_end_stage(self, s=s)
-      call self%rk_pic_fnl%assign_stage(s=s, pic_fields_gpu=self%pic_fnl%pic_fields_gpu)
+      call pic_residual(self, up=up)
+      call pic_end_stage(self, k=s)
       call pml_end_stage(self, k=s)
    enddo
 
    call ts_finish_step(self)
-   call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   call pic_finish_step(self)
    call pml_finish_step(self)
 
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
@@ -5423,7 +5435,6 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    self%pic_fnl%particle_number = self%pic%particle_number
-   self%rk_pic_fnl%particle_number = self%pic%particle_number
    if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) &
       self%conserving_fnl%particle_number = self%pic%particle_number
    endsubroutine sync_particle_number
@@ -5434,20 +5445,18 @@ contains
    !< buffer itself (the CPU copies it into q_stage, which is only read until assign_stage overwrites the buffer).
    implicit none
    class(prism_fnl_object), intent(inout) :: self  !< The equation.
-   real(R8P)                              :: coeff(1:self%ts%stages())
-   real(R8P), allocatable                 :: alph(:,:), beta(:) !< The stepper's SELAH tableau (A, b), host copies.
    real(R8P), pointer                     :: u(:,:,:,:,:) !< Stage state (device).
+   real(R8P), pointer                     :: up(:,:)      !< Particles' stage state (companion, device).
    integer(I4P)                           :: s, nrk, var_jx
    logical                                :: cleanup
 
-   alph = self%ts%st%bt%a ; beta = self%ts%st%bt%b
-   associate(cc=>self%conserving_fnl, q_pic_rk_gpu=>self%rk_pic_fnl%q_pic_rk_gpu)
+   associate(cc=>self%conserving_fnl)
    nrk = self%ts%stages()
    var_jx = self%physics%var_jx
    cleanup = cc%tail_cleanup
    call cc%prepare(field=self%adam%field, grid=self%adam%grid)
    call ts_begin_step(self)
-   call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   call pic_begin_step(self)
    call pml_begin_step(self)
    if (cleanup) call cc%copy_particles(src=self%pic_fnl%q_pic_gpu, dst=cc%q_ref_gpu)
    cc%residual_max = 0._R8P
@@ -5456,7 +5465,7 @@ contains
    do s=1, nrk
       call ts_begin_stage(self, s=s)
       u => self%ts%stage_state()
-      call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
+      call pic_begin_stage(self, k=s, up=up)
       call pml_begin_stage(self, k=s)
 
       ! compute_stage fills only the interior cells and the stage ghosts are refreshed by compute_residuals_dev, which
@@ -5470,27 +5479,21 @@ contains
 
       ! gather at the stage particles, then the particle right-hand side
       call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
-                                                          grid=self%adam%grid, q_pic_gpu=q_pic_rk_gpu(:,:,s))
+                                                          grid=self%adam%grid, q_pic_gpu=up)
       if (self%external_fields%ef_type /= EF_TYPE_NONE) then
          call cc%copy_field(src=u, dst=cc%gather_gpu)
          call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_fnl, &
                                       dt=self%time%dt, time=self%time%time, q_gpu=cc%gather_gpu, gamm=self%ts%stage_time(s))
          call self%gather_pic_fields_dev(q_gpu=cc%gather_gpu, &
-                                         q_pic_gpu=q_pic_rk_gpu(:,:,s))
+                                         q_pic_gpu=up)
       else
          call self%gather_pic_fields_dev(q_gpu=u, &
-                                         q_pic_gpu=q_pic_rk_gpu(:,:,s))
+                                         q_pic_gpu=up)
       endif
-      call self%rk_pic_fnl%assign_stage(s=s, pic_fields_gpu=self%pic_fnl%pic_fields_gpu)
+      call pic_residual(self, up=up)
 
-      ! stage trajectory end point and its directional charge change
-      coeff = 0._R8P
-      if (s < nrk) then
-         coeff(1:s) = alph(s+1,1:s)
-      else
-         coeff(1:s) = beta(1:s)
-      endif
-      call cc%build_stage_target(q_pic=self%pic_fnl%q_pic_gpu, q_pic_rk=q_pic_rk_gpu, s=s, coeff=coeff, dt=self%time%dt)
+      ! stage trajectory end point (SELAH's look-ahead state, the state of stage s+1; #134 D5) and its charge change
+      call self%pic_st%lookahead(s, pic_box(self), self%time%dt, self%pic_fnl%q_pic_gpu, cc%q_next_gpu)
       if (cleanup) call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,s))
       if (cc%box_current) then
          ! periodic faces: the stage slot receives the matched current built on the trajectory boxes, combined over the
@@ -5503,7 +5506,7 @@ contains
       endif
       ! the source of the particles of all the ranks
       call cc%reduce_virtual(a=cc%h_gpu(:,:,:,:,:,s), boxed=cc%box_current)
-      call cc%combine_stage_source(h=cc%h_gpu, s=s, coeff=coeff)
+      call cc%combine_stage_source(st=self%ts%st, s=s)
 
       ! stage current
       if (cc%box_current) then
@@ -5511,7 +5514,7 @@ contains
       elseif (cleanup) then
          call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=u, &
                                              var_jx=var_jx, q_ref=self%pic_fnl%q_pic_gpu, q_hist=cc%q_hist_gpu, &
-                                             active_stage=s, alph=alph, beta=beta, dt=self%time%dt, &
+                                             active_stage=s, st=self%ts%st, dt=self%time%dt, &
                                              mixed_source=cc%h_gpu(:,:,:,:,:,s))
       else
          call cc%solve_dispatch(field_fnl=self%field_fnl, q=u, var_jx=var_jx, &
@@ -5534,7 +5537,7 @@ contains
    enddo
 
    call ts_finish_step(self)
-   call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   call pic_finish_step(self)
    call pml_finish_step(self)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
 
@@ -5554,8 +5557,8 @@ contains
       call cc%store_box_current(q=self%q_gpu, var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,nrk))
    elseif (cleanup) then
       call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=self%q_gpu, var_jx=var_jx, &
-                                          q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, active_stage=nrk, alph=alph, &
-                                          beta=beta, dt=self%time%dt, mixed_source=cc%h_gpu(:,:,:,:,:,nrk))
+                                          q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, active_stage=nrk, st=self%ts%st, &
+                                          dt=self%time%dt, mixed_source=cc%h_gpu(:,:,:,:,:,nrk))
    else
       call cc%solve_dispatch(field_fnl=self%field_fnl, q=self%q_gpu, var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,nrk), &
                              dt=self%time%dt)
@@ -5576,9 +5579,7 @@ contains
    !< set_initial_conditions (before the host-side elliptic solves that read rho and J).
    implicit none
    class(prism_fnl_object), intent(inout) :: self !< The equation.
-   real(R8P), allocatable                 :: alph(:,:), beta(:) !< The stepper's SELAH tableau (A, b), host copies.
 
-   alph = self%ts%st%bt%a ; beta = self%ts%st%bt%b
    associate(cc=>self%conserving_fnl)
    ! geometry may have changed in the IC/AMR loop: refresh the device copies the kernels read
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps)
@@ -5611,7 +5612,7 @@ contains
       call cc%copy_particles(src=cc%q_next_gpu, dst=cc%q_hist_gpu(:,:,1))
       call cc%solve_modified_with_cleanup(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, q=self%q_gpu, &
                                           var_jx=self%physics%var_jx, q_ref=cc%q_ref_gpu, q_hist=cc%q_hist_gpu, &
-                                          active_stage=0_I4P, alph=alph, beta=beta, dt=self%time%dt, &
+                                          active_stage=0_I4P, st=self%ts%st, dt=self%time%dt, &
                                           mixed_source=cc%h_gpu(:,:,:,:,:,1))
    else
       call cc%solve_dispatch(field_fnl=self%field_fnl, q=self%q_gpu, var_jx=self%physics%var_jx, &
@@ -5622,6 +5623,79 @@ contains
    call dev_memcpy_from_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q, src=self%q_gpu, buf=self%buf_5D_R8P)
    endassociate
    endsubroutine initialize_pic_conserving_current_time_zero
+
+   function pic_box(self) result(bx)
+   !< The particles' companion box: the active particles, every component (q_pic_gpu(capacity, 8)).
+   class(prism_fnl_object), intent(in) :: self !< The equation.
+   type(box)                           :: bx   !< Box.
+
+   bx = box_interior(lb=[1_I4P, 1_I4P], ub=[self%pic%particle_number, 8_I4P], ngc=0_I4P, components=.false.)
+   endfunction pic_box
+
+   subroutine pic_begin_step(self)
+   !< Open the step of the particles' companion (#134 D5).
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%pic_st%begin_step(pic_box(self), self%pic_fnl%q_pic_gpu)
+   endsubroutine pic_begin_step
+
+   subroutine pic_begin_stage(self, k, up)
+   !< Open stage k of the particles' companion: SELAH builds the particles' stage state, `up` (device).
+   class(prism_fnl_object), intent(inout) :: self    !< The equation.
+   integer(I4P),            intent(in)    :: k       !< Stage.
+   real(R8P), pointer,      intent(out)   :: up(:,:) !< Particles' stage state.
+
+   call self%pic_st%begin_stage(k, pic_box(self), self%time%dt, self%pic_fnl%q_pic_gpu)
+   call self%pic_st%stage_state_view(up)
+   endsubroutine pic_begin_stage
+
+   subroutine pic_residual(self, up)
+   !< The particles' residual at their stage state, into the companion's register (device): x' = v, v' = (q/m) (E + v x
+   !< B), the fields gathered at the stage positions (`pic_fields_gpu`, D scaled to E); charge and mass constant.
+   class(prism_fnl_object), intent(inout) :: self    !< The equation.
+   real(R8P), pointer,      intent(in)    :: up(:,:) !< Particles' stage state.
+   real(R8P), pointer                     :: r(:,:)  !< Residual register.
+   real(R8P), pointer                     :: f(:,:)  !< Fields at the particles.
+   real(R8P)                              :: inv_eps !< D to E.
+   real(R8P)                              :: vx, vy, vz, ex, ey, ez, bx, by, bz, fx, fy, fz, charge, mass !< Particle.
+   integer(I4P)                           :: n, np   !< Counter, particles.
+
+   inv_eps = 1._R8P / EPS0 ; if (is_adim_model(self%physics%physical_model)) inv_eps = 1._R8P
+   call self%pic_st%rhs_register_view(r)
+   f => self%pic_fnl%pic_fields_gpu
+   np = self%pic%particle_number
+   !$acc parallel loop independent DEVICEVAR(up, r, f) &
+   !$acc& private(vx, vy, vz, ex, ey, ez, bx, by, bz, fx, fy, fz, charge, mass)
+   !$omp OMPLOOP DEVICEPTR(up, r, f) &
+   !$omp& private(vx, vy, vz, ex, ey, ez, bx, by, bz, fx, fy, fz, charge, mass)
+   do n=1, np
+      vx = up(n,4) ; vy = up(n,5) ; vz = up(n,6)
+      charge = up(n,7) ; mass = up(n,8)
+      ex = f(n,1) * inv_eps ; ey = f(n,2) * inv_eps ; ez = f(n,3) * inv_eps
+      bx = f(n,4) ; by = f(n,5) ; bz = f(n,6)
+      fx = charge * (ex + (vy * bz - vz * by))
+      fy = charge * (ey + (vz * bx - vx * bz))
+      fz = charge * (ez + (vx * by - vy * bx))
+      r(n,1) = vx ; r(n,2) = vy ; r(n,3) = vz
+      r(n,4) = fx / mass ; r(n,5) = fy / mass ; r(n,6) = fz / mass
+      r(n,7) = 0._R8P ; r(n,8) = 0._R8P
+   enddo
+   endsubroutine pic_residual
+
+   subroutine pic_end_stage(self, k)
+   !< Close stage k of the particles' companion, its residual written (`pic_residual`).
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: k    !< Stage.
+
+   call self%pic_st%end_stage(k, pic_box(self), self%time%dt, self%pic_fnl%q_pic_gpu)
+   endsubroutine pic_end_stage
+
+   subroutine pic_finish_step(self)
+   !< Close the step of the particles' companion: SELAH advances the particles (device).
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   call self%pic_st%finish_step(pic_box(self), self%time%dt, self%pic_fnl%q_pic_gpu)
+   endsubroutine pic_finish_step
 
    subroutine pml_begin_step(self)
    !< Open the step of every PML face companion (#134 D5; nothing without an integrated PML).

@@ -9,6 +9,7 @@ use :: adam_prism_common_library
 ! third party modules
 use :: penf
 use :: mpi
+use :: selah, only : box, box_interior
 
 implicit none
 private
@@ -278,8 +279,10 @@ contains
              self%numerics%scheme_time /= NUM_SCHEME_TIME_RUNGE_KUTTA .or. &
              self%pic%scheme_time /= NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
             call mpih%error_stop(msg=': conserving PIC current requires centered FD and SSP Runge-Kutta')
-         if (self%ts%scheme /= RK_SSP_22 .and. self%ts%scheme /= RK_SSP_33 .and. self%ts%scheme /= RK_SSP_54) &
-            call mpih%error_stop(msg=': conserving PIC current requires SSP RK22, RK33 or RK54')
+         ! SELAH's admissibility of the stage currents (#134 D5): the Butcher form, a(k+1,k) /= 0, b(s) /= 0
+         if (.not.(self%ts%is_butcher() .and. self%ts%st%stage_current_admissible())) &
+            call mpih%error_stop(msg=': conserving PIC current requires a Runge-Kutta scheme of the Butcher form '// &
+                                     'whose stage currents exist, a(k+1,k) /= 0 and b(s) /= 0 (runge-kutta-ssp-*)')
          call self%pic%check_esirkepov_q_order(fdv_order=self%fdv_order)
       endif
       call self%pic%set_coherent_gather(hs=self%fdv_half_stencils(1))
@@ -318,17 +321,17 @@ contains
             call mpih%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, '// &
                                      'szaghi/SELAH#4)')
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-            select case(self%rk_pic%scheme)
-            case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+            ! the particles are a SELAH companion of the field stepper (#134 D5): the Butcher form
+            if (self%ts%is_butcher()) then
                if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
                   self%integrate => integrate_rk_ssp_pic_charge_conserving
                else
                   self%integrate => integrate_rk_ssp_pic
                endif
-            case default
+            else
                ! RK_1/2/3 and RK_YOSHIDA have no PIC integrator: self%integrate would stay null
-               call mpih%error_stop(msg=': PIC RK scheme not implemented (use SSP RK22, RK33 or RK54)')
-            endselect
+               call mpih%error_stop(msg=': PIC needs a Runge-Kutta scheme of the Butcher form (runge-kutta-ssp-*)')
+            endif
          case default
             call mpih%error_stop(msg=': PIC time integration combination not implemented')
          endselect
@@ -4002,6 +4005,73 @@ contains
    endassociate
    endsubroutine compute_residuals_weno
 
+   function pic_box(self) result(bx)
+   !< The particles' companion box: the active particles, every component (q_pic(8, capacity)).
+   class(prism_cpu_object), intent(in) :: self !< The equation.
+   type(box)                           :: bx   !< Box.
+
+   bx = box_interior(lb=[1_I4P, 1_I4P], ub=[8_I4P, self%pic%particle_number], ngc=0_I4P, components=.true.)
+   endfunction pic_box
+
+   subroutine pic_begin_step(self)
+   !< Open the step of the particles' companion (#134 D5).
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   call self%pic_st%begin_step(pic_box(self), self%q_pic)
+   endsubroutine pic_begin_step
+
+   subroutine pic_begin_stage(self, k, up)
+   !< Open stage k of the particles' companion: SELAH builds the particles' stage state, `up`.
+   class(prism_cpu_object), intent(inout) :: self    !< The equation.
+   integer(I4P),            intent(in)    :: k       !< Stage.
+   real(R8P), pointer,      intent(out)   :: up(:,:) !< Particles' stage state.
+
+   call self%pic_st%begin_stage(k, pic_box(self), self%time%dt, self%q_pic)
+   call self%pic_st%stage_state_view(up)
+   endsubroutine pic_begin_stage
+
+   subroutine pic_residual(self, up)
+   !< The particles' residual at their stage state, into the companion's register: x' = v, v' = (q/m) (E + v x B), the
+   !< fields gathered at the stage positions (`pic_fields`, D scaled to E); charge and mass constant.
+   class(prism_cpu_object), intent(inout) :: self      !< The equation.
+   real(R8P), pointer,      intent(in)    :: up(:,:)   !< Particles' stage state.
+   real(R8P), pointer                     :: r(:,:)    !< Residual register.
+   real(R8P)                              :: inv_eps   !< D to E.
+   real(R8P)                              :: v(3), e(3), b(3), f(3) !< Velocity, fields, force.
+   integer(I4P)                           :: p         !< Counter.
+
+   inv_eps = 1._R8P / EPS0 ; if (is_adim_model(self%physics%physical_model)) inv_eps = 1._R8P
+   call self%pic_st%rhs_register_view(r)
+   !$omp parallel do default(shared) private(p, v, e, b, f)
+   do p=1, self%pic%particle_number
+      v = up(4:6,p)
+      e = self%pic_fields(1:3,p) * inv_eps
+      b = self%pic_fields(4:6,p)
+      f(1) = up(7,p) * (e(1) + (v(2) * b(3) - v(3) * b(2)))
+      f(2) = up(7,p) * (e(2) + (v(3) * b(1) - v(1) * b(3)))
+      f(3) = up(7,p) * (e(3) + (v(1) * b(2) - v(2) * b(1)))
+      r(1:3,p) = v
+      r(4:6,p) = f / up(8,p)
+      r(7:8,p) = 0._R8P
+   enddo
+   !$omp end parallel do
+   endsubroutine pic_residual
+
+   subroutine pic_end_stage(self, k)
+   !< Close stage k of the particles' companion, its residual written (`pic_residual`).
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: k    !< Stage.
+
+   call self%pic_st%end_stage(k, pic_box(self), self%time%dt, self%q_pic)
+   endsubroutine pic_end_stage
+
+   subroutine pic_finish_step(self)
+   !< Close the step of the particles' companion: SELAH advances the particles.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   call self%pic_st%finish_step(pic_box(self), self%time%dt, self%q_pic)
+   endsubroutine pic_finish_step
+
    subroutine pml_begin_step(self)
    !< Open the step of every PML face companion (#134 D5; nothing without an integrated PML).
    class(prism_cpu_object), intent(inout) :: self !< The equation.
@@ -4112,11 +4182,12 @@ contains
    implicit none
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
+   real(R8P), pointer                     :: up(:,:) !< Particles' stage state (companion).
    real(R8P), allocatable                 :: q_stage(:,:,:,:,:) !< Contiguous stage scratch to avoid huge slice temporaries.
 
    !Inizializzo stadi RK per campi e PIC
    call ts_begin_step(self)
-   call self%rk_pic%initialize_stages(q_pic=self%q_pic)
+   call pic_begin_step(self)
    call pml_begin_step(self)
    call allocate_variable(var=q_stage,                              &
                           ulb=reshape([1,self%nv,                   &
@@ -4131,13 +4202,13 @@ contains
    do s=1, self%ts%stages()
       !Calcolo stadio RK per campi e PIC
       call ts_begin_stage(self, s=s)
-      call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
+      call pic_begin_stage(self, k=s, up=up)
       call pml_begin_stage(self, k=s)
       call copy_stage_state(self, q=q_stage)
       !Calcolo termini sorgente Maxwell da particelle e bobine
-      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=up)
       call self%pic%current_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
-                                       q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
+                                       q_pic=up, nv=self%nv)
       call self%fold_deposited_ghosts(q=q_stage, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
       call self%accumulate_charge_conservation_current(q=q_stage, weight=self%ts%stage_weight(s))
       call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
@@ -4151,19 +4222,20 @@ contains
          call self%external_fields%add_external_fields(field=self%adam%field, grid=self%adam%grid, &
                                                        time=self%time%time, dt=self%time%dt, gamm=self%ts%stage_time(s), q=q_stage)
       call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
-                                    q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+                                    q_pic=up, pic_fields=self%pic_fields, nv=self%nv)
       if (self%external_fields%ef_type/=EF_TYPE_NONE) &
          call self%external_fields%sub_external_fields(field=self%adam%field, grid=self%adam%grid, &
                                                        time=self%time%time, dt=self%time%dt, gamm=self%ts%stage_time(s), q=q_stage)
       !Assegno lo stadio RK per campi e PIC
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
       call ts_end_stage(self, s=s)
-      call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
+      call pic_residual(self, up=up)
+      call pic_end_stage(self, k=s)
       call pml_end_stage(self, k=s)
    enddo
    ! Completo l'integrazione temporale
    call ts_finish_step(self, with_dq=.false.)
-   call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
+   call pic_finish_step(self)
    call pml_finish_step(self)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%apply_fWL_correction(q=self%q)
@@ -4187,7 +4259,10 @@ contains
    !< Integrate PIC equations with SSP RK and charge-conserving current reconstruction.
    implicit none
    class(prism_cpu_object), intent(inout) :: self
-   integer(I4P)                           :: s, r, np, nrk
+   integer(I4P)                           :: s, np, nrk
+   real(R8P), pointer                     :: up(:,:)              !< Particles' stage state (companion).
+   real(R8P), allocatable                 :: h_s(:,:,:,:,:)       !< Charge change of the stage's look-ahead.
+   type(box)                              :: bx_h, bx_j           !< Boxes of the charge changes and box currents.
    real(R8P), allocatable                 :: q_stage(:,:,:,:,:)
    real(R8P), allocatable                 :: q_gather(:,:,:,:,:)
    real(R8P), allocatable                 :: q_pic_next(:,:)
@@ -4196,7 +4271,6 @@ contains
    real(R8P), allocatable                 :: h_q(:,:,:,:,:,:,:)
    real(R8P), allocatable                 :: j_stage(:,:,:,:,:,:) !< Stage currents of the matched box solver.
    real(R8P), allocatable                 :: j_box(:,:,:,:,:)     !< Matched current of the stage trajectories.
-   real(R8P), allocatable                 :: coeff(:)
    logical                                :: box_current          !< Matched current built particle by particle.
 
 
@@ -4208,7 +4282,7 @@ contains
    np = self%pic%particle_number
    nrk = self%ts%stages()
    call ts_begin_step(self)
-   call self%rk_pic%initialize_stages(q_pic=self%q_pic)
+   call pic_begin_step(self)
    call pml_begin_step(self)
 
    call allocate_variable(var=q_stage,                              &
@@ -4218,7 +4292,8 @@ contains
                                        1-self%ngc,self%nk+self%ngc, &
                                        1,self%nb],[2,5]),           &
                           msg=mpih%myrankstr//'integrate_rk_ssp_pic_charge_conserving allocate q_stage')
-   allocate(q_pic_next(1:8, 1:np), coeff(1:nrk))
+   ! the look-ahead state has the particle array's shape (the companion's field), only the active particles set
+   allocate(q_pic_next(1:8, 1:size(self%q_pic, dim=2))) ; q_pic_next = 0._R8P
    if (self%pic%esirkepov_tail_cleanup) then
       if (.not.self%pic%matched_current()) &
          call mpih%error_stop(msg=': esirkepov_tail_cleanup requires totorica or an esirkepov_Q<N> solver')
@@ -4227,17 +4302,23 @@ contains
    endif
    if (box_current) then
       allocate(j_stage(1:3,1:self%ni,1:self%nj,1:self%nk,1:self%nb,1:nrk), j_box(1:3,1:self%ni,1:self%nj,1:self%nk,1:self%nb))
+      bx_j = box_interior(lb=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ub=[3_I4P, self%ni, self%nj, self%nk, self%nb], &
+                          ngc=0_I4P, components=.false.)
    else
       allocate(h_q(1:3, 1-self%ngc:self%ni+self%ngc, 1-self%ngc:self%nj+self%ngc, &
                    1-self%ngc:self%nk+self%ngc, 1:self%nb, 1:nrk, 1:1))
       h_q = 0._R8P
+      allocate(h_s, mold=h_q(:,:,:,:,:,1,1))
+      bx_h = box_interior(lb=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P],                       &
+                          ub=[3_I4P, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nb], ngc=0_I4P, &
+                          components=.false.)
    endif
    self%current_solver_residual_max = 0._R8P
    call self%initialize_charge_conservation_diagnostic
 
    do s=1, nrk
       call ts_begin_stage(self, s=s)
-      call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
+      call pic_begin_stage(self, k=s, up=up)
       call pml_begin_stage(self, k=s)
 
       call copy_stage_state(self, q=q_stage)
@@ -4248,7 +4329,7 @@ contains
       call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q_stage)
       call self%set_boundary_conditions(q=q_stage, s=s)
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, &
-                                                   q_pic=self%rk_pic%q_pic_rk(:,:,s))
+                                                   q_pic=up)
       if (self%external_fields%ef_type /= EF_TYPE_NONE) then
          if (.not.allocated(q_gather)) allocate(q_gather, mold=q_stage)
          q_gather = q_stage
@@ -4256,40 +4337,24 @@ contains
                                                        time=self%time%time, dt=self%time%dt, &
                                                        gamm=self%ts%stage_time(s), q=q_gather)
          call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_gather, &
-                                       q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+                                       q_pic=up, pic_fields=self%pic_fields, nv=self%nv)
       else
          call self%pic%field_weighting(field=self%adam%field, grid=self%adam%grid, q=q_stage, &
-                                       q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+                                       q_pic=up, pic_fields=self%pic_fields, nv=self%nv)
       endif
-      call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
+      call pic_residual(self, up=up)
 
-      coeff = 0._R8P
-      q_pic_next = self%q_pic
-      if (s < nrk) then
-         coeff(1:s) = self%ts%st%bt%a(s+1, 1:s)
-      else
-         coeff(1:s) = self%ts%st%bt%b(1:s)
-      endif
-      do r=1, s
-         q_pic_next(1:6,:) = q_pic_next(1:6,:) + self%time%dt * coeff(r) * self%rk_pic%q_pic_rk(1:6,:,r)
-      enddo
-      q_pic_next(7:8,:) = self%q_pic(7:8,:)
-      if (self%pic%esirkepov_tail_cleanup) q_pic_to_stage(:,:,s) = q_pic_next
-
-      if (abs(coeff(s)) <= tiny(1._R8P)) call mpih%error_stop(msg=': zero SSP coefficient in charge-conserving PIC current')
+      ! the charge-conserving stage current (#134 D5, SELAH): the look-ahead state, the state of stage s+1 (the step's
+      ! result at the last stage), the current H of the displacement q^n -> it, the stage current J_s whose weighted sum
+      ! with the earlier ones is H: J_s = (H - sum_{r<s} a(s+1,r) J_r) / a(s+1,s)
+      call self%pic_st%lookahead(s, pic_box(self), self%time%dt, self%q_pic, q_pic_next)
+      if (self%pic%esirkepov_tail_cleanup) q_pic_to_stage(:,:,s) = q_pic_next(:,1:np)
       if (box_current) then
          call deposit_matched_current(self=self, q_ref=self%q_pic, q_to=q_pic_next, jc=j_box)
-         j_stage(:,:,:,:,:,s) = j_box
-         do r=1, s-1
-            j_stage(:,:,:,:,:,s) = j_stage(:,:,:,:,:,s) - coeff(r) * j_stage(:,:,:,:,:,r)
-         enddo
-         j_stage(:,:,:,:,:,s) = j_stage(:,:,:,:,:,s) / coeff(s)
+         call self%ts%st%stage_current(s, bx_j, j_box, j_stage(:,:,:,:,:,1:s-1), j_stage(:,:,:,:,:,s))
       else
-         call compute_pic_esirkepov_displacement(self=self, q_ref=self%q_pic, q_to=q_pic_next, h_dir=h_q(:,:,:,:,:,s,1))
-         do r=1, s-1
-            h_q(:,:,:,:,:,s,1) = h_q(:,:,:,:,:,s,1) - coeff(r) * h_q(:,:,:,:,:,r,1)
-         enddo
-         h_q(:,:,:,:,:,s,1) = h_q(:,:,:,:,:,s,1) / coeff(s)
+         call compute_pic_esirkepov_displacement(self=self, q_ref=self%q_pic, q_to=q_pic_next, h_dir=h_s)
+         call self%ts%st%stage_current(s, bx_h, h_s, h_q(:,:,:,:,:,1:s-1,1), h_q(:,:,:,:,:,s,1))
       endif
 
       if (box_current) then
@@ -4314,11 +4379,12 @@ contains
 
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
       call ts_end_stage(self, s=s)
+      call pic_end_stage(self, k=s)
       call pml_end_stage(self, k=s)
    enddo
 
    call ts_finish_step(self, with_dq=.false.)
-   call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
+   call pic_finish_step(self)
    call pml_finish_step(self)
    call self%apply_fWL_correction(q=self%q)
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
@@ -4349,7 +4415,6 @@ contains
    if (allocated(h_q)) deallocate(h_q)
    if (allocated(j_stage)) deallocate(j_stage)
    if (allocated(j_box)) deallocate(j_box)
-   if (allocated(coeff)) deallocate(coeff)
    endsubroutine integrate_rk_ssp_pic_charge_conserving
 
    subroutine compute_pic_esirkepov_displacement(self, q_ref, q_to, h_dir, particle)
@@ -5442,8 +5507,9 @@ contains
    integer(I4P), intent(in) :: active_stage
    real(R8P), optional, intent(in) :: mixed_source(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)
    real(R8P), allocatable :: source(:,:,:,:,:), source_stage(:,:,:,:,:,:), q_particle(:,:,:,:,:)
-   real(R8P) :: coeff(1:self%ts%stages()), shift(3)
-   integer(I4P) :: particle, t, r, stage_count, slot_count, b, bt, i, j, k, rx, ry, rz
+   real(R8P) :: shift(3)
+   type(box) :: bx_h !< Box of the sources (the whole array).
+   integer(I4P) :: particle, t, stage_count, slot_count, b, bt, i, j, k, rx, ry, rz
    integer(I4P) :: support_lo(3), support_hi(3), cell(3)
 
    stage_count = max(1_I4P,active_stage)
@@ -5457,6 +5523,9 @@ contains
    allocate(q_particle(1:self%nv,1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc, &
                        1-self%ngc:self%nk+self%ngc,1:self%nb))
    q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
+   bx_h = box_interior(lb=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P],                       &
+                       ub=[3_I4P, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nb], ngc=0_I4P, &
+                       components=.false.)
 
    do particle=1,self%pic%particle_number
       if (self%pic%particle_number == 1_I4P .and. present(mixed_source)) then
@@ -5468,18 +5537,8 @@ contains
             if (active_stage == 0_I4P) then
                source_stage(:,:,:,:,:,t) = source
             else
-               coeff = 0._R8P
-               if (t < self%ts%stages()) then
-                  coeff(1:t) = self%ts%st%bt%a(t+1,1:t)
-               else
-                  coeff(1:t) = self%ts%st%bt%b(1:t)
-               endif
-               do r=1,t-1
-                  source = source - coeff(r)*source_stage(:,:,:,:,:,r)
-               enddo
-               if (abs(coeff(t)) <= tiny(1._R8P)) &
-                  call mpih%error_stop(msg=': zero SSP coefficient in particle current cleanup')
-               source_stage(:,:,:,:,:,t) = source/coeff(t)
+               ! the particle's stage source, SELAH's stage current of its look-ahead sources (#134 D5)
+               call self%ts%st%stage_current(t, bx_h, source, source_stage(:,:,:,:,:,1:t-1), source_stage(:,:,:,:,:,t))
             endif
          enddo
       endif

@@ -15,7 +15,6 @@ use :: adam_prism_fnl_pic_object
 use :: adam_prism_fnl_pic_conserving_object
 use :: adam_prism_fnl_plasma_frequencies_object
 use :: adam_prism_fnl_probes_object
-use :: adam_prism_fnl_rk_pic_object
 
 implicit none
 public

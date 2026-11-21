@@ -20,7 +20,6 @@ and GPU-aware MPI communication via the FUNDAL library.
 | `adam_prism_fnl_pml_object.F90` | `adam_prism_fnl_pml_object` | GPU perfectly matched layer |
 | `adam_prism_fnl_pic_object.F90` | `adam_prism_fnl_pic_object` | GPU Particle-in-Cell (weightings, deposits, gathers) |
 | `adam_prism_fnl_pic_conserving_object.F90` | `adam_prism_fnl_pic_conserving_object` | GPU charge-conserving currents (londrillo, totorica, esirkepov_Q<N>) |
-| `adam_prism_fnl_rk_pic_object.F90` | `adam_prism_fnl_rk_pic_object` | GPU PIC Runge-Kutta integrator |
 | `adam_prism_fnl_probes_object.F90` | `adam_prism_fnl_probes_object` | GPU field probes |
 
 ADAM is dual-licensed under MIT or LGPLv3 (`LICENSE.mit.md`, `LICENSE.lgpl3.md`).
