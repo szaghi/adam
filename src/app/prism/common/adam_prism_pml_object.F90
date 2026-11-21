@@ -51,6 +51,7 @@ type :: prism_pml_object
    real(R8P)                 :: gamma_max = 0._R8P
    real(R8P)                 :: gamma_eff_max = 0._R8P
    real(R8P)                 :: C_gamma = 0.1_R8P
+   logical                   :: exact_decay = .false. !< Integrate the decay of psi exactly (SELAH decay=, #134 D5).
    real(R8P)                 :: gamma_exponent = 0._R8P
    real(R8P)                 :: alpha_max = 0._R8P
    real(R8P)                 :: k_max     = 1._R8P
@@ -98,6 +99,7 @@ contains
    desc = desc//NL//mpih%myrankstr//'      PML type: '//trim(self%pml_type)
    desc = desc//NL//mpih%myrankstr//'      Layer physical width: '//trim(str(self%width))
    desc = desc//NL//mpih%myrankstr//'      C_gamma: '//trim(str(self%C_gamma))
+   desc = desc//NL//mpih%myrankstr//'      exact decay: '//trim(merge('true ', 'false', self%exact_decay))
    desc = desc//NL//mpih%myrankstr//'      gamma_eff_max: '//trim(str(self%gamma_eff_max))
    select case (trim(self%pml_type))
    case (PML_TYPE_CLASSIC, PML_TYPE_CLASSIC_DIRECT)
@@ -266,6 +268,9 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='C_gamma', val=self%C_gamma, error=error)
    if (error > 0_I4P) call file_parameters%get(section_name=INI_SECTION_NAME, option_name='c_gamma', val=self%C_gamma, error=error)
    if (self%C_gamma <= 0._R8P) call mpih%error_stop(msg=': invalid ['//INI_SECTION_NAME//'].(C_gamma), must be > 0')
+   ! the decay of the auxiliary fields integrated exactly by SELAH (#134 D5, szaghi/SELAH#4 variant F): opt-in, the
+   ! explicit step of psi' = g - lambda psi otherwise
+   call ini_get(file_parameters, INI_SECTION_NAME, 'exact_decay', self%exact_decay, default=.false.)
 
    call ini_get(file_parameters, INI_SECTION_NAME, 'x_minus_layer', self%layer(PML_FACE_X_M))
    call ini_get(file_parameters, INI_SECTION_NAME, 'x_plus_layer', self%layer(PML_FACE_X_P))
@@ -545,6 +550,7 @@ contains
    self%gamma_max = 0._R8P
    self%gamma_eff_max = 0._R8P
    self%C_gamma = 0.1_R8P
+   self%exact_decay = .false.
    self%gamma_exponent = 0._R8P
    self%alpha_max = 0._R8P
    self%k_max     = 1._R8P

@@ -40,7 +40,17 @@ Maxwell residual of the tangential components in the layer gains the stretched d
 $$R \leftarrow R + \Big(\frac{1}{\kappa} - 1\Big)\big(\pm\partial_x F'\big) + \psi',$$
 
 $F'$ and $\psi'$ being the partners of the curl term. The split variables advance with the field, in the same SSP
-Runge–Kutta stages (`prism_rk_pml_object`).
+Runge–Kutta stages: each face is a SELAH companion of the field stepper (`prism_pml_stepper_object`), the same scheme
+driven through the same stage window, SELAH building the stage states and the update.
+
+**Exact decay** (`[PML] exact_decay = .true.`, default `.false.`). The split variable obeys
+$\psi' = g - \lambda\psi$ with $\lambda = \alpha + \gamma/\kappa \ge 0$ constant in time. By default the whole
+right-hand side is the stage residual (the explicit Runge–Kutta step of the stiff decay). With the key on, the residual is
+the source $g$ alone and SELAH integrates the decay exactly (exponential Euler on the Runge–Kutta-averaged source:
+$\psi^{n+1} = e^{-\lambda\Delta t}\psi^n + \varphi_1(-\lambda\Delta t)\,\Delta t\sum_j b_j g_j$, $\varphi_1(z) =
+(e^z-1)/z$): exact for a frozen source at any $\lambda\Delta t$, stable for any $\lambda\Delta t$, second order with a varying
+source. The decay no longer limits the step on its own, but the coupling to the fields still does inside a stiff layer:
+the $C_\gamma$ cap below is kept.
 
 **`CLASSIC_DIRECT` is not an ADE PML.** It skips the auxiliary variables and their Runge–Kutta integration and damps the
 tangential components directly, $R \leftarrow R - \gamma\,q$. It exists as a testing instrument.

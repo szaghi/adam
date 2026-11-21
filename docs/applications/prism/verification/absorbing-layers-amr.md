@@ -29,7 +29,7 @@ What the cases catch:
 | Equations | Maxwell, SI, 4 AC rectangular coils | [models](../models#models); [coils](../initial-conditions#coils) |
 | Space, time | centred finite differences of order 6; SSP Runge–Kutta (5,4), CFL 0.4997 | [numerics](../numerics#time-integration) |
 | Far-wave layer | six faces, `width = 0.045` m | [`adam_prism_fWLayer_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_fWLayer_object.F90); [absorbing layers](../pml#far-wave-layer) |
-| PML (`rmf-pml-amr`) | `CFS`, six faces, `width = 0.045` m, `gamma_max = 7.8e10`, `alfa_max = 2.5e8`, `k_max = 5` | [`adam_prism_pml_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_pml_object.F90), [`adam_prism_rk_pml_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_rk_pml_object.F90); [absorbing layers](../pml#perfectly-matched-layer) |
+| PML (`rmf-pml-amr`) | `CFS`, six faces, `width = 0.045` m, `gamma_max = 7.8e10`, `alfa_max = 2.5e8`, `k_max = 5` | [`adam_prism_pml_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_pml_object.F90), [`adam_prism_pml_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_pml_stepper_object.F90); [absorbing layers](../pml#perfectly-matched-layer) |
 | Face data rebuild | after every change of the block set | `initialize_block_face_data`, [`adam_prism_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_common_object.F90) |
 
 ## Initial and boundary conditions

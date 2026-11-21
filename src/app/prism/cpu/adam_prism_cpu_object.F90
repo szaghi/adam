@@ -1511,7 +1511,7 @@ contains
    self%time%dt = dt_step
    call ts_begin_step(self)
    ! the PML auxiliary fields advance with the field stages, as on the fused path and the FNL backend (#134 L1)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
+   call pml_begin_step(self)
    endsubroutine open_step_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -1534,7 +1534,7 @@ contains
    ! not q itself, takes the seam ghosts of q, which hold the peer state of the step's alpha fill (#113)
    if (.not.self%ts%state_is_q(k)) call seam_ghosts_to_state(maps=self%adam%maps, cadence=CADENCE_END_OF_STEP, &
                                                             ngc=self%ngc, q=self%q, u=self%ts%stage_state())
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=k, dt=self%time%dt)
+   call pml_begin_stage(self, k=k)
    endsubroutine begin_stage_forest
 
    subroutine end_stage_forest(self, k, K_total, dt, realm, flux_register)
@@ -1557,7 +1557,7 @@ contains
    endif
    call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
    call ts_end_stage(self, s=k)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=k)
+   call pml_end_stage(self, k=k)
    endsubroutine end_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -1579,8 +1579,7 @@ contains
       call ts_finish_step(self, with_dq=.true.)
       call self%save_residuals
    endif
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
-      call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
+   call pml_finish_step(self)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    self%time%time = self%time%time + self%time%dt
@@ -2939,6 +2938,9 @@ contains
    integer(I4P),            intent(in), optional    :: s
    real(R8P)                                      :: inv_eps_scale
    real(R8P)                                      :: inv_mu_scale
+   real(R8P), pointer                             :: q_face(:,:,:,:,:)  !< Stage state of a face (companion).
+   real(R8P), pointer                             :: dq_face(:,:,:,:,:) !< Residual register of a face (companion).
+   integer(I4P)                                   :: f                  !< Face.
 
    if (.not. self%pml%enabled) return
 
@@ -2959,101 +2961,63 @@ contains
    endif
 
    call select_pml_field_scales(self=self, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-   call self%rk_pml%reset_rhs()
+   ! the auxiliary fields are SELAH companions of the field stepper (#134 D5): each face reads the stage state of its
+   ! companion and writes its residual into the companion's register (zeroed: the kernels write the cells only)
+   if (.not.present(s)) call mpih%error_stop(msg=': the ADE-PML residual is a stage residual (the auxiliary fields '// &
+                                                 'advance with the field stages): no stage given')
+   do f=PML_FACE_X_M, PML_FACE_Z_P
+      if (.not.self%pml_st%active(f)) cycle
+      call self%pml_st%zero_rhs(f)
+      q_face => self%pml_st%stage_state(f)
+      dq_face => self%pml_st%rhs_register(f)
+      select case(f)
+      case(PML_FACE_X_M)
+         call face_x(block_ids=self%pml%blocks_x_m)
+      case(PML_FACE_X_P)
+         call face_x(block_ids=self%pml%blocks_x_p)
+      case(PML_FACE_Y_M)
+         call face_y(block_ids=self%pml%blocks_y_m)
+      case(PML_FACE_Y_P)
+         call face_y(block_ids=self%pml%blocks_y_p)
+      case(PML_FACE_Z_M)
+         call face_z(block_ids=self%pml%blocks_z_m)
+      case(PML_FACE_Z_P)
+         call face_z(block_ids=self%pml%blocks_z_p)
+      endselect
+   enddo
+   contains
+      subroutine face_x(block_ids)
+      !< The field correction and the auxiliary residual of an x face.
+      integer(I4P), intent(in) :: block_ids(:) !< Blocks of the face.
 
-   if (present(s)) then
-      if (allocated(self%rk_pml%q_pml_x_m_rk)) then
-         call apply_x_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_x_m_rk(:,:,:,:,:,s), dq=dq, &
-                                            block_ids=self%pml%blocks_x_m, face=PML_FACE_X_M, inv_eps_scale=inv_eps_scale, &
-                                            inv_mu_scale=inv_mu_scale)
-         call compute_x_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_x_m_rk(:,:,:,:,:,s), &
-                                     dq_face=self%rk_pml%dq_pml_x_m, block_ids=self%pml%blocks_x_m, face=PML_FACE_X_M, &
-                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%rk_pml%q_pml_x_p_rk)) then
-         call apply_x_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_x_p_rk(:,:,:,:,:,s), dq=dq, &
-                                            block_ids=self%pml%blocks_x_p, face=PML_FACE_X_P, inv_eps_scale=inv_eps_scale, &
-                                            inv_mu_scale=inv_mu_scale)
-         call compute_x_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_x_p_rk(:,:,:,:,:,s), &
-                                     dq_face=self%rk_pml%dq_pml_x_p, block_ids=self%pml%blocks_x_p, face=PML_FACE_X_P, &
-                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%rk_pml%q_pml_y_m_rk)) then
-         call apply_y_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_y_m_rk(:,:,:,:,:,s), dq=dq, &
-                                            block_ids=self%pml%blocks_y_m, face=PML_FACE_Y_M, inv_eps_scale=inv_eps_scale, &
-                                            inv_mu_scale=inv_mu_scale)
-         call compute_y_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_y_m_rk(:,:,:,:,:,s), &
-                                     dq_face=self%rk_pml%dq_pml_y_m, block_ids=self%pml%blocks_y_m, face=PML_FACE_Y_M, &
-                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%rk_pml%q_pml_y_p_rk)) then
-         call apply_y_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_y_p_rk(:,:,:,:,:,s), dq=dq, &
-                                            block_ids=self%pml%blocks_y_p, face=PML_FACE_Y_P, inv_eps_scale=inv_eps_scale, &
-                                            inv_mu_scale=inv_mu_scale)
-         call compute_y_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_y_p_rk(:,:,:,:,:,s), &
-                                     dq_face=self%rk_pml%dq_pml_y_p, block_ids=self%pml%blocks_y_p, face=PML_FACE_Y_P, &
-                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%rk_pml%q_pml_z_m_rk)) then
-         call apply_z_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_z_m_rk(:,:,:,:,:,s), dq=dq, &
-                                            block_ids=self%pml%blocks_z_m, face=PML_FACE_Z_M, inv_eps_scale=inv_eps_scale, &
-                                            inv_mu_scale=inv_mu_scale)
-         call compute_z_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_z_m_rk(:,:,:,:,:,s), &
-                                     dq_face=self%rk_pml%dq_pml_z_m, block_ids=self%pml%blocks_z_m, face=PML_FACE_Z_M, &
-                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%rk_pml%q_pml_z_p_rk)) then
-         call apply_z_face_field_correction(self=self, q=q, q_face=self%rk_pml%q_pml_z_p_rk(:,:,:,:,:,s), dq=dq, &
-                                            block_ids=self%pml%blocks_z_p, face=PML_FACE_Z_P, inv_eps_scale=inv_eps_scale, &
-                                            inv_mu_scale=inv_mu_scale)
-         call compute_z_face_pml_rhs(self=self, q=q, q_face=self%rk_pml%q_pml_z_p_rk(:,:,:,:,:,s), &
-                                     dq_face=self%rk_pml%dq_pml_z_p, block_ids=self%pml%blocks_z_p, face=PML_FACE_Z_P, &
-                                     inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-      endif
-   else
-      if (allocated(self%pml%q_pml_x_m)) then
-         call apply_x_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_x_m, dq=dq, block_ids=self%pml%blocks_x_m, &
-                                            face=PML_FACE_X_M, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-         call compute_x_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_x_m, dq_face=self%rk_pml%dq_pml_x_m, &
-                                     block_ids=self%pml%blocks_x_m, face=PML_FACE_X_M, inv_eps_scale=inv_eps_scale, &
-                                     inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%pml%q_pml_x_p)) then
-         call apply_x_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_x_p, dq=dq, block_ids=self%pml%blocks_x_p, &
-                                            face=PML_FACE_X_P, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-         call compute_x_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_x_p, dq_face=self%rk_pml%dq_pml_x_p, &
-                                     block_ids=self%pml%blocks_x_p, face=PML_FACE_X_P, inv_eps_scale=inv_eps_scale, &
-                                     inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%pml%q_pml_y_m)) then
-         call apply_y_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_y_m, dq=dq, block_ids=self%pml%blocks_y_m, &
-                                            face=PML_FACE_Y_M, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-         call compute_y_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_y_m, dq_face=self%rk_pml%dq_pml_y_m, &
-                                     block_ids=self%pml%blocks_y_m, face=PML_FACE_Y_M, inv_eps_scale=inv_eps_scale, &
-                                     inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%pml%q_pml_y_p)) then
-         call apply_y_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_y_p, dq=dq, block_ids=self%pml%blocks_y_p, &
-                                            face=PML_FACE_Y_P, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-         call compute_y_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_y_p, dq_face=self%rk_pml%dq_pml_y_p, &
-                                     block_ids=self%pml%blocks_y_p, face=PML_FACE_Y_P, inv_eps_scale=inv_eps_scale, &
-                                     inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%pml%q_pml_z_m)) then
-         call apply_z_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_z_m, dq=dq, block_ids=self%pml%blocks_z_m, &
-                                            face=PML_FACE_Z_M, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-         call compute_z_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_z_m, dq_face=self%rk_pml%dq_pml_z_m, &
-                                     block_ids=self%pml%blocks_z_m, face=PML_FACE_Z_M, inv_eps_scale=inv_eps_scale, &
-                                     inv_mu_scale=inv_mu_scale)
-      endif
-      if (allocated(self%pml%q_pml_z_p)) then
-         call apply_z_face_field_correction(self=self, q=q, q_face=self%pml%q_pml_z_p, dq=dq, block_ids=self%pml%blocks_z_p, &
-                                            face=PML_FACE_Z_P, inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
-         call compute_z_face_pml_rhs(self=self, q=q, q_face=self%pml%q_pml_z_p, dq_face=self%rk_pml%dq_pml_z_p, &
-                                     block_ids=self%pml%blocks_z_p, face=PML_FACE_Z_P, inv_eps_scale=inv_eps_scale, &
-                                     inv_mu_scale=inv_mu_scale)
-      endif
-   endif
+      call apply_x_face_field_correction(self=self, q=q, q_face=q_face, dq=dq, block_ids=block_ids, face=f, &
+                                         inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+      call compute_x_face_pml_rhs(self=self, q=q, q_face=q_face, dq_face=dq_face, block_ids=block_ids, face=f, &
+                                  inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale,                     &
+                                  exact=self%pml_st%exact_decay, lam_face=self%pml_st%decay(f)%lam)
+      endsubroutine face_x
+
+      subroutine face_y(block_ids)
+      !< The field correction and the auxiliary residual of a y face.
+      integer(I4P), intent(in) :: block_ids(:) !< Blocks of the face.
+
+      call apply_y_face_field_correction(self=self, q=q, q_face=q_face, dq=dq, block_ids=block_ids, face=f, &
+                                         inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+      call compute_y_face_pml_rhs(self=self, q=q, q_face=q_face, dq_face=dq_face, block_ids=block_ids, face=f, &
+                                  inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale,                     &
+                                  exact=self%pml_st%exact_decay, lam_face=self%pml_st%decay(f)%lam)
+      endsubroutine face_y
+
+      subroutine face_z(block_ids)
+      !< The field correction and the auxiliary residual of a z face.
+      integer(I4P), intent(in) :: block_ids(:) !< Blocks of the face.
+
+      call apply_z_face_field_correction(self=self, q=q, q_face=q_face, dq=dq, block_ids=block_ids, face=f, &
+                                         inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale)
+      call compute_z_face_pml_rhs(self=self, q=q, q_face=q_face, dq_face=dq_face, block_ids=block_ids, face=f, &
+                                  inv_eps_scale=inv_eps_scale, inv_mu_scale=inv_mu_scale,                     &
+                                  exact=self%pml_st%exact_decay, lam_face=self%pml_st%decay(f)%lam)
+      endsubroutine face_z
    endsubroutine apply_pml_fd_centered_ade
 
    subroutine apply_direct_damping(self, q, dq, block_ids, face)
@@ -3336,7 +3300,8 @@ contains
    enddo
    endsubroutine apply_z_face_field_correction
 
-   subroutine compute_x_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale)
+   subroutine compute_x_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale, exact, &
+                                     lam_face)
    class(prism_cpu_object), intent(in)    :: self
    real(R8P),               intent(in)    :: q(1:,          &
                                                1-self%ngc:, &
@@ -3345,6 +3310,8 @@ contains
                                                1:)
    real(R8P),               intent(in)    :: q_face(1:,1:,1:,1:,1:)
    real(R8P),               intent(inout) :: dq_face(1:,1:,1:,1:,1:)
+   logical,                 intent(in)    :: exact                    !< Exact decay: the residual is the source alone.
+   real(R8P),               intent(inout) :: lam_face(1:,1:,1:,1:,1:) !< Decay rate (written with the exact decay).
    integer(I4P),            intent(in)    :: block_ids(1:)
    integer(I4P),            intent(in)    :: face
    real(R8P),               intent(in)    :: inv_eps_scale
@@ -3377,20 +3344,41 @@ contains
                call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, &
                                              kappa=kappa)
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DY,i-s1:i+s1,j,k,b), dq_ds=d_field)
-               dq_face(1,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,li,j,k,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(1,li,j,k,lid) = alpha + gamma / kappa
+                  dq_face(1,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale
+               else
+                  dq_face(1,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,li,j,k,lid)
+               endif
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
-               dq_face(2,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,li,j,k,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(2,li,j,k,lid) = alpha + gamma / kappa
+                  dq_face(2,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale
+               else
+                  dq_face(2,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,li,j,k,lid)
+               endif
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BY,i-s1:i+s1,j,k,b), dq_ds=d_field)
-               dq_face(3,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,li,j,k,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(3,li,j,k,lid) = alpha + gamma / kappa
+                  dq_face(3,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale
+               else
+                  dq_face(3,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,li,j,k,lid)
+               endif
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
-               dq_face(4,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(4,li,j,k,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(4,li,j,k,lid) = alpha + gamma / kappa
+                  dq_face(4,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale
+               else
+                  dq_face(4,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(4,li,j,k,lid)
+               endif
             enddo
          enddo
       enddo
    enddo
    endsubroutine compute_x_face_pml_rhs
 
-   subroutine compute_y_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale)
+   subroutine compute_y_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale, exact, &
+                                     lam_face)
    class(prism_cpu_object), intent(in)    :: self
    real(R8P),               intent(in)    :: q(1:,          &
                                                1-self%ngc:, &
@@ -3399,6 +3387,8 @@ contains
                                                1:)
    real(R8P),               intent(in)    :: q_face(1:,1:,1:,1:,1:)
    real(R8P),               intent(inout) :: dq_face(1:,1:,1:,1:,1:)
+   logical,                 intent(in)    :: exact                    !< Exact decay: the residual is the source alone.
+   real(R8P),               intent(inout) :: lam_face(1:,1:,1:,1:,1:) !< Decay rate (written with the exact decay).
    integer(I4P),            intent(in)    :: block_ids(1:)
    integer(I4P),            intent(in)    :: face
    real(R8P),               intent(in)    :: inv_eps_scale
@@ -3431,20 +3421,41 @@ contains
                                           kappa=kappa)
             do i=1, self%ni
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DX,i,j-s1:j+s1,k,b), dq_ds=d_field)
-               dq_face(1,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,i,lj,k,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(1,i,lj,k,lid) = alpha + gamma / kappa
+                  dq_face(1,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale
+               else
+                  dq_face(1,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,i,lj,k,lid)
+               endif
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
-               dq_face(2,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,i,lj,k,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(2,i,lj,k,lid) = alpha + gamma / kappa
+                  dq_face(2,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale
+               else
+                  dq_face(2,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,i,lj,k,lid)
+               endif
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BX,i,j-s1:j+s1,k,b), dq_ds=d_field)
-               dq_face(3,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,i,lj,k,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(3,i,lj,k,lid) = alpha + gamma / kappa
+                  dq_face(3,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale
+               else
+                  dq_face(3,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,i,lj,k,lid)
+               endif
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
-               dq_face(4,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(4,i,lj,k,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(4,i,lj,k,lid) = alpha + gamma / kappa
+                  dq_face(4,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale
+               else
+                  dq_face(4,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(4,i,lj,k,lid)
+               endif
             enddo
          enddo
       enddo
    enddo
    endsubroutine compute_y_face_pml_rhs
 
-   subroutine compute_z_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale)
+   subroutine compute_z_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale, exact, &
+                                     lam_face)
    class(prism_cpu_object), intent(in)    :: self
    real(R8P),               intent(in)    :: q(1:,          &
                                                1-self%ngc:, &
@@ -3453,6 +3464,8 @@ contains
                                                1:)
    real(R8P),               intent(in)    :: q_face(1:,1:,1:,1:,1:)
    real(R8P),               intent(inout) :: dq_face(1:,1:,1:,1:,1:)
+   logical,                 intent(in)    :: exact                    !< Exact decay: the residual is the source alone.
+   real(R8P),               intent(inout) :: lam_face(1:,1:,1:,1:,1:) !< Decay rate (written with the exact decay).
    integer(I4P),            intent(in)    :: block_ids(1:)
    integer(I4P),            intent(in)    :: face
    real(R8P),               intent(in)    :: inv_eps_scale
@@ -3485,13 +3498,33 @@ contains
          do j=1, self%nj
             do i=1, self%ni
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DX,i,j,k-s1:k+s1,b), dq_ds=d_field)
-               dq_face(1,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,i,j,lk,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(1,i,j,lk,lid) = alpha + gamma / kappa
+                  dq_face(1,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale
+               else
+                  dq_face(1,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,i,j,lk,lid)
+               endif
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DY,i,j,k-s1:k+s1,b), dq_ds=d_field)
-               dq_face(2,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,i,j,lk,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(2,i,j,lk,lid) = alpha + gamma / kappa
+                  dq_face(2,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale
+               else
+                  dq_face(2,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,i,j,lk,lid)
+               endif
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BX,i,j,k-s1:k+s1,b), dq_ds=d_field)
-               dq_face(3,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,i,j,lk,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(3,i,j,lk,lid) = alpha + gamma / kappa
+                  dq_face(3,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale
+               else
+                  dq_face(3,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,i,j,lk,lid)
+               endif
                call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BY,i,j,k-s1:k+s1,b), dq_ds=d_field)
-               dq_face(4,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(4,i,j,lk,lid)
+               if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                  lam_face(4,i,j,lk,lid) = alpha + gamma / kappa
+                  dq_face(4,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale
+               else
+                  dq_face(4,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(4,i,j,lk,lid)
+               endif
             enddo
          enddo
       enddo
@@ -3969,6 +4002,60 @@ contains
    endassociate
    endsubroutine compute_residuals_weno
 
+   subroutine pml_begin_step(self)
+   !< Open the step of every PML face companion (#134 D5; nothing without an integrated PML).
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%pml_st%enabled) return
+   if (self%pml_st%active(PML_FACE_X_M)) call self%pml_st%begin_step(f=PML_FACE_X_M, q=self%pml%q_pml_x_m)
+   if (self%pml_st%active(PML_FACE_X_P)) call self%pml_st%begin_step(f=PML_FACE_X_P, q=self%pml%q_pml_x_p)
+   if (self%pml_st%active(PML_FACE_Y_M)) call self%pml_st%begin_step(f=PML_FACE_Y_M, q=self%pml%q_pml_y_m)
+   if (self%pml_st%active(PML_FACE_Y_P)) call self%pml_st%begin_step(f=PML_FACE_Y_P, q=self%pml%q_pml_y_p)
+   if (self%pml_st%active(PML_FACE_Z_M)) call self%pml_st%begin_step(f=PML_FACE_Z_M, q=self%pml%q_pml_z_m)
+   if (self%pml_st%active(PML_FACE_Z_P)) call self%pml_st%begin_step(f=PML_FACE_Z_P, q=self%pml%q_pml_z_p)
+   endsubroutine pml_begin_step
+
+   subroutine pml_begin_stage(self, k)
+   !< Open stage k of every PML face companion: SELAH builds the faces' stage states.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: k    !< Stage.
+
+   if (.not.self%pml_st%enabled) return
+   if (self%pml_st%active(PML_FACE_X_M)) call self%pml_st%begin_stage(f=PML_FACE_X_M, k=k, dt=self%time%dt, q=self%pml%q_pml_x_m)
+   if (self%pml_st%active(PML_FACE_X_P)) call self%pml_st%begin_stage(f=PML_FACE_X_P, k=k, dt=self%time%dt, q=self%pml%q_pml_x_p)
+   if (self%pml_st%active(PML_FACE_Y_M)) call self%pml_st%begin_stage(f=PML_FACE_Y_M, k=k, dt=self%time%dt, q=self%pml%q_pml_y_m)
+   if (self%pml_st%active(PML_FACE_Y_P)) call self%pml_st%begin_stage(f=PML_FACE_Y_P, k=k, dt=self%time%dt, q=self%pml%q_pml_y_p)
+   if (self%pml_st%active(PML_FACE_Z_M)) call self%pml_st%begin_stage(f=PML_FACE_Z_M, k=k, dt=self%time%dt, q=self%pml%q_pml_z_m)
+   if (self%pml_st%active(PML_FACE_Z_P)) call self%pml_st%begin_stage(f=PML_FACE_Z_P, k=k, dt=self%time%dt, q=self%pml%q_pml_z_p)
+   endsubroutine pml_begin_stage
+
+   subroutine pml_end_stage(self, k)
+   !< Close stage k of every PML face companion, the residuals written by the stage's residual.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: k    !< Stage.
+
+   if (.not.self%pml_st%enabled) return
+   if (self%pml_st%active(PML_FACE_X_M)) call self%pml_st%end_stage(f=PML_FACE_X_M, k=k, dt=self%time%dt, q=self%pml%q_pml_x_m)
+   if (self%pml_st%active(PML_FACE_X_P)) call self%pml_st%end_stage(f=PML_FACE_X_P, k=k, dt=self%time%dt, q=self%pml%q_pml_x_p)
+   if (self%pml_st%active(PML_FACE_Y_M)) call self%pml_st%end_stage(f=PML_FACE_Y_M, k=k, dt=self%time%dt, q=self%pml%q_pml_y_m)
+   if (self%pml_st%active(PML_FACE_Y_P)) call self%pml_st%end_stage(f=PML_FACE_Y_P, k=k, dt=self%time%dt, q=self%pml%q_pml_y_p)
+   if (self%pml_st%active(PML_FACE_Z_M)) call self%pml_st%end_stage(f=PML_FACE_Z_M, k=k, dt=self%time%dt, q=self%pml%q_pml_z_m)
+   if (self%pml_st%active(PML_FACE_Z_P)) call self%pml_st%end_stage(f=PML_FACE_Z_P, k=k, dt=self%time%dt, q=self%pml%q_pml_z_p)
+   endsubroutine pml_end_stage
+
+   subroutine pml_finish_step(self)
+   !< Close the step of every PML face companion: SELAH advances the face arrays.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%pml_st%enabled) return
+   if (self%pml_st%active(PML_FACE_X_M)) call self%pml_st%finish_step(f=PML_FACE_X_M, dt=self%time%dt, q=self%pml%q_pml_x_m)
+   if (self%pml_st%active(PML_FACE_X_P)) call self%pml_st%finish_step(f=PML_FACE_X_P, dt=self%time%dt, q=self%pml%q_pml_x_p)
+   if (self%pml_st%active(PML_FACE_Y_M)) call self%pml_st%finish_step(f=PML_FACE_Y_M, dt=self%time%dt, q=self%pml%q_pml_y_m)
+   if (self%pml_st%active(PML_FACE_Y_P)) call self%pml_st%finish_step(f=PML_FACE_Y_P, dt=self%time%dt, q=self%pml%q_pml_y_p)
+   if (self%pml_st%active(PML_FACE_Z_M)) call self%pml_st%finish_step(f=PML_FACE_Z_M, dt=self%time%dt, q=self%pml%q_pml_z_m)
+   if (self%pml_st%active(PML_FACE_Z_P)) call self%pml_st%finish_step(f=PML_FACE_Z_P, dt=self%time%dt, q=self%pml%q_pml_z_p)
+   endsubroutine pml_finish_step
+
    subroutine integrate_rk_ls(self)
    !< Integrate equation, time operator, RK classical low storage schemes: SELAH's two-register form (#132), every stage
    !< on q; the residual of each stage into dq (the residual log is stage 1's), copied into the stepper's register.
@@ -3998,15 +4085,15 @@ contains
    integer(I4P)                           :: s            !< Counter.
 
    call ts_begin_step(self)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
+   call pml_begin_step(self)
    do s=1, self%ts%stages()
       call ts_begin_stage(self, s=s)
-      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
+      call pml_begin_stage(self, k=s)
       u => self%ts%stage_state()
       call self%compute_residuals(q=u, dq=self%dq, s=s)
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
       call ts_end_stage(self, s=s)
-      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=s)
+      call pml_end_stage(self, k=s)
    enddo
    if (self%ib%solids_number>0) then
       call ts_finish_step(self, with_dq=.false.)
@@ -4014,8 +4101,7 @@ contains
       call ts_finish_step(self, with_dq=.true.)
       call self%save_residuals
    endif
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
-      call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
+   call pml_finish_step(self)
    call self%apply_fWL_correction(q=self%q)
    call self%compute_coils_current(q=self%q)
    endsubroutine integrate_rk_ssp
@@ -4031,7 +4117,7 @@ contains
    !Inizializzo stadi RK per campi e PIC
    call ts_begin_step(self)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
+   call pml_begin_step(self)
    call allocate_variable(var=q_stage,                              &
                           ulb=reshape([1,self%nv,                   &
                                        1-self%ngc,self%ni+self%ngc, &
@@ -4046,7 +4132,7 @@ contains
       !Calcolo stadio RK per campi e PIC
       call ts_begin_stage(self, s=s)
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
-      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
+      call pml_begin_stage(self, k=s)
       call copy_stage_state(self, q=q_stage)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%rk_pic%q_pic_rk(:,:,s))
@@ -4073,13 +4159,12 @@ contains
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
       call ts_end_stage(self, s=s)
       call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
-      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=s)
+      call pml_end_stage(self, k=s)
    enddo
    ! Completo l'integrazione temporale
    call ts_finish_step(self, with_dq=.false.)
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
-      call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
+   call pml_finish_step(self)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%apply_fWL_correction(q=self%q)
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
@@ -4124,7 +4209,7 @@ contains
    nrk = self%ts%stages()
    call ts_begin_step(self)
    call self%rk_pic%initialize_stages(q_pic=self%q_pic)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize_stages(pml=self%pml)
+   call pml_begin_step(self)
 
    call allocate_variable(var=q_stage,                              &
                           ulb=reshape([1,self%nv,                   &
@@ -4153,7 +4238,7 @@ contains
    do s=1, nrk
       call ts_begin_stage(self, s=s)
       call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
-      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%compute_stage(s=s, dt=self%time%dt)
+      call pml_begin_stage(self, k=s)
 
       call copy_stage_state(self, q=q_stage)
       ! compute_stage fills only the interior cells and the stage ghosts are refreshed by compute_residuals, which here
@@ -4229,13 +4314,12 @@ contains
 
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq)
       call ts_end_stage(self, s=s)
-      if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%assign_stage(s=s)
+      call pml_end_stage(self, k=s)
    enddo
 
    call ts_finish_step(self, with_dq=.false.)
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') &
-      call self%rk_pml%update_q_pml(dt=self%time%dt, pml=self%pml)
+   call pml_finish_step(self)
    call self%apply_fWL_correction(q=self%q)
    call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    if (self%pic%matched_current()) then

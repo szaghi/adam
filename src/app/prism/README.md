@@ -20,7 +20,7 @@ src/app/prism/
 │   ├── adam_prism_coil_object.F90               # Current-carrying coil sources
 │   ├── adam_prism_fWLayer_object.F90            # Far-wave layer (absorbing BC layer)
 │   ├── adam_prism_pml_object.F90                # Perfectly matched layer
-│   ├── adam_prism_rk_pml_object.F90             # RK support for the PML auxiliary variables
+│   ├── adam_prism_pml_stepper_object.F90        # the PML auxiliary variables as SELAH companions
 │   ├── adam_prism_absorbing_layer_geometry.F90  # Layer geometry shared by fWLayer and PML
 │   ├── adam_prism_external_fields_object.F90    # Externally prescribed fields
 │   ├── adam_prism_pic_object.F90                # Particle-in-Cell configuration
@@ -42,7 +42,6 @@ src/app/prism/
     ├── adam_prism_fnl_coil_object.F90           # GPU coil handler
     ├── adam_prism_fnl_fWLayer_object.F90        # GPU far-wave layer handler
     ├── adam_prism_fnl_pml_object.F90            # GPU PML
-    ├── adam_prism_fnl_rk_pml_object.F90         # GPU RK support for the PML auxiliary variables
     ├── adam_prism_fnl_pic_object.F90            # GPU Particle-in-Cell
     ├── adam_prism_fnl_pic_conserving_object.F90 # GPU charge-conserving currents
     ├── adam_prism_fnl_rk_pic_object.F90         # GPU PIC Runge-Kutta integrator

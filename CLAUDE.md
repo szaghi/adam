@@ -514,7 +514,7 @@ History: the fWLayer field used to be copied host→device through FUNDAL's **bu
 
 ### PML: `[PML]` input contract, and `CLASSIC_DIRECT` bypasses the RK-PML path
 
-The perfectly-matched-layer absorbing boundary lives in `prism_pml_object` (+ `prism_rk_pml_object` for the auxiliary-variable time integration), with FNL device twins. Storage is **face-local and reduced** — only boundary blocks carry it, compacted face by face, four split variables per face ordered *electric first, magnetic second* (e.g. `q_pml_x_* = [psi_Ey_x, psi_Ez_x, psi_Hy_x, psi_Hz_x]`).
+The perfectly-matched-layer absorbing boundary lives in `prism_pml_object` (+ `prism_pml_stepper_object`: the auxiliary variables as SELAH companions of the field stepper, `[PML] exact_decay` opt-in), with FNL device twins. Storage is **face-local and reduced** — only boundary blocks carry it, compacted face by face, four split variables per face ordered *electric first, magnetic second* (e.g. `q_pml_x_* = [psi_Ey_x, psi_Ez_x, psi_Hy_x, psi_Hz_x]`).
 
 `[PML] PML_type` accepts five kinds (`adam_prism_pml_object.F90:229-241`), each with its **own required parameter set** — supplying the wrong set is a hard `error_stop`, not a default:
 
@@ -531,7 +531,7 @@ All kinds also require a **physical** `width` (>0, an `error_stop` otherwise) an
 Two traps:
 
 1. **An unrecognised `PML_type` is fatal** (`error_stop` listing the accepted spellings, `0259860f`); before that commit it silently disabled the PML. CRLF input parses: FiNeR drops the carriage return when it reads the file (the apps' `strip_control` workaround was removed in #80 P1).
-2. **`CLASSIC_DIRECT` is not an RK-integrated PML.** Every `rk_pml` call site is guarded `/= 'CLASSIC_DIRECT'` — `initialize`, `initialize_stages`, `compute_stage`, `assign_stage`, `update_q_pml` are all skipped (`adam_prism_cpu_object.F90:4096-4195`, `adam_prism_fnl_object.F90:657`). It instead applies direct per-face damping kernels (`apply_{x,y,z}_face_direct_damping_dev`). It exists **for testing** (`d64369b5`); treat it as an instrument, not the production path, and do not assume PML auxiliary state advances under it.
+2. **`CLASSIC_DIRECT` is not an RK-integrated PML.** Its faces get no SELAH companion (`pml_st` is initialized only for the other types, `initialize_block_face_data` and FNL `initialize_pml_fnl`), so `pml_begin_step`/`pml_begin_stage`/`pml_end_stage`/`pml_finish_step` do nothing. It instead applies direct per-face damping kernels (`apply_{x,y,z}_face_direct_damping_dev`). It exists **for testing** (`d64369b5`); treat it as an instrument, not the production path, and do not assume PML auxiliary state advances under it.
 
 CPU time integration is implemented only for `CLASSIC`, `CLASSIC_DIRECT`, `BERMUDEZ` and `CFS` — anything else `error_stop`s at `adam_prism_cpu_object.F90:342-346`.
 

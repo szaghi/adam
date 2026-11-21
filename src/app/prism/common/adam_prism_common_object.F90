@@ -22,7 +22,7 @@ use :: adam_prism_pml_object
 use :: adam_prism_particle_injection_object
 use :: adam_prism_probes_object
 use :: adam_prism_rk_pic_object
-use :: adam_prism_rk_pml_object
+use :: adam_prism_pml_stepper_object
 use :: adam_stepper_object, only : stepper_stored_fields
 use :: adam_prism_time_object
 ! third party modules
@@ -116,7 +116,7 @@ type, extends(realm_object) :: prism_common_object
    type(prism_pml_object)                :: pml                !< Perfectly matched layer.
    type(prism_probes_object)             :: probes             !< Field probes.
    type(prism_rk_pic_object)             :: rk_pic             !< Runge-Kutta PIC handler.
-   type(prism_rk_pml_object)             :: rk_pml             !< Runge-Kutta PML auxiliary handler.
+   type(prism_pml_stepper_object)        :: pml_st             !< PML auxiliary fields: SELAH companions (#134 D5).
    type(prism_time_object)               :: time               !< Time integration state.
    contains
       ! AMR methods (issue #22 F0: promoted from prism_cpu_object — host-side, backend-agnostic)
@@ -681,6 +681,8 @@ contains
    !< set: the uniform refinement in initialize, each init-time amr_update, a restart (issue #95, P5.1). Every initializer
    !< called here resets its object first; the PML auxiliary state restarts from zero, as at any initialization.
    class(prism_common_object), intent(inout) :: self !< The equation.
+   integer(I4P)                              :: shapes(5,6) !< Shapes of the host face arrays.
+   logical                                   :: active(6)   !< The face has a layer.
 
    associate(file_parameters=>self%io%file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters, field=self%adam%field, &
@@ -689,8 +691,27 @@ contains
                   tree=self%adam%tree, file_parameters=file_parameters, physics=self%physics)
    call self%pml%initialize(field=self%adam%field, grid=self%adam%grid, tree=self%adam%tree, &
                             file_parameters=file_parameters, physics=self%physics)
-   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') call self%rk_pml%initialize(ts=self%ts, pml=self%pml)
+   ! the auxiliary fields as SELAH companions of the field stepper, on the host face arrays (the FNL backend rebuilds them
+   ! on its device arrays, initialize_pml_fnl)
+   call self%pml_st%destroy
+   if (self%pml%enabled .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT') then
+      shapes = 1_I4P ; active = .false.
+      ! faces 1..6: x-, x+, y-, y+, z-, z+ (the PML_FACE_* of prism_pml_object, private there)
+      call face(1_I4P, self%pml%q_pml_x_m) ; call face(2_I4P, self%pml%q_pml_x_p)
+      call face(3_I4P, self%pml%q_pml_y_m) ; call face(4_I4P, self%pml%q_pml_y_p)
+      call face(5_I4P, self%pml%q_pml_z_m) ; call face(6_I4P, self%pml%q_pml_z_p)
+      call self%pml_st%initialize(ts=self%ts, shapes=shapes, active=active, exact_decay=self%pml%exact_decay)
+   endif
    endassociate
+   contains
+      subroutine face(f, q)
+      !< Shape and activity of face f.
+      integer(I4P),           intent(in) :: f            !< Face.
+      real(R8P), allocatable, intent(in) :: q(:,:,:,:,:) !< Host face array.
+
+      active(f) = allocated(q)
+      if (active(f)) shapes(:,f) = shape(q, kind=I4P)
+      endsubroutine face
    endsubroutine initialize_block_face_data
 
    subroutine initialize_pic_time_zero(self)

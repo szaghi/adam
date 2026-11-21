@@ -60,7 +60,6 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(prism_fnl_plasma_frequencies_object) :: plasma_freq_fnl !< GPU plasma frequencies (PIC time-step limit).
    type(prism_fnl_pml_object)     :: pml_fnl     !< GPU PML compact metadata/state.
    type(prism_fnl_probes_object)  :: probes_fnl  !< GPU field probes.
-   type(prism_fnl_rk_pml_object)  :: rk_pml_fnl  !< GPU PML SSP RK support.
    ! device data
    real(R8P), pointer :: q_gpu(:,:,:,:,:)=>null()           !< Field cell centered variables.
    real(R8P), pointer :: dq_gpu(:,:,:,:,:)=>null()          !< Residuals right hand side.
@@ -316,7 +315,6 @@ contains
    !< Free device data owned by this PRISM FNL realm.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   call self%rk_pml_fnl%destroy()
    call self%pml_fnl%destroy()
    call self%probes_fnl%destroy()
    call self%conserving_fnl%destroy()
@@ -905,14 +903,31 @@ contains
    endsubroutine initialize_prism
 
    subroutine initialize_pml_fnl(self)
-   !< (Re)build the device PML twins (compact face storage and its RK stages) from the host PML: at initialization and
-   !< whenever the host PML is rebuilt on a new block set (issue #95, P5.1). Both initializers destroy their device
-   !< state first.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   !< (Re)build the device PML twins (compact face storage) from the host PML and the faces' SELAH companions on the
+   !< device arrays (#134 D5): at initialization and whenever the host PML is rebuilt on a new block set (issue #95,
+   !< P5.1). Both initializers destroy their state first.
+   class(prism_fnl_object), intent(inout) :: self    !< The equation.
+   integer(I4P)                           :: shapes(5,6) !< Shapes of the device face arrays.
+   logical                                :: active(6)   !< The face has a layer.
 
    call self%pml_fnl%initialize(pml=self%pml, grid=self%adam%grid, field=self%adam%field)
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%initialize(ts=self%ts, pml_fnl=self%pml_fnl)
+   call self%pml_st%destroy
+   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) then
+      shapes = 1_I4P ; active = .false.
+      call face(PML_FACE_X_M, self%pml_fnl%q_pml_x_m_gpu) ; call face(PML_FACE_X_P, self%pml_fnl%q_pml_x_p_gpu)
+      call face(PML_FACE_Y_M, self%pml_fnl%q_pml_y_m_gpu) ; call face(PML_FACE_Y_P, self%pml_fnl%q_pml_y_p_gpu)
+      call face(PML_FACE_Z_M, self%pml_fnl%q_pml_z_m_gpu) ; call face(PML_FACE_Z_P, self%pml_fnl%q_pml_z_p_gpu)
+      call self%pml_st%initialize(ts=self%ts, shapes=shapes, active=active, exact_decay=self%pml%exact_decay)
+   endif
+   contains
+      subroutine face(f, q)
+      !< Shape and activity of face f.
+      integer(I4P),       intent(in) :: f            !< Face.
+      real(R8P), pointer, intent(in) :: q(:,:,:,:,:) !< Device face array.
+
+      active(f) = associated(q)
+      if (active(f)) shapes(:,f) = shape(q, kind=I4P)
+      endsubroutine face
    endsubroutine initialize_pml_fnl
 
    subroutine amr_update(self)
@@ -3319,6 +3334,10 @@ contains
    real(R8P)                                     :: inv_eps_scale
    real(R8P)                                     :: inv_mu_scale
    real(R8P), pointer                            :: dxyz_gpu(:,:)
+   real(R8P), pointer                            :: qf(:,:,:,:,:)  !< Stage state of a face (companion).
+   real(R8P), pointer                            :: dqf(:,:,:,:,:) !< Residual register of a face (companion).
+   real(R8P), pointer                            :: lam(:,:,:,:,:) !< Decay rate of a face (written with the exact decay).
+   logical                                       :: exact          !< Exact decay: the residual is the source alone.
 
    if (.not. self%pml_fnl%enabled) return
    ni = self%ni
@@ -3358,124 +3377,82 @@ contains
       return
    endif
 
-   call self%rk_pml_fnl%reset_rhs()
-
-   if (present(s)) then
-      if (associated(self%rk_pml_fnl%q_pml_x_m_rk_gpu)) then
-         call apply_x_face_field_correction_dev(q_face_gpu=self%rk_pml_fnl%q_pml_x_m_rk_gpu(:,:,:,:,:,s),           &
-                                                blocks_gpu=self%pml_fnl%blocks_x_m_gpu, start_gpu=self%pml_fnl%start_x_m_gpu, &
-                                                cells_gpu=self%pml_fnl%cells_x_m_gpu, kappa_gpu=self%pml_fnl%kappa_x_m_gpu)
-         call compute_x_face_pml_rhs_dev(q_face_gpu=self%rk_pml_fnl%q_pml_x_m_rk_gpu(:,:,:,:,:,s),                   &
-                                         dq_face_gpu=self%rk_pml_fnl%dq_pml_x_m_gpu, blocks_gpu=self%pml_fnl%blocks_x_m_gpu, &
-                                         start_gpu=self%pml_fnl%start_x_m_gpu, cells_gpu=self%pml_fnl%cells_x_m_gpu,       &
-                                         gamma_gpu=self%pml_fnl%gamma_x_m_gpu, alpha_gpu=self%pml_fnl%alpha_x_m_gpu,       &
-                                         kappa_gpu=self%pml_fnl%kappa_x_m_gpu)
-      endif
-      if (associated(self%rk_pml_fnl%q_pml_x_p_rk_gpu)) then
-         call apply_x_face_field_correction_dev(q_face_gpu=self%rk_pml_fnl%q_pml_x_p_rk_gpu(:,:,:,:,:,s),           &
-                                                blocks_gpu=self%pml_fnl%blocks_x_p_gpu, start_gpu=self%pml_fnl%start_x_p_gpu, &
-                                                cells_gpu=self%pml_fnl%cells_x_p_gpu, kappa_gpu=self%pml_fnl%kappa_x_p_gpu)
-         call compute_x_face_pml_rhs_dev(q_face_gpu=self%rk_pml_fnl%q_pml_x_p_rk_gpu(:,:,:,:,:,s),                   &
-                                         dq_face_gpu=self%rk_pml_fnl%dq_pml_x_p_gpu, blocks_gpu=self%pml_fnl%blocks_x_p_gpu, &
-                                         start_gpu=self%pml_fnl%start_x_p_gpu, cells_gpu=self%pml_fnl%cells_x_p_gpu,       &
-                                         gamma_gpu=self%pml_fnl%gamma_x_p_gpu, alpha_gpu=self%pml_fnl%alpha_x_p_gpu,       &
-                                         kappa_gpu=self%pml_fnl%kappa_x_p_gpu)
-      endif
-      if (associated(self%rk_pml_fnl%q_pml_y_m_rk_gpu)) then
-         call apply_y_face_field_correction_dev(q_face_gpu=self%rk_pml_fnl%q_pml_y_m_rk_gpu(:,:,:,:,:,s),           &
-                                                blocks_gpu=self%pml_fnl%blocks_y_m_gpu, start_gpu=self%pml_fnl%start_y_m_gpu, &
-                                                cells_gpu=self%pml_fnl%cells_y_m_gpu, kappa_gpu=self%pml_fnl%kappa_y_m_gpu)
-         call compute_y_face_pml_rhs_dev(q_face_gpu=self%rk_pml_fnl%q_pml_y_m_rk_gpu(:,:,:,:,:,s),                   &
-                                         dq_face_gpu=self%rk_pml_fnl%dq_pml_y_m_gpu, blocks_gpu=self%pml_fnl%blocks_y_m_gpu, &
-                                         start_gpu=self%pml_fnl%start_y_m_gpu, cells_gpu=self%pml_fnl%cells_y_m_gpu,       &
-                                         gamma_gpu=self%pml_fnl%gamma_y_m_gpu, alpha_gpu=self%pml_fnl%alpha_y_m_gpu,       &
-                                         kappa_gpu=self%pml_fnl%kappa_y_m_gpu)
-      endif
-      if (associated(self%rk_pml_fnl%q_pml_y_p_rk_gpu)) then
-         call apply_y_face_field_correction_dev(q_face_gpu=self%rk_pml_fnl%q_pml_y_p_rk_gpu(:,:,:,:,:,s),           &
-                                                blocks_gpu=self%pml_fnl%blocks_y_p_gpu, start_gpu=self%pml_fnl%start_y_p_gpu, &
-                                                cells_gpu=self%pml_fnl%cells_y_p_gpu, kappa_gpu=self%pml_fnl%kappa_y_p_gpu)
-         call compute_y_face_pml_rhs_dev(q_face_gpu=self%rk_pml_fnl%q_pml_y_p_rk_gpu(:,:,:,:,:,s),                   &
-                                         dq_face_gpu=self%rk_pml_fnl%dq_pml_y_p_gpu, blocks_gpu=self%pml_fnl%blocks_y_p_gpu, &
-                                         start_gpu=self%pml_fnl%start_y_p_gpu, cells_gpu=self%pml_fnl%cells_y_p_gpu,       &
-                                         gamma_gpu=self%pml_fnl%gamma_y_p_gpu, alpha_gpu=self%pml_fnl%alpha_y_p_gpu,       &
-                                         kappa_gpu=self%pml_fnl%kappa_y_p_gpu)
-      endif
-      if (associated(self%rk_pml_fnl%q_pml_z_m_rk_gpu)) then
-         call apply_z_face_field_correction_dev(q_face_gpu=self%rk_pml_fnl%q_pml_z_m_rk_gpu(:,:,:,:,:,s),           &
-                                                blocks_gpu=self%pml_fnl%blocks_z_m_gpu, start_gpu=self%pml_fnl%start_z_m_gpu, &
-                                                cells_gpu=self%pml_fnl%cells_z_m_gpu, kappa_gpu=self%pml_fnl%kappa_z_m_gpu)
-         call compute_z_face_pml_rhs_dev(q_face_gpu=self%rk_pml_fnl%q_pml_z_m_rk_gpu(:,:,:,:,:,s),                   &
-                                         dq_face_gpu=self%rk_pml_fnl%dq_pml_z_m_gpu, blocks_gpu=self%pml_fnl%blocks_z_m_gpu, &
-                                         start_gpu=self%pml_fnl%start_z_m_gpu, cells_gpu=self%pml_fnl%cells_z_m_gpu,       &
-                                         gamma_gpu=self%pml_fnl%gamma_z_m_gpu, alpha_gpu=self%pml_fnl%alpha_z_m_gpu,       &
-                                         kappa_gpu=self%pml_fnl%kappa_z_m_gpu)
-      endif
-      if (associated(self%rk_pml_fnl%q_pml_z_p_rk_gpu)) then
-         call apply_z_face_field_correction_dev(q_face_gpu=self%rk_pml_fnl%q_pml_z_p_rk_gpu(:,:,:,:,:,s),           &
-                                                blocks_gpu=self%pml_fnl%blocks_z_p_gpu, start_gpu=self%pml_fnl%start_z_p_gpu, &
-                                                cells_gpu=self%pml_fnl%cells_z_p_gpu, kappa_gpu=self%pml_fnl%kappa_z_p_gpu)
-         call compute_z_face_pml_rhs_dev(q_face_gpu=self%rk_pml_fnl%q_pml_z_p_rk_gpu(:,:,:,:,:,s),                   &
-                                         dq_face_gpu=self%rk_pml_fnl%dq_pml_z_p_gpu, blocks_gpu=self%pml_fnl%blocks_z_p_gpu, &
-                                         start_gpu=self%pml_fnl%start_z_p_gpu, cells_gpu=self%pml_fnl%cells_z_p_gpu,       &
-                                         gamma_gpu=self%pml_fnl%gamma_z_p_gpu, alpha_gpu=self%pml_fnl%alpha_z_p_gpu,       &
-                                         kappa_gpu=self%pml_fnl%kappa_z_p_gpu)
-      endif
-   else
-      if (associated(self%pml_fnl%q_pml_x_m_gpu)) then
-         call apply_x_face_field_correction_dev(q_face_gpu=self%pml_fnl%q_pml_x_m_gpu, blocks_gpu=self%pml_fnl%blocks_x_m_gpu, &
-                                                start_gpu=self%pml_fnl%start_x_m_gpu, cells_gpu=self%pml_fnl%cells_x_m_gpu,     &
-                                                kappa_gpu=self%pml_fnl%kappa_x_m_gpu)
-         call compute_x_face_pml_rhs_dev(q_face_gpu=self%pml_fnl%q_pml_x_m_gpu, dq_face_gpu=self%rk_pml_fnl%dq_pml_x_m_gpu, &
-                                         blocks_gpu=self%pml_fnl%blocks_x_m_gpu, start_gpu=self%pml_fnl%start_x_m_gpu,      &
-                                         cells_gpu=self%pml_fnl%cells_x_m_gpu, gamma_gpu=self%pml_fnl%gamma_x_m_gpu,        &
-                                         alpha_gpu=self%pml_fnl%alpha_x_m_gpu, kappa_gpu=self%pml_fnl%kappa_x_m_gpu)
-      endif
-      if (associated(self%pml_fnl%q_pml_x_p_gpu)) then
-         call apply_x_face_field_correction_dev(q_face_gpu=self%pml_fnl%q_pml_x_p_gpu, blocks_gpu=self%pml_fnl%blocks_x_p_gpu, &
-                                                start_gpu=self%pml_fnl%start_x_p_gpu, cells_gpu=self%pml_fnl%cells_x_p_gpu,     &
-                                                kappa_gpu=self%pml_fnl%kappa_x_p_gpu)
-         call compute_x_face_pml_rhs_dev(q_face_gpu=self%pml_fnl%q_pml_x_p_gpu, dq_face_gpu=self%rk_pml_fnl%dq_pml_x_p_gpu, &
-                                         blocks_gpu=self%pml_fnl%blocks_x_p_gpu, start_gpu=self%pml_fnl%start_x_p_gpu,      &
-                                         cells_gpu=self%pml_fnl%cells_x_p_gpu, gamma_gpu=self%pml_fnl%gamma_x_p_gpu,        &
-                                         alpha_gpu=self%pml_fnl%alpha_x_p_gpu, kappa_gpu=self%pml_fnl%kappa_x_p_gpu)
-      endif
-      if (associated(self%pml_fnl%q_pml_y_m_gpu)) then
-         call apply_y_face_field_correction_dev(q_face_gpu=self%pml_fnl%q_pml_y_m_gpu, blocks_gpu=self%pml_fnl%blocks_y_m_gpu, &
-                                                start_gpu=self%pml_fnl%start_y_m_gpu, cells_gpu=self%pml_fnl%cells_y_m_gpu,     &
-                                                kappa_gpu=self%pml_fnl%kappa_y_m_gpu)
-         call compute_y_face_pml_rhs_dev(q_face_gpu=self%pml_fnl%q_pml_y_m_gpu, dq_face_gpu=self%rk_pml_fnl%dq_pml_y_m_gpu, &
-                                         blocks_gpu=self%pml_fnl%blocks_y_m_gpu, start_gpu=self%pml_fnl%start_y_m_gpu,      &
-                                         cells_gpu=self%pml_fnl%cells_y_m_gpu, gamma_gpu=self%pml_fnl%gamma_y_m_gpu,        &
-                                         alpha_gpu=self%pml_fnl%alpha_y_m_gpu, kappa_gpu=self%pml_fnl%kappa_y_m_gpu)
-      endif
-      if (associated(self%pml_fnl%q_pml_y_p_gpu)) then
-         call apply_y_face_field_correction_dev(q_face_gpu=self%pml_fnl%q_pml_y_p_gpu, blocks_gpu=self%pml_fnl%blocks_y_p_gpu, &
-                                                start_gpu=self%pml_fnl%start_y_p_gpu, cells_gpu=self%pml_fnl%cells_y_p_gpu,     &
-                                                kappa_gpu=self%pml_fnl%kappa_y_p_gpu)
-         call compute_y_face_pml_rhs_dev(q_face_gpu=self%pml_fnl%q_pml_y_p_gpu, dq_face_gpu=self%rk_pml_fnl%dq_pml_y_p_gpu, &
-                                         blocks_gpu=self%pml_fnl%blocks_y_p_gpu, start_gpu=self%pml_fnl%start_y_p_gpu,      &
-                                         cells_gpu=self%pml_fnl%cells_y_p_gpu, gamma_gpu=self%pml_fnl%gamma_y_p_gpu,        &
-                                         alpha_gpu=self%pml_fnl%alpha_y_p_gpu, kappa_gpu=self%pml_fnl%kappa_y_p_gpu)
-      endif
-      if (associated(self%pml_fnl%q_pml_z_m_gpu)) then
-         call apply_z_face_field_correction_dev(q_face_gpu=self%pml_fnl%q_pml_z_m_gpu, blocks_gpu=self%pml_fnl%blocks_z_m_gpu, &
-                                                start_gpu=self%pml_fnl%start_z_m_gpu, cells_gpu=self%pml_fnl%cells_z_m_gpu,     &
-                                                kappa_gpu=self%pml_fnl%kappa_z_m_gpu)
-         call compute_z_face_pml_rhs_dev(q_face_gpu=self%pml_fnl%q_pml_z_m_gpu, dq_face_gpu=self%rk_pml_fnl%dq_pml_z_m_gpu, &
-                                         blocks_gpu=self%pml_fnl%blocks_z_m_gpu, start_gpu=self%pml_fnl%start_z_m_gpu,      &
-                                         cells_gpu=self%pml_fnl%cells_z_m_gpu, gamma_gpu=self%pml_fnl%gamma_z_m_gpu,        &
-                                         alpha_gpu=self%pml_fnl%alpha_z_m_gpu, kappa_gpu=self%pml_fnl%kappa_z_m_gpu)
-      endif
-      if (associated(self%pml_fnl%q_pml_z_p_gpu)) then
-         call apply_z_face_field_correction_dev(q_face_gpu=self%pml_fnl%q_pml_z_p_gpu, blocks_gpu=self%pml_fnl%blocks_z_p_gpu, &
-                                                start_gpu=self%pml_fnl%start_z_p_gpu, cells_gpu=self%pml_fnl%cells_z_p_gpu,     &
-                                                kappa_gpu=self%pml_fnl%kappa_z_p_gpu)
-         call compute_z_face_pml_rhs_dev(q_face_gpu=self%pml_fnl%q_pml_z_p_gpu, dq_face_gpu=self%rk_pml_fnl%dq_pml_z_p_gpu, &
-                                         blocks_gpu=self%pml_fnl%blocks_z_p_gpu, start_gpu=self%pml_fnl%start_z_p_gpu,      &
-                                         cells_gpu=self%pml_fnl%cells_z_p_gpu, gamma_gpu=self%pml_fnl%gamma_z_p_gpu,        &
-                                         alpha_gpu=self%pml_fnl%alpha_z_p_gpu, kappa_gpu=self%pml_fnl%kappa_z_p_gpu)
-      endif
+   ! the auxiliary fields are SELAH companions of the field stepper (#134 D5): each face reads the stage state of its
+   ! companion and writes its residual into the companion's register (zeroed: the kernels write the cells only)
+   if (.not.present(s)) call mpih%error_stop(msg=': the ADE-PML residual is a stage residual (the auxiliary fields '// &
+                                                 'advance with the field stages): no stage given')
+   exact = self%pml_st%exact_decay
+   if (self%pml_st%active(PML_FACE_X_M)) then
+      call self%pml_st%zero_rhs(PML_FACE_X_M)
+      qf => self%pml_st%stage_state(PML_FACE_X_M) ; dqf => self%pml_st%rhs_register(PML_FACE_X_M)
+      lam => self%pml_st%decay(PML_FACE_X_M)%lam
+      call apply_x_face_field_correction_dev(q_face_gpu=qf, blocks_gpu=self%pml_fnl%blocks_x_m_gpu,                   &
+                                             start_gpu=self%pml_fnl%start_x_m_gpu, cells_gpu=self%pml_fnl%cells_x_m_gpu, &
+                                             kappa_gpu=self%pml_fnl%kappa_x_m_gpu)
+      call compute_x_face_pml_rhs_dev(q_face_gpu=qf, dq_face_gpu=dqf, blocks_gpu=self%pml_fnl%blocks_x_m_gpu,         &
+                                      start_gpu=self%pml_fnl%start_x_m_gpu, cells_gpu=self%pml_fnl%cells_x_m_gpu,       &
+                                      gamma_gpu=self%pml_fnl%gamma_x_m_gpu, alpha_gpu=self%pml_fnl%alpha_x_m_gpu,       &
+                                      kappa_gpu=self%pml_fnl%kappa_x_m_gpu, lam_gpu=lam)
+   endif
+   if (self%pml_st%active(PML_FACE_X_P)) then
+      call self%pml_st%zero_rhs(PML_FACE_X_P)
+      qf => self%pml_st%stage_state(PML_FACE_X_P) ; dqf => self%pml_st%rhs_register(PML_FACE_X_P)
+      lam => self%pml_st%decay(PML_FACE_X_P)%lam
+      call apply_x_face_field_correction_dev(q_face_gpu=qf, blocks_gpu=self%pml_fnl%blocks_x_p_gpu,                   &
+                                             start_gpu=self%pml_fnl%start_x_p_gpu, cells_gpu=self%pml_fnl%cells_x_p_gpu, &
+                                             kappa_gpu=self%pml_fnl%kappa_x_p_gpu)
+      call compute_x_face_pml_rhs_dev(q_face_gpu=qf, dq_face_gpu=dqf, blocks_gpu=self%pml_fnl%blocks_x_p_gpu,         &
+                                      start_gpu=self%pml_fnl%start_x_p_gpu, cells_gpu=self%pml_fnl%cells_x_p_gpu,       &
+                                      gamma_gpu=self%pml_fnl%gamma_x_p_gpu, alpha_gpu=self%pml_fnl%alpha_x_p_gpu,       &
+                                      kappa_gpu=self%pml_fnl%kappa_x_p_gpu, lam_gpu=lam)
+   endif
+   if (self%pml_st%active(PML_FACE_Y_M)) then
+      call self%pml_st%zero_rhs(PML_FACE_Y_M)
+      qf => self%pml_st%stage_state(PML_FACE_Y_M) ; dqf => self%pml_st%rhs_register(PML_FACE_Y_M)
+      lam => self%pml_st%decay(PML_FACE_Y_M)%lam
+      call apply_y_face_field_correction_dev(q_face_gpu=qf, blocks_gpu=self%pml_fnl%blocks_y_m_gpu,                   &
+                                             start_gpu=self%pml_fnl%start_y_m_gpu, cells_gpu=self%pml_fnl%cells_y_m_gpu, &
+                                             kappa_gpu=self%pml_fnl%kappa_y_m_gpu)
+      call compute_y_face_pml_rhs_dev(q_face_gpu=qf, dq_face_gpu=dqf, blocks_gpu=self%pml_fnl%blocks_y_m_gpu,         &
+                                      start_gpu=self%pml_fnl%start_y_m_gpu, cells_gpu=self%pml_fnl%cells_y_m_gpu,       &
+                                      gamma_gpu=self%pml_fnl%gamma_y_m_gpu, alpha_gpu=self%pml_fnl%alpha_y_m_gpu,       &
+                                      kappa_gpu=self%pml_fnl%kappa_y_m_gpu, lam_gpu=lam)
+   endif
+   if (self%pml_st%active(PML_FACE_Y_P)) then
+      call self%pml_st%zero_rhs(PML_FACE_Y_P)
+      qf => self%pml_st%stage_state(PML_FACE_Y_P) ; dqf => self%pml_st%rhs_register(PML_FACE_Y_P)
+      lam => self%pml_st%decay(PML_FACE_Y_P)%lam
+      call apply_y_face_field_correction_dev(q_face_gpu=qf, blocks_gpu=self%pml_fnl%blocks_y_p_gpu,                   &
+                                             start_gpu=self%pml_fnl%start_y_p_gpu, cells_gpu=self%pml_fnl%cells_y_p_gpu, &
+                                             kappa_gpu=self%pml_fnl%kappa_y_p_gpu)
+      call compute_y_face_pml_rhs_dev(q_face_gpu=qf, dq_face_gpu=dqf, blocks_gpu=self%pml_fnl%blocks_y_p_gpu,         &
+                                      start_gpu=self%pml_fnl%start_y_p_gpu, cells_gpu=self%pml_fnl%cells_y_p_gpu,       &
+                                      gamma_gpu=self%pml_fnl%gamma_y_p_gpu, alpha_gpu=self%pml_fnl%alpha_y_p_gpu,       &
+                                      kappa_gpu=self%pml_fnl%kappa_y_p_gpu, lam_gpu=lam)
+   endif
+   if (self%pml_st%active(PML_FACE_Z_M)) then
+      call self%pml_st%zero_rhs(PML_FACE_Z_M)
+      qf => self%pml_st%stage_state(PML_FACE_Z_M) ; dqf => self%pml_st%rhs_register(PML_FACE_Z_M)
+      lam => self%pml_st%decay(PML_FACE_Z_M)%lam
+      call apply_z_face_field_correction_dev(q_face_gpu=qf, blocks_gpu=self%pml_fnl%blocks_z_m_gpu,                   &
+                                             start_gpu=self%pml_fnl%start_z_m_gpu, cells_gpu=self%pml_fnl%cells_z_m_gpu, &
+                                             kappa_gpu=self%pml_fnl%kappa_z_m_gpu)
+      call compute_z_face_pml_rhs_dev(q_face_gpu=qf, dq_face_gpu=dqf, blocks_gpu=self%pml_fnl%blocks_z_m_gpu,         &
+                                      start_gpu=self%pml_fnl%start_z_m_gpu, cells_gpu=self%pml_fnl%cells_z_m_gpu,       &
+                                      gamma_gpu=self%pml_fnl%gamma_z_m_gpu, alpha_gpu=self%pml_fnl%alpha_z_m_gpu,       &
+                                      kappa_gpu=self%pml_fnl%kappa_z_m_gpu, lam_gpu=lam)
+   endif
+   if (self%pml_st%active(PML_FACE_Z_P)) then
+      call self%pml_st%zero_rhs(PML_FACE_Z_P)
+      qf => self%pml_st%stage_state(PML_FACE_Z_P) ; dqf => self%pml_st%rhs_register(PML_FACE_Z_P)
+      lam => self%pml_st%decay(PML_FACE_Z_P)%lam
+      call apply_z_face_field_correction_dev(q_face_gpu=qf, blocks_gpu=self%pml_fnl%blocks_z_p_gpu,                   &
+                                             start_gpu=self%pml_fnl%start_z_p_gpu, cells_gpu=self%pml_fnl%cells_z_p_gpu, &
+                                             kappa_gpu=self%pml_fnl%kappa_z_p_gpu)
+      call compute_z_face_pml_rhs_dev(q_face_gpu=qf, dq_face_gpu=dqf, blocks_gpu=self%pml_fnl%blocks_z_p_gpu,         &
+                                      start_gpu=self%pml_fnl%start_z_p_gpu, cells_gpu=self%pml_fnl%cells_z_p_gpu,       &
+                                      gamma_gpu=self%pml_fnl%gamma_z_p_gpu, alpha_gpu=self%pml_fnl%alpha_z_p_gpu,       &
+                                      kappa_gpu=self%pml_fnl%kappa_z_p_gpu, lam_gpu=lam)
    endif
 
    contains
@@ -3635,9 +3612,10 @@ contains
       endsubroutine apply_x_face_field_correction_dev
 
       subroutine compute_x_face_pml_rhs_dev(q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
-           kappa_gpu)
+           kappa_gpu, lam_gpu)
       real(R8P),    intent(in)    :: q_face_gpu(:,:,:,:,:)
       real(R8P),    intent(inout) :: dq_face_gpu(:,:,:,:,:)
+      real(R8P),    intent(inout) :: lam_gpu(:,:,:,:,:) !< Decay rate (written with the exact decay).
       integer(I4P), intent(in)    :: blocks_gpu(:), start_gpu(:), cells_gpu(:)
       real(R8P),    intent(in)    :: gamma_gpu(:,:), alpha_gpu(:,:), kappa_gpu(:,:)
       integer(I4P)                :: b, cells, i, i0, j, k, lid, li, ss
@@ -3647,11 +3625,11 @@ contains
       !$omp declare target(compute_derivative1_fd_centered)
 
       !$acc parallel loop gang vector collapse(4) independent &
-      !$acc& DEVICEVAR(q_gpu,q_face_gpu,dq_face_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
-      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
+      !$acc& DEVICEVAR(q_gpu,q_face_gpu,dq_face_gpu,lam_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
+      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale, exact) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       !$omp OMPLOOP collapse(4) &
-      !$omp& DEVICEPTR(q_gpu,q_face_gpu,dq_face_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
-      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
+      !$omp& DEVICEPTR(q_gpu,q_face_gpu,dq_face_gpu,lam_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
+      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale, exact) private(b,cells,i,i0,li,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       do k = 1, nk
          do j = 1, nj
             do li = 1, ubound(q_face_gpu, dim=2)
@@ -3670,29 +3648,49 @@ contains
                         q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_DY)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,li,j,k,1) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,li,j,k,1)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,li,j,k,1) = alpha + gamma / kappa
+                        dq_face_gpu(lid,li,j,k,1) = gamma / kappa**2 * d_field * inv_eps_scale
+                     else
+                        dq_face_gpu(lid,li,j,k,1) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,li,j,k,1)
+                     endif
                      !$acc loop seq
                      do ss = 1 - s1, 1 + s1
                         q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_DZ)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,li,j,k,2) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,li,j,k,2)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,li,j,k,2) = alpha + gamma / kappa
+                        dq_face_gpu(lid,li,j,k,2) = gamma / kappa**2 * d_field * inv_eps_scale
+                     else
+                        dq_face_gpu(lid,li,j,k,2) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,li,j,k,2)
+                     endif
                      !$acc loop seq
                      do ss = 1 - s1, 1 + s1
                         q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_BY)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,li,j,k,3) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,li,j,k,3)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,li,j,k,3) = alpha + gamma / kappa
+                        dq_face_gpu(lid,li,j,k,3) = gamma / kappa**2 * d_field * inv_mu_scale
+                     else
+                        dq_face_gpu(lid,li,j,k,3) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,li,j,k,3)
+                     endif
                      !$acc loop seq
                      do ss = 1 - s1, 1 + s1
                         q_line(ss) = q_gpu(b,i+ss-1_I4P,j,k,VAR_BZ)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,li,j,k,4) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,li,j,k,4)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,li,j,k,4) = alpha + gamma / kappa
+                        dq_face_gpu(lid,li,j,k,4) = gamma / kappa**2 * d_field * inv_mu_scale
+                     else
+                        dq_face_gpu(lid,li,j,k,4) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,li,j,k,4)
+                     endif
                   endif
                enddo
             enddo
@@ -3762,9 +3760,10 @@ contains
       endsubroutine apply_y_face_field_correction_dev
 
       subroutine compute_y_face_pml_rhs_dev(q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
-           kappa_gpu)
+           kappa_gpu, lam_gpu)
       real(R8P),    intent(in)    :: q_face_gpu(:,:,:,:,:)
       real(R8P),    intent(inout) :: dq_face_gpu(:,:,:,:,:)
+      real(R8P),    intent(inout) :: lam_gpu(:,:,:,:,:) !< Decay rate (written with the exact decay).
       integer(I4P), intent(in)    :: blocks_gpu(:), start_gpu(:), cells_gpu(:)
       real(R8P),    intent(in)    :: gamma_gpu(:,:), alpha_gpu(:,:), kappa_gpu(:,:)
       integer(I4P)                :: b, cells, i, j, j0, k, lid, lj, ss
@@ -3774,11 +3773,11 @@ contains
       !$omp declare target(compute_derivative1_fd_centered)
 
       !$acc parallel loop gang vector collapse(4) independent &
-      !$acc& DEVICEVAR(q_gpu,q_face_gpu,dq_face_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
-      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
+      !$acc& DEVICEVAR(q_gpu,q_face_gpu,dq_face_gpu,lam_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
+      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale, exact) private(b,cells,j,j0,lj,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       !$omp OMPLOOP collapse(4) &
-      !$omp& DEVICEPTR(q_gpu,q_face_gpu,dq_face_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
-      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,j,j0,lj,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
+      !$omp& DEVICEPTR(q_gpu,q_face_gpu,dq_face_gpu,lam_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
+      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale, exact) private(b,cells,j,j0,lj,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       do k = 1, nk
          do lj = 1, ubound(q_face_gpu, dim=3)
             do i = 1, ni
@@ -3797,29 +3796,49 @@ contains
                         q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_DX)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,i,lj,k,1) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,i,lj,k,1)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,i,lj,k,1) = alpha + gamma / kappa
+                        dq_face_gpu(lid,i,lj,k,1) = gamma / kappa**2 * d_field * inv_eps_scale
+                     else
+                        dq_face_gpu(lid,i,lj,k,1) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,i,lj,k,1)
+                     endif
                      !$acc loop seq
                      do ss = 1 - s1, 1 + s1
                         q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_DZ)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,i,lj,k,2) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,i,lj,k,2)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,i,lj,k,2) = alpha + gamma / kappa
+                        dq_face_gpu(lid,i,lj,k,2) = gamma / kappa**2 * d_field * inv_eps_scale
+                     else
+                        dq_face_gpu(lid,i,lj,k,2) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,i,lj,k,2)
+                     endif
                      !$acc loop seq
                      do ss = 1 - s1, 1 + s1
                         q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_BX)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,i,lj,k,3) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,i,lj,k,3)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,i,lj,k,3) = alpha + gamma / kappa
+                        dq_face_gpu(lid,i,lj,k,3) = gamma / kappa**2 * d_field * inv_mu_scale
+                     else
+                        dq_face_gpu(lid,i,lj,k,3) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,i,lj,k,3)
+                     endif
                      !$acc loop seq
                      do ss = 1 - s1, 1 + s1
                         q_line(ss) = q_gpu(b,i,j+ss-1_I4P,k,VAR_BZ)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,i,lj,k,4) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,i,lj,k,4)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,i,lj,k,4) = alpha + gamma / kappa
+                        dq_face_gpu(lid,i,lj,k,4) = gamma / kappa**2 * d_field * inv_mu_scale
+                     else
+                        dq_face_gpu(lid,i,lj,k,4) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,i,lj,k,4)
+                     endif
                   endif
                enddo
             enddo
@@ -3889,9 +3908,10 @@ contains
       endsubroutine apply_z_face_field_correction_dev
 
       subroutine compute_z_face_pml_rhs_dev(q_face_gpu, dq_face_gpu, blocks_gpu, start_gpu, cells_gpu, gamma_gpu, alpha_gpu, &
-           kappa_gpu)
+           kappa_gpu, lam_gpu)
       real(R8P),    intent(in)    :: q_face_gpu(:,:,:,:,:)
       real(R8P),    intent(inout) :: dq_face_gpu(:,:,:,:,:)
+      real(R8P),    intent(inout) :: lam_gpu(:,:,:,:,:) !< Decay rate (written with the exact decay).
       integer(I4P), intent(in)    :: blocks_gpu(:), start_gpu(:), cells_gpu(:)
       real(R8P),    intent(in)    :: gamma_gpu(:,:), alpha_gpu(:,:), kappa_gpu(:,:)
       integer(I4P)                :: b, cells, i, j, k, k0, lid, lk, ss
@@ -3901,11 +3921,11 @@ contains
       !$omp declare target(compute_derivative1_fd_centered)
 
       !$acc parallel loop gang vector collapse(4) independent &
-      !$acc& DEVICEVAR(q_gpu,q_face_gpu,dq_face_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
-      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
+      !$acc& DEVICEVAR(q_gpu,q_face_gpu,dq_face_gpu,lam_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
+      !$acc& firstprivate(s1, inv_eps_scale, inv_mu_scale, exact) private(b,cells,k,k0,lk,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       !$omp OMPLOOP collapse(4) &
-      !$omp& DEVICEPTR(q_gpu,q_face_gpu,dq_face_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
-      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale) private(b,cells,k,k0,lk,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
+      !$omp& DEVICEPTR(q_gpu,q_face_gpu,dq_face_gpu,lam_gpu,blocks_gpu,start_gpu,cells_gpu,gamma_gpu,alpha_gpu,kappa_gpu,dxyz_gpu) &
+      !$omp& firstprivate(s1, inv_eps_scale, inv_mu_scale, exact) private(b,cells,k,k0,lk,d_field,dxyz,gamma,alpha,kappa,ss,q_line)
       do lk = 1, ubound(q_face_gpu, dim=4)
          do j = 1, nj
             do i = 1, ni
@@ -3924,29 +3944,49 @@ contains
                         q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_DX)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,i,j,lk,1) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,i,j,lk,1)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,i,j,lk,1) = alpha + gamma / kappa
+                        dq_face_gpu(lid,i,j,lk,1) = gamma / kappa**2 * d_field * inv_eps_scale
+                     else
+                        dq_face_gpu(lid,i,j,lk,1) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,i,j,lk,1)
+                     endif
                      !$acc loop seq
                      do ss = 1 - s1, 1 + s1
                         q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_DY)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,i,j,lk,2) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,i,j,lk,2)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,i,j,lk,2) = alpha + gamma / kappa
+                        dq_face_gpu(lid,i,j,lk,2) = gamma / kappa**2 * d_field * inv_eps_scale
+                     else
+                        dq_face_gpu(lid,i,j,lk,2) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,i,j,lk,2)
+                     endif
                      !$acc loop seq
                      do ss = 1 - s1, 1 + s1
                         q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_BX)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,i,j,lk,3) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,i,j,lk,3)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,i,j,lk,3) = alpha + gamma / kappa
+                        dq_face_gpu(lid,i,j,lk,3) = gamma / kappa**2 * d_field * inv_mu_scale
+                     else
+                        dq_face_gpu(lid,i,j,lk,3) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,i,j,lk,3)
+                     endif
                      !$acc loop seq
                      do ss = 1 - s1, 1 + s1
                         q_line(ss) = q_gpu(b,i,j,k+ss-1_I4P,VAR_BY)
                      enddo
                      call compute_derivative1_fd_centered(s=s1, ds=dxyz, q=q_line(1-s1:1+s1), dq_ds=d_field)
-                     dq_face_gpu(lid,i,j,lk,4) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
-                          * q_face_gpu(lid,i,j,lk,4)
+                     if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
+                        lam_gpu(lid,i,j,lk,4) = alpha + gamma / kappa
+                        dq_face_gpu(lid,i,j,lk,4) = gamma / kappa**2 * d_field * inv_mu_scale
+                     else
+                        dq_face_gpu(lid,i,j,lk,4) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) &
+                             * q_face_gpu(lid,i,j,lk,4)
+                     endif
                   endif
                enddo
             enddo
@@ -5259,8 +5299,7 @@ contains
 
    call ts_begin_step(self)
    call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
+   call pml_begin_step(self)
 
    call self%initialize_charge_conservation_diagnostic
 
@@ -5268,8 +5307,7 @@ contains
       call ts_begin_stage(self, s=s)
       u => self%ts%stage_state()
       call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
-      if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-         call self%rk_pml_fnl%compute_stage(s=s, dt=self%time%dt)
+      call pml_begin_stage(self, k=s)
 
       call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
                                                           grid=self%adam%grid, q_pic_gpu=self%rk_pic_fnl%q_pic_rk_gpu(:,:,s))
@@ -5300,13 +5338,12 @@ contains
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
       call ts_end_stage(self, s=s)
       call self%rk_pic_fnl%assign_stage(s=s, pic_fields_gpu=self%pic_fnl%pic_fields_gpu)
-      if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) call self%rk_pml_fnl%assign_stage(s=s)
+      call pml_end_stage(self, k=s)
    enddo
 
    call ts_finish_step(self)
    call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
+   call pml_finish_step(self)
 
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
@@ -5411,8 +5448,7 @@ contains
    call cc%prepare(field=self%adam%field, grid=self%adam%grid)
    call ts_begin_step(self)
    call self%rk_pic_fnl%initialize_stages(q_pic_gpu=self%pic_fnl%q_pic_gpu)
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
+   call pml_begin_step(self)
    if (cleanup) call cc%copy_particles(src=self%pic_fnl%q_pic_gpu, dst=cc%q_ref_gpu)
    cc%residual_max = 0._R8P
    call self%initialize_charge_conservation_diagnostic
@@ -5421,8 +5457,7 @@ contains
       call ts_begin_stage(self, s=s)
       u => self%ts%stage_state()
       call self%rk_pic_fnl%compute_stage(s=s, dt=self%time%dt)
-      if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-         call self%rk_pml_fnl%compute_stage(s=s, dt=self%time%dt)
+      call pml_begin_stage(self, k=s)
 
       ! compute_stage fills only the interior cells and the stage ghosts are refreshed by compute_residuals_dev, which
       ! here runs after the gather: refresh them now, or the gather reads stale ghosts at block interfaces and walls
@@ -5495,13 +5530,12 @@ contains
 
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
       call ts_end_stage(self, s=s)
-      if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) call self%rk_pml_fnl%assign_stage(s=s)
+      call pml_end_stage(self, k=s)
    enddo
 
    call ts_finish_step(self)
    call self%rk_pic_fnl%update_q_pic(dt=self%time%dt, q_pic_gpu=self%pic_fnl%q_pic_gpu)
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
+   call pml_finish_step(self)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
 
    ! end-of-step charge and current
@@ -5589,6 +5623,72 @@ contains
    endassociate
    endsubroutine initialize_pic_conserving_current_time_zero
 
+   subroutine pml_begin_step(self)
+   !< Open the step of every PML face companion (#134 D5; nothing without an integrated PML).
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%pml_st%enabled) return
+   if (self%pml_st%active(PML_FACE_X_M)) call self%pml_st%begin_step(f=PML_FACE_X_M, q=self%pml_fnl%q_pml_x_m_gpu)
+   if (self%pml_st%active(PML_FACE_X_P)) call self%pml_st%begin_step(f=PML_FACE_X_P, q=self%pml_fnl%q_pml_x_p_gpu)
+   if (self%pml_st%active(PML_FACE_Y_M)) call self%pml_st%begin_step(f=PML_FACE_Y_M, q=self%pml_fnl%q_pml_y_m_gpu)
+   if (self%pml_st%active(PML_FACE_Y_P)) call self%pml_st%begin_step(f=PML_FACE_Y_P, q=self%pml_fnl%q_pml_y_p_gpu)
+   if (self%pml_st%active(PML_FACE_Z_M)) call self%pml_st%begin_step(f=PML_FACE_Z_M, q=self%pml_fnl%q_pml_z_m_gpu)
+   if (self%pml_st%active(PML_FACE_Z_P)) call self%pml_st%begin_step(f=PML_FACE_Z_P, q=self%pml_fnl%q_pml_z_p_gpu)
+   endsubroutine pml_begin_step
+
+   subroutine pml_begin_stage(self, k)
+   !< Open stage k of every PML face companion: SELAH builds the faces' stage states.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: k    !< Stage.
+
+   if (.not.self%pml_st%enabled) return
+   if (self%pml_st%active(PML_FACE_X_M)) call self%pml_st%begin_stage(f=PML_FACE_X_M, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_x_m_gpu)
+   if (self%pml_st%active(PML_FACE_X_P)) call self%pml_st%begin_stage(f=PML_FACE_X_P, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_x_p_gpu)
+   if (self%pml_st%active(PML_FACE_Y_M)) call self%pml_st%begin_stage(f=PML_FACE_Y_M, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_y_m_gpu)
+   if (self%pml_st%active(PML_FACE_Y_P)) call self%pml_st%begin_stage(f=PML_FACE_Y_P, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_y_p_gpu)
+   if (self%pml_st%active(PML_FACE_Z_M)) call self%pml_st%begin_stage(f=PML_FACE_Z_M, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_z_m_gpu)
+   if (self%pml_st%active(PML_FACE_Z_P)) call self%pml_st%begin_stage(f=PML_FACE_Z_P, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_z_p_gpu)
+   endsubroutine pml_begin_stage
+
+   subroutine pml_end_stage(self, k)
+   !< Close stage k of every PML face companion, the residuals written by the stage's residual.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P),            intent(in)    :: k    !< Stage.
+
+   if (.not.self%pml_st%enabled) return
+   if (self%pml_st%active(PML_FACE_X_M)) call self%pml_st%end_stage(f=PML_FACE_X_M, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_x_m_gpu)
+   if (self%pml_st%active(PML_FACE_X_P)) call self%pml_st%end_stage(f=PML_FACE_X_P, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_x_p_gpu)
+   if (self%pml_st%active(PML_FACE_Y_M)) call self%pml_st%end_stage(f=PML_FACE_Y_M, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_y_m_gpu)
+   if (self%pml_st%active(PML_FACE_Y_P)) call self%pml_st%end_stage(f=PML_FACE_Y_P, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_y_p_gpu)
+   if (self%pml_st%active(PML_FACE_Z_M)) call self%pml_st%end_stage(f=PML_FACE_Z_M, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_z_m_gpu)
+   if (self%pml_st%active(PML_FACE_Z_P)) call self%pml_st%end_stage(f=PML_FACE_Z_P, k=k, dt=self%time%dt, &
+                                           q=self%pml_fnl%q_pml_z_p_gpu)
+   endsubroutine pml_end_stage
+
+   subroutine pml_finish_step(self)
+   !< Close the step of every PML face companion: SELAH advances the device face arrays.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   if (.not.self%pml_st%enabled) return
+   if (self%pml_st%active(PML_FACE_X_M)) call self%pml_st%finish_step(f=PML_FACE_X_M, dt=self%time%dt, q=self%pml_fnl%q_pml_x_m_gpu)
+   if (self%pml_st%active(PML_FACE_X_P)) call self%pml_st%finish_step(f=PML_FACE_X_P, dt=self%time%dt, q=self%pml_fnl%q_pml_x_p_gpu)
+   if (self%pml_st%active(PML_FACE_Y_M)) call self%pml_st%finish_step(f=PML_FACE_Y_M, dt=self%time%dt, q=self%pml_fnl%q_pml_y_m_gpu)
+   if (self%pml_st%active(PML_FACE_Y_P)) call self%pml_st%finish_step(f=PML_FACE_Y_P, dt=self%time%dt, q=self%pml_fnl%q_pml_y_p_gpu)
+   if (self%pml_st%active(PML_FACE_Z_M)) call self%pml_st%finish_step(f=PML_FACE_Z_M, dt=self%time%dt, q=self%pml_fnl%q_pml_z_m_gpu)
+   if (self%pml_st%active(PML_FACE_Z_P)) call self%pml_st%finish_step(f=PML_FACE_Z_P, dt=self%time%dt, q=self%pml_fnl%q_pml_z_p_gpu)
+   endsubroutine pml_finish_step
+
    subroutine integrate_rk_ls_dev(self)
    !< Integrate equation, time operator, RK classical low storage schemes on the device: SELAH's two-register form (#132),
    !< every stage on q_gpu; the residual of each stage into dq_gpu (the residual log is stage 1's), copied into the
@@ -5621,23 +5721,20 @@ contains
    integer(I4P)                           :: s            !< Counter.
 
    call ts_begin_step(self)
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
+   call pml_begin_step(self)
    do s=1, self%ts%stages()
       call ts_begin_stage(self, s=s)
       u => self%ts%stage_state()
-      if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-         call self%rk_pml_fnl%compute_stage(s=s, dt=self%time%dt)
+      call pml_begin_stage(self, k=s)
       call self%compute_coils_current(q_gpu=u, gamm=self%ts%stage_time(s))
       call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=s)
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
       call ts_end_stage(self, s=s)
-      if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) call self%rk_pml_fnl%assign_stage(s=s)
+      call pml_end_stage(self, k=s)
    enddo
    call ts_finish_step(self)
    if (self%ib%solids_number<=0) call self%save_residuals
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
+   call pml_finish_step(self)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
 
@@ -6031,8 +6128,7 @@ contains
    self%time%dt = dt_step
 
    call ts_begin_step(self)
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%initialize_stages(pml_fnl=self%pml_fnl)
+   call pml_begin_step(self)
    endsubroutine open_step_forest
 
    subroutine begin_stage_forest(self, k, K_total, dt, realm)
@@ -6056,8 +6152,7 @@ contains
    ! the end_of_step seams (#132 rule 1, closes #116): SELAH never writes a ghost cell, so the stage state, when it is
    ! not q_gpu itself, takes the seam ghosts of q_gpu, which hold the peer state of the step's alpha fill (#113)
    if (.not.self%ts%state_is_q(k)) call self%seam_ghosts_to_state
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%compute_stage(s=k, dt=self%time%dt)
+   call pml_begin_stage(self, k=k)
    u => self%ts%stage_state()
    call self%compute_coils_current(q_gpu=u, gamm=self%ts%stage_time(k))
    endsubroutine begin_stage_forest
@@ -6121,7 +6216,7 @@ contains
    endif
    call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
    call ts_end_stage(self, s=k)
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) call self%rk_pml_fnl%assign_stage(s=k)
+   call pml_end_stage(self, k=k)
    endsubroutine end_stage_forest
 
    subroutine close_step_forest(self, dt)
@@ -6132,8 +6227,7 @@ contains
 
    call ts_finish_step(self)
    if (self%ib%solids_number<=0) call self%save_residuals
-   if (self%pml_fnl%enabled .and. trim(self%pml_fnl%pml_type) /= PML_TYPE_CLASSIC_DIRECT) &
-      call self%rk_pml_fnl%update_q_pml(dt=self%time%dt, pml_fnl=self%pml_fnl)
+   call pml_finish_step(self)
    call self%apply_fwl_correction(q_gpu=self%q_gpu)
    call self%compute_coils_current(q_gpu=self%q_gpu)
 

@@ -485,7 +485,7 @@ adam_prism_fnl_library
  ├── adam_fnl_library
  ├── adam_prism_fnl_coil_object, adam_prism_fnl_fwlayer_object (kernel only, no device state)
  ├── adam_prism_fnl_pic_object, adam_prism_fnl_leapfrog_pic_object, adam_prism_fnl_rk_pic_object
- ├── adam_prism_fnl_pml_object, adam_prism_fnl_rk_pml_object
+ ├── adam_prism_fnl_pml_object
  └── adam_prism_fnl_external_fields_kernels
 ```
 

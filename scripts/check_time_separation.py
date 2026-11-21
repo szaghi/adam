@@ -47,7 +47,6 @@ RK4 = re.compile(r'\bk1\b\s*\+\s*2\w*\s*\*\s*k2\b', re.IGNORECASE)
 
 # file name -> [(pattern a waived statement matches, reason and the issue that removes it)]
 _PIC = "PRISM's particles (PIC) advance in step with the field stepper on its SELAH tableau (szaghi/SELAH#4)"
-_PML = "PRISM's PML auxiliary fields advance in step with the field stepper on its SELAH tableau (szaghi/SELAH#4)"
 _CC = 'the charge-conserving PIC current combines the tableau rows (szaghi/SELAH#4)'
 _LIM = ("the positivity limiter's gravity work rho g . (u + g h/2) of one forward-Euler step h, the stage's "
         "(SELAH's stage_euler_fraction, #134 D4): the exact work of a constant-g kick over h, not a split (kept)")
@@ -55,8 +54,6 @@ _T0 = 'the PIC t0 centring drift x -+ dt/2 v builds J(t0), not a step (kept)'
 WAIVERS: dict[str, list[tuple[str, str]]] = {
     'adam_prism_rk_pic_object.F90': [('.', _PIC)],
     'adam_prism_fnl_rk_pic_object.F90': [('.', _PIC + ', device twin')],
-    'adam_prism_rk_pml_object.F90': [('.', _PML)],
-    'adam_prism_fnl_rk_pml_object.F90': [('.', _PML + ', device twin')],
     'adam_prism_cpu_object.F90': [(r'%st%bt%[ab]\b', _CC), (r'q_pic_next.*coeff\(r\)', _CC),
                                   (r'q_pic_(minus|plus)|0\.5_R8P\s*\*\s*self%time%dt\s*\*\s*self%q_pic', _T0)],
     'adam_prism_fnl_object.F90': [(r'%st%bt%[ab]\b', _CC)],

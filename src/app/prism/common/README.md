@@ -24,7 +24,7 @@ The `common/` directory contains all backend-independent modules shared by the C
 | `adam_prism_rk_pic_object.F90` | `adam_prism_rk_pic_object` | Runge-Kutta PIC particle time integrator |
 | `adam_prism_pic_bc_object.F90` | `adam_prism_pic_bc_object` | Particle closure at the domain faces (periodic or legacy) |
 | `adam_prism_pml_object.F90` | `adam_prism_pml_object` | Perfectly matched layer (`[PML]`) |
-| `adam_prism_rk_pml_object.F90` | `adam_prism_rk_pml_object` | RK support for the PML auxiliary variables |
+| `adam_prism_pml_stepper_object.F90` | `adam_prism_pml_stepper_object` | The PML auxiliary variables as SELAH companions of the field stepper |
 | `adam_prism_absorbing_layer_geometry.F90` | `adam_prism_absorbing_layer_geometry` | Layer geometry shared by fWLayer and PML |
 | `adam_prism_probes_object.F90` | `adam_prism_probes_object` | Field probes (`[probes]`): time histories at fixed points |
 | `adam_prism_grms_object.F90` | `adam_prism_grms_object` | Grms diagnostic (`[grms]`) |

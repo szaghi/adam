@@ -219,6 +219,7 @@ off.
 | `PML_type` | string | no | none | `no`/`none`, `CLASSIC` (`PML`, `STANDARD`), `CLASSIC_DIRECT` (`DIRECT`, `CLASSIC-DIRECT`), `CFS` (`CPML`, `CFS_PML`), `BERMUDEZ`, with case variants; other values are fatal | PML formulation. |
 | `width` | real | yes (PML on) | 0 | `> 0`, otherwise fatal | Physical layer width. |
 | `C_gamma` (or `c_gamma`) | real | no | 0.1 | `> 0`, otherwise fatal | Time-step cap `dt <= C_gamma / gamma_max`. |
+| `exact_decay` | logical | no | `.false.` | | The decay of the auxiliary variables integrated exactly by SELAH (the residual is the source alone; [absorbing layers](./pml#perfectly-matched-layer)); default: the explicit Runge–Kutta step of the whole right-hand side. |
 | `x_minus_layer` … `z_plus_layer` | logical | yes (PML on) | — | at least one `.true.`, otherwise fatal | Faces carrying the PML. |
 | `gamma_max` | real | `CLASSIC`, `CLASSIC_DIRECT`, `CFS` | — | `>= 0`, otherwise fatal | Maximum damping. |
 | `gamma_exponent` | real | `CLASSIC`, `CLASSIC_DIRECT`, `BERMUDEZ` | — | `> 0`, otherwise fatal | Exponent of the damping profile. |
