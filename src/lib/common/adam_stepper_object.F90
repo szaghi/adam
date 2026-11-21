@@ -29,13 +29,12 @@ module adam_stepper_object
 !<
 !< **The stage window.** Between `begin_stage(k)` and `end_stage(k)` the state of stage k is `q` itself when
 !< `state_is_q(k)` (every stage of the two-register forms), else `stage_state()`; the caller fills its ghost cells and
-!< writes the residual into `rhs_register()`. In the Butcher form the masked (solid) cells of the stage state start the
-!< stage as a copy of `q`, as every stage buffer of `rk_object` does: the immersed-boundary extrapolation of the
-!< residual starts from them.
+!< writes the residual into `rhs_register()`. The masked (solid) cells of every stage state hold `q`, as every stage
+!< buffer of `rk_object` did: SELAH's mask policy (`masked_q=.true.`, szaghi/SELAH#5), written by its stage kernel in
+!< the same pass; the immersed-boundary extrapolation of the residual starts from them.
 !<
 !< The same source serves the CPU backends (host build) and the FNL backends (OpenACC build, `-DDEV_OAC`): the arrays
-!< passed (`q`, `phi`, `dq`) are host arrays in the first, device arrays (FUNDAL pointers) in the second, and the
-!< adapter's own loop (the masked stage-state copy) is a FUNDAL kernel (`fundal.H`), as SELAH's are.
+!< passed (`q`, `phi`, `dq`) are host arrays in the first, device arrays (FUNDAL pointers) in the second.
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
 use :: adam_ini_library,  only : ini_check, ini_get
@@ -186,26 +185,15 @@ contains
    endsubroutine begin_step
 
    subroutine begin_stage(self, k, field, dt, q, phi)
-   !< Open stage `k`: SELAH builds its state; in the Butcher form the masked cells of the state start as `q`.
+   !< Open stage `k`: SELAH builds its state (its masked cells `q`, the mask policy).
    class(stepper_object), intent(inout)        :: self    !< Stepper.
    integer(I4P),          intent(in)           :: k       !< Stage.
    type(field_object),    intent(in)           :: field   !< Field (sibling realm component, threaded in).
    real(R8P),             intent(in)           :: dt      !< Time step.
    real(R8P),             intent(in)           :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< State.
    real(R8P),             intent(in), optional :: phi(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< IB distance.
-   real(R8P), pointer                          :: u(:,:,:,:,:) !< Stage state.
 
    call self%st%begin_stage(k, self%interior_box(field), dt, q, mask=phi)
-   if (.not.present(phi)) return
-   if (self%st%stage_state_is_q(k)) return
-   u => self%st%stage_state()
-   if (self%layout == LAYOUT_V_FIRST) then
-      call masked_copy_v_first(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
-                               blocks_number=field%blocks_number, phi=phi, q=q, u=u)
-   else
-      call masked_copy_v_last(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
-                              blocks_number=field%blocks_number, phi=phi, q=q, u=u)
-   endif
    endsubroutine begin_stage
 
    pure function description(self) result(desc)
@@ -316,7 +304,7 @@ contains
    if (ierr /= 0) call mpih%error_stop(msg=': stepper_object%initialize: the '//trim(str(self%nregs, .true.))// &
                                            ' registers could not be allocated')
    call self%st%initialize(scheme=self%selah_scheme, form=self%form, lb=lb, ub=ub, partitions=partitions, &
-                           registers=self%regs, stages_on_q=.false.)
+                           registers=self%regs, stages_on_q=.false., masked_q=.true.)
    print '(A)', self%description()
    call mpih%print_message('stepper_object%initialize finish')
    endsubroutine initialize
@@ -432,54 +420,4 @@ contains
    bx = box_interior(self%layout, self%nv, self%ni, self%nj, self%nk, self%ngc, field%blocks_number)
    endfunction interior_box
 
-   ! private procedures
-   subroutine masked_copy_v_first(ni, nj, nk, ngc, nv, blocks_number, phi, q, u)
-   !< Copy `q` into the masked (solid) interior cells of the stage state `u`, layout (v, i, j, k, b): the cells SELAH
-   !< leaves untouched start the stage as `q`, as every `rk_object` stage did (the residual's immersed-boundary
-   !< extrapolation starts from them). The mask component is the last one, the all-solids distance.
-   integer(I4P), intent(in)    :: ni, nj, nk, ngc, nv, blocks_number     !< Dimensions, active blocks.
-   real(R8P),    intent(in)    :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:)        !< IB distance.
-   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< State.
-   real(R8P),    intent(inout) :: u(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< Stage state.
-   integer(I4P)                :: mc, b, i, j, k, v                      !< Mask component, counters.
-
-   mc = ubound(phi, dim=1)
-   !$acc parallel loop independent collapse(5) DEVICEVAR(phi, q, u)
-   !$omp OMPLOOP collapse(5) DEVICEPTR(phi, q, u)
-   do b=1, blocks_number
-      do k=1, nk
-         do j=1, nj
-            do i=1, ni
-               do v=1, nv
-                  if (phi(mc,i,j,k,b) >= 0._R8P) u(v,i,j,k,b) = q(v,i,j,k,b)
-               enddo
-            enddo
-         enddo
-      enddo
-   enddo
-   endsubroutine masked_copy_v_first
-
-   subroutine masked_copy_v_last(ni, nj, nk, ngc, nv, blocks_number, phi, q, u)
-   !< `masked_copy_v_first` for the layout (b, i, j, k, v) of the FNL backends.
-   integer(I4P), intent(in)    :: ni, nj, nk, ngc, nv, blocks_number     !< Dimensions, active blocks.
-   real(R8P),    intent(in)    :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:)        !< IB distance.
-   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< State.
-   real(R8P),    intent(inout) :: u(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< Stage state.
-   integer(I4P)                :: mc, b, i, j, k, v                      !< Mask component, counters.
-
-   mc = ubound(phi, dim=5)
-   !$acc parallel loop independent collapse(5) DEVICEVAR(phi, q, u)
-   !$omp OMPLOOP collapse(5) DEVICEPTR(phi, q, u)
-   do v=1, nv
-      do k=1, nk
-         do j=1, nj
-            do i=1, ni
-               do b=1, blocks_number
-                  if (phi(b,i,j,k,mc) >= 0._R8P) u(b,i,j,k,v) = q(b,i,j,k,v)
-               enddo
-            enddo
-         enddo
-      enddo
-   enddo
-   endsubroutine masked_copy_v_last
 endmodule adam_stepper_object
