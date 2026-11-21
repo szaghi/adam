@@ -78,6 +78,21 @@ because the `si` descaler varies from face to face (RJ2a: GLM equals the run wit
 The default `js` is the first formula, bitwise unchanged: the kernel receives $1/\mu$, which is exactly 1 for `js`, so
 the choice costs no branch in the kernels.
 
+**Round-off sensitivity of `js` on low-β MHD.** On the flux-splitting scheme at low β (the Balsara–Spicer blast,
+$\beta = 2.5\cdot10^{-4}$, characteristic variables) the `js` weights amplify a round-off difference in the data by
+about $3\cdot10^{4}$ within one step at the blast front; the `si` weights do not. Measured on two states that are equal
+in exact arithmetic, the identical $z$ layers of an octree run with a null $z$ axis
+([quadtree AMR](./verification/mhd/quadtree-amr), MV-15): with `js` they differ by $10^{-8}$ after 16 steps and by
+$1.9\cdot10^{-3}$ ($\psi$) at $t = 0.006$, with `si` by $3\cdot10^{-12}$ and $5\cdot10^{-8}$; on `weno-riemann` HLLD
+by $10^{-13}$ with `js`. The weights set this seed only: the splitting scheme's low-β grid-scale instability grows it
+by an e-fold about every 10 steps with either (the
+[MHD blast symmetry study](./verification/runtime-amr/mhd-blast-symmetry): `si` delays the loss of point symmetry by
+about 120 steps, 0.08 at $t = 0.01$ against 0.18, and does not prevent it).
+`js` stays the default: switching would change every MHD golden, and the accuracy cost of `si` on MHD is not measured
+([#138](https://github.com/szaghi/adam/issues/138) tracks it).
+Where the agreement of runs that are equal in exact arithmetic matters (backends, decompositions, symmetric setups),
+`[weno] weights = si` keeps it longer; `weno-riemann` with `riemann_solver = hlld` keeps it.
+
 The WENO kernel takes its coefficient tables as arguments, so one kernel serves two purposes:
 
 - **reconstruction** (`weno`): from point values of a flux, the face value whose difference approximates the derivative;
