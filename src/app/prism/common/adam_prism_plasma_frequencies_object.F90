@@ -210,6 +210,6 @@ contains
    if (.not.self%single_step .and. self%dt_source(dt) == DT_SOURCE_PLASMA) &
       call mpih%error_stop(msg=': the plasma frequencies limit dt (omega_max dt_CFL >= [PIC].(omega_dt_max)), but the '// &
                                'field or PIC time scheme is not a single-step Runge-Kutta and needs a constant dt: reduce '// &
-                               '[time].(CFL) (leapfrog + Boris is not supported yet)')
+                               '[time].(CFL)')
    endsubroutine check_step
 endmodule adam_prism_plasma_frequencies_object

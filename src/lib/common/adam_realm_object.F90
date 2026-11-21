@@ -120,10 +120,10 @@ type :: realm_object
    !< Inter-realm seam coupling — currently-published stage buffer key.
    !<
    !< Integrator-agnostic: the forest sees an opaque `k = 1..K` clock, where
-   !< `K = stages_per_step_forest()` is the realm's own stride. For RK
-   !< realms `k` happens to map 1-to-1 to the SSP-RK substage; for other
-   !< integrators (Leapfrog, Yoshida, CFM, splitting) it indexes whatever
-   !< sub-operator boundary the integrator chooses to expose to peers.
+   !< `K = stages_per_step_forest()` is the realm's own stride: `k` is the
+   !< stage of the realm's SELAH stepper (`ts`). The staged path admits only
+   !< the schemes whose stages sit on registers of their own (`ts%is_butcher()`,
+   !< the SSP schemes); the others run on the fused N=1 path.
    !<
    !< Lifecycle:
    !<   * 0 at construction and after `close_step_forest`
@@ -637,11 +637,10 @@ contains
    !< Return the number of integrator stages this realm exposes per step.
    !<
    !< Integrator-agnostic: `K` is the number of inter-realm seam-coherence
-   !< boundaries the realm wants visible to the forest. For SSP-RK realms
-   !< `K = ts%stages()`; for Leapfrog realms `K = 2` (kick, drift); for Yoshida
-   !< composition `K` is the number of sub-operators; for an operator-split
-   !< realm that does all its work atomically and only needs one peer-sync
-   !< per step, `K = 1`.
+   !< boundaries the realm wants visible to the forest: `K = ts%stages()` for
+   !< the SSP schemes the staged path admits (FLUME and PRISM refuse the
+   !< others here). A realm that does all its work atomically and needs one
+   !< peer-sync per step would report `K = 1`.
    !<
    !< Invoked by forest%evolve_one_step on the multi-realm path to size the
    !< stage loop. Under α (end-of-step seam coupling) realms may report
@@ -1035,10 +1034,9 @@ contains
    !< the correction delta into its OWN stage buffer (the stepper's registers).
    !<
    !< Architectural role: this TBP keeps the per-realm reflux write
-   !< integrator-private. The forest never names `q_rk`, `ark`, or any
-   !< other RK-specific identifier — those live realm-side, so a future
-   !< Leapfrog / Yoshida / CFM realm can implement reflux on its own
-   !< buffer naming without touching the orchestrator.
+   !< integrator-private. The forest never names a stepper register or a
+   !< stage weight: those live realm-side (`ts`), so a realm can change its
+   !< integrator without touching the orchestrator.
    !<
    !< The realm's 1-based forest position is read from `self%realm_index`,
    !< which the forest writes once at initialize-time; no per-call plumbing

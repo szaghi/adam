@@ -10,7 +10,7 @@ module adam_flux_register_object
 !<
 !< Integrator-agnostic vocabulary: the per-face accumulator's third axis is
 !< nominally sized by `n_stages` (the realm's `stages_per_step_forest()`
-!< return value). For RK realms this happens to equal `rk%nrk`, but the
+!< return value). For RK realms this equals `ts%stages()`, but the
 !< register API uses the neutral name so a non-RK integrator can register /
 !< accumulate / correct against the same machinery without any vocabulary
 !< mismatch.
@@ -26,7 +26,7 @@ module adam_flux_register_object
 !< third-axis allocation is forced to 1 regardless of the value passed**;
 !< the per-stage discipline at the call site lives in the caller (the
 !< forest passes `n_stages=1`, PRISM's `accumulate_seam_fluxes_fv` passes
-!< `stage=1` and gates the accumulation on `stage_idx == rk%nrk`). This is
+!< `stage=1` and weights each stage's accumulation by `ts%stage_weight(stage_idx)`). This is
 !< the AMReX `Reflux` cadence; same-K and asymmetric-K both reduce to the
 !< same Berger-Colella end-of-step correction.
 !<

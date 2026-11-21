@@ -1472,14 +1472,14 @@ contains
    !< For the multi-realm path the forest drives the stage loop, so it
    !< needs to know `K` up front. ONLY `runge-kutta-ssp-*` is split into
    !< per-stage TBPs (`begin_stage_forest` / `end_stage_forest`): the
-   !< staged protocol reads `gamm(k)` per stage and applies `beta(:)` in
-   !< `close_step_forest` — coefficients the low-storage schemes do not
-   !< even allocate (issue #25: LS schemes used to pass this gate silently
-   !< and crash/corrupt far downstream on both backends). The forest
-   !< queries this TBP only on the STAGED branch, so refusing here leaves
-   !< the fused N=1/no-seam fast path — where LS schemes legitimately run —
-   !< untouched. Other integrators (Yoshida, Leapfrog, Blanes-Moan, CFM)
-   !< must error-stop here as well when they become selectable.
+   !< staged protocol needs every stage on a register of its own (SELAH's
+   !< Butcher form, `ts%is_butcher()`), which the two-register schemes
+   !< (`runge-kutta-1/2/3`) and the Yoshida splitting do not have (issue
+   !< #25: low-storage schemes once passed this gate silently and crashed
+   !< far downstream). The forest queries this TBP only on the STAGED
+   !< branch, so refusing here leaves the fused N=1/no-seam fast path —
+   !< where those schemes run — untouched. Leapfrog, Blanes-Moan and CFM
+   !< are refused at initialization (moved to SELAH, szaghi/SELAH#3).
    class(prism_cpu_object), intent(in) :: self !< The realm.
    integer(I4P)                        :: K    !< Number of integrator stages per step.
 
@@ -1495,9 +1495,9 @@ contains
    endfunction stages_per_step_forest
 
    subroutine open_step_forest(self, dt)
-   !< Per-step prologue on the multi-realm path: set dt, init RK stages.
+   !< Per-step prologue on the multi-realm path: set dt, open the stepper's step.
    !<
-   !< Mirrors the head of `integrate_rk_ssp`: external-field prelude (if active), `rk%initialize_stages(q=self%q)`, and
+   !< Mirrors the head of `integrate_rk_ssp`: `ts_begin_step` and the PML companions' `pml_begin_step`, and
    !< the per-step time bookkeeping `advance_one_step_forest` does inline (it increment, dt cap for time_max, self%time%dt update).
    !< Time advance and progress print run in `close_step_forest`, mirroring the legacy ordering.
    class(prism_cpu_object), intent(inout) :: self    !< The realm.
@@ -3722,7 +3722,7 @@ contains
       ! restores conservation to round-off (the AMReX non-subcycled flux register;
       ! ported from FLUME, issue #35 P5). The former final-substage-only gate stored
       ! F_K alone, which cannot cancel the seam mismatch of a multi-stage scheme. The
-      ! staged forest path is SSP-only (stages_per_step_forest), so beta is allocated.
+      ! weight is the stepper's (ts%stage_weight); the staged forest path is SSP-only.
       if (present(flux_register) .and. stage_idx >= 1_I4P &
                                   .and. allocated(self%adam%maps%inter_realm_face_register_index)) then
          if (flux_register%nfaces > 0_I4P) then
