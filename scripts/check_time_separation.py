@@ -49,8 +49,8 @@ RK4 = re.compile(r'\bk1\b\s*\+\s*2\w*\s*\*\s*k2\b', re.IGNORECASE)
 _PIC = "PRISM's particles (PIC) advance in step with the field stepper on its SELAH tableau (szaghi/SELAH#4)"
 _PML = "PRISM's PML auxiliary fields advance in step with the field stepper on its SELAH tableau (szaghi/SELAH#4)"
 _CC = 'the charge-conserving PIC current combines the tableau rows (szaghi/SELAH#4)'
-_LIM = ('the positivity limiter takes every stage as a forward-Euler step of dt, its gravity term time-centred '
-        'at dt/2 (szaghi/SELAH#5: the per-stage step)')
+_LIM = ("the positivity limiter's gravity work rho g . (u + g h/2) of one forward-Euler step h, the stage's "
+        "(SELAH's stage_euler_fraction, #134 D4): the exact work of a constant-g kick over h, not a split (kept)")
 _T0 = 'the PIC t0 centring drift x -+ dt/2 v builds J(t0), not a step (kept)'
 WAIVERS: dict[str, list[tuple[str, str]]] = {
     'adam_prism_rk_pic_object.F90': [('.', _PIC)],

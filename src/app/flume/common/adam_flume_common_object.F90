@@ -146,6 +146,8 @@ type, extends(realm_object) :: flume_common_object
    type(flume_numerics_object)    :: numerics            !< Numerics.
    type(flume_physics_object)     :: physics             !< Physics.
    type(flume_reference_object)   :: units               !< Reference layer (dimensional input, issue #49).
+   real(R8P)                      :: limiter_dt=0._R8P   !< Forward-Euler step the positivity limiter makes
+                                                         !< admissible: the active stage's (#134 D4).
    type(flume_sinks_object)       :: sinks               !< Sink particles (issue #94).
    type(flume_time_object)        :: time                !< Time handler.
    contains
@@ -209,6 +211,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: compute_sink_accelerations !< Mesh gravity at the sinks (issue #94).
       procedure, pass(self) :: deposit_sinks         !< Add the sinks' CIC mass to a packed density (issue #94).
       procedure, pass(self) :: drift_sinks           !< Drift the sinks by a step (issue #94).
+      procedure, pass(self) :: set_limiter_dt        !< The positivity limiter's forward-Euler step of a stage.
       procedure, pass(self) :: kick_sinks            !< Kick the sinks by half a step (issue #94).
       procedure, pass(self) :: sink_stencil          !< CIC stencil of a point: target points and weights (issue #94).
       procedure, pass(self) :: sinks_dt_limit        !< Time step limit of the sinks (issue #94).
@@ -2269,6 +2272,19 @@ contains
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%sinks%a, 3 * self%sinks%n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    endsubroutine compute_sink_accelerations
+
+   subroutine set_limiter_dt(self, s)
+   !< Set the forward-Euler step the positivity limiter makes admissible (#134 D4): stage s of the step takes its residual
+   !< into steps of at most `stage_euler_fraction(s) dt` (SELAH, from the scheme's Shu-Osher form: f_s = max_i
+   !< beta_is / alpha_is), so a stage state plus that step of its residual kept admissible keeps every later stage and
+   !< the step admissible; f_s = 1 for every stage of SSP-11/22/33, 0.39 to 0.66 for SSP-54. Without a stage (a residual
+   !< outside the step: the equilibrium residual, the D_flux diagnostic) the step dt.
+   class(flume_common_object), intent(inout)        :: self !< The equation.
+   integer(I4P),               intent(in), optional :: s    !< Stage.
+
+   self%limiter_dt = self%time%dt
+   if (present(s)) self%limiter_dt = self%ts%stage_euler_fraction(s) * self%time%dt
+   endsubroutine set_limiter_dt
 
    subroutine kick_sinks(self, dt)
    !< Kick the sinks by half a step with their current acceleration, `v += dt/2 a` (issue #94, KDK).

@@ -45,8 +45,9 @@
    ! of the step's first state, was inadmissible), so a stage may not take a cell below `KAPPA` times its backbone value;
    ! smooth updates differ from the backbone by O(dx), far from it. The floor is relative only (issue #49: FLUME's
    ! equations carry no unit, an absolute floor would make the result depend on the units of the input). A face
-   ! takes `theta = min(Lambda)` of its two cells and `F <- F^LLF + theta (F - F^LLF)`, so each forward-Euler step of
-   ! size `dt` is admissible; an SSP Runge-Kutta stage is a convex combination of such steps (all of size at most `dt`).
+   ! takes `theta = min(Lambda)` of its two cells and `F <- F^LLF + theta (F - F^LLF)`, so the forward-Euler step of
+   ! size `dt` is admissible. `dt` is the stage's step, `stage_euler_fraction(s)` times the time step (SELAH, #134 D4):
+   ! the largest step the stage's residual takes in the Shu-Osher form, of which every SSP stage is a convex combination.
 
    subroutine compute_positivity_factors(ni, nj, nk, ngc, blocks_number, gamma, ch, damping, hs, dt, g, has_phi, phi, &
                                          dxyz, is_null, q, q_aux, flx, fly, flz, gc, lam, bad, nonfinite)

@@ -1337,13 +1337,13 @@ contains
    endif
    endsubroutine initialize_flume
 
-   subroutine limit_positivity(self, q, flux_register)
+   subroutine limit_positivity(self, q, flux_register, s)
    !< Apply the positivity limiter to the face fluxes of the stage (issue #47, D-9): the cell factors of the model's
    !< kernel, their ghost exchange (intra-realm copies and MPI only: a ghost the exchange does not fill, at a physical
    !< boundary, keeps the factor 1 it was allocated with, so the face takes the interior cell's factor), the blending of
    !< the active directions. The limited faces and the cells with an inadmissible backbone are reduced over the ranks and
-   !< logged. The forward-Euler step of the limiter is the step `time%dt` (every stage of an SSP scheme is a convex
-   !< combination of forward-Euler steps of size at most `dt`).
+   !< logged. The forward-Euler step of the limiter is the stage's, `stage_euler_fraction(s) dt` (SELAH; `set_limiter_dt`,
+   !< #134 D4): the largest step of the stage's residual in the Shu-Osher form of the scheme.
    !<
    !< With 2:1 AMR seams (an intra-realm face in the forest's register) the seam flux is synchronised at this stage
    !< (issue #50, D1; `adam_flume_seam_sync_object`): the fine seam faces take the coarse donor state as backbone outer
@@ -1357,12 +1357,14 @@ contains
                                                              1-self%ngc:,&
                                                              1:)         !< Conservative variables of the stage.
    class(flux_register_object), intent(in),    optional :: flux_register !< Forest's flux register.
+   integer(I4P),                intent(in),    optional :: s             !< Stage (absent: the step dt).
    integer(I4P)                                         :: counts(5)     !< Inadmissible backbones, limited faces per
                                                                          !< direction, cells with a non-finite flux.
    integer(I4P), allocatable                            :: ridx(:,:)     !< Register index when the map is unallocated.
    logical                                              :: seam          !< The stage synchronises seam faces.
    integer(I4P)                                         :: d             !< Counter.
 
+   call self%set_limiter_dt(s=s)
    counts = 0_I4P
    seam = .false.
    if (present(flux_register)) then
@@ -1385,7 +1387,7 @@ contains
    ! the EOS parameter: c0^2 for the isothermal gas (issue #100), gamma otherwise
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                    &
              gamma=>self%physics%eos_arg,        &
-             ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
+             ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%limiter_dt, hs=>self%weno%S,    &
              dxyz=>self%adam%field%dxyz, g=>self%physics%gravity%g_uniform,                                      &
              has_phi=>self%physics%gravity%has_potential)
    select case(self%physics%model)
@@ -1812,7 +1814,7 @@ contains
    if (n == 0) return
    ! the EOS parameter (issue #100): gamma, or c0^2 / the table id of a barotropic gas
    associate(ngc=>self%ngc, gamma=>self%physics%eos_arg, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
-             dt=>self%time%dt, hs=>self%weno%S, dxyz=>self%adam%field%dxyz, g=>self%physics%gravity%g_uniform, &
+             dt=>self%limiter_dt, hs=>self%weno%S, dxyz=>self%adam%field%dxyz, g=>self%physics%gravity%g_uniform, &
              has_phi=>self%physics%gravity%has_potential)
    select case(self%physics%model)
    case(MODEL_EULER)
@@ -3861,7 +3863,7 @@ contains
    if (self%has_noslip) call self%close_noslip_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
-                                                                                         flux_register=flux_register)
+                                                                                         flux_register=flux_register, s=s)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
       if (flux_register%nfaces > 0_I4P .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
@@ -4098,7 +4100,7 @@ contains
    if (self%has_noslip) call self%close_noslip_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity(q=q, &
-                                                                                         flux_register=flux_register)
+                                                                                         flux_register=flux_register, s=s)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
       if (flux_register%nfaces > 0_I4P .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
@@ -4151,7 +4153,7 @@ contains
    call self%ts%begin_step(field=self%adam%field, q=self%q, phi=self%ib%phi)
    do s=1, self%ts%stages()
       call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
-      call self%compute_residuals(q=self%q, dq=self%dq)
+      call self%compute_residuals(q=self%q, dq=self%dq, s=s)
       if (s == 1) call self%save_residuals
       call self%ts%set_rhs(field=self%adam%field, dq=self%dq) ! SELAH's copy, as the FNL backend and RIPPLE (#134)
       call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)

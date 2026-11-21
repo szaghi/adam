@@ -1892,7 +1892,7 @@ contains
    endif
    endsubroutine initialize_flume
 
-   subroutine limit_positivity_dev(self, q_gpu, flux_register)
+   subroutine limit_positivity_dev(self, q_gpu, flux_register, s)
    !< Apply the positivity limiter to the device face fluxes of the stage (issue #47, D-9; device twin of the CPU
    !< `limit_positivity`): the model's factors kernel, the ghost exchange of the factors on the device (intra-realm copies
    !< and GPU-direct MPI only: a physical-boundary ghost keeps the factor 1 it was allocated with), the blending of the
@@ -1906,6 +1906,7 @@ contains
                                                                  1-self%ngc:,&
                                                                  1:)         !< Conservative variables of the stage.
    class(flux_register_object), intent(in),    optional :: flux_register !< Forest's flux register.
+   integer(I4P),                intent(in),    optional :: s             !< Stage (absent: the step dt).
    integer(I4P)                                         :: counts(5)     !< Inadmissible backbones, limited faces per
                                                                          !< direction, cells with a non-finite flux.
    integer(I4P), allocatable                            :: ridx(:,:)     !< Register index when the map is unallocated.
@@ -1913,6 +1914,7 @@ contains
    integer(I4P)                                         :: d             !< Counter.
    integer(I4P)                                         :: di(3,3)       !< Unit steps of the directions.
 
+   call self%set_limiter_dt(s=s)
    counts = 0_I4P
    seam = .false.
    if (present(flux_register)) then
@@ -1935,7 +1937,7 @@ contains
    di = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                            &
              gamma=>self%physics%eos_arg, &
-             ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%time%dt, hs=>self%weno%S,      &
+             ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, dt=>self%limiter_dt, hs=>self%weno%S,    &
              dxyz_gpu=>self%field_fnl%dxyz_gpu, g=>self%physics%gravity%g_uniform,                              &
              has_phi=>self%physics%gravity%has_potential)
    select case(self%physics%model)
@@ -2421,7 +2423,7 @@ contains
                              flz_f_gpu=self%flz_f_gpu, out=fh)
       ! the EOS parameter (issue #100): gamma, or c0^2 / the table id of a barotropic gas
       associate(gamma=>self%physics%eos_arg, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, &
-                dt=>self%time%dt, hs=>self%weno%S, g=>self%physics%gravity%g_uniform,                         &
+                dt=>self%limiter_dt, hs=>self%weno%S, g=>self%physics%gravity%g_uniform,                       &
                 has_phi=>self%physics%gravity%has_potential)
       select case(self%physics%model)
       case(MODEL_EULER)
@@ -4258,7 +4260,7 @@ contains
    if (self%has_noslip) call self%close_noslip_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes_dev
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
-                                                                                             flux_register=flux_register)
+                                                                                             flux_register=flux_register, s=s)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
       if (flux_register%nfaces > 0_I4P .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
@@ -4515,7 +4517,7 @@ contains
    if (self%has_noslip) call self%close_noslip_fluxes
    if (self%physics%dissipation%is_active) call self%add_dissipative_fluxes_dev
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) call self%limit_positivity_dev(q_gpu=q_gpu, &
-                                                                                             flux_register=flux_register)
+                                                                                             flux_register=flux_register, s=s)
    if (present(flux_register) .and. present(s) .and. self%numerics%reflux) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
       if (flux_register%nfaces > 0_I4P .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
