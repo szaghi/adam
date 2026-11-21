@@ -55,7 +55,7 @@ def realm_ini(name: str, extent: tuple[float, ...], cells: int, levels: int, rat
         f"emax_x = {extent[1]!r}", f"emax_y = {extent[3]!r}", f"emax_z = {extent[5]!r}",
         "null_x = .false.", "null_y = .false.", f"null_z = {'.true.' if null_z else '.false.'}",
         "[amr]", f"max_level = {levels + (1 if box else 0)}", f"ratio = {ratio}", f"iu_ref_levels = {levels}",
-        "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", "frequency = 0", "iters = 1",
+        "l_prune = -1", "frequency = 0", "iters = 1",
         f"markers_number = {1 if box else 0}",
     ]
     if box:
@@ -66,7 +66,7 @@ def realm_ini(name: str, extent: tuple[float, ...], cells: int, levels: int, rat
     lines += [
         "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5",
-        *(["[fdv]", "fdv_scheme = fd", "fdv_order = 2"] if model == 'mhd' else []), "[solids]", "number = 0", "n_eikonal = 0",
+        *(["[fdv]", "fdv_scheme = fd", "fdv_order = 2"] if model == 'mhd' else []), "[solids]", "number = 0",
         "[slices]", "slices_number = 0",
         "[physics]", f"physical_model = {'mhd-ideal' if model == 'mhd' else 'euler'}", "gamma = 1.4",
         "[numerics]", "scheme_space = weno", "reconstruction_variables = characteristic", "reflux = .true.",

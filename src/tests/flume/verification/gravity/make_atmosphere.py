@@ -120,7 +120,7 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
         "emax_z = 1.0",
         "null_x = .false.", "null_y = .false.", f"null_z = {'.false.' if is3d else '.true.'}",
         "[amr]", f"max_level = {3 if box else 2}", f"ratio = {8 if is3d else 4}", "iu_ref_levels = 2",
-        "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", "frequency = 0", "iters = 1",
+        "l_prune = -1", "frequency = 0", "iters = 1",
         f"markers_number = {1 if box else 0}",
     ]
     if box:
@@ -136,7 +136,7 @@ def case_ini(case: str, steps: int | None, cfl: float | None, cells: int, time_m
     if weights:
         lines += [f"weights = {weights}"]
     lines += [
-        *(["[fdv]", "fdv_scheme = fd", "fdv_order = 2"] if mhd else []), "[solids]", "number = 0", "n_eikonal = 0",
+        *(["[fdv]", "fdv_scheme = fd", "fdv_order = 2"] if mhd else []), "[solids]", "number = 0",
         "[slices]", "slices_number = 0",
         "[physics]", f"physical_model = {'mhd-ideal' if mhd else 'euler'}", "gamma = 1.4",
         "[numerics]", f"scheme_space = {'weno-riemann' if riemann else 'weno'}",

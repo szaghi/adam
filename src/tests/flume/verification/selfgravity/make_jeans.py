@@ -64,7 +64,7 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
         f"emax_z = {1.0!r}",
         "null_x = .false.", "null_y = .false.", f"null_z = {'.false.' if is3d else '.true.'}",
         "[amr]", f"max_level = {lev + 1 if box or regrid else lev}", f"ratio = {8 if is3d else 4}",
-        f"iu_ref_levels = {lev}", "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1",
+        f"iu_ref_levels = {lev}", "l_prune = -1",
         f"frequency = {regrid}", "iters = 1", f"markers_number = {int(box) + int(regrid > 0)}",
     ]
     if box:
@@ -79,7 +79,7 @@ def case_ini(case: str, cells: int, cfl: float, time_max: float | None, it_save:
     lines += [
         "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5",
-        "[solids]", "number = 0", "n_eikonal = 0",
+        "[solids]", "number = 0",
         "[slices]", "slices_number = 0",
         "[physics]", "physical_model = euler", f"gamma = {GAMMA!r}",
         "[numerics]", "scheme_space = weno", "reconstruction_variables = characteristic", "reflux = .true.",

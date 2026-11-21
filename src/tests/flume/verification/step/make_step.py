@@ -95,8 +95,7 @@ def realm_ini(name: str, tree: str, cells: int, refine: bool, time_max: str, it_
         f"emin_x = {xmin!r}", f"emin_y = {ymin!r}", "emin_z = 0.0", f"emax_x = {xmax!r}", f"emax_y = {ymax!r}",
         "emax_z = 1.0", "null_x = .false.", "null_y = .false.", "null_z = .true.",
         "[amr]", f"max_level      = {levels + (1 if refined else 0)}", f"ratio          = {4 if tree == 'quad' else 8}",
-        f"iu_ref_levels  = {levels}", "i_prune        = 0", "j_prune        = 0", "k_prune        = 0",
-        "l_prune        = -1", "frequency      = 0", "iters          = 1",
+        f"iu_ref_levels  = {levels}", "l_prune        = -1", "frequency      = 0", "iters          = 1",
         f"markers_number = {1 if refined else 0}",
     ]
     if refined:
@@ -110,7 +109,7 @@ def realm_ini(name: str, tree: str, cells: int, refine: bool, time_max: str, it_
         "[weno]", "scheme              = weno-u-5", 
         
         
-        "[solids]", "number    = 0", "n_eikonal = 0",
+        "[solids]", "number    = 0",
         "[slices]", "slices_number = 0",
         "[physics]", "physical_model = euler", f"cp             = {GAMMA_CP!r}", f"cv             = {GAMMA_CV!r}",
         "[numerics]", "scheme_space             = weno", "reconstruction_variables = characteristic",

@@ -83,7 +83,7 @@ def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | N
     if jeans > 0.0:
         markers.append(["mode = 5", "delta_type = max", "delta_fine = 0.0", "delta_coarse = 0.0", f"jeans_cells = {jeans!r}"])
     amr = ["[amr]", f"max_level = {levels + 1 if markers else levels}", "ratio = 8", f"iu_ref_levels = {levels}",
-           "i_prune = 0", "j_prune = 0", "k_prune = 0", "l_prune = -1", f"frequency = {regrid}", "iters = 1",
+           "l_prune = -1", f"frequency = {regrid}", "iters = 1",
            f"markers_number = {len(markers)}"]
     if prolongation is not None:
         amr.append(f"regrid_prolongation = {prolongation}")
@@ -100,7 +100,7 @@ def case_ini(case: str, cells: int, levels: int, cfl: float, time_max: float | N
         *amr,
         "[runge_kutta]", "scheme = runge-kutta-ssp-33",
         "[weno]", "scheme = weno-u-5",
-        "[solids]", "number = 0", "n_eikonal = 0",
+        "[solids]", "number = 0",
         "[slices]", "slices_number = 0",
         "[physics]", f"physical_model = {physical_model}", f"gamma = {GAMMA!r}",
         *([f"dual_energy_eta = {dual_energy_eta!r}"] if dual_energy_eta is not None else []),
