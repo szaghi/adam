@@ -1509,7 +1509,7 @@ contains
    if (is_pic_model(self%physics%physical_model)) &
       call mpih%error_stop(msg=': PIC is not implemented in the staged forest path (multi-realm runs, or a refined '// &
                                'grid with coarse-fine faces): the particles are not deposited, gathered and migrated across realms and '// &
-                               '2:1 faces there (szaghi/adam#134)')
+                               '2:1 faces there (szaghi/adam#137)')
    self%time%it = self%time%it + 1
    dt_step = dt
    if ((self%time%it_max <= 0).and.(self%time%time+dt_step > self%time%time_max)) dt_step = self%time%time_max - self%time%time

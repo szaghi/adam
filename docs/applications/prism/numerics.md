@@ -69,7 +69,7 @@ with the right eigenvectors, and differenced. `ngc >= [weno] S` is checked. The 
 | Yoshida (4-stage symplectic) | yes (EM) | refused |
 
 PIC runs, the PML, the charge-conserving current and the staged path (2:1 faces, forests) need an SSP scheme (PIC:
-SSP-22, 33 or 54). At every stage the coils' current is evaluated at the stage time $t + c_s\Delta t$ (the stepper's
+any `runge-kutta-ssp-*`; PIC itself runs on the fused path only, see [PIC](./pic#where-pic-runs)). At every stage the coils' current is evaluated at the stage time $t + c_s\Delta t$ (the stepper's
 `stage_time(s)`, the tableau's abscissa).
 
 The integrator is [SELAH](https://github.com/szaghi/SELAH)'s, on both backends, through the library adapter

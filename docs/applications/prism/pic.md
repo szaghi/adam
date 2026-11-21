@@ -51,6 +51,15 @@ residual; gather $\mathbf D$, $\mathbf B$ at the particles; write the field and 
 combine the stages, deposit $\mathbf J$ and $\rho$ of the new positions, wrap the particles across periodic faces,
 and migrate the particles that left a rank's blocks.
 
+### Where PIC runs
+
+PIC runs on the **fused path** only: one realm, without 2:1 coarse-fine faces, on any number of blocks and ranks. On the
+**staged forest path** (multi-realm runs, or a refined grid with 2:1 faces) a PIC model stops at the first step, on both
+backends. There the deposit spilled into ghosts cannot be folded back across realm seams and 2:1 faces, the gather is
+not coherent across a 2:1 face, and particles do not migrate between realms. The plan to lift this is
+[#137](https://github.com/szaghi/adam/issues/137); the charge-conserving current on that path also needs the
+block-based conserving deposit ([#111](https://github.com/szaghi/adam/issues/111)).
+
 ## Deposition and gather
 
 `particle_weighting_model` (charge), `current_weighting_model` (current) and `field_weighting_model` (gather) choose

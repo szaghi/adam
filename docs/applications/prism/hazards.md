@@ -107,7 +107,7 @@ periodic kind.
 | a non-SSP Runge–Kutta scheme with PIC or the PML | initialization |
 | a non-SSP Runge–Kutta scheme on the staged path (2:1 faces, forests) | when the forest first queries the stages |
 | `[PIC] current_weighting_model = conserving` on the CPU backend with more than one block or one rank | initialization, at the t0 conserving deposit (the first step on a restart) |
-| `[PIC] current_weighting_model = conserving` on the staged path (2:1 faces, forests) | the first staged step, both backends |
+| a PIC model on the staged path (2:1 faces, forests), any current model | the first staged step, both backends ([#137](https://github.com/szaghi/adam/issues/137)) |
 | `[PIC] current_weighting_model = conserving` with periodic faces and `current_conserving_solver = londrillo` or `esirkepov_tail_cleanup = .true.` | initialization, both backends ([PIC](./pic)) |
 | a refined grid that enters a t0 elliptic solve | the solve ([#84](https://github.com/szaghi/adam/issues/84) E7: the wide operator across 2:1 faces is not defined) |
 | `fdv_order = 10` with a t0 elliptic solve | the solve (FLAIL accepts 2, 4, 6, 8) |
