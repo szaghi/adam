@@ -14,20 +14,20 @@ src/lib/common/  (CPU base layer)
 ├── maps_object
 ├── tree_object  ←─ tree_node_object, tree_bucket_object
 ├── weno_object
-├── rk_object
+├── stepper_object (ADAM's `[runge_kutta]` scheme on a SELAH stepper, #132; the only time integrator)
 ├── ib_object    ←─ analytical_sphere_object, analytical_rectangle_object
 ├── io_object
 ├── amr_object
 ├── adam_object  (owns: grid, tree, field, maps as VALUE components — issue #10 Step 1; b40dc451)
-├── realm_object (formerly equation_object — issue #10 Step 6 rename, 356cac46; owns: adam, io, amr, ib, rk, weno, blanesmoan, cfm, leapfrog, flail, slices)
+├── realm_object (formerly equation_object — issue #10 Step 6 rename, 356cac46; owns: adam, io, amr, ib, ts, weno, flail, slices)
 └── forest_object (behavior-only orchestrator over realm(:) — issue #10 Step 6 Phase C, 2d74fb6d + a294681a)
 
 src/lib/fnl/  (OpenACC GPU backend)
 ├── mpih_fnl_object   extends mpih_object
 ├── field_fnl_object  (composite, wraps field_object data on GPU)
 ├── ib_fnl_object     (composite, GPU phi and BC vars)
-├── weno_fnl_object   (composite, GPU WENO coefficients)
-└── rk_fnl_object     (composite, GPU RK stages)
+└── weno_fnl_object   (composite, GPU WENO coefficients)
+    (no GPU RK object: `stepper_object` keeps SELAH's registers on the device itself)
 
 src/app/nasto/  (Navier-Stokes solver)
 ├── nasto_common_object   (standalone, does NOT extend realm_object)
@@ -60,13 +60,13 @@ The former `adam_{grid,field,maps,tree,weno,ib,rk}_global`, `adam_fnl_{field,ib,
 
 | Where | Components |
 |-------|-----------|
-| `realm_object` | `io, amr, slices, blanesmoan, cfm, leapfrog, flail, weno, ib, rk, adam` |
+| `realm_object` | `io, amr, slices, flail, weno, ib, ts, adam` |
 | `adam_object` (`self%adam`) | `grid, tree, field, maps` |
-| app FNL type (e.g. `prism_fnl_object`) | `field_fnl, ib_fnl, rk_fnl, weno_fnl` (+ app-specific: `coil_fnl, pic_fnl, pml_fnl, …`) |
+| app FNL type (e.g. `prism_fnl_object`) | `field_fnl, ib_fnl, weno_fnl` (+ app-specific: `coil_fnl, pic_fnl, pml_fnl, …`) |
 
 Rules:
 
-- Library routines receive the objects they need **as arguments** (`update_ghost_local(grid=, maps=, q=)`, `rk%compute_stage(..., field=)`, `ib%compute_phi(..., grid=, field=)`).
+- Library routines receive the objects they need **as arguments** (`update_ghost_local(grid=, maps=, q=)`, `ts%initialize(field=, grid=, ...)`, `ib%compute_phi(..., grid=, field=)`).
 - Do not add new `*_global` modules or module-level mutable state: several realms coexist in one process (forest), and module state would be shared between them (PRISM's module-level `compute_fluxes_maxwell` pointer is a live example of that bug).
 - FNL helpers are initialised **after** the common init, from the realm's own objects:
 
@@ -79,8 +79,8 @@ endif
 call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-call self%rk_fnl%initialize(grid=self%adam%grid, field=self%adam%field, rk=self%rk)
-call self%weno_fnl%initialize(weno=self%weno)
+! no rk_fnl (deleted, #132): self%ts, initialized by the common layer, holds its registers on the device;
+! no weno_fnl%initialize (#112 C): FNL refuses scheme_space = weno
 ```
 
 ---
@@ -111,11 +111,9 @@ type :: realm_object
    type(amr_object)        :: amr
    type(weno_object)       :: weno     ! issue #10 Step 2
    type(ib_object)         :: ib       ! issue #10 Step 2
-   type(rk_object)         :: rk       ! issue #10 Step 2
+   type(stepper_object)    :: ts       ! time integrator on SELAH (#132; replaced rk_object and the deleted
+                                       ! blanesmoan/cfm/leapfrog components)
    type(slices_object)     :: slices
-   type(blanesmoan_object) :: blanesmoan
-   type(cfm_object)        :: cfm
-   type(leapfrog_object)   :: leapfrog
    type(flail_object)        :: flail        ! FLAIL elliptic solver library (issue #84: poisson_fft/mg facade)
    ! FDV scheme metadata (used by backend dispatch):
    character(:), allocatable :: fdv_scheme
@@ -123,7 +121,7 @@ type :: realm_object
    ! Forest-position context (set by forest%initialize_from_manifest before the
    ! realm's initialize_forest fires; consumed by realm-side forest TBPs):
    integer(I4P) :: realm_index   = 0_I4P
-   integer(I4P) :: stage_active  = 0_I4P  ! 0 between steps; k while RK substage k is open
+   integer(I4P) :: stage_active  = 0_I4P  ! 0 between steps; k while stepper stage k is open
    ! Scalar replica pointers (point into grid/field components):
    integer(I4P), pointer :: ngc, ni, nj, nk, nb, blocks_number, nv
    ! FDV operator procedure pointers (set at init by backend):
@@ -146,13 +144,13 @@ contains
    procedure, pass(self) :: compute_local_dt_forest    ! report CFL dt → forest min-reduce
    procedure, pass(self) :: advance_one_step_forest    ! N=1 fast path: realm owns whole step
    procedure, pass(self) :: open_step_forest           ! N>1: per-step prologue
-   procedure, pass(self) :: begin_stage_forest         ! N>1: open RK substage k; sets stage_active=k
+   procedure, pass(self) :: begin_stage_forest         ! N>1: open stage k; sets stage_active=k
    procedure, pass(self) :: end_stage_forest           ! N>1: residuals + assign for substage k
    procedure, pass(self) :: close_step_forest          ! N>1: per-step epilogue (clears stage_active)
    procedure, pass(self) :: fill_seam_from_peer_forest ! receive-side: copy peer interior → self ghosts
    procedure, pass(self) :: apply_reflux_to_stage_forest ! Berger-Colella reflux (α.r1 gates on stage==nrk)
-   procedure, pass(self) :: stages_per_step_forest     ! report K (rk%nrk for SSP-RK)
-   procedure, pass(self) :: coupling_descriptor_forest ! report (scheme_time, rk_scheme, nv) for β admissibility
+   procedure, pass(self) :: stages_per_step_forest     ! report K (ts%stages())
+   procedure, pass(self) :: coupling_descriptor_forest ! report (scheme_time, ts%scheme, nv) for β admissibility
    procedure, pass(self) :: is_done_forest             ! AND-reduced termination predicate
    procedure, pass(self) :: post_step_forest           ! per-step diagnostics / IO block
 end type
@@ -308,17 +306,28 @@ integer(I4P)              :: n_eikonal             ! Eikonal pseudo-time steps
 real(R8P), allocatable :: phi(:,:,:,:,:)           ! [solids+1, ni+2*ngc, nj+2*ngc, nk+2*ngc, nb]
 ```
 
-### `rk_object` (`src/lib/common/adam_rk_object.F90`)
+### `stepper_object` (`src/lib/common/adam_stepper_object.F90`)
+
+The realm's `ts`: ADAM's `[runge_kutta] scheme` (`runge-kutta-1/2/3`, `runge-kutta-ssp-11/22/33/54`,
+`runge-kutta-yoshida`) mapped onto a SELAH scheme and storage form (`stepper_map`), and a SELAH `stepper` driven
+through `begin_step` → `begin_stage(k)` → residual into `rhs_register()` → `end_stage(k)` → `finish_step`. SELAH owns
+the tableaux, the stage states and the update; ADAM writes the residual. It replaced `rk_object`/`rk_fnl_object`
+(#132 M7), and ADAM's leapfrog, Blanes-Moan and CFM integrators were deleted (PRISM refuses those `scheme_time`
+values at initialization, pointing at SELAH). `scripts/check_time_separation.py` (CI) fails on any Runge-Kutta
+combination written again in `src/app` or `src/lib`.
 
 ```fortran
-character(:), allocatable :: scheme            ! e.g. "rk-ssp-3", "rk-ls-4"
-integer(I4P)              :: nrk               ! Number of RK stages
-real(R8P), allocatable :: ark(:), brk(:), crk(:)       ! Low-storage coefficients
-real(R8P), allocatable :: alph(:,:), beta(:), gamm(:)  ! Butcher tableau
-real(R8P), allocatable :: ssa(:), ssb(:)               ! Symplectic splitting
-real(R8P), allocatable :: q_rk(:,:,:,:,:,:)    ! Stage storage [nv, ni+2*ngc, nj+2*ngc, nk+2*ngc, nb, nrk]
-integer(I4P), pointer :: ngc, ni, nj, nk
+character(:), allocatable      :: scheme, selah_scheme, form  ! ADAM name, SELAH scheme, SELAH storage form
+type(stepper)                  :: st                          ! the SELAH stepper
+real(R8P), pointer, contiguous :: regs(:,:,:,:,:,:)           ! registers (v, i, j, k, b, slot), FUNDAL-allocated
+                                                              ! (device memory in a device build)
+integer(I4P)                   :: nregs, nv, ni, nj, nk, ngc, nb
+integer(I4P)                   :: layout                      ! (v, i, j, k, b) CPU or (b, i, j, k, v) FNL
 ```
+
+Queries the apps use: `stages()`, `stage_state()`, `stage_time(k)`, `stage_weight(k)` (reflux),
+`stage_euler_fraction(k)` (positivity limiter), `ssp_coefficient()`, `imag_axis_bound()`. PRISM's PML auxiliary
+fields and its particles are SELAH companions of the same stepper (`prism_pml_stepper_object`, `pic_st`; #134 D5).
 
 ### `mpih_object` (`src/lib/common/adam_mpih_object.F90`)
 
@@ -352,6 +361,7 @@ real(R8P), pointer :: phi_gpu(:,:,:,:,:)    ! [solids+1, ni+2ngc, nj+2ngc, nk+2n
 
 ### `nasto_common_object` (`src/app/nasto/common/adam_nasto_common_object.F90`)
 
+Archived app: it does not build, and the `rk_object` it uses was deleted (#132: time integration is SELAH's).
 Key members (composite, not extending `realm_object`):
 
 ```fortran
@@ -399,13 +409,11 @@ type(prism_numerics_object)            :: numerics
 type(prism_physics_object)             :: physics
 type(prism_ic_object)                  :: ic
 type(prism_bc_object)                  :: bc
-type(prism_rk_bc_object)               :: rk_bc
 type(prism_time_object)                :: time
 type(prism_fwlayer_object)             :: fwlayer
 type(prism_coil_object)                :: coil
 type(prism_external_fields_object)     :: external_fields
 type(prism_pic_object)                 :: pic
-type(prism_leapfrog_pic_object)        :: leapfrog_pic
 type(stepper)                          :: pic_st   ! the particles, a SELAH companion of ts (#134 D5)
 real(R8P), allocatable :: q(:,:,:,:,:)       ! [nv, ni+2ngc, nj+2ngc, nk+2ngc, nb]
 real(R8P), allocatable :: dq(:,:,:,:,:)
@@ -436,7 +444,7 @@ procedure(compute_residuals_interface_dev), pointer :: compute_residuals_dev
 procedure(integrate_interface_dev),         pointer :: integrate_dev
 ```
 
-Key procedures: `initialize_prism(self, filename)`, `simulate`, `compute_dt`, `compute_energy`, `compute_energy_error`, `update_ghost`, `update_rk_ghost`, `apply_fwl_correction`, `compute_coils_current`, `save_simulation_data`.
+Key procedures: `initialize_prism(self, filename)`, `simulate`, `compute_dt`, `compute_energy`, `compute_energy_error`, `update_ghost`, `apply_fwl_correction`, `compute_coils_current`, `save_simulation_data`.
 
 ---
 
@@ -445,10 +453,11 @@ Key procedures: `initialize_prism(self, filename)`, `simulate`, `compute_dt`, `c
 ```
 adam_common_library
  ├── adam_adam_object, adam_field_object, adam_grid_object, adam_tree_object
- ├── adam_maps_object, adam_weno_object, adam_rk_object, adam_ib_object, adam_mpih_object
- ├── adam_realm_object, adam_forest_object, adam_io_object, adam_amr_object, adam_refinement_plan_object
- ├── adam_eos_ic_object, adam_cfm_object, adam_blanes_moan_object
- ├── adam_leapfrog_object, adam_flail_object, adam_slices_object
+ ├── adam_maps_object, adam_weno_object, adam_stepper_object, adam_time_object, adam_ib_object, adam_mpih_object
+ ├── adam_realm_object, adam_forest_object, adam_forest_manifest, adam_seam_exchange, adam_flux_register_object
+ ├── adam_io_object, adam_amr_object, adam_refinement_plan_object, adam_parameters
+ ├── adam_eos_ic_object, adam_flail_object, adam_slices_object
+ ├── adam_turbulence_object, adam_turbulence_library, adam_turbulence_kernels
  ├── adam_tree_node_object, adam_tree_bucket_object
  ├── adam_fdv_operators_library, adam_riemann_euler_library
  └── adam_mpih_global  (the only CPU singleton; also via `adam_globals`)
@@ -456,8 +465,8 @@ adam_common_library
 adam_fnl_library
  ├── adam_common_library  (full CPU layer)
  ├── adam_fnl_field_object, adam_fnl_ib_object, adam_fnl_weno_object
- ├── adam_fnl_rk_object, adam_fnl_maps_object, adam_fnl_mpih_object
- ├── adam_fnl_field_kernels, adam_fnl_ib_kernels, adam_fnl_rk_kernels, adam_fnl_weno_kernels
+ ├── adam_fnl_maps_object, adam_fnl_mpih_object
+ ├── adam_fnl_field_kernels, adam_fnl_ib_kernels, adam_fnl_weno_kernels, adam_fnl_turbulence_kernels
  ├── adam_fnl_fdv_operators_library
  └── adam_fnl_mpih_global  (the only FNL singleton)
 
@@ -475,8 +484,9 @@ adam_prism_common_library
  ├── adam_prism_common_object, adam_prism_bc_object, adam_prism_coil_object
  ├── adam_prism_fwlayer_object, adam_prism_ic_object, adam_prism_numerics_object
  ├── adam_prism_physics_object, adam_prism_pic_object, adam_prism_particle_injection_object
- ├── adam_prism_external_fields_object, adam_prism_leapfrog_pic_object
- ├── adam_prism_rk_bc_object, adam_prism_pml_stepper_object
+ ├── adam_prism_external_fields_object, adam_prism_grms_object, adam_prism_probes_object
+ ├── adam_prism_magnetic_field_at_center_domain_object, adam_prism_plasma_frequencies_object
+ ├── adam_prism_pml_object, adam_prism_pml_stepper_object
  ├── adam_prism_time_object, adam_prism_riemann_library, adam_prism_parameters
  └── (uses adam_common_library via realm_object chain)
 
@@ -484,8 +494,8 @@ adam_prism_fnl_library
  ├── adam_prism_common_library
  ├── adam_fnl_library
  ├── adam_prism_fnl_coil_object, adam_prism_fnl_fwlayer_object (kernel only, no device state)
- ├── adam_prism_fnl_pic_object, adam_prism_fnl_leapfrog_pic_object
- ├── adam_prism_fnl_pml_object
+ ├── adam_prism_fnl_pic_object, adam_prism_fnl_pic_conserving_object
+ ├── adam_prism_fnl_pml_object, adam_prism_fnl_plasma_frequencies_object, adam_prism_fnl_probes_object
  └── adam_prism_fnl_external_fields_kernels
 ```
 
