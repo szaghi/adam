@@ -79,8 +79,9 @@ contains
    do f=1, FACES
       if (.not.self%active(f)) cycle
       call self%st(f)%initialize_companion(ts%st, lb=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ub=shapes(:,f))
-      ! every element evolves (the elements beyond a block's cells have a zero residual and stay zero)
-      self%bx(f) = box_interior(lb=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ub=shapes(:,f), ngc=0_I4P, components=.false.)
+      ! every element evolves (the elements beyond a block's cells have a zero residual and stay zero); a rank-5 box has
+      ! components in SELAH's terms, which with no ghost cells changes nothing: the box is the whole array
+      self%bx(f) = box_interior(lb=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ub=shapes(:,f), ngc=0_I4P, components=.true.)
       if (self%exact_decay) then
          call dev_alloc(fptr_dev=self%decay(f)%lam, lbounds=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ubounds=shapes(:,f), &
                         init_value=0._R8P, ierr=ierr)

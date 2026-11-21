@@ -1170,7 +1170,7 @@ contains
    type(box)                                             :: bx   !< The stage sources [1, ni, nj, nk, 3].
 
    bx = box_interior(lb=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ub=[1_I4P, self%ni, self%nj, self%nk, 3_I4P], ngc=0_I4P, &
-                     components=.false.)
+                     components=.true.)
    call st%stage_current(s, bx, self%h_gpu(:,:,:,:,:,s), self%h_gpu, self%hs_gpu)
    call selah_copy(bx, self%hs_gpu, self%h_gpu(:,:,:,:,:,s))
    endsubroutine combine_stage_source
@@ -1445,7 +1445,7 @@ contains
    np = self%particle_number
    stage_count = max(1_I4P, active_stage)
    bxs = box_interior(lb=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ub=[1_I4P, self%ni, self%nj, self%nk, 3_I4P], ngc=0_I4P, &
-                      components=.false.)
+                      components=.true.)
    ! the mixed stage source is the whole source: it is the particle's own only with one particle in the whole run
    single = self%particle_number_global == 1_I4P .and. np == 1_I4P .and. present(mixed_source)
    call zero_current(self=self, q=self%jv_gpu, var_jx=1_I4P)

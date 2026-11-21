@@ -4305,7 +4305,7 @@ contains
    if (box_current) then
       allocate(j_stage(1:3,1:self%ni,1:self%nj,1:self%nk,1:self%nb,1:nrk), j_box(1:3,1:self%ni,1:self%nj,1:self%nk,1:self%nb))
       bx_j = box_interior(lb=[1_I4P, 1_I4P, 1_I4P, 1_I4P, 1_I4P], ub=[3_I4P, self%ni, self%nj, self%nk, self%nb], &
-                          ngc=0_I4P, components=.false.)
+                          ngc=0_I4P, components=.true.)
    else
       allocate(h_q(1:3, 1-self%ngc:self%ni+self%ngc, 1-self%ngc:self%nj+self%ngc, &
                    1-self%ngc:self%nk+self%ngc, 1:self%nb, 1:nrk, 1:1))
@@ -4313,7 +4313,7 @@ contains
       allocate(h_s, mold=h_q(:,:,:,:,:,1,1))
       bx_h = box_interior(lb=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P],                       &
                           ub=[3_I4P, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nb], ngc=0_I4P, &
-                          components=.false.)
+                          components=.true.)
    endif
    self%current_solver_residual_max = 0._R8P
    call self%initialize_charge_conservation_diagnostic
@@ -5527,7 +5527,7 @@ contains
    q(self%physics%var_Jx:self%physics%var_Jz,:,:,:,:) = 0._R8P
    bx_h = box_interior(lb=[1_I4P, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P-self%ngc, 1_I4P],                       &
                        ub=[3_I4P, self%ni+self%ngc, self%nj+self%ngc, self%nk+self%ngc, self%nb], ngc=0_I4P, &
-                       components=.false.)
+                       components=.true.)
 
    do particle=1,self%pic%particle_number
       if (self%pic%particle_number == 1_I4P .and. present(mixed_source)) then
