@@ -18,7 +18,6 @@ use :: adam_flume_cpu_hybrid_kernels, only : compute_hybrid_sensor, mask_mu_t, o
 use :: adam_turbulence_kernels, only : compute_mu_t_sigma, compute_mu_t_vreman, compute_mu_t_wale
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
 use :: adam_seam_exchange,        only : seam_fill_all, seam_ghosts_to_state, pack_seam_rows, unpack_seam_rows
-use :: adam_stepper_object,       only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
@@ -1328,14 +1327,14 @@ contains
    case default
       call mpih%error_stop(msg=': no CPU space operator for scheme_space "'//self%numerics%scheme_space//'"')
    endselect
-   select case(self%ts%scheme)
-   case(RK_1, RK_2, RK_3)
+   ! the stepper's form picks the integrator (#134 D4): two registers, or a register per stage (Butcher)
+   if (self%ts%is_two_register()) then
       self%integrate => integrate_rk_ls
-   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   elseif (self%ts%is_butcher()) then
       self%integrate => integrate_rk_ssp
-   case default
+   else
       call mpih%error_stop(msg=': no CPU time integrator for [runge_kutta].(scheme) "'//trim(self%ts%scheme)//'"')
-   endselect
+   endif
    endsubroutine initialize_flume
 
    subroutine limit_positivity(self, q, flux_register)
@@ -3135,18 +3134,17 @@ contains
    endsubroutine regrid_end_forest
 
    function stages_per_step_forest(self) result(K)
-   !< Return the integrator stages per step: only SSP schemes are stage-splittable (staged path).
+   !< Return the integrator stages per step: only the Butcher form is stage-splittable (staged path).
    class(flume_cpu_object), intent(in) :: self !< The equation.
    integer(I4P)                        :: K    !< Integrator stages per step.
 
-   select case(self%ts%scheme)
-   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   K = 0_I4P
+   if (self%ts%is_butcher()) then
       K = self%ts%stages()
-   case default
-      K = 0_I4P
+   else
       call mpih%error_stop(msg=': RK scheme "'//trim(self%ts%scheme)//'" is not stage-splittable: the staged forest '// &
                                'path (multi-realm, or AMR seam faces) requires an SSP scheme (runge-kutta-ssp-*)')
-   endselect
+   endif
    endfunction stages_per_step_forest
 
    ! private procedures

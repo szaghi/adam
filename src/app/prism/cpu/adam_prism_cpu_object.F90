@@ -299,11 +299,14 @@ contains
       case(NUM_SCHEME_TIME_LEAPFROG)
          call mpih%error_stop(msg=': leapfrog time integration is not available in ADAM (moved to SELAH, szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-         select case(self%ts%scheme)
-         case(RK_1, RK_2, RK_3)                ; self%integrate => integrate_rk_ls
-         case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate => integrate_rk_ssp
-         case(RK_YOSHIDA)                      ; self%integrate => integrate_rk_yoshida
-         endselect
+         ! the stepper's form picks the integrator (#134 D4)
+         if (self%ts%is_two_register()) then
+            self%integrate => integrate_rk_ls
+         elseif (self%ts%is_butcher()) then
+            self%integrate => integrate_rk_ssp
+         elseif (self%ts%is_splitting()) then
+            self%integrate => integrate_rk_yoshida
+         endif
       endselect
    elseif (is_pic_model(self%physics%physical_model)) then
       select case(self%numerics%scheme_time)
@@ -404,8 +407,7 @@ contains
 
       if (.not. self%pml%enabled) return
 
-      is_supported_ssp = trim(self%ts%scheme) == RK_SSP_11 .or. trim(self%ts%scheme) == RK_SSP_22 .or. &
-                         trim(self%ts%scheme) == RK_SSP_33 .or. trim(self%ts%scheme) == RK_SSP_54
+      is_supported_ssp = self%ts%is_butcher() ! the PML fields advance in step with the field's stages
 
       if (trim(self%pml%pml_type) /= 'CLASSIC' .and. trim(self%pml%pml_type) /= 'CLASSIC_DIRECT' .and. &
           trim(self%pml%pml_type) /= 'BERMUDEZ' .and. &
@@ -1478,16 +1480,15 @@ contains
    class(prism_cpu_object), intent(in) :: self !< The realm.
    integer(I4P)                        :: K    !< Number of integrator stages per step.
 
-   select case(self%ts%scheme)
-   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   K = 0
+   if (self%ts%is_butcher()) then
       K = self%ts%stages()
-   case default
-      K = 0
+   else
       call mpih%error_stop(msg=': RK scheme "'//trim(adjustl(self%ts%scheme))//'" is not stage-splittable: '// &
                                'the staged forest path (multi-realm, or intra-realm AMR seam faces) requires '// &
                                'an SSP scheme (runge-kutta-ssp-*); low-storage schemes run only on the fused '// &
                                'single-realm/no-seam fast path')
-   endselect
+   endif
    endfunction stages_per_step_forest
 
    subroutine open_step_forest(self, dt)

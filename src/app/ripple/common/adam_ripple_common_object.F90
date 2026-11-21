@@ -21,7 +21,7 @@ use :: adam_ini_library,          only : ini_check, ini_get, ini_stop
 use :: adam_maps_object,          only : face_axis_sign
 use :: adam_parameters,           only : BC_PERIODIC, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_realm_object,         only : realm_object, realm_pointer
-use :: adam_stepper_object,       only : stepper_stored_fields, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
+use :: adam_stepper_object,       only : stepper_stored_fields
 use :: adam_time_object,          only : time_object
 use :: adam_weno_object,          only : WENO_WEIGHTS_JS
 ! ADAM singleton objects
@@ -116,12 +116,9 @@ contains
    class(ripple_common_object), intent(in) :: self !< The realm.
    integer(I4P)                            :: m, c !< Counters.
 
-   select case(self%ts%scheme)
-   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
-   case default
+   if (.not.(self%ts%is_butcher() .and. self%ts%ssp_coefficient() > 0._R8P)) &
       call mpih%error_stop(msg=': [runge_kutta].(scheme) must be an SSP scheme (runge-kutta-ssp-11/22/33/54): the '// &
                                'step is the Butcher form of an SSP tableau')
-   endselect
    if (self%weno%is_centered) call mpih%error_stop(msg=': [weno].(scheme) must be upwind (weno-u-*): the split '// &
                                                        'fluxes a+ u and a- u are upwinded')
    if (self%weno%weights /= WENO_WEIGHTS_JS) call mpih%error_stop(msg=': [weno].(weights) must be js')
@@ -419,13 +416,12 @@ contains
    class(ripple_common_object), intent(in) :: self !< The realm.
    integer(I4P)                            :: K    !< Stages per step.
 
-   select case(self%ts%scheme)
-   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   K = 0_I4P
+   if (self%ts%is_butcher()) then
       K = self%ts%stages()
-   case default
-      K = 0_I4P
+   else
       call mpih%error_stop(msg=': the staged path (2:1 AMR faces) needs an SSP Runge-Kutta scheme')
-   endselect
+   endif
    endfunction stages_per_step_forest
 
    ! non TBP

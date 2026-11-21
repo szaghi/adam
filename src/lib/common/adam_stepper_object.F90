@@ -99,11 +99,16 @@ type :: stepper_object
       procedure, pass(self) :: end_stage       !< Close stage k.
       procedure, pass(self) :: finish_step     !< Close the step.
       procedure, pass(self) :: initialize      !< Initialize the stepper and its registers.
+      procedure, pass(self) :: imag_axis_bound !< Stability bound on the imaginary axis (SELAH).
       procedure, pass(self) :: is_butcher      !< The form is Butcher's (the stages on their own registers).
+      procedure, pass(self) :: is_splitting    !< The form is a splitting of two partitions.
+      procedure, pass(self) :: is_two_register !< The form is the two-register (low-storage) Shu-Osher one.
       procedure, pass(self) :: load_from_file  !< Load config from file.
       procedure, pass(self) :: rhs_register    !< Residual register of the active stage.
       procedure, pass(self) :: scratch         !< A register as scratch, between steps.
       procedure, pass(self) :: set_rhs         !< Copy a residual into the residual register of the active stage.
+      procedure, pass(self) :: ssp_coefficient !< SSP coefficient of the scheme (SELAH; 0 if not SSP).
+      procedure, pass(self) :: stage_euler_fraction !< Forward-Euler step of stage k, a fraction of the step (SELAH).
       procedure, pass(self) :: stage_state     !< State register of the active stage (null when it is q).
       procedure, pass(self) :: stage_time      !< Fraction of the step at which stage k is evaluated.
       procedure, pass(self) :: stage_weight    !< Effective Butcher weight of stage k.
@@ -309,6 +314,15 @@ contains
    call mpih%print_message('stepper_object%initialize finish')
    endsubroutine initialize
 
+   pure function imag_axis_bound(self) result(beta)
+   !< Return the end of the scheme's stability region on the imaginary axis, |R(iy)| <= 1 for |y| <= beta (SELAH, from
+   !< its stability polynomial; 0 when R(iy) leaves the unit disc at once, as for Euler and SSP-22).
+   class(stepper_object), intent(in) :: self !< Stepper.
+   real(R8P)                         :: beta !< Imaginary-axis bound.
+
+   beta = self%st%imag_axis_bound()
+   endfunction imag_axis_bound
+
    elemental function is_butcher(self) result(yes)
    !< Return true if the form is Butcher's: every stage on its own state register, the step closed by `finish_step`.
    class(stepper_object), intent(in) :: self !< Stepper.
@@ -317,6 +331,24 @@ contains
    yes = .false.
    if (allocated(self%form)) yes = self%form == FORM_BUTCHER
    endfunction is_butcher
+
+   elemental function is_splitting(self) result(yes)
+   !< Return true if the form is a splitting of two partitions (each stage a flow of one partition).
+   class(stepper_object), intent(in) :: self !< Stepper.
+   logical                           :: yes  !< True for a splitting.
+
+   yes = .false.
+   if (allocated(self%form)) yes = self%form == FORM_SPLITTING
+   endfunction is_splitting
+
+   elemental function is_two_register(self) result(yes)
+   !< Return true if the form is the two-register Shu-Osher one (every stage on q, low storage).
+   class(stepper_object), intent(in) :: self !< Stepper.
+   logical                           :: yes  !< True for the two-register form.
+
+   yes = .false.
+   if (allocated(self%form)) yes = self%form == FORM_SHU_OSHER_2R
+   endfunction is_two_register
 
    subroutine load_from_file(self, file_parameters)
    !< Load config from file: `[runge_kutta] scheme`, the only key (as `rk_object` reads it).
@@ -366,6 +398,26 @@ contains
    r => self%rhs_register()
    call selah_copy(self%interior_box(field), dq, r)
    endsubroutine set_rhs
+
+   pure function ssp_coefficient(self) result(c)
+   !< Return the SSP coefficient C of the scheme (SELAH, from its Shu-Osher form): every stage a convex combination of
+   !< forward-Euler steps when C > 0; 0 for a scheme that is not SSP and for a splitting.
+   class(stepper_object), intent(in) :: self !< Stepper.
+   real(R8P)                         :: c    !< SSP coefficient.
+
+   c = self%st%ssp_coefficient()
+   endfunction ssp_coefficient
+
+   pure function stage_euler_fraction(self, k) result(f)
+   !< Return the forward-Euler step the residual of stage k enters, as a fraction of the step (SELAH, f_k = max_i
+   !< beta_ik / alpha_ik of the Shu-Osher form): a limiter that makes the state of stage k plus f_k dt times its residual
+   !< admissible keeps every later stage and the step admissible; 0 when the scheme has no such decomposition.
+   class(stepper_object), intent(in) :: self !< Stepper.
+   integer(I4P),          intent(in) :: k    !< Stage.
+   real(R8P)                         :: f    !< Fraction of the step.
+
+   f = self%st%stage_euler_fraction(k)
+   endfunction stage_euler_fraction
 
    function stage_state(self) result(u)
    !< Return the state register of the active stage, with the field's bounds; null when the stage's state is q itself.

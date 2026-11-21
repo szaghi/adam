@@ -704,13 +704,15 @@ contains
          call mpih_fnl%error_stop(msg=': leapfrog time integration is not available in ADAM (moved to SELAH, '// &
                                       'szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-         select case(self%ts%scheme)
-         case(RK_1, RK_2, RK_3)                ; self%integrate_dev => integrate_rk_ls_dev
-         case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54) ; self%integrate_dev => integrate_rk_ssp_dev
-         case(RK_YOSHIDA)
+         ! the stepper's form picks the integrator (#134 D4)
+         if (self%ts%is_two_register()) then
+            self%integrate_dev => integrate_rk_ls_dev
+         elseif (self%ts%is_butcher()) then
+            self%integrate_dev => integrate_rk_ssp_dev
+         elseif (self%ts%is_splitting()) then
             ! SELAH's Yoshida splitting runs on the CPU backend only (issue #55)
             call mpih_fnl%error_stop(msg=': Yoshida Runge-Kutta time integration not ported to FNL backend')
-         endselect
+         endif
       endselect
    elseif (is_pic_model(self%physics%physical_model)) then
       select case(self%numerics%scheme_time)
@@ -893,12 +895,8 @@ contains
          call mpih_fnl%error_stop(msg=': FNL PML is currently available only with scheme_space = FD_centered')
       if (self%numerics%scheme_time /= NUM_SCHEME_TIME_RUNGE_KUTTA) &
          call mpih_fnl%error_stop(msg=': FNL PML is currently available only with scheme_time = Runge_Kutta')
-      select case (trim(self%ts%scheme))
-      case (RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
-         continue
-      case default
+      if (.not.self%ts%is_butcher()) & ! the PML fields advance in step with the field's stages
          call mpih_fnl%error_stop(msg=': FNL PML is currently available only with SSP RK schemes')
-      endselect
       if (trim(self%numerics%div_corr_var) == DIV_CORR_VAR_HYPER) &
          call mpih_fnl%error_stop(msg=': FNL PML is currently available only without divergence correction')
       if (self%numerics%constrained_transport_D .or. self%numerics%constrained_transport_B) &
@@ -5998,11 +5996,10 @@ contains
    class(prism_fnl_object), intent(in) :: self !< The realm.
    integer(I4P)                        :: K    !< Number of integrator stages per step.
 
-   select case(self%ts%scheme)
-   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   K = 0
+   if (self%ts%is_butcher()) then
       K = self%ts%stages()
-   case default
-      K = 0
+   else
       ! Routed through the ADAM (CPU) mpih handler, NOT mpih_fnl: FUNDAL's error_stop
       ! ends with a plain `stop` (exit code 0), so a refusal through it looks SUCCESSFUL
       ! to the calling shell/harness (upstream FUNDAL defect, flagged in issue #25).
@@ -6011,7 +6008,7 @@ contains
                                'the staged forest path (multi-realm, or intra-realm AMR seam faces) requires '// &
                                'an SSP scheme (runge-kutta-ssp-*); low-storage schemes run only on the fused '// &
                                'single-realm/no-seam fast path')
-   endselect
+   endif
    endfunction stages_per_step_forest
 
    subroutine open_step_forest(self, dt)

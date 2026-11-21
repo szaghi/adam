@@ -23,6 +23,10 @@ program test_stepper_object
 !<   5. The stage weights and stage times are the tableau's b and c.
 !<   6. The FNL layout (b, i, j, k, v), `layout=LAYOUT_V_LAST`: the same step on the transposed field and mask gives the
 !<      transposed result bitwise, masked cells of the stage states and cells outside the box included.
+!<   7. SELAH's queries through the adapter (#134 D4): the form flags (`is_butcher`, `is_two_register`, `is_splitting`)
+!<      match the mapped form, one each; every Runge-Kutta scheme is SSP (C > 0) and the largest per-stage forward-Euler
+!<      fraction is 1/C, the splitting has C = 0; the imaginary-axis bound is sqrt(3) for SSP-33 (both forms) and
+!<      3.2783556 for SSP-54, 0 for Euler and SSP-22.
 !< The refusal of an unknown scheme (`mpih%error_stop`) is checked by test_stepper_object_xfail.
 use adam_field_object,   only : field_object
 use adam_grid_object,    only : grid_object
@@ -71,6 +75,9 @@ do m=1, 7
    call check_v_last(scheme=NAMES(m), masked=.false.)
    call check_v_last(scheme=NAMES(m), masked=.true.)
 enddo
+do m=1, size(NAMES)
+   call queries(m)
+enddo
 if (failures > 0) then
    print '(A,I0,A)', 'test_stepper_object: ', failures, ' check(s) FAILED'
    error stop 1
@@ -90,6 +97,42 @@ contains
       failures = failures + 1
    endif
    endsubroutine check
+
+   subroutine queries(m)
+   !< The form flags, the SSP coefficient, the per-stage forward-Euler fractions and the imaginary-axis bound of scheme m.
+   integer(I4P), intent(in) :: m     !< Scheme index.
+   type(field_object)       :: field !< Field.
+   type(grid_object)        :: grid  !< Grid.
+   type(stepper_object)     :: ts    !< Stepper.
+   real(R8P)                :: c, fmax, beta, beta_x !< SSP coefficient, largest fraction, bound, expected bound.
+   integer(I4P)             :: k     !< Counter.
+
+   field%nv = NV ; field%nb = NB ; field%blocks_number = BN
+   grid%ni = NI ; grid%nj = NJ ; grid%nk = NK ; grid%ngc = NGC
+   call ts%initialize(field=field, grid=grid, scheme=NAMES(m), partitions=reshape([1, 1, 2, 3], [2, 2]))
+   call check((ts%is_butcher() .eqv. FORMS(m) == FORM_BUTCHER) .and.            &
+              (ts%is_two_register() .eqv. FORMS(m) == FORM_SHU_OSHER_2R) .and.  &
+              (ts%is_splitting() .eqv. FORMS(m) == FORM_SPLITTING), 'form flags of '//trim(NAMES(m)))
+   c = ts%ssp_coefficient()
+   fmax = 0._R8P
+   do k=1, ts%stages()
+      fmax = max(fmax, ts%stage_euler_fraction(k))
+   enddo
+   if (FORMS(m) == FORM_SPLITTING) then
+      call check(c == 0._R8P, 'not SSP: '//trim(NAMES(m)))
+   else
+      call check(c > 0._R8P .and. abs(fmax - 1._R8P / c) <= 4 * epsilon(1._R8P), &
+                 'SSP, max_k f_k = 1/C: '//trim(NAMES(m)))
+      beta = ts%imag_axis_bound()
+      select case(trim(SELAH(m)))
+      case(SCHEME_SSP_33) ; beta_x = sqrt(3._R8P)
+      case(SCHEME_SSP_54) ; beta_x = 3.2783556_R8P
+      case default        ; beta_x = 0._R8P
+      endselect
+      call check(abs(beta - beta_x) <= 1.e-7_R8P, 'imaginary-axis bound of '//trim(NAMES(m)))
+   endif
+   call ts%destroy
+   endsubroutine queries
 
    subroutine one_step(scheme, tableau, masked)
    !< One step of y' = -y on an ADAM-shaped field, checked cell by cell; then the scratch check.

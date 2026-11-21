@@ -24,7 +24,7 @@ use :: adam_turbulence_object,        only : turbulence_object
 use :: adam_tree_object,              only : NODE_BOUNDARY_CONDITION, NODE_STANDARD
 use :: adam_tree_node_object,         only : tree_node_object
 use :: adam_grid_object,              only : grid_object
-use :: adam_stepper_object,           only : stepper_stored_fields, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54
+use :: adam_stepper_object,           only : stepper_stored_fields
 ! ADAM singleton objects
 use :: adam_ini_library, only : ini_check, ini_get
 use :: adam_mpih_global,              only : mpih
@@ -3216,7 +3216,8 @@ contains
    if (has_mixed_glm(self%physics%model)) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is refused with [mhd].(divergence_control)=glm: '//&
                                'use eglm (issue #47, D-10)')
-   if (.not.any(self%ts%scheme == [character(18) :: RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54])) &
+   ! SELAH's admissibility (#134 D4): every stage a convex combination of forward-Euler steps, C > 0
+   if (.not.(self%ts%ssp_coefficient() > 0._R8P)) &
       call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell needs an SSP Runge-Kutta scheme, not '// &
                                '[runge_kutta].(scheme)='//self%ts%scheme)
    if (self%ib%solids_number > 0_I4P) &

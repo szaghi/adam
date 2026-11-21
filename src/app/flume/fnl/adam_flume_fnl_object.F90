@@ -25,7 +25,7 @@ use :: adam_flume_fnl_hybrid_kernels, only : compute_hybrid_sensor_dev, mask_mu_
 use :: adam_fnl_turbulence_kernels, only : compute_mu_t_sigma_dev, compute_mu_t_vreman_dev, compute_mu_t_wale_dev
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
 use :: adam_seam_exchange,        only : seam_fill_all
-use :: adam_stepper_object,       only : RK_1, RK_2, RK_3, RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54, LAYOUT_V_LAST
+use :: adam_stepper_object,       only : LAYOUT_V_LAST
 ! ADAM FNL classes, libraries
 use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev, pack_blocks_transposed_dev, pack_seam_rows_dev, &
                                          seam_ghosts_to_state_dev, unpack_blocks_transposed_dev, unpack_seam_rows_dev
@@ -1882,14 +1882,14 @@ contains
    case default
       call mpih_fnl%error_stop(msg=': no FNL space operator for scheme_space "'//self%numerics%scheme_space//'"')
    endselect
-   select case(self%ts%scheme)
-   case(RK_1, RK_2, RK_3)
+   ! the stepper's form picks the integrator (#134 D4): two registers, or a register per stage (Butcher)
+   if (self%ts%is_two_register()) then
       self%integrate_dev => integrate_rk_ls_dev
-   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   elseif (self%ts%is_butcher()) then
       self%integrate_dev => integrate_rk_ssp_dev
-   case default
+   else
       call mpih_fnl%error_stop(msg=': no FNL time integrator for [runge_kutta].(scheme) "'//trim(self%ts%scheme)//'"')
-   endselect
+   endif
    endsubroutine initialize_flume
 
    subroutine limit_positivity_dev(self, q_gpu, flux_register)
@@ -3729,18 +3729,17 @@ contains
    endsubroutine regrid_end_forest
 
    function stages_per_step_forest(self) result(K)
-   !< Return the integrator stages per step: only SSP schemes are stage-splittable (staged path).
+   !< Return the integrator stages per step: only the Butcher form is stage-splittable (staged path).
    class(flume_fnl_object), intent(in) :: self !< The equation.
    integer(I4P)                        :: K    !< Integrator stages per step.
 
-   select case(self%ts%scheme)
-   case(RK_SSP_11, RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   K = 0_I4P
+   if (self%ts%is_butcher()) then
       K = self%ts%stages()
-   case default
-      K = 0_I4P
+   else
       call mpih_fnl%error_stop(msg=': RK scheme "'//trim(self%ts%scheme)//'" is not stage-splittable: the staged '// &
                                    'forest path (multi-realm, or AMR seam faces) requires an SSP scheme')
-   endselect
+   endif
    endfunction stages_per_step_forest
 
    ! private procedures
