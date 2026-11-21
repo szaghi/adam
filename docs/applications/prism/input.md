@@ -20,7 +20,7 @@ itself a single-realm input.
 A realm input is read in this order: `[IO]` → `[numerics]` → `[physics]` → `[runge_kutta] scheme` and the coil counts
 (the memory budget) → the library sections (`[grid]`, `[amr]`, markers, `[weno]`, `[runge_kutta]`, `[fdv]`, `[solids]`,
 `[slices]`) → `[bc_*]` → `[PIC]` and `[particle_injection]` (PIC models) → `[time]` → `[initial_conditions]` →
-`[coils_input]` → `[grms]` → `[magnetic_field_at_center_domain]` → `[probes]` → `[leapfrog]` (PIC leapfrog) →
+`[coils_input]` → `[grms]` → `[magnetic_field_at_center_domain]` → `[probes]` →
 `[external_fields]` → `[fWLayer]` → `[PML]`. The backend then checks the combinations (time and space schemes, PML, PIC
 current) and stops on the ones it does not implement.
 
@@ -290,10 +290,11 @@ For `problem_type = single_particle`: `x_position`, `y_position`, `z_position`, 
 
 ---
 
-## [leapfrog] (PIC leapfrog only)
+## [leapfrog] (removed)
 
-`is_filtered` (logical), `nu`, `alpha` (real), all required, read only with `[PIC] scheme_time = leapfrog`, which is then
-refused at initialization: the section has no working use.
+No parser reads it: its keys (`is_filtered`, `nu`, `alpha`) set the Robert–Asselin filter of ADAM's PIC leapfrog,
+deleted when the particle push moved to SELAH ([SELAH#4](https://github.com/szaghi/SELAH/issues/4)). An input that keeps
+the section stops at initialization on its unread keys (`[IO] unused_keys = error`, the default); delete it.
 
 ---
 
