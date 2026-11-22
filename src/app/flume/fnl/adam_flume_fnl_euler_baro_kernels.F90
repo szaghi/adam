@@ -11,7 +11,6 @@ module adam_flume_fnl_euler_baro_kernels
 !< `adam_flume_fnl_kernels` (issue #35, D-11/D-12).
 
 ! ADAM FNL classes, libraries
-use :: adam_fnl_weno_kernels,    only : weno_reconstruct_upwind_dev
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_eos_tables_library, only : barotropic_c2

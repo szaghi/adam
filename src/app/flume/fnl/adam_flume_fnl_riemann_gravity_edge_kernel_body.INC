@@ -1,12 +1,8 @@
-   ! Body of the FNL face-flux kernel `add_gravity_edge_correction_s<N>_dev` / `add_gravity_edge_correction_sn_dev` of the scheme
-   ! `weno-riemann`, one source for every stencil width: included by the kernels of
-   ! `adam_flume_fnl_riemann_face_kernels_agnostic.INC`, after their declaration of `S`.
-   ! FNL_WENO_WRATIO_WIDTH (defined by the per-width kernels of `adam_flume_fnl_riemann_face_kernels_agnostic.INC` around
-   ! this include):
-   ! the kernel `use`s the WENO reconstruction of its width, S a named constant, as `weno_width`, whose call has no S
-   ! argument. The generic kernel `_sn_dev` does not define it and calls `weno_reconstruct_upwind_wratio_dev` with S.
-   ! `S` is not in the data clauses: a named constant cannot be, and a scalar is firstprivate by default in an OpenACC
-   ! parallel and in an OpenMP target region.
+   ! Body of the FNL gravity edge-correction kernel `add_gravity_edge_correction_s<N>_dev` of the scheme `weno-riemann`,
+   ! one source for every stencil width: included by the kernels of `adam_flume_fnl_riemann_face_kernels_agnostic.INC`,
+   ! after their declaration of `S` and their `use` of SETH's WENO-JS interpolation kernel of that width with the
+   ! weights ratios as `weno_width` (issue #139, S3b). `S` is not in the data clauses: a named constant cannot be, and a
+   ! scalar is firstprivate by default in an OpenACC parallel and in an OpenMP target region.
    integer(I4P), intent(in)    :: d                                       !< Direction, 1=x, 2=y, 3=z.
    integer(I4P), intent(in)    :: di, dj, dk                              !< Unit step along `d`.
    integer(I4P), intent(in)    :: ni, nj, nk, ngc                         !< Grid dimensions.
@@ -14,9 +10,6 @@
    real(R8P),    intent(in)    :: gamma                                   !< Specific heats ratio.
    real(R8P),    intent(in)    :: ch                                      !< GLM cleaning speed (models with GLM only).
    logical,      intent(in)    :: is_characteristic                       !< Characteristic (or primitive) variables.
-   real(R8P),    intent(in)    :: weno_a_gpu(1:,0:,1:)                    !< WENO interpolation optimal weights.
-   real(R8P),    intent(in)    :: weno_p_gpu(1:,0:,0:,1:)                 !< WENO interpolation polynomials coefficients.
-   real(R8P),    intent(in)    :: weno_d_gpu(0:,0:,0:,1:)                 !< WENO smoothness indicators coefficients.
    real(R8P),    intent(in)    :: weno_zeps                               !< WENO parameter avoiding division by zero.
    real(R8P),    intent(in)    :: weno_sigma                              !< WENO descaler switch (0 Jiang-Shu, 1 SI).
    real(R8P),    intent(in)    :: cc(3)                                   !< Correction coefficients.
@@ -31,8 +24,7 @@
    real(R8P)                   :: fint(2,1-S_MAX:S_MAX-1,NV_K)            !< Private fields to interpolate.
    real(R8P)                   :: er(NV_K,NV_K)                           !< Private right eigenvectors.
    real(R8P)                   :: mu(NV_K)                                !< Private magnitude of each field.
-   real(R8P)                   :: v(2,2*S_MAX-1)                          !< Private packed stencil of one field.
-   real(R8P)                   :: vr_(2)                                  !< Private interpolation of one field.
+   real(R8P)                   :: vp(1-S:S), vm(1-S:S)!< Private stencil of one field, left and right bias.
    real(R8P)                   :: wr(2)                                   !< Private WENO weights ratio of one field.
    real(R8P)                   :: vr(2,NV_K)                              !< Private interpolated fields.
    real(R8P)                   :: qL(NV_K), qR(NV_K)                      !< Private face states.
@@ -50,12 +42,12 @@
    n1 = merge(nj, ni, di == 1_I4P)
    n2 = merge(nj, nk, dk == 1_I4P)
    !$acc parallel loop independent gang vector collapse(3)                                                        &
-   !$acc& DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,gc_gpu)                                       &
+   !$acc& DEVICEVAR(q_gpu,q_aux_gpu,gc_gpu)                                                                        &
    !$acc& firstprivate(d,di,dj,dk,nd,n1,n2,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau, &
-   !$acc& ir,gd) private(qs,qas,fint,er,mu,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fm,fallback,fd,cd,i,j,k)
-   !$omp OMPLOOP collapse(3) DEVICEPTR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,q_aux_gpu,gc_gpu) &
+   !$acc& ir,gd) private(qs,qas,fint,er,mu,vp,vm,wr,vr,qL,qR,fr,fc,wmin,sensor,fm,fallback,fd,cd,i,j,k)
+   !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu,q_aux_gpu,gc_gpu)                                  &
    !$omp& firstprivate(d,di,dj,dk,nd,n1,n2,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau,ir,gd) &
-   !$omp& private(qs,qas,fint,er,mu,v,vr_,wr,vr,qL,qR,fr,fc,wmin,sensor,fm,fallback,fd,cd,i,j,k)
+   !$omp& private(qs,qas,fint,er,mu,vp,vm,wr,vr,qL,qR,fr,fc,wmin,sensor,fm,fallback,fd,cd,i,j,k)
    do t2=1, n2
    do t1=1, n1
    do b=1, blocks_number
@@ -88,20 +80,11 @@
          do f=1, NV_K
             !$acc loop seq
             do m=1-S, S-1
-               v(1,m+S) = fint(1,m,f)
-               v(2,m+S) = fint(2,m,f)
+               vm(m+1) = fint(1,m,f)
+               vp(m)   = fint(2,m,f)
             enddo
-#ifdef FNL_WENO_WRATIO_WIDTH
-            call weno_width(weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
-                            weno_zeps=weno_zeps, weno_rmu=weno_sigma / mu(f) + (1._R8P - weno_sigma), &
-                            V=v, VR=vr_, WRATIO=wr)
-#else
-            call weno_reconstruct_upwind_wratio_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
-                                                    weno_zeps=weno_zeps, weno_rmu=weno_sigma / mu(f) + (1._R8P - weno_sigma), &
-                                                    V=v, VR=vr_, WRATIO=wr)
-#endif
-            vr(1,f) = vr_(1)
-            vr(2,f) = vr_(2)
+         call weno_width(vp=vp, vm=vm, eps=weno_zeps, rmu=weno_sigma / mu(f) + (1._R8P - weno_sigma), &
+                         rp=vr(2,f), rm=vr(1,f), wrp=wr(2), wrm=wr(1))
             wmin = min(wmin, wr(1), wr(2))
          enddo
          call face_states(gamma=gamma, ch=ch, is_characteristic=is_characteristic, er=er, vr=vr, q0=qs(:,0), &

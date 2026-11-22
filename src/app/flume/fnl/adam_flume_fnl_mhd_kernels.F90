@@ -13,7 +13,6 @@ module adam_flume_fnl_mhd_kernels
 ! ADAM classes, libraries, parameters
 use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
 ! ADAM FNL classes, libraries
-use :: adam_fnl_weno_kernels,  only : weno_reconstruct_upwind_dev
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_face_flux_back_projection, &

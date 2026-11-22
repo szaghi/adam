@@ -33,7 +33,6 @@ use :: adam_fnl_field_object,     only : field_fnl_object
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 use :: adam_fnl_poisson_mg_object, only : poisson_mg_fnl_object
 use :: adam_fnl_ib_object,        only : ib_fnl_object
-use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
 use :: adam_fnl_mpih_global,      only : initialize_mpih_fnl, mpih_fnl, mpih_fnl_device_sharers
 use :: adam_mpih_global,          only : mpih
@@ -379,7 +378,6 @@ type, extends(flume_common_object) :: flume_fnl_object
    ! FNL helpers
    type(field_fnl_object) :: field_fnl                    !< Field helper (coordinates, maps, ghost exchange).
    type(ib_fnl_object)    :: ib_fnl                       !< Immersed boundary helper.
-   type(weno_fnl_object)  :: weno_fnl                     !< WENO helper.
    ! device data
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null()     !< Conservative variables [nb, i, j, k, nv].
    real(R8P), pointer     :: dq_gpu(:,:,:,:,:)=>null()    !< Residuals [nb, i, j, k, nv].
@@ -1813,7 +1811,6 @@ contains
    endif
    if (allocated(self%skin_faces)) deallocate(self%skin_faces)
    if (allocated(self%buf_5D_R8P)) deallocate(self%buf_5D_R8P)
-   call self%weno_fnl%destroy()
    call self%ib_fnl%destroy()
    call self%field_fnl%destroy()
    call self%destroy_common
@@ -1873,8 +1870,6 @@ contains
    endif
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-   call self%weno_fnl%initialize(weno=self%weno)
-   if (self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN) call self%weno_fnl%initialize_interpolation(weno=self%weno)
    call self%allocate_gpu
    select case(self%numerics%scheme_space)
    case(SCHEME_SPACE_WENO)
@@ -3858,11 +3853,9 @@ contains
    edge_riemann => null()
    ids = reshape([1, 0, 0, 0, 1, 0, 0, 0, 1], [3, 3])
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                            &
-             gamma=>self%physics%eos_arg, &
-             ch=>self%physics%mhd%glm_ch, g=>self%physics%gravity%g_uniform, weno_s=>self%weno%S,                 &
-             zeps=>self%weno%zeps,                                                                                    &
-             sigma=>self%weno%sigma, d_gpu=>self%weno_fnl%d_gpu)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                             &
+             gamma=>self%physics%eos_arg, ch=>self%physics%mhd%glm_ch, g=>self%physics%gravity%g_uniform,              &
+             weno_s=>self%weno%S, zeps=>self%weno%eps, sigma=>self%weno%sigma)
    call compute_gravity_correction_faces_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=g,                    &
                                              flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu,                     &
                                              flz_f_gpu=self%flz_f_gpu, gc_gpu=self%gcor_gpu)
@@ -3940,12 +3933,11 @@ contains
       if (.not.associated(edge_riemann)) call mpih_fnl%error_stop(msg=': no FNL gravity edge kernel for the model '// &
                                                                       'and Riemann solver')
       do d=1, 3
-         if (g(d) /= 0._R8P) call edge_riemann(d=d, di=ids(1,d), dj=ids(2,d), dk=ids(3,d), ni=ni, nj=nj, nk=nk,      &
-                                               ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, ch=ch,               &
-                                               is_characteristic=is_char, weno_a_gpu=self%weno_fnl%a_interp_gpu,      &
-                                               weno_p_gpu=self%weno_fnl%p_interp_gpu, weno_d_gpu=d_gpu,               &
-                                               weno_zeps=zeps, weno_sigma=sigma, cc=cc, tau=tau, ir=IQ_R, gd=g(d),    &
-                                               q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, gc_gpu=self%gcor_gpu)
+         if (g(d) /= 0._R8P) call edge_riemann(d=d, di=ids(1,d), dj=ids(2,d), dk=ids(3,d), ni=ni, nj=nj, nk=nk,        &
+                                               ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, ch=ch,                &
+                                               is_characteristic=is_char, weno_zeps=zeps, weno_sigma=sigma, cc=cc,     &
+                                               tau=tau, ir=IQ_R, gd=g(d), q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu,       &
+                                               gc_gpu=self%gcor_gpu)
       enddo
    else
       select case(self%physics%model)
@@ -3963,12 +3955,10 @@ contains
       endselect
       if (.not.associated(edge_split)) call mpih_fnl%error_stop(msg=': no FNL gravity edge kernel for the model')
       do d=1, 3
-         if (g(d) /= 0._R8P) call edge_split(d=d, di=ids(1,d), dj=ids(2,d), dk=ids(3,d), ni=ni, nj=nj, nk=nk,        &
-                                             ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, ch=ch,                 &
-                                             is_characteristic=is_char, weno_a_gpu=self%weno_fnl%a_gpu,               &
-                                             weno_p_gpu=self%weno_fnl%p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,        &
-                                             weno_sigma=sigma, ir=IQ_R, gd=g(d), q_gpu=q_gpu,                         &
-                                             q_aux_gpu=self%q_aux_gpu, gc_gpu=self%gcor_gpu)
+         if (g(d) /= 0._R8P) call edge_split(d=d, di=ids(1,d), dj=ids(2,d), dk=ids(3,d), ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                             blocks_number=nb, S=weno_s, gamma=gamma, ch=ch,                           &
+                                             is_characteristic=is_char, weno_zeps=zeps, weno_sigma=sigma, ir=IQ_R,     &
+                                             gd=g(d), q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, gc_gpu=self%gcor_gpu)
       enddo
    endif
    endassociate
@@ -4010,258 +4000,235 @@ contains
    if (self%physics%gravity%self_gravity) call self%solve_potential_gpu(q_gpu=q_gpu) ! Phi of this stage (issue #81)
    call self%compute_q_aux(q_gpu=q_gpu)
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                            &
-             gamma=>self%physics%eos_arg, &
-             is_null=>self%adam%grid%null_xyz, weno_s=>self%weno%S, zeps=>self%weno%zeps, a_gpu=>self%weno_fnl%a_gpu, &
-             sigma=>self%weno%sigma,                                                                                  &
-             p_gpu=>self%weno_fnl%p_gpu, d_gpu=>self%weno_fnl%d_gpu)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                             &
+             gamma=>self%physics%eos_arg, is_null=>self%adam%grid%null_xyz, weno_s=>self%weno%S, zeps=>self%weno%eps,  &
+             sigma=>self%weno%sigma)
    select case(self%physics%model)
    case(MODEL_EULER_ISO) ! issue #100
-      if (.not.is_null(1)) call compute_face_fluxes_euler_iso_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+      if (.not.is_null(1)) call compute_face_fluxes_euler_iso_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_euler_iso_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+      if (.not.is_null(2)) call compute_face_fluxes_euler_iso_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_euler_iso_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
+      if (.not.is_null(3)) call compute_face_fluxes_euler_iso_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_EULER_BARO) ! issue #100, P3
-      if (.not.is_null(1)) call compute_face_fluxes_euler_baro_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
-                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_euler_baro_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
-                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_euler_baro_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
-                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
-                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+      if (.not.is_null(1)) call compute_face_fluxes_euler_baro_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,       &
+                                                              nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,       &
+                                                              gamma=gamma, ch=self%physics%mhd%glm_ch,                 &
+                                                              is_characteristic=is_char, weno_zeps=zeps,               &
+                                                              weno_sigma=sigma, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, &
+                                                              fl_gpu=self%flx_f_gpu)
+      if (.not.is_null(2)) call compute_face_fluxes_euler_baro_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,       &
+                                                              nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,       &
+                                                              gamma=gamma, ch=self%physics%mhd%glm_ch,                 &
+                                                              is_characteristic=is_char, weno_zeps=zeps,               &
+                                                              weno_sigma=sigma, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, &
+                                                              fl_gpu=self%fly_f_gpu)
+      if (.not.is_null(3)) call compute_face_fluxes_euler_baro_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,       &
+                                                              nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,       &
+                                                              gamma=gamma, ch=self%physics%mhd%glm_ch,                 &
+                                                              is_characteristic=is_char, weno_zeps=zeps,               &
+                                                              weno_sigma=sigma, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, &
+                                                              fl_gpu=self%flz_f_gpu)
    case(MODEL_EULER)
       if (.not.is_null(1)) call compute_face_fluxes_euler_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
       if (.not.is_null(2)) call compute_face_fluxes_euler_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
       if (.not.is_null(3)) call compute_face_fluxes_euler_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_EULER_PS)
-      if (.not.is_null(1)) call compute_face_fluxes_euler_ps_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+      if (.not.is_null(1)) call compute_face_fluxes_euler_ps_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,  &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_euler_ps_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+      if (.not.is_null(2)) call compute_face_fluxes_euler_ps_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,  &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_euler_ps_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
+      if (.not.is_null(3)) call compute_face_fluxes_euler_ps_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,  &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_EULER_DE_PS)
-      if (.not.is_null(1)) call compute_face_fluxes_euler_de_ps_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
-                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_euler_de_ps_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
-                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_euler_de_ps_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
-                                                              nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                              ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                              weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
-                                                              q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
+      if (.not.is_null(1)) call compute_face_fluxes_euler_de_ps_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,      &
+                                                              nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,       &
+                                                              gamma=gamma, ch=self%physics%mhd%glm_ch,                 &
+                                                              is_characteristic=is_char, weno_zeps=zeps,               &
+                                                              weno_sigma=sigma, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, &
+                                                              fl_gpu=self%flx_f_gpu)
+      if (.not.is_null(2)) call compute_face_fluxes_euler_de_ps_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,      &
+                                                              nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,       &
+                                                              gamma=gamma, ch=self%physics%mhd%glm_ch,                 &
+                                                              is_characteristic=is_char, weno_zeps=zeps,               &
+                                                              weno_sigma=sigma, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, &
+                                                              fl_gpu=self%fly_f_gpu)
+      if (.not.is_null(3)) call compute_face_fluxes_euler_de_ps_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,      &
+                                                              nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,       &
+                                                              gamma=gamma, ch=self%physics%mhd%glm_ch,                 &
+                                                              is_characteristic=is_char, weno_zeps=zeps,               &
+                                                              weno_sigma=sigma, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, &
+                                                              fl_gpu=self%flz_f_gpu)
    case(MODEL_EULER_DE)
-      if (.not.is_null(1)) call compute_face_fluxes_euler_de_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+      if (.not.is_null(1)) call compute_face_fluxes_euler_de_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,  &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_euler_de_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
+      if (.not.is_null(2)) call compute_face_fluxes_euler_de_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,  &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_euler_de_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
+      if (.not.is_null(3)) call compute_face_fluxes_euler_de_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,  &
                                                               nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
                                                               ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                              weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
                                                               weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
                                                               q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_MHD)
-      if (.not.is_null(1)) call compute_face_fluxes_mhd_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                            weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,       &
+                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,   &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,     &
+                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,             &
                                                             q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_mhd_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                            weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,       &
+                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,   &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,     &
+                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,             &
                                                             q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_mhd_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
-                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                            weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,       &
+                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,   &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,     &
+                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,             &
                                                             q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_MHD_ISO) ! issue #100, P5
-      if (.not.is_null(1)) call compute_face_fluxes_mhd_iso_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                            weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_iso_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,   &
+                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,   &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,     &
+                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,             &
                                                             q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_mhd_iso_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                            weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_iso_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,   &
+                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,   &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,     &
+                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,             &
                                                             q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_mhd_iso_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
-                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                            weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_iso_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,   &
+                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,   &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,     &
+                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,             &
                                                             q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_MHD_BARO) ! issue #100, P5
-      if (.not.is_null(1)) call compute_face_fluxes_mhd_baro_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                            weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_baro_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,  &
+                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,   &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,     &
+                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,             &
                                                             q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_mhd_baro_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                            weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_baro_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,  &
+                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,   &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,     &
+                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,             &
                                                             q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_mhd_baro_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
-                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                            weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_baro_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,  &
+                                                            nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma,   &
+                                                            ch=self%physics%mhd%glm_ch, is_characteristic=is_char,     &
+                                                            weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,             &
                                                             q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_MHD_GLM)
-      if (.not.is_null(1)) call compute_face_fluxes_mhd_glm_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_glm_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,   &
+                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,            &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_mhd_glm_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_glm_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,   &
+                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,            &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_mhd_glm_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_glm_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,   &
+                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,            &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_MHD_GLM_ISO) ! issue #100, P5
-      if (.not.is_null(1)) call compute_face_fluxes_mhd_glm_iso_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_glm_iso_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,      &
+                                                                nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,     &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_mhd_glm_iso_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_glm_iso_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,      &
+                                                                nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,     &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_mhd_glm_iso_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_glm_iso_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,      &
+                                                                nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,     &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_MHD_GLM_BARO) ! issue #100, P5
-      if (.not.is_null(1)) call compute_face_fluxes_mhd_glm_baro_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_glm_baro_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni,     &
+                                                                nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,     &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_mhd_glm_baro_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_glm_baro_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni,     &
+                                                                nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,     &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_mhd_glm_baro_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_glm_baro_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni,     &
+                                                                nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,     &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case(MODEL_MHD_EGLM)
-      if (.not.is_null(1)) call compute_face_fluxes_mhd_eglm_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(1)) call compute_face_fluxes_mhd_eglm_dev(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj,  &
+                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,            &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu)
-      if (.not.is_null(2)) call compute_face_fluxes_mhd_eglm_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(2)) call compute_face_fluxes_mhd_eglm_dev(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj,  &
+                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,            &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu)
-      if (.not.is_null(3)) call compute_face_fluxes_mhd_eglm_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,     &
-                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s, gamma=gamma, &
-                                                                ch=self%physics%mhd%glm_ch, is_characteristic=is_char,   &
-                                                                weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu,    &
-                                                                weno_zeps=zeps, weno_sigma=sigma, q_gpu=q_gpu,           &
+      if (.not.is_null(3)) call compute_face_fluxes_mhd_eglm_dev(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj,  &
+                                                                nk=nk, ngc=ngc, blocks_number=nb, S=weno_s,            &
+                                                                gamma=gamma, ch=self%physics%mhd%glm_ch,               &
+                                                                is_characteristic=is_char, weno_zeps=zeps,             &
+                                                                weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case default
       call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
@@ -4369,12 +4336,9 @@ contains
    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
    cc = self%numerics%correction_coefficients()
    tau = self%numerics%correction_threshold()
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                            &
-             gamma=>self%physics%eos_arg, &
-             ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz, weno_s=>self%weno%S,                  &
-             zeps=>self%weno%zeps, a_gpu=>self%weno_fnl%a_interp_gpu, p_gpu=>self%weno_fnl%p_interp_gpu,           &
-             sigma=>self%weno%sigma,                                                                               &
-             d_gpu=>self%weno_fnl%d_gpu)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                             &
+             gamma=>self%physics%eos_arg, ch=>self%physics%mhd%glm_ch, is_null=>self%adam%grid%null_xyz,               &
+             weno_s=>self%weno%S, zeps=>self%weno%eps, sigma=>self%weno%sigma)
    face_fluxes => null()
    if (self%physics%model == MODEL_EULER) then
       select case(self%numerics%riemann_solver)
@@ -4500,24 +4464,18 @@ contains
                                                                   ' with [numerics].(riemann_solver)='//          &
                                                                   self%numerics%riemann_solver)
    fallbacks = 0_I4P
-   if (.not.is_null(1)) call face_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,         &
-                                         blocks_number=nb, S=weno_s, gamma=gamma, ch=ch, is_characteristic=is_char,   &
-                                         weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,        &
-                                         weno_sigma=sigma, cc=cc,                                                 &
-                                         tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu,   &
-                                         fallbacks=fallbacks(1))
-   if (.not.is_null(2)) call face_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,         &
-                                         blocks_number=nb, S=weno_s, gamma=gamma, ch=ch, is_characteristic=is_char,   &
-                                         weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,        &
-                                         weno_sigma=sigma, cc=cc,                                                 &
-                                         tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu,   &
-                                         fallbacks=fallbacks(2))
-   if (.not.is_null(3)) call face_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,         &
-                                         blocks_number=nb, S=weno_s, gamma=gamma, ch=ch, is_characteristic=is_char,   &
-                                         weno_a_gpu=a_gpu, weno_p_gpu=p_gpu, weno_d_gpu=d_gpu, weno_zeps=zeps,        &
-                                         weno_sigma=sigma, cc=cc,                                                 &
-                                         tau=tau, q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu,   &
-                                         fallbacks=fallbacks(3))
+   if (.not.is_null(1)) call face_fluxes(d=1_I4P, di=1_I4P, dj=0_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,          &
+                                         blocks_number=nb, S=weno_s, gamma=gamma, ch=ch, is_characteristic=is_char,    &
+                                         weno_zeps=zeps, weno_sigma=sigma, cc=cc, tau=tau, q_gpu=q_gpu,                &
+                                         q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flx_f_gpu, fallbacks=fallbacks(1))
+   if (.not.is_null(2)) call face_fluxes(d=2_I4P, di=0_I4P, dj=1_I4P, dk=0_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,          &
+                                         blocks_number=nb, S=weno_s, gamma=gamma, ch=ch, is_characteristic=is_char,    &
+                                         weno_zeps=zeps, weno_sigma=sigma, cc=cc, tau=tau, q_gpu=q_gpu,                &
+                                         q_aux_gpu=self%q_aux_gpu, fl_gpu=self%fly_f_gpu, fallbacks=fallbacks(2))
+   if (.not.is_null(3)) call face_fluxes(d=3_I4P, di=0_I4P, dj=0_I4P, dk=1_I4P, ni=ni, nj=nj, nk=nk, ngc=ngc,          &
+                                         blocks_number=nb, S=weno_s, gamma=gamma, ch=ch, is_characteristic=is_char,    &
+                                         weno_zeps=zeps, weno_sigma=sigma, cc=cc, tau=tau, q_gpu=q_gpu,                &
+                                         q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu, fallbacks=fallbacks(3))
    if (self%numerics%riemann_solver == RIEMANN_SOLVER_HLLD) then
       call MPI_ALLREDUCE(MPI_IN_PLACE, fallbacks, 3, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
       if (sum(fallbacks) > 0_I4P .and. mpih_fnl%myrank == 0) &

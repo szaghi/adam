@@ -33,7 +33,9 @@ The time integrator is not among them: the realm builds it (`ts`, SELAH's steppe
 
 Application FNL objects follow the same pattern (PRISM's `coil_fnl`, `pic_fnl`, `pml_fnl`). An application that
 reconstructs with the library WENO coefficients on the device also calls `self%weno_fnl%initialize(weno=self%weno)`;
-PRISM does not (its FNL backend refuses `scheme_space = weno`).
+PRISM does not (its FNL backend refuses `scheme_space = weno`), and FLUME no longer does: its device kernels call
+[SETH](https://github.com/szaghi/SETH)'s WENO kernels, whose coefficients are compile-time constants
+([#139](https://github.com/szaghi/adam/issues/139) S3b; RIPPLE follows in S4, and the object is deleted in S6).
 
 ## Design and memory model
 
@@ -148,8 +150,9 @@ per stencil.
 
 One routine per stencil width, `weno_reconstruct_upwind_s<N>_dev` and `weno_reconstruct_upwind_wratio_s<N>_dev` for
 `S = N` = 1 … 5 (WENO-1 … WENO-9), with `S` a compile-time constant. FLUME's per-width face kernels (`..._s<N>_dev`)
-call them. The body is one include, `adam_fnl_weno_width_body.INC`, shared with the generic routines, so both are
-bitwise the same. The generic routines stay for callers whose width is a run-time value.
+called them until [#139](https://github.com/szaghi/adam/issues/139) S3b and now call SETH's kernel of their width,
+bitwise the same on the device (`test_weno_seth_parity_fnl`). The body is one include, `adam_fnl_weno_width_body.INC`,
+shared with the generic routines, so both are bitwise the same. Both go with ADAM's WENO in S6.
 
 ## Runge-Kutta integration
 

@@ -43,7 +43,6 @@ KEEP = re.compile(r'0\.25_R\w*\s*\*\s*' + SUM + r'\s*\*\s*' + SUM, re.IGNORECASE
 NAMES = re.compile(r'\b(?:weno_[apd](?:_gpu)?\b|weno_reconstruct_upwind\w*|compute_kep_flux)\b', re.IGNORECASE)
 
 # file name -> (the step of #139 that migrates it, what it still holds)
-_S3B = 'S3b: FLUME FNL onto SETH (the table arguments leave the kernels)'
 _S3C = 'S3c: the hybrid flux and sensor, the seam sensor onto SETH'
 _S4 = 'S4: RIPPLE onto SETH'
 _S5 = 'S5: PRISM CPU onto SETH'
@@ -55,16 +54,9 @@ WAIVERS: dict[str, str] = {  # a file name, or a glob of names
     'adam_fnl_weno_width_kernels.F90': _S6 + ' (the per-width device copy)',
     'adam_fnl_weno_width_body.INC': _S6 + ' (the per-width device body)',
     'adam_weno_nvf_kernels.F90': _S6 + ' (the CUDA Fortran twin, NASTO only)',
-    'adam_flume_fnl_object.F90': _S3B + ' (weno_a_gpu, weno_p_gpu, weno_d_gpu passed to the face kernels)',
-    'adam_flume_fnl_*_kernels.F90': _S3B + ' (the 52 per-model modules take the face loops by include)',
-    'adam_flume_fnl_face_kernels_agnostic.INC': _S3B,
-    'adam_flume_fnl_face_fluxes_kernel_body.INC': _S3B,
-    'adam_flume_fnl_gravity_edge_kernel_body.INC': _S3B,
-    'adam_flume_fnl_riemann_face_kernels_agnostic.INC': _S3B,
-    'adam_flume_fnl_riemann_face_fluxes_kernel_body.INC': _S3B,
-    'adam_flume_fnl_riemann_gravity_edge_kernel_body.INC': _S3B,
     'adam_flume_hybrid_library.F90': _S3C + ' (compute_kep_flux, deleted in S6)',
     'adam_flume_cpu_hybrid_kernels.F90': _S3C + ' (compute_kep_flux, compute_ducros)',
+    'adam_flume_fnl_hybrid_kernels.F90': _S3C + ' (compute_kep_flux, compute_ducros)',
     'adam_flume_seam_sync_object.F90': _S3C + ' (seam_weno5_sensor)',
     'adam_ripple_cpu_object.F90': _S4,
     'adam_ripple_fnl_kernels.F90': _S4,

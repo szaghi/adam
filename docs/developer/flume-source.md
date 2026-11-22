@@ -86,7 +86,7 @@ seam fluxes of the reflux register; the seam face fluxes of a rank go to the hos
 | `adam_flume_fnl_kernels.F90` | Device kernels: face fluxes and flux difference (with the immersed-boundary variant), boundary conditions, time-step and conservation reductions, auxiliary fields, seam skin packing and reflux application, radiative cooling and the cooling time (issue #93) |
 | `adam_flume_fnl_<model>[_<solver>]_kernels.F90` | Device twins of the CPU per-model and per-Riemann-solver kernel modules (same model and solver names) |
 | `adam_flume_fnl_*_kernels_agnostic.INC` | The model-agnostic device kernel bodies the model modules include |
-| `adam_flume_fnl_*_kernel_body.INC` | Per-stencil-width bodies of the face-flux and gravity edge-correction kernels, flux splitting and `weno-riemann` (`face_fluxes`, `gravity_edge`, `riemann_face_fluxes`, `riemann_gravity_edge`), included by the agnostic kernel files |
+| `adam_flume_fnl_*_kernel_body.INC` | Per-stencil-width bodies of the face-flux and gravity edge-correction kernels, flux splitting and `weno-riemann` (`face_fluxes`, `gravity_edge`, `riemann_face_fluxes`, `riemann_gravity_edge`), included by the agnostic kernel files; each kernel calls SETH's WENO kernel of its width (`seth_weno<2S-1>_js`, `_interp_wr`; [#139](https://github.com/szaghi/adam/issues/139) S3b), so no WENO table is passed to a device kernel |
 | `adam_flume_fnl_hybrid_kernels.F90` | Device twins of the CPU `hybrid-kep-weno` kernels (issue #119) |
 | `adam_flume_fnl_forcing_kernels.F90` | Device twins of the CPU mass-flow forcing kernels (issue #119) |
 | `adam_flume_fnl_library.F90` | Barrel re-export of all FNL modules |

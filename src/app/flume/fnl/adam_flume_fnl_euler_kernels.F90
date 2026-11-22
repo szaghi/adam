@@ -11,7 +11,6 @@ module adam_flume_fnl_euler_kernels
 !< `adam_flume_fnl_kernels` (issue #35, D-11/D-12).
 
 ! ADAM FNL classes, libraries
-use :: adam_fnl_weno_kernels,    only : weno_reconstruct_upwind_dev
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_euler_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &

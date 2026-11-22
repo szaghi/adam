@@ -10,7 +10,6 @@ module adam_flume_fnl_euler_de_ps_hll_kernels
 !< `NV_K = NV_EULER_DE_PS`, `NV_AUX_K = NV_AUX_DE_PS`, and the four adapters call the Euler library.
 
 ! ADAM FNL classes, libraries
-use :: adam_fnl_weno_kernels,    only : weno_reconstruct_upwind_wratio_dev
 ! FLUME modules
 use :: adam_flume_euler_de_ps_library, only : compute_face_interpolation_fields, compute_face_states, compute_flux, &
                                         compute_riemann_hll

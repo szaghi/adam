@@ -38,8 +38,8 @@ $$\hat v_{i+1/2} = \sum_{k=0}^{S-1} \omega_k\, p_k, \qquad
 with the optimal (linear) weights $d_k$, the Jiang–Shu smoothness indicators $\beta_k$, $\varepsilon = 10^{-6}$ and the
 exponent $m = S$ ($S - 1$ for $S > 4$), the same on the host and on the device. The kernels are
 [SETH](https://github.com/szaghi/SETH)'s (`seth_weno<2S-1>_js`, one per width, compile-time coefficients;
-[#139](https://github.com/szaghi/adam/issues/139)): on the CPU since S3a, the same results as ADAM's former kernels bit for
-bit. On smooth data $\omega_k \to d_k$ and the
+[#139](https://github.com/szaghi/adam/issues/139)): on the CPU since S3a and on the GPU since S3b, each the same results
+as ADAM's former kernels bit for bit (no table crosses the device kernel boundary any more). On smooth data $\omega_k \to d_k$ and the
 combination reaches order $2S-1$; the stencils crossing a discontinuity get $\omega_k \to 0$. The centred schemes
 `weno-c-*` are refused by FLUME.
 

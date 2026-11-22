@@ -10,7 +10,6 @@ module adam_flume_fnl_mhd_glm_iso_llf_kernels
 !< are sized by `NV_K = NV_MHD_GLM`, `NV_AUX_K = NV_AUX_MHD`, and the four adapters call the MHD libraries.
 
 ! ADAM FNL classes, libraries
-use :: adam_fnl_weno_kernels,          only : weno_reconstruct_upwind_wratio_dev
 ! FLUME modules
 use :: adam_flume_mhd_iso_library,         only : mhd_glm_flux
 use :: adam_flume_mhd_iso_library, only : mhd_glm_face_interpolation_fields, mhd_glm_face_states, &
