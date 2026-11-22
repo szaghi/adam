@@ -22,7 +22,7 @@
    real(R8P)                        :: fint(2,1-S_MAX:S_MAX-1,NV_K)      !< Fields to interpolate.
    real(R8P)                        :: er(NV_K,NV_K)                     !< Right eigenvectors.
    real(R8P)                        :: mu(NV_K)                          !< Magnitude of each field (WENO descaler).
-   real(R8P)                        :: v(2,2*S_MAX-1)                    !< Packed stencil of one field.
+   real(R8P)                        :: vp(1-S:S), vm(1-S:S)              !< Stencil of one field, left and right bias.
    real(R8P)                        :: vr(2,NV_K)                        !< Interpolated fields.
    real(R8P)                        :: wr(2)                             !< WENO weights ratio of one field.
    real(R8P)                        :: wmin                              !< Minimum WENO weights ratio of the face.
@@ -39,6 +39,7 @@
    nd = di * ni + dj * nj + dk * nk
    n1 = merge(nj, ni, di == 1_I4P)
    n2 = merge(nj, nk, dk == 1_I4P)
+   vp(S) = 0._R8P ; vm(1-S) = 0._R8P ! not read by the kernel (SETH's stencil convention)
    !$omp parallel do collapse(3) default(firstprivate) shared(weno, q, q_aux, gc)
    do b=1, blocks_number
       do t2=1, n2
@@ -58,11 +59,11 @@
                wmin = 1._R8P
                do f=1, NV_K
                   do m=1-S, S-1
-                     v(:,m+S) = fint(:,m,f)
+                     vp(m)   = fint(2,m,f)
+                     vm(m+1) = fint(1,m,f)
                   enddo
-                  call weno_reconstruct_upwind_wratio(S=S, weno_a=weno%a_interp, weno_p=weno%p_interp, weno_d=weno%d, &
-                                                      weno_zeps=weno%zeps, weno_rmu=weno%sigma / mu(f) + (1._R8P - weno%sigma), &
-                                                      v=v, vr=vr(:,f), wr=wr)
+                  call weno_width(vp=vp, vm=vm, eps=weno%eps, rmu=weno%sigma / mu(f) + (1._R8P - weno%sigma), &
+                                  rp=vr(2,f), rm=vr(1,f), wrp=wr(2), wrm=wr(1))
                   wmin = min(wmin, wr(1), wr(2))
                enddo
                call face_states(gamma=gamma, ch=ch, is_characteristic=is_characteristic, er=er, vr=vr, q0=qs(:,0), &

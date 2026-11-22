@@ -8,7 +8,7 @@ module adam_flume_cpu_euler_hllc_kernels
 !< `NV_K = NV_EULER`, `NV_AUX_K = NV_AUX`, and the four adapters call the Euler library.
 
 ! ADAM classes, libraries, parameters
-use :: adam_weno_object,         only : weno_object, weno_reconstruct_upwind_wratio
+use :: adam_weno_object,         only : weno_object
 ! FLUME modules
 use :: adam_flume_euler_library, only : compute_face_interpolation_fields, compute_face_states, compute_flux, &
                                         compute_riemann_hllc

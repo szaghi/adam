@@ -8,7 +8,7 @@ module adam_flume_cpu_euler_baro_kernels
 !< the Euler signal-speed loop.
 
 ! ADAM classes, libraries, parameters
-use :: adam_weno_object,         only : weno_object, weno_reconstruct_upwind
+use :: adam_weno_object,         only : weno_object
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_eos_tables_library, only : barotropic_c2

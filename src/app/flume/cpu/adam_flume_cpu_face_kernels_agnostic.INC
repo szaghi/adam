@@ -4,12 +4,13 @@
    ! `NV_K`, `NV_AUX_K` (the model's conservative and auxiliary variables numbers, compile-time constants that size
    ! every local array: no model branching and no maximum-model buffers in the loops), `S_MAX`, the model's
    ! split adapter `face_split_fluxes(gamma, ch, ...)` (one argument list for every model: the GLM cleaning speed `ch` is
-   ! ignored by the models without cleaning), `compute_face_flux_back_projection`, and `weno_object`,
-   ! `weno_reconstruct_upwind`. The host selects the model's module by `select case`, outside the loops.
+   ! ignored by the models without cleaning), `compute_face_flux_back_projection`, and `weno_object` (the WENO
+   ! configuration). The host selects the model's module by `select case`, outside the loops.
    !
    ! One kernel per stencil width, as on FNL (issue #139, S3a, decision D3): each public routine is a host dispatcher that
    ! selects, by the WENO half-width S, a kernel compiled with S a named constant (`_s1` ... `_s5`, WENO-1 to WENO-9);
-   ! every kernel compiles the same body (`adam_flume_cpu_face_fluxes_body.INC`, `adam_flume_cpu_gravity_edge_body.INC`).
+   ! every kernel compiles the same body (`adam_flume_cpu_face_fluxes_body.INC`, `adam_flume_cpu_gravity_edge_body.INC`)
+   ! and calls SETH's WENO-JS kernel of its width, renamed `weno_width` (`seth_weno<2S-1>_js`).
 
    subroutine compute_face_fluxes(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, weno, &
                                   q, q_aux, fl)
@@ -50,6 +51,7 @@
    subroutine compute_face_fluxes_s1(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, weno, &
                                      q, q_aux, fl)
    !< `compute_face_fluxes` for WENO-1: the stencil half-width S = 1 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno1_js
    integer(I4P), parameter :: S = 1_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_face_fluxes_body.INC"
    endsubroutine compute_face_fluxes_s1
@@ -57,6 +59,7 @@
    subroutine compute_face_fluxes_s2(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, weno, &
                                      q, q_aux, fl)
    !< `compute_face_fluxes` for WENO-3: the stencil half-width S = 2 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno3_js
    integer(I4P), parameter :: S = 2_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_face_fluxes_body.INC"
    endsubroutine compute_face_fluxes_s2
@@ -64,6 +67,7 @@
    subroutine compute_face_fluxes_s3(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, weno, &
                                      q, q_aux, fl)
    !< `compute_face_fluxes` for WENO-5: the stencil half-width S = 3 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno5_js
    integer(I4P), parameter :: S = 3_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_face_fluxes_body.INC"
    endsubroutine compute_face_fluxes_s3
@@ -71,6 +75,7 @@
    subroutine compute_face_fluxes_s4(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, weno, &
                                      q, q_aux, fl)
    !< `compute_face_fluxes` for WENO-7: the stencil half-width S = 4 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno7_js
    integer(I4P), parameter :: S = 4_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_face_fluxes_body.INC"
    endsubroutine compute_face_fluxes_s4
@@ -78,6 +83,7 @@
    subroutine compute_face_fluxes_s5(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, weno, &
                                      q, q_aux, fl)
    !< `compute_face_fluxes` for WENO-9: the stencil half-width S = 5 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno9_js
    integer(I4P), parameter :: S = 5_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_face_fluxes_body.INC"
    endsubroutine compute_face_fluxes_s5
@@ -123,6 +129,7 @@
    subroutine add_gravity_edge_correction_s1(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
                                              weno, ir, gd, q, q_aux, gc)
    !< `add_gravity_edge_correction` for WENO-1: the stencil half-width S = 1 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno1_js
    integer(I4P), parameter :: S = 1_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_gravity_edge_body.INC"
    endsubroutine add_gravity_edge_correction_s1
@@ -130,6 +137,7 @@
    subroutine add_gravity_edge_correction_s2(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
                                              weno, ir, gd, q, q_aux, gc)
    !< `add_gravity_edge_correction` for WENO-3: the stencil half-width S = 2 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno3_js
    integer(I4P), parameter :: S = 2_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_gravity_edge_body.INC"
    endsubroutine add_gravity_edge_correction_s2
@@ -137,6 +145,7 @@
    subroutine add_gravity_edge_correction_s3(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
                                              weno, ir, gd, q, q_aux, gc)
    !< `add_gravity_edge_correction` for WENO-5: the stencil half-width S = 3 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno5_js
    integer(I4P), parameter :: S = 3_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_gravity_edge_body.INC"
    endsubroutine add_gravity_edge_correction_s3
@@ -144,6 +153,7 @@
    subroutine add_gravity_edge_correction_s4(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
                                              weno, ir, gd, q, q_aux, gc)
    !< `add_gravity_edge_correction` for WENO-7: the stencil half-width S = 4 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno7_js
    integer(I4P), parameter :: S = 4_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_gravity_edge_body.INC"
    endsubroutine add_gravity_edge_correction_s4
@@ -151,6 +161,7 @@
    subroutine add_gravity_edge_correction_s5(d, di, dj, dk, ni, nj, nk, ngc, blocks_number, gamma, ch, is_characteristic, &
                                              weno, ir, gd, q, q_aux, gc)
    !< `add_gravity_edge_correction` for WENO-9: the stencil half-width S = 5 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno9_js
    integer(I4P), parameter :: S = 5_I4P !< WENO stencil half-width.
 #include "adam_flume_cpu_gravity_edge_body.INC"
    endsubroutine add_gravity_edge_correction_s5

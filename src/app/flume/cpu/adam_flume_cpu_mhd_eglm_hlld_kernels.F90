@@ -8,7 +8,7 @@ module adam_flume_cpu_mhd_eglm_hlld_kernels
 !< are sized by `NV_K = NV_MHD_EGLM`, `NV_AUX_K = NV_AUX_MHD`, and the four adapters call the MHD libraries.
 
 ! ADAM classes, libraries, parameters
-use :: adam_weno_object,               only : weno_object, weno_reconstruct_upwind_wratio
+use :: adam_weno_object,               only : weno_object
 ! FLUME modules
 use :: adam_flume_mhd_library,         only : mhd_eglm_flux
 use :: adam_flume_mhd_riemann_library, only : mhd_eglm_face_interpolation_fields, mhd_eglm_face_states, &

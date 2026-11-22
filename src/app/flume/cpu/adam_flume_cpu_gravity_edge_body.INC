@@ -20,7 +20,7 @@
    real(R8P)                        :: fsplit(2,1-S_MAX:S_MAX-1,NV_K)        !< Split fields.
    real(R8P)                        :: er(NV_K,NV_K)                         !< Right eigenvectors.
    real(R8P)                        :: mu(NV_K)                              !< Magnitude of each split field (WENO descaler).
-   real(R8P)                        :: v(2,2*S_MAX-1)                        !< Packed stencil of one field.
+   real(R8P)                        :: vp(1-S:S), vm(1-S:S)                  !< Stencil of one field, left and right bias.
    real(R8P)                        :: vr(2,NV_K)                            !< Reconstructed split fields.
    real(R8P)                        :: flux(NV_K)                            !< Face flux.
    integer(I4P)                     :: nd, n1, n2                            !< Cells along `d` and across it.
@@ -30,6 +30,7 @@
    nd = di * ni + dj * nj + dk * nk
    n1 = merge(nj, ni, di == 1_I4P)
    n2 = merge(nj, nk, dk == 1_I4P)
+   vp(S) = 0._R8P ; vm(1-S) = 0._R8P ! not read by the kernel (SETH's stencil convention)
    !$omp parallel do collapse(3) default(firstprivate) shared(weno, q, q_aux, gc)
    do b=1, blocks_number
       do t2=1, n2
@@ -48,10 +49,11 @@
                                       qas=qas, fsplit=fsplit, er=er, mu=mu)
                do f=1, NV_K
                   do m=1-S, S-1
-                     v(:,m+S) = fsplit(:,m,f)
+                     vp(m)   = fsplit(2,m,f)
+                     vm(m+1) = fsplit(1,m,f)
                   enddo
-                  call weno_reconstruct_upwind(S=S, weno_a=weno%a, weno_p=weno%p, weno_d=weno%d, weno_zeps=weno%zeps, &
-                                               weno_rmu=weno%sigma / mu(f) + (1._R8P - weno%sigma), v=v, vr=vr(:,f))
+                  call weno_width(vp=vp, vm=vm, eps=weno%eps, rmu=weno%sigma / mu(f) + (1._R8P - weno%sigma), &
+                                  rp=vr(2,f), rm=vr(1,f))
                enddo
                call compute_face_flux_back_projection(is_characteristic=is_characteristic, er=er, vr=vr, flux=flux)
                i = di * cd + (1 - di) * t1

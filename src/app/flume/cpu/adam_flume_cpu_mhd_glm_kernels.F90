@@ -9,7 +9,7 @@ module adam_flume_cpu_mhd_glm_kernels
 
 ! ADAM classes, libraries, parameters
 use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
-use :: adam_weno_object,           only : weno_object, weno_reconstruct_upwind
+use :: adam_weno_object,           only : weno_object
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_mhd_library, only : compute_face_flux_back_projection=>mhd_glm_face_flux_back_projection, &

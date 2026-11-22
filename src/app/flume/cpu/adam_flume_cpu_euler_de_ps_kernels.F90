@@ -8,7 +8,7 @@ module adam_flume_cpu_euler_de_ps_kernels
 !< the Euler signal-speed loop.
 
 ! ADAM classes, libraries, parameters
-use :: adam_weno_object,         only : weno_object, weno_reconstruct_upwind
+use :: adam_weno_object,         only : weno_object
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
 use :: adam_flume_euler_de_ps_library, only : compute_face_flux_back_projection, compute_face_split_fluxes,                   &
