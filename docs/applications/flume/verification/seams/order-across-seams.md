@@ -59,7 +59,8 @@ FNL sums straight from the device field; the inter-realm rows use the same fill.
 - `weno6`: per direction the WENO-Z combination of the cubics of the 4-point sub-stencils that contain the ghost's
   interval (the kernel of the C3 restriction), with positive linear weights that reproduce the Lagrange interpolant of
   their union; a sub-stencil holding a jump is dropped, and the clamped linear interpolation is used when none is left.
-  Order 5 one cell from the donor block's edge, 4 at it (`seam_interpolate_weno6`);
+  Order 5 one cell from the donor block's edge, 4 at it (`seam_interpolate_weno6`; per direction SETH's
+  `seth_weno6_point` since [#139](https://github.com/szaghi/adam/issues/139) S7, which also holds the C3 restriction);
 - `quintic-mp`: the D1 quintic clamped per direction to a Suresh–Huynh monotonicity-preserving bound, the interval's
   values and the curvature-corrected linear value $L + \theta(\theta-1)/2\, d^{M4}$, widened by the curvature term; at
   the block edge the extrapolation is allowed only when the edge-side intervals hold no jump

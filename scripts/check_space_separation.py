@@ -15,9 +15,9 @@ does for the time integrators (#132). A finding is a statement that
 - names a kernel or table that SETH replaced: weno_a, weno_p, weno_d, weno_reconstruct_upwind*, compute_kep_flux.
 
 The patterns are regular expressions, not a Fortran parser: a statement is the joined continuation lines, comments cut;
-the sources are the .F90 and .INC files of src/app and src/lib (the archived apps excluded). A remaining file is waived
-in WAIVERS by name, with the step of #139 that migrates it: the waiver list is the progress meter of the migration, and
-nothing new can be written while it runs (D9). `--self-test` plants each kind in a scratch file and checks that the rule
+the sources are the .F90 and .INC files of src/app and src/lib (the archived apps excluded). A file can be waived in
+WAIVERS by name; the list was the progress meter of the #139 migration (D9) and is empty since S7 moved the last
+holder, the seam WENO-6 transfer, to SETH. `--self-test` plants each kind in a scratch file and checks that the rule
 catches it, and that a plain stencil (a finite difference, a SETH call) does not.
 
 Usage: python3 scripts/check_space_separation.py [--root DIR] [--self-test]     (exit status 1 on a finding)
@@ -42,11 +42,9 @@ SUM = r'\((?:[^()]|\([^()]*\))+\+(?:[^()]|\([^()]*\))+\)'  # a parenthesised sum
 KEEP = re.compile(r'0\.25_R\w*\s*\*\s*' + SUM + r'\s*\*\s*' + SUM, re.IGNORECASE)
 NAMES = re.compile(r'\b(?:weno_[apd](?:_gpu)?\b|weno_reconstruct_upwind\w*|compute_kep_flux)\b', re.IGNORECASE)
 
-# file name -> (the step of #139 that migrates it, what it still holds)
-_S7 = 'S7: the seam WENO-6 transfer onto SETH (E2)'
-WAIVERS: dict[str, str] = {  # a file name, or a glob of names
-    'adam_seam_interpolation_library.F90': _S7,
-}
+# file name -> the step of #139 that migrates it; empty since S7 (the seam WENO-6 transfer is SETH's): a new entry
+# needs a reason the owner accepts
+WAIVERS: dict[str, str] = {}  # a file name, or a glob of names
 
 
 def statements(path: Path):

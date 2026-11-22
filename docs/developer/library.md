@@ -210,8 +210,8 @@ and immersed-boundary order reduction and `cell_scheme` were deleted in S6; the 
 and interpolation, KEEP-PE and Ducros; on the device SETH's kernels equal ADAM's FNL per-width kernels bitwise), and the
 application A/B runs are bitwise. `scripts/check_space_separation.py` (CI leg `space-separation`) keeps a
 smoothness-indicator constant, a nonlinear weight, the KEEP two-point mass flux or a name SETH replaced (`weno_a/p/d`,
-`weno_reconstruct_upwind*`, `compute_kep_flux`) from being written in `src/app` or `src/lib`; the one waiver left is the
-seam WENO-6 transfer, which S7 moves to SETH.
+`weno_reconstruct_upwind*`, `compute_kep_flux`) from being written in `src/app` or `src/lib`, with no waiver since S7
+moved the seam WENO-6 transfer to SETH.
 
 ### `adam_fdv_operators_library`
 
