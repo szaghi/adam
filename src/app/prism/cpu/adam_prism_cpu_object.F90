@@ -6119,6 +6119,10 @@ contains
    subroutine compute_fluxes_convective_weno(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_a,weno_p,weno_d,weno_c,weno_zeps,&
                                              weno_sigma,evmax,erw,elw,chi,q,fluxes)
    !< Compute convective fluxes along direction `dir`, WENO scheme for space operator.
+   !<
+   !< Host dispatcher (issue #139, S5, decision D3: the dispatch structure of FLUME's kernels): the kernel of the WENO
+   !< half-width `weno_s`, compiled with S a named constant (`_s1` ... `_s5`), whose one body
+   !< (`adam_prism_cpu_weno_fluxes_body.INC`) holds the face loops with the flux decomposition and the reconstruction.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
    integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
@@ -6130,7 +6134,7 @@ contains
    real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                   !< Optimal weights.
    real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                !< Polinomials coefficients.
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
-   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients (unused).
    real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
    real(R8P),    intent(in)    :: weno_sigma                         !< WENO descaler switch (0 Jiang-Shu, 1 scale-invariant).
    real(R8P),    intent(in)    :: evmax                              !< Maximum waves speed estimation.
@@ -6139,84 +6143,56 @@ contains
    real(R8P),    intent(in)    :: chi                                !< Speed parameter for divergence cleaning.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
-   integer(I4P)                :: si(3), si_i, si_j, si_k            !< Directional (1=x,2=y,3=z) increment.
-   real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment, real.
-   integer(I4P)                :: b, i, j, k                         !< Counter.
 
-   select case(dir)
-   case(1)
-      si = [1,0,0]
-   case(2)
-      si = [0,1,0]
-   case(3)
-      si = [0,0,1]
+   select case(weno_s)
+   case(1) ; call compute_fluxes_convective_weno_s1(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   case(2) ; call compute_fluxes_convective_weno_s2(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   case(3) ; call compute_fluxes_convective_weno_s3(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   case(4) ; call compute_fluxes_convective_weno_s4(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   case(5) ; call compute_fluxes_convective_weno_s5(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   case default ; error stop 'compute_fluxes_convective_weno: the WENO half-width S must be 1 to 5'
    endselect
-   sir = real(si,R8P)
-   si_i = 1-si(1)
-   si_j = 1-si(2)
-   si_k = 1-si(3)
-
-   do b=1, blocks_number
-   do k=si_k, nk
-   do j=si_j, nj
-   do i=si_i, ni
-      call compute_fluxes_convective_ri_weno(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv_c=nv_c,                 &
-                                             weno_s=weno_s, weno_zeps=weno_zeps, weno_sigma=weno_sigma, &
-                                             weno_a=weno_a, weno_p=weno_p, weno_d=weno_d, weno_c=weno_c,&
-                                             evmax=evmax,erw=erw,elw=elw,chi=chi,                       &
-                                             si=si,sir=sir,q=q,fluxes=fluxes)
-   enddo
-   enddo
-   enddo
-   enddo
    endsubroutine compute_fluxes_convective_weno
 
-   subroutine compute_fluxes_convective_ri_weno(dir,b,i,j,k,ngc,nv_c,                         &
-                                                weno_s,weno_zeps,weno_sigma,weno_a,weno_p,weno_d,weno_c, &
-                                                evmax,erw,elw,chi,si,sir,q,fluxes)
-   !< Compute convective fluxes at right interface of b,i,j,k.
-   integer(I4P), intent(in)    :: dir                                 !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P), intent(in)    :: b, i, j, k                          !< Counter.
-   integer(I4P), intent(in)    :: ngc                                 !< Ghost cells number.
-   integer(I4P), intent(in)    :: nv_c                                !< Number of conservative varibales in q vector.
-   integer(I4P), intent(in)    :: weno_s                              !< Weno stencils number/dimension.
-   real(R8P),    intent(in)    :: weno_zeps                           !< Parameter to avoid division by zero.
-   real(R8P),    intent(in)    :: weno_sigma                          !< WENO descaler switch (0 Jiang-Shu, 1 SI).
-   real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                    !< Optimal weights.
-   real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                 !< Polinomials coefficients.
-   real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                 !< Smoothness indicators coefficients.
-   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)                !< Centered polinomials coefficients.
-   real(R8P),    intent(in)    :: evmax                               !< Maximum waves speed estimation.
-   real(R8P),    intent(in)    :: erw(1:,1:,1:)                       !< Right eigenvectors for WENO reconstruction.
-   real(R8P),    intent(in)    :: elw(1:,1:,1:)                       !< Left  eigenvectors for WENO reconstruction.
-   real(R8P),    intent(in)    :: chi                                 !< Speed parameter for divergence cleaning.
-   integer(I4P), intent(in)    :: si(3)                               !< Stencil increment.
-   real(R8P),    intent(in)    :: sir(3)                              !< Stencil increment, real cast.
-   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Fields variables.
-   real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Fluxes.
-   real(R8P)                   :: fmpc(1:2,1-S_MAX:-1+S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
-   real(R8P)                   :: fpmr(1:2,1:NV_MAX)                  !< Fluxes +- reconstructed.
-   integer(I4P)                :: v, vv                               !< Counter.
+   subroutine compute_fluxes_convective_weno_s1(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   !< `compute_fluxes_convective_weno` for WENO-1: the stencil half-width S = 1 is a compile-time constant.
+   integer(I4P), parameter :: S = 1_I4P !< WENO stencil half-width.
+#include "adam_prism_cpu_weno_fluxes_body.INC"
+   endsubroutine compute_fluxes_convective_weno_s1
 
-   call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                     &
-                                    b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c,      &
-                                    weno_s=weno_s, evmax=evmax, elw=elw, chi=chi,&
-                                    q=q, fmpc=fmpc(1:2,1-weno_s:-1+weno_s,1:NV_MAX))
-   do v=1, nv_c
-      call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
-                                   weno_zeps=weno_zeps,                                                         &
-                                   weno_rmu=weno_descaling(S=weno_s, weno_sigma=weno_sigma,                     &
-                                                           v=fmpc(1:2,1-weno_s:-1+weno_s,v)),                   &
-                                   V=fmpc(1:2,1-weno_s:-1+weno_s,v), VR=fpmr(1:2,v))
-   enddo
-   ! back projection in conservative variables space
-   do v=1, nv_c
-      fluxes(v,i,j,k,b) = 0._R8P
-      do vv=1,nv_c
-         fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
-      enddo
-   enddo
-   endsubroutine compute_fluxes_convective_ri_weno
+   subroutine compute_fluxes_convective_weno_s2(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   !< `compute_fluxes_convective_weno` for WENO-3: the stencil half-width S = 2 is a compile-time constant.
+   integer(I4P), parameter :: S = 2_I4P !< WENO stencil half-width.
+#include "adam_prism_cpu_weno_fluxes_body.INC"
+   endsubroutine compute_fluxes_convective_weno_s2
+
+   subroutine compute_fluxes_convective_weno_s3(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   !< `compute_fluxes_convective_weno` for WENO-5: the stencil half-width S = 3 is a compile-time constant.
+   integer(I4P), parameter :: S = 3_I4P !< WENO stencil half-width.
+#include "adam_prism_cpu_weno_fluxes_body.INC"
+   endsubroutine compute_fluxes_convective_weno_s3
+
+   subroutine compute_fluxes_convective_weno_s4(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   !< `compute_fluxes_convective_weno` for WENO-7: the stencil half-width S = 4 is a compile-time constant.
+   integer(I4P), parameter :: S = 4_I4P !< WENO stencil half-width.
+#include "adam_prism_cpu_weno_fluxes_body.INC"
+   endsubroutine compute_fluxes_convective_weno_s4
+
+   subroutine compute_fluxes_convective_weno_s5(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
+                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   !< `compute_fluxes_convective_weno` for WENO-9: the stencil half-width S = 5 is a compile-time constant.
+   integer(I4P), parameter :: S = 5_I4P !< WENO stencil half-width.
+#include "adam_prism_cpu_weno_fluxes_body.INC"
+   endsubroutine compute_fluxes_convective_weno_s5
 
    subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv_c, var_Jx, var_Jy, var_Jz, &
                                        phi_ivar, psi_ivar, rho_ivar, use_rho, chi_wave2, alpha, &
@@ -6263,46 +6239,6 @@ contains
    enddo
    enddo
    endsubroutine compute_fluxes_difference
-
-   subroutine decompose_fluxes_convective(dir,si,sir,b,i,j,k,ngc,nv_c,weno_s,evmax,elw,q,chi,fmpc)
-   !< Decompose convective fluxes.
-   integer(I4P), intent(in)    :: dir                           !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P), intent(in)    :: si(3)                         !< Stencil increment.
-   real(R8P),    intent(in)    :: sir(3)                        !< Stencil increment, real cast.
-   integer(I4P), intent(in)    :: b, i, j, k                    !< Counter.
-   integer(I4P), intent(in)    :: ngc                           !< Ghost cells number.
-   integer(I4P), intent(in)    :: nv_c                          !< Number of conservative varibales in q vector.
-   integer(I4P), intent(in)    :: weno_s                        !< Weno stencils number/dimension.
-   real(R8P),    intent(in)    :: evmax                         !< Maximum eigenvalue.
-   real(R8P),    intent(in)    :: elw(1:,1:,1:)                 !< Left eigenvectors for WENO reconstruction.
-   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(in)    :: chi                           !< Speed coefficient for D & B div-cleaning.
-   real(R8P),    intent(inout) :: fmpc(1:,1-weno_s:,1:)         !< Fluxes -+ decomposition in characteristics space.
-   real(R8P)                   :: fmp(2)                        !< Fluxes -+ decomposition in each cell stencils.
-   real(R8P)                   :: gc, wc                        !< Increments for fluxes decomposition.
-   integer(I4P)                :: v, vv, s, is, js, ks          !< Counter.
-   real(R8P)                   :: f(NV_MAX)                     !< Conservative fluxes.
-   real(R8P)                   :: p(NV_MAX)                     !< Eigenvalues.
-
-   do s=1-weno_s, weno_s
-      is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
-      call compute_fluxes_maxwell(sir=sir,q=q(:,is,js,ks,b),f=f,chi=chi)
-      !call compute_eigenvalues_vector(sir=sir, p=p)
-      do v=1, nv_c
-         wc = 0._R8P
-         gc = 0._R8P
-         do vv=1, nv_c
-            wc = wc + elw(vv,v,dir) * q(vv,is,js,ks,b)
-            gc = gc + elw(vv,v,dir) * f(vv)
-         enddo
-         fmp(2) = 0.5_R8P * (gc + evmax * wc)
-         !fmp(2) = 0.5_R8P * (gc + evmax * p(v) * wc)
-         fmp(1) = gc - fmp(2)
-         if (s<weno_s)   fmpc(2,s  ,v) = fmp(2)
-         if (s>1-weno_s) fmpc(1,s-1,v) = fmp(1)
-      enddo
-   enddo
-   endsubroutine decompose_fluxes_convective
 
    subroutine compute_field_mean_value(self, q, n_x, n_y, n_z, n_b, mean_value)
    !< Compute mean value of the field in a certain region of the domain.
