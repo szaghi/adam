@@ -43,7 +43,6 @@ KEEP = re.compile(r'0\.25_R\w*\s*\*\s*' + SUM + r'\s*\*\s*' + SUM, re.IGNORECASE
 NAMES = re.compile(r'\b(?:weno_[apd](?:_gpu)?\b|weno_reconstruct_upwind\w*|compute_kep_flux)\b', re.IGNORECASE)
 
 # file name -> (the step of #139 that migrates it, what it still holds)
-_S5 = 'S5: PRISM CPU onto SETH'
 _S6 = "S6: ADAM's WENO deleted"
 _S7 = 'S7: the seam WENO-6 transfer onto SETH (E2)'
 WAIVERS: dict[str, str] = {  # a file name, or a glob of names
@@ -53,7 +52,6 @@ WAIVERS: dict[str, str] = {  # a file name, or a glob of names
     'adam_fnl_weno_width_body.INC': _S6 + ' (the per-width device body)',
     'adam_weno_nvf_kernels.F90': _S6 + ' (the CUDA Fortran twin, NASTO only)',
     'adam_flume_hybrid_library.F90': _S6 + ' (compute_kep_flux, compute_ducros: test_kep and the parity test still call them)',
-    'adam_prism_cpu_object.F90': _S5,
     'adam_seam_interpolation_library.F90': _S7,
 }
 

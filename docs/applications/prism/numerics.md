@@ -52,8 +52,12 @@ variables: with the left eigenvectors $\mathbf L$ of the Maxwell system, $w = \m
 
 $$f^{\pm} = \tfrac12\,(g \pm \lambda_{\max} w), \qquad \lambda_{\max} = \max(1,\chi)\,c_0,$$
 
-each split flux is reconstructed at the faces by the library's upwind WENO (`[weno] scheme`, `weights`), projected back
-with the right eigenvectors, and differenced. `ngc >= [weno] S` is checked. The FNL backend refuses `weno`.
+each split flux is reconstructed at the faces by [SETH](https://github.com/szaghi/SETH)'s upwind WENO-JS kernel of the
+width `[weno] scheme` names (`seth_weno<2S-1>_js`, with SETH's descaler for `weights = si`; one kernel per width,
+compiled with `S` a constant, [#139](https://github.com/szaghi/adam/issues/139) S5, the same results as ADAM's former
+kernel bit for bit), projected back with the right eigenvectors, and differenced. `ngc >= [weno] S` is checked. The
+centred names `weno-c-*` stop at initialization (they used to run the upwind kernel at that `S` under a centred name).
+The FNL backend refuses `weno`.
 
 ## Time integration
 

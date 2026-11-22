@@ -254,44 +254,15 @@ contains
       call self%initialize_upwind_S3
       call self%initialize_upwind_S4
       call self%initialize_upwind_S5
-   case(WENO_C_2)
-      self%S = 1
-      self%is_centered = .true.
-      call allocate_coefficients
-      call self%initialize_upwind_S1
-      call self%initialize_centered_S1
-   case(WENO_C_4)
-      self%S = 2
-      self%is_centered = .true.
-      call allocate_coefficients
-      call self%initialize_upwind_S1
-      call self%initialize_upwind_S2
-      call self%initialize_centered_S1
-      call self%initialize_centered_S2
-   case(WENO_C_6)
-      self%S = 3
-      self%is_centered = .true.
-      call allocate_coefficients
-      call self%initialize_upwind_S1
-      call self%initialize_upwind_S2
-      call self%initialize_upwind_S3
-      call self%initialize_centered_S1
-      call self%initialize_centered_S2
-      call self%initialize_centered_S3
-   case(WENO_C_8)
-      self%S = 4
-      self%is_centered = .true.
-      call allocate_coefficients
-      call self%initialize_upwind_S1
-      call self%initialize_upwind_S2
-      call self%initialize_upwind_S3
-      call self%initialize_upwind_S4
-      call self%initialize_centered_S1
-      call self%initialize_centered_S2
-      call self%initialize_centered_S3
-      call self%initialize_centered_S4
+   case(WENO_C_2, WENO_C_4, WENO_C_6, WENO_C_8)
+      ! refused until an application calls SETH's centred kernels seth_weno{4,6,8}_c (issue #139, D6): PRISM used to run
+      ! the upwind primitive at that S under a centred name (F3), and no input names a centred scheme
+      call mpih%error_stop(msg=': ['//INI_SECTION_NAME//'].(scheme)="'//self%scheme//'": the centred WENO schemes are '// &
+                               'refused (issue #139); accepted: '//WENO_U_1//', '//WENO_U_3//', '//WENO_U_5//', '//      &
+                               WENO_U_7//', '//WENO_U_9)
    case default
-      call mpih%error_stop(msg=': failed to initialize weno object, WENO scheme "'//self%scheme//'" unknown')
+      call mpih%error_stop(msg=': failed to initialize weno object, WENO scheme "'//self%scheme//'" unknown; accepted: '// &
+                               WENO_U_1//', '//WENO_U_3//', '//WENO_U_5//', '//WENO_U_7//', '//WENO_U_9)
    endselect
    self%wexp = weno_weights_exponent(S=self%S)
    self%sodd = mod(self%S,2)

@@ -10,6 +10,7 @@ use :: adam_prism_common_library
 use :: penf
 use :: mpi
 use :: selah, only : box, box_interior
+use :: seth,  only : seth_weno_descaling
 
 implicit none
 private
@@ -3979,23 +3980,19 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&
              dx=>self%adam%field%dxyz(1,:), dy=>self%adam%field%dxyz(2,:), dz=>self%adam%field%dxyz(3,:),                         &
              flx=>self%flxyz_c(:,1,1,:,:,:,:), fly=>self%flxyz_c(:,1,2,:,:,:,:), flz=>self%flxyz_c(:,1,3,:,:,:,:),                &
-             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps, weno_sigma=>self%weno%sigma,                                         &
-             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                  &
+             weno_s=>self%weno%S, weno_eps=>self%weno%eps, weno_sigma=>self%weno%sigma,                                           &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,        &
              evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
 
    if (blocks_number > 0) then
       call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     weno_sigma=weno_sigma,evmax=evmax,erw=erw,elw=elw,chi=chi,                                &
+                                     weno_s=weno_S,weno_eps=weno_eps,weno_sigma=weno_sigma,evmax=evmax,erw=erw,elw=elw,chi=chi,&
                                      q=q,fluxes=flx)
       call compute_fluxes_convective_weno(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     weno_sigma=weno_sigma,evmax=evmax,erw=erw,elw=elw,chi=chi,                                &
+                                     weno_s=weno_S,weno_eps=weno_eps,weno_sigma=weno_sigma,evmax=evmax,erw=erw,elw=elw,chi=chi,&
                                      q=q,fluxes=fly)
       call compute_fluxes_convective_weno(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     weno_sigma=weno_sigma,evmax=evmax,erw=erw,elw=elw,chi=chi,                                &
+                                     weno_s=weno_S,weno_eps=weno_eps,weno_sigma=weno_sigma,evmax=evmax,erw=erw,elw=elw,chi=chi,&
                                      q=q,fluxes=flz)
       call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
                                      var_Jx=var_Jx, var_Jy=var_Jy, var_Jz=var_Jz,                          &
@@ -6116,13 +6113,14 @@ contains
    dxyz_min = dxyz_min * 0.5_R8P
    endsubroutine compute_dxyz_min
 
-   subroutine compute_fluxes_convective_weno(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_a,weno_p,weno_d,weno_c,weno_zeps,&
-                                             weno_sigma,evmax,erw,elw,chi,q,fluxes)
+   subroutine compute_fluxes_convective_weno(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_eps,weno_sigma,evmax,erw,elw,chi,&
+                                             q,fluxes)
    !< Compute convective fluxes along direction `dir`, WENO scheme for space operator.
    !<
    !< Host dispatcher (issue #139, S5, decision D3: the dispatch structure of FLUME's kernels): the kernel of the WENO
    !< half-width `weno_s`, compiled with S a named constant (`_s1` ... `_s5`), whose one body
-   !< (`adam_prism_cpu_weno_fluxes_body.INC`) holds the face loops with the flux decomposition and the reconstruction.
+   !< (`adam_prism_cpu_weno_fluxes_body.INC`) holds the face loops with the flux decomposition and the reconstruction by
+   !< SETH's WENO-JS kernel of that width, renamed `weno_width`, with SETH's descaler.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
    integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
@@ -6131,11 +6129,7 @@ contains
    integer(I4P), intent(in)    :: ngc                                !< Ghost cells number.
    integer(I4P), intent(in)    :: nv_c                               !< Number of conservative varibales.
    integer(I4P), intent(in)    :: weno_s                             !< Weno stencils number/dimension.
-   real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                   !< Optimal weights.
-   real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                !< Polinomials coefficients.
-   real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
-   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients (unused).
-   real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
+   real(R8P),    intent(in)    :: weno_eps                           !< Regulariser of the WENO smoothness indicators.
    real(R8P),    intent(in)    :: weno_sigma                         !< WENO descaler switch (0 Jiang-Shu, 1 scale-invariant).
    real(R8P),    intent(in)    :: evmax                              !< Maximum waves speed estimation.
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                      !< Right eigenvectors for WENO reconstruction.
@@ -6145,51 +6139,56 @@ contains
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
 
    select case(weno_s)
-   case(1) ; call compute_fluxes_convective_weno_s1(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
-   case(2) ; call compute_fluxes_convective_weno_s2(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
-   case(3) ; call compute_fluxes_convective_weno_s3(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
-   case(4) ; call compute_fluxes_convective_weno_s4(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
-   case(5) ; call compute_fluxes_convective_weno_s5(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   case(1) ; call compute_fluxes_convective_weno_s1(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, &
+                                                erw, elw, chi, q, fluxes)
+   case(2) ; call compute_fluxes_convective_weno_s2(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, &
+                                                erw, elw, chi, q, fluxes)
+   case(3) ; call compute_fluxes_convective_weno_s3(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, &
+                                                erw, elw, chi, q, fluxes)
+   case(4) ; call compute_fluxes_convective_weno_s4(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, &
+                                                erw, elw, chi, q, fluxes)
+   case(5) ; call compute_fluxes_convective_weno_s5(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, &
+                                                erw, elw, chi, q, fluxes)
    case default ; error stop 'compute_fluxes_convective_weno: the WENO half-width S must be 1 to 5'
    endselect
    endsubroutine compute_fluxes_convective_weno
 
-   subroutine compute_fluxes_convective_weno_s1(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   subroutine compute_fluxes_convective_weno_s1(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, erw, &
+                                                elw, chi, q, fluxes)
    !< `compute_fluxes_convective_weno` for WENO-1: the stencil half-width S = 1 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno1_js
    integer(I4P), parameter :: S = 1_I4P !< WENO stencil half-width.
 #include "adam_prism_cpu_weno_fluxes_body.INC"
    endsubroutine compute_fluxes_convective_weno_s1
 
-   subroutine compute_fluxes_convective_weno_s2(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   subroutine compute_fluxes_convective_weno_s2(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, erw, &
+                                                elw, chi, q, fluxes)
    !< `compute_fluxes_convective_weno` for WENO-3: the stencil half-width S = 2 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno3_js
    integer(I4P), parameter :: S = 2_I4P !< WENO stencil half-width.
 #include "adam_prism_cpu_weno_fluxes_body.INC"
    endsubroutine compute_fluxes_convective_weno_s2
 
-   subroutine compute_fluxes_convective_weno_s3(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   subroutine compute_fluxes_convective_weno_s3(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, erw, &
+                                                elw, chi, q, fluxes)
    !< `compute_fluxes_convective_weno` for WENO-5: the stencil half-width S = 3 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno5_js
    integer(I4P), parameter :: S = 3_I4P !< WENO stencil half-width.
 #include "adam_prism_cpu_weno_fluxes_body.INC"
    endsubroutine compute_fluxes_convective_weno_s3
 
-   subroutine compute_fluxes_convective_weno_s4(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   subroutine compute_fluxes_convective_weno_s4(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, erw, &
+                                                elw, chi, q, fluxes)
    !< `compute_fluxes_convective_weno` for WENO-7: the stencil half-width S = 4 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno7_js
    integer(I4P), parameter :: S = 4_I4P !< WENO stencil half-width.
 #include "adam_prism_cpu_weno_fluxes_body.INC"
    endsubroutine compute_fluxes_convective_weno_s4
 
-   subroutine compute_fluxes_convective_weno_s5(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_a, weno_p, weno_d, &
-                                                weno_zeps, weno_sigma, evmax, erw, elw, chi, q, fluxes)
+   subroutine compute_fluxes_convective_weno_s5(dir, blocks_number, ni, nj, nk, ngc, nv_c, weno_eps, weno_sigma, evmax, erw, &
+                                                elw, chi, q, fluxes)
    !< `compute_fluxes_convective_weno` for WENO-9: the stencil half-width S = 5 is a compile-time constant.
+   use :: seth, only : weno_width => seth_weno9_js
    integer(I4P), parameter :: S = 5_I4P !< WENO stencil half-width.
 #include "adam_prism_cpu_weno_fluxes_body.INC"
    endsubroutine compute_fluxes_convective_weno_s5

@@ -2,6 +2,8 @@
    ! (issue #139, S5, decision D3): the face loops along `dir` with, per face, the Lax-Friedrichs split of the convective
    ! fluxes projected on the characteristic fields (the former `decompose_fluxes_convective`), the WENO reconstruction of
    ! each field and the back projection (the former `compute_fluxes_convective_ri_weno`), every operation in their order.
+   ! The kernel is SETH's WENO-JS of width S (`weno_width`, used by the including routine), in SETH's stencil convention:
+   ! `vp(m)` the + flux of cell m (left bias), `vm(m)` the - flux of cell m (right bias), cells by offset from the face.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
    integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
@@ -9,10 +11,7 @@
    integer(I4P), intent(in)    :: nk                                 !< Grid cells number in K direction.
    integer(I4P), intent(in)    :: ngc                                !< Ghost cells number.
    integer(I4P), intent(in)    :: nv_c                               !< Number of conservative varibales.
-   real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                   !< Optimal weights.
-   real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                !< Polinomials coefficients.
-   real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
-   real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
+   real(R8P),    intent(in)    :: weno_eps                           !< Regulariser of the WENO smoothness indicators.
    real(R8P),    intent(in)    :: weno_sigma                         !< WENO descaler switch (0 Jiang-Shu, 1 scale-invariant).
    real(R8P),    intent(in)    :: evmax                              !< Maximum waves speed estimation.
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                      !< Right eigenvectors for WENO reconstruction.
@@ -22,7 +21,9 @@
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
    integer(I4P)                :: si(3), si_i, si_j, si_k            !< Directional (1=x,2=y,3=z) increment.
    real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment, real.
-   real(R8P)                   :: fmpc(1:2,1-S:S-1,1:NV_MAX)         !< Fluxes -+ decomposition in characteristics space.
+   real(R8P)                   :: vp(1-S:S,1:NV_MAX)                 !< Fluxes + of the characteristic fields (left bias).
+   real(R8P)                   :: vm(1-S:S,1:NV_MAX)                 !< Fluxes - of the characteristic fields (right bias).
+   real(R8P)                   :: rmu                                !< Inverse descaler of one field.
    real(R8P)                   :: fpmr(1:2,1:NV_MAX)                 !< Fluxes +- reconstructed.
    real(R8P)                   :: fmp(2)                             !< Fluxes -+ decomposition in each cell stencils.
    real(R8P)                   :: gc, wc                             !< Increments for fluxes decomposition.
@@ -42,6 +43,7 @@
    si_i = 1-si(1)
    si_j = 1-si(2)
    si_k = 1-si(3)
+   vp(S,:) = 0._R8P ; vm(1-S,:) = 0._R8P ! not read by the kernel (SETH's stencil convention)
 
    do b=1, blocks_number
    do k=si_k, nk
@@ -60,15 +62,14 @@
             enddo
             fmp(2) = 0.5_R8P * (gc + evmax * wc)
             fmp(1) = gc - fmp(2)
-            if (st<S)   fmpc(2,st  ,v) = fmp(2)
-            if (st>1-S) fmpc(1,st-1,v) = fmp(1)
+            if (st<S)   vp(st,v) = fmp(2)
+            if (st>1-S) vm(st,v) = fmp(1)
          enddo
       enddo
       ! reconstruction
       do v=1, nv_c
-         call weno_reconstruct_upwind(S=S, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d, weno_zeps=weno_zeps,           &
-                                      weno_rmu=weno_descaling(S=S, weno_sigma=weno_sigma, v=fmpc(1:2,1-S:S-1,v)),      &
-                                      V=fmpc(1:2,1-S:S-1,v), VR=fpmr(1:2,v))
+         rmu = seth_weno_descaling(S=S, sigma=weno_sigma, vp=vp(:,v), vm=vm(:,v))
+         call weno_width(vp=vp(:,v), vm=vm(:,v), eps=weno_eps, rmu=rmu, rp=fpmr(2,v), rm=fpmr(1,v))
       enddo
       ! back projection in conservative variables space
       do v=1, nv_c

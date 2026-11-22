@@ -256,7 +256,7 @@ them reports them unread.
 | Name | S | Order | Kind |
 |------|---|-------|------|
 | `weno-u-1`, `weno-u-3`, `weno-u-5`, `weno-u-7`, `weno-u-9` | 1–5 | 1, 3, 5, 7, 9 | upwind |
-| `weno-c-2`, `weno-c-4`, `weno-c-6`, `weno-c-8` | 1–4 | 2, 4, 6, 8 | centred (FLUME refuses them) |
+| `weno-c-2`, `weno-c-4`, `weno-c-6`, `weno-c-8` | 1–4 | 2, 4, 6, 8 | centred: refused at initialization in every application ([#139](https://github.com/szaghi/adam/issues/139) D6, until an application calls SETH's centred kernels) |
 
 ---
 
