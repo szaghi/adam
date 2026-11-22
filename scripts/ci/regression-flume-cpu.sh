@@ -4,6 +4,8 @@
 # the hosted runners have no GPU. The mpirun backstop (run.sh's 300 s default) is raised to 900 s: it guards against a
 # hang, not a slow runner, and blast-amr-limiter, the longest case, takes 229-300 s on the hosted runners.
 source "$(dirname "$0")/common.sh"
+# The SETH dependency compiled and its WENO kernels run (#139 S1): a host build, two host loops bitwise.
+fobis build --mode test-seth-smoke-gnu --varset ci_gnu && exe/test_seth_smoke || exit 1
 REGRESSION_JOBS=2 REGRESSION_MPIRUN_TIMEOUT=900 ./src/tests/flume/regression/run.sh cpu --varset ci_gnu
 rc=$?
 ./src/tests/flume/regression/run-omp-bitwise.sh --threads 2 --np 2 --varset ci_gnu || rc=1

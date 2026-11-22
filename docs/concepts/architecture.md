@@ -27,7 +27,7 @@ graph TD
     A --> C{Hardware backend}
     C -->|CPU| CPU[CPU backend<br/>MPI + OpenMP]
     C -->|_FNL| E[FNL backend<br/>OpenACC or OpenMP offloading]
-    B --> G[Third-party libraries<br/>PENF · StringiFor · FiNeR · FUNDAL · HDF5]
+    B --> G[Third-party libraries<br/>PENF · StringiFor · FiNeR · FUNDAL · SELAH · SETH · HDF5]
     CPU --> G
     E --> G
 ```

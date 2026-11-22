@@ -1,0 +1,27 @@
+[modes]
+modes = test-seth-smoke-gnu test-seth-smoke-fnl-nvf test-seth-smoke-fnl-omp-amd
+
+# SETH, the space operators (WENO, TENO, hybrid central fluxes and sensors; ADAM #139, S1): the WENO-JS kernels of every
+# width on the host and in one device loop, bitwise. The host build (the CPU modes' flags), the OpenACC build (the FNL
+# modes' flags, -DDEV_OAC) and the OpenMP-offload build (the AMD modes' flags, -DDEV_OMP; no amdflang on the WSL box or
+# medooza: built where the AMD goldens are made). No MPI run.
+[test-seth-smoke-gnu]
+template = template-gnu
+preproc  = -w
+target   = test_seth_smoke.F90
+
+[test-seth-smoke-fnl-nvf]
+template = template-nvf
+mod_dir  = ./mod/nvf/seth-smoke/
+obj_dir  = ./obj/nvf/seth-smoke/
+preproc  = -DDEV_OAC -w
+target   = test_seth_smoke.F90
+output   = test_seth_smoke_fnl
+
+[test-seth-smoke-fnl-omp-amd]
+template = template-omp-amd
+mod_dir  = ./mod/amd/omp/seth-smoke/
+obj_dir  = ./obj/amd/omp/seth-smoke/
+preproc  = -DDEV_OMP -w
+target   = test_seth_smoke.F90
+output   = test_seth_smoke_omp
