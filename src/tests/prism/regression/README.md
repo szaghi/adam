@@ -142,6 +142,11 @@ device-path a plain field case does not:
   the 10 steps). It anchors the GLM state layout, `nv = 11` with φ and ψ in
   slots 7 and 8 and J in 9..11 (issue #61): before it no case ran the
   cleaning. The two inputs #61 refuses are legs of `refusals.sh`.
+- **`rmf-weno`** — the only case on `scheme_space = weno` (`weno-u-5`): `rmf`
+  through PRISM's WENO path (the Lax-Friedrichs split, the characteristic
+  decomposition, the descaler), pinned before SETH replaces ADAM's WENO
+  ([#139](https://github.com/szaghi/adam/issues/139) S0). CPU golden only: FNL
+  refuses `weno` at initialization.
 - **`pic-pec-t0`**, **`rmf-pec-t0`** — the first cases that enter PRISM's t0
   elliptic solves ([#84](https://github.com/szaghi/adam/issues/84) E3b; before
   them 0 of 18 did). `pic-pec-t0` is the `plasma_box` PIC input (FD order 6, PEC

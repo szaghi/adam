@@ -101,6 +101,13 @@
 #                            goldens
 #   tgv-small                the compressible Taylor-Green vortex with the turbulence history, 16^3, M 0.4, 20 steps
 #                            (#119, T0.2); per-backend goldens
+#   sod-weno1, sod-weno3, sod-weno7, sod-weno9  sod-x at weno-u-1/3/7/9 (ngc 4 and 5 for the last two): the face kernels of
+#                            every stencil width (#139, S0); per-backend goldens
+#   sod-hllc-weno7           sod-hllc at weno-u-7, ngc 4: the interpolation kernels with the weights ratio at S = 4 (#139)
+#   tgv-hybrid               tgv-small on scheme_space = hybrid-kep-weno: the KEEP-PE flux and the Ducros sensor (#139)
+#   sod-amr-weno6            sod-amr with seam_ghost_fill = seam_restriction = weno6, nj = nk = 6: the nonlinear 2:1 seam
+#                            transfer (#139)
+#   sod-amr-troubled         sod-amr with reflux_policy = troubled: the seam WENO-5 sensor (#139)
 #
 # A private Python venv (exe/.regression-venv/, gitignored) is created on first run to provide h5py for digest.py.
 
