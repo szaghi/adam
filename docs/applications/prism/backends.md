@@ -70,7 +70,7 @@ Both programs hand the realm (one, or the manifest's realms) to the library's fo
 
 The FNL backend first initializes `mpih_fnl` (device selection, once per process), then runs the PIC, PML and
 time-scheme checks before any device allocation, then builds its device objects: `field_fnl`, `ib_fnl`,
-`weno_fnl`, the PML, the device arrays, `coil_fnl`, the PIC objects, FLAIL on cuFFT, the external-field kernels.
+the PML, the device arrays, `coil_fnl`, the PIC objects, FLAIL on cuFFT, the external-field kernels.
 
 ### Memory budget
 

@@ -53,7 +53,6 @@ type, extends(prism_common_object) :: prism_fnl_object
    !< PRISM equations system class definition, GPU (FNL) backend.
    type(field_fnl_object)         :: field_fnl   !< GPU field handler.
    type(ib_fnl_object)            :: ib_fnl      !< GPU immersed boundary.
-   type(weno_fnl_object)          :: weno_fnl    !< GPU WENO reconstructor.
    type(prism_fnl_coil_object)    :: coil_fnl    !< GPU coil source.
    type(prism_fnl_pic_object)     :: pic_fnl     !< GPU PIC support state.
    type(prism_fnl_pic_conserving_object) :: conserving_fnl !< GPU charge-conserving PIC current.
@@ -322,7 +321,6 @@ contains
    call self%pic_st%destroy
    call self%pic_fnl%destroy()
    call self%coil_fnl%destroy()
-   call self%weno_fnl%destroy()
    call self%ib_fnl%destroy()
    call self%field_fnl%destroy()
    call free_prism_core_gpu(self)
@@ -752,8 +750,6 @@ contains
 #endif
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-   ! no weno_fnl%initialize (issue #112 C): FNL refuses scheme_space = weno, and the copy of weno%cell_scheme (3 integers
-   ! per cell and block slot) was device memory outside the blocks budget that nothing read
    call self%initialize_pml_fnl
    call self%allocate_gpu
    if (allocated(self%buf_6D_R8P)) then

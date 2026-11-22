@@ -43,7 +43,7 @@ The SDK provides physics-agnostic building blocks reused identically by every ap
 | `adam_grid_object` | Block-structured grid management with AMR geometry |
 | `adam_tree_object` | Octree/quadtree with Morton-order linearization: blocks sorted along the Z-order curve |
 | `adam_field_object` | Per-block geometry and metrics, ghost exchange (`update_ghost_local`, `update_ghost_mpi`), refinement/derefinement of the block data, restart blocks (`save_blocks`, `load_blocks`) |
-| `adam_weno_object` | WENO reconstruction: upwind orders 1, 3, 5, 7, 9 (`weno-u-N`, `ngc = (N+1)/2`), centred orders 2, 4, 6, 8 (`weno-c-N`, `ngc = N/2`); Jiang–Shu (`js`, the default) or scale-invariant (`si`) weights; conservative or characteristic variables. ROR (stencil lowering where a variable check fails, order reduction near solids) is library only: used by no maintained application |
+| `adam_weno_object` | The `[weno]` configuration (upwind orders 1, 3, 5, 7, 9, `weno-u-N`, `ngc >= (N+1)/2`; Jiang–Shu `js`, the default, or scale-invariant `si` weights) and the run-time dispatchers over [SETH](https://github.com/szaghi/SETH)'s WENO kernels, the only source of WENO, TENO and hybrid operators ([#139](https://github.com/szaghi/adam/issues/139)); the centred names `weno-c-N` are refused |
 | `adam_stepper_object` | Time integration on [SELAH](https://github.com/szaghi/SELAH) ([#132](https://github.com/szaghi/adam/issues/132)): `runge-kutta-1/2/3`, SSP `runge-kutta-ssp-11`, `-22`, `-33`, `-54`, and the symplectic `runge-kutta-yoshida`; the time step comes from the CFL condition |
 | `adam_ib_object` | Immersed boundary method: solids on the Cartesian grid as eikonal signed-distance fields, boundary conditions reconstructed at the cut cells; in FLUME an `AMR_GEO_SOLID` marker refines around a solid (PRISM does not implement it); moving bodies are library only |
 | `adam_io_object` | `[IO]` configuration, history files (residuals, energy, divergence, charge), the XH5F field writer `save_field`: one HDF5 file per rank plus an XDMF index; restart and slice files in [cookbook IO](/cookbook/io) |
@@ -70,7 +70,7 @@ The only program-scope singletons are the MPI handlers, which are genuinely one 
 
 ### FNL initialization order
 
-MPI and the device are process-global: the forest initializes them once, before any realm, through the realm hook `initialize_process_context` (the mirror of `finalize_mpi_forest`); a realm never initializes them itself. FNL helpers (`field_fnl`, `ib_fnl`, `weno_fnl`, and app-specific ones such as PRISM's `coil_fnl`) are components of the application's FNL type, one set per realm. They are initialised **after** the common (CPU) initialisation, from the realm's own objects:
+MPI and the device are process-global: the forest initializes them once, before any realm, through the realm hook `initialize_process_context` (the mirror of `finalize_mpi_forest`); a realm never initializes them itself. FNL helpers (`field_fnl`, `ib_fnl`, and app-specific ones such as PRISM's `coil_fnl`; no WENO helper since [#139](https://github.com/szaghi/adam/issues/139)) are components of the application's FNL type, one set per realm. They are initialised **after** the common (CPU) initialisation, from the realm's own objects:
 
 ```fortran
 ! the forest, once per process, before any realm (adam_forest_object.F90)
@@ -82,7 +82,6 @@ call mpih%initialize(verbose=verbose) ! once-only
 call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-call self%weno_fnl%initialize(weno=self%weno)
 ```
 
 ### Backend libraries

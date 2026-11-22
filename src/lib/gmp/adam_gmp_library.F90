@@ -11,7 +11,6 @@ use adam_ib_gmp_object
 use adam_memory_gmp_library
 use adam_maps_gmp_object
 use adam_mpih_gmp_object
-use adam_weno_gmp_object
 
 implicit none
 public

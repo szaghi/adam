@@ -16,7 +16,6 @@ The aggregate entry point `adam_nvf_library` re-exports the entire NVF API toget
 - [Memory management library](#memory-management-library)
 - [MPI handler and CUDA device management](#mpi-handler-and-cuda-device-management)
 - [Field](#field)
-- [WENO reconstruction](#weno-reconstruction)
 - [Runge-Kutta integration](#runge-kutta-integration)
 - [Immersed boundary method](#immersed-boundary-method)
 - [Communication maps](#communication-maps)
@@ -154,40 +153,7 @@ All kernels use `!$cuf kernel do(N) <<<*,*>>>` with dynamic grid/block sizing an
 
 ---
 
-## WENO reconstruction
-
-### `adam_weno_nvf_object` — GPU WENO coefficient wrapper
-
-Extends no common type directly (holds a pointer to `weno_object`). Mirrors all coefficient arrays computed once on the CPU to device memory.
-
-**Device arrays:**
-
-| Array | Shape | Purpose |
-|-------|-------|---------|
-| `a_gpu` | `(2, 0:S-1, S)` | Optimal WENO weights per sub-stencil and interface |
-| `p_gpu` | `(2, 0:S-1, 0:S-1, S)` | Polynomial reconstruction coefficients |
-| `d_gpu` | `(0:S-1, 0:S-1, 0:S-1, S)` | Smoothness indicator coefficients |
-| `ror_schemes_gpu` | `(:)` | ROR fallback scheme orders near solid walls |
-| `ror_ivar_gpu` | `(:)` | Variable indices checked by ROR |
-| `ror_stats_gpu` | `(:,:,:,:,:)` | ROR statistics counters |
-| `cell_scheme_gpu` | `(nb, ni, nj, nk)` | Per-cell effective reconstruction order |
-
-`initialize(weno)` copies all arrays via `assign_allocatable_gpu`.
-
-### `adam_weno_nvf_kernels` — WENO device procedures
-
-All procedures carry `attributes(device)` — they are callable only from within a running CUDA kernel, not from the host.
-
-| Procedure | Visibility | Purpose |
-|-----------|-----------|---------|
-| `weno_reconstruct_upwind_device(S, a, p, d, zeps, V, VR)` | public | Top-level reconstruction: given stencil `V(2, 1-S:S-1)`, return left/right interface values `VR(2)` |
-| `weno_compute_polynomials_device(S, p, V, VP)` | private | `VP(f,s1) = Σ_{s2} p(f,s2,s1,S) · V(f, s1-s2)` |
-| `weno_compute_weights_device(S, a, d, zeps, V, w)` | private | Smoothness indicators → normalised weights via `w(f,k) = a(f,k,S)/(zeps+IS)^p / Σ`, `p = weno_weights_exponent(S)` (inlined) |
-| `weno_compute_convolution_device(S, VP, w, VR)` | private | `VR(f) = Σ_k w(f,k) · VP(f,k)` |
-
-The three private procedures are the standard WENO algorithm decomposition; `weno_reconstruct_upwind_device` calls them in sequence. Equation solvers invoke this from inside their spatial flux loops.
-
----
+The WENO coefficient mirrors (`adam_weno_nvf_object`, `adam_weno_nvf_kernels`) and the IB order reduction were deleted with ADAM's WENO (issue #139, S6): the WENO kernels are SETH's; NASTO and CHASE, the only users, are archived and do not build.
 
 ## Runge-Kutta integration
 
@@ -229,7 +195,6 @@ All spatial kernels use `do(4)` over `(k,j,i,b)` with an inner variable loop.
 | `evolve_eikonal_q_phi_cuf` | `q -= dq` where `φ > 0` |
 | `invert_eikonal_q_phi_cuf` | Viscous: `(u,v,w)→(−u,−v,−w)`; Euler: `u → u − 2(u·n̂)n̂` |
 | `move_phi_cuf` | Level-set advection `∂φ/∂t = −v·∇φ` for moving bodies |
-| `reduce_cell_order_phi_cuf` | Lower WENO order in cells within `ib_reduction_extent` of the surface, per spatial direction |
 
 ---
 
@@ -270,8 +235,6 @@ Index arrays use `integer(I8P)` to accommodate large AMR block counts. `mode=1` 
 | `adam_mpih_nvf_object` | CUDA device binding, kernel dims, error checking | `mpih_object` |
 | `adam_field_nvf_object` | GPU field wrapper + host↔device transfer | `field_object` (pointer) |
 | `adam_field_nvf_kernels` | Gradient, L2 norm, transpose, ghost-cell pack/unpack | — |
-| `adam_weno_nvf_object` | GPU WENO coefficient mirror + ROR tables | `weno_object` (pointer) |
-| `adam_weno_nvf_kernels` | `attributes(device)` reconstruction procedures | — |
 | `adam_ib_nvf_object` | GPU distance field + eikonal BC wrapper | `ib_object` (pointer) |
 | `adam_ib_nvf_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
 | `adam_maps_nvf_object` | GPU communication index tables + MPI buffer staging | `maps_object` (pointer) |

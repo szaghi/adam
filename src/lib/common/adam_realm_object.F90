@@ -386,7 +386,7 @@ contains
       self%blocks_number => self%adam%field%blocks_number
       self%nv            => self%adam%field%nv
       if (self%with_weno) &
-         call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+         call self%weno%initialize(file_parameters=file_parameters)
       if (self%with_fdv) call self%load_fdv_from_file(file_parameters=file_parameters)
    endassociate
 

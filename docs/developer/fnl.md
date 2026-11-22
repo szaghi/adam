@@ -31,11 +31,8 @@ call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%
 The time integrator is not among them: the realm builds it (`ts`, SELAH's stepper on the device fields, see
 [Runge-Kutta integration](#runge-kutta-integration)).
 
-Application FNL objects follow the same pattern (PRISM's `coil_fnl`, `pic_fnl`, `pml_fnl`). An application that
-reconstructs with the library WENO coefficients on the device also calls `self%weno_fnl%initialize(weno=self%weno)`;
-PRISM does not (its FNL backend refuses `scheme_space = weno`), and FLUME no longer does: its device kernels call
-[SETH](https://github.com/szaghi/SETH)'s WENO kernels, whose coefficients are compile-time constants
-([#139](https://github.com/szaghi/adam/issues/139) S3b; RIPPLE follows in S4, and the object is deleted in S6).
+Application FNL objects follow the same pattern (PRISM's `coil_fnl`, `pic_fnl`, `pml_fnl`). The WENO reconstruction
+needs no helper: SETH's kernels have compile-time coefficients ([#139](https://github.com/szaghi/adam/issues/139)).
 
 ## Design and memory model
 
@@ -123,36 +120,14 @@ All routines carry `!$acc parallel loop independent` and `DEVICEVAR` on every de
 
 ## WENO reconstruction
 
-### `adam_fnl_weno_object`
-
-A plain type, initialised from the realm's `weno` (`initialize(weno)`). The CPU object computes the coefficients; the
-FNL object mirrors them to the device. PRISM's FNL backend does not initialise it.
-
-| Device array | Shape | Purpose |
-|--------------|-------|---------|
-| `a_gpu` | `(2, 0:S-1, S)` | Optimal weights per sub-stencil and face |
-| `p_gpu` | `(2, 0:S-1, 0:S-1, S)` | Polynomial reconstruction coefficients |
-| `d_gpu` | `(0:S-1, 0:S-1, 0:S-1, S)` | Smoothness-indicator coefficients |
-| `ror_schemes_gpu`, `ror_ivar_gpu`, `cell_scheme_gpu` | `(:)`, `(:)`, `(nb, ni, nj, nk)` | Reduced-order reconstruction near solids; used by no maintained application |
-
-### `adam_fnl_weno_kernels`
-
-| Kernel | Directive | Purpose |
-|--------|-----------|---------|
-| `weno_reconstruct_upwind_dev(S, a, p, d, zeps, V, VR)` | `!$acc routine seq` | Left (`VR(1)`) and right (`VR(2)`) face values from stencil `V`, half-width `S` a run-time value |
-| `weno_reconstruct_upwind_wratio_dev` | `!$acc routine seq` | The same, also returning the smoothness ratio of each face, `WRATIO(f) = min_k w(f,k) / a(f,k,S)` |
-
-The algorithm: `S` polynomial reconstructions on the sub-stencils, the smoothness indicators, then
-`VR(f) = Σ_k w(f,k) · VP(f,k)`. `!$acc routine seq` makes the routine callable inside a parallel region, one thread
-per stencil.
-
-### `adam_fnl_weno_width_kernels`
-
-One routine per stencil width, `weno_reconstruct_upwind_s<N>_dev` and `weno_reconstruct_upwind_wratio_s<N>_dev` for
-`S = N` = 1 … 5 (WENO-1 … WENO-9), with `S` a compile-time constant. FLUME's per-width face kernels (`..._s<N>_dev`)
-called them until [#139](https://github.com/szaghi/adam/issues/139) S3b and now call SETH's kernel of their width,
-bitwise the same on the device (`test_weno_seth_parity_fnl`). The body is one include, `adam_fnl_weno_width_body.INC`,
-shared with the generic routines, so both are bitwise the same. Both go with ADAM's WENO in S6.
+The FNL library holds no WENO code: the device kernels of FLUME and RIPPLE call [SETH](https://github.com/szaghi/SETH)'s
+WENO kernels, `acc routine seq` and `omp declare target` with compile-time coefficients, so no table is mirrored on the
+device and no table argument crosses a kernel boundary ([#139](https://github.com/szaghi/adam/issues/139)). FLUME's face
+kernels are one per stencil width (`..._s<N>_dev`, S a named constant), each calling SETH's kernel of that width
+(`seth_weno<2S-1>_js`, `_interp_wr`); RIPPLE calls the library's run-time dispatcher `weno_reconstruct`. The former
+`adam_fnl_weno_object` (the coefficient mirror and the unused ROR tables), `adam_fnl_weno_kernels` and
+`adam_fnl_weno_width_kernels` were deleted in S6; on the device SETH's kernels were measured bitwise equal to them
+(nvfortran 26.9) before the swap.
 
 ## Runge-Kutta integration
 
@@ -310,9 +285,6 @@ FUNDAL's MPI handler under the alias `mpih_fnl_object`: rank and size, rank-pref
 | `adam_fnl_library` | Aggregate entry point | — |
 | `adam_fnl_field_object` | Device geometry, maps, ghost exchange | — |
 | `adam_fnl_field_kernels` | Gradient, L2 norm, ghost pack/unpack, transposition | — |
-| `adam_fnl_weno_object` | WENO coefficient mirror (+ unused ROR tables) | — |
-| `adam_fnl_weno_kernels` | Upwind WENO reconstruction, run-time width | — |
-| `adam_fnl_weno_width_kernels` | Upwind WENO reconstruction, one routine per width (not re-exported) | — |
 | `adam_fnl_ib_object` | Signed distance and eikonal wall condition | — |
 | `adam_fnl_ib_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
 | `adam_fnl_maps_object` | Communication tables and MPI buffers | — |

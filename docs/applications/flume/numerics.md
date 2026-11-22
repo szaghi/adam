@@ -72,7 +72,7 @@ size, the weights treat round-off as data, and the vortex goes unstable at 256²
 $\mu_k$ never vanishes on a physical state and at unit scale acts like the absolute $\varepsilon$ (isentropic vortex:
 $L_1 = 7.22\cdot10^{-8}$ at 256², order 4.97, against $8.38\cdot10^{-8}$ with `js`). Every term scales exactly like the
 field, so multiplying the data by $2^n$ multiplies the reconstruction by $2^n$ bit for bit (unit tests
-`test_flume_weno_weights`, `test_flume_weno_interpolation_fnl`; the whole solver: the
+`test_flume_weno_weights`, on SETH's kernels; the whole solver: the
 [scaling oracle](./verification/infrastructure/scaling-covariance)). $\mu$ is floored at the smallest normal number.
 Primitive variables have no projection, so `si` with `weno-riemann` on `primitive` variables is refused. A uniform field
 in a non-uniform state (the $B_n$ of a 1-D MHD problem) is reconstructed with face values that differ in the last bits,

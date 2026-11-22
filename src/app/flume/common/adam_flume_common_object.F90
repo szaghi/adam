@@ -3608,16 +3608,13 @@ contains
    endfunction runtime_amr_forest
 
    subroutine check_weno_scheme(self)
-   !< Refuse the centred WENO schemes: the flux splitting calls the upwind primitive only, so a `weno-c-*` scheme would
-   !< silently run it at order 2S-1 (issue #47). Refuse the scale-invariant weights on primitive variables: their
+   !< Refuse the scale-invariant weights on primitive variables (the centred WENO names are refused by `weno_object`
+   !< itself, issue #139 D6; the flux splitting calls the upwind kernels only, issue #47): their
    !< descaler is the magnitude of each field, and a velocity or a magnetic field component crossing zero has none of
    !< its own, so the weights would lose accuracy on smooth data (issue #49; the characteristic and conservative variables
    !< take the magnitude of the projected state).
    class(flume_common_object), intent(in) :: self !< The equation.
 
-   if (self%weno%is_centered) &
-      call mpih%error_stop(msg=': [weno].(scheme)='//self%weno%scheme//' is a centred scheme: FLUME accepts only the '// &
-                               'upwind schemes weno-u-1, weno-u-3, weno-u-5, weno-u-7, weno-u-9')
    if (self%weno%weights == WENO_WEIGHTS_SI .and. self%numerics%scheme_space == SCHEME_SPACE_WENO_RIEMANN .and. &
        self%numerics%reconstruction_variables == RECON_PRIMITIVE)                                                &
       call mpih%error_stop(msg=': [weno].(weights)=si is not available with [numerics].(reconstruction_variables)='// &
@@ -3625,8 +3622,9 @@ contains
    endsubroutine check_weno_scheme
 
    subroutine initialize_riemann_scheme(self)
-   !< Check the Riemann solver against the physical model and build the WENO interpolation tables (`weno-riemann` only,
-   !< issue #47): the Euler model takes `llf`, `hll`, `hllc`; the MHD models `llf`, `hll`, `hlld`.
+   !< Check the Riemann solver against the physical model (`weno-riemann` only, issue #47): the Euler model takes `llf`,
+   !< `hll`, `hllc`; the MHD models `llf`, `hll`, `hlld`. The WENO interpolation is SETH's (`seth_weno<2S-1>_js_interp_wr`,
+   !< compile-time coefficients: no table to build, #139).
    class(flume_common_object), intent(inout) :: self !< The equation.
    logical                                   :: ok   !< Model/solver pair accepted.
 
@@ -3639,7 +3637,6 @@ contains
    endselect
    if (.not.ok) call mpih%error_stop(msg=': [numerics].(riemann_solver)='//self%numerics%riemann_solver//' is not '// &
                                          'available for [physics].(physical_model)='//self%physics%physical_model)
-   call self%weno%initialize_interpolation
    endsubroutine initialize_riemann_scheme
 
    subroutine io_initialize(self)

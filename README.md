@@ -23,7 +23,7 @@
 ---
 
 **ADAM** is a modern Fortran library for block-structured adaptive grids — Morton-ordered octree/quadtree AMR, immersed
-boundaries, WENO reconstruction, Runge-Kutta integration, the FLAIL elliptic solvers and parallel I/O — with a CPU
+boundaries, WENO reconstruction ([SETH](https://github.com/szaghi/SETH)'s kernels), Runge-Kutta integration ([SELAH](https://github.com/szaghi/SELAH)'s), the FLAIL elliptic solvers and parallel I/O — with a CPU
 backend (MPI, OpenMP) and a GPU backend (OpenACC with nvfortran, or OpenMP offloading with amdflang). Solvers are built
 on it by supplying their equations. Two are maintained:
 

@@ -119,8 +119,6 @@ contains
    if (.not.(self%ts%is_butcher() .and. self%ts%ssp_coefficient() > 0._R8P)) &
       call mpih%error_stop(msg=': [runge_kutta].(scheme) must be an SSP scheme (runge-kutta-ssp-11/22/33/54): the '// &
                                'step is the Butcher form of an SSP tableau')
-   if (self%weno%is_centered) call mpih%error_stop(msg=': [weno].(scheme) must be upwind (weno-u-*): the split '// &
-                                                       'fluxes a+ u and a- u are upwinded')
    if (self%weno%weights /= WENO_WEIGHTS_JS) call mpih%error_stop(msg=': [weno].(weights) must be js')
    if (self%weno%S > self%ngc) call mpih%error_stop(msg=': [grid].(ngc)='//trim(str(self%ngc, .true.))// &
                                                     ' is smaller than the WENO stencil half-width '//trim(str(self%weno%S, .true.)))

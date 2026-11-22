@@ -5,9 +5,11 @@ program test_flume_weno_weights
 !< **Why this test exists.** The Jiang-Shu weights `d / (zeps + IS)**wexp` compare the smoothness indicators with an
 !< absolute `zeps`, so the weights depend on the units of the data: at small magnitudes they collapse to the linear
 !< weights and the scheme stops limiting. `[weno] weights = si` divides the indicators by the square of the descaler
-!< `mu = mean |v|` of the global stencil (`weno_descaling`, the generic descaler; FLUME passes the magnitude of the
+!< `mu = mean |v|` of the global stencil (`seth_weno_descaling`, the generic descaler; FLUME passes the magnitude of the
 !< projected state instead, which scales the same way), so the reconstruction is homogeneous of degree one in the data.
-!< Scaling by a power of two is exact in floating point, so the property is checked bit for bit. For every upwind scheme (`weno-u-1` to `weno-u-9`), both the reconstruction and the interpolation tables, N random
+!< Scaling by a power of two is exact in floating point, so the property is checked bit for bit. Since #139 (S6) the
+!< kernels are SETH's, called through the adapter's dispatchers (`weno_reconstruct`, `weno_reconstruct_interp_wr`): the
+!< test checks what FLUME relies on. For every upwind scheme (`weno-u-1` to `weno-u-9`), reconstruction and interpolation, N random
 !< stencils (smooth and rough, magnitudes from 1e-12 to 1e12) and scalings 2**n, n in NS:
 !<
 !< 1. scale-invariant weights: WENO(2**n v) = 2**n WENO(v) bitwise, every stencil, both interfaces;
@@ -17,8 +19,9 @@ program test_flume_weno_weights
 !< 4. data identically zero (descaler floored at `tiny`) reconstruct to zero, not to a NaN.
 
 use :: adam_globals,     only : mpih
-use :: adam_weno_object, only : weno_descaling, weno_object, weno_reconstruct_upwind, WENO_WEIGHTS_JS
+use :: adam_weno_object, only : weno_object, weno_reconstruct, weno_reconstruct_interp_wr, WENO_WEIGHTS_JS
 use :: penf,             only : I4P, R8P, str
+use :: seth,             only : seth_weno_descaling
 
 implicit none
 
@@ -48,8 +51,7 @@ seed = [(20261004_I4P + n_, n_=1, size(seed))]
 call random_seed(put=seed(1:ns_))
 test_passed = .true.
 do c=1, size(SCHEMES)
-   call weno(c)%initialize(scheme=SCHEMES(c), nb=1, ngc=5, ni=1, nj=1, nk=1)
-   call weno(c)%initialize_interpolation
+   call weno(c)%initialize(scheme=SCHEMES(c))
    if (weno(c)%weights /= WENO_WEIGHTS_JS .or. weno(c)%sigma /= 0._R8P) then
       print '(A)', SCHEMES(c)//': FAILED, the default weights are not Jiang-Shu'
       test_passed = .false.
@@ -130,17 +132,24 @@ call mpih%finalize
 if (.not.test_passed) error stop 1
 contains
    subroutine reconstruct(v, vr)
-   !< Reconstruct one stencil with the tables `t` of scheme `c` and the weights `sigma`.
+   !< Reconstruct (`t` 1) or interpolate (`t` 2) one stencil of scheme `c` with the weights `sigma`, SETH's kernels
+   !< through the adapter; the packed rows map to SETH's stencils as `vp(m) = v(2,m)`, `vm(m+1) = v(1,m)`.
    real(R8P), intent(in)  :: v(1:2,1-S:S-1) !< Packed stencil.
    real(R8P), intent(out) :: vr(1:2)        !< Interface values.
+   real(R8P)              :: vp(1-S:S), vm(1-S:S) !< SETH's stencils.
+   real(R8P)              :: rmu, wrp, wrm     !< Inverse descaler, weights ratios (unused).
+   integer(I4P)           :: k                 !< Counter.
 
+   vp = 0._R8P ; vm = 0._R8P
+   do k=1-S, S-1
+      vp(k)   = v(2,k)
+      vm(k+1) = v(1,k)
+   enddo
+   rmu = seth_weno_descaling(S=S, sigma=sigma, vp=vp, vm=vm)
    if (t == 1) then
-      call weno_reconstruct_upwind(S=S, weno_a=weno(c)%a, weno_p=weno(c)%p, weno_d=weno(c)%d, weno_zeps=weno(c)%zeps, &
-                                   weno_rmu=weno_descaling(S=S, weno_sigma=sigma, v=v), v=v, vr=vr)
+      call weno_reconstruct(S=S, vp=vp, vm=vm, eps=weno(c)%eps, rmu=rmu, rp=vr(2), rm=vr(1))
    else
-      call weno_reconstruct_upwind(S=S, weno_a=weno(c)%a_interp, weno_p=weno(c)%p_interp, weno_d=weno(c)%d,           &
-                                   weno_zeps=weno(c)%zeps, weno_rmu=weno_descaling(S=S, weno_sigma=sigma, v=v), &
-                                   v=v, vr=vr)
+      call weno_reconstruct_interp_wr(S=S, vp=vp, vm=vm, eps=weno(c)%eps, rmu=rmu, rp=vr(2), rm=vr(1), wrp=wrp, wrm=wrm)
    endif
    endsubroutine reconstruct
 

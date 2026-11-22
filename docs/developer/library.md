@@ -188,30 +188,30 @@ Methods: `initialize`, `make_comm_local_maps`, `blocks_reorder`. The seam maps o
 
 ### `adam_weno_object`
 
-WENO finite-difference reconstruction. Upwind orders 1, 3, 5, 7, 9 and centred orders 2, 4, 6, 8; nonlinear weights
-Jiang–Shu (`js`, default) or scale-invariant (`si`). The half-width `S_MAX` sets the ghost requirement. Reference:
-C.-W. Shu, NASA/CR-97-206253 (1997).
+The WENO configuration and the run-time dispatchers over [SETH](https://github.com/szaghi/SETH)'s WENO kernels
+([#139](https://github.com/szaghi/adam/issues/139)). SETH is the only source of WENO, TENO and hybrid operators: every
+coefficient table, smoothness indicator and nonlinear weight is SETH's, in kernels with compile-time coefficients
+(`pure`, `acc routine seq`, `omp declare target`), so there is nothing to mirror on a device. ADAM keeps the policy:
+`weno_object` holds `[weno]` (`scheme`, its half-width `S`, `weights` `js` or `si` and their descaler switch `sigma`,
+the regulariser `eps`), and the module holds `weno_reconstruct`, `weno_reconstruct_wr` and `weno_reconstruct_interp_wr`,
+which select SETH's kernel of width `S` (`seth_weno<2S-1>_js[_wr|_interp_wr]`) for callers whose `S` is a run-time value
+per call (RIPPLE). FLUME and PRISM call SETH's kernel of each width from kernels compiled with `S` a named constant.
+SETH's stencil convention: cells by offset from the face, `vp(1-S:S)` left-biased, `vm(1-S:S)` right-biased, both
+unshifted (ADAM's former packed rows mapped as `vp(m) = v(2,m)`, `vm(m+1) = v(1,m)`).
 
 | Constant | Scheme |
 |----------|--------|
-| `WENO_U_1` … `WENO_U_9` | Upwind WENO, orders 1/3/5/7/9 |
-| `WENO_C_2` … `WENO_C_8` | Centred WENO, orders 2/4/6/8 |
+| `WENO_U_1` … `WENO_U_9` | Upwind WENO, orders 1/3/5/7/9 (S = 1 … 5) |
+| `WENO_C_2` … `WENO_C_8` | Centred names: refused at initialization until an application calls SETH's centred kernels (D6) |
 
-**Moving to SETH ([#139](https://github.com/szaghi/adam/issues/139)).** [SETH](https://github.com/szaghi/SETH) becomes the
-only source of WENO, TENO and hybrid operators; the object keeps the configuration (`scheme`, `S`, `weights`, `sigma`,
-`eps`). Since S2 it holds the run-time dispatchers `weno_reconstruct`, `weno_reconstruct_wr` and
-`weno_reconstruct_interp_wr`, which select SETH's kernel of width `S` (`seth_weno<2S-1>_js[_wr|_interp_wr]`) in SETH's
-stencil convention (`vp(1-S:S)`, `vm(1-S:S)` by offset from the face, both unshifted; ADAM's rows map as
-`vp(m) = v(2,m)`, `vm(m+1) = v(1,m)`). They serve the callers whose `S` is a run-time value per call (RIPPLE); FLUME and
-PRISM call SETH's kernel of each width from kernels compiled with `S` a named constant. ADAM's tables and kernels stay
-until every application is migrated (S6). `test_weno_seth_parity` (`-gnu`, `-fnl-nvf`) measures the substitution:
-bitwise on the host with gfortran for every width, both weights, reconstruction and interpolation, KEEP-PE and Ducros;
-on the device SETH's kernels equal ADAM's FNL per-width kernels bitwise (nvfortran 26.9, RTX 4070); the seam WENO-5
-sensor differs from `seth_weno5_js_wr` by up to 3.3e-12 (the indicators' products summed in another order cancel on
-smooth data) without flipping a `troubled` decision. `scripts/check_space_separation.py` (CI leg `space-separation`)
-keeps a smoothness-indicator constant, a nonlinear weight, the KEEP two-point mass flux or a name SETH replaced
-(`weno_a/p/d`, `weno_reconstruct_upwind*`, `compute_kep_flux`) from being written in `src/app` or `src/lib`; the files
-the migration has not reached are waived by name with the step that migrates them, so the waiver list shrinks to empty.
+ADAM's own tables and kernels (host, FNL generic, FNL per width, NVF and GMP twins), the centred coefficients, the ROR
+and immersed-boundary order reduction and `cell_scheme` were deleted in S6; the substitution was measured before
+(`test_weno_seth_parity`, since deleted: bitwise on the host with gfortran for every width, both weights, reconstruction
+and interpolation, KEEP-PE and Ducros; on the device SETH's kernels equal ADAM's FNL per-width kernels bitwise), and the
+application A/B runs are bitwise. `scripts/check_space_separation.py` (CI leg `space-separation`) keeps a
+smoothness-indicator constant, a nonlinear weight, the KEEP two-point mass flux or a name SETH replaced (`weno_a/p/d`,
+`weno_reconstruct_upwind*`, `compute_kep_flux`) from being written in `src/app` or `src/lib`; the one waiver left is the
+seam WENO-6 transfer, which S7 moves to SETH.
 
 ### `adam_fdv_operators_library`
 

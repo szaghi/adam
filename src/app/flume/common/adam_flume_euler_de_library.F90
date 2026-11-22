@@ -18,8 +18,8 @@ module adam_flume_euler_de_library
 !< eigenvalues `(u_n - a, u_n, u_n, u_n, u_n + a)`. Storage, stated once: `el(k,:)` is the row `l_k`, `er(:,k)` is the
 !< column `r_k`; projection `w_k = sum_v el(k,v) q_v`, back-projection `q_v = sum_k er(v,k) w_k`.
 !<
-!< The WENO reconstruction primitive differs between host (`adam_weno_object`) and device (`adam_fnl_weno_kernels`),
-!< so the per-face flux is split in two physics halves around it (issue #35, section 7.1): `compute_face_split_fluxes`
+!< The WENO reconstruction is the backends' (SETH's kernel of each stencil width, issue #139), so the per-face flux is
+!< split in two physics halves around it (issue #35, section 7.1): `compute_face_split_fluxes`
 !< projects and splits the stencil, the backend reconstructs each field, `compute_face_flux_back_projection` returns
 !< to conservative variables.
 

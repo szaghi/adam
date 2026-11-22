@@ -17,7 +17,6 @@ The aggregate entry point `adam_gmp_library` re-exports the entire GMP API toget
 - [Memory management utilities](#memory-management-utilities)
 - [MPI handler and device management](#mpi-handler-and-device-management)
 - [Field](#field)
-- [WENO reconstruction](#weno-reconstruction)
 - [Runge-Kutta integration](#runge-kutta-integration)
 - [Immersed boundary method](#immersed-boundary-method)
 - [Communication maps](#communication-maps)
@@ -247,27 +246,7 @@ All kernels use `!$omp target teams distribute parallel do` with `has_device_add
 
 ---
 
-## WENO reconstruction
-
-### `adam_weno_gmp_object` — GPU WENO coefficient wrapper
-
-Holds a pointer to the common `weno_object` and mirrors all coefficient arrays to device memory. No kernel module — WENO reconstruction is called from within equation-solver kernels via device-resident coefficient pointers.
-
-**Device arrays:**
-
-| Array | Shape | Purpose |
-|-------|-------|---------|
-| `a_gpu` | `(2, 0:S-1, S)` | Optimal WENO weights per sub-stencil and interface |
-| `p_gpu` | `(2, 0:S-1, 0:S-1, S)` | Polynomial reconstruction coefficients |
-| `d_gpu` | `(0:S-1, 0:S-1, 0:S-1, S)` | Smoothness indicator coefficients |
-| `ror_schemes_gpu` | `(:)` | ROR fallback scheme orders near solid walls |
-| `ror_ivar_gpu` | `(:)` | Variable indices checked by ROR |
-| `ror_stats_gpu` | `(:,:,:,:,:)` | ROR statistics counters |
-| `cell_scheme_gpu` | `(nb, ni, nj, nk, 3)` | Per-cell effective reconstruction order per direction |
-
-`initialize(weno)` copies all arrays via `assign_allocatable_gpu`.
-
----
+The WENO coefficient mirrors (`adam_weno_gmp_object`) and the IB order reduction were deleted with ADAM's WENO (issue #139, S6): the WENO kernels are SETH's; NASTO and CHASE, the only users, are archived and do not build.
 
 ## Runge-Kutta integration
 
@@ -309,7 +288,6 @@ All spatial kernels use `collapse(4)` over `(b,k,j,i)`.
 | `evolve_eikonal_q_phi_gmp` | `q -= dq` where `φ > 0` |
 | `invert_eikonal_q_phi_gmp` | Viscous: `(u,v,w)→(−u,−v,−w)`; Euler: `u → u − 2(u·n̂)n̂` |
 | `move_phi_gmp` | Level-set advection `∂φ/∂t = −v·∇φ` for moving bodies (two-kernel: compute `dφ` then update) |
-| `reduce_cell_order_phi_gmp` | Lower WENO order in cells within `ib_reduction_extent` of the surface, one kernel per spatial direction |
 
 ---
 
@@ -353,7 +331,6 @@ All arrays are transferred via `assign_allocatable_gpu`. The send and receive bu
 | `adam_mpih_gmp_object` | OpenMP device binding, intra-node GPU assignment | `mpih_object` |
 | `adam_field_gmp_object` | GPU field wrapper + host↔device transfer | `field_object` (pointer) |
 | `adam_field_gmp_kernels` | Gradient, L2 norm, transpose, ghost-cell pack/unpack | — |
-| `adam_weno_gmp_object` | GPU WENO coefficient mirror + ROR tables | `weno_object` (pointer) |
 | `adam_ib_gmp_object` | GPU distance field + eikonal BC wrapper | `ib_object` (pointer) |
 | `adam_ib_gmp_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
 | `adam_maps_gmp_object` | GPU communication index tables + MPI buffer staging | `maps_object` (pointer) |

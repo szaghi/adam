@@ -16,7 +16,6 @@ public :: compute_phi_analytical_sphere_dev
 public :: evolve_eikonal_q_phi_dev
 public :: invert_eikonal_q_phi_dev
 public :: move_phi_dev
-public :: reduce_cell_order_phi_dev
 
 contains
    subroutine compute_eikonal_dq_phi_dev(ib, ni, nj, nk, ngc, nv, blocks_number, dx_gpu, dy_gpu, dz_gpu, phi_gpu, q_gpu, dq_gpu)
@@ -331,74 +330,4 @@ contains
    enddo
    endsubroutine move_phi_dev
 
-   subroutine reduce_cell_order_phi_dev(ib, ni, nj, nk, ngc, blocks_number, iweno, &
-                                        ib_reduced_order, ib_reduction_extent, phi_gpu, cell_scheme_gpu)
-   !< Reduce local-cell order of spatial operator close to solids.
-   integer(I4P), intent(in)    :: ib                                          !< IB solid index.
-   integer(I4P), intent(in)    :: ni                                          !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                                          !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                                          !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                                         !< Ghost grid number.
-   integer(I4P), intent(in)    :: blocks_number                               !< Number of blocks.
-   integer(I4P), intent(in)    :: iweno                                       !< WENO (half) stencil lenght.
-   integer(I4P), intent(in)    :: ib_reduced_order                            !< Reduced order close to IB solids.
-   integer(I4P), intent(in)    :: ib_reduction_extent                         !< Extent of reduction close to IBi solids.
-   real(R8P),    intent(in)    :: phi_gpu(        1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function.
-   integer(I4P), intent(inout) :: cell_scheme_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Modified order close to solids.
-   integer(I4P)                :: b, i, j, k, l                               !< Counter.
-
-   !$acc parallel loop independent DEVICEVAR(phi_gpu, cell_scheme_gpu)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(phi_gpu, cell_scheme_gpu)
-   do b=1, blocks_number
-      do j=1, nj
-         do k=1, nk
-            idir: do i=0, ni
-               cell_scheme_gpu(b,i,j,k,1) = iweno
-               do l=1, ib_reduction_extent
-                  if (phi_gpu(b,i+l,j,k,ib)>0.or.phi_gpu(b,i-l+1,j,k,ib)>0) then
-                      cell_scheme_gpu(b,i,j,k,1) = ib_reduced_order
-                      cycle idir
-                  endif
-               enddo
-            enddo idir
-         enddo
-      enddo
-   enddo
-
-   !$acc parallel loop independent DEVICEVAR(phi_gpu, cell_scheme_gpu)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(phi_gpu, cell_scheme_gpu)
-   do b=1, blocks_number
-      do i=1, ni
-         do k=1, nk
-            jdir: do j=0,nj
-               cell_scheme_gpu(b,i,j,k,2) = iweno
-               do l=1, ib_reduction_extent
-                  if (phi_gpu(b,i,j+l,k,ib)>0.or.phi_gpu(b,i,j-l+1,k,ib)>0) then
-                      cell_scheme_gpu(b,i,j,k,2) = ib_reduced_order
-                      cycle jdir
-                  endif
-               enddo
-            enddo jdir
-         enddo
-      enddo
-   enddo
-
-   !$acc parallel loop independent DEVICEVAR(phi_gpu, cell_scheme_gpu)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(phi_gpu, cell_scheme_gpu)
-   do b=1, blocks_number
-      do j=1, nj
-         do i=1, ni
-            kdir: do k=0, nk
-               cell_scheme_gpu(b,i,j,k,3) = iweno
-               do l=1, ib_reduction_extent
-                  if (phi_gpu(b,i,j,k+l,ib)>0.or.phi_gpu(b,i,j,k-l+1,ib)>0) then
-                      cell_scheme_gpu(b,i,j,k,3) = ib_reduced_order
-                      cycle kdir
-                  endif
-               enddo
-            enddo kdir
-         enddo
-      enddo
-   enddo
-   endsubroutine reduce_cell_order_phi_dev
 endmodule adam_fnl_ib_kernels

@@ -26,7 +26,6 @@ src/lib/fnl/  (OpenACC GPU backend)
 ├── mpih_fnl_object   extends mpih_object
 ├── field_fnl_object  (composite, wraps field_object data on GPU)
 ├── ib_fnl_object     (composite, GPU phi and BC vars)
-└── weno_fnl_object   (composite, GPU WENO coefficients)
     (no GPU RK object: `stepper_object` keeps SELAH's registers on the device itself)
 
 src/app/nasto/  (Navier-Stokes solver)
@@ -62,7 +61,7 @@ The former `adam_{grid,field,maps,tree,weno,ib,rk}_global`, `adam_fnl_{field,ib,
 |-------|-----------|
 | `realm_object` | `io, amr, slices, flail, weno, ib, ts, adam` |
 | `adam_object` (`self%adam`) | `grid, tree, field, maps` |
-| app FNL type (e.g. `prism_fnl_object`) | `field_fnl, ib_fnl, weno_fnl` (+ app-specific: `coil_fnl, pic_fnl, pml_fnl, …`) |
+| app FNL type (e.g. `prism_fnl_object`) | `field_fnl, ib_fnl` (+ app-specific: `coil_fnl, pic_fnl, pml_fnl, …`); no WENO helper (SETH, #139) |
 
 Rules:
 
@@ -80,7 +79,7 @@ call self%prism_common_object%initialize(filename=filename, memory_avail=memory_
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
 ! no rk_fnl (deleted, #132): self%ts, initialized by the common layer, holds its registers on the device;
-! no weno_fnl%initialize (#112 C): FNL refuses scheme_space = weno
+! no WENO helper: the WENO kernels are SETH's, compile-time coefficients (#139)
 ```
 
 ---
@@ -280,17 +279,17 @@ integer(I4P), pointer :: ngc, ni, nj, nk
 
 ### `weno_object` (`src/lib/common/adam_weno_object.F90`)
 
+The `[weno]` configuration only; the kernels are SETH's (#139: every table, indicator and weight; `seth_weno<2S-1>_js*`).
+
 ```fortran
-character(:), allocatable :: scheme            ! e.g. "weno-z", "weno-js"
+character(:), allocatable :: scheme            ! weno-u-1/3/5/7/9 (weno-c-* refused, #139 D6)
 integer(I4P)              :: S                 ! Stencil half-width; order = 2S-1
-logical                   :: is_centered
-real(R8P), allocatable :: a(:,:,:)             ! Optimal weights  [1:2, 0:S-1, 1:S]
-real(R8P), allocatable :: p(:,:,:,:)           ! Poly coefficients [1:2, 0:S-1, 0:S-1, 1:S]
-real(R8P), allocatable :: d(:,:,:,:)           ! Smoothness indicators [0:S-1, 0:S-1, 0:S-1, 1:S]
-real(R8P), allocatable :: c(:,:)               ! Centered polynomials [1-S:S, 1:S]
-integer(I4P) :: ror_number, wexp
-real(R8P)    :: zeps, ror_threshold
+character(:), allocatable :: weights           ! js (Jiang-Shu) or si (scale-invariant)
+real(R8P)                 :: sigma             ! descaler switch: 0 js, 1 si
+real(R8P)                 :: eps               ! regulariser, SETH_WENO_JS_EPS = 1e-6
 ```
+Module procedures `weno_reconstruct`, `weno_reconstruct_wr`, `weno_reconstruct_interp_wr`: run-time dispatchers over
+SETH's kernel of width S (RIPPLE); FLUME and PRISM call SETH per width from kernels compiled with S a constant.
 
 ### `ib_object` (`src/lib/common/adam_ib_object.F90`)
 
@@ -464,9 +463,9 @@ adam_common_library
 
 adam_fnl_library
  ├── adam_common_library  (full CPU layer)
- ├── adam_fnl_field_object, adam_fnl_ib_object, adam_fnl_weno_object
+ ├── adam_fnl_field_object, adam_fnl_ib_object
  ├── adam_fnl_maps_object, adam_fnl_mpih_object
- ├── adam_fnl_field_kernels, adam_fnl_ib_kernels, adam_fnl_weno_kernels, adam_fnl_turbulence_kernels
+ ├── adam_fnl_field_kernels, adam_fnl_ib_kernels, adam_fnl_turbulence_kernels
  ├── adam_fnl_fdv_operators_library
  └── adam_fnl_mpih_global  (the only FNL singleton)
 

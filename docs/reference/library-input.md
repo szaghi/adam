@@ -250,8 +250,10 @@ scheme the section is not read, so its keys are unread keys.
 
 The order-reduction keys (`ror_number`, `ror_scheme_N`, `ror_threshold`, `ror_vars_number`, `ror_ivar_N`,
 `enable_ror_stats`) and the immersed-boundary order reduction (`ib_reduction_extent`, `ib_reduced_order`) are no longer
-read ([#80](https://github.com/szaghi/adam/issues/80)): nothing in FLUME, PRISM or RIPPLE used them. An input that sets
-them reports them unread.
+read ([#80](https://github.com/szaghi/adam/issues/80)): nothing in FLUME, PRISM or RIPPLE used them, and their state left
+with ADAM's WENO kernels ([#139](https://github.com/szaghi/adam/issues/139) S6). An input that sets them reports them
+unread. The kernels the scheme selects are [SETH](https://github.com/szaghi/SETH)'s (`seth_weno<2S-1>_js`, regulariser
+$\varepsilon = 10^{-6}$ absolute, `SETH_WENO_JS_EPS`).
 
 | Name | S | Order | Kind |
 |------|---|-------|------|

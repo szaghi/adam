@@ -2,12 +2,12 @@
 program test_kep
 !< Measure the central flux of the hybrid scheme (issue #119, T2): order, kinetic energy identity, pressure equilibrium.
 !<
-!< On periodic lines along x, y and z, with `compute_kep_flux`: the flux difference of a smooth field against its exact derivative, at n = 32, 64,
+!< On periodic lines along x, y and z, with `seth_keep_pe6` (SETH, #139): the flux difference of a smooth field against its exact derivative, at n = 32, 64,
 !< 128, order >= 5.5 on every component; `sum(u . d(rho u) - |u|^2 / 2 d rho)` on a random field of uniform pressure, the discrete kinetic energy
 !< identity, within 1e-12 of its scale; dp/dt of a uniform velocity and pressure across a 100:1 step, within 1e-12. Stops with an error otherwise.
 
-use :: adam_flume_hybrid_library, only : compute_kep_flux
 use :: penf,                      only : I4P, R8P
+use :: seth,                      only : seth_keep_pe6
 
 implicit none
 real(R8P), parameter :: GAMMA = 1.4_R8P
@@ -51,7 +51,7 @@ contains
       do m=-2, 3
          w(:,m) = st(:,i+m)
       enddo
-      call compute_kep_flux(d, GAMMA, w, f)
+      call seth_keep_pe6(d, GAMMA, w, f)
       fl(:,i) = f
    enddo
    h = 1.e-2_R8P * dx
@@ -131,7 +131,7 @@ contains
       do c=-2, 3
          w(:,c) = st(:,i+c)
       enddo
-      call compute_kep_flux(1_I4P, GAMMA, w, f)
+      call seth_keep_pe6(1_I4P, GAMMA, w, f)
       fl(:,i) = f
    enddo
    do i=1, M

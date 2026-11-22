@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate and check the WENO interpolation tables of `adam_weno_object` (issue #47, M3-P1).
+"""Generate and check the WENO interpolation tables (issue #47, M3-P1; ADAM's until #139 S6, SETH's since).
 
 Interpolation (Jiang, Shu & Zhang 2013): face values from POINT values, unlike the library's reconstruction tables
 (face values from cell averages). Same layout as the reconstruction tables `a` and `p`:

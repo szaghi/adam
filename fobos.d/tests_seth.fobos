@@ -1,6 +1,5 @@
 [modes]
 modes = test-seth-smoke-gnu test-seth-smoke-fnl-nvf test-seth-smoke-fnl-omp-amd
-        test-weno-seth-parity-gnu test-weno-seth-parity-fnl-nvf
 
 # SETH, the space operators (WENO, TENO, hybrid central fluxes and sensors; ADAM #139, S1): the WENO-JS kernels of every
 # width on the host and in one device loop, bitwise. The host build (the CPU modes' flags), the OpenACC build (the FNL
@@ -27,20 +26,3 @@ preproc  = -DDEV_OMP -w
 target   = test_seth_smoke.F90
 output   = test_seth_smoke_omp
 
-# The parity of the SETH adapter with ADAM's WENO, KEEP-PE flux, Ducros sensor and seam WENO-5 sensor (ADAM #139, S2; a
-# transition test, deleted with ADAM's WENO in S6): bitwise on the host in the CPU build; in the OpenACC build the device
-# against the host (8 eps) and SETH's kernels against ADAM's FNL per-width kernels on the device (reported). No MPI run.
-[test-weno-seth-parity-gnu]
-template = template-gnu
-mod_dir  = ./mod/gnu-seth-parity/
-obj_dir  = ./obj/gnu-seth-parity/
-preproc  = -D_MPI_ -w
-target   = test_weno_seth_parity.F90
-
-[test-weno-seth-parity-fnl-nvf]
-template = template-nvf
-mod_dir  = ./mod/nvf/seth-parity/
-obj_dir  = ./obj/nvf/seth-parity/
-preproc  = -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
-target   = test_weno_seth_parity.F90
-output   = test_weno_seth_parity_fnl

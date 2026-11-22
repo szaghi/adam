@@ -13,8 +13,6 @@ use :: adam_fnl_ib_object
 use :: adam_fnl_maps_object
 use :: adam_fnl_mpih_object
 use :: adam_fnl_turbulence_kernels
-use :: adam_fnl_weno_kernels
-use :: adam_fnl_weno_object
 
 implicit none
 public

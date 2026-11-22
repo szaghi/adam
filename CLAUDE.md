@@ -60,7 +60,7 @@ src/
 | `adam_grid_object` | Structured block grid management with AMR |
 | `adam_tree_object` | Octree/quadtree with Morton ordering |
 | `adam_field_object` | Field variable storage and interpolation |
-| `adam_weno_object` | High-order WENO reconstruction |
+| `adam_weno_object` | `[weno]` configuration + run-time dispatchers over SETH's WENO kernels (SETH is the only source of WENO/TENO/hybrid operators, #139) |
 | `adam_stepper_object` | Time integration on SELAH (the realm's `ts`, #132) |
 | `adam_ib_object` | Immersed boundary method |
 | `adam_io_object` | HDF5 and restart file I/O |
@@ -76,13 +76,12 @@ src/
 The only program-scope singletons are **`mpih`** (`adam_mpih_global`) and **`mpih_fnl`** (`adam_fnl_mpih_global`). The former `adam_{grid,field,maps,tree,weno,ib,rk}_global` and `adam_fnl_{field,ib,rk,weno}_global` / `adam_prism_fnl_{coil,fwlayer}_global` modules **no longer exist**. Every other object is a per-realm component:
 
 - CPU library objects live in `realm_object` (`self%adam%grid`, `self%adam%field`, `self%adam%maps`, `self%ts`, `self%weno`, `self%ib`, …) and are passed **as arguments** to library calls (e.g. `self%adam%field%update_ghost_local(q=q, grid=self%adam%grid, maps=self%adam%maps)`).
-- FNL helpers are components of the backend type (`prism_fnl_object%field_fnl/ib_fnl/weno_fnl/coil_fnl`, `adam_prism_fnl_object.F90`), initialised **after** the common init by argument passing:
+- FNL helpers are components of the backend type (`prism_fnl_object%field_fnl/ib_fnl/coil_fnl`, `adam_prism_fnl_object.F90`), initialised **after** the common init by argument passing (no WENO helper: SETH's kernels have compile-time coefficients, #139):
 
 ```fortran
 call self%prism_common_object%initialize(...)                                        ! builds self%adam, self%ts, ...
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
-call self%weno_fnl%initialize(weno=self%weno)
 ```
 
 Do **not** create new `*_global` singletons. NASTO/CHASE/PATCH predate this refactor (they still reference the deleted singletons); **only PRISM is maintained against the current library** (CHASE verified not to build, 2026-09-23; its successor is FLUME, [issue #35](https://github.com/szaghi/adam/issues/35)).
