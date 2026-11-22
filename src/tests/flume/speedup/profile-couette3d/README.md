@@ -533,6 +533,29 @@ per-width kernel and gain. One A30 (medooza gnode01), forest loop, 20 steps, two
 `rj2a-hlld`, 512 blocks of 32^3, WENO-5: 43.75 -> 30.32 s (-31 %). The WENO-7 cost is reproducible and not explained.
 The `flume-fnl-nvf` build on medooza goes from 1305 s to 2110 s.
 
+### The WENO kernels from SETH
+
+[#139](https://github.com/szaghi/adam/issues/139) S1-S6 replaced ADAM's WENO kernels by
+[SETH](https://github.com/szaghi/SETH)'s: compile-time coefficients in every kernel (no table argument crosses the device
+kernel boundary), and on the CPU one face kernel per stencil width, as on FNL (decision D3). Every regression case is
+bitwise the same before and after on both backends. Measured on medooza, night of 2026-11-21 (base develop `f1536556`
+against the S6 tree): GPU on one A30 (`gnode19`, driver 545, 1440 MHz), `iac_nvf` LTO builds (never `fastlink`), one rank,
+`medium`, refined walls, 20 steps, under Nsight Systems; CPU on 16 ranks of a dev-gn node, `medium` uniform, no profiler.
+
+| run | before | after |
+|---|---|---|
+| A30, WENO-5, forest loop (four rounds) | 18.06-18.12 s | 18.16-18.19 s (+0.5 %) |
+| A30, WENO-5, Euler face kernel per launch (four rounds) | 20.17-20.21 ms | 20.51-20.54 ms (+1.7 %) |
+| A30, WENO-9, forest loop | 31.58 s | 29.96 s (-5.1 %) |
+| A30, WENO-9, Euler face kernel per launch | 45.57 ms | 39.38 ms (-13.6 %) |
+| CPU np 16, WENO-5, forest loop (two rounds) | 419.64 / 419.95 s | 357.70 / 358.12 s (-14.8 %) |
+
+The WENO-5 face kernel is slower by a reproducible 1.7 % although it uses fewer registers (210 -> 178, stack 2368 bytes
+both, `cuobjdump --dump-resource-usage`). Not measured, a candidate: SETH's kernel copies `vp`/`vm` into the row layout of
+ADAM's former routine before computing (`v(1,m) = vm(m+1)`, `v(2,m) = vp(m)`), a copy the former kernel did not make; the
+remedy would be in SETH, with the same arithmetic. The `flume-fnl-nvf` LTO build takes 1503 s against 1592 s; the CPU
+build of `flume-cpu-gnu` 104-171 s against 79 s (the five per-width kernels of every face loop).
+
 ### Time with no kernel running
 
 On the refined walls the GPU waits for the host for 8 s of the loop: 22% of the leg's 35.6 s, 38% of the 21.1 s with LTO
