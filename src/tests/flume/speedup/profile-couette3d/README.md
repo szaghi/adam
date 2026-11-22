@@ -551,10 +551,60 @@ against the S6 tree): GPU on one A30 (`gnode19`, driver 545, 1440 MHz), `iac_nvf
 | CPU np 16, WENO-5, forest loop (two rounds) | 419.64 / 419.95 s | 357.70 / 358.12 s (-14.8 %) |
 
 The WENO-5 face kernel is slower by a reproducible 1.7 % although it uses fewer registers (210 -> 178, stack 2368 bytes
-both, `cuobjdump --dump-resource-usage`). Not measured, a candidate: SETH's kernel copies `vp`/`vm` into the row layout of
-ADAM's former routine before computing (`v(1,m) = vm(m+1)`, `v(2,m) = vp(m)`), a copy the former kernel did not make; the
-remedy would be in SETH, with the same arithmetic. The `flume-fnl-nvf` LTO build takes 1503 s against 1592 s; the CPU
-build of `flume-cpu-gnu` 104-171 s against 79 s (the five per-width kernels of every face loop).
+both, `cuobjdump --dump-resource-usage`). The `flume-fnl-nvf` LTO build takes 1503 s against 1592 s; the CPU build of
+`flume-cpu-gnu` 104-171 s against 79 s (the five per-width kernels of every face loop).
+
+**Every width, both kernel families** ([#141](https://github.com/szaghi/adam/issues/141), test 1). The same two LTO
+executables, one A30 (`gnode23`, driver 545, 1440 MHz), three rounds with the order of the two alternating, the mean per
+launch of each round within 0.3 % of the others. Euler flux-splitting face kernel: this case, `medium`, refined walls.
+Riemann HLLC face kernel: the `sod-hllc` regression input made 3-D, 512 blocks of 32^3, 20 steps (Slurm job 1369288).
+
+| WENO (S) | Euler face kernel, before / after | forest loop | Riemann face kernel, before / after | forest loop |
+|---|---|---|---|---|
+| 1 (1) | 6.53 / 6.48 ms (-0.8 %) | +0.1 % | 19.42 / 19.41 ms (0.0 %) | -1.1 % |
+| 3 (2) | 8.75 / 8.63 ms (-1.3 %) | +0.3 % | 20.49 / 20.56 ms (+0.3 %) | +2.3 % |
+| 5 (3) | 20.17 / 20.49 ms (+1.6 %) | +0.7 % | 35.77 / 34.47 ms (-3.6 %) | -2.5 % |
+| 7 (4) | 34.10 / 31.47 ms (-7.7 %) | -2.7 % | 54.15 / 46.50 ms (-14.1 %) | -9.6 % |
+| 9 (5) | 45.52 / 39.19 ms (-13.9 %) | -5.5 % | 73.66 / 61.65 ms (-16.3 %) | -11.1 % |
+
+Only the WENO-5 Euler face kernel is slower. The Riemann loops at WENO-1 and 3 vary by 0.4 s between rounds; their
+kernels do not.
+
+**Why the WENO-5 Euler kernel is slower** (#141, test 2):
+
+- **Not the copy into ADAM's rows.** SETH's kernel starts by copying `vp`/`vm` into the row layout of ADAM's former
+  routine. The compiler removes the copy: in the SASS of the two A30 executables (`cuobjdump -sass`) the S = 3 kernel
+  has the same 73 local loads, 151 local stores and the same FP64 instructions (406 DFMA, 61 DADD, 148 DMUL) before
+  and after.
+- **Not more instructions.** The SETH kernel has fewer: 2712 against 2960, 25 fewer global loads (the coefficient
+  tables).
+- **Not occupancy.** Both launch 128-thread blocks, and 178 or 210 registers both fit two blocks per SM: 8 warps.
+- **Fewer registers, the same occupancy, more waiting.** Nsight Compute does not run on medooza, so the two kernels
+  were measured on WSL. Both trees were built for `cc80` there (178 and 212 registers, the same stack as on the A30),
+  and the second RTX 4070 runs the `sm_80` code. On one launch (`small`, refined walls), the SETH kernel:
+  - executes 4.9 % fewer instructions (197.3 M against 207.4 M);
+  - makes the same local-memory traffic, to the sector (69.6 M loaded, 77.4 M stored);
+  - waits 5.4 % longer per issued instruction (65.2 against 61.8 cycles), mostly on scoreboard and L1 stalls.
+
+  With 32 fewer registers the compiler issues the loads closer to their use, and 8 warps per SM hide less of the wait.
+  The RTX 4070 is bound by FP64 throughput (1/64 of FP32), so there the two effects cancel (+0.3 %). On the A30 FP64
+  runs at half the FP32 rate and the wait is a larger share: +1.6 %.
+- **On the A30, more registers recover part of it.** `maxregcount` is not honoured under `-gpu=lto` (see `lto-r128`
+  above; `-Wnvlink,--maxrregcount` neither). Two such builds (Slurm job 1369289) still changed the S = 3 kernel:
+  - base with a cap of 178 got 209 registers, a rebuild control;
+  - the SETH tree with a cap of 168 got 184.
+
+  Timed in three rotating rounds (job 1369290):
+
+  | Executable | Registers | Kernel time | Change |
+  |---|---|---|---|
+  | base | 210 | 20.16 ms | — |
+  | base rebuilt | 209 | 20.20 ms | +0.2 % |
+  | SETH kernel | 178 | 20.47 ms | +1.5 % |
+  | SETH kernel rebuilt | 184 | 20.33 ms | +0.8 % |
+
+  Six more registers halve the gap, at the same occupancy. The cost is the compiler's register allocation for this one
+  kernel shape. It is not an operation that SETH or FLUME adds, and no source change was found that removes it.
 
 ### Time with no kernel running
 
