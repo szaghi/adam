@@ -197,6 +197,22 @@ C.-W. Shu, NASA/CR-97-206253 (1997).
 | `WENO_U_1` … `WENO_U_9` | Upwind WENO, orders 1/3/5/7/9 |
 | `WENO_C_2` … `WENO_C_8` | Centred WENO, orders 2/4/6/8 |
 
+**Moving to SETH ([#139](https://github.com/szaghi/adam/issues/139)).** [SETH](https://github.com/szaghi/SETH) becomes the
+only source of WENO, TENO and hybrid operators; the object keeps the configuration (`scheme`, `S`, `weights`, `sigma`,
+`eps`). Since S2 it holds the run-time dispatchers `weno_reconstruct`, `weno_reconstruct_wr` and
+`weno_reconstruct_interp_wr`, which select SETH's kernel of width `S` (`seth_weno<2S-1>_js[_wr|_interp_wr]`) in SETH's
+stencil convention (`vp(1-S:S)`, `vm(1-S:S)` by offset from the face, both unshifted; ADAM's rows map as
+`vp(m) = v(2,m)`, `vm(m+1) = v(1,m)`). They serve the callers whose `S` is a run-time value per call (RIPPLE); FLUME and
+PRISM call SETH's kernel of each width from kernels compiled with `S` a named constant. ADAM's tables and kernels stay
+until every application is migrated (S6). `test_weno_seth_parity` (`-gnu`, `-fnl-nvf`) measures the substitution:
+bitwise on the host with gfortran for every width, both weights, reconstruction and interpolation, KEEP-PE and Ducros;
+on the device SETH's kernels equal ADAM's FNL per-width kernels bitwise (nvfortran 26.9, RTX 4070); the seam WENO-5
+sensor differs from `seth_weno5_js_wr` by up to 3.3e-12 (the indicators' products summed in another order cancel on
+smooth data) without flipping a `troubled` decision. `scripts/check_space_separation.py` (CI leg `space-separation`)
+keeps a smoothness-indicator constant, a nonlinear weight, the KEEP two-point mass flux or a name SETH replaced
+(`weno_a/p/d`, `weno_reconstruct_upwind*`, `compute_kep_flux`) from being written in `src/app` or `src/lib`; the files
+the migration has not reached are waived by name with the step that migrates them, so the waiver list shrinks to empty.
+
 ### `adam_fdv_operators_library`
 
 Gradient, divergence, curl, Laplacian and scalar derivatives of orders 1–6, each in three flavours: centred finite

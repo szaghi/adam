@@ -46,6 +46,11 @@ use :: adam_mpih_global, only : mpih
 ! third party modules
 use :: finer
 use :: penf
+use :: seth, only : SETH_WENO_JS_EPS,                                                                                      &
+                    seth_weno1_js, seth_weno3_js, seth_weno5_js, seth_weno7_js, seth_weno9_js,                             &
+                    seth_weno1_js_wr, seth_weno3_js_wr, seth_weno5_js_wr, seth_weno7_js_wr, seth_weno9_js_wr,              &
+                    seth_weno1_js_interp_wr, seth_weno3_js_interp_wr, seth_weno5_js_interp_wr, seth_weno7_js_interp_wr,    &
+                    seth_weno9_js_interp_wr
 
 implicit none
 save
@@ -55,6 +60,9 @@ public :: weno_reconstruct_centered
 public :: weno_reconstruct_upwind
 public :: weno_reconstruct_upwind_wratio
 public :: weno_descaling
+public :: weno_reconstruct
+public :: weno_reconstruct_wr
+public :: weno_reconstruct_interp_wr
 public :: weno_weights_exponent
 public :: WENO_WEIGHTS_JS
 public :: WENO_WEIGHTS_SI
@@ -100,6 +108,7 @@ type :: weno_object
    real(R8P), allocatable    :: a_interp(:,:,:)           !< Interpolation optimal weights      [1:2,0:S-1,1:S].
    real(R8P), allocatable    :: p_interp(:,:,:,:)         !< Interpolation polinomials coeff.   [1:2,0:S-1,0:S-1,1:S].
    real(R8P)                 :: zeps                      !< Parameter for avoiding division by zero in computing IS.
+   real(R8P)                 :: eps=SETH_WENO_JS_EPS      !< Regulariser of the smoothness indicators of SETH's kernels (#139).
    character(:), allocatable :: weights                   !< Nonlinear weights, WENO_WEIGHTS_JS or WENO_WEIGHTS_SI.
    real(R8P)                 :: sigma=0._R8P              !< Descaler switch of the weights: 0 Jiang-Shu, 1 scale-invariant.
    integer(I4P)              :: sodd                      !< Branching between odd and even number of stencils (mod(S,2)).
@@ -287,6 +296,7 @@ contains
    self%wexp = weno_weights_exponent(S=self%S)
    self%sodd = mod(self%S,2)
    self%zeps = 1.0e-6_R8P
+   self%eps = SETH_WENO_JS_EPS ! the same value as zeps (#139 S2: zeps goes with ADAM's kernels in S6)
    select case(self%weights)
    case(WENO_WEIGHTS_JS)
       self%sigma = 0._R8P
@@ -1079,6 +1089,76 @@ contains
    mu = max(mu/real(2*(2*S-1), R8P), tiny(1._R8P))
    rmu = weno_sigma*(1._R8P/mu) + (1._R8P - weno_sigma)
    endfunction weno_descaling
+
+   pure subroutine weno_reconstruct(S, vp, vm, eps, rmu, rp, rm)
+   !< WENO-JS reconstruction of one face by SETH's kernel of width `S` (issue #139): the run-time dispatcher of the callers
+   !< whose `S` is a run-time value per call (RIPPLE, the tutorial application); FLUME and PRISM call SETH's kernel of each
+   !< width directly from a kernel compiled with `S` a named constant. SETH's stencil convention: cells by offset from the
+   !< face (cell 0 left of it), `vp` the left-biased values, `vm` the right-biased ones, both unshifted.
+   integer(I4P), intent(in)  :: S         !< Candidates of the scheme, WENO-(2S-1).
+   real(R8P),    intent(in)  :: vp(1-S:S) !< Values reconstructed with a left bias.
+   real(R8P),    intent(in)  :: vm(1-S:S) !< Values reconstructed with a right bias.
+   real(R8P),    intent(in)  :: eps       !< Regulariser of the smoothness indicators.
+   real(R8P),    intent(in)  :: rmu       !< Inverse descaler (1: Jiang-Shu weights).
+   real(R8P),    intent(out) :: rp        !< Left state at the face.
+   real(R8P),    intent(out) :: rm        !< Right state at the face.
+   !$acc routine seq
+   !$omp declare target
+
+   select case(S)
+   case(1) ; call seth_weno1_js(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm)
+   case(2) ; call seth_weno3_js(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm)
+   case(3) ; call seth_weno5_js(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm)
+   case(4) ; call seth_weno7_js(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm)
+   case(5) ; call seth_weno9_js(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm)
+   endselect
+   endsubroutine weno_reconstruct
+
+   pure subroutine weno_reconstruct_wr(S, vp, vm, eps, rmu, rp, rm, wrp, wrm)
+   !< `weno_reconstruct` with the weights ratios `min_k w_k/d_k` of the two states.
+   integer(I4P), intent(in)  :: S         !< Candidates of the scheme, WENO-(2S-1).
+   real(R8P),    intent(in)  :: vp(1-S:S) !< Values reconstructed with a left bias.
+   real(R8P),    intent(in)  :: vm(1-S:S) !< Values reconstructed with a right bias.
+   real(R8P),    intent(in)  :: eps       !< Regulariser of the smoothness indicators.
+   real(R8P),    intent(in)  :: rmu       !< Inverse descaler (1: Jiang-Shu weights).
+   real(R8P),    intent(out) :: rp        !< Left state at the face.
+   real(R8P),    intent(out) :: rm        !< Right state at the face.
+   real(R8P),    intent(out) :: wrp       !< Weights ratio of the left state.
+   real(R8P),    intent(out) :: wrm       !< Weights ratio of the right state.
+   !$acc routine seq
+   !$omp declare target
+
+   select case(S)
+   case(1) ; call seth_weno1_js_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   case(2) ; call seth_weno3_js_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   case(3) ; call seth_weno5_js_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   case(4) ; call seth_weno7_js_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   case(5) ; call seth_weno9_js_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   endselect
+   endsubroutine weno_reconstruct_wr
+
+   pure subroutine weno_reconstruct_interp_wr(S, vp, vm, eps, rmu, rp, rm, wrp, wrm)
+   !< `weno_reconstruct_wr` from point values (the interpolation coefficients of SETH's `_interp` kernels).
+   integer(I4P), intent(in)  :: S         !< Candidates of the scheme, WENO-(2S-1).
+   real(R8P),    intent(in)  :: vp(1-S:S) !< Values interpolated with a left bias.
+   real(R8P),    intent(in)  :: vm(1-S:S) !< Values interpolated with a right bias.
+   real(R8P),    intent(in)  :: eps       !< Regulariser of the smoothness indicators.
+   real(R8P),    intent(in)  :: rmu       !< Inverse descaler (1: Jiang-Shu weights).
+   real(R8P),    intent(out) :: rp        !< Left state at the face.
+   real(R8P),    intent(out) :: rm        !< Right state at the face.
+   real(R8P),    intent(out) :: wrp       !< Weights ratio of the left state.
+   real(R8P),    intent(out) :: wrm       !< Weights ratio of the right state.
+   !$acc routine seq
+   !$omp declare target
+
+   select case(S)
+   case(1) ; call seth_weno1_js_interp_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   case(2) ; call seth_weno3_js_interp_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   case(3) ; call seth_weno5_js_interp_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   case(4) ; call seth_weno7_js_interp_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   case(5) ; call seth_weno9_js_interp_wr(vp=vp, vm=vm, eps=eps, rmu=rmu, rp=rp, rm=rm, wrp=wrp, wrm=wrm)
+   endselect
+   endsubroutine weno_reconstruct_interp_wr
 
    pure function weno_weights_exponent(S) result(wexp)
    !< Return the exponent of the smoothness indicators in the WENO nonlinear weights, `a = d / (zeps + IS)**wexp`.
