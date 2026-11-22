@@ -22,7 +22,8 @@ from the code.
 
   RIPPLE is single-realm, so it has no seams layer.
 - **The FNL backend** as a sibling of the CPU one: the state lives on the device in transposed `(b, i, j, k, v)` order,
-  every `dev_alloc` is checked, and the library's `field_fnl`, `rk_fnl` and `weno_fnl` do the device side.
+  every `dev_alloc` is checked, and the library's `field_fnl` does the device side of the ghost exchange; the time
+  integrator is SELAH's and the WENO kernels SETH's (#132, #139), device code with nothing to mirror.
 - **A refinement criterion of your own** ([issue #110](https://github.com/szaghi/adam/issues/110)): a type extending the
   library's `amr_criterion_object`, registered by the program (`register_amr_criterion`) and selected by
   `[amr_marker_N] mode = 6, name = ...`; the example `crest` criterion and its driver are

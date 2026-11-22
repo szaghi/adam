@@ -11,7 +11,7 @@ module adam_ripple_cpu_object
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : flux_register_object
 use :: adam_realm_object,         only : realm_pointer
-use :: adam_weno_object,          only : weno_reconstruct_upwind, S_MAX
+use :: adam_weno_object,          only : weno_reconstruct, S_MAX
 ! ADAM singleton objects
 use :: adam_mpih_global,          only : mpih
 ! RIPPLE modules
@@ -96,22 +96,23 @@ contains
       integer(I4P), intent(in)    :: di, dj, dk                    !< Unit step.
       real(R8P),    intent(in)    :: a                             !< Velocity component.
       real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)   !< Face fluxes.
-      real(R8P)                   :: v(2,2*S_MAX-1)                !< Packed stencil.
-      real(R8P)                   :: vr(2)                         !< Reconstructed split fluxes.
+      real(R8P)                   :: vp(1-S_MAX:S_MAX)             !< Stencil of the split flux a+ u (left bias).
+      real(R8P)                   :: vm(1-S_MAX:S_MAX)             !< Stencil of the split flux a- u (right bias).
+      real(R8P)                   :: rp, rm                        !< Reconstructed split fluxes at the face.
       integer(I4P)                :: S, m                          !< WENO half stencil, counter.
 
       S = self%weno%S
+      vp = 0._R8P ; vm = 0._R8P
       do b=1, self%blocks_number
          do k=1-dk, self%nk
             do j=1-dj, self%nj
                do i=1-di, self%ni
                   do m=1-S, S-1
-                     v(2,m+S) = max(a, 0._R8P) * q(1,i+m*di,j+m*dj,k+m*dk,b)
-                     v(1,m+S) = min(a, 0._R8P) * q(1,i+(m+1)*di,j+(m+1)*dj,k+(m+1)*dk,b)
+                     vp(m)   = max(a, 0._R8P) * q(1,i+m*di,j+m*dj,k+m*dk,b)
+                     vm(m+1) = min(a, 0._R8P) * q(1,i+(m+1)*di,j+(m+1)*dj,k+(m+1)*dk,b)
                   enddo
-                  call weno_reconstruct_upwind(S=S, weno_a=self%weno%a, weno_p=self%weno%p, weno_d=self%weno%d, &
-                                               weno_zeps=self%weno%zeps, weno_rmu=1._R8P, v=v, vr=vr)
-                  fl(1,i,j,k,b) = vr(1) + vr(2)
+                  call weno_reconstruct(S=S, vp=vp(1-S:S), vm=vm(1-S:S), eps=self%weno%eps, rmu=1._R8P, rp=rp, rm=rm)
+                  fl(1,i,j,k,b) = rm + rp
                enddo
             enddo
          enddo

@@ -55,22 +55,23 @@ side. With the library's `weno-u-5` and an SSP Runge–Kutta scheme the method i
       integer(I4P), intent(in)    :: di, dj, dk                    !< Unit step.
       real(R8P),    intent(in)    :: a                             !< Velocity component.
       real(R8P),    intent(inout) :: fl(1:,1-di:,1-dj:,1-dk:,1:)   !< Face fluxes.
-      real(R8P)                   :: v(2,2*S_MAX-1)                !< Packed stencil.
-      real(R8P)                   :: vr(2)                         !< Reconstructed split fluxes.
+      real(R8P)                   :: vp(1-S_MAX:S_MAX)             !< Stencil of the split flux a+ u (left bias).
+      real(R8P)                   :: vm(1-S_MAX:S_MAX)             !< Stencil of the split flux a- u (right bias).
+      real(R8P)                   :: rp, rm                        !< Reconstructed split fluxes at the face.
       integer(I4P)                :: S, m                          !< WENO half stencil, counter.
 
       S = self%weno%S
+      vp = 0._R8P ; vm = 0._R8P
       do b=1, self%blocks_number
          do k=1-dk, self%nk
             do j=1-dj, self%nj
                do i=1-di, self%ni
                   do m=1-S, S-1
-                     v(2,m+S) = max(a, 0._R8P) * q(1,i+m*di,j+m*dj,k+m*dk,b)
-                     v(1,m+S) = min(a, 0._R8P) * q(1,i+(m+1)*di,j+(m+1)*dj,k+(m+1)*dk,b)
+                     vp(m)   = max(a, 0._R8P) * q(1,i+m*di,j+m*dj,k+m*dk,b)
+                     vm(m+1) = min(a, 0._R8P) * q(1,i+(m+1)*di,j+(m+1)*dj,k+(m+1)*dk,b)
                   enddo
-                  call weno_reconstruct_upwind(S=S, weno_a=self%weno%a, weno_p=self%weno%p, weno_d=self%weno%d, &
-                                               weno_zeps=self%weno%zeps, weno_rmu=1._R8P, v=v, vr=vr)
-                  fl(1,i,j,k,b) = vr(1) + vr(2)
+                  call weno_reconstruct(S=S, vp=vp(1-S:S), vm=vm(1-S:S), eps=self%weno%eps, rmu=1._R8P, rp=rp, rm=rm)
+                  fl(1,i,j,k,b) = rm + rp
                enddo
             enddo
          enddo
@@ -83,9 +84,11 @@ What comes from the library:
 - **The ghost cells.** `update_ghost` calls `field%update_ghost_local` (copies between blocks of the rank, and the 2:1
   transfers) and `field%update_ghost_mpi` (the exchange between ranks). Every face is periodic, so there is no
   physical boundary to apply.
-- **The reconstruction.** `weno_reconstruct_upwind` is the library's upwind primitive; the WENO object holds its
-  coefficients (`self%weno%a`, `p`, `d`, `zeps`) for the scheme the input names. The application only packs the
-  stencil: `v(2,:)` the $a^+u$ values left of the face, `v(1,:)` the $a^-u$ values right of it.
+- **The reconstruction.** `weno_reconstruct` is the library's run-time dispatcher over
+  [SETH](https://github.com/szaghi/SETH)'s WENO kernels ([#139](https://github.com/szaghi/adam/issues/139)): it selects the
+  kernel of the width `S` the input names, whose coefficients are compile-time constants; the WENO object holds only the
+  configuration (`self%weno%S`, `eps`). The application only packs the stencil in SETH's convention, cells by offset
+  from the face: `vp` the $a^+u$ values (left bias), `vm` the $a^-u$ values (right bias, `vm(m+1)` from cell `m+1`).
 - **The integration.** The stepper of chapter 1 (`begin_step`, `begin_stage`, `set_rhs`, `end_stage`,
   `finish_step`) combines the residuals of each stage with the scheme's SSP coefficients.
 

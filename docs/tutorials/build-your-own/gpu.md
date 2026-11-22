@@ -24,7 +24,6 @@ CPU driver's)
 type, extends(ripple_common_object) :: ripple_fnl_object
    !< RIPPLE FNL realm.
    type(field_fnl_object) :: field_fnl                !< Field helper: coordinates, maps, ghost exchange.
-   type(weno_fnl_object)  :: weno_fnl                 !< WENO helper: the coefficients on the device.
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null() !< State [nb, 1-ngc:ni+ngc, ..., 1].
    real(R8P), pointer     :: dq_gpu(:,:,:,:,:)=>null()  !< Residuals, same shape.
    real(R8P), pointer     :: flx_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, 1].
@@ -38,9 +37,11 @@ endtype ripple_fnl_object
 ```
 
 Three things change from the CPU realm:
-- **The library's FNL helpers.** `field_fnl` and `weno_fnl` are the device side of the library objects the common
-  realm already owns: the ghost exchange (GPU-direct MPI), the WENO coefficients. They are components of the realm,
-  initialized from the common objects by argument. The time integrator needs no helper: the realm's stepper (`ts`,
+- **The library's FNL helper.** `field_fnl` is the device side of the library's field object the common realm already
+  owns: the ghost exchange (GPU-direct MPI). It is a component of the realm, initialized from the common objects by
+  argument. The WENO reconstruction needs no helper: its kernels are [SETH](https://github.com/szaghi/SETH)'s, whose
+  coefficients are compile-time constants, so nothing is copied to the device for them
+  ([#139](https://github.com/szaghi/adam/issues/139)). The time integrator needs no helper: the realm's stepper (`ts`,
   SELAH's OpenACC build) keeps its registers on the device when the backend sets `selah_layout = LAYOUT_V_LAST` before
   the realm initializes (below), and takes the device arrays (`q_gpu`, `dq_gpu`) as the CPU realm's take host arrays.
 - **The layout is transposed**, `(b, i, j, k, v)` against the host `(v, i, j, k, b)`: the block index is stride-1, so
@@ -75,7 +76,6 @@ hooks, the device setup before the state and the device push after it:
    call self%initialize_ripple(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / &
                                                                real(mpih_fnl_device_sharers, R8P))
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
-   call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
    endsubroutine initialize_app_forest
 
@@ -102,20 +102,19 @@ nest:
 ```fortran
    ap = max(a, 0._R8P)
    am = min(a, 0._R8P)
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,fl_gpu) &
-   !$acc& firstprivate(di,dj,dk,ni,nj,nk,blocks_number,S,ap,am,weno_zeps) private(v,vr)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,fl_gpu) &
+   !$acc& firstprivate(di,dj,dk,ni,nj,nk,blocks_number,S,ap,am,weno_eps) private(vp,vm,rp,rm)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
       !$acc loop seq
       do m=1-S, S-1
-         v(2,m+S) = ap * q_gpu(b,i+m*di,j+m*dj,k+m*dk,1)
-         v(1,m+S) = am * q_gpu(b,i+(m+1)*di,j+(m+1)*dj,k+(m+1)*dk,1)
+         vp(m)   = ap * q_gpu(b,i+m*di,j+m*dj,k+m*dk,1)
+         vm(m+1) = am * q_gpu(b,i+(m+1)*di,j+(m+1)*dj,k+(m+1)*dk,1)
       enddo
-      call weno_reconstruct_upwind_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
-                                       weno_zeps=weno_zeps, weno_rmu=1._R8P, V=v, VR=vr)
-      fl_gpu(b,i,j,k,1) = vr(1) + vr(2)
+      call weno_reconstruct(S=S, vp=vp(1-S:S), vm=vm(1-S:S), eps=weno_eps, rmu=1._R8P, rp=rp, rm=rm)
+      fl_gpu(b,i,j,k,1) = rm + rp
    enddo
    enddo
    enddo
@@ -123,7 +122,8 @@ nest:
 ```
 
 It is the CPU loop with the block index innermost: host scalars are `firstprivate`, device arrays `DEVICEVAR` (FUNDAL's
-macro for `deviceptr`), and the WENO primitive is the library's device twin, `weno_reconstruct_upwind_dev`. RIPPLE's
+macro for `deviceptr`), and the WENO call is the same dispatcher as on the CPU, `weno_reconstruct`: SETH's kernels are
+`acc routine seq`, one source for the host and the device. RIPPLE's
 kernels carry OpenACC directives only (NVIDIA); FLUME's kernels also carry an `!$omp` twin of each directive for the
 AMD OpenMP-offload build ([GPU cookbook](/cookbook/gpu)).
 

@@ -8,8 +8,9 @@ module adam_ripple_fnl_object
 !< The CPU backend's twin with the state on the device: a sibling of `ripple_cpu_object`, extending the same common
 !< realm. The initial condition and the initial AMR run on the host, then the state goes to the device and stays
 !< there; it comes back only for the outputs. The library's FNL helpers do the device side of the library objects:
-!< `field_fnl` the ghost exchange (local copies, 2:1 transfers, GPU-direct MPI), `weno_fnl` the WENO coefficients
-!< (the Runge-Kutta stages are SELAH's, the realm's `ts`). Device arrays are transposed, `(b, i, j, k, v)`.
+!< `field_fnl` the ghost exchange (local copies, 2:1 transfers, GPU-direct MPI); the WENO kernels are SETH's, with
+!< compile-time coefficients and nothing on the device (#139), and the Runge-Kutta stages SELAH's (the realm's `ts`).
+!< Device arrays are transposed, `(b, i, j, k, v)`.
 
 ! ADAM classes, libraries, parameters
 use :: adam_flux_register_object, only : flux_register_object
@@ -18,7 +19,6 @@ use :: adam_realm_object,         only : realm_pointer
 use :: adam_stepper_object,       only : LAYOUT_V_LAST
 use :: adam_fnl_field_kernels,    only : pack_blocks_transposed_dev, unpack_blocks_transposed_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
-use :: adam_fnl_weno_object,      only : weno_fnl_object
 ! ADAM singleton objects
 use :: adam_fnl_mpih_global,      only : initialize_mpih_fnl, mpih_fnl, mpih_fnl_device_sharers
 use :: adam_mpih_global,          only : mpih
@@ -38,7 +38,6 @@ public :: ripple_fnl_object
 type, extends(ripple_common_object) :: ripple_fnl_object
    !< RIPPLE FNL realm.
    type(field_fnl_object) :: field_fnl                !< Field helper: coordinates, maps, ghost exchange.
-   type(weno_fnl_object)  :: weno_fnl                 !< WENO helper: the coefficients on the device.
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null() !< State [nb, 1-ngc:ni+ngc, ..., 1].
    real(R8P), pointer     :: dq_gpu(:,:,:,:,:)=>null()  !< Residuals, same shape.
    real(R8P), pointer     :: flx_gpu(:,:,:,:,:)=>null() !< X-face fluxes [nb, 0:ni, 1:nj, 1:nk, 1].
@@ -147,19 +146,13 @@ contains
 
    call self%update_ghost(q_gpu=q_gpu)
    associate(null=>self%adam%grid%null_xyz, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-             nb=>self%blocks_number, ws=>self%weno%S, w=>self%weno_fnl)
+             nb=>self%blocks_number, ws=>self%weno%S)
    if (.not.null(1)) call compute_face_fluxes_dev(di=1, dj=0, dk=0, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=ws, &
-                                                  a=self%a(1), weno_a_gpu=w%a_gpu, weno_p_gpu=w%p_gpu,                  &
-                                                  weno_d_gpu=w%d_gpu, weno_zeps=self%weno%zeps, q_gpu=q_gpu,            &
-                                                  fl_gpu=self%flx_gpu)
+                                                  a=self%a(1), weno_eps=self%weno%eps, q_gpu=q_gpu, fl_gpu=self%flx_gpu)
    if (.not.null(2)) call compute_face_fluxes_dev(di=0, dj=1, dk=0, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=ws, &
-                                                  a=self%a(2), weno_a_gpu=w%a_gpu, weno_p_gpu=w%p_gpu,                  &
-                                                  weno_d_gpu=w%d_gpu, weno_zeps=self%weno%zeps, q_gpu=q_gpu,            &
-                                                  fl_gpu=self%fly_gpu)
+                                                  a=self%a(2), weno_eps=self%weno%eps, q_gpu=q_gpu, fl_gpu=self%fly_gpu)
    if (.not.null(3)) call compute_face_fluxes_dev(di=0, dj=0, dk=1, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, S=ws, &
-                                                  a=self%a(3), weno_a_gpu=w%a_gpu, weno_p_gpu=w%p_gpu,                  &
-                                                  weno_d_gpu=w%d_gpu, weno_zeps=self%weno%zeps, q_gpu=q_gpu,            &
-                                                  fl_gpu=self%flz_gpu)
+                                                  a=self%a(3), weno_eps=self%weno%eps, q_gpu=q_gpu, fl_gpu=self%flz_gpu)
    if (present(flux_register) .and. present(s)) then
       if (flux_register%nfaces > 0_I4P) call self%accumulate_seam_fluxes(s=s, flux_register=flux_register)
    endif
@@ -240,7 +233,6 @@ contains
    call self%initialize_ripple(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / &
                                                                real(mpih_fnl_device_sharers, R8P))
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
-   call self%weno_fnl%initialize(weno=self%weno)
    call self%allocate_gpu
    endsubroutine initialize_app_forest
 
@@ -306,7 +298,6 @@ contains
    call dev_free(self%fly_gpu, mydev)
    call dev_free(self%flz_gpu, mydev)
    call dev_free(self%face_gpu, mydev)
-   call self%weno_fnl%destroy
    call self%field_fnl%destroy
    endsubroutine finalize_forest
 

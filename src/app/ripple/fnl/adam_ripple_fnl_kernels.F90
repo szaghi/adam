@@ -10,8 +10,7 @@ module adam_ripple_fnl_kernels
 !< `deviceptr`), private work arrays have constant bounds.
 
 ! ADAM classes, libraries, parameters
-use :: adam_fnl_weno_kernels, only : weno_reconstruct_upwind_dev
-use :: adam_weno_object,      only : S_MAX
+use :: adam_weno_object,      only : weno_reconstruct, S_MAX
 ! third party modules
 use :: penf,                  only : I4P, R8P
 
@@ -23,8 +22,7 @@ public :: compute_flux_difference_dev
 public :: pack_face_skin_dev
 
 contains
-   subroutine compute_face_fluxes_dev(di, dj, dk, ni, nj, nk, ngc, blocks_number, S, a, weno_a_gpu, weno_p_gpu, &
-                                      weno_d_gpu, weno_zeps, q_gpu, fl_gpu)
+   subroutine compute_face_fluxes_dev(di, dj, dk, ni, nj, nk, ngc, blocks_number, S, a, weno_eps, q_gpu, fl_gpu)
    !< Face fluxes along the axis of unit step (di, dj, dk), device twin of the CPU `face_fluxes`: the split fluxes
    !< `a+ u` (cells `m = 1-S ... S-1`) and `a- u` (cells `m+1`) of the stencil of face `i+1/2`, reconstructed by WENO
    !< and summed.
@@ -33,33 +31,30 @@ contains
    integer(I4P), intent(in)    :: blocks_number                     !< Blocks in use.
    integer(I4P), intent(in)    :: S                                 !< WENO half stencil.
    real(R8P),    intent(in)    :: a                                 !< Velocity component.
-   real(R8P),    intent(in)    :: weno_a_gpu(1:,0:,1:)              !< WENO optimal weights.
-   real(R8P),    intent(in)    :: weno_p_gpu(1:,0:,0:,1:)           !< WENO polynomials coefficients.
-   real(R8P),    intent(in)    :: weno_d_gpu(0:,0:,0:,1:)           !< WENO smoothness indicators coefficients.
-   real(R8P),    intent(in)    :: weno_zeps                         !< WENO parameter avoiding division by zero.
+   real(R8P),    intent(in)    :: weno_eps                          !< Regulariser of the WENO smoothness indicators.
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< State.
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)   !< Face fluxes.
-   real(R8P)                   :: v(2,2*S_MAX-1)                    !< Private packed stencil.
-   real(R8P)                   :: vr(2)                             !< Private reconstructed split fluxes.
+   real(R8P)                   :: vp(1-S_MAX:S_MAX)                 !< Private stencil of a+ u (left bias).
+   real(R8P)                   :: vm(1-S_MAX:S_MAX)                 !< Private stencil of a- u (right bias).
+   real(R8P)                   :: rp, rm                            !< Private reconstructed split fluxes.
    real(R8P)                   :: ap, am                            !< Split velocities.
    integer(I4P)                :: b, i, j, k, m                     !< Counters.
 
    ap = max(a, 0._R8P)
    am = min(a, 0._R8P)
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,q_gpu,fl_gpu) &
-   !$acc& firstprivate(di,dj,dk,ni,nj,nk,blocks_number,S,ap,am,weno_zeps) private(v,vr)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,fl_gpu) &
+   !$acc& firstprivate(di,dj,dk,ni,nj,nk,blocks_number,S,ap,am,weno_eps) private(vp,vm,rp,rm)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
       !$acc loop seq
       do m=1-S, S-1
-         v(2,m+S) = ap * q_gpu(b,i+m*di,j+m*dj,k+m*dk,1)
-         v(1,m+S) = am * q_gpu(b,i+(m+1)*di,j+(m+1)*dj,k+(m+1)*dk,1)
+         vp(m)   = ap * q_gpu(b,i+m*di,j+m*dj,k+m*dk,1)
+         vm(m+1) = am * q_gpu(b,i+(m+1)*di,j+(m+1)*dj,k+(m+1)*dk,1)
       enddo
-      call weno_reconstruct_upwind_dev(S=S, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu, &
-                                       weno_zeps=weno_zeps, weno_rmu=1._R8P, V=v, VR=vr)
-      fl_gpu(b,i,j,k,1) = vr(1) + vr(2)
+      call weno_reconstruct(S=S, vp=vp(1-S:S), vm=vm(1-S:S), eps=weno_eps, rmu=1._R8P, rp=rp, rm=rm)
+      fl_gpu(b,i,j,k,1) = rm + rp
    enddo
    enddo
    enddo
