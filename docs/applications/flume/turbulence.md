@@ -67,6 +67,10 @@ $$
 f^\rho = \langle\rho\rangle\langle u_n\rangle,\quad f^{\rho u_i} = \langle\rho\rangle\langle u_n\rangle\langle u_i\rangle + \langle p\rangle\delta_{ni},\quad f^{E} = \langle\rho\rangle\langle u_n\rangle\frac{\mathbf{u}_l\cdot\mathbf{u}_r}{2} + \frac{\langle p\rangle\langle u_n\rangle}{\gamma-1} + \frac{u_{n,l}p_r+u_{n,r}p_l}{2}.
 $$
 
+The flux and the Ducros ratio are [SETH](https://github.com/szaghi/SETH)'s `seth_keep_pe6` and `seth_ducros`
+([#139](https://github.com/szaghi/adam/issues/139) S3c, bitwise the former FLUME routines); the density-jump override is
+FLUME's, applied after the ratio.
+
 Each face holds one flux, so conservation holds whichever kernel set it. WENO is computed everywhere, so the scheme
 costs what `weno` costs plus the overwrite; the two kernel sets are not fused.
 

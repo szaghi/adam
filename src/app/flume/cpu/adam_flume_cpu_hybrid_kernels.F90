@@ -9,7 +9,7 @@ module adam_flume_cpu_hybrid_kernels
 !< blocks of a same-level interface see the same stencil and, the ghosts of `psi` being copies, the same mask: one flux per face, conservative.
 
 ! FLUME modules
-use :: adam_flume_hybrid_library, only : compute_ducros, compute_kep_flux
+use :: seth,                      only : seth_ducros, seth_keep_pe6
 use :: adam_flume_parameters,     only : IA_A, IA_P, IA_R, IA_U, IA_V, IA_W
 ! third party modules
 use :: penf,                      only : I4P, R8P
@@ -58,7 +58,8 @@ contains
                                 (q_aux(IA_R,i,j+s(2),k,b) + q_aux(IA_R,i,j-s(2),k,b)))
                jump = max(jump, abs(q_aux(IA_R,i,j,k+s(3),b) - q_aux(IA_R,i,j,k-s(3),b)) / &
                                 (q_aux(IA_R,i,j,k+s(3),b) + q_aux(IA_R,i,j,k-s(3),b)))
-               call compute_ducros(eps=floor * (q_aux(IA_A,i,j,k,b) * rmax)**2, jump=jump, jump_max=jump_max, g=g, psi=psi(1,i,j,k,b))
+               call seth_ducros(eps=floor * (q_aux(IA_A,i,j,k,b) * rmax)**2, g=g, phi=psi(1,i,j,k,b))
+               if (jump > jump_max) psi(1,i,j,k,b) = 1._R8P ! a contact: the Ducros ratio cannot see it, a central flux rings
             enddo
          enddo
       enddo
@@ -127,7 +128,7 @@ contains
                   w(4,m) = q_aux(IA_W,i+m*di,j+m*dj,k+m*dk,b)
                   w(5,m) = q_aux(IA_P,i+m*di,j+m*dj,k+m*dk,b)
                enddo
-               call compute_kep_flux(d=d, gamma=gamma, w=w, f=f)
+               call seth_keep_pe6(d=d, gamma=gamma, w=w, f=f)
                fl(1:5,i,j,k,b) = f
             enddo
          enddo

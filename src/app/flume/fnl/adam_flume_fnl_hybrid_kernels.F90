@@ -8,7 +8,7 @@ module adam_flume_fnl_hybrid_kernels
 !< Device twins of `adam_flume_cpu_hybrid_kernels`: see there. Device arrays are transposed, `(b, i, j, k, v)`.
 
 ! FLUME modules
-use :: adam_flume_hybrid_library, only : compute_ducros, compute_kep_flux
+use :: seth,                      only : seth_ducros, seth_keep_pe6
 use :: adam_flume_parameters,     only : IA_A, IA_P, IA_R, IA_U, IA_V, IA_W
 ! third party modules
 use :: penf,                      only : I4P, R8P
@@ -64,7 +64,8 @@ contains
                        (q_aux_gpu(b,i,j+s2,k,IA_R) + q_aux_gpu(b,i,j-s2,k,IA_R)))
       jump = max(jump, abs(q_aux_gpu(b,i,j,k+s3,IA_R) - q_aux_gpu(b,i,j,k-s3,IA_R)) / &
                        (q_aux_gpu(b,i,j,k+s3,IA_R) + q_aux_gpu(b,i,j,k-s3,IA_R)))
-      call compute_ducros(eps=floor * (q_aux_gpu(b,i,j,k,IA_A) * rmax)**2, jump=jump, jump_max=jump_max, g=g, psi=p)
+      call seth_ducros(eps=floor * (q_aux_gpu(b,i,j,k,IA_A) * rmax)**2, g=g, phi=p)
+      if (jump > jump_max) p = 1._R8P ! a contact: the Ducros ratio cannot see it, a central flux rings
       psi_gpu(b,i,j,k,1) = p
    enddo
    enddo
@@ -138,7 +139,7 @@ contains
             w(4,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,IA_W)
             w(5,m) = q_aux_gpu(b,i+m*di,j+m*dj,k+m*dk,IA_P)
          enddo
-         call compute_kep_flux(d=d, gamma=gamma, w=w, f=f)
+         call seth_keep_pe6(d=d, gamma=gamma, w=w, f=f)
          !$acc loop seq
          do n=1, 5
             fl_gpu(b,i,j,k,n) = f(n)
