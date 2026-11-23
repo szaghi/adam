@@ -13,8 +13,8 @@
 #                  three probe planes, the same
 #                  input matches the exact cold slab like the pilot plane study at this dx (plane-mean L2 3.3 / 3.3 /
 #                  6.2 % reflected / inside / transmitted; study 2.7 / 4.2 / 7.0 %; second order in dx).
-# Times (pic-periodic / pic-slab-pulse): CPU np 1 ~2.5 / ~2 min, FNL np 1 ~35 s / ~10 min (RTX 4070 laptop), FNL np 2
-# ~1.5 / ~10 min (two A30, medooza); pic-slab-pulse doubled its steps on 2026-11-05 (CFL 0.5 -> 0.25).
+# Times of one run (pic-periodic / pic-slab-pulse, 2026-11-23): CPU np 1 ~15 / ~20 s, FNL np 1 ~20 s / ~3 min (RTX 4070
+# laptop), FNL np 2 ~1.2 / ~3 min (two A30, medooza); the restart legs about double them.
 #
 # The charge-conserving CPU current is single-block, single-rank (check_conserving_single_block), so a case runs as legs:
 #   cpu  np 1, input.ini (one block), the first CPU_STEPS steps only  -> golden-check/cpu
@@ -24,6 +24,12 @@
 #        to the order of the atomic adds, so the np 2 leg checks halos, migration and decomposition against np 1.
 # Every leg also asserts Gauss's law at t0 (div D - rho on the step-0 checkpoint) and the charge conservation of the
 # run (charge_conservation_history: Q_deposition_error and dQ_num_net relative to the injected charge, at round-off).
+# Restart (issue #129, PIC_CHECK_RESTART=0 skips it): every leg runs again as it_max/2 steps, a restart, and the rest,
+# compared with the uninterrupted run just made: the first dt after the restart (its omega_max dt, also where the CFL
+# sets dt), the final .pbd of every rank (particles and plasma-frequency maxima) and the fields of the last checkpoint
+# (div_* left out, #129 R5). CPU bit-identical; FNL within PIC_CHECK_RESTART_RTOL for the fields (default 1e-9) and
+# PIC_CHECK_RESTART_PRTOL for the dt and the particles, variable by variable (default 1e-11): the atomic deposit is not
+# reproducible, measured restart vs uninterrupted 4e-12 (fields, residuals) and 1.7e-14 (particles, pic-slab-pulse).
 # The goldens live in golden-check/, not golden/: run.sh runs every case with a golden/ at -np 2, which the CPU leg
 # refuses. Their residuals are force-added (the repo-root .gitignore ignores src/tests/**/*.dat).
 #
@@ -32,7 +38,8 @@
 #   "1 2"; on WSL use FNL_NP=1: np 2 shares one GPU and is 10-40x slower, run it on the cluster). --capture writes the
 #   np 1 outputs into golden-check/<backend>/ instead of comparing (np 2 is never captured).
 #   PRISM_EXE overrides exe/adam_prism_<backend>, PRISM_PY the python with h5py (default exe/.regression-venv),
-#   PIC_CHECK_LAUNCH the launcher taking the rank count last (default "mpirun -np"; on Slurm "srun --mpi=pmix -u -n").
+#   PIC_CHECK_LAUNCH the launcher taking the rank count last (default "mpirun -np"; on Slurm "srun --mpi=pmix -u -n"),
+#   PIC_CHECK_RESTART=0 skips the restart legs (they double the run time).
 set -uo pipefail
 
 CASE_DIR="$1"; BASE="$2"; CPU_STEPS="$3"; shift 3
@@ -48,6 +55,9 @@ TIMEOUT="${PIC_CHECK_TIMEOUT:-1800}"
 [[ -x "$EXE" ]] || { echo "ERROR: $EXE not found" >&2; exit 2; }
 [[ -x "$PY" ]] || { echo "ERROR: $PY not found (run run.sh once, or set PRISM_PY)" >&2; exit 2; }
 LAUNCH="${PIC_CHECK_LAUNCH:-mpirun -np}"
+RESTART="${PIC_CHECK_RESTART:-1}"
+RESTART_RTOL=0; RESTART_PRTOL=0
+[[ "$BACKEND" == fnl ]] && { RESTART_RTOL="${PIC_CHECK_RESTART_RTOL:-1e-9}"; RESTART_PRTOL="${PIC_CHECK_RESTART_PRTOL:-1e-11}"; }
 command -v ${LAUNCH%% *} >/dev/null 2>&1 || { echo "ERROR: ${LAUNCH%% *} not on PATH" >&2; exit 2; }
 
 if [[ "$BACKEND" == cpu ]]; then legs=("1 input.ini"); else legs=(); for np in ${FNL_NP:-1 2}; do
@@ -150,6 +160,28 @@ sys.exit(1 if bad else 0)
 EOF
    [[ $np == 1 ]] && { "$PY" "$DIGEST" compare-residuals "$wd/$BASE-residuals.dat" "$gdir/$BASE-residuals.dat" \
       || { echo "FAIL [$tag] residuals"; fail=1; }; }
+
+   # restart leg: half the steps, a restart, the rest; against the uninterrupted run of this leg
+   [[ "$RESTART" == 0 || "$CAPTURE" == --capture ]] && continue
+   rtag="$tag/restart"
+   rd="$wd-restart"
+   rm -rf "$rd" && mkdir -p "$rd"
+   it_max=$(sed -nE 's/^it_max\s*=\s*([0-9]+).*/\1/p' "$wd/input.ini")
+   half=$(( it_max/2 ))
+   cp "$wd/input.ini" "$rd/input.ini"
+   sed -i -E "s/^(it_max\s*=\s*)[0-9]+/\1$half/; s/^(restart_save\s*=\s*)[0-9]+/\1$half/; /^restart\s*=/d" "$rd/input.ini"
+   start=$(date +%s)
+   ( cd "$rd" && timeout "$TIMEOUT" $LAUNCH "$np" "$EXE" > run1.log 2>&1 )
+   rc=$?
+   if [[ $rc -eq 0 ]]; then
+      sed -i -E "s/^(it_max\s*=\s*)[0-9]+/\1$it_max/; s/^\[IO\]\s*$/[IO]\nrestart = .true./" "$rd/input.ini"
+      ( cd "$rd" && timeout "$TIMEOUT" $LAUNCH "$np" "$EXE" > run2.log 2>&1 )
+      rc=$?
+   fi
+   echo ">> [$rtag] $half + $(( it_max - half )) steps, rc=$rc, $(( $(date +%s) - start )) s"
+   if [[ $rc -ne 0 ]]; then echo "FAIL [$rtag] the run exited non-zero, see $rd/run1.log, run2.log"; fail=1; continue; fi
+   "$PY" "$REG_DIR/pic_restart_compare.py" "$wd" "$rd" "$BASE" "$half" "$it_max" "$RESTART_RTOL" "$RESTART_PRTOL" \
+      || { echo "FAIL [$rtag] the restarted run differs from the uninterrupted one"; fail=1; }
 done
 [[ $fail -eq 0 ]] && echo "PASS [$CASE/$BACKEND]" || echo "FAIL [$CASE/$BACKEND]"
 exit $fail
