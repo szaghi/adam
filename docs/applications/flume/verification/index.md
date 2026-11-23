@@ -15,6 +15,25 @@ it verifies:
   input refusal. A contract page documents its setup in a table; most have no figure, since a plot of a difference that
   is zero shows nothing.
 
+**Provenance.** Every results table is followed by one line that says what produced its numbers
+([#142](https://github.com/szaghi/adam/issues/142), A11), in this form:
+
+```text
+*Measured: ADAM <commit>, CPU <toolchain> on <device>, FNL <toolchain> on <device>, <date> (<jobs>).*
+```
+
+| Field | Content |
+|---|---|
+| `<commit>` | the short hash of the ADAM tree that ran, clean (never a tree with local changes); the tag as well where there is one |
+| `<toolchain>` | compiler and MPI of the backend, as the varset names them (`local_gnu`, `iac_nvf`, …): e.g. gfortran and Open MPI versions for CPU, nvfortran version and CUDA for FNL |
+| `<device>` | the machine and processor of the CPU column, the GPU model of the FNL column |
+| `<date>` | the date of the runs, `YYYY-MM-DD` (the first and last day if they span several) |
+| `<jobs>` | the command that produced the numbers (`make_doc_runs.sh <runs> <group>`, `check.sh --legs …`), with the Slurm job ids when the runs were batch jobs |
+
+A backend absent from the table is left out of the line. Rows measured at different commits get one line per commit,
+each naming its rows. The figure drawn from the same runs shares the line. A table without the line predates this
+rule: its numbers come from the milestone that the page names, at a commit that was not recorded.
+
 ## Compressible Euler
 
 Riemann problems against their exact solutions, the design order on smooth flows, the immersed boundary, the equations of state (ideal, isothermal, barotropic), dual energy, passive scalars and radiative cooling; conservation across 2:1 faces and forest seams, restarts. [Group page](./euler/).

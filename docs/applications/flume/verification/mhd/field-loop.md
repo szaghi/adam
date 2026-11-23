@@ -41,7 +41,7 @@ What the case catches:
 |---|---|
 | Domain | $[-1, 1] \times [-0.5, 0.5]$, $z$ null |
 | Grid | the vortex grid of [V2](../euler/isentropic-vortex) (quadtree, $4 \times 4$ blocks) stretched to the box, $N \times N/2$ square cells, ladder $N = 64, 128$ |
-| Grid, `--amr` | ladder $N = 32, 64$, $[0, 1] \times [-0.5, 0.5]$ refined once (2:1 seams at $x = 0$ and $x = 1$, crossed twice by the loop); octree with null $z$, `nk = 4` |
+| Grid, `--amr` | ladder $N = 32, 64$, $[0, 1] \times [-0.5, 0.5]$ refined once (2:1 seams at $x = 0$ and $x = 1$, crossed twice by the loop); quadtree with `nk = 1`, $2\times2$ base blocks (`make_field_loop.py --ratio 8` gives the octree with null $z$ and `nk = 4` of M2-P7b) |
 | Ranks | 2 |
 | Initial condition | [`field-loop`](../../initial-conditions#field-loop-advected-field-loop): $\rho = 1$, $p = 1$, $\mathbf{v} = (2, 1, 1)$, loop at the origin, $R = 0.3$, $A_0 = 10^{-3}$ |
 | Boundaries | periodic on $x$ and $y$ |
@@ -78,14 +78,16 @@ field-loop/check.sh --amr                                               # 2:1 se
 | $\langle\lvert B_z\rvert\rangle/A_0$, $N = 64 / 128$ | $1.040\cdot10^{-3}$ / $6.003\cdot10^{-4}$ (baseline + 2%) | $1.02\cdot10^{-3}$ / $5.89\cdot10^{-4}$ | pass |
 | its rate under refinement | $> 0$ | 0.79 (0.20 from 128 to 256) | pass |
 | $E_B(T)/E_B(0)$, $N = 64 / 128$ | $\ge 0.87011$ / $0.93544$ (baseline − 0.2%) | 0.872 / 0.937 | pass |
-| `--amr`: $\langle\lvert B_z\rvert\rangle/A_0$, $N = 32 / 64$ | $2.277\cdot10^{-3}$ / $1.118\cdot10^{-3}$ | $2.23\cdot10^{-3}$ / $1.10\cdot10^{-3}$, rate +1.03 | pass |
-| `--amr`: $E_B(T)/E_B(0)$, $N = 32 / 64$ | $\ge 0.80066$ / $0.89888$ | 0.802 / 0.901 | pass |
-| `--amr`: final seam div(B) / its peak | 0.1 | 0.033 / 0.011 | pass |
-| `--agree`: CPU against FNL, field by field ($\mathbf{B}$ relative to $A_0$) | $10^{-10}$ | — | $\sim10^{-14}$ at step 4 |
+| `--amr`: $\langle\lvert B_z\rvert\rangle/A_0$, $N = 32 / 64$ | $2.292\cdot10^{-3}$ / $1.109\cdot10^{-3}$ | $2.247\cdot10^{-3}$ / $1.087\cdot10^{-3}$, rate +1.05 | the same |
+| `--amr`: $E_B(T)/E_B(0)$, $N = 32 / 64$ | $\ge 0.79914$ / $0.89888$ | 0.80074 / 0.90068 | the same |
+| `--amr`: final seam div(B) / its peak | 0.1 | 0.022 / 0.011 | the same |
 
-The uniform $N = 256$ run (26 more minutes, not in the ladder) gives $5.13\cdot10^{-4}$ and $E_B$ 0.967. The uniform
-$32/64$ runs that the `--amr` ladder is compared with give $1.99\cdot10^{-3}$, $1.11\cdot10^{-3}$ and $E_B$ 0.759,
-0.884. The `weno-riemann` energies are in [MHD on `weno-riemann`](./weno-riemann).
+The `--amr` rows: quadtree, `nk = 1`, $2\times2$ base blocks of $N/2 \times N/4$ cells (the $4\times4$ layout of the
+octree era gives blocks 4 cells tall at $N = 32$, refused since the thin-block guard of
+[#66](https://github.com/szaghi/adam/issues/66)); the same coarse spacing and the same refined half. Measured on
+medooza, develop `0bcdf870`, CPU gfortran 16.2.0 + Open MPI 5.0.11 and FNL nvfortran 26.9 on an A30, 2026-11-22 (Slurm
+job 1369320): CPU and FNL agree to the printed digits. The bounds are these values plus 2 % ($B_z$) and minus 0.2 %
+($E_B$). The octree baselines of M2-P7b were $2.23\cdot10^{-3}$ / $1.10\cdot10^{-3}$ and 0.802 / 0.901.
 
 Related cases: [glm cleaning](./glm-cleaning) measures the GLM transport and damping on an exact solution;
 [runtime regrids](../runtime-amr/runtime-regrids) and [accuracy of runtime AMR](../runtime-amr/accuracy) track this

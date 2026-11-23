@@ -15,7 +15,8 @@ Usage:
                         [--divergence-control glm|eglm]
                         [--refine-box XMIN YMIN XMAX YMAX [--ratio 4|8]] [--nk N]
 
---ratio is the tree ratio of the AMR variant (8, octree with null z and nk = 4, by default; 4, quadtree, issue #46).
+--ratio is the tree ratio of the AMR variant (4, quadtree, by default since issue #142 A8: #46 made its 2:1 seams
+exact; 8, octree with null z and nk = 4, the layout before #46, kept as the reference of MV-15).
 --nk N > 1 gives the blocks N cells along an active z axis (null_z = .false.): the solution must stay z-invariant.
 """
 
@@ -43,7 +44,7 @@ def main() -> None:
     parser.add_argument("--it-save", default="1000000", help="checkpoint period (the first and last are always saved)")
     parser.add_argument("--refine-box", type=float, nargs=4, default=None, metavar=("XMIN", "YMIN", "XMAX", "YMAX"),
                         help="refine the blocks whose centroid lies in the box by one 2:1 level (AMR variant)")
-    parser.add_argument("--ratio", type=int, choices=(4, 8), default=8, help="tree ratio of the AMR variant")
+    parser.add_argument("--ratio", type=int, choices=(4, 8), default=4, help="tree ratio of the AMR variant")
     parser.add_argument("--nk", type=int, default=None, help="cells per block along an active z axis")
     args = parser.parse_args()
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)

@@ -1706,11 +1706,13 @@ contains
 
    subroutine solve_potential_gpu(self, q_gpu, energy)
    !< Solve the self-gravity potential of the device state `q_gpu` (issue #81, M8-P3): a device kernel packs the
-   !< interior density, the host gathers it to rank 0 through the library solver (cuFFT on rank 0's GPU), and the
+   !< interior density, which comes to the host and goes to the library solver (`solve_potential_packed`, FLAIL). On a
+   !< uniform grid the solver is the distributed slab FFT on each rank's GPU (cuFFT, transposes by GPU-aware
+   !< MPI_ALLTOALLV, #84 E5d); on an AMR grid the multigrid's FCG iteration and V-cycle run on the device, its
+   !< right-hand side, coarsest level (cuFFT), James step and ghost-fill placement through the host (#84 E6a). The
    !< potential, every ghost layer filled, comes back to `phi_grav` and, for the active blocks only, to the device
-   !< (`unpack_potential_dev`); on an AMR grid the multigrid solver runs on the host, its coarsest level on cuFFT
-   !< (P5b). Optionally the energy `sum_cells rho Phi dV` (every rank). The density and the potential
-   !< cross the host every stage (gather to rank 0).
+   !< (`unpack_potential_dev`). Optionally the energy `sum_cells rho Phi dV` (every rank). The density and the potential
+   !< cross the host every stage (the slab FFT gathers nothing to rank 0 since #84 E5d).
    !<
    !< Only the active blocks cross the bus: `phi_grav` is sized to the block capacity (23270 blocks against 16 in use
    !< on an A30 at 32^2), and copying it whole every stage cost 0.73 s per solve, 99.6% of the solve.

@@ -395,11 +395,17 @@ oscillates, a longer one grows; an n = 1 polytrope star is an isolated equilibri
   in a zero-padded array of $2(N + n_{gc})$ cells per direction and is convolved with the lattice Green's function of
   $L_h$ (Hockney–Eastwood), whose residual is about $10^{-13}$ per offset (`scripts/lattice_green.py`); the residual of
   $\Phi$ is that summed over the source, $2\cdot10^{-11}$ of $4\pi G\rho$ at $64^3$, and the ghosts beyond the domain
-  hold the free-space potential. On FNL the density and $\Phi$ cross the host every stage.
+  hold the free-space potential. On FNL the slab transform runs on each rank's GPU (`adam_fnl_poisson_fft_object`):
+  cuFFT plane and line plans, the transposes packed on the device and exchanged by `MPI_ALLTOALLV` on device buffers
+  (GPU-aware MPI, as the ghost exchange). The density and $\Phi$ cross the host every stage: the backend hands the
+  solver a host copy of the density and gets $\Phi$ back on the host (`solve_potential_gpu`).
 - **Multigrid** (`adam_poisson_mg_object`): the composite Laplacian of the AMR leaves, flexible CG preconditioned by a
-  V-cycle, its coarsest level solved by the FFT solver of the backend; on FNL it runs on the host. On a uniform grid
-  `poisson_solver = multigrid` is a check against `fft`; isolated boundaries use the symmetric James step
-  ([#87](https://github.com/szaghi/adam/issues/87)).
+  V-cycle, its coarsest level solved by the FFT solver of the backend. On FNL (`adam_fnl_poisson_mg_object`) the FCG
+  iteration and the V-cycle run on the device: the operators and work vectors stay there, the red-black Gauss–Seidel
+  smoother runs one kernel per colour, the halo exchange is GPU-aware `MPI_ALLTOALLV`. The right-hand side, the
+  coarsest level (through the host to cuFFT), the James step and the ghost fill's placement go through the host, and
+  the potential returns to the host after each solve. On a uniform grid `poisson_solver = multigrid` is a check against
+  `fft`; isolated boundaries use the symmetric James step ([#87](https://github.com/szaghi/adam/issues/87)).
 
 **On AMR grids** the composite Laplacian carries a mimetic mean flux across each 2:1 face, symmetric in the
 volume-weighted form and consistent ([SV-9](./verification/self-gravity/multigrid-amr)). The face gravity there is first

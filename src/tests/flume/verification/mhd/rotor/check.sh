@@ -14,11 +14,22 @@
 #
 # --numerics runs the legs on `scheme_space = weno-riemann` (mhd/numerics.sh, issue #47 M3-P3c). The final defect
 # grows smoothly from round-off (time series, M3-P3c: no jump, so no switch flip) and orders by the dissipation of the
-# solver and by the backend's round-off: final 3.4e-11 HLL, 1.8e-9 split, 5.4e-9 HLLD primitive, 7.4e-8 without the
-# sensor, 1.1e-7 HLLD characteristic on the CPU, 2.3e-7 and 6.1e-6 for the two HLLD on FNL (FMA contraction). So the
+# solver and by the backend's round-off (at M3-P3c, October: final 3.4e-11 HLL, 1.8e-9 split, 5.4e-9 HLLD primitive,
+# 7.4e-8 without the sensor, 1.1e-7 HLLD characteristic on the CPU, 2.3e-7 and 6.1e-6 for the two HLLD on FNL, FMA
+# contraction). So the
 # symmetry is asserted twice: at step 100, before the flow amplifies the seed, within EARLY_SYM_TOL 1e-8 (measured CPU /
 # FNL 3.9e-12 / 2.1e-12 HLLD primitive, 4.9e-10 / 7.9e-10 HLLD characteristic; a symmetry defect of the scheme is at
-# truncation level, 1e-3, from the first steps), and at the end within SYM_TOL 1e-4 (gross failures only).
+# truncation level, 1e-3, from the first steps), and at the end within a bound per spec (issue #142 A9): 10 times the
+# larger of the CPU and FNL defects measured on medooza (develop 0bcdf870, CPU gfortran 16.2 / FNL nvfortran 26.9 on
+# an A30, job 1369317, 2026-11-22), rounded up to one digit:
+#   hll:*:6th:weno                  5e-10 (CPU 4.4e-11, FNL 1.2e-11)
+#   hlld:primitive:6th:weno         1e-4  (CPU 6.08e-5, FNL 6.08e-5: the SAME value on both backends, so not round-off
+#                                          amplified by the flow but a deterministic asymmetry, 4 orders above the
+#                                          5.4e-9 of M3-P3c; under investigation, the bound stays the former 1e-4)
+#   hlld:primitive:6th:none         4e-6  (CPU 3.4e-7, FNL 1.8e-8)
+#   hlld:characteristic:6th:weno    8e-9  (CPU 7.4e-10, FNL 3.6e-10)
+#   any other spec                  1e-4  (not measured: gross failures only)
+# Without --numerics (the splitting scheme) the end bound stays SYM_TOL 1e-8 (CPU 6.5e-10, FNL 6.4e-10).
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -51,7 +62,15 @@ if [[ ! -x "$EXE" ]]; then
 fi
 VENV_PY="$REPO_ROOT/exe/.regression-venv/bin/python"
 numerics_check
-[[ -n $NUMERICS ]] && SYM_TOL="1.0e-4"
+if [[ -n $NUMERICS ]]; then
+   case "$NUMERICS" in # the end-of-run bound per spec (see the header)
+      hll:*:6th:weno)               SYM_TOL="5.0e-10" ;;
+      hlld:primitive:6th:weno)      SYM_TOL="1.0e-4" ;;
+      hlld:primitive:6th:none)      SYM_TOL="4.0e-6" ;;
+      hlld:characteristic:6th:weno) SYM_TOL="8.0e-9" ;;
+      *)                            SYM_TOL="1.0e-4" ;;
+   esac
+fi
 MAKE_OPTS=()
 [[ -n $NUMERICS ]] && MAKE_OPTS=(--it-save 100)
 TAG="$(basename "$EXE")-np$NP$(numerics_tag)"

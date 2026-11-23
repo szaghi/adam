@@ -13,8 +13,12 @@
 # Ladder 64/128 (N x N/2 cells), about 10 min on the CPU (256 adds 26 min for no new information).
 #
 # --amr runs the AMR leg instead (M2-P7b): ladder 32/64 with [0, 1] x [-0.5, 0.5] refined once (2:1 seams at x = 0
-# and x = 1 that the loop crosses twice, octree with null z, nk = 4, see ../amr_box.py), t = 1 (one crossing), the
-# same checks with their own baselines (measured <|B_z|>/A0 2.23e-3, 1.10e-3, rate +1.03; E_B 0.802, 0.901, against
+# and x = 1 that the loop crosses twice; since issue #142 A8 a quadtree with nk = 1 and 2 x 2 base blocks of N/2 x N/4
+# cells, so that the blocks keep 2 ngc cells along y (the 4 x 4 layout was refused since 3f51451d), see ../amr_box.py),
+# t = 1 (one crossing), the same checks with their own baselines, measured on the quadtree (medooza job 1369320, CPU and
+# FNL equal to the printed digits: <|B_z|>/A0 2.247e-3, 1.087e-3, rate +1.05; E_B 0.80074, 0.90068; seam div(B) final /
+# peak 0.022, 0.011), plus 2 % and minus 0.2 %. The octree baselines of M2-P7b (null z, nk = 4) were
+# (measured <|B_z|>/A0 2.23e-3, 1.10e-3, rate +1.03; E_B 0.802, 0.901, against
 # 1.99e-3, 1.11e-3 and 0.759, 0.884 of the uniform 32/64 runs: the refined half dissipates less, the seams add B_z at
 # N = 32 and none at N = 64), plus the seam div(B) (seam_divb_oracle.py): its final value at most SEAM_DECAY times its
 # peak (measured 0.033, 0.011; the peak is the initial-data error of the loop edge at step 1, GLM removes it; the
@@ -51,8 +55,8 @@ BZ_RATE_MIN="0.0"
 ENERGY_MIN=(0.87011 0.93544)   # CPU baseline (M2-P6c) minus 0.2 %, per N of the ladder
 AMR=0
 LADDER_AMR=(32 64)
-BZ_MAX_AMR=(2.277e-03 1.118e-03)   # CPU baseline (M2-P7b) plus 2 %
-ENERGY_MIN_AMR=(0.80066 0.89888)   # CPU baseline (M2-P7b) minus 0.2 %
+BZ_MAX_AMR=(2.292e-03 1.109e-03)   # quadtree baseline (#142 A8, CPU = FNL, medooza 1369320) plus 2 %
+ENERGY_MIN_AMR=(0.79914 0.89888)   # quadtree baseline (#142 A8, CPU = FNL, medooza 1369320) minus 0.2 %
 SEAM_DECAY="0.1"
 AGREE=0
 AGREE_TOL="1.0e-10"

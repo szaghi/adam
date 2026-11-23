@@ -14,12 +14,16 @@
 # About 4.5 min on the CPU.
 #
 # --amr runs the AMR leg instead (M2-P7b): 32^2 base with [0.25, 0.75]^2 refined once (2:1 seams the shocks cross,
-# octree with null z, nk = 4, see ../amr_box.py), t = 0.5, np 2, plus the uniform 32^2 run as reference:
-#   - symmetry and conservation as above on the AMR run (measured 9.1e-13 and 1.1e-16: the refined box is symmetric
-#     about the centre, and the reflux keeps the integrals);
+# a quadtree with nk = 1 since issue #142 A8, see ../amr_box.py), t = 0.5, np 2, plus the uniform 32^2 run as
+# reference:
+#   - symmetry and conservation as above on the AMR run (measured on the octree with null z and nk = 4, the layout
+#     before #46: 9.1e-13 and 1.1e-16: the refined box is symmetric about the centre, and the reflux keeps the
+#     integrals);
 #   - the seam div(B) (seam_divb_oracle.py): the peak of max|div B| beside the seam faces at most SEAM_REF_RATIO times
-#     the peak of max|div B| of the uniform reference (measured 0.887 / 1.170 = 0.76; the shocks set both);
-# about 6 min on the CPU.
+#     the peak of max|div B| of the uniform reference, computed by the same check (measured on the octree 0.887 / 1.170
+#     = 0.76; the shocks set both);
+# the bounds are fixed tolerances, none an octree baseline: MV-15 (../quadtree) shows the quadtree equal to the octree
+# to round-off at t = 0.2. The quadtree values are measured in #142 Part C. About 6 min on the CPU (octree).
 #
 # --divergence-control eglm runs the uniform leg with EGLM (issue #47, M3-P4c, EV-4), checkpoints every 25 steps:
 #   - symmetry asserted twice, as for the rotor: at step 100 within EARLY_SYM_TOL (measured, CPU: 5.4e-13 splitting,

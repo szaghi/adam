@@ -13,7 +13,10 @@ the vortex grid of V2 (verification/vortex, 4x4 blocks) stretched to the box, N 
 
 Usage:
     make_field_loop.py <base.ini> <out.ini> --cells N [--cfl C] [--time-max T] [--glm-ch C] [--vz W]
-                       [--refine-box XMIN YMIN XMAX YMAX]
+                       [--refine-box XMIN YMIN XMAX YMAX [--ratio 4|8]]
+
+--ratio is the tree ratio of the AMR variant (4, quadtree, by default since issue #142 A8; 8, octree with null z and
+nk = 4, the layout of the M2-P7b baselines, before #46).
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ def main() -> None:
     parser.add_argument("--vz", default="1.0", help="out-of-plane velocity w")
     parser.add_argument("--refine-box", type=float, nargs=4, default=None, metavar=("XMIN", "YMIN", "XMAX", "YMAX"),
                         help="refine the blocks whose centroid lies in the box by one 2:1 level (AMR variant)")
+    parser.add_argument("--ratio", type=int, choices=(4, 8), default=4, help="tree ratio of the AMR variant")
     args = parser.parse_args()
     ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
     ini.optionxform = str
@@ -64,7 +68,13 @@ def main() -> None:
     ini["IO"].update({"output_basename": "field-loop", "it_save": "1000000"})
     ini["diagnostics"]["conservation_history_save"] = "1"
     if args.refine_box is not None:
-        refine_box(ini, args.refine_box)
+        # 2 x 2 base blocks of N/2 x N/4 cells, one level less: the same coarse spacing and the same refined half (the
+        # base blocks' centroids select the same region), with blocks at least 2 ngc = 6 cells along y at N = 32 (the
+        # 4 x 4 layout gave nj = 4, refused since 3f51451d, the thin-block guard of issue #66)
+        ini["grid"].update({"ni": str(args.cells // 2), "nj": str(args.cells // 4)})
+        for key in ("max_level", "iu_ref_levels"):
+            ini["amr"][key] = str(int(ini["amr"][key]) - 1)
+        refine_box(ini, args.refine_box, ratio=args.ratio)
     with args.out.open("w") as out:
         ini.write(out)
 

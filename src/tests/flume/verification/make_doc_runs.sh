@@ -5,6 +5,12 @@
 #   blast   blast-{split,hlld}, blast-wushu-{split,hlld}: PV-1 and PV-2, EGLM, positivity limiter (4 runs, 8 min)
 #   vacuum  {leblanc,double-rarefaction,sedov}-{split,hllc}: PV-3, positivity limiter (6 runs, 55 min: Sedov takes 45)
 #   rj2a    rj2a, rj2a-hlld: Ryu-Jones 2a, 256 cells, no cleaning (2 runs, 1 min)
+#   vortex  vortex-{split,llf,hll,hllc}-n{064,128,256}: the isentropic vortex ladders of V2 (vortex/check.sh, the
+#           splitting scheme) and RV-2 (riemann-flux/check.sh --legs vortex, weno-riemann with characteristic
+#           interpolation, 6th-order correction, weno sensor), from vortex/vortex-n<N>.ini (#142) (12 runs)
+#   shock-cylinder shock-cylinder-{split,hllc}: the Mach 2 shock over the immersed cylinder of V6
+#           (shock-cylinder/check.sh) and of riemann-flux/check.sh --legs cylinder (HLLC), from
+#           shock-cylinder/shock-cylinder.ini (#142) (2 runs)
 #   order   linear-wave-{split,hlld}-{fast,alfven,slow,entropy}-{16,32,64}: MV-5, 1-D (24 runs, 5 min)
 #   gravity the M7 gravity cases (#73), as gravity/check.sh writes them: iso2d, poly2d (G0); freefall2d, box2d,
 #           box2d-mhd (G1); wave-{weno,riemann}-{8,16,32} (G2a, GV-9); {strat2d,polystrat2d,strat2d-amr}-{unb,bal}
@@ -37,7 +43,8 @@
 #           with reflux_cadence = stage (P5c), and sv11-regrid, the collapse (base 32^2) under runtime AMR with a
 #           checkpoint every 10 steps (14 runs, about 35 min)
 #   mhd     the MHD figures of the gallery (issue #85, R2a): brio-wu (512 cells, GLM), rj4d (512, no cleaning), glm-pulse
-#           (128, GLM, amplitude 0.1), orszag-tang (128^2, t = 0.5), orszag-tang-amr (32^2 + [0.25, 0.75]^2 refined),
+#           (128, GLM, amplitude 0.1), orszag-tang (128^2, t = 0.5), orszag-tang-amr (32^2 + [0.25, 0.75]^2 refined,
+#           quadtree since #142 A8),
 #           rotor (256^2), field-loop (128 x 64), rj2a-hlld-prim (RJ2a on HLLD with primitive interpolation) (8 runs,
 #           about 40 min)
 #   rotated rst-{63,45}-256 and their 1-D references rst-{63,45}-ref: the rotated shock tube MV-8 (4 runs, about 40 min)
@@ -88,6 +95,12 @@
 #           n64-noreflux,uniform-n128}: the A2 field loop, the divergence history every step and a checkpoint every
 #           20 steps (G3a, G3b) (11 runs)
 #   rj2a-shock as-rj2a-{c2f,f2c,uniform}: the AS RJ2a crossing at N = 256, t = 0.2 (3 runs)
+# On request only (not in the default list; FNL, DOC_NP = 4 GPUs, #142's 3-D step figure):
+#   step-3d the Woodward-Colella step on the aligned forest extruded in z (step/make_step.py --layout aligned --dims 3:
+#           m 16, nk 10, Lz 0.125, z walls), WENO-9, auto seams, runtime AMR (Loehner on density every 10 steps) from
+#           level 0 (h = 1/80) to level 2 (h = 1/320), to t = 4, checkpoints at the start and the end (1 run, #133/#142)
+# Every run writes run.info (date, host, Slurm job, commit or $ADAM_COMMIT, executable and its sha256, $ADAM_TOOLCHAIN,
+# GPUs, ranks): the provenance of the figures (make_doc_figures.py --style paper, figures.json).
 # Then: make_doc_figures.py --out docs/public/flume --runs <runs-dir> --only blast near-vacuum mhd-riemann order
 #       (gravity: --only gravity-atmospheres gravity-force gravity-order gravity-balance gravity-rt-linear;
 #        rt: --only gravity-rt; rt and rt-sym: --only gravity-rt-symmetry; ranks: --only ranks;
@@ -97,7 +110,9 @@
 #        cooling: --only radiative-cooling; sinks: --only sink-particles; eos: --only isothermal-eos barotropic-eos;
 #        eosgrav: --only barotropic-gravity; eosmhd: --only barotropic-mhd;
 #        amr: --only selfgravity-amr selfgravity-amr-jeans
-#        selfgravity-amr-regrid selfgravity-amr-isolated)
+#        selfgravity-amr-regrid selfgravity-amr-isolated; vortex: --only vortex; shock-cylinder: --only shock-cylinder,
+#        once fig_vortex and fig_cylinder read these runs from --runs instead of the work directories of
+#        vortex/check.sh and riemann-flux/check.sh, #142 Part B)
 #
 # Usage: ./make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt] [rt-sym] [ranks] [selfgravity]
 #        [jeans] [isolated] [amr] (default: all twelve)
@@ -115,17 +130,18 @@ source "$VERIF_DIR/mhd/numerics.sh"
 
 if [[ $# -lt 1 ]]; then
    echo "make_doc_runs.sh: usage: make_doc_runs.sh <runs-dir> [blast] [vacuum] [rj2a] [order] [gravity] [rt]" \
-        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [multirealm-amr] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars] [cooling] [sinks] [eos] [eosgrav] [eosmhd]" >&2
+        "[rt-sym] [ranks] [selfgravity] [jeans] [isolated] [amr] [mhd] [rotated] [quadtree] [regrid] [multirealm] [multirealm-amr] [seams] [blast77] [divb] [rj2a-shock] [collapse-regrid] [dualenergy] [scalars] [cooling] [sinks] [eos] [eosgrav] [eosmhd] [vortex] [shock-cylinder]" >&2
    exit 2
 fi
 mkdir -p "$1"
 RUNS="$(cd "$1" && pwd)" ; shift
-GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm multirealm-amr seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks eos eosgrav eosmhd}"
+GROUPS_="${*:-blast vacuum rj2a order gravity rt rt-sym ranks selfgravity jeans isolated amr mhd rotated quadtree regrid multirealm multirealm-amr seams blast77 divb rj2a-shock collapse-regrid dualenergy scalars cooling sinks eos eosgrav eosmhd vortex shock-cylinder}"
 for g in $GROUPS_; do
-   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|multirealm-amr|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks|eos|eosgrav|eosmhd)$ ]]; then
+   if [[ ! $g =~ ^(blast|vacuum|rj2a|order|gravity|rt|rt-sym|ranks|selfgravity|jeans|isolated|amr|mhd|rotated|quadtree|regrid|multirealm|multirealm-amr|seams|blast77|divb|rj2a-shock|collapse-regrid|dualenergy|scalars|cooling|sinks|eos|eosgrav|eosmhd|vortex|shock-cylinder|step-3d)$ ]]; then
       echo "make_doc_runs.sh: unknown group '$g' (accepted: blast, vacuum, rj2a, order, gravity, rt, rt-sym, ranks," \
            "selfgravity, jeans, isolated, amr, mhd, rotated, quadtree, regrid, multirealm, multirealm-amr, seams, blast77," \
-           "divb, rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks, eos, eosgrav, eosmhd)" >&2
+           "divb, rj2a-shock, collapse-regrid, dualenergy, scalars, cooling, sinks, eos, eosgrav, eosmhd, vortex," \
+           "shock-cylinder, step-3d)" >&2
       exit 2
    fi
 done
@@ -148,7 +164,21 @@ limiter_on() { # limiter_on <ini>: add positivity_limiter = cell to the [numeric
    sed -i -E 's/^(reflux\s*=.*)$/\1\npositivity_limiter       = cell/' "$1"
    grep -q '^positivity_limiter *= *cell' "$1"
 }
+provenance() { # provenance: write W/run.info (#142 Part B/C: the paper figures' manifest reads it)
+   {
+      echo "date=$(date -Is)"
+      echo "host=$(hostname)"
+      echo "slurm_job=${SLURM_JOB_ID:-}"
+      echo "commit=${ADAM_COMMIT:-$(git -C "$REPO_ROOT" rev-parse HEAD 2> /dev/null || echo unknown)}"
+      echo "exe=$EXE"
+      echo "exe_sha256=$(sha256sum "$EXE" | cut -c1-16)"
+      echo "toolchain=${ADAM_TOOLCHAIN:-unknown}"
+      echo "device=$(nvidia-smi --query-gpu=name --format=csv,noheader 2> /dev/null | sort -u | paste -sd, || true)"
+      echo "np=$NP"
+   } > "$W/run.info"
+}
 run() { # run <ini>: run the case of W
+   provenance
    if (cd "$W" && mpirun -np "$NP" "$EXE" "$1" > log.txt 2>&1); then
       echo "   $(basename "$W"): done"
    else
@@ -185,6 +215,25 @@ for g in $GROUPS_; do
                --divergence-control none
             solver "$W/rj2a-x.ini" $scheme ; run rj2a-x.ini
          done ;;
+      vortex)
+         for scheme in split llf hll hllc; do
+            for n in 064 128 256; do
+               fresh "vortex-$scheme-n$n"
+               cp "$VERIF_DIR/vortex/vortex-n$n.ini" "$W/"
+               solver "$W/vortex-n$n.ini" $scheme ; run "vortex-n$n.ini"
+            done
+         done ;;
+      shock-cylinder)
+         for scheme in split hllc; do
+            fresh "shock-cylinder-$scheme"
+            cp "$VERIF_DIR/shock-cylinder/shock-cylinder.ini" "$W/"
+            solver "$W/shock-cylinder.ini" $scheme ; run shock-cylinder.ini
+         done ;;
+      step-3d)
+         fresh step-3d
+         "$VENV_PY" "$VERIF_DIR/step/make_step.py" "$W" --layout aligned --dims 3 --weno 9 --base-level 0 \
+            --max-level 2 --runtime --time-max 4.0
+         run step.ini ;;
       order)
          for scheme in split hlld; do
             for wave in fast alfven slow entropy; do
@@ -510,7 +559,7 @@ for g in $GROUPS_; do
             --cells 128 ; run orszag-tang.ini
          fresh orszag-tang-amr
          "$VENV_PY" "$M/orszag-tang/make_orszag_tang.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$W/orszag-tang.ini" \
-            --cells 32 --refine-box 0.25 0.25 0.75 0.75 ; run orszag-tang.ini
+            --cells 32 --refine-box 0.25 0.25 0.75 0.75 --ratio 4 ; run orszag-tang.ini
          fresh rotor
          "$VENV_PY" "$M/rotor/make_rotor.py" "$VERIF_DIR/vortex/vortex-n064.ini" "$W/rotor.ini" --cells 256
          run rotor.ini

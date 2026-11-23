@@ -8,7 +8,9 @@ coarse cells beside a seam picked up a spurious z dependence (M2-P7b: 1e-2 at th
 Orszag-Tang at step 26, the same on the Euler path), so the variants run on an octree (ratio 8) with null z, where the
 coarse-fine ghost interpolation needs at least 4 cells per block on every axis, null ones included (M2-P4): nk grows to
 4. Both are costs of the AMR variant, not physical changes. Since #46 a quadtree seam is 2:1 in x and y and 1:1 in z,
-so ratio = 4 keeps the base nk (1 for a true 2-D run, 4 times fewer cells than the octree variant).
+so ratio = 4 keeps the base nk (1 for a true 2-D run, 4 times fewer cells than the octree variant); MV-15
+(quadtree/check.sh) shows the two trees agree to round-off on Orszag-Tang. The quadtree is the default since issue
+#142 (A8); ratio = 8 stays available (MV-15's reference, the AS shock crossing of amr-shock/).
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from __future__ import annotations
 import configparser
 
 
-def refine_box(ini: configparser.ConfigParser, box: list[float], ratio: int = 8) -> None:
+def refine_box(ini: configparser.ConfigParser, box: list[float], ratio: int = 4) -> None:
     """Add one 2:1 level over the blocks whose centroid lies in box = [xmin, ymin, xmax, ymax] (all z).
 
     ratio is the tree ratio: 8 (octree, nk raised to 4) or 4 (quadtree, nk kept).

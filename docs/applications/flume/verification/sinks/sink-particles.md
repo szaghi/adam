@@ -137,10 +137,12 @@ regrid that si10 drives.
   steps of si10.
 - **The singular sphere needs cell means.** Sampled at the cell centres, $1/r^2$ loses the mass of the unresolved core:
   2 % of the box, 5 % of the gravity at $r = 0.5$. The hydrostatic sphere then expands instead of collapsing.
-- **Shu's rate converges at first order.** The accretion rate is 4.1 % below Shu's at $32^3$ and 1.5 % below at
-  $64^3$. Federrath et al. report about 3 % at their resolution. The marginal sphere ($A = 2$) is not a test at these
-  resolutions: the threshold accretion zone stores $(\pi^2/3)\,a^2 r_\mathrm{acc}/G$, more than the sink takes before the
-  box runs out.
-- **CPU and FNL agree to round-off,** within $10^{-11}$, on every compared run. Comparisons of a sink at a symmetric centre
-  use its mass and its distance from the centre only: which of 8 tied cells wins, or a velocity of $10^{-11}$, is
-  round-off.
+- **Shu's rate converges with the resolution.** The accretion rate is 4.1 % below Shu's at $32^3$ and 1.5 % below at
+  $64^3$: an observed order of $\log_2(4.1/1.5) = 1.45$ (1.4–1.5 within the printed digits). Two resolutions give one
+  order and cannot show whether it is asymptotic. Federrath et al. report about 3 % at their resolution. The marginal
+  sphere ($A = 2$) is not a test at these resolutions: the threshold accretion zone stores
+  $(\pi^2/3)\,a^2 r_\mathrm{acc}/G$, more than the sink takes before the box runs out.
+- **CPU and FNL agree to round-off** on every compared run (si9): the full histories of si2, si5 and the si10 sink at
+  rest within $1.2\cdot10^{-12}$, the masses of the sinks formed at a symmetric centre (si6, the si10 collapse, si11)
+  within $3.4\cdot10^{-11}$. Comparisons of a sink at a symmetric centre use its mass and its distance from the centre
+  only: which of 8 tied cells wins, or a velocity of $10^{-11}$, is round-off.
