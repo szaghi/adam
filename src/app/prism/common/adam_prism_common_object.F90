@@ -2002,6 +2002,10 @@ contains
             endif
          endif
       endif
+      ! buffer(5:7) is the divergence-fields array used as scratch: clear it, or the gradient/curl of the t0 potential
+      ! stays in the div_05/06/09 output of every checkpoint (and a restart, which skips the t0 solves, writes zeros
+      ! there: issue #129 R5)
+      buffer(5:7,:,:,:,:) = 0._R8P
    endassociate
    contains
       subroutine refuse_refined_grid
