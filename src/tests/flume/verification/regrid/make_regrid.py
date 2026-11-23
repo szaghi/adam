@@ -79,11 +79,29 @@ tol          = {tol}
 """
 
 
+# the section of the keys the #80 cleanup may have dropped from the committed inputs (set to their defaults): an absent
+# one is added at the head of its section, so that every generator survives the cleanup (KeyError: 'iters' otherwise)
+DEFAULT_SECTION = {
+    "iters": "amr",
+    "frequency": "amr",
+    "markers_number": "amr",
+    "regrid_prolongation": "amr",
+    "amr_iterations": "initial_conditions",
+    "restart": "IO",
+    "restart_save": "IO",
+    "it_save": "IO",
+    "it_max": "time",
+    "time_max": "time",
+    "CFL": "time",
+}
+
+
 def setkey(text: str, key: str, value: str, section: str | None = None) -> str:
     """Return ``text`` with every ``key = ...`` line set to ``value``.
 
-    The key must exist, unless ``section`` is given: an absent key is then added at the head of that section (the
-    committed inputs drop the keys set to their defaults, issue #80, e.g. ``[amr] iters`` of ``blast-limiter``).
+    The key must exist, unless ``section`` is given or the key has a default section (``DEFAULT_SECTION``): an absent
+    key is then added at the head of that section (the committed inputs drop the keys set to their defaults, issue
+    #80, e.g. ``[amr] iters`` of ``blast-limiter`` and of ``vortex-periodic``).
 
     Parameters
     ----------
@@ -107,6 +125,7 @@ def setkey(text: str, key: str, value: str, section: str | None = None) -> str:
         If the key is not in the text and no section (or an absent one) is given.
     """
     pattern = re.compile(rf"(?m)^({re.escape(key)}\s*=).*$")
+    section = section or DEFAULT_SECTION.get(key)
     if not pattern.search(text):
         head = re.compile(rf"(?m)^\[{re.escape(section)}\][^\n]*\n") if section else None
         if head is None or not head.search(text):
