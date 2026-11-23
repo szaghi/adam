@@ -40,5 +40,6 @@ docs/api/
 
 # Committed test material the patterns above would hide: verification scripts and the golden logs
 !src/tests/flume/verification/**/*.sh
+!src/tests/flume/speedup/**/*.sh
 !src/tests/**/golden/**/*.dat
 ci-artifacts/
