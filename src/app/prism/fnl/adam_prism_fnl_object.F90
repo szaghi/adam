@@ -1004,8 +1004,12 @@ contains
       call self%save_slices
 
       if (self%time%is_to_save(cadence=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
-      ! not on the iteration just restarted from: its restart files are those just read (issue #129, R6)
-      if (self%time%is_on_cadence(self%io%restart_save) .and. self%time%it /= self%restarted_at) call self%save_restart_files
+      ! not on the iteration just restarted from: its restart files are those just read (issue #129, R6); the PML state
+      ! lives on the device, the restart files are written from the host (R3)
+      if (self%time%is_on_cadence(self%io%restart_save) .and. self%time%it /= self%restarted_at) then
+         call self%pml_fnl%copy_gpu_cpu(pml=self%pml)
+         call self%save_restart_files
+      endif
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then

@@ -1225,6 +1225,8 @@ contains
    call self%adam%make_comm_local_maps_ghost_bc
    ! the restart replaces the blocks: rebuild the per-block face data on them (issue #95, P5.1)
    call self%initialize_block_face_data
+   ! the PML auxiliary state on the rebuilt faces (issue #129, R3)
+   call load_pml_restart_files(self=self)
    ! the particle-cell map of the restored positions on the restored blocks (issue #129, R1/R2): the step builds it, the
    ! restart did not, and the plasma frequencies of the first step read it (the FNL backend copies it to the device)
    if (is_pic_model(self%physics%physical_model)) &
@@ -1482,9 +1484,78 @@ contains
                                     trim(str(self%time%time,.true.)))
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
    call save_pic_restart_files(self=self)
+   call save_pml_restart_files(self=self)
    call self%save_xh5f(output_basename=self%io%restart_basename)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
+
+   subroutine save_pml_restart_files(self)
+   !< Save the PML auxiliary state (issue #129, R3): one file per rank, for each of the six faces the shape of its compact
+   !< array (zeros if the face has no layer on this rank) and its values. The host arrays must be current (the FNL backend
+   !< copies its device state back first).
+   class(prism_common_object), intent(in) :: self      !< The equation.
+   character(:), allocatable              :: filename  !< PML restart file name.
+   integer(I4P)                           :: file_unit !< Restart file unit.
+
+   if (.not.self%pml%enabled) return
+   filename = trim(adjustl(self%io%restart_basename))//'-proc'//trim(strz(mpih%myrank,6))//'.pml'
+   open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM', status='REPLACE')
+   call write_face(self%pml%q_pml_x_m) ; call write_face(self%pml%q_pml_x_p)
+   call write_face(self%pml%q_pml_y_m) ; call write_face(self%pml%q_pml_y_p)
+   call write_face(self%pml%q_pml_z_m) ; call write_face(self%pml%q_pml_z_p)
+   close(file_unit)
+   contains
+      subroutine write_face(q)
+      !< Shape and values of a face array.
+      real(R8P), allocatable, intent(in) :: q(:,:,:,:,:) !< Face array.
+
+      if (allocated(q)) then
+         write(unit=file_unit) shape(q, kind=I4P)
+         write(unit=file_unit) q
+      else
+         write(unit=file_unit) [0_I4P, 0_I4P, 0_I4P, 0_I4P, 0_I4P]
+      endif
+      endsubroutine write_face
+   endsubroutine save_pml_restart_files
+
+   subroutine load_pml_restart_files(self)
+   !< Load the PML auxiliary state into the face arrays just rebuilt on the restored blocks (issue #129, R3): the shapes
+   !< must be those of the file (same ranks, same blocks). A restart written before has no file: the layer then restarts
+   !< from zero, with a warning (the run departs from the uninterrupted one while a wave is in the layer).
+   class(prism_common_object), intent(inout) :: self       !< The equation.
+   character(:), allocatable                 :: filename   !< PML restart file name.
+   integer(I4P)                              :: file_unit  !< Restart file unit.
+   logical                                   :: file_exist !< File-existence flag.
+
+   if (.not.self%pml%enabled) return
+   filename = trim(adjustl(self%io%restart_basename))//'-proc'//trim(strz(mpih%myrank,6))//'.pml'
+   inquire(file=filename, exist=file_exist)
+   if (.not.file_exist) then
+      call mpih%print_message('warning: PML restart file "'//filename//'" does not exist (written before issue #129): '// &
+                              'the layer restarts from zero')
+      return
+   endif
+   open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM', status='OLD')
+   call read_face(self%pml%q_pml_x_m, 'x-') ; call read_face(self%pml%q_pml_x_p, 'x+')
+   call read_face(self%pml%q_pml_y_m, 'y-') ; call read_face(self%pml%q_pml_y_p, 'y+')
+   call read_face(self%pml%q_pml_z_m, 'z-') ; call read_face(self%pml%q_pml_z_p, 'z+')
+   close(file_unit)
+   contains
+      subroutine read_face(q, name)
+      !< Shape check and values of a face array.
+      real(R8P), allocatable, intent(inout) :: q(:,:,:,:,:) !< Face array.
+      character(*),           intent(in)    :: name         !< Face name (messages).
+      integer(I4P)                          :: s(5)         !< Shape in the file.
+      integer(I4P)                          :: sq(5)        !< Shape of the array.
+
+      read(unit=file_unit) s
+      sq = 0_I4P ; if (allocated(q)) sq = shape(q, kind=I4P)
+      if (any(s /= sq)) call mpih%error_stop(msg=': PML restart "'//filename//'": the '//name//' face holds '// &
+                                                 trim(str(s))//' values, the restored blocks '//trim(str(sq))// &
+                                                 ' (restart with the same ranks and blocks)')
+      if (allocated(q)) read(unit=file_unit) q
+      endsubroutine read_face
+   endsubroutine load_pml_restart_files
 
    subroutine save_pic_restart_files(self)
    !< Save PIC restart data stored outside the ADAM field restart.

@@ -87,6 +87,7 @@ type :: prism_fnl_pml_object
    real(R8P),    pointer     :: q_pml_z_m_gpu(:,:,:,:,:) => null()
    real(R8P),    pointer     :: q_pml_z_p_gpu(:,:,:,:,:) => null()
 contains
+   procedure, pass(self) :: copy_gpu_cpu
    procedure, pass(self) :: destroy
    procedure, pass(self) :: initialize
 endtype prism_fnl_pml_object
@@ -530,6 +531,50 @@ contains
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate z-face GPU PML state')
    call copy_face_state_cpu_gpu(q_cpu=q_face_cpu, q_gpu=q_face_gpu)
    endsubroutine initialize_z_face
+
+   subroutine copy_gpu_cpu(self, pml)
+   !< Copy the PML auxiliary state of every face from the device back to the host compact arrays (issue #129, R3: the
+   !< restart files are written from the host).
+   class(prism_fnl_pml_object), intent(in)    :: self !< Device PML.
+   type(prism_pml_object),      intent(inout) :: pml  !< Host PML.
+
+   if (.not.self%enabled) return
+   if (associated(self%q_pml_x_m_gpu) .and. allocated(pml%q_pml_x_m)) &
+      call copy_face_state_gpu_cpu(self%q_pml_x_m_gpu, pml%q_pml_x_m)
+   if (associated(self%q_pml_x_p_gpu) .and. allocated(pml%q_pml_x_p)) &
+      call copy_face_state_gpu_cpu(self%q_pml_x_p_gpu, pml%q_pml_x_p)
+   if (associated(self%q_pml_y_m_gpu) .and. allocated(pml%q_pml_y_m)) &
+      call copy_face_state_gpu_cpu(self%q_pml_y_m_gpu, pml%q_pml_y_m)
+   if (associated(self%q_pml_y_p_gpu) .and. allocated(pml%q_pml_y_p)) &
+      call copy_face_state_gpu_cpu(self%q_pml_y_p_gpu, pml%q_pml_y_p)
+   if (associated(self%q_pml_z_m_gpu) .and. allocated(pml%q_pml_z_m)) &
+      call copy_face_state_gpu_cpu(self%q_pml_z_m_gpu, pml%q_pml_z_m)
+   if (associated(self%q_pml_z_p_gpu) .and. allocated(pml%q_pml_z_p)) &
+      call copy_face_state_gpu_cpu(self%q_pml_z_p_gpu, pml%q_pml_z_p)
+   endsubroutine copy_gpu_cpu
+
+   subroutine copy_face_state_gpu_cpu(q_gpu, q_cpu)
+   !< Inverse of copy_face_state_cpu_gpu: device [block,i,j,k,var] to host [var,i,j,k,block].
+   real(R8P), intent(in)    :: q_gpu(:,:,:,:,:)
+   real(R8P), intent(inout) :: q_cpu(:,:,:,:,:)
+   integer(I4P)             :: i1, i2, i3, i4, i5
+   real(R8P), allocatable   :: q_t(:,:,:,:,:)
+
+   allocate(q_t(1:size(q_cpu,5), 1:size(q_cpu,2), 1:size(q_cpu,3), 1:size(q_cpu,4), 1:size(q_cpu,1)))
+   call dev_memcpy_from_device(dst=q_t, src=q_gpu)
+   do i5 = 1, size(q_cpu,5)
+      do i4 = 1, size(q_cpu,4)
+         do i3 = 1, size(q_cpu,3)
+            do i2 = 1, size(q_cpu,2)
+               do i1 = 1, size(q_cpu,1)
+                  q_cpu(i1,i2,i3,i4,i5) = q_t(i5,i2,i3,i4,i1)
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   deallocate(q_t)
+   endsubroutine copy_face_state_gpu_cpu
 
    subroutine copy_face_state_cpu_gpu(q_cpu, q_gpu)
    real(R8P), intent(in)    :: q_cpu(:,:,:,:,:)
