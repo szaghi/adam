@@ -40,8 +40,8 @@ endtype analytical_sphere_object
 
 type :: analytical_rectangle_object
    !< Analytical rectangle solid class.
-   real(R8P)    :: center(3) = [0._R8P,0._R8P,0._R8P] !< Sphere center.
-   real(R8P)    :: edge(2)   =  0._R8P                !< Major/minor edge length.
+   real(R8P)    :: center(3) = [0._R8P,0._R8P,0._R8P] !< Rectangle center.
+   real(R8P)    :: edge(2)   =  0._R8P                !< Edge lengths along the two in-plane axes, x, y, z order.
    character(1) :: axis      =  ' '                   !< Axis (x,y,z) normal.
 endtype analytical_rectangle_object
 
@@ -503,7 +503,9 @@ contains
    endsubroutine compute_phi_analytical_circle
 
    subroutine compute_phi_analytical_rectangle(self, field, grid, solid, rectangle)
-   !< Compute distance function for analytical rectangle (2D) solid.
+   !< Compute distance function for analytical rectangle (2D) solid: the exact signed distance from its boundary, positive
+   !< inside, as the sphere's and the circle's. The rectangle lies in the plane normal to its axis, `edge(1)` and
+   !< `edge(2)` along the first and the second of the two other axes in x, y, z order (axis x: y, z; y: x, z; z: x, y).
    class(ib_object),                  intent(inout) :: self         !< IB.
    type(field_object), intent(in) :: field !< Field (sibling realm component, threaded in).
    type(grid_object),             intent(in), target :: grid !< Grid (sibling realm component, threaded in).
@@ -556,34 +558,18 @@ contains
    endassociate
    contains
       function edges_distance(point) result(distance)
-      !< Return point-rectangle distance with sign.
-      real(R8P), intent(in) :: point(2)           !< Point coordinate.
-      real(R8P)             :: distance           !< Point-rectangle distance.
-      real(R8P)             :: distances(2), d(2) !< Point-edges distances.
+      !< Return the exact signed distance of a point from the rectangle's boundary, positive inside (issue #143).
+      !<
+      !< `q(d)` is the signed distance from the slab of direction `d`, negative inside it: inside the rectangle the
+      !< distance is the nearest edge's, `-max(q)`; beside a face (one `q` positive) the face's, `-q`; past a corner (both
+      !< positive) the corner's, `-|q|`. The former version took the farther edge inside and combined both directions
+      !< in quadrature beside a face.
+      real(R8P), intent(in) :: point(2) !< Point coordinate.
+      real(R8P)             :: distance !< Point-rectangle signed distance.
+      real(R8P)             :: q(2)     !< Signed distances from the two slabs, negative inside.
 
-      ! direction 1
-      distances(1) = edges_min(1) - point(1)
-      distances(2) = point(1)     - edges_max(1)
-      if     (distances(1)<0._R8P.and.distances(2)>0._R8P) then
-         d(1) = distances(2)
-      elseif (distances(1)<=0._R8P.and.distances(2)<=0._R8P) then
-         d(1) = minval(distances, dim=1)
-      elseif (distances(1)>0._R8P.and.distances(2)<0._R8P) then
-         d(1) = distances(1)
-      endif
-      ! direction 2
-      distances(1) = edges_min(2) - point(2)
-      distances(2) = point(2)     - edges_max(2)
-      if     (distances(1)<0._R8P.and.distances(2)>0._R8P) then
-         d(2) = distances(2)
-      elseif (distances(1)<=0._R8P.and.distances(2)<=0._R8P) then
-         d(2) = minval(distances, dim=1)
-      elseif (distances(1)>0._R8P.and.distances(2)<0._R8P) then
-         d(2) = distances(1)
-      endif
-      ! correct sign in case point falls at corners quarter
-      if (d(1)>=0._R8P.and.d(2)>=0._R8P) d(1) = - d(1)
-      distance = sign(sqrt(d(1)*d(1) + d(2)*d(2)), d(1)*d(2))
+      q = max(edges_min - point, point - edges_max)
+      distance = -(sqrt(max(q(1), 0._R8P)**2 + max(q(2), 0._R8P)**2) + min(max(q(1), q(2)), 0._R8P))
       endfunction edges_distance
    endsubroutine compute_phi_analytical_rectangle
 endmodule adam_ib_object

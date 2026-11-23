@@ -60,6 +60,7 @@ paths =  fobos.d/templates.fobos
         ?fobos.d/tests_seth.fobos
         ?fobos.d/tests_turbulence.fobos
         ?fobos.d/tests_ini.fobos
+        ?fobos.d/tests_ib.fobos
 
 # user-tunable variables (FoBiS fobos variables)
 [common-variables]

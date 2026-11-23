@@ -298,7 +298,7 @@ function to its Runge-Kutta stages, and no committed PRISM input uses them.
 | `sphere_center_x`, `sphere_center_y`, `sphere_center_z`, `sphere_radius` | real | `analytical_sphere` | no check | Sphere. |
 | `circle_center_x`, `circle_center_y`, `circle_center_z`, `circle_radius` | real | `analytical_circle` | no check | Infinite cylinder. |
 | `circle_axis` | char | `analytical_circle` | `x`, `y`, `z`; other values are fatal at load | Cylinder axis. |
-| `rectangle_center_x`, `rectangle_center_y`, `rectangle_center_z`, `rectangle_edge_1`, `rectangle_edge_2` | real | `analytical_rectangle` | no check | Infinite rectangular prism. |
+| `rectangle_center_x`, `rectangle_center_y`, `rectangle_center_z`, `rectangle_edge_1`, `rectangle_edge_2` | real | `analytical_rectangle` | no check | Infinite rectangular prism: `rectangle_edge_1`, `rectangle_edge_2` are its side lengths along the first and the second of the two axes normal to `rectangle_axis`, in x, y, z order (axis `x`: y, z; `y`: x, z; `z`: x, y). Its distance function is the exact signed distance from the boundary, positive inside like the sphere's and the circle's ([#143](https://github.com/szaghi/adam/issues/143): before the fix it took the farther edge inside and was wrong beside the faces). |
 | `rectangle_axis` | char | `analytical_rectangle` | `x`, `y`, `z`; other values are fatal at load | Prism axis. |
 
 ---

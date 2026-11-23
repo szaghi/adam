@@ -1,0 +1,14 @@
+[modes]
+modes = test-ib-rectangle-phi-gnu test-ib-rectangle-phi-gnu-debug
+
+# ib_object%compute_phi on an analytical_rectangle against the exact signed distance (issue #143): inside near each face,
+# at the centre, beside each face, past each corner, on the boundary, for the three rectangle axes. No MPI run.
+[test-ib-rectangle-phi-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_ib_rectangle_phi.F90
+
+[test-ib-rectangle-phi-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_ib_rectangle_phi.F90
