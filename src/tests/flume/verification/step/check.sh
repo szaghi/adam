@@ -11,6 +11,12 @@
 #          (../mhd/quadtree): every
 #          run z-invariant, the quadtree within TOL of the octree at the same (x, y), momentum scaled as one vector.
 #          Both runs must also keep density and pressure positive and finite;
+#   aligned the forest of make_step.py --layout aligned (#133 leg 1, #142's 3-D step): blocks lined up across the
+#          seams, coupling = auto, WENO-7 (ngc 4; leg 1's scheme: WENO-9 lost the state at the corner, see the page),
+#          runtime AMR by a Loehner marker on the density every 10 steps: 2-D on quadtrees (m 16, levels 1..2,
+#          h 1/160..1/320) to t = 0.2, and 3-D on octrees (m 8, nk 8, Lz 0.2, levels 0..1, h 1/40..1/80: the
+#          smallest blocks WENO-7 allows) to t = 0.1; each must regrid across the auto seams (blocks change) and keep
+#          density and pressure positive and finite;
 #   full   N = 80, the coarse grid of Woodward and Colella, quadtree, t = 4 (their reference time), with the refined
 #          boxes and, as the control of the figure's zoom, on the uniform 1/80 grid (no box): both positive and finite;
 #          the checkpoints are kept (--keep) for the documentation figures (make_doc_figures.py --only step step-trees).
@@ -22,7 +28,7 @@
 # A first layout with 4-cell blocks in A refined made the quadtree differ by 2.4e-5 across ranks: issue #66, now
 # refused by the library (blocks need 2 ngc cells along refined axes).
 #
-# Usage: ./check.sh [--np N] [--legs LIST] [--keep]   LIST: trees, full or all (default trees)
+# Usage: ./check.sh [--np N] [--legs LIST] [--keep]   LIST: trees, aligned, full or all (default trees)
 #
 # FLUME_EXE overrides the executable under test, e.g. FLUME_EXE=$REPO/exe/adam_flume_fnl ./check.sh
 # The caller owns the matching environment (FNL: nvhpc mpirun on PATH and, on WSL, the UCX knobs of issue #12).
@@ -34,7 +40,7 @@ REPO_ROOT="$(cd "$CASE_DIR/../../../../.." && pwd)"
 EXE="${FLUME_EXE:-$REPO_ROOT/exe/adam_flume_cpu}"
 NP=2
 source "$VERIF_DIR/legs.sh"
-legs_declare "trees full" "trees"
+legs_declare "trees aligned full" "trees"
 KEEP=0
 TOL="1.0e-10"    # quadtree against octree, relative (measured 6.5e-13)
 Z_TOL="1.0e-10"  # z invariance, relative (measured: octree 7.6e-13, quadtree 0)
@@ -67,15 +73,15 @@ run() { # run <work> <make_step.py arguments>: write the forest, run it
       return 1
    fi
 }
-positive() { # positive <work>: density and pressure of the last checkpoint positive and finite in every realm
-   "$VENV_PY" - "$1" <<'EOF'
+positive() { # positive <work> [ngc]: density and pressure of the last checkpoint positive and finite in every realm
+   "$VENV_PY" - "$1" "${2:-3}" <<'EOF'
 import sys
 from pathlib import Path
 
 import h5py
 import numpy as np
 
-work, gamma = Path(sys.argv[1]), 1.4
+work, gamma, g = Path(sys.argv[1]), 1.4, int(sys.argv[2])
 files = [p for p in work.glob("*-proc*.h5") if "-restart-" not in p.name]
 last = max(int(p.name.split("-")[-2]) for p in files)
 rho_min = p_min = np.inf
@@ -83,7 +89,7 @@ bad = 0
 for path in (p for p in files if int(p.name.split("-")[-2]) == last):
     with h5py.File(path, "r") as h5:
         for blk in {k.rsplit("-", 1)[0] for k in h5}:
-            q = {v: h5[f"{blk}-{v}"][()][3:-3, 3:-3, 3:-3] for v in ("r", "ru", "rv", "rw", "rE")}
+            q = {v: h5[f"{blk}-{v}"][()][g:-g, g:-g, g:-g] for v in ("r", "ru", "rv", "rw", "rE")}
             p = (gamma - 1.0) * (q["rE"] - 0.5 * (q["ru"] ** 2 + q["rv"] ** 2 + q["rw"] ** 2) / q["r"])
             bad += int(np.count_nonzero(~np.isfinite(p)) + np.count_nonzero(~np.isfinite(q["r"])))
             rho_min, p_min = min(rho_min, float(q["r"].min())), min(p_min, float(p.min()))
@@ -107,6 +113,23 @@ if has_leg trees; then
          --groups ru,rv,rw | sed 's/^/   /' || FAILED=1
    fi
    [[ $KEEP -eq 1 ]] || for w in "${works[@]}"; do find "$w" -name '*.h5' -delete; done
+fi
+
+if has_leg aligned; then
+   echo ">> EV-step aligned: auto seams, WENO-7, runtime AMR: 2-D quadtree to t = 0.2, 3-D octree to t = 0.1 ($TAG)"
+   for dims in 2 3; do
+      w="$CASE_DIR/work-$TAG-aligned-${dims}d"
+      lv=(--base-level 1 --max-level 2 --time-max 0.2)
+      [[ $dims == 3 ]] && lv=(--m 8 --nk 8 --base-level 0 --max-level 1 --time-max 0.1)
+      if run "$w" --layout aligned --dims "$dims" --weno 7 --runtime "${lv[@]}"; then
+         positive "$w" 4 || FAILED=1
+         n=$(grep -a -c "regrid at step .*blocks [0-9]* -> " "$w/log.txt" || true)
+         changed=$(grep -a "regrid at step" "$w/log.txt" | awk '{ gsub(",", "", $9); if ($7 != $9) c++ } END { print c + 0 }')
+         echo "   $(basename "$w"): $n regrid lines, $changed with a block count change"
+         [[ $changed -gt 0 ]] || { echo "   no regrid changed the grid: FAIL" ; FAILED=1 ; }
+      fi
+      [[ $KEEP -eq 1 ]] || find "$w" -name '*.h5' -delete
+   done
 fi
 
 if has_leg full; then

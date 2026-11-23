@@ -38,8 +38,9 @@ the case verifies the seam machinery, not adaptivity.
 
 The realms of a forest regrid at runtime ([#110](https://github.com/szaghi/adam/issues/110)), but this forest's seams
 are `mirror` seams between blocks that do not line up, and a mirror seam keeps one level per seam side. A
-`coupling = auto` seam varies its levels face by face but needs the blocks of a 2:1 face to nest, which realm A
-(0.2 high) cannot offer realm B on an octree at this size. The refinement therefore stays static.
+`coupling = auto` seam varies its levels face by face but needs the same block cell counts along the seam, which these
+blocks (A 24 cells along $x$, B 6) do not have. The refinement of this layout therefore stays static; the
+[aligned layout](#the-aligned-forest-runtime-amr-and-3-d) below lines the blocks up and refines at runtime.
 :::
 
 ## Models and numerics
@@ -95,7 +96,8 @@ seam and stay on the base grid. Refining across that seam would take the 2:1 int
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/step/make_step.py <dir> --tree quad\|oct --cells N --refine --time-max T` | writes the manifest `step.ini` and the realms `step-A.ini`, `step-B.ini`, `step-C.ini` |
-| `src/tests/flume/verification/step/check.sh` | `--legs trees` (default) and `full`; `--keep` keeps the checkpoints for the figures; checks positivity of every run |
+| `src/tests/flume/verification/step/make_step.py <dir> --layout aligned [--dims 2\|3] [--m M] [--nk NK] [--weno 5\|7\|9] [--base-level LB] [--max-level LF] [--runtime]` | the aligned forest (blocks lined up, `coupling = auto`), optionally runtime AMR and 3-D |
+| `src/tests/flume/verification/step/check.sh` | `--legs trees` (default), `aligned` and `full`; `--keep` keeps the checkpoints for the figures; checks positivity of every run |
 | `src/tests/flume/verification/mhd/quadtree/quadtree_oracle.py` | the $z$ invariance and the quadtree against the octree per $(x, y)$ column, momentum scaled as one vector |
 | `src/tests/flume/verification/make_doc_figures.py` (`fig_step`, `fig_step_trees`) | the figures, from the kept work directories of `step/` |
 
@@ -138,6 +140,40 @@ The picture has the features of the reference of Woodward and Colella:
 
 Related cases: [Multi-realm runs](./multi-realm) (the seam legs on Sod), [Quadtree AMR](../mhd/quadtree-amr) (the
 quadtree on MHD), [Ghost probe](../infrastructure/ghost-probe) (the step forest's edge ghosts).
+
+## The aligned forest: runtime AMR and 3-D
+
+Issue [#133](https://github.com/szaghi/adam/issues/133) (leg 1 of the speedup matrix) and the paper figure of
+[#142](https://github.com/szaghi/adam/issues/142) need the step refined at runtime, and in 3-D. `make_step.py --layout
+aligned` writes the same three realms with their blocks lined up across both seams, so that the seams can be
+`coupling = auto` seams, along which the runtime grid refines and coarsens face by face (one level per seam side, equal
+across). `auto` needs the same block cell counts along a seam; with one root block per realm and square cells the block
+shapes follow from the realms' aspect ratios:
+
+| Realm | Extent | Block cells | At level $L$ |
+|---|---|---|---|
+| A | $[0, 0.6] \times [0, 0.2]$ | $3m \times m$ | $h = 0.2 / (m\,2^L)$ in every realm |
+| B | $[0, 0.6] \times [0.2, 1]$ | $3m \times 4m$ | A–B seam: $3m$ cells along $x$ on both sides |
+| C | $[0.6, 3] \times [0.2, 1]$ | $12m \times 4m$ | B–C seam: $4m$ cells along $y$ on both sides |
+
+`--m 16` by default: level 1 is $h = 1/160$, level 4 $h = 1/1280$, the spacings of the speedup matrix. A refined axis
+needs an even count of at least $2\,n_{gc}$ cells ([#66](https://github.com/szaghi/adam/issues/66)), so $m \ge 10$ at
+WENO-9 ($n_{gc} = 5$). `--dims 3` extrudes the tunnel in $z$ on octrees: `--nk` cells per block (10 by default), extent
+$L_z = 0.2\,n_k/m$ ($0.125$ at the defaults, cubic cells), reflecting walls on the $z$ faces. The extruded step is
+$z$-invariant: the 3-D case adds cost and the 3-D machinery (octree seams, 3-D regrids), not physics. Runtime AMR
+(`--runtime`): a Löhner marker on the density (refine 0.3, derefine 0.1, buffer $n_{gc} - 1$), every 10 steps, from
+`--base-level` to `--max-level`. The legacy layout above is unchanged (same inputs, byte for byte).
+
+The `aligned` leg of `check.sh` runs both trees briefly (2-D quadtree, $m = 16$, levels 1–2, to $t = 0.2$; 3-D octree
+with the smallest blocks WENO-7 allows, $m = n_k = 8$, levels 0–1, to $t = 0.1$), both at WENO-7 with runtime AMR: the grid must change across the `auto` seams, and density
+and pressure must stay positive and finite.
+
+**WENO-9 does not reach $t = 4$; WENO-7 does** (the feasibility gate 4.1 of #133). On the aligned forest at the uniform
+spacing $h = 1/160$ (2-D, CPU, 4 ranks), WENO-9 produced a non-finite density at $t = 3.62$ (step 7119) at
+$(0.616, 0.203)$, in the expansion just behind the step corner, where the density drops towards vacuum; the positivity
+limiter that would bound it is refused on multi-realm runs. WENO-7 at the same spacing runs to $t = 4$ (7826 steps)
+with every value finite. The speedup matrix's leg 1 therefore runs WENO-7 (medooza, develop `0bcdf870`, gfortran 16.2,
+2026-11-22, Slurm jobs 1369311 and 1369318).
 
 ## Findings
 
