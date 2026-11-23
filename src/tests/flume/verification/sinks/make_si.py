@@ -105,6 +105,7 @@ def case_ini(a: argparse.Namespace) -> str:
         s += "bx = 0.0\nby = 0.0\nbz = 0.0\n"  # the region needs the field (the refusal comes later, at [sinks])
         s += "\n[mhd]\ndivergence_control = none\ndivb_tol = 0.0\ndivb_error = .false.\n"
         s += "rho_floor = 0.0\np_floor = 0.0\n"
+        s += "\n[fdv]\nfdv_scheme = fd\nfdv_order = 2\n"  # MHD only: the div(B) stencil, read on demand since c71fe0bb
     if a.amr > 0:  # runtime AMR: a Jeans marker, a regrid every 4 steps (P4)
         s = re.sub(r"(?m)^frequency\s*=.*$", "frequency = 4", s)
         # the collapse needs the whole-state limit: conservative drains a cell at the first regrid (issue #88)
