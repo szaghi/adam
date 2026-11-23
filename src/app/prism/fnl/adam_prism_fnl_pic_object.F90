@@ -22,6 +22,7 @@ public :: bspline_weight_dev
 public :: set_bspline_stencil_dev
 public :: bspline_closed_weights_dev
 public :: PIC_VARIABLES_NUMBER, PIC_FIELDS_NUMBER, PIC_NEIGHBOURS_NUMBER
+public :: pic_fnl_device_bytes
 
 integer(I4P), parameter :: PIC_VARIABLES_NUMBER   = 8_I4P !< Width of the device particle arrays (q_pic_gpu and its copies).
 integer(I4P), parameter :: PIC_FIELDS_NUMBER      = 6_I4P !< Width of pic_fields_gpu: the fields at a particle.
@@ -150,6 +151,21 @@ interface
 endinterface
 
 contains
+   pure function pic_fnl_device_bytes(capacity, ranks) result(bytes)
+   !< Device bytes of the particle arrays of prism_fnl_pic_object, as initialize allocates them (issue #130): the blocks
+   !< budget reserves them before the grid exists.
+   integer(I4P), intent(in) :: capacity !< Particle capacity of a rank.
+   integer(I4P), intent(in) :: ranks    !< MPI processes.
+   integer(I8P)             :: bytes    !< Bytes.
+   integer(I8P)             :: cap      !< Capacity.
+
+   bytes = 0_I8P
+   if (capacity <= 0_I4P) return
+   cap = int(capacity, I8P)
+   bytes = cap*(8_I8P*(PIC_VARIABLES_NUMBER + PIC_FIELDS_NUMBER) + 4_I8P*PIC_NEIGHBOURS_NUMBER) ! q_pic, pic_fields, neighbours
+   if (ranks > 1_I4P) bytes = bytes + cap*(4_I8P*2_I8P + 8_I8P*PIC_VARIABLES_NUMBER)            ! mig_index, mig_buffer
+   endfunction pic_fnl_device_bytes
+
    subroutine destroy(self)
    !< Free device and host staging data owned by this object.
    class(prism_fnl_pic_object), intent(inout) :: self !< PIC object on device.
@@ -391,6 +407,13 @@ contains
    call dev_alloc(fptr_dev=self%neighbour_list_gpu, ubounds=[capacity, PIC_NEIGHBOURS_NUMBER], &
                   lbounds=[1,1], ierr=ierr)
    if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate neighbour_list_gpu in prism_fnl_pic_object%initialize')
+   ! the migration buffers, needed from the first step on: allocated here, as pic_fnl_device_bytes counts them (issue #130)
+   if (mpih_fnl%procs_number > 1_I4P) then
+      call dev_alloc(fptr_dev=self%mig_index_gpu, ubounds=[2*capacity], lbounds=[1], ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mig_index_gpu in prism_fnl_pic_object%initialize')
+      call dev_alloc(fptr_dev=self%mig_buffer_gpu, ubounds=[PIC_VARIABLES_NUMBER*capacity], lbounds=[1], ierr=ierr)
+      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mig_buffer_gpu in prism_fnl_pic_object%initialize')
+   endif
    allocate(self%buf_q_pic_R8P(1:capacity,1:PIC_VARIABLES_NUMBER), stat=ierr)
    if (ierr /= 0) call mpih_fnl%error_stop(msg=': failed host allocation of buf_q_pic_R8P in prism_fnl_pic_object%initialize')
    allocate(self%buf_pic_fields_R8P(1:capacity,1:PIC_FIELDS_NUMBER), stat=ierr)
@@ -433,12 +456,8 @@ contains
 
    if (mpih_fnl%procs_number == 1_I4P .or. .not.associated(self%q_pic_gpu)) return
    capacity = size(self%q_pic_gpu, dim=1)
-   if (.not.associated(self%mig_index_gpu)) then
-      call dev_alloc(fptr_dev=self%mig_index_gpu, ubounds=[2*capacity], lbounds=[1], ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mig_index_gpu in migrate_particles_dev')
-      call dev_alloc(fptr_dev=self%mig_buffer_gpu, ubounds=[PIC_VARIABLES_NUMBER*capacity], lbounds=[1], ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mig_buffer_gpu in migrate_particles_dev')
-   endif
+   if (.not.associated(self%mig_index_gpu)) &
+      call mpih_fnl%error_stop(msg=': migrate_particles_dev without the migration buffers (allocated at initialize)')
    mig_index_gpu => self%mig_index_gpu
    mig_buffer_gpu => self%mig_buffer_gpu
    q_pic_gpu => self%q_pic_gpu

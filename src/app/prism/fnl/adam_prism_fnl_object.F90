@@ -16,6 +16,7 @@ use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 #endif
 ! third party modules
 use :: adam_ini_library, only : ini_check, ini_get
+use :: adam_prism_pic_bc_object, only : pic_periodic_axes
 use :: adam_stepper_object, only : LAYOUT_V_LAST, stepper_butcher_stages, stepper_stored_fields
 use :: finer, only : file_ini
 use :: fundal, save_memory_status_gpu=>save_memory_status
@@ -396,10 +397,10 @@ contains
    !< gather; `gather_gpu`, nv, with external fields). `reserved_memory`: the particle arrays, sized on the particle
    !< capacity of a rank, `[PIC].(particle_capacity_factor)` (`q_pic_gpu`, `pic_fields_gpu`, `neighbour_list_gpu`, the
    !< time scheme stages, the migration buffers, the conserving histories), and the virtual block of the conserving
-   !< current, the whole domain at the
-   !< finest uniform level (`h_gpu`, `work_a/b_gpu`, `line_gpu`, `jv_gpu`, the tail-cleanup arrays). Each term mirrors an
-   !< allocation of pic_fnl, the particles' companion and conserving_fnl: keep them in step. PML storage and the
-   !< runtime context are left to the `[amr].(memory_fraction)` headroom.
+   !< current, the whole domain at the finest uniform level. The bytes are those the objects allocate, from the functions
+   !< they allocate by (issue #130): `pic_fnl_device_bytes`, the SELAH registers of the particles' companion and
+   !< `conserving_layout%device_bytes`. PML storage and the runtime context are left to the `[amr].(memory_fraction)`
+   !< headroom.
    type(prism_physics_object), intent(in) :: physics         !< Physics (initialized).
    type(file_ini),          intent(inout) :: file_parameters !< Simulation parameters ini file handler.
    character(*),            intent(in)    :: rk_scheme       !< Runge-Kutta scheme (parsed by `ts`).
@@ -409,20 +410,17 @@ contains
    type(prism_pic_object)                 :: pic             !< PIC read from the input.
    type(prism_external_fields_object)     :: external_fields !< External fields read from the input.
    type(amr_object)                       :: amr             !< AMR markers read from the input.
+   type(prism_bc_object)                  :: bc              !< Field BCs read from the input (particle closure).
+   type(conserving_layout)                :: layout          !< Conserving current arrays.
    integer(I4P)                           :: nrk             !< Runge-Kutta stages.
    integer(I4P)                           :: ratio           !< AMR ratio.
    integer(I4P)                           :: levels          !< Initial uniform refinement levels.
    integer(I4P)                           :: n(3)            !< Virtual block cells (whole domain, finest level).
    integer(I4P)                           :: ngc             !< Ghost cells.
    logical                                :: conserving      !< Conserving current.
-   real(R8P)                              :: per_particle    !< Device bytes per particle.
-   real(R8P)                              :: cells           !< Virtual block interior cells.
-   real(R8P)                              :: cells_ghost     !< Virtual block cells with ghosts.
-   real(R8P)                              :: virtual_bytes   !< Device bytes of the virtual block.
-   ! per-particle widths of the device particle arrays, from prism_fnl_pic_object
-   real(R8P), parameter :: PARTICLE_VARIABLES  = real(PIC_VARIABLES_NUMBER, R8P)  !< q_pic_gpu, stages, migration, histories.
-   real(R8P), parameter :: PARTICLE_FIELDS     = real(PIC_FIELDS_NUMBER, R8P)     !< pic_fields_gpu.
-   real(R8P), parameter :: PARTICLE_NEIGHBOURS = real(PIC_NEIGHBOURS_NUMBER, R8P) !< neighbour_list_gpu (4-byte integers).
+   integer(I8P)                           :: particles_bytes !< Device bytes of the particle arrays.
+   integer(I8P)                           :: companion_bytes !< Device bytes of the particles' SELAH registers.
+   integer(I8P)                           :: virtual_bytes   !< Device bytes of the conserving current.
 
    reserved_memory = 0._R8P
    ! compute_fields_number counts curl and divergence (nv each) for both backends: FNL keeps them on the host only, and
@@ -446,20 +444,14 @@ contains
    nrk = max(1_I4P, stepper_butcher_stages(scheme=rk_scheme)) ! the field stages (the conserving current's history)
    conserving = trim(pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL
 
-   ! particle arrays (bytes per particle of capacity)
-   per_particle = 8._R8P*(PARTICLE_VARIABLES + PARTICLE_FIELDS) + 4._R8P*PARTICLE_NEIGHBOURS
-   if (mpih_fnl%procs_number > 1_I4P) per_particle = per_particle + 4._R8P*2 + 8._R8P*PARTICLE_VARIABLES ! migration
-   ! the particles' SELAH companion: its registers, a stage state and a residual per stage (#134 D5)
+   ! the particle arrays of pic_fnl, at the capacity of a rank
+   particles_bytes = pic_fnl_device_bytes(capacity=pic%particle_capacity, ranks=mpih_fnl%procs_number)
+   ! the particles' SELAH companion: its registers, as many as SELAH allocates for the scheme (#134 D5)
+   companion_bytes = 0_I8P
    if (pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-      per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*max(1_I4P, stepper_stored_fields(scheme=rk_scheme))
-   if (conserving) then
-      per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*2                               ! q_next, q_ref
-      if (pic%esirkepov_tail_cleanup) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES*nrk ! q_hist
-      if (mod(pic%esirkepov_q, 2_I4P) == 1_I4P) per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES ! q_mixed
-      if (pic%matched_gather() .and. mod(pic%gather_q, 2_I4P) == 1_I4P) &
-         per_particle = per_particle + 8._R8P*PARTICLE_VARIABLES                              ! q_dual
-   endif
-   reserved_memory = per_particle*real(pic%particle_capacity, R8P) ! the arrays capacity of a rank
+      companion_bytes = 8_I8P*int(pic%particle_capacity, I8P)*int(PIC_VARIABLES_NUMBER, I8P)* &
+                        int(max(1_I4P, stepper_stored_fields(scheme=rk_scheme)), I8P)
+   virtual_bytes = 0_I8P
 
    if (conserving) then
       ! virtual block: the whole domain at the finest uniform level, on every rank
@@ -472,19 +464,21 @@ contains
       if (ratio >= 4_I4P) n(2) = n(2)*2**levels
       if (ratio >= 8_I4P) n(3) = n(3)*2**levels
       ngc = grid%ngc
-      cells = product(real(n, R8P))
-      cells_ghost = product(real(n + 2*ngc, R8P))
-      virtual_bytes = 8._R8P*((3._R8P*nrk + 2._R8P)*cells + product(real(n + 1, R8P)) + 3._R8P*cells_ghost)
-      if (pic%esirkepov_tail_cleanup) virtual_bytes = virtual_bytes + 8._R8P*(3._R8P*cells_ghost + 3._R8P*(1 + nrk)*cells)
-      reserved_memory = reserved_memory + virtual_bytes
+      ! the particle closure from the field BCs, by the rule of pic%bc
+      call bc%load_from_file(file_parameters=file_parameters)
+      layout = conserving_layout_from(pic=pic, periodic=pic_periodic_axes(bc%bc_type), n=n, ngc=ngc, nrk=nrk, &
+                                      ranks=mpih_fnl%procs_number)
+      virtual_bytes = layout%device_bytes()
       ! gather fields on the block slots
       if (pic%matched_gather()) extra_fields = extra_fields + 6_I4P
       call external_fields%load_from_file(file_parameters=file_parameters)
       if (external_fields%ef_type /= EF_TYPE_NONE) extra_fields = extra_fields + physics%nv
    endif
-   reserved_memory = reserved_memory/1e9_R8P
+   reserved_memory = real(particles_bytes + companion_bytes + virtual_bytes, R8P)/1e9_R8P
    call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(pic%particle_capacity, .true.))// &
-                               ' particles (capacity) x '//trim(str(per_particle))//' B, total '//trim(str(reserved_memory))// &
+                               ' particles (capacity): particles '//trim(str(real(particles_bytes, R8P)/1e9_R8P))// &
+                               ' GB, companion '//trim(str(real(companion_bytes, R8P)/1e9_R8P))//' GB, conserving '// &
+                               trim(str(real(virtual_bytes, R8P)/1e9_R8P))//' GB, total '//trim(str(reserved_memory))// &
                                ' GB reserved, '//trim(str(extra_fields))//' block fields with respect to '// &
                                'compute_fields_number')
    endsubroutine estimate_backend_memory_fnl

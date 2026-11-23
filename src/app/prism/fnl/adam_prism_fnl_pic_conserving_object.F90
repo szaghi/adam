@@ -52,12 +52,12 @@ private
 public :: prism_fnl_pic_conserving_object
 public :: CONSERVING_SOLVER_LONDRILLO
 public :: CONSERVING_SOLVER_MODIFIED
+public :: conserving_layout
+public :: conserving_layout_from
 
 ! host staging of reduce_virtual, kept between the calls and grown to the largest virtual array (issue #112: 46 calls per
 ! SSP54 step used to allocate and free a whole-domain host buffer each); one per process, the calls are sequential
 real(R8P), allocatable, target, save :: virtual_host_buffer(:)
-! device packing of a boxed reduce_virtual (issue #111), grown to the largest box like the host staging
-real(R8P), pointer, save :: virtual_pack_gpu(:) => null()
 
 integer(I4P), parameter :: CONSERVING_SOLVER_LONDRILLO = 2_I4P !< Esirkepov face fluxes + inverse reconstruction.
 integer(I4P), parameter :: CONSERVING_SOLVER_MODIFIED  = 3_I4P !< Matched current, totorica or esirkepov_Q<N> (P/Q kernels).
@@ -85,6 +85,26 @@ integer(I4P), parameter :: ERR_PU       = 8_I4P !< B-spline weights do not sum t
 
 real(R8P), parameter :: TAU_TAIL = 1.e-11_R8P !< Relative tail threshold of the particle current cleanup (CPU twin).
 real(R8P), parameter :: TAU_PU   = 1.e-10_R8P !< Max |raw B-spline weight sum - 1| before the closure (CPU twin).
+
+type :: conserving_layout
+   !< The device arrays of the conserving current outside the block slots, decided from the input alone (issue #130): the
+   !< object allocates from it and the blocks budget reserves its device_bytes before the grid exists, so the allocations
+   !< and the reserve cannot drift apart. Every condition on an allocation lives here.
+   integer(I4P) :: n(3)          = 0_I4P   !< Virtual block cells (whole domain, finest uniform level).
+   integer(I4P) :: ngc           = 0_I4P   !< Ghost cells.
+   integer(I4P) :: nrk           = 0_I4P   !< Field stages.
+   integer(I4P) :: capacity      = 0_I4P   !< Particle capacity of a rank.
+   logical      :: londrillo     = .false. !< Londrillo line solves: factored line matrices.
+   logical      :: box_current   = .false. !< Matched current per particle on its box (periodic faces): no line scratch.
+   logical      :: tail_cleanup  = .false. !< Per-particle tail cleanup: stage targets history and single-particle sources.
+   logical      :: shifted       = .false. !< Odd esirkepov_Q<N>: rho deposited from shifted positions.
+   logical      :: dual          = .false. !< Coherent gather of an odd Q: the particles at x-dx/2.
+   logical      :: boxed_reduce  = .false. !< Multi-rank sums of the particle box: device packing buffer.
+   contains
+      procedure, pass(self) :: cells        !< Virtual block interior cells.
+      procedure, pass(self) :: pack_values  !< Values of the packing buffer of the boxed sums.
+      procedure, pass(self) :: device_bytes !< Device bytes of the arrays outside the block slots.
+endtype conserving_layout
 
 type :: prism_fnl_pic_conserving_object
    !< Charge-conserving PIC current, device state and kernels.
@@ -127,6 +147,7 @@ type :: prism_fnl_pic_conserving_object
    integer(I4P) :: vbox_lo(3) = 1_I4P    !< Particle box of the boxed reduce_virtual, lower virtual cells (issue #111).
    integer(I4P) :: vbox_hi(3) = 0_I4P    !< Particle box of the boxed reduce_virtual, upper virtual cells.
    logical      :: vbox_empty = .true.   !< No rank holds particles: a boxed reduce_virtual has nothing to sum.
+   type(conserving_layout) :: layout     !< The device arrays outside the block slots (issue #130).
    ! device data
    integer(I4P), pointer :: off_gpu(:,:)              => null() !< Real block origin in the virtual block, cells [bnb,3].
    real(R8P),    pointer :: vx_gpu(:)                 => null() !< Virtual x cell centers [NX].
@@ -158,6 +179,7 @@ type :: prism_fnl_pic_conserving_object
    integer(I4P), pointer :: piv_x_gpu(:,:)            => null() !< x-line pivots [ni,nb].
    integer(I4P), pointer :: piv_y_gpu(:,:)            => null() !< y-line pivots [nj,nb].
    integer(I4P), pointer :: piv_z_gpu(:,:)            => null() !< z-line pivots [nk,nb].
+   real(R8P),    pointer :: pack_gpu(:)               => null() !< Packed particle box of the boxed reduce_virtual (#111).
    contains
       procedure, pass(self) :: destroy                     !< Free device data.
       procedure, pass(self) :: initialize                  !< Initialize from host configuration.
@@ -193,6 +215,76 @@ type :: prism_fnl_pic_conserving_object
 endtype prism_fnl_pic_conserving_object
 
 contains
+   ! conserving_layout
+   function conserving_layout_from(pic, periodic, n, ngc, nrk, ranks) result(layout)
+   !< The device arrays of the conserving current outside the block slots, from the input (issue #130): the blocks budget
+   !< calls it before the grid exists, the object at its initialization on the virtual block it built.
+   type(prism_pic_object), intent(in) :: pic         !< Host PIC object (input loaded, particle capacity set).
+   logical,                intent(in) :: periodic(3) !< Periodic particle closure along each axis.
+   integer(I4P),           intent(in) :: n(3)        !< Virtual block cells (whole domain, finest uniform level).
+   integer(I4P),           intent(in) :: ngc         !< Ghost cells.
+   integer(I4P),           intent(in) :: nrk         !< Field stages.
+   integer(I4P),           intent(in) :: ranks       !< MPI processes.
+   type(conserving_layout)            :: layout      !< Layout.
+
+   layout%n            = n
+   layout%ngc          = ngc
+   layout%nrk          = nrk
+   layout%capacity     = pic%particle_capacity
+   layout%londrillo    = trim(pic%current_conserving_solver) == LONDRILLO_CURRENT_CONSERVING_SOLVER
+   layout%box_current  = any(periodic)
+   layout%tail_cleanup = pic%esirkepov_tail_cleanup
+   layout%shifted      = (.not.layout%londrillo) .and. mod(pic%esirkepov_q, 2_I4P) == 1_I4P
+   layout%dual         = pic%matched_gather() .and. mod(pic%gather_q, 2_I4P) == 1_I4P
+   ! the boxed sums: the matched current and charge on the particle boxes, and the coherent gather
+   layout%boxed_reduce = ranks > 1_I4P .and. (layout%box_current .or. pic%matched_gather())
+   endfunction conserving_layout_from
+
+   pure function cells(self) result(c)
+   !< Virtual block interior cells.
+   class(conserving_layout), intent(in) :: self !< Layout.
+   integer(I8P)                         :: c    !< Cells.
+
+   c = product(int(self%n, I8P))
+   endfunction cells
+
+   pure function pack_values(self) result(n)
+   !< Values of the packing buffer of the boxed sums: reduce_virtual4/5 pack a box of at most half of an interior array.
+   class(conserving_layout), intent(in) :: self !< Layout.
+   integer(I4P)                         :: n    !< Values.
+
+   n = int(self%cells()/2_I8P, I4P)
+   endfunction pack_values
+
+   pure function device_bytes(self) result(bytes)
+   !< Device bytes of the conserving current outside the block slots, array by array as initialize, prepare and
+   !< initialize_coherent_gather allocate them (the kernels and the virtual geometry, below a few KB, left out).
+   class(conserving_layout), intent(in) :: self  !< Layout.
+   integer(I8P)                         :: bytes !< Bytes.
+   integer(I8P)                         :: c, cg, cap, nrk, n(3), pv
+
+   c   = self%cells()
+   cg  = product(int(self%n + 2*self%ngc, I8P))
+   cap = int(self%capacity, I8P)
+   nrk = int(self%nrk, I8P)
+   n   = int(self%n, I8P)
+   pv  = int(PIC_VARIABLES_NUMBER, I8P)
+   bytes = 8_I8P*((3_I8P*nrk + 3_I8P + 2_I8P)*c + 3_I8P*cg)                      ! h, hs, work_a/b, jv
+   if (.not.self%box_current) bytes = bytes + 8_I8P*product(n + 1_I8P)           ! line
+   if (cap > 0_I8P) then
+      bytes = bytes + 8_I8P*pv*cap*2_I8P                                         ! q_next, q_ref
+      if (self%tail_cleanup) bytes = bytes + 8_I8P*pv*cap*nrk                    ! q_hist
+      if (self%shifted)      bytes = bytes + 8_I8P*pv*cap                        ! q_mixed
+      if (self%dual)         bytes = bytes + 8_I8P*pv*cap                        ! q_dual
+   endif
+   if (self%tail_cleanup) then
+      bytes = bytes + 8_I8P*3_I8P*cg                                             ! jp
+      if (cap > 1_I8P) bytes = bytes + 8_I8P*3_I8P*(1_I8P + nrk)*c               ! src, src_stage
+   endif
+   if (self%londrillo) bytes = bytes + 8_I8P*sum(n*n) + 4_I8P*sum(n)             ! mat, piv
+   if (self%boxed_reduce) bytes = bytes + 8_I8P*int(self%pack_values(), I8P)     ! pack
+   endfunction device_bytes
+
    ! public methods
    subroutine destroy(self)
    !< Free device data owned by this object.
@@ -228,6 +320,7 @@ contains
    call free_i2(self%piv_x_gpu)
    call free_i2(self%piv_y_gpu)
    call free_i2(self%piv_z_gpu)
+   call free_r1(self%pack_gpu)
    self%enabled  = .false.
    self%prepared = .false.
    self%coherent = .false.
@@ -316,6 +409,9 @@ contains
    self%particle_number = min(pic%particle_number, self%particle_capacity)
    self%particle_number_global = pic%particle_number_global
    np = self%particle_capacity ; ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc
+   ! what is allocated below: the layout the blocks budget reserved, on the virtual block actually built
+   self%layout = conserving_layout_from(pic=pic, periodic=pic%bc%is_periodic, n=[ni, nj, nk], ngc=ngc, nrk=nrk, &
+                                        ranks=mpih%procs_number)
 
    if (self%tail_cleanup .and. self%solver /= CONSERVING_SOLVER_MODIFIED) &
       call mpih%error_stop(msg=': esirkepov_tail_cleanup requires totorica or an esirkepov_Q<N> solver')
@@ -328,8 +424,8 @@ contains
       if (self%tail_cleanup) &
          call mpih%error_stop(msg=': esirkepov_tail_cleanup does not support periodic faces (and the matched current '// &
                                   'built on the trajectory boxes has no tails: disable it)')
-      self%box_current = .true.
    endif
+   self%box_current = self%layout%box_current
    if (self%shape == SHAPE_GAUSSIAN) then
       if (self%sigma <= 0._R8P .or. self%cutoff_sigma <= 0._R8P .or. self%gaussian_support_cells < 0_I4P) &
          call mpih%error_stop(msg=': invalid Gaussian width, cutoff or support in Esirkepov current')
@@ -346,7 +442,7 @@ contains
                                qfirst=self%qfirst, nq=self%nq)
       endif
       ! odd Q: the base shape lives on the dual nodes x_c+dx/2, i.e. the regular shape of the particle at x-dx/2
-      if (mod(self%esirkepov_q, 2_I4P) == 1_I4P) self%shift = 0.5_R8P*self%vdx
+      if (self%layout%shifted) self%shift = 0.5_R8P*self%vdx
       ! uploaded 1-based: p_gpu(s+8) = p(s), qw_gpu(t+1) = qw(t)
       call dev_assign_to_device(src=[self%p],  dst=self%p_gpu)
       call dev_assign_to_device(src=[self%qw], dst=self%qw_gpu)
@@ -364,7 +460,7 @@ contains
    call alloc_r4(self%work_a_gpu, [1,ni,nj,nk], 'work_a_gpu')
    call alloc_r4(self%work_b_gpu, [1,ni,nj,nk], 'work_b_gpu')
    ! the line scratch serves the line solves and scans of the non-periodic path only (issue #112)
-   if (.not.self%box_current) then
+   if (.not.self%layout%box_current) then
       nl = (ni+1)*(nj+1)*(nk+1)
       call dev_alloc(fptr_dev=self%line_gpu, ubounds=[nl], lbounds=[1], init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate line_gpu in prism_fnl_pic_conserving_object')
@@ -373,17 +469,23 @@ contains
       call alloc_r2(self%q_next_gpu,  [np,PIC_VARIABLES_NUMBER], 'q_next_gpu')
       call alloc_r2(self%q_ref_gpu,   [np,PIC_VARIABLES_NUMBER], 'q_ref_gpu')
       ! stage targets history: read only by the tail cleanup (issue #112: 8 nrk doubles per particle otherwise unused)
-      if (self%tail_cleanup) call alloc_r3(self%q_hist_gpu,  [np,PIC_VARIABLES_NUMBER,nrk], 'q_hist_gpu')
+      if (self%layout%tail_cleanup) call alloc_r3(self%q_hist_gpu,  [np,PIC_VARIABLES_NUMBER,nrk], 'q_hist_gpu')
       ! odd esirkepov_Q: shifted positions of the rho deposit
-      if (any(self%shift /= 0._R8P)) call alloc_r2(self%q_mixed_gpu, [np,PIC_VARIABLES_NUMBER], 'q_mixed_gpu')
+      if (self%layout%shifted) call alloc_r2(self%q_mixed_gpu, [np,PIC_VARIABLES_NUMBER], 'q_mixed_gpu')
    endif
    call alloc_r5(self%jv_gpu, [1,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jv_gpu')
-   if (self%tail_cleanup) then
+   if (self%layout%tail_cleanup) then
       call alloc_r5(self%jp_gpu, [1,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jp_gpu')
       if (np > 1_I4P) then
          call alloc_r5(self%src_gpu, [1,ni,nj,nk,3], [1,1,1,1,1], 'src_gpu')
          call alloc_r6(self%src_stage_gpu, [1,ni,nj,nk,3,nrk], [1,1,1,1,1,1], 'src_stage_gpu')
       endif
+   endif
+   ! the packing of the boxed sums at its largest, a box of half the virtual block (reduce_virtual4/5 sum a larger box
+   ! whole): allocated here, never during the run (issue #130)
+   if (self%layout%boxed_reduce) then
+      call dev_alloc(fptr_dev=self%pack_gpu, ubounds=[self%layout%pack_values()], lbounds=[1], ierr=ierr)
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate pack_gpu in prism_fnl_pic_conserving_object')
    endif
    contains
       subroutine alloc_r2(a, ub, label)
@@ -442,7 +544,7 @@ contains
    call self%build_virtual_geometry(field=field, grid=grid)
    if (any([self%ni, self%nj, self%nk] /= nvirt)) &
       call mpih%error_stop(msg=': the FNL conserving PIC virtual block changed size (refinement level change is unsupported)')
-   if (self%solver /= CONSERVING_SOLVER_MODIFIED) then
+   if (self%layout%londrillo) then
       do dir=1, 3
          select case(dir)
          case(1) ; n = self%ni
@@ -499,13 +601,13 @@ contains
    self%coherent = .true.
    self%gradius  = pic%gather_radius
    self%gshift   = 0._R8P
-   if (pic%gather_dual) self%gshift = 0.5_R8P*self%vdx
+   if (self%layout%dual) self%gshift = 0.5_R8P*self%vdx
    ! uploaded 1-based: gp_gpu(s+8) = gather_p(s)
    call dev_assign_to_device(src=[pic%gather_p], dst=self%gp_gpu)
    call dev_alloc(fptr_dev=self%gq_gpu, ubounds=[self%bnb,self%bni+self%ngc,self%bnj+self%ngc,self%bnk+self%ngc,6], &
                   lbounds=[1,1-self%ngc,1-self%ngc,1-self%ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gq_gpu in prism_fnl_pic_conserving_object')
-   if (self%particle_capacity > 0_I4P .and. any(self%gshift /= 0._R8P)) then
+   if (self%particle_capacity > 0_I4P .and. self%layout%dual) then
       call dev_alloc(fptr_dev=self%q_dual_gpu, ubounds=[self%particle_capacity,PIC_VARIABLES_NUMBER], lbounds=[1,1], &
                      init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_dual_gpu in prism_fnl_pic_conserving_object')
@@ -1865,7 +1967,7 @@ contains
    if (boxed_) then
       if (self%vbox_empty) return
       if (2_I8P*product(int(self%vbox_hi - self%vbox_lo + 1_I4P, I8P)) <= size(a, kind=I8P)) then
-         call reduce_virtual_box(lo=self%vbox_lo, hi=self%vbox_hi, a=a)
+         call reduce_virtual_box(lo=self%vbox_lo, hi=self%vbox_hi, a=a, pack=self%pack_gpu)
          return
       endif
    endif
@@ -1891,7 +1993,7 @@ contains
       if (self%vbox_empty) return
       if (2_I8P*product(int(self%vbox_hi - self%vbox_lo + 1_I4P, I8P)) <= size(a, kind=I8P)/size(a, 5, kind=I8P)) then
          do c=1, size(a, 5)
-            call reduce_virtual_box(lo=self%vbox_lo, hi=self%vbox_hi, a=a(:,:,:,:,c))
+            call reduce_virtual_box(lo=self%vbox_lo, hi=self%vbox_hi, a=a(:,:,:,:,c), pack=self%pack_gpu)
          enddo
          return
       endif
@@ -1963,21 +2065,24 @@ contains
    enddo
    endsubroutine set_particle_box
 
-   subroutine reduce_virtual_box(lo, hi, a)
+   subroutine reduce_virtual_box(lo, hi, a, pack)
    !< Sum the box lo:hi of a rank-4 virtual-block device array over the ranks, in place: packed on the device, staged
    !< through the host as reduce_virtual4, unpacked. Collective.
-   integer(I4P), intent(in)    :: lo(3)      !< Box lower virtual cells.
-   integer(I4P), intent(in)    :: hi(3)      !< Box upper virtual cells.
-   real(R8P),    intent(inout) :: a(:,:,:,:) !< Device array [1,NX,NY,NZ].
-   real(R8P),    pointer       :: pk(:)
-   integer(I4P)                :: i, j, k, l1, l2, l3, n1, n2, n3, n
+   integer(I4P), intent(in)             :: lo(3)      !< Box lower virtual cells.
+   integer(I4P), intent(in)             :: hi(3)      !< Box upper virtual cells.
+   real(R8P),    intent(inout)          :: a(:,:,:,:) !< Device array [1,NX,NY,NZ].
+   real(R8P),    intent(in),    pointer :: pack(:)    !< Device packing buffer, at least half of a (conserving_layout).
+   real(R8P),    pointer                :: pk(:)
+   integer(I4P)                         :: i, j, k, l1, l2, l3, n1, n2, n3, n
 
    l1 = lo(1) ; l2 = lo(2) ; l3 = lo(3)
    n1 = hi(1) - lo(1) + 1_I4P ; n2 = hi(2) - lo(2) + 1_I4P ; n3 = hi(3) - lo(3) + 1_I4P
    n = n1*n2*n3
-   call grow_virtual_pack_buffer(n=n)
+   if (.not.associated(pack)) call mpih%error_stop(msg=': reduce_virtual_box without its packing buffer (conserving_layout)')
+   if (n > size(pack)) call mpih%error_stop(msg=': reduce_virtual_box: a box of '//trim(str(n))// &
+                                               ' cells exceeds the packing buffer ('//trim(str(size(pack)))//')')
    call grow_virtual_host_buffer(n=int(n, I8P))
-   pk => virtual_pack_gpu
+   pk => pack
    !$acc parallel loop independent gang vector collapse(3) DEVICEVAR(a,pk) firstprivate(l1,l2,l3,n1,n2)
    !$omp OMPLOOP collapse(3) DEVICEPTR(a,pk) firstprivate(l1,l2,l3,n1,n2)
    do k=1, n3
@@ -2000,20 +2105,6 @@ contains
    enddo
    enddo
    endsubroutine reduce_virtual_box
-
-   subroutine grow_virtual_pack_buffer(n)
-   !< Grow the device packing buffer of reduce_virtual_box to n values at least (it never shrinks).
-   integer(I4P), intent(in) :: n    !< Values needed.
-   integer(I4P)             :: ierr !< Error status.
-
-   if (associated(virtual_pack_gpu)) then
-      if (size(virtual_pack_gpu) >= n) return
-      call dev_free(virtual_pack_gpu, mydev)
-      nullify(virtual_pack_gpu)
-   endif
-   call dev_alloc(fptr_dev=virtual_pack_gpu, ubounds=[n], lbounds=[1], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate the reduce_virtual packing buffer')
-   endsubroutine grow_virtual_pack_buffer
 
    subroutine grow_virtual_host_buffer(n)
    !< Grow the host staging buffer of reduce_virtual to n values at least (it never shrinks).

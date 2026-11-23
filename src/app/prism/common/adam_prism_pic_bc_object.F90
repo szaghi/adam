@@ -30,6 +30,7 @@ private
 public :: prism_pic_bc_object
 public :: PIC_BC_LEGACY
 public :: PIC_BC_PERIODIC
+public :: pic_periodic_axes
 
 integer(I4P), parameter :: PIC_BC_LEGACY   = 0_I4P !< No particle closure: particles must stay far from the face.
 integer(I4P), parameter :: PIC_BC_PERIODIC = 1_I4P !< Periodic particle closure.
@@ -52,6 +53,18 @@ type :: prism_pic_bc_object
 endtype prism_pic_bc_object
 
 contains
+   pure function pic_periodic_axes(bc_type) result(periodic)
+   !< Axes with the periodic particle closure, from the field BC types of the six faces: a periodic field face. The one
+   !< rule, read by initialize and by the FNL memory budget before the grid exists (issue #130).
+   integer(I4P), intent(in) :: bc_type(6)  !< Field BC types of the faces (x-, x+, y-, y+, z-, z+).
+   logical                  :: periodic(3) !< Periodic closure along each axis.
+   integer(I4P)             :: d           !< Counter.
+
+   do d=1, 3
+      periodic(d) = bc_type(2*d-1) == BC_PERIODIC
+   enddo
+   endfunction pic_periodic_axes
+
    ! public methods
    pure function description(self, prefix) result(desc)
    !< Return a pretty-formatted object description.
@@ -94,9 +107,7 @@ contains
                                   FACE_NAMES(f)//']')
       endselect
    enddo
-   do f=1, 3
-      self%is_periodic(f) = self%pic_bc_type(2*f-1) == PIC_BC_PERIODIC
-   enddo
+   self%is_periodic = pic_periodic_axes(grid%bc_type)
    self%domain_emin = grid%domain_emin
    self%domain_emax = grid%domain_emax
    self%domain_length = grid%domain_emax - grid%domain_emin
