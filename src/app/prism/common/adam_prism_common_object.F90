@@ -1383,7 +1383,7 @@ contains
          call self%probes%build_stencils(grid=self%adam%grid, field=self%adam%field, ni=self%ni, nj=self%nj, &
                                          nk=self%nk, blocks_number=self%blocks_number)
          call self%sync_probes
-         call self%probes%open_files(q_name=self%q_name)
+         call self%probes%open_files(q_name=self%q_name, restarted_at=self%restarted_at)
       endif
    endif
    if (.not.self%time%is_to_save(cadence=self%probes%save_every)) return
