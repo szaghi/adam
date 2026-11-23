@@ -135,9 +135,9 @@ python3 "$CASE_DIR/make_profile.py" "$SIZE" "$WORK/input.ini" --steps "$STEPS" $
         --scheme "$SCHEME" --realms "$REALMS"
 if [[ $IO -eq 1 ]]; then
    if [[ $REALMS -eq 2 ]]; then
-      for ini in "$WORK"/input-r[12].ini; do python3 "$SPEEDUP_DIR/make_inputs.py" set "$ini" "IO.it_save=$STEPS"; done
+      for ini in "$WORK"/input-r[12].ini; do python3 "$SPEEDUP_DIR/ini_set.py" "$ini" "IO.it_save=$STEPS"; done
    else
-      python3 "$SPEEDUP_DIR/make_inputs.py" set "$WORK/input.ini" "IO.it_save=$STEPS"
+      python3 "$SPEEDUP_DIR/ini_set.py" "$WORK/input.ini" "IO.it_save=$STEPS"
    fi
 fi
 {

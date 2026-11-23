@@ -5,7 +5,8 @@
 # apps share obj/mod per compiler, and an incremental build after a library change has left stale .mod files before),
 # copies the executable to exe/<leg>/ so that a later build of another mode cannot replace it under a running matrix
 # (both FNL legs build exe/adam_flume_fnl), and writes builds/<leg>/build.txt (the full fobis log) and
-# builds/<leg>/toolchain.md (versions, varset, flags, commit, executable digest), which every case README embeds.
+# builds/<leg>/toolchain.md (versions, varset, flags, commit, executable digest), for the case READMEs of the matrix
+# harness (issue #133 phase 3) to embed.
 #
 # Legs:
 #   cpu      flume-cpu-gnu       gfortran + Open MPI, MPI only          e.g. --varset iac_gnu (medooza), local_gnu (WSL)
@@ -16,9 +17,9 @@
 # script records whatever is on PATH.
 #
 # Variants (profiling experiments, never the matrix legs): --tag NAME builds into exe/<leg>-<NAME>/ and records into
-# builds/<leg>-<NAME>/, and leaves the case READMEs alone, so a variant never replaces the executable or the toolchain
-# record of a leg. --gpu OPTS (fnl-nvf only, needs --tag) appends -gpu=OPTS to the compile and link lines of the mode
-# (fobis appends --cflags/--lflags to the mode's flags; nvfortran merges the -gpu= options), e.g. --gpu lto or
+# builds/<leg>-<NAME>/, so a variant never replaces the executable or the toolchain record of a leg. --gpu OPTS
+# (fnl-nvf only, needs --tag) appends -gpu=OPTS to the compile and link lines of the mode (fobis appends
+# --cflags/--lflags to the mode's flags; nvfortran merges the -gpu= options), e.g. --gpu lto or
 # --gpu maxregcount:128: the fobos files and the default build stay as they are. --gpu refuses --no-clean (objects
 # keep the flags they were compiled with). The options of this script are checked before the clean.
 #
@@ -140,6 +141,4 @@ first_line() { "$@" 2>&1 | grep -m1 -v '^\s*$' || true; }
    echo "| Executable | \`exe/$NAME/$EXE\`, sha256 \`$(sha256sum "$SPEEDUP_DIR/exe/$NAME/$EXE" | cut -c1-16)\` |"
 } > "$OUT/toolchain.md"
 
-# a variant is not a matrix leg: the case READMEs embed the toolchain of the legs only
-if [[ -z $TAG ]]; then python3 "$SPEEDUP_DIR/make_inputs.py" readmes; fi
 echo "build.sh: $MODE built in ${seconds} s -> $SPEEDUP_DIR/exe/$NAME/$EXE; toolchain in $OUT/toolchain.md"

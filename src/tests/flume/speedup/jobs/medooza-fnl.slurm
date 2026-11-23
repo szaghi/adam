@@ -1,11 +1,10 @@
 #!/bin/bash
-# FLUME speedup matrix, FNL OpenACC leg on medooza: one node, one MPI rank per A30 GPU.
+# FLUME speedup matrix, FNL OpenACC backend (fnl-nvf) on medooza: a PLACEHOLDER, it stops before running anything.
 #
-#   cd ~/adam/src/tests/flume/speedup && sbatch jobs/medooza-fnl.slurm [run.sh options]
-#   one GPU instead of four: sbatch --gres=gpu:1 --ntasks-per-node=1 jobs/medooza-fnl.slurm
-# Build first on the login node: source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh && ./build.sh fnl-nvf --varset iac_nvf
-# dev-gn until the prod-gn drivers are updated (gnode20 runs driver 545, which the NVHPC 26.9 HPC-X cannot use); its
-# limit is 1 h, so split the matrix with --cases when the grid is large.
+# The stale matrix this job ran (16 shock-over-a-body cases, run.sh) was removed in issue #133 phase 0. The job of
+# the new matrix (warm-up, settle, repartition, windows) is written in phase 3 (step 3.5). Until then the file keeps
+# its name and the shape of a medooza job (Slurm header, toolchain, environment), which docs/cookbook/clusters.md
+# cites. See ../README.md and #133.
 #SBATCH --job-name=flume-speedup-fnl
 #SBATCH --account=iacroma
 #SBATCH --partition=dev-gn
@@ -18,4 +17,5 @@
 set -euo pipefail
 source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
-./run.sh fnl-nvf --np "$SLURM_NTASKS" --launcher "srun --mpi=pmix -n" "$@"
+echo "jobs/medooza-fnl.slurm: the speedup matrix harness does not exist yet (issue #133 phase 3)" >&2
+exit 2

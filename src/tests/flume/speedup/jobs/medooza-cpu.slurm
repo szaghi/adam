@@ -1,10 +1,10 @@
 #!/bin/bash
-# FLUME speedup matrix, CPU leg on medooza: whole nodes, one MPI rank per core.
+# FLUME speedup matrix, CPU backend (cpu) on medooza: a PLACEHOLDER, it stops before running anything.
 #
-# Set the rank count at submission, e.g. one full node:
-#   cd ~/adam/src/tests/flume/speedup && sbatch --ntasks=<cores of a node> jobs/medooza-cpu.slurm [run.sh options]
-# Build first on the login node: source /ifs/hpc/home/szaghi/gnu/gnu.sh && ./build.sh cpu --varset iac_gnu
-# Submit from the speedup directory: run.sh writes data/ and full/ next to the cases.
+# The stale matrix this job ran (16 shock-over-a-body cases, run.sh) was removed in issue #133 phase 0. The job of
+# the new matrix (warm-up, settle, repartition, windows) is written in phase 3 (step 3.5). Until then the file keeps
+# its name and the shape of a medooza job (Slurm header, toolchain, environment), which docs/cookbook/clusters.md
+# cites. See ../README.md and #133.
 #SBATCH --job-name=flume-speedup-cpu
 #SBATCH --account=iacroma
 #SBATCH --partition=prod-gn
@@ -16,4 +16,5 @@
 set -euo pipefail
 source /ifs/hpc/home/szaghi/gnu/gnu.sh
 export OMPI_MCA_coll_hcoll_enable=0 # hcoll segfaults in MPI_Finalize on the compute nodes (exit 139)
-./run.sh cpu --np "$SLURM_NTASKS" --launcher "srun --mpi=pmix --cpu-bind=cores -n" "$@"
+echo "jobs/medooza-cpu.slurm: the speedup matrix harness does not exist yet (issue #133 phase 3)" >&2
+exit 2

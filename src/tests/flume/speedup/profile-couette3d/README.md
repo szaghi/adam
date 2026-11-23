@@ -2,8 +2,8 @@
 
 A case for **profiling** FLUME and the ADAM library, not for speedup measurements or verification: one short,
 steady, reproducible run that goes through the main regions of the code, on WSL, on medooza and on the AMD node. It is
-outside the speedup matrix (`../run.sh` and `../analyze.sh` ignore it) and shares only its executables: the builds
-of FLUME that `../build.sh` makes, one per backend and compiler, called legs (`cpu`, `fnl-nvf`, `fnl-amd`; see
+outside the speedup matrix ([`../README.md`](../README.md), issue #133) and shares only its executables: the builds
+of FLUME that `../build.sh` makes, one per backend and compiler, called legs here (`cpu`, `fnl-nvf`, `fnl-amd`; see
 [Run](#run)).
 
 ## The flow
@@ -85,9 +85,10 @@ rank 0.
 
 ### Legs: which build of FLUME runs
 
-A **leg** is one build of FLUME for one backend and compiler, named by a short word. The speedup matrix (`..`) and
-this profiling case use the same three legs. The leg is the first argument of both scripts: `../build.sh <leg>` builds
-it and keeps its executable in `../exe/<leg>/`, and `./profile.sh <leg>` runs that executable.
+A **leg** is one build of FLUME for one backend and compiler, named by a short word. The speedup matrix (`..`) uses
+the same three builds and calls them *backends* (a matrix leg is a flow, #133 D5). The leg is the first argument of
+both scripts: `../build.sh <leg>` builds it and keeps its executable in `../exe/<leg>/`, and `./profile.sh <leg>`
+runs that executable.
 
 | Leg | What runs | fobis mode | Machines | Executable |
 |---|---|---|---|---|

@@ -1,10 +1,13 @@
 # executables kept by build.sh
 exe/
-# restart dumps and checkpoints: large, rebuilt by run.sh (timings.csv, run.info, result.md and the logs are kept)
+# restart dumps and checkpoints: large, rebuilt by the matrix harness (issue #133 phases 1 and 3)
 *.fbd
 *.tnd
 *.time
 *.reference
+*.wmf
+*.sinks
+*.dff
 *.h5
 *.xdmf
 # Slurm job output
