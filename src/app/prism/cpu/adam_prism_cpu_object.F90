@@ -1418,7 +1418,8 @@ contains
                                                     is_to_open=.true., do_write=.false.)
    call self%io%open_file_residuals(nv=self%nv)
    if (self%plasma_freq%active) then
-      call self%compute_plasma_frequencies
+      ! on restart the particle terms are those of the restart file (issue #129, R7): only the cell term from the restored map
+      call self%compute_plasma_frequencies(particles=.not.self%io%restart)
       call mpih%print_message(self%plasma_freq%description())
    endif
    endsubroutine post_initial_state_forest
@@ -1890,8 +1891,9 @@ contains
    call self%save_divergence_history(div_D=max_div_D, div_B=max_div_B, div_J=max_div_J, &
                                      current_solver_residual=current_residual)
    call self%save_charge_conservation_diagnostic
-   ! plasma frequencies of the state just reached: they limit the next step
-   if (self%plasma_freq%active) call self%compute_plasma_frequencies
+   ! plasma frequencies of the state just reached: they limit the next step (the particle terms were taken at the end of
+   ! the step, before the wrap and the migration, issue #129 R7)
+   if (self%plasma_freq%active) call self%compute_plasma_frequencies(particles=.false.)
    endsubroutine post_step_forest
 
    subroutine is_done_forest(self, done)
@@ -1976,15 +1978,25 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
    endsubroutine compute_dt
 
-   subroutine compute_plasma_frequencies(self)
+   subroutine compute_plasma_frequencies(self, particles, cells)
    !< Maxima of the plasma frequencies over the cells and the particles (collective): they limit the next PIC step.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   !< `particles` (Omega_c, transit: q_pic, pic_fields and the particle-cell map aligned, before the end-of-step wrap and
+   !< migration) and `cells` (omega_p and the composite frequencies: the map of the final positions), both by default
+   !< (issue #129, R7).
+   class(prism_cpu_object), intent(inout)        :: self      !< The equation.
+   logical,                 intent(in), optional :: particles !< Particle terms (default true).
+   logical,                 intent(in), optional :: cells     !< Cell term (default true).
+   logical                                       :: do_p, do_c !< Terms.
 
+   do_p = .true. ; if (present(particles)) do_p = particles
+   do_c = .true. ; if (present(cells))     do_c = cells
    if (allocated(self%q_pic) .and. allocated(self%pic_fields)) then
       call self%plasma_freq%compute_cpu(pic=self%pic, field=self%adam%field, q_pic=self%q_pic, pic_fields=self%pic_fields, &
-                                        blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk)
+                                        blocks_number=self%blocks_number, ni=self%ni, nj=self%nj, nk=self%nk, &
+                                        particles=do_p, cells=do_c)
    else
-      call self%plasma_freq%set_maxima(wpe2=0._R8P, wpi2=0._R8P, wce=0._R8P, wci=0._R8P, transit=0._R8P)
+      if (do_p) call self%plasma_freq%set_particle_maxima(wce=0._R8P, wci=0._R8P, transit=0._R8P)
+      if (do_c) call self%plasma_freq%set_cell_maxima(wpe2=0._R8P, wpi2=0._R8P)
    endif
    endsubroutine compute_plasma_frequencies
 
@@ -4247,11 +4259,16 @@ contains
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
                                                context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q=self%q)
+   ! the particle terms of the plasma frequencies, while q_pic, pic_fields and the map are aligned (issue #129, R7)
+   if (self%plasma_freq%active) call self%compute_plasma_frequencies(cells=.false.)
    ! bring the particles beyond a periodic face back in the domain only now: until the end-of-step deposit is done they
    ! stay in the ghost halo of the block on that face (wrapped, they would jump to the blocks of another rank)
    call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
-   ! hand the particles that left the blocks of this rank to their new owners
+   ! hand the particles that left the blocks of this rank to their new owners (it locates them again with more ranks)
    call self%pic%migrate_particles(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
+   ! one rank: the map of the wrapped positions (issue #129, R7)
+   if (mpih%procs_number == 1_I4P .and. any(self%pic%bc%is_periodic)) &
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    endsubroutine integrate_rk_ssp_pic
 
    subroutine integrate_rk_ssp_pic_charge_conserving(self)
@@ -4405,8 +4422,13 @@ contains
    call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
                                                context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
    call self%compute_coils_current(q=self%q)
+   ! the particle terms of the plasma frequencies, while q_pic, pic_fields and the map are aligned (issue #129, R7)
+   if (self%plasma_freq%active) call self%compute_plasma_frequencies(cells=.false.)
    ! periodic faces: positions wrapped after the end-of-step deposit (as integrate_rk_ssp_pic, single rank here)
    call self%pic%bc%wrap_periodic_positions(q_pic=self%q_pic, particle_number=self%pic%particle_number)
+   ! the map of the wrapped positions (issue #129, R7)
+   if (any(self%pic%bc%is_periodic)) &
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    if (allocated(q_stage)) deallocate(q_stage)
    if (allocated(q_pic_next)) deallocate(q_pic_next)
    if (allocated(q_pic_to_stage)) deallocate(q_pic_to_stage)

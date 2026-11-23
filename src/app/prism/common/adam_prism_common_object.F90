@@ -1224,6 +1224,10 @@ contains
    call self%adam%make_comm_local_maps_ghost_bc
    ! the restart replaces the blocks: rebuild the per-block face data on them (issue #95, P5.1)
    call self%initialize_block_face_data
+   ! the particle-cell map of the restored positions on the restored blocks (issue #129, R1/R2): the step builds it, the
+   ! restart did not, and the plasma frequencies of the first step read it (the FNL backend copies it to the device)
+   if (is_pic_model(self%physics%physical_model)) &
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    endsubroutine load_restart_files
 
    subroutine load_pic_restart_files(self)
@@ -1235,6 +1239,8 @@ contains
    integer(I4P)                              :: particle_number       !< Stored particle count.
    integer(I4P)                              :: total_number          !< Stored particle count, all ranks.
    integer(I4P)                              :: history_slots         !< Stored leapfrog history depth (0: none).
+   integer(I4P)                              :: ios                   !< I/O status.
+   real(R8P)                                 :: maxima(3)             !< Particle plasma-frequency maxima (wce, wci, transit).
    logical                                   :: file_exist            !< File-existence flag.
 
    if (.not. is_pic_model(self%physics%physical_model)) return
@@ -1270,6 +1276,18 @@ contains
    if (history_slots > 0_I4P) &
       call mpih%error_stop(msg=': PIC restart "'//filename//'" holds a PIC leapfrog history: PIC leapfrog is not '// &
                                'available in ADAM (moved to SELAH, szaghi/SELAH#4)')
+
+   ! the particle terms of the plasma frequencies of the last step, global (issue #129, R2/R7): with the cell term of the
+   ! restored particle-cell map they limit the first step as in the uninterrupted run. A file written before them ends
+   ! here: the first step is then limited by omega_p only, without the cyclotron and transit frequencies
+   read(unit=file_unit, iostat=ios) maxima
+   if (ios /= 0) then
+      maxima = 0._R8P
+      call mpih%print_message('warning: PIC restart "'//filename//'" has no plasma-frequency maxima (written before '// &
+                              'issue #129): the first step after the restart is limited by omega_p only, without the '// &
+                              'cyclotron and transit frequencies of the particles')
+   endif
+   call self%plasma_freq%set_particle_maxima(wce=maxima(1), wci=maxima(2), transit=maxima(3))
 
    close(file_unit)
    endsubroutine load_pic_restart_files
@@ -1480,6 +1498,8 @@ contains
    open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM')
    write(unit=file_unit) size(self%q_pic, dim=1), self%pic%particle_number, history_slots
    write(unit=file_unit) self%q_pic
+   ! the particle terms of the plasma frequencies of the last step, global (issue #129, R2/R7)
+   write(unit=file_unit) self%plasma_freq%wce, self%plasma_freq%wci, self%plasma_freq%transit
    close(file_unit)
    endsubroutine save_pic_restart_files
 
