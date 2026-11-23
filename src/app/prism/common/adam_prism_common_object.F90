@@ -68,6 +68,7 @@ type, extends(realm_object) :: prism_common_object
                                     !< initialize_forest); `amr_update` error_stops when locked. CPU never sets it.
    integer(I4P) :: blocks_fields_number = 0_I4P !< Block-sized fields per block of the blocks budget (issue #112).
    real(R8P)    :: reserved_memory = 0._R8P     !< Memory reserved outside the blocks by the budget, GB (issue #112).
+   integer(I4P) :: restarted_at = -1_I4P        !< Iteration the run restarted from (-1: not a restart), issue #129 R6.
    procedure(estimate_backend_memory_interface), pointer, nopass :: estimate_backend_memory=>null() !< Backend memory
                                     !< outside the block fields, estimated before the blocks budget (issue #112); set by
                                     !< the backend before initialize, none when null (CPU).

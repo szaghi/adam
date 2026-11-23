@@ -1004,7 +1004,8 @@ contains
       call self%save_slices
 
       if (self%time%is_to_save(cadence=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
-      if (self%time%is_on_cadence(self%io%restart_save)) call self%save_restart_files
+      ! not on the iteration just restarted from: its restart files are those just read (issue #129, R6)
+      if (self%time%is_on_cadence(self%io%restart_save) .and. self%time%it /= self%restarted_at) call self%save_restart_files
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
@@ -5969,6 +5970,7 @@ contains
 
    call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
    call self%load_restart_files(t=self%time%it, time=self%time%time)
+   self%restarted_at = self%time%it
    call mpih_fnl%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
    call self%set_initial_conditions(is_restart=.true.)
    endsubroutine restart_state_forest
