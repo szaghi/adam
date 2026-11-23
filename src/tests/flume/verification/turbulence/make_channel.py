@@ -76,6 +76,8 @@ def main() -> int:
     text = TEMPLATE.read_text()
     text = re.sub(r"\A(?:;.*\n)+", "", text)
     text = re.sub(r"^\[initial_conditions_region_\d+\][^\[]*", "", text, flags=re.M)
+    # the template's vortex keys: unread by the channel initial condition, refused by unused_keys = error (#80 P5)
+    text = re.sub(r"^(x0|y0|radius|strength)\s*=.*\n", "", text, flags=re.M)
     text = section(text, "IO", {"output_basename": "channel", "it_save": str(args.it_save), "restart_basename": "channel-restart",
                                 "restart_save": str(args.restart_save), "restart": ".true." if args.restart else ".false."})
     grid = {"ni": str(args.nx // blocks), "nj": str(args.ny // blocks), "nk": str(args.nz // blocks), "ngc": "3",
