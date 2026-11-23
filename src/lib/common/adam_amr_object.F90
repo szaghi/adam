@@ -17,12 +17,14 @@ private
 public :: amr_object
 public :: amr_marker_object
 public :: prolongation_name
+public :: kolmogorov_tolerances_admissible
 public :: AMR_GEO
 public :: AMR_GRAD
 public :: AMR_TV
 public :: AMR_LOHNER
 public :: AMR_JEANS
 public :: AMR_USER
+public :: AMR_KOLMOGOROV
 public :: AMR_GEO_SOLID
 public :: AMR_GEO_PRIMITIVE_BOX
 public :: AMR_GEO_STL
@@ -41,6 +43,7 @@ integer(I4P), parameter :: AMR_TV                = 3_I4P   !< Field total variat
 integer(I4P), parameter :: AMR_LOHNER            = 4_I4P   !< Loehner normalized second derivative marker (issue #74).
 integer(I4P), parameter :: AMR_JEANS             = 5_I4P   !< Jeans length resolution marker (issue #91).
 integer(I4P), parameter :: AMR_USER              = 6_I4P   !< A criterion the program registers, by name (issue #110).
+integer(I4P), parameter :: AMR_KOLMOGOROV        = 7_I4P   !< Local Kolmogorov resolution r = h/eta marker (issue #133).
 integer(I4P), parameter :: AMR_GEO_SOLID         = 101_I4P !< AMR_GEO geometry kind: solid/IB index (legacy default).
 integer(I4P), parameter :: AMR_GEO_PRIMITIVE_BOX = 102_I4P !< AMR_GEO geometry kind: primitive axis-aligned box.
 integer(I4P), parameter :: AMR_GEO_STL           = 103_I4P !< AMR_GEO geometry kind: STL surface file.
@@ -64,8 +67,8 @@ type :: amr_marker_object
    real(R8P)                 :: box_emax(3)=0._R8P     !< Primitive box maximum corner (AMR_GEO + AMR_GEO_PRIMITIVE_BOX).
    integer(I4P)              :: target_level=1_I4P     !< Refine blocks below this level (AMR_GEO + AMR_GEO_PRIMITIVE_BOX).
    character(:), allocatable :: stl_filename           !< STL surface file (AMR_GEO + AMR_GEO_STL).
-   real(R8P)                 :: refine_tol=0.8_R8P     !< Refine above this estimator value (AMR_LOHNER).
-   real(R8P)                 :: derefine_tol=0.2_R8P   !< Derefine below this estimator value (AMR_LOHNER).
+   real(R8P)                 :: refine_tol=0.8_R8P     !< Refine above this estimator value (AMR_LOHNER, AMR_KOLMOGOROV).
+   real(R8P)                 :: derefine_tol=0.2_R8P   !< Derefine below this estimator value (AMR_LOHNER, AMR_KOLMOGOROV).
    real(R8P)                 :: epsilon=0.01_R8P       !< Noise filter of the estimator (AMR_LOHNER).
    real(R8P)                 :: floor=0._R8P           !< Absolute variation counted as noise (AMR_LOHNER).
    integer(I4P)              :: buffer=1_I4P           !< Ghost layers the estimator reads (AMR_LOHNER).
@@ -253,12 +256,36 @@ contains
             call mpih%error_stop(msg=': ['//sname//'] needs 0 < jeans_cells < jeans_cells_derefine, got '// &
                                      trim(str(m%jeans_cells))//' and '//trim(str(m%jeans_cells_derefine)))
          endassociate
+      case(AMR_KOLMOGOROV)
+         ! local Kolmogorov resolution r = h/eta (issue #133, phase 2): refine where a block's largest r exceeds refine_tol,
+         ! derefine where it is below derefine_tol, keep between. r has an absolute meaning (a spacing over a length), so
+         ! the thresholds are not capped at 1 as Loehner's; the band must be wider than a factor 2, the jump of r across
+         ! one level (r is proportional to h), or a block derefined at one regrid would vote to refine at the next
+         call ini_get(file_parameters, sname, 'refine_tol', self%markers(i_marker)%refine_tol)
+         call ini_get(file_parameters, sname, 'derefine_tol', self%markers(i_marker)%derefine_tol)
+         call ini_check()
+         associate(m=>self%markers(i_marker))
+         if (.not.kolmogorov_tolerances_admissible(refine_tol=m%refine_tol, derefine_tol=m%derefine_tol)) &
+            call mpih%error_stop(msg=': ['//sname//'] (mode 7) needs 0 < derefine_tol < refine_tol / 2, got '// &
+                                     trim(str(m%derefine_tol))//' and '//trim(str(m%refine_tol)))
+         endassociate
       endselect
    enddo
    call ini_check() ! report every option of this parser that failed to load (#80 P2)
    endsubroutine load_from_file
 
    ! non TBP
+   pure function kolmogorov_tolerances_admissible(refine_tol, derefine_tol) result(admissible)
+   !< Return true if the thresholds of a Kolmogorov marker (`AMR_KOLMOGOROV`) are admissible, `0 < derefine_tol <
+   !< refine_tol / 2`: r halves across one refinement level, so a narrower band would let a block derefined at one regrid
+   !< vote to refine at the next (no upper cap: r is not normalised).
+   real(R8P), intent(in) :: refine_tol   !< Refine above this r.
+   real(R8P), intent(in) :: derefine_tol !< Derefine below this r.
+   logical               :: admissible   !< The pair is admissible.
+
+   admissible = derefine_tol > 0._R8P .and. derefine_tol < 0.5_R8P * refine_tol
+   endfunction kolmogorov_tolerances_admissible
+
    pure function prolongation_name(prolongation) result(name)
    !< Return the input spelling of a prolongation kind.
    integer(I4P), intent(in)  :: prolongation !< Prolongation kind, AMR_PROLONGATION_*.

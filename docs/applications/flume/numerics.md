@@ -591,6 +591,15 @@ least 4), coarsened where every cell is above `jeans_cells_derefine` (default tw
 Federrath et al. 2010), kept between. It reads no ghost cell, so it also shapes the initial grid
 ([SV-16](./verification/self-gravity/star-amr)). It needs self-gravity.
 
+The **Kolmogorov marker** (mode 7, [#133](https://github.com/szaghi/adam/issues/133)) compares the spacing with the
+local Kolmogorov length, $r = h/\eta$, $\eta = (\nu^3/\varepsilon)^{1/4}$, $\varepsilon = 2\nu\,S_d:S_d$ ($S_d$ the
+deviatoric strain rate, $\nu = \mu(T)/\rho$ by the run's viscosity law, $h$ the geometric mean of the spacings over the
+active axes): $r^2 = h^2|U'|/\nu$ in a pure shear, $r = h^+$ at a wall, $h^+/(\kappa y^+)^{1/4}$ in the log layer. A
+block is refined where some cell has $r$ above `refine_tol`, coarsened where every cell is below `derefine_tol`
+(`< refine_tol / 2`: $r$ halves across a level), kept between. The velocity gradient is the gradient marker's, so it
+also shapes the initial grid (refining only there). It needs a viscosity. The formula and its limits are in the
+[library input reference](/reference/library-input).
+
 **Regridding transfers.** A derefined parent takes the mean of its children. A refined block's children are filled by
 `[amr] regrid_prolongation`:
 

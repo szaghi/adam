@@ -129,6 +129,7 @@ Status: does not build.
 | `test-flume-positivity-gnu` | CPU (gfortran) | — | default |
 | `test-flume-weno-weights-gnu` | CPU (gfortran) | — | default |
 | `test-flume-user-criterion-cpu-gnu` | CPU (gfortran) | — | default |
+| `test-flume-kolmogorov-marker-gnu` | CPU (gfortran) | — | default |
 | `test-ripple-crest-criterion-cpu-gnu` | CPU (gfortran) | — | default |
 | `test-fdv-curl-trigonometric-gnu` | CPU (gfortran) | — | default |
 | `test-fdv-curl-trigonometric-gnu-debug` | CPU (gfortran) | debug flags | default |

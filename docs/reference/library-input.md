@@ -169,13 +169,14 @@ regrids (`frequency > 0`).
 | `4` Löhner (`AMR_LOHNER`) | yes, at runtime regrids only (it reads ghost cells the initial AMR does not fill) | **does nothing** (no branch) |
 | `5` Jeans length (`AMR_JEANS`) | yes, needs `[gravity] self_gravity = .true.` | **does nothing** (no branch) |
 | `6` registered criterion (`AMR_USER`) | yes, at runtime regrids only: the criterion the program registered under `name` ([#110](https://github.com/szaghi/adam/issues/110)); an unregistered name is fatal at the first regrid | **does nothing** (no branch) |
+| `7` local Kolmogorov resolution (`AMR_KOLMOGOROV`) | yes, needs a viscosity (`[physics] viscosity` or `reynolds`; fatal otherwise); at the initial AMR it refines only ([#133](https://github.com/szaghi/adam/issues/133)) | **does nothing** (no branch) |
 
 An unknown mode reads no further keys and stops nothing in the library; FLUME stops on it at the first AMR pass.
 
 | Key | Type | Req. | Accepted / invalid | Modes | Meaning |
 |-----|------|------|--------------------|-------|---------|
 | `mode` | int | yes | see the table above | all | Marker kind. |
-| `delta_type` | string | yes (all modes) | `x`, `y`, `z`, `max` (the maximum over the active directions); other values are fatal at marking in FLUME, and in PRISM's mode-3 marker leave the compared spacing undefined (no check) | 1 (solid), 2, 3, 5 | Which block spacing is compared with `delta_fine`/`delta_coarse`. |
+| `delta_type` | string | yes (all modes) | `x`, `y`, `z`, `max` (the maximum over the active directions); other values are fatal at marking in FLUME, and in PRISM's mode-3 marker leave the compared spacing undefined (no check) | 1 (solid), 2, 3, 5 (read, unused, by 4, 6, 7) | Which block spacing is compared with `delta_fine`/`delta_coarse`. |
 | `delta_fine` | real | yes (all modes) | no check | 1 (solid), 2, 3 | Admissible spacing where the criterion fires. |
 | `delta_coarse` | real | yes (all modes) | no check | 1 (solid), 2, 3 | Admissible spacing elsewhere. |
 | `geo_type` | string | mode 1 | `solid`, `primitive-box`, `stl`; other values are fatal at load | 1 | Geometric marker kind. |
@@ -186,13 +187,38 @@ An unknown mode reads no further keys and stops nothing in the library; FLUME st
 | `field` | int | modes 2, 3, 4 | `1` = conservative state, `2` = auxiliary fields; other values are fatal at marking | 2, 4 | Array holding the marker variable (PRISM's mode 3 reads it, unused). |
 | `var` | int | modes 2, 3, 4 | a variable index of that array, otherwise fatal at marking | 2, 4 | Marker variable. |
 | `tol` | real | modes 2, 3 | no check | 2, 3 | Threshold: the gradient magnitude (mode 2) or the total variation (mode 3) above which the block gets `delta_fine`. |
-| `refine_tol`, `derefine_tol` | real | mode 4 | `0 <= derefine_tol < refine_tol <= 1`, otherwise fatal | 4 | Löhner thresholds: refine above `refine_tol`, coarsen below `derefine_tol`, keep between. |
+| `refine_tol`, `derefine_tol` | real | modes 4, 7 | mode 4: `0 <= derefine_tol < refine_tol <= 1`; mode 7: `0 < derefine_tol < refine_tol / 2` (no upper cap); otherwise fatal | 4, 7 | Thresholds of the block's largest estimator: refine above `refine_tol`, coarsen below `derefine_tol`, keep between. |
 | `epsilon` | real | no (mode 4) | `>= 0`, default 0.01 | 4 | Noise filter relative to the variable. |
 | `floor` | real | no (mode 4) | `>= 0`, default 0 | 4 | Absolute noise filter, for a variable that vanishes in quiet regions. |
 | `buffer` | int | no (mode 4) | `>= 0`, default 1 (FLUME: also `<= ngc - 1`) | 4 | Ghost layers the estimator reads. |
 | `jeans_cells` | real | no (mode 5) | `> 0`, default 8 | 5 | Refine where some interior cell resolves its Jeans length with fewer cells. |
 | `name` | string | mode 6 | the name a criterion was registered under; empty is fatal at load, unregistered at initialisation | 6 | The registered criterion (`adam_amr_criterion_object`). |
 | `jeans_cells_derefine` | real | no (mode 5) | `> jeans_cells`, default `2 * jeans_cells`; otherwise fatal | 5 | Coarsen where every interior cell has more cells per Jeans length; keep between. |
+
+**The Kolmogorov marker (mode 7).** On every interior cell of a block it evaluates the ratio of the spacing to the local
+Kolmogorov length,
+
+$$
+r = \frac{h}{\eta},\qquad \eta = \left(\frac{\nu^3}{\varepsilon}\right)^{1/4},\qquad
+\varepsilon = 2\nu\, S_d : S_d,\qquad \nu = \frac{\mu(T)}{\rho},\qquad h = \Big(\prod_{d\ \mathrm{active}} \Delta x_d\Big)^{1/n},
+$$
+
+so $r = h\,(2 S_d:S_d)^{1/4}/\nu^{1/2}$, with $S_d = S - \tfrac13\operatorname{tr}(S)\,I$ the deviatoric part of the
+strain rate $S = (\nabla u + \nabla u^T)/2$ (the trace over the three components), $\mu(T)$ the viscosity law of the run
+(constant, power law or Sutherland; molecular only, an SGS eddy viscosity is not counted) and $h$ the geometric mean
+of the spacings over the $n$ active axes: a null axis has no resolution to measure, so its extent does not enter.
+The velocity gradient is the gradient marker's stencil: second-order centred differences, across the faces between
+blocks too (one ghost layer), first-order one-sided at the faces on the realm boundary (physical or seam), whose
+ghosts it never reads; a linear field is differentiated exactly. A block takes its largest $r$: refined above
+`refine_tol`, coarsened below `derefine_tol`, kept between. $r$ is proportional to $h$, so it halves across one level:
+the band must be wider than a factor 2 (`derefine_tol < refine_tol / 2`), or a block coarsened at one regrid would vote
+to refine at the next. In a pure shear $u = U(y)$, $r^2 = h^2 |U'|/\nu$. In wall units, at a no-slip wall
+($\varepsilon^+ = 1$) $r = h^+$; in the log layer ($\varepsilon^+ \approx 1/(\kappa y^+)$) $r = h^+/(\kappa y^+)^{1/4}$,
+a slow relaxation away from the wall: unlike a vorticity or Q threshold, $r$ has an absolute meaning (a resolution) and
+sees the wall shear layer, where Q vanishes. Values of order 1 to a few resolve the dissipative scales
+(on the turbulent channel grid of [#133](https://github.com/szaghi/adam/issues/133), $\Delta x^+ = 10.8$, $\Delta y^+ =
+2.3$, $\Delta z^+ = 7.2$, the log-law estimate gives $r \approx 5.6$ at the walls and 1.8 at the centreline). Unit
+test KM-1 (`test-flume-kolmogorov-marker-gnu`) checks the closed forms, regression case `kolmogorov-channel` the regrids.
 
 FLUME's page lists its variable indices and the [runtime AMR setup](/applications/flume/input#setting-up-runtime-amr).
 

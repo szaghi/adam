@@ -11,7 +11,7 @@ module adam_flume_common_object
 ! ADAM classes, libraries, parameters
 use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX, AMR_DELTA_T_X, AMR_DELTA_T_Y, AMR_DELTA_T_Z, &
                                              AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD, &
-                                             AMR_JEANS, AMR_LOHNER, AMR_TV, AMR_USER, prolongation_name
+                                             AMR_JEANS, AMR_KOLMOGOROV, AMR_LOHNER, AMR_TV, AMR_USER, prolongation_name
 use :: adam_amr_criterion_object,     only : amr_criterion_object, amr_criterion_pointer
 use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
@@ -32,6 +32,7 @@ use :: adam_mpih_global,              only : mpih
 use :: adam_flume_bc_object,          only : BC_WALL_ISOTHERMAL, BC_WALL_NOSLIP, flume_bc_object
 use :: adam_flume_diagnostics_object, only : flume_diagnostics_object
 use :: adam_flume_dissipation_library, only : temperature_law
+use :: adam_flume_kolmogorov_library,  only : kolmogorov_block_max
 use :: adam_flume_forcing_object,      only : flume_forcing_object
 use :: adam_flume_euler_library,      only : conservative_to_auxiliary
 use :: adam_flume_euler_baro_library, only : conservative_to_auxiliary_baro=>conservative_to_auxiliary
@@ -168,6 +169,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: mark_by_solid    !< Mark blocks crossed by the surface of an immersed solid.
       procedure, pass(self) :: mark_by_lohner   !< Mark blocks by the Loehner estimator of a variable (issue #74).
       procedure, pass(self) :: mark_by_jeans    !< Mark blocks by the cells per Jeans length (issue #91).
+      procedure, pass(self) :: mark_by_kolmogorov !< Mark blocks by the local Kolmogorov resolution r = h/eta (issue #133).
       procedure, pass(self) :: mark_runtime     !< Combine the markers into the flags of a runtime regrid (issue #74).
       procedure, pass(self) :: register_amr_criterion !< Register a refinement criterion by name (issue #110, P4).
       procedure, pass(self) :: check_regridded_state !< Stop on an inadmissible state after a regrid (issue #74).
@@ -292,6 +294,12 @@ type, extends(flume_sweep_marker) :: flume_jeans_marker
    contains
       procedure, pass(self) :: mark => jeans_mark
 endtype flume_jeans_marker
+
+type, extends(flume_sweep_marker) :: flume_kolmogorov_marker
+   !< Local Kolmogorov resolution r = h/eta (`mode = 7`).
+   contains
+      procedure, pass(self) :: mark => kolmogorov_mark
+endtype flume_kolmogorov_marker
 
 contains
    ! AMR methods
@@ -626,6 +634,52 @@ contains
    endassociate
    endsubroutine mark_by_jeans
 
+   subroutine mark_by_kolmogorov(self, refine_tol, derefine_tol, refine_only)
+   !< Mark blocks by the local Kolmogorov resolution `r = h / eta` (issue #133, phase 2; `kolmogorov_block_max`).
+   !<
+   !< On a cell `eta = (nu^3 / eps)^(1/4)`, `eps = 2 nu S_d:S_d` with `S_d` the deviatoric strain rate, `nu = mu(T) / rho`
+   !< by the viscosity law of the run (molecular: an SGS eddy viscosity is not counted), and `h = (prod_d dx_d)^(1/n)` over
+   !< the `n` active axes (a null axis does not enter). A block takes the largest `r` over its interior cells: refined
+   !< above `refine_tol`, derefined below `derefine_tol`, untouched between (`0 < derefine_tol < refine_tol / 2`, checked
+   !< at load: `r` halves across a level). The velocity gradient is the gradient marker's (centred, across the internal
+   !< block faces; one-sided at the faces on the realm boundary, whose ghosts it never reads). The caller refreshes the
+   !< ghosts of the internal faces. `refine_only` (the initial AMR) never asks to derefine.
+   class(flume_common_object), intent(inout)        :: self         !< The equation.
+   real(R8P),                  intent(in)           :: refine_tol   !< Refine above this r.
+   real(R8P),                  intent(in)           :: derefine_tol !< Derefine below this r.
+   logical,                    intent(in), optional :: refine_only  !< Never ask to derefine.
+   logical                                          :: refine_only_ !< Never ask to derefine, local variable.
+   real(R8P)                                        :: tref, suth   !< Viscosity law: reference temperature, Sutherland.
+   real(R8P)                                        :: omega(2)     !< Exponents of the laws (viscosity, conductivity).
+   real(R8P)                                        :: r_max        !< Largest r of a block.
+   logical                                          :: open_(2,3)   !< The minus/plus face of each axis is internal.
+   integer(I4P)                                     :: b, d         !< Counters.
+
+   refine_only_ = .false. ; if (present(refine_only)) refine_only_ = refine_only
+   call self%compute_q_aux_host
+   call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=omega(1), omega_k=omega(2))
+   ! assigned on the component (see mark_by_jeans: at the initial AMR the array is not sized yet)
+   self%adam%field%refinements_needed = [(TO_NOT_TOUCH, b=1, self%blocks_number)]
+   associate(refinements_needed=>self%adam%field%refinements_needed, grid=>self%adam%grid, dxyz=>self%adam%field%dxyz, &
+             emin=>self%adam%field%emin, emax=>self%adam%field%emax)
+   do b=1, self%blocks_number
+      do d=1, 3
+         open_(1,d) = grid%is_ijk_periodic(d) .or. emin(d,b) > grid%domain_emin(d) + 0.5_R8P * dxyz(d,b)
+         open_(2,d) = grid%is_ijk_periodic(d) .or. emax(d,b) < grid%domain_emax(d) - 0.5_R8P * dxyz(d,b)
+      enddo
+      r_max = kolmogorov_block_max(nv=self%physics%nv_aux, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
+                                   qa=self%q_aux(:,:,:,:,b), dxyz=dxyz(:,b), active=.not.grid%null_xyz,    &
+                                   is_open=open_, mu0=self%physics%dissipation%mu, tref=tref, suth=suth,    &
+                                   omega_mu=omega(1))
+      if (r_max > refine_tol) then
+         refinements_needed(b) = TO_BE_REFINED
+      elseif (r_max < derefine_tol .and. .not.refine_only_) then
+         refinements_needed(b) = TO_BE_DEREFINED
+      endif
+   enddo
+   endassociate
+   endsubroutine mark_by_kolmogorov
+
    subroutine mark_runtime(self)
    !< Combine the markers into the flags of a runtime regrid (issue #74, D-M5-8).
    !<
@@ -843,6 +897,27 @@ contains
    endselect
    votes = realm%adam%field%refinements_needed(1:size(votes))
    endsubroutine jeans_mark
+
+   subroutine kolmogorov_mark(self, realm, votes, initial)
+   !< The Kolmogorov marker (`mark_by_kolmogorov`). It reads the ghosts across internal block faces, as the gradient
+   !< marker: at the initial AMR they are refreshed on the host first (the physical faces are not read), at a runtime
+   !< regrid the caller has refreshed them. At the initial AMR it refines only, never derefines.
+   class(flume_kolmogorov_marker), intent(inout) :: self     !< The marker.
+   class(realm_object),            intent(inout) :: realm    !< The realm.
+   integer(I4P),                   intent(out)   :: votes(:) !< One vote per local block.
+   logical,                        intent(in)    :: initial  !< The AMR of the initial condition.
+
+   select type(realm)
+   class is(flume_common_object)
+      if (initial) then
+         if (.not.allocated(realm%adam%maps%local_map_ghost_cell)) call realm%adam%make_comm_local_maps_ghost_bc
+         call realm%adam%field%update_ghost_local(grid=realm%adam%grid, maps=realm%adam%maps, q=realm%q)
+         call realm%adam%field%update_ghost_mpi(grid=realm%adam%grid, maps=realm%adam%maps, q=realm%q)
+      endif
+      call realm%mark_by_kolmogorov(refine_tol=self%m%refine_tol, derefine_tol=self%m%derefine_tol, refine_only=initial)
+   endselect
+   votes = realm%adam%field%refinements_needed(1:size(votes))
+   endsubroutine kolmogorov_mark
 
    subroutine register_amr_criterion(self, criterion)
    !< Register a refinement criterion (issue #110, P4): `[amr_marker_N] mode = 6, name = <criterion%name>` selects it
@@ -3489,6 +3564,9 @@ contains
       if (m%mode == AMR_JEANS .and. .not.self%physics%gravity%self_gravity) &
          call mpih%error_stop(msg=': [amr_marker_'//trim(str(i_marker, .true.))//'] is a Jeans marker (mode 5): it '// &
                                   'needs [gravity].(self_gravity) = .true. (the Jeans length depends on G)')
+      if (m%mode == AMR_KOLMOGOROV .and. .not.self%physics%dissipation%has_viscosity) &
+         call mpih%error_stop(msg=': [amr_marker_'//trim(str(i_marker, .true.))//'] is a Kolmogorov marker (mode 7): '// &
+                                  'it needs a viscosity ([physics].(viscosity) or (reynolds)): eta = (nu^3/eps)^(1/4)')
       endassociate
    enddo
    if (self%amr%frequency == 0_I4P) return
@@ -3517,10 +3595,10 @@ contains
 
    subroutine build_amr_marker_list(self)
    !< Build `amr_marker_list`, the criteria of the `[amr_marker_N]` sections in input order (issue #110, P4.2): a built-in
-   !< marker becomes its FLUME criterion (box, solid, gradient, Loehner, Jeans), holding its section's parameters; `mode =
-   !< 6` points to the criterion the program registered under that name (`check_runtime_amr` has checked it exists). A
-   !< marker FLUME does not implement stops the run here, at initialisation: total variation (`mode = 3`), an STL
-   !< geometry, an unknown mode or geometry kind.
+   !< marker becomes its FLUME criterion (box, solid, gradient, Loehner, Jeans, Kolmogorov), holding its section's
+   !< parameters; `mode = 6` points to the criterion the program registered under that name (`check_runtime_amr` has
+   !< checked it exists). A marker FLUME does not implement stops the run here, at initialisation: total variation
+   !< (`mode = 3`), an STL geometry, an unknown mode or geometry kind.
    class(flume_common_object), intent(inout) :: self      !< The equation.
    class(amr_criterion_object), pointer      :: criterion !< The criterion of a section.
    character(:), allocatable                 :: sname     !< Section name.
@@ -3554,6 +3632,8 @@ contains
          allocate(flume_lohner_marker :: criterion)
       case(AMR_JEANS)
          allocate(flume_jeans_marker :: criterion)
+      case(AMR_KOLMOGOROV)
+         allocate(flume_kolmogorov_marker :: criterion)
       case(AMR_USER)
          if (allocated(self%amr_criteria)) then
             do c=1, size(self%amr_criteria)

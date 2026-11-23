@@ -7,7 +7,7 @@ conservation property) and run for the part a change touches. This page is the r
 
 | Suite | Directory | Cases | Backends | Built modes |
 |---|---|---|---|---|
-| FLUME | `src/tests/flume/regression/` | 55 | CPU (CI), FNL (workstation) | `flume-cpu-gnu` + `flume-cpu-gnu-fft`, `flume-fnl-nvf` + `flume-fnl-nvf-fft` |
+| FLUME | `src/tests/flume/regression/` | 67 | CPU (CI), FNL (workstation) | `flume-cpu-gnu` + `flume-cpu-gnu-fft`, `flume-fnl-nvf` + `flume-fnl-nvf-fft` |
 | PRISM | `src/tests/prism/regression/` | 24 | CPU (CI), FNL (workstation) | `prism-cpu-gnu`, `prism-fnl-nvf` |
 
 ## The harness
@@ -169,6 +169,7 @@ cuFFT on FNL), since every self-gravity solve needs an FFT; the CI job installs 
 | `seam-viscous-amr` | [the dissipative fluxes across 2:1 seams](/applications/flume/verification/dissipative/seam-conservation) | [#65](https://github.com/szaghi/adam/issues/65) |
 | `vortex-regrid` | [runtime regrids](/applications/flume/verification/runtime-amr/runtime-regrids): the vortex, 6 regrids | [#74](https://github.com/szaghi/adam/issues/74) |
 | `field-loop-regrid` | [runtime regrids](/applications/flume/verification/runtime-amr/runtime-regrids) on MHD: the field loop, 10 regrids | [#74](https://github.com/szaghi/adam/issues/74) |
+| `kolmogorov-channel` | the local Kolmogorov resolution marker $r = h/\eta$ (`[amr_marker_N] mode = 7`) at runtime regrids: a 2-D laminar plane channel (Re 100, Mach 0.3, isothermal walls), base level 2 on anisotropic cells ($\Delta x = 2\Delta y$), a regrid every 5 steps, 10 steps, 2 regrids (every block refined, then the wall layers); per-backend goldens | [#133](https://github.com/szaghi/adam/issues/133) |
 | `selfgravity-jeans` | [Jeans modes](/applications/flume/verification/self-gravity/jeans): the unstable mode at amplitude $10^{-2}$, FFT solver, 20 steps | [#81](https://github.com/szaghi/adam/issues/81) |
 | `selfgravity-amr-stage` | [self-gravity on a static AMR grid](/applications/flume/verification/self-gravity/amr-jeans): multigrid, the seam gravity work, per-stage reflux | [#81](https://github.com/szaghi/adam/issues/81) |
 | `selfgravity-star` | [the n = 1 polytrope](/applications/flume/verification/self-gravity/polytrope), isolated boundaries, $16^3$ | [#81](https://github.com/szaghi/adam/issues/81) |

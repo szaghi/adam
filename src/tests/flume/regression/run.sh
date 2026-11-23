@@ -83,6 +83,8 @@
 #                            restriction, redistribution and the flux register rebuilt at each regrid; per-backend goldens
 #   field-loop-regrid        runtime AMR on MHD: the GLM field loop tracked from 64x32 to 128x64 (gradient OR Loehner
 #                            with floor), 150 steps, 10 regrids; per-backend goldens
+#   kolmogorov-channel       runtime AMR by the local Kolmogorov resolution r = h/eta (mode 7, #133): a 2-D laminar
+#                            channel, anisotropic cells, a regrid every 5 steps, 10 steps, 2 regrids; per-backend goldens
 #   selfgravity-jeans        self-gravity, FFT solver: the unstable Jeans mode at amplitude 1e-2, 32^2, 20 steps (#81)
 #   selfgravity-amr-stage    selfgravity-jeans with the central box refined 2:1: the multigrid solver, the seam gravity
 #                            work in the reflux, reflux_cadence = stage (#81)
