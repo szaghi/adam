@@ -74,20 +74,27 @@ gives the orders of the two pairs.*
 
 | Test | Bound | CPU | FNL |
 |---|---|---|---|
-| MV-5, every family, observed order | $\ge 4.7$ (design 5 minus 0.3); 4.8 under `hlld:primitive`/`hlld:characteristic` | about 5: 4.96–4.97 from 16 to 32 cells (1-D); 4.96–5.02 on the asserted ladders | pass |
-| MV-5, error of every run | per run, CPU baseline + 2% (e.g. 1-D fast $1.512\cdot10^{-10}$ / $4.843\cdot10^{-12}$ at 16 / 32) | below | pass |
-| MV-6, observed order on 32/64/128 | $\ge 4.7$ (4.8 under the HLLD specs) | 4.89 and 4.99 | pass |
-| MV-6, $\epsilon$ at $N = 32 / 64 / 128$ | $1.049\cdot10^{-3}$ / $3.537\cdot10^{-5}$ / $1.112\cdot10^{-6}$ | below | pass |
+| MV-5, every family, observed order | $\ge 4.7$ (design 5 minus 0.3); 4.8 under `hlld:primitive`/`hlld:characteristic` | 4.96 from 16 to 32 cells (1-D, every family, both schemes); 4.97–5.02 from 32 to 64 (2-D) | the same |
+| MV-5, error of every run | per run, CPU baseline + 2% (e.g. 1-D fast $1.512\cdot10^{-10}$ / $4.843\cdot10^{-12}$ at 16 / 32) | 1-D fast $1.4822\cdot10^{-10}$ / $4.7472\cdot10^{-12}$; 2-D fast $1.2829\cdot10^{-10}$ / $4.0960\cdot10^{-12}$ at 32 / 64 | $1.4822\cdot10^{-10}$ / $4.7472\cdot10^{-12}$; $1.2829\cdot10^{-10}$ / $4.0963\cdot10^{-12}$ |
+| MV-6, observed order on 32/64/128 | $\ge 4.7$ (4.8 under the HLLD specs) | 4.89 and 4.99 | 4.89 and 4.99 |
+| MV-6, $\epsilon$ at $N = 32 / 64 / 128$ | $1.049\cdot10^{-3}$ / $3.537\cdot10^{-5}$ / $1.112\cdot10^{-6}$ | $1.0281\cdot10^{-3}$ / $3.4676\cdot10^{-5}$ / $1.0894\cdot10^{-6}$ | the same |
 | MV-6, left against right polarisation | bitwise (`LR_TOL = 0`) | bitwise | bitwise |
-| MV-7, $L_1$ at $N = 64 / 128 / 256$ | $4.327\cdot10^{-4}$ / $2.224\cdot10^{-5}$ / $6.900\cdot10^{-7}$ | below | pass |
-| MV-7, $L_\infty$ at $N = 64 / 128 / 256$ | $7.812\cdot10^{-3}$ / $5.194\cdot10^{-4}$ / $2.439\cdot10^{-5}$ | below | pass |
-| MV-7, $L_1$ order (finest pair) | $\ge 4.7$ | 5.01 | pass |
-| MV-7, $L_\infty$ order (finest pair) | $\ge 4.0$ | 4.41 (pre-asymptotic: 3.41, 3.91, 4.41 on 32/64, 64/128, 128/256) | pass |
-| MV-7, $\max\lvert\nabla\cdot\mathbf{B}\rvert$ convergence | order $\ge 1.7$ (second-order operator) | truncation level | pass |
-| MV-7, initial checkpoint against the exact vortex | $10^{-14}$ | pass | pass |
+| MV-7, $L_1$ at $N = 64 / 128 / 256$ | $4.327\cdot10^{-4}$ / $2.224\cdot10^{-5}$ / $6.900\cdot10^{-7}$ | $4.2418\cdot10^{-4}$ / $2.1809\cdot10^{-5}$ / $6.7403\cdot10^{-7}$ | the same |
+| MV-7, $L_\infty$ at $N = 64 / 128 / 256$ | $7.812\cdot10^{-3}$ / $5.194\cdot10^{-4}$ / $2.439\cdot10^{-5}$ | $7.6584\cdot10^{-3}$ / $5.0917\cdot10^{-4}$ / $2.3914\cdot10^{-5}$ | the same |
+| MV-7, $L_1$ order (finest pair) | $\ge 4.7$ | 5.02 (4.28 on 64/128) | 5.02 |
+| MV-7, $L_\infty$ order (finest pair) | $\ge 4.0$ | 4.41 (pre-asymptotic: 3.91 on 64/128) | 4.41 |
+| MV-7, $\max\lvert\nabla\cdot\mathbf{B}\rvert$ convergence | order $\ge 1.7$ (second-order operator) | 2.04 ($7.08\cdot10^{-5}$ at $N = 256$) | 2.04 |
+| MV-7, initial checkpoint against the exact vortex | $10^{-14}$ | $\le 8.9\cdot10^{-16}$ | $\le 8.9\cdot10^{-16}$ |
 
-FNL ran every ladder (work directories of both backends); the tables record the CPU values, and the backends agree to
-the printed digits.
+*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (the paper commit, tag pending), CPU gfortran 16.2.0 + Open
+MPI 5.0.11 (`iac_gnu`) on medooza (gnode22), FNL nvfortran 26.9, CUDA 12.9 (`iac_nvf`) on NVIDIA A30, 2026-11-23
+(`linear-wave/check.sh`, `linear-wave/check.sh --numerics hlld`, `cpaw/check.sh`, `vortex/check.sh`, jobs 1369376 CPU,
+1369378 FNL).*
+
+The CPU and FNL columns are each backend's own oracle values. They agree to the four printed digits everywhere except
+the last digit of a few MV-5 errors at $10^{-12}$ (e.g. 2-D fast at 64 cells: $4.0960$ against $4.0963\cdot10^{-12}$),
+where the error is six decades below the amplitude and round-off is a visible part of it. The bounds are the October
+CPU baselines + 2% (M2-P5b/c); every measured error sits 1.5–2.5% below its bound.
 
 Related cases: [isentropic vortex](../euler/isentropic-vortex) is the Euler order test on the same grid;
 [MHD on `weno-riemann`](./weno-riemann) holds the orders of the HLLD runs; [EGLM cleaning](./eglm) repeats MV-5 under

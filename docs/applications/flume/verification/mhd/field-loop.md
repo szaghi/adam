@@ -75,12 +75,19 @@ field-loop/check.sh --amr                                               # 2:1 se
 
 | Check | Bound | CPU | FNL |
 |---|---|---|---|
-| $\langle\lvert B_z\rvert\rangle/A_0$, $N = 64 / 128$ | $1.040\cdot10^{-3}$ / $6.003\cdot10^{-4}$ (baseline + 2%) | $1.02\cdot10^{-3}$ / $5.89\cdot10^{-4}$ | pass |
-| its rate under refinement | $> 0$ | 0.79 (0.20 from 128 to 256) | pass |
-| $E_B(T)/E_B(0)$, $N = 64 / 128$ | $\ge 0.87011$ / $0.93544$ (baseline − 0.2%) | 0.872 / 0.937 | pass |
+| $\langle\lvert B_z\rvert\rangle/A_0$, $N = 64 / 128$ | $1.040\cdot10^{-3}$ / $6.003\cdot10^{-4}$ (baseline + 2%) | $1.02\cdot10^{-3}$ / $5.89\cdot10^{-4}$ | the same |
+| its rate under refinement | $> 0$ | 0.79 (0.20 from 128 to 256) | 0.79 |
+| $E_B(T)/E_B(0)$, $N = 64 / 128$ | $\ge 0.87011$ / $0.93544$ (baseline − 0.2%) | 0.872 / 0.937 | the same |
 | `--amr`: $\langle\lvert B_z\rvert\rangle/A_0$, $N = 32 / 64$ | $2.292\cdot10^{-3}$ / $1.109\cdot10^{-3}$ | $2.247\cdot10^{-3}$ / $1.087\cdot10^{-3}$, rate +1.05 | the same |
 | `--amr`: $E_B(T)/E_B(0)$, $N = 32 / 64$ | $\ge 0.79914$ / $0.89888$ | 0.80074 / 0.90068 | the same |
 | `--amr`: final seam div(B) / its peak | 0.1 | 0.022 / 0.011 | the same |
+| `--agree`: CPU against FNL at the final time, largest relative difference, $N = 64 / 128$ | $10^{-10}$ | $8.2\cdot10^{-14}$ / $2.1\cdot10^{-13}$ (on $\mathbf{B}$; the fluid $\le 1.7\cdot10^{-14}$) | — |
+| `--amr --agree`, $N = 32 / 64$ | $10^{-10}$ | $7.4\cdot10^{-14}$ / $8.5\cdot10^{-14}$ | — |
+
+*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (the paper commit, tag pending), CPU gfortran 16.2.0 + Open
+MPI 5.0.11 (`iac_gnu`) on medooza (gnode22), FNL nvfortran 26.9, CUDA 12.9 (`iac_nvf`) on NVIDIA A30, 2026-11-23
+(`field-loop/check.sh`, `--amr`, then `--agree` and `--amr --agree` on the last checkpoints of both, jobs 1369376 CPU,
+1369378 FNL, 1369379 agree): every row; the `--amr` values the same as the first measurement below.*
 
 The `--amr` rows: quadtree, `nk = 1`, $2\times2$ base blocks of $N/2 \times N/4$ cells (the $4\times4$ layout of the
 octree era gives blocks 4 cells tall at $N = 32$, refused since the thin-block guard of

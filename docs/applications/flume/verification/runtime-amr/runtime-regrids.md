@@ -71,11 +71,16 @@ rg3, rg4 and rg5 run on both backends (np 2); the measured values are the same o
 
 | Leg | Regrids that changed the grid | Blocks refined / families coarsened | Measured |
 |---|---|---|---|
-| rg3 `conservative` | 10 | 20 / 4 | drift $2.2\cdot10^{-16}$ (ρ), $1.3\cdot10^{-16}$ (ρE); FNL at most $2.6\cdot10^{-16}$ |
+| rg3 `conservative` | 10 | 20 / 4 | drift $1.1\cdot10^{-16}$ (ρ), $1.3\cdot10^{-16}$ (ρE); FNL at most $3.4\cdot10^{-16}$ |
 | rg3 `linear` | 7 | 14 / 6 | drift $2.6\cdot10^{-5}$ (ρ), $2.2\cdot10^{-4}$ (ρu) |
 | rg4 | 3 (steps 5, 20, 25) | — | 40 blocks bitwise, histories identical |
 | rg5 | 1 (176 → 344 blocks) | 24 / 0 | completes, admissible |
-| rg6 | 10, the same on both | 20 / 4 | fields within $7.0\cdot10^{-14}$; FNL round trips 0.015 to 0.029 s each (2.3 to 3.1 s before #75) |
+| rg6 | 10, the same on both | 20 / 4 | fields within $7.0\cdot10^{-14}$; FNL round trips 0.016 to 0.033 s each (2.3 to 3.1 s before #75) |
+
+*Rows rg3, rg4, rg5 and the FNL round trips of row rg6: Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (the
+paper commit, tag pending), CPU gfortran 16.2.0 + Open MPI 5.0.11 (`iac_gnu`) on medooza (gnode22), FNL nvfortran
+26.9, CUDA 12.9 (`iac_nvf`) on NVIDIA A30, 2026-11-23 (`regrid/check.sh --legs rg3,rg4,rg5`, jobs 1369376 CPU, 1369378
+FNL). The rg6 field comparison was not re-measured.*
 
 Related cases: the transfers alone are the [round trip](./regrid-round-trip); the accuracy of the regridded runs is
 [AV](./accuracy) (rg5's accuracy against the initial-AMR and uniform runs is AV-7, #74 P4); the cases without runtime
@@ -92,7 +97,7 @@ AMR are the [isentropic vortex](../euler/isentropic-vortex) and the [shock over 
   regrid, it would not.
 - The FNL backend regrids on the host, so the grid decisions are the same code on both backends; rg6 checks that the
   device state reaches the host and comes back intact.
-- On FNL the round trips of the conservative rg3 run cost 0.015–0.031 s each on a grid of at most 52 blocks: the
+- On FNL the round trips of the conservative rg3 run cost 0.016–0.033 s each on a grid of at most 52 blocks: the
   copies move the blocks in use, packed on the device. They moved the whole device state, sized by the block capacity
   (17195 blocks per rank here), and cost 2.3–3.1 s each until [#75](https://github.com/szaghi/adam/issues/75).
 - P0 also fixed the capacity check of a regrid: the new blocks take indices on their parent's rank before the

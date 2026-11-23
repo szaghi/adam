@@ -60,21 +60,28 @@ The probes of the table below are investigation runs, not legs of a script.
 
 *The uniform $N = 128$ blast on FNL (2 ranks), a checkpoint every 20 steps. Left: the splitting scheme's density at $t = 0.01$. Centre: its point-symmetry defect $|\rho(\mathbf x) - \rho(\mathbf 1 - \mathbf x)| / \max\rho$, spread over the whole blast, not along the grid axes. Right: the largest defect of $\rho$ and $B_y$ against the step: on the splitting scheme it leaves round-off by step 20, grows exponentially, reaches 0.1 (this measure) by step 260 and stays between 0.1 and 0.22 to the end (0.17); on `weno-riemann` HLLD it stays between $5\cdot10^{-13}$ and $3\cdot10^{-12}$, under the av3c bound. Rerun after [#134](https://github.com/szaghi/adam/issues/134) D4 (each SSP-54 stage limited for its own forward-Euler step): the same picture as before it.*
 
-The probes below were measured before #134 D4 (investigation runs, not rerun); the figure above and the av3c bound
-below were rerun after it.
+The probes below are investigation runs, not legs of a script. Those marked *rerun* were repeated after #134 D4 on the
+CPU (2026-11-23, a checkpoint every 10 steps, so the times are resolved to 10 steps, the defect measured as the figure
+does); the others were measured before it.
 
 | Probe | Result |
 |---|---|
-| HEAD, after the #79 fix (CPU) | ρ 0.16 pointwise; in L1 only 2.3·10⁻²: the pointwise figure is a shock shifted by a few cells. CPU against FNL 0.16 |
+| HEAD, after the #79 fix (CPU) | ρ 0.16 pointwise; in L1 only 2.3·10⁻²: the pointwise figure is a shock shifted by a few cells. CPU against FNL 0.16. *Rerun*, N = 128: 0.18 at t = 0.01 (largest 0.21); CPU against FNL (`regression_ab.py`, $\rho E$ against its block maximum) 3·10⁻¹¹ at step 10, 2·10⁻⁹ at 20, 10⁻⁷ at 100, 5·10⁻⁴ at 200, 0.14 at the end: the backends' round-off is amplified the same way as the asymmetry |
 | first steps | 1.2·10⁻¹⁰ after one step, at the front cells in the low-β gas; exponential growth from step 60 (e-folding in 10–15 steps), saturation at O(0.1) by step 220 |
-| N = 64 / 128 / 256 | the asymmetry reaches 10⁻² at t = 0.0094 / 0.0047 / 0.0024: the growth rate scales as 1/Δx, a grid-scale instability, not a physical one (whose rate would converge) |
-| CFL 0.4 → 0.2 | 10⁻² at t = 0.0047 / 0.0041: the spatial operator, not the time integrator |
-| β × 10 / × 100 (B / √10, B / 10) | 6.8·10⁻⁸ at t = 0.01, still growing / 2·10⁻¹⁰, flat: a low-β effect |
+| N = 64 / 128 / 256 | the asymmetry reaches 10⁻² at t = 0.0094 / 0.0047 / 0.0024: the growth rate scales as 1/Δx, a grid-scale instability, not a physical one (whose rate would converge). *Rerun*: t = 0.0098 / 0.0048 / 0.0017 (steps 190 / 200 / 160); at t = 0.01: 0.018 / 0.18 / 0.18. The rate grows at least as fast as 1/Δx: still a grid-scale instability |
+| CFL 0.4 → 0.2 | 10⁻² at t = 0.0047 / 0.0041: the spatial operator, not the time integrator. *Rerun*: t = 0.0048 / 0.0028 (steps 200 / 310); 0.30 at t = 0.01. Halving the CFL now brings the onset 40 % earlier in time: the time step enters the growth after D4 (each stage limited for its own step), so the attribution to the spatial operator alone no longer holds; open |
+| β × 10 / × 100 (B / √10, B / 10) | 6.8·10⁻⁸ at t = 0.01, still growing / 2·10⁻¹⁰, flat: a low-β effect. *Rerun*: 2.6·10⁻⁷ (largest 4.8·10⁻⁷) / 6.1·10⁻¹⁰ at t = 0.01, neither reaches 10⁻²: still a low-β effect |
 | conservative reconstruction | the same growth, about 100 steps later |
 | scale-invariant WENO weights (`[weno] weights = si`; measured after #134 D4, CPU) | the seed 4 decades lower (5e-12 against 2e-8 at step 20), the same growth, about 120 steps later: 0.08 at t = 0.01 against 0.18 with `js` |
 | limiter off (floors 0.01), EGLM or GLM | NaN at step 8: the limiter keeps the run alive |
 | `weno-riemann`: HLLD with and without the 6th-order correction, LLF, HLLD with primitive interpolation | symmetric to 10⁻¹² – 10⁻¹⁰ through t = 0.01 |
-| positivity limiter activity | flux splitting: faces limited at every step (428 of 428; β × 100: 46 of 384); `weno-riemann`: only in the first 17–27 steps. The backbone flux the limiter falls back to is the same on both paths |
+| positivity limiter activity | flux splitting: faces limited at every step (428 of 428; β × 100: 46 of 384); `weno-riemann`: only in the first 17–27 steps. The backbone flux the limiter falls back to is the same on both paths. *Rerun* (rank 0's log): splitting every step (423 of 423; CFL 0.2: 1155 of 1155; β × 10: 382 of 384; β × 100: 24 of 384); HLLD in 7 steps, the last at step 10 |
+
+*Measured (rows marked rerun): ADAM `0bcdf870` + the night-2026-11-22 tree (the paper commit, tag pending), CPU
+gfortran 16.2.0 + Open MPI 5.0.11 (`iac_gnu`) on medooza (gnode22), FNL nvfortran 26.9, CUDA 12.9 (`iac_nvf`) on
+NVIDIA A30 (the CPU-against-FNL run), 2026-11-23 (`make_regrid.py blast-av` and `make_blast.py --eglm` inputs as
+listed in the #142 run plan, jobs 1369376 CPU, 1369378 FNL, 1369379 comparison; the defects computed from the
+checkpoints with `fig_blast_symmetry`'s measure).*
 
 The bound that closes the study (av3c, `weno-riemann` with `riemann_solver = hlld`):
 
@@ -82,7 +89,11 @@ The bound that closes the study (av3c, `weno-riemann` with `riemann_solver = hll
 |---|---|---|---|
 | point symmetry, uniform $N = 128$ | $10^{-10}$ | $4.8\cdot10^{-12}$ | $2.7\cdot10^{-12}$ |
 | point symmetry, tracked (3 regrids) | $10^{-10}$ | $4.6\cdot10^{-12}$ | $6.0\cdot10^{-12}$ |
-| shock radius on the four half-axes | — | the same on both runs | — |
+| shock radius on the four half-axes | — | the same on both runs | the same on both runs |
+
+*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (the paper commit, tag pending), CPU gfortran 16.2.0 + Open
+MPI 5.0.11 (`iac_gnu`) on medooza (gnode22), FNL nvfortran 26.9, CUDA 12.9 (`iac_nvf`) on NVIDIA A30, 2026-11-23
+(`regrid/accuracy.sh --legs av3c`, jobs 1369376 CPU, 1369378 FNL).*
 
 Related cases: the regridded blast is av3b and av3c of [AV](./accuracy); the limiter itself is the
 [positivity limiter](../mhd/positivity-limiter) case; the Riemann-flux path is [MHD on `weno-riemann`](../mhd/weno-riemann).
@@ -94,6 +105,11 @@ Related cases: the regridded blast is av3b and av3c of [AV](./accuracy); the lim
   grid scale from 10⁻¹⁰ to O(0.1). The Riemann-flux path does not produce those states past the first steps and stays
   symmetric. The limiter's part rests on correlation and elimination (it acts at every step exactly where the scheme
   is unstable, and the scheme cannot run without it), not on a direct measurement of its amplification.
+- **After #134 D4** (each SSP-54 stage limited for its own forward-Euler step) the probes repeat the picture: the
+  grid-scale growth (onset at N = 256 even earlier than 1/Δx predicts), the low-β dependence, the limiter at every step
+  on the splitting path and only at the start on HLLD, and CPU and FNL diverging like the asymmetry. One probe moved:
+  at CFL 0.2 the onset comes 40 % earlier in time than at 0.4 (before D4 it came 13 % earlier), so the time step is
+  part of the growth on this path; not investigated.
 - **A fix tried and not kept.** One Lax–Friedrichs speed for the seven MHD waves (the stencil's fast bound) instead of
   one per wave, the cleaning pair unchanged, delays the growth (N = 128: 5.8·10⁻⁵ at t = 0.01; N = 256 saturates at
   4·10⁻³ instead of 0.17) but does not stop it, keeps the limiter acting at every step, and raises the MV-5 errors 2

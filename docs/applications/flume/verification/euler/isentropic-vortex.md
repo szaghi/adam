@@ -68,8 +68,12 @@ four schemes, with the order-5 slope.*
 |---|---|---|---|---|
 | `weno` (split) | 4.5 (V2) | $8.38\cdot10^{-8}$ | 5.79 | the same |
 | `weno-riemann` LLF | 4.8 (RV-2) | $1.42\cdot10^{-7}$ | 5.64 | the same |
-| `weno-riemann` HLL | 4.8 (RV-2) | $8.98\cdot10^{-8}$ | 6.26 | not run |
+| `weno-riemann` HLL | 4.8 (RV-2) | $8.98\cdot10^{-8}$ | 6.26 | the same |
 | `weno-riemann` HLLC | 4.8 (RV-2) | $8.04\cdot10^{-8}$ | 6.49 | the same |
+
+*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (the paper commit, tag pending), CPU gfortran 16.2.0 + Open
+MPI 5.0.11 (`iac_gnu`) on medooza (gnode22), FNL nvfortran 26.9, CUDA 12.9 (`iac_nvf`) on NVIDIA A30, 2026-11-23
+(`vortex/check.sh`, `riemann-flux/check.sh --legs vortex --solver {llf,hll,hllc}`, jobs 1369376 CPU, 1369378 FNL).*
 
 The full ladders on the CPU:
 
@@ -78,6 +82,11 @@ The full ladders on the CPU:
 | `weno` (split) | $8.218\cdot10^{-5}$ / $4.621\cdot10^{-6}$ / $8.379\cdot10^{-8}$ |
 | `weno-riemann` LLF, WENO-weight sensor | $1.182\cdot10^{-4}$ / $7.073\cdot10^{-6}$ / $1.415\cdot10^{-7}$ |
 | `weno-riemann` LLF, sensor `none` | $9.113\cdot10^{-5}$ / $4.748\cdot10^{-6}$ / $1.415\cdot10^{-7}$ |
+
+*Rows `weno` (split), `weno-riemann` LLF with the WENO-weight sensor: Measured: ADAM `0bcdf870` + the night-2026-11-22
+tree (the paper commit, tag pending), CPU gfortran 16.2.0 + Open MPI 5.0.11 (`iac_gnu`) on medooza (gnode22), FNL
+nvfortran 26.9, CUDA 12.9 (`iac_nvf`) on NVIDIA A30, 2026-11-23 (`vortex/check.sh`, `riemann-flux/check.sh --legs
+vortex --solver llf`, jobs 1369376 CPU, 1369378 FNL). The row with sensor `none` was not re-measured.*
 
 Related cases: [Sod](./sod) checks the same schemes at discontinuities; the MHD orders are in
 [Order of accuracy](../mhd/order-of-accuracy).

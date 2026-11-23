@@ -75,11 +75,15 @@ $0.8a$ and over the whole star (the cells denser than a tenth of the central den
 
 | Leg | Asserted | Bound | CPU | FNL |
 |---|---|---|---|---|
-| SV-7 | the largest central-density drift to $t = 2$: $9.91\cdot10^{-2}$ ($32^3$), $5.71\cdot10^{-2}$ ($64^3$); reduction | $\ge 1.5$ | 1.74 | 1.73 |
-| SV-7 | the largest Mach number inside $0.8a$: 0.154, 0.075; reduction | $\ge 1.5$ | 2.05 | 2.06 |
-| SV-7 | the largest Mach number in the whole star (set at its surface): 0.43, 0.29; reduction | reported | 1.50 | 1.49 |
+| SV-7 | the largest central-density drift to $t = 2$: $9.91\cdot10^{-2}$ ($32^3$), $5.71\cdot10^{-2}$ ($64^3$); reduction | $\ge 1.5$ | 1.73 | 1.74 |
+| SV-7 | the largest Mach number inside $0.8a$: 0.154, 0.075; reduction | $\ge 1.5$ | 2.06 | the same |
+| SV-7 | the largest Mach number in the whole star (set at its surface): 0.43, 0.29; reduction | reported | 1.49 | 1.50 |
 | SV-8 | drift of $E + W$ at CFL 0.4, 0.2, 0.1: $5.97\cdot10^{-7}$, $8.29\cdot10^{-8}$, $9.71\cdot10^{-9}$; order in $\Delta t$ | $\ge 2.5$ | 2.85, 3.09 | 2.85, 3.09 (the same drifts) |
-| SV-8 | the largest $\lvert\int\rho\mathbf u\rvert$ | $10^{-14}$ | $7.3\cdot10^{-18}$ | $6.9\cdot10^{-18}$ |
+| SV-8 | the largest $\lvert\int\rho\mathbf u\rvert$ | $10^{-14}$ | $7.8\cdot10^{-18}$ | $6.5\cdot10^{-18}$ |
+
+*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (the paper commit, tag pending), CPU gfortran 16.2.0 + Open
+MPI 5.0.11 (`iac_gnu`) on medooza (gnode22), FNL nvfortran 26.9, CUDA 12.9 (`iac_nvf`) on NVIDIA A30, 2026-11-23
+(`selfgravity/star.sh --legs sv7,sv8`, jobs 1369376 CPU, 1369378 FNL).*
 
 Related cases: the periodic analogue of the collapse is [SV-4](./jeans); the solver is [SV-6](./isolated-solver); the star
 on AMR grids is [SV-14 to SV-17](./star-amr); the limiter's gravity energy correction comes from [the force](../gravity/force)

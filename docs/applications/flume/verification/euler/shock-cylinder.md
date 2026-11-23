@@ -73,9 +73,14 @@ cd ../riemann-flux && ./check.sh --legs cylinder                              # 
 | Check | Bound | `weno`, CPU | `weno`, FNL | HLLC, CPU | HLLC, FNL |
 |---|---|---|---|---|---|
 | crossed blocks refined | all | pass | pass | pass | pass |
-| relative asymmetry about $y = 0.5$ | $10^{-10}$ | $1.2\cdot10^{-11}$ | $4.8\cdot10^{-12}$ | $4.9\cdot10^{-12}$ | $1.9\cdot10^{-12}$ |
-| min $\rho$, min $p$ in the fluid | positive, finite | positive | positive | 1.365, 0.968 | positive |
+| relative asymmetry about $y = 0.5$ | $10^{-10}$ | $9.3\cdot10^{-12}$ | $6.5\cdot10^{-12}$ | $3.1\cdot10^{-12}$ | $1.5\cdot10^{-12}$ |
+| min $\rho$, min $p$ in the fluid | positive, finite | 1.393, 0.995 | the same | 1.367, 0.970 | the same |
 | CPU against FNL, relative, every field | — | $1.1\cdot10^{-11}$ | | | |
+
+*Rows 1–3: Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (the paper commit, tag pending), CPU gfortran
+16.2.0 + Open MPI 5.0.11 (`iac_gnu`) on medooza (gnode22), FNL nvfortran 26.9, CUDA 12.9 (`iac_nvf`) on NVIDIA A30,
+2026-11-23 (`shock-cylinder/check.sh`, `riemann-flux/check.sh --legs cylinder`, jobs 1369376 CPU, 1369378 FNL). The
+CPU-against-FNL row was not re-measured.*
 
 Related cases: [Conservation across AMR seams](./amr-conservation) checks the reflux this case relies on; the
 regression case `shock-cylinder-ib` freezes the input at 120 steps.
