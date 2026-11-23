@@ -18,6 +18,10 @@ How the dark style works, without touching the drawing code of the figures:
   colour maps.
 
 The silver-ink tokens are slightly blue, never neutral, so the mapping leaves them alone and is idempotent.
+
+The module also holds the publication style of the journal figures (issue #142): `paper()` sets PAPER_RC, the one
+rcParams block of every paper figure (FLUME and PRISM), and PAGE_WIDTHS gives the widths of the MDPI page. The docs
+styles above do not use it. src/tests/flume/verification/paper_style.py restyles the docs figures with it.
 Needs matplotlib.
 """
 
@@ -197,3 +201,118 @@ def theme(name: str) -> Iterator[None]:
 def themes(choice: str) -> tuple[str, ...]:
     """Return the themes of a `--theme` choice (light, dark or both)."""
     return ("light", "dark") if choice == "both" else (choice,)
+
+
+# --- the publication style (issue #142, Part B) ------------------------------------------------------------------
+# One style block for every journal figure of ADAM (FLUME and PRISM): white ground, fonts of 8 pt at the printed size,
+# serif text and math matching the MDPI class (mathpazo: Palatino), a colour-blind-safe palette (Okabe and Ito 2008)
+# and markers that stay apart in grey scale. Nothing below is used by the docs styles above: it is applied only inside
+# `paper()`, so the docs figures do not change.
+#
+# The page of the MDPI template (Definitions/mdpi.cls of the manuscript, measured with \the\textwidth and
+# \the\extralength in a document of that class, 2026-11-22): \textwidth = 394.35522 pt, \extralength = 131.16722 pt.
+# A wide figure goes in `\begin{adjustwidth}{-\extralength}{0cm}` with `width=\linewidth`: its width is their sum.
+PT_PER_INCH = 72.27  # TeX points
+TEXTWIDTH_PT = 394.35522
+EXTRALENGTH_PT = 131.16722
+PAGE_WIDTHS = {
+    "full": (TEXTWIDTH_PT + EXTRALENGTH_PT) / PT_PER_INCH,  # 7.27 in: adjustwidth{-\extralength}, width=\linewidth
+    "text": TEXTWIDTH_PT / PT_PER_INCH,  # 5.46 in: width=\textwidth
+    "half": 0.5 * TEXTWIDTH_PT / PT_PER_INCH,  # 2.73 in: width=0.5\textwidth
+}
+PAGE_INCLUDES = {
+    "full": r"\begin{adjustwidth}{-\extralength}{0cm} \includegraphics[width=\linewidth]{%s} \end{adjustwidth}",
+    "text": r"\includegraphics[width=\textwidth]{%s}",
+    "half": r"\includegraphics[width=0.5\textwidth]{%s}",
+}
+# Okabe-Ito: blue, vermillion, bluish green, reddish purple, orange, sky blue, black, yellow (last: weak on white)
+PAPER_PALETTE = ("#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#000000", "#F0E442")
+PAPER_MARKERS = ("o", "s", "^", "D", "v", "P", "X", "*")
+# the matplotlib 'tab:' colours a figure may hard-code, onto the palette entry of the same hue
+PAPER_TAB = {"tab:blue": 0, "tab:orange": 4, "tab:green": 2, "tab:red": 1, "tab:purple": 3, "tab:cyan": 5,
+             "tab:gray": 6}
+PAPER_FONT_PT = 8.0
+PAPER_PANEL_LABEL_PT = 9.0
+PAPER_DPI_PDF = 600  # the resolution of the rasterized field maps inside the vector PDF
+PAPER_DPI_PNG = 300
+PAPER_CMAPS = {"sequential": "viridis", "density": "magma", "alternative": "cividis", "diverging": "RdBu_r",
+               "schlieren": "Greys"}
+PAPER_RC = {
+    "figure.facecolor": "white",
+    "savefig.facecolor": "white",
+    "axes.facecolor": "white",
+    "axes.edgecolor": "black",
+    "axes.labelcolor": "black",
+    "text.color": "black",
+    "xtick.color": "black",
+    "ytick.color": "black",
+    "font.family": "serif",
+    "font.serif": ["TeX Gyre Pagella", "P052", "Palatino", "Palatino Linotype", "STIXGeneral", "DejaVu Serif"],
+    "mathtext.fontset": "custom",
+    "mathtext.rm": "serif",
+    "mathtext.it": "serif:italic",
+    "mathtext.bf": "serif:bold",
+    "mathtext.fallback": "stix",
+    "font.size": PAPER_FONT_PT,
+    "axes.titlesize": PAPER_FONT_PT,
+    "axes.labelsize": PAPER_FONT_PT,
+    "xtick.labelsize": PAPER_FONT_PT,
+    "ytick.labelsize": PAPER_FONT_PT,
+    "legend.fontsize": PAPER_FONT_PT,
+    "figure.titlesize": PAPER_FONT_PT,
+    "axes.linewidth": 0.6,
+    "axes.titlepad": 3.0,
+    "axes.labelpad": 2.0,
+    "lines.linewidth": 1.0,
+    "lines.markersize": 3.5,
+    "lines.markeredgewidth": 0.8,
+    "patch.linewidth": 0.6,
+    "grid.linewidth": 0.4,
+    "grid.color": "0.85",
+    "xtick.major.width": 0.6,
+    "ytick.major.width": 0.6,
+    "xtick.minor.width": 0.4,
+    "ytick.minor.width": 0.4,
+    "xtick.major.size": 2.5,
+    "ytick.major.size": 2.5,
+    "xtick.minor.size": 1.5,
+    "ytick.minor.size": 1.5,
+    "legend.frameon": True,
+    "legend.framealpha": 0.85,
+    "legend.edgecolor": "0.8",
+    "legend.fancybox": False,
+    "legend.borderpad": 0.3,
+    "legend.handlelength": 1.8,
+    "legend.labelspacing": 0.25,
+    "image.cmap": PAPER_CMAPS["sequential"],
+    "axes.prop_cycle": mpl.cycler(color=list(PAPER_PALETTE)),
+    "savefig.dpi": PAPER_DPI_PNG,
+    "pdf.fonttype": 42,  # TrueType in the PDF: text stays text (selectable, editable)
+    "ps.fonttype": 42,
+}
+
+
+def usetex_available() -> bool:
+    """Whether matplotlib can typeset with LaTeX here: `latex`, `dvipng` (PNG) and `gs` (PDF) on PATH."""
+    from shutil import which  # noqa: PLC0415
+
+    return all(which(tool) for tool in ("latex", "dvipng", "gs"))
+
+
+@contextmanager
+def paper(usetex: bool = False) -> Iterator[None]:
+    """Draw the figures of the block in the publication style (PAPER_RC). `usetex` asks for LaTeX text, granted only
+    when `usetex_available()`; otherwise mathtext, with the Palatino-like serif of PAPER_RC."""
+    rc = dict(PAPER_RC)
+    if usetex and usetex_available():
+        rc.update({"text.usetex": True, "text.latex.preamble": r"\usepackage{mathpazo}"})
+    elif usetex:
+        print("figure_theme.paper: usetex asked but latex/dvipng/gs are not all available: mathtext used")
+    with mpl.rc_context(rc):
+        # Type 42 needs a TrueType font: matplotlib 3.11 embeds an OpenType-CFF font (TeX Gyre Pagella, P052) as a
+        # TrueType one (CIDFontType2 + FontFile2 holding CFF), a PDF poppler refuses to render. Type 3 then.
+        from matplotlib.font_manager import FontProperties, findfont  # noqa: PLC0415
+
+        if not findfont(FontProperties(family="serif")).lower().endswith((".ttf", ".ttc")):
+            mpl.rcParams["pdf.fonttype"] = mpl.rcParams["ps.fonttype"] = 3
+        yield

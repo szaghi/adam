@@ -8,6 +8,7 @@ change of the solver and compared with the published one.
 
 Usage:
     make_doc_figures.py --out DIR [--runs DIR] [--only NAME ...] [--theme {light,dark,both}]
+    make_doc_figures.py --out DIR --style paper [--runs DIR] [--only paper | NAME ...] [--usetex]
 
 `--runs` holds the re-runs of inputs whose work directories keep no checkpoint, one sub-directory per case, all written
 by `make_doc_runs.sh` (its groups: the MHD gallery, the limited blasts, the Euler near-vacuum problems, the linear-wave
@@ -15,7 +16,12 @@ ladders, the rotated shock tube, the quadtree, the runtime regrids, the multi-re
 self-gravity cases).
 A figure whose data is missing is skipped with a message. `--theme dark` writes the silver-ink twin `<name>-dark.png`
 of every figure instead (docs/scripts/figure_theme.py; the docs show it in the dark theme), `--theme both` the two;
-the default, light, is the washi figure. Needs numpy, h5py and matplotlib.
+the default, light, is the washi figure. `--only paper` draws the docs versions of the paper's figures.
+
+`--style paper` draws the figures of the ADAM paper instead (issue #142; `paper_figures` lists them): the same loaders
+and figure functions, restyled at save time by paper_style.py (white, no titles, no code identifiers, sized for the
+MDPI page, 8 pt, PDF with rasterized field maps + PNG, physical file names), plus figures.json, the manifest of their
+source runs and provenance. The docs figures do not change. Needs numpy, h5py and matplotlib.
 """
 
 from __future__ import annotations
@@ -87,6 +93,27 @@ def blocks(work: Path, ngc: int, names: tuple[str, ...], prefix: str = "", it: i
                         a = h5[f"{blk}-{v}"][()].transpose(2, 1, 0)
                         fields[v] = a[ngc:-ngc, ngc:-ngc, ngc:-ngc] if ngc else a
                 out.append({"lo": origin + ngc * dxyz, "d": dxyz, "f": fields})
+    return out
+
+
+def slab_blocks(work: Path, ngc: int, names: tuple[str, ...], z: float, prefix: str = "", it: int | None = None,
+                halo: int = 0) -> list[dict]:
+    """Return, as `blocks` does, the blocks of the last checkpoint that hold the plane z (the cell layer just above it
+    when z lies on a cell face), with that one layer of their fields: a 3-D run is sliced without loading it. `halo`
+    keeps that many ghost cells around the block in x and y (`lo` stays the interior corner)."""
+    out = []
+    for path in last_files(work, prefix, it):
+        with h5py.File(path, "r") as h5:
+            for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                origin, dxyz = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                lo = origin + ngc * dxyz
+                nz = h5[f"{blk}-{names[0]}"].shape[0] - 2 * ngc
+                k = math.floor((z - lo[2]) / dxyz[2] + 1.0e-9)
+                if not 0 <= k < nz:
+                    continue
+                s = slice(ngc - halo, -(ngc - halo) or None)
+                fields = {v: h5[f"{blk}-{v}"][ngc + k, s, s].T[:, :, None] for v in names if f"{blk}-{v}" in h5}
+                out.append({"lo": lo, "d": dxyz, "f": fields, "halo": halo})
     return out
 
 
@@ -262,26 +289,36 @@ def first_plane(bl: list[dict]) -> list[dict]:
     return [b for b in bl if abs(b["lo"][2] - zmin) < 1e-12]
 
 
+def rerun_or(runs: Path, name: str, work: Path) -> Path:
+    """Return the re-run `<runs>/<name>` of make_doc_runs.sh when it exists, else the work directory of check.sh."""
+    return runs / name if (runs / name).is_dir() else work
+
+
 def fig_vortex(out: Path, runs: Path) -> None:
-    """V2 / RV-2: isentropic vortex, density field and convergence of four schemes."""
+    """V2 / RV-2: isentropic vortex, density field and convergence of four schemes (the make_doc_runs.sh `vortex`
+    group in --runs when present, else the work directories of vortex/check.sh and riemann-flux/check.sh)."""
     sys.path.insert(0, str(HERE / "vortex"))
     import vortex_oracle  # noqa: PLC0415
 
     fig, axs = plt.subplots(1, 2, figsize=(11, 4.4), constrained_layout=True)
-    work = RF / f"{TAG}-hllc-6th-weno-characteristic-vortex-n128"
+    work = rerun_or(runs, "vortex-hllc-n128", RF / f"{TAG}-hllc-6th-weno-characteristic-vortex-n128")
     ini = read_ini(next(work.glob("vortex-*.ini")))
     bl = first_plane(blocks(work, int(ini["grid"]["ngc"]), EULER))
     im = field_map(axs[0], bl, lambda b: b["f"]["r"][:, :, 0])
     fig.colorbar(im, ax=axs[0], label=r"$\rho$")
     axs[0].set_title("density at t = 0.1 (a tenth of the period), 128², HLLC")
     ladder = ("064", "128", "256")
-    for lab, fmt, dirs in (("weno (split)", "s-", [HERE / "vortex" / f"{TAG}-n{n}" for n in ladder]),
-                           ("weno-riemann LLF", "^-", [RF / f"{TAG}-llf-6th-weno-characteristic-vortex-n{n}"
-                                                      for n in ladder]),
-                           ("weno-riemann HLL", "d-", [RF / f"{TAG}-hll-6th-weno-characteristic-vortex-n{n}"
-                                                      for n in ladder]),
-                           ("weno-riemann HLLC", "o-", [RF / f"{TAG}-hllc-6th-weno-characteristic-vortex-n{n}"
-                                                       for n in ladder])):
+    for lab, fmt, dirs in (("weno (split)", "s-", [rerun_or(runs, f"vortex-split-n{n}", HERE / "vortex" / f"{TAG}-n{n}")
+                                                   for n in ladder]),
+                           ("weno-riemann LLF", "^-", [rerun_or(runs, f"vortex-llf-n{n}",
+                                                                RF / f"{TAG}-llf-6th-weno-characteristic-vortex-n{n}")
+                                                       for n in ladder]),
+                           ("weno-riemann HLL", "d-", [rerun_or(runs, f"vortex-hll-n{n}",
+                                                                RF / f"{TAG}-hll-6th-weno-characteristic-vortex-n{n}")
+                                                       for n in ladder]),
+                           ("weno-riemann HLLC", "o-", [rerun_or(runs, f"vortex-hllc-n{n}",
+                                                                 RF / f"{TAG}-hllc-6th-weno-characteristic-vortex-n{n}")
+                                                        for n in ladder])):
         try:
             res = [vortex_oracle.run_error(d) for d in dirs]
         except (StopIteration, SystemExit, FileNotFoundError):
@@ -300,8 +337,9 @@ def fig_vortex(out: Path, runs: Path) -> None:
 
 
 def fig_cylinder(out: Path, runs: Path) -> None:
-    """V6: Mach 2 shock over a cylinder, immersed boundary and solid AMR: density with block outlines, Mach."""
-    work = RF / f"{TAG}-hllc-6th-weno-characteristic-cylinder"
+    """V6: Mach 2 shock over a cylinder, immersed boundary and solid AMR: density with block outlines, Mach (the
+    make_doc_runs.sh `shock-cylinder-hllc` run in --runs when present, else riemann-flux/check.sh's work directory)."""
+    work = rerun_or(runs, "shock-cylinder-hllc", RF / f"{TAG}-hllc-6th-weno-characteristic-cylinder")
     ini = read_ini(next(work.glob("*.ini")))
     gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
     sol = ini["solid_1"]
@@ -422,6 +460,61 @@ def fig_step_trees(out: Path, runs: Path) -> None:  # noqa: ARG001
     plt.close(fig)
 
 
+def fig_step3d(out: Path, runs: Path) -> None:
+    """The 3-D Mach 3 forward-facing step on runtime AMR (issue #142, paper figure; run `<runs>/step-3d`, written by
+    step/make_step.py --layout aligned --dims 3 [--runtime]): three realms A [0, 0.6] x [0, 0.2], B [0, 0.6] x
+    [0.2, 1], C [0.6, 3] x [0.2, 1] on octrees, extruded over [0, Lz] in z. The cell layer just above the mid plane
+    z = Lz/2 at the last checkpoint: the density with the blocks outlined, and the numerical schlieren log10|grad rho|
+    (second-order differences inside each block, one-sided at its faces: the ghost cells are not read, since the
+    checkpoint's seam ghosts need not hold the neighbour's values)."""
+    work = runs / "step-3d"
+    ini = read_ini(work / "step-A.ini")
+    gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
+    zmid = 0.5 * (float(ini["grid"]["emin_z"]) + float(ini["grid"]["emax_z"]))
+    bl = [b for name in ("A", "B", "C") for b in slab_blocks(work, ngc, EULER, zmid, prefix=f"step-{name}-")]
+    if not bl:
+        raise FileNotFoundError(f"no block holds z = {zmid} in {work}")
+    inner = bl
+    grads = []
+    for b in bl:
+        gx, gy = np.gradient(b["f"]["r"][:, :, 0], b["d"][0], b["d"][1], edge_order=2)
+        grads.append(np.log10(np.maximum(np.hypot(gx, gy), 1.0e-3)))
+    fig, axs = plt.subplots(2, 1, figsize=(11, 8.5), constrained_layout=True)
+    im = field_map(axs[0], inner, lambda b: plane(b, gamma, "r"), cmap="magma", outline=False)
+    for b in inner:
+        nx, ny = b["f"]["r"].shape[:2]
+        axs[0].add_patch(Rectangle((b["lo"][0], b["lo"][1]), nx * b["d"][0], ny * b["d"][1], fill=False, lw=0.2,
+                                   ec="w", alpha=0.7))
+    fig.colorbar(im, ax=axs[0], label=r"$\rho$", shrink=0.95, pad=0.01)
+    lo, hi = min(float(g.min()) for g in grads), max(float(g.max()) for g in grads)
+    lo = max(lo, hi - 4.0)  # four decades below the strongest gradient
+    for b, g in zip(inner, grads, strict=True):
+        nx, ny = g.shape
+        xe = b["lo"][0] + np.arange(nx + 1) * b["d"][0]
+        ye = b["lo"][1] + np.arange(ny + 1) * b["d"][1]
+        sm = axs[1].pcolormesh(xe, ye, g.T, cmap="Greys", vmin=lo, vmax=hi, shading="flat")
+    axs[1].set_aspect("equal")
+    fig.colorbar(sm, ax=axs[1], label=r"$\log_{10}|\nabla\rho|$", shrink=0.95, pad=0.01)
+    for ax in axs:
+        ax.add_patch(Rectangle((0.6, 0.0), 2.4, 0.2, fill=True, fc="0.6", ec="k", lw=0.6))
+        ax.set_xlim(0.0, 3.0)
+        ax.set_ylim(0.0, 1.0)
+        ax.set_xlabel("$x$")
+        ax.set_ylabel("$y$")
+    hmin = min(float(b["d"][0]) for b in bl)
+    t_end = float("nan")
+    hist = work / "step-A-conservation_history.dat"
+    if hist.is_file():
+        rows = [ln.split() for ln in hist.read_text().splitlines() if ln.split() and ln.split()[0][0] in "+-0123456789"]
+        t_end = float(rows[-1][1]) if rows else t_end
+    axs[0].set_title(f"density, z = Lz/2, t = {t_end:.3g}, finest h = {hmin:.4g}, {len(bl)} blocks in the plane")
+    axs[1].set_title("numerical schlieren")
+    fig.suptitle("Mach 3 forward-facing step, 3-D, three realms on octrees")
+    fig.paper_notes = {"time": t_end, "finest_spacing": hmin, "blocks_in_plane": len(bl), "plane_z": zmid}
+    fig.savefig(out / "step-3d.png", dpi=DPI)
+    plt.close(fig)
+
+
 def fig_conservation(out: Path, runs: Path) -> None:
     """V3 / RV-4: relative drift of the volume integrals of the periodic AMR box, with and without reflux."""
     fig, ax = plt.subplots(figsize=(7, 4), constrained_layout=True)
@@ -464,6 +557,30 @@ def fig_orszag_tang(out: Path, runs: Path) -> None:
                      "Orszag-Tang vortex, 128²")
     mhd_field_figure(out, "orszag-tang-amr", runs / "orszag-tang-amr", (("r", r"$\rho$", "magma"),),
                      "Orszag-Tang, 32² with the centre box refined (2:1 seams)", outline=True)
+
+
+def fig_orszag_tang_merged(out: Path, runs: Path) -> None:
+    """MV-12, one figure for the paper (issue #142): the Orszag-Tang vortex on the uniform 128^2 grid, density and
+    pressure, and on 32^2 with the centre box refined, density with the blocks (runs orszag-tang, orszag-tang-amr)."""
+    fig, axs = plt.subplots(1, 3, figsize=(16.8, 4.8), constrained_layout=True)
+    panels = ((runs / "orszag-tang", "r", r"$\rho$", "magma", False, "density, 128²"),
+              (runs / "orszag-tang", "p", "$p$", "viridis", False, "pressure, 128²"),
+              (runs / "orszag-tang-amr", "r", r"$\rho$", "magma", True, "density, 32² + refined centre box"))
+    times = {}
+    for ax, (work, key, lab, cmap, outline, title) in zip(axs, panels, strict=True):
+        ini = read_ini(next(work.glob("*.ini")))
+        gamma, ngc = gamma_of(ini), int(ini["grid"]["ngc"])
+        times[work.name] = ini["time"]["time_max"] if "time" in ini else "?"
+        bl = first_plane(blocks(work, ngc, (*MHD, "psi")))
+        im = field_map(ax, bl, lambda b, k=key: plane(b, gamma, k), cmap=cmap, outline=outline)
+        fig.colorbar(im, ax=ax, label=lab, shrink=0.85)
+        ax.set_xlabel("$x$")
+        ax.set_ylabel("$y$")
+        ax.set_title(title)
+    fig.suptitle("Orszag-Tang vortex: uniform grid and static 2:1 refinement")
+    fig.paper_notes = {"time_max": times}
+    fig.savefig(out / "orszag-tang-merged.png", dpi=DPI)
+    plt.close(fig)
 
 
 def fig_rotor(out: Path, runs: Path) -> None:
@@ -5424,6 +5541,59 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "mhd-blast-symmetry": fig_blast_symmetry, "mhd-conservation": fig_mhd_conservation}
 
 
+def paper_figures() -> list:
+    """The figures of the ADAM paper (issue #142, Part B), as `--style paper` draws them: the physical file name, the
+    figure function (a docs figure, restyled, or a paper-only one), the docs file stem it saves, the page width, the
+    height in inches, the panel titles and the colorbar labels (paper_style.Spec)."""
+    from paper_style import Spec  # noqa: PLC0415
+
+    rho = r"$\rho$"
+    return [
+        Spec("order-vortex", fig_vortex, "vortex", "text", 2.3,
+             note="isentropic vortex: density (128^2, HLLC) and L1 error of four WENO5 schemes"),
+        Spec("order-linear-waves", fig_order, "linear-wave-order", "text", 2.4,
+             titles=["WENO5, flux splitting", "WENO5, HLLD"], note="MHD linear waves, one period"),
+        Spec("orszag-tang", fig_orszag_tang_merged, "orszag-tang-merged", "full", 2.15,
+             titles=[r"$\rho$, $128^2$", r"$p$, $128^2$", r"$\rho$, $32^2$ + refined box"],
+             note="uniform 128^2 density and pressure; 32^2 + refined box density with blocks"),
+        Spec("rotor", fig_rotor, "rotor", "text", 2.45),
+        Spec("shock-cylinder-ib", fig_cylinder, "shock-cylinder", "text", 2.3),
+        Spec("step-3d-amr", fig_step3d, "step-3d", "full", 5.0,
+             note="3-D Mach 3 forward-facing step, three realms, mid-z plane; run <runs>/step-3d"),
+        Spec("regrid-vortex", fig_regrid_runtime, "regrid-runtime", "full", 1.95, titles="keep",
+             labels={"volume integrals through the regrids": ""}),
+        Spec("blast-symmetry", fig_blast_symmetry, "mhd-blast-symmetry", "full", 2.3,
+             legend={"loc": "center left", "bbox_to_anchor": (1.0, 0.5)},
+             labels={"flux splitting, density": r"splitting, $\rho$", "flux splitting, $B_y$": "splitting, $B_y$",
+                     "HLLD, density": r"HLLD, $\rho$", "bound of the HLLD run": "HLLD bound"},
+             note="FNL runs"),
+        Spec("star-isolated", fig_selfgravity_star, "selfgravity-star", "text", 4.4, cbar_labels=[rho]),
+        Spec("star-isolated-amr", fig_selfgravity_star_amr, "selfgravity-star-amr", "text", 4.4, cbar_labels=[rho]),
+        Spec("sink-particles", fig_sink_particles, "sink-particles", "text", 4.6),
+    ]
+
+
+def main_paper(a: argparse.Namespace) -> int:
+    """Draw the paper figures (`--style paper`): PDF and PNG per figure, and the manifest figures.json."""
+    import paper_style  # noqa: PLC0415
+
+    specs = paper_figures()
+    if a.only and "paper" not in a.only:
+        specs = [s for s in specs if s.name in a.only or s.saves in a.only or s.draw.__name__ in a.only]
+    entries, skipped = [], {}
+    for spec in specs:
+        try:
+            entries.append(paper_style.render(spec, a.out, a.runs, usetex=a.usetex))
+            left = entries[-1].get("audit", [])
+            print(f"{spec.name}: done" + (f" (audit: {'; '.join(left)})" if left else ""))
+        except (FileNotFoundError, StopIteration, KeyError, IndexError, ValueError) as err:  # missing or partial runs
+            print(f"{spec.name}: skipped ({err!r})")
+            skipped[spec.name] = repr(err)
+    path = paper_style.manifest(a.out, entries, HERE.parents[3], Path(__file__).resolve(), skipped)
+    print(f"manifest: {path}")
+    return 1 if skipped else 0
+
+
 def main() -> int:
     """Draw the requested figures; report the missing data."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -5436,11 +5606,23 @@ def main() -> int:
         default="light",
         help="light: <name>.png on washi; dark: <name>-dark.png on silver ink; both (default: light)",
     )
+    ap.add_argument(
+        "--style",
+        choices=("docs", "paper"),
+        default="docs",
+        help="docs: the documentation figures (default); paper: the paper's figures (PDF, PNG, figures.json)",
+    )
+    ap.add_argument("--usetex", action="store_true", help="paper: LaTeX text if latex, dvipng and gs are available")
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
+    if a.style == "paper":
+        return main_paper(a)
+    only = a.only
+    if only and "paper" in only:  # the docs versions of the paper's figures
+        only = [n for n in only if n != "paper"] + [s.saves for s in paper_figures()] + ["orszag-tang"]
     status = 0
     for name, fn in FIGURES.items():
-        if a.only and name not in a.only:
+        if only and name not in only:
             continue
         for t in themes(a.theme):
             try:
