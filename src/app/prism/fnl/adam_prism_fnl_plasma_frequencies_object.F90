@@ -19,16 +19,41 @@ use :: penf
 implicit none
 private
 public :: prism_fnl_plasma_frequencies_object
+public :: plasma_frequencies_block_fields
 
 type :: prism_fnl_plasma_frequencies_object
    real(R8P), pointer :: wp2_gpu(:,:,:,:,:) => null() !< omega_p^2 per interior cell [nb,ni,nj,nk,2] (1 electrons, 2 ions).
    contains
+      procedure, pass(self) :: allocated_bytes
       procedure, pass(self) :: initialize
       procedure, pass(self) :: compute
       procedure, pass(self) :: destroy
 endtype prism_fnl_plasma_frequencies_object
 
 contains
+   pure function plasma_frequencies_block_fields(ni, nj, nk, ngc) result(fields)
+   !< Block fields (ghosts included, the unit of the blocks budget) taken by wp2_gpu, two interior fields per block slot,
+   !< rounded up (issue #130, 8-bis): the budget reserves them, the end of the initialization checks them.
+   integer(I4P), intent(in) :: ni, nj, nk !< Block cells.
+   integer(I4P), intent(in) :: ngc        !< Ghost cells.
+   integer(I4P)             :: fields     !< Block fields.
+   integer(I8P)             :: interior   !< wp2_gpu values per block.
+   integer(I8P)             :: weight     !< Values of a block field, ghosts included.
+
+   interior = 2_I8P*int(ni, I8P)*int(nj, I8P)*int(nk, I8P)
+   weight = int(ni + 2*ngc, I8P)*int(nj + 2*ngc, I8P)*int(nk + 2*ngc, I8P)
+   fields = int((interior + weight - 1_I8P)/weight, I4P)
+   endfunction plasma_frequencies_block_fields
+
+   function allocated_bytes(self) result(bytes)
+   !< Device bytes of wp2_gpu allocated now (issue #130, 8-bis).
+   class(prism_fnl_plasma_frequencies_object), intent(in) :: self  !< Device helper.
+   integer(I8P)                                           :: bytes !< Bytes.
+
+   bytes = 0_I8P
+   if (associated(self%wp2_gpu)) bytes = size(self%wp2_gpu, kind=I8P)*storage_size(1._R8P, kind=I8P)/8_I8P
+   endfunction allocated_bytes
+
    subroutine initialize(self, nb, ni, nj, nk)
    !< Allocate the work array on the block slots.
    class(prism_fnl_plasma_frequencies_object), intent(inout) :: self       !< Device helper.

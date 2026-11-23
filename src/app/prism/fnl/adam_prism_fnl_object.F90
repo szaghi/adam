@@ -393,7 +393,8 @@ contains
    !<
    !< `extra_fields`: the correction to the block fields of compute_fields_number on the device, which may be negative:
    !< -2 nv for `curl` and `divergence`, host arrays only in FNL (issue #112 C), +1 for `j_vec_tv_gpu` with an AMR_TV
-   !< marker; plus the gather fields of the conserving current allocated on the block slots (`gq_gpu`, 6, coherent
+   !< marker; plus, under PIC, the fields on the block slots, from the functions their objects allocate by (issue #130,
+   !< 8-bis): `plasma_frequencies_block_fields` (`wp2_gpu`) and `conserving_layout%slot_fields` (`gq_gpu`, 6, coherent
    !< gather; `gather_gpu`, nv, with external fields). `reserved_memory`: the particle arrays, sized on the particle
    !< capacity of a rank, `[PIC].(particle_capacity_factor)` (`q_pic_gpu`, `pic_fields_gpu`, `neighbour_list_gpu`, the
    !< time scheme stages, the migration buffers, the conserving histories), and the virtual block of the conserving
@@ -428,7 +429,6 @@ contains
    call amr%load_from_file(file_parameters=file_parameters)
    extra_fields = -2_I4P*physics%nv
    if (has_tv_marker(amr)) extra_fields = extra_fields + 1_I4P
-   if (is_pic_model(physics%physical_model)) extra_fields = extra_fields + 1_I4P ! plasma_freq_fnl%wp2_gpu: 2 interior fields
    if (.not.is_pic_model(physics%physical_model)) then
       call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(extra_fields))// &
                                   ' block fields with respect to compute_fields_number')
@@ -439,6 +439,8 @@ contains
    else
       call grid%initialize(file_parameters=file_parameters)
    endif
+   ! plasma_freq_fnl%wp2_gpu: two interior fields on the block slots
+   extra_fields = extra_fields + plasma_frequencies_block_fields(ni=grid%ni, nj=grid%nj, nk=grid%nk, ngc=grid%ngc)
    call pic%load_from_file(file_parameters=file_parameters)
    call pic%set_particle_number(emin=grid%domain_emin, emax=grid%domain_emax, physics=physics)
    nrk = max(1_I4P, stepper_butcher_stages(scheme=rk_scheme)) ! the field stages (the conserving current's history)
@@ -466,13 +468,12 @@ contains
       ngc = grid%ngc
       ! the particle closure from the field BCs, by the rule of pic%bc
       call bc%load_from_file(file_parameters=file_parameters)
-      layout = conserving_layout_from(pic=pic, periodic=pic_periodic_axes(bc%bc_type), n=n, ngc=ngc, nrk=nrk, &
-                                      ranks=mpih_fnl%procs_number)
-      virtual_bytes = layout%device_bytes()
-      ! gather fields on the block slots
-      if (pic%matched_gather()) extra_fields = extra_fields + 6_I4P
       call external_fields%load_from_file(file_parameters=file_parameters)
-      if (external_fields%ef_type /= EF_TYPE_NONE) extra_fields = extra_fields + physics%nv
+      layout = conserving_layout_from(pic=pic, periodic=pic_periodic_axes(bc%bc_type), n=n, ngc=ngc, nrk=nrk, &
+                                      ranks=mpih_fnl%procs_number, nv=physics%nv,                         &
+                                      external=external_fields%ef_type /= EF_TYPE_NONE)
+      virtual_bytes = layout%device_bytes()
+      extra_fields = extra_fields + layout%slot_fields() ! gq_gpu, gather_gpu on the block slots
    endif
    reserved_memory = real(particles_bytes + companion_bytes + virtual_bytes, R8P)/1e9_R8P
    call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(pic%particle_capacity, .true.))// &
@@ -766,8 +767,9 @@ contains
       if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
          call self%conserving_fnl%initialize(pic=self%pic, grid=self%adam%grid, field=self%adam%field, nb=self%nb, &
                                              nv=self%nv, nrk=self%ts%stages(), &
-                                             fdv_order=self%fdv_order, hs=self%fdv_half_stencils(1))
-         if (self%external_fields%ef_type /= EF_TYPE_NONE) call self%conserving_fnl%allocate_gather
+                                             fdv_order=self%fdv_order, hs=self%fdv_half_stencils(1), &
+                                             external=self%external_fields%ef_type /= EF_TYPE_NONE)
+         if (self%conserving_fnl%layout%external_gather) call self%conserving_fnl%allocate_gather
          call self%conserving_fnl%initialize_coherent_gather(pic=self%pic)
       endif
    endif
@@ -6102,6 +6104,11 @@ contains
       integer(I8P) :: current   !< Conserving current, bytes.
       integer(I8P) :: pending   !< Conserving current, layout bytes not allocated yet.
       integer(I8P) :: total     !< Allocated and pending, bytes.
+      integer(I8P) :: field         !< One block field on every slot, bytes.
+      integer(I8P) :: gather        !< gq_gpu and gather_gpu, bytes.
+      integer(I8P) :: gather_fields !< Their block fields in the budget.
+      integer(I8P) :: wp2           !< wp2_gpu, bytes.
+      integer(I8P) :: wp2_fields    !< Its block fields in the budget.
 
       if (.not.is_pic_model(self%physics%physical_model)) return
       reserve = nint(self%reserved_memory*1e9_R8P, I8P)
@@ -6118,6 +6125,25 @@ contains
          call mpih_fnl%error_stop(msg=': the PIC device arrays ('//trim(str(total, .true.))//' B) differ from the '// &
                                       'reserve of the blocks budget ('//trim(str(reserve, .true.))//' B): an allocation '// &
                                       'outside conserving_layout / pic_fnl_device_bytes (issue #130)')
+      ! the PIC arrays on the block slots against the block fields the budget counted for them (8-bis): gq_gpu and
+      ! gather_gpu exactly, wp2_gpu (two interior fields) within its fields rounded up
+      field = int(self%nb, I8P)*int(self%adam%grid%block_weight, I8P)*storage_size(1._R8P, kind=I8P)/8_I8P
+      gather = self%conserving_fnl%allocated_slot_bytes()
+      gather_fields = int(self%conserving_fnl%layout%slot_fields(), I8P)
+      wp2 = self%plasma_freq_fnl%allocated_bytes()
+      wp2_fields = 0_I8P
+      if (self%plasma_freq%active) wp2_fields = int(plasma_frequencies_block_fields(ni=self%adam%grid%ni, &
+                                                                                    nj=self%adam%grid%nj, &
+                                                                                    nk=self%adam%grid%nk, &
+                                                                                    ngc=self%adam%grid%ngc), I8P)
+      call mpih_fnl%print_message('PIC device memory on the block slots: gather '//trim(str(gather, .true.))//' B of '// &
+                                  trim(str(gather_fields, .true.))//' fields ('//trim(str(gather_fields*field, .true.))// &
+                                  ' B), wp2 '//trim(str(wp2, .true.))//' B within '//trim(str(wp2_fields, .true.))//   &
+                                  ' fields ('//trim(str(wp2_fields*field, .true.))//' B)')
+      if (gather /= gather_fields*field .or. wp2 > wp2_fields*field) &
+         call mpih_fnl%error_stop(msg=': the PIC arrays on the block slots differ from the block fields of the budget: '// &
+                                      'an allocation outside conserving_layout%slot_fields / '// &
+                                      'plasma_frequencies_block_fields (issue #130)')
       endsubroutine check_pic_reserve
    endsubroutine post_initial_state_forest
 

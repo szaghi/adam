@@ -100,7 +100,12 @@ type :: conserving_layout
    logical      :: shifted       = .false. !< Odd esirkepov_Q<N>: rho deposited from shifted positions.
    logical      :: dual          = .false. !< Coherent gather of an odd Q: the particles at x-dx/2.
    logical      :: boxed_reduce  = .false. !< Multi-rank sums of the particle box: device packing buffer.
+   ! block-slot fields (issue #130, 8-bis): counted by the budget as block fields, not in device_bytes
+   integer(I4P) :: nv              = 0_I4P   !< Field variables.
+   logical      :: coherent        = .false. !< Coherent matched gather: E, B filtered by P^T on the slots (gq_gpu, 6).
+   logical      :: external_gather = .false. !< External fields: a copy of the field on the slots (gather_gpu, nv).
    contains
+      procedure, pass(self) :: slot_fields  !< Block fields on the block slots.
       procedure, pass(self) :: cells        !< Virtual block interior cells.
       procedure, pass(self) :: pack_values  !< Values of the packing buffer of the boxed sums.
       procedure, pass(self) :: device_bytes !< Device bytes of the arrays outside the block slots.
@@ -182,6 +187,7 @@ type :: prism_fnl_pic_conserving_object
    real(R8P),    pointer :: pack_gpu(:)               => null() !< Packed particle box of the boxed reduce_virtual (#111).
    contains
       procedure, pass(self) :: allocated_bytes             !< Device bytes of the layout arrays allocated now.
+      procedure, pass(self) :: allocated_slot_bytes        !< Device bytes of the arrays on the block slots.
       procedure, pass(self) :: destroy                     !< Free device data.
       procedure, pass(self) :: initialize                  !< Initialize from host configuration.
       procedure, pass(self) :: prepare                     !< Build geometry-dependent caches.
@@ -217,15 +223,17 @@ endtype prism_fnl_pic_conserving_object
 
 contains
    ! conserving_layout
-   function conserving_layout_from(pic, periodic, n, ngc, nrk, ranks) result(layout)
-   !< The device arrays of the conserving current outside the block slots, from the input (issue #130): the blocks budget
-   !< calls it before the grid exists, the object at its initialization on the virtual block it built.
+   function conserving_layout_from(pic, periodic, n, ngc, nrk, ranks, nv, external) result(layout)
+   !< The device arrays of the conserving current, from the input (issue #130): the blocks budget calls it before the grid
+   !< exists, the object at its initialization on the virtual block it built.
    type(prism_pic_object), intent(in) :: pic         !< Host PIC object (input loaded, particle capacity set).
    logical,                intent(in) :: periodic(3) !< Periodic particle closure along each axis.
    integer(I4P),           intent(in) :: n(3)        !< Virtual block cells (whole domain, finest uniform level).
    integer(I4P),           intent(in) :: ngc         !< Ghost cells.
    integer(I4P),           intent(in) :: nrk         !< Field stages.
    integer(I4P),           intent(in) :: ranks       !< MPI processes.
+   integer(I4P),           intent(in) :: nv          !< Field variables.
+   logical,                intent(in) :: external    !< External fields applied.
    type(conserving_layout)            :: layout      !< Layout.
 
    layout%n            = n
@@ -239,7 +247,20 @@ contains
    layout%dual         = pic%matched_gather() .and. mod(pic%gather_q, 2_I4P) == 1_I4P
    ! the boxed sums: the matched current and charge on the particle boxes, and the coherent gather
    layout%boxed_reduce = ranks > 1_I4P .and. (layout%box_current .or. pic%matched_gather())
+   layout%nv              = nv
+   layout%coherent        = pic%matched_gather()
+   layout%external_gather = external
    endfunction conserving_layout_from
+
+   pure function slot_fields(self) result(fields)
+   !< Block fields (ghosts included) the conserving current allocates on the block slots: gq_gpu and gather_gpu.
+   class(conserving_layout), intent(in) :: self   !< Layout.
+   integer(I4P)                         :: fields !< Block fields.
+
+   fields = 0_I4P
+   if (self%coherent)        fields = fields + 6_I4P
+   if (self%external_gather) fields = fields + self%nv
+   endfunction slot_fields
 
    pure function cells(self) result(c)
    !< Virtual block interior cells.
@@ -287,6 +308,16 @@ contains
    endfunction device_bytes
 
    ! public methods
+   function allocated_slot_bytes(self) result(bytes)
+   !< Device bytes of the arrays on the block slots allocated now, gq_gpu and gather_gpu (issue #130, 8-bis).
+   class(prism_fnl_pic_conserving_object), intent(in) :: self  !< Conserving current object.
+   integer(I8P)                                       :: bytes !< Bytes.
+
+   bytes = 0_I8P
+   if (associated(self%gq_gpu))     bytes = bytes + size(self%gq_gpu, kind=I8P)*storage_size(1._R8P, kind=I8P)/8_I8P
+   if (associated(self%gather_gpu)) bytes = bytes + size(self%gather_gpu, kind=I8P)*storage_size(1._R8P, kind=I8P)/8_I8P
+   endfunction allocated_slot_bytes
+
    function allocated_bytes(self, pending) result(bytes)
    !< Device bytes of the arrays of the layout allocated now, array by array (issue #130): the end-of-initialization check
    !< of conserving_layout%device_bytes. The londrillo line matrices are built at the first prepare (the t0 current or
@@ -407,7 +438,7 @@ contains
       endsubroutine free_i2
    endsubroutine destroy
 
-   subroutine initialize(self, pic, grid, field, nb, nv, nrk, fdv_order, hs)
+   subroutine initialize(self, pic, grid, field, nb, nv, nrk, fdv_order, hs, external)
    !< Initialize from the host configuration and allocate the step-invariant device buffers.
    !< Twin of the CPU validation in prism_cpu_object%initialize plus the allocations of integrate_rk_ssp_pic_charge_conserving.
    !< The virtual block (whole domain) is built here: the blocks must already be in place (uniform refinement included).
@@ -420,6 +451,7 @@ contains
    integer(I4P),                           intent(in)    :: nrk       !< RK stages number.
    integer(I4P),                           intent(in)    :: fdv_order !< FD order.
    integer(I4P),                           intent(in)    :: hs        !< FD half stencil.
+   logical,                                intent(in)    :: external  !< External fields applied (gather_gpu).
    integer(I4P)                                          :: np, ni, nj, nk, ngc, nl, ierr
 
    call self%destroy
@@ -463,7 +495,7 @@ contains
    np = self%particle_capacity ; ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc
    ! what is allocated below: the layout the blocks budget reserved, on the virtual block actually built
    self%layout = conserving_layout_from(pic=pic, periodic=pic%bc%is_periodic, n=[ni, nj, nk], ngc=ngc, nrk=nrk, &
-                                        ranks=mpih%procs_number)
+                                        ranks=mpih%procs_number, nv=nv, external=external)
 
    if (self%tail_cleanup .and. self%solver /= CONSERVING_SOLVER_MODIFIED) &
       call mpih%error_stop(msg=': esirkepov_tail_cleanup requires totorica or an esirkepov_Q<N> solver')
@@ -649,7 +681,7 @@ contains
    type(prism_pic_object),                 intent(in)    :: pic  !< Host PIC object.
    integer(I4P)                                          :: ierr !< Error status.
 
-   if (.not.pic%matched_gather()) return
+   if (.not.self%layout%coherent) return
    self%coherent = .true.
    self%gradius  = pic%gather_radius
    self%gshift   = 0._R8P
