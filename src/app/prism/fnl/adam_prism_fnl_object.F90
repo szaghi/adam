@@ -6065,6 +6065,7 @@ contains
       call mpih_fnl%print_message(self%plasma_freq%description())
    endif
    call report_device_memory
+   call check_pic_reserve
    ! Lock AMR (issue #22 GA6): the FNL device state cannot follow a regrid past this point —
    ! any later amr_update call error_stops instead of computing on stale device maps.
    self%amr_locked_ = .true.
@@ -6088,6 +6089,36 @@ contains
                                   trim(str(self%reserved_memory, .true.))//' GB, rest '//                         &
                                   trim(str(used - slots - self%reserved_memory, .true.))//' GB')
       endsubroutine report_device_memory
+
+      subroutine check_pic_reserve
+      !< The PIC device arrays allocated outside the block slots, counted array by array, against the reserve the blocks
+      !< budget took for them from the input (issue #130). Both come from the same functions, so they agree to the byte:
+      !< a difference means an allocation outside conserving_layout / pic_fnl_device_bytes (or an input read differently
+      !< by the budget), whose memory the budget did not leave free. Stops the run. The londrillo line matrices built at
+      !< the first prepare count as pending until then.
+      integer(I8P) :: reserve   !< Reserve of the budget, bytes.
+      integer(I8P) :: particles !< pic_fnl, bytes.
+      integer(I8P) :: companion !< SELAH registers of the particles' companion, bytes.
+      integer(I8P) :: current   !< Conserving current, bytes.
+      integer(I8P) :: pending   !< Conserving current, layout bytes not allocated yet.
+      integer(I8P) :: total     !< Allocated and pending, bytes.
+
+      if (.not.is_pic_model(self%physics%physical_model)) return
+      reserve = nint(self%reserved_memory*1e9_R8P, I8P)
+      particles = self%pic_fnl%allocated_bytes()
+      companion = 0_I8P
+      if (associated(self%pic_st%regs)) companion = size(self%pic_st%regs, kind=I8P)*storage_size(1._R8P, kind=I8P)/8_I8P
+      current = self%conserving_fnl%allocated_bytes(pending=pending)
+      total = particles + companion + current + pending
+      call mpih_fnl%print_message('PIC device memory outside the block slots: '//trim(str(total, .true.))//' B (particles '// &
+                                  trim(str(particles, .true.))//', companion '//trim(str(companion, .true.))//            &
+                                  ', conserving '//trim(str(current, .true.))//' + '//trim(str(pending, .true.))//        &
+                                  ' pending), reserve '//trim(str(reserve, .true.))//' B')
+      if (total /= reserve) &
+         call mpih_fnl%error_stop(msg=': the PIC device arrays ('//trim(str(total, .true.))//' B) differ from the '// &
+                                      'reserve of the blocks budget ('//trim(str(reserve, .true.))//' B): an allocation '// &
+                                      'outside conserving_layout / pic_fnl_device_bytes (issue #130)')
+      endsubroutine check_pic_reserve
    endsubroutine post_initial_state_forest
 
    subroutine compute_local_dt_forest(self, dt_local)

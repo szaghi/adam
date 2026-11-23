@@ -61,6 +61,7 @@ type :: prism_fnl_pic_object
    procedure(current_weighting_interface_dev),             pass(self), pointer :: current_weighting_dev             => null()
    procedure(field_weighting_interface_dev),               pass(self), pointer :: field_weighting_dev               => null()
 contains
+   procedure, pass(self) :: allocated_bytes
    procedure, pass(self) :: copy_cpu_gpu
    procedure, pass(self) :: copy_gpu_cpu
    procedure, pass(self) :: copy_q_pic_gpu_cpu
@@ -165,6 +166,31 @@ contains
    bytes = cap*(8_I8P*(PIC_VARIABLES_NUMBER + PIC_FIELDS_NUMBER) + 4_I8P*PIC_NEIGHBOURS_NUMBER) ! q_pic, pic_fields, neighbours
    if (ranks > 1_I4P) bytes = bytes + cap*(4_I8P*2_I8P + 8_I8P*PIC_VARIABLES_NUMBER)            ! mig_index, mig_buffer
    endfunction pic_fnl_device_bytes
+
+   function allocated_bytes(self) result(bytes)
+   !< Device bytes of the particle arrays allocated now, array by array (issue #130): the end-of-initialization check of
+   !< pic_fnl_device_bytes.
+   class(prism_fnl_pic_object), intent(in) :: self  !< PIC object on device.
+   integer(I8P)                            :: bytes !< Bytes.
+
+   bytes = 0_I8P
+   if (associated(self%q_pic_gpu))          bytes = bytes + r8_bytes(size(self%q_pic_gpu, kind=I8P))
+   if (associated(self%pic_fields_gpu))     bytes = bytes + r8_bytes(size(self%pic_fields_gpu, kind=I8P))
+   if (associated(self%neighbour_list_gpu)) bytes = bytes + i4_bytes(size(self%neighbour_list_gpu, kind=I8P))
+   if (associated(self%mig_index_gpu))      bytes = bytes + i4_bytes(size(self%mig_index_gpu, kind=I8P))
+   if (associated(self%mig_buffer_gpu))     bytes = bytes + r8_bytes(size(self%mig_buffer_gpu, kind=I8P))
+   contains
+      pure function r8_bytes(n) result(b)
+      integer(I8P), intent(in) :: n
+      integer(I8P)             :: b
+      b = n*storage_size(1._R8P, kind=I8P)/8_I8P
+      endfunction r8_bytes
+      pure function i4_bytes(n) result(b)
+      integer(I8P), intent(in) :: n
+      integer(I8P)             :: b
+      b = n*storage_size(1_I4P, kind=I8P)/8_I8P
+      endfunction i4_bytes
+   endfunction allocated_bytes
 
    subroutine destroy(self)
    !< Free device and host staging data owned by this object.

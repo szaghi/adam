@@ -181,6 +181,7 @@ type :: prism_fnl_pic_conserving_object
    integer(I4P), pointer :: piv_z_gpu(:,:)            => null() !< z-line pivots [nk,nb].
    real(R8P),    pointer :: pack_gpu(:)               => null() !< Packed particle box of the boxed reduce_virtual (#111).
    contains
+      procedure, pass(self) :: allocated_bytes             !< Device bytes of the layout arrays allocated now.
       procedure, pass(self) :: destroy                     !< Free device data.
       procedure, pass(self) :: initialize                  !< Initialize from host configuration.
       procedure, pass(self) :: prepare                     !< Build geometry-dependent caches.
@@ -286,6 +287,57 @@ contains
    endfunction device_bytes
 
    ! public methods
+   function allocated_bytes(self, pending) result(bytes)
+   !< Device bytes of the arrays of the layout allocated now, array by array (issue #130): the end-of-initialization check
+   !< of conserving_layout%device_bytes. The londrillo line matrices are built at the first prepare (the t0 current or
+   !< the first step): before it, their layout bytes are returned in `pending`.
+   class(prism_fnl_pic_conserving_object), intent(in)            :: self    !< Conserving current object.
+   integer(I8P),                           intent(out), optional :: pending !< Layout bytes not allocated yet.
+   integer(I8P)                                                  :: bytes   !< Bytes.
+   integer(I8P)                                                  :: n(3)    !< Virtual block cells.
+
+   bytes = 0_I8P
+   if (associated(self%h_gpu))         bytes = bytes + r8(size(self%h_gpu, kind=I8P))
+   if (associated(self%hs_gpu))        bytes = bytes + r8(size(self%hs_gpu, kind=I8P))
+   if (associated(self%work_a_gpu))    bytes = bytes + r8(size(self%work_a_gpu, kind=I8P))
+   if (associated(self%work_b_gpu))    bytes = bytes + r8(size(self%work_b_gpu, kind=I8P))
+   if (associated(self%line_gpu))      bytes = bytes + r8(size(self%line_gpu, kind=I8P))
+   if (associated(self%q_next_gpu))    bytes = bytes + r8(size(self%q_next_gpu, kind=I8P))
+   if (associated(self%q_ref_gpu))     bytes = bytes + r8(size(self%q_ref_gpu, kind=I8P))
+   if (associated(self%q_hist_gpu))    bytes = bytes + r8(size(self%q_hist_gpu, kind=I8P))
+   if (associated(self%q_mixed_gpu))   bytes = bytes + r8(size(self%q_mixed_gpu, kind=I8P))
+   if (associated(self%q_dual_gpu))    bytes = bytes + r8(size(self%q_dual_gpu, kind=I8P))
+   if (associated(self%jv_gpu))        bytes = bytes + r8(size(self%jv_gpu, kind=I8P))
+   if (associated(self%jp_gpu))        bytes = bytes + r8(size(self%jp_gpu, kind=I8P))
+   if (associated(self%src_gpu))       bytes = bytes + r8(size(self%src_gpu, kind=I8P))
+   if (associated(self%src_stage_gpu)) bytes = bytes + r8(size(self%src_stage_gpu, kind=I8P))
+   if (associated(self%mat_x_gpu))     bytes = bytes + r8(size(self%mat_x_gpu, kind=I8P))
+   if (associated(self%mat_y_gpu))     bytes = bytes + r8(size(self%mat_y_gpu, kind=I8P))
+   if (associated(self%mat_z_gpu))     bytes = bytes + r8(size(self%mat_z_gpu, kind=I8P))
+   if (associated(self%piv_x_gpu))     bytes = bytes + i4(size(self%piv_x_gpu, kind=I8P))
+   if (associated(self%piv_y_gpu))     bytes = bytes + i4(size(self%piv_y_gpu, kind=I8P))
+   if (associated(self%piv_z_gpu))     bytes = bytes + i4(size(self%piv_z_gpu, kind=I8P))
+   if (associated(self%pack_gpu))      bytes = bytes + r8(size(self%pack_gpu, kind=I8P))
+   if (present(pending)) then
+      pending = 0_I8P
+      if (self%layout%londrillo .and. .not.self%prepared) then
+         n = int(self%layout%n, I8P)
+         pending = r8(sum(n*n)) + i4(sum(n))
+      endif
+   endif
+   contains
+      pure function r8(m) result(b)
+      integer(I8P), intent(in) :: m
+      integer(I8P)             :: b
+      b = m*storage_size(1._R8P, kind=I8P)/8_I8P
+      endfunction r8
+      pure function i4(m) result(b)
+      integer(I8P), intent(in) :: m
+      integer(I8P)             :: b
+      b = m*storage_size(1_I4P, kind=I8P)/8_I8P
+      endfunction i4
+   endfunction allocated_bytes
+
    subroutine destroy(self)
    !< Free device data owned by this object.
    class(prism_fnl_pic_conserving_object), intent(inout) :: self !< Conserving current object.
