@@ -74,7 +74,7 @@ Asserted (`ranks_oracle.py`):
 | File | Role |
 |---|---|
 | `src/tests/flume/verification/gravity/make_atmosphere.py` | writes the inputs |
-| `src/tests/flume/verification/ranks/check.sh` | rewrites them to one family, runs each case on 1 and $N$ ranks (`--np N`, `--legs LIST`: `repro`, `euler`, `mhd-none`, `mhd-glm`, `mhd-eglm`, `limiter`, `balanced`, `hlld`, `amr`, `split`, `partition`, default all; `--keep`, `--it-save N`) |
+| `src/tests/flume/verification/ranks/check.sh` | rewrites them to one family, runs each case on 1 and $N$ ranks (`--np N`, `--legs LIST`: `repro`, `euler`, `mhd-none`, `mhd-glm`, `mhd-eglm`, `limiter`, `balanced`, `hlld`, `amr`, `split`, `partition`, default all; `--keep`, `--it-save N`); the restart-repartition legs `repart-uniform`, `repart-refined`, `repart-forest` (not in the default selection; `--dump-np N`, `--to-np "M ..."`) |
 | `src/tests/flume/verification/ranks/ranks_oracle.py` | `ownership` (`--empty-at-start`, `--filled-at-end`, `--split-at-start`) and `same` (bitwise) |
 | `src/tests/amr/test_tree_balance.F90` (`fobis build --mode test-tree-balance-gnu`) | the unit test of the `partition` leg |
 | `src/tests/flume/verification/make_doc_runs.sh` (group `ranks`) | the AMR case on 1 and 2 ranks, a checkpoint every step |
@@ -124,3 +124,31 @@ the [external-gravity](../gravity/atmospheres) inputs.
 - The issue reported the CPU backend unaffected, since a zero-size host array is legal; it passes the leg as well.
 - `divergence_control = none` failed too, because the div(B) history is skipped only for Euler.
 - The failure was specific to FNL and invisible to every small multi-rank test that happened to give each rank a block.
+
+## Restart repartition
+
+A restart is read by the rank count that wrote it: each rank reads its own `-proc<rank>.fbd`, and the `.tnd` names
+the owner rank and the block index of every block. `src/tests/flume/speedup/repartition.py` (issue
+[#133](https://github.com/szaghi/adam/issues/133) phase 1; usage in the [I/O cookbook](/cookbook/io)) rewrites a dump
+written on $N$ ranks for $M$ ranks: the `.fbd` and `.wmf` files split block by block (bytes copied as they are), the
+`.tnd` rewritten, the `.time`, `.reference`, `.sinks`, `.dff` copied, one pass per realm of a forest. Its split rules
+are FLUME's: `units` keeps sibling sets whole (every runtime regrid), `siblings` is the static cold-start layout.
+
+The legs `repart-uniform` (the V2 vortex, 16 static blocks, both rules), `repart-refined` (the runtime-regrid vortex,
+levels 1–3, continued through a regrid that coarsens a sibling set on the new layout) and `repart-forest` (the
+2-realm forest with realm 2 refined) save a restart on `--dump-np` ranks at step 10 (40 for the refined case),
+continue it on its own rank count (the reference) and, repartitioned, on every rank count of `--to-np`.
+
+| Leg | Backend | Dump → continuations | Result |
+|---|---|---|---|
+| `repart-uniform` | CPU | np 2 → np 1, 3, 4, rules `units` and `siblings` | bitwise, every field and cell, step 30 |
+| `repart-refined` | CPU | np 2 → np 1, 3, 4, rule `units` | bitwise at step 60 |
+| `repart-forest` | CPU | np 2 → np 1, 3, 4, rule `siblings`, both realms | bitwise |
+| `repart-uniform`, `repart-refined` | FNL | np 1 → np 2 | bitwise |
+
+Repartitioning a dump to its own rank count rewrites its `.fbd` and `.tnd` byte for byte. Not exercised yet: the
+`.wmf` split (wall-model runs) and the `.sinks`/`.dff` copies.
+
+Measured: WSL, gfortran 16.2.0 + Open MPI 5.0.11 (CPU) and nvfortran 26.9 on two RTX 4070 (FNL), develop 0bcdf870
+sources, 2026-11-22 (correctness only).
+
