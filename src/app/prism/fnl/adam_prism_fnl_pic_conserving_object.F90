@@ -370,12 +370,12 @@ contains
       if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate line_gpu in prism_fnl_pic_conserving_object')
    endif
    if (np > 0_I4P) then
-      call alloc_r2(self%q_next_gpu,  [np,8], 'q_next_gpu')
-      call alloc_r2(self%q_ref_gpu,   [np,8], 'q_ref_gpu')
+      call alloc_r2(self%q_next_gpu,  [np,PIC_VARIABLES_NUMBER], 'q_next_gpu')
+      call alloc_r2(self%q_ref_gpu,   [np,PIC_VARIABLES_NUMBER], 'q_ref_gpu')
       ! stage targets history: read only by the tail cleanup (issue #112: 8 nrk doubles per particle otherwise unused)
-      if (self%tail_cleanup) call alloc_r3(self%q_hist_gpu,  [np,8,nrk], 'q_hist_gpu')
+      if (self%tail_cleanup) call alloc_r3(self%q_hist_gpu,  [np,PIC_VARIABLES_NUMBER,nrk], 'q_hist_gpu')
       ! odd esirkepov_Q: shifted positions of the rho deposit
-      if (any(self%shift /= 0._R8P)) call alloc_r2(self%q_mixed_gpu, [np,8], 'q_mixed_gpu')
+      if (any(self%shift /= 0._R8P)) call alloc_r2(self%q_mixed_gpu, [np,PIC_VARIABLES_NUMBER], 'q_mixed_gpu')
    endif
    call alloc_r5(self%jv_gpu, [1,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jv_gpu')
    if (self%tail_cleanup) then
@@ -506,8 +506,8 @@ contains
                   lbounds=[1,1-self%ngc,1-self%ngc,1-self%ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gq_gpu in prism_fnl_pic_conserving_object')
    if (self%particle_capacity > 0_I4P .and. any(self%gshift /= 0._R8P)) then
-      call dev_alloc(fptr_dev=self%q_dual_gpu, ubounds=[self%particle_capacity,8], lbounds=[1,1], init_value=0._R8P, &
-                     ierr=ierr)
+      call dev_alloc(fptr_dev=self%q_dual_gpu, ubounds=[self%particle_capacity,PIC_VARIABLES_NUMBER], lbounds=[1,1], &
+                     init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_dual_gpu in prism_fnl_pic_conserving_object')
    endif
    endsubroutine initialize_coherent_gather
@@ -739,7 +739,7 @@ contains
       s1 = self%gshift(1) ; s2 = self%gshift(2) ; s3 = self%gshift(3)
       !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(q_dual,q_pic_gpu) firstprivate(s1,s2,s3)
       !$omp OMPLOOP collapse(2) DEVICEPTR(q_dual,q_pic_gpu) firstprivate(s1,s2,s3)
-      do v=1, 8
+      do v=1, PIC_VARIABLES_NUMBER
       do n=1, np
          select case(v)
          case(1)      ; q_dual(n,v) = q_pic_gpu(n,v) - s1
@@ -794,7 +794,7 @@ contains
    if (np == 0_I4P) return
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(src,dst)
    !$omp OMPLOOP collapse(2) DEVICEPTR(src,dst)
-   do v=1, 8
+   do v=1, PIC_VARIABLES_NUMBER
    do n=1, np
       dst(n,v) = src(n,v)
    enddo
@@ -815,7 +815,7 @@ contains
    q_plus  => self%q_next_gpu
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(q_pic,q_minus,q_plus)
    !$omp OMPLOOP collapse(2) DEVICEPTR(q_pic,q_minus,q_plus)
-   do v=1, 8
+   do v=1, PIC_VARIABLES_NUMBER
    do n=1, np
       if (v <= 3) then
          q_minus(n,v) = q_pic(n,v) - 0.5_R8P*dt*q_pic(n,v+3)
@@ -1734,7 +1734,7 @@ contains
       s1 = self%shift(1) ; s2 = self%shift(2) ; s3 = self%shift(3)
       !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(q_shift,q_pic) firstprivate(s1,s2,s3)
       !$omp OMPLOOP collapse(2) DEVICEPTR(q_shift,q_pic) firstprivate(s1,s2,s3)
-      do v=1, 8
+      do v=1, PIC_VARIABLES_NUMBER
       do n=1, np
          select case(v)
          case(1)      ; q_shift(n,v) = q_pic(n,v) - s1

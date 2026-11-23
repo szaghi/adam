@@ -21,10 +21,11 @@ public :: prism_fnl_pic_object
 public :: bspline_weight_dev
 public :: set_bspline_stencil_dev
 public :: bspline_closed_weights_dev
+public :: PIC_VARIABLES_NUMBER, PIC_FIELDS_NUMBER, PIC_NEIGHBOURS_NUMBER
 
-integer(I4P), parameter :: PIC_VARIABLES_NUMBER   = 8_I4P
-integer(I4P), parameter :: PIC_FIELDS_NUMBER      = 6_I4P
-integer(I4P), parameter :: PIC_NEIGHBOURS_NUMBER  = 4_I4P
+integer(I4P), parameter :: PIC_VARIABLES_NUMBER   = 8_I4P !< Width of the device particle arrays (q_pic_gpu and its copies).
+integer(I4P), parameter :: PIC_FIELDS_NUMBER      = 6_I4P !< Width of pic_fields_gpu: the fields at a particle.
+integer(I4P), parameter :: PIC_NEIGHBOURS_NUMBER  = 4_I4P !< Width of neighbour_list_gpu: the particle-cell map.
 
 type :: prism_fnl_pic_object
    real(R8P),    pointer :: q_pic_gpu(:,:)          => null() !< PIC variables on device [particle, variable].

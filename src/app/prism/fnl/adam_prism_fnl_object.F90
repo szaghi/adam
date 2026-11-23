@@ -419,10 +419,10 @@ contains
    real(R8P)                              :: cells           !< Virtual block interior cells.
    real(R8P)                              :: cells_ghost     !< Virtual block cells with ghosts.
    real(R8P)                              :: virtual_bytes   !< Device bytes of the virtual block.
-   ! per-particle widths of the device particle arrays (PIC_*_NUMBER of prism_fnl_pic_object, private there)
-   real(R8P), parameter                   :: PARTICLE_VARIABLES  = 8._R8P !< q_pic_gpu, stages, migration, histories.
-   real(R8P), parameter                   :: PARTICLE_FIELDS     = 6._R8P !< pic_fields_gpu.
-   real(R8P), parameter                   :: PARTICLE_NEIGHBOURS = 4._R8P !< neighbour_list_gpu (4-byte integers).
+   ! per-particle widths of the device particle arrays, from prism_fnl_pic_object
+   real(R8P), parameter :: PARTICLE_VARIABLES  = real(PIC_VARIABLES_NUMBER, R8P)  !< q_pic_gpu, stages, migration, histories.
+   real(R8P), parameter :: PARTICLE_FIELDS     = real(PIC_FIELDS_NUMBER, R8P)     !< pic_fields_gpu.
+   real(R8P), parameter :: PARTICLE_NEIGHBOURS = real(PIC_NEIGHBOURS_NUMBER, R8P) !< neighbour_list_gpu (4-byte integers).
 
    reserved_memory = 0._R8P
    ! compute_fields_number counts curl and divergence (nv each) for both backends: FNL keeps them on the host only, and
@@ -765,7 +765,8 @@ contains
       if (self%pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA .and. self%ts%is_butcher()) then
          if (self%pic%particle_capacity < 1_I4P) &
             call mpih%error_stop(msg=': a PIC model with no particles (the particle problem gives none): use the EM model')
-         call self%pic_st%initialize_companion(self%ts%st, lb=[1_I4P, 1_I4P], ub=[self%pic%particle_capacity, 8_I4P], &
+         call self%pic_st%initialize_companion(self%ts%st, lb=[1_I4P, 1_I4P],                         &
+                                               ub=[self%pic%particle_capacity, PIC_VARIABLES_NUMBER], &
                                                components=.false.)
       endif
       if (trim(self%pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
