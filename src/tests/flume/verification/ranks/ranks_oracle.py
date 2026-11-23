@@ -2,7 +2,7 @@
 """Oracle of the FLUME empty-rank leg DV-1 (issue #82): block ownership per rank, and np N against np 1 bitwise.
 
     ranks_oracle.py ownership <work> [--empty-at-start] [--filled-at-end] [--split-at-start]
-    ranks_oracle.py same <work_np1> <work_npN>
+    ranks_oracle.py same <work_np1> <work_npN> [--basename NAME --ini FILE]
 
 `ownership` counts the blocks of every rank in the first and the last checkpoint of a run (the blocks of the
 `<basename>-<step>-proc<rank>.h5` file of each rank). `--empty-at-start` asserts that every rank but rank 0 owns no
@@ -18,12 +18,18 @@ arithmetic of the two runs is identical; the reductions add exact zeros from the
 are spread, and the scheme's operations are still local to a cell's stencil, which the ghost exchange fills with the
 same values whatever rank owns the neighbour.
 
+`same` also serves the repartition legs (issue #133 phase 1): the two runs are then a continuation of a restart on its
+own rank count and one of the restart repartitioned for another rank count (`speedup/repartition.py`). In a forest
+every realm writes its own checkpoints: `--basename` (the realm's `output_basename`) and `--ini` (its input, for the
+grid) select one realm; by default the work directory's only run is compared.
+
 Exit 0 on pass, 1 on fail.
 """
 
 from __future__ import annotations
 
 import argparse
+import configparser
 import sys
 from pathlib import Path
 
@@ -31,6 +37,28 @@ import h5py
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "gravity"))  # the checkpoint readers
 from atmosphere_oracle import FIELDS, checkpoints, interior, read_ini  # noqa: E402
+
+
+def realm_checkpoints(work: Path, basename: str | None) -> dict[int, tuple[float, list[Path]]]:
+    """Every checkpoint of a run (step -> (time, per-rank files)), of the realm `basename` when given."""
+    if basename is None:
+        return checkpoints(work)
+    out: dict[int, tuple[float, list[Path]]] = {}
+    for f in sorted(work.glob(f"{basename}-[0-9]*-proc*.h5")):
+        step = int(f.name.split("-")[-2])
+        out.setdefault(step, (0.0, []))[1].append(f)
+    if not out:
+        raise SystemExit(f"{work}: no checkpoint of {basename}")
+    return out
+
+
+def realm_ini(work: Path, ini: str | None) -> configparser.ConfigParser:
+    """The input of the compared realm: `ini` in the work directory when given, else the case input."""
+    if ini is None:
+        return read_ini(work)
+    parser = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None, strict=False)
+    parser.read(work / ini)
+    return parser
 
 
 def blocks_per_rank(paths: list[Path]) -> dict[int, int]:
@@ -68,9 +96,9 @@ def ownership(args: argparse.Namespace) -> int:
 
 def same(args: argparse.Namespace) -> int:
     """Assert np N = np 1 bitwise at the last common checkpoint."""
-    ca, cb = checkpoints(args.a), checkpoints(args.b)
+    ca, cb = realm_checkpoints(args.a, args.basename), realm_checkpoints(args.b, args.basename)
     step = max(set(ca) & set(cb))
-    ini = read_ini(args.a)
+    ini = realm_ini(args.a, args.ini)
     fa = {tuple(c.round(12)): q for c, _, q in interior(ini, ca[step][1])}
     fb = {tuple(c.round(12)): q for c, _, q in interior(ini, cb[step][1])}
     if set(fa) != set(fb):
@@ -103,6 +131,8 @@ def main() -> int:
     p = sub.add_parser("same")
     p.add_argument("a", type=Path, help="the run on 1 rank")
     p.add_argument("b", type=Path, help="the run on N ranks")
+    p.add_argument("--basename", help="compare the realm with this output_basename (a forest)")
+    p.add_argument("--ini", help="that realm's input, in the work directories")
     args = parser.parse_args()
     return {"ownership": ownership, "same": same}[args.check](args)
 

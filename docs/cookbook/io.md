@@ -106,11 +106,11 @@ restart_save     = 100
 
 **Rules** (`load_restart_files`, `src/lib/common/adam_adam_object.F90`; `load_blocks`,
 `src/lib/common/adam_field_object.F90`):
-- **Same rank count.** Each rank reads its own `<restart_basename>-procNNNNNN.fbd`. A missing file stops the run
-  (`file ... does not exist`, error code -104), so a restart on **more** ranks stops. A restart on **fewer** ranks
-  stops too: the tree file names the rank of every block, and a block of a rank this run does not have stops the run
-  ("saved on more ranks than ... of this run", `tree%load_nodes`, [#109](https://github.com/szaghi/adam/issues/109)).
-  A missing `.tnd` stops the run.
+- **Same rank count** (or repartition the files first, below). Each rank reads its own
+  `<restart_basename>-procNNNNNN.fbd`. A missing file stops the run (`file ... does not exist`, error code -104), so a
+  restart on **more** ranks stops. A restart on **fewer** ranks stops too: the tree file names the rank of every
+  block, and a block of a rank this run does not have stops the run ("saved on more ranks than ... of this run",
+  `tree%load_nodes`, [#109](https://github.com/szaghi/adam/issues/109)). A missing `.tnd` stops the run.
 - **Same block shape.** `nv`, `ni`, `nj`, `nk` and `ngc` must equal the saved ones; a mismatch stops the run (-103).
 - **Same backend budget.** A rank that saved more blocks than the restarted run can allocate stops (-102).
 - The time and the step come from `<restart_basename>.time`, the tree from `.tnd`. The residuals history is appended,
@@ -120,6 +120,32 @@ restart_save     = 100
 
 **What you get.** The run continues from the saved step; FLUME's multi-realm restart is bitwise identical to the
 straight run (MV-14, [forest R9](/cookbook/forest#r9-restart)).
+
+**Another rank count (FLUME).** `src/tests/flume/speedup/repartition.py` (stdlib Python, issue
+[#133](https://github.com/szaghi/adam/issues/133)) rewrites a restart saved on N ranks for M ranks, offline:
+
+```bash
+# one basename per realm; --out must not be the dump's own directory
+python3 -I src/tests/flume/speedup/repartition.py run/sod-x-restart --to 4 --out run4/
+python3 -I src/tests/flume/speedup/repartition.py run/sod-x-restart --info   # the dump's layout, nothing written
+```
+
+It copies `.time`, `.reference` and, when present, `.sinks` and `.dff`; it splits the per-rank `.fbd` and the
+wall-model filter `.wmf` files block by block (the bytes are copied, never converted), and rewrites `.tnd`, whose
+records name the owner rank and the position of every block in that rank's `.fbd`. The blocks are spread as ADAM
+spreads them (`tree%mpi_redistribute`), on the codes in Morton order:
+
+| `--rule` | Split | Layout of | Use for |
+|---|---|---|---|
+| `units` (default) | complete sibling sets kept whole, contiguous min-max split (#123) | every runtime regrid | any run; required with runtime AMR (`[amr] frequency > 0`): derefinement reads a sibling set on one rank |
+| `siblings` | even contiguous chunks, sibling sets split | the cold start of a static grid (`frequency = 0`, `balance_static`) | static grids only |
+
+A restart never rebalances, so the restarted run keeps this layout until its first regrid. Repartitioning a dump to
+its own rank count with the rule that wrote it reproduces its files byte for byte. The restarted run on M ranks
+equals the continuation on N ranks bitwise: DV-1's `repart-*` legs (`src/tests/flume/verification/ranks/check.sh
+--legs repart-uniform,repart-refined,repart-forest`) check it on a uniform tree, a runtime-refined tree and a
+two-realm forest. The tree ratio is inferred from the block codes and levels (`--ratio` when they cannot tell); a
+dump with particles is refused.
 
 **Reference.** [`[IO] restart`, `restart_basename`, `restart_save`](/reference/library-input#io).
 
