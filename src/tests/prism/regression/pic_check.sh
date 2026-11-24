@@ -107,10 +107,12 @@ EOF
    # Gauss law at t0 after the FLAIL solve, on the step-0 checkpoint: div D = rho to round-off, up to the checkerboard
    # chi = (-1)^(i+j+k) (out of reach of PRISM's centred div of any D), which the matched deposit leaves out of rho
    "$PY" - "$wd" "$BASE" <<'EOF' || { echo "FAIL [$tag] Gauss law at t0"; fail=1; }
-import glob, sys
+import glob, re, sys
 import h5py
 import numpy as np
-NGC, TOL = 6, 1e-12
+# the ghost layers saved with each block: the run's [grid] ngc
+NGC = int(re.search(r'^\s*ngc\s*=\s*(\d+)', open(f'{sys.argv[1]}/input.ini').read(), re.M).group(1))
+TOL = 1e-12
 blocks = []
 for fn in sorted(glob.glob(f'{sys.argv[1]}/{sys.argv[2]}-000000000-proc*.h5')):
     f = h5py.File(fn, 'r')
