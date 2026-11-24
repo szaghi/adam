@@ -1,11 +1,10 @@
 # FLUME speedup matrix
 
-**Status: harness ready, no leg measured yet** ([issue #133](https://github.com/szaghi/adam/issues/133), the plan's only
-source of truth: every step is ticked there with its commit, every phase ends with a comment carrying its results).
-Phase 3 (this harness) is in place and tested on WSL at reduced sizes; the legs run in phases 5-7, the summary and the
-figures come in phase 8. Phase 9 (owner, 2026-11-23) lifts the plan's "no scaling beyond one node": strong scaling of the
-legs on up to 8 medooza nodes, weak scaling at fixed cells per GPU and the grind-time analysis, "Multi-node and weak
-scaling (phase 9)" below.
+**Status: every leg measured on medooza (2026-11-23), single node and multi-node; results below** ([issue
+#133](https://github.com/szaghi/adam/issues/133), the plan's only source of truth). Phases 0-3 are the harness;
+phases 5-7 the legs; phase 9 (owner, 2026-11-23) lifts the plan's "no scaling beyond one node": strong scaling on up to
+8 nodes, weak scaling at fixed cells per GPU, grind time. Not done: the AMD node (fnl-amd, Giacomo Rossi), the docs
+page (phase 8.3), H4.
 
 The matrix answers two questions: how much faster a GPU node is than a CPU node on each flow, and how much runtime AMR
 buys at equal finest resolution, with where its overhead goes (the AMR grid itself against the regrids).
@@ -96,13 +95,95 @@ the regrid period, so the two runs differ by exactly ten regrids.
 
 | Ratio | Measures |
 |---|---|
-| T_cpu-node / T_backend | backend speedup, per case (the reference: the CPU run with the most ranks) |
+| T_cpu-node / T_backend | backend speedup, per case (the reference: the CPU run with the fewest ranks, one node; the multi-node CPU runs of phase 9 are rows like any other) |
 | T(U) / T(R) | AMR speedup at equal finest h; ideal bound N(U) / N(R) |
 | [T(U) N(F) / N(U)] / T(F) | AMR grid efficiency at constant cell work (ghosts, 2:1 seam fills, reflux) |
 | T(R) / T(F) - 1 | regrid cost (marking, regrid, prolongation; the FNL host round trip) |
 | step cost x devices / N | throughput, ns per cell-step |
 
 The hypotheses H1-H4 these ratios test are in the issue.
+
+## Results (medooza, 2026-11-23)
+
+The tables of `analyze.py` are in `results/2026-11-23/summary.{md,csv}`; `results/2026-11-23/grind.png` draws the grind
+time against the cells per device (`scaling_plot.py`). The executables: `build.sh` on the night tree of 2026-11-22
+(develop `0bcdf870` and the night's steps, not yet committed: `src_modified=yes` in every `run.info`), `flume-cpu-gnu`
+(`iac_gnu`, gfortran 16.2.0 + Open MPI 5.0.11) and `flume-fnl-nvf` (`iac_nvf`, nvfortran 26.9, CUDA 12.9, LTO, not
+fastlink). A CPU node is 64 ranks, a GPU node 4 A30; step cost = median over 3 repetitions of
+(T_loop(110) - T_loop(10)) / 100, spreads below 1 % on FNL, up to 7 % on the CPU node.
+
+**A GPU node against a CPU node** (T(cpu, 64 ranks) / T(fnl-nvf, 4 A30)):
+
+| Leg | Uniform | Frozen AMR grid | Runtime AMR |
+|---|---|---|---|
+| 1 step (2-D, WENO-7, SSP-54) | 5.83 | 5.75 | 5.72 |
+| 2 sphere (3-D, WENO-5, IB, SSP-33) | 16.3 | 12.2 | 10.9 |
+| 3 channel (3-D, hybrid-kep-weno, viscous, SSP-54) | 13.8 | 15.5 | 16.7 |
+
+**Runtime AMR** (AMR speedup T(U)/T(R) against its ideal N(U)/N(R); grid efficiency [T(U) N(F)/N(U)] / T(F); regrid
+cost T(R)/T(F) - 1):
+
+| Leg | Backend | Devices | AMR speedup | Ideal | Grid efficiency | Regrid cost |
+|---|---|---|---|---|---|---|
+| 1 | fnl-nvf | 4 | 1.04 | 1.59 | 0.89 | 34 % |
+| 1 | cpu | 64 | 1.06 | 1.59 | 0.90 | 34 % |
+| 2 | fnl-nvf | 4 | 1.48 | 4.02 | 0.51 | 38 % |
+| 2 | cpu | 64 | 2.20 | 4.02 | 0.68 | 24 % |
+| 3 | fnl-nvf | 4 | 1.25 | 1.78 | 0.90 | 29 % |
+| 3 | cpu | 64 | 1.03 | 1.78 | 0.81 | 39 % |
+
+**Strong scaling** (step cost; efficiency against the single node):
+
+| Case | fnl-nvf 4 / 8 / 16 / 32 A30 (s) | Efficiency 8 / 16 / 32 | cpu 64 / 128 / 256 ranks (s) | Efficiency 128 / 256 |
+|---|---|---|---|---|
+| 1a step uniform | 0.216 / 0.119 / 0.070 / - | 0.91 / 0.77 / - | 1.26 / 0.642 / 0.328 | 0.98 / 0.96 |
+| 1b step frozen | 0.154 / 0.089 / 0.057 / - | 0.87 / 0.67 / - | 0.887 / 0.544 / 0.334 | 0.81 / 0.66 |
+| 1c step runtime | 0.207 / 0.119 / 0.076 / - | 0.87 / 0.69 / - | 1.19 / 1.18 / 1.18 | 0.50 / 0.25 |
+| 2a sphere uniform | 0.780 / 0.491 / 0.260 / 0.167 | 0.79 / 0.75 / 0.58 | 12.7 / 6.48 / 3.24 | 0.98 / 0.98 |
+| 2b sphere runtime | 0.526 / 0.350 / 0.312 / 0.188 | 0.75 / 0.42 / 0.35 | 5.76 / 3.95 / 3.06 | 0.73 / 0.47 |
+| 2c sphere frozen | 0.381 / 0.284 / 0.257 / 0.161 | 0.67 / 0.37 / 0.30 | 4.64 / 3.13 / 1.97 | 0.74 / 0.59 |
+| 3a channel uniform | 0.800 (1 A30) / 0.230 (4) | 0.87 (1 -> 4) | 3.17 (64) | - |
+
+**Weak scaling and grind time** (g = step cost x devices / N, ns per cell-step; weak efficiency g(ref)/g at the same
+cells per device):
+
+| Series | Cells per A30 | Devices (nodes): g | Weak efficiency |
+|---|---|---|---|
+| sphere | 14.2 M | 4 (1): 55.1; 32 (8): 69.3 | 0.80 |
+| sphere | 7.08 M | 1 (1): 51.0; 8 (2): 69.4 | 0.73 |
+| sphere | 3.54 M | 2 (1): 52.7; 16 (4): 73.4 | 0.72 |
+| sphere | 1.77 M | 4 (1): 64.8; 32 (8): 94.6 | 0.68 |
+| step | 1.03 M | 1: 202; 4: 209; 8 (2): 212; 16 (4): 214 | 0.97 / 0.96 / 0.95 |
+
+**Findings**
+
+- **The GPU node pays most on the sphere (16.3) and the channel (13.8-16.7), least on the 2-D step (5.8).** Why the
+  step gains less is not measured: its CPU grind time (19.5 us per cell-step on 64 ranks) is close to the sphere's
+  (14.3), its FNL grind time four times the sphere's (209 against 55 ns).
+- **Runtime AMR buys little on the GPU node: 1.04 (step), 1.48 (sphere), 1.25 (channel)** against ideals of 1.59, 4.02
+  and 1.78. Two losses compound: the grid efficiency (0.51 on the sphere: a cell of the frozen AMR grid 2c costs 109 ns
+  per step on 4 A30 against 55 for the uniform 2a; not the load, since the uniform curve is flat from 3.5 to 14 M cells
+  per A30 and 2c runs at 3.5 M; the per-cell overhead of the AMR grid, not identified further) and the regrid cost
+  (29-38 %; the regrid host round trip is 0.7-0.9 s every 10 steps, H3). On the CPU node the sphere's AMR does better (2.20), the step's not (1.06).
+- **The CPU's runtime-AMR step does not scale with ranks**: 1c costs 1.18 s per step on 64, 128 and 256 ranks (regrid
+  cost 34 % -> 117 % -> 252 %): the step forest's regrid time does not shrink with the rank count. The sphere's runtime case
+  degrades the same way more slowly (2b, 0.73 / 0.47).
+- **Uniform grids scale well**: CPU 0.96-0.98 to 4 nodes on both legs; FNL 0.75-0.91 to 4 nodes, the sphere 0.58 on 8
+  nodes (1.77 M cells per A30).
+- **Weak scaling**: the sphere loses 20-32 % between one node and 2-8 nodes at the same load (0.80 at 14.2 M per A30,
+  0.68 at 1.77 M), the step 3-5 % (2-D: less ghost data per cell). On one node the sphere's grind time is flat at
+  51-55 ns from 3.5 to 14 M cells per A30 and rises below (64.8 at 1.77 M).
+- **The A30's floor shows on the AMR cases of the sphere**: 2c costs 0.26 s per step on 16 A30 at 0.88 M cells per A30,
+  the same as 2a with four times the cells.
+- **The step is not launch-bound at 1 M cells per A30** (the plan's reading of H1, refuted): it scales to 0.26 M cells
+  per A30 (0.77). Its grind time is four times the sphere's because its cell-step does more work.
+- **Leg 3** needed the T3 dump re-blocked (`reblock.py`) for the Kolmogorov marker to coarsen the core; the a priori
+  prediction (288 blocks) held exactly at the first regrid. Its margins (~1.08) rest on two snapshots.
+
+**Caveats**: the commit is not yet recorded (the night tree); the cold start of the weak cases (20 steps) against the
+developed state of 1a/2a is untested (README 9.2); the GPU memory preflight checks only the batch node; one 16-A30
+run of 1c was killed by Slurm (SIGKILL, no memory record) and rerun alone (job 1369494); the leg-3 runs before the
+re-blocking (layout 64 x 48 x 32) are superseded and not in the tables.
 
 ## Files
 
@@ -265,10 +346,13 @@ level, only the block count changes):
 | 1.77 M | `w2-sphere-l3` | 7.08 M | 4 | 1 | grind curve, weak reference |
 | 1.77 M | `2a-sphere-uniform` | 56.6 M | 32 | 8 | grind curve, weak point (9.1's np 32) |
 
-**The step series is memory-capped 2-D, in the launch-bound regime (H1): not a grind measurement.** An A30 is
-launch-bound below a few M cells (`profile-couette3d`: `small`, 2.1 M, is the launch-overhead profile; `medium`,
-16.8 M, loads an A30), and the step cannot go above ~1.6 M cells per A30 (the memory ceiling below). Its block shape
-also changes with m (realm C stores 12.2 cells per cell at m 8, 9.8 at m 32: the ghost share changes along the series),
+**The step series is memory-capped 2-D (~1 M cells per A30; the ceiling below).** It was planned as launch-bound
+evidence (H1), on the reading that an A30 is launch-bound below a few M cells (`profile-couette3d`: `small`, 2.1 M, is
+the launch-overhead profile; `medium`, 16.8 M, loads an A30). The measurements refute that for the step: 1a keeps
+scaling on 8 and 16 A30 (strong efficiency 0.91 and 0.77 at 0.52 and 0.26 M cells per A30, "Results"); the grind time
+of the step (209 ns per cell-step) is higher than the sphere's (55) because its cell-step does more work (WENO-7
+characteristic, SSP-54: 5 stages, against WENO-5 and SSP-33), not because the GPU waits. Its block shape also changes
+with m (realm C stores 12.2 cells per cell at m 8, 9.8 at m 32: the ghost share changes along the series),
 so its "weak efficiency" mixes block size with communication:
 
 | Case | m | Cells (L4) | A30 | Nodes | Cells / A30 |
@@ -286,7 +370,7 @@ sbatch --gres=gpu:1 --ntasks-per-node=1 jobs/medooza-fnl.slurm chain --cases w2-
 sbatch --dependency=afterok:<L3 job> --gres=gpu:2 --ntasks-per-node=2 jobs/medooza-fnl.slurm windows --cases w2-sphere-l3
 sbatch --dependency=afterok:<L3 job> jobs/medooza-fnl.slurm windows --cases w2-sphere-l3          # L3 on 4 A30
 sbatch --nodes=8 jobs/medooza-fnl.slurm chain --cases w2-sphere-l5                                 # L5 on 32 A30
-# step (memory-capped, launch-bound); 1a at np 4 is phase 6's
+# step (memory-capped); 1a at np 4 is phase 6's
 sbatch --gres=gpu:1 --ntasks-per-node=1 jobs/medooza-fnl.slurm chain --cases w1-step-m8
 sbatch --nodes=2 jobs/medooza-fnl.slurm chain --cases w1-step-m22
 sbatch --nodes=4 jobs/medooza-fnl.slurm chain --cases w1-step-m32

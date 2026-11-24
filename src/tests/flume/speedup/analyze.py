@@ -315,14 +315,18 @@ def ratios(rows: list[dict[str, object]]) -> list[dict[str, object]]:
 
 
 def backend_speedups(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Return, per case, T(cpu at its largest rank count) / T(each other backend and rank count)."""
+    """Return, per case, T(cpu node) / T(each other backend and rank count).
+
+    The reference is the CPU run at its smallest rank count, the single CPU node of the matrix (#133: T_cpu-node /
+    T_gpu-node); the multi-node CPU runs of phase 9 are compared against it like any other row.
+    """
     out = []
     for case in sorted({str(r["case"]) for r in rows}):
         mine = [r for r in rows if r["case"] == case]
         cpu = [r for r in mine if r["backend"] == "cpu"]
         if not cpu:
             continue
-        ref = max(cpu, key=lambda r: r["np"])
+        ref = min(cpu, key=lambda r: r["np"])
         for r in mine:
             if r is ref:
                 continue
