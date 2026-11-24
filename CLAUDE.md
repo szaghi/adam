@@ -494,6 +494,14 @@ PRISM keeps `div(B) = 0` to machine precision on **uniform** grids: `compute_cur
 
 **RESOLUTION = accept-truncation, pending E′ (#99).** The O(h^p) refinement-convergent floor is accepted; its growth law versus h at a fixed long physical time is not yet measured (#68 G7, part of #99), so "refine h" is not a quantified mitigation. **Route 2** ([#30](https://github.com/szaghi/adam/issues/30): Stokes-form CT, B staged on faces while the FD cell update stays; #68 C7) is **parked** behind #99, activating only if E′ fails or a production workload exceeds tolerance. Guard-rail: `[IO].seam_divB_tol` (default off) + `[IO].seam_divB_error` — a run-time monitor in `save_divergence_history` (`adam_io_object.F90` / `adam_prism_common_object.F90`) that warns (or `error_stop`s) when seam `max|div(B)|` exceeds the tolerance on AMR runs, turning the otherwise-**silent** growth into a visible signal. **Mitigation to extend AMR runs:** enable `divergence_correction = hyperbolic` (needs `constrained_transport = D/B/DB`, refused without it) and tune the damping `[physics].alpha` — this *delays* the runaway (~5.5× margin, measured with the former `c_r`, not re-measured with `alpha`) but does **not** cure it. **Safe usage:** short/moderate-horizon AMR runs, or refine h, or accept the monitored floor. Tracked in [issue #29](https://github.com/szaghi/adam/issues/29).
 
+**Measured 2026-11-23 ([#145](https://github.com/szaghi/adam/issues/145), `docs/applications/prism/verification/seam-divergence.md`):**
+the `6.9 -> 1002` runaway of `rmf-amr-fd-pulse` sits where the seam plane meets the Neumann y and z faces (from step 70);
+away from those faces the same run has 89.9 at step 100, and with periodic y and z faces the seam source stays between
+28 and 92 over 400 steps. Damped hyperbolic cleaning (`chi = 2`, `alpha = 6.4e10` 1/s) bounds it 22-29x lower
+(`check.sh --cleaning`); undamped cleaning moves the divergence to the x faces or runs away there; where the seam meets a
+Neumann face every variant still grows. So "unbounded in t at fixed h" above holds for the seam/Neumann-face corner, not
+for the interior seam.
+
 ### Inter-realm 1:1 mirror seam needs β cadence to stay div-free (issue #31, CLOSED)
 
 Distinct from #29: a **1:1 same-resolution INTER-realm mirror seam** (two realms glued via a `[forest]` manifest, `coupling = mirror`) must be div-free to machine precision — it is numerically identical to a 1:1 intra-realm block interface, which is proven div-free. It is NOT a fundamental obstruction. Two defects made it leak (`~93 → 1600` div(B) over 100 steps on a source-free pulse), both fixed:

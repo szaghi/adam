@@ -96,6 +96,35 @@ bound. $w$ and $B_z$ stay exactly 0 on both backends in these runs. The `--amr` 
 `nk = 1`; the octree values of M2 (null $z$, `nk = 4`) were $9.1\cdot10^{-13}$, $1.1\cdot10^{-16}$ and 0.76: the
 trees agree to round-off, as MV-15 measures. The bounds are fixed tolerances, not octree baselines.
 
+**Symmetry defect against the grid** ([#145](https://github.com/szaghi/adam/issues/145)). The uniform leg at $32^2$ and
+$64^2$ (`check.sh --cells N`), and the defect at every 10th step of the uniform runs, the `--amr` run and two more
+layouts (checkpoints every 10 steps; `orszag_tang_oracle.py` at each):
+
+| Run | Cells, finest spacing | Steps to $t = 0.5$ | Defect at $t = 0.07$ | Defect at $t = 0.1$ | Defect at $t = 0.5$ |
+|---|---|---|---|---|---|
+| uniform $32^2$ (`--cells 32`) | 1024, 1/32 | 320 | $3.8\cdot10^{-14}$ | $2.5\cdot10^{-13}$ | $1.5\cdot10^{-13}$ |
+| `--amr`: $32^2$, $[0.25, 0.75]^2$ at $64^2$ | 1792, 1/64 | 640 | $3.0\cdot10^{-14}$ | $8.8\cdot10^{-14}$ | $4.6\cdot10^{-13}$ |
+| uniform $64^2$ (`--cells 64`) | 4096, 1/64 | 640 | $1.6\cdot10^{-13}$ | $1.2\cdot10^{-10}$ | $2.7\cdot10^{-10}$ |
+| every block refined through the AMR path ($32^2$ base, box $[0, 1]^2$) | 4096, 1/64 | 640 | $1.6\cdot10^{-13}$ | $1.2\cdot10^{-10}$ | $2.7\cdot10^{-10}$ (bitwise the uniform $64^2$) |
+| $64^2$, $[0.25, 0.75]^2$ at $128^2$ | 7168, 1/128 | 1281 | $2.3\cdot10^{-13}$ | $2.0\cdot10^{-11}$ | $1.8\cdot10^{-10}$ |
+| uniform $128^2$ | 16384, 1/128 | 1281 | $9.2\cdot10^{-15}$ | $2.6\cdot10^{-11}$ | $2.7\cdot10^{-9}$ |
+
+*The columns at $t = 0.07$ and $0.1$ are the nearest checkpoints ($32^2$: $t = 0.0625$ and $0.094$). Measured: ADAM
+`0bcdf870` + the night-2026-11-22 tree (HEAD `95ffd728` with the working tree of 2026-11-23), CPU gfortran 16.2.0 +
+Open MPI 5.0.11 (`iac_gnu`) on medooza (gnode25), 2 ranks, 2026-11-23 (`orszag-tang/check.sh --cells
+32`, `--cells 64`; the series with `make_orszag_tang.py --it-save 10`; jobs 1369617, 1369627).*
+
+The defect does not grow with the number of steps. It stays at $10^{-14}$–$10^{-13}$ until $t \approx 0.07$ on every
+grid, then, on the grids that are fine outside the centre box, grows by three decades within $0.03$ time units
+($64^2$: $4.7\cdot10^{-14}$ at $t = 0.0625$, $9.3\cdot10^{-11}$ at $t = 0.094$; $128^2$: $9.2\cdot10^{-15}$ at
+$t = 0.070$, $2.3\cdot10^{-11}$ at $t = 0.094$), at cells near $(0.48, 0.96)$ and their images, outside
+$[0.25, 0.75]^2$; afterwards it changes by less than a factor 4 on $64^2$, while $128^2$ keeps growing to
+$2.7\cdot10^{-9}$. On
+$32^2$ cells that growth does not happen. The `--amr` run has $32^2$ cells there: at the same step count and the same
+finest spacing as the uniform $64^2$ run its defect is 600 times smaller. Refining every block through the AMR path
+reproduces the uniform $64^2$ run bit for bit, so the AMR machinery (seam fill, reflux) does not make the run more
+symmetric: the resolution outside the box does.
+
 Related cases: [rotor](./rotor) uses the same symmetry oracle; [EGLM cleaning](./eglm) runs this problem under EGLM
 (EV-4); [quadtree AMR](./quadtree-amr) runs the `--amr` problem on three trees; [MHD on `weno-riemann`](./weno-riemann)
 runs it on HLLD.
@@ -107,6 +136,10 @@ runs it on HLLD.
   decades below what a wrong fill or a sign error produces.
 - On AMR the refined box is symmetric about the centre and the reflux keeps the integrals: symmetry ($4.6\cdot10^{-13}$)
   and conservation ($5.6\cdot10^{-17}$) hold across the seams.
+- The adaptive run is more symmetric than the uniform one because it is coarse where the defect grows, not because
+  it takes fewer steps ([#145](https://github.com/szaghi/adam/issues/145)): the seed is amplified by three decades
+  between $t = 0.07$ and $0.1$ near $(0.48, 0.96)$ and its image on $64^2$ and finer cells, and not on $32^2$ cells.
+  With every block refined, the AMR path gives the uniform $64^2$ run bit for bit.
 - The div(B) beside the seams stays below the uniform-grid peak: the shocks, not the seams, set the div(B) maximum.
 - The AMR variant runs on a quadtree with `nk = 1`, true 2-D, since [#142](https://github.com/szaghi/adam/issues/142)
   (A8). It ran on an octree with null $z$ and `nk = 4` (four times the cells) because, before

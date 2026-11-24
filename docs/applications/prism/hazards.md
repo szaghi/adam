@@ -32,9 +32,14 @@ On a uniform grid the centred curl and divergence commute, so $\nabla_h\cdot\mat
 resolutions and the identity fails. The seam injects a $\nabla\cdot\mathbf B$ source in the grid-oscillation modes.
 
 - The source is truncation-order, $O(h^p)$: it converges under refinement.
-- At fixed $h$ it grows without bound in time, independent of $\Delta t$. On `rmf-amr-fd-pulse` (source-free pulse,
-  1 rank, `ni = 16`) the seam max $\lvert\nabla\cdot\mathbf B\rvert$ grows from 6.9 to 1002 in 100 steps; the
-  uniform-grid control stays at 0.
+- At fixed $h$, independent of $\Delta t$, it does not decay. On `rmf-amr-fd-pulse` (source-free pulse, 1 rank,
+  `ni = 16`) the max $\lvert\nabla\cdot\mathbf B\rvert$ grows from 6.9 to 1002 in 100 steps, but from step 70 that
+  maximum sits where the seam plane meets the Neumann $y$ and $z$ faces; with those faces periodic the seam source
+  stays between 28 and 92 over 400 steps ([#145](https://github.com/szaghi/adam/issues/145)). The uniform-grid
+  control stays at 0.
+- Hyperbolic cleaning of $\mathbf B$ with damping ($\chi = 2$, $\alpha = 6.4\cdot10^{10}$ s$^{-1}$) keeps it below
+  2.2 over 400 steps on the periodic layout; without damping it only moves the divergence, and runs away at Neumann
+  faces with $\chi = 2$ ([seam div(B)](./verification/seam-divergence#long-horizon-and-hyperbolic-cleaning)).
 - $\lVert\mathbf B\rVert$ stays bounded (−3 % over the same run): this is a constraint violation, not an energy
   instability.
 - The same source appears with `fd_centered` and `fv_centered`, and on octrees and quadtrees.

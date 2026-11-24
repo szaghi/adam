@@ -35,8 +35,12 @@
 #     degrees symmetry cancels their sources).
 # --amr is not combined with eglm (the EGLM sources at 2:1 seams are out of scope).
 #
-# Usage: ./check.sh [--np N] [--amr] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]] [--divergence-control glm|eglm]
-#                   [--legs LIST]
+# Usage: ./check.sh [--np N] [--amr] [--cells N] [--numerics SOLVER[:RECON[:CORRECTION[:SENSOR]]]]
+#                   [--divergence-control glm|eglm] [--legs LIST]
+#
+# --cells N runs the uniform leg on N^2 cells instead of 128^2 (issue #145: the symmetry defect against the resolution;
+# measured, CPU np 2: 32^2 1.5e-13 in 320 steps, 64^2 2.7e-10 in 640, the --amr run 4.6e-13 in 640); the bounds stay
+# those of 128^2. Not combined with --amr.
 #
 # --legs accepts the one leg mv12 (--amr and --divergence-control select its variant) or all; the default is mv12.
 #
@@ -58,6 +62,7 @@ CONS_TOL="1.0e-13"
 SEAM_REF_RATIO="1.0"
 EARLY_SYM_TOL="1.0e-8"
 AMR=0
+CELLS=128
 DC="glm"
 source "$VERIF_DIR/legs.sh"
 legs_declare "mv12"
@@ -66,10 +71,11 @@ while [[ $# -gt 0 ]]; do
    case "$1" in
       --np)  NP="$2" ; shift 2 ;;
       --amr) AMR=1 ; shift ;;
+      --cells) CELLS="$2" ; shift 2 ;;
       --numerics) NUMERICS="$2" ; shift 2 ;;
       --divergence-control) DC="$2" ; shift 2 ;;
       --legs) legs_select "$2" ; shift 2 ;;
-      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --numerics SPEC," \
+      *)     echo "check.sh: unknown argument '$1' (accepted: --np N, --amr, --cells N, --numerics SPEC," \
                   "--divergence-control glm|eglm, --legs LIST)" >&2 ; exit 2 ;;
    esac
 done
@@ -84,7 +90,12 @@ if [[ ! $DC =~ ^(glm|eglm)$ || ( $DC == eglm && $AMR -eq 1 ) ]]; then
    echo "check.sh: --divergence-control '$DC' is not glm or eglm, or eglm with --amr" >&2
    exit 2
 fi
+if [[ ! $CELLS =~ ^[0-9]+$ || $((CELLS % 4)) -ne 0 || ( $AMR -eq 1 && $CELLS -ne 128 ) ]]; then
+   echo "check.sh: --cells '$CELLS' is not a positive multiple of 4 (4 x 4 blocks), or combined with --amr" >&2
+   exit 2
+fi
 TAG="$(basename "$EXE")-np$NP$(numerics_tag)"
+[[ $CELLS -ne 128 ]] && TAG="$TAG-n$CELLS"
 [[ $DC == eglm ]] && TAG="$TAG-eglm"
 
 # run_ot <work> <make_orszag_tang.py options>: write the input and run it.
@@ -101,17 +112,17 @@ run_ot() {
 
 STATUS=0
 if [[ $AMR -eq 0 && $DC == eglm ]]; then
-   echo ">> MV-12 / EV-4 Orszag-Tang 128^2, EGLM ($(basename "$EXE"), np $NP)"
+   echo ">> MV-12 / EV-4 Orszag-Tang $CELLS^2, EGLM ($(basename "$EXE"), np $NP)"
    w="$CASE_DIR/work-$TAG"
-   run_ot "$w" --cells 128 --divergence-control eglm --it-save 25
+   run_ot "$w" --cells "$CELLS" --divergence-control eglm --it-save 25
    "$VENV_PY" "$CASE_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$EARLY_SYM_TOL" --step 100 || STATUS=1
    "$VENV_PY" "$CASE_DIR/orszag_tang_oracle.py" "$w" --sym-tol "1.0e-4" || STATUS=1
    "$VENV_PY" "$CASE_DIR/../eglm_conservation_oracle.py" "$w" || STATUS=1
    works=("$w")
 elif [[ $AMR -eq 0 ]]; then
-   echo ">> MV-12 Orszag-Tang 128^2 ($(basename "$EXE"), np $NP)"
+   echo ">> MV-12 Orszag-Tang $CELLS^2 ($(basename "$EXE"), np $NP)"
    w="$CASE_DIR/work-$TAG"
-   run_ot "$w" --cells 128
+   run_ot "$w" --cells "$CELLS"
    "$VENV_PY" "$CASE_DIR/orszag_tang_oracle.py" "$w" --sym-tol "$SYM_TOL" --cons-tol "$CONS_TOL" || STATUS=1
    works=("$w")
 else

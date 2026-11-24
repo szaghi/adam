@@ -33,7 +33,14 @@
 # Baseline provenance: N3.5 binary (stale-ghost-layer fix), default tricubic
 # fill, fdv_order 6, ni=16, it_max=5, -np 1 — max over the history (= step 5).
 #
-# Usage: ./check.sh [--build] [--convergence] [--keep]
+# Usage: ./check.sh [--build] [--convergence] [--keep] [--cleaning]
+#
+# --cleaning (issue #145, opt-in) runs the seam case with hyperbolic cleaning of B (constrained_transport = B,
+# divergence_correction = hyperbolic, chi = 2, alpha = 6.4e10 1/s) for 10 steps, the final time of the 5-step leg
+# (chi = 2 halves the step): div(D) <= DIV_TOL, and the seam max|div(B)| at the final time on its pinned baseline and
+# below the seam leg's 12.65. Measured (CPU and FNL, the same digits): 6.637193 against 12.65004; the cleaning costs
+# 18 % per CPU step (the tenth variable) and the halved step, 2.4 times per unit time. The long-horizon study is a
+# measurement on the page (seam-divergence.md), not a leg.
 #
 # --keep keeps the checkpoints of the quadtree leg (work-cpu-quad-octree, work-cpu-quadtree) for the documentation
 # figure (src/tests/prism/regression/make_doc_figures.py).
@@ -64,17 +71,20 @@ DIV_TOL="1.0E-13"            # round-off ceiling for the conserved invariants
 SEAM_B_BASELINE="1.265004E+01" # pinned seam max|div(B)| (see provenance above)
 SEAM_RTOL="0.05"             # 5% relative band around the baseline
 P_MIN="0.8"                  # convergence-order floor (measured ~ +1.15)
+SEAM_B_CLEAN_BASELINE="6.637193E+00" # seam |div(B)| at t = 7.82e-12 with hyperbolic cleaning of B, chi 2, alpha 6.4e10
+                                     # (#145; CPU and FNL, 2026-11-23, night tree on 0bcdf870)
 SEAM_B_SSP11_BASELINE="1.181251E+01" # pinned seam max|div(B)| under runge-kutta-ssp-11 (#25 F2; CPU
                                      # F3-fix binary, 2026-07-04: ni=16, it_max=5, -np 1, tricubic fill)
 LS_REFUSAL_MSG="not stage-splittable" # the stages_per_step_forest contract message (#25 F1)
 
-do_build=0 ; do_convergence=0 ; do_keep=0
+do_build=0 ; do_convergence=0 ; do_keep=0 ; do_cleaning=0
 for arg in "$@"; do
    case "$arg" in
       --build)       do_build=1 ;;
       --convergence) do_convergence=1 ;;
       --keep)        do_keep=1 ;;
-      *) echo "ERROR: unknown flag $arg (use --build / --convergence / --keep)" >&2; exit 2 ;;
+      --cleaning)    do_cleaning=1 ;;
+      *) echo "ERROR: unknown flag $arg (use --build / --convergence / --keep / --cleaning)" >&2; exit 2 ;;
    esac
 done
 if [[ $do_build -eq 1 ]]; then
@@ -102,7 +112,8 @@ HIST="rmf_amr_fd_pulse_regression-divergence_history.dat"
 
 CTRL="$CASE_DIR/work-cpu-ctrl"
 echo ">> [rmf-amr-fd-pulse] running marker-disabled control (no seam, no sources)"
-run_in "$CTRL" 's/markers_number = 1/markers_number = 0/'
+# markers_number = 0 leaves [amr_marker_1] unread, which [IO] unused_keys = error (the default since #80 P5) refuses
+run_in "$CTRL" 's/markers_number = 1/markers_number = 0/;s/^\[IO\]$/[IO]\nunused_keys = warn/'
 if grep -qiE 'error|abort| nan |segfault' "$CTRL/run.log"; then
    echo "FAIL [rmf-amr-fd-pulse] control reported an error/abort/NaN"; fail=1
 fi
@@ -251,6 +262,25 @@ if ! "$REPO_ROOT/exe/.regression-venv/bin/python" "$REPO_ROOT/src/tests/flume/ve
    echo "FAIL [rmf-amr-fd-pulse] quadtree run differs from the octree run"; fail=1
 fi
 [[ $do_keep -eq 1 ]] || find "$QREF" "$QUAD" -type f \( -name '*.h5' -o -name '*.fbd' -o -name '*.xdmf' \) -delete
+
+if [[ $do_cleaning -eq 1 ]]; then
+   CLN="$CASE_DIR/work-cleaning"
+   echo ">> [rmf-amr-fd-pulse] --cleaning: the seam case with hyperbolic cleaning of B (chi 2, alpha 6.4e10, 10 steps)"
+   run_in "$CLN" 's/^constrained_transport    = no /constrained_transport    = B  /;s/^divergence_correction    = no /divergence_correction    = hyperbolic /;s/^physical_model = EM/physical_model = EM\nchi            = 2.0\nalpha          = 6.4E10/;s/^it_max   = 5/it_max   = 10/'
+   if grep -qiE 'error|abort| nan |segfault' "$CLN/run.log" || ! grep -qE 'progress:[[:space:]]*100%' "$CLN/run.log"; then
+      echo "FAIL [rmf-amr-fd-pulse] cleaning run did not complete cleanly"; fail=1
+   fi
+   cln_divd="$(max_div_d "$CLN/$HIST")"
+   cln_divb="$(last_div_b "$CLN/$HIST")"
+   echo ">> [rmf-amr-fd-pulse] cleaning max|div(D)| = $cln_divd (<= $DIV_TOL)"
+   echo ">> [rmf-amr-fd-pulse] cleaning seam |div(B)| at the final time = $cln_divb (baseline $SEAM_B_CLEAN_BASELINE, rtol $SEAM_RTOL; without cleaning $seam_divb)"
+   if ! awk "BEGIN{exit !($cln_divd <= $DIV_TOL)}"; then
+      echo "FAIL [rmf-amr-fd-pulse] cleaning run div(D) above round-off"; fail=1
+   fi
+   if ! awk "BEGIN{d=($cln_divb-$SEAM_B_CLEAN_BASELINE)/$SEAM_B_CLEAN_BASELINE; if(d<0)d=-d; exit !(d<=$SEAM_RTOL && $cln_divb < $seam_divb)}"; then
+      echo "FAIL [rmf-amr-fd-pulse] cleaning seam |div(B)| off its baseline, or not below the run without cleaning"; fail=1
+   fi
+fi
 
 if [[ $do_convergence -eq 1 ]]; then
    echo ">> [rmf-amr-fd-pulse] --convergence: 2-rung matched-time ladder (ni=16 vs ni=32)"
