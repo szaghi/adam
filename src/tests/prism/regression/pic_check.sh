@@ -30,6 +30,10 @@
 # (div_* left out, #129 R5). CPU bit-identical; FNL within PIC_CHECK_RESTART_RTOL for the fields (default 1e-9) and
 # PIC_CHECK_RESTART_PRTOL for the dt and the particles, variable by variable (default 1e-11): the atomic deposit is not
 # reproducible, measured restart vs uninterrupted 4e-12 (fields, residuals) and 1.7e-14 (particles, pic-slab-pulse).
+# Restart-only mode (PIC_CHECK_RESTART_ONLY=1, set by the case's check.sh; pml-restart): a case without particles runs
+# only the uninterrupted run and its restart leg, cut at step PIC_CHECK_RESTART_AT instead of it_max/2; no charge, Gauss
+# or golden check, no .pbd compared; the CPU legs are np 1 and np 2 (no single-block conserving current), every leg on
+# input.ini when the case has no input-np2.ini.
 # The goldens live in golden-check/, not golden/: run.sh runs every case with a golden/ at -np 2, which the CPU leg
 # refuses. Their residuals are force-added (the repo-root .gitignore ignores src/tests/**/*.dat).
 #
@@ -56,12 +60,16 @@ TIMEOUT="${PIC_CHECK_TIMEOUT:-1800}"
 [[ -x "$PY" ]] || { echo "ERROR: $PY not found (run run.sh once, or set PRISM_PY)" >&2; exit 2; }
 LAUNCH="${PIC_CHECK_LAUNCH:-mpirun -np}"
 RESTART="${PIC_CHECK_RESTART:-1}"
+RESTART_ONLY="${PIC_CHECK_RESTART_ONLY:-0}"
+RESTART_AT="${PIC_CHECK_RESTART_AT:-}"
+[[ "$RESTART_ONLY" == 1 && "$RESTART" == 0 ]] && { echo "SKIP [$(basename "$CASE_DIR")/$BACKEND] restart-only case, PIC_CHECK_RESTART=0"; exit 0; }
 RESTART_RTOL=0; RESTART_PRTOL=0
 [[ "$BACKEND" == fnl ]] && { RESTART_RTOL="${PIC_CHECK_RESTART_RTOL:-1e-9}"; RESTART_PRTOL="${PIC_CHECK_RESTART_PRTOL:-1e-11}"; }
 command -v ${LAUNCH%% *} >/dev/null 2>&1 || { echo "ERROR: ${LAUNCH%% *} not on PATH" >&2; exit 2; }
 
-if [[ "$BACKEND" == cpu ]]; then legs=("1 input.ini"); else legs=(); for np in ${FNL_NP:-1 2}; do
-   [[ $np == 1 ]] && legs+=("1 input.ini") || legs+=("2 input-np2.ini"); done; fi
+if [[ "$BACKEND" == cpu ]]; then [[ "$RESTART_ONLY" == 1 ]] && nps="1 2" || nps=1; else nps="${FNL_NP:-1 2}"; fi
+legs=(); for np in $nps; do
+   [[ $np == 1 || ! -f "$CASE_DIR/input-np2.ini" ]] && legs+=("$np input.ini") || legs+=("$np input-np2.ini"); done
 
 fail=0
 for leg in "${legs[@]}"; do
@@ -80,6 +88,7 @@ for leg in "${legs[@]}"; do
    echo ">> [$tag] run rc=$rc, $(( $(date +%s) - start )) s"
    if [[ $rc -ne 0 ]]; then echo "FAIL [$tag] the run exited non-zero, see $wd/run.log"; fail=1; continue; fi
 
+   if [[ "$RESTART_ONLY" != 1 ]]; then   # the PIC checks and the golden (not in restart-only mode)
    # charge conservation of the run: |Q_deposition_error| and |dQ_num_net| <= 1e-12 of the injected charge
    "$PY" - "$wd/$BASE-charge_conservation_history.dat" "$wd/run.log" <<'EOF' || { echo "FAIL [$tag] charge conservation"; fail=1; }
 import re, sys
@@ -160,6 +169,7 @@ sys.exit(1 if bad else 0)
 EOF
    [[ $np == 1 ]] && { "$PY" "$DIGEST" compare-residuals "$wd/$BASE-residuals.dat" "$gdir/$BASE-residuals.dat" \
       || { echo "FAIL [$tag] residuals"; fail=1; }; }
+   fi
 
    # restart leg: half the steps, a restart, the rest; against the uninterrupted run of this leg
    [[ "$RESTART" == 0 || "$CAPTURE" == --capture ]] && continue
@@ -167,7 +177,7 @@ EOF
    rd="$wd-restart"
    rm -rf "$rd" && mkdir -p "$rd"
    it_max=$(sed -nE 's/^it_max\s*=\s*([0-9]+).*/\1/p' "$wd/input.ini")
-   half=$(( it_max/2 ))
+   half=${RESTART_AT:-$(( it_max/2 ))}
    cp "$wd/input.ini" "$rd/input.ini"
    sed -i -E "s/^(it_max\s*=\s*)[0-9]+/\1$half/; s/^(restart_save\s*=\s*)[0-9]+/\1$half/; /^restart\s*=/d" "$rd/input.ini"
    start=$(date +%s)
@@ -180,8 +190,9 @@ EOF
    fi
    echo ">> [$rtag] $half + $(( it_max - half )) steps, rc=$rc, $(( $(date +%s) - start )) s"
    if [[ $rc -ne 0 ]]; then echo "FAIL [$rtag] the run exited non-zero, see $rd/run1.log, run2.log"; fail=1; continue; fi
+   particles=(); [[ "$RESTART_ONLY" == 1 ]] && particles=(--no-particles)
    "$PY" "$REG_DIR/pic_restart_compare.py" "$wd" "$rd" "$BASE" "$half" "$it_max" "$RESTART_RTOL" "$RESTART_PRTOL" \
-      || { echo "FAIL [$rtag] the restarted run differs from the uninterrupted one"; fail=1; }
+      "${particles[@]}" || { echo "FAIL [$rtag] the restarted run differs from the uninterrupted one"; fail=1; }
 done
 [[ $fail -eq 0 ]] && echo "PASS [$CASE/$BACKEND]" || echo "FAIL [$CASE/$BACKEND]"
 exit $fail

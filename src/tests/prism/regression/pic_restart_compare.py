@@ -1,6 +1,6 @@
 """Restart leg of pic_check.sh (issue #129): a PIC run stopped at it_max/2 and restarted, against the uninterrupted run.
 
-Usage: pic_restart_compare.py <uninterrupted dir> <restarted dir> <basename> <half> <it_max> <rtol fields> <rtol particles>
+Usage: pic_restart_compare.py <uninterrupted dir> <restarted dir> <basename> <half> <it_max> <rtol fields> <rtol particles> [--no-particles]
 
 Compares, with the largest absolute difference relative to the largest magnitude of each pair (rtol 0: bit-identical;
 the particles variable by variable, the first dt and the particles with <rtol particles>, the fields with <rtol fields>):
@@ -8,6 +8,7 @@ the particles variable by variable, the first dt and the particles with <rtol pa
   plasma-frequency limit is printed also where the CFL sets dt, so a wrong restart of it shows);
 - the final .pbd of every rank: header (width, particles, history), particles and plasma-frequency maxima;
 - the fields of the it_max checkpoint, div_* left out (0 after a restart, #129 R5).
+--no-particles (a case without particles, pml-restart): no .pbd compared.
 Exit 1 on any difference above rtol.
 """
 import glob
@@ -18,6 +19,8 @@ import sys
 import h5py
 import numpy as np
 
+no_particles = '--no-particles' in sys.argv
+sys.argv = [a for a in sys.argv if a != '--no-particles']
 wd, rd, base = sys.argv[1], sys.argv[2], sys.argv[3]
 half, it_max, rtol, prtol = int(sys.argv[4]), int(sys.argv[5]), float(sys.argv[6]), float(sys.argv[7])
 bad = []
@@ -51,8 +54,8 @@ else:
         bad.append('first dt')
 
 # final particles and plasma-frequency maxima, rank by rank
-pbd = sorted(glob.glob(f'{wd}/{base}-restart-proc*.pbd'))
-if not pbd:
+pbd = [] if no_particles else sorted(glob.glob(f'{wd}/{base}-restart-proc*.pbd'))
+if not pbd and not no_particles:
     bad.append('no .pbd')
 def particles(fn):
     """Particles [n, width] of a .pbd (q_pic is stored as [width, capacity], variable fastest) and the trailing maxima."""
@@ -78,7 +81,8 @@ for fu in pbd:
         d = rel(mu[v:v + 1], mr[v:v + 1])
         if d > dmax:
             dmax, worst = d, f'plasma-frequency maximum {v + 1}'
-print(f'>> particles (.pbd, {len(pbd)} ranks, per variable): max relative difference {dmax:.1e} {worst}')
+if not no_particles:
+    print(f'>> particles (.pbd, {len(pbd)} ranks, per variable): max relative difference {dmax:.1e} {worst}')
 if dmax > prtol:
     bad.append('particles')
 
