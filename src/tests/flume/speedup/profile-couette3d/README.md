@@ -6,6 +6,11 @@ outside the speedup matrix ([`../README.md`](../README.md), issue #133) and shar
 of FLUME that `../build.sh` makes, one per backend and compiler, called legs here (`cpu`, `fnl-nvf`, `fnl-amd`; see
 [Run](#run)).
 
+The node-level results of the matrix (GPU node against CPU node, runtime AMR at equal finest spacing, strong and weak
+scaling, device memory) are in [`../README.md`](../README.md), "Results", and on the docs page
+[Performance](../../../../../docs/applications/flume/performance.md) (`/applications/flume/performance`); this case
+explains, kernel by kernel, where the time of one GPU's step goes.
+
 ## The flow
 
 The exact compressible Couette flow of `regression/couette` (issue #65, VV-3), extended to 3-D: an isothermal no-slip

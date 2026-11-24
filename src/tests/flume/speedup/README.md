@@ -1,10 +1,11 @@
 # FLUME speedup matrix
 
-**Status: every leg measured on medooza (2026-11-23), single node and multi-node; results below** ([issue
+**Status: every leg measured on medooza (2026-11-23), single node and multi-node; results, figures, the memory
+calibration, the residual biases and the verdicts on H1-H4 below; docs page
+[Performance](../../../../docs/applications/flume/performance.md)** ([issue
 #133](https://github.com/szaghi/adam/issues/133), the plan's only source of truth). Phases 0-3 are the harness;
 phases 5-7 the legs; phase 9 (owner, 2026-11-23) lifts the plan's "no scaling beyond one node": strong scaling on up to
-8 nodes, weak scaling at fixed cells per GPU, grind time. Not done: the AMD node (fnl-amd, Giacomo Rossi), the docs
-page (phase 8.3), H4.
+8 nodes, weak scaling at fixed cells per GPU, grind time. Not done: the AMD node (fnl-amd, Giacomo Rossi).
 
 The matrix answers two questions: how much faster a GPU node is than a CPU node on each flow, and how much runtime AMR
 buys at equal finest resolution, with where its overhead goes (the AMR grid itself against the regrids).
@@ -155,35 +156,256 @@ cells per device):
 | sphere | 1.77 M | 4 (1): 64.8; 32 (8): 94.6 | 0.68 |
 | step | 1.03 M | 1: 202; 4: 209; 8 (2): 212; 16 (4): 214 | 0.97 / 0.96 / 0.95 |
 
+**Figures** (`matrix_plot.py results/2026-11-23/summary.csv --out results/2026-11-23 --theme both`, phase 8.1; copies in
+`docs/public/flume/perf-*.png` for the docs page [Performance](../../../../docs/applications/flume/performance.md)):
+`perf-backend-speedup.png` (T(CPU node) / T(GPU node) per case), `perf-amr-decomposition.png` (per leg and node, the
+step cost of U, F and R over U's, split inside and outside the steps, with the ideal N/N(U)), `perf-grind.png` (g
+against the cells per device, per backend); `grind.png` is `scaling_plot.py`'s earlier figure.
+
 **Findings**
 
-- **The GPU node pays most on the sphere (16.3) and the channel (13.8-16.7), least on the 2-D step (5.8).** Why the
-  step gains less is not measured: its CPU grind time (19.5 us per cell-step on 64 ranks) is close to the sphere's
-  (14.3), its FNL grind time four times the sphere's (209 against 55 ns).
-- **Runtime AMR buys little on the GPU node: 1.04 (step), 1.48 (sphere), 1.25 (channel)** against ideals of 1.59, 4.02
-  and 1.78. Two losses compound: the grid efficiency (0.51 on the sphere: a cell of the frozen AMR grid 2c costs 109 ns
-  per step on 4 A30 against 55 for the uniform 2a; not the load, since the uniform curve is flat from 3.5 to 14 M cells
-  per A30 and 2c runs at 3.5 M; the per-cell overhead of the AMR grid, not identified further) and the regrid cost
-  (29-38 %; the regrid host round trip is 0.7-0.9 s every 10 steps, H3). On the CPU node the sphere's AMR does better (2.20), the step's not (1.06).
-- **The CPU's runtime-AMR step does not scale with ranks**: 1c costs 1.18 s per step on 64, 128 and 256 ranks (regrid
-  cost 34 % -> 117 % -> 252 %): the step forest's regrid time does not shrink with the rank count. The sphere's runtime case
-  degrades the same way more slowly (2b, 0.73 / 0.47).
-- **Uniform grids scale well**: CPU 0.96-0.98 to 4 nodes on both legs; FNL 0.75-0.91 to 4 nodes, the sphere 0.58 on 8
+- **A GPU node runs a step 11-17 times faster than a CPU node on the 3-D flows (sphere 16.3, channel 13.8-16.7) and
+  5.8 times on the 2-D step.** At the same order the 2-D cell is the dearer one: the 2-D step at 1.03 M cells per
+  A30 spends 202 ns per cell-step, the same forest extruded in 3-D at the same load 126 (H2): the boundary-condition
+  kernel refills the null-axis ghost layers at every stage.
+- **Runtime AMR buys little on either node: 1.04 (step), 1.48 (sphere), 1.25 (channel) on 4 A30; 1.06, 2.20, 1.03 on
+  64 cores**, against ideals of 1.59, 4.02 and 1.78. The losses differ by node ("Where the AMR overhead goes" below):
+  on the GPU node the AMR grid itself (grid efficiency 0.89, 0.51, 0.90) and the regrid, which runs on the host
+  (22-27 % of the runtime step: T(R)/T(F) - 1 = 29-38 %); on the CPU node the AMR grid (0.90, 0.68, 0.81) and the **rank layout of the runtime
+  grid**, which leaves the busiest rank with the uniform case's load on legs 1 and 3; the regrid itself is 1-2 % there.
+- **The CPU's runtime-AMR step does not scale with ranks** (1c 1.18 s per step on 64, 128 and 256 ranks) **because of
+  its layout, not its regrid**: a runtime regrid distributes whole sibling sets and splits every realm from rank 0, so
+  1c's busiest rank holds 64,512 cells (one sibling set of each realm) at every rank count, the per-rank load of 1a on
+  64 ranks; 1c's regrid timer is 1.5-2.7 s of a 131-134 s loop. (The previous version of this README said the regrid
+  time did not shrink with the ranks: wrong, the regrid timer was not read.)
+- **Uniform grids scale well**: CPU 0.96-0.98 to 4 nodes on both legs; FNL 0.79-0.91 on 2 nodes and 0.75-0.77 on 4, the sphere 0.58 on 8
   nodes (1.77 M cells per A30).
 - **Weak scaling**: the sphere loses 20-32 % between one node and 2-8 nodes at the same load (0.80 at 14.2 M per A30,
-  0.68 at 1.77 M), the step 3-5 % (2-D: less ghost data per cell). On one node the sphere's grind time is flat at
-  51-55 ns from 3.5 to 14 M cells per A30 and rises below (64.8 at 1.77 M).
+  0.68 at 1.77 M), the step 3-5 % (why the step loses less is not measured). On one node the sphere's grind time is
+  flat at 51-55 ns from 3.5 to 14 M cells per A30 and rises below (64.8 at 1.77 M).
 - **The A30's floor shows on the AMR cases of the sphere**: 2c costs 0.26 s per step on 16 A30 at 0.88 M cells per A30,
   the same as 2a with four times the cells.
 - **The step is not launch-bound at 1 M cells per A30** (the plan's reading of H1, refuted): it scales to 0.26 M cells
-  per A30 (0.77). Its grind time is four times the sphere's because its cell-step does more work.
+  per A30 (0.77).
 - **Leg 3** needed the T3 dump re-blocked (`reblock.py`) for the Kolmogorov marker to coarsen the core; the a priori
   prediction (288 blocks) held exactly at the first regrid. Its margins (~1.08) rest on two snapshots.
 
-**Caveats**: the commit is not yet recorded (the night tree); the cold start of the weak cases (20 steps) against the
-developed state of 1a/2a is untested (README 9.2); the GPU memory preflight checks only the batch node; one 16-A30
-run of 1c was killed by Slurm (SIGKILL, no memory record) and rerun alone (job 1369494); the leg-3 runs before the
-re-blocking (layout 64 x 48 x 32) are superseded and not in the tables.
+### Results per leg (phases 5.4, 6.4, 7.6)
+
+The case directories (`make_cases.py`, `<work>/cases/<case>/README.md`) are regenerated by every `run.sh` call; their
+measured results are here. Step costs in s per step (median of 3; spreads in `summary.md`), N the window's mean cell
+count; the dumps and logs are on medooza under `/ifs/hpc/home/szaghi/adam-tests/speedup-133/work`.
+
+**Leg 1, Mach 3 step** (2-D, three realms, WENO-7, SSP-54). Warm-up on 4 A30 to t_w = 2.0 (34,672 steps, job 1369400;
+its last checkpoint shows the bow shock, the Mach stem, the slip line with Kelvin-Helmholtz roll-ups and the reflected
+shocks, nothing at the `auto` seams), settle 100 steps; the window's runtime grid changed once in ten regrids
+(realm C 187 -> 184 blocks).
+
+| Case | N | Blocks (A, B, C) | 4 / 8 / 16 A30 | 64 / 128 / 256 cores | GPU node / CPU node |
+|---|---|---|---|---|---|
+| 1a uniform | 4.13 M | 256, 256, 256 | 0.216 / 0.119 / 0.0704 | 1.26 / 0.642 / 0.328 | 5.83 |
+| 1b frozen | 2.60 M | 106, 73, 187 | 0.154 / 0.0890 / 0.0573 | 0.887 / 0.544 / 0.334 | 5.75 |
+| 1c runtime | 2.60 M | 106, 73, 187 | 0.207 / 0.119 / 0.0757 | 1.19 / 1.18 / 1.18 | 5.72 |
+
+AMR speedup 1.04 (GPU node), 1.06 (CPU node), ideal 1.59; grid efficiency 0.89 / 0.90; T(R)/T(F) - 1 34 % / 34 %
+(on the GPU node the regrid; on the CPU node the runtime layout, 1c's steps cost 1.17 s against 1b's 0.88).
+
+**Leg 2, shock over a sphere** (3-D, IB, WENO-5, SSP-33). Warm-up on 4 A30 to t_w = 0.15 (663 steps), settle 100
+steps (job 1369401); the window's runtime grid changed once in ten regrids (1016 -> 1072 blocks).
+
+| Case | N | Blocks | 4 / 8 / 16 / 32 A30 | 64 / 128 / 256 cores | GPU node / CPU node |
+|---|---|---|---|---|---|
+| 2a uniform | 56.6 M | 4096 | 0.780 / 0.491 / 0.260 / 0.167 | 12.7 / 6.48 / 3.24 | 16.3 |
+| 2b runtime | 14.1 M | 1016 -> 1072 | 0.526 / 0.350 / 0.312 / 0.188 | 5.76 / 3.95 / 3.06 | 10.9 |
+| 2c frozen | 14.0 M | 1016 | 0.381 / 0.284 / 0.257 / 0.161 | 4.64 / 3.13 / 1.97 | 12.2 |
+
+AMR speedup 1.48 (GPU node), 2.20 (CPU node), ideal 4.02; grid efficiency 0.51 / 0.68; T(R)/T(F) - 1 38 % (GPU: the
+regrid, 0.144 s per step) / 24 % (CPU: inside the steps, 5.70 against 4.63 s; the runtime layout gives the busiest
+rank 1.13x the mean load against 2c's 1.01x, about half of it; the rest is not located; the regrid timer is 1.3 %).
+
+**Leg 3, turbulent channel** (3-D, `hybrid-kep-weno`, viscous, SSP-54; Re_tau 202). The T3 `resolved-hybrid` dump
+(t = 150, step 51626) re-blocked to L3 blocks of 32x24x16 (`reblock.py`, job 1369523), settle 4000 steps on 4 A30
+(job 1369525: one regrid, 512 -> 288 blocks, the core coarsened to L2 exactly as predicted a priori, then no grid
+change); no grid change in the windows.
+
+| Case | N | Blocks | 1 / 4 A30 | 64 cores | GPU node / CPU node |
+|---|---|---|---|---|---|
+| 3a uniform | 6.29 M | 512 (L3) | 0.800 / 0.230 | 3.17 | 13.8 |
+| 3b runtime | 3.54 M | 288 (256 L3 + 32 L2) | - / 0.184 | 3.08 | 16.7 |
+| 3c frozen | 3.54 M | 288 | - / 0.143 | 2.22 | 15.5 |
+
+AMR speedup 1.25 (GPU node), 1.03 (CPU node), ideal 1.78; grid efficiency 0.90 / 0.81; T(R)/T(F) - 1 29 % (GPU: the
+regrid steps, which change nothing here) / 39 % (CPU: the layout, busiest rank 98,304 cells = 3a's per-rank load).
+
+### Where the AMR overhead goes
+
+**Inside and outside the steps.** `step cost - steps` (both medians of the window differences) is the time outside the
+time steps: the regrid. On the GPU node the steps of R cost what the steps of F cost (2b 42.03 s, 2c 41.94 s per 110
+steps; 3b and 3c 0.1428 s per step), so R - F is the regrid. The forest's timers are maxima over the ranks, so on the
+CPU the regrid timer also holds the wait of the ranks that reach its reduction first (2a's uniform grid shows 1.44 s
+per step of "regrid" on 64 ranks: the immersed boundary's load imbalance waited out there).
+
+**The GPU regrid** (forest regrid timer and `flume: regrid at step` lines of the 110-step windows): 2b 16.1 s for 11
+regrid steps, one of which changed the grid (logged host round trip 2.03 s), so ~1.4 s per regrid step that changes
+nothing; 1c 5.1 s (one change, 2.46 s; ~0.26 s otherwise); 3b 4.5 s with no change (~0.41 s per regrid step). The cost
+per regrid step scales with the blocks per GPU (2b: 14.7, 7.0, 4.8, 2.9 s per 100 steps on 4, 8, 16, 32 A30; 5.5-9 ms
+per block), not with the changes. Its split among the device-to-host copy, the host marking and the tree work is not
+measured (no per-phase timers): draft issue `issue-fnl-regrid-host-cost.md`.
+
+**The CPU runtime layout** (the window dumps' `.tnd` owner ranks; `repartition.py --rule units` reproduces
+`tree%mpi_redistribute`, the layout of every runtime regrid):
+
+| Case, ranks | Busiest rank (cells) | Mean | Busiest / mean | Ranks with no block |
+|---|---|---|---|---|
+| 1b frozen (`siblings`), 64 / 128 / 256 | 44,544 / 28,416 / 16,128 | 40,680 / 20,340 / 10,170 | 1.09 / 1.40 / 1.59 | 0 / 0 / 29 |
+| 1c runtime (`units`), 64 / 128 / 256 | 64,512 / 64,512 / 64,512 | 40,680 / 20,340 / 10,170 | 1.59 / 3.17 / 6.34 | 3 / 67 / 195 |
+| 3b runtime / 3c frozen, 64 | 98,304 / 61,440 | 55,296 | 1.78 / 1.11 | 0 / 0 |
+| 2b runtime, 64 / 128 / 256 | 248,832 / 124,416 / 110,592 | 219,456 / 109,728 / 54,864 | 1.13 / 1.13 / 2.02 | 0 / 0 / 52 |
+
+On FNL the same layout is near balance up to 16 A30 (1c 1.05 on 4, 1.12 on 16; 2b 1.00 on 4, 1.13 on 32). **Measured directly** (job n3m-A): 1b's inputs (`[amr] frequency = 0`) on 1c's window dump (the `units` layout) on 64 ranks cost **1.184 s per step** (spread 1.2 %), against 0.887 s for 1b on its own (`siblings`) layout and 1.187 s for 1c: the layout alone accounts for the runtime step's cost on the CPU node; the regrid adds nothing measurable. Draft issue:
+`issue-runtime-layout-sibling-units.md`.
+
+**The sphere's AMR grid on the GPU** (2c: 109 ns per cell-step on 4 A30 at 3.5 M cells per A30, where the
+uniform curve is flat at 51-55 ns; 254 blocks per GPU, layout balanced, reflux 2.4 % of the step). Located with
+`NVCOMPILER_ACC_TIME=1` (job n3m-A,
+10-step runs from the window dumps, device time per GPU, the reports of ranks whose output did not interleave): 2c
+(254 blocks per GPU) against `w2-sphere-l3` on 2 A30 (256 uniform blocks per GPU):
+
+| Kernel (per GPU, 10-step run) | 2c, AMR | `w2-sphere-l3`, uniform | 2a, uniform, 1024 blocks |
+|---|---|---|---|
+| all kernels | 3.57 s | 2.06 s | 7.12 s |
+| face fluxes (`compute_face_fluxes_s3_dev`) | 1.09 | 1.11 | 4.36 |
+| intra-rank ghost fill (`update_ghost_local_gpu_dev`) | **1.77** | 0.32 | 1.31 |
+| ghost send buffers (`populate_send_buffer_ghost_gpu_dev`) | 0.11 | 0.01 | 0.05 |
+| boundary conditions | 0.12 | 0.20 | 0.36 |
+
+The ghost fill takes 1.45 s of the 1.51 s difference (96 %). Its 121 launches have the same size on both grids
+(111,580 against 105,596 gangs of 128 rows x variables of the map) and take 14.6 ms against 2.6 ms each: on the AMR
+grid the map holds the 2:1 rows, coarse-to-fine interpolation (tricubic, `seam_ghost_fill` regime 2) and fine-to-coarse
+restriction, which the kernel (`adam_fnl_field_kernels.F90:388`) runs in the same loop as the copies, one branch per
+row. How the 5.6x splits among the interpolation arithmetic, the branch divergence and the donor reads is not
+measured. Draft issue:
+`issue-sphere-amr-gpu-cell-cost.md`.
+
+### Device memory (phase 4.3)
+
+The FNL backend allocates every block-sized device array at the block **capacity** of the budget,
+`nb = memory_fraction x device memory / realms / (fields_number x 8 B x block_weight)` (`adam_adam_object`
+`compute_blocks_number`), not at the blocks in use; so the device memory a run holds is set by the budget, and the
+question of 4.3 is what one stored-cell slot of that capacity really costs against the budget's `fields_number`
+(the plan's "~55 doubles per stored cell"). Measured (job n3m-A 1369616, gnode11): the window inputs of 1a, 2a and 3a
+on 4 A30 at three values of `ADAM_MEMORY_FRACTION` each, 10 steps, `nvidia-smi` sampled every 0.2 s; the peak per GPU
+against the stored-cell slots per rank (sum over the realms of `nb x block_weight`, from the "blocks budget" lines) is
+a straight line (residuals below 5 MiB):
+
+| Case | Fractions | Slope: bytes per slot (doubles) | Budget `fields_number` | Intercept per GPU (GPU 0) | Peak at 0.85, GPU 1-3 (GPU 0) |
+|---|---|---|---|---|---|
+| 1a step, 3 realms, WENO-7, SSP-54 | 0.60, 0.72, 0.85 | 404.9 B (50.6) | 64 | 3.40 GiB (4.27) | 19.21 GiB (20.08) |
+| 2a sphere, IB, WENO-5, SSP-33 | 0.55, 0.70, 0.85 | 392.4 B (49.1) | 54 | 1.95 GiB (2.81) | 20.09 GiB (20.96) |
+| 3a channel, hybrid, viscous, SSP-54 | 0.30, 0.55, 0.85 | 493.4 B (61.7) | 69 | 0.75 GiB (1.61) | 18.60 GiB (19.46) |
+
+- **The budget overestimates the per-slot cost** by 26 % (step), 10 % (sphere) and 12 % (channel): it counts the three
+  face fluxes as full stored blocks, while they are allocated over the interior faces only (in 2-D a tenth of a stored
+  block). The plan's ~55 doubles was within 12 % for the 3-D cases.
+- **The memory not proportional to the capacity** is 0.75-3.4 GiB per GPU (largest for the three-realm step). GPU 0
+  holds 0.87 GiB more than the other three in every run (the "device memory_avail" each rank prints at start already
+  shows 0.93 GB less on rank 0). Every rank touches GPU 0 before its own device: the `NVCOMPILER_ACC_TIME` report of
+  the ranks on GPUs 1-3 lists 33 uploads to device 0 before their own device's, consistent with three extra contexts
+  on GPU 0 (3 x ~0.29 GiB; the context size is not measured).
+- **At the default fraction 0.85 the A30 (23.5 GiB) keeps 2.5-4.9 GiB free**: no case is near an out-of-memory.
+
+**The matrix table, corrected** (device memory the case needs at its matrix layout, slope x the stored slots of its
+blocks in use + intercept, per GPU; GPU 0 + 0.87 GiB):
+
+| Case | Plan estimate | Needed per A30 | Total |
+|---|---|---|---|
+| 1a step (64 blocks of each realm per GPU, 4 A30) | ~34 GB (WENO-9) | 4.3 GiB of blocks + 3.4 = 7.7 GiB | 31.6 GiB |
+| 2a sphere (1024 blocks per GPU, 4 A30) | ~49 GB | 10.1 + 1.95 = 12.1 GiB | 49.1 GiB |
+| 3a channel (512 blocks, 1 A30; 128 per GPU on 4) | ~6 GB | 5.9 + 0.75 = 6.7 GiB on one A30 | 6.7 GiB |
+| `w2-sphere-l5` (1024 blocks per GPU, 32 A30) | - | 12.1 GiB | 387 GiB |
+
+The step's ceiling ("The step's memory ceiling" in phase 9) is unchanged in kind: the capacity of its binding realm
+is set by the budget, and the budget's 64 fields, the null-axis ghosts and the equal share per realm all shrink it;
+draft issue `issue-step-memory-ceiling.md`.
+
+### Residual biases (phase 4.4)
+
+Measured in job n3m-A (one node, three interleaved windows per variant, from the matrix's window dumps). The progress
+lines (`time_object%print_progress`: 7 lines per realm, per rank, per step) have no input key: a measurement-only patch
+of `adam_time_object.F90` (`ADAM_PROGRESS=all|rank0|none`, built in a scratch tree on medooza, not committed) switched
+them; `compute_conservation` every step is `[diagnostics] conservation_history_save = 1`.
+
+| Variant | 2a, 4 A30 | 1a, 64 cores |
+|---|---|---|
+| matrix executable, every output off (the protocol) | 0.7815 s (spread 0.3 %) | 1.253 s (4.5 %) |
+| patched executable, progress on every rank | 0.7851 s (0.0 %) | - |
+| patched executable, no progress printing | 0.7870 s (0.1 %) | 1.273 s (1.3 %) |
+| matrix executable, `compute_conservation` every step | 0.7888 s (0.4 %) | 1.252 s (4.7 %) |
+
+- **Progress printing: no measurable cost.** Removing it does not make a step faster on either backend (FNL +0.2 %
+  against the patched build that prints; CPU +1.6 %, inside the 4.5 % spread). Not changed; recorded.
+- **`compute_conservation` every step: +0.9 % on 4 A30** (0.0073 s per step, spreads below 0.4 %); not resolved on the
+  CPU node (-0.1 %, spreads 4.5-4.7 %).
+- Neither is in the matrix's numbers: the windows set `conservation_history_save = 0`, and `time%is_to_save` gates the
+  computation itself, not only the write. The warm-ups and settles ran the generated cadence (every step on legs 1 and
+  2), outside any window.
+
+### State independence (9.2.5) and a CPU weak point (9.2.4)
+
+- **9.2.5, the state-independence premise: holds to 0.5 %.** The L4 sphere from a 20-step cold start (2a's input, the
+  shock still far from the body) against 2a from its warm-up at t_w = 0.15, 4 A30, the same node, three interleaved
+  windows (job n3m-A): **0.7776 s against 0.7815 s per step** (spreads 0.4 and 0.3 %). The weak cases, which start
+  cold, and 1a/2a, which start developed, are comparable. (2a's window here, 0.7815 s, reproduces the matrix's 0.7799 s
+  of job 1369401 to 0.2 %.)
+- **9.2.4, a CPU weak point**: `w2-sphere-l3` on one CPU node (64 ranks, 110,592 cells per core, its 20-step cold
+  dump) costs **1.270 s per step** (spread 2.8 %), g 11.5 us per cell-step. Its partner at the same per-node load, 2a on 8 CPU nodes (512 ranks, 110,592 cells per core), was submitted (job n3m-B 1369659) and cancelled unrun: the queue estimated its start at 2026-11-24 11:01 (8 nodes, Resources). To finish 9.2.4: `sbatch --nodes=8 jobs/medooza-cpu.slurm windows --cases 2a`; the CPU weak efficiency is then g(`w2-sphere-l3`, 64 ranks) / g(2a, 512 ranks), with g(`w2-sphere-l3`, 64) = 11.5 us here.
+
+### Hypotheses (phase 8.2)
+
+- **H1** (leg 1 on GPUs: the AMR speedup falls well short of N(a)/N(c), the 2-D runtime grid leaving each GPU near
+  the launch floor; on the CPU it comes close). **Reformulated.** The first clause holds: 1.04 against 1.59 on 4 A30.
+  The mechanism is refuted: the step is not at a launch floor (1a keeps scaling to 0.26 M cells per A30, strong
+  efficiency 0.77 on 16 A30; 1b, the AMR grid frozen, 0.67 at 0.16 M); the loss is the AMR grid (efficiency 0.89) and
+  the regrid on the host (0.048 s of the 0.207 s step, 23 %). The CPU clause is refuted: 1.06 against 1.59, the same as
+  on the GPU node, for another reason: the runtime layout puts one sibling set of each realm on the busiest rank (1c's
+  steps cost 1.17 s against 1b's 0.88, 1.59x the mean load), while the regrid is 1 % of the step.
+  Corrected statement: *on the 2-D step, runtime AMR gains nothing at equal finest spacing on either node, the GPU
+  node losing it to the host regrid, the CPU node to the layout of the regrid's output.*
+- **H2** (leg 1: a 2-D cell costs more than two thirds of a 3-D cell at the same order, by the null-axis ghosts).
+  **Confirmed, and located.** Measured (job n3m-A, the same node, three interleaved windows each): the step forest
+  extruded in 3-D at the same order (`make_step.py --layout aligned --dims 3 --m 8 --nk 8 --weno 7`, octrees, L2,
+  2.06 M cells, cold start of 20 steps) on 2 A30 costs 0.1304 s per step (g 126 ns per cell-step, spread 0.3 %); the
+  2-D `w1-step-m8` on 1 A30 0.2083 s (g 202 ns, 0.2 %): both at 1.03 M cells per A30. **A 2-D cell costs 1.60 3-D
+  cells**, not two thirds. Kernel times (`NVCOMPILER_ACC_TIME`, 10-step runs, per GPU): the face fluxes follow the
+  dimension count (0.54 s in 2-D, 0.88 s in 3-D: 0.62); the boundary-condition kernel `set_boundary_conditions_dev`
+  takes 1.34 s in 2-D against 0.16 s in 3-D, 59 % of the 2-D kernel time against 10 %, and its launches cover up to
+  19,567 gangs of 128 rows against 901 (21x the rows at the same cells). The rest of the 2-D kernel time is 0.69 of the
+  3-D step's. On a null axis each block's two z faces are domain faces, so the `ngc` z ghost layers of every block (8/9
+  of a stored 2-D block at `ngc` 4) are boundary rows, refilled at every stage: the null-axis ghosts cost the 2-D step
+  time as well as memory (issue draft `issue-step-memory-ceiling.md`, which carries both).
+- **H3** (leg 2, FNL: T(R)/T(F) - 1 is dominated by the regrid host round trip; on the CPU it stays a few percent).
+  **Confirmed, with a correction of what the round trip is.** On 4 A30, T(2b)/T(2c) - 1 = 38 %, and all of it is
+  outside the steps (2b's steps 42.03 s, 2c's 41.94 s per 110 steps): the regrid, which runs on the host (the state
+  copied to the host, the markers and the tree there, the state copied back). It is paid at every regrid step, not
+  only when the grid changes: ~1.4 s per regrid step that changes nothing, 2.0 s for the one that changed the grid;
+  it scales with the blocks per GPU (5.5-9 ms per block), and its split between the copies and the host work is not
+  measured. On the CPU the regrid timer is 1.3 % of 2b's step (the steps are 11x longer); the CPU's T(R)/T(F) - 1
+  (24 %) is inside the steps (5.70 against 4.63 s), half of it accounted for by the runtime layout (busiest rank
+  1.13x the mean against 2c's 1.01x), the rest not located; it is not the regrid.
+- **H4** (leg 3: T(3b) ≈ T(3c) + the regrid cost; the AMR speedup comes from the core alone). **Confirmed on the GPU
+  node, refuted on the CPU node.** 4 A30: 3b and 3c both spend 0.1428 s per step in the steps, and 3b's 0.0414 s
+  outside them is its regrid: 0.1432 + 0.0414 = 0.1846 against 3b's 0.1842. The runtime grid is the a priori
+  prediction (256 L3 wall blocks, 32 L2 core blocks: only the core coarsened) and did not change in 4000 settle steps
+  after its first regrid, so the AMR speedup (1.25; frozen 1.60; ideal 1.78) comes from the core alone; there was no
+  churn to measure, only the regrid steps' fixed cost (0.41 s each, every 10 steps, 29 %). 64 cores: 3b's steps cost
+  3.07 s against 3c's 2.21: the runtime layout (busiest rank 98,304 cells, the uniform 3a's per-rank load; 3a costs
+  3.17 s) erases the gain (AMR speedup 1.03).
+
+**Caveats**: the commit is not yet recorded (the night tree); the GPU memory preflight checks only the batch node
+(draft issue `issue-gpu-preflight-batch-node.md`); one 16-A30 run of 1c was killed by Slurm (SIGKILL, no memory
+record) and rerun alone (job 1369494); the leg-3 runs before the re-blocking (layout 64 x 48 x 32) are superseded and
+not in the tables; the windows are 110 steps, in which the runtime grids changed once in ten regrids (legs 1, 2) or
+never (leg 3): a flow with more churn pays more regrid.
 
 ## Files
 
@@ -198,6 +420,7 @@ re-blocking (layout 64 x 48 x 32) are superseded and not in the tables.
 | `ini_set.py` | rewrites `section.key=value` options of an input (the per-run changes of run.sh) |
 | `analyze.py` | step costs, spreads, N, throughputs, the ratios, the grind times and the strong and weak efficiencies -> `results/summary.{md,csv}` |
 | `scaling_plot.py` | the grind-time curves g(cells per device) from `summary.csv` (matplotlib, not needed by `analyze.py`) |
+| `matrix_plot.py` | the summary figures from `summary.csv`: backend speedup per case, AMR decomposition per leg, grind time (matplotlib; `--theme both` writes the docs' dark twins) |
 | `jobs/medooza-{cpu,fnl}.slurm` | the medooza jobs: one run.sh stage per job, outputs on `/ifs` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |

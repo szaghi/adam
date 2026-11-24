@@ -197,6 +197,7 @@ export default withMermaid({
                 { text: 'Initial Conditions',  link: '/applications/flume/initial-conditions' },
                 { text: 'Boundary Conditions', link: '/applications/flume/boundary-conditions' },
                 { text: 'Input Reference',     link: '/applications/flume/input' },
+                { text: 'Performance',         link: '/applications/flume/performance' },
                   {
                     text: 'Verification',
                     collapsed: true,
@@ -413,6 +414,7 @@ export default withMermaid({
                       collapsed: true,
                       items: [
                         { text: 'Absorbing layers on AMR', link: '/applications/prism/verification/absorbing-layers-amr' },
+                        { text: 'PML reflection at normal incidence', link: '/applications/prism/verification/pml-reflection' },
                       ],
                     },
                     {
