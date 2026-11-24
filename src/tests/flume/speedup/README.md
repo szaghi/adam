@@ -140,7 +140,7 @@ does not feel. On the GPU node the two grid-study grids are at 1.8 and 7.0 M cel
 |---|---|---|---|---|
 | fnl-nvf (4 A30 per node) | 0.780 | 0.491 (0.79) | 0.260 (0.75) | 0.167 (0.58) |
 | cells per A30 | 14.2 M | 7.08 M | 3.54 M | 1.77 M |
-| cpu (64 ranks per node) | 12.7 | 6.48 (0.98) | 3.24 (0.98) | - |
+| cpu (64 ranks per node) | 12.7 | 6.48 (0.98) | 3.24 (0.98) | 2.31 (0.69; job 1369694) |
 
 **Weak scaling, uniform sphere** (g = step cost x devices / N, ns per cell-step; 24^3 blocks). The weak efficiency of
 the 2026-11-23 version mixed two costs: the cross-pair exchange inside a node (1 -> 4 A30) and the network (one node
@@ -170,7 +170,8 @@ top of one node's, against 14.2). In throughput the two 8-node runs are equal: 2
 - **Across nodes the uniform sphere keeps 0.75-0.80 of one node's throughput per A30 on 8 nodes** at 7-14 M cells per
   A30. Strong scaling of 2a from 1 to 8 nodes (0.79, 0.75, 0.58) runs down the load curve: at 8 nodes 2a has 1.77 M
   cells per A30 in 24^3 blocks, where one node alone already costs 18 % more per cell than at 14.2 M.
-- **The CPU node scales almost perfectly** (2a 0.98 on 2 and 4 nodes); a GPU node is 12-16 times faster than a CPU node
+- **The CPU node scales to 4 nodes (2a 0.98 on 2 and 4) and loses half on 8** (weak 0.53, "9.2.4" below: the
+  exchange between nodes, not the immersed boundary); a GPU node is 12-16 times faster than a CPU node
   on the uniform 3-D flows (11.9 and 12.6 on the grid-study grids, 16.3 on 2a, 13.8 on the channel).
 - **The per-cell cost does not depend on the flow state** (0.5 %, "State independence" below): cold-started cases and
   developed ones are comparable.
@@ -480,8 +481,30 @@ them; `compute_conservation` every step is `[diagnostics] conservation_history_s
   windows (job n3m-A): **0.7776 s against 0.7815 s per step** (spreads 0.4 and 0.3 %). The weak cases, which start
   cold, and 1a/2a, which start developed, are comparable. (2a's window here, 0.7815 s, reproduces the matrix's 0.7799 s
   of job 1369401 to 0.2 %.)
-- **9.2.4, a CPU weak point**: `w2-sphere-l3` on one CPU node (64 ranks, 110,592 cells per core, its 20-step cold
-  dump) costs **1.270 s per step** (spread 2.8 %), g 11.5 us per cell-step. Its partner at the same per-node load, 2a on 8 CPU nodes (512 ranks, 110,592 cells per core), was submitted (job n3m-B 1369659) and cancelled unrun: the queue estimated its start at 2026-11-24 11:01 (8 nodes, Resources). To finish 9.2.4: `sbatch --nodes=8 jobs/medooza-cpu.slurm windows --cases 2a`; the CPU weak efficiency is then g(`w2-sphere-l3`, 64 ranks) / g(2a, 512 ranks), with g(`w2-sphere-l3`, 64) = 11.5 us here.
+- **9.2.4, the CPU weak point (2026-11-24): 0.53 on 8 nodes, and not because of the immersed boundary.** The uniform
+  sphere at 110,592 cells per core, 24^3 blocks, 8 per rank (one sibling set): `wg-b24` (L3, 7.08 M cells) on one node,
+  64 ranks, against 2a (L4, 56.6 M) on 8 nodes, 512 ranks, the same day (work tree `speedup-133/cpu-weak`, jobs
+  1369694, 1369695; tables in `results/2026-11-24/cpu-weak/`). To test whether the immersed boundary's load imbalance
+  is the cause (at 512 ranks the 8 ranks at the sphere's centre hold 59 % solid cells, at 64 ranks 7.4 %), the same
+  pair ran without the body (`speedup-133/noib-cpu.sh` on medooza, a `run.sh --exe` wrapper that drops `[solids]` and `[solid_1]` from each
+  rank's copy of the input; `cpu-weak-noib`, jobs 1369697, 1369698; `results/2026-11-24/cpu-weak-noib/`):
+
+  | Pair | 1 node, 64 ranks: s per step (spread), g | 8 nodes, 512 ranks: s per step (spread), g | Weak efficiency | Wait at the reduction, 1 / 8 nodes |
+  |---|---|---|---|---|
+  | with the sphere | 1.234 (3.3 %), 11.2 us | 2.311 (1.2 %), 20.9 us | 0.53 | 0.060 / 0.366 s per step |
+  | without the body | 1.035 (9.2 %), 9.36 us | 2.033 (2.8 %), 18.4 us | 0.51 | 0.040 / 0.363 s per step |
+
+  The body costs ~17-19 % on both sides and leaves the efficiency where it is: the loss is the exchange between nodes,
+  not the imbalance. 2a's step on 64 / 128 / 256 / 512 ranks costs 12.7 / 6.48 / 3.24 / 2.31 s (g 14.4 / 14.7 / 14.7 /
+  20.9 us): the loss appears only from 4 to 8 nodes. The "wait at the reduction" (the `regrid` column of `summary.md`,
+  on the CPU the wait of the ranks that reach the step's reduction first) grows to 0.36 s per step on a uniform grid
+  with equal blocks per rank, where nothing in the compute is imbalanced. The transport is UCX on InfiniBand (the
+  toolchain's smoke test: `pml ucx`). **Suspected, not measured:** every ghost exchange ends with two
+  `MPI_Barrier(MPI_COMM_WORLD)` (`adam_field_object.F90:1548, 1562`, since 2e6a49c9, 2023, with the note
+  `RIMETTERE SENZA`; the FNL twin has the same two, `adam_fnl_field_object.F90:429, 435`), which make every rank wait
+  for the slowest of all 512 at each exchange; after `MPI_WAITALL` they are not needed by the MPI semantics. Measuring
+  a build without them, on this pair and on the GPU's 8-node pairs, is left to the owner. The two 1-node measurements
+  of the same grid on different days differ by 7.5 % (1.270 and 1.366 s; 1.234 today): the CPU node's spread.
 
 ### Hypotheses (phase 8.2)
 

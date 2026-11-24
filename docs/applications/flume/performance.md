@@ -103,8 +103,8 @@ path, and the cost of the fourth A30 is the link between the NVLink pairs. Pinni
 | GPU nodes (4 A30 each) | 0.780 | 0.491 | 0.260 | 0.167 |
 | efficiency | 1 | 0.79 | 0.75 | 0.58 |
 | cells per A30 | 14.2 M | 7.08 M | 3.54 M | 1.77 M |
-| CPU nodes (64 cores each) | 12.7 | 6.48 | 3.24 | – |
-| efficiency | 1 | 0.98 | 0.98 | – |
+| CPU nodes (64 cores each) | 12.7 | 6.48 | 3.24 | 2.31 |
+| efficiency | 1 | 0.98 | 0.98 | 0.69 |
 
 The GPU efficiency at 8 nodes is set by the load as much as by the network: 1.77 M cells per A30 in 24³ blocks is
 where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns per cell-step against 55.1 at
@@ -125,7 +125,11 @@ where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns 
 - **The weak efficiencies of the first version (0.72–0.73 at 3.5–7 M cells per A30) mixed two costs**: their 1- and
   2-A30 references left out the cross-pair cost of the fourth A30 (13–22 % at those loads), which belongs to the node,
   not to the network.
-- **The CPU node scales almost perfectly** (0.98 on 2 and 4 nodes), but each CPU node is 12–16 times slower.
+- **The CPU node scales to 4 nodes and loses half on 8.** Strong scaling of 2a is 0.98 on 2 and 4 CPU nodes; the weak
+  pair at 110,592 cells per core (one node against 8, 24³ blocks) keeps 0.53, and 0.51 with the immersed body
+  removed: the loss is the exchange between nodes, not the body's load imbalance. Every rank waits 0.36 s per step
+  at the step's reduction on 8 nodes against 0.04–0.06 on one. Each ghost exchange ends with two global barriers, a
+  suspect not yet measured. A CPU node is also 12–16 times slower than a GPU node.
 
 ## Device memory
 
@@ -224,8 +228,8 @@ the accuracy-first paths:
 | A 2-D block stores ghost layers along its null axis; realms share the device equally | the step fits ~1.7 M cells per A30 | no ghosts on a null axis; device share in proportion to stored cells |
 | The FNL job's free-memory check sees the batch node only | multi-node jobs | check every node |
 
-*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (since committed, `6f5e57a1`..`b06f02d3`), CPU gfortran
-16.2.0 + Open MPI 5.0.11 (`iac_gnu`) on medooza (Intel Xeon Gold 6338, 64 ranks per node), FNL nvfortran 26.9, CUDA
-12.9, LTO (`iac_nvf`) on NVIDIA A30 (4 per node): the matrix 2026-11-23 (jobs 1369400-1369597, 1369616), the grid study and the
-rank placement 2026-11-24 (jobs 1369668-1369679, 1369687-1369691); `speedup/run.sh` windows, `analyze.py`, `matrix_plot.py`
-and `grid_study_plot.py`.*
+*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (since committed, `6f5e57a1`..`b06f02d3`), CPU gfortran 16.2.0 +
+Open MPI 5.0.11 (`iac_gnu`) on medooza (Intel Xeon Gold 6338, 64 ranks per node), FNL nvfortran 26.9, CUDA 12.9, LTO
+(`iac_nvf`) on NVIDIA A30 (4 per node): the matrix 2026-11-23 (jobs 1369400-1369597, 1369616), the grid study and the
+rank placement 2026-11-24 (jobs 1369668-1369679, 1369687-1369691), the CPU weak pairs (1369694-1369698);
+`speedup/run.sh` windows, `analyze.py`, `matrix_plot.py` and `grid_study_plot.py`.*

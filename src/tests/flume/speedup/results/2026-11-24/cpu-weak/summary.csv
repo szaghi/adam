@@ -1,0 +1,3 @@
+leg,case,role,backend,np,repetitions,step_cost_s,spread,steps_cost_s,regrid_cost_s,seam_cost_s,cells_mean,ns_per_cell_step,reduced,commit,notes,kind,series,cells_per_device,strong_ref_np,strong_efficiency,weak_group,weak_ref_np,weak_efficiency
+2,2a-sphere-uniform,uniform,cpu,512,3,2.311345,0.011514507786591752,2.309238,0.365949,0.0,56623104.0,20899.748625578704,0,HEAD,built from sources that differ from the recorded commit (src_modified=yes),matrix,,110592.0,,,,,
+2,wg-b24,uniform,cpu,64,3,1.233989,0.03263805431004639,1.212086,0.060139,0.0,7077888.0,11158.031322337964,0,HEAD,built from sources that differ from the recorded commit (src_modified=yes); spread 3.3% above 2%,matrix,,110592.0,,,,,
