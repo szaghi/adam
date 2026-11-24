@@ -94,9 +94,7 @@ the shocks form, and $1.3\cdot10^{-9}$ at $t = 0.5$ (CPU, M2-P6a); at the paper 
 and $6.4\cdot10^{-9}$ (FNL), a round-off seed amplified by the flow on both backends (FMA contraction on FNL), below the
 bound. $w$ and $B_z$ stay exactly 0 on both backends in these runs. The `--amr` rows run on the quadtree with
 `nk = 1`; the octree values of M2 (null $z$, `nk = 4`) were $9.1\cdot10^{-13}$, $1.1\cdot10^{-16}$ and 0.76: the
-trees agree to round-off, as MV-15 measures. The bounds are fixed tolerances, not octree baselines. The figure
-`orszag-tang-amr.png` on this page is still the octree run; the quadtree one is drawn for the paper
-([#142](https://github.com/szaghi/adam/issues/142) Part B).
+trees agree to round-off, as MV-15 measures. The bounds are fixed tolerances, not octree baselines.
 
 Related cases: [rotor](./rotor) uses the same symmetry oracle; [EGLM cleaning](./eglm) runs this problem under EGLM
 (EV-4); [quadtree AMR](./quadtree-amr) runs the `--amr` problem on three trees; [MHD on `weno-riemann`](./weno-riemann)

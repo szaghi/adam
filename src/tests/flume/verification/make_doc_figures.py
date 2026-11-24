@@ -5538,7 +5538,8 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "limited-fills": fig_limited_fills, "reflux-policy": fig_reflux_policy, "integral-drift": fig_integral_drift,
            "divergence-across-seams": fig_divergence_across_seams, "glm-damping": fig_glm_damping,
            "field-loop-seams": fig_field_loop_seams, "shock-crossing-rj2a": fig_shock_crossing_rj2a,
-           "mhd-blast-symmetry": fig_blast_symmetry, "mhd-conservation": fig_mhd_conservation}
+           "mhd-blast-symmetry": fig_blast_symmetry, "mhd-conservation": fig_mhd_conservation,
+           "step-3d": fig_step3d}
 
 
 def paper_figures() -> list:
