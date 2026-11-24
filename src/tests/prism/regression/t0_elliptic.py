@@ -16,10 +16,12 @@ Modes:
   same  <dir1> <dir2> <basename> <var>...  the step-0 fields of two runs agree (rank independence).
 
 Reads `div_D`, `rho`, `div_B` and the fields of `<basename>-000000000-proc*.h5` (saved with
-save_divergence_fields = .true.), interior cells only. Exit 0 pass, 1 fail, 2 usage or missing data.
+save_divergence_fields = .true.), interior cells only: the ghost layers stripped are the run's [grid] ngc (the
+<workdir>/input.ini, or ngc=N). Exit 0 pass, 1 fail, 2 usage or missing data.
 Usage: t0_elliptic.py gauss work-np1 pic_pec_t0
 """
 import glob
+import re
 import sys
 
 import h5py
@@ -127,13 +129,21 @@ def same(dir1, dir2, basename, ngc, names):
     return diff <= TOL
 
 
+def run_ngc(workdir):
+    """The ghost layers saved with each block: the run's [grid] ngc (input.ini of the work directory)."""
+    m = re.search(r"^\s*ngc\s*=\s*(\d+)", open(f"{workdir}/input.ini").read(), re.M)
+    if m is None:
+        sys.exit(f"t0_elliptic: no [grid] ngc in {workdir}/input.ini (pass ngc=N)")
+    return int(m.group(1))
+
+
 def main():
     if len(sys.argv) < 4:
         sys.exit(__doc__)
     mode, args = sys.argv[1], sys.argv[2:]
     opts = dict(a.split("=") for a in args if "=" in a)
-    ngc = int(opts.get("ngc", 6))
     args = [a for a in args if "=" not in a]
+    ngc = int(opts["ngc"]) if "ngc" in opts else run_ngc(args[0])
     if mode == "gauss":
         ok = gauss(args[0], args[1], ngc)
     elif mode == "open":
