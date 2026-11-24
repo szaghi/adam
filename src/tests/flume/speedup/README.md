@@ -23,8 +23,8 @@ Three **legs** (flows), each on a uniform grid and on AMR grids refined to the s
 | `2a-sphere-uniform` | uniform | Mach 2 shock over a sphere (r 0.13), immersed boundary, Euler wall | 3-D, octree | WENO-5 characteristic, SSP-33 | uniform L4, 24^3 blocks | 1/384 | 56.6 M |
 | `2b-sphere-runtime` | runtime | same | same | same | density gradient marker, tol 0.1 drho/h(base), regrid every 10 steps, base L2 | 1/384 | measured |
 | `2c-sphere-fixed` | frozen | same | same | same | 2b's grid frozen | 1/384 | measured |
-| `3a-channel-uniform` | uniform | CKM channel, M_b 1.5, Re_b 3000, isothermal walls | 3-D, octree, periodic x, z | `hybrid-kep-weno`, viscous, SSP-54 | uniform L2, 64x48x32 blocks (the T3 `resolved-hybrid` dump) | 4pi/256 x 2/192 x (4pi/3)/128 | 6.29 M |
-| `3b-channel-runtime` | runtime | same | same | same | `r = h/eta` marker (mode 7, refine 4, derefine 1.9: placeholders until 7.2), regrid every 10 steps, base L1 | as 3a | measured |
+| `3a-channel-uniform` | uniform | CKM channel, M_b 1.5, Re_b 3000, isothermal walls | 3-D, octree, periodic x, z | `hybrid-kep-weno`, viscous, SSP-54 | uniform L3, 32x24x16 blocks (the T3 `resolved-hybrid` dump re-blocked) | 4pi/256 x 2/192 x (4pi/3)/128 | 6.29 M |
+| `3b-channel-runtime` | runtime | same | same | same | `r = h/eta` marker (mode 7, refine 9.5, derefine 4.4: phase 7.2, a priori), regrid every 10 steps, base L2 (predicted: the core coarsens to L2, notes) | as 3a | measured |
 | `3c-channel-fixed` | frozen | same | same | same | 3b's grid frozen | as 3a | measured |
 
 Notes on the table, against the plan's first version (the re-analysis of 2026-11-22 on #133):
@@ -42,9 +42,18 @@ Notes on the table, against the plan's first version (the re-analysis of 2026-11
 - **Leg 2 is generated afresh** (`make_sphere.py`), with the immersed-boundary sphere kind (`analytical_sphere`); the
   removed matrix's input survives as `templates/sphere-legacy.ini`, a record only. The rectangle kind is not used (its
   distance function is wrong, #143).
-- **Leg 3 has the layout of the T3 dump** (L2, 64x48x32 blocks: `load_blocks` refuses another layout), not the plan's
-  first L3, 32x24x16; the runtime case coarsens to L1. Its marker thresholds are fixed a priori on a 3a checkpoint in
-  phase 7.2 (`refine_tol`, `derefine_tol` in `[leg.3]`; the parser needs `derefine_tol < refine_tol / 2`).
+- **Leg 3 runs on the T3 dump re-blocked** (L3, 32x24x16 blocks, base L2), the plan's first layout: the dump's own
+  layout (L2, 64x48x32 blocks) is the one `load_blocks` would read as it is, but **on it the runtime case cannot
+  coarsen the core** (phase 7.2): an L1 block is a half
+  channel, wall to centreline, and a sibling group derefines only when all 8 children vote derefine, so the 4 wall
+  blocks of every L1 parent pin it (or, with derefine_tol above the wall's r_max, everything coarsens to a uniform
+  L1). The marker itself separates the two regions: `kolmogorov_apriori.py` on the settle dump (step 55626) and the
+  T3 dump (step 51626), Re_tau 202, h+ 5.2, gives block r_max 5.3-9.4 on the wall blocks (|y| > 0.5) and 2.0-4.1
+  in the core; one level coarser (restricted field, 2h) 10.2-14.4 and 3.8-7.2. The thresholds in `[leg.3]`,
+  `refine_tol` 9.5 and `derefine_tol` 4.4, derefine exactly the core and keep it coarse with blocks of 32x24x16
+  at L3 (`max_level` 3, `base_level` 2): 256 L3 + 32 L2 blocks, 3.54 M cells, 56 % of 3a. That layout is the T3
+  dump re-blocked by `reblock.py` (each 64x48x32 block into its 8 children, "Re-blocking the T3 dump" below) and
+  doubles the ghost share of a block (2.04 vs 1.46 cells read per cell).
 
 **Roles.** The plan's letters differ between legs (leg 1: b frozen, c runtime; legs 2 and 3: b runtime, c frozen), so
 the harness names the cases by role: **U** uniform, **R** runtime, **F** frozen (`[amr] frequency = 0` on the runtime
@@ -55,9 +64,9 @@ grid, D2).
 **The chain of a leg** (D3), `run.sh` stages:
 
 1. **warmup**, once per leg, on the fastest backend: the uniform case from the cold start to t_w (leg 1 2.0, leg 2
-   0.15, leg 3 150), restart dump in `<work>/dumps/leg<N>/warmup/`. Leg 3: a surviving T3 `resolved-hybrid` dump
-   replaces the run (`run.sh warmup --cases 3 --use-dump DIR` links its files). Then run `settle` and `windows`, not
-   `chain`: `chain` runs its own warm-up, and every stage moves an existing directory to `<work>/attic/` first, so a
+   0.15, leg 3 150), restart dump in `<work>/dumps/leg<N>/warmup/`. Leg 3: the T3 `resolved-hybrid` dump, re-blocked
+   (`reblock.py`, below), replaces the run (`run.sh warmup --cases 3 --use-dump DIR` links its files). Then run
+   `settle` and `windows`, not `chain`: `chain` runs its own warm-up, and every stage moves an existing directory to `<work>/attic/` first, so a
    chain after `--use-dump` throws the linked dump away and warms up from the cold start (to t_w = 150).
 2. **settle**, once per leg: the runtime case restarted from the warm-up dump (repartitioned for the settle's rank
    count, rule `units`), `settle_steps` steps (legs 1, 2: 100; leg 3: 4000, one eddy turnover); the first regrids
@@ -104,6 +113,7 @@ The hypotheses H1-H4 these ratios test are in the issue.
 | `make_sphere.py` | leg 2's input: shock over a sphere, immersed boundary, octree, uniform or runtime AMR |
 | `run.sh` | the chain: `cases`, `warmup`, `settle`, `windows`, `chain` stages; a `run.info` per run |
 | `repartition.py` | a restart written on N ranks rewritten for M ranks (phase 1) |
+| `reblock.py` | a restart rewritten one tree level deeper, every block into its children (leg 3's T3 dump) |
 | `ini_set.py` | rewrites `section.key=value` options of an input (the per-run changes of run.sh) |
 | `analyze.py` | step costs, spreads, N, throughputs, the ratios, the grind times and the strong and weak efficiencies -> `results/summary.{md,csv}` |
 | `scaling_plot.py` | the grind-time curves g(cells per device) from `summary.csv` (matplotlib, not needed by `analyze.py`) |
@@ -158,8 +168,8 @@ sbatch --gres=gpu:1 --ntasks-per-node=1 jobs/medooza-fnl.slurm windows --cases 3
 
 The windows and chain stages end with `analyze.py --work $SPEEDUP_WORK --out $SPEEDUP_WORK/results`, which reads
 every backend's windows found there. The FNL job refuses a node whose GPUs have less than 20000 MiB free (exit 4:
-resubmit with `-x <node>`). Leg 3 with a surviving T3 dump: `sbatch jobs/medooza-fnl.slurm warmup --cases 3
---use-dump /ifs/.../resolved-hybrid` (the directory holding `channel-restart.*`).
+resubmit with `-x <node>`). Leg 3 from the T3 dump: re-block it first ("Re-blocking the T3 dump" below), then `sbatch jobs/medooza-fnl.slurm
+warmup --cases 3 --use-dump <out dir>` (the directory `reblock.py` wrote, holding `channel-restart.*`).
 
 **AMD node, `fnl-amd`** (Giacomo Rossi). The windows start from the dumps written on medooza, so every backend times
 the same bits (D3):
@@ -181,6 +191,32 @@ the same bits (D3):
    writes `<work>/windows/fnl-amd-np<N>/`.
 5. Send back `<work>/windows/fnl-amd-np*/` without the dumps (`rsync -a --exclude dump --exclude '*.fbd'
    --exclude '*-restart*' ...`): `run.info`, `log.txt` and `wall.txt` per run are what `analyze.py` reads.
+
+### Re-blocking the T3 dump (leg 3)
+
+`reblock.py` rewrites a restart one tree level deeper: every block becomes its `ratio` children (octree 2x2x2,
+quadtree 2x2 in x and y, binary tree 2 in x), each child the octant of its parent's cells, ghosts included. No
+interpolation: the same cells, the same h, the tree one level deeper; the children are laid out over the ranks by
+`repartition.py`'s rules (`--to`, default the dump's rank count; `--rule units`, the default). It rewrites the `.fbd`
+files and the `.tnd`, copies `.time`, `.reference`, `.sinks` and `.dff`, refuses `.wmf` (wall-model filter averages
+live on block faces) and does not write the `.h5`/`.xdmf` mirror (no restart reads it). The input that reads the result
+has `[grid] ni, nj, nk` halved on the split axes and `[amr] max_level`, `iu_ref_levels` one higher.
+
+Leg 3 needs it: the T3 `resolved-hybrid` dump (L2, 64x48x32 blocks, 4 ranks) becomes L3 blocks of 32x24x16, the
+layout of `[leg.3]` (`max_level` 3, `base_level` 2). On medooza, in a batch job (a few seconds, ~0.5 GB written):
+
+```bash
+sbatch -A iacroma -p dev-gn --mem 4G -t 00:10:00 \
+       --wrap "python3 -I reblock.py <T3 dir> --out <out dir>"     # <T3 dir> holds channel-restart.*
+sbatch jobs/medooza-fnl.slurm warmup --cases 3 --use-dump <out dir>
+```
+
+Tested on WSL (CPU, 2026-11-23): a 64x48x32 channel (`make_channel.py`, the leg-3 physics), 10 steps on 2 ranks, its
+L2 dump (64 blocks of 16x12x8) continued 10 steps as it is and re-blocked (512 blocks of 8x6x4 at L3), on 2 ranks.
+The 98,304 cells agree to 1.9e-14 (absolute, every variable). The difference comes from the mass-flow forcing, a
+global sum whose order follows the blocks: without `[forcing]` the two are bitwise. The re-blocked dump repartitioned
+to 3 ranks (`repartition.py`) and continued agrees to 1.5e-12, as the L2 dump repartitioned to 3 ranks does (1.2e-12,
+the forcing sum again); without `[forcing]` it is bitwise too.
 
 ## Multi-node and weak scaling (phase 9)
 
