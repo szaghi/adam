@@ -6104,7 +6104,72 @@ contains
                                   ' fields = '//trim(str(slots, .true.))//' GB, reserve estimate '//              &
                                   trim(str(self%reserved_memory, .true.))//' GB, rest '//                         &
                                   trim(str(used - slots - self%reserved_memory, .true.))//' GB')
+      call report_rest
       endsubroutine report_device_memory
+
+      subroutine report_rest
+      !< The part of the rest held by the device copies of the library maps and block geometry (`field_fnl`, issue #112
+      !< M6), array by array from their allocated sizes, and what remains after them (runtime context, FFT plans, others).
+      !< The ghost maps towards other ranks have one row per cell and variable (`comm_map_*_ghost_cell(c*nv, :)`, I8P)
+      !< and the buffers one value per cell and variable: the remote ghost cells are reported with their bytes per cell.
+      integer(I8P) :: mem_free, mem_total !< Device memory, bytes.
+      integer(I8P) :: local, recv, send   !< Ghost maps: local, receive, send (bytes).
+      integer(I8P) :: buffers             !< Ghost send and receive buffers (bytes).
+      integer(I8P) :: crown, seam         !< BC crown map, inter-realm seam maps and buffers (bytes).
+      integer(I8P) :: geometry            !< Block cell coordinates and spacings (bytes).
+      integer(I8P) :: total               !< All of the above (bytes).
+      integer(I8P) :: remote              !< Remote ghost cells received (rows of the receive map / nv).
+      real(R8P)    :: used                !< Device memory in use, GB.
+      real(R8P)    :: slots               !< Block slots, GB.
+
+      associate(m => self%field_fnl%maps, f => self%field_fnl)
+      local = 0_I8P ; recv = 0_I8P ; send = 0_I8P ; buffers = 0_I8P ; crown = 0_I8P ; seam = 0_I8P ; geometry = 0_I8P
+      if (associated(m%local_map_ghost_cell_gpu)) local = bytes_i8(size(m%local_map_ghost_cell_gpu, kind=I8P))
+      if (associated(m%comm_map_recv_ghost_cell_gpu)) recv = bytes_i8(size(m%comm_map_recv_ghost_cell_gpu, kind=I8P))
+      if (associated(m%comm_map_send_ghost_cell_gpu)) send = bytes_i8(size(m%comm_map_send_ghost_cell_gpu, kind=I8P))
+      if (associated(m%send_buffer_ghost_gpu)) buffers = buffers + bytes_i8(size(m%send_buffer_ghost_gpu, kind=I8P))
+      if (associated(m%recv_buffer_ghost_gpu)) buffers = buffers + bytes_i8(size(m%recv_buffer_ghost_gpu, kind=I8P))
+      if (associated(m%local_map_bc_crown_gpu)) crown = bytes_i8(size(m%local_map_bc_crown_gpu, kind=I8P))
+      if (associated(m%seam_local_map_ghost_cell_gpu)) seam = seam + 4_I8P*size(m%seam_local_map_ghost_cell_gpu, kind=I8P)
+      if (associated(m%seam_local_send_buf_gpu)) seam = seam + bytes_i8(size(m%seam_local_send_buf_gpu, kind=I8P))
+      if (associated(m%seam_local_recv_buf_gpu)) seam = seam + bytes_i8(size(m%seam_local_recv_buf_gpu, kind=I8P))
+      if (associated(m%seam_mpi_send_cell_gpu)) seam = seam + 4_I8P*size(m%seam_mpi_send_cell_gpu, kind=I8P)
+      if (associated(m%seam_mpi_recv_cell_gpu)) seam = seam + 4_I8P*size(m%seam_mpi_recv_cell_gpu, kind=I8P)
+      if (associated(f%x_cell_gpu)) geometry = geometry + bytes_i8(size(f%x_cell_gpu, kind=I8P))
+      if (associated(f%y_cell_gpu)) geometry = geometry + bytes_i8(size(f%y_cell_gpu, kind=I8P))
+      if (associated(f%z_cell_gpu)) geometry = geometry + bytes_i8(size(f%z_cell_gpu, kind=I8P))
+      if (associated(f%dxyz_gpu)) geometry = geometry + bytes_i8(size(f%dxyz_gpu, kind=I8P))
+      remote = 0_I8P
+      if (associated(m%comm_map_recv_ghost_cell_gpu)) remote = size(m%comm_map_recv_ghost_cell_gpu, dim=1, kind=I8P)/ &
+                                                                max(1_I8P, int(self%nv, I8P))
+      endassociate
+      total = local + recv + send + buffers + crown + seam + geometry
+      call dev_get_device_memory_info(mem_free=mem_free, mem_total=mem_total)
+      used = real(mem_total - mem_free, R8P)/1e9_R8P
+      slots = real(self%nb, R8P)*real(self%blocks_fields_number, R8P)*8._R8P*real(self%adam%grid%block_weight, R8P)/1e9_R8P
+      call mpih_fnl%print_message('device memory, rest: ghost maps local '//gb(local)//', receive '//gb(recv)//         &
+                                  ', send '//gb(send)//', buffers '//gb(buffers)//' ('//trim(str(remote, .true.))//      &
+                                  ' remote ghost cells, '//trim(str((recv + send + buffers)/max(1_I8P, remote), .true.))// &
+                                  ' B each), BC crown '//gb(crown)//', seam '//gb(seam)//', block geometry '//            &
+                                  gb(geometry)//'; total '//gb(total)//' GB, rest after them '//                          &
+                                  trim(str(used - slots - self%reserved_memory - real(total, R8P)/1e9_R8P, .true.))//' GB')
+      endsubroutine report_rest
+
+      pure function bytes_i8(n) result(b)
+      !< Bytes of n 8-byte elements (I8P maps, R8P buffers).
+      integer(I8P), intent(in) :: n !< Elements.
+      integer(I8P)             :: b !< Bytes.
+
+      b = 8_I8P*n
+      endfunction bytes_i8
+
+      function gb(b) result(s)
+      !< Bytes as GB, for the report.
+      integer(I8P), intent(in)  :: b !< Bytes.
+      character(:), allocatable :: s !< GB.
+
+      s = trim(str(real(b, R8P)/1e9_R8P, .true.))
+      endfunction gb
 
       subroutine check_pic_reserve
       !< The PIC device arrays allocated outside the block slots, counted array by array, against the reserve the blocks
