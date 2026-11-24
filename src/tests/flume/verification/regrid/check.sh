@@ -88,6 +88,11 @@ expect_refused() { # expect_refused <work> <message regex>: the run must fail an
    fi
 }
 
+amr_key() { # amr_key <key> <value>: a sed script that sets `<key> = <value>` in [amr], the line replaced or added
+   # (the base inputs drop every key set to its default since fb2c82bf: a substitution of the absent line did nothing)
+   printf '%s' "/^\s*$1\s*=/d; s/^\[amr\]/[amr]\n$1 = $2/"
+}
+
 echo ">> RG: runtime regridding ($TAG)"
 for leg in $LEGS; do
    case "$leg" in
@@ -110,7 +115,7 @@ for leg in $LEGS; do
          for f in 0 -1 5; do
             echo "-- rg1: [amr] frequency = $f"
             work="$CASE_DIR/work-$TAG-frequency$f" ; rm -rf "$work" ; mkdir -p "$work"
-            sed -E "s/^(\s*frequency\s*=\s*)0\b/\1$f/; s/^(\s*time_max\s*=).*/\1 0.002/" "$base" > "$work/input.ini"
+            sed -E "$(amr_key frequency "$f"); s/^(\s*time_max\s*=).*/\1 0.002/" "$base" > "$work/input.ini"
             case "$f" in
                0)  if (cd "$work" && mpirun -np 2 "$EXE" input.ini < /dev/null > log.txt 2>&1); then echo "   runs"
                    else echo "   run failed: see $work/log.txt" ; FAILED=1 ; fi ;;
@@ -124,7 +129,7 @@ for leg in $LEGS; do
             echo "-- rg7: Jeans marker, $c"
             work="$CASE_DIR/work-$TAG-jeans-$c" ; rm -rf "$work" ; mkdir -p "$work"
             band="jeans_cells = 8.0" ; [[ $c == band ]] && band="jeans_cells = 8.0\njeans_cells_derefine = 4.0"
-            sed -E "s/^(\s*markers_number\s*=).*/\1 1/; s/^(\s*time_max\s*=).*/\1 0.002/" "$base" > "$work/input.ini"
+            sed -E "$(amr_key markers_number 1); s/^(\s*time_max\s*=).*/\1 0.002/" "$base" > "$work/input.ini"
             printf '%b\n' "[amr_marker_1]\nmode = 5\ndelta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0\n$band" \
                >> "$work/input.ini"
             if [[ $c == no-gravity ]]; then
@@ -138,7 +143,7 @@ for leg in $LEGS; do
          for f in 0 5; do
             echo "-- rg8: total variation marker (mode 3), [amr] frequency = $f"
             work="$CASE_DIR/work-$TAG-tv-frequency$f" ; rm -rf "$work" ; mkdir -p "$work"
-            sed -E "s/^(\s*markers_number\s*=).*/\1 1/; s/^(\s*frequency\s*=\s*)0\b/\1$f/; s/^(\s*time_max\s*=).*/\1 0.002/" \
+            sed -E "$(amr_key markers_number 1); $(amr_key frequency "$f"); s/^(\s*time_max\s*=).*/\1 0.002/" \
                "$base" > "$work/input.ini"
             printf '%b\n' "[amr_marker_1]\nmode = 3\nfield = 1\nvar = 1\ntol = 0.1" \
                "delta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0" >> "$work/input.ini"
@@ -153,7 +158,7 @@ for leg in $LEGS; do
                sed -E "s/^(\s*time_max\s*=).*/\1 0.002/" "$base" > "$work/input.ini"
                want=conservative
             else
-               sed -E "s/^(\s*frequency\s*=.*)$/\1\nregrid_prolongation = $p/; s/^(\s*time_max\s*=).*/\1 0.002/" \
+               sed -E "$(amr_key regrid_prolongation "$p"); s/^(\s*time_max\s*=).*/\1 0.002/" \
                   "$base" > "$work/input.ini"
                want=$p
             fi

@@ -70,7 +70,7 @@ rotor/check.sh --numerics hlld:primitive                           # weno-rieman
 | positivity (floors disabled) | run completes | pass | pass |
 | `--numerics`: symmetry at step 100 | $10^{-8}$ | HLL $5.0\cdot10^{-13}$, HLLD primitive $3.6\cdot10^{-12}$ (without the sensor $3.0\cdot10^{-12}$), HLLD characteristic $3.8\cdot10^{-12}$ | $3.9\cdot10^{-13}$, $4.2\cdot10^{-12}$ ($4.3\cdot10^{-12}$), $3.2\cdot10^{-12}$ |
 | `--numerics`: symmetry at the end, HLL | $5\cdot10^{-10}$ | $4.4\cdot10^{-11}$ | $1.2\cdot10^{-11}$ |
-| `--numerics`: symmetry at the end, HLLD primitive | $10^{-4}$ (see below) | $6.08\cdot10^{-5}$ | $6.08\cdot10^{-5}$ |
+| `--numerics`: symmetry at the end, HLLD primitive | $7\cdot10^{-4}$ (one sensor flip, see below) | $6.08\cdot10^{-5}$ | $6.08\cdot10^{-5}$ |
 | `--numerics`: symmetry at the end, HLLD primitive without the sensor | $4\cdot10^{-6}$ | $3.4\cdot10^{-7}$ | $1.8\cdot10^{-8}$ |
 | `--numerics`: symmetry at the end, HLLD characteristic | $8\cdot10^{-9}$ | $7.4\cdot10^{-10}$ | $3.6\cdot10^{-10}$ |
 | `--numerics`: symmetry at the end, any other spec | $10^{-4}$ (gross failures only) | not measured | not measured |
@@ -79,8 +79,9 @@ rotor/check.sh --numerics hlld:primitive                           # weno-rieman
 12.9 (`iac_nvf`) on NVIDIA A30, 2026-11-22 (`rotor/check.sh --numerics <spec>`, job 1369317): the `--numerics` rows at
 the end. Repeated on ADAM `0bcdf870` + the night-2026-11-22 tree (the paper commit, tag pending), medooza (gnode22) and
 A30, 2026-11-23 (`rotor/check.sh`, `rotor/check.sh --numerics <spec>` for the four specs, jobs 1369376 CPU, 1369378
-FNL): every end value the same to the printed digits, plus the splitting row and the step-100 row. The positivity row
-is from M3-P3c (2026-10-01).*
+FNL): every end value the same to the printed digits, plus the splitting row and the step-100 row. Repeated again on
+ADAM `95ffd728` + the night-2026-11-22 tree (part 3), medooza and A30, 2026-11-23 (`rotor/check.sh --numerics <spec>`
+for the four specs, job 1369637): the same to the printed digits. The positivity row is from M3-P3c (2026-10-01).*
 
 $w$ and $B_z$ stay exactly 0 on the CPU.
 
@@ -89,22 +90,31 @@ explains the two-point symmetry check; [multi-realm runs](../euler/multi-realm) 
 
 ## Findings
 
-- The final symmetry defect grows smoothly from round-off (the time series has no jump, so no switch flips) and orders
-  by the dissipation of the solver and by the backend's round-off: the least dissipative interpolations amplify the
-  seed most, and FNL contracts differently into FMAs.
+- The final symmetry defect grows from round-off and orders by the dissipation of the solver and by the backend's
+  round-off: the least dissipative interpolations amplify the seed most, and FNL contracts differently into FMAs. The
+  exception is a flip of a switch, below.
 - A single end-of-run tolerance cannot separate a round-off seed from a defect across solvers, so under `--numerics`
   the symmetry is asserted twice: at step 100, before the flow amplifies the seed, within $10^{-8}$, and at the end
   within a bound per spec (`rotor/check.sh`): 10 times the larger of the CPU and FNL defects measured on 2026-11-22,
   rounded up to one digit; a spec never measured keeps $10^{-4}$, which catches only a truncation-level defect
   ($10^{-3}$).
-- **HLLD primitive with the sensor is not a round-off seed.** Its end defect is $6.08\cdot10^{-5}$ on both backends, the
-  same to three digits, where every other spec differs between CPU and FNL as round-off amplified by the flow does
-  (FMA contraction): a deterministic asymmetry, four orders above the $5.4\cdot10^{-9}$ measured at M3-P3c
-  (2026-10-01). Its step-100 defect is still $3.6\cdot10^{-12}$. A bisection on the CPU puts the change at `a2258f41`
-  ("FLUME CPU integrates with SELAH", [#132](https://github.com/szaghi/adam/issues/132)): $2.2\cdot10^{-9}$ at its
-  parent `c653b560`, $6.08\cdot10^{-5}$ at `a2258f41` (2026-11-23, medooza). A private copy of the stage state leaves
-  the defect unchanged, so aliasing between the stage buffers is not the cause. The bound of that spec stays $10^{-4}$
-  while the change is investigated ([#142](https://github.com/szaghi/adam/issues/142) Part A, A9).
+- **HLLD primitive with the sensor flips a switch.** Its end defect is $6.08\cdot10^{-5}$ on both backends, against
+  $2.2\cdot10^{-9}$ before `a2258f41` ("FLUME CPU integrates with SELAH", [#132](https://github.com/szaghi/adam/issues/132)).
+  The commit changed only the order of the Runge–Kutta sums: SELAH adds $\Delta t\sum_k a_{sk}R_k$ to $q$ once, the
+  order of the former FNL kernels, where `rk_object` added each term to $q$ in turn. With the former order restored in
+  SELAH's two kernels (a scratch build), the run is bitwise that of `a8f3fbd2`, $2.22\cdot10^{-9}$ at the end. The
+  defect is a jump: the time series reads $6\cdot10^{-10}$ at step 910 and $5\cdot10^{-7}$ at step 920. At step
+  912, stage 5, the WENO sensor of the flux correction ($\min_k w_k/d_k \ge \tau = 0.2$) reads
+  $\tau - 7.2\cdot10^{-10}$ at the $x$ face $(0.371, 0.693)$ and $\tau + 3.4\cdot10^{-10}$ at its image: the round-off
+  seed, $10^{-9}$ by then, is larger than the distance to $\tau$, so the correction is dropped on one side only. Both
+  summation orders are a lottery on the seed: with the CFL moved by $10^{-8}$ (relative) the end defect is
+  $3.4\cdot10^{-7}$ or $2.5\cdot10^{-4}$ with SELAH's order, $3.1\cdot10^{-7}$ or $1.9\cdot10^{-4}$ with the former one.
+  CPU and FNL give the same value because they now sum in the same order and meet the same face. The end bound of
+  this spec is therefore the rule's $7\cdot10^{-4}$, which admits a flip; the step-100 check, before the seed reaches
+  $\tau$, is the one that catches a defect of the scheme. The other specs with the sensor flipped no face in the runs
+  measured, and could on another seed. A sensor without a jump (a ramp of the correction weight around $\tau$) would
+  remove the lottery; it changes every case with the sensor and is not done here (medooza CPU, gfortran 16.2,
+  2026-11-23, jobs 1369623, 1369628).
 - The end defects moved since M3-P3c (the SSP(5,4) tableau fix #104 and SELAH #132 changed the round-off seed): HLLD
   characteristic $1.1\cdot10^{-7} \to 7.4\cdot10^{-10}$, splitting $1.8\cdot10^{-9} \to 6.5\cdot10^{-10}$, HLLD primitive
   without the sensor $7.4\cdot10^{-8} \to 3.4\cdot10^{-7}$ (CPU).

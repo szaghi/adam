@@ -573,7 +573,8 @@ if has_leg leg13; then
       exit 1
    fi
    mv "$b/log.txt" "$b/log-1.txt"
-   sed -i -e 's/^restart *=.*/restart                = .true./' -e 's/^it_max *=.*/it_max   = 195/' \
+   # [IO] restart: deleted and added (the base drops it, a default, since fb2c82bf: a substitution did nothing)
+   sed -i -e '/^restart *=/d' -e 's/^\[IO\]/[IO]\nrestart                = .true./' -e 's/^it_max *=.*/it_max   = 195/' \
           -e 's/^restart_save *=.*/restart_save           = 0/' "$b"/vortex-r[12].ini
    # a restart on fewer ranks than saved stops (issue #109); run on a copy, the restart files stay untouched
    if [[ $NP -gt 1 ]]; then
@@ -642,7 +643,8 @@ PYEOF
    sed -i 's/^it_max *=.*/it_max   = 25/; s/^restart_save *=.*/restart_save           = 25/' "$src"/vortex-r[12].ini
    run "$b" vortex-2realm.ini "$src"/vortex-{2realm,r1,r2}.ini
    mv "$b/log.txt" "$b/log-1.txt"
-   sed -i -e 's/^restart *=.*/restart                = .true./' -e 's/^it_max *=.*/it_max   = 40/' \
+   # [IO] restart: deleted and added (the base drops it, a default, since fb2c82bf: a substitution did nothing)
+   sed -i -e '/^restart *=/d' -e 's/^\[IO\]/[IO]\nrestart                = .true./' -e 's/^it_max *=.*/it_max   = 40/' \
           -e 's/^restart_save *=.*/restart_save           = 0/' "$b"/vortex-r[12].ini
    echo ">> $(basename "$b"): mpirun -np $NP $(basename "$EXE") vortex-2realm.ini (restart)"
    (cd "$b" && mpirun -np "$NP" "$EXE" vortex-2realm.ini > log.txt 2>&1) ||

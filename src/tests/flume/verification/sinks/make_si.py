@@ -62,31 +62,50 @@ CASES = {
 }
 
 
+def set_key(s: str, section: str, key: str, value: str) -> str:
+    """Return the INI `s` with `key = value` in `[section]`: the key's line replaced, or added after the header.
+
+    The base input drops every key set to its default (#80, fb2c82bf): a plain substitution of a key the base no longer
+    writes (`restart`, `positivity_limiter`, `frequency`, `markers_number`) changed nothing, silently, and the sink
+    cases ran without the positivity limiter (non-finite within a few steps) and the AMR legs without regrids.
+    """
+    m = re.search(rf"(?m)^\[{re.escape(section)}\][ \t]*$", s)
+    if m is None:
+        raise SystemExit(f"make_si.py: the base input has no [{section}] section (key {key})")
+    end = re.compile(r"(?m)^\[").search(s, m.end())
+    stop = end.start() if end else len(s)
+    body, n = re.subn(rf"(?m)^{re.escape(key)}\s*=.*$", f"{key} = {value}", s[m.end():stop])
+    if n == 0:
+        body = f"\n{key} = {value}" + body
+    return s[:m.end()] + body + s[stop:]
+
+
 def case_ini(a: argparse.Namespace) -> str:
     """Return the INI of a case."""
     s = BASE.read_text()
-    s = re.sub(r"(?m)^output_basename\s*=.*$", "output_basename = sinks", s)
-    s = re.sub(r"(?m)^restart_basename\s*=.*$", "restart_basename = sinks-restart", s)
-    s = re.sub(r"(?m)^restart_save\s*=.*$", f"restart_save = {a.restart_save}", s)
-    s = re.sub(r"(?m)^restart\s*=.*$", f"restart = {'.true.' if a.restart else '.false.'}", s)
+    s = set_key(s, "IO", "output_basename", "sinks")
+    s = set_key(s, "IO", "restart_basename", "sinks-restart")
+    s = set_key(s, "IO", "restart_save", f"{a.restart_save}")
+    if a.restart:  # the default is .false.
+        s = set_key(s, "IO", "restart", ".true.")
     for key in ("ni", "nj", "nk"):
-        s = re.sub(rf"(?m)^{key}\s*=.*$", f"{key} = {a.cells // 2**a.base_levels}", s)
-    s = re.sub(r"(?m)^iu_ref_levels\s*=.*$", f"iu_ref_levels = {a.base_levels}", s)
-    s = re.sub(r"(?m)^max_level\s*=.*$", f"max_level = {a.base_levels + a.amr}", s)
-    s = re.sub(r"(?m)^physical_model\s*=.*$", f"physical_model = {a.model}", s)
-    s = re.sub(r"(?m)^it_max\s*=.*$", f"it_max = {a.it_max}", s)
+        s = set_key(s, "grid", key, f"{a.cells // 2**a.base_levels}")
+    s = set_key(s, "amr", "iu_ref_levels", f"{a.base_levels}")
+    s = set_key(s, "amr", "max_level", f"{a.base_levels + a.amr}")
+    s = set_key(s, "physics", "physical_model", a.model)
+    s = set_key(s, "time", "it_max", f"{a.it_max}")
     # the gas falls into the sinks' wells: the positivity limiter keeps a near-vacuum background admissible
-    s = re.sub(r"(?m)^positivity_limiter\s*=.*$", "positivity_limiter = cell", s)
-    s = re.sub(r"(?m)^time_max\s*=.*$", f"time_max = {a.time_max!r}", s)
+    s = set_key(s, "numerics", "positivity_limiter", "cell")
+    s = set_key(s, "time", "time_max", f"{a.time_max!r}")
     if a.case in ("rest", "accrete", "stable"):  # a periodic box: no wall forces, a uniform background pulls nowhere
         s = re.sub(r"(?m)^type\s*=\s*wall-inviscid\s*$", "type = periodic", s)
-        s = re.sub(r"(?m)^poisson_bc\s*=.*$", "poisson_bc = periodic", s)
+        s = set_key(s, "gravity", "poisson_bc", "periodic")
     if a.case == "stable":
-        s = re.sub(r"(?m)^gamma\s*=.*$", "gamma = 1.4", s)
+        s = set_key(s, "physics", "gamma", "1.4")
     if a.case == "shu":
-        s = re.sub(r"(?m)^gamma\s*=.*$", "gamma = 1.001", s)
+        s = set_key(s, "physics", "gamma", "1.001")
     if a.case == "collapse":  # the polytrope stays, at a tenth of its equilibrium pressure
-        s = re.sub(r"(?m)^star_pressure_factor\s*=.*$", "star_pressure_factor = 0.1", s)
+        s = set_key(s, "initial_conditions", "star_pressure_factor", "0.1")
     if a.case == "shu":  # the singular isothermal sphere in place of the polytrope
         i = s.index("[initial_conditions]")
         s = s[:i] + (
@@ -107,9 +126,10 @@ def case_ini(a: argparse.Namespace) -> str:
         s += "rho_floor = 0.0\np_floor = 0.0\n"
         s += "\n[fdv]\nfdv_scheme = fd\nfdv_order = 2\n"  # MHD only: the div(B) stencil, read on demand since c71fe0bb
     if a.amr > 0:  # runtime AMR: a Jeans marker, a regrid every 4 steps (P4)
-        s = re.sub(r"(?m)^frequency\s*=.*$", "frequency = 4", s)
+        s = set_key(s, "amr", "frequency", "4")
         # the collapse needs the whole-state limit: conservative drains a cell at the first regrid (issue #88)
-        s = re.sub(r"(?m)^markers_number\s*=.*$", "markers_number = 1\nregrid_prolongation = conservative-state", s)
+        s = set_key(s, "amr", "markers_number", "1")
+        s = set_key(s, "amr", "regrid_prolongation", "conservative-state")
         s += ("\n[amr_marker_1]\nmode = 5\ndelta_type = max\ndelta_fine = 0.0\ndelta_coarse = 0.0\n"
               "jeans_cells = 8.0\n")
     if a.no_gravity:  # the contract leg: sinks without self-gravity
