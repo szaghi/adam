@@ -83,7 +83,7 @@ contains
    endsubroutine adapt
 
    subroutine amr_update(self, q, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed, &
-                         prolongation)
+                         prolongation, split_siblings)
    !< Update AMR status.
    !<
    !< Note: AMR update can be safely called only *after* update_ghost has been called for *q* variables, otherwise
@@ -92,6 +92,8 @@ contains
    !< otherwise mpi_gather_refinement_nedeed is not safe (having wrong nodes number counters).
    !< Note: `prolongation` selects how refined blocks are filled (`field_object%adapt`): AMR_PROLONGATION_LINEAR
    !< (default), AMR_PROLONGATION_CONSERVATIVE (issue #74) or AMR_PROLONGATION_CONSERVATIVE_STATE (issue #88).
+   !< Note: `split_siblings` is passed to the redistribution (`tree%mpi_redistribute`): a complete sibling set may be split across
+   !< ranks, safe only where those siblings will not be derefined (default .false., the sets kept whole).
    class(adam_object), intent(inout)         :: self                 !< ADAM.
    real(R8P),          intent(inout)         :: q(1:,              &
                                                   1-self%grid%ngc:,&
@@ -104,6 +106,7 @@ contains
    logical,            intent(in),  optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
    logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
    integer(I4P),       intent(in),  optional :: prolongation         !< Prolongation kind, AMR_PROLONGATION_*.
+   logical,            intent(in),  optional :: split_siblings       !< Allow a sibling set across ranks in the redistribution.
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
    call mpih%print_message('adam_object%amr_update start')
@@ -113,11 +116,11 @@ contains
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
 
    call self%amr_update_apply(q=q, do_mpi_redistribute=do_mpi_redistribute_, do_blocks_reorder=do_blocks_reorder_, &
-                              is_grid_changed=is_grid_changed, prolongation=prolongation)
+                              is_grid_changed=is_grid_changed, prolongation=prolongation, split_siblings=split_siblings)
    call mpih%print_message('adam_object%amr_update finish')
    endsubroutine amr_update
 
-   subroutine amr_update_apply(self, q, do_mpi_redistribute, do_blocks_reorder, is_grid_changed, prolongation)
+   subroutine amr_update_apply(self, q, do_mpi_redistribute, do_blocks_reorder, is_grid_changed, prolongation, split_siblings)
    !< The second half of `amr_update`: adapt the tree and the field to the marks already on the replicated tree
    !< (`mpi_gather_refinement_needed`), redistribute, rebuild the maps. Split out so that a multi-realm forest can
    !< balance the marks of the realms across their seams between the two halves (issue #110).
@@ -131,13 +134,14 @@ contains
    logical,            intent(in)            :: do_blocks_reorder   !< Reorder the blocks.
    logical,            intent(out), optional :: is_grid_changed     !< The grid changed.
    integer(I4P),       intent(in),  optional :: prolongation        !< Prolongation kind, AMR_PROLONGATION_*.
+   logical,            intent(in),  optional :: split_siblings      !< Allow a sibling set across ranks (`tree%mpi_redistribute`).
 
    call self%adapt(q=q, prolongation=prolongation)
 
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
-   if (do_mpi_redistribute) call self%mpi_redistribute(q=q)
+   if (do_mpi_redistribute) call self%mpi_redistribute(q=q, split_siblings=split_siblings)
 
    if (do_blocks_reorder) call self%blocks_reorder(q=q)
 
@@ -555,6 +559,14 @@ contains
 
    subroutine refine_uniform(self, refinement_levels, q, do_mpi_redistribute, do_blocks_reorder)
    !< Refine all blocks uniformly.
+   !<
+   !< The children of a level are born on the rank of their parent, before the redistribution. With the sibling sets kept whole
+   !< at every level, a few sets of the coarse levels feed few ranks: the 512 blocks of 3 levels on 16 ranks peak at 64 blocks on
+   !< a rank (8 sets of 8 on 8 ranks at level 2, each refined in place), twice the 32 of the final layout, and the blocks budget
+   !< must hold the peak (issue #112, M2). The intermediate levels are therefore redistributed with the sibling sets split: their
+   !< nodes are parents after the next level, never leaves of a set to derefine, so the constraint of `tree%mpi_redistribute`
+   !< does not apply to them. The last level keeps the default (sets whole); the final layout depends only on the tree, so it is
+   !< the one of before.
    class(adam_object), intent(inout)        :: self                 !< Adam.
    integer(I4P),       intent(in)           :: refinement_levels    !< Number of refinement to be performed.
    real(R8P),          intent(inout)        :: q(1:,              &
@@ -569,7 +581,8 @@ contains
    call mpih%print_message('uniformly refine mesh with '//trim(str(refinement_levels))//' levels')
    do l=1, refinement_levels
       call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
-      call self%amr_update(q=q, do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
+      call self%amr_update(q=q, do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder, &
+                           split_siblings=(l < refinement_levels))
    enddo
    endsubroutine refine_uniform
 
