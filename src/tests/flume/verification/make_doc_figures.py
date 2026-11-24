@@ -46,7 +46,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Circle, Rectangle  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "docs" / "scripts"))
-from figure_theme import THEMES, theme, themes  # noqa: E402
+from figure_theme import PAGE_WIDTHS, THEMES, theme, themes  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 RF = HERE / "riemann-flux"
@@ -5542,6 +5542,268 @@ FIGURES = {"sod": fig_sod, "lax": fig_lax, "shu-osher": fig_shu_osher, "vortex":
            "step-3d": fig_step3d}
 
 
+# The paper-only figures of issue #144: the results figures of the ADAM paper that combine fields and line plots, drawn
+# for the printed page (one savefig per figure, one gridspec so the panel labels follow reading order). They read the
+# same data as their docs counterparts (fig_gravity_rt, fig_tgv_fields + fig_tgv_hybrid, fig_channel_fields +
+# fig_channel_m3_ev, fig_tbl_fields + fig_tbl_m2p5_res, fig_sbli_fields), which stay as they are; they are not in
+# FIGURES, only in paper_figures(). Titles carry nothing: what a docs title said goes to fig.paper_notes (the manifest).
+
+
+def _paper_size(height: float, scale: float = 1.0) -> tuple[float, float]:
+    """The figure size at the text width of the paper page (figure_theme.PAGE_WIDTHS) times `scale`."""
+    return (PAGE_WIDTHS["text"] * scale, height)
+
+
+def _paper_marked(ax, x: np.ndarray, y: np.ndarray, color: str, marker: str, label: str, ls: str = "-") -> None:  # noqa: ANN001
+    """A labelled line with open markers every eighth of its points (set here, so figure legends show them too)."""
+    ax.plot(x, y, color=color, ls=ls, lw=1.0, marker=marker, markevery=max(1, len(x) // 8), ms=3.0, mfc="white",
+            label=label)
+
+
+def fig_paper_rt(out: Path, runs: Path) -> None:
+    """Paper figure (issue #144): the single-mode Rayleigh-Taylor instability of fig_gravity_rt, density at the
+    checkpoints nearest t = 2, 3, 4, 5, hydrodynamics (rt2d-nl, top) and MHD with B_x = 0.1 (rt2d-mhd, bottom), one
+    colour scale and one colour bar per row."""
+    ao = gravity_oracle()
+    times = (2.0, 3.0, 4.0, 5.0)
+    fig = plt.figure(figsize=_paper_size(3.05), layout="constrained")
+    gs = fig.add_gridspec(2, len(times))
+    notes: dict = {}
+    for row, case in enumerate(("rt2d-nl", "rt2d-mhd")):
+        work = runs / case
+        ini = ao.read_ini(work)
+        ngc = int(ini["grid"]["ngc"])
+        box = [float(ini["grid"][k]) for k in ("emin_x", "emax_x", "emin_y", "emax_y")]
+        cps = ao.checkpoints(work)
+        steps = [min(cps, key=lambda s, t=t: abs(cps[s][0] - t)) for t in times]
+        panels = []
+        for step in steps:
+            bl = []
+            for path in cps[step][1]:
+                with h5py.File(path, "r") as h5:
+                    for blk in sorted({k.rsplit("-", 1)[0] for k in h5 if k.endswith("-origin")}):
+                        origin, d = h5[f"{blk}-origin"][()][::-1], h5[f"{blk}-dxdydz"][()][::-1]
+                        a = h5[f"{blk}-r"][()].transpose(2, 1, 0)[ngc:-ngc, ngc:-ngc, 0]
+                        bl.append((origin + ngc * d, d, a))
+            panels.append(bl)
+        lo = min(float(a.min()) for bl in panels for _, _, a in bl)
+        hi = max(float(a.max()) for bl in panels for _, _, a in bl)
+        axs = []
+        for col, bl in enumerate(panels):
+            ax = fig.add_subplot(gs[row, col])
+            for o, d, a in bl:
+                xe = o[0] + np.arange(a.shape[0] + 1) * d[0]
+                ye = o[1] + np.arange(a.shape[1] + 1) * d[1]
+                im = ax.pcolormesh(xe, ye, a.T, cmap="magma", vmin=lo, vmax=hi, shading="flat")
+            ax.set_aspect("equal")
+            ax.set_xlim(box[0], box[1])
+            ax.set_ylim(box[2], box[3])
+            last = col == len(panels) - 1  # the end tick of x is labelled once: it would touch the next panel's 0
+            ax.set_xticks([box[0], 0.5 * (box[0] + box[1]), box[1]], [f"{box[0]:g}", f"{0.5 * (box[0] + box[1]):g}",
+                                                                      f"{box[1]:g}" if last else ""])
+            ax.set_yticks([box[2], 0.5 * (box[2] + box[3]), box[3]], [f"{v:g}" for v in
+                                                                      (box[2], 0.5 * (box[2] + box[3]), box[3])])
+            if row == 1:
+                ax.set_xlabel("$x$")
+            else:
+                ax.set_xticklabels([])
+            if col == 0:
+                ax.set_ylabel("$y$")
+            else:
+                ax.set_yticklabels([])
+            axs.append(ax)
+        fig.colorbar(im, ax=axs, label=r"$\rho$", shrink=0.9, pad=0.01)
+        notes[case] = {"times": [round(cps[s][0], 3) for s in steps], "steps": steps, "density_range": [lo, hi]}
+    fig.paper_notes = {"panels": notes}
+    fig.savefig(out / "paper-rt.png")
+    plt.close(fig)
+
+
+def fig_paper_tgv(out: Path, runs: Path) -> None:
+    """Paper figure (issue #144): the Taylor-Green vortex at Re 1600 (the planes of fig_tgv_fields, the histories of
+    fig_tgv_hybrid, top row). (a, b) omega_x on the face x ~ 0 at t ~ 4.2 and 9.4, (c) omega_z in the plane z ~ pi at
+    t ~ 9.4, hybrid 128^3; (d) -dK/dt and (e) the enstrophy against t: hybrid 64^3 and 128^3, WENO5 128^3 and 256^3,
+    the 512^3 DNS dashed; the legend in the third cell of the bottom row (the columns of the two rows aligned: a panel
+    spanning the colour bar of another made constrained layout collapse)."""
+    root = runs / "tgv"
+    tg4, tg9 = (_slices(root / f"{n}-slices.npz") for n in ("tgv-t4", "tgv-t9"))
+    fig = plt.figure(figsize=_paper_size(3.6), layout="constrained")
+    gs = fig.add_gridspec(2, 3)
+    ticks, names = [0.0, np.pi, 2.0 * np.pi], ["0", r"$\pi$", r"$2\pi$"]
+    panels = ((tg4, "yz", r"$\omega_x$", ("z", "y")), (tg9, "yz", r"$\omega_x$", ("z", "y")),
+              (tg9, "xy", r"$\omega_z$", ("x", "y")))
+    notes = []
+    for i, (s, plane_, lab, (h, v)) in enumerate(panels):
+        ax = fig.add_subplot(gs[0, i])
+        w = _plane_vorticity(s, plane_)
+        img = w if plane_ == "yz" else w.T
+        lim = float(np.nanpercentile(np.abs(w), 99.5))
+        im = ax.imshow(img, origin="lower", extent=[s[h][0], s[h][-1], s[v][0], s[v][-1]], cmap="RdBu_r", vmin=-lim,
+                       vmax=lim, aspect="equal", interpolation="nearest")
+        fig.colorbar(im, ax=ax, label=lab, pad=0.02, shrink=0.8)
+        ax.set_xticks(ticks, names)
+        ax.set_yticks(ticks, names)
+        ax.set_xlabel(f"${h}$")
+        ax.set_ylabel(f"${v}$")
+        cut = {"yz": ("x", 0), "xy": ("z", 2)}[plane_]
+        notes.append({"component": lab, "plane": f"{cut[0]} = {float(s['cut'][cut[1]]):.4f}",
+                      "time": round(float(s["time"]), 3), "range_99.5pc": lim})
+    axd, axe = fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])
+    path = HERE / "turbulence" / "reference" / "spectral_Re1600_512.gdiag"
+    t, _, d, z = np.loadtxt(path, comments="#").T
+    axd.plot(t, d, color="k", ls="--", lw=1.0, label="DNS $512^3$")
+    axe.plot(t, z, color="k", ls="--", lw=1.0)
+    cases = (("m0.1-hybrid-n64", "hybrid, $64^3$"), ("m0.1-hybrid-n128", "hybrid, $128^3$"),
+             ("m0.1-weno-5-n128", "WENO5, $128^3$"), ("m0.1-weno-5-n256", "WENO5, $256^3$"))
+    for k, (name, label) in enumerate(cases):
+        hist = _turbulence_history(root / name)
+        color, marker = f"C{k}", ("o", "s", "^", "D")[k]
+        _paper_marked(axd, hist[:, 1], -np.gradient(hist[:, 2], hist[:, 1]), color, marker, label)
+        _paper_marked(axe, hist[:, 1], hist[:, 3], color, marker, "_" + label)
+    axd.set_ylabel(r"$-dK/dt$")
+    axe.set_ylabel(r"$Z$")
+    for ax in (axd, axe):
+        ax.set_xlabel("$t$")
+        ax.set_xlim(0.0, 20.0)
+        ax.set_ylim(bottom=0.0)
+        ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(4))
+        ax.grid(alpha=0.3)
+    fig.legend(*axd.get_legend_handles_labels(), loc="center", bbox_to_anchor=gs[1, 2].get_position(fig),
+               bbox_transform=fig.transFigure, frameon=False, handlelength=2.2)
+    fig.paper_notes = {"fields": notes, "re": 1600, "mach": 0.1, "dns": "spectral 512^3, High-Order CFD Workshop C3.5"}
+    fig.savefig(out / "paper-tgv.png")
+    plt.close(fig)
+
+
+def fig_paper_sbli(out: Path, runs: Path) -> None:
+    """Paper figure (issue #144), qualitative: the S4b interaction at Mach 2.28 and 8 deg (the planes of
+    fig_sbli_fields, run sbli-m2p28-8 at t = 934, and its oracle JSON over 310 <= t <= 934). (a) numerical schlieren of
+    the x-y plane at mid-span, (b) the streamwise velocity in the wall-parallel plane near 0.16 delta_0 with the
+    reflected shock's apparent origin (dashed) and the inviscid impingement x_imp (dotted)."""
+    import json  # noqa: PLC0415
+
+    root = runs / "sbli"
+    j = json.loads((root / "sbli-t300.json").read_text())
+    s = _slices(root / "sbli-slices.npz")
+    x, y, z = s["x"], s["y"], s["z"]
+    d0, x_imp = j["delta0"], j["x_imp"]
+    xm = (x > x_imp - 25.0) & (x < x_imp + 25.0)
+    ym = y < 8.0
+    fig = plt.figure(figsize=_paper_size(2.05), layout="constrained")
+    gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 0.025], height_ratios=[8.0, float(z[-1] - z[0]) + 0.1])
+    ax = fig.add_subplot(gs[0, 0])
+    sch = _schlieren(s["xy_r"].astype(float), x[1] - x[0], y[1] - y[0])
+    ax.imshow(sch[np.ix_(xm, ym)].T, origin="lower", extent=[x[xm][0], x[xm][-1], y[ym][0], y[ym][-1]], cmap="gray",
+              aspect="equal", vmin=0.0, vmax=1.0, interpolation="nearest")
+    ax.set_ylabel("$y$")
+    ax.tick_params(labelbottom=False)
+    ax = fig.add_subplot(gs[1, 0], sharex=ax)
+    im = ax.imshow(s["xz_u"][xm].T, origin="lower", extent=[x[xm][0], x[xm][-1], z[0], z[-1]], cmap="cividis",
+                   aspect="equal", interpolation="nearest")
+    fig.colorbar(im, cax=fig.add_subplot(gs[1, 1]), label=r"$u/U_\infty$")
+    ax.axvline(x_imp, color="C1", ls=":", lw=1.2)
+    ax.axvline(j["x_ref"], color="C1", ls="--", lw=1.2)
+    ax.set_xlabel("$x$")
+    ax.set_ylabel("$z$")
+    fig.paper_notes = {"time": round(float(s["time"]), 2), "plane_xy_z": round(float(s["cut"][2]), 4),
+                       "plane_xz_y": round(float(s["cut"][1]), 4),
+                       "plane_xz_y_over_delta0": round(float(s["cut"][1]) / d0, 3), "delta0": d0, "x_imp": x_imp,
+                       "x_ref": j["x_ref"], "l_int_over_delta0": j["l_int"] / d0,
+                       "oracle_window": [round(j["t"][0], 1), round(j["t"][-1], 1)], "oracle_checkpoints": len(j["t"]),
+                       "lengths": "x, y, z in units of the inflow delta_i (delta_0 = 1.81 delta_i at x_imp)"}
+    fig.savefig(out / "paper-sbli.png")
+    plt.close(fig)
+
+
+def _tbl_compare(runs: Path, case: str, stat: Path) -> dict:
+    """tbl_oracle.py compare of one boundary-layer run over 180 < t <= 360 (as fig_tbl_m2p5_res), as a dict."""
+    import json  # noqa: PLC0415
+
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import tbl_oracle as to  # noqa: PLC0415
+
+    work = runs / "tbl" / case
+    if not work.exists():
+        raise FileNotFoundError(work)
+    with tempfile.TemporaryDirectory() as tmp:
+        js = Path(tmp) / "tbl.json"
+        to.compare(str(work), str(stat), 180.0001, str(js))
+        return json.loads(js.read_text())
+
+
+def fig_paper_tbl(out: Path, runs: Path) -> None:
+    """Paper figure (issue #144): the Mach 2.5 boundary layer. (a) u/U_inf in the x-y plane at mid-span with the 99 %
+    line of the spanwise average, (b) in the wall-parallel plane y = 0.29 delta_i (the planes of fig_tbl_fields: the
+    60 delta_i box, t = 360); (c) C_f from the wall model's tau_w against x at delta_i/12 and delta_i/16 with the DNS at
+    its station, (d) u+_VD against y+ at that station with the DNS (fig_tbl_m2p5_res: the 90 delta_i box,
+    180 < t <= 360)."""
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import tbl_oracle as to  # noqa: PLC0415
+
+    s = _slices(runs / "tbl" / "tbl-m2p5-slices.npz")
+    stat = HERE / "turbulence" / "reference" / "M2p5_Stat.txt"
+    res = {lab: _tbl_compare(runs, case, stat) for case, lab in (("m2p5-wm-l90", r"$\delta_i/12$"),
+                                                                 ("m2p5-wm-r16", r"$\delta_i/16$"))}
+    _, d = to.read_stat(stat)
+    x, y, z = s["x"], s["y"], s["z"]
+    ym = y < 4.0
+    lx = float(x[-1] - x[0])
+    fig = plt.figure(figsize=_paper_size(3.55), layout="constrained")
+    gs = fig.add_gridspec(3, 3, width_ratios=[1.0, 1.0, 0.025], height_ratios=[0.42, 0.55, 2.0])
+    ax = fig.add_subplot(gs[0, 0:2])
+    im = ax.imshow(s["xy_u"][:, ym].T, origin="lower", extent=[x[0], x[-1], y[ym][0], y[ym][-1]], cmap="cividis",
+                   vmin=0.0, vmax=1.1, aspect="equal", interpolation="nearest")
+    cs = ax.contour(x, y[ym], s["avg_u"][:, ym].T, levels=[0.99])  # drawn as lines: a contour set gets a colour map
+    for seg in cs.allsegs[0]:
+        ax.plot(seg[:, 0], seg[:, 1], color="w", lw=0.8)
+    cs.remove()
+    fig.colorbar(im, cax=fig.add_subplot(gs[0, 2]), label=r"$u/U_\infty$", ticks=[0.0, 1.0])
+    ax.set_ylabel("$y$")
+    ax.set_yticks([0.0, 4.0])
+    ax.tick_params(labelbottom=False)
+    ax = fig.add_subplot(gs[1, 0:2], sharex=ax)
+    lo, hi = np.nanpercentile(s["xz_u"], [1.0, 99.0])
+    im = ax.imshow(s["xz_u"].T, origin="lower", extent=[x[0], x[-1], z[0], z[-1]], cmap="cividis", vmin=lo, vmax=hi,
+                   aspect="equal", interpolation="nearest")
+    fig.colorbar(im, cax=fig.add_subplot(gs[1, 2]), label=r"$u/U_\infty$")
+    ax.set_xlabel("$x$")
+    ax.set_ylabel("$z$")
+    ax.set_xlim(x[0] - 0.5 * (x[1] - x[0]), x[0] + lx + 0.5 * (x[1] - x[0]))
+    axc, axd = fig.add_subplot(gs[2, 0]), fig.add_subplot(gs[2, 1:3])
+    facts = {}
+    for k, (lab, j) in enumerate(res.items()):
+        xs = np.array(j["x"])
+        cf = np.array([np.nan if c is None else c for c in j["cf"]])
+        ist = j["station"]
+        ls = ("--", "-")[k]
+        marker = ("s", "o")[k]
+        _paper_marked(axc, xs, cf * 1e3, "C0", marker, lab, ls=ls)
+        axd.semilogx(j["yplus"], j["uvd"], color="C0", ls=ls, lw=1.0, marker=marker, ms=2.5, mfc="white",
+                     markevery=3, label=lab)
+        facts[lab] = {"cf_station": cf[ist], "x_station": xs[ist], "re_theta_station": j["re_theta"][ist],
+                      "cf_dns": j["cf_dns"], "re_theta_dns": j["re_dns"]}
+    j = next(iter(res.values()))
+    axc.plot([j["x"][j["station"]]], [j["cf_dns"] * 1e3], "ks", ms=4.0, label="DNS")
+    axd.semilogx(d[1:, 2], d[1:, 24], "k-", lw=1.0, label="DNS")
+    axc.set_xlabel(r"$x/\delta_i$")
+    axc.set_ylabel(r"$C_f\times10^3$")
+    axc.set_ylim(0.0, 3.5)
+    axc.set_xlim(0.0, 90.0)
+    axc.legend(loc="lower right", frameon=False)
+    axd.set_xlim(1.0, 3000.0)
+    axd.set_xlabel(r"$y^+$")
+    axd.set_ylabel(r"$u^+_{VD}$")
+    axd.legend(loc="upper left", frameon=False)
+    for ax in (axc, axd):
+        ax.grid(alpha=0.3)
+    fig.paper_notes = {"fields": {"time": round(float(s["time"]), 2), "plane_xy_z": round(float(s["cut"][2]), 4),
+                                  "plane_xz_y": round(float(s["cut"][1]), 4), "range_b_1_99pc": [lo, hi],
+                                  "box": "60 x 6 x 6 delta_i at delta_i/12 (720 x 72 x 72)"},
+                       "statistics": facts, "window": "180 < t <= 360"}
+    fig.savefig(out / "paper-tbl.png")
+    plt.close(fig)
+
+
 def paper_figures() -> list:
     """The figures of the ADAM paper (issue #142, Part B), as `--style paper` draws them: the physical file name, the
     figure function (a docs figure, restyled, or a paper-only one), the docs file stem it saves, the page width, the
@@ -5559,8 +5821,16 @@ def paper_figures() -> list:
              note="uniform 128^2 density and pressure; 32^2 + refined box density with blocks"),
         Spec("rotor", fig_rotor, "rotor", "text", 2.45),
         Spec("shock-cylinder-ib", fig_cylinder, "shock-cylinder", "text", 2.3),
-        Spec("step-3d-amr", fig_step3d, "step-3d", "full", 5.0,
-             note="3-D Mach 3 forward-facing step, three realms, mid-z plane; run <runs>/step-3d"),
+        Spec("step-3d-amr", fig_step3d, "step-3d", "text", 2.9, scale=0.72,
+             note="3-D Mach 3 forward-facing step, three realms, mid-z plane; run <runs>/step-3d",
+             traced={"runs": ["medooza:/ifs/hpc/home/szaghi/adam-tests/i133/j8-3d-runtime-l0-l2-weno7 (final "
+                              "checkpoint 000020304, t = 4)"],
+                     "jobs": ["1369369 (st-J8, prod-gn, 2026-11-23 00:30-01:10)"], "run_commit": "0bcdf870",
+                     "recorded_at": "b713f555 (#133 leg 1, #142 3-D step), paper text 95ffd728 (#142 Part C)",
+                     "toolchain": "nvfortran 26.9, CUDA 12.9, HPC-X Open MPI (flume-fnl-nvf, iac_nvf fastlink)",
+                     "device": "4 x NVIDIA A30", "scheme": "WENO7 flux splitting",
+                     "caption": "t = 4; mid-z plane; runtime AMR h = 1/80 to 1/320; (a) density with blocks, "
+                                "(b) log10|grad rho|"}),
         Spec("regrid-vortex", fig_regrid_runtime, "regrid-runtime", "full", 1.95, titles="keep",
              labels={"volume integrals through the regrids": ""}),
         Spec("blast-symmetry", fig_blast_symmetry, "mhd-blast-symmetry", "full", 2.3,
@@ -5571,6 +5841,70 @@ def paper_figures() -> list:
         Spec("star-isolated", fig_selfgravity_star, "selfgravity-star", "text", 4.4, cbar_labels=[rho]),
         Spec("star-isolated-amr", fig_selfgravity_star_amr, "selfgravity-star-amr", "text", 4.4, cbar_labels=[rho]),
         Spec("sink-particles", fig_sink_particles, "sink-particles", "text", 4.6),
+        *paper_figures_144(),
+    ]
+
+
+def paper_figures_144() -> list:
+    """The results figures of the paper regenerated in issue #144 (paper-only functions, fig_paper_*), with the
+    provenance traced by hand: the run directories on medooza, their Slurm jobs, the commit that recorded the numbers the
+    paper quotes, the toolchain and the device. The validation runs predate the paper commit."""
+    from paper_style import Spec  # noqa: PLC0415
+
+    t0camp = "medooza:/ifs/hpc/home/szaghi/adam-tests/i110/t0camp"
+    oracle = "medooza:/ifs/hpc/home/szaghi/adam-tests/i121-s4/oracle"
+    a30 = "4 x NVIDIA A30 (medooza)"
+    nvf = "nvfortran 26.9, HPC-X Open MPI (FLUME FNL, flume-fnl-nvf)"
+    return [
+        Spec("rayleigh-taylor", fig_paper_rt, "paper-rt", "text", 3.05,
+             note="single-mode Rayleigh-Taylor, density, top hydro (rt2d-nl), bottom MHD B_x = 0.1 (rt2d-mhd)",
+             traced={"runs": ["<runs>/rt2d-nl", "<runs>/rt2d-mhd (make_doc_runs.sh group rt, re-run 2026-11-23 on "
+                              "the WSL box: the runs behind the docs figure were not kept; run.info in each)"],
+                     "recorded_at": "72202ab4 (the page gravity/rayleigh-taylor.md; growth rates of the N = 32, 64 "
+                                    "runs, not of these)",
+                     "toolchain": "gfortran 16.2.0 + Open MPI 5.0.11 (CPU, 2 ranks)", "device": "CPU",
+                     "caption": "layers 2:1, interface width 0.01, g = 1, wavelength 0.5, seed 1e-2, N = 128, WENO5 "
+                                "flux splitting, MHD with EGLM; times in paper_notes"}),
+        Spec("taylor-green", fig_paper_tgv, "paper-tgv", "text", 3.6,
+             note="Taylor-Green vortex Re 1600: vorticity of hybrid 128^3 (a-c); -dK/dt (d), enstrophy (e)",
+             traced={"runs": [f"{t0camp}/runs-t2/m0.1-hybrid-n64", f"{t0camp}/runs-t2/m0.1-hybrid-n128",
+                              f"{t0camp}/runs/m0.1-weno-5-n128", f"{t0camp}/runs/m0.1-weno-5-n256",
+                              "medooza:/ifs/hpc/home/szaghi/adam-tests/i121-s4/runs-tgv/m0.1-hybrid-n128 (the "
+                              "planes: tgv_cases_vis.txt, checkpoints at t ~ 4.2 and 9.4)",
+                              f"{oracle}/tgv-t4-slices.npz, tgv-t9-slices.npz (field_slices.py, 2026-11-08)"],
+                     "jobs": ["1359559 (WENO5 128^3)", "1359577-1359607 (WENO5 256^3, dev-gn chain)",
+                              "1359595, 1359597 (hybrid 64^3, 128^3)", "1363453 (the planes' run)"],
+                     "recorded_at": "f0dad436 (L2 errors against the DNS; histories); planes 8cedad8f",
+                     "toolchain": nvf, "device": a30, "dates": "2026-10-30/31 (histories), 2026-11-08 (planes)",
+                     "caption": "Mach 0.1; (a) omega_x at x ~ 0, t = 4.22; (b) omega_x at x ~ 0, t = 9.36; "
+                                "(c) omega_z at z ~ pi, t = 9.36; each map its own symmetric range (99.5th "
+                                "percentile); DNS 512^3 spectral (Wang et al. 2013)"}),
+        Spec("boundary-layer", fig_paper_tbl, "paper-tbl", "text", 3.55,
+             note="Mach 2.5 boundary layer: u fields (a, b), C_f (c), u+_VD (d)",
+             traced={"runs": ["medooza:/ifs/hpc/home/szaghi/adam-tests/i119-tauw/runs/m2p5-wm-l90 (delta_i/12)",
+                              "medooza:/ifs/hpc/home/szaghi/adam-tests/i119-r16/runs/m2p5-wm-r16 (delta_i/16)",
+                              "medooza:/ifs/hpc/home/szaghi/adam-tests/i119-tbl/runs/m2p5-wm (the planes, 60 "
+                              f"delta_i box, t = 360) via {oracle}/tbl-m2p5-slices.npz"],
+                     "jobs": ["1361350, 1361353, 1361355, 1361356 (delta_i/12, i119-tauw)",
+                              "1361853, 1361916, 1361965, 1362012, 1362077, 1362110, 1362169, 1362234, 1362292, "
+                              "1362319 (delta_i/16)", "1361315-1361344 (the 60 delta_i box)"],
+                     "recorded_at": "3e42957a (delta_i/16, C_f 2.306e-3 against 2.310e-3; delta_i/12 2.208e-3); "
+                                    "planes 0e3fc60a",
+                     "toolchain": nvf, "device": a30, "dates": "2026-11-05/06",
+                     "caption": "(a) x-y plane at mid-span with the 99 % line of the spanwise average; (b) "
+                                "wall-parallel plane y = 0.29 delta_i, its own colour range (1st-99th percentile); "
+                                "(c) C_f from the wall model's tau_w, delta_i/12 dashed, delta_i/16 solid, DNS square "
+                                "at its Re_theta; (d) u+_VD at that station; statistics over 180 < t <= 360"}),
+        Spec("sbli", fig_paper_sbli, "paper-sbli", "text", 2.05,
+             note="shock/boundary-layer interaction Mach 2.28, 8 deg, qualitative: schlieren (a), u near the wall (b)",
+             traced={"runs": ["medooza:/ifs/hpc/home/szaghi/adam-tests/i121-s4/runs/sbli-m2p28-8 (checkpoint 73000, "
+                              "t = 934.4)", f"{oracle}/sbli-slices.npz, sbli-t300.json (sbli_oracle.py compare, 50 "
+                              "checkpoints 310 <= t <= 934)"],
+                     "jobs": ["1362696 (S4b, prod-gn, 4 A30)"], "recorded_at": "0e3fc60a (S4b, L_int/delta_0 3.15)",
+                     "toolchain": nvf, "device": a30, "dates": "2026-11-07/08",
+                     "caption": "t = 934; (a) numerical schlieren, x-y plane at mid-span; (b) u/U_inf in the "
+                                "wall-parallel plane y = 0.29 delta_i = 0.16 delta_0, dashed the reflected shock's "
+                                "apparent origin x_ref, dotted x_imp = 60"}),
     ]
 
 
