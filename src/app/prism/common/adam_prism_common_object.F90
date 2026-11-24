@@ -1847,6 +1847,11 @@ contains
    !< The solves run by FLAIL's FFT solver (E3b); an exact/open face holds the free-space potential of the source in its
    !< ghosts, summed over the whole domain (E3c). A refined grid is refused: the wide operator across 2:1 faces is not
    !< defined yet (E7).
+   !<
+   !< The correction is written in the interior cells only: the caller refreshes the ghosts of the corrected field (exchange
+   !< and boundary conditions, `refresh_time_zero_ghosts` of each backend), as every stage does before reading them. The
+   !< former extension of the gradient/curl into the first ngc/2 ghost layers read the potential ngc/2 + hs layers deep,
+   !< which tied ngc to 2 hs (issue #112, the ghost cells of FD6) for values every stage overwrites.
    class(prism_common_object), intent(inout) :: self            !< The equation.
    integer(I4P),               intent(in)    :: ivar            !< Variable (start) index in q.
    real(R8P), allocatable                    :: phi(:,:,:,:,:)  !< Potential computed.
@@ -1885,11 +1890,11 @@ contains
             call check_charge_null_modes(f=f)
             call solve_time_zero(nv_solve=1_I4P, f=f, phi=phi, label='electric displacement field')
             if (blocks_number > 0) then
-               call self%compute_gradient_extended(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
+               call self%compute_gradient(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
-                  do k=1-ngc/2, nk+ngc/2
-                     do j=1-ngc/2, nj+ngc/2
-                        do i=1-ngc/2, ni+ngc/2
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
                            do v=1, 3
                               self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*eps_scale
                            enddo
@@ -1917,11 +1922,11 @@ contains
             call remove_singular_mean(f=f, mu=mu_scale)
             call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field')
             if (blocks_number > 0) then
-               call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
-                  do k=1-ngc/2, nk+ngc/2
-                     do j=1-ngc/2, nj+ngc/2
-                        do i=1-ngc/2, ni+ngc/2
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
                            do v=1, 3
                               self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
                            enddo
@@ -1953,11 +1958,11 @@ contains
             call remove_singular_mean(f=f, mu=MU0)
             call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field')
             if (blocks_number > 0) then
-               call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
-                  do k=1-ngc/2, nk+ngc/2
-                     do j=1-ngc/2, nj+ngc/2
-                        do i=1-ngc/2, ni+ngc/2
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
                            do v=1, 3
                               self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
                            enddo
@@ -1987,11 +1992,11 @@ contains
             call remove_singular_mean(f=f, mu=1._R8P)
             call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field')
             if (blocks_number > 0) then
-               call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
-                  do k=1-ngc/2, nk+ngc/2
-                     do j=1-ngc/2, nj+ngc/2
-                        do i=1-ngc/2, ni+ngc/2
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
                            do v=1, 3
                               self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
                            enddo
@@ -2224,9 +2229,9 @@ contains
       shift = 0._R8P
       where (corrected) shift = mean_open - sums(5:7) / sums(1)
       do b=1, self%blocks_number
-         do k=1-self%ngc/2, self%nk+self%ngc/2
-            do j=1-self%ngc/2, self%nj+self%ngc/2
-               do i=1-self%ngc/2, self%ni+self%ngc/2
+         do k=1, self%nk
+            do j=1, self%nj
+               do i=1, self%ni
                   self%q(ivar:ivar+2,i,j,k,b) = self%q(ivar:ivar+2,i,j,k,b) + shift
                enddo
             enddo

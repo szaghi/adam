@@ -2152,6 +2152,7 @@ contains
    !< Set initial conditions of field.
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
+   logical                                :: t0_solved  !< A t0 elliptic solve corrected the field.
 
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, &
                                                             q=self%q)
@@ -2163,19 +2164,35 @@ contains
    endif
 
    call self%initialize_coils
+   t0_solved = .false.
    if (.not.is_restart) then
       call self%compute_coils_current_time_zero()
       ! PIC: each t0 elliptic solve can be switched off ([PIC] *_field_elliptic_initialization), the field then stays
       ! the IC one
       if (is_pic_model(self%physics%physical_model)) then
-         if (self%pic%electric_field_elliptic_initialization) call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+         if (self%pic%electric_field_elliptic_initialization) then
+            call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+            t0_solved = .true.
+         endif
       endif
       if (.not.is_pic_model(self%physics%physical_model) .or. self%pic%magnetic_field_elliptic_initialization) then
-         if (self%has_current_density()) call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+         if (self%has_current_density()) then
+            call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+            t0_solved = .true.
+         endif
       endif
    endif
 
    call self%copy_cpu_gpu
+   ! the t0 solves correct the interior cells only: refresh the ghosts as a stage does (exchange and boundary conditions;
+   ! no coil re-stamp, the coil current is stamped already), before the t0 gather and diagnostics read them
+   if (t0_solved) then
+      call self%field_fnl%update_ghost_local_gpu(q_gpu=self%q_gpu)
+      call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                               comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                               q_gpu=self%q_gpu)
+      call self%set_boundary_conditions(q_gpu=self%q_gpu)
+   endif
 
    if (.not.is_restart) then
       call self%apply_fWL_correction(q_gpu=self%q_gpu)
