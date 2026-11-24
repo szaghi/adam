@@ -26,7 +26,9 @@
 #SBATCH --output=/ifs/hpc/home/szaghi/adam-tests/%x-%j.txt
 set -euo pipefail
 # shellcheck source=/dev/null
-source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh
+# the flavour is explicit: a bare source hands the job's own arguments (run.sh's stage, e.g. chain) to nvhpc.sh,
+# which reads its first argument as the MPI flavour and stops
+source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh ompi5
 export OMPI_MCA_coll_ucc_enable=0 OMPI_MCA_coll=^ucc
 SPEEDUP_DIR="${SPEEDUP_DIR:-${SLURM_SUBMIT_DIR:-$PWD}}"
 SPEEDUP_WORK="${SPEEDUP_WORK:-/ifs/hpc/home/szaghi/adam-tests/speedup-133}"
