@@ -183,6 +183,13 @@ at the cost of a longer build. It is empty (off) by default and in the varsets w
 with it; the debug modes never use it. The overlay varset `nolto` turns it off (`--varset "iac_nvf nolto"`), and a
 change of it recompiles every file (`cflags_heritage`).
 
+The optimized GNU modes link with `-mdaz-ftz` (GCC 12 or newer, x86): it sets flush-to-zero and denormals-are-zero
+before the program starts, so values below 2.2·10⁻³⁰⁸ become 0 instead of subnormal numbers, which x86 cores handle many
+times more slowly. The generated code is unchanged; only those tiny values differ. Developed flows hold them, and
+without the flag the FLUME CPU backend ran 35 % (one node) to 47 % (8 nodes) slower per step
+([performance](/applications/flume/performance#what-does-not-scale-and-why)). nvfortran's `-fast` already includes the
+equivalent `-Mflushz`; the debug modes keep gradual underflow.
+
 The AMD builds use `local_amd` or `thera_amd` together with a GPU-architecture varset (`gfx90a`, `gfx942`, ...), e.g.
 `--varset "thera_amd gfx942"`.
 

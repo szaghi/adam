@@ -43,12 +43,12 @@ T(CPU node) / T(GPU node) on the uniform grids:
 
 | Case | Grid | Blocks | GPU node / CPU node |
 |---|---|---|---|
-| 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 16.3 |
+| 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 11.4 (16.3 before the CPU build flushed subnormals) |
 | 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 13.8 |
 | sphere, grid study | 7.08 M cells, L3 | 512 of 24³ | 11.9 |
 | sphere, grid study | 28.1 M cells, L3 | 512 of 38³ | 12.6 |
 
-A GPU node runs the uniform 3-D flows 12 to 16 times faster than a CPU node; on the same flow the factor moves with
+A GPU node runs the uniform 3-D flows 11 to 14 times faster than a CPU node; on the same flow the factor moves with
 the grid. On the CPU node the sphere costs 14.4 µs per cell-step per core on 2a, 12.4 on the 24³ grid and 10.2 on the
 38³ grid. The 2a figure is inflated by subnormal arithmetic in its developed state, which slows a few CPU ranks and
 not the GPU ([What does not scale](#what-does-not-scale-and-why)): with flush to zero 2a costs 8.74 µs, the cold 24³
@@ -104,8 +104,10 @@ also opens a context on GPU 0, which then has 0.9 GB less free memory than the o
 | GPU nodes (4 A30 each) | 0.780 | 0.491 | 0.260 | 0.167 |
 | efficiency | 1 | 0.79 | 0.75 | 0.58 |
 | cells per A30 | 14.2 M | 7.08 M | 3.54 M | 1.77 M |
-| CPU nodes (64 cores each) | 12.7 | 6.48 | 3.24 | 2.31 |
+| CPU nodes (64 cores each), gradual underflow | 12.7 | 6.48 | 3.24 | 2.31 |
 | efficiency | 1 | 0.98 | 0.98 | 0.69 |
+| CPU nodes, linked with `-mdaz-ftz` | 8.92 | – | – | 1.22 |
+| efficiency | 1 | – | – | 0.91 |
 
 The GPU efficiency at 8 nodes is set by the load as much as by the network: 1.77 M cells per A30 in 24³ blocks is
 where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns per cell-step against 55.1 at
@@ -130,9 +132,9 @@ where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns 
 - **The weak efficiencies of the first version (0.72–0.73 at 3.5–7 M cells per A30) mixed two costs**: their 1- and
   2-A30 references left out the cross-pair cost of the fourth A30 (13–22 % at those loads), which belongs to the node,
   not to the network.
-- **The CPU node scales to 4 nodes and, as measured, loses half on 8** (weak 0.53, strong 0.69 for 2a). The cause is
-  subnormal arithmetic on a few ranks, not the network: with flush to zero the weak efficiency is 0.93–1.0
-  ([What does not scale](#what-does-not-scale-and-why)).
+- **The CPU node scales to 8 nodes since its builds flush subnormal numbers** (2a: strong 0.91 from 1 to 8 nodes, weak
+  1.01). Before that it lost half on 8 nodes (weak 0.53, strong 0.69) to subnormal arithmetic on a few ranks, not to
+  the network ([What does not scale](#what-does-not-scale-and-why)).
 
 ## What does not scale, and why
 
@@ -164,14 +166,14 @@ subnormal values (below 2.2 · 10⁻³⁰⁸, in the transverse momenta ahead of
 them many times slower, so those ranks compute twice as long, and every other rank waits for them at the barriers and
 reductions. With flush to zero the same 8-node run drops from 1988 to 1044 ms per step (−47 %), the weak efficiency
 rises from 0.51 to 0.93–1.0 (perfect within the CPU node's spread), and one node of 64 ranks runs the 56.6 M-cell sphere
-in 7.73 s instead of 11.83 (−35 %). The GPU node / CPU node factor of 16.3 on that case therefore overstates the GPU:
-the clean factors, on grids without subnormals, are 12–13.
+in 7.73 s instead of 11.83 (−35 %). The GPU node / CPU node factor of 16.3 on that case therefore overstated the GPU:
+with the CPU build flushing subnormals it is 11.4.
 
-**Ranked, with proposals** (none applied yet):
+**Ranked, with proposals** (the first applied):
 
 | # | Cost | Gain | Proposal |
 |---|---|---|---|
-| 1 | subnormal arithmetic (CPU) | −35 to −47 % per step on developed states | flush to zero in the time loop, or a floor on tiny values; the regression references would change in the last bits |
+| 1 | subnormal arithmetic (CPU) | −35 to −47 % per step on developed states | **applied**: the GNU builds link with `-mdaz-ftz`, flush to zero from the start ([build notes](/start/install)) |
 | 2 | GPU halo between nodes at 1.5 GB/s | up to ~9 ms of the ~12 ms per exchange (estimate) | stage the inter-node halo through pinned host memory, or enable GPUDirect RDMA on the cluster |
 | 3 | 12 ghost exchanges per step with an immersed body | up to 9 of the 12 | exchange only what the eikonal iterations need |
 | 4 | two global barriers per ghost exchange | 0.4–1.2 % on the GPU | remove (results bitwise identical) |

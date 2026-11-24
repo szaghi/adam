@@ -77,7 +77,7 @@ The [overview](./overview) lists what is implemented, with a [quick start](./ove
 [known limitations](./overview#known-limitations). The [first run](/start/first-run) builds FLUME and checks a Sod
 shock tube against its exact solution; the [tutorial](/tutorials/flume/sod) continues from there. The
 [performance](./performance) page measures what a GPU node (4 A30) buys over a CPU node (64 cores) on uniform 3-D
-grids, 12 to 16 times, what sets the cost of a cell on an A30, and how FLUME scales inside a node and across nodes.
+grids, 11 to 14 times, what sets the cost of a cell on an A30, and how FLUME scales inside a node and across nodes.
 
 ## See it run
 

@@ -357,6 +357,14 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
     slower (profile-couette3d medium, 1 rank). The overlay varset `fastlink` (`--varset "iac_nvf fastlink"`) takes the
     extended split for development builds; never time with it. Empty elsewhere until measured.
 
+  - **`-mdaz-ftz`** (the GNU optimized template's `lflags`, link only, GCC >= 12, x86): links `crtfastmath.o`, which
+    sets flush-to-zero and denormals-are-zero before `main`, so subnormal doubles become 0. Without it the FLUME CPU
+    ranks that own subnormals (decaying tails ahead of a shock in a developed flow) ran 2x slower and stalled the others
+    at the barriers and reductions: -35 % (1 node) to -47 % (8 nodes) per step with it (issue #133, speedup README
+    "Where a step's time goes"). Code generation is unchanged (never `-ffast-math` in `cflags`); nvfortran's `-fast`
+    already includes the equivalent `-Mflushz`; the debug template keeps gradual underflow. Results differ from a
+    gradual-underflow build only where a value would have been below 2.2e-308.
+
   - **The toolchain must match the varset exactly** (since 2026-10-16, HDF5 2.3.0 develop `ab5df552` for the
     `local_*`/`iac_*` rows): Fortran `.mod` files work only with the compiler version that wrote them. A mismatch
     stops the build at `use hdf5` ("created by a different version of GNU Fortran") or, under nvfortran, as an

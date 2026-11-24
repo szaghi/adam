@@ -124,11 +124,13 @@ for performance; their timings are kept as baselines ("The accuracy-first paths"
 | Case | Cells | Blocks | CPU node (s) | GPU node (s) | GPU node / CPU node |
 |---|---|---|---|---|---|
 | 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M | 4096 of 24^3 | 12.7 | 0.780 | 16.3 |
+| 2a sphere, CPU linked with `-mdaz-ftz` (2026-11-24) | 56.6 M | 4096 of 24^3 | 8.917 | 0.780 | **11.4** |
 | 3a channel (3-D, hybrid-kep-weno, viscous, SSP-54) | 6.29 M | 512 of 32x24x16 | 3.17 | 0.230 | 13.8 |
 | `wg-b24` sphere, L3 (2026-11-24) | 7.08 M | 512 of 24^3 | 1.366 | 0.1147 | 11.9 |
 | `wg-b38` sphere, L3 (2026-11-24) | 28.1 M | 512 of 38^3 | 4.458 | 0.355 | 12.6 |
 
-The factor is not one number: on the same flow it is 11.9-16.3 with the grid. On the CPU node 2a costs 14.4 us per
+The factor is not one number: on the same flow it is 11.4-12.6 with the grid and the build (16.3 for 2a before the CPU
+build flushed subnormals). On the CPU node 2a costs 14.4 us per
 cell-step per core, against 12.4 for `wg-b24` (8 blocks per rank) and 10.2 for `wg-b38` (job 1369687; spreads 5.3 and
 0.7 %). The 2a figure is inflated by subnormal arithmetic in its developed state, which slows the CPU ranks that hold it
 and not the A30 ("Where a step's time goes" below): with flush to zero 2a costs 8.74 us per cell-step per core, the cold
@@ -142,6 +144,7 @@ the two grid-study grids are at 1.8 and 7.0 M cells per A30, below 2a's 14.2 M.
 | fnl-nvf (4 A30 per node) | 0.780 | 0.491 (0.79) | 0.260 (0.75) | 0.167 (0.58) |
 | cells per A30 | 14.2 M | 7.08 M | 3.54 M | 1.77 M |
 | cpu (64 ranks per node) | 12.7 | 6.48 (0.98) | 3.24 (0.98) | 2.31 (0.69; job 1369694) |
+| cpu, linked with `-mdaz-ftz` | 8.917 | - | - | 1.224 (0.91; jobs 1369732, 1369733) |
 
 **Weak scaling, uniform sphere** (g = step cost x devices / N, ns per cell-step; 24^3 blocks). The weak efficiency of
 the 2026-11-23 version mixed two costs: the cross-pair exchange inside a node (1 -> 4 A30) and the network (one node
@@ -181,10 +184,11 @@ top of one node's, against 14.2). In throughput the two 8-node runs are equal: 2
   without GPUDirect RDMA ("Where a step's time goes"). Strong scaling of 2a from 1 to 8 nodes (0.79, 0.75, 0.58) runs
   down the load curve: at 8 nodes 2a has 1.77 M cells per A30 in 24^3 blocks, where one node alone already costs 18 %
   more per cell than at 14.2 M.
-- **The CPU node scales to 4 nodes (2a 0.98 on 2 and 4) and, as measured, loses half on 8** (weak 0.53): subnormal
-  arithmetic on 76 ranks, not the network (with flush to zero 0.93-1.0, "Where a step's time goes"); a GPU node is
-  12-16 times faster than a CPU node
-  on the uniform 3-D flows (11.9 and 12.6 on the grid-study grids, 16.3 on 2a, 13.8 on the channel).
+- **The CPU node scales to 8 nodes since the GNU builds flush subnormals** (`-mdaz-ftz`: 2a strong 0.91, weak 1.01;
+  before it, 0.98 on 2 and 4 nodes and half lost on 8, weak 0.53): subnormal arithmetic on 76 ranks, not the network
+  (with flush to zero 0.93-1.0, "Where a step's time goes"); a GPU node is 11-14 times faster than a CPU node on the
+  uniform 3-D flows (11.9 and 12.6 on the grid-study grids, 11.4 on 2a with `-mdaz-ftz`, 16.3 before it, 13.8 on the
+  channel).
 - **The per-cell cost does not depend on the flow state** (0.5 %, "State independence" below): cold-started cases and
   developed ones are comparable.
 
@@ -348,19 +352,33 @@ value) at 974 ms with gradual underflow and 1055 ms with flush to zero (job 1369
 spread; flush to zero changes nothing where there is no subnormal); two grids at the same load, so an estimate. On one
 node 2a costs 8.74 us per cell-step per core with flush to zero, no more than the cold grid (8.81 us gradual, 9.54 with
 flush to zero): the "14.4 against 11.2 us" of "9.2.4" was this. The CPU numbers of the matrix on 2a (and on every
-developed state) carry the subnormal slowdown, so the GPU node / CPU node factor 16.3 on 2a is inflated; the grid-study
-factors (11.9, 12.6, cold grids) are the clean ones. Skipping the barriers on the CPU brings nothing (one node: 1150
-against 974 ms without the body, 1367 against 1266 with it; single runs, inside the CPU node's spread or worse).
+developed state) carry the subnormal slowdown, so the GPU node / CPU node factor 16.3 on 2a is inflated (11.4 with the
+flag, applied below); the grid-study factors (11.9, 12.6, cold grids) are the clean ones. Skipping the barriers on the
+CPU brings nothing (one node: 1150 against 974 ms without the body, 1367 against 1266 with it; single runs, inside the
+CPU node's spread or worse).
 
-**Ranked, with the measured or estimated gain** (proposals, none applied):
+**Ranked, with the measured or estimated gain** (proposals; item 1 applied 2026-11-24, see below):
 
 | # | Cost | Where | Gain | Proposal |
 |---|---|---|---|---|
-| 1 | subnormal arithmetic | CPU, developed states | -35 % (1 node) to -47 % (8 nodes) on 2a | flush to zero for the time loop (or `-ffast-math`'s crtfastmath at link), or floor values below a tiny threshold; changes results in the last bits: the regression goldens would need a refresh |
+| 1 | subnormal arithmetic | CPU, developed states | -35 % (1 node) to -47 % (8 nodes) on 2a | **applied**: the GNU optimized builds link with `-mdaz-ftz` (below) |
 | 2 | GPU halo between nodes at 1.5 GB/s | FNL, multi-node | up to ~9 ms of the ~12 ms per exchange (estimate at 23.5 GB/s host path plus the two device copies) | stage the inter-node halo through pinned host buffers; or GPUDirect RDMA on medooza (`nvidia_peermem`, admins) |
 | 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges |
 | 4 | the two `MPI_Barrier` per ghost exchange | both | 0.4-1.2 % (GPU), none (CPU) | remove (bitwise identical in every pair) |
 | 5 | across-the-pairs link in a node (17.7 GB/s) | FNL, 4 A30 | the 13-30 % of "Grid size" | rank order that keeps neighbours in an NVLink pair |
+
+**Applied (2026-11-24): `-mdaz-ftz`.** The GNU optimized template links with `-mdaz-ftz` (`fobos.d/templates.fobos`,
+GCC 12 or newer, x86): `crtfastmath.o` sets flush-to-zero and denormals-are-zero in the MXCSR before `main`, the code
+generation unchanged. Checked on medooza (job 1369731): every GNU CPU executable carries the constructor; an OpenMP
+probe sees flush to zero in all 4 threads (gradual underflow in all 4 with a plain link); the FLUME CPU suite passes
+bitwise (0 failures), the PRISM CPU suite fails only `rmf-hyperbolic`, the known pre-existing mismatch, with a digest
+byte-identical to the build without the flag. The matrix's 2a windows with the new executable (`run.sh windows`, work
+tree `speedup-133/ftz-windows`, jobs 1369732, 1369733; `results/2026-11-24/ftz-windows/`): 64 ranks 8.917 s per
+step (spread 9.1 %, the CPU node's; 12.7 s before, -30 %), 512 ranks 1.224 s (0.5 %; 2.311 s before, -47 %). The
+strong efficiency from 1 to 8 CPU nodes becomes 0.91 (0.69 before), the CPU weak pair 1.01 (`wg-b24` with the body on
+one node, 1.234 s, against 2a on 8 nodes, both at 110,592 cells per core; 0.53 before), and the GPU node / CPU node
+factor on 2a 11.4 (16.3 before). The 128- and 256-rank points of the 2026-11-23 tables were not rerun: every CPU number
+measured before this date on a developed state (2a, the AMR legs) carries gradual underflow.
 
 ### The accuracy-first paths: runtime AMR and 2-D (baselines)
 
