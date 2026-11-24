@@ -1,11 +1,16 @@
-# Performance: GPU and CPU nodes, runtime AMR, scaling
+# Performance: GPU and CPU nodes, uniform-grid scaling
 
-What a GPU node buys over a CPU node on three flows, what runtime AMR buys at equal finest spacing and where its
-overhead goes, and how the uniform and AMR grids scale across nodes. The measurements are the speedup matrix of
-[#133](https://github.com/szaghi/adam/issues/133); the harness, the protocol and every table are in
+What a GPU node buys over a CPU node, what sets the cost of a cell on an A30, and how FLUME scales inside a node and
+across nodes. **Scaling is measured and claimed on uniform 3-D grids only.** Runtime AMR (the host regrid, 2:1 seams,
+reflux, the runtime rank layout) and the 2-D quadtree path (ghost layers along the null axis) are implemented for
+accuracy and not yet optimised for performance: their timings are kept as baselines at the end of the page
+([The accuracy-first paths](#the-accuracy-first-paths-runtime-amr-and-2-d)), with no scaling claim.
+
+The measurements are the speedup matrix of [#133](https://github.com/szaghi/adam/issues/133) and its grid study; the
+harness, the protocol and every table are in
 [`src/tests/flume/speedup/README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/flume/speedup/README.md),
-the raw tables in its `results/2026-11-23/summary.{md,csv}`. The kernel-level profile of one GPU (where a step's time
-goes inside the A30) is the companion study
+the raw tables in its `results/2026-11-23/` and `results/2026-11-24/`. The kernel-level profile of one GPU (where a
+step's time goes inside the A30) is the companion study
 [`profile-couette3d`](https://github.com/szaghi/adam/blob/develop/src/tests/flume/speedup/profile-couette3d/README.md).
 
 ## The matrix
@@ -26,95 +31,101 @@ repartitioned for the reading rank count). A step cost is the median over three 
 $(T_{\rm loop}(110) - T_{\rm loop}(10))/100$, every output off; the grind time is
 $g = \text{step cost} \times \text{devices} / N$ (ns per cell-step, devices = GPUs or cores).
 
-**Hardware.** medooza `prod-gn`: a node holds 4 NVIDIA A30 (24 GB) and two Intel Xeon Gold 6338 (64 cores). A *GPU
-node* is 4 A30 with one MPI rank per GPU (FNL, OpenACC); a *CPU node* is 64 MPI ranks (CPU backend).
+The scaling cases are the uniform sphere (2a and the grid study's `wg-*` cases, the same flow on other grids) and
+the uniform channel (3a).
+
+**Hardware.** medooza `prod-gn`: a node holds 4 NVIDIA A30 (24 GB) and two Intel Xeon Gold 6338 (64 cores, 4 NUMA
+nodes). A *GPU node* is 4 A30 with one MPI rank per GPU (FNL, OpenACC); a *CPU node* is 64 MPI ranks (CPU backend).
 
 ## GPU node against CPU node
 
-![T(CPU node) / T(GPU node) per case](/flume/perf-backend-speedup.png)
+T(CPU node) / T(GPU node) on the uniform grids:
 
-| Leg | Uniform | Frozen AMR grid | Runtime AMR |
+| Case | Grid | Blocks | GPU node / CPU node |
 |---|---|---|---|
-| 1 step (2-D, WENO-7, SSP-54) | 5.83 | 5.75 | 5.72 |
-| 2 sphere (3-D, WENO-5, IB, SSP-33) | 16.3 | 12.2 | 10.9 |
-| 3 channel (3-D, hybrid, viscous, SSP-54) | 13.8 | 15.5 | 16.7 |
+| 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 16.3 |
+| 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 13.8 |
+| sphere, grid study | 7.08 M cells, L3 | 512 of 24³ | 11.9 |
+| sphere, grid study | 28.1 M cells, L3 | 512 of 38³ | 12.6 |
 
-A GPU node runs a step 11 to 17 times faster than a CPU node on the 3-D flows and 5.8 times faster on the 2-D step. The per-cell work differs between
-the legs, so their grind times are not comparable across legs; within the step the GPU's grind time is
-209 ns per cell-step at 1.03 M cells per A30, the CPU's 19.5 µs per cell-step per core.
+A GPU node runs the uniform 3-D flows 12 to 16 times faster than a CPU node; on the same flow the factor moves with
+the grid. On the CPU node the sphere costs 14.4 µs per cell-step per core on 2a, 12.4 on the 24³ grid and 10.2 on the
+38³ grid: 2a's 64 blocks per rank carry the immersed boundary's load imbalance, which the GPU node, with 1024 blocks
+per A30, does not feel. The two grid-study grids load the GPU node with 1.8 and 7.0 M cells per A30, below 2a's
+14.2 M ([what a cell costs](#what-a-cell-costs-on-one-a30)). Larger blocks make both nodes cheaper per cell.
 
-## Runtime AMR at equal finest spacing
+## What a cell costs on one A30
 
-![Step cost of the AMR grids over the uniform grid's, split inside and outside the time steps](/flume/perf-amr-decomposition.png)
+![Grind time of the uniform sphere against the block edge: on 1 A30, and the same grids on 1, 2 and 4 A30](/flume/perf-grid-study.png)
 
-| Leg | Node | AMR speedup T(U)/T(R) | Ideal N(U)/N(R) | Frozen grid T(U)/T(F) | Grid efficiency | T(R)/T(F) − 1 |
-|---|---|---|---|---|---|---|
-| 1 | GPU (4 A30) | 1.04 | 1.59 | 1.40 | 0.89 | 34 % |
-| 1 | CPU (64) | 1.06 | 1.59 | 1.42 | 0.90 | 34 % |
-| 2 | GPU (4 A30) | 1.48 | 4.02 | 2.04 | 0.51 | 38 % |
-| 2 | CPU (64) | 2.20 | 4.02 | 2.73 | 0.68 | 24 % |
-| 3 | GPU (4 A30) | 1.25 | 1.78 | 1.60 | 0.90 | 29 % |
-| 3 | CPU (64) | 1.03 | 1.78 | 1.43 | 0.81 | 39 % |
+The uniform sphere on grids of 2.1 to 28.1 M cells, 1 A30, from 20-step cold starts (the per-cell cost does not
+depend on the flow state: 0.5 %, measured on 2a):
 
-The grid efficiency is $[T(U)\,N(F)/N(U)]/T(F)$: 1 when an AMR cell costs what a uniform cell costs. Reading the
-table:
+| Block edge b (L3, 512 blocks) | 16 | 20 | 24 | 28 | 32 | 36 | 38 | 40 |
+|---|---|---|---|---|---|---|---|---|
+| cells | 2.10 M | 4.10 M | 7.08 M | 11.2 M | 16.8 M | 23.9 M | 28.1 M | 32.8 M |
+| g, ns per cell-step | 63.1 | 54.4 | 51.0 | 47.7 | 46.2 | 44.4 | 43.9 | does not fit |
 
-- **The frozen AMR grid keeps most of the cell saving on the step and the channel** (efficiency 0.81–0.90), and
-  half of it on the sphere on the GPU (0.51): a cell of the sphere's AMR grid costs 109 ns per step on 4 A30, a cell of
-  the uniform grid 55 ns, at a load (3.5 M cells per A30) where the uniform grid's grind time is flat
-  (51–55 ns from 3.5 to 14 M cells per A30). Kernel times locate it: at the same 254–256 blocks per GPU, the face fluxes cost the same on
-  the AMR and the uniform grid, while the intra-rank ghost fill (one map-driven kernel that copies same-level ghosts
-  and, on the AMR grid, also interpolates coarse-to-fine and restricts fine-to-coarse ones) costs 5.6 times as much:
-  96 % of the difference.
-- **On the GPU node the runtime overhead is the regrid**: the steps of R cost what the steps of F cost (2b 42.03 s,
-  2c 41.94 s per 110 steps), and the regrid, done on the host, costs 0.26–1.4 s per regrid step on 4 A30 when the grid
-  does not change and 2.0–2.5 s when it does (in these windows it changed once in ten regrid steps on legs 1 and 2,
-  never on leg 3). It scales with the blocks per GPU (sphere: 5.5–9 ms per block), so it shrinks with more GPUs but
-  stays 22–27 % of a runtime step that costs 0.2–0.5 s.
-- **On the CPU node the regrid is cheap** (1.3 % of the sphere's runtime step) **but the runtime layout is not**: a
-  runtime regrid distributes whole sibling sets (4 or 8 blocks) and splits every realm from rank 0, so on 64 ranks the
-  busiest rank of the step's runtime case holds 64,512 cells (one sibling set of each realm: the per-rank load of the
-  *uniform* 1a) against a mean of 40,680, and the channel's 98,304 (the uniform 3a's) against 55,296. The runtime step
-  then costs what the uniform step costs (1c 1.19 s against 1a 1.26 s; 3b 3.08 s against 3a 3.17 s). Run on the runtime layout, the frozen
-  grid costs what the runtime grid costs (1b on 1c's layout, 64 ranks: 1.184 s against 1b's own 0.887 s and 1c's
-  1.187 s): the layout, not the regrid, is the CPU's runtime overhead.
+- **The block size sets the cost of a cell.** The same 192³ grid costs 66.0 ns per cell-step as 4096 blocks of 12³,
+  51.0 as 512 of 24³ and 44.0 as 64 of 48³: a block of b³ cells stores (b + 6)³ (WENO-5, 3 ghost layers), and the
+  ghost cells are filled and partly computed every stage. Above a few million cells per A30 the load itself matters
+  little: 7.1 M cells in 48³ blocks cost what 28.1 M cells in 38³ blocks cost.
+- **The matrix's 24³ blocks leave ~16 % on the table**: 51.0 against 43.9–44.0 ns with 38³–48³ blocks.
+- **An A30 holds 28.1 M cells of the sphere** (38³ blocks, 88 % of the blocks budget); 32.8 M is refused at
+  initialisation (the budget, 0.85 of the 25.2 GB the A30 reports, holds 510 blocks of 46³ stored cells, 512 needed).
+
+## Inside a GPU node
+
+The same grids on 1, 2 and 4 A30 of one node (the right panel of the figure above):
+
+| b | 16 | 20 | 24 | 28 | 32 | 36 | 38 |
+|---|---|---|---|---|---|---|---|
+| g, 2 A30 / g, 1 A30 | 1.09 | 1.05 | 1.04 | 1.03 | 1.02 | 1.02 | 1.02 |
+| g, 4 A30 / g, 2 A30 | 1.30 | 1.25 | 1.22 | 1.18 | 1.19 | 1.16 | 1.13 |
+
+Two A30 cost 2–9 % more per cell than one; four cost another 13–30 %. The node explains the step: its A30 are
+NVLink-bridged in pairs (GPU 0–1 and GPU 2–3, 4 × 25 GB/s each way), while between the pairs, and from every GPU to
+the InfiniBand card, the path is PCIe plus the inter-socket link. The four GPUs hang off NUMA nodes 0, 1, 3 and 3.
+
+**Rank placement is not the cause.** The default launch leaves three of the four ranks on host cores away from their
+GPU's NUMA node (ranks 1 and 3 on NUMA 2, which has no GPU). Pinning each rank to its GPU, to 8 cores of that GPU's
+NUMA node and to its memory changes the grind time by −0.8 to 0 % on one and on two nodes (2a, and the 24³ and 38³
+grids), inside the spreads. The halo exchange posts MPI on device buffers (no host staging), so the host core is off its
+path, and the cost of the fourth A30 is the link between the NVLink pairs. Pinning does one useful thing: unpinned, every rank also opens a context on GPU 0, which then has
+0.9 GB less free memory than the others; pinned, all four have the same.
 
 ## Scaling across nodes
 
-![Grind time against cells per device](/flume/perf-grind.png)
+**Strong scaling of the uniform sphere** (2a, 56.6 M cells, 24³ blocks; step cost in s, efficiency against one node):
 
-**Strong scaling** (step cost in s; efficiency against one node):
-
-| Case | 4 / 8 / 16 / 32 A30 | Efficiency 8 / 16 / 32 | CPU 64 / 128 / 256 ranks | Efficiency 128 / 256 |
+| Node | 1 | 2 | 4 | 8 |
 |---|---|---|---|---|
-| 1a step uniform | 0.216 / 0.119 / 0.070 / – | 0.91 / 0.77 / – | 1.26 / 0.642 / 0.328 | 0.98 / 0.96 |
-| 1b step frozen | 0.154 / 0.089 / 0.057 / – | 0.87 / 0.67 / – | 0.887 / 0.544 / 0.334 | 0.81 / 0.66 |
-| 1c step runtime | 0.207 / 0.119 / 0.076 / – | 0.87 / 0.69 / – | 1.19 / 1.18 / 1.18 | 0.50 / 0.25 |
-| 2a sphere uniform | 0.780 / 0.491 / 0.260 / 0.167 | 0.79 / 0.75 / 0.58 | 12.7 / 6.48 / 3.24 | 0.98 / 0.98 |
-| 2b sphere runtime | 0.526 / 0.350 / 0.312 / 0.188 | 0.75 / 0.42 / 0.35 | 5.76 / 3.95 / 3.06 | 0.73 / 0.47 |
-| 2c sphere frozen | 0.381 / 0.284 / 0.257 / 0.161 | 0.67 / 0.37 / 0.30 | 4.64 / 3.13 / 1.97 | 0.74 / 0.59 |
-| 3a channel uniform | 0.800 (1 A30) / 0.230 (4) | 0.87 (1 → 4) | 3.17 (64) | – |
+| GPU nodes (4 A30 each) | 0.780 | 0.491 | 0.260 | 0.167 |
+| efficiency | 1 | 0.79 | 0.75 | 0.58 |
+| cells per A30 | 14.2 M | 7.08 M | 3.54 M | 1.77 M |
+| CPU nodes (64 cores each) | 12.7 | 6.48 | 3.24 | – |
+| efficiency | 1 | 0.98 | 0.98 | – |
 
-**Weak scaling and grind time** (g in ns per cell-step; weak efficiency $g(\text{ref})/g$ at the same cells per A30):
+The GPU efficiency at 8 nodes is set by the load as much as by the network: 1.77 M cells per A30 in 24³ blocks is
+where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns per cell-step against 55.1 at
+14.2 M). The largest run is the L5 sphere, 453 M cells on 32 A30 (8 nodes), at 0.98 s per step.
 
-| Series | Cells per A30 | A30 (nodes): g | Weak efficiency |
-|---|---|---|---|
-| sphere | 14.2 M | 4 (1): 55.1; 32 (8): 69.3 | 0.80 |
-| sphere | 7.08 M | 1 (1): 51.0; 8 (2): 69.4 | 0.73 |
-| sphere | 3.54 M | 2 (1): 52.7; 16 (4): 73.4 | 0.72 |
-| sphere | 1.77 M | 4 (1): 64.8; 32 (8): 94.6 | 0.68 |
-| step | 1.03 M | 1: 202; 4: 209; 8 (2): 212; 16 (4): 214 | 0.97 / 0.96 / 0.95 |
+**Weak scaling of the uniform sphere** (g in ns per cell-step; inter-node efficiency = g on one 4-A30 node / g on
+8 nodes at the same cells per A30 and the same blocks: an octree level is 8 times the cells, so 4 A30 pair with 32):
 
-- **Uniform grids scale**: 0.96–0.98 on 4 CPU nodes; 0.79–0.91 on 2 GPU nodes and 0.75–0.77 on 4, 0.58 for the sphere
-  on 8 GPU nodes at 1.77 M cells per A30. The largest run is the L5 sphere, 453 M cells on 32 A30 (8 nodes), at 0.98 s per step.
-- **On one GPU node the grind time is flat** at 51–55 ns from 3.5 to 14 M cells per A30 and rises below (65 ns at
-  1.77 M). Leaving the node costs the sphere 20–32 % at equal load (weak efficiency 0.68–0.80); the 2-D step 3–5 %
-  (why it loses less is not measured).
-- **The AMR grids of the sphere stop scaling below about 1 M cells per A30** (2c costs 0.26 s per step on 16 A30, the
-  same as 2a with four times the cells), and the CPU's runtime step stops at 64 ranks (the layout above).
-- **The per-cell cost does not depend on the flow state**: a cold start of the L4 sphere (20 steps, the shock far
-  from the body) costs 0.7776 s per step on 4 A30, the developed state of 2a (t = 0.15) 0.7815 s, on the same node:
-  0.5 %. The weak cases, which start cold, and 2a, which starts developed, are comparable.
+| Cells per A30 | Blocks | One node, 4 A30 | 8 nodes, 32 A30 | Inter-node efficiency |
+|---|---|---|---|---|
+| 14.2 M | 24³ | 55.1 (2a, 56.6 M cells) | 69.3 (L5, 453 M cells) | 0.80 |
+| 7.02 M | 38³ | 50.5 (L3, 28.1 M cells) | 67.0 (L4, 225 M cells) | 0.75 |
+
+- **Leaving the node costs 20–25 % per cell on 8 nodes** at 7–14 M cells per A30. The pair at 38³ blocks loses more
+  than the one at 24³ although its blocks carry fewer ghost cells: its cells are 15 % cheaper, and at half the load
+  per A30 the same exchange weighs more. In throughput the two 8-node runs are equal (478 and 462 M cell-steps per
+  second).
+- **The weak efficiencies of the first version (0.72–0.73 at 3.5–7 M cells per A30) mixed two costs**: their 1- and
+  2-A30 references left out the cross-pair cost of the fourth A30 (13–22 % at those loads), which belongs to the node,
+  not to the network.
+- **The CPU node scales almost perfectly** (0.98 on 2 and 4 nodes), but each CPU node is 12–16 times slower.
 
 ## Device memory
 
@@ -131,13 +142,60 @@ stored-cell slots of the capacity, residuals below 5 MiB):
 
 The budget overestimates a slot by 10–26 % (it counts the face fluxes as full stored blocks), and at its default
 fraction 0.85 an A30 keeps 2.5–4.9 GiB free. GPU 0 holds 0.87 GiB more than the others in every run (not identified).
-The 2-D step pays for its null axis: a quadtree block stores `ngc` ghost layers along its single $z$ cell (realm C's
-192 × 64 × 1 block is stored as 200 × 72 × 9), and each realm of a forest gets an equal share of the device; together
-they cap the step at about 1.7 M cells per A30.
+The budget, not the device, sets the sphere's ceiling of 28.1 M cells per A30.
+
+## The accuracy-first paths: runtime AMR and 2-D
+
+Runtime AMR and the 2-D quadtrees are implemented for accuracy; their performance is not optimised yet, and the
+numbers below are baselines for that work, not scaling results.
+
+![Step cost of the AMR grids over the uniform grid's, split inside and outside the time steps](/flume/perf-amr-decomposition.png)
+
+| Leg | Node | AMR speedup T(U)/T(R) | Ideal N(U)/N(R) | Frozen grid T(U)/T(F) | Grid efficiency | T(R)/T(F) − 1 |
+|---|---|---|---|---|---|---|
+| 1 | GPU (4 A30) | 1.04 | 1.59 | 1.40 | 0.89 | 34 % |
+| 1 | CPU (64) | 1.06 | 1.59 | 1.42 | 0.90 | 34 % |
+| 2 | GPU (4 A30) | 1.48 | 4.02 | 2.04 | 0.51 | 38 % |
+| 2 | CPU (64) | 2.20 | 4.02 | 2.73 | 0.68 | 24 % |
+| 3 | GPU (4 A30) | 1.25 | 1.78 | 1.60 | 0.90 | 29 % |
+| 3 | CPU (64) | 1.03 | 1.78 | 1.43 | 0.81 | 39 % |
+
+The grid efficiency is $[T(U)\,N(F)/N(U)]/T(F)$: 1 when an AMR cell costs what a uniform cell costs. Where the AMR
+cost goes:
+
+- **A cell of the sphere's AMR grid costs twice a uniform cell on the A30** (grid efficiency 0.51): at the same
+  254–256 blocks per GPU the face fluxes cost the same on both grids, while the intra-rank ghost fill (one map-driven
+  kernel that copies same-level ghosts and, on the AMR grid, also interpolates coarse-to-fine and restricts
+  fine-to-coarse ones) costs 5.6 times as much: 96 % of the difference.
+- **On the GPU node the runtime overhead is the regrid, which runs on the host** at every regrid step (0.26–1.4 s
+  when the grid does not change, 2.0–2.5 s when it does); it scales with the blocks per GPU and stays 22–27 % of a
+  runtime step.
+- **On the CPU node the regrid is cheap** (1.3 % of the sphere's runtime step) **but the runtime layout is not**: a
+  runtime regrid distributes whole sibling sets and splits every realm from rank 0, so the busiest rank keeps the
+  uniform grid's load (the step's runtime case: 64,512 cells against a mean of 40,680). The runtime step then costs
+  what the uniform step costs, and does not shrink with more ranks (1.19 s on 64, 128 and 256 ranks).
+- **The 2-D step's cell costs 1.60 cells of the same step extruded in 3-D** at the same order and load (202 against
+  126 ns per cell-step): the boundary-condition kernel refills the `ngc` ghost layers along the null axis at every
+  stage (59 % of the 2-D kernel time). The same ghosts cap the step at about 1.7 M cells per A30. A GPU node runs the
+  step 5.8 times faster than a CPU node (uniform 5.83, frozen 5.75, runtime 5.72), against 14–16 on the 3-D uniform
+  grids.
+
+Timings of these paths on more nodes (baselines; step cost in s on 4 / 8 / 16 / 32 A30 and 64 / 128 / 256 cores):
+
+| Case | GPU nodes 1 / 2 / 4 / 8 | CPU nodes 1 / 2 / 4 |
+|---|---|---|
+| 1a step uniform (2-D) | 0.216 / 0.119 / 0.070 / – | 1.26 / 0.642 / 0.328 |
+| 1b step frozen | 0.154 / 0.089 / 0.057 / – | 0.887 / 0.544 / 0.334 |
+| 1c step runtime | 0.207 / 0.119 / 0.076 / – | 1.19 / 1.18 / 1.18 |
+| 2b sphere runtime | 0.526 / 0.350 / 0.312 / 0.188 | 5.76 / 3.95 / 3.06 |
+| 2c sphere frozen | 0.381 / 0.284 / 0.257 / 0.161 | 4.64 / 3.13 / 1.97 |
+
+![Grind time against cells per device, every case of the matrix](/flume/perf-grind.png)
 
 ## What the measurements say about the hypotheses of the plan
 
-The plan of [#133](https://github.com/szaghi/adam/issues/133) stated four hypotheses before the runs:
+The plan of [#133](https://github.com/szaghi/adam/issues/133) stated four hypotheses before the runs, three of them on
+the accuracy-first paths:
 
 | Hypothesis | Verdict | The measurement |
 |---|---|---|
@@ -149,15 +207,14 @@ The plan of [#133](https://github.com/szaghi/adam/issues/133) stated four hypoth
 ## Limits
 
 - One machine (A30, Xeon Gold 6338); the AMD MI300X node of the plan is not measured yet.
-- The windows are short (110 steps): a runtime grid changed once in ten regrids on legs 1 and 2 and never on leg 3, so
-  a flow with more churn pays more regrid than shown here.
-- Two residual biases were measured and are not in these numbers: printing the progress lines on every rank costs
-  nothing measurable, and computing the conservation integrals every step costs 0.9 % on 4 A30; the windows run with
-  every diagnostic output off.
+- The matrix and its multi-node runs use 24³ blocks; the grid study shows 38³–48³ blocks are ~16 % cheaper per cell
+  on one A30, so the multi-node numbers are not the best this hardware gives.
+- Up to 8 nodes (32 A30), the most medooza schedules.
+- The windows are short (110 steps); two residual biases were measured and are not in these numbers: printing the
+  progress lines on every rank costs nothing measurable, and computing the conservation integrals every step costs
+  0.9 % on 4 A30.
 
 ## Open issues found
-
-The measurements located five costs, recorded for follow-up issues (drafts of the #133 night, not yet filed):
 
 | Cost | Where it shows | Proposal |
 |---|---|---|
@@ -167,7 +224,8 @@ The measurements located five costs, recorded for follow-up issues (drafts of th
 | A 2-D block stores ghost layers along its null axis; realms share the device equally | the step fits ~1.7 M cells per A30 | no ghosts on a null axis; device share in proportion to stored cells |
 | The FNL job's free-memory check sees the batch node only | multi-node jobs | check every node |
 
-*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (commit pending), CPU gfortran 16.2.0 + Open MPI 5.0.11
-(`iac_gnu`) on medooza (Intel Xeon Gold 6338, 64 ranks per node), FNL nvfortran 26.9, CUDA 12.9, LTO (`iac_nvf`) on
-NVIDIA A30 (4 per node), 2026-11-23 (`speedup/run.sh` windows, `analyze.py`; jobs 1369400-1369597 of the matrix and
-1369616 (n3m-A) of the memory, bias, state, 3-D step and kernel-time checks; `matrix_plot.py` draws the figures from `summary.csv`).*
+*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (since committed, `6f5e57a1`..`b06f02d3`), CPU gfortran
+16.2.0 + Open MPI 5.0.11 (`iac_gnu`) on medooza (Intel Xeon Gold 6338, 64 ranks per node), FNL nvfortran 26.9, CUDA
+12.9, LTO (`iac_nvf`) on NVIDIA A30 (4 per node): the matrix 2026-11-23 (jobs 1369400-1369597, 1369616), the grid study and the
+rank placement 2026-11-24 (jobs 1369668-1369679, 1369687-1369691); `speedup/run.sh` windows, `analyze.py`, `matrix_plot.py`
+and `grid_study_plot.py`.*

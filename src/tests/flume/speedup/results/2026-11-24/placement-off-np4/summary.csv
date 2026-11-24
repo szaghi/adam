@@ -1,0 +1,4 @@
+leg,case,role,backend,np,repetitions,step_cost_s,spread,steps_cost_s,regrid_cost_s,seam_cost_s,cells_mean,ns_per_cell_step,reduced,commit,notes,kind,series,cells_per_device,strong_ref_np,strong_efficiency,weak_group,weak_ref_np,weak_efficiency
+2,2a-sphere-uniform,uniform,fnl-nvf,4,3,0.7836799999999999,0.007750612494895907,0.782791,0.0023480000000000003,0.0,56623104.0,55.36114728009259,0,HEAD,built from sources that differ from the recorded commit (src_modified=yes),matrix,,14155776.0,,,,,
+2,wg-b24,uniform,fnl-nvf,4,3,0.114527,0.002925074436595633,0.11429700000000001,0.00010499999999999999,0.0,7077888.0,64.72382722077548,0,HEAD,built from sources that differ from the recorded commit (src_modified=yes),matrix,,1769472.0,,,,,
+2,wg-b38,uniform,fnl-nvf,4,3,0.355513,0.0018677235431615662,0.35494299999999995,0.00035200000000000005,0.0,28094464.0,50.61680479115032,0,HEAD,built from sources that differ from the recorded commit (src_modified=yes),matrix,,7023616.0,,,,,
