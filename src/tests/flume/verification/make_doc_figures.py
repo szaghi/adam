@@ -5715,6 +5715,95 @@ def fig_paper_sbli(out: Path, runs: Path) -> None:
     plt.close(fig)
 
 
+def _channel_ev_series(work: Path, tw: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """The three series of fig_channel_m3_ev for one run, computed as there: (t, Re_tau) from the driving force smoothed
+    over ~1/400 of the history with the wall density of each checkpoint interpolated in time; the checkpoints' (t,
+    rho_w, T_1/T_w); the 50-unit windows' (t, Q_w/W) of the total-energy budget."""
+    sys.path.insert(0, str(HERE / "turbulence"))
+    import channel_wall_cells as cw  # noqa: PLC0415
+
+    f, c = cw.history(work / "channel-forcing_history.dat"), cw.history(work / "channel-conservation_history.dat")
+    rows, ratio = [], 1.0
+    for t, tag in cw.checkpoints(work):
+        lay, _, _, _ = cw.layers(work, tag)
+        r1, _, _, t1 = lay[min(lay)]
+        rows.append((t, float((r1 * t1).mean()) / tw, float((r1 * t1).mean() / r1.mean()) / tw))
+        ratio = sum(float(u.sum()) for _, u, _, _ in lay.values()) / sum(float((r * u).sum()) for r, u, _, _ in lay.values())
+    a = np.array(rows)
+    w = max(1, len(f) // 400)
+    sm = np.convolve(f[:, 2], np.ones(w) / w, "valid")
+    ts = f[w // 2 : w // 2 + len(sm), 1]
+    re_tau = np.column_stack([ts[::w], 4880.0 * np.sqrt(sm[::w] * np.interp(ts[::w], a[:, 0], a[:, 1]))])
+    work_rate = np.interp(c[:, 1], f[:, 1], f[:, 2]) * c[:, 3] * ratio
+    win = []
+    for lo in range(0, int(c[-1, 1] + 1e-9), 50):
+        m = (c[:, 1] > lo) & (c[:, 1] <= lo + 50.0)
+        if m.sum() > 3:
+            wr = float(work_rate[m].mean())
+            win.append((lo + 25.0, (wr - np.polyfit(c[m, 1], c[m, 6], 1)[0]) / wr))
+    return re_tau, a, np.array(win), f
+
+
+def fig_paper_channel(out: Path, runs: Path) -> None:
+    """Paper figure (issue #144): the Mach 3 channel with the wall model's eddy viscosity below h, 128 x 64 x 64, to
+    t = 800 (the runs of fig_channel_m3_ev, the planes of fig_channel_fields, bottom row). (a-c) u/U_b at the last
+    checkpoint of the h = 0.15 semi-local run: the x-y plane at mid-span, the wall-parallel plane at the matching height
+    above the lower wall, the cross-flow plane, one colour scale; (d) Re_tau, (e) the first-cell T/T_w, (f) Q_w/W in
+    50-unit windows against t for the three settings, the DNS dashed in (d); the legend below the plots."""
+    root = runs / "channel"
+    s = _slices(root / "channel-m3-slices.npz")
+    x, y, z = s["x"], s["y"], s["z"]
+    ub = np.nanmean(s["avg_u"])
+    planes = ((s["xy_u"].T / ub, [x[0], x[-1], y[0], y[-1]], ("x", "y")),
+              (s["xz_u"].T / ub, [x[0], x[-1], z[0], z[-1]], ("x", "z")),
+              (s["yz_u"] / ub, [z[0], z[-1], y[0], y[-1]], ("z", "y")))
+    lo, hi = np.nanpercentile(np.concatenate([p[0].ravel() for p in planes]), [0.5, 99.5])
+    fig = plt.figure(figsize=_paper_size(4.5), layout="constrained")
+    gs = fig.add_gridspec(3, 4, width_ratios=[1.0, 1.0, 1.0, 0.035], height_ratios=[0.8, 1.15, 1.5])
+    for cell, (img, ext, (h, v)) in zip((gs[0, 0:3], gs[1, 0:2], gs[1, 2]), planes, strict=True):
+        ax = fig.add_subplot(cell)
+        im = ax.imshow(img, origin="lower", extent=ext, cmap="cividis", vmin=lo, vmax=hi, aspect="equal",
+                       interpolation="nearest")
+        ax.set_xlabel(f"${h}$")
+        ax.set_ylabel(f"${v}$")
+        if v == "y":
+            ax.set_yticks([-1.0, 0.0, 1.0])
+    fig.colorbar(im, cax=fig.add_subplot(gs[0:2, 3]), label=r"$u/U_b$")
+    tw = 1.0 / (1.4 * 9.0)
+    cases = (("m3-wm-g3-h15-sl-ev", "$h = 0.15$, semi-local", "o"), ("m3-wm-g3-ev", "3rd cell, classical", "s"),
+             ("m3-wm-g3-h15-ev", "$h = 0.15$, classical", "^"))
+    axd, axe, axf = fig.add_subplot(gs[2, 0]), fig.add_subplot(gs[2, 1]), fig.add_subplot(gs[2, 2])
+    notes = {}
+    for k, (name, label, marker) in enumerate(cases):
+        re_tau, a, win, f = _channel_ev_series(root / name, tw)
+        color = f"C{k}"
+        _paper_marked(axd, re_tau[:, 0], re_tau[:, 1], color, marker, label)
+        _paper_marked(axe, a[:, 0], a[:, 2], color, marker, "_" + label)
+        _paper_marked(axf, win[:, 0], win[:, 1], color, marker, "_" + label)
+        notes[name] = {"t_last": float(a[-1, 0]), "rho_w_last": float(a[-1, 1]), "t1_tw_last": float(a[-1, 2]),
+                       "qw_w_last_window": float(win[-1, 1]), "checkpoints": len(a)}
+    axd.axhline(451.0, color="k", ls="--", lw=0.8, label="DNS")
+    axe.axhline(1.0, color="k", lw=0.6)
+    axf.axhline(1.0, color="k", lw=0.6)
+    axd.set_ylabel(r"$Re_\tau$")
+    axe.set_ylabel(r"$T_1/T_w$")
+    axf.set_ylabel(r"$Q_w/W$")
+    for ax in (axd, axe, axf):
+        ax.set_xlabel("$t$")
+        ax.set_xlim(0.0, 800.0)
+        ax.xaxis.set_major_locator(mpl.ticker.MultipleLocator(200.0))
+        ax.grid(alpha=0.3)
+    fig.legend(*axd.get_legend_handles_labels(), loc="outside lower center", ncols=4, frameon=False, handlelength=1.8,
+               columnspacing=1.0, handletextpad=0.4)
+    fig.paper_notes = {"fields": {"case": "m3-wm-g3-h15-sl-ev", "time": round(float(s["time"]), 2),
+                                  "plane_xy_z": round(float(s["cut"][2]), 4), "plane_xz_y": round(float(s["cut"][1]), 4),
+                                  "plane_yz_x": round(float(s["cut"][0]), 4), "u_b": float(ub),
+                                  "range_0.5_99.5pc": [float(lo), float(hi)]},
+                       "runs": notes, "t_w": tw, "dns_re_tau": 451.0}
+    fig.savefig(out / "paper-channel.png")
+    plt.close(fig)
+
+
 def _tbl_compare(runs: Path, case: str, stat: Path) -> dict:
     """tbl_oracle.py compare of one boundary-layer run over 180 < t <= 360 (as fig_tbl_m2p5_res), as a dict."""
     import json  # noqa: PLC0415
@@ -5845,6 +5934,13 @@ def paper_figures() -> list:
     ]
 
 
+# the n3f rerun of the Mach 3 channel (issue #144, Fig. 4): the build and the three runs, 2026-11-24
+N3F_JOBS = ["1369653 (n3f-build: flume-fnl-nvf, plain iac_nvf; also the Mach 1.5 planes of channel-fields)",
+            "1369654 (n3f-h15sl, m3-wm-g3-h15-sl-ev, and its planes)", "1369655 (n3f-3rd, m3-wm-g3-ev)",
+            "1369658 (n3f-h15, m3-wm-g3-h15-ev)"]
+N3F_COMMIT = "95ffd728 (develop; the tree of the working copy at 2026-11-23 23:39, no local Fortran change)"
+
+
 def paper_figures_144() -> list:
     """The results figures of the paper regenerated in issue #144 (paper-only functions, fig_paper_*), with the
     provenance traced by hand: the run directories on medooza, their Slurm jobs, the commit that recorded the numbers the
@@ -5879,6 +5975,23 @@ def paper_figures_144() -> list:
                      "caption": "Mach 0.1; (a) omega_x at x ~ 0, t = 4.22; (b) omega_x at x ~ 0, t = 9.36; "
                                 "(c) omega_z at z ~ pi, t = 9.36; each map its own symmetric range (99.5th "
                                 "percentile); DNS 512^3 spectral (Wang et al. 2013)"}),
+        Spec("channel", fig_paper_channel, "paper-channel", "text", 4.5,
+             note="Mach 3 channel, eddy viscosity below h: u fields of the h = 0.15 semi-local run (a-c); Re_tau (d), "
+                  "first-cell T/T_w (e), Q_w/W (f) of the three settings",
+             traced={"runs": ["medooza:/ifs/hpc/home/szaghi/adam-tests/n3f/runs/m3-wm-g3-{h15-sl-ev,ev,h15-ev} "
+                              "(channel_cases_t3_mach3_ev.txt to t = 200, then channel_cases_t3_mach3_ev800.txt to "
+                              "t = 800, in one job each; rerun for #144, the runs of c40585e8 were not kept)",
+                              "medooza:/ifs/hpc/home/szaghi/adam-tests/n3f/channel-m3-slices.npz (field_slices.py "
+                              "--y -0.85, last checkpoint of m3-wm-g3-h15-sl-ev)"],
+                     "jobs": N3F_JOBS, "run_commit": N3F_COMMIT,
+                     "recorded_at": "the page turbulence/channel.md, rerun numbers (the first run was recorded at "
+                                    "c40585e8)",
+                     "toolchain": "nvfortran 26.9, CUDA 12.9, HPC-X Open MPI (flume-fnl-nvf, plain iac_nvf: device LTO)",
+                     "device": a30,
+                     "caption": "bulk Mach 3, Re 4880, 128 x 64 x 64; (a) x-y plane at mid-span, (b) wall-parallel "
+                                "plane at the matching height h = 0.15 above the lower wall, (c) cross-flow plane, one "
+                                "colour scale; (d) Re_tau with the wall density of each checkpoint, DNS 451 dashed; "
+                                "(e) first-cell Favre T/T_w; (f) Q_w/W in 50-unit windows"}),
         Spec("boundary-layer", fig_paper_tbl, "paper-tbl", "text", 3.55,
              note="Mach 2.5 boundary layer: u fields (a, b), C_f (c), u+_VD (d)",
              traced={"runs": ["medooza:/ifs/hpc/home/szaghi/adam-tests/i119-tauw/runs/m2p5-wm-l90 (delta_i/12)",

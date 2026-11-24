@@ -244,7 +244,7 @@ What the scheme does to turbulence, then the closures: subgrid-scale models, a h
 
 [![The hybrid central/WENO scheme](/flume/tgv-hybrid.png)<strong>The hybrid central/WENO scheme</strong><span>the central/WENO hybrid at $128^3$ closer to the DNS than WENO-5 at $256^3$ on every L2 error; a subgrid model makes it worse</span><em>physics + contract</em>](./turbulence/hybrid-scheme)
 
-[![Plane channel and the wall model](/flume/channel-wm.png)<strong>Plane channel and the wall model</strong><span>the equilibrium wall model in a compressible channel: $Re_\tau$ 219–222 at Mach 1.5 (DNS 220–222) and 443–445 at Mach 3 (DNS 451)</span><em>physics + contract</em>](./turbulence/channel)
+[![Plane channel and the wall model](/flume/channel-wm.png)<strong>Plane channel and the wall model</strong><span>the equilibrium wall model in a compressible channel: $Re_\tau$ 219–222 at Mach 1.5 (DNS 220–222) and 444–446 at Mach 3 (DNS 451)</span><em>physics + contract</em>](./turbulence/channel)
 
 [![Compressible boundary layer](/flume/tbl-m2p5.png)<strong>Compressible boundary layer</strong><span>Mach 2.5 and 5.86 layers from a digital-filter inflow: $C_f$ 0.2 % below the DNS at $\delta_i/16$, 3.8 % below at Mach 5.86 with $B_q$ as the DNS</span><em>physics + contract</em>](./turbulence/boundary-layer)
 

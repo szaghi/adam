@@ -105,7 +105,7 @@ shock tube against its exact solution; the [tutorial](/tutorials/flume/sod) cont
 
 [![Vorticity of the Taylor-Green vortex and of isotropic turbulence](/flume/tgv-fields.png)<strong>Taylor–Green and isotropic turbulence</strong><span>vorticity, hybrid-kep-weno at 128³</span>](./verification/turbulence/hybrid-scheme)
 
-[![Streamwise velocity in two wall-modelled channels](/flume/channel-fields.png)<strong>Wall-modelled channel</strong><span>Mach 1.5 and 3: Re_τ 219–222 and 443–445, DNS 220–222 and 451</span>](./verification/turbulence/channel)
+[![Streamwise velocity in two wall-modelled channels](/flume/channel-fields.png)<strong>Wall-modelled channel</strong><span>Mach 1.5 and 3: Re_τ 219–222 and 444–446, DNS 220–222 and 451</span>](./verification/turbulence/channel)
 
 [![Balsara-Spicer blast with the positivity limiter](/flume/blast.png)<strong>Balsara–Spicer blast</strong><span>β = 2.5·10⁻⁴ with the positivity limiter, both space schemes</span>](./verification/mhd/positivity-limiter)
 
