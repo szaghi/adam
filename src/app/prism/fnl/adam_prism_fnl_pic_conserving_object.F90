@@ -215,7 +215,6 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self), private :: build_virtual_geometry  !< Virtual block of the whole domain.
       procedure, pass(self), private :: scatter_current         !< Real q(J) = virtual J, ghosts included.
       procedure, pass(self), private :: impose_virtual_ghosts   !< Odd/zero current ghosts of the virtual block.
-      procedure, pass(self), private :: impose_virtual_ghosts_periodic !< Virtual current ghosts with periodic axes.
       procedure, pass(self), private :: deposit_matched_charge_box !< Matched rho per particle, folded (periodic).
       procedure, pass(self), private :: check_source_support    !< Particle source inside its trajectory support box.
       procedure, pass(self), private :: transposed_filter_axis  !< P^T convolution of the coherent gather along one axis.
@@ -291,8 +290,8 @@ contains
    nrk = int(self%nrk, I8P)
    n   = int(self%n, I8P)
    pv  = int(PIC_VARIABLES_NUMBER, I8P)
-   bytes = 8_I8P*((3_I8P*nrk + 3_I8P + 2_I8P)*c + 3_I8P*cg)                      ! h, hs, work_a/b, jv
-   if (.not.self%box_current) bytes = bytes + 8_I8P*product(n + 1_I8P)           ! line
+   bytes = 8_I8P*(3_I8P*nrk + 3_I8P + 2_I8P)*c                                    ! h, hs, work_a/b
+   if (.not.self%box_current) bytes = bytes + 8_I8P*(3_I8P*cg + product(n + 1_I8P)) ! jv, line
    if (cap > 0_I8P) then
       bytes = bytes + 8_I8P*pv*cap*2_I8P                                         ! q_next, q_ref
       if (self%tail_cleanup) bytes = bytes + 8_I8P*pv*cap*nrk                    ! q_hist
@@ -557,7 +556,10 @@ contains
       ! odd esirkepov_Q: shifted positions of the rho deposit
       if (self%layout%shifted) call alloc_r2(self%q_mixed_gpu, [np,PIC_VARIABLES_NUMBER], 'q_mixed_gpu')
    endif
-   call alloc_r5(self%jv_gpu, [1,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jv_gpu')
+   ! the virtual current with ghosts serves the solves of the non-periodic path only: the box path stores its current from
+   ! h directly (store_box_current, issue #112 M3 F1)
+   if (.not.self%layout%box_current) &
+      call alloc_r5(self%jv_gpu, [1,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jv_gpu')
    if (self%layout%tail_cleanup) then
       call alloc_r5(self%jp_gpu, [1,ni+ngc,nj+ngc,nk+ngc,3], [1,1-ngc,1-ngc,1-ngc,1], 'jp_gpu')
       if (np > 1_I4P) then
@@ -1319,31 +1321,75 @@ contains
 
    subroutine store_box_current(self, q, var_jx, hq)
    !< Real q(J) = virtual stage current of the box solver (deposit_matched_current_box + combine_stage_source), ghosts
-   !< included: the virtual ghosts are the periodic images along the periodic axes and the odd mirror along the others
-   !< (impose_virtual_ghosts_periodic), then scatter_current. CPU twin: store_matched_current.
+   !< included, read directly from hq (issue #112, M3 F1: no virtual current with ghosts, jv_gpu, on this path). A real cell
+   !< (b,i,j,k) is the virtual cell off(b,:)+(i,j,k); a virtual ghost takes, axis by axis, the periodic image along a
+   !< periodic axis (every component) and, along the others, the odd mirror of the normal component, the tangential ones
+   !< being zero there. These are the values of the former copy into jv_gpu + one ghost kernel per axis in the order x, y,
+   !< z + scatter_current, bit for bit, the sign of zero included: a mirrored normal component is negated also where its
+   !< image is a zero ghost. CPU twin: store_matched_current.
    class(prism_fnl_pic_conserving_object), intent(inout) :: self               !< Conserving current object.
    real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Real field.
    integer(I4P),                           intent(in)    :: var_jx             !< Jx slot in q.
    real(R8P),                              intent(in)    :: hq(1:,1:,1:,1:,1:) !< Virtual current [1,NX,NY,NZ,3].
-   real(R8P), pointer                                    :: jv(:,:,:,:,:)
-   integer(I4P)                                          :: i, j, k, d, ni, nj, nk
+   integer(I4P), pointer                                 :: off(:,:)
+   integer(I4P)                                          :: b, i, j, k, d, ni, nj, nk, bni, bnj, bnk, ngc, nbl, vj
+   integer(I4P)                                          :: ci, cj, ck
+   logical                                               :: perx, pery, perz, zero, negate
+   real(R8P)                                             :: val
 
-   ni = self%ni ; nj = self%nj ; nk = self%nk
-   jv => self%jv_gpu
-   call zero_current(self=self, q=jv, var_jx=1_I4P)
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(jv,hq)
-   !$omp OMPLOOP collapse(4) DEVICEPTR(jv,hq)
+   ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc ; vj = var_jx
+   bni = self%bni ; bnj = self%bnj ; bnk = self%bnk ; nbl = self%bblocks
+   perx = self%is_periodic(1) ; pery = self%is_periodic(2) ; perz = self%is_periodic(3)
+   off => self%off_gpu
+   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q,hq,off) &
+   !$acc firstprivate(vj,ni,nj,nk,perx,pery,perz) private(ci,cj,ck,zero,negate,val)
+   !$omp OMPLOOP collapse(5) DEVICEPTR(q,hq,off) firstprivate(vj,ni,nj,nk,perx,pery,perz) private(ci,cj,ck,zero,negate,val)
    do d=1, 3
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      jv(1,i,j,k,d) = hq(1,i,j,k,d)
+   do k=1-ngc, bnk+ngc
+   do j=1-ngc, bnj+ngc
+   do i=1-ngc, bni+ngc
+   do b=1, nbl
+      ci = off(b,1) + i ; cj = off(b,2) + j ; ck = off(b,3) + k
+      zero = .false. ; negate = .false.
+      if (ci < 1 .or. ci > ni) then
+         if (perx) then
+            if (ci < 1) then ; ci = ci + ni ; else ; ci = ci - ni ; endif
+         elseif (d == 1) then
+            if (ci < 1) then ; ci = 1 - ci ; else ; ci = 2*ni + 1 - ci ; endif
+            negate = .true.
+         else
+            zero = .true.
+         endif
+      endif
+      if (cj < 1 .or. cj > nj) then
+         if (pery) then
+            if (cj < 1) then ; cj = cj + nj ; else ; cj = cj - nj ; endif
+         elseif (d == 2) then
+            if (cj < 1) then ; cj = 1 - cj ; else ; cj = 2*nj + 1 - cj ; endif
+            negate = .true.
+         else
+            zero = .true.
+         endif
+      endif
+      if (ck < 1 .or. ck > nk) then
+         if (perz) then
+            if (ck < 1) then ; ck = ck + nk ; else ; ck = ck - nk ; endif
+         elseif (d == 3) then
+            if (ck < 1) then ; ck = 1 - ck ; else ; ck = 2*nk + 1 - ck ; endif
+            negate = .true.
+         else
+            zero = .true.
+         endif
+      endif
+      val = 0._R8P
+      if (.not.zero) val = hq(1,ci,cj,ck,d)
+      if (negate) val = -val
+      q(b,i,j,k,vj+d-1) = val
    enddo
    enddo
    enddo
    enddo
-   call self%impose_virtual_ghosts_periodic(q=jv, var_jx=1_I4P)
-   call self%scatter_current(q=q, var_jx=var_jx)
+   enddo
    endsubroutine store_box_current
 
    subroutine combine_stage_source(self, st, s)
@@ -2323,79 +2369,6 @@ contains
    enddo
    enddo
    endsubroutine impose_virtual_ghosts
-
-   subroutine impose_virtual_ghosts_periodic(self, q, var_jx)
-   !< Current ghosts of the virtual block with periodic axes: along a periodic axis every component takes the periodic
-   !< image, along the others the normal component is the odd mirror (impose_virtual_ghosts). One kernel per axis, in
-   !< order, so that the edge and corner ghosts take the images of already filled ghosts. CPU twin: impose_odd_current_ghosts.
-   class(prism_fnl_pic_conserving_object), intent(in)    :: self   !< Conserving current object.
-   real(R8P),                              intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Virtual field.
-   integer(I4P),                           intent(in)    :: var_jx !< Jx slot in q.
-   integer(I4P)                                          :: b, i, j, k, g, v, ni, nj, nk, ngc, nbl, vj
-   logical                                               :: per
-
-   ni = self%ni ; nj = self%nj ; nk = self%nk ; ngc = self%ngc ; nbl = self%blocks_number ; vj = var_jx
-   per = self%is_periodic(1)
-   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q) firstprivate(vj,per)
-   !$omp OMPLOOP collapse(5) DEVICEPTR(q) firstprivate(vj,per)
-   do v=0, 2
-   do k=1-ngc, nk+ngc
-   do j=1-ngc, nj+ngc
-   do g=1, ngc
-   do b=1, nbl
-      if (per) then
-         q(b,1-g,j,k,vj+v)  = q(b,ni+1-g,j,k,vj+v)
-         q(b,ni+g,j,k,vj+v) = q(b,g,j,k,vj+v)
-      elseif (v == 0) then
-         q(b,1-g,j,k,vj)  = -q(b,g,j,k,vj)
-         q(b,ni+g,j,k,vj) = -q(b,ni+1-g,j,k,vj)
-      endif
-   enddo
-   enddo
-   enddo
-   enddo
-   enddo
-   per = self%is_periodic(2)
-   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q) firstprivate(vj,per)
-   !$omp OMPLOOP collapse(5) DEVICEPTR(q) firstprivate(vj,per)
-   do v=0, 2
-   do k=1-ngc, nk+ngc
-   do g=1, ngc
-   do i=1-ngc, ni+ngc
-   do b=1, nbl
-      if (per) then
-         q(b,i,1-g,k,vj+v)  = q(b,i,nj+1-g,k,vj+v)
-         q(b,i,nj+g,k,vj+v) = q(b,i,g,k,vj+v)
-      elseif (v == 1) then
-         q(b,i,1-g,k,vj+1)  = -q(b,i,g,k,vj+1)
-         q(b,i,nj+g,k,vj+1) = -q(b,i,nj+1-g,k,vj+1)
-      endif
-   enddo
-   enddo
-   enddo
-   enddo
-   enddo
-   per = self%is_periodic(3)
-   !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q) firstprivate(vj,per)
-   !$omp OMPLOOP collapse(5) DEVICEPTR(q) firstprivate(vj,per)
-   do v=0, 2
-   do g=1, ngc
-   do j=1-ngc, nj+ngc
-   do i=1-ngc, ni+ngc
-   do b=1, nbl
-      if (per) then
-         q(b,i,j,1-g,vj+v)  = q(b,i,j,nk+1-g,vj+v)
-         q(b,i,j,nk+g,vj+v) = q(b,i,j,g,vj+v)
-      elseif (v == 2) then
-         q(b,i,j,1-g,vj+2)  = -q(b,i,j,g,vj+2)
-         q(b,i,j,nk+g,vj+2) = -q(b,i,j,nk+1-g,vj+2)
-      endif
-   enddo
-   enddo
-   enddo
-   enddo
-   enddo
-   endsubroutine impose_virtual_ghosts_periodic
 
    subroutine check_source_support(self, h, slo, shi, particle)
    !< Stop if the directional source of one particle has nonzero cells outside the support box built from its trajectory
