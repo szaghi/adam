@@ -130,9 +130,10 @@ for performance; their timings are kept as baselines ("The accuracy-first paths"
 
 The factor is not one number: on the same flow it is 11.9-16.3 with the grid. On the CPU node 2a costs 14.4 us per
 cell-step per core, against 12.4 for `wg-b24` (8 blocks per rank) and 10.2 for `wg-b38` (job 1369687; spreads 5.3 and
-0.7 %): 2a's 64 blocks per rank carry the immersed boundary's imbalance (its "regrid" timer, the wait at the
-reduction, is 1.44 s per step on 64 ranks, against 0.06-0.08 s here), which the GPU node, at 1024 blocks per A30,
-does not feel. On the GPU node the two grid-study grids are at 1.8 and 7.0 M cells per A30, below 2a's 14.2 M.
+0.7 %). The 2a figure is inflated by subnormal arithmetic in its developed state, which slows the CPU ranks that hold it
+and not the A30 ("Where a step's time goes" below): with flush to zero 2a costs 8.74 us per cell-step per core, the cold
+`wg-b24` 8.81-9.54. (This paragraph first blamed the immersed boundary's imbalance: wrong, 2026-11-24.) On the GPU node
+the two grid-study grids are at 1.8 and 7.0 M cells per A30, below 2a's 14.2 M.
 
 **Strong scaling, uniform sphere** (2a, 56.6 M cells, 24^3 blocks; step cost in s, efficiency g(1 node) / g):
 
@@ -176,10 +177,13 @@ top of one node's, against 14.2). In throughput the two 8-node runs are equal: 2
   pair), 4 A30 another 13-30 % (the exchange between the pairs). Pinning ranks to their GPU's NUMA node changes
   nothing (within 0.8 %).
 - **Across nodes the uniform sphere keeps 0.75-0.80 of one node's throughput per A30 on 8 nodes** at 7-14 M cells per
-  A30. Strong scaling of 2a from 1 to 8 nodes (0.79, 0.75, 0.58) runs down the load curve: at 8 nodes 2a has 1.77 M
-  cells per A30 in 24^3 blocks, where one node alone already costs 18 % more per cell than at 14.2 M.
-- **The CPU node scales to 4 nodes (2a 0.98 on 2 and 4) and loses half on 8** (weak 0.53, "9.2.4" below: the
-  exchange between nodes, not the immersed boundary); a GPU node is 12-16 times faster than a CPU node
+  A30 with the immersed body, 0.90 without it: the loss is the MPI ghost exchange, GPU halos crossing nodes at 1.5 GB/s
+  without GPUDirect RDMA ("Where a step's time goes"). Strong scaling of 2a from 1 to 8 nodes (0.79, 0.75, 0.58) runs
+  down the load curve: at 8 nodes 2a has 1.77 M cells per A30 in 24^3 blocks, where one node alone already costs 18 %
+  more per cell than at 14.2 M.
+- **The CPU node scales to 4 nodes (2a 0.98 on 2 and 4) and, as measured, loses half on 8** (weak 0.53): subnormal
+  arithmetic on 76 ranks, not the network (with flush to zero 0.93-1.0, "Where a step's time goes"); a GPU node is
+  12-16 times faster than a CPU node
   on the uniform 3-D flows (11.9 and 12.6 on the grid-study grids, 16.3 on 2a, 13.8 on the channel).
 - **The per-cell cost does not depend on the flow state** (0.5 %, "State independence" below): cold-started cases and
   developed ones are comparable.
@@ -264,6 +268,99 @@ size" is then the cross-pair link, not the launch. Binding is therefore not made
 memory available at start and ranks 1-3 24.91 GB, because every rank touches GPU 0 before its own device (the uploads
 the memory study saw); bound, every rank sees one GPU and all four report 24.91 GB. The blocks budget is computed from
 the device's total memory, so the capacity does not change; the 0.9 GB is headroom on GPU 0.
+
+### Where a step's time goes, and what does not scale (2026-11-24)
+
+Owner, 2026-11-24: "I already suspect that the ghost exchange is the current bottleneck of ADAM: measure all relevant
+parts (flux computation, ghost exchange, time integrator, etc.), rank them, find which is not scaling and why (maybe
+not only the MPI barrier)."
+
+**Method.** A measurement-only patch, not committed (`results/2026-11-24/phase/phase-timer.patch`, applied to HEAD
+`a88d8367` by `apply_phase_timer.py`; the module is `adam_phase_timer.F90.txt`), adds cumulative `MPI_Wtime` timers to
+22 phases of the FLUME step on both backends: dt (local and its `MPI_ALLREDUCE`), the immersed-boundary kernels, the
+local ghost fill, the MPI ghost exchange split into pack / post / `MPI_WAITALL` / barrier 1 / unpack / barrier 2,
+boundary conditions and the ghost blend, `q_aux`, face fluxes, flux difference, the integrator (SELAH), the forest's
+post step, regrid and `is_done` (two `MPI_ALLREDUCE`), progress printing. FNL kernels are synchronous (no `async`
+clause anywhere), so a host timer measures their device time. `ADAM_PHASE_TIMING=1` arms it, the first 10 steps are
+not timed, the report gives min / mean / max over the ranks in ms per step; `ADAM_GHOST_BARRIER=0` skips the two
+barriers of every MPI ghost exchange, `ADAM_FTZ=1` sets abrupt underflow (flush to zero) in the forest's time loop.
+Runs: 110 steps from the window dumps of the weak pairs, CPU 110,592 cells per core (24^3 blocks; `wg-b24` on 1 node,
+2a on 8), FNL 7.02 M cells per A30 (38^3; `wg-b38` on 1 node, `wg-l4b38` on 8), each with the immersed body and
+without it, barriers on and off (jobs 1369712-1369714, 1369718, 1369721-1369723; reports in
+`results/2026-11-24/phase/reports/`, ranked by `phase_compare.py`). Every barriers-on/off pair has a bitwise-identical
+residual history.
+
+**GPU: the MPI ghost exchange is the whole multi-node loss** (ms per step, means over the ranks):
+
+| Phase | 1 node, no body | 8 nodes, no body | 1 node, body | 8 nodes, body |
+|---|---|---|---|---|
+| step | 260.5 | 289.0 | 355.3 | 467.0 |
+| face fluxes | 208.5 | 208.0 | 207.4 | 208.4 |
+| **ghost MPI** | 12.7 | **43.7** | 50.0 | **172.2** |
+| ... `MPI_WAITALL` | 10.3 | 36.0 | 40.7 | 144.2 |
+| ... both barriers | 0.3 | 3.8 | 0.8 | 12.5 |
+| ghost local | 9.4 | 9.4 | 37.4 | 37.4 |
+| BC + blend | 7.3 | 5.0 | 29.3 | 20.1 |
+| IB kernels | - | - | 5.8 | 3.4 |
+| flux diff, q_aux, integrator, dt, post step, reductions, progress | 22.6 | 22.9 | 25.4 | 25.6 |
+
+From 1 to 8 nodes the ghost MPI exchange grows by 31.0 ms (no body) and 122.2 ms (body): 109 % of the step's growth
+both times, 90-93 % of it in `MPI_WAITALL`; every compute phase is flat (face fluxes within 0.5 %). Skipping the
+barriers saves 0.4 % (no body) and 1.2 % (body) on 8 nodes. **Why: the transport.** One HDR InfiniBand card per node
+(`mlx5_0`, 200 Gb/s), reached from every A30 over SYS, and no GPUDirect RDMA (neither `nvidia_peermem` nor `gdrdrv` is
+loaded; driver 545.23; the HPC-X UCX 1.21 of the FNL toolchain sees only `rc_verbs`/`ud_verbs` on the card): UCX moves
+GPU buffers between nodes through host staging. `ucx_perftest`, 33 MB messages (jobs 1369716, 1369717, 1369719;
+`results/2026-11-24/phase/network.txt`):
+
+| Path | GB/s |
+|---|---|
+| between nodes, host to host | 23.5 |
+| **between nodes, GPU to GPU** | **1.53** (1.75 at 8 MB; best UCX setting, 4 MB rendezvous fragments, 1.89) |
+| in a node, GPU 0 to GPU 1 (NVLink pair) | 88.5 |
+| in a node, GPU 0 to GPU 2 (across the pairs) | 17.7 |
+
+With 38^3 blocks on 8 nodes each node holds an octant of the domain and shares 3 faces with other nodes: ~33 MB of
+halo each way per exchange (an estimate from the layout), 12 ms at the measured waitall, ~2.8 GB/s effective. The
+across-the-pairs 17.7 GB/s is the cost of the third and fourth A30 of a node ("Grid size" above). **The immersed body
+multiplies it**: its eikonal extension refreshes every ghost of every variable 4 times per stage (12 exchanges per
+step instead of 3), so on one node the body costs 94.8 ms per step, of which the ghost work is 87.4 (MPI +37.3, local
++28.0, BC +22.0) and its own kernels 5.8; on 8 nodes the ghost update (local + MPI + BC) is 230 ms, 49 % of the step,
+more than the face fluxes.
+
+**CPU: subnormal numbers, not the exchange.** On 8 CPU nodes the face fluxes, the same work on every rank, cost
+838 / 980 / 1904 ms per step (min / mean / max): the slowest rank takes twice as long, and the others wait for it in
+barrier 1 (425 ms), `MPI_WAITALL` (199) and the step's allreduces (310). Skipping the barriers moves the wait into the
+allreduces (2067 against 2009 ms); pinning every rank to a core changes nothing (1987 against 1990; the default launch
+binds each rank to a 16-core NUMA domain); another set of nodes gives the same straggler. The developed 2a state holds
+745,771 subnormal doubles (below 2.2e-308) in its interior cells, all in rho v and rho w (transverse momenta decaying
+ahead of the shock), on 76 of the 512 ranks (up to 11,720 each, ~2 % of a rank's values); the cold-started grid of the
+1-node reference holds none (`subnormal_count.py`). x86 cores handle subnormal operands in microcode, many times slower;
+the A30 at full speed. **With flush to zero** (`ADAM_FTZ=1`, the same dump and binary):
+
+| CPU, no body | gradual underflow | flush to zero |
+|---|---|---|
+| 2a, 8 nodes, 512 ranks: step (face fluxes min / mean / max) | 1988 ms (836 / 976 / 1890) | **1044 ms** (836 / 848 / 962) |
+| ... `MPI_WAITALL`, barrier 1, regrid + is_done | 192, 421, 304 | 18, 46, 33 |
+| 2a, 1 node, 64 ranks: step (face fluxes min / mean / max) | 11.83 s (6715 / 7860 / 11143) | **7.73 s** (6755 / 6847 / 6986) |
+
+The CPU weak pair becomes 0.93-1.0 instead of 0.51: 1044 ms on 8 nodes against, on one node, `wg-b24` (no subnormal
+value) at 974 ms with gradual underflow and 1055 ms with flush to zero (job 1369722, another node: the CPU node's
+spread; flush to zero changes nothing where there is no subnormal); two grids at the same load, so an estimate. On one
+node 2a costs 8.74 us per cell-step per core with flush to zero, no more than the cold grid (8.81 us gradual, 9.54 with
+flush to zero): the "14.4 against 11.2 us" of "9.2.4" was this. The CPU numbers of the matrix on 2a (and on every
+developed state) carry the subnormal slowdown, so the GPU node / CPU node factor 16.3 on 2a is inflated; the grid-study
+factors (11.9, 12.6, cold grids) are the clean ones. Skipping the barriers on the CPU brings nothing (one node: 1150
+against 974 ms without the body, 1367 against 1266 with it; single runs, inside the CPU node's spread or worse).
+
+**Ranked, with the measured or estimated gain** (proposals, none applied):
+
+| # | Cost | Where | Gain | Proposal |
+|---|---|---|---|---|
+| 1 | subnormal arithmetic | CPU, developed states | -35 % (1 node) to -47 % (8 nodes) on 2a | flush to zero for the time loop (or `-ffast-math`'s crtfastmath at link), or floor values below a tiny threshold; changes results in the last bits: the regression goldens would need a refresh |
+| 2 | GPU halo between nodes at 1.5 GB/s | FNL, multi-node | up to ~9 ms of the ~12 ms per exchange (estimate at 23.5 GB/s host path plus the two device copies) | stage the inter-node halo through pinned host buffers; or GPUDirect RDMA on medooza (`nvidia_peermem`, admins) |
+| 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges |
+| 4 | the two `MPI_Barrier` per ghost exchange | both | 0.4-1.2 % (GPU), none (CPU) | remove (bitwise identical in every pair) |
+| 5 | across-the-pairs link in a node (17.7 GB/s) | FNL, 4 A30 | the 13-30 % of "Grid size" | rank order that keeps neighbours in an NVLink pair |
 
 ### The accuracy-first paths: runtime AMR and 2-D (baselines)
 
@@ -374,7 +471,8 @@ regrid steps, which change nothing here) / 39 % (CPU: the layout, busiest rank 9
 time steps: the regrid. On the GPU node the steps of R cost what the steps of F cost (2b 42.03 s, 2c 41.94 s per 110
 steps; 3b and 3c 0.1428 s per step), so R - F is the regrid. The forest's timers are maxima over the ranks, so on the
 CPU the regrid timer also holds the wait of the ranks that reach its reduction first (2a's uniform grid shows 1.44 s
-per step of "regrid" on 64 ranks: the immersed boundary's load imbalance waited out there).
+per step of "regrid" on 64 ranks: the wait for the slowest ranks, which 2026-11-24 found slowed by subnormal arithmetic,
+not by the immersed boundary; "Where a step's time goes").
 
 **The GPU regrid** (forest regrid timer and `flume: regrid at step` lines of the 110-step windows): 2b 16.1 s for 11
 regrid steps, one of which changed the grid (logged host round trip 2.03 s), so ~1.4 s per regrid step that changes
@@ -491,28 +589,26 @@ them; `compute_conservation` every step is `[diagnostics] conservation_history_s
   of job 1369401 to 0.2 %.)
 - **9.2.4, the CPU weak point (2026-11-24): 0.53 on 8 nodes, and not because of the immersed boundary.** The uniform
   sphere at 110,592 cells per core, 24^3 blocks, 8 per rank (one sibling set): `wg-b24` (L3, 7.08 M cells) on one node,
-  64 ranks, against 2a (L4, 56.6 M) on 8 nodes, 512 ranks, the same day (work tree `speedup-133/cpu-weak`, jobs
-  1369694, 1369695; tables in `results/2026-11-24/cpu-weak/`). To test whether the immersed boundary's load imbalance
-  is the cause (at 512 ranks the 8 ranks at the sphere's centre hold 59 % solid cells, at 64 ranks 7.4 %), the same
-  pair ran without the body (`speedup-133/noib-cpu.sh` on medooza, a `run.sh --exe` wrapper that drops `[solids]` and `[solid_1]` from each
-  rank's copy of the input; `cpu-weak-noib`, jobs 1369697, 1369698; `results/2026-11-24/cpu-weak-noib/`):
+  64 ranks, against 2a (L4, 56.6 M) on 8 nodes, 512 ranks, the same day (work tree `speedup-133/cpu-weak`, jobs 1369694,
+  1369695; tables in `results/2026-11-24/cpu-weak/`). To test whether the immersed boundary's load imbalance is the
+  cause (at 512 ranks the 8 ranks at the sphere's centre hold 59 % solid cells, at 64 ranks 7.4 %), the same pair ran
+  without the body (`speedup-133/noib-cpu.sh` on medooza, a `run.sh --exe` wrapper that drops `[solids]` and `[solid_1]`
+  from each rank's copy of the input; `cpu-weak-noib`, jobs 1369697, 1369698; `results/2026-11-24/cpu-weak-noib/`):
 
   | Pair | 1 node, 64 ranks: s per step (spread), g | 8 nodes, 512 ranks: s per step (spread), g | Weak efficiency | Wait at the reduction, 1 / 8 nodes |
   |---|---|---|---|---|
   | with the sphere | 1.234 (3.3 %), 11.2 us | 2.311 (1.2 %), 20.9 us | 0.53 | 0.060 / 0.366 s per step |
   | without the body | 1.035 (9.2 %), 9.36 us | 2.033 (2.8 %), 18.4 us | 0.51 | 0.040 / 0.363 s per step |
 
-  The body costs ~17-19 % on both sides and leaves the efficiency where it is: the loss is the exchange between nodes,
-  not the imbalance. 2a's step on 64 / 128 / 256 / 512 ranks costs 12.7 / 6.48 / 3.24 / 2.31 s (g 14.4 / 14.7 / 14.7 /
-  20.9 us): the loss appears only from 4 to 8 nodes. The "wait at the reduction" (the `regrid` column of `summary.md`,
-  on the CPU the wait of the ranks that reach the step's reduction first) grows to 0.36 s per step on a uniform grid
-  with equal blocks per rank, where nothing in the compute is imbalanced. The transport is UCX on InfiniBand (the
-  toolchain's smoke test: `pml ucx`). **Suspected, not measured:** every ghost exchange ends with two
-  `MPI_Barrier(MPI_COMM_WORLD)` (`adam_field_object.F90:1548, 1562`, since 2e6a49c9, 2023, with the note
-  `RIMETTERE SENZA`; the FNL twin has the same two, `adam_fnl_field_object.F90:429, 435`), which make every rank wait
-  for the slowest of all 512 at each exchange; after `MPI_WAITALL` they are not needed by the MPI semantics. Measuring
-  a build without them, on this pair and on the GPU's 8-node pairs, is left to the owner. The two 1-node measurements
-  of the same grid on different days differ by 7.5 % (1.270 and 1.366 s; 1.234 today): the CPU node's spread.
+  The body costs ~17-19 % on both sides and leaves the efficiency where it is, so it is not the immersed boundary.
+  2a's step on 64 / 128 / 256 / 512 ranks costs 12.7 / 6.48 / 3.24 / 2.31 s (g 14.4 / 14.7 / 14.7 / 20.9 us). **The
+  cause, found by the phase breakdown ("Where a step's time goes" above), is subnormal arithmetic, not the exchange
+  between nodes and not the barriers** (both suspected here first): the developed 2a state holds subnormal values on
+  76 of the 512 ranks, which compute their face fluxes twice as slowly while every other rank waits at the barriers and
+  reductions (the 0.36 s per step of "wait at the reduction"); with flush to zero the 8-node run drops from 1988 to
+  1044 ms per step and the weak efficiency is 0.93-1.0. The cold-started `wg-b24` holds no subnormal value. The two
+  1-node measurements of the same grid on different days differ by 7.5 % (1.270 and 1.366 s; 1.234 today): the CPU
+  node's spread.
 
 ### Hypotheses (phase 8.2)
 
@@ -576,6 +672,8 @@ never (leg 3): a flow with more churn pays more regrid.
 | `scaling_plot.py` | the grind-time curves g(cells per device) from `summary.csv` (matplotlib, not needed by `analyze.py`) |
 | `grid-study-cases.conf` | the grid-size study's cases (`[weak.wg-*]`), an overlay: `cat matrix.conf grid-study-cases.conf` is the study's `--conf` |
 | `grid_study_plot.py` | the grid-size figure from the study's `summary.csv` (and the rank-placement A/B summaries): g against the block edge on 1 A30 and on 1, 2, 4 A30 |
+| `phase_compare.py` | ranks the phases of the measurement-only phase-timer reports, one node against several (`results/2026-11-24/phase/phase-compare.md`) |
+| `results/2026-11-24/phase/` | the phase breakdown: the timer patch (`phase-timer.patch`, `apply_phase_timer.py`, `adam_phase_timer.F90.txt`; not for commit to the source), every run's report, the network measurements, `subnormal_count.py` |
 | `jobs/medooza-bind-fnl.sh` | the FNL executable with each rank pinned to its A30's NUMA node (`run.sh --exe` with an absolute path; "Rank placement") |
 | `matrix_plot.py` | the summary figures from `summary.csv`: backend speedup per case, AMR decomposition per leg, grind time (matplotlib; `--theme both` writes the docs' dark twins) |
 | `jobs/medooza-{cpu,fnl}.slurm` | the medooza jobs: one run.sh stage per job, outputs on `/ifs` |

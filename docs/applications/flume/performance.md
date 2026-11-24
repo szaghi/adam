@@ -50,8 +50,9 @@ T(CPU node) / T(GPU node) on the uniform grids:
 
 A GPU node runs the uniform 3-D flows 12 to 16 times faster than a CPU node; on the same flow the factor moves with
 the grid. On the CPU node the sphere costs 14.4 µs per cell-step per core on 2a, 12.4 on the 24³ grid and 10.2 on the
-38³ grid: 2a's 64 blocks per rank carry the immersed boundary's load imbalance, which the GPU node, with 1024 blocks
-per A30, does not feel. The two grid-study grids load the GPU node with 1.8 and 7.0 M cells per A30, below 2a's
+38³ grid. The 2a figure is inflated by subnormal arithmetic in its developed state, which slows a few CPU ranks and
+not the GPU ([What does not scale](#what-does-not-scale-and-why)): with flush to zero 2a costs 8.74 µs, the cold 24³
+grid 8.81–9.54. The two grid-study grids load the GPU node with 1.8 and 7.0 M cells per A30, below 2a's
 14.2 M ([what a cell costs](#what-a-cell-costs-on-one-a30)). Larger blocks make both nodes cheaper per cell.
 
 ## What a cell costs on one A30
@@ -88,11 +89,11 @@ NVLink-bridged in pairs (GPU 0–1 and GPU 2–3, 4 × 25 GB/s each way), while 
 the InfiniBand card, the path is PCIe plus the inter-socket link. The four GPUs hang off NUMA nodes 0, 1, 3 and 3.
 
 **Rank placement is not the cause.** The default launch leaves three of the four ranks on host cores away from their
-GPU's NUMA node (ranks 1 and 3 on NUMA 2, which has no GPU). Pinning each rank to its GPU, to 8 cores of that GPU's
-NUMA node and to its memory changes the grind time by −0.8 to 0 % on one and on two nodes (2a, and the 24³ and 38³
-grids), inside the spreads. The halo exchange posts MPI on device buffers (no host staging), so the host core is off its
-path, and the cost of the fourth A30 is the link between the NVLink pairs. Pinning does one useful thing: unpinned, every rank also opens a context on GPU 0, which then has
-0.9 GB less free memory than the others; pinned, all four have the same.
+GPU's NUMA node (ranks 1 and 3 on NUMA 2, which has no GPU). Pinning each rank to its GPU, to 8 cores of that GPU's NUMA
+node and to its memory changes the grind time by −0.8 to 0 % on one and on two nodes (2a, and the 24³ and 38³ grids),
+inside the spreads. The halo exchange posts MPI on device buffers (no host staging), so the host core is off its path,
+and the cost of the fourth A30 is the link between the NVLink pairs. Pinning does one useful thing: unpinned, every rank
+also opens a context on GPU 0, which then has 0.9 GB less free memory than the others; pinned, all four have the same.
 
 ## Scaling across nodes
 
@@ -122,18 +123,59 @@ where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns 
 - **The multi-node loss follows the ghost exchanges.** Without the immersed body the same 8-node pair keeps 0.90. In
   both runs leaving the node costs 9.7–9.8 ms per ghost exchange; the body's eikonal extension exchanges the ghosts
   4 times per stage instead of once (12 exchanges per step against 3), so it loses 4 times as much.
-- **Leaving the node costs 20–25 % per cell on 8 nodes** with the immersed body at 7–14 M cells per A30. The pair at 38³ blocks loses more
-  than the one at 24³ although its blocks carry fewer ghost cells: its cells are 15 % cheaper, and at half the load
-  per A30 the same exchange weighs more. In throughput the two 8-node runs are equal (478 and 462 M cell-steps per
-  second).
+- **Leaving the node costs 20–25 % per cell on 8 nodes** with the immersed body at 7–14 M cells per A30. The pair at 38³
+  blocks loses more than the one at 24³ although its blocks carry fewer ghost cells: its cells are 15 % cheaper, and at
+  half the load per A30 the same exchange weighs more. In throughput the two 8-node runs are equal (478 and 462 M
+  cell-steps per second).
 - **The weak efficiencies of the first version (0.72–0.73 at 3.5–7 M cells per A30) mixed two costs**: their 1- and
   2-A30 references left out the cross-pair cost of the fourth A30 (13–22 % at those loads), which belongs to the node,
   not to the network.
-- **The CPU node scales to 4 nodes and loses half on 8.** Strong scaling of 2a is 0.98 on 2 and 4 CPU nodes; the weak
-  pair at 110,592 cells per core (one node against 8, 24³ blocks) keeps 0.53, and 0.51 with the immersed body
-  removed: the loss is the exchange between nodes, not the body's load imbalance. Every rank waits 0.36 s per step
-  at the step's reduction on 8 nodes against 0.04–0.06 on one. Each ghost exchange ends with two global barriers, a
-  suspect not yet measured. A CPU node is also 12–16 times slower than a GPU node.
+- **The CPU node scales to 4 nodes and, as measured, loses half on 8** (weak 0.53, strong 0.69 for 2a). The cause is
+  subnormal arithmetic on a few ranks, not the network: with flush to zero the weak efficiency is 0.93–1.0
+  ([What does not scale](#what-does-not-scale-and-why)).
+
+## What does not scale, and why
+
+A measurement-only build timed 22 phases of the step on both backends: face fluxes, local ghost fill, MPI ghost
+exchange (pack, post, wait, barriers, unpack), boundary conditions, immersed boundary, integrator, reductions. It
+compared one node with 8 at the same load per device.
+
+**On the GPU the multi-node loss is the MPI ghost exchange, all of it** (ms per step, 7.02 M cells per A30, 38³ blocks):
+
+| Phase | 1 node, no body | 8 nodes, no body | 1 node, sphere | 8 nodes, sphere |
+|---|---|---|---|---|
+| step | 260.5 | 289.0 | 355.3 | 467.0 |
+| face fluxes | 208.5 | 208.0 | 207.4 | 208.4 |
+| MPI ghost exchange | 12.7 | 43.7 | 50.0 | 172.2 |
+| ... waiting for the data | 10.3 | 36.0 | 40.7 | 144.2 |
+| ... the two barriers | 0.3 | 3.8 | 0.8 | 12.5 |
+| local ghost fill + boundary conditions | 16.7 | 14.4 | 66.7 | 57.4 |
+
+Every compute phase is flat from 1 to 8 nodes; the exchange's growth is 109 % of the step's, nearly all of it waiting
+for the data. The reason is the transport: medooza has no GPUDirect RDMA, so the GPU halos travel between nodes at **1.5
+GB/s**, against **23.5 GB/s** for the same messages from host memory over the same InfiniBand link (`ucx_perftest`; no
+UCX setting tried exceeds 1.9 GB/s). Inside a node, GPU to GPU is 88.5 GB/s across an NVLink pair and 17.7 GB/s between
+the pairs. The immersed body makes it worse: its eikonal extension refreshes the ghosts 4 times per stage, 12 exchanges
+per step instead of 3, so with the sphere on 8 nodes the ghost update is 49 % of the step, more than the face fluxes.
+The two global barriers of each exchange cost 0.4–1.2 %.
+
+**On the CPU the culprit is subnormal arithmetic, not the exchange.** The developed state of the sphere holds 745,771
+subnormal values (below 2.2 · 10⁻³⁰⁸, in the transverse momenta ahead of the shock) on 76 of 512 ranks. x86 cores handle
+them many times slower, so those ranks compute twice as long, and every other rank waits for them at the barriers and
+reductions. With flush to zero the same 8-node run drops from 1988 to 1044 ms per step (−47 %), the weak efficiency
+rises from 0.51 to 0.93–1.0 (perfect within the CPU node's spread), and one node of 64 ranks runs the 56.6 M-cell sphere
+in 7.73 s instead of 11.83 (−35 %). The GPU node / CPU node factor of 16.3 on that case therefore overstates the GPU:
+the clean factors, on grids without subnormals, are 12–13.
+
+**Ranked, with proposals** (none applied yet):
+
+| # | Cost | Gain | Proposal |
+|---|---|---|---|
+| 1 | subnormal arithmetic (CPU) | −35 to −47 % per step on developed states | flush to zero in the time loop, or a floor on tiny values; the regression references would change in the last bits |
+| 2 | GPU halo between nodes at 1.5 GB/s | up to ~9 ms of the ~12 ms per exchange (estimate) | stage the inter-node halo through pinned host memory, or enable GPUDirect RDMA on the cluster |
+| 3 | 12 ghost exchanges per step with an immersed body | up to 9 of the 12 | exchange only what the eikonal iterations need |
+| 4 | two global barriers per ghost exchange | 0.4–1.2 % on the GPU | remove (results bitwise identical) |
+| 5 | the link between the NVLink pairs (17.7 GB/s) | part of the 13–30 % of the third and fourth A30 | place neighbouring subdomains on the same NVLink pair |
 
 ## Device memory
 
