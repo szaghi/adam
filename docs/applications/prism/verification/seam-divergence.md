@@ -79,9 +79,9 @@ Bounds as coded; the baselines are CPU-pinned and the 5 % band is the cross-back
 
 | Case, leg | Asserts | Bound | CPU | FNL |
 |---|---|---|---|---|
-| `rmf-amr-fd`, control | max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | $1.96\cdot10^{-19}$ | $1.03\cdot10^{-19}$ |
+| `rmf-amr-fd`, control | max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | $1.47\cdot10^{-19}$ | $1.03\cdot10^{-19}$ |
 | `rmf-amr-fd`, seam | max $\lvert\nabla\cdot\mathbf B\rvert$ | $1.555802\cdot10^{-7} \pm 5\%$ | $1.555802\cdot10^{-7}$ (baseline) | $1.555801\cdot10^{-7}$ |
-| `rmf-amr-fd`, seam | max $\lvert\nabla\cdot\mathbf J\rvert$ | $3.217958\cdot10^{-5}$, factor 3 | $3.22\cdot10^{-5}$ | $2.62\cdot10^{-5}$ |
+| `rmf-amr-fd`, seam | max $\lvert\nabla\cdot\mathbf J\rvert$ | $1.013031\cdot10^{-9}$, factor 3 (since [#145](https://github.com/szaghi/adam/issues/145); $3.217958\cdot10^{-5}$ before) | $1.01\cdot10^{-9}$ | $9.30\cdot10^{-10}$ |
 | pulse, control | max $\lvert\nabla\cdot\mathbf D\rvert$, max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | 0, 0 | 0, 0 |
 | pulse, uniform level 2 (1:1 faces) | max $\lvert\nabla\cdot\mathbf D\rvert$, max $\lvert\nabla\cdot\mathbf B\rvert$ | $\le 10^{-13}$ | 0, 0 | 0, 0 |
 | pulse, seam | max $\lvert\nabla\cdot\mathbf D\rvert$ | $\le 10^{-13}$ | $3.3\cdot10^{-15}$ | $3.3\cdot10^{-15}$ |
@@ -168,9 +168,15 @@ reproduces the seam source across a realm boundary; [absorbing layers on AMR](./
   source below 2.2, 22 to 29 times below the uncleaned run, for 18 % more per step and twice the steps; without damping it
   only moves the divergence, and with $\chi = 2$ it runs away at the Neumann faces.
 - The $\nabla\cdot\mathbf J$ band is a factor 3, not 5 %: $\nabla\cdot\mathbf J$ of the coil filament cancels gradients
-  of order $10^{6}$ down to $3\cdot10^{-5}$, and the cross-compiler noise of the coil geometry ($10^{-11}$ relative on
-  $\mathbf J$) leaves a $10^{-5}$ absolute floor.
+  of order $10^{6}$. Until the coil sources became curls of one block potential (`b641fe00`, 2026-11-16) the
+  cancellation stopped at $3\cdot10^{-5}$ (the cross-compiler noise of the coil geometry, $10^{-11}$ relative on
+  $\mathbf J$); since then the ghost $\mathbf J$ is consistent with the interior and it reaches $1.0\cdot10^{-9}$, with
+  $\nabla\cdot\mathbf B$ unchanged to seven digits (A/B on the same input: $2.42\cdot10^{-5}$ with the tree before the
+  commit, $1.013\cdot10^{-9}$ with the first tree after it, medooza job 1369640). The leg could not run from #80 P5
+  (its control refused the unread marker section) to [#145](https://github.com/szaghi/adam/issues/145), so the shift
+  went unseen; the baseline is re-pinned with that evidence.
 - A low-storage RK scheme on the seam case stops with the contract message; before #25 it crashed.
-- The control leg of `rmf-amr-fd-pulse/check.sh` stopped at initialization since `[IO] unused_keys = error` became the
-  default (#80 P5): `markers_number = 0` leaves `[amr_marker_1]` unread. The leg now sets `unused_keys = warn` for
-  that run ([#145](https://github.com/szaghi/adam/issues/145)); every leg passes again on both backends.
+- The control legs of `rmf-amr-fd-pulse/check.sh` and `rmf-amr-fd/check.sh` stopped at initialization since
+  `[IO] unused_keys = error` became the default (#80 P5): `markers_number = 0` leaves `[amr_marker_1]` unread. The
+  control inputs now drop that section too ([#145](https://github.com/szaghi/adam/issues/145)); every leg passes again
+  on both backends (medooza jobs 1369638-1369644). The `rmf-amr-fd` rows are from those runs.

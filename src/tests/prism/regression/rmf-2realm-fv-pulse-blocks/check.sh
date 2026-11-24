@@ -69,7 +69,7 @@ run_in() { # workdir
 
 single="$CASE_DIR/work-$TAG-single"
 rm -rf "$single" ; mkdir -p "$single"
-sed "$FV; s/^it_max   = 5$/it_max   = 20/; s/^it_save                = 5/it_save                = 20/; s/^markers_number = 1/markers_number = 0/; s/^max_level      = 2/max_level      = 1/; s/^amr_iterations  = 1 .*/amr_iterations  = 0/; s/^save_residual_fields   = .true./save_residual_fields   = .false./; s/^save_divergence_fields = .true./save_divergence_fields = .false./" \
+sed "$FV; s/^it_max   = 5$/it_max   = 20/; s/^it_save                = 5/it_save                = 20/; s/^markers_number = 1/markers_number = 0/; /^\[amr_marker_1\]/,/^$/d; s/^max_level      = 2/max_level      = 1/; s/^amr_iterations  = 1 .*/amr_iterations  = 0/; s/^save_residual_fields   = .true./save_residual_fields   = .false./; s/^save_divergence_fields = .true./save_divergence_fields = .false./" \
    "$CASE_DIR/../rmf-amr-fd-pulse/input.ini" > "$single/input.ini"
 echo ">> [rmf-2realm-fv-pulse-blocks] single-realm FV pulse ($TAG)"
 run_in "$single"

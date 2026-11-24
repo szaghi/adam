@@ -112,8 +112,9 @@ HIST="rmf_amr_fd_pulse_regression-divergence_history.dat"
 
 CTRL="$CASE_DIR/work-cpu-ctrl"
 echo ">> [rmf-amr-fd-pulse] running marker-disabled control (no seam, no sources)"
-# markers_number = 0 leaves [amr_marker_1] unread, which [IO] unused_keys = error (the default since #80 P5) refuses
-run_in "$CTRL" 's/markers_number = 1/markers_number = 0/;s/^\[IO\]$/[IO]\nunused_keys = warn/'
+# markers_number = 0 alone leaves [amr_marker_1] unread, which [IO] unused_keys = error (the default since #80 P5)
+# refuses: the control drops the section too (issue #145)
+run_in "$CTRL" 's/markers_number = 1/markers_number = 0/;/^\[amr_marker_1\]/,/^$/d'
 if grep -qiE 'error|abort| nan |segfault' "$CTRL/run.log"; then
    echo "FAIL [rmf-amr-fd-pulse] control reported an error/abort/NaN"; fail=1
 fi

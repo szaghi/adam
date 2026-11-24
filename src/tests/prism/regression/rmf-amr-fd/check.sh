@@ -36,7 +36,12 @@
 # cross-backend agreement tighter than a small factor is mathematically
 # impossible, while the defect class this leg guards against (#26 G2: unstamped
 # J ghosts + one-dt-lagged stamp) sat SIX ORDERS off. Band history: G1.a red at
-# 2.35E+01; after the G2 stamp fixes, FNL reads 2.62E-05 vs CPU 3.22E-05.
+# 2.35E+01; after the G2 stamp fixes, FNL reads 2.62E-05 vs CPU 3.22E-05. Since the coil sources are curls of one
+# block potential (b641fe00, 2026-11-16) the ghost J is consistent with the interior and the cancellation reaches
+# round-off: CPU 1.013031E-09, FNL 9.304654E-10 (issue #145, medooza jobs 1369638, 1369639); A/B on the same input
+# (job 1369640): the tree before b641fe00 2.419413E-05, the first tree with it 1.013031E-09, div(B) identical
+# (1.555802E-07). The leg could not run between 2026-11-19 (#80 P5: the control refused its unread
+# [amr_marker_1]) and the control fix, so the shift was not seen when it happened.
 # The legacy --divj flag is accepted as a no-op (the leg always runs).
 #
 # mpirun and the GNU MPI toolchain must be on PATH (see rmf-amr/run.sh header).
@@ -57,8 +62,8 @@ EXE="${PRISM_EXE:-$REPO_ROOT/exe/adam_prism_cpu}"
 DIVB_TOL="1.0E-13"           # control: round-off ceiling for the interior identity
 SEAM_BASELINE="1.555802E-07" # pinned seam max|div(B)| (see provenance above)
 SEAM_RTOL="0.05"             # 5% relative band around the baseline
-SEAM_J_BASELINE="3.217958E-05" # pinned seam max|div(J)| (CPU N5-era binary,
-                               # captured 2026-07-04 at #26 G1.a: ni=16, it_max=5, -np 1)
+SEAM_J_BASELINE="1.013031E-09" # pinned seam max|div(J)| (CPU, night tree on 0bcdf870, 2026-11-23, #145: ni=16,
+                               # it_max=5, -np 1; before b641fe00 it was 3.217958E-05, captured at #26 G1.a)
 SEAM_J_FACTOR="3.0"            # factor band around the div(J) baseline (see header)
 
 do_build=0
@@ -96,7 +101,9 @@ HIST="rmf_amr_fd_regression-divergence_history.dat"
 # --- Control run: marker OFF, no seam. div(B) must stay at round-off. ---
 CTRL="$CASE_DIR/work-cpu-ctrl"
 echo ">> [rmf-amr-fd] running marker-disabled control (no seam)"
-run_in "$CTRL" 's/markers_number = 1/markers_number = 0/'
+# markers_number = 0 alone leaves [amr_marker_1] unread, which [IO] unused_keys = error (the default since #80 P5)
+# refuses: the control drops the section too (issue #145)
+run_in "$CTRL" 's/markers_number = 1/markers_number = 0/;/^\[amr_marker_1\]/,/^$/d'
 if grep -qiE 'error|abort| nan |segfault' "$CTRL/run.log"; then
    echo "FAIL [rmf-amr-fd] control reported an error/abort/NaN"; fail=1
 fi

@@ -20,6 +20,11 @@ def section(text: str, head: str, subs: dict[str, str]) -> str:
     return text[:start] + block + text[end:]
 
 
+def strip_extents(match: re.Match) -> str:
+    """Drop the emin_* / emax_* lines of one region section."""
+    return re.sub(r"^e(?:min|max)_[xyz]\s*=.*\n", "", match.group(1), flags=re.M)
+
+
 def main() -> int:
     """Write the input."""
     source, target, scheme = sys.argv[1:4]
@@ -31,6 +36,8 @@ def main() -> int:
     text = section(text, "[initial_conditions_region_1]", {"r": "3.857143", "u": "2.629369", "p": "10.33333"})
     text = section(text, "[initial_conditions_region_2]", {"r": "1.0", "u": "0.0", "p": "1.0"})
     text = section(text, "[time]", {"time_max": "1.8"})
+    # the shu-osher IC reads the regions' states, not the Riemann extents of sod-x ([IO] unused_keys = error, #145)
+    text = re.sub(r"(\[initial_conditions_region_\d+\][^\[]*)", strip_extents, text)
     open(target, "w").write(text)
     return 0
 
