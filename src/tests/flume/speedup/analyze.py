@@ -18,6 +18,18 @@ Per window (a backend, a rank count, a case), from the forest timing lines that 
                 from the one after the previous line of the same step, whose current count is A
     ns/cell-step  step cost * ranks / N * 1e9 (ranks = devices: cores of a CPU run, GPUs of an FNL run)
 
+Scaling and grind time (phase 9), per window and per series (`SERIES` of the case's
+`<work>/cases/<case>/case.conf`, written by make_cases.py from matrix.conf: the uniform case of a leg with a `series`
+key and the weak cases of that leg):
+
+    g                  the grind time, step cost * devices / N in ns per cell-step (the column above); cells per
+                       device = N / devices
+    strong efficiency  per backend and case, g(smallest rank count present) / g(ranks): 1 is ideal
+    weak efficiency    per backend and series, the windows grouped by cells per device (a group: loads within
+                       LOAD_TOLERANCE, 10 %, of its largest), g(the group's smallest device count) / g(devices): 1 is
+                       ideal; a group of one window has none
+    The AMR ratios below take the matrix cases only (KIND=matrix): a weak case is a uniform case of the same leg.
+
 The ratios, per leg, backend and rank count, by role (U the uniform case, R the runtime case, F the frozen one; leg 1
 calls them a, c, b, legs 2 and 3 a, b, c):
 
@@ -38,6 +50,7 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import shlex
 import statistics
 import sys
 from dataclasses import dataclass, field
@@ -217,6 +230,33 @@ def collect(work: Path) -> tuple[dict[tuple[str, int, str], Window], list[str]]:
     return windows, problems
 
 
+def read_case_conf(work: Path, case: str) -> dict[str, str]:
+    """Return the keys of `<work>/cases/<case>/case.conf` (empty when absent: a case no longer in matrix.conf).
+
+    Parameters
+    ----------
+    work : Path
+        run.sh's run tree.
+    case : str
+        The case name.
+
+    Returns
+    -------
+    dict[str, str]
+        The shell assignments of the file, unquoted.
+    """
+    path = work / "cases" / case / "case.conf"
+    keys: dict[str, str] = {}
+    if not path.is_file():
+        return keys
+    for line in path.read_text().splitlines():
+        name, sep, value = line.partition("=")
+        if sep and re.fullmatch(r"[A-Z_0-9]+", name):
+            words = shlex.split(value)
+            keys[name] = words[0] if words else ""
+    return keys
+
+
 def summarise(w: Window) -> dict[str, object] | None:
     """Return the numbers of one window, or None when no repetition has both runs."""
     reps = sorted({rep for rep, _ in w.runs})
@@ -245,15 +285,18 @@ def summarise(w: Window) -> dict[str, object] | None:
         "regrid_cost_s": statistics.median((b.regrid - a.regrid) / dn for a, b in pairs),
         "seam_cost_s": statistics.median((b.seam - a.seam) / dn for a, b in pairs),
         "cells_mean": cells, "ns_per_cell_step": cost * ranks / cells * 1.0e9 if cells > 0 else float("nan"),
+        "cells_per_device": cells / ranks,
         "reduced": pairs[0][1].info.get("reduced", "0"), "commit": pairs[0][1].info.get("commit", "unknown"),
         "notes": "; ".join(w.notes),
     }
 
 
 def ratios(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Return the AMR ratios of every leg, backend and rank count that has its three roles."""
+    """Return the AMR ratios of every leg, backend and rank count that has its three roles (matrix cases only)."""
     by: dict[tuple[int, str, int], dict[str, dict[str, object]]] = {}
     for row in rows:
+        if row["kind"] != "matrix":
+            continue
         by.setdefault((row["leg"], row["backend"], row["np"]), {})[str(row["role"])] = row
     out = []
     for (leg, backend, ranks), roles in sorted(by.items()):
@@ -288,6 +331,62 @@ def backend_speedups(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return out
 
 
+def scaling(rows: list[dict[str, object]]) -> dict[str, str]:
+    """Add the strong and weak efficiencies to the rows; return the label of every series met.
+
+    Every row gains `strong_ref_np`, `strong_efficiency` (per backend and case, against the smallest rank count
+    present), `weak_group`, `weak_ref_np` and `weak_efficiency` (per backend and series, the windows grouped by cells
+    per device within the series' load tolerance, against the group's smallest device count); None where undefined.
+
+    Parameters
+    ----------
+    rows : list[dict[str, object]]
+        The windows of `summarise`, with their `series`, `series_label` and `load_tolerance`.
+
+    Returns
+    -------
+    dict[str, str]
+        Series name -> its label.
+    """
+    for row in rows:
+        row |= {"strong_ref_np": None, "strong_efficiency": None, "weak_group": None, "weak_ref_np": None,
+                "weak_efficiency": None}
+    by_case: dict[tuple[str, str], list[dict[str, object]]] = {}
+    for row in rows:
+        by_case.setdefault((str(row["backend"]), str(row["case"])), []).append(row)
+    for members in by_case.values():
+        ref = min(members, key=lambda r: r["np"])
+        if len(members) > 1:
+            for row in members:
+                row["strong_ref_np"] = ref["np"]
+                row["strong_efficiency"] = ref["ns_per_cell_step"] / row["ns_per_cell_step"]
+    labels: dict[str, str] = {}
+    by_series: dict[tuple[str, str], list[dict[str, object]]] = {}
+    for row in rows:
+        if row["series"]:
+            labels.setdefault(str(row["series"]), str(row["series_label"]))
+            by_series.setdefault((str(row["backend"]), str(row["series"])), []).append(row)
+    for (_, series), members in by_series.items():
+        members.sort(key=lambda r: (-float(r["cells_per_device"]), r["np"]))
+        groups: list[list[dict[str, object]]] = []
+        for row in members:
+            if groups:
+                first = float(groups[-1][0]["cells_per_device"])
+                if abs(float(row["cells_per_device"]) - first) <= float(row["load_tolerance"]) * first:
+                    groups[-1].append(row)
+                    continue
+            groups.append([row])
+        for group in groups:
+            load = statistics.median(float(r["cells_per_device"]) for r in group)
+            ref = min(group, key=lambda r: r["np"])
+            for row in group:
+                row["weak_group"] = f"{series} {load / 1.0e6:.3g} M/dev"
+                if len(group) > 1:
+                    row["weak_ref_np"] = ref["np"]
+                    row["weak_efficiency"] = ref["ns_per_cell_step"] / row["ns_per_cell_step"]
+    return labels
+
+
 def fmt(value: object, kind: str) -> str:
     """Format a number for the Markdown tables."""
     if value is None or value == "":
@@ -304,13 +403,15 @@ def fmt(value: object, kind: str) -> str:
 
 
 def write_summary(out: Path, work: Path, rows: list[dict[str, object]], amr: list[dict[str, object]],
-                  speed: list[dict[str, object]], problems: list[str]) -> None:
+                  speed: list[dict[str, object]], labels: dict[str, str], problems: list[str]) -> None:
     """Write summary.csv and summary.md."""
     out.mkdir(parents=True, exist_ok=True)
     columns = ["leg", "case", "role", "backend", "np", "repetitions", "step_cost_s", "spread", "steps_cost_s",
-               "regrid_cost_s", "seam_cost_s", "cells_mean", "ns_per_cell_step", "reduced", "commit", "notes"]
+               "regrid_cost_s", "seam_cost_s", "cells_mean", "ns_per_cell_step", "reduced", "commit", "notes",
+               "kind", "series", "cells_per_device", "strong_ref_np", "strong_efficiency", "weak_group", "weak_ref_np",
+               "weak_efficiency"]
     with (out / "summary.csv").open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=columns)
+        writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
     reduced = any(r["reduced"] == "1" for r in rows)
@@ -324,14 +425,14 @@ def write_summary(out: Path, work: Path, rows: list[dict[str, object]], amr: lis
         lines += ["> **Reduced sizes** (`--reduced`): a plumbing test, the timings mean nothing.", ""]
     lines += ["## Step costs", "",
               "| Leg | Case | Role | Backend | Ranks | Step cost (s) | Spread | Steps (s) | Regrid (s/step) | "
-              "Seam fills (s/step) | N cells | ns/cell-step |",
-              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+              "Seam fills (s/step) | N cells | Cells/device | ns/cell-step |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         flag = " (!)" if "spread" in str(r["notes"]) else ""
         lines.append(f"| {r['leg']} | {r['case']} | {ROLE_TAG[str(r['role'])]} | {r['backend']} | {r['np']} | "
                      f"{fmt(r['step_cost_s'], 's')} | {fmt(r['spread'], 'pct')}{flag} | {fmt(r['steps_cost_s'], 's')} | "
                      f"{fmt(r['regrid_cost_s'], 's')} | {fmt(r['seam_cost_s'], 's')} | {fmt(r['cells_mean'], 'int')} | "
-                     f"{fmt(r['ns_per_cell_step'], 'x')} |")
+                     f"{fmt(r['cells_per_device'], 'int')} | {fmt(r['ns_per_cell_step'], 'x')} |")
     lines += ["", "## AMR ratios", "",
               "U uniform, R runtime, F frozen. AMR speedup T(U)/T(R) with its ideal N(U)/N(R); grid efficiency "
               "[T(U) N(F)/N(U)]/T(F); regrid cost T(R)/T(F) - 1.", "",
@@ -340,6 +441,27 @@ def write_summary(out: Path, work: Path, rows: list[dict[str, object]], amr: lis
         lines.append(f"| {a['leg']} | {a['backend']} | {a['np']} | {fmt(a.get('amr_speedup'), 'x')} | "
                      f"{fmt(a.get('amr_speedup_ideal'), 'x')} | {fmt(a.get('grid_efficiency'), 'x')} | "
                      f"{fmt(a.get('regrid_cost'), 'pct')} |")
+    lines += ["", "## Scaling and grind time", "",
+              "g = step cost x devices / N, ns per cell-step (devices = ranks: GPUs of an FNL run, cores of a CPU "
+              "run). Strong efficiency g(ref)/g per backend and case, ref the smallest rank count present; weak "
+              "efficiency g(ref)/g per backend and series at fixed cells per device (the load group), ref the "
+              "group's smallest device count. Rows sorted by backend, series and load: read g against cells/device "
+              "as the grind curve.", "",
+              "| Backend | Series | Case | Devices | N cells | Cells/device | Step cost (s) | g (ns/cell-step) | "
+              "Strong eff. (ref np) | Load group | Weak eff. (ref np) |",
+              "|---|---|---|---|---|---|---|---|---|---|---|"]
+    order = sorted(rows, key=lambda r: (str(r["backend"]), str(r["series"]) or "~",
+                                        "" if r["series"] else str(r["case"]), -float(r["cells_per_device"]),
+                                        int(r["np"])))
+    for r in order:
+        strong = f"{fmt(r['strong_efficiency'], 'x')} ({r['strong_ref_np']})" if r["strong_ref_np"] else "-"
+        weak = f"{fmt(r['weak_efficiency'], 'x')} ({r['weak_ref_np']})" if r["weak_ref_np"] else "-"
+        lines.append(f"| {r['backend']} | {r['series'] or '-'} | {r['case']} | {r['np']} | "
+                     f"{fmt(r['cells_mean'], 'int')} | {fmt(r['cells_per_device'], 'int')} | "
+                     f"{fmt(r['step_cost_s'], 's')} | {fmt(r['ns_per_cell_step'], 'x')} | {strong} | "
+                     f"{r['weak_group'] or '-'} | {weak} |")
+    if labels:
+        lines += ["", "Series:", "", *[f"- `{name}`: {label}" for name, label in sorted(labels.items())]]
     lines += ["", "## Backend speedups", "", "| Case | Reference | Backend | Ranks | Speedup |", "|---|---|---|---|---|"]
     for s in speed:
         lines.append(f"| {s['case']} | {s['reference']} | {s['backend']} | {s['np']} | {fmt(s['speedup'], 'x')} |")
@@ -368,9 +490,14 @@ def main() -> int:
         if row is None:
             problems.append(f"{key[0]} np {key[1]} {key[2]}: no repetition with both runs")
             continue
+        conf = read_case_conf(args.work, key[2])
+        row |= {"kind": conf.get("KIND", "matrix"), "series": conf.get("SERIES", ""),
+                "series_label": conf.get("SERIES_LABEL", ""),
+                "load_tolerance": float(conf.get("LOAD_TOLERANCE", "0.10"))}
         rows.append(row)
     amr, speed = ratios(rows), backend_speedups(rows)
-    write_summary(args.out, args.work, rows, amr, speed, problems)
+    labels = scaling(rows)
+    write_summary(args.out, args.work, rows, amr, speed, labels, problems)
     print(f"analyze: {len(rows)} windows, {len(amr)} AMR ratio rows, {len(speed)} backend speedups -> "
           f"{args.out / 'summary.md'}, {args.out / 'summary.csv'}")
     for r in rows:

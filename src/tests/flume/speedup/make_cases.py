@@ -7,7 +7,9 @@ Each case gets a directory `<out>/<case>/` (the case names are in matrix.conf, e
                    aligned); leg 2: input.ini (make_sphere.py); leg 3: input.ini (make_channel.py)
     case.conf      what run.sh needs, as shell assignments: the role, the main input and the realm inputs, the restart
                    basenames, the cells per block of each realm, the tree ratio, the protocol (t_w, settle steps, window
-                   lengths, repetitions) and the output keys a window switches off
+                   lengths, repetitions), the output keys a window switches off, the dump group (DUMPS: `leg<N>` for
+                   the cases of a leg, the case name for a weak case), the kind (matrix or weak) and the scaling series
+                   of a uniform case (SERIES, SERIES_LABEL, LOAD_TOLERANCE: read by analyze.py)
     README.md      the case: flow, grid, levels, marker, protocol, how run.sh runs it
 
 The inputs are the generators' own, with the run-independent changes made here: the cold-start grid (uniform at the
@@ -15,7 +17,14 @@ finest level, or the base level with the runtime marker), the marker and its tol
 (`[amr] frequency = 0`). run.sh makes the per-run changes (restart, step count, outputs) on copies, with ini_set.py.
 
 `--reduced` merges the `[leg.N.reduced]` sections over `[leg.N]` and `[protocol]`: the WSL plumbing test, seconds per
-run. Runs under `python3 -I` (no third-party package: medooza's python3 has none); the generators of legs 1 and 3 are
+run.
+
+Weak scaling (phase 9): a `[weak.<case>]` section is one more uniform case of the leg named by its `leg` key, at another
+size; its keys are those of `[protocol]`, `[leg.N]`, `[weak]` and `[weak.<case>]`, then with `--reduced` those of
+`[leg.N.reduced]`, `[weak.reduced]` and `[weak.<case>.reduced]`. It has no runtime or frozen twin, warms up from a cold
+start (`warmup_steps`) into its own dump, and its name starts with `w` (run.sh's leg prefixes never select it).
+
+Runs under `python3 -I` (no third-party package: medooza's python3 has none); the generators of legs 1 and 3 are
 called as subprocesses from the verification tree.
 
 Usage:
@@ -38,7 +47,6 @@ MAKE_STEP = VERIF / "step" / "make_step.py"
 MAKE_CHANNEL = VERIF / "turbulence" / "make_channel.py"
 MAKE_SPHERE = HERE / "make_sphere.py"
 ROLES = ("uniform", "runtime", "frozen")
-PROTOCOL_KEYS = ("window_short", "window_long", "repetitions", "spread_warning", "huge")
 SAVE_SECTIONS = ("IO", "diagnostics")  # the sections whose `*_save` keys a window run sets to 0
 
 
@@ -46,37 +54,64 @@ class CaseError(Exception):
     """A matrix.conf that cannot be turned into cases."""
 
 
-def read_conf(path: Path, reduced: bool) -> tuple[dict[str, str], dict[int, dict[str, str]]]:
-    """Return the protocol and the legs of matrix.conf, the reduced overrides merged when asked.
+def read_conf(path: Path, reduced: bool) -> tuple[dict[int, dict[str, str]], dict[str, dict[str, str]]]:
+    """Return the legs and the weak cases of matrix.conf, the reduced overrides merged when asked.
 
     Parameters
     ----------
     path : Path
         matrix.conf.
     reduced : bool
-        Merge the `[leg.N.reduced]` sections (over the leg and over the protocol).
+        Merge the `.reduced` sections (over the full keys: a reduced key always wins).
 
     Returns
     -------
-    tuple[dict[str, str], dict[int, dict[str, str]]]
-        The protocol keys, and per leg number its keys (the protocol keys included, reduced or not).
+    tuple[dict[int, dict[str, str]], dict[str, dict[str, str]]]
+        Per leg number its keys (the protocol keys included); per weak case name its keys (`[protocol]`, its leg,
+        `[weak]`, its section, then the reduced sections of the three), with `uniform` set to the case name and no
+        `runtime` or `frozen` key.
     """
     parser = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None)
     parser.optionxform = str
     if not parser.read(path):
         raise CaseError(f"no matrix file '{path}'")
-    protocol = dict(parser["protocol"])
+
+    def keys(section: str) -> dict[str, str]:
+        """Return a section's keys (empty when absent), each value on one line (continuations joined)."""
+        if not parser.has_section(section):
+            return {}
+        return {k: " ".join(v.split()) for k, v in parser[section].items()}
+
+    protocol = keys("protocol")
     legs: dict[int, dict[str, str]] = {}
     for name in parser.sections():
         m = re.fullmatch(r"leg\.(\d+)", name)
         if not m:
             continue
-        leg = dict(protocol) | dict(parser[name])
-        if reduced and parser.has_section(f"{name}.reduced"):
-            leg |= dict(parser[f"{name}.reduced"])
+        leg = protocol | keys(name)
+        if reduced:
+            leg |= keys(f"{name}.reduced")
         leg["reduced"] = "1" if reduced else "0"
         legs[int(m.group(1))] = leg
-    return protocol, legs
+    weak: dict[str, dict[str, str]] = {}
+    for name in parser.sections():
+        m = re.fullmatch(r"weak\.([^.]+)", name)
+        if not m or m.group(1) == "reduced":
+            continue
+        case = m.group(1)
+        if not case.startswith("w"):
+            raise CaseError(f"[{name}]: a weak case name starts with 'w' (run.sh's leg prefixes must not select it)")
+        own = keys(name)
+        if "leg" not in own or not own["leg"].isdigit() or f"leg.{own['leg']}" not in parser:
+            raise CaseError(f"[{name}]: `leg` must name a [leg.N] section")
+        base = f"leg.{own['leg']}"
+        merged = protocol | keys(base) | keys("weak") | own
+        if reduced:
+            merged |= keys(f"{base}.reduced") | keys("weak.reduced") | keys(f"{name}.reduced")
+        merged = {k: v for k, v in merged.items() if k not in ("runtime", "frozen")}
+        merged |= {"uniform": case, "reduced": "1" if reduced else "0"}
+        weak[case] = merged
+    return legs, weak
 
 
 def set_keys(text: str, section: str, keys: dict[str, str]) -> str:
@@ -270,11 +305,17 @@ def readme(leg_no: int, leg: dict[str, str], role: str, case: str, conf: dict[st
     }[role]
     reduced = " **Reduced size** (`make_cases.py --reduced`: plumbing only, timings mean nothing)." \
         if leg["reduced"] == "1" else ""
+    if conf["KIND"] == "weak":
+        what = (f"the uniform grid at L{lf}: {uniform_cells:,} cells, a weak-scaling case (phase 9). The warm-up runs "
+                f"it from the cold start for {leg['warmup_steps']} steps into its own dump; its windows restart from "
+                "it. No runtime or frozen twin.")
+    series = (f"Scaling series `{conf['SERIES']}`: {conf['SERIES_LABEL']}." if conf["SERIES"] else
+              "No scaling series (strong scaling only).")
     lines = [
         f"# {case}", "",
         f"FLUME speedup matrix, leg {leg_no} ([issue #133](https://github.com/szaghi/adam/issues/133)): "
         f"{leg['title']}.{reduced}", "",
-        f"**Role: {role}**, {what}", "",
+        f"**Role: {role}**, {what}", "", series, "",
         "| Item | Value |", "|---|---|",
         f"| main input | `{conf['INPUT']}` (realm inputs: {', '.join(f'`{i}`' for i in conf['INIS'].split())}) |",
         f"| cells per block (per realm) | {', '.join(conf['BLOCK_CELLS'].split())} |",
@@ -284,7 +325,8 @@ def readme(leg_no: int, leg: dict[str, str], role: str, case: str, conf: dict[st
         f"| cells at the finest level, uniform | {uniform_cells:,} |",
         f"| warm-up | {'t = ' + leg['t_w'] if int(leg.get('warmup_steps', '0')) <= 0 else leg['warmup_steps'] + ' steps'}"
         " (the leg's uniform case) |",
-        f"| settle | {leg['settle_steps']} steps (the leg's runtime case) |",
+        f"| settle | {leg['settle_steps']} steps (the leg's runtime case) |" if conf["KIND"] != "weak"
+        else "| settle | none (a weak case) |",
         f"| window | {leg['repetitions']} x ({leg['window_short']} + {leg['window_long']} steps), interleaved |",
         "", "Generated by `make_cases.py` from `matrix.conf` (edit there, not here):", "", "```",
         shlex.join([Path(c).name if c.endswith(".py") else c.replace(f"{out}/", "").replace(str(out), ".")
@@ -294,8 +336,27 @@ def readme(leg_no: int, leg: dict[str, str], role: str, case: str, conf: dict[st
     return "\n".join(lines)
 
 
-def write_case(leg_no: int, leg: dict[str, str], role: str, root: Path) -> str:
-    """Write one case directory; return its name."""
+def write_case(leg_no: int, leg: dict[str, str], role: str, root: Path, kind: str = "matrix") -> str:
+    """Write one case directory; return its name.
+
+    Parameters
+    ----------
+    leg_no : int
+        The leg (flow) of the case.
+    leg : dict[str, str]
+        The keys of the leg, or of the weak case.
+    role : str
+        uniform, runtime or frozen.
+    root : Path
+        The directory of the case directories.
+    kind : str
+        matrix (a case of a leg) or weak (a `[weak.<case>]` section).
+
+    Returns
+    -------
+    str
+        The case name.
+    """
     case = leg[role]
     out = root / case
     out.mkdir(parents=True, exist_ok=True)
@@ -312,13 +373,17 @@ def write_case(leg_no: int, leg: dict[str, str], role: str, root: Path) -> str:
     conf = {
         "CASE": case, "LEG": str(leg_no), "ROLE": role, "INPUT": main_input, "INIS": " ".join(inis),
         "BASENAMES": " ".join(basenames), "BLOCK_CELLS": " ".join(map(str, cells)), "RATIO": str(ratio),
-        "UNIFORM_CASE": leg["uniform"], "RUNTIME_CASE": leg["runtime"], "FROZEN_CASE": leg["frozen"],
+        "UNIFORM_CASE": leg["uniform"], "RUNTIME_CASE": leg.get("runtime", ""), "FROZEN_CASE": leg.get("frozen", ""),
         "SOURCE": "warmup" if role == "uniform" else "settle",
         "RULE": "units" if role == "runtime" else "siblings",
         "T_W": leg["t_w"], "WARMUP_STEPS": leg.get("warmup_steps", "0"), "SETTLE_STEPS": leg["settle_steps"],
         "REGRID_PERIOD": leg["regrid_period"], "WINDOW_SHORT": leg["window_short"], "WINDOW_LONG": leg["window_long"],
         "REPETITIONS": leg["repetitions"], "SPREAD_WARNING": leg["spread_warning"], "HUGE": leg["huge"],
         "OFF_KEYS": " ".join(off), "REDUCED": leg["reduced"],
+        "KIND": kind, "DUMPS": case if kind == "weak" else f"leg{leg_no}",
+        "SERIES": leg.get("series", "") if role == "uniform" else "",
+        "SERIES_LABEL": leg.get("series_label", "") if role == "uniform" else "",
+        "LOAD_TOLERANCE": leg.get("load_tolerance", "0.10"),
     }
     with (out / "case.conf").open("w") as f:
         f.write(f"# {case}: written by make_cases.py from matrix.conf (sourced by run.sh; do not edit)\n")
@@ -333,16 +398,20 @@ def main() -> int:
     parser.add_argument("out", type=Path, help="the directory of the case directories")
     parser.add_argument("--conf", type=Path, default=HERE / "matrix.conf", help="the matrix (default: matrix.conf)")
     parser.add_argument("--reduced", action="store_true", help="the reduced sizes (WSL plumbing test)")
-    parser.add_argument("--legs", default="all", help="comma-separated leg numbers, or all (default)")
+    parser.add_argument("--legs", default="all",
+                        help="comma-separated leg numbers, or all (default); a leg brings its weak cases")
     args = parser.parse_args()
     try:
-        _, legs = read_conf(args.conf, args.reduced)
+        legs, weak = read_conf(args.conf, args.reduced)
         wanted = sorted(legs) if args.legs == "all" else [int(x) for x in args.legs.split(",")]
         for leg_no in wanted:
             if leg_no not in legs:
                 raise CaseError(f"no [leg.{leg_no}] in {args.conf}")
             for role in ROLES:
                 print(f"make_cases: {write_case(leg_no, legs[leg_no], role, args.out)}")
+        for case, keys in weak.items():
+            if int(keys["leg"]) in wanted:
+                print(f"make_cases: {write_case(int(keys['leg']), keys, 'uniform', args.out, kind='weak')}")
     except (CaseError, KeyError, ValueError) as err:
         print(f"make_cases: {err}", file=sys.stderr)
         return 1

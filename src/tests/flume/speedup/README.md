@@ -3,7 +3,9 @@
 **Status: harness ready, no leg measured yet** ([issue #133](https://github.com/szaghi/adam/issues/133), the plan's only
 source of truth: every step is ticked there with its commit, every phase ends with a comment carrying its results).
 Phase 3 (this harness) is in place and tested on WSL at reduced sizes; the legs run in phases 5-7, the summary and the
-figures come in phase 8.
+figures come in phase 8. Phase 9 (owner, 2026-11-23) lifts the plan's "no scaling beyond one node": strong scaling of the
+legs on up to 8 medooza nodes, weak scaling at fixed cells per GPU and the grind-time analysis, "Multi-node and weak
+scaling (phase 9)" below.
 
 The matrix answers two questions: how much faster a GPU node is than a CPU node on each flow, and how much runtime AMR
 buys at equal finest resolution, with where its overhead goes (the AMR grid itself against the regrids).
@@ -54,7 +56,9 @@ grid, D2).
 
 1. **warmup**, once per leg, on the fastest backend: the uniform case from the cold start to t_w (leg 1 2.0, leg 2
    0.15, leg 3 150), restart dump in `<work>/dumps/leg<N>/warmup/`. Leg 3: a surviving T3 `resolved-hybrid` dump
-   replaces the run (`run.sh warmup --cases 3 --use-dump DIR` links its files).
+   replaces the run (`run.sh warmup --cases 3 --use-dump DIR` links its files). Then run `settle` and `windows`, not
+   `chain`: `chain` runs its own warm-up, and every stage moves an existing directory to `<work>/attic/` first, so a
+   chain after `--use-dump` throws the linked dump away and warms up from the cold start (to t_w = 150).
 2. **settle**, once per leg: the runtime case restarted from the warm-up dump (repartitioned for the settle's rank
    count, rule `units`), `settle_steps` steps (legs 1, 2: 100; leg 3: 4000, one eddy turnover); the first regrids
    derefine what the marker does not need; dump in `<work>/dumps/leg<N>/settle/`.
@@ -76,7 +80,8 @@ the regrid period, so the two runs differ by exactly ten regrids.
   cells per block, updated by the `flume: regrid at step S: blocks A -> B` lines (a regrid at S acts from step S + 1;
   the lines do not name their realm, they come in realm order, and the realm of each is the one whose count matches;
   when realms of equal counts leave it ambiguous the summary says so);
-- throughput = `step cost x ranks / N`, in ns per cell-step (ranks = devices).
+- throughput = `step cost x ranks / N`, in ns per cell-step (ranks = devices): the grind time g of phase 9, with the
+  cells per device `N / ranks` beside it, the strong and weak efficiencies ("Multi-node and weak scaling (phase 9)").
 
 **Ratios** (per leg, backend and rank count; backend speedup per case):
 
@@ -94,13 +99,14 @@ The hypotheses H1-H4 these ratios test are in the issue.
 
 | Path | What |
 |---|---|
-| `matrix.conf` | every parameter: per leg the grids, levels, block sizes, scheme, marker and tolerances, t_w, settle length, regrid period; the window (10/110 steps, 3 repetitions, 2 % spread); `[leg.N.reduced]` the WSL plumbing sizes |
+| `matrix.conf` | every parameter: per leg the grids, levels, block sizes, scheme, marker and tolerances, t_w, settle length, regrid period, scaling series; the window (10/110 steps, 3 repetitions, 2 % spread); `[leg.N.reduced]` the WSL plumbing sizes; `[weak.<case>]` the weak-scaling cases (phase 9) |
 | `make_cases.py` | writes one directory per case (inputs, `case.conf` for run.sh, `README.md`) from `matrix.conf`; calls `verification/step/make_step.py`, `make_sphere.py`, `verification/turbulence/make_channel.py` |
 | `make_sphere.py` | leg 2's input: shock over a sphere, immersed boundary, octree, uniform or runtime AMR |
 | `run.sh` | the chain: `cases`, `warmup`, `settle`, `windows`, `chain` stages; a `run.info` per run |
 | `repartition.py` | a restart written on N ranks rewritten for M ranks (phase 1) |
 | `ini_set.py` | rewrites `section.key=value` options of an input (the per-run changes of run.sh) |
-| `analyze.py` | step costs, spreads, N, throughputs and the ratios -> `results/summary.{md,csv}` |
+| `analyze.py` | step costs, spreads, N, throughputs, the ratios, the grind times and the strong and weak efficiencies -> `results/summary.{md,csv}` |
+| `scaling_plot.py` | the grind-time curves g(cells per device) from `summary.csv` (matplotlib, not needed by `analyze.py`) |
 | `jobs/medooza-{cpu,fnl}.slurm` | the medooza jobs: one run.sh stage per job, outputs on `/ifs` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |
@@ -111,6 +117,7 @@ The run tree (`--work`, default `runs/full` or `runs/reduced` here):
 ```
 <work>/cases/<case>/                         inputs, case.conf, README.md (rewritten by every run.sh call)
 <work>/dumps/leg<N>/{warmup,settle}/         the two dumps of a leg, with the logs of the runs that wrote them
+<work>/dumps/<weak case>/warmup/             the dump of a weak case (phase 9: a cold start, no settle)
 <work>/windows/<backend>-np<N>/<case>/dump/  the window dump repartitioned for N ranks
 <work>/windows/<backend>-np<N>/<case>/r<rep>-n<steps>/   one window run: inputs, log.txt, wall.txt, run.info
 <work>/attic/                                directories a stage found already there (moved, never deleted)
@@ -174,6 +181,144 @@ the same bits (D3):
    writes `<work>/windows/fnl-amd-np<N>/`.
 5. Send back `<work>/windows/fnl-amd-np*/` without the dumps (`rsync -a --exclude dump --exclude '*.fbd'
    --exclude '*-restart*' ...`): `run.info`, `log.txt` and `wall.txt` per run are what `analyze.py` reads.
+
+## Multi-node and weak scaling (phase 9)
+
+Owner, 2026-11-23: the plan had "strong and weak scaling beyond one node" out of scope; it is now in. medooza `prod-gn`
+nodes hold 4 A30 (24 GB) and 64 cores; up to 8 nodes (32 A30, 512 cores). The FNL job runs 4 ranks per node, one per
+GPU (`--ntasks-per-node=4`), so `--nodes=N` gives `--np 4N` (`SLURM_NTASKS`); the CPU job 64 ranks per node.
+
+### 9.1 Strong scaling: the legs on more nodes (no new case)
+
+The windows of the existing cases, their dumps repartitioned for the rank count (`repartition.py`), exactly as on one
+node. FNL np 8/16/32 = 2/4/8 nodes; CPU 2/4 nodes = 128/256 ranks. Leg 3 stays on one node (3a is ~6 GB: no multi-node
+load).
+
+```bash
+sbatch --nodes=2 jobs/medooza-fnl.slurm windows --cases 2        # np 8
+sbatch --nodes=4 jobs/medooza-fnl.slurm windows --cases 2        # np 16
+sbatch --nodes=8 jobs/medooza-fnl.slurm windows --cases 2        # np 32
+sbatch --nodes=2 jobs/medooza-fnl.slurm windows --cases 1        # likewise 4, 8 for leg 1
+sbatch --nodes=2 jobs/medooza-cpu.slurm windows --cases 2        # 128 ranks
+sbatch --nodes=4 jobs/medooza-cpu.slurm windows --cases 2        # 256 ranks; likewise --cases 1
+```
+
+`--cases 1` and `--cases 2` select the leg's matrix cases only (the weak cases are named `w...`). Two things to know:
+the FNL job's free-memory preflight runs `nvidia-smi` on the first node only; and at 32 ranks a runtime grid (1c, 2b)
+of a few hundred blocks leaves ranks with few or no blocks of a realm (an empty rank was a crash once, #82, MHD).
+
+### 9.2 Weak scaling: uniform cases at fixed cells per GPU
+
+New uniform cases (`[weak.<case>]` in `matrix.conf`, role U only: no runtime or frozen twin, no settle). Each warms up
+from a **cold start of 20 steps** (`warmup_steps`, `[weak]`; the per-cell cost of a uniform WENO grid does not depend
+on the flow state) into its own dump `<work>/dumps/<case>/warmup/`; the window is the protocol's, 3 x (10, 110) steps.
+1a and 2a are reused as they are (their windows from the legs' warm-ups at t_w), joined to the series by the leg's
+`series` key. The names start with `w`; select them with `--cases w`, `w1`, `w2` or a name.
+
+**The sphere is the weak-scaling and grind-time series** (WENO-5, 24^3 blocks: the block shape is the same at every
+level, only the block count changes):
+
+| Load (cells / A30) | Case | Cells | A30 | Nodes | Role in the analysis |
+|---|---|---|---|---|---|
+| 14.2 M | `2a-sphere-uniform` (L4) | 56.6 M | 4 | 1 | weak reference |
+| 14.2 M | `w2-sphere-l5` (L5, 768^3) | 453 M | 32 | 8 | weak point |
+| 7.08 M | `w2-sphere-l3` (L3, 192^3) | 7.08 M | 1 | 1 | weak reference |
+| 7.08 M | `2a-sphere-uniform` | 56.6 M | 8 | 2 | weak point (9.1's np 8) |
+| 3.54 M | `w2-sphere-l3` | 7.08 M | 2 | 1 | grind curve (optional: pairs 2a at 16) |
+| 3.54 M | `2a-sphere-uniform` | 56.6 M | 16 | 4 | grind curve (9.1's np 16) |
+| 1.77 M | `w2-sphere-l3` | 7.08 M | 4 | 1 | grind curve, weak reference |
+| 1.77 M | `2a-sphere-uniform` | 56.6 M | 32 | 8 | grind curve, weak point (9.1's np 32) |
+
+**The step series is memory-capped 2-D, in the launch-bound regime (H1): not a grind measurement.** An A30 is
+launch-bound below a few M cells (`profile-couette3d`: `small`, 2.1 M, is the launch-overhead profile; `medium`,
+16.8 M, loads an A30), and the step cannot go above ~1.6 M cells per A30 (the memory ceiling below). Its block shape
+also changes with m (realm C stores 12.2 cells per cell at m 8, 9.8 at m 32: the ghost share changes along the series),
+so its "weak efficiency" mixes block size with communication:
+
+| Case | m | Cells (L4) | A30 | Nodes | Cells / A30 |
+|---|---|---|---|---|---|
+| `w1-step-m8` | 8 | 1.03 M | 1 | 1 | 1.03 M |
+| `1a-step-uniform` | 16 | 4.13 M | 4 | 1 | 1.03 M |
+| `w1-step-m22` | 22 | 7.81 M | 8 | 2 | 0.976 M (m^2 = 512 has no even root; 5.4 % below) |
+| `w1-step-m32` | 32 | 16.5 M | 16 | 4 | 1.03 M |
+
+Every m is even and >= 2 ngc = 8 (WENO-7), as `make_step.py --layout aligned` requires.
+
+```bash
+# sphere (the weak and grind series); 2a at np 4 is phase 5's, at 8/16/32 is 9.1's
+sbatch --gres=gpu:1 --ntasks-per-node=1 jobs/medooza-fnl.slurm chain --cases w2-sphere-l3          # L3 on 1 A30
+sbatch --dependency=afterok:<L3 job> --gres=gpu:2 --ntasks-per-node=2 jobs/medooza-fnl.slurm windows --cases w2-sphere-l3
+sbatch --dependency=afterok:<L3 job> jobs/medooza-fnl.slurm windows --cases w2-sphere-l3          # L3 on 4 A30
+sbatch --nodes=8 jobs/medooza-fnl.slurm chain --cases w2-sphere-l5                                 # L5 on 32 A30
+# step (memory-capped, launch-bound); 1a at np 4 is phase 6's
+sbatch --gres=gpu:1 --ntasks-per-node=1 jobs/medooza-fnl.slurm chain --cases w1-step-m8
+sbatch --nodes=2 jobs/medooza-fnl.slurm chain --cases w1-step-m22
+sbatch --nodes=4 jobs/medooza-fnl.slurm chain --cases w1-step-m32
+```
+
+The `chain` of a weak case is its warm-up then its windows (no settle). CPU, optional, the same per-node load:
+`sbatch jobs/medooza-cpu.slurm chain --cases w2-sphere-l3` (1 node) against 2a on 8 CPU nodes
+(`sbatch --nodes=8 jobs/medooza-cpu.slurm windows --cases 2a`).
+
+**Memory** (FNL, the block budget of `adam_adam_object` `compute_blocks_number`: `0.85 x device memory / realms /
+(fields x 8 B x stored cells per block)`, stored cells `(ni+2 ngc)(nj+2 ngc)(nk+2 ngc)` with the null axis too; fields
+64 for the step at WENO-7/SSP-54 and 54 for the sphere at WENO-5/SSP-33, the counts the WSL "blocks budget" lines
+print; A30 taken as 24 GB, the conservative end: the job log's "blocks budget" line gives the exact capacity). The share
+is the binding realm's blocks per rank over its capacity:
+
+| Case | A30 | Blocks per rank (binding realm) | Capacity | Used | Fits |
+|---|---|---|---|---|---|
+| `w1-step-m8` | 1 | 256 (C, 104 x 40 x 9 stored) | 355 | 72 % | yes |
+| `1a-step-uniform` | 4 | 64 (C, 200 x 72 x 9) | 102 | 63 % | yes |
+| `w1-step-m22` | 8 | 32 (C, 272 x 96 x 9) | 57 | 56 % | yes |
+| `w1-step-m32` | 16 | 16 (C, 392 x 136 x 9) | 28 | 57 % | yes |
+| `w2-sphere-l3` | 1 / 2 / 4 | 512 / 256 / 128 (30^3 stored) | 1749 | 29 / 15 / 7 % | yes |
+| `2a-sphere-uniform` | 4 / 8 / 16 / 32 | 1024 / 512 / 256 / 128 | 1749 | 59 / 29 / 15 / 7 % | yes |
+| `w2-sphere-l5` | 32 | 1024 | 1749 | 59 % (11.9 GB of fields per A30) | yes |
+
+Disk (`/ifs`): a restart stores q with its ghosts, `blocks x 30^3 x 5 x 8 B` for the sphere: L3 0.55 GB, L4 4.4 GB,
+**L5 35 GB**, written by the warm-up and again by the window's repartition (~71 GB for `w2-sphere-l5`, plus one 4.4 GB
+copy per rank count of 2a); the step's dumps are 0.5-6.6 GB.
+
+**The step's memory ceiling** (a follow-up for the owner, not changed here). Two causes, with their factors at m 16:
+
+1. **Null-axis ghosts.** A 2-D quadtree block stores `ngc` ghost layers on each side of its single z cell too: realm C's
+   192 x 64 x 1 block is stored as 200 x 72 x 9 (10.5 stored cells per cell; 1.17 without the z ghosts). Without them
+   the step's memory per cell drops ~9x.
+2. **FLUME's equal memory split per realm** (`adam_flume_fnl_object.F90` divides the device by the realm count): realm
+   C holds 76 % of the cells with 1/3 of the memory and binds first.
+
+The ceiling is then ~1.6 M cells per A30 today (realm C full; at 1.03 M it is 63 % full), ~3.6 M with a split
+proportional to the cells, ~30 M with both fixed. (The ~34 GB of the plan's memory note for 1a was the WENO-9, ngc 5
+estimate; at WENO-7 1a's blocks take ~23 GB over the 4 A30.)
+
+### 9.3 Grind time and the efficiencies (`analyze.py`)
+
+Per window (backend, case, ranks; devices = ranks: GPUs of an FNL run, cores of a CPU run):
+
+- **grind time** `g = step cost x devices / N`, ns per cell-step (the step cost of the protocol: the median of
+  `(T_loop(110) - T_loop(10)) / 100`); **cells per device** `N / devices`. g against cells per device is the grind
+  curve; a multi-node point above the single-node curve at the same load is the multi-node overhead.
+- **strong efficiency**, per backend and case: `g(ref) / g(np)`, ref the smallest rank count present (4 for the
+  legs' FNL windows, 64 for CPU); 1 is ideal.
+- **weak efficiency**, per backend and series (`series` of the leg in `matrix.conf`: the uniform case and the weak
+  cases of the leg): the windows are grouped by cells per device (a group: loads within `load_tolerance` = 10 % of its
+  largest, `[protocol]`), and `g(ref) / g(np)` with ref the group's smallest device count; a group of one window has
+  none.
+
+`summary.md` gains the table "Scaling and grind time" (backend, series, case, devices, N, cells per device, step
+cost, g, strong efficiency and its reference, load group, weak efficiency and its reference), sorted by backend,
+series and load, and the series labels; `summary.csv` the same columns (`kind`, `series`, `cells_per_device`,
+`strong_ref_np`, `strong_efficiency`, `weak_group`, `weak_ref_np`, `weak_efficiency`). The AMR ratios take the
+matrix cases only. `scaling_plot.py results/summary.csv --out scaling.png` draws g(cells per device) per backend
+(filled: one node, open: several; matplotlib, outside the stdlib-only scripts).
+
+The premise that the per-cell cost does not depend on the flow state (weak cases from a 20-step cold start, 1a and 2a
+from t_w) is untested here; a 4-A30 window of a cold-start L4 sphere next to 2a's would measure it in one job.
+
+Tested on WSL at reduced sizes (2026-11-23, CPU, the `[*.reduced]` sizes: step m 8/12/16 at L0, sphere blocks 8 and 10
+at L1): warm-ups on 2 ranks, windows on 1, 2 and 4 ranks (repartitioned), `analyze.py` grouped w1-step-m8 on 1 rank
+with 1a and w1-step-m32 on 4 (4,032 cells per rank), and w2-sphere-l3 on 1 with w2-sphere-l5 on 2 (4,096 / 4,000).
 
 ## Decisions
 
