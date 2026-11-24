@@ -117,8 +117,12 @@ where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns 
 |---|---|---|---|---|
 | 14.2 M | 24³ | 55.1 (2a, 56.6 M cells) | 69.3 (L5, 453 M cells) | 0.80 |
 | 7.02 M | 38³ | 50.5 (L3, 28.1 M cells) | 67.0 (L4, 225 M cells) | 0.75 |
+| 7.02 M, no body | 38³ | 37.1 | 41.3 | 0.90 |
 
-- **Leaving the node costs 20–25 % per cell on 8 nodes** at 7–14 M cells per A30. The pair at 38³ blocks loses more
+- **The multi-node loss follows the ghost exchanges.** Without the immersed body the same 8-node pair keeps 0.90. In
+  both runs leaving the node costs 9.7–9.8 ms per ghost exchange; the body's eikonal extension exchanges the ghosts
+  4 times per stage instead of once (12 exchanges per step against 3), so it loses 4 times as much.
+- **Leaving the node costs 20–25 % per cell on 8 nodes** with the immersed body at 7–14 M cells per A30. The pair at 38³ blocks loses more
   than the one at 24³ although its blocks carry fewer ghost cells: its cells are 15 % cheaper, and at half the load
   per A30 the same exchange weighs more. In throughput the two 8-node runs are equal (478 and 462 M cell-steps per
   second).

@@ -151,6 +151,14 @@ the 2026-11-23 version mixed two costs: the cross-pair exchange inside a node (1
 | 14.2 M | 24^3 | 55.1 (2a) | 69.3 (`w2-sphere-l5`, 453 M cells, 8 nodes) | **0.80**, measured |
 | 7.02 M | 38^3 | 50.5 (`wg-b38`) | 67.0 (`wg-l4b38`, 225 M cells, 8 nodes; job 1369691) | **0.75**, measured |
 | 7.08 M | 24^3 | ~58.7, not run (`wg-b38` x 51.0/43.9, the 1-A30 block factor) | 69.4 (2a, 2 nodes) | ~0.85, estimate |
+| 7.02 M, no body | 38^3 | 37.1 (`wg-b38`, the sphere dropped) | 41.3 (`wg-l4b38`, the sphere dropped; jobs 1369710, 1369711) | **0.90**, measured |
+
+**Without the immersed body the 8-node pair keeps 0.90** (the same grids and dumps, `[solids]` dropped from each
+rank's input by `speedup-133/noib-fnl.sh`, a `run.sh --exe` wrapper; `results/2026-11-24/gpu-weak-noib/`). The cost of
+leaving the node is the same per ghost exchange in both runs, 9.7-9.8 ms ((67.0 - 50.5) ns x 7.02 M / 12 exchanges per
+step with the body, its eikonal extension exchanging the ghosts 4 times per stage; (41.3 - 37.1) x 7.02 M / 3 without):
+on the GPU the multi-node loss follows the number of ghost exchanges. The body costs 36 % on one node (50.5 against
+37.1 ns: the 9 extra exchanges and the eikonal kernels).
 
 The 2026-11-23 weak efficiencies at 7.08 and 3.54 M cells per A30 (0.73, 0.72) took 1- and 2-A30 references, so
 they held the cross-pair cost of the fourth A30 (13-22 % at those loads) as well as the network's. The 8-node pair at
