@@ -1,0 +1,64 @@
+#!/bin/bash
+# #157 night 2: the sphere windows (2a uniform, 2b runtime, 2c frozen AMR; the medooza dumps) on 4 H100, executables A
+# (b8641a59) and B (#157: HEAD 10c69ae2) alternated run by run; then NVCOMPILER_ACC_TIME 10-step runs of 2c and 2a.
+#   qsub -q gpu4_std -l select=1:ngpus=4:ncpus=96:mpiprocs=4:mem=400gb -l place=excl -l walltime=06:00:00 i157sp-H100.pbs
+#PBS -N i157sp-H100
+#PBS -j oe
+#PBS -o /lustre/projects/1026/CALCOLI/adam/speedup-133/i157/
+set -uo pipefail
+module purge
+module load nvhpc-hpcx-cuda12/26.3 python/3.11.14-cnapenc
+R=/lustre/projects/1026/CALCOLI/adam/speedup-133/i157
+WIN=$R/win
+declare -A EXE=([A]=$HOME/adam-i157A/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl \
+                [B]=$HOME/adam-i157B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl)
+declare -A COMMIT=([A]=b8641a59 [B]=10c69ae2)
+log() { echo "$(date +%T) $*"; }
+log "job $PBS_JOBID on $(hostname)"
+reasons=$(nvidia-smi --query-gpu=index,clocks_event_reasons.active,enforced.power.limit,power.default_limit,memory.used --format=csv,noheader,nounits)
+echo "$reasons"; bad=""
+while IFS=' ,' read -r idx hex enf def used; do
+   [[ $hex == 0x* ]] || continue
+   (( hex & 0xCC )) && bad+=" gpu${idx}=${hex}"
+   (( ${enf%.*} * 100 < ${def%.*} * 95 )) && bad+=" gpu${idx}=power-limit"
+   (( ${used%.*} > 2000 )) && bad+=" gpu${idx}=busy"
+done <<< "$reasons"
+[[ -z $bad ]] || { echo "unhealthy GPUs:$bad" >&2 ; exit 42 ; }
+for t in A B; do [[ -x ${EXE[$t]} ]] || { log "no executable ${EXE[$t]}"; exit 3; }; done
+nvidia-smi --query-gpu=timestamp,index,clocks.sm,power.draw,temperature.gpu,clocks_event_reasons.active,utilization.gpu \
+   --format=csv,noheader,nounits -lms 1000 > "$R/gpustat.${PBS_JOBID%%.*}.log" 2>&1 &
+POLL=$!
+win() { # <A|B> <case> <rep> <n> <out root> [VAR=value ...]
+   local tag=$1 case=$2 rep=$3 n=$4 root=$5 src d t0 t1 rc f exe launch
+   shift 5
+   src=$WIN/fnl-nvf-np4/$case; d=$root/$tag/windows/fnl-nvf-np4/$case/r$rep-n$n; exe=${EXE[$tag]}
+   rm -rf "$d"; mkdir -p "$d"; cp "$src/r$rep-n$n"/*.ini "$d"/
+   for f in "$src"/dump/*-restart*; do ln -s "$f" "$d"/; done
+   export ADAM_SEAM_TIMING=1
+   launch="mpirun -np 4 --map-by ppr:4:node --bind-to none -x PATH -x LD_LIBRARY_PATH -x ADAM_SEAM_TIMING"
+   for f in "$@"; do export "$f"; launch+=" -x ${f%%=*}"; done
+   t0=$(date +%s.%N)
+   ( cd "$d" && $launch "$exe" input.ini > log.txt 2>&1 < /dev/null ); rc=$?
+   t1=$(date +%s.%N)
+   for f in "$@"; do unset "${f%%=*}"; done
+   awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.3f\n", b - a}' > "$d/wall.txt"
+   grep -vE '^(date|host|slurm_job|command|exe|exe_sha256|commit|src_modified)=' "$src/r$rep-n$n/run.info" > "$d/run.info"
+   printf 'date=%s\nhost=%s\nslurm_job=%s\ncommand=%s %s input.ini\nexe=%s\nexe_sha256=%s\ncommit=%s\nsrc_modified=no\nenv=%s\nrc=%s\n' \
+      "$(date -Is)" "$(hostname)" "$PBS_JOBID" "$launch" "$exe" "$exe" "$(sha256sum "$exe" | cut -c1-16)" "${COMMIT[$tag]}" "$*" "$rc" >> "$d/run.info"
+   log "$tag $case r$rep-n$n: rc $rc wall $(cat "$d/wall.txt") $(grep -a 'forest timing' "$d/log.txt" | head -1 | awk '{print $7, $8, $9, $10}')"
+}
+for t in A B; do mkdir -p "$R/$t"; done
+for c in 2c-sphere-fixed 2b-sphere-runtime 2a-sphere-uniform; do
+   # the dumps were streamed from medooza: the marker .complete is written once a case's stream has finished
+   for i in $(seq 1 120); do [[ -f $WIN/fnl-nvf-np4/$c/.complete ]] && break; sleep 30; done
+   [[ -f $WIN/fnl-nvf-np4/$c/.complete ]] || { log "no $c (stream incomplete)"; continue; }
+   for rep in 1 2 3; do for n in 10 110; do for tag in A B; do win $tag $c $rep $n "$R"; done; done; done
+done
+for tag in A B; do
+   win $tag 2c-sphere-fixed 1 10 "$R/profile" NVCOMPILER_ACC_TIME=1
+   win $tag 2a-sphere-uniform 1 10 "$R/profile" NVCOMPILER_ACC_TIME=1
+done
+kill "$POLL" 2> /dev/null
+awk -F', ' '$7+0 > 0 {n[$2]++; c[$2] += $3; if (!($2 in m) || $3 < m[$2]) m[$2] = $3; if (and(strtonum($6), 0xCC)) r[$2] = $6}
+   END {for (g in n) printf "gpu%s: busy %d s, SM mean %.0f min %s MHz%s\n", g, n[g], c[g]/n[g], m[g], (g in r) ? ", BRAKE " r[g] : ""}' "$R/gpustat.${PBS_JOBID%%.*}.log"
+log "I157SP-H100-DONE"

@@ -508,6 +508,7 @@ cost T(R)/T(F) - 1):
 | 1 | fnl-nvf | 4 | 1.04 | 1.59 | 0.89 | 34 % |
 | 1 | cpu | 64 | 1.06 | 1.59 | 0.90 | 34 % |
 | 2 | fnl-nvf | 4 | 1.48 | 4.02 | 0.51 | 38 % |
+| 2 | fnl-nvf, #157 | 4 | 1.73 | 4.02 | 0.59 | 37 % |
 | 2 | cpu | 64 | 2.20 | 4.02 | 0.68 | 24 % |
 | 3 | fnl-nvf | 4 | 1.25 | 1.78 | 0.90 | 29 % |
 | 3 | cpu | 64 | 1.03 | 1.78 | 0.81 | 39 % |
@@ -529,7 +530,8 @@ The 2-D step's weak series (1.03 M cells per A30, memory-capped by the null-axis
   extruded in 3-D at the same order and load 126 (H2): the boundary-condition kernel refills the null-axis ghost
   layers at every stage. A GPU node runs the step 5.8 times faster than a CPU node, against 14-16 on the 3-D uniform
   grids.
-- **Runtime AMR buys little on either node: 1.04 (step), 1.48 (sphere), 1.25 (channel) on 4 A30; 1.06, 2.20, 1.03 on
+- **Runtime AMR buys little on either node: 1.04 (step), 1.48 (sphere; 1.73 since #157, "The AMR legs with the density
+  guard once per ghost" below), 1.25 (channel) on 4 A30; 1.06, 2.20, 1.03 on
   64 cores**, against ideals of 1.59, 4.02 and 1.78. On the GPU node the losses are the AMR grid itself (grid
   efficiency 0.89, 0.51, 0.90) and the regrid, which runs on the host (22-27 % of the runtime step); on the CPU node
   the AMR grid (0.90, 0.68, 0.81) and the **rank layout of the runtime grid**, which leaves the busiest rank with the
@@ -638,9 +640,81 @@ The ghost fill takes 1.45 s of the 1.51 s difference (96 %). Its 121 launches ha
 (111,580 against 105,596 gangs of 128 rows x variables of the map) and take 14.6 ms against 2.6 ms each: on the AMR
 grid the map holds the 2:1 rows, coarse-to-fine interpolation (tricubic, `seam_ghost_fill` regime 2) and fine-to-coarse
 restriction, which the kernel (`adam_fnl_field_kernels.F90:388`) runs in the same loop as the copies, one branch per
-row. How the 5.6x splits among the interpolation arithmetic, the branch divergence and the donor reads is not
-measured. Draft issue:
+row. How the 5.6x splits among the interpolation arithmetic, the branch divergence and the donor reads was measured
+since by the AMR ghost-fill benchmark (`src/tests/perf/ghost-fill/amr/`, [docs](https://szaghi.github.io/adam/developer/ghost-fill-benchmark)):
+the coarse-to-fine interpolation, and above all its density guard (#101), recomputed for every variable of every fine
+ghost; the branch divergence is minor on the H100. [#157](https://github.com/szaghi/adam/issues/157) computes the guard
+once per fine ghost: the legs re-measured below. Draft issue:
 `issue-sphere-amr-gpu-cell-cost.md`.
+
+### The AMR legs with the density guard once per ghost (#157, 2026-11-25)
+
+The windows of the matrix re-run with two executables on the same node, alternated run by run, from the same window
+dumps (`results/2026-11-25-i157/`): **before**, b8641a59 (the #156 barriers already removed, so its numbers differ a
+little from the 2026-11-23 matrix's), and **after**, the #157 library (HEAD 10c69ae2: the guard of the coarse-to-fine
+seam fill once per fine ghost, in the local fill and in the MPI pack). Protocol as the matrix's: 3 repetitions of 10
+and 110 steps, `analyze.py` per executable (`results/2026-11-25-i157/medooza/summary-{A,B}.md`); 4 A30 (medooza jobs
+1369838-1369840; the tables by `ab_table.py`):
+
+| Case | Before (s/step) | After (s/step) | Change | Steps before -> after | Regrid before -> after |
+|---|---|---|---|---|---|
+| 1a step uniform | 0.2167 | 0.2164 | -0.1 % | 0.2163 -> 0.2163 | 0.0006 -> 0.0006 |
+| 1b step frozen | 0.1547 | 0.1553 | +0.4 % | 0.1543 -> 0.1549 | 0.0006 -> 0.0006 |
+| 1c step runtime | 0.2077 | 0.2083 | +0.3 % | 0.1594 -> 0.1600 | 0.0483 -> 0.0483 |
+| 2a sphere uniform | 0.7797 | 0.7777 | -0.3 % | 0.7789 -> 0.7768 | 0.0010 -> 0.0012 |
+| **2b sphere runtime** | 0.5054 | 0.4503 | **-10.9 %** | 0.3816 -> 0.3277 | 0.1237 -> 0.1224 |
+| **2c sphere frozen** | 0.3820 | 0.3278 | **-14.2 %** | 0.3817 -> 0.3275 | 0.0001 -> 0.0001 |
+| 3a channel uniform | 0.2280 | 0.2279 | -0.1 % | 0.2275 -> 0.2274 | 0.0004 -> 0.0004 |
+| 3b channel runtime | 0.1883 | 0.1853 | -1.6 % | 0.1430 -> 0.1406 | 0.0448 -> 0.0445 |
+| 3c channel frozen | 0.1432 | 0.1410 | -1.5 % | 0.1429 -> 0.1407 | 0.0001 -> 0.0001 |
+
+| Leg, 4 A30 | AMR speedup T(U)/T(R) | Ideal N(U)/N(R) | Grid efficiency | Regrid cost T(R)/T(F) - 1 |
+|---|---|---|---|---|
+| 1 step | 1.04 -> 1.04 | 1.59 | 0.883 -> 0.878 | 34.2 -> 34.1 % |
+| **2 sphere** | **1.54 -> 1.73** | 4.02 | **0.506 -> 0.589** | 32.3 -> 37.4 % |
+| 3 channel | 1.21 -> 1.23 | 1.78 | 0.896 -> 0.909 | 31.5 -> 31.4 % |
+
+The kernel table of the sphere, again with `NVCOMPILER_ACC_TIME` (job 1369833; `results/2026-11-25-i157/acc_table.py`,
+the median over the devices of each 10-step run, since one device per run prints a report interleaved with another's):
+
+| Kernel (per GPU, 10-step run) | 2c before | 2c after | `w2-sphere-l3` before | after | 2a before | after |
+|---|---|---|---|---|---|---|
+| all kernels | 3.57 | 2.93 | 1.98 | 1.96 | 7.04 | 7.04 |
+| face fluxes | 1.09 | 1.09 | 1.09 | 1.09 | 4.38 | 4.40 |
+| intra-rank ghost fill | **1.77** | **1.23** | 0.31 | 0.30 | 1.32 | 1.26 |
+| ghost send buffers | 0.12 | 0.09 | 0.01 | 0.01 | 0.05 | 0.05 |
+| boundary conditions | 0.10 | 0.10 | 0.18 | 0.18 | 0.33 | 0.33 |
+
+On **4 H100** (ESA SpaceHPC job 184411, the same window dumps copied from medooza, both executables built on the
+cluster with `spacehpc_nvf`; every GPU at 1980 MHz with no brake bit during the job;
+`results/2026-11-25-i157/spacehpc/`):
+
+| Case, 4 H100 | Before (s/step) | After (s/step) | Change | Steps before -> after | Regrid before -> after |
+|---|---|---|---|---|---|
+| 2a sphere uniform | 0.2536 | 0.2524 | -0.5 % | 0.2529 -> 0.2518 | 0.0004 -> 0.0002 |
+| **2b sphere runtime** | 0.2177 | 0.2042 | **-6.2 %** | 0.1587 -> 0.1445 | 0.0589 -> 0.0592 |
+| **2c sphere frozen** | 0.1364 | 0.1212 | **-11.1 %** | 0.1361 -> 0.1210 | 0.0001 -> 0.0002 |
+
+AMR speedup 1.17 -> 1.24 (ideal 4.02), grid efficiency 0.461 -> 0.516, regrid cost 59.6 -> 68.4 %. Device time per
+GPU of the 10-step runs (the reports interleave more under `mpirun`: the table takes the value most devices agree on,
+and leaves out the total, on which two pairs of devices disagree): 2c intra-rank fill 0.51 -> 0.30 s (-41 %), face
+fluxes 0.37 -> 0.37, send buffers 0.04 -> 0.03, boundary conditions 0.05 -> 0.05; 2a fill 0.44 -> 0.43.
+
+- **On the H100 the fill gains more (-41 % against -30 % on the A30) and the step less (-11 % against -14 %)**: its
+  cells are 2.8 times cheaper, so the fixed costs weigh more; **and the host regrid, unchanged at 0.059 s per step, is
+  29 % of the runtime step** (T(R)/T(F) - 1 = 68 %), which is why the runtime case gains only 6 %.
+
+- **The sphere's AMR step is 14 % cheaper on the A30** (2c 0.382 -> 0.328 s per step), the runtime step 11 %, its
+  time steps 14 %: the intra-rank fill of 2c costs 1.23 s per GPU instead of 1.77 (10.2 ms per fill instead of 14.6;
+  the benchmark's per-row costs predicted 10.4). **The grid efficiency rises from 0.51 to 0.59, the AMR speedup from
+  1.54 to 1.73** (ideal 4.02).
+- **The uniform grids and the legs with few 2:1 rows do not move**: 1a, 2a, 3a within 0.3 % (a uniform grid has no
+  coarse-to-fine row; its copy-only fill is 2-5 % cheaper in the kernel table), the 2-D step within its spread
+  (its fill is 0.018 s of 1.6 s per GPU), the channel 1.5 %.
+- **What remains of the AMR overhead on the GPU**: the 2c fill still costs four times the uniform grid's
+  (1.23 against 0.30 s), the coarse-to-fine arithmetic itself (#157 C, D: structured descriptors, a cooperative
+  prolongation); and **the host regrid**, unchanged in absolute terms (0.122 s per step), is now 27 % of 2b's step
+  (T(R)/T(F) - 1 = 37 %, from 32 %).
 
 ### Device memory (phase 4.3)
 
@@ -805,6 +879,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `jobs/medooza-{cpu,fnl}.slurm` | the medooza jobs: one run.sh stage per job, outputs on `/ifs` |
 | `jobs/spacehpc-build.pbs`, `jobs/spacehpc-fnl.pbs` | the ESA SpaceHPC (PBS) jobs: the fnl-nvf build on a CPU node; a plan of run.sh stages behind a GPU health guard |
 | `jobs/noib-exe.sh` | a `run.sh --exe` wrapper that drops the sphere's `[solids]`/`[solid_N]` sections (the runs without the body) |
+| `results/2026-11-25-i157/` | the AMR legs before and after #157 (the guard once per ghost): the medooza and SpaceHPC summaries per executable, `ab_table.py` (the before/after tables), `acc_table.py` (the kernel table from `NVCOMPILER_ACC_TIME` logs, interleaving-proof), the job scripts, the logs and the compressed kernel-time logs |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |

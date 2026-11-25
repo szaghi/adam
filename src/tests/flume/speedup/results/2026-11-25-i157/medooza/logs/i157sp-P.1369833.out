@@ -1,0 +1,16 @@
+16:06:25 start on gnode13.e4-cluster.lan, job 1369833
+0, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+1, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+2, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+3, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+16:06:44 A 2c-sphere-fixed np4 r1-n10: rc 0 wall 18.803 
+16:06:56 A w2-sphere-l3 np2 r1-n10: rc 0 wall 12.257 
+16:07:26 A 2a-sphere-uniform np4 r1-n10: rc 0 wall 29.629 
+16:07:42 A 1b-step-fixed np4 r1-n10: rc 0 wall 15.403 
+16:07:53 A 3c-channel-fixed np4 r1-n10: rc 0 wall 10.936 
+16:08:08 B 2c-sphere-fixed np4 r1-n10: rc 0 wall 14.756 
+16:08:20 B w2-sphere-l3 np2 r1-n10: rc 0 wall 11.368 
+16:08:44 B 2a-sphere-uniform np4 r1-n10: rc 0 wall 23.779 
+16:08:56 B 1b-step-fixed np4 r1-n10: rc 0 wall 12.462 
+16:09:07 B 3c-channel-fixed np4 r1-n10: rc 0 wall 10.096 
+16:09:07 I157SP-P-DONE

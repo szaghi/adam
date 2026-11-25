@@ -238,6 +238,7 @@ subnormal numbers (2026-11-23), so on the developed flows they include that slow
 | 1 | GPU (4 A30) | 1.04 | 1.59 | 1.40 | 0.89 | 34 % |
 | 1 | CPU (64) | 1.06 | 1.59 | 1.42 | 0.90 | 34 % |
 | 2 | GPU (4 A30) | 1.48 | 4.02 | 2.04 | 0.51 | 38 % |
+| 2 | GPU (4 A30), since [#157](https://github.com/szaghi/adam/issues/157) | 1.73 | 4.02 | 2.37 | 0.59 | 37 % |
 | 2 | CPU (64) | 2.20 | 4.02 | 2.73 | 0.68 | 24 % |
 | 3 | GPU (4 A30) | 1.25 | 1.78 | 1.60 | 0.90 | 29 % |
 | 3 | CPU (64) | 1.03 | 1.78 | 1.43 | 0.81 | 39 % |
@@ -248,7 +249,13 @@ cost goes:
 - **A cell of the sphere's AMR grid costs twice a uniform cell on the A30** (grid efficiency 0.51): at the same
   254–256 blocks per GPU the face fluxes cost the same on both grids, while the intra-rank ghost fill (one map-driven
   kernel that copies same-level ghosts and, on the AMR grid, also interpolates coarse-to-fine and restricts
-  fine-to-coarse ones) costs 5.6 times as much: 96 % of the difference.
+  fine-to-coarse ones) costs 5.6 times as much: 96 % of the difference. Most of it was the density guard of the
+  coarse-to-fine fill, recomputed for every variable of every fine ghost ([ghost-fill benchmark](/developer/ghost-fill-benchmark#amr-neighbourhoods-2-1-seams));
+  **since [#157](https://github.com/szaghi/adam/issues/157) it runs once per ghost: the frozen AMR step is 14 % cheaper
+  (0.382 → 0.328 s), the runtime step 11 %, the grid efficiency 0.59 and the AMR speedup 1.73** (the same node, the same
+  window dumps, before and after alternated; the other legs and every uniform grid unchanged within 1.6 %; on 4 H100
+  the frozen step is 11 % cheaper, the grid efficiency 0.46 → 0.52, and the unchanged host regrid is 29 % of the
+  runtime step). The fill still costs four times the uniform grid's: the coarse-to-fine arithmetic itself.
 - **On the GPU node the runtime overhead is the regrid, which runs on the host** at every regrid step (0.26–1.4 s
   when the grid does not change, 2.0–2.5 s when it does); it scales with the blocks per GPU and stays 22–27 % of a
   runtime step.
@@ -304,7 +311,7 @@ the accuracy-first paths:
 |---|---|---|
 | The regrid runs on the host at every regrid step | 22–27 % of a runtime step on 4 A30, also when the grid does not change | per-phase timers, then marking on the device |
 | The runtime layout keeps sibling sets whole and splits every realm from rank 0 | the CPU runtime step stops at 64 ranks; legs 1 and 3 gain nothing from runtime AMR on the CPU node | offset or joint split of the realms, weighted by cells; split sibling sets between regrids |
-| A cell of the sphere's AMR grid costs twice a uniform cell on the A30 | grid efficiency 0.51 on 4 A30 | [#157](https://github.com/szaghi/adam/issues/157): the density guard once per fine ghost, **applied** (the 2:1 fill 20–43 % faster on the H100 benchmark, 3–50 % on the A30; the sphere's step not re-measured); one kernel per kind of row, measured, not applied (slower on the H100); structured descriptors and a cooperative prolongation planned ([ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-density-guard-once-per-ghost)) |
+| A cell of the sphere's AMR grid costs twice a uniform cell on the A30 | grid efficiency 0.51 on 4 A30 | [#157](https://github.com/szaghi/adam/issues/157): the density guard once per fine ghost, **applied** (the 2:1 fill 20–43 % faster on the H100 benchmark, 3–50 % on the A30; the sphere's frozen AMR step 14 % cheaper on 4 A30, grid efficiency 0.51 → 0.59); one kernel per kind of row, measured, not applied (slower on the H100); structured descriptors and a cooperative prolongation planned ([ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-density-guard-once-per-ghost)) |
 | A 2-D block stores ghost layers along its null axis; realms share the device equally | the step fits ~1.7 M cells per A30 | no ghosts on a null axis; device share in proportion to stored cells |
 | The FNL job's free-memory check sees the batch node only | multi-node jobs | check every node |
 

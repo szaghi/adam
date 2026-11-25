@@ -1,0 +1,44 @@
+16:21:22 start on gnode18.e4-cluster.lan, job 1369838
+0, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+1, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+2, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+3, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+16:21:53 A 2a-sphere-uniform np4 r1-n10: rc 0 wall 30.745 loop 7.8064, steps 7.7945,
+16:22:16 B 2a-sphere-uniform np4 r1-n10: rc 0 wall 22.558 loop 7.7653, steps 7.7554,
+16:23:56 A 2a-sphere-uniform np4 r1-n110: rc 0 wall 99.749 loop 85.2671, steps 85.1614,
+16:25:41 B 2a-sphere-uniform np4 r1-n110: rc 0 wall 105.109 loop 85.3040, steps 85.2070,
+16:26:03 A 2a-sphere-uniform np4 r2-n10: rc 0 wall 22.438 loop 7.8646, steps 7.8537,
+16:26:26 B 2a-sphere-uniform np4 r2-n10: rc 0 wall 22.417 loop 7.7993, steps 7.7896,
+16:28:07 A 2a-sphere-uniform np4 r2-n110: rc 0 wall 100.275 loop 85.8380, steps 85.7413,
+16:29:47 B 2a-sphere-uniform np4 r2-n110: rc 0 wall 100.208 loop 85.5669, steps 85.4711,
+16:30:10 A 2a-sphere-uniform np4 r3-n10: rc 0 wall 22.435 loop 7.8563, steps 7.8469,
+16:30:32 B 2a-sphere-uniform np4 r3-n10: rc 0 wall 22.399 loop 7.7937, steps 7.7845,
+16:32:13 A 2a-sphere-uniform np4 r3-n110: rc 0 wall 100.574 loop 86.0208, steps 85.9245,
+16:33:54 B 2a-sphere-uniform np4 r3-n110: rc 0 wall 100.387 loop 85.6471, steps 85.5460,
+16:34:10 A 2b-sphere-runtime np4 r1-n10: rc 0 wall 16.430 loop 5.0928, steps 3.8545,
+16:34:26 B 2b-sphere-runtime np4 r1-n10: rc 0 wall 15.462 loop 4.5119, steps 3.3151,
+16:35:33 A 2b-sphere-runtime np4 r1-n110: rc 0 wall 66.431 loop 55.6282, steps 42.0193,
+16:36:33 B 2b-sphere-runtime np4 r1-n110: rc 0 wall 60.469 loop 49.5421, steps 36.0848,
+16:36:49 A 2b-sphere-runtime np4 r2-n10: rc 0 wall 15.949 loop 5.0932, steps 3.8362,
+16:37:05 B 2b-sphere-runtime np4 r2-n10: rc 0 wall 15.471 loop 4.4925, steps 3.3003,
+16:38:12 A 2b-sphere-runtime np4 r2-n110: rc 0 wall 66.750 loop 55.8516, steps 42.1242,
+16:39:13 B 2b-sphere-runtime np4 r2-n110: rc 0 wall 60.617 loop 49.6007, steps 36.0737,
+16:39:29 A 2b-sphere-runtime np4 r3-n10: rc 0 wall 15.985 loop 5.0633, steps 3.8552,
+16:39:50 B 2b-sphere-runtime np4 r3-n10: rc 0 wall 20.468 loop 4.5467, steps 3.3048,
+16:40:56 A 2b-sphere-runtime np4 r3-n110: rc 0 wall 66.389 loop 55.5678, steps 41.9701,
+16:41:57 B 2b-sphere-runtime np4 r3-n110: rc 0 wall 60.517 loop 49.5304, steps 36.0780,
+16:42:13 A 2c-sphere-fixed np4 r1-n10: rc 0 wall 15.430 loop 3.8584, steps 3.8552,
+16:42:27 B 2c-sphere-fixed np4 r1-n10: rc 0 wall 14.190 loop 3.3190, steps 3.3159,
+16:43:20 A 2c-sphere-fixed np4 r1-n110: rc 0 wall 52.836 loop 42.0310, steps 41.9956,
+16:44:07 B 2c-sphere-fixed np4 r1-n110: rc 0 wall 47.032 loop 36.0799, steps 36.0461,
+16:44:22 A 2c-sphere-fixed np4 r2-n10: rc 0 wall 14.713 loop 3.8476, steps 3.8433,
+16:44:47 B 2c-sphere-fixed np4 r2-n10: rc 0 wall 24.915 loop 3.3108, steps 3.3064,
+16:45:41 A 2c-sphere-fixed np4 r2-n110: rc 0 wall 53.132 loop 42.0446, steps 42.0089,
+16:46:28 B 2c-sphere-fixed np4 r2-n110: rc 0 wall 47.038 loop 36.0943, steps 36.0608,
+16:46:43 A 2c-sphere-fixed np4 r3-n10: rc 0 wall 14.793 loop 3.8584, steps 3.8544,
+16:46:57 B 2c-sphere-fixed np4 r3-n10: rc 0 wall 14.247 loop 3.3279, steps 3.3246,
+16:47:51 A 2c-sphere-fixed np4 r3-n110: rc 0 wall 52.961 loop 42.0784, steps 42.0408,
+16:48:38 B 2c-sphere-fixed np4 r3-n110: rc 0 wall 47.097 loop 36.1061, steps 36.0711,
+16:48:39 analyze A rc 0
+16:48:39 analyze B rc 0
+16:48:39 I157SP-L2-DONE
