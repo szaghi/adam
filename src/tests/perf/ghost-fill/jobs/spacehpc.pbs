@@ -1,0 +1,10 @@
+#!/bin/bash
+# ghost_fill_bench on one H100 of ESA SpaceHPC (gpu4_std).
+#   qsub -q gpu4_std -l select=1:ngpus=1:ncpus=8:mem=64gb -l walltime=01:00:00 -v DIR=<bench dir> jobs/spacehpc.pbs
+#PBS -N ghost-fill
+#PBS -j oe
+set -uo pipefail
+module purge
+module load nvhpc-hpcx-cuda12/26.3
+cd "${DIR:?DIR}" || exit 1
+./run.sh cc90,cuda12.9 "results/h100-${PBS_JOBID%%.*}.txt"

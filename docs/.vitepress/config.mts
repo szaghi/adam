@@ -473,6 +473,7 @@ export default withMermaid({
             { text: 'FLAIL elliptic solvers',           link: '/developer/flail' },
             { text: 'FLUME source layout',              link: '/developer/flume-source' },
             { text: 'FLUME ghost fill and AMR gravity', link: '/developer/flume-ghost-fill' },
+            { text: 'Ghost fill on the GPU (benchmark)', link: '/developer/ghost-fill-benchmark' },
           ],
         },
       ],

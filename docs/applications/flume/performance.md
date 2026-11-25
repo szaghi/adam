@@ -203,6 +203,8 @@ is nvfortran 26.3 with CUDA 12.9; every job checked first that no GPU was thrott
   10. Cutting its 12 exchanges per step has to cut the local fills and the boundary conditions too.
 
 The tables, the jobs and the method are in the speedup README's "ESA SpaceHPC" section; the 8-node points are queued.
+How far the ghost fill itself is from the GPU's memory floor (10–16 % of the copy rate today, 43–57 % with structured
+slab copies, 3–5.5 times faster) is measured in the [ghost-fill benchmark](/developer/ghost-fill-benchmark).
 
 ## Device memory
 
