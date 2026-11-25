@@ -98,20 +98,25 @@ there.*
 | si1 | the sink's displacement over $t = 0.5$ | $10^{-3}$ cells | $1.36\cdot10^{-4}$ | $1.36\cdot10^{-4}$ |
 | si1 | gas plus sink momentum, over the momentum they exchange | $10^{-3}$ | $3.5\cdot10^{-5}$ | $3.5\cdot10^{-5}$ |
 | si2 | the separation; the period against Kepler's at the mean separation | 3 %; 2 % | $1.36\cdot10^{-2}$; $7.5\cdot10^{-3}$ | the same |
-| si2 | the orbital energy $K - Gm_1m_2/d$; the angular momentum; the centre of mass | 1 %; 1 %; $10^{-10}$ | $1.7\cdot10^{-3}$; $7.2\cdot10^{-4}$; $9.3\cdot10^{-15}$ | $1.7\cdot10^{-3}$; $7.2\cdot10^{-4}$; $7.8\cdot10^{-15}$ |
+| si2 | the orbital energy $K - Gm_1m_2/d$; the angular momentum; the centre of mass | 1 %; 1 %; $10^{-10}$ | $1.7\cdot10^{-3}$; $7.2\cdot10^{-4}$; $9.4\cdot10^{-15}$ | $1.7\cdot10^{-3}$; $7.2\cdot10^{-4}$; $8.1\cdot10^{-15}$ |
 | si3 | the five invalid inputs | refused | refused | refused |
 | si4 | the histories of 20 steps against 10 + 10 across a restart | bitwise | bitwise | bitwise |
-| si5 | gas plus sink mass; the sink grows | $10^{-13}$ | exact; 9.7 % of the sink | $2\cdot10^{-16}$; the same |
+| si5 | gas plus sink mass; the sink grows | $10^{-13}$ | $2.2\cdot10^{-16}$; 9.7 % of the sink | the same |
 | si5 | gas plus sink momentum, over the momentum exchanged | 5 % | $1.4\cdot10^{-2}$ | $1.4\cdot10^{-2}$ |
-| si6 | sinks formed; distance from the centre; mass | 1; one cell; $10^{-13}$ | 1; $5.0\cdot10^{-3}$ cells; $1.1\cdot10^{-16}$ | 1; the same; $2.2\cdot10^{-16}$ |
+| si6 | sinks formed; distance from the centre; mass | 1; one cell; $10^{-13}$ | 1; $5.0\cdot10^{-3}$ cells; $2.2\cdot10^{-16}$ | the same |
 | si7 | sinks formed in the Jeans-stable box | none | none | none |
-| si8 | sinks left; their mass and momentum against the sum | 1; $10^{-13}$, $10^{-10}$ | 1; exact, $2.4\cdot10^{-16}$ | 1; exact, $3.9\cdot10^{-16}$ |
-| si9 | FNL against CPU: positions (cells), velocities, masses, every row | $10^{-8}$ | (the same comparison) | si2 $1.8\cdot10^{-13}$, si5 $3.1\cdot10^{-14}$, si10 $1.2\cdot10^{-12}$; si6, si10 collapse, si11 masses $\le 3.4\cdot10^{-11}$ |
+| si8 | sinks left; their mass and momentum against the sum | 1; $10^{-13}$, $10^{-10}$ | 1; exact, $2.3\cdot10^{-16}$ | 1; exact, $3.9\cdot10^{-16}$ |
+| si9 | FNL against CPU: positions (cells), velocities, masses, every row | $10^{-8}$ | (the same comparison) | si2 $2.1\cdot10^{-13}$, si5 $3.3\cdot10^{-14}$, si10 $1.8\cdot10^{-12}$; si6, si10 collapse, si11 masses $\le 2.8\cdot10^{-11}$ |
 | si10 | the blocks within $r_\mathrm{acc} + 2$ cells of the sink on the finest level; no family refined beyond the reach | all; none | 6 of 6; none (56 coarse blocks beyond) | the same |
 | si10 | the sink at rest on the composite grid; gas plus sink mass across the regrids | $10^{-3}$ cells; $10^{-13}$ | $7.9\cdot10^{-5}$; exact | the same |
-| si10 | the collapse on AMR: one sink, on the finest level, at the centre; mass | 1; all; one cell; $10^{-13}$ | 1; 8 of 8; $4.2\cdot10^{-5}$ cells; $2.2\cdot10^{-16}$ | the same |
-| si11 | the accretion rate over $m_0(29.3)\,a^3/G$, $t \in [0.1, 0.25]$; mass | 6 %; $10^{-13}$ | 0.959; $2.2\cdot10^{-16}$ | 0.959; $6.7\cdot10^{-16}$ |
+| si10 | the collapse on AMR: one sink, on the finest level, at the centre; mass | 1; all; one cell; $10^{-13}$ | 1; 8 of 8; $4.2\cdot10^{-5}$ cells; $1.1\cdot10^{-16}$ | 1; 8 of 8; $4.2\cdot10^{-5}$ cells; $2.2\cdot10^{-16}$ |
+| si11 | the accretion rate over $m_0(29.3)\,a^3/G$, $t \in [0.1, 0.25]$; mass | 6 %; $10^{-13}$ | 0.959; $2.2\cdot10^{-16}$ | 0.959; $2.2\cdot10^{-16}$ |
 | si11 at $64^3$ (figure run) | the accretion rate | — | 0.985 | — |
+
+*Measured: ADAM `95ffd728` + the night-2026-11-22 tree (part 3: `make_si.py` writes the positivity limiter again; commit
+pending), CPU gfortran 16.2.0 + Open MPI 5.0.11 (`iac_gnu`) on medooza, FNL nvfortran 26.9, CUDA 12.9 (`iac_nvf`) on
+NVIDIA A30, 2026-11-23 (`sinks/check.sh`, `FLUME_EXE=adam_flume_fnl_fft ./check.sh`, `./check.sh --legs si9`;
+`make_doc_runs.sh <runs> sinks` for the figure and the $64^3$ row; job 1369637).*
 
 Related cases: [the polytrope](../self-gravity/polytrope) is the box and the collapse of si6 and si10, [radiative
 cooling](../euler/radiative-cooling) keeps si6 isothermal, and [self-gravity under runtime AMR](../self-gravity/runtime-amr) is the
@@ -137,12 +142,17 @@ regrid that si10 drives.
   steps of si10.
 - **The singular sphere needs cell means.** Sampled at the cell centres, $1/r^2$ loses the mass of the unresolved core:
   2 % of the box, 5 % of the gravity at $r = 0.5$. The hydrostatic sphere then expands instead of collapsing.
-- **Shu's rate converges with the resolution.** The accretion rate is 4.1 % below Shu's at $32^3$ and 1.5 % below at
-  $64^3$: an observed order of $\log_2(4.1/1.5) = 1.45$ (1.4–1.5 within the printed digits). Two resolutions give one
-  order and cannot show whether it is asymptotic. Federrath et al. report about 3 % at their resolution. The marginal
+- **Shu's rate converges with the resolution.** The accretion rate is 0.9592 of Shu's at $32^3$ and 0.9850 at $64^3$,
+  4.08 % and 1.50 % below: an observed order of $\log_2(4.08/1.50) = 1.44$. Two resolutions give one order and cannot
+  show whether it is asymptotic. Federrath et al. report about 3 % at their resolution. The marginal
   sphere ($A = 2$) is not a test at these resolutions: the threshold accretion zone stores
   $(\pi^2/3)\,a^2 r_\mathrm{acc}/G$, more than the sink takes before the box runs out.
 - **CPU and FNL agree to round-off** on every compared run (si9): the full histories of si2, si5 and the si10 sink at
-  rest within $1.2\cdot10^{-12}$, the masses of the sinks formed at a symmetric centre (si6, the si10 collapse, si11)
-  within $3.4\cdot10^{-11}$. Comparisons of a sink at a symmetric centre use its mass and its distance from the centre
+  rest within $1.8\cdot10^{-12}$, the masses of the sinks formed at a symmetric centre (si6, the si10 collapse, si11)
+  within $2.8\cdot10^{-11}$. Comparisons of a sink at a symmetric centre use its mass and its distance from the centre
   only: which of 8 tied cells wins, or a velocity of $10^{-11}$, is round-off.
+- **A derived input must add a key, not only substitute it.** `make_si.py` writes every case from the selfgravity-star
+  regression input. When that input dropped the keys set to their defaults (`fb2c82bf`, #80), the substitutions of
+  `positivity_limiter`, `restart`, `frequency` and `markers_number` found no line and changed nothing, silently: the
+  near-vacuum cases went non-finite within a few steps without the limiter, si10 ran without regrids and si4 without a
+  restart. `make_si.py` now replaces the key in its section or adds it (`set_key`).

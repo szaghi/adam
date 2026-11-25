@@ -1,0 +1,459 @@
+job 183608.pbs 2026-11-24T22:38:27+01:00 nodes gpu-011.head.cm.local plan /lustre/projects/1026/CALCOLI/adam/speedup-133/plans/n1-b.txt
+# 1 node (4 H100): the grid study (block size, load, the H100 memory ceiling; 1, 2, 4 H100) and the wg-b38 phase runs
+sh mkdir -p $W && cd $SPEEDUP_DIR && cat matrix.conf grid-study-cases.conf > $W/grid-study-b.conf && mv -f $W/grid-study-b.conf $W/grid-study.conf
+warmup --np 4 --cases wg-b16,wg-b20,wg-b24,wg-b28,wg-b32,wg-b36,wg-b38,wg-b48,wg-b56,wg-b64,wg-l2b48,wg-l4b12 --conf $W/grid-study.conf --work $W/grid-study
+windows --np 1 --cases wg-b16,wg-b20,wg-b24,wg-b28,wg-b32,wg-b36,wg-b38,wg-b48,wg-b56,wg-b64,wg-l2b48,wg-l4b12 --conf $W/grid-study.conf --work $W/grid-study
+windows --np 2 --cases wg-b16,wg-b24,wg-b38,wg-b48,wg-b64 --conf $W/grid-study.conf --work $W/grid-study
+windows --np 4 --cases wg-b16,wg-b24,wg-b38,wg-b48,wg-b64 --conf $W/grid-study.conf --work $W/grid-study
+analyze $W/grid-study
+sh for t in n1-ib n1-noib; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-b38 $W/phase/$t/dumps/wg-b38; done
+ADAM_PHASE_TIMING=1 windows --np 4 --cases wg-b38 --conf $W/grid-study.conf --work $W/phase/n1-ib --exe $HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 NOIB_EXE=$HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl windows --np 4 --cases wg-b38 --conf $W/grid-study.conf --work $W/phase/n1-noib --exe $SPEEDUP_DIR/jobs/noib-exe.sh
+# the ceiling: b 66 on one H100 (expected refused by the blocks budget)
+warmup --np 1 --cases wg-b66 --conf $W/grid-study.conf --work $W/grid-study
+--- GPUs before the plan (host index, reasons, enforced W, default W, MiB used)
+gpu-011 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-011 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-011 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-011 3, 0x0000000000000001, 699.00, 700.00, 1
+=== 2026-11-24T22:38:27+01:00 sh mkdir -p $W && cd $SPEEDUP_DIR && cat matrix.conf grid-study-cases.conf > $W/grid-study-b.conf && mv -f $W/grid-study-b.conf $W/grid-study.conf
+=== 2026-11-24T22:38:28+01:00 warmup --np 4 --cases wg-b16,wg-b20,wg-b24,wg-b28,wg-b32,wg-b36,wg-b38,wg-b48,wg-b56,wg-b64,wg-l2b48,wg-l4b12 --conf $W/grid-study.conf --work $W/grid-study
+>> warm-up, wg-b16: wg-b16 -> dumps/wg-b16/warmup
+   dumps/wg-b16/warmup: wall 18.785 s, exit 0
+      forest timing (max over ranks, s): loop     0.8206, steps     0.4465, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-b20: wg-b20 -> dumps/wg-b20/warmup
+   dumps/wg-b20/warmup: wall 18.083 s, exit 0
+      forest timing (max over ranks, s): loop     1.1073, steps     0.6113, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-b24: wg-b24 -> dumps/wg-b24/warmup
+   dumps/wg-b24/warmup: wall 19.252 s, exit 0
+      forest timing (max over ranks, s): loop     1.4802, steps     0.8520, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-b28: wg-b28 -> dumps/wg-b28/warmup
+   dumps/wg-b28/warmup: wall 19.358 s, exit 0
+      forest timing (max over ranks, s): loop     1.9714, steps     1.1206, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-b32: wg-b32 -> dumps/wg-b32/warmup
+   dumps/wg-b32/warmup: wall 28.194 s, exit 0
+      forest timing (max over ranks, s): loop     2.5178, steps     1.4577, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-b36: wg-b36 -> dumps/wg-b36/warmup
+   dumps/wg-b36/warmup: wall 23.137 s, exit 0
+      forest timing (max over ranks, s): loop     3.4732, steps     2.0882, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-b38: wg-b38 -> dumps/wg-b38/warmup
+   dumps/wg-b38/warmup: wall 24.059 s, exit 0
+      forest timing (max over ranks, s): loop     3.9476, steps     2.3892, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-b48: wg-b48 -> dumps/wg-b48/warmup
+   dumps/wg-b48/warmup: wall 30.859 s, exit 0
+      forest timing (max over ranks, s): loop     7.1614, steps     4.4120, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-b56: wg-b56 -> dumps/wg-b56/warmup
+   dumps/wg-b56/warmup: wall 38.775 s, exit 0
+      forest timing (max over ranks, s): loop    11.0870, steps     6.7088, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-b64: wg-b64 -> dumps/wg-b64/warmup
+   dumps/wg-b64/warmup: wall 47.119 s, exit 0
+      forest timing (max over ranks, s): loop    15.7588, steps     9.7378, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-l2b48: wg-l2b48 -> dumps/wg-l2b48/warmup
+   dumps/wg-l2b48/warmup: wall 21.396 s, exit 0
+      forest timing (max over ranks, s): loop     1.2186, steps     0.8408, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+>> warm-up, wg-l4b12: wg-l4b12 -> dumps/wg-l4b12/warmup
+   dumps/wg-l4b12/warmup: wall 25.250 s, exit 0
+      forest timing (max over ranks, s): loop     4.4422, steps     1.0614, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+run.sh: done (warmup, fnl-nvf, 4 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study)
+=== 2026-11-24T22:43:54+01:00 windows --np 1 --cases wg-b16,wg-b20,wg-b24,wg-b28,wg-b32,wg-b36,wg-b38,wg-b48,wg-b56,wg-b64,wg-l2b48,wg-l4b12 --conf $W/grid-study.conf --work $W/grid-study
+>> windows, fnl-nvf, 1 ranks: wg-b16 wg-b20 wg-b24 wg-b28 wg-b32 wg-b36 wg-b38 wg-b48 wg-b56 wg-b64 wg-l2b48 wg-l4b12 -> windows/fnl-nvf-np1
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b16/warmup/sphere-restart: step 20, time 0.015124343095442278, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b16/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b20/warmup/sphere-restart: step 20, time 0.012099474476353761, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b20/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b24/warmup/sphere-restart: step 20, time 0.010082895396961465, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b24/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b28/warmup/sphere-restart: step 20, time 0.008642481768824142, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b28/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b32/warmup/sphere-restart: step 20, time 0.007562171547721141, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b32/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b36/warmup/sphere-restart: step 20, time 0.00672193026464099, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b36/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b38/warmup/sphere-restart: step 20, time 0.006368144461238814, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b38/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b48/warmup/sphere-restart: step 20, time 0.005041447698480733, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b48/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b56/warmup/sphere-restart: step 20, time 0.004321240884412071, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b56/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b64/warmup/sphere-restart: step 20, time 0.0037810857738605707, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-b64/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [512]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-l2b48/warmup/sphere-restart: step 20, time 0.010082895396961465, 64 blocks on 4 ranks [16, 16, 16, 16], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-l2b48/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [64]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-l4b12/warmup/sphere-restart: step 20, time 0.010082895396961465, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np1/wg-l4b12/dump/sphere-restart: 1 ranks, rule siblings, blocks per rank [4096]
+   windows/fnl-nvf-np1/wg-b16/r1-n10: wall 13.122 s, exit 0
+      forest timing (max over ranks, s): loop     0.5254, steps     0.5243, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b16/r1-n110: wall 18.161 s, exit 0
+      forest timing (max over ranks, s): loop     5.7648, steps     5.7526, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b20/r1-n10: wall 13.070 s, exit 0
+      forest timing (max over ranks, s): loop     0.8458, steps     0.8440, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b20/r1-n110: wall 21.581 s, exit 0
+      forest timing (max over ranks, s): loop     9.2867, steps     9.2674, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b24/r1-n10: wall 14.334 s, exit 0
+      forest timing (max over ranks, s): loop     1.3126, steps     1.3098, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b24/r1-n110: wall 27.447 s, exit 0
+      forest timing (max over ranks, s): loop    14.4125, steps    14.3829, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b28/r1-n10: wall 15.028 s, exit 0
+      forest timing (max over ranks, s): loop     1.9002, steps     1.8966, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b28/r1-n110: wall 33.892 s, exit 0
+      forest timing (max over ranks, s): loop    20.8840, steps    20.8440, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b32/r1-n10: wall 24.033 s, exit 0
+      forest timing (max over ranks, s): loop     2.6079, steps     2.6033, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b32/r1-n110: wall 49.714 s, exit 0
+      forest timing (max over ranks, s): loop    28.3234, steps    28.2728, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b36/r1-n10: wall 19.186 s, exit 0
+      forest timing (max over ranks, s): loop     3.7866, steps     3.7806, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b36/r1-n110: wall 56.935 s, exit 0
+      forest timing (max over ranks, s): loop    41.6273, steps    41.5615, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b38/r1-n10: wall 20.674 s, exit 0
+      forest timing (max over ranks, s): loop     4.3913, steps     4.3845, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b38/r1-n110: wall 64.530 s, exit 0
+      forest timing (max over ranks, s): loop    48.3576, steps    48.2835, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b48/r1-n10: wall 29.334 s, exit 0
+      forest timing (max over ranks, s): loop     8.4655, steps     8.4535, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b48/r1-n110: wall 113.908 s, exit 0
+      forest timing (max over ranks, s): loop    93.0941, steps    92.9624, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b56/r1-n10: wall 37.569 s, exit 0
+      forest timing (max over ranks, s): loop    13.0506, steps    13.0327, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b56/r1-n110: wall 168.258 s, exit 0
+      forest timing (max over ranks, s): loop   143.5344, steps   143.3379, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b64/r1-n10: wall 48.251 s, exit 0
+      forest timing (max over ranks, s): loop    19.0869, steps    19.0613, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b64/r1-n110: wall 239.145 s, exit 0
+      forest timing (max over ranks, s): loop   209.9470, steps   209.6652, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l2b48/r1-n10: wall 16.480 s, exit 0
+      forest timing (max over ranks, s): loop     1.1636, steps     1.1608, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l2b48/r1-n110: wall 28.062 s, exit 0
+      forest timing (max over ranks, s): loop    12.7809, steps    12.7498, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l4b12/r1-n10: wall 15.791 s, exit 0
+      forest timing (max over ranks, s): loop     1.7440, steps     1.7414, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l4b12/r1-n110: wall 33.240 s, exit 0
+      forest timing (max over ranks, s): loop    19.1802, steps    19.1509, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b16/r2-n10: wall 12.911 s, exit 0
+      forest timing (max over ranks, s): loop     0.5259, steps     0.5248, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b16/r2-n110: wall 18.173 s, exit 0
+      forest timing (max over ranks, s): loop     5.7622, steps     5.7501, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b20/r2-n10: wall 13.089 s, exit 0
+      forest timing (max over ranks, s): loop     0.8451, steps     0.8433, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b20/r2-n110: wall 21.581 s, exit 0
+      forest timing (max over ranks, s): loop     9.2856, steps     9.2662, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b24/r2-n10: wall 14.329 s, exit 0
+      forest timing (max over ranks, s): loop     1.3111, steps     1.3084, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b24/r2-n110: wall 27.511 s, exit 0
+      forest timing (max over ranks, s): loop    14.4170, steps    14.3874, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b28/r2-n10: wall 15.053 s, exit 0
+      forest timing (max over ranks, s): loop     1.9008, steps     1.8972, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b28/r2-n110: wall 33.923 s, exit 0
+      forest timing (max over ranks, s): loop    20.8554, steps    20.8155, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b32/r2-n10: wall 23.903 s, exit 0
+      forest timing (max over ranks, s): loop     2.5769, steps     2.5723, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b32/r2-n110: wall 49.841 s, exit 0
+      forest timing (max over ranks, s): loop    28.3401, steps    28.2894, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b36/r2-n10: wall 19.114 s, exit 0
+      forest timing (max over ranks, s): loop     3.7930, steps     3.7870, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b36/r2-n110: wall 57.000 s, exit 0
+      forest timing (max over ranks, s): loop    41.6962, steps    41.6305, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b38/r2-n10: wall 20.582 s, exit 0
+      forest timing (max over ranks, s): loop     4.3975, steps     4.3908, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b38/r2-n110: wall 64.417 s, exit 0
+      forest timing (max over ranks, s): loop    48.3516, steps    48.2776, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b48/r2-n10: wall 29.185 s, exit 0
+      forest timing (max over ranks, s): loop     8.4629, steps     8.4510, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b48/r2-n110: wall 113.803 s, exit 0
+      forest timing (max over ranks, s): loop    93.0830, steps    92.9512, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b56/r2-n10: wall 37.734 s, exit 0
+      forest timing (max over ranks, s): loop    13.0666, steps    13.0487, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b56/r2-n110: wall 168.480 s, exit 0
+      forest timing (max over ranks, s): loop   143.7268, steps   143.5302, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b64/r2-n10: wall 48.257 s, exit 0
+      forest timing (max over ranks, s): loop    19.1126, steps    19.0870, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b64/r2-n110: wall 239.274 s, exit 0
+      forest timing (max over ranks, s): loop   209.9553, steps   209.6733, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l2b48/r2-n10: wall 16.459 s, exit 0
+      forest timing (max over ranks, s): loop     1.1652, steps     1.1623, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l2b48/r2-n110: wall 28.126 s, exit 0
+      forest timing (max over ranks, s): loop    12.7895, steps    12.7585, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l4b12/r2-n10: wall 15.761 s, exit 0
+      forest timing (max over ranks, s): loop     1.7448, steps     1.7422, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l4b12/r2-n110: wall 33.191 s, exit 0
+      forest timing (max over ranks, s): loop    19.1473, steps    19.1181, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b16/r3-n10: wall 12.955 s, exit 0
+      forest timing (max over ranks, s): loop     0.5255, steps     0.5244, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b16/r3-n110: wall 18.297 s, exit 0
+      forest timing (max over ranks, s): loop     5.7619, steps     5.7498, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b20/r3-n10: wall 13.115 s, exit 0
+      forest timing (max over ranks, s): loop     0.8449, steps     0.8431, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b20/r3-n110: wall 21.625 s, exit 0
+      forest timing (max over ranks, s): loop     9.2827, steps     9.2635, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b24/r3-n10: wall 14.401 s, exit 0
+      forest timing (max over ranks, s): loop     1.3107, steps     1.3080, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b24/r3-n110: wall 27.475 s, exit 0
+      forest timing (max over ranks, s): loop    14.3906, steps    14.3611, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b28/r3-n10: wall 15.084 s, exit 0
+      forest timing (max over ranks, s): loop     1.9000, steps     1.8964, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b28/r3-n110: wall 33.964 s, exit 0
+      forest timing (max over ranks, s): loop    20.8595, steps    20.8197, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b32/r3-n10: wall 23.984 s, exit 0
+      forest timing (max over ranks, s): loop     2.5752, steps     2.5705, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b32/r3-n110: wall 49.683 s, exit 0
+      forest timing (max over ranks, s): loop    28.2960, steps    28.2455, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b36/r3-n10: wall 19.285 s, exit 0
+      forest timing (max over ranks, s): loop     3.7903, steps     3.7843, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b36/r3-n110: wall 56.947 s, exit 0
+      forest timing (max over ranks, s): loop    41.6292, steps    41.5634, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b38/r3-n10: wall 20.616 s, exit 0
+      forest timing (max over ranks, s): loop     4.3949, steps     4.3881, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b38/r3-n110: wall 64.475 s, exit 0
+      forest timing (max over ranks, s): loop    48.2798, steps    48.2058, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b48/r3-n10: wall 29.349 s, exit 0
+      forest timing (max over ranks, s): loop     8.4514, steps     8.4394, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b48/r3-n110: wall 114.016 s, exit 0
+      forest timing (max over ranks, s): loop    93.0757, steps    92.9440, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b56/r3-n10: wall 37.767 s, exit 0
+      forest timing (max over ranks, s): loop    13.0506, steps    13.0327, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b56/r3-n110: wall 168.163 s, exit 0
+      forest timing (max over ranks, s): loop   143.5357, steps   143.3391, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b64/r3-n10: wall 48.493 s, exit 0
+      forest timing (max over ranks, s): loop    19.2112, steps    19.1855, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-b64/r3-n110: wall 239.375 s, exit 0
+      forest timing (max over ranks, s): loop   210.0147, steps   209.7328, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l2b48/r3-n10: wall 16.488 s, exit 0
+      forest timing (max over ranks, s): loop     1.1645, steps     1.1616, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l2b48/r3-n110: wall 28.102 s, exit 0
+      forest timing (max over ranks, s): loop    12.7971, steps    12.7659, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l4b12/r3-n10: wall 15.819 s, exit 0
+      forest timing (max over ranks, s): loop     1.7449, steps     1.7422, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np1/wg-l4b12/r3-n110: wall 33.254 s, exit 0
+      forest timing (max over ranks, s): loop    19.1531, steps    19.1238, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 1 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study)
+=== 2026-11-24T23:41:08+01:00 windows --np 2 --cases wg-b16,wg-b24,wg-b38,wg-b48,wg-b64 --conf $W/grid-study.conf --work $W/grid-study
+>> windows, fnl-nvf, 2 ranks: wg-b16 wg-b24 wg-b38 wg-b48 wg-b64 -> windows/fnl-nvf-np2
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b16/warmup/sphere-restart: step 20, time 0.015124343095442278, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np2/wg-b16/dump/sphere-restart: 2 ranks, rule siblings, blocks per rank [256, 256]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b24/warmup/sphere-restart: step 20, time 0.010082895396961465, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np2/wg-b24/dump/sphere-restart: 2 ranks, rule siblings, blocks per rank [256, 256]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b38/warmup/sphere-restart: step 20, time 0.006368144461238814, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np2/wg-b38/dump/sphere-restart: 2 ranks, rule siblings, blocks per rank [256, 256]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b48/warmup/sphere-restart: step 20, time 0.005041447698480733, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np2/wg-b48/dump/sphere-restart: 2 ranks, rule siblings, blocks per rank [256, 256]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b64/warmup/sphere-restart: step 20, time 0.0037810857738605707, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np2/wg-b64/dump/sphere-restart: 2 ranks, rule siblings, blocks per rank [256, 256]
+   windows/fnl-nvf-np2/wg-b16/r1-n10: wall 14.830 s, exit 0
+      forest timing (max over ranks, s): loop     0.3282, steps     0.3274, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b16/r1-n110: wall 17.746 s, exit 0
+      forest timing (max over ranks, s): loop     3.5741, steps     3.5646, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b24/r1-n10: wall 15.156 s, exit 0
+      forest timing (max over ranks, s): loop     0.7243, steps     0.7223, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b24/r1-n110: wall 22.186 s, exit 0
+      forest timing (max over ranks, s): loop     7.9308, steps     7.9113, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b38/r1-n10: wall 19.046 s, exit 0
+      forest timing (max over ranks, s): loop     2.2496, steps     2.2452, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b38/r1-n110: wall 41.433 s, exit 0
+      forest timing (max over ranks, s): loop    24.7133, steps    24.6642, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b48/r1-n10: wall 24.556 s, exit 0
+      forest timing (max over ranks, s): loop     4.2816, steps     4.2744, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b48/r1-n110: wall 66.762 s, exit 0
+      forest timing (max over ranks, s): loop    46.7152, steps    46.6372, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b64/r1-n10: wall 34.778 s, exit 0
+      forest timing (max over ranks, s): loop     9.6557, steps     9.6398, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b64/r1-n110: wall 131.337 s, exit 0
+      forest timing (max over ranks, s): loop   106.1637, steps   106.0083, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b16/r2-n10: wall 14.417 s, exit 0
+      forest timing (max over ranks, s): loop     0.3291, steps     0.3281, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b16/r2-n110: wall 17.434 s, exit 0
+      forest timing (max over ranks, s): loop     3.5780, steps     3.5669, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b24/r2-n10: wall 14.908 s, exit 0
+      forest timing (max over ranks, s): loop     0.7239, steps     0.7217, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b24/r2-n110: wall 22.620 s, exit 0
+      forest timing (max over ranks, s): loop     7.9178, steps     7.8985, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b38/r2-n10: wall 18.690 s, exit 0
+      forest timing (max over ranks, s): loop     2.2425, steps     2.2380, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b38/r2-n110: wall 41.353 s, exit 0
+      forest timing (max over ranks, s): loop    24.6889, steps    24.6410, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b48/r2-n10: wall 23.823 s, exit 0
+      forest timing (max over ranks, s): loop     4.2428, steps     4.2355, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b48/r2-n110: wall 66.399 s, exit 0
+      forest timing (max over ranks, s): loop    46.6261, steps    46.5460, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b64/r2-n10: wall 35.281 s, exit 0
+      forest timing (max over ranks, s): loop     9.6413, steps     9.6253, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b64/r2-n110: wall 130.991 s, exit 0
+      forest timing (max over ranks, s): loop   106.1426, steps   105.9841, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b16/r3-n10: wall 14.473 s, exit 0
+      forest timing (max over ranks, s): loop     0.3282, steps     0.3274, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b16/r3-n110: wall 17.580 s, exit 0
+      forest timing (max over ranks, s): loop     3.5817, steps     3.5727, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b24/r3-n10: wall 15.359 s, exit 0
+      forest timing (max over ranks, s): loop     0.7240, steps     0.7223, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b24/r3-n110: wall 22.379 s, exit 0
+      forest timing (max over ranks, s): loop     7.9276, steps     7.9086, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b38/r3-n10: wall 18.773 s, exit 0
+      forest timing (max over ranks, s): loop     2.2465, steps     2.2420, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b38/r3-n110: wall 41.321 s, exit 0
+      forest timing (max over ranks, s): loop    24.7039, steps    24.6559, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b48/r3-n10: wall 24.344 s, exit 0
+      forest timing (max over ranks, s): loop     4.2445, steps     4.2373, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b48/r3-n110: wall 66.275 s, exit 0
+      forest timing (max over ranks, s): loop    46.6125, steps    46.5325, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b64/r3-n10: wall 34.737 s, exit 0
+      forest timing (max over ranks, s): loop     9.6555, steps     9.6394, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np2/wg-b64/r3-n110: wall 131.126 s, exit 0
+      forest timing (max over ranks, s): loop   106.1781, steps   106.0198, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 2 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study)
+=== 2026-11-25T00:01:03+01:00 windows --np 4 --cases wg-b16,wg-b24,wg-b38,wg-b48,wg-b64 --conf $W/grid-study.conf --work $W/grid-study
+>> windows, fnl-nvf, 4 ranks: wg-b16 wg-b24 wg-b38 wg-b48 wg-b64 -> windows/fnl-nvf-np4
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b16/warmup/sphere-restart: step 20, time 0.015124343095442278, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np4/wg-b16/dump/sphere-restart: 4 ranks, rule siblings, blocks per rank [128, 128, 128, 128]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b24/warmup/sphere-restart: step 20, time 0.010082895396961465, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np4/wg-b24/dump/sphere-restart: 4 ranks, rule siblings, blocks per rank [128, 128, 128, 128]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b38/warmup/sphere-restart: step 20, time 0.006368144461238814, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np4/wg-b38/dump/sphere-restart: 4 ranks, rule siblings, blocks per rank [128, 128, 128, 128]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b48/warmup/sphere-restart: step 20, time 0.005041447698480733, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np4/wg-b48/dump/sphere-restart: 4 ranks, rule siblings, blocks per rank [128, 128, 128, 128]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-b64/warmup/sphere-restart: step 20, time 0.0037810857738605707, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np4/wg-b64/dump/sphere-restart: 4 ranks, rule siblings, blocks per rank [128, 128, 128, 128]
+   windows/fnl-nvf-np4/wg-b16/r1-n10: wall 17.684 s, exit 0
+      forest timing (max over ranks, s): loop     0.2231, steps     0.2221, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b16/r1-n110: wall 19.789 s, exit 0
+      forest timing (max over ranks, s): loop     2.4015, steps     2.3946, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b24/r1-n10: wall 17.990 s, exit 0
+      forest timing (max over ranks, s): loop     0.4212, steps     0.4197, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b24/r1-n110: wall 22.124 s, exit 0
+      forest timing (max over ranks, s): loop     4.6425, steps     4.6293, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r1-n10: wall 20.388 s, exit 0
+      forest timing (max over ranks, s): loop     1.2194, steps     1.2153, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r1-n110: wall 31.840 s, exit 0
+      forest timing (max over ranks, s): loop    13.0705, steps    13.0362, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b48/r1-n10: wall 23.915 s, exit 0
+      forest timing (max over ranks, s): loop     2.1920, steps     2.1864, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b48/r1-n110: wall 45.870 s, exit 0
+      forest timing (max over ranks, s): loop    24.0183, steps    23.9655, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b64/r1-n10: wall 30.137 s, exit 0
+      forest timing (max over ranks, s): loop     4.8830, steps     4.8745, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b64/r1-n110: wall 79.138 s, exit 0
+      forest timing (max over ranks, s): loop    53.5902, steps    53.4979, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b16/r2-n10: wall 17.362 s, exit 0
+      forest timing (max over ranks, s): loop     0.2243, steps     0.2234, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b16/r2-n110: wall 19.886 s, exit 0
+      forest timing (max over ranks, s): loop     2.4175, steps     2.4101, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b24/r2-n10: wall 17.840 s, exit 0
+      forest timing (max over ranks, s): loop     0.4269, steps     0.4256, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b24/r2-n110: wall 22.231 s, exit 0
+      forest timing (max over ranks, s): loop     4.6492, steps     4.6355, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r2-n10: wall 20.135 s, exit 0
+      forest timing (max over ranks, s): loop     1.1950, steps     1.1919, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r2-n110: wall 31.830 s, exit 0
+      forest timing (max over ranks, s): loop    13.0802, steps    13.0443, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b48/r2-n10: wall 24.128 s, exit 0
+      forest timing (max over ranks, s): loop     2.1915, steps     2.1850, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b48/r2-n110: wall 45.661 s, exit 0
+      forest timing (max over ranks, s): loop    24.0355, steps    23.9817, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b64/r2-n10: wall 30.418 s, exit 0
+      forest timing (max over ranks, s): loop     4.8716, steps     4.8625, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b64/r2-n110: wall 78.800 s, exit 0
+      forest timing (max over ranks, s): loop    53.5418, steps    53.4499, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b16/r3-n10: wall 17.302 s, exit 0
+      forest timing (max over ranks, s): loop     0.2228, steps     0.2218, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b16/r3-n110: wall 19.765 s, exit 0
+      forest timing (max over ranks, s): loop     2.4206, steps     2.4129, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b24/r3-n10: wall 17.799 s, exit 0
+      forest timing (max over ranks, s): loop     0.4271, steps     0.4257, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b24/r3-n110: wall 22.163 s, exit 0
+      forest timing (max over ranks, s): loop     4.6433, steps     4.6294, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r3-n10: wall 20.252 s, exit 0
+      forest timing (max over ranks, s): loop     1.1924, steps     1.1892, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r3-n110: wall 32.146 s, exit 0
+      forest timing (max over ranks, s): loop    13.1061, steps    13.0655, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b48/r3-n10: wall 23.893 s, exit 0
+      forest timing (max over ranks, s): loop     2.2059, steps     2.1995, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b48/r3-n110: wall 45.414 s, exit 0
+      forest timing (max over ranks, s): loop    24.0539, steps    24.0013, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b64/r3-n10: wall 30.225 s, exit 0
+      forest timing (max over ranks, s): loop     4.8814, steps     4.8727, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b64/r3-n110: wall 78.846 s, exit 0
+      forest timing (max over ranks, s): loop    53.5702, steps    53.4756, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 4 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study)
+=== 2026-11-25T00:17:06+01:00 analyze $W/grid-study
+analyze: 24 windows, 0 AMR ratio rows, 0 backend speedups -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/results/summary.md, /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/results/summary.csv
+   warning: fnl-nvf np 1 wg-b16: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b16: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b16: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b20: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b24: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b24: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b24: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b28: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b32: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b36: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b38: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b38: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b38: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b48: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b48: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b48: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b56: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b64: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b64: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b64: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-l2b48: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-l4b12: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-l4b38: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 8 wg-l4b38: built from sources that differ from the recorded commit (src_modified=yes)
+=== 2026-11-25T00:17:07+01:00 sh for t in n1-ib n1-noib; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-b38 $W/phase/$t/dumps/wg-b38; done
+=== 2026-11-25T00:17:07+01:00 ADAM_PHASE_TIMING=1 windows --np 4 --cases wg-b38 --conf $W/grid-study.conf --work $W/phase/n1-ib --exe $HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+>> windows, fnl-nvf, 4 ranks: wg-b38 -> windows/fnl-nvf-np4
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n1-ib/dumps/wg-b38/warmup/sphere-restart: step 20, time 0.006368144461238814, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n1-ib/windows/fnl-nvf-np4/wg-b38/dump/sphere-restart: 4 ranks, rule siblings, blocks per rank [128, 128, 128, 128]
+   windows/fnl-nvf-np4/wg-b38/r1-n10: wall 20.185 s, exit 0
+      forest timing (max over ranks, s): loop     1.1965, steps     1.1925, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r1-n110: wall 32.024 s, exit 0
+      forest timing (max over ranks, s): loop    13.0994, steps    13.0640, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r2-n10: wall 20.030 s, exit 0
+      forest timing (max over ranks, s): loop     1.1939, steps     1.1905, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r2-n110: wall 31.831 s, exit 0
+      forest timing (max over ranks, s): loop    13.0850, steps    13.0498, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r3-n10: wall 20.204 s, exit 0
+      forest timing (max over ranks, s): loop     1.1945, steps     1.1909, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r3-n110: wall 31.804 s, exit 0
+      forest timing (max over ranks, s): loop    13.0888, steps    13.0542, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 4 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n1-ib)
+=== 2026-11-25T00:19:53+01:00 ADAM_PHASE_TIMING=1 NOIB_EXE=$HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl windows --np 4 --cases wg-b38 --conf $W/grid-study.conf --work $W/phase/n1-noib --exe $SPEEDUP_DIR/jobs/noib-exe.sh
+>> windows, fnl-nvf, 4 ranks: wg-b38 -> windows/fnl-nvf-np4
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n1-noib/dumps/wg-b38/warmup/sphere-restart: step 20, time 0.006368144461238814, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n1-noib/windows/fnl-nvf-np4/wg-b38/dump/sphere-restart: 4 ranks, rule siblings, blocks per rank [128, 128, 128, 128]
+   windows/fnl-nvf-np4/wg-b38/r1-n10: wall 18.291 s, exit 0
+      forest timing (max over ranks, s): loop     0.9053, steps     0.9020, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r1-n110: wall 27.290 s, exit 0
+      forest timing (max over ranks, s): loop     9.9160, steps     9.8823, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r2-n10: wall 18.285 s, exit 0
+      forest timing (max over ranks, s): loop     0.9054, steps     0.9021, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r2-n110: wall 27.427 s, exit 0
+      forest timing (max over ranks, s): loop     9.9087, steps     9.8752, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r3-n10: wall 18.529 s, exit 0
+      forest timing (max over ranks, s): loop     0.9131, steps     0.9097, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np4/wg-b38/r3-n110: wall 27.276 s, exit 0
+      forest timing (max over ranks, s): loop     9.9083, steps     9.8750, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 4 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n1-noib)
+=== 2026-11-25T00:22:20+01:00 warmup --np 1 --cases wg-b66 --conf $W/grid-study.conf --work $W/grid-study
+>> warm-up, wg-b66: wg-b66 -> dumps/wg-b66/warmup
+   dumps/wg-b66/warmup: wall 110.026 s, exit 0
+      forest timing (max over ranks, s): loop    61.2309, steps    41.9302, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 20
+run.sh: done (warmup, fnl-nvf, 1 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study)
+--- GPU health during the plan (busy = utilization > 0)
+gpustat.183608.gpu-011.log gpu0: busy 1233 s, SM mean 1980 min 1980 MHz
+gpustat.183608.gpu-011.log gpu1: busy 3584 s, SM mean 1980 min 1980 MHz
+gpustat.183608.gpu-011.log gpu2: busy 552 s, SM mean 1980 min 1980 MHz
+gpustat.183608.gpu-011.log gpu3: busy 538 s, SM mean 1980 min 1980 MHz
+PLAN-DONE 2026-11-25T00:24:14+01:00 status 0

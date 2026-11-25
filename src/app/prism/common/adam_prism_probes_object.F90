@@ -329,13 +329,17 @@ contains
           trim(str(q / self%plane_n(1,l) + 1_I4P, .true.))//')'
    endfunction label
 
-   subroutine open_files(self, q_name)
-   !< Open the history files (rank 0) and write their headers.
-   class(prism_probes_object), intent(inout) :: self      !< Probes.
-   type(string),               intent(in)    :: q_name(:) !< Names of the sampled variables.
+   subroutine open_files(self, q_name, restarted_at)
+   !< Open the history files (rank 0) and write their headers. On a restart (`restarted_at` >= 0) an existing file keeps
+   !< its rows before the restart iteration and is continued (issue #129, R4): the rows from that iteration on, written
+   !< by a run that went past its last restart, are cut, and the restarted run writes them again.
+   class(prism_probes_object), intent(inout)        :: self         !< Probes.
+   type(string),               intent(in)           :: q_name(:)    !< Names of the sampled variables.
+   integer(I4P),               intent(in), optional :: restarted_at !< Iteration of the restart (-1 or absent: none).
    character(:), allocatable                 :: header    !< Variables header.
    integer(I4P)                              :: p, l, v   !< Counters.
    integer(I4P)                              :: nz        !< Digits of the file numbers.
+   integer(I4P)                              :: it0       !< Restart iteration (-1: none).
 
    self%nv = size(q_name, kind=I4P)
    if (allocated(self%value)) deallocate(self%value)
@@ -350,21 +354,55 @@ contains
       header = header//' "'//q_name(v)%chars()//'"'
    enddo
    ! strz keeps the last nz digits: at least 2, as many as the largest number
+   it0 = -1_I4P ; if (present(restarted_at)) it0 = restarted_at
    nz = max(2_I4P, len_trim(str(self%points_number, .true.), kind=I4P))
    do p=1, self%points_number
-      open(newunit=self%unit(p), file=self%output_basename//'-probe_'//trim(strz(p, nz))//'.dat')
+      if (continue_file(self%output_basename//'-probe_'//trim(strz(p, nz))//'.dat', self%unit(p))) cycle
       write(self%unit(p), '(A)') '% probe '//trim(str(p, .true.))//' at x y z = '//trim(str(self%point_input(:,p)))
       write(self%unit(p), '(A)') '%VARIABLES="it" "time"'//header
    enddo
    nz = max(2_I4P, len_trim(str(self%planes_number, .true.), kind=I4P))
    do l=1, self%planes_number
       p = self%points_number + l
-      open(newunit=self%unit(p), file=self%output_basename//'-plane_'//trim(strz(l, nz))//'.dat')
+      if (continue_file(self%output_basename//'-plane_'//trim(strz(l, nz))//'.dat', self%unit(p))) cycle
       write(self%unit(p), '(A)') '% plane '//trim(str(l, .true.))//' normal to '//self%plane_axis(l)//' at '//         &
                                  trim(str(self%plane_abscissa(l)))//', lattice '//trim(str(self%plane_n(1,l), .true.))// &
                                  ' x '//trim(str(self%plane_n(2,l), .true.))//', i fastest'
       write(self%unit(p), '(A)') '%VARIABLES="it" "time" "i" "j"'//header
    enddo
+   contains
+      function continue_file(filename, u) result(continued)
+      !< Open `filename` on unit `u`: a new file (false, the caller writes the header), or on a restart an existing one cut
+      !< before the first row of an iteration >= it0 and opened for appending (true).
+      character(*), intent(in)  :: filename  !< History file.
+      integer(I4P), intent(out) :: u         !< Unit.
+      logical                   :: continued !< The file is continued.
+      character(len=64)         :: head      !< Start of a row (its iteration).
+      integer(I4P)              :: it, ios   !< Row iteration, I/O status.
+      logical                   :: exist     !< File exists.
+
+      continued = .false.
+      inquire(file=filename, exist=exist)
+      if (it0 < 0_I4P .or. .not.exist) then
+         open(newunit=u, file=filename)
+         return
+      endif
+      open(newunit=u, file=filename, status='old', action='readwrite', position='rewind')
+      do
+         read(u, '(A)', iostat=ios) head
+         if (ios /= 0) exit                                     ! end of file: nothing to cut
+         if (head(1:1) == '%') cycle                            ! header
+         read(head, *, iostat=ios) it
+         if (ios == 0 .and. it >= it0) then
+            backspace(u)
+            endfile(u)                                          ! cut here: the restarted run writes these rows again
+            exit
+         endif
+      enddo
+      close(u)
+      open(newunit=u, file=filename, status='old', position='append')
+      continued = .true.
+      endfunction continue_file
    endsubroutine open_files
 
    subroutine sample_host(self, ngc, q)

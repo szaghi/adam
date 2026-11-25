@@ -66,7 +66,8 @@ src/tests/prism/regression/run-fnl-local.sh --no-build                  # FNL, t
 | removed-keys lint | no `[fWLayer] C` in a committed input | none found | pass | — |
 
 Related pages: [input validation and refusals](./refusals) for the inputs PRISM refuses; [hazards](../hazards#pml-constraints)
-for the PML parameter sets. The PML reflection against the angle of incidence is an open analytic oracle
+for the PML parameter sets. The PML reflection at normal incidence, against the thickness and the damping rate, is measured in
+[PML reflection](./pml-reflection); against the angle of incidence it is an open analytic oracle
 ([#106](https://github.com/szaghi/adam/issues/106)).
 
 ## Findings
@@ -76,4 +77,5 @@ for the PML parameter sets. The PML reflection against the angle of incidence is
   staging buffer only when its shape equals the destination's.
 - On a refined grid the layer and the PML follow the final block set: both refined cases reproduce their goldens on
   both backends.
-- These cases verify that the layers are applied where they should be, not how well they absorb.
+- These cases verify that the layers are applied where they should be, not how well they absorb; the absorption at
+  normal incidence is measured in [PML reflection](./pml-reflection).

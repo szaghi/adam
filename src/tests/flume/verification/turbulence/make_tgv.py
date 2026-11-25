@@ -136,6 +136,7 @@ emax_z = 1.0
             text = re.sub(rf"^{key} = .*\n", "", text, flags=re.M)
         text = section(text, "initial_conditions", {"type": "sine-wave", "wave_mode": "entropy", "wave_angle": "0.0",
                                                      "wave_amplitude": str(args.density_wave), "wavelength": "1.0"})
+        # the sine-wave IC reads the region's state, not its extents ([IO] unused_keys = error refuses them, #145)
         text += """
 [initial_conditions_region_1]
 r = 1.0
@@ -143,12 +144,6 @@ u = 1.0
 v = 0.0
 w = 0.0
 p = 1.0
-emin_x = 0.0
-emin_y = 0.0
-emin_z = 0.0
-emax_x = 1.0
-emax_y = 1.0
-emax_z = 1.0
 """
     if args.shock_vortex:
         box = 1.0  # for --amr-box too
@@ -160,6 +155,7 @@ emax_z = 1.0
             text = re.sub(rf"^{key} = .*\n", "", text, flags=re.M)
         text = section(text, "initial_conditions", {"type": "isentropic-vortex", "x0": "0.25", "y0": "0.5", "radius": "0.05",
                                                      "strength": "1.885", "shock_x": "0.5"})
+        # the isentropic-vortex IC reads the region's state, not its extents (unused_keys = error, #145)
         text += f"""
 [initial_conditions_region_1]
 r = 1.0
@@ -167,12 +163,6 @@ u = {1.1 * 1.4**0.5:.16e}
 v = 0.0
 w = 0.0
 p = 1.0
-emin_x = 0.0
-emin_y = 0.0
-emin_z = 0.0
-emax_x = 1.0
-emax_y = 1.0
-emax_z = 1.0
 """
     if args.amr_box > 0.0:
         lo, hi = 0.5 * box * (1.0 - args.amr_box), 0.5 * box * (1.0 + args.amr_box)

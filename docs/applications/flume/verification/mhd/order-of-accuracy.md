@@ -102,10 +102,11 @@ EGLM; [order across seams](../seams/order-across-seams) measures the order acros
 
 ## Findings
 
-- Every linear-wave family converges at 4.96–4.97 from 16 to 32 cells. At 64 cells the error is $10^{-13}$, six
-  decades below the amplitude, and the round-off floor lowers the slow and entropy orders on the 32/64 pair to
-  4.84–4.87 (splitting: slow 4.85, entropy 4.86; HLLD: slow 4.84, entropy 4.87; the legend of the figure): MV-5
-  asserts on the 16/32 pair (1-D) and on 32/64 (2-D) for that reason.
+- Every linear-wave family converges at 4.96 from 16 to 32 cells and at 4.96–5.00 from 32 to 64 on both schemes (the
+  legend of the figure; the reruns of [#142](https://github.com/szaghi/adam/issues/142), 2026-11-23). At 64 cells the
+  error is $10^{-13}$, six decades below the amplitude. The October runs (M2) showed a round-off floor there, the slow
+  and entropy orders on the 32/64 pair at 4.84–4.87; the reruns do not (the cause of the change is not traced). MV-5 asserts
+  on the 16/32 pair (1-D) and on 32/64 (2-D).
 - The amplitude is $10^{-7}$, not the $10^{-6}$ of Stone et al.: at $10^{-6}$ the $O(A^2)$ nonlinear error of the mode
   ($\epsilon$ scales as $A^2$ at $N = 128$: $3.26\cdot10^{-10}$ at $A = 10^{-5}$, $3.26\cdot10^{-12}$ at $10^{-6}$)
   floors a fifth-order scheme already at $N = 64$–128, and below about $10^{-8}$ the accumulated round-off floors it

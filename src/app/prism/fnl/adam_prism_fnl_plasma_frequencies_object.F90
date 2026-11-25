@@ -76,8 +76,10 @@ contains
    endif
    endsubroutine destroy
 
-   subroutine compute(self, pic_fnl, field_fnl, grid, inv_eps, wpe2, wpi2, wce, wci, transit)
-   !< Local maxima of this rank (the caller reduces them, prism_plasma_frequencies_object%set_maxima).
+   subroutine compute(self, pic_fnl, field_fnl, grid, inv_eps, wpe2, wpi2, wce, wci, transit, particles, cells)
+   !< Local maxima of this rank (the caller reduces them, prism_plasma_frequencies_object%set_particle_maxima and
+   !< set_cell_maxima). `particles` (Omega_c, transit) and `cells` (omega_p) select the terms, both by default (issue #129,
+   !< R7); the terms not selected return 0.
    class(prism_fnl_plasma_frequencies_object), intent(inout) :: self      !< Device helper.
    type(prism_fnl_pic_object),                 intent(in)    :: pic_fnl   !< Particles on device.
    type(field_fnl_object),                     intent(in)    :: field_fnl !< Device field helper.
@@ -88,6 +90,9 @@ contains
    real(R8P),                                  intent(out)   :: wce       !< Max Omega_ce.
    real(R8P),                                  intent(out)   :: wci       !< Max Omega_ci.
    real(R8P),                                  intent(out)   :: transit   !< Max |v_d|/dx_d.
+   logical,                                    intent(in), optional :: particles !< Particle terms (default true).
+   logical,                                    intent(in), optional :: cells     !< Cell term (default true).
+   logical                                                   :: do_p, do_c
    real(R8P), pointer                                        :: w_gpu(:,:,:,:,:), q_pic_gpu(:,:), pic_fields_gpu(:,:)
    real(R8P), pointer                                        :: dxyz_gpu(:,:)
    integer(I4P), pointer                                     :: neighbour_list_gpu(:,:)
@@ -95,6 +100,8 @@ contains
    real(R8P)                                                 :: qp, w, val, tr, mce, mci, mpe, mpi
 
    wpe2 = 0._R8P ; wpi2 = 0._R8P ; wce = 0._R8P ; wci = 0._R8P ; transit = 0._R8P
+   do_p = .true. ; if (present(particles)) do_p = particles
+   do_c = .true. ; if (present(cells))     do_c = cells
    if (.not.associated(pic_fnl%q_pic_gpu)) return
    np = pic_fnl%particle_number
    if (np <= 0_I4P) return
@@ -119,21 +126,25 @@ contains
 
    tr = 0._R8P ; mce = 0._R8P ; mci = 0._R8P
    !$acc parallel loop independent DEVICEVAR(w_gpu, q_pic_gpu, pic_fields_gpu, neighbour_list_gpu, dxyz_gpu) &
-   !$acc& private(qp, w, val, b, i, j, k, s) reduction(max: mce, mci, tr)
+   !$acc& firstprivate(do_p, do_c) private(qp, w, val, b, i, j, k, s) reduction(max: mce, mci, tr)
    !$omp OMPLOOP DEVICEPTR(w_gpu, q_pic_gpu, pic_fields_gpu, neighbour_list_gpu, dxyz_gpu) &
-   !$omp& private(qp, w, val, b, i, j, k, s) reduction(max: mce, mci, tr)
+   !$omp& firstprivate(do_p, do_c) private(qp, w, val, b, i, j, k, s) reduction(max: mce, mci, tr)
    do n = 1, np
       qp = q_pic_gpu(n,7)
       if (qp == 0._R8P) cycle
-      w = abs(qp)*sqrt(pic_fields_gpu(n,4)**2 + pic_fields_gpu(n,5)**2 + pic_fields_gpu(n,6)**2)/q_pic_gpu(n,8)
-      if (qp < 0._R8P) then
-         mce = max(mce, w)
-      else
-         mci = max(mci, w)
+      if (do_p) then
+         w = abs(qp)*sqrt(pic_fields_gpu(n,4)**2 + pic_fields_gpu(n,5)**2 + pic_fields_gpu(n,6)**2)/q_pic_gpu(n,8)
+         if (qp < 0._R8P) then
+            mce = max(mce, w)
+         else
+            mci = max(mci, w)
+         endif
       endif
       b = neighbour_list_gpu(n,1)
       if (b <= 0_I4P) cycle
-      tr = max(tr, abs(q_pic_gpu(n,4))/dxyz_gpu(b,1), abs(q_pic_gpu(n,5))/dxyz_gpu(b,2), abs(q_pic_gpu(n,6))/dxyz_gpu(b,3))
+      if (do_p) &
+         tr = max(tr, abs(q_pic_gpu(n,4))/dxyz_gpu(b,1), abs(q_pic_gpu(n,5))/dxyz_gpu(b,2), abs(q_pic_gpu(n,6))/dxyz_gpu(b,3))
+      if (.not.do_c) cycle
       i = neighbour_list_gpu(n,2) ; j = neighbour_list_gpu(n,3) ; k = neighbour_list_gpu(n,4)
       ! a particle in the ghost halo (wrapped across a periodic face at the end of the step, one rank) is skipped
       if (i < 1 .or. i > ni .or. j < 1 .or. j > nj .or. k < 1 .or. k > nk) cycle

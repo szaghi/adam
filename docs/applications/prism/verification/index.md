@@ -25,7 +25,7 @@ The source-free Maxwell system and its discrete invariants on a uniform grid, th
 
 [<strong>Static AMR and the FV reflux register</strong><span>the 2:1 coarse–fine face on the finite-volume path: each stage of the Berger–Colella reflux present and wired to the tree, against a control without the face</span><em>contract</em>](./amr-reflux)
 
-[<strong>2:1 seam div(B): truncation order</strong><span>the $\nabla\cdot\mathbf B$ source a 2:1 face injects: truncation order, convergent under refinement, growing in time at fixed $h$</span><em>physics</em>](./seam-divergence)
+[<strong>2:1 seam div(B): truncation order</strong><span>the $\nabla\cdot\mathbf B$ source a 2:1 face injects: truncation order, convergent under refinement, not decaying at fixed $h$; hyperbolic cleaning with damping</span><em>physics</em>](./seam-divergence)
 
 [![Quadtree 2:1 seams](/prism/quadtree-pulse.png)<strong>Quadtree 2:1 seams</strong><span>2:1 seams of a quadtree, refined in $x$ and $y$ only: the pulse against the octree, without a spurious $z$ dependence</span><em>contract</em>](./quadtree)
 
@@ -54,6 +54,8 @@ The far-wave layer and the perfectly matched layer, on uniform and refined grids
 <div class="adam-gallery adam-catalog">
 
 [<strong>Absorbing layers on AMR</strong><span>the far-wave layer and the perfectly matched layer on the six faces, on a uniform grid and after refinement, pinned by their digests</span><em>contract</em>](./absorbing-layers-amr)
+
+[![PML reflection](/prism/pml-sweep.png)<strong>PML reflection at normal incidence</strong><span>a Gaussian pulse against the layer: the reflected amplitude against the thickness and the damping rate, measured against the design coefficient; Silver–Müller and Neumann</span><em>physics</em>](./pml-reflection)
 
 </div>
 
@@ -96,6 +98,7 @@ The pages in the order the capabilities were implemented, with the issues that b
 | [#52](https://github.com/szaghi/adam/issues/52) | [Inter-realm 2:1 seam](./inter-realm-refined) | `rmf-2realm-fd-pulse-refined/check.sh` |
 | [#38](https://github.com/szaghi/adam/issues/38) | [FV reflux on a capped last step](./reflux-capped-step) | `rmf-amr-fv-pulse-timed/check.sh` |
 | [#31](https://github.com/szaghi/adam/issues/31), [#58](https://github.com/szaghi/adam/issues/58), [#95](https://github.com/szaghi/adam/issues/95) (P5.1) | [Absorbing layers on AMR](./absorbing-layers-amr) | `rmf-fwl`, `rmf-fwl-amr`, `rmf-pml-amr` (digests) |
+| [#145](https://github.com/szaghi/adam/issues/145) | [PML reflection at normal incidence](./pml-reflection) | `src/tests/prism/verification/pml-reflection/sweep.sh` (16 runs; a measurement, not a leg) |
 | [#11](https://github.com/szaghi/adam/issues/11), [#55](https://github.com/szaghi/adam/issues/55), [#56](https://github.com/szaghi/adam/issues/56), [#57](https://github.com/szaghi/adam/issues/57), [#61](https://github.com/szaghi/adam/issues/61), [#84](https://github.com/szaghi/adam/issues/84), [#111](https://github.com/szaghi/adam/issues/111) | [Input validation and refusals](./refusals) | `refusals.sh` (24 legs); `rmf-hyperbolic` (digest, `nv = 11`) |
 | [#84](https://github.com/szaghi/adam/issues/84) (E3b, E3c) | [t0 elliptic solves on FLAIL](./t0-elliptic) | `rmf-pec-t0`, `rmf-open-t0`, `pic-pec-t0`, `pic-open-t0` (`check.sh` each) |
 | [#111](https://github.com/szaghi/adam/issues/111), [#112](https://github.com/szaghi/adam/issues/112) | [PIC: periodic faces and the Fresnel slab](./pic) | `pic-periodic`, `pic-slab-pulse` (`pic_check.sh` legs) |
@@ -119,7 +122,7 @@ cd .. && PRISM_EXE=$PWD/../../../../exe/adam_prism_fnl ./refusals.sh   # the ini
 |---|---|---|
 | `rmf-amr/check.sh` | 1 and 2 | `--build` |
 | `rmf-amr-fd/check.sh` | 1 | `--build` |
-| `rmf-amr-fd-pulse/check.sh` | 1 | `--build`, `--convergence`, `--keep` (keeps the quadtree checkpoints for the figure) |
+| `rmf-amr-fd-pulse/check.sh` | 1 | `--build`, `--convergence`, `--keep` (keeps the quadtree checkpoints for the figure), `--cleaning` (hyperbolic cleaning of $\mathbf B$) |
 | `rmf-2realm-fd-pulse/check.sh` | 1 | `--build` |
 | `rmf-2realm-fv-pulse-blocks/check.sh`, `rmf-2realm-fd-pulse-refined/check.sh` | 2 | `--build`, `--np N` |
 | `rmf-amr-fv-pulse-timed/check.sh` | 2 | `--np N` |

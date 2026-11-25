@@ -1,0 +1,102 @@
+ucx_perftest /ifs/hpc/home/szaghi/nvidia/hpc_sdk/Linux_x86_64/26.9/comm_libs/12.9/hpcx/hpcx-2.50/ucx/bin/ucx_perftest
+columns of the final line: iterations, latency (typical, avg, overall usec), bandwidth (average, overall MB/s), message rate
+inter-node host->host  [default]: Final:                    60      0.214  1358.966  1358.966    23547.31   23547.31         736         736
+inter-node cuda->cuda  [default]: Final:                    60      0.405 21259.018 21259.018     1505.24    1505.24          47          47
+inter-node host->host  [rc_verbs,cuda_copy,self]: 
+inter-node cuda->cuda  [rc_verbs,cuda_copy,self]: 
+intra-node cuda GPU0->GPU1 (NVLink pair): Final:                    60      0.224   361.582   361.582    88500.07   88500.07        2766        2766
+intra-node cuda GPU0->GPU2 (across pairs): Final:                    60      2.475  1809.700  1809.700    17682.49   17682.49         553         553
+NET-BW-DONE
+ucx_perftest /ifs/hpc/home/szaghi/nvidia/hpc_sdk/Linux_x86_64/26.9/comm_libs/12.9/hpcx/hpcx-2.50/ucx/bin/ucx_perftest
+columns of the final line: iterations, latency (typical, avg, overall usec), bandwidth (average, overall MB/s), message rate
+inter-node cuda->cuda default: Final:                    60      0.424 20938.647 20938.647     1528.27    1528.27          48          48
+inter-node cuda->cuda UCX_RNDV_FRAG_MEM_TYPE=host: Final:                    60      0.328 20996.535 20996.535     1524.06    1524.06          48          48
+inter-node cuda->cuda UCX_RNDV_FRAG_MEM_TYPE=cuda: Final:                    60      0.282 1268893.957 38483.898       25.22     831.52           1          26
+inter-node cuda->cuda UCX_RNDV_FRAG_SIZE=host:4m,cuda:4m: Final:                    60      0.429 16887.617 16887.617     1894.88    1894.88          59          59
+inter-node cuda->cuda UCX_RNDV_FRAG_MEM_TYPE=host UCX_RNDV_FRAG_SIZE=host:4m,cuda:4m: Final:                    60      0.608 16915.568 16915.568     1891.75    1891.75          59          59
+inter-node cuda->cuda UCX_PROTO_ENABLE=n: Final:                    60      0.359 661449.432 38865.081       48.38     823.36           2          26
+inter-node cuda->cuda UCX_MAX_RNDV_RAILS=1: Final:                    60      0.569 20984.515 20984.515     1524.93    1524.93          48          48
+inter-node cuda->cuda UCX_IB_GPU_DIRECT_RDMA=no: Final:                    60      0.666 21246.314 21246.314     1506.14    1506.14          47          47
+inter-node cuda->cuda 8 MB default: Final:                    60      0.315  4559.747  4559.747     1754.48    1754.48         219         219
+inter-node host->host 8 MB default: Final:                    60      0.212   339.834   339.834    23540.91   23540.91        2943        2943
+NET-BW-DONE
+== node gnode23.e4-cluster.lan
+CA 'mlx5_0'
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Link layer: InfiniBand
+hca_id:	mlx5_0
+			state:			PORT_ACTIVE (4)
+== modules
+mlx5_ib               466944  4
+ib_uverbs             155648  13 rdma_ucm,mlx5_ib
+ib_core               446464  8 rdma_cm,ib_ipoib,iw_cm,ib_umad,rdma_ucm,ib_uverbs,mlx5_ib,ib_cm
+mlx5_core            2138112  1 mlx5_ib
+psample                20480  1 mlx5_core
+mlxdevm               180224  1 mlx5_core
+mlx_compat             16384  11 rdma_cm,ib_ipoib,mlxdevm,iw_cm,ib_umad,ib_core,rdma_ucm,ib_uverbs,mlx5_ib,ib_cm,mlx5_core
+mlxfw                  32768  1 mlx5_core
+tls                   110592  1 mlx5_core
+pci_hyperv_intf        16384  1 mlx5_core
+NVRM version: NVIDIA UNIX x86_64 Kernel Module  545.23.08  Mon Nov  6 23:49:37 UTC 2023
+	[4mGPU0	NIC0	CPU Affinity	NUMA Affinity	GPU NUMA ID[0m
+GPU0	 X 	SYS		0		N/A
+NIC0	SYS	 X 				
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+== FNL toolchain UCX
+/ifs/hpc/home/szaghi/nvidia/hpc_sdk/Linux_x86_64/26.9/comm_libs/12.9/hpcx/hpcx-2.50/ucx/bin/ucx_info
+# Library version: 1.21.0
+# Library path: /ifs/hpc/home/szaghi/nvidia/hpc_sdk/Linux_x86_64/26.9/comm_libs/12.9/hpcx/hpcx-2.50/ucx/lib/libucs.so.0
+# API headers version: 1.21.0
+#         Device: cuda
+#         Device: eth1
+#         Device: ib0
+#         Device: lo
+#         Device: memory
+#         Device: mlx5_0:1
+#      Transport: cma
+#      Transport: cuda_copy
+#      Transport: cuda_ipc
+#      Transport: posix
+#      Transport: rc_verbs
+#      Transport: self
+#      Transport: sysv
+#      Transport: tcp
+#      Transport: ud_verbs
+#      Transport: xpmem
+  Configure command line: '--with-platform=/proj/scratch/qa/library_builds/Linux_x86_64/nv_26.9_cuda12.9/work/hpcx-2.50/ompi5/contrib/platform/nvhpc/optimized' '--enable-mpi1-compatibility' '--with-libevent=internal' '--without-xpmem' '--without-cray-xpmem' '--with-slurm' '--with-cuda=/proj/cuda/12.9/Linux_x86_64' '--with-hcoll=/proj/libraries/nv/26.9/Linux_x86_64/cuda12.9/hpcx/hpcx-2.50/305405-rel-4/hcoll' '--with-ucc=/proj/libraries/nv/26.9/Linux_x86_64/cuda12.9/hpcx/hpcx-2.50/305405-rel-4/ucc' '--with-ucx=/proj/libraries/nv/26.9/Linux_x86_64/cuda12.9/hpcx/hpcx-2.50/305405-rel-4/ucx' '--prefix=/proj/libraries/nv/26.9/Linux_x86_64/cuda12.9/hpcx/hpcx-2.50/305405-rel-4/ompi5' '--with-libnl=/proj/scratch/qa/library_builds/Linux_x86_64/nv_26.9_cuda12.9/work/hpcx-2.50/../libnl_workaround'
+          MPI extensions: affinity, cuda, ftmpi, rocm
+         MCA accelerator: cuda (MCA v2.1.0, API v1.0.0, Component v5.0.10)
+                 MCA btl: self (MCA v2.1.0, API v3.3.0, Component v5.0.10)
+                 MCA btl: sm (MCA v2.1.0, API v3.3.0, Component v5.0.10)
+                 MCA btl: tcp (MCA v2.1.0, API v3.3.0, Component v5.0.10)
+                 MCA btl: smcuda (MCA v2.1.0, API v3.3.0, Component v5.0.10)
+                MCA coll: cuda (MCA v2.1.0, API v2.4.0, Component v5.0.10)
+                 MCA pml: cm (MCA v2.1.0, API v2.1.0, Component v5.0.10)
+                 MCA pml: monitoring (MCA v2.1.0, API v2.1.0, Component v5.0.10)
+== CPU toolchain UCX
+# Library version: 1.15.0
+# API headers version: 1.15.0
+#         Device: eth1
+#         Device: ib0
+#         Device: lo
+#         Device: memory
+#         Device: mlx5_0:1
+#      Transport: cma
+#      Transport: dc_mlx5
+#      Transport: knem
+#      Transport: posix
+#      Transport: rc_mlx5
+#      Transport: rc_verbs
+#      Transport: self
+#      Transport: sysv
+#      Transport: tcp
+#      Transport: ud_mlx5
+#      Transport: ud_verbs
+#      Transport: xpmem
+IB-INFO-DONE

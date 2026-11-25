@@ -73,8 +73,14 @@ template = template-base
 mod_dir  = ./mod/gnu/
 obj_dir  = ./obj/gnu/
 compiler = gnu
+# -mdaz-ftz (link only; GCC >= 12, x86): links crtfastmath.o, which sets flush-to-zero and denormals-are-zero in the
+# MXCSR before main, so subnormal doubles (below 2.2e-308) become 0 instead of taking the x86 microcode path. The code
+# generation is unchanged (not -ffast-math). Developed flows hold subnormals (decaying tails of the scheme ahead of a
+# shock): the ranks that own them ran 2x slower and stalled every other rank, FLUME CPU -35 % (1 node) to -47 % (8
+# nodes) per step with it (#133, speedup README "Where a step's time goes"). nvfortran's -fast already includes the
+# equivalent -Mflushz; the debug template keeps gradual underflow. Threads inherit the mode (set before any exists).
 cflags   = -cpp -c -O2
-lflags   = -O2
+lflags   = -O2 -mdaz-ftz
 
 [template-gnu-cov]
 template = template-gnu

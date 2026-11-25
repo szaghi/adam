@@ -138,6 +138,11 @@ text = text.replace("[initial_conditions]\n", "[initial_conditions]\n"
 text = section(text, "[initial_conditions_region_1]", {"r": "3.857143", un: "2.629369", "p": "10.33333"})
 text = section(text, "[initial_conditions_region_2]", {"r": "1.0", un: "0.0", "p": "1.0"})
 text = section(text, "[time]", {"time_max": "1.8"})
+# the shu-osher IC reads the regions' states, not the Riemann extents of sod nor its regions_number (it has two regions
+# by construction): [IO] unused_keys = error refuses them (#145)
+text = re.sub(r"\[initial_conditions_region_\d+\][^\[]*",
+              lambda m: re.sub(r"^e(?:min|max)_[xyz]\s*=.*\n", "", m.group(0), flags=re.M), text)
+text = re.sub(r"^regions_number\s*=.*\n", "", text, flags=re.M)
 open(path, "w").write(text)
 EOF
 }

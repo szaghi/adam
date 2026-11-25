@@ -118,7 +118,7 @@ ones (the library's seam machinery, octrees and quadtrees, [#46](https://github.
 then run on the staged path of the forest, which needs an SSP scheme.
 
 Across a 2:1 face the centred operators no longer commute, and the seam injects a $\nabla\cdot\mathbf B$ source that
-converges under refinement but grows in time at fixed $h$: its measurements, the `[IO] seam_divB_tol` monitor and the
+converges under refinement and does not decay at fixed $h$: its measurements, the `[IO] seam_divB_tol` monitor and the
 mitigation are in the [hazards](./hazards#seam-div-b).
 
 ## Multi-realm runs

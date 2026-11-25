@@ -1,0 +1,29 @@
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/cpu-weak/windows/cpu-np512/2a-sphere-uniform/dump/sphere-restart: 512 ranks, subnormal interior values 745771, ranks holding any 76
+   sphere-restart-proc000465.fbd: 11720 (per variable [0, 0, 5863, 5857, 0])
+   sphere-restart-proc000485.fbd: 11713 (per variable [0, 0, 5838, 5875, 0])
+   sphere-restart-proc000117.fbd: 11712 (per variable [0, 0, 5885, 5827, 0])
+   sphere-restart-proc000453.fbd: 11698 (per variable [0, 0, 5841, 5857, 0])
+   sphere-restart-proc000087.fbd: 11682 (per variable [0, 0, 5850, 5832, 0])
+   sphere-restart-proc000081.fbd: 11652 (per variable [0, 0, 5823, 5829, 0])
+   sphere-restart-proc000487.fbd: 11650 (per variable [0, 0, 5807, 5843, 0])
+   sphere-restart-proc000101.fbd: 11643 (per variable [0, 0, 5817, 5826, 0])
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/work/windows/cpu-np64/2a-sphere-uniform/dump/sphere-restart: 64 ranks, subnormal interior values 745771, ranks holding any 20
+   sphere-restart-proc000010.fbd: 46430 (per variable [0, 0, 23218, 23212, 0])
+   sphere-restart-proc000060.fbd: 46413 (per variable [0, 0, 23171, 23242, 0])
+   sphere-restart-proc000058.fbd: 46344 (per variable [0, 0, 23249, 23095, 0])
+   sphere-restart-proc000030.fbd: 46316 (per variable [0, 0, 23184, 23132, 0])
+   sphere-restart-proc000024.fbd: 46218 (per variable [0, 0, 23065, 23153, 0])
+   sphere-restart-proc000008.fbd: 46173 (per variable [0, 0, 23134, 23039, 0])
+   sphere-restart-proc000046.fbd: 46164 (per variable [0, 0, 23136, 23028, 0])
+   sphere-restart-proc000012.fbd: 46150 (per variable [0, 0, 23092, 23058, 0])
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/cpu-weak/windows/cpu-np64/wg-b24/dump/sphere-restart: 64 ranks, subnormal interior values 0, ranks holding any 0
+   sphere-restart-proc000000.fbd: 0 (per variable [0, 0, 0, 0, 0])
+   sphere-restart-proc000001.fbd: 0 (per variable [0, 0, 0, 0, 0])
+   sphere-restart-proc000002.fbd: 0 (per variable [0, 0, 0, 0, 0])
+   sphere-restart-proc000003.fbd: 0 (per variable [0, 0, 0, 0, 0])
+   sphere-restart-proc000004.fbd: 0 (per variable [0, 0, 0, 0, 0])
+   sphere-restart-proc000005.fbd: 0 (per variable [0, 0, 0, 0, 0])
+   sphere-restart-proc000006.fbd: 0 (per variable [0, 0, 0, 0, 0])
+   sphere-restart-proc000007.fbd: 0 (per variable [0, 0, 0, 0, 0])
+f1-2a-np64-ftz0 rc 0 in 1314 s
+PHASE TIMING: ranks 64, steps timed 100, barriers skipped F, gradual underflow T

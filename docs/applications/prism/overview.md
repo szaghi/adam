@@ -73,7 +73,7 @@ Without an argument the executable reads `input.ini` in the working directory. A
 
 ## Known limitations
 
-- **Seam div(B).** A 2:1 AMR face injects a $\nabla\cdot\mathbf B$ source that grows in time at fixed $h$
+- **Seam div(B).** A 2:1 AMR face injects a $\nabla\cdot\mathbf B$ source that does not decay at fixed $h$
   ([hazards](./hazards#seam-div-b)).
 - **Refinement at initialization only.** PRISM has no runtime regrid; the t0 elliptic solves refuse a refined grid.
 - **Refused inputs.** Only Runge–Kutta runs, the GPU backend has no WENO and no Yoshida, and the PML needs the FD

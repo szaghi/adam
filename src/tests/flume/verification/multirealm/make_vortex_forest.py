@@ -64,6 +64,8 @@ def realm_text(name: str, x0: str, x1: str, bmin: str, bmax: str, it_save: int |
     text = text.replace("[bc_x_max]\ntype = periodic", f"[bc_x_max]\ntype = {bmax}", 1)
     if text.count("type = periodic") != 2:  # y only
         sys.exit(f"make_vortex_forest.py: realm {name}: the x faces of the vortex input are not periodic")
+    if static:  # no marker: its section would be read by nothing ([IO] unused_keys = error refuses it, #80 P5)
+        return text
     return text.replace(
         "[runge_kutta]",
         mr.LOHNER.format(n=1, field=1, var=1, refine="0.3", derefine="0.1", floor="0.0") + "[runge_kutta]",

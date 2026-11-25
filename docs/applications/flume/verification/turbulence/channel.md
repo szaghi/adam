@@ -94,8 +94,8 @@ Coleman, Kim & Moser's second case: bulk Mach 3, bulk Re 4880, $Re_\tau$ about 4
 the equilibrium model only.
 
 **Result.** With the wall model's eddy viscosity below $h$ (`wall_model_eddy_viscosity`) and run to a thermal steady
-state at $t=800$, $h=0.15$ with semi-local damping gives $Re_\tau = 443$–$445$ against about 451 for the DNS; the
-classical damping overshoots by 13–21 %. Without the key the first cell drains, as the runs to $t = 200$ show.
+state at $t=800$, $h=0.15$ with semi-local damping gives $Re_\tau = 444$–$446$ against about 451 for the DNS; the
+classical damping overshoots by 9–21 %. Without the key the first cell drains, as the runs to $t = 200$ show.
 
 ### Without a flux path below $h$, to $t = 200$
 
@@ -150,23 +150,28 @@ forcing work in 50-unit windows, 1 at a thermal steady state.*
 
 | Case | $\tau_w$, $600<t\le700$ | $700<t\le800$ | $\rho_w$ | $Re_\tau$ | $u_c$, $T_c/T_w$ | $T_1/T_w$ | $Q_w/W$ |
 |---|---|---|---|---|---|---|---|
-| equilibrium, $h=0.15$, semi-local | 3.52e-3 | 3.48e-3 | 2.36 | **445, 443** | 1.17, 2.44 | 1.79 | 0.99 |
-| equilibrium, 3rd cell | 4.51e-3 | 4.35e-3 | 2.51 | 519, 510 | 1.21, 2.65 | 1.57 | 0.99 |
-| equilibrium, $h=0.15$ | 5.17e-3 | 5.15e-3 | 2.44 | 548, 547 | 1.21, 2.53 | 1.84 | 1.00 |
+| equilibrium, $h=0.15$, semi-local | 3.53e-3 | 3.49e-3 | 2.37 | **446, 444** | 1.17, 2.44 | 1.80 | 0.99 |
+| equilibrium, 3rd cell | 4.48e-3 | 4.08e-3 | 2.50 | 517, 493 | 1.22, 2.65 | 1.55 | 0.99 |
+| equilibrium, $h=0.15$ | 5.14e-3 | 5.13e-3 | 2.43 | 545, 545 | 1.22, 2.53 | 1.82 | 1.00 |
+
+*Measured: ADAM `95ffd728`, FNL nvfortran 26.9 + CUDA 12.9 (`iac_nvf`, device LTO) on 4 A30 per run, 2026-11-24
+(`channel_campaign.sh` on `channel_cases_t3_mach3_ev.txt` then `channel_cases_t3_mach3_ev800.txt` in one job per run:
+jobs 1369654, 1369655, 1369658; build 1369653). The runs first recorded at `c40585e8` were not kept; this rerun replaces
+their numbers (#144), and the figure above is drawn from it.*
 
 **What it shows.**
-- **The drain is gone.** The first cell is $1.6$–$1.8\,T_w$ at every time after the transient, the two walls agree within
-  2 %, and the two first-cell layers hold 4–5 % of the mass (3.1 % if uniform), against 16 % at $0.41\,T_w$ without the
-  key.
-- **The runs are thermally steady at $t=800$**: $Q_w/W$ is 0.99–1.00 and $dE/dt$ about 60 times smaller than at $t=200$.
-- **$h=0.15$ with semi-local damping matches the DNS within 2 %.** With the classical damping $Re_\tau$ is 13 % (3rd
+- **The drain is gone.** The first cell is $1.5$–$1.9\,T_w$ at every time after the transient ($t>100$), the two walls
+  agree within 4 %, and the two first-cell layers hold 4–5 % of the mass (3.1 % if uniform), against 16 % at
+  $0.41\,T_w$ without the key.
+- **The runs are thermally steady at $t=800$**: $Q_w/W$ is 0.99–1.00 and $dE/dt$ 12 to 87 times smaller than at $t=200$.
+- **$h=0.15$ with semi-local damping matches the DNS within 2 %.** With the classical damping $Re_\tau$ is 9–15 % (3rd
   cell) and 21 % ($h=0.15$) above.
 - **$Re_\tau$ needs the thermal steady state at this Mach number.** The bulk heats until $t\approx600$, $\rho_w$ rises
-  from about 2.1 to 2.4–2.5, and $Re_\tau$ rises with it: at $t=200$ the 3rd-cell run gave 438, 448, which looked like a
+  from about 2.1 to 2.4–2.5, and $Re_\tau$ rises with it: at $t=200$ the 3rd-cell run gave 460, 451, which looked like a
   match.
-- **Cost.** From the same $t=800$ state of the semi-local run to $t=810$ (4 A30), the key on takes 1.69 times the wall
-  time of the key off: 1.28 times the steps (the eddy viscosity enters the viscous time-step limit) and 1.32 times the
-  time per step.
+- **Cost** (measured on the first run, not repeated). From the same $t=800$ state of the semi-local run to $t=810$
+  (4 A30), the key on takes 1.69 times the wall time of the key off: 1.28 times the steps (the eddy viscosity enters the
+  viscous time-step limit) and 1.32 times the time per step.
 
 ## The flow
 
@@ -178,7 +183,8 @@ $128\times64\times64$, $h=0.15$ with semi-local damping, $t=200$. Bottom: bulk M
 $t=800$. Planes from `turbulence/field_slices.py`; the figure is `make_doc_figures.py --only channel-fields`.*
 
 - **At the matching height the flow is in streaks** along $x$, but outer-scaled ones. At Mach 3 the first minimum of the
-  spanwise correlation of $u$ in that plane puts them $1.05\,h$ apart, about 470 wall units at $Re_\tau\approx445$,
+  spanwise correlation of $u$ in that plane (measured on the planes of the first run, `c40585e8`, not re-measured on the
+  rerun shown) puts them $1.05\,h$ apart, about 470 wall units at $Re_\tau\approx445$,
   against the 100 of the near-wall cycle; at Mach 1.5 the correlation has no clear minimum within the span. The
   near-wall cycle lives below the matching height ($y^+\approx33$ at Mach 1.5), in the wall model, and the grid
   ($\Delta z^+\approx14$, $\Delta x^+\approx22$ at Mach 1.5) does not form it above.

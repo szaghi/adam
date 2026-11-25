@@ -1,0 +1,179 @@
+job 183592.pbs 2026-11-24T21:13:34+01:00 nodes gpu-011.head.cm.local
+== module
+hpcx
+nvhpc-hpcx-cuda12/26.3
+ucx: /lustre/software/NVHPC/Linux_x86_64/26.3/comm_libs/12.9/hpcx/hpcx-2.25.1/ucx/bin
+# Library version: 1.20.0
+# Library path: /lustre/software/NVHPC/Linux_x86_64/26.3/comm_libs/12.9/hpcx/hpcx-2.25.1/ucx/lib/libucs.so.0
+# API headers version: 1.20.0
+# Git branch '', revision be940c1
+# Configured with: --disable-logging --disable-debug --disable-assertions --disable-params-check --with-knem --with-xpmem=/hpc/local/oss/xpmem/v2.7.1 --without-java --enable-devel-headers --with-fuse3-static --with-cuda=/hpc/local/oss/cuda12.9.1/redhat8 --with-gdrcopy --prefix=/build-result/hpcx-v2.25.1-gcc-doca_ofed-redhat8-cuda12-x86_64/ucx --with-bfd=/hpc/local/oss/binutils/2.37/redhat8
+== node gpu-011.head.cm.local
+CPU(s):              96
+Socket(s):           2
+NUMA node(s):        4
+Model name:          AMD EPYC 9454 48-Core Processor
+NUMA node0 CPU(s):   0-23
+NUMA node1 CPU(s):   24-47
+NUMA node2 CPU(s):   48-71
+NUMA node3 CPU(s):   72-95
+available: 4 nodes (0-3)
+node 0 cpus: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
+node 0 size: 192812 MB
+node 0 free: 186245 MB
+node 1 cpus: 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47
+node 1 size: 193529 MB
+node 1 free: 187891 MB
+node 2 cpus: 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71
+node 2 size: 193529 MB
+node 2 free: 187849 MB
+node 3 cpus: 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95
+node 3 size: 193437 MB
+index, name, pci.bus_id, driver_version, memory.total [MiB], clocks.max.sm [MHz], clocks.current.sm [MHz], power.draw [W], enforced.power.limit [W], power.default_limit [W], clocks_event_reasons.active, ecc.errors.uncorrected.volatile.total
+0, NVIDIA H100, 00000000:04:00.0, 570.124.06, 95830 MiB, 1980 MHz, 345 MHz, 70.22 W, 699.00 W, 700.00 W, 0x0000000000000001, 0
+1, NVIDIA H100, 00000000:64:00.0, 570.124.06, 95830 MiB, 1980 MHz, 345 MHz, 68.86 W, 699.00 W, 700.00 W, 0x0000000000000001, 0
+2, NVIDIA H100, 00000000:84:00.0, 570.124.06, 95830 MiB, 1980 MHz, 345 MHz, 69.62 W, 699.00 W, 700.00 W, 0x0000000000000001, 0
+3, NVIDIA H100, 00000000:E4:00.0, 570.124.06, 95830 MiB, 1980 MHz, 345 MHz, 68.92 W, 699.00 W, 700.00 W, 0x0000000000000001, 0
+	[4mGPU0	GPU1	GPU2	GPU3	NIC0	NIC1	NIC2	NIC3	CPU Affinity	NUMA Affinity	GPU NUMA ID[0m
+GPU0	 X 	NV6	NV6	NV6	SYS	PIX	SYS	SYS	24-47	1		N/A
+GPU1	NV6	 X 	NV6	NV6	PIX	SYS	SYS	SYS	0-23	0		N/A
+GPU2	NV6	NV6	 X 	NV6	SYS	SYS	SYS	PIX	72-95	3		N/A
+GPU3	NV6	NV6	NV6	 X 	SYS	SYS	PIX	SYS	48-71	2		N/A
+NIC0	SYS	PIX	SYS	SYS	 X 	SYS	SYS	SYS				
+NIC1	PIX	SYS	SYS	SYS	SYS	 X 	SYS	SYS				
+NIC2	SYS	SYS	SYS	PIX	SYS	SYS	 X 	SYS				
+NIC3	SYS	SYS	PIX	SYS	SYS	SYS	SYS	 X 				
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks
+
+NIC Legend:
+
+  NIC0: mlx5_0
+  NIC1: mlx5_1
+  NIC2: mlx5_2
+  NIC3: mlx5_3
+
+GPU 0: NVIDIA H100 (UUID: GPU-f364400f-dab4-0428-c43a-5a97a44c1841)
+	 Link 0: 26.562 GB/s
+	 Link 1: 26.562 GB/s
+	 Link 2: 26.562 GB/s
+	 Link 3: 26.562 GB/s
+	 Link 4: 26.562 GB/s
+	 Link 5: 26.562 GB/s
+	 Link 6: 26.562 GB/s
+	 Link 7: 26.562 GB/s
+	 Link 8: 26.562 GB/s
+	 Link 9: 26.562 GB/s
+	 Link 10: 26.562 GB/s
+	 Link 11: 26.562 GB/s
+	 Link 12: 26.562 GB/s
+	 Link 13: 26.562 GB/s
+	 Link 14: 26.562 GB/s
+	 Link 15: 26.562 GB/s
+	 Link 16: 26.562 GB/s
+	 Link 17: 26.562 GB/s
+== kernel modules
+570.124.06
+gdrdrv                 24576  0
+nvidia_uvm           1818624  8
+nvidia_drm            110592  0
+nvidia_modeset       1671168  1 nvidia_drm
+nvidia              11481088  45 nvidia_uvm,gdrdrv,nvidia_modeset
+video                  57344  1 nvidia_modeset
+drm_kms_helper        184320  8 ast,nvidia_drm
+mlx5_ib               471040  0
+ib_uverbs             172032  2 rdma_ucm,mlx5_ib
+drm                   602112  6 drm_kms_helper,ast,drm_shmem_helper,nvidia,nvidia_drm
+ib_core               434176  9 rdma_cm,ib_ipoib,ko2iblnd,iw_cm,ib_umad,rdma_ucm,ib_uverbs,mlx5_ib,ib_cm
+mlx5_core            2334720  1 mlx5_ib
+mlx_compat             16384  13 rdma_cm,ib_ipoib,mlxdevm,ko2iblnd,mlxfw,iw_cm,ib_umad,ib_core,rdma_ucm,ib_uverbs,mlx5_ib,ib_cm,mlx5_core
+== IB
+hca_id:	mlx5_0
+			state:			PORT_ACTIVE (4)
+			active_mtu:		4096 (5)
+			link_layer:		InfiniBand
+hca_id:	mlx5_1
+			state:			PORT_ACTIVE (4)
+			active_mtu:		4096 (5)
+			link_layer:		InfiniBand
+hca_id:	mlx5_2
+			state:			PORT_ACTIVE (4)
+			active_mtu:		4096 (5)
+			link_layer:		InfiniBand
+hca_id:	mlx5_3
+			state:			PORT_ACTIVE (4)
+			active_mtu:		4096 (5)
+			link_layer:		InfiniBand
+CA 'mlx5_0'
+		State: Active
+		Rate: 400
+		Link layer: InfiniBand
+CA 'mlx5_1'
+		State: Active
+		Rate: 400
+		Link layer: InfiniBand
+CA 'mlx5_2'
+		State: Active
+		Rate: 400
+		Link layer: InfiniBand
+CA 'mlx5_3'
+		State: Active
+		Rate: 400
+		Link layer: InfiniBand
+== UCX devices
+#      Transport: cma	#         Device: memory
+#      Transport: cuda_copy	#         Device: cuda
+#      Transport: cuda_ipc	#         Device: cuda
+#      Transport: dc_mlx5	#         Device: mlx5_0:1
+#      Transport: dc_mlx5	#         Device: mlx5_1:1
+#      Transport: dc_mlx5	#         Device: mlx5_2:1
+#      Transport: dc_mlx5	#         Device: mlx5_3:1
+#      Transport: posix	#         Device: memory
+#      Transport: rc_mlx5	#         Device: mlx5_0:1
+#      Transport: rc_mlx5	#         Device: mlx5_1:1
+#      Transport: rc_mlx5	#         Device: mlx5_2:1
+#      Transport: rc_mlx5	#         Device: mlx5_3:1
+#      Transport: rc_verbs	#         Device: mlx5_0:1
+#      Transport: rc_verbs	#         Device: mlx5_1:1
+#      Transport: rc_verbs	#         Device: mlx5_2:1
+#      Transport: rc_verbs	#         Device: mlx5_3:1
+#      Transport: self	#         Device: memory
+#      Transport: sysv	#         Device: memory
+#      Transport: tcp	#         Device: bond0
+#      Transport: tcp	#         Device: ib0
+#      Transport: tcp	#         Device: ib1
+#      Transport: tcp	#         Device: ib2
+#      Transport: tcp	#         Device: ib3
+#      Transport: tcp	#         Device: lo
+#      Transport: ud_mlx5	#         Device: mlx5_0:1
+#      Transport: ud_mlx5	#         Device: mlx5_1:1
+#      Transport: ud_mlx5	#         Device: mlx5_2:1
+#      Transport: ud_mlx5	#         Device: mlx5_3:1
+#      Transport: ud_verbs	#         Device: mlx5_0:1
+#      Transport: ud_verbs	#         Device: mlx5_1:1
+#      Transport: ud_verbs	#         Device: mlx5_2:1
+#      Transport: ud_verbs	#         Device: mlx5_3:1
+#      Transport: xpmem	#         Device: memory
+== env
+OMPI_HOME=/lustre/software/NVHPC/Linux_x86_64/26.3/comm_libs/12.9/hpcx/hpcx-2.25.1/ompi
+UCX_DC_MLX5_ROCE_LOCAL_SUBNET=y
+UCX_GGA_MLX5_ROCE_LOCAL_SUBNET=y
+UCX_IB_ENABLE_MEMIC=n
+UCX_NET_DEVICES=mlx5_0:1,mlx5_2:1
+UCX_RC_VERBS_ROCE_LOCAL_SUBNET=y
+UCX_UD_VERBS_ROCE_LOCAL_SUBNET=y
+== intra-node GPU to GPU (33 MB tag_bw)
+GPU0->GPU1: Final:                    60      0.371   256.467   256.467   124772.45  124772.45        3899        3899
+GPU0->GPU2: Final:                    60      0.521   256.499   256.499   124756.99  124756.99        3899        3899
+GPU0->GPU3: Final:                    60      0.410   256.515   256.515   124749.26  124749.26        3898        3898
+GPU1->GPU2: Final:                    60      0.289   257.003   257.003   124512.02  124512.02        3891        3891
+host->host same node: Final:                    60      0.371   417.133   417.133    76714.11   76714.11        2397        2397
+RECON-DONE

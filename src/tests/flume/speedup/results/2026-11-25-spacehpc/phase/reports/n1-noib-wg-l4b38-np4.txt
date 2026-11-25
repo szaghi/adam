@@ -1,0 +1,24 @@
+PHASE TIMING: ranks 4, steps timed 100, barriers skipped F, gradual underflow F
+PHASE TIMING: phase          ms/step min      mean       max  calls/step  share of step
+PHASE TIMING: step (loop)       709.736    709.736    709.736        1.00     100.0 %
+PHASE TIMING: dt local            1.213      1.215      1.217        1.00       0.2 %
+PHASE TIMING: dt allreduce        0.003      0.006      0.008        1.00       0.0 %
+PHASE TIMING: IB kernels          0.000      0.000      0.000        0.00       0.0 %
+PHASE TIMING: ghost local        28.320     28.372     28.391        3.00       4.0 %
+PHASE TIMING: ghost MPI           4.989      5.418      5.669        3.00       0.8 %
+PHASE TIMING:   pack              1.022      1.026      1.032        3.00       0.1 %
+PHASE TIMING:   post              0.031      0.039      0.046        3.00       0.0 %
+PHASE TIMING:   waitall           1.072      1.462      1.817        3.00       0.2 %
+PHASE TIMING:   barrier 1         0.030      0.134      0.362        3.00       0.0 %
+PHASE TIMING:   unpack            2.700      2.716      2.733        3.00       0.4 %
+PHASE TIMING:   barrier 2         0.022      0.038      0.054        3.00       0.0 %
+PHASE TIMING: BC + blend         12.116     12.197     12.290        3.00       1.7 %
+PHASE TIMING: q_aux              13.987     13.995     14.002        3.00       2.0 %
+PHASE TIMING: face fluxes       602.709    603.023    603.647        3.00      85.0 %
+PHASE TIMING: flux diff          19.440     19.450     19.457        3.00       2.7 %
+PHASE TIMING: integrator         24.564     24.566     24.567       11.00       3.5 %
+PHASE TIMING: residuals save      0.001      0.001      0.002        1.00       0.0 %
+PHASE TIMING: post step           1.175      1.176      1.178        1.00       0.2 %
+PHASE TIMING: regrid+is_done      0.022      0.260      0.390        2.00       0.0 %
+PHASE TIMING: progress            0.039      0.042      0.043        1.00       0.0 %
+PHASE TIMING: evolve            708.168    708.300    708.537        1.00      99.8 %

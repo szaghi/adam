@@ -175,6 +175,16 @@ limiter that would bound it is refused on multi-realm runs. WENO-7 at the same s
 with every value finite. The speedup matrix's leg 1 therefore runs WENO-7 (medooza, develop `0bcdf870`, gfortran 16.2,
 2026-11-22, Slurm jobs 1369311 and 1369318).
 
+![The 3-D step at t = 4 on runtime AMR](/flume/step-3d.png)
+
+*The 3-D step at $t = 4$, WENO-7, the three-realm aligned forest on octrees with runtime AMR from level 0 to level 2
+($h = 1/80$ to $1/320$), 20304 steps: the density with the blocks outlined and the numerical schlieren
+$\log_{10}\lvert\nabla\rho\rvert$ on the cell layer just above the mid plane $z = L_z/2$.*
+
+*Measured: ADAM `0bcdf870` + the night-2026-11-22 tree (the paper commit, tag pending), FNL nvfortran 26.9, CUDA 12.9
+(`iac_nvf`) on 4 NVIDIA A30, 2026-11-22 to 2026-11-23 (`make_step.py <dir> --layout aligned --dims 3 --weno 7
+--base-level 0 --max-level 2 --runtime --time-max 4.0`, job 1369369).*
+
 ## Findings
 
 - The trees order the restriction sums differently (8 fine cells over two identical $z$ layers, against 4), so they

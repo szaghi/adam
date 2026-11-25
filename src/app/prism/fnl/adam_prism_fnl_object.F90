@@ -187,6 +187,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! numerical methods, miscellanea
       procedure, pass(self) :: compute_dt             !< Compute time step.
       procedure, pass(self) :: compute_plasma_frequencies !< Plasma frequencies limiting the next PIC step.
+      procedure, pass(self) :: locate_particles_end_of_step !< Particle-cell map of the final positions (#129 R7).
       procedure, pass(self) :: compute_energy       	!< Compute energy.
       procedure, pass(self) :: compute_energy_error 	!< Compute energy error.
       procedure, pass(self) :: compute_grms           !< Compute Grms of the rotating magnetic-field amplitude.
@@ -1003,7 +1004,12 @@ contains
       call self%save_slices
 
       if (self%time%is_to_save(cadence=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
-      if (self%time%is_on_cadence(self%io%restart_save)) call self%save_restart_files
+      ! not on the iteration just restarted from: its restart files are those just read (issue #129, R6); the PML state
+      ! lives on the device, the restart files are written from the host (R3)
+      if (self%time%is_on_cadence(self%io%restart_save) .and. self%time%it /= self%restarted_at) then
+         call self%pml_fnl%copy_gpu_cpu(pml=self%pml)
+         call self%save_restart_files
+      endif
    endif
    if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM .and. &
        (.not. self%single_particle_output_written .or. self%time%time /= self%single_particle_output_last_time)) then
@@ -2146,6 +2152,7 @@ contains
    !< Set initial conditions of field.
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
    logical,                 intent(in)    :: is_restart !< Branching sentinel for restart/non restart path.
+   logical                                :: t0_solved  !< A t0 elliptic solve corrected the field.
 
    if (.not.is_restart) call self%ic%set_initial_conditions(physics=self%physics, field=self%adam%field, grid=self%adam%grid, &
                                                             q=self%q)
@@ -2157,19 +2164,35 @@ contains
    endif
 
    call self%initialize_coils
+   t0_solved = .false.
    if (.not.is_restart) then
       call self%compute_coils_current_time_zero()
       ! PIC: each t0 elliptic solve can be switched off ([PIC] *_field_elliptic_initialization), the field then stays
       ! the IC one
       if (is_pic_model(self%physics%physical_model)) then
-         if (self%pic%electric_field_elliptic_initialization) call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+         if (self%pic%electric_field_elliptic_initialization) then
+            call self%impose_pic_fields_time_zero(ivar=VAR_DX)
+            t0_solved = .true.
+         endif
       endif
       if (.not.is_pic_model(self%physics%physical_model) .or. self%pic%magnetic_field_elliptic_initialization) then
-         if (self%has_current_density()) call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+         if (self%has_current_density()) then
+            call self%impose_pic_fields_time_zero(ivar=VAR_BX)
+            t0_solved = .true.
+         endif
       endif
    endif
 
    call self%copy_cpu_gpu
+   ! the t0 solves correct the interior cells only: refresh the ghosts as a stage does (exchange and boundary conditions;
+   ! no coil re-stamp, the coil current is stamped already), before the t0 gather and diagnostics read them
+   if (t0_solved) then
+      call self%field_fnl%update_ghost_local_gpu(q_gpu=self%q_gpu)
+      call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                               comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                               q_gpu=self%q_gpu)
+      call self%set_boundary_conditions(q_gpu=self%q_gpu)
+   endif
 
    if (.not.is_restart) then
       call self%apply_fWL_correction(q_gpu=self%q_gpu)
@@ -2620,8 +2643,9 @@ contains
                                                                           !< FD path does not accumulate seam fluxes).
 
    if (present(flux_register)) continue ! FV-only machinery; accepted for interface conformance
-   ! The ghost update is collective (MPI_Barrier in update_ghost_mpi_gpu): a rank that owns no block of this realm
-   ! takes part too, as on the CPU, or the ranks that own blocks wait for it forever (issue #52).
+   ! A rank that owns no block of this realm calls the ghost update too, as on the CPU. Until #156 L1 the update was
+   ! collective (two MPI_Barrier in update_ghost_mpi_gpu) and skipping it hung the others (issue #52); it no longer is,
+   ! and the call stays: it posts nothing and returns.
    if (present(s)) then
       call self%update_ghost(q_gpu=q_gpu, s=s)
    else
@@ -5363,11 +5387,14 @@ contains
                                                    context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%finalize_charge_conservation_diagnostic
+   ! the particle terms of the plasma frequencies, while q_pic, pic_fields and the map are aligned (issue #129, R7)
+   if (self%plasma_freq%active) call self%compute_plasma_frequencies(cells=.false.)
    ! bring the particles beyond a periodic face back in the domain only now: until the end-of-step deposit is done they
    ! stay in the ghost halo of the block on that face (wrapped, they would jump to the blocks of another rank)
    call self%pic_fnl%wrap_periodic_positions_dev
    ! hand the particles that left the blocks of this rank to their new owners
    call self%migrate_particles
+   call self%locate_particles_end_of_step
    endsubroutine integrate_rk_ssp_pic
 
    subroutine gather_pic_fields_dev(self, q_gpu, q_pic_gpu)
@@ -5560,10 +5587,13 @@ contains
                                                    context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    endassociate
+   ! the particle terms of the plasma frequencies, while q_pic, pic_fields and the map are aligned (issue #129, R7)
+   if (self%plasma_freq%active) call self%compute_plasma_frequencies(cells=.false.)
    ! periodic faces: positions wrapped after the end-of-step deposit, before the migration (as integrate_rk_ssp_pic)
    call self%pic_fnl%wrap_periodic_positions_dev
    ! hand the particles that left the blocks of this rank to their new owners
    call self%migrate_particles
+   call self%locate_particles_end_of_step
    endsubroutine integrate_rk_ssp_pic_charge_conserving
 
    subroutine initialize_pic_conserving_current_time_zero(self)
@@ -5962,6 +5992,7 @@ contains
 
    call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
    call self%load_restart_files(t=self%time%it, time=self%time%time)
+   self%restarted_at = self%time%it
    call mpih_fnl%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
    call self%set_initial_conditions(is_restart=.true.)
    endsubroutine restart_state_forest
@@ -6063,7 +6094,8 @@ contains
 
    if (self%plasma_freq%active) then
       call self%plasma_freq_fnl%initialize(nb=self%nb, ni=self%adam%grid%ni, nj=self%adam%grid%nj, nk=self%adam%grid%nk)
-      call self%compute_plasma_frequencies
+      ! on restart the particle terms are those of the restart file (issue #129, R7): only the cell term from the restored map
+      call self%compute_plasma_frequencies(particles=.not.self%io%restart)
       call mpih_fnl%print_message(self%plasma_freq%description())
    endif
    call report_device_memory
@@ -6090,7 +6122,72 @@ contains
                                   ' fields = '//trim(str(slots, .true.))//' GB, reserve estimate '//              &
                                   trim(str(self%reserved_memory, .true.))//' GB, rest '//                         &
                                   trim(str(used - slots - self%reserved_memory, .true.))//' GB')
+      call report_rest
       endsubroutine report_device_memory
+
+      subroutine report_rest
+      !< The part of the rest held by the device copies of the library maps and block geometry (`field_fnl`, issue #112
+      !< M6), array by array from their allocated sizes, and what remains after them (runtime context, FFT plans, others).
+      !< The ghost maps towards other ranks have one row per cell and variable (`comm_map_*_ghost_cell(c*nv, :)`, I8P)
+      !< and the buffers one value per cell and variable: the remote ghost cells are reported with their bytes per cell.
+      integer(I8P) :: mem_free, mem_total !< Device memory, bytes.
+      integer(I8P) :: local, recv, send   !< Ghost maps: local, receive, send (bytes).
+      integer(I8P) :: buffers             !< Ghost send and receive buffers (bytes).
+      integer(I8P) :: crown, seam         !< BC crown map, inter-realm seam maps and buffers (bytes).
+      integer(I8P) :: geometry            !< Block cell coordinates and spacings (bytes).
+      integer(I8P) :: total               !< All of the above (bytes).
+      integer(I8P) :: remote              !< Remote ghost cells received (rows of the receive map / nv).
+      real(R8P)    :: used                !< Device memory in use, GB.
+      real(R8P)    :: slots               !< Block slots, GB.
+
+      associate(m => self%field_fnl%maps, f => self%field_fnl)
+      local = 0_I8P ; recv = 0_I8P ; send = 0_I8P ; buffers = 0_I8P ; crown = 0_I8P ; seam = 0_I8P ; geometry = 0_I8P
+      if (associated(m%local_map_ghost_cell_gpu)) local = bytes_i8(size(m%local_map_ghost_cell_gpu, kind=I8P))
+      if (associated(m%comm_map_recv_ghost_cell_gpu)) recv = bytes_i8(size(m%comm_map_recv_ghost_cell_gpu, kind=I8P))
+      if (associated(m%comm_map_send_ghost_cell_gpu)) send = bytes_i8(size(m%comm_map_send_ghost_cell_gpu, kind=I8P))
+      if (associated(m%send_buffer_ghost_gpu)) buffers = buffers + bytes_i8(size(m%send_buffer_ghost_gpu, kind=I8P))
+      if (associated(m%recv_buffer_ghost_gpu)) buffers = buffers + bytes_i8(size(m%recv_buffer_ghost_gpu, kind=I8P))
+      if (associated(m%local_map_bc_crown_gpu)) crown = bytes_i8(size(m%local_map_bc_crown_gpu, kind=I8P))
+      if (associated(m%seam_local_map_ghost_cell_gpu)) seam = seam + 4_I8P*size(m%seam_local_map_ghost_cell_gpu, kind=I8P)
+      if (associated(m%seam_local_send_buf_gpu)) seam = seam + bytes_i8(size(m%seam_local_send_buf_gpu, kind=I8P))
+      if (associated(m%seam_local_recv_buf_gpu)) seam = seam + bytes_i8(size(m%seam_local_recv_buf_gpu, kind=I8P))
+      if (associated(m%seam_mpi_send_cell_gpu)) seam = seam + 4_I8P*size(m%seam_mpi_send_cell_gpu, kind=I8P)
+      if (associated(m%seam_mpi_recv_cell_gpu)) seam = seam + 4_I8P*size(m%seam_mpi_recv_cell_gpu, kind=I8P)
+      if (associated(f%x_cell_gpu)) geometry = geometry + bytes_i8(size(f%x_cell_gpu, kind=I8P))
+      if (associated(f%y_cell_gpu)) geometry = geometry + bytes_i8(size(f%y_cell_gpu, kind=I8P))
+      if (associated(f%z_cell_gpu)) geometry = geometry + bytes_i8(size(f%z_cell_gpu, kind=I8P))
+      if (associated(f%dxyz_gpu)) geometry = geometry + bytes_i8(size(f%dxyz_gpu, kind=I8P))
+      remote = 0_I8P
+      if (associated(m%comm_map_recv_ghost_cell_gpu)) remote = size(m%comm_map_recv_ghost_cell_gpu, dim=1, kind=I8P)/ &
+                                                                max(1_I8P, int(self%nv, I8P))
+      endassociate
+      total = local + recv + send + buffers + crown + seam + geometry
+      call dev_get_device_memory_info(mem_free=mem_free, mem_total=mem_total)
+      used = real(mem_total - mem_free, R8P)/1e9_R8P
+      slots = real(self%nb, R8P)*real(self%blocks_fields_number, R8P)*8._R8P*real(self%adam%grid%block_weight, R8P)/1e9_R8P
+      call mpih_fnl%print_message('device memory, rest: ghost maps local '//gb(local)//', receive '//gb(recv)//         &
+                                  ', send '//gb(send)//', buffers '//gb(buffers)//' ('//trim(str(remote, .true.))//      &
+                                  ' remote ghost cells, '//trim(str((recv + send + buffers)/max(1_I8P, remote), .true.))// &
+                                  ' B each), BC crown '//gb(crown)//', seam '//gb(seam)//', block geometry '//            &
+                                  gb(geometry)//'; total '//gb(total)//' GB, rest after them '//                          &
+                                  trim(str(used - slots - self%reserved_memory - real(total, R8P)/1e9_R8P, .true.))//' GB')
+      endsubroutine report_rest
+
+      pure function bytes_i8(n) result(b)
+      !< Bytes of n 8-byte elements (I8P maps, R8P buffers).
+      integer(I8P), intent(in) :: n !< Elements.
+      integer(I8P)             :: b !< Bytes.
+
+      b = 8_I8P*n
+      endfunction bytes_i8
+
+      function gb(b) result(s)
+      !< Bytes as GB, for the report.
+      integer(I8P), intent(in)  :: b !< Bytes.
+      character(:), allocatable :: s !< GB.
+
+      s = trim(str(real(b, R8P)/1e9_R8P, .true.))
+      endfunction gb
 
       subroutine check_pic_reserve
       !< The PIC device arrays allocated outside the block slots, counted array by array, against the reserve the blocks
@@ -6662,20 +6759,42 @@ contains
    call self%save_divergence_history(div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
                                      div_J=self%max_divergence_J, current_solver_residual=current_residual)
    call self%save_charge_conservation_diagnostic
-   ! plasma frequencies of the state just reached: they limit the next step
-   if (self%plasma_freq%active) call self%compute_plasma_frequencies
+   ! plasma frequencies of the state just reached: they limit the next step (the particle terms were taken at the end of
+   ! the step, before the wrap and the migration, issue #129 R7)
+   if (self%plasma_freq%active) call self%compute_plasma_frequencies(particles=.false.)
    endsubroutine post_step_forest
 
    ! numerical methods
-   subroutine compute_plasma_frequencies(self)
+   subroutine compute_plasma_frequencies(self, particles, cells)
    !< Maxima of the plasma frequencies over the cells and the particles (collective): they limit the next PIC step.
-   class(prism_fnl_object), intent(inout) :: self                         !< The equation.
-   real(R8P)                              :: wpe2, wpi2, wce, wci, transit !< Local maxima.
+   !< `particles` (Omega_c, transit: q_pic, pic_fields and the particle-cell map aligned, before the end-of-step wrap and
+   !< migration) and `cells` (omega_p and the composite frequencies: the map of the final positions), both by default
+   !< (issue #129, R7).
+   class(prism_fnl_object), intent(inout)        :: self                         !< The equation.
+   logical,                 intent(in), optional :: particles                    !< Particle terms (default true).
+   logical,                 intent(in), optional :: cells                        !< Cell term (default true).
+   real(R8P)                                     :: wpe2, wpi2, wce, wci, transit !< Local maxima.
+   logical                                       :: do_p, do_c                   !< Terms.
 
+   do_p = .true. ; if (present(particles)) do_p = particles
+   do_c = .true. ; if (present(cells))     do_c = cells
    call self%plasma_freq_fnl%compute(pic_fnl=self%pic_fnl, field_fnl=self%field_fnl, grid=self%adam%grid, &
-                                     inv_eps=self%plasma_freq%inv_eps, wpe2=wpe2, wpi2=wpi2, wce=wce, wci=wci, transit=transit)
-   call self%plasma_freq%set_maxima(wpe2=wpe2, wpi2=wpi2, wce=wce, wci=wci, transit=transit)
+                                     inv_eps=self%plasma_freq%inv_eps, wpe2=wpe2, wpi2=wpi2, wce=wce, wci=wci, transit=transit, &
+                                     particles=do_p, cells=do_c)
+   if (do_p) call self%plasma_freq%set_particle_maxima(wce=wce, wci=wci, transit=transit)
+   if (do_c) call self%plasma_freq%set_cell_maxima(wpe2=wpe2, wpi2=wpi2)
    endsubroutine compute_plasma_frequencies
+
+   subroutine locate_particles_end_of_step(self)
+   !< The particle-cell map of the final positions, after the end-of-step wrap and migration (issue #129, R7): the
+   !< omega_p limit of the next step reads it, and the restart rebuilds the same. Only when they moved or reordered the
+   !< particles: more than one rank or a periodic face.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   if (mpih_fnl%procs_number == 1_I4P .and. .not.any(self%pic%bc%is_periodic)) return
+   call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
+                                                       grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
+   endsubroutine locate_particles_end_of_step
 
    subroutine compute_dt(self)
    !< Compute the global stability-limited dt and store it on `self%time%dt`.

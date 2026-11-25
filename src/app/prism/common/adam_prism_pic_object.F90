@@ -1113,6 +1113,12 @@ contains
    if (blocks_number > 1_I4P .and. self%stencil_radius_cells() > ngc) &
       call mpih%error_stop(msg=': PIC multi-block needs deposit/gather stencils within ngc cells (stencil radius '// &
                                trim(str(self%stencil_radius_cells(),.true.))//', ngc '//trim(str(ngc,.true.))//')')
+   ! a particle that leaves the blocks of its rank within a step (towards another rank, or across a periodic face) is
+   ! found in the ghost halo, m cells deep, until the end-of-step migration or wrap: with m = 0 the first one stops the run
+   if ((mpih%procs_number > 1_I4P .or. any(self%bc%is_periodic)) .and. self%halo_margin_cells(ngc=ngc) < 1_I4P) &
+      call mpih%error_stop(msg=': PIC needs ngc >= stencil radius + 2 = '//trim(str(self%stencil_radius_cells()+2_I4P,.true.))// &
+                               ' (ngc '//trim(str(ngc,.true.))//'): one ghost cell of halo for the particles that leave '// &
+                               'the blocks of their rank within a time step (more ranks or periodic faces)')
    m = self%halo_margin_cells(ngc=ngc)
    do n = 1, np
       ! a particle owned by no block must not keep a stale index

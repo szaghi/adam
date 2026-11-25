@@ -73,6 +73,9 @@ for np in $NPS; do
    fi
 done
 
+# the gaussian-pulse keys a plane-wave input does not read ([IO] unused_keys = error refuses them)
+NO_PULSE_KEYS='/^\[initial_conditions\]/,/^$/{/^\(k0\|r0\|pulse_direction\|sigma\) /d}'
+
 # adimensional model (F3): the [grid] and [slice_N] extents are dimensional, the grid divides them by L0 and so must
 # the slices (before, the points stayed dimensional: in the wrong place, or outside the domain and an abort at the first
 # save); the oracle expects the extents divided by L0. Run on the last process count.
@@ -80,9 +83,11 @@ last_np="${NPS##* }"
 if [[ -n "$last_np" ]]; then
    work="$CASE_DIR/work-$TAG-adim-np$last_np"
    rm -rf "$work" ; mkdir -p "$work"
-   # a plane wave along y: unlike the gaussian pulse, its initial conditions are adimensionalized (B, D and lambda)
+   # a plane wave along y: unlike the gaussian pulse, its initial conditions are adimensionalized (B, D and lambda);
+   # the pulse keys go (unread by plane_wave, refused by [IO] unused_keys = error since #80 P5; issue #145)
    sed -e 's/^physical_model = EM$/physical_model = AdimEM\nL0             = 0.01\nB0             = 10.0/' \
        -e 's/^type            = gaussian_pulse$/type            = plane_wave\nkx              = 0.0\nky              = 1.0\nkz              = 0.0\nlambda          = 0.04/' \
+       -e "$NO_PULSE_KEYS" \
        "$CASE_DIR/slices.ini" > "$work/slices.ini"
    echo ">> $TAG, adimensional model (AdimEM, L0 = 0.01, plane wave), np $last_np"
    if (cd "$work" && mpirun -np "$last_np" "$EXE" slices.ini > log.txt 2>&1); then
@@ -102,9 +107,10 @@ if [[ $CONVERGENCE -eq 1 && -n "$last_np" ]]; then
       sed -e 's/^physical_model = EM$/physical_model = AdimEM\nL0             = 0.01\nB0             = 10.0/' \
           -e 's/^type            = gaussian_pulse$/type            = plane_wave\nkx              = 0.0\nky              = 1.0\nkz              = 0.0\nlambda          = 0.04/' \
           -e "s/^ni     = 16$/ni     = $n/;s/^nj     = 16$/nj     = $n/;s/^nk     = 16$/nk     = $n/" \
-          -e 's/^markers_number = 1$/markers_number = 0/' -e 's/^it_max   = 5$/it_max   = 1/' \
-          -e 's/^slices_number = .*/slices_number = 1/' \
+          -e 's/^markers_number = 1$/markers_number = 0/' -e '/^\[amr_marker_1\]/,/^$/d' -e 's/^it_max   = 5$/it_max   = 1/' \
+          -e 's/^slices_number = .*/slices_number = 1/' -e "$NO_PULSE_KEYS" \
           -e '/^\[slice_1\]/,/^\[slice_2\]/{s/^n_save = .*/n_save = 1/;s/^ni     = .*/ni     = 1/;s/^nj     = .*/nj     = 97/;s/^emin_x = .*/emin_x = 0.0031/;s/^emax_x = .*/emax_x = 0.0031/;s/^emin_y = .*/emin_y = -0.04/;s/^emax_y = .*/emax_y = 0.04/;s/^emin_z = .*/emin_z = 0.0023/;s/^emax_z = .*/emax_z = 0.0023/}' \
+          -e '/^\[slice_2\]/,$d' \
           "$CASE_DIR/slices.ini" > "$work/slices.ini"
       echo ">> $TAG, convergence, plane wave, $n cells per block side, np $last_np"
       (cd "$work" && mpirun -np "$last_np" "$EXE" slices.ini > log.txt 2>&1) || { echo "   run failed, see $work/log.txt" ; status=1 ; }

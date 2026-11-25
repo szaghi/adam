@@ -1,0 +1,426 @@
+--- tree/src/app/flume/cpu/adam_flume_cpu_object.F90	2026-11-24 09:49:20.000000000 +0100
++++ patched2/src/app/flume/cpu/adam_flume_cpu_object.F90	2026-11-24 14:49:28.976941337 +0100
+@@ -285,6 +285,7 @@
+ use, intrinsic :: ieee_arithmetic, only : ieee_quiet_nan, ieee_value
+ use :: mpi
+ use :: penf,                      only : I4P, I8P, R8P, str
++use :: adam_phase_timer
+ use :: selah,                     only : OPERATOR_FLOW
+ 
+ implicit none
+@@ -2238,8 +2239,13 @@
+                                                1:)         !< Conservative variables.
+    integer(I4P)                           :: blended       !< Face ghosts blended toward the interior.
+ 
++   call ph_tic(PH_GHOST_LOCAL)
+    call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
++   call ph_toc(PH_GHOST_LOCAL)
++   call ph_tic(PH_GHOST_MPI)
+    call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q)
++   call ph_toc(PH_GHOST_MPI)
++   call ph_tic(PH_BC)
+    call self%set_boundary_conditions(q=q)
+    blended = 0_I4P
+    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, is_null=>self%adam%grid%null_xyz)
+@@ -2287,6 +2293,7 @@
+    endassociate
+    if (blended > 0_I4P) print '(A)', mpih%myrankstr//'ghost positivity: '//trim(str(blended))// &
+                                      ' inadmissible face ghosts blended toward the interior at step '//trim(str(self%time%it))
++   call ph_toc(PH_BC)
+    endsubroutine update_ghost
+ 
+    ! forest methods
+@@ -2304,7 +2311,9 @@
+    call self%advance_inflow_df
+    call self%integrate
+    self%time%time = self%time%time + self%time%dt
++   call ph_tic(PH_PROGRESS)
+    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
++   call ph_toc(PH_PROGRESS)
+    endsubroutine advance_one_step_forest
+ 
+    subroutine apply_reflux_to_stage_forest(self, stage, dt, flux_register)
+@@ -3673,15 +3682,22 @@
+    if (self%ib%solids_number > 0_I4P) then
+       call self%update_ghost(q=q)
+       do e=1, self%ib%n_eikonal
++         call ph_tic(PH_IB)
+          call self%ib%evolve_eikonal(field=self%adam%field, grid=self%adam%grid, q=q, dq=dq)
++         call ph_toc(PH_IB)
+          call self%update_ghost(q=q)
+       enddo
++      call ph_tic(PH_IB)
+       call self%ib%invert_eikonal(field=self%adam%field, grid=self%adam%grid, q=q)
++      call ph_toc(PH_IB)
+    endif
+    call self%apply_floors(q=q)
+    call self%update_ghost(q=q)
+    if (self%physics%gravity%self_gravity) call self%solve_potential(q=q) ! Phi of this stage (issue #81)
++   call ph_tic(PH_Q_AUX)
+    call self%compute_q_aux(q=q)
++   call ph_toc(PH_Q_AUX)
++   call ph_tic(PH_FACE_FLUXES)
+    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
+    ! the EOS parameter: c0^2 for the isothermal gas (issue #100), gamma otherwise
+    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                    &
+@@ -3873,10 +3889,13 @@
+       if (flux_register%nfaces > 0_I4P .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
+          call self%flag_troubled_seam_cells(flux_register=flux_register)
+    endif
++   call ph_toc(PH_FACE_FLUXES)
++   call ph_tic(PH_FLUX_DIFF)
+    call compute_flux_difference(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, is_null=is_null,  &
+                                 freeze=self%null_freeze(),                                                           &
+                                 dxyz=self%adam%field%dxyz, flx=self%flx_f, fly=self%fly_f, flz=self%flz_f, dq=dq, &
+                                 phi=self%ib%phi)
++   call ph_toc(PH_FLUX_DIFF)
+    if (self%physics%gravity%is_active) call add_gravity_sources(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,         &
+                                                                 g=self%physics%gravity%g_uniform, q=q, flx=self%flx_f, &
+                                                                 fly=self%fly_f, flz=self%flz_f, gc=self%gcor, dq=dq)
+@@ -4174,16 +4193,26 @@
+    real(R8P), pointer                     :: r(:,:,:,:,:) !< Residual register of the stage.
+    integer(I4P)                           :: s            !< Counter.
+ 
++   call ph_tic(PH_INTEGRATOR)
+    call self%ts%begin_step(field=self%adam%field, q=self%q, phi=self%ib%phi)
++   call ph_toc(PH_INTEGRATOR)
+    do s=1, self%ts%stages()
++      call ph_tic(PH_INTEGRATOR)
+       call self%ts%begin_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
++      call ph_toc(PH_INTEGRATOR)
+       u => self%ts%stage_state()
+       r => self%ts%rhs_register()
+       call self%compute_residuals(q=u, dq=r, s=s)
++      call ph_tic(PH_INTEGRATOR)
+       call self%ts%end_stage(k=s, field=self%adam%field, dt=self%time%dt, q=self%q, phi=self%ib%phi)
++      call ph_toc(PH_INTEGRATOR)
+    enddo
++   call ph_tic(PH_INTEGRATOR)
+    call self%ts%finish_step(field=self%adam%field, dt=self%time%dt, q=self%q, dq=self%dq, phi=self%ib%phi)
++   call ph_toc(PH_INTEGRATOR)
++   call ph_tic(PH_RESIDUALS_SAVE)
+    call self%save_residuals
++   call ph_toc(PH_RESIDUALS_SAVE)
+    endsubroutine integrate_rk_ssp
+ 
+ endmodule adam_flume_cpu_object
+--- tree/src/app/flume/fnl/adam_flume_fnl_object.F90	2026-11-24 09:49:20.000000000 +0100
++++ patched2/src/app/flume/fnl/adam_flume_fnl_object.F90	2026-11-24 14:49:28.978991756 +0100
+@@ -362,6 +362,7 @@
+                                          dev_memcpy_to_device, mydev
+ use :: mpi
+ use :: penf,                      only : I4P, I8P, R8P, str
++use :: adam_phase_timer
+ use :: selah,                     only : OPERATOR_FLOW
+ 
+ implicit none
+@@ -2825,10 +2826,15 @@
+                                                    1:)         !< Conservative variables.
+    integer(I4P)                           :: blended           !< Face ghosts blended toward the interior.
+ 
++   call ph_tic(PH_GHOST_LOCAL)
+    call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
++   call ph_toc(PH_GHOST_LOCAL)
++   call ph_tic(PH_GHOST_MPI)
+    call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                             comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                             q_gpu=q_gpu)
++   call ph_toc(PH_GHOST_MPI)
++   call ph_tic(PH_BC)
+    call self%set_boundary_conditions(q_gpu=q_gpu)
+    blended = 0_I4P
+    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, is_null=>self%adam%grid%null_xyz)
+@@ -2876,6 +2882,7 @@
+    endassociate
+    if (blended > 0_I4P) print '(A)', mpih_fnl%myrankstr//'ghost positivity: '//trim(str(blended))// &
+                                      ' inadmissible face ghosts blended toward the interior at step '//trim(str(self%time%it))
++   call ph_toc(PH_BC)
+    endsubroutine update_ghost
+ 
+    ! forest methods
+@@ -2893,7 +2900,9 @@
+    call self%advance_inflow_df
+    call self%integrate_dev
+    self%time%time = self%time%time + self%time%dt
++   call ph_tic(PH_PROGRESS)
+    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
++   call ph_toc(PH_PROGRESS)
+    endsubroutine advance_one_step_forest
+ 
+    subroutine after_topology_build_forest(self)
+@@ -3991,16 +4000,23 @@
+    if (self%ib%solids_number > 0_I4P) then
+       call self%update_ghost(q_gpu=q_gpu)
+       do e=1, self%ib%n_eikonal
++         call ph_tic(PH_IB)
+          call self%ib_fnl%evolve_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, dq_gpu=dq_gpu, &
+                                          q_gpu=q_gpu, dxyz_gpu=self%field_fnl%dxyz_gpu)
++         call ph_toc(PH_IB)
+          call self%update_ghost(q_gpu=q_gpu)
+       enddo
++      call ph_tic(PH_IB)
+       call self%ib_fnl%invert_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, q_gpu=q_gpu)
++      call ph_toc(PH_IB)
+    endif
+    call self%apply_floors(q_gpu=q_gpu)
+    call self%update_ghost(q_gpu=q_gpu)
+    if (self%physics%gravity%self_gravity) call self%solve_potential_gpu(q_gpu=q_gpu) ! Phi of this stage (issue #81)
++   call ph_tic(PH_Q_AUX)
+    call self%compute_q_aux(q_gpu=q_gpu)
++   call ph_toc(PH_Q_AUX)
++   call ph_tic(PH_FACE_FLUXES)
+    is_char = self%numerics%reconstruction_variables == RECON_CHARACTERISTIC
+    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number,                             &
+              gamma=>self%physics%eos_arg, is_null=>self%adam%grid%null_xyz, weno_s=>self%weno%S, zeps=>self%weno%eps,  &
+@@ -4248,6 +4264,8 @@
+       if (flux_register%nfaces > 0_I4P .and. self%numerics%reflux_policy == REFLUX_POLICY_TROUBLED) &
+          call self%flag_troubled_seam_cells(flux_register=flux_register)
+    endif
++   call ph_toc(PH_FACE_FLUXES)
++   call ph_tic(PH_FLUX_DIFF)
+    if (self%ib%solids_number > 0_I4P) then
+       call compute_flux_difference_ib_dev(nv=self%physics%nv, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb,           &
+                                           is_null=is_null, freeze=self%null_freeze(), dxyz_gpu=self%field_fnl%dxyz_gpu, &
+@@ -4260,6 +4278,7 @@
+                                        flx_f_gpu=self%flx_f_gpu,                                                         &
+                                        fly_f_gpu=self%fly_f_gpu, flz_f_gpu=self%flz_f_gpu, dq_gpu=dq_gpu)
+    endif
++   call ph_toc(PH_FLUX_DIFF)
+    if (self%physics%gravity%is_active) &
+       call add_gravity_sources_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=nb, g=self%physics%gravity%g_uniform, &
+                                    q_gpu=q_gpu,                                                                      &
+@@ -4572,16 +4591,28 @@
+    real(R8P), pointer                     :: u(:,:,:,:,:) !< State of the stage.
+    integer(I4P)                           :: s            !< Counter.
+ 
++   call ph_tic(PH_INTEGRATOR)
+    call ts_begin_step(self)
++   call ph_toc(PH_INTEGRATOR)
+    do s=1, self%ts%stages()
++      call ph_tic(PH_INTEGRATOR)
+       call ts_begin_stage(self, s=s)
++      call ph_toc(PH_INTEGRATOR)
+       u => self%ts%stage_state()
+       call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=s)
++      call ph_tic(PH_INTEGRATOR)
+       call self%ts%set_rhs(field=self%adam%field, dq=self%dq_gpu)
++      call ph_toc(PH_INTEGRATOR)
++      call ph_tic(PH_INTEGRATOR)
+       call ts_end_stage(self, s=s)
++      call ph_toc(PH_INTEGRATOR)
+    enddo
++   call ph_tic(PH_INTEGRATOR)
+    call ts_finish_step(self)
++   call ph_toc(PH_INTEGRATOR)
++   call ph_tic(PH_RESIDUALS_SAVE)
+    call self%save_residuals
++   call ph_toc(PH_RESIDUALS_SAVE)
+    endsubroutine integrate_rk_ssp_dev
+ 
+    subroutine ts_begin_step(self)
+--- tree/src/lib/common/adam_field_object.F90	2026-11-24 09:49:20.000000000 +0100
++++ patched2/src/lib/common/adam_field_object.F90	2026-11-24 14:49:28.975094935 +0100
+@@ -72,6 +72,7 @@
+ use :: adam_maps_object, only : maps_object
+ use :: adam_ini_library, only : ini_check, ini_get
+ use :: adam_mpih_global, only : mpih
++use :: adam_phase_timer
+ use :: adam_seam_interpolation_library, only : SEAM_FILL_COMPATIBLE, SEAM_FILL_QUINTIC, SEAM_SUB_COINCIDENT, SEAM_DENSITY_GUARD, &
+                                                SEAM_FILL_WENO6, seam_interpolate_weno6, seam_mp_bound, &
+                                                seam_bracket_nodes, seam_bracket_range, &
+@@ -1468,6 +1469,7 @@
+       do_step(step) = .true.
+    endif
+ 
++   call ph_tic(PH_MPI_PACK)
+    if (do_step(1)) then
+       req_send_recv = MPI_REQUEST_NULL
+       if (allocated(maps%comm_map_send_ghost_cell)) then
+@@ -1521,6 +1523,8 @@
+       endif
+    endif
+ 
++   call ph_toc(PH_MPI_PACK)
++   call ph_tic(PH_MPI_POST)
+    if (do_step(2)) then
+       ! receive
+       do p=0, procs_number - 1_I4P
+@@ -1543,9 +1547,15 @@
+       enddo
+    endif
+ 
++   call ph_toc(PH_MPI_POST)
+    if (do_step(3)) then
++      call ph_tic(PH_MPI_WAITALL)
+       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+-      call MPI_Barrier(MPI_COMM_WORLD, error)
++      call ph_toc(PH_MPI_WAITALL)
++      call ph_tic(PH_MPI_BARRIER1)
++      if (.not.ph_skip_barrier) call MPI_Barrier(MPI_COMM_WORLD, error)
++      call ph_toc(PH_MPI_BARRIER1)
++      call ph_tic(PH_MPI_UNPACK)
+       !RIMETTERE SENZA
+       if (allocated(maps%comm_map_recv_ghost_cell)) then
+          do rf=1, size(maps%comm_map_recv_ghost_cell, dim=1)
+@@ -1558,8 +1568,11 @@
+             q(v_recv,i_recv,j_recv,k_recv,b_recv) = recv_buffer_ghost(c_send)
+          enddo
+       endif
++      call ph_toc(PH_MPI_UNPACK)
+    endif
+-   call MPI_Barrier(MPI_COMM_WORLD, error)
++   call ph_tic(PH_MPI_BARRIER2)
++   if (.not.ph_skip_barrier) call MPI_Barrier(MPI_COMM_WORLD, error)
++   call ph_toc(PH_MPI_BARRIER2)
+    endassociate
+    endsubroutine update_ghost_mpi
+ 
+--- tree/src/lib/common/adam_forest_object.F90	2026-11-24 09:49:20.000000000 +0100
++++ patched2/src/lib/common/adam_forest_object.F90	2026-11-24 14:49:28.974770782 +0100
+@@ -49,6 +49,8 @@
+                                                seam_compatible_centered_pos, SEAM_RESTRICT_MEAN, &
+                                                seam_restriction_code, seam_restriction_meta_pack
+ use :: adam_ini_library,          only : ini_report_defaults, ini_warn_unused
++use :: adam_phase_timer
++use, intrinsic :: ieee_arithmetic, only : ieee_set_underflow_mode, ieee_support_underflow_control
+ use :: adam_globals,              only : mpih
+ use :: mpi
+ use :: penf
+@@ -244,13 +246,17 @@
+    integer(I4P)                        :: ierr     !< MPI error code.
+ 
+    dt = huge(0._R8P)
++   call ph_tic(PH_DT_LOCAL)
+    do is = 1, int(size(realm), I4P)
+       ! For N>1 each realm needs its singleton shims pointing at its own
+       ! components before compute_local_dt_forest reads through them.
+       call realm(is)%ptr%compute_local_dt_forest(dt_local=dt_local)
+       dt = min(dt, dt_local)
+    enddo
++   call ph_toc(PH_DT_LOCAL)
++   call ph_tic(PH_DT_ALLREDUCE)
+    call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, ierr)
++   call ph_toc(PH_DT_ALLREDUCE)
+    endsubroutine compute_global_dt
+ 
+    subroutine evolve_one_step(self, realm)
+@@ -1080,15 +1086,28 @@
+    call self%start_timing(realm=realm)
+    done = .false.
+    if (self%timing) self%wtime(1) = MPI_Wtime()
++   if (ph_ftz .and. ieee_support_underflow_control(1._R8P)) call ieee_set_underflow_mode(gradual=.false.)
+    do
++      call ph_tic(PH_STEP)
+       if (self%timing) self%wtime(2) = self%wtime(2) - MPI_Wtime()
++      call ph_tic(PH_EVOLVE)
+       call self%evolve_one_step(realm=realm)
++      call ph_toc(PH_EVOLVE)
+       if (self%timing) self%wtime(2) = self%wtime(2) + MPI_Wtime()
++      call ph_tic(PH_REGRID_DONE)
+       call self%regrid(realm=realm)
++      call ph_toc(PH_REGRID_DONE)
++      call ph_tic(PH_POST_STEP)
+       call self%post_step(realm=realm)
++      call ph_toc(PH_POST_STEP)
++      call ph_tic(PH_REGRID_DONE)
+       call self%is_done(realm=realm, done=done)
++      call ph_toc(PH_REGRID_DONE)
++      call ph_toc(PH_STEP)
++      call ph_end_step()
+       if (done) exit
+    enddo
++   call ph_report()
+    if (self%timing) then
+       self%wtime(1) = MPI_Wtime() - self%wtime(1)
+       call self%report_timing(realm=realm)
+@@ -1111,15 +1130,28 @@
+    call self%start_timing(realm=realm)
+    done = .false.
+    if (self%timing) self%wtime(1) = MPI_Wtime()
++   if (ph_ftz .and. ieee_support_underflow_control(1._R8P)) call ieee_set_underflow_mode(gradual=.false.)
+    do
++      call ph_tic(PH_STEP)
+       if (self%timing) self%wtime(2) = self%wtime(2) - MPI_Wtime()
++      call ph_tic(PH_EVOLVE)
+       call self%evolve_one_step(realm=realm)
++      call ph_toc(PH_EVOLVE)
+       if (self%timing) self%wtime(2) = self%wtime(2) + MPI_Wtime()
++      call ph_tic(PH_REGRID_DONE)
+       call self%regrid(realm=realm)
++      call ph_toc(PH_REGRID_DONE)
++      call ph_tic(PH_POST_STEP)
+       call self%post_step(realm=realm)
++      call ph_toc(PH_POST_STEP)
++      call ph_tic(PH_REGRID_DONE)
+       call self%is_done(realm=realm, done=done)
++      call ph_toc(PH_REGRID_DONE)
++      call ph_toc(PH_STEP)
++      call ph_end_step()
+       if (done) exit
+    enddo
++   call ph_report()
+    if (self%timing) then
+       self%wtime(1) = MPI_Wtime() - self%wtime(1)
+       call self%report_timing(realm=realm)
+@@ -1138,6 +1170,7 @@
+    integer                             :: stat     !< Environment query status.
+    integer(I4P)                        :: is       !< Realm index.
+ 
++   call ph_init()
+    call get_environment_variable('ADAM_SEAM_TIMING', value=val, status=stat)
+    self%timing = (stat == 0 .and. trim(val) == '1')
+    do is = 1_I4P, int(size(realm), I4P)
+--- tree/src/lib/fnl/adam_fnl_field_object.F90	2026-11-24 09:49:20.000000000 +0100
++++ patched2/src/lib/fnl/adam_fnl_field_object.F90	2026-11-24 14:49:28.975356540 +0100
+@@ -13,6 +13,7 @@
+ use :: adam_fnl_field_kernels
+ use :: adam_fnl_maps_object
+ use :: adam_fnl_mpih_global, only : mpih_fnl
++use :: adam_phase_timer
+ ! third party modules
+ use :: fundal
+ use :: penf
+@@ -391,6 +392,7 @@
+    ! stale handle. The reset is cheap and keeps the async `step` split honest for future callers.
+    if (do_step(1)) req_send_recv = MPI_REQUEST_NULL
+ 
++   call ph_tic(PH_MPI_PACK)
+    if (do_step(1)) then
+       call populate_send_buffer_ghost_gpu_dev(ngc=ngc, seam_ghost_fill=self%maps%seam_ghost_fill,                  &
+                                               seam_restriction=self%maps%seam_restriction,                         &
+@@ -401,6 +403,8 @@
+                                               q_gpu=q_gpu, seam_density_var=density_var)
+    endif
+ 
++   call ph_toc(PH_MPI_PACK)
++   call ph_tic(PH_MPI_POST)
+    if (do_step(2)) then
+       ! receive
+       do p=0, procs_number - 1_I4P
+@@ -424,15 +428,24 @@
+       enddo
+    endif
+ 
++   call ph_toc(PH_MPI_POST)
+    if (do_step(3)) then
++      call ph_tic(PH_MPI_WAITALL)
+       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+-      call MPI_Barrier(MPI_COMM_WORLD, error)
++      call ph_toc(PH_MPI_WAITALL)
++      call ph_tic(PH_MPI_BARRIER1)
++      if (.not.ph_skip_barrier) call MPI_Barrier(MPI_COMM_WORLD, error)
++      call ph_toc(PH_MPI_BARRIER1)
++      call ph_tic(PH_MPI_UNPACK)
+       call receive_recv_buffer_ghost_gpu_dev(ngc=ngc,                                                             &
+                                              comm_map_recv_ghost_cell_gpu=self%maps%comm_map_recv_ghost_cell_gpu, &
+                                              recv_buffer_ghost_gpu=self%maps%recv_buffer_ghost_gpu,               &
+                                              q_gpu=q_gpu)
++      call ph_toc(PH_MPI_UNPACK)
+    endif
+-   call MPI_Barrier(MPI_COMM_WORLD, error)
++   call ph_tic(PH_MPI_BARRIER2)
++   if (.not.ph_skip_barrier) call MPI_Barrier(MPI_COMM_WORLD, error)
++   call ph_toc(PH_MPI_BARRIER2)
+    endassociate
+    endsubroutine update_ghost_mpi_gpu
+ endmodule adam_fnl_field_object

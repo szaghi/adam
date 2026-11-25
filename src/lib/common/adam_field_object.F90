@@ -1544,9 +1544,11 @@ contains
    endif
 
    if (do_step(3)) then
+      ! No barrier before or after (issue #156 L1): once MPI_WAITALL returns, this rank's receives are filled and its send
+      ! buffer is free; the next exchange reuses tag 100, and MPI's non-overtaking rule (same source, tag and
+      ! communicator) matches each message to the receive of its own exchange. The exchange is not collective: a rank
+      ! with no message posts nothing and waits on null requests.
       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
-      call MPI_Barrier(MPI_COMM_WORLD, error)
-      !RIMETTERE SENZA
       if (allocated(maps%comm_map_recv_ghost_cell)) then
          do rf=1, size(maps%comm_map_recv_ghost_cell, dim=1)
             c_send = maps%comm_map_recv_ghost_cell(rf,1)
@@ -1559,7 +1561,6 @@ contains
          enddo
       endif
    endif
-   call MPI_Barrier(MPI_COMM_WORLD, error)
    endassociate
    endsubroutine update_ghost_mpi
 

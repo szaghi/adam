@@ -68,6 +68,7 @@ type, extends(realm_object) :: prism_common_object
                                     !< initialize_forest); `amr_update` error_stops when locked. CPU never sets it.
    integer(I4P) :: blocks_fields_number = 0_I4P !< Block-sized fields per block of the blocks budget (issue #112).
    real(R8P)    :: reserved_memory = 0._R8P     !< Memory reserved outside the blocks by the budget, GB (issue #112).
+   integer(I4P) :: restarted_at = -1_I4P        !< Iteration the run restarted from (-1: not a restart), issue #129 R6.
    procedure(estimate_backend_memory_interface), pointer, nopass :: estimate_backend_memory=>null() !< Backend memory
                                     !< outside the block fields, estimated before the blocks budget (issue #112); set by
                                     !< the backend before initialize, none when null (CPU).
@@ -1224,6 +1225,12 @@ contains
    call self%adam%make_comm_local_maps_ghost_bc
    ! the restart replaces the blocks: rebuild the per-block face data on them (issue #95, P5.1)
    call self%initialize_block_face_data
+   ! the PML auxiliary state on the rebuilt faces (issue #129, R3)
+   call load_pml_restart_files(self=self)
+   ! the particle-cell map of the restored positions on the restored blocks (issue #129, R1/R2): the step builds it, the
+   ! restart did not, and the plasma frequencies of the first step read it (the FNL backend copies it to the device)
+   if (is_pic_model(self%physics%physical_model)) &
+      call self%pic%particle_cartesian_grid_index(field=self%adam%field, grid=self%adam%grid, q_pic=self%q_pic)
    endsubroutine load_restart_files
 
    subroutine load_pic_restart_files(self)
@@ -1235,6 +1242,8 @@ contains
    integer(I4P)                              :: particle_number       !< Stored particle count.
    integer(I4P)                              :: total_number          !< Stored particle count, all ranks.
    integer(I4P)                              :: history_slots         !< Stored leapfrog history depth (0: none).
+   integer(I4P)                              :: ios                   !< I/O status.
+   real(R8P)                                 :: maxima(3)             !< Particle plasma-frequency maxima (wce, wci, transit).
    logical                                   :: file_exist            !< File-existence flag.
 
    if (.not. is_pic_model(self%physics%physical_model)) return
@@ -1270,6 +1279,18 @@ contains
    if (history_slots > 0_I4P) &
       call mpih%error_stop(msg=': PIC restart "'//filename//'" holds a PIC leapfrog history: PIC leapfrog is not '// &
                                'available in ADAM (moved to SELAH, szaghi/SELAH#4)')
+
+   ! the particle terms of the plasma frequencies of the last step, global (issue #129, R2/R7): with the cell term of the
+   ! restored particle-cell map they limit the first step as in the uninterrupted run. A file written before them ends
+   ! here: the first step is then limited by omega_p only, without the cyclotron and transit frequencies
+   read(unit=file_unit, iostat=ios) maxima
+   if (ios /= 0) then
+      maxima = 0._R8P
+      call mpih%print_message('warning: PIC restart "'//filename//'" has no plasma-frequency maxima (written before '// &
+                              'issue #129): the first step after the restart is limited by omega_p only, without the '// &
+                              'cyclotron and transit frequencies of the particles')
+   endif
+   call self%plasma_freq%set_particle_maxima(wce=maxima(1), wci=maxima(2), transit=maxima(3))
 
    close(file_unit)
    endsubroutine load_pic_restart_files
@@ -1362,7 +1383,7 @@ contains
          call self%probes%build_stencils(grid=self%adam%grid, field=self%adam%field, ni=self%ni, nj=self%nj, &
                                          nk=self%nk, blocks_number=self%blocks_number)
          call self%sync_probes
-         call self%probes%open_files(q_name=self%q_name)
+         call self%probes%open_files(q_name=self%q_name, restarted_at=self%restarted_at)
       endif
    endif
    if (.not.self%time%is_to_save(cadence=self%probes%save_every)) return
@@ -1463,9 +1484,78 @@ contains
                                     trim(str(self%time%time,.true.)))
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
    call save_pic_restart_files(self=self)
+   call save_pml_restart_files(self=self)
    call self%save_xh5f(output_basename=self%io%restart_basename)
    call mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
+
+   subroutine save_pml_restart_files(self)
+   !< Save the PML auxiliary state (issue #129, R3): one file per rank, for each of the six faces the shape of its compact
+   !< array (zeros if the face has no layer on this rank) and its values. The host arrays must be current (the FNL backend
+   !< copies its device state back first).
+   class(prism_common_object), intent(in) :: self      !< The equation.
+   character(:), allocatable              :: filename  !< PML restart file name.
+   integer(I4P)                           :: file_unit !< Restart file unit.
+
+   if (.not.self%pml%enabled) return
+   filename = trim(adjustl(self%io%restart_basename))//'-proc'//trim(strz(mpih%myrank,6))//'.pml'
+   open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM', status='REPLACE')
+   call write_face(self%pml%q_pml_x_m) ; call write_face(self%pml%q_pml_x_p)
+   call write_face(self%pml%q_pml_y_m) ; call write_face(self%pml%q_pml_y_p)
+   call write_face(self%pml%q_pml_z_m) ; call write_face(self%pml%q_pml_z_p)
+   close(file_unit)
+   contains
+      subroutine write_face(q)
+      !< Shape and values of a face array.
+      real(R8P), allocatable, intent(in) :: q(:,:,:,:,:) !< Face array.
+
+      if (allocated(q)) then
+         write(unit=file_unit) shape(q, kind=I4P)
+         write(unit=file_unit) q
+      else
+         write(unit=file_unit) [0_I4P, 0_I4P, 0_I4P, 0_I4P, 0_I4P]
+      endif
+      endsubroutine write_face
+   endsubroutine save_pml_restart_files
+
+   subroutine load_pml_restart_files(self)
+   !< Load the PML auxiliary state into the face arrays just rebuilt on the restored blocks (issue #129, R3): the shapes
+   !< must be those of the file (same ranks, same blocks). A restart written before has no file: the layer then restarts
+   !< from zero, with a warning (the run departs from the uninterrupted one while a wave is in the layer).
+   class(prism_common_object), intent(inout) :: self       !< The equation.
+   character(:), allocatable                 :: filename   !< PML restart file name.
+   integer(I4P)                              :: file_unit  !< Restart file unit.
+   logical                                   :: file_exist !< File-existence flag.
+
+   if (.not.self%pml%enabled) return
+   filename = trim(adjustl(self%io%restart_basename))//'-proc'//trim(strz(mpih%myrank,6))//'.pml'
+   inquire(file=filename, exist=file_exist)
+   if (.not.file_exist) then
+      call mpih%print_message('warning: PML restart file "'//filename//'" does not exist (written before issue #129): '// &
+                              'the layer restarts from zero')
+      return
+   endif
+   open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM', status='OLD')
+   call read_face(self%pml%q_pml_x_m, 'x-') ; call read_face(self%pml%q_pml_x_p, 'x+')
+   call read_face(self%pml%q_pml_y_m, 'y-') ; call read_face(self%pml%q_pml_y_p, 'y+')
+   call read_face(self%pml%q_pml_z_m, 'z-') ; call read_face(self%pml%q_pml_z_p, 'z+')
+   close(file_unit)
+   contains
+      subroutine read_face(q, name)
+      !< Shape check and values of a face array.
+      real(R8P), allocatable, intent(inout) :: q(:,:,:,:,:) !< Face array.
+      character(*),           intent(in)    :: name         !< Face name (messages).
+      integer(I4P)                          :: s(5)         !< Shape in the file.
+      integer(I4P)                          :: sq(5)        !< Shape of the array.
+
+      read(unit=file_unit) s
+      sq = 0_I4P ; if (allocated(q)) sq = shape(q, kind=I4P)
+      if (any(s /= sq)) call mpih%error_stop(msg=': PML restart "'//filename//'": the '//name//' face holds '// &
+                                                 trim(str(s))//' values, the restored blocks '//trim(str(sq))// &
+                                                 ' (restart with the same ranks and blocks)')
+      if (allocated(q)) read(unit=file_unit) q
+      endsubroutine read_face
+   endsubroutine load_pml_restart_files
 
    subroutine save_pic_restart_files(self)
    !< Save PIC restart data stored outside the ADAM field restart.
@@ -1480,6 +1570,8 @@ contains
    open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM')
    write(unit=file_unit) size(self%q_pic, dim=1), self%pic%particle_number, history_slots
    write(unit=file_unit) self%q_pic
+   ! the particle terms of the plasma frequencies of the last step, global (issue #129, R2/R7)
+   write(unit=file_unit) self%plasma_freq%wce, self%plasma_freq%wci, self%plasma_freq%transit
    close(file_unit)
    endsubroutine save_pic_restart_files
 
@@ -1755,6 +1847,11 @@ contains
    !< The solves run by FLAIL's FFT solver (E3b); an exact/open face holds the free-space potential of the source in its
    !< ghosts, summed over the whole domain (E3c). A refined grid is refused: the wide operator across 2:1 faces is not
    !< defined yet (E7).
+   !<
+   !< The correction is written in the interior cells only: the caller refreshes the ghosts of the corrected field (exchange
+   !< and boundary conditions, `refresh_time_zero_ghosts` of each backend), as every stage does before reading them. The
+   !< former extension of the gradient/curl into the first ngc/2 ghost layers read the potential ngc/2 + hs layers deep,
+   !< which tied ngc to 2 hs (issue #112, the ghost cells of FD6) for values every stage overwrites.
    class(prism_common_object), intent(inout) :: self            !< The equation.
    integer(I4P),               intent(in)    :: ivar            !< Variable (start) index in q.
    real(R8P), allocatable                    :: phi(:,:,:,:,:)  !< Potential computed.
@@ -1793,11 +1890,11 @@ contains
             call check_charge_null_modes(f=f)
             call solve_time_zero(nv_solve=1_I4P, f=f, phi=phi, label='electric displacement field')
             if (blocks_number > 0) then
-               call self%compute_gradient_extended(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
+               call self%compute_gradient(hs=hs, ivar=1_I4P, q=phi, gradient=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
-                  do k=1-ngc/2, nk+ngc/2
-                     do j=1-ngc/2, nj+ngc/2
-                        do i=1-ngc/2, ni+ngc/2
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
                            do v=1, 3
                               self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) - buffer(4+v,i,j,k,b)*eps_scale
                            enddo
@@ -1825,11 +1922,11 @@ contains
             call remove_singular_mean(f=f, mu=mu_scale)
             call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field')
             if (blocks_number > 0) then
-               call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
-                  do k=1-ngc/2, nk+ngc/2
-                     do j=1-ngc/2, nj+ngc/2
-                        do i=1-ngc/2, ni+ngc/2
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
                            do v=1, 3
                               self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
                            enddo
@@ -1861,11 +1958,11 @@ contains
             call remove_singular_mean(f=f, mu=MU0)
             call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field')
             if (blocks_number > 0) then
-               call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
-                  do k=1-ngc/2, nk+ngc/2
-                     do j=1-ngc/2, nj+ngc/2
-                        do i=1-ngc/2, ni+ngc/2
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
                            do v=1, 3
                               self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
                            enddo
@@ -1895,11 +1992,11 @@ contains
             call remove_singular_mean(f=f, mu=1._R8P)
             call solve_time_zero(nv_solve=3_I4P, f=f, phi=phi, label='magnetic field')
             if (blocks_number > 0) then
-               call self%compute_curl_extended(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
+               call self%compute_curl(hs=hs, ivar=1_I4P, q=phi, curl=buffer(5:7,:,:,:,:))
                do b=1, blocks_number
-                  do k=1-ngc/2, nk+ngc/2
-                     do j=1-ngc/2, nj+ngc/2
-                        do i=1-ngc/2, ni+ngc/2
+                  do k=1, nk
+                     do j=1, nj
+                        do i=1, ni
                            do v=1, 3
                               self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(4+v,i,j,k,b)
                            enddo
@@ -1910,6 +2007,10 @@ contains
             endif
          endif
       endif
+      ! buffer(5:7) is the divergence-fields array used as scratch: clear it, or the gradient/curl of the t0 potential
+      ! stays in the div_05/06/09 output of every checkpoint (and a restart, which skips the t0 solves, writes zeros
+      ! there: issue #129 R5)
+      buffer(5:7,:,:,:,:) = 0._R8P
    endassociate
    contains
       subroutine refuse_refined_grid
@@ -2128,9 +2229,9 @@ contains
       shift = 0._R8P
       where (corrected) shift = mean_open - sums(5:7) / sums(1)
       do b=1, self%blocks_number
-         do k=1-self%ngc/2, self%nk+self%ngc/2
-            do j=1-self%ngc/2, self%nj+self%ngc/2
-               do i=1-self%ngc/2, self%ni+self%ngc/2
+         do k=1, self%nk
+            do j=1, self%nj
+               do i=1, self%ni
                   self%q(ivar:ivar+2,i,j,k,b) = self%q(ivar:ivar+2,i,j,k,b) + shift
                enddo
             enddo

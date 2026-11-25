@@ -39,12 +39,28 @@ GEOMETRY = ("origin", "dxdydz", "time_iteration")
 CONSERVATION_TOL = 1.0e-11
 
 
+def read_ini(ini_path: Path) -> configparser.ConfigParser:
+    """Read an INI file as the solver does: a top-level `extends = <file>` (keys before the first section, issue #80 P4)
+    makes the file inherit every option of <file> (relative to its directory) that it does not set itself."""
+    ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None, strict=False)
+    ini.read_string("[__top__]\n" + ini_path.read_text(), source=str(ini_path))
+    parent = ini.get("__top__", "extends", fallback="").strip()
+    if parent:
+        base = read_ini(ini_path.parent / parent)
+        for section in base.sections():
+            if not ini.has_section(section):
+                ini.add_section(section)
+            for key, value in base[section].items():
+                if not ini.has_option(section, key):
+                    ini[section][key] = value
+    return ini
+
+
 def basenames(work: Path) -> list[str]:
     """Return the output basenames of the INI files of a work directory (manifests have none)."""
     names = []
     for ini_path in sorted(work.glob("*.ini")):
-        ini = configparser.ConfigParser(inline_comment_prefixes=(";",), interpolation=None, strict=False)
-        ini.read(ini_path)
+        ini = read_ini(ini_path)
         if ini.has_option("IO", "output_basename"):
             names.append(ini["IO"]["output_basename"].strip())
     return names

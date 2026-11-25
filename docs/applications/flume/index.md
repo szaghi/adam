@@ -75,7 +75,10 @@ features:
 
 The [overview](./overview) lists what is implemented, with a [quick start](./overview#quick-start) and the
 [known limitations](./overview#known-limitations). The [first run](/start/first-run) builds FLUME and checks a Sod
-shock tube against its exact solution; the [tutorial](/tutorials/flume/sod) continues from there.
+shock tube against its exact solution; the [tutorial](/tutorials/flume/sod) continues from there. The
+[performance](./performance) page measures what a GPU node (4 A30) buys over a CPU node (64 cores) on uniform 3-D
+grids, 11 to 14 times, what sets the cost of a cell on an A30, and how FLUME scales inside a node and across nodes;
+the same grids on nodes of 4 H100 with GPUDirect RDMA run 2.5 to 3.1 times faster per GPU and lose less across nodes.
 
 ## See it run
 
@@ -105,7 +108,7 @@ shock tube against its exact solution; the [tutorial](/tutorials/flume/sod) cont
 
 [![Vorticity of the Taylor-Green vortex and of isotropic turbulence](/flume/tgv-fields.png)<strong>Taylor–Green and isotropic turbulence</strong><span>vorticity, hybrid-kep-weno at 128³</span>](./verification/turbulence/hybrid-scheme)
 
-[![Streamwise velocity in two wall-modelled channels](/flume/channel-fields.png)<strong>Wall-modelled channel</strong><span>Mach 1.5 and 3: Re_τ 219–222 and 443–445, DNS 220–222 and 451</span>](./verification/turbulence/channel)
+[![Streamwise velocity in two wall-modelled channels](/flume/channel-fields.png)<strong>Wall-modelled channel</strong><span>Mach 1.5 and 3: Re_τ 219–222 and 444–446, DNS 220–222 and 451</span>](./verification/turbulence/channel)
 
 [![Balsara-Spicer blast with the positivity limiter](/flume/blast.png)<strong>Balsara–Spicer blast</strong><span>β = 2.5·10⁻⁴ with the positivity limiter, both space schemes</span>](./verification/mhd/positivity-limiter)
 

@@ -1,0 +1,10 @@
+# 1 node (4 H100): the matrix case 2a; the wg-l4b38 cold start (the multi-node jobs' dumps) and its 1-node windows and phase runs
+sh mkdir -p $W && cd $SPEEDUP_DIR && cat matrix.conf grid-study-cases.conf > $W/grid-study-a.conf && mv -f $W/grid-study-a.conf $W/grid-study.conf
+warmup --np 4 --cases 2 --work $W/matrix
+windows --np 4 --cases 2a --work $W/matrix
+analyze $W/matrix
+warmup --np 4 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/grid-study
+windows --np 4 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/grid-study
+sh for t in n1-ib n1-noib; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; done
+ADAM_PHASE_TIMING=1 windows --np 4 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n1-ib --exe $HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 NOIB_EXE=$HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl windows --np 4 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n1-noib --exe $SPEEDUP_DIR/jobs/noib-exe.sh

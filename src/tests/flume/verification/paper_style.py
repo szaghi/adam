@@ -122,8 +122,11 @@ class Spec:
     stem that function saves (its `savefig` is intercepted), the page width ('full', 'text', 'half'), the height in
     inches, the panel titles (None: removed; 'keep': kept through `relabel`; a list: one per panel, '' to remove) and
     the colorbar labels (in colorbar order, None keeps one), legend keywords for every legend (e.g. {"loc": ...}),
-    whole-text replacements for this figure only (applied after LABELS, e.g. shorter legend entries) and a note for
-    the manifest."""
+    whole-text replacements for this figure only (applied after LABELS, e.g. shorter legend entries), a note for
+    the manifest, the fraction of the page width the figure is printed at (`scale`, e.g. 0.72 of the text width: the
+    figure is drawn at that size, so its 8 pt stay 8 pt) and the provenance traced by hand (`traced`: the runs, their
+    jobs, the commit that recorded the numbers, toolchain, device, dates and the caption facts), for runs whose
+    directories carry no run.info (issue #144)."""
 
     name: str
     draw: Callable
@@ -135,6 +138,21 @@ class Spec:
     legend: dict = field(default_factory=dict)
     labels: dict = field(default_factory=dict)
     note: str = ""
+    scale: float = 1.0
+    traced: dict = field(default_factory=dict)
+
+    @property
+    def inches(self) -> float:
+        """The printed width of the figure in inches."""
+        return PAGE_WIDTHS[self.width] * self.scale
+
+    @property
+    def latex(self) -> str:
+        """The includegraphics line of the figure."""
+        include = PAGE_INCLUDES[self.width]
+        if self.scale != 1.0:
+            include = include.replace(r"width=\textwidth", rf"width={self.scale:g}\textwidth")
+        return include % self.name
 
 
 def relabel(text: str) -> str:
@@ -292,7 +310,7 @@ def restyle(fig: Figure, spec: Spec) -> list[str]:
             handles = [artists.get(t, h) for t, h in zip(texts, leg.legend_handles, strict=True)]
             kw = {"loc": leg._loc, "ncols": leg._ncols} | spec.legend
             ax.legend(handles, texts, fontsize=PAPER_FONT_PT, **kw)
-    fig.set_size_inches(PAGE_WIDTHS[spec.width], spec.height)
+    fig.set_size_inches(spec.inches, spec.height)
     engine = fig.get_layout_engine()
     if engine is None:
         try:
@@ -308,9 +326,12 @@ def restyle(fig: Figure, spec: Spec) -> list[str]:
 
 @contextmanager
 def record_reads() -> Iterator[set[Path]]:
-    """Record the files opened for reading in the block (HDF5 through h5py, text through open/io.open)."""
+    """Record the files opened for reading in the block (HDF5 through h5py, text through open/io.open and
+    numpy.loadtxt, whose C reader bypasses open)."""
+    import numpy as np  # noqa: PLC0415
+
     seen: set[Path] = set()
-    real_open, real_io_open = builtins.open, io.open
+    real_open, real_io_open, real_loadtxt = builtins.open, io.open, np.loadtxt
     try:
         import h5py  # noqa: PLC0415
 
@@ -326,7 +347,12 @@ def record_reads() -> Iterator[set[Path]]:
         note(file, mode)
         return real_open(file, mode, *args, **kwargs)
 
+    def loadtxt_rec(fname, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
+        note(fname, "r")
+        return real_loadtxt(fname, *args, **kwargs)
+
     builtins.open = io.open = open_rec
+    np.loadtxt = loadtxt_rec
     if h5py is not None:
 
         class FileRec(real_h5):
@@ -339,6 +365,7 @@ def record_reads() -> Iterator[set[Path]]:
         yield seen
     finally:
         builtins.open, io.open = real_open, real_io_open
+        np.loadtxt = real_loadtxt
         if h5py is not None:
             h5py.File = real_h5
 
@@ -418,10 +445,13 @@ def render(spec: Spec, out: Path, runs: Path, usetex: bool = False) -> dict:
     """Draw one paper figure: the spec's function inside the paper style, its savefig intercepted, restyled and
     written as <name>.pdf and <name>.png in `out`. Return its manifest entry (raises what the function raises)."""
     entry: dict = {"name": spec.name, "function": spec.draw.__name__, "docs_name": spec.saves, "width": spec.width,
-                   "size_in": [round(PAGE_WIDTHS[spec.width], 3), spec.height],
-                   "latex": PAGE_INCLUDES[spec.width] % spec.name}
+                   "size_in": [round(spec.inches, 3), spec.height], "latex": spec.latex}
+    if spec.scale != 1.0:
+        entry["scale"] = spec.scale
     if spec.note:
         entry["note"] = spec.note
+    if spec.traced:
+        entry["traced"] = spec.traced
     written: list[str] = []
     savefig = Figure.savefig
 

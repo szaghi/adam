@@ -97,7 +97,9 @@ fi
 # --- Control run: marker disabled. Proves the box (not iu_ref_levels) makes the jump. ---
 CTRL="$CASE_DIR/work-cpu-ctrl"
 echo ">> [rmf-amr] running marker-disabled control case"
-run_in "$CTRL" 's/markers_number = 1/markers_number = 0/'
+# markers_number = 0 alone leaves [amr_marker_1] unread, which [IO] unused_keys = error (the default since #80 P5)
+# refuses: the control drops the section too (issue #145)
+run_in "$CTRL" 's/markers_number = 1/markers_number = 0/;/^\[amr_marker_1\]/,/^$/d'
 ctrl_levels="$(levels_present "$CTRL/run.log")"
 echo ">> [rmf-amr] refinement levels present (marker off):   $ctrl_levels"
 if [[ "$ctrl_levels" == *"2"* ]]; then

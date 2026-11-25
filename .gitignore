@@ -43,3 +43,4 @@ docs/api/
 !src/tests/flume/speedup/**/*.sh
 !src/tests/**/golden/**/*.dat
 ci-artifacts/
+!src/tests/prism/verification/**/*.sh

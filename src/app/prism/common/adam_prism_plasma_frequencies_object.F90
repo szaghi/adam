@@ -59,6 +59,8 @@ type :: prism_plasma_frequencies_object
       procedure, pass(self) :: description
       procedure, pass(self) :: compute_cpu
       procedure, pass(self) :: set_maxima
+      procedure, pass(self) :: set_particle_maxima
+      procedure, pass(self) :: set_cell_maxima
       procedure, pass(self) :: dt_limit
       procedure, pass(self) :: dt_source
       procedure, pass(self) :: check_step
@@ -96,8 +98,10 @@ contains
           ' w_O='//trim(str(self%wo))//'; max |v|/dx='//trim(str(self%transit))//' 1/s'
    endfunction description
 
-   subroutine compute_cpu(self, pic, field, q_pic, pic_fields, blocks_number, ni, nj, nk)
-   !< Local maxima on the CPU, then the global ones (set_maxima, collective).
+   subroutine compute_cpu(self, pic, field, q_pic, pic_fields, blocks_number, ni, nj, nk, particles, cells)
+   !< Local maxima on the CPU, then the global ones (collective). `particles` (Omega_c, transit) and `cells` (omega_p)
+   !< select the terms, both by default (issue #129, R7): the particle terms need q_pic, pic_fields and the particle-cell
+   !< map aligned, i.e. before the end-of-step wrap and migration; the cell term needs the map of the final positions.
    class(prism_plasma_frequencies_object), intent(inout) :: self              !< Plasma frequencies.
    type(prism_pic_object),                 intent(in)    :: pic               !< PIC (particles, neighbour list).
    type(field_object),                     intent(in)    :: field             !< Field (cell sizes).
@@ -105,10 +109,15 @@ contains
    real(R8P),                              intent(in)    :: pic_fields(1:,1:) !< Fields at the particles [6,np].
    integer(I4P),                           intent(in)    :: blocks_number     !< Blocks of this rank.
    integer(I4P),                           intent(in)    :: ni, nj, nk        !< Block cells.
+   logical,                                intent(in), optional :: particles  !< Particle terms (default true).
+   logical,                                intent(in), optional :: cells      !< Cell term (default true).
    real(R8P)                                             :: wpe2, wpi2, wce, wci, tr, qp, w, val
    integer(I4P)                                          :: n, b, i, j, k, s
+   logical                                               :: do_p, do_c
 
    if (.not.self%active) return
+   do_p = .true. ; if (present(particles)) do_p = particles
+   do_c = .true. ; if (present(cells))     do_c = cells
    wce = 0._R8P ; wci = 0._R8P ; tr = 0._R8P ; wpe2 = 0._R8P ; wpi2 = 0._R8P
    if (allocated(self%wp2)) then
       if (size(self%wp2, dim=5) < blocks_number) deallocate(self%wp2)
@@ -120,15 +129,19 @@ contains
       do n = 1, pic%particle_number
          qp = q_pic(7,n)
          if (qp == 0._R8P) cycle
-         w = abs(qp)*sqrt(pic_fields(4,n)**2 + pic_fields(5,n)**2 + pic_fields(6,n)**2)/q_pic(8,n)
-         if (qp < 0._R8P) then
-            wce = max(wce, w)
-         else
-            wci = max(wci, w)
+         if (do_p) then
+            w = abs(qp)*sqrt(pic_fields(4,n)**2 + pic_fields(5,n)**2 + pic_fields(6,n)**2)/q_pic(8,n)
+            if (qp < 0._R8P) then
+               wce = max(wce, w)
+            else
+               wci = max(wci, w)
+            endif
          endif
          b = pic%neighbour_list(1,n)
          if (b <= 0_I4P) cycle
-         tr = max(tr, abs(q_pic(4,n))/field%dxyz(1,b), abs(q_pic(5,n))/field%dxyz(2,b), abs(q_pic(6,n))/field%dxyz(3,b))
+         if (do_p) &
+            tr = max(tr, abs(q_pic(4,n))/field%dxyz(1,b), abs(q_pic(5,n))/field%dxyz(2,b), abs(q_pic(6,n))/field%dxyz(3,b))
+         if (.not.do_c) cycle
          i = pic%neighbour_list(2,n) ; j = pic%neighbour_list(3,n) ; k = pic%neighbour_list(4,n)
          ! a particle in the ghost halo (wrapped across a periodic face at the end of the step, one rank) is skipped
          if (i < 1 .or. i > ni .or. j < 1 .or. j > nj .or. k < 1 .or. k > nk) cycle
@@ -142,7 +155,8 @@ contains
          wpi2 = maxval(self%wp2(2,:,:,:,1:blocks_number))
       endif
    endif
-   call self%set_maxima(wpe2=wpe2, wpi2=wpi2, wce=wce, wci=wci, transit=tr)
+   if (do_p) call self%set_particle_maxima(wce=wce, wci=wci, transit=tr)
+   if (do_c) call self%set_cell_maxima(wpe2=wpe2, wpi2=wpi2)
    endsubroutine compute_cpu
 
    subroutine set_maxima(self, wpe2, wpi2, wce, wci, transit)
@@ -153,14 +167,40 @@ contains
    real(R8P),                              intent(in)    :: wce     !< Local max Omega_ce.
    real(R8P),                              intent(in)    :: wci     !< Local max Omega_ci.
    real(R8P),                              intent(in)    :: transit !< Local max |v|/dx.
-   real(R8P)                                             :: m(5)    !< Maxima.
+
+   call self%set_particle_maxima(wce=wce, wci=wci, transit=transit)
+   call self%set_cell_maxima(wpe2=wpe2, wpi2=wpi2)
+   endsubroutine set_maxima
+
+   subroutine set_particle_maxima(self, wce, wci, transit)
+   !< Reduce the local maxima of the particle terms over the ranks (collective) and keep them (issue #129, R7): the
+   !< composite frequencies are derived by set_cell_maxima, which follows.
+   class(prism_plasma_frequencies_object), intent(inout) :: self    !< Plasma frequencies.
+   real(R8P),                              intent(in)    :: wce     !< Local max Omega_ce.
+   real(R8P),                              intent(in)    :: wci     !< Local max Omega_ci.
+   real(R8P),                              intent(in)    :: transit !< Local max |v|/dx.
+   real(R8P)                                             :: m(3)    !< Maxima.
+
+   if (.not.self%active) return
+   m = [wce, wci, transit]
+   call MPI_ALLREDUCE(MPI_IN_PLACE, m, 3, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   self%wce = m(1) ; self%wci = m(2) ; self%transit = m(3)
+   endsubroutine set_particle_maxima
+
+   subroutine set_cell_maxima(self, wpe2, wpi2)
+   !< Reduce the local maxima of the cell term over the ranks (collective) and derive the composite frequencies with the
+   !< particle maxima kept by set_particle_maxima (section 3).
+   class(prism_plasma_frequencies_object), intent(inout) :: self    !< Plasma frequencies.
+   real(R8P),                              intent(in)    :: wpe2    !< Local max omega_pe^2.
+   real(R8P),                              intent(in)    :: wpi2    !< Local max omega_pi^2.
+   real(R8P)                                             :: m(2)    !< Maxima.
    real(R8P)                                             :: d       !< sqrt(Omega_ce^2 + 4 omega_pe^2).
    real(R8P)                                             :: inv     !< 1/omega_LH^2.
 
    if (.not.self%active) return
-   m = [wpe2, wpi2, wce, wci, transit]
-   call MPI_ALLREDUCE(MPI_IN_PLACE, m, 5, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
-   self%wpe = sqrt(m(1)) ; self%wpi = sqrt(m(2)) ; self%wce = m(3) ; self%wci = m(4) ; self%transit = m(5)
+   m = [wpe2, wpi2]
+   call MPI_ALLREDUCE(MPI_IN_PLACE, m, 2, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   self%wpe = sqrt(m(1)) ; self%wpi = sqrt(m(2))
    self%wuh = sqrt(self%wpe**2 + self%wce**2)
    inv = 0._R8P
    if (self%wce*self%wci > 0._R8P) inv = inv + 1._R8P/(self%wce*self%wci)
@@ -171,7 +211,7 @@ contains
    self%wl = 0.5_R8P*(d - self%wce)
    self%wo = self%wpe
    self%wmax = max(self%wr, self%wuh, self%wpe, self%wce, self%wpi, self%wci, self%wlh)
-   endsubroutine set_maxima
+   endsubroutine set_cell_maxima
 
    pure function dt_limit(self, dt_cfl) result(dt)
    !< The step: dt_CFL while omega_max dt_CFL < omega_dt_max, otherwise the accuracy limit (and the RK stability bound).

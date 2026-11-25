@@ -1,0 +1,111 @@
+# host gpu-007 2026-11-25T09:37:30+01:00; nvfortran 26.3-0 64-bit target on x86-64 Linux -tp znver4 ; -gpu=cc90,cuda12.9
+0, NVIDIA H100, 95830 MiB, 1980 MHz, 345 MHz, 0x0000000000000001, 68.06 W
+# blocks     12    12    12  1728 b  16 ngc   3 nv     5 cells      7.078 M, ghost values   0.0566 G
+# NVIDIA devices visible:  1 (device 0 used)
+# map rows     11321856 (V0 map    0.906 GB)
+         ref contiguous copy median      0.436 ms  min      0.434 ms     2077.4 GB/s  of ref   1.000  bitwise T
+             V0 ADAM map I8P median      2.775 ms  min      2.766 ms      326.4 GB/s  of ref   0.157  bitwise T
+                  V1 map I4P median      1.956 ms  min      1.945 ms      463.1 GB/s  of ref   0.223  bitwise T
+         V3 slabs, b fastest median      1.197 ms  min      1.183 ms      756.7 GB/s  of ref   0.364  bitwise T
+   V5 slabs 1 launch, b fast median      0.809 ms  min      0.808 ms     1119.6 GB/s  of ref   0.539  bitwise T
+         V2 offsets, v inner median      1.992 ms  min      1.978 ms      454.7 GB/s  of ref   0.219  bitwise T
+      V4 slabs, cell fastest median      2.472 ms  min      2.441 ms      366.4 GB/s  of ref   0.176  bitwise T
+   V6 slabs 1 launch, cell f median      1.051 ms  min      1.046 ms      861.8 GB/s  of ref   0.415  bitwise T
+
+# blocks      8     8     8   512 b  24 ngc   3 nv     5 cells      7.078 M, ghost values   0.0337 G
+# NVIDIA devices visible:  1 (device 0 used)
+# map rows      6746112 (V0 map    0.540 GB)
+         ref contiguous copy median      0.268 ms  min      0.266 ms     2013.8 GB/s  of ref   1.000  bitwise T
+             V0 ADAM map I8P median      1.691 ms  min      1.686 ms      319.2 GB/s  of ref   0.159  bitwise T
+                  V1 map I4P median      1.201 ms  min      1.196 ms      449.3 GB/s  of ref   0.223  bitwise T
+         V3 slabs, b fastest median      0.914 ms  min      0.890 ms      590.4 GB/s  of ref   0.293  bitwise T
+   V5 slabs 1 launch, b fast median      0.490 ms  min      0.489 ms     1101.4 GB/s  of ref   0.547  bitwise T
+         V2 offsets, v inner median      1.312 ms  min      1.291 ms      411.3 GB/s  of ref   0.204  bitwise T
+      V4 slabs, cell fastest median      1.634 ms  min      1.613 ms      330.3 GB/s  of ref   0.164  bitwise T
+   V6 slabs 1 launch, cell f median      0.707 ms  min      0.704 ms      763.4 GB/s  of ref   0.379  bitwise T
+
+# blocks      6     6     6   216 b  32 ngc   3 nv     5 cells      7.078 M, ghost values   0.0239 G
+# NVIDIA devices visible:  1 (device 0 used)
+# map rows      4774464 (V0 map    0.382 GB)
+         ref contiguous copy median      0.196 ms  min      0.194 ms     1948.8 GB/s  of ref   1.000  bitwise T
+             V0 ADAM map I8P median      1.313 ms  min      1.307 ms      290.9 GB/s  of ref   0.149  bitwise T
+                  V1 map I4P median      0.966 ms  min      0.962 ms      395.4 GB/s  of ref   0.203  bitwise T
+         V3 slabs, b fastest median      0.828 ms  min      0.799 ms      461.3 GB/s  of ref   0.237  bitwise T
+   V5 slabs 1 launch, b fast median      0.354 ms  min      0.353 ms     1079.0 GB/s  of ref   0.554  bitwise T
+         V2 offsets, v inner median      1.233 ms  min      1.197 ms      309.8 GB/s  of ref   0.159  bitwise T
+      V4 slabs, cell fastest median      1.263 ms  min      1.240 ms      302.4 GB/s  of ref   0.155  bitwise T
+   V6 slabs 1 launch, cell f median      0.449 ms  min      0.445 ms      850.3 GB/s  of ref   0.436  bitwise T
+
+# blocks      4     4     8   128 b  38 ngc   3 nv     5 cells      7.024 M, ghost values   0.0194 G
+# NVIDIA devices visible:  1 (device 0 used)
+# map rows      3879936 (V0 map    0.310 GB)
+         ref contiguous copy median      0.164 ms  min      0.162 ms     1892.7 GB/s  of ref   1.000  bitwise T
+             V0 ADAM map I8P median      1.096 ms  min      1.092 ms      283.2 GB/s  of ref   0.150  bitwise T
+                  V1 map I4P median      0.809 ms  min      0.806 ms      383.6 GB/s  of ref   0.203  bitwise T
+         V3 slabs, b fastest median      0.774 ms  min      0.749 ms      401.0 GB/s  of ref   0.212  bitwise T
+   V5 slabs 1 launch, b fast median      0.291 ms  min      0.290 ms     1066.3 GB/s  of ref   0.563  bitwise T
+         V2 offsets, v inner median      1.224 ms  min      1.134 ms      253.6 GB/s  of ref   0.134  bitwise T
+      V4 slabs, cell fastest median      1.061 ms  min      1.025 ms      292.5 GB/s  of ref   0.155  bitwise T
+   V6 slabs 1 launch, cell f median      0.316 ms  min      0.314 ms      982.6 GB/s  of ref   0.519  bitwise T
+
+# blocks      4     4     4    64 b  48 ngc   3 nv     5 cells      7.078 M, ghost values   0.0150 G
+# NVIDIA devices visible:  1 (device 0 used)
+# map rows      2999808 (V0 map    0.240 GB)
+         ref contiguous copy median      0.131 ms  min      0.130 ms     1830.5 GB/s  of ref   1.000  bitwise T
+             V0 ADAM map I8P median      0.898 ms  min      0.894 ms      267.2 GB/s  of ref   0.146  bitwise T
+                  V1 map I4P median      0.672 ms  min      0.668 ms      357.0 GB/s  of ref   0.195  bitwise T
+         V3 slabs, b fastest median      0.710 ms  min      0.690 ms      338.0 GB/s  of ref   0.185  bitwise T
+   V5 slabs 1 launch, b fast median      0.230 ms  min      0.229 ms     1043.0 GB/s  of ref   0.570  bitwise T
+         V2 offsets, v inner median      1.184 ms  min      1.137 ms      202.7 GB/s  of ref   0.111  bitwise T
+      V4 slabs, cell fastest median      0.963 ms  min      0.933 ms      249.2 GB/s  of ref   0.136  bitwise T
+   V6 slabs 1 launch, cell f median      0.255 ms  min      0.253 ms      941.5 GB/s  of ref   0.514  bitwise T
+
+# blocks     16    16    16  4096 b  24 ngc   3 nv     5 cells     56.623 M, ghost values   0.2698 G
+# NVIDIA devices visible:  1 (device 0 used)
+# map rows     53968896 (V0 map    4.318 GB)
+         ref contiguous copy median      2.001 ms  min      1.999 ms     2157.7 GB/s  of ref   1.000  bitwise T
+             V0 ADAM map I8P median     13.852 ms  min     13.836 ms      311.7 GB/s  of ref   0.144  bitwise T
+                  V1 map I4P median     10.039 ms  min     10.025 ms      430.1 GB/s  of ref   0.199  bitwise T
+         V3 slabs, b fastest median      3.594 ms  min      3.559 ms     1201.3 GB/s  of ref   0.557  bitwise T
+   V5 slabs 1 launch, b fast median      3.785 ms  min      3.783 ms     1140.7 GB/s  of ref   0.529  bitwise T
+         V2 offsets, v inner median     11.083 ms  min     11.011 ms      389.6 GB/s  of ref   0.181  bitwise T
+      V4 slabs, cell fastest median      9.460 ms  min      9.411 ms      456.4 GB/s  of ref   0.212  bitwise T
+   V6 slabs 1 launch, cell f median      5.611 ms  min      5.597 ms      769.5 GB/s  of ref   0.357  bitwise T
+
+# blocks      8     8    16  1024 b  38 ngc   3 nv     5 cells     56.189 M, ghost values   0.1552 G
+# NVIDIA devices visible:  1 (device 0 used)
+# map rows     31039488 (V0 map    2.483 GB)
+         ref contiguous copy median      1.156 ms  min      1.154 ms     2147.9 GB/s  of ref   1.000  bitwise T
+             V0 ADAM map I8P median      9.094 ms  min      9.073 ms      273.1 GB/s  of ref   0.127  bitwise T
+                  V1 map I4P median      6.773 ms  min      6.761 ms      366.6 GB/s  of ref   0.171  bitwise T
+         V3 slabs, b fastest median      2.280 ms  min      2.260 ms     1089.1 GB/s  of ref   0.507  bitwise T
+   V5 slabs 1 launch, b fast median      2.187 ms  min      2.185 ms     1135.4 GB/s  of ref   0.529  bitwise T
+         V2 offsets, v inner median     11.471 ms  min     11.227 ms      216.5 GB/s  of ref   0.101  bitwise T
+      V4 slabs, cell fastest median      5.065 ms  min      5.028 ms      490.3 GB/s  of ref   0.228  bitwise T
+   V6 slabs 1 launch, cell f median      2.379 ms  min      2.374 ms     1043.8 GB/s  of ref   0.486  bitwise T
+
+# blocks      8     8     8   512 b  48 ngc   3 nv     5 cells     56.623 M, ghost values   0.1200 G
+# NVIDIA devices visible:  1 (device 0 used)
+# map rows     23998464 (V0 map    1.920 GB)
+         ref contiguous copy median      0.900 ms  min      0.898 ms     2133.7 GB/s  of ref   1.000  bitwise T
+             V0 ADAM map I8P median      7.702 ms  min      7.678 ms      249.3 GB/s  of ref   0.117  bitwise T
+                  V1 map I4P median      5.816 ms  min      5.796 ms      330.1 GB/s  of ref   0.155  bitwise T
+         V3 slabs, b fastest median      1.890 ms  min      1.852 ms     1015.9 GB/s  of ref   0.476  bitwise T
+   V5 slabs 1 launch, b fast median      1.707 ms  min      1.706 ms     1124.6 GB/s  of ref   0.527  bitwise T
+         V2 offsets, v inner median     11.844 ms  min     11.618 ms      162.1 GB/s  of ref   0.076  bitwise T
+      V4 slabs, cell fastest median      4.238 ms  min      4.191 ms      453.0 GB/s  of ref   0.212  bitwise T
+   V6 slabs 1 launch, cell f median      1.920 ms  min      1.919 ms      999.9 GB/s  of ref   0.469  bitwise T
+
+# blocks      4     4     8   128 b  38 ngc   4 nv     5 cells      7.024 M, ghost values   0.0272 G
+# NVIDIA devices visible:  1 (device 0 used)
+# map rows      5435392 (V0 map    0.435 GB)
+         ref contiguous copy median      0.221 ms  min      0.219 ms     1967.6 GB/s  of ref   1.000  bitwise T
+             V0 ADAM map I8P median      1.640 ms  min      1.631 ms      265.1 GB/s  of ref   0.135  bitwise T
+                  V1 map I4P median      1.219 ms  min      1.207 ms      356.7 GB/s  of ref   0.181  bitwise T
+         V3 slabs, b fastest median      0.844 ms  min      0.823 ms      515.2 GB/s  of ref   0.262  bitwise T
+   V5 slabs 1 launch, b fast median      0.402 ms  min      0.401 ms     1081.7 GB/s  of ref   0.550  bitwise T
+         V2 offsets, v inner median      2.195 ms  min      2.139 ms      198.1 GB/s  of ref   0.101  bitwise T
+      V4 slabs, cell fastest median      1.167 ms  min      1.143 ms      372.6 GB/s  of ref   0.189  bitwise T
+   V6 slabs 1 launch, cell f median      0.424 ms  min      0.423 ms     1025.8 GB/s  of ref   0.521  bitwise T
+
+0, 1980 MHz, 0x0000000000000000

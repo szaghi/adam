@@ -1,0 +1,23 @@
+17:11:08 flume-cpu-gnu exit 0 after 179 s; link line has -mdaz-ftz: 1
+17:14:20 flume-cpu-gnu-fft exit 0 after 192 s; link line has -mdaz-ftz: 1
+17:16:08 flume-cpu-gnu-omp exit 0 after 108 s; link line has -mdaz-ftz: 1
+17:17:38 prism-cpu-gnu exit 0 after 90 s; link line has -mdaz-ftz: 1
+17:19:10 ripple-cpu-gnu exit 0 after 92 s; link line has -mdaz-ftz: 1
+FLAG exe/adam_flume_cpu: crtfastmath constructor 1
+FLAG exe/adam_flume_cpu_fft: crtfastmath constructor 1
+FLAG exe/adam_flume_cpu_omp: crtfastmath constructor 1
+FLAG exe/adam_prism_cpu: crtfastmath constructor 1
+FLAG exe/adam_ripple_cpu: crtfastmath constructor 1
+== OpenMP probe, linked with -mdaz-ftz
+thread 0 gradual underflow F
+thread 1 gradual underflow F
+thread 2 gradual underflow F
+thread 3 gradual underflow F
+== OpenMP probe, plain link
+thread 0 gradual underflow T
+thread 1 gradual underflow T
+thread 2 gradual underflow T
+thread 3 gradual underflow T
+SUITE_flume rc 0 after 273 s: FAIL: 0 SKIP: 0 
+SUITE_prism rc 1 after 59 s: SKIP: 9 Failed cases: rmf-hyperbolic 
+FAIL [rmf-hyperbolic/cpu] field digest mismatch

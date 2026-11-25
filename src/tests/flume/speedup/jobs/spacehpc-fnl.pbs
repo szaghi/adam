@@ -1,0 +1,79 @@
+#!/bin/bash
+# FLUME speedup matrix, FNL OpenACC backend (fnl-nvf) on ESA SpaceHPC (PBS Pro, gpu4_std: 4 H100 per node) (#133).
+#
+# PBS passes no arguments to a job script, so the job runs a plan: a file of run.sh invocations, one per line (the stage
+# and its options; --backend fnl-nvf and --launcher are set here), optionally prefixed by VAR=value assignments that go
+# to the ranks (ADAM_PHASE_TIMING, ADAM_GHOST_BARRIER, UCX_*). `analyze <work>` runs analyze.py on a work tree; `sh <command>`
+# runs a shell command on the first node (links between work trees, a measurement). '#' starts a comment. Lines are expanded by the shell ($HOME, $W...).
+#
+#   qsub -q gpu4_std -l select=2:ngpus=4:ncpus=96:mpiprocs=4:mem=400gb -l place=excl -l walltime=04:00:00 \
+#        -v PLAN=/lustre/.../plan-n2.txt,SPEEDUP_DIR=$HOME/adam/src/tests/flume/speedup jobs/spacehpc-fnl.pbs
+#
+# Health (the Xall campaign of 2026-11-13/15 met a power-braked node, gpu-015, 4.3x slower at 495 of 1980 MHz): before
+# the plan every GPU of every node must show no hardware slowdown, thermal or power-brake bit (clocks_event_reasons
+# & 0xCC) and its default power limit, else the job stops with exit 42 and names the GPU; during the plan every node
+# logs SM clock, power and those bits every second (logs/gpustat.<job>.<host>.log), summarised at the end.
+#PBS -N adam-fnl
+#PBS -j oe
+#PBS -o /lustre/projects/1026/CALCOLI/adam/speedup-133/logs/
+set -uo pipefail
+module purge
+module load nvhpc-hpcx-cuda12/26.3 python/3.11.14-cnapenc
+SPEEDUP_DIR=${SPEEDUP_DIR:-$HOME/adam/src/tests/flume/speedup}
+export W=${W:-/lustre/projects/1026/CALCOLI/adam/speedup-133} # the work root the plans name
+LOGS=$W/logs
+export SPEEDUP_DIR
+[[ -n ${PLAN:-} && -r $PLAN ]] || { echo "spacehpc-fnl.pbs: PLAN (a readable plan file) is required" >&2 ; exit 2 ; }
+mapfile -t NODES < <(sort -u "$PBS_NODEFILE")
+NN=${#NODES[@]}
+echo "job $PBS_JOBID $(date -Is) nodes ${NODES[*]} plan $PLAN"
+cat "$PLAN"
+onall() { mpirun -np "$NN" --map-by ppr:1:node -machinefile "$PBS_NODEFILE" "$@" ; }
+# shellcheck disable=SC2016 # expanded on each node
+reasons=$(onall sh -c 'h=$(hostname -s); nvidia-smi --query-gpu=index,clocks_event_reasons.active,enforced.power.limit,power.default_limit,memory.used --format=csv,noheader,nounits | sed "s/^/$h /"' 2> /dev/null)
+echo "--- GPUs before the plan (host index, reasons, enforced W, default W, MiB used)"; echo "$reasons"
+bad=""
+while IFS=' ,' read -r host idx hex enf def used; do
+   [[ $hex == 0x* ]] || continue
+   (( hex & 0xCC )) && bad+=" ${host}:gpu${idx}=${hex}"
+   (( ${enf%.*} * 100 < ${def%.*} * 95 )) && bad+=" ${host}:gpu${idx}=power-limit-${enf%.*}W"
+   (( ${used%.*} > 2000 )) && bad+=" ${host}:gpu${idx}=busy-${used}MiB"
+done <<< "$reasons"
+[[ -z $bad ]] || { echo "spacehpc-fnl.pbs: unhealthy GPUs:$bad" >&2 ; exit 42 ; }
+[[ -n $reasons ]] || { echo "spacehpc-fnl.pbs: the health check returned nothing" >&2 ; exit 42 ; }
+# shellcheck disable=SC2016
+onall sh -c 'exec nvidia-smi --query-gpu=timestamp,index,clocks.sm,power.draw,temperature.gpu,clocks_event_reasons.active,utilization.gpu --format=csv,noheader,nounits -lms 1000 > '"$LOGS"'/gpustat.'"${PBS_JOBID%%.*}"'.$(hostname -s).log 2>&1' > /dev/null 2>&1 &
+POLL=$!
+# every variable a plan line may set goes to the ranks (Open MPI forwards only what -x names)
+export ADAM_PHASE_TIMING=${ADAM_PHASE_TIMING:-0} ADAM_PHASE_SKIP=${ADAM_PHASE_SKIP:-10} ADAM_GHOST_BARRIER=${ADAM_GHOST_BARRIER:-1}
+# (UCX_* set by the site or by a plan line: forwarded when set; an -x of an unset variable is not asked for)
+R() { # stdin from /dev/null: mpirun forwards stdin to rank 0
+   local v launch="mpirun -machinefile $PBS_NODEFILE --map-by ppr:4:node --bind-to none -x ADAM_SEAM_TIMING"
+   for v in ADAM_PHASE_TIMING ADAM_PHASE_SKIP ADAM_GHOST_BARRIER $(compgen -e | grep -E '^(UCX_|NOIB_)') PATH LD_LIBRARY_PATH; do
+      launch+=" -x $v"
+   done
+   "$SPEEDUP_DIR/run.sh" "$1" --backend fnl-nvf --launcher "$launch -np" "${@:2}" < /dev/null
+}
+status=0
+while IFS= read -r line <&3; do
+   [[ -z ${line// } || $line == \#* ]] && continue
+   echo "=== $(date -Is) $line"
+   if [[ $line == analyze\ * ]]; then
+      eval "python3 -I \"$SPEEDUP_DIR/analyze.py\" --work ${line#analyze } --out ${line#analyze }/results" || status=1
+   elif [[ $line == sh\ * ]]; then
+      ( eval "${line#sh }" ) || { echo "plan line failed: $line" ; status=1 ; }
+   else
+      ( eval "set -- $line"
+        # shellcheck disable=SC2163 # "$1" is VAR=value: export assigns and exports it
+        while [[ ${1:-} =~ ^[A-Z_][A-Z0-9_]*= ]]; do export "$1" ; shift ; done
+        R "$@" ) || { echo "plan line failed: $line" ; status=1 ; }
+   fi
+done 3< "$PLAN"
+kill "$POLL" 2> /dev/null ; wait "$POLL" 2> /dev/null
+echo "--- GPU health during the plan (busy = utilization > 0)"
+for f in "$LOGS"/gpustat."${PBS_JOBID%%.*}".*.log; do
+   awk -F', ' -v f="${f##*/}" '$7+0 > 0 {n[$2]++; c[$2] += $3; if (!($2 in m) || $3 < m[$2]) m[$2] = $3; if (and(strtonum($6), 0xCC)) r[$2] = $6}
+      END {for (g in n) printf "%s gpu%s: busy %d s, SM mean %.0f min %s MHz%s\n", f, g, n[g], c[g]/n[g], m[g], (g in r) ? ", BRAKE " r[g] : ""}' "$f"
+done
+echo "PLAN-DONE $(date -Is) status $status"
+exit $status

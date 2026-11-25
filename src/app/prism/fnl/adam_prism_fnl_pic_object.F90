@@ -615,6 +615,11 @@ contains
    nj = grid%nj
    nk = grid%nk
    m = max(0_I4P, ngc - self%stencil_radius - 1_I4P) ! CPU twin: prism_pic_object%halo_margin_cells
+   ! CPU twin of the halo check of prism_pic_object%particle_cartesian_grid_index
+   if ((mpih_fnl%procs_number > 1_I4P .or. any(self%is_periodic)) .and. m < 1_I4P) &
+      call mpih_fnl%error_stop(msg=': PIC needs ngc >= stencil radius + 2 = '//trim(str(self%stencil_radius+2_I4P,.true.))// &
+                                   ' (ngc '//trim(str(ngc,.true.))//'): one ghost cell of halo for the particles that leave '// &
+                                   'the blocks of their rank within a time step (more ranks or periodic faces)')
    if (owned_only_) m = -1_I4P
    dmin_x = grid%domain_emin(1) ; dmin_y = grid%domain_emin(2) ; dmin_z = grid%domain_emin(3)
    dmax_x = grid%domain_emax(1) ; dmax_y = grid%domain_emax(2) ; dmax_z = grid%domain_emax(3)
