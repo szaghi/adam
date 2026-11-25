@@ -1,0 +1,130 @@
+job 183628.pbs 2026-11-24T23:50:06+01:00 nodes gpu-007.head.cm.local gpu-012.head.cm.local plan /lustre/projects/1026/CALCOLI/adam/speedup-133/plans/n2.txt
+# 2 nodes (8 H100): strong scaling of 2a and wg-l4b38, phase runs with and without the body, GPU to GPU between nodes
+sh bash $SPEEDUP_DIR/results/2026-11-25-spacehpc/netbw.sh > $W/logs/netbw-n2-${PBS_JOBID%%.*}.txt 2>&1
+windows --np 8 --cases 2a --work $W/matrix
+windows --np 8 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/grid-study
+sh for t in n2-ib n2-noib; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; done
+ADAM_PHASE_TIMING=1 windows --np 8 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n2-ib --exe $HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 NOIB_EXE=$HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl windows --np 8 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n2-noib --exe $SPEEDUP_DIR/jobs/noib-exe.sh
+analyze $W/matrix
+analyze $W/grid-study
+--- GPUs before the plan (host index, reasons, enforced W, default W, MiB used)
+gpu-012 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-012 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-012 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-012 3, 0x0000000000000001, 699.00, 700.00, 1
+gpu-007 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-007 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-007 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-007 3, 0x0000000000000001, 699.00, 700.00, 1
+=== 2026-11-24T23:50:08+01:00 sh bash $SPEEDUP_DIR/results/2026-11-25-spacehpc/netbw.sh > $W/logs/netbw-n2-${PBS_JOBID%%.*}.txt 2>&1
+=== 2026-11-24T23:51:05+01:00 windows --np 8 --cases 2a --work $W/matrix
+>> windows, fnl-nvf, 8 ranks: 2a-sphere-uniform -> windows/fnl-nvf-np8
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/matrix/dumps/leg2/warmup/sphere-restart: step 663, time 0.15, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/matrix/windows/fnl-nvf-np8/2a-sphere-uniform/dump/sphere-restart: 8 ranks, rule siblings, blocks per rank [512, 512, 512, 512, 512, 512, 512, 512]
+   windows/fnl-nvf-np8/2a-sphere-uniform/r1-n10: wall 22.134 s, exit 0
+      forest timing (max over ranks, s): loop     1.3750, steps     1.3708, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/2a-sphere-uniform/r1-n110: wall 35.500 s, exit 0
+      forest timing (max over ranks, s): loop    15.0806, steps    15.0448, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/2a-sphere-uniform/r2-n10: wall 21.632 s, exit 0
+      forest timing (max over ranks, s): loop     1.3738, steps     1.3701, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/2a-sphere-uniform/r2-n110: wall 35.169 s, exit 0
+      forest timing (max over ranks, s): loop    15.0161, steps    14.9806, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/2a-sphere-uniform/r3-n10: wall 21.742 s, exit 0
+      forest timing (max over ranks, s): loop     1.3745, steps     1.3710, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/2a-sphere-uniform/r3-n110: wall 35.390 s, exit 0
+      forest timing (max over ranks, s): loop    15.1106, steps    15.0746, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 8 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/matrix)
+=== 2026-11-24T23:54:13+01:00 windows --np 8 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/grid-study
+>> windows, fnl-nvf, 8 ranks: wg-l4b38 -> windows/fnl-nvf-np8
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/dumps/wg-l4b38/warmup/sphere-restart: step 20, time 0.003184072230619407, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np8/wg-l4b38/dump/sphere-restart: 8 ranks, rule siblings, blocks per rank [512, 512, 512, 512, 512, 512, 512, 512]
+   windows/fnl-nvf-np8/wg-l4b38/r1-n10: wall 28.739 s, exit 0
+      forest timing (max over ranks, s): loop     4.5149, steps     4.5067, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r1-n110: wall 73.442 s, exit 0
+      forest timing (max over ranks, s): loop    49.5774, steps    49.4965, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r2-n10: wall 28.330 s, exit 0
+      forest timing (max over ranks, s): loop     4.5134, steps     4.5054, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r2-n110: wall 73.814 s, exit 0
+      forest timing (max over ranks, s): loop    49.6266, steps    49.5434, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r3-n10: wall 28.489 s, exit 0
+      forest timing (max over ranks, s): loop     4.5158, steps     4.5080, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r3-n110: wall 73.195 s, exit 0
+      forest timing (max over ranks, s): loop    49.5937, steps    49.5124, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 8 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study)
+=== 2026-11-24T23:59:50+01:00 sh for t in n2-ib n2-noib; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; done
+=== 2026-11-24T23:59:50+01:00 ADAM_PHASE_TIMING=1 windows --np 8 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n2-ib --exe $HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+>> windows, fnl-nvf, 8 ranks: wg-l4b38 -> windows/fnl-nvf-np8
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n2-ib/dumps/wg-l4b38/warmup/sphere-restart: step 20, time 0.003184072230619407, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n2-ib/windows/fnl-nvf-np8/wg-l4b38/dump/sphere-restart: 8 ranks, rule siblings, blocks per rank [512, 512, 512, 512, 512, 512, 512, 512]
+   windows/fnl-nvf-np8/wg-l4b38/r1-n10: wall 28.773 s, exit 0
+      forest timing (max over ranks, s): loop     4.5244, steps     4.5144, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r1-n110: wall 73.631 s, exit 0
+      forest timing (max over ranks, s): loop    49.7503, steps    49.6699, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r2-n10: wall 28.276 s, exit 0
+      forest timing (max over ranks, s): loop     4.5252, steps     4.5177, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r2-n110: wall 73.465 s, exit 0
+      forest timing (max over ranks, s): loop    49.6000, steps    49.5154, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r3-n10: wall 28.713 s, exit 0
+      forest timing (max over ranks, s): loop     4.5167, steps     4.5082, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r3-n110: wall 73.365 s, exit 0
+      forest timing (max over ranks, s): loop    49.7011, steps    49.6211, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 8 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n2-ib)
+=== 2026-11-25T00:05:23+01:00 ADAM_PHASE_TIMING=1 NOIB_EXE=$HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl windows --np 8 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n2-noib --exe $SPEEDUP_DIR/jobs/noib-exe.sh
+>> windows, fnl-nvf, 8 ranks: wg-l4b38 -> windows/fnl-nvf-np8
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n2-noib/dumps/wg-l4b38/warmup/sphere-restart: step 20, time 0.003184072230619407, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n2-noib/windows/fnl-nvf-np8/wg-l4b38/dump/sphere-restart: 8 ranks, rule siblings, blocks per rank [512, 512, 512, 512, 512, 512, 512, 512]
+   windows/fnl-nvf-np8/wg-l4b38/r1-n10: wall 26.143 s, exit 0
+      forest timing (max over ranks, s): loop     3.6235, steps     3.6126, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r1-n110: wall 61.876 s, exit 0
+      forest timing (max over ranks, s): loop    39.3915, steps    39.3068, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r2-n10: wall 25.935 s, exit 0
+      forest timing (max over ranks, s): loop     3.5877, steps     3.5799, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r2-n110: wall 61.742 s, exit 0
+      forest timing (max over ranks, s): loop    39.4091, steps    39.3273, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r3-n10: wall 25.869 s, exit 0
+      forest timing (max over ranks, s): loop     3.5902, steps     3.5824, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np8/wg-l4b38/r3-n110: wall 61.721 s, exit 0
+      forest timing (max over ranks, s): loop    39.3748, steps    39.2932, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 8 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/n2-noib)
+=== 2026-11-25T00:10:13+01:00 analyze $W/matrix
+analyze: 2 windows, 0 AMR ratio rows, 0 backend speedups -> /lustre/projects/1026/CALCOLI/adam/speedup-133/matrix/results/summary.md, /lustre/projects/1026/CALCOLI/adam/speedup-133/matrix/results/summary.csv
+   warning: fnl-nvf np 4 2a-sphere-uniform: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 8 2a-sphere-uniform: built from sources that differ from the recorded commit (src_modified=yes)
+=== 2026-11-25T00:10:13+01:00 analyze $W/grid-study
+analyze: 24 windows, 0 AMR ratio rows, 0 backend speedups -> /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/results/summary.md, /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/results/summary.csv
+   warning: fnl-nvf np 1 wg-b16: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b16: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b16: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b20: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b24: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b24: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b24: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b28: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b32: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b36: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b38: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b38: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b38: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b48: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b48: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b48: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b56: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-b64: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 2 wg-b64: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-b64: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-l2b48: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 1 wg-l4b12: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 4 wg-l4b38: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: fnl-nvf np 8 wg-l4b38: built from sources that differ from the recorded commit (src_modified=yes)
+   warning: /lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study/windows/fnl-nvf-np4/wg-b64/r2-n10: no forest timing line (ADAM_SEAM_TIMING=1 unset, or the run died)
+--- GPU health during the plan (busy = utilization > 0)
+gpustat.183628.gpu-007.log gpu0: busy 561 s, SM mean 1980 min 1980 MHz
+gpustat.183628.gpu-007.log gpu1: busy 566 s, SM mean 1980 min 1980 MHz
+gpustat.183628.gpu-007.log gpu2: busy 559 s, SM mean 1980 min 1980 MHz
+gpustat.183628.gpu-007.log gpu3: busy 562 s, SM mean 1980 min 1980 MHz
+gpustat.183628.gpu-012.log gpu0: busy 567 s, SM mean 1980 min 1980 MHz
+gpustat.183628.gpu-012.log gpu1: busy 560 s, SM mean 1980 min 1980 MHz
+gpustat.183628.gpu-012.log gpu2: busy 560 s, SM mean 1980 min 1980 MHz
+gpustat.183628.gpu-012.log gpu3: busy 562 s, SM mean 1980 min 1980 MHz
+PLAN-DONE 2026-11-25T00:10:14+01:00 status 0

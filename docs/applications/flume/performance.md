@@ -9,7 +9,7 @@ accuracy and not yet optimised for performance: their timings are kept as baseli
 The measurements are the speedup matrix of [#133](https://github.com/szaghi/adam/issues/133) and its grid study; the
 harness, the protocol and every table are in
 [`src/tests/flume/speedup/README.md`](https://github.com/szaghi/adam/blob/develop/src/tests/flume/speedup/README.md),
-the raw tables in its `results/2026-11-23/` and `results/2026-11-24/`. The kernel-level profile of one GPU (where a
+the raw tables in its `results/2026-11-23/`, `results/2026-11-24/` and (the H100 nodes) `results/2026-11-25-spacehpc/`. The kernel-level profile of one GPU (where a
 step's time goes inside the A30) is the companion study
 [`profile-couette3d`](https://github.com/szaghi/adam/blob/develop/src/tests/flume/speedup/profile-couette3d/README.md).
 
@@ -179,6 +179,30 @@ with the CPU build flushing subnormals it is 11.4.
 | 4 | two global barriers per ghost exchange | 0.4–1.2 % on the GPU | remove (results bitwise identical) |
 | 5 | the link between the NVLink pairs (17.7 GB/s) | part of the 13–30 % of the third and fourth A30 | place neighbouring subdomains on the same NVLink pair |
 
+## Another machine: H100 nodes with GPUDirect RDMA
+
+The same uniform sphere on ESA SpaceHPC (2026-11-25): 4 NVIDIA H100 per node, **every GPU pair joined by NVLink**
+(124.8 GB/s GPU to GPU, all pairs alike), **one 400 Gb/s InfiniBand card per GPU**, and **GPUDirect RDMA working**: GPU
+to GPU between nodes at 52.4 GB/s, 34 times medooza's 1.53 (9.8 GB/s with GPUDirect RDMA switched off). The toolchain
+is nvfortran 26.3 with CUDA 12.9; every job checked first that no GPU was throttled.
+
+- **A cell costs 2.5–3.0 times less than on an A30** at equal blocks (15–25 ns per cell-step against 44–63), 3.1
+  times on the 4-GPU node with the 56.6 M-cell sphere (0.254 s per step against 0.780). An H100 holds at least 147 M
+  cells of this case (an A30 28.1 M).
+- **The block size weighs more**: 24³ blocks cost 30 % more per cell than 64³ (on the A30, 24³ against 38³, 16 %). The
+  per-cell compute fell 5.5 times, the cost of the stored ghost cells only 2.2 times.
+- **Inside a node there is no penalty for the third and fourth GPU**: above ~14 M cells per H100, four GPUs keep
+  0.97–0.98 of one GPU's throughput. Below ~2 M cells per H100 a quarter or more is lost: a load that keeps an A30 busy
+  is a light one for an H100.
+- **Across nodes the sphere keeps 0.93 and 0.81 of its throughput per GPU on 2 and 4 nodes** (A30: 0.79 and 0.75),
+  and the 225 M-cell grid 0.96 and 0.90. An MPI exchange between nodes waits ~1.4 ms (medooza: ~12 ms on smaller
+  halos).
+- **The immersed body's cost is ghost work on the device, not the network**: on one node it adds 152 ms to a 710 ms
+  step, of which the local ghost fill 85, boundary conditions 36, the MPI exchange 14 (mostly packing), its own kernels
+  10. Cutting its 12 exchanges per step has to cut the local fills and the boundary conditions too.
+
+The tables, the jobs and the method are in the speedup README's "ESA SpaceHPC" section; the 8-node points are queued.
+
 ## Device memory
 
 FNL allocates every block-sized device array at the block capacity that its budget computes from the device memory
@@ -198,8 +222,9 @@ The budget, not the device, sets the sphere's ceiling of 28.1 M cells per A30.
 
 ## The accuracy-first paths: runtime AMR and 2-D
 
-Runtime AMR and the 2-D quadtrees are implemented for accuracy; their performance is not optimised yet, and the
-numbers below are baselines for that work, not scaling results.
+Runtime AMR and the 2-D quadtrees are implemented for accuracy; their performance is not optimised yet, and the numbers
+below are baselines for that work, not scaling results. Their CPU timings were measured before the GNU builds flushed
+subnormal numbers (2026-11-23), so on the developed flows they include that slowdown.
 
 ![Step cost of the AMR grids over the uniform grid's, split inside and outside the time steps](/flume/perf-amr-decomposition.png)
 
@@ -229,7 +254,7 @@ cost goes:
 - **The 2-D step's cell costs 1.60 cells of the same step extruded in 3-D** at the same order and load (202 against
   126 ns per cell-step): the boundary-condition kernel refills the `ngc` ghost layers along the null axis at every
   stage (59 % of the 2-D kernel time). The same ghosts cap the step at about 1.7 M cells per A30. A GPU node runs the
-  step 5.8 times faster than a CPU node (uniform 5.83, frozen 5.75, runtime 5.72), against 14–16 on the 3-D uniform
+  step 5.8 times faster than a CPU node (uniform 5.83, frozen 5.75, runtime 5.72), against 11–14 on the 3-D uniform
   grids.
 
 Timings of these paths on more nodes (baselines; step cost in s on 4 / 8 / 16 / 32 A30 and 64 / 128 / 256 cores):

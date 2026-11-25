@@ -5,7 +5,8 @@ calibration, the residual biases and the verdicts on H1-H4 below; docs page
 [Performance](../../../../docs/applications/flume/performance.md)** ([issue
 #133](https://github.com/szaghi/adam/issues/133), the plan's only source of truth). Phases 0-3 are the harness;
 phases 5-7 the legs; phase 9 (owner, 2026-11-23) lifts the plan's "no scaling beyond one node": strong scaling on up to
-8 nodes, weak scaling at fixed cells per GPU, grind time. Not done: the AMD node (fnl-amd, Giacomo Rossi).
+8 nodes, weak scaling at fixed cells per GPU, grind time. Not done: the AMD node (fnl-amd, Giacomo Rossi). The uniform sphere also on ESA SpaceHPC (4 H100 per node,
+GPUDirect RDMA; 2026-11-25), "ESA SpaceHPC" below.
 
 The matrix answers two questions: how much faster a GPU node is than a CPU node on each flow, and how much runtime AMR
 buys at equal finest resolution, with where its overhead goes (the AMR grid itself against the regrids).
@@ -379,6 +380,113 @@ strong efficiency from 1 to 8 CPU nodes becomes 0.91 (0.69 before), the CPU weak
 one node, 1.234 s, against 2a on 8 nodes, both at 110,592 cells per core; 0.53 before), and the GPU node / CPU node
 factor on 2a 11.4 (16.3 before). The 128- and 256-rank points of the 2026-11-23 tables were not rerun: every CPU number
 measured before this date on a developed state (2a, the AMR legs) carries gradual underflow.
+
+### ESA SpaceHPC: 4 H100 per node, GPUDirect RDMA (2026-11-25)
+
+Owner, 2026-11-24: before the ghost-exchange optimisation ([#156](https://github.com/szaghi/adam/issues/156)), the same
+analysis on SpaceHPC, a machine with other GPUs and another communication layout, for the next optimisation rounds.
+The uniform sphere only, `fnl-nvf`, the protocol above (windows of 3 x (10, 110) steps, cold starts of 20 steps for
+the `wg-*` cases, 2a from its warm-up to t_w); the kit and the toolchain in "How to run". Every plan job passed the
+GPU health guard and ran every GPU at 1980 MHz with no throttle bit (`results/2026-11-25-spacehpc/logs/`); spreads are
+at most 0.9 %, most below 0.2 %. Jobs: reconnaissance 183592, builds 183595/183606, plans 183607 (1 node: 2a,
+`wg-l4b38`), 183608 (1 node: the grid study), 183628 (2 nodes), 183629 (4 nodes); the 8-node job 183633 waits in the queue (the plan in `plans/n8.txt`: the 8-node strong
+points, the weak pairs and the phase runs with the barriers off and with all 4 HCAs).
+
+**The node** (job 183592, `gpu-011`; `recon.pbs`): 4 NVIDIA H100 (95.8 GiB, 700 W, driver 570.124.06), 2 AMD EPYC
+9454 (4 NUMA domains); **every GPU pair is joined by 6 NVLinks** (NV6, all-to-all; 124.8 GB/s GPU to GPU for every
+pair with `ucx_perftest`, 33 MB `tag_bw`), and **each GPU has its own 400 Gb/s NDR HCA** on its PCIe switch (PIX).
+`gdrdrv` is loaded, `nvidia_peermem` is not; UCX 1.20 (HPC-X 2.25.1) sees `rc_mlx5`/`dc_mlx5` on the four HCAs. The
+site sets `UCX_NET_DEVICES=mlx5_0:1,mlx5_2:1` (2 of the 4 HCAs). The GPU index does not follow the NUMA order (GPU0 on
+NUMA 1, GPU1 on 0, GPU2 on 3, GPU3 on 2).
+
+| Path (`ucx_perftest`, 33 MB) | SpaceHPC | medooza |
+|---|---|---|
+| GPU to GPU in a node | 124.8 GB/s, every pair | 88.5 (NVLink pair), 17.7 (across the pairs) |
+| **GPU to GPU between nodes** | **52.4** (the site's 2 HCAs; 46.9-47.1 on one HCA) | **1.53** |
+| GPU to GPU between nodes, `UCX_IB_GPU_DIRECT_RDMA=no` | 9.8 | (1.51: there is no GPUDirect RDMA to switch off) |
+| host to host between nodes | 85.4 | 23.5 |
+
+(jobs 183628 and 183629, `netbw.sh`, reproduced within 0.1 %.) GPUDirect RDMA works here, through dma-buf (the Xall
+campaign's lesson: `nvidia_peermem` is not needed with UCX >= 1.19 and a CUDA 12 runtime): 34 times medooza's GPU to
+GPU rate between nodes.
+
+**What a cell costs on one H100** (L3 = 512 blocks of b^3 cells; g in ns per cell-step; A30 from "Grid size" above):
+
+| b | 16 | 20 | 24 | 28 | 32 | 36 | 38 | 48 | 56 | 64 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| cells | 2.10 M | 4.10 M | 7.08 M | 11.2 M | 16.8 M | 23.9 M | 28.1 M | 56.6 M | 89.9 M | 134 M |
+| g, 1 H100 | 25.0 | 20.6 | 18.5 | 16.9 | 15.3 | 15.8 | 15.6 | 14.9 | 14.5 | 14.2 |
+| g, 1 A30 | 63.1 | 54.4 | 51.0 | 47.7 | 46.2 | 44.4 | 43.9 | - | - | - |
+| A30 / H100 | 2.52 | 2.64 | 2.76 | 2.82 | 3.02 | 2.81 | 2.81 | | | |
+
+The same 192^3 grid cut three ways: 4096 blocks of 12^3 **24.6**, 512 of 24^3 **18.5**, 64 of 48^3 **16.4** (A30:
+66.0, 51.0, 44.0). Over the L3 series g = 2.8 + 8.2 ((b+6)/b)^3 ns fits every point within 1.3 ns (A30: 15.7 + 18.0):
+the cost per interior cell fell 5.5 times from the A30, the cost per stored cell (the ghost-weighted term) 2.2 times,
+so **on the H100 the block size weighs more**: 24^3 blocks cost 30 % more per cell than 64^3 (A30, 24^3 against 38^3:
+16 %). An H100 is 2.5-3.0 times an A30 per cell at equal blocks, 3.1 on 2a's 4-GPU node (18.0 against 55.1 ns, 0.2541
+against 0.780 s per step).
+
+**The memory ceiling of an H100 is above 147 M cells** of this case: `wg-b66` (512 blocks of 66^3, 147 M cells) runs
+on one H100, the blocks budget giving 527 blocks per process (0.85 x 99.96 GB, 54 fields; 512 needed, 97 %); the A30's
+ceiling is 28.1 M (5.2 times fewer cells for 3.96 times less memory: the block granularity).
+
+**GPUs inside a node** (the same grids on 1, 2 and 4 H100):
+
+| b (cells) | 16 (2.10 M) | 24 (7.08 M) | 38 (28.1 M) | 48 (56.6 M) | 64 (134 M) |
+|---|---|---|---|---|---|
+| g, 1 / 2 / 4 H100 | 25.0 / 31.0 / 41.8 | 18.5 / 20.4 / 23.9 | 15.6 / 16.0 / 16.9 | 14.9 / 15.0 / 15.4 | 14.2 / 14.4 / 14.5 |
+| g(2) / g(1), g(4) / g(2) | 1.24, 1.35 | 1.10, 1.17 | 1.03, 1.06 | 1.01, 1.03 | 1.01, 1.01 |
+| A30: g(2) / g(1), g(4) / g(2) | 1.09, 1.30 | 1.04, 1.22 | 1.02, 1.13 | - | - |
+
+There is no step at the third and fourth GPU as on medooza (the cross-pair link): with every pair on NVLink the
+two ratios are of the same size. What remains is the load: above ~14 M cells per H100 four GPUs keep 0.97-0.98 of one
+GPU's throughput, below ~2 M they lose a quarter or more (an H100 at 0.5 M cells, `wg-b16` on 4, costs 41.8 ns: too
+little work per kernel launch, as the profile of the small cases showed on the A30). A load that keeps an A30 busy
+(7 M cells) is a light load for an H100.
+
+**Strong scaling across nodes** (step cost in s; efficiency g(1 node) / g; one node = 4 GPUs):
+
+| Case | Cells | 1 node | 2 nodes | 4 nodes | 8 nodes |
+|---|---|---|---|---|---|
+| 2a (24^3, body), H100 | 56.6 M | 0.2541 | 0.1371 (0.927) | 0.0780 (0.814) | queued |
+| 2a, A30 (medooza) | 56.6 M | 0.780 | 0.491 (0.79) | 0.260 (0.75) | 0.167 (0.58) |
+| `wg-l4b38` (38^3, body), H100 | 225 M | 0.8613 | 0.4508 (0.955) | 0.2387 (0.902) | queued |
+| cells per H100, 2a / `wg-l4b38` | | 14.2 M / 56.2 M | 7.08 M / 28.1 M | 3.54 M / 14.0 M | 1.77 M / 7.02 M |
+
+On 2a the H100 loses less from 1 to 2 and to 4 nodes than the A30 (0.927 and 0.814 against 0.79 and 0.75) although
+it holds the same cells and finishes a step 3.1-3.6 times sooner, so the exchange weighs relatively more per step:
+the network makes up for it. At 4 nodes 2a has 3.54 M cells per H100 in 24^3 blocks, where one H100 alone already
+(2a's own grid on 2 H100 of one node, `wg-b24`) costs 20.4 ns per cell-step against 18.0 at 14.2 M: of the 4.0 ns
+that 2a loses from 1 to 4 nodes (22.0 against 18.0), ~2.4 come from the load and the exchange inside a node, ~1.6 from
+leaving it.
+
+**Where a step's time goes on the H100** (the phase timer of "Where a step's time goes", applied to the same tree,
+`~/adam-phase`, built separately; its `ADAM_FTZ` switch removed for nvfortran 26.3, which does not resolve
+`ieee_set_underflow_mode(gradual=)`, irrelevant on the GPU; ms per step, means over the ranks, `wg-l4b38` strong and
+`wg-b38` on one node, with the body and without it; reports in `results/2026-11-25-spacehpc/phase/reports/`):
+
+| Phase | `wg-b38` 1 node, 7.02 M/GPU | `wg-l4b38` 1 node, 56.2 M | 2 nodes, 28.1 M | 4 nodes, 14.0 M |
+|---|---|---|---|---|
+| step, body | 119.0 | 861.3 | 452.2 | 238.5 |
+| face fluxes | 72.5 | 603.2 | 298.3 | 145.0 |
+| ghost local | 13.4 | 113.5 | 56.3 | 27.3 |
+| BC + blend | 16.8 | 48.4 | 28.6 | 17.5 |
+| **ghost MPI** | 4.6 | 19.5 | 29.1 | 27.8 |
+| ... `MPI_WAITALL` | 1.2 | 4.0 | 16.8 | 15.9 |
+| ... pack + unpack | 3.2 | 14.9 | 11.3 | 9.0 |
+| IB kernels | 2.0 | 9.6 | 4.9 | 2.5 |
+| step, no body | 90.0 | 709.7 | 358.1 | 180.4 |
+| ghost MPI, no body (`MPI_WAITALL`) | 1.5 (0.6) | 5.4 (1.5) | 7.2 (3.9) | 7.0 (3.7) |
+
+- **Between nodes, an exchange costs ~1.4 ms in `MPI_WAITALL` on the H100 nodes** (16.8 and 15.9 ms per step over 12
+  exchanges at 2 and 4 nodes, halos of 28 and 14 M cells per GPU), against ~12 ms on medooza at 8 nodes with the
+  smaller halos of 7 M cells per A30: GPUDirect RDMA removes the host staging that dominated there.
+- **The immersed body's cost is ghost work on the device, not network**: on one node it adds 152 ms per step to
+  `wg-l4b38` (861 against 710), of which local ghost fill +85, BC and blend +36, MPI +14 (mostly pack and unpack, the
+  waitall +2.5), its kernels 10. Its 12 exchanges per step multiply the local fills and the boundary conditions as
+  much as the MPI exchanges: lever 2 of #156 (restricted eikonal exchanges) must restrict all three.
+- **The two barriers** of every exchange cost 0.1-2.8 ms per step with the body (0.1-1.2 % of the step), growing
+  with the node count; the 8-node plan times them off.
 
 ### The accuracy-first paths: runtime AMR and 2-D (baselines)
 

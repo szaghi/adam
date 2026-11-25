@@ -1,0 +1,2 @@
+job 183601.pbs 2026-11-24T21:30:29+01:00 cpu-001 AMD EPYC 9654 96-Core Processor tree /lustre/home/u10260003/adam-phase
+build.sh: flume-fnl-nvf failed (status 1), see /lustre/home/u10260003/adam-phase/src/tests/flume/speedup/builds/fnl-nvf/build.txt

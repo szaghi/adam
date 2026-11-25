@@ -1,0 +1,28 @@
+job 183593.pbs 2026-11-24T21:22:55+01:00 cpu-001
+/lustre/software/NVHPC/Linux_x86_64/26.3/comm_libs/12.9/hpcx/hpcx-2.25.1/ompi/bin/mpicc
+/lustre/software/NVHPC/Linux_x86_64/26.3/comm_libs/12.9/hpcx/hpcx-2.25.1/ompi/bin/mpif90
+/lustre/software/SPACK-x86_64_v4/opt/spack/linux-rhel8-x86_64_v4/gcc-8.5.0/cmake-3.30.5-nkwoi4eqswkpz6vjlgorp7ptatsnwom6/bin/cmake
+/bin/gcc
+
+nvfortran 26.3-0 64-bit target on x86-64 Linux -tp znver4 
+                   HDF5 Version: 2.3.0
+                     C Compiler: /lustre/software/NVHPC/Linux_x86_64/26.3/comm_libs/12.9/hpcx/hpcx-2.25.1/ompi/bin/mpicc 26.3.0
+                        Fortran: ON
+               Fortran Compiler: /lustre/software/NVHPC/Linux_x86_64/26.3/comm_libs/12.9/hpcx/hpcx-2.25.1/ompi/bin/mpif90 
+                  Fortran Flags:  
+               H5 Fortran Flags: 
+               AM Fortran Flags: 
+         Shared Fortran Library: NO
+         Static Fortran Library: YES
+                   C++ Compiler: 
+/lustre/home/u10260003/adam/lib/hdf5/develop/spacehpc/nvf/26.3/lib:
+cmake
+libhdf5.a
+libhdf5_f90cstub.a
+libhdf5_fortran.a
+libhdf5_hl.a
+libhdf5_hl_f90cstub.a
+libhdf5_hl_fortran.a
+libhdf5.settings
+libhdf5_tools.a
+pkgconfig
