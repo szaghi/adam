@@ -1,0 +1,4 @@
+build/
+work-*/
+*.build.log
+!run.sh

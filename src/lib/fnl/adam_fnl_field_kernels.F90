@@ -31,6 +31,8 @@ public :: populate_send_buffer_ghost_gpu_dev
 public :: receive_recv_buffer_ghost_gpu_dev
 public :: seam_ghosts_to_state_dev
 public :: update_ghost_local_gpu_dev
+public :: interp_seam_ghost_gpu_dev        ! also called by the AMR ghost-fill benchmark (src/tests/perf/ghost-fill/amr)
+public :: restrict_seam_high_order_gpu_dev ! idem
 public :: reduce_ghost_local_gpu_dev
 public :: pack_reduce_ghost_mpi_gpu_dev
 public :: fold_reduce_ghost_mpi_gpu_dev

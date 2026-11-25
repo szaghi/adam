@@ -1,0 +1,13 @@
+#!/bin/bash
+# The AMR ghost-fill benchmark on one H100 of ESA SpaceHPC: build (spacehpc_nvf) and run.
+#   qsub -q gpu4_std -l select=1:ngpus=1:ncpus=16:mem=64gb -l walltime=03:00:00 -v DIR=<...>/ghost-fill/amr jobs/spacehpc.pbs
+#PBS -N amr-ghost
+#PBS -j oe
+set -uo pipefail
+module purge
+module load nvhpc-hpcx-cuda12/26.3 python/3.11.14-cnapenc
+export PATH=$HOME/.venv-fobis-3.19/bin:$PATH
+NVHPC_ROOT=$(dirname "$(dirname "$(dirname "$(command -v nvfortran)")")")
+export LIBRARY_PATH=$NVHPC_ROOT/cuda/12.9/lib64/stubs${LIBRARY_PATH:+:$LIBRARY_PATH}
+cd "${DIR:?DIR}" || exit 1
+./run.sh spacehpc_nvf "results/h100-${PBS_JOBID%%.*}.txt"
