@@ -148,6 +148,11 @@ type :: prism_fnl_pic_conserving_object
    real(R8P)    :: residual_max = 0._R8P !< Max current-solver residual of the current step.
    logical      :: coherent = .false.    !< Coherent matched gather (field_weighting_model totorica or esirkepov_Q<N>).
    integer(I4P) :: gradius = 0_I4P       !< Coherent gather: taps of its P kernel.
+   logical      :: factorized = .false.  !< P, Q and the gather P^T applied as the passes of matched_factors (#112 M3 F2).
+   integer(I4P) :: fnf(3) = 0_I4P        !< Passes of P (1), Q (2) and the gather P^T (3).
+   integer(I4P) :: ffirst(3,3) = 0_I4P   !< First offset of pass f of kernel k, (f,k).
+   integer(I4P) :: fntaps(3,3) = 0_I4P   !< Taps of pass f of kernel k, (f,k).
+   real(R8P)    :: fw(0:6,3,3) = 0._R8P  !< Taps of pass f of kernel k, (t,f,k); on the device fw_gpu(t+7(f-1)+21(k-1)+1).
    real(R8P)    :: gshift(3) = 0._R8P    !< Coherent gather: dx/2 for the odd esirkepov_Q<N> (dual nodes), 0 otherwise.
    integer(I4P) :: vbox_lo(3) = 1_I4P    !< Particle box of the boxed reduce_virtual, lower virtual cells (issue #111).
    integer(I4P) :: vbox_hi(3) = 0_I4P    !< Particle box of the boxed reduce_virtual, upper virtual cells.
@@ -173,6 +178,7 @@ type :: prism_fnl_pic_conserving_object
    real(R8P),    pointer :: line_gpu(:)               => null() !< Line-major scratch for line solves/scans.
    real(R8P),    pointer :: gather_gpu(:,:,:,:,:)     => null() !< Real-block field copy, external-field gather [bnb,...,nv].
    real(R8P),    pointer :: gp_gpu(:)                 => null() !< Coherent gather P kernel [-7:7].
+   real(R8P),    pointer :: fw_gpu(:)                 => null() !< Factorized passes of P, Q, P^T [63] (fw, #112 M3 F2).
    real(R8P),    pointer :: gq_gpu(:,:,:,:,:)         => null() !< Coherent gather: E, B filtered by P^T [bnb,...,6].
    real(R8P),    pointer :: q_dual_gpu(:,:)           => null() !< Coherent gather: stage particles at x-dx/2 [np,8].
    real(R8P),    pointer :: jp_gpu(:,:,:,:,:)         => null() !< Single-particle virtual current, cleanup [1,ghosts...,3].
@@ -218,6 +224,7 @@ type :: prism_fnl_pic_conserving_object
       procedure, pass(self), private :: deposit_matched_charge_box !< Matched rho per particle, folded (periodic).
       procedure, pass(self), private :: check_source_support    !< Particle source inside its trajectory support box.
       procedure, pass(self), private :: transposed_filter_axis  !< P^T convolution of the coherent gather along one axis.
+      procedure, pass(self), private :: factorized_passes       !< P, Q or P^T along axes as the passes of matched_factors.
 endtype prism_fnl_pic_conserving_object
 
 contains
@@ -375,6 +382,7 @@ contains
    call free_r1(self%p_gpu)
    call free_r1(self%qw_gpu)
    call free_r1(self%gp_gpu)
+   call free_r1(self%fw_gpu)
    call free_r2(self%q_dual_gpu)
    call free_r5(self%gq_gpu)
    call free_r1(self%fv1_gpu)
@@ -529,6 +537,15 @@ contains
       ! uploaded 1-based: p_gpu(s+8) = p(s), qw_gpu(t+1) = qw(t)
       call dev_assign_to_device(src=[self%p],  dst=self%p_gpu)
       call dev_assign_to_device(src=[self%qw], dst=self%qw_gpu)
+      ! issue #112, M3 F2: P and Q as passes of <= 7 taps (box path only: the line solves keep their kernels)
+      self%factorized = pic%factorized_filters
+      if (self%factorized) then
+         call matched_factors(solver=pic%current_conserving_solver, q=self%esirkepov_q, hs=hs, kernel='P', &
+                              nf=self%fnf(1), first=self%ffirst(:,1), ntaps=self%fntaps(:,1), w=self%fw(:,:,1))
+         call matched_factors(solver=pic%current_conserving_solver, q=self%esirkepov_q, hs=hs, kernel='Q', &
+                              nf=self%fnf(2), first=self%ffirst(:,2), ntaps=self%fntaps(:,2), w=self%fw(:,:,2))
+         call dev_assign_to_device(src=reshape(self%fw, [63]), dst=self%fw_gpu)
+      endif
    endif
    ! Stencil coefficients uploaded once: the kernels do not read the module tables FV1_CC/FD1_CC, whose device copy
    ! (`!$acc declare copyin` of a parameter) is not reliably initialized when no other kernel references it.
@@ -682,6 +699,7 @@ contains
    class(prism_fnl_pic_conserving_object), intent(inout) :: self !< Conserving current object.
    type(prism_pic_object),                 intent(in)    :: pic  !< Host PIC object.
    integer(I4P)                                          :: ierr !< Error status.
+   integer(I4P)                                          :: n, t !< Pass and tap counters.
 
    if (.not.self%layout%coherent) return
    self%coherent = .true.
@@ -690,6 +708,19 @@ contains
    if (self%layout%dual) self%gshift = 0.5_R8P*self%vdx
    ! uploaded 1-based: gp_gpu(s+8) = gather_p(s)
    call dev_assign_to_device(src=[pic%gather_p], dst=self%gp_gpu)
+   ! issue #112, M3 F2: P^T as the transposes of the passes of P (pic%gather_pass, kernels on the offsets -3..3), each a
+   ! forward pass with the taps reversed: output_m = sum_o p(o) input_{m-o} = sum_t p(3-t) input_{m-3+t}
+   if (pic%factorized_filters) then
+      self%factorized = .true.
+      self%fnf(3) = pic%gather_nf
+      do n=1, pic%gather_nf
+         self%ffirst(n,3) = -3_I4P ; self%fntaps(n,3) = 7_I4P
+         do t=0, 6
+            self%fw(t,n,3) = pic%gather_pass(3-t,n)
+         enddo
+      enddo
+      call dev_assign_to_device(src=reshape(self%fw, [63]), dst=self%fw_gpu)
+   endif
    call dev_alloc(fptr_dev=self%gq_gpu, ubounds=[self%bnb,self%bni+self%ngc,self%bnj+self%ngc,self%bnk+self%ngc,6], &
                   lbounds=[1,1-self%ngc,1-self%ngc,1-self%ngc,1], init_value=0._R8P, ierr=ierr)
    if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gq_gpu in prism_fnl_pic_conserving_object')
@@ -807,13 +838,17 @@ contains
       enddo
    endif
    call check_particle_error(ierr)
-   ! P along every axis, on the grid
-   call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P, w=self%p_gpu, &
-                        woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
-   call box_filter_axis(self=self, input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P, w=self%p_gpu, &
-                        woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
-   call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P, w=self%p_gpu, &
-                        woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+   ! P along every axis, on the grid (factorized: the same passes as the current, result in work_b as below)
+   if (self%factorized) then
+      call self%factorized_passes(kernel=[1_I4P,1_I4P,1_I4P], axis=[1_I4P,2_I4P,3_I4P], src=1_I4P, last=2_I4P)
+   else
+      call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P, w=self%p_gpu, &
+                           woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+      call box_filter_axis(self=self, input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P, w=self%p_gpu, &
+                           woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+      call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P, w=self%p_gpu, &
+                           woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+   endif
    ! outside the particle box every rank holds zero
    call self%set_particle_box(qa=pic_fnl%q_pic_gpu, np=np)
    call self%reduce_virtual(a=self%work_b_gpu, boxed=.true.)
@@ -894,9 +929,13 @@ contains
       enddo
       enddo
       call self%reduce_virtual(a=self%work_a_gpu, boxed=.true.)
-      call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P)
-      call self%transposed_filter_axis(input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P)
-      call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P)
+      if (self%factorized) then
+         call self%factorized_passes(kernel=[3_I4P,3_I4P,3_I4P], axis=[1_I4P,2_I4P,3_I4P], src=1_I4P, last=2_I4P)
+      else
+         call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=1_I4P)
+         call self%transposed_filter_axis(input=self%work_b_gpu, output=self%work_a_gpu, axis=2_I4P)
+         call self%transposed_filter_axis(input=self%work_a_gpu, output=self%work_b_gpu, axis=3_I4P)
+      endif
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(gq,wb,off) firstprivate(v,nx,ny,nz,px,py,pz) &
       !$acc& private(gi,gj,gk)
       !$omp OMPLOOP collapse(4) DEVICEPTR(gq,wb,off) firstprivate(v,nx,ny,nz,px,py,pz) private(gi,gj,gk)
@@ -1310,12 +1349,16 @@ contains
    do d=1, 3
       a = 1_I4P + merge(1_I4P, 0_I4P, d == 1_I4P)
       b = 3_I4P - merge(1_I4P, 0_I4P, d == 3_I4P)
-      call box_filter_axis(self=self, input=h(:,:,:,:,d), output=self%work_a_gpu, axis=d, w=self%qw_gpu, &
-                           woff=1_I4P, first=qfirst, ntaps=nq)
-      call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=a, w=self%p_gpu, &
-                           woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
-      call box_filter_axis(self=self, input=self%work_b_gpu, output=h(:,:,:,:,d), axis=b, w=self%p_gpu, &
-                           woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+      if (self%factorized) then
+         call self%factorized_passes(kernel=[2_I4P,1_I4P,1_I4P], axis=[d,a,b], src=0_I4P, last=0_I4P, h=h(:,:,:,:,d))
+      else
+         call box_filter_axis(self=self, input=h(:,:,:,:,d), output=self%work_a_gpu, axis=d, w=self%qw_gpu, &
+                              woff=1_I4P, first=qfirst, ntaps=nq)
+         call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=a, w=self%p_gpu, &
+                              woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+         call box_filter_axis(self=self, input=self%work_b_gpu, output=h(:,:,:,:,d), axis=b, w=self%p_gpu, &
+                              woff=8_I4P-radius, first=-radius, ntaps=2_I4P*radius+1_I4P)
+      endif
    enddo
    endsubroutine deposit_matched_current_box
 
@@ -2551,6 +2594,91 @@ contains
    enddo
    enddo
    endsubroutine box_filter_axis
+
+   subroutine factorized_passes(self, kernel, axis, src, last, h)
+   !< kernel(i) (1 = P, 2 = Q, 3 = the gather P^T) along axis(i), i = 1..size(kernel), as the passes of matched_factors
+   !< (issue #112, M3 F2), each a box_filter_axis. Buffers: 0 = h (one component of the box current), 1 = work_a_gpu,
+   !< 2 = work_b_gpu. The data start in src and end in last; the passes in between alternate the two work buffers. Equal to
+   !< the single convolutions up to roundoff: between two passes the zero extension cuts only near a non-periodic face,
+   !< which no particle support reaches (ERR_FILTER).
+   class(prism_fnl_pic_conserving_object), intent(inout)           :: self              !< Conserving current object.
+   integer(I4P),                           intent(in)              :: kernel(:)         !< Kernels.
+   integer(I4P),                           intent(in)              :: axis(:)           !< Their axes.
+   integer(I4P),                           intent(in)              :: src               !< Buffer of the input.
+   integer(I4P),                           intent(in)              :: last              !< Buffer of the output.
+   real(R8P),                              intent(inout), optional :: h(1:,1:,1:,1:)    !< Box current component.
+   integer(I4P)                                                    :: i, f, m, n, cur, dst, woff
+
+   n = 0_I4P
+   do i=1, size(kernel)
+      n = n + self%fnf(kernel(i))
+   enddo
+   m = 0_I4P ; cur = src
+   do i=1, size(kernel)
+      do f=1, self%fnf(kernel(i))
+         m = m + 1_I4P
+         if (m == n .and. cur /= last) then
+            dst = last
+         elseif (cur == 1_I4P) then
+            dst = 2_I4P
+         else
+            dst = 1_I4P
+         endif
+         woff = 7_I4P*(f-1_I4P) + 21_I4P*(kernel(i)-1_I4P) + 1_I4P
+         select case(10_I4P*cur + dst)
+         case(1)
+            call box_filter_axis(self=self, input=h, output=self%work_a_gpu, axis=axis(i), w=self%fw_gpu, woff=woff, &
+                                 first=self%ffirst(f,kernel(i)), ntaps=self%fntaps(f,kernel(i)))
+         case(2)
+            call box_filter_axis(self=self, input=h, output=self%work_b_gpu, axis=axis(i), w=self%fw_gpu, woff=woff, &
+                                 first=self%ffirst(f,kernel(i)), ntaps=self%fntaps(f,kernel(i)))
+         case(10)
+            call box_filter_axis(self=self, input=self%work_a_gpu, output=h, axis=axis(i), w=self%fw_gpu, woff=woff, &
+                                 first=self%ffirst(f,kernel(i)), ntaps=self%fntaps(f,kernel(i)))
+         case(12)
+            call box_filter_axis(self=self, input=self%work_a_gpu, output=self%work_b_gpu, axis=axis(i), w=self%fw_gpu, &
+                                 woff=woff, first=self%ffirst(f,kernel(i)), ntaps=self%fntaps(f,kernel(i)))
+         case(20)
+            call box_filter_axis(self=self, input=self%work_b_gpu, output=h, axis=axis(i), w=self%fw_gpu, woff=woff, &
+                                 first=self%ffirst(f,kernel(i)), ntaps=self%fntaps(f,kernel(i)))
+         case(21)
+            call box_filter_axis(self=self, input=self%work_b_gpu, output=self%work_a_gpu, axis=axis(i), w=self%fw_gpu, &
+                                 woff=woff, first=self%ffirst(f,kernel(i)), ntaps=self%fntaps(f,kernel(i)))
+         case default
+            call mpih%error_stop(msg=': factorized_passes: invalid buffers')
+         endselect
+         cur = dst
+      enddo
+   enddo
+   if (cur /= last) then
+      ! the last pass landed in the other work buffer (the input was already in last): copy
+      select case(10_I4P*cur + last)
+      case(12) ; call copy_work(input=self%work_a_gpu, output=self%work_b_gpu)
+      case(21) ; call copy_work(input=self%work_b_gpu, output=self%work_a_gpu)
+      case default ; call mpih%error_stop(msg=': factorized_passes: invalid output buffer')
+      endselect
+   endif
+   contains
+      subroutine copy_work(input, output)
+      !< output = input on the virtual block.
+      real(R8P), intent(in)    :: input(1:,1:,1:,1:)  !< Input [nb,ni,nj,nk].
+      real(R8P), intent(inout) :: output(1:,1:,1:,1:) !< Output [nb,ni,nj,nk].
+      integer(I4P)             :: b, i, j, k, ni, nj, nk, nbl
+
+      ni = self%ni ; nj = self%nj ; nk = self%nk ; nbl = self%blocks_number
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(input,output)
+      !$omp OMPLOOP collapse(4) DEVICEPTR(input,output)
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+      do b=1, nbl
+         output(b,i,j,k) = input(b,i,j,k)
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine copy_work
+   endsubroutine factorized_passes
 
    subroutine transposed_filter_axis(self, input, output, axis)
    !< Transpose of filter_axis with the coherent gather kernel: output_m = sum_s p(s) input_{m-s}, zero extension (circular

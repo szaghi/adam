@@ -51,6 +51,7 @@ public :: LONDRILLO_CURRENT_CONSERVING_SOLVER
 public :: TOTORICA_CURRENT_CONSERVING_SOLVER
 public :: totorica_kernels
 public :: matched_kernels
+public :: matched_factors
 public :: CONSERVING_CURRENT_WEIGHTING_MODEL
 public :: effective_gaussian_weight
 public :: bspline_weight
@@ -162,11 +163,15 @@ type :: prism_pic_object
    character(len=99)         :: current_weighting_model     !< Current weighting model.
    character(len=99)         :: field_weighting_model       !< Field weighting model.
    logical                   :: esirkepov_tail_cleanup = .false. !< Remove small current leakage outside each particle's support.
+   logical                   :: factorized_filters = .false. !< Matched P and Q applied as passes of <= 7 taps (#112 M3 F2).
    character(len=99)         :: current_conserving_solver = LONDRILLO_CURRENT_CONSERVING_SOLVER !< Conserving current solver.
    integer(I4P)              :: esirkepov_q = 0_I4P         !< Q filter coefficients of esirkepov_Q<N> (5,6,8,10), 0 otherwise.
    integer(I4P)              :: gather_q = 0_I4P            !< Coherent gather esirkepov_Q<N>: N (5,6,8,10), 0 otherwise.
    real(R8P)                 :: gather_p(-7:7) = 0._R8P     !< Coherent matched gather: P kernel of the charge deposit.
    integer(I4P)              :: gather_radius = 0_I4P       !< Coherent matched gather: taps of P.
+   integer(I4P)              :: gather_nf = 0_I4P           !< Coherent matched gather: passes of the factorized P.
+   real(R8P)                 :: gather_pass(-7:7,3) = 0._R8P !< Coherent matched gather: the factorized P, pass f as a
+                                                            !< kernel on the offsets -3..3 (matched_factors, #112 M3 F2).
    logical                   :: gather_dual = .false.       !< Coherent gather of an odd esirkepov_Q<N>: base shape on the
                                                             !< dual nodes x_c+dx/2.
    character(len=99)         :: scheme_time                 !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
@@ -363,6 +368,104 @@ contains
    endselect
    endsubroutine matched_kernels
 
+   subroutine matched_factors(solver, q, hs, kernel, nf, first, ntaps, w)
+   !< Exact factorization of the P or Q kernel of matched_kernels into nf <= 3 passes of at most 7 taps, each within 3 cells
+   !< of the output cell, so that a filter on blocks with ngc = 3 ghost layers can apply P and Q one pass at a time (issue
+   !< #112, M3 F2). Integer factors normalized to unit sum; the products of their sums are the denominators of
+   !< matched_kernels (A6 = (1+z)/2 A4 with A4 = [1,-9,46,-9,1]/30, and P = A6 Q):
+   !<   Q10: P = (1+z)^6/64 (1+z)^4/16 A4,          Q = (1+z)^6/64 (1+z)^3/8;
+   !<   Q8 : P = (1+z)^4/16 [1,6,15,6,1]/29 A4,     Q = (1+z)^3/8 [1,6,15,6,1]/29;
+   !<   Q6 : P = [1,10,45,72,45,10,1]/184 A4,       Q = (1+z)/2 [1,8,28,8,1]/46;
+   !<   Q5 : P = (1+z)/2 [1,10,46,10,1]/68 A4,      Q = [1,10,46,10,1]/68;
+   !<   totorica: P and Q themselves, one pass each.
+   !< A pass is output_c = sum_{t=0}^{ntaps-1} w(t) input_{c+first+t}; the first offsets add up to the kernel's (-radius for
+   !< P, qfirst for Q). The product of the passes is checked against matched_kernels (relative 1e-14).
+   character(*), intent(in)  :: solver      !< Matched solver (totorica or esirkepov_Q).
+   integer(I4P), intent(in)  :: q           !< esirkepov_Q<N> filter N.
+   integer(I4P), intent(in)  :: hs          !< FD half stencil (totorica).
+   character(1), intent(in)  :: kernel      !< 'P' or 'Q'.
+   integer(I4P), intent(out) :: nf          !< Passes number.
+   integer(I4P), intent(out) :: first(3)    !< Offset of the first tap of each pass.
+   integer(I4P), intent(out) :: ntaps(3)    !< Taps of each pass.
+   real(R8P),    intent(out) :: w(0:6,3)    !< Taps of each pass.
+   real(R8P)                 :: p(-7:7), qw(0:9), full(-9:9), prod(-9:9), next(-9:9), ref(-9:9)
+   integer(I4P)              :: radius, qfirst, nq, f, t, o
+
+   nf = 0_I4P ; first = 0_I4P ; ntaps = 0_I4P ; w = 0._R8P
+   call matched_kernels(solver=solver, q=q, hs=hs, p=p, qw=qw, radius=radius, qfirst=qfirst, nq=nq)
+   if (trim(solver) == TOTORICA_CURRENT_CONSERVING_SOLVER) then
+      if (kernel == 'P') then
+         if (2_I4P*radius+1_I4P > 7_I4P) call mpih%error_stop(msg=': totorica P wider than 7 taps cannot be one pass')
+         call add_pass(-radius, p(-radius:radius))
+      else
+         call add_pass(qfirst, qw(0:nq-1))
+      endif
+   elseif (kernel == 'P') then
+      select case(q)
+      case(10_I4P)
+         call add_pass(-3_I4P, real([1,6,15,20,15,6,1],R8P)/64._R8P)
+         call add_pass(-2_I4P, real([1,4,6,4,1],R8P)/16._R8P)
+         call add_pass(-2_I4P, real([1,-9,46,-9,1],R8P)/30._R8P)
+      case(8_I4P)
+         call add_pass(-2_I4P, real([1,4,6,4,1],R8P)/16._R8P)
+         call add_pass(-2_I4P, real([1,6,15,6,1],R8P)/29._R8P)
+         call add_pass(-2_I4P, real([1,-9,46,-9,1],R8P)/30._R8P)
+      case(6_I4P)
+         call add_pass(-3_I4P, real([1,10,45,72,45,10,1],R8P)/184._R8P)
+         call add_pass(-2_I4P, real([1,-9,46,-9,1],R8P)/30._R8P)
+      case(5_I4P)
+         call add_pass(-1_I4P, real([1,1],R8P)/2._R8P)
+         call add_pass(-2_I4P, real([1,10,46,10,1],R8P)/68._R8P)
+         call add_pass(-2_I4P, real([1,-9,46,-9,1],R8P)/30._R8P)
+      endselect
+   else
+      select case(q)
+      case(10_I4P)
+         call add_pass(-3_I4P, real([1,6,15,20,15,6,1],R8P)/64._R8P)
+         call add_pass(-2_I4P, real([1,3,3,1],R8P)/8._R8P)
+      case(8_I4P)
+         call add_pass(-2_I4P, real([1,3,3,1],R8P)/8._R8P)
+         call add_pass(-2_I4P, real([1,6,15,6,1],R8P)/29._R8P)
+      case(6_I4P)
+         call add_pass(-1_I4P, real([1,1],R8P)/2._R8P)
+         call add_pass(-2_I4P, real([1,8,28,8,1],R8P)/46._R8P)
+      case(5_I4P)
+         call add_pass(-3_I4P, real([1,10,46,10,1],R8P)/68._R8P)
+      endselect
+   endif
+   ! the product of the passes must be the kernel
+   ref = 0._R8P
+   if (kernel == 'P') then
+      ref(-radius:radius) = p(-radius:radius)
+   else
+      ref(qfirst:qfirst+nq-1) = qw(0:nq-1)
+   endif
+   prod = 0._R8P ; prod(0) = 1._R8P
+   do f=1, nf
+      next = 0._R8P
+      do o=-9, 9
+         if (prod(o) == 0._R8P) cycle
+         do t=0, ntaps(f)-1
+            if (o+first(f)+t < -9 .or. o+first(f)+t > 9) call mpih%error_stop(msg=': matched_factors out of range')
+            next(o+first(f)+t) = next(o+first(f)+t) + prod(o)*w(t,f)
+         enddo
+      enddo
+      prod = next
+   enddo
+   full = abs(prod - ref)
+   if (nf == 0_I4P .or. maxval(full) > 1.e-14_R8P*maxval(abs(ref))) &
+      call mpih%error_stop(msg=': the factorized '//kernel//' kernel of '//trim(solver)//' does not match matched_kernels')
+   contains
+      subroutine add_pass(off, taps)
+      !< Append a pass.
+      integer(I4P), intent(in) :: off     !< Offset of its first tap.
+      real(R8P),    intent(in) :: taps(:) !< Its taps.
+
+      nf = nf + 1_I4P
+      first(nf) = off ; ntaps(nf) = size(taps, kind=I4P) ; w(0:size(taps)-1,nf) = taps
+      endsubroutine add_pass
+   endsubroutine matched_factors
+
    pure function coherent_gather(self) result(coherent)
    !< True for the gathers named after a conserving solver (londrillo, totorica, esirkepov_Q<N>): E and B are gathered
    !< with the transpose of that solver's charge operator S^rho, the adjoint of its charge deposit.
@@ -390,6 +493,8 @@ contains
    integer(I4P),            intent(in)    :: hs        !< FD half stencil.
    real(R8P)                              :: qw(0:9)   !< Q kernel (unused by the gather).
    integer(I4P)                           :: qfirst,nq !< Q layout (unused by the gather).
+   integer(I4P)                           :: pfirst(3), pntaps(3), f !< Factorized P layout, pass counter.
+   real(R8P)                              :: pw(0:6,3) !< Factorized P taps.
    character(len=:), allocatable          :: deposit   !< Name of the deposit in use.
    character(len=:), allocatable          :: coherent  !< Name of its coherent gather.
    logical                                :: match     !< Gather and deposit agree.
@@ -398,6 +503,14 @@ contains
       call matched_kernels(solver=self%field_weighting_model, q=self%gather_q, hs=hs, p=self%gather_p, qw=qw, &
                            radius=self%gather_radius, qfirst=qfirst, nq=nq)
       self%gather_dual = mod(self%gather_q, 2_I4P) == 1_I4P
+      self%gather_nf = 0_I4P ; self%gather_pass = 0._R8P
+      if (self%factorized_filters) then
+         call matched_factors(solver=self%field_weighting_model, q=self%gather_q, hs=hs, kernel='P', nf=self%gather_nf, &
+                              first=pfirst, ntaps=pntaps, w=pw)
+         do f=1, self%gather_nf
+            self%gather_pass(pfirst(f):pfirst(f)+pntaps(f)-1,f) = pw(0:pntaps(f)-1,f)
+         enddo
+      endif
    endif
    if (trim(self%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL) then
       deposit = self%conserving_solver_name()
@@ -911,6 +1024,11 @@ contains
 
    self%filter_deposition = .false.
    call ini_get(file_parameters, INI_SECTION_NAME, 'filter_deposition', self%filter_deposition, default=.false.)
+
+   ! issue #112, M3 F2: the matched P and Q filters of the periodic (box) path and the coherent gather applied as the
+   ! passes of matched_factors (equal to the single convolution up to roundoff); off by default
+   self%factorized_filters = .false.
+   call ini_get(file_parameters, INI_SECTION_NAME, 'factorized_filters', self%factorized_filters, default=.false.)
 
    buff = ''
    call ini_check()
@@ -2453,7 +2571,8 @@ contains
    real(R8P), allocatable                 :: q_filtered(:,:,:,:,:) !< E and B filtered by P^T, zero ghosts.
    real(R8P), allocatable                 :: a(:,:,:,:), z(:,:,:,:) !< Block interior work arrays.
    real(R8P), allocatable                 :: q_dual(:,:)           !< Particles seen at x-dx/2 (odd esirkepov_Q<N>).
-   integer(I4P)                           :: b, n                  !< Counters.
+   real(R8P), allocatable                 :: t(:,:,:,:)            !< Swap of a and z (factorized passes).
+   integer(I4P)                           :: b, n, axis, f         !< Counters.
 
    if (.not.self%matched_gather()) then
       call self%shape_field_weighting(field=field, grid=grid, pic_fields=pic_fields, q=q, q_pic=q_pic, nv=nv, &
@@ -2469,12 +2588,24 @@ contains
    q_filtered = 0._R8P
    do b=1, field%blocks_number
       a = q(1:6,1:ni,1:nj,1:nk,b)
-      call transposed_filter_axis(input=a, output=z, axis=1_I4P, p=self%gather_p, radius=self%gather_radius, &
-                                  periodic=self%bc%is_periodic(1))
-      call transposed_filter_axis(input=z, output=a, axis=2_I4P, p=self%gather_p, radius=self%gather_radius, &
-                                  periodic=self%bc%is_periodic(2))
-      call transposed_filter_axis(input=a, output=z, axis=3_I4P, p=self%gather_p, radius=self%gather_radius, &
-                                  periodic=self%bc%is_periodic(3))
+      if (self%factorized_filters) then
+         ! P^T as the transposes of the passes of P (convolutions commute), result in a after every swap
+         do axis=1, 3
+            do f=1, self%gather_nf
+               call transposed_filter_axis(input=a, output=z, axis=axis, p=self%gather_pass(:,f), radius=3_I4P, &
+                                           periodic=self%bc%is_periodic(axis))
+               call move_alloc(z, t) ; call move_alloc(a, z) ; call move_alloc(t, a)
+            enddo
+         enddo
+         call move_alloc(a, t) ; call move_alloc(z, a) ; call move_alloc(t, z)
+      else
+         call transposed_filter_axis(input=a, output=z, axis=1_I4P, p=self%gather_p, radius=self%gather_radius, &
+                                     periodic=self%bc%is_periodic(1))
+         call transposed_filter_axis(input=z, output=a, axis=2_I4P, p=self%gather_p, radius=self%gather_radius, &
+                                     periodic=self%bc%is_periodic(2))
+         call transposed_filter_axis(input=a, output=z, axis=3_I4P, p=self%gather_p, radius=self%gather_radius, &
+                                     periodic=self%bc%is_periodic(3))
+      endif
       q_filtered(1:6,1:ni,1:nj,1:nk,b) = z
       ! periodic axes: the ghosts are the periodic images (a particle beyond the face gathers them), axis by axis so that
       ! the edges and corners take the images of the images

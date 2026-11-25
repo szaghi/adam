@@ -5086,6 +5086,27 @@ contains
    enddo
    endsubroutine filter_matched_box_axis
 
+   subroutine filter_matched_passes(self, kernel, fa, fb, axis)
+   !< The P or Q kernel of the matched current along one axis as the passes of matched_factors (issue #112, M3 F2), each
+   !< a filter_matched_box_axis: fa in, fa out (fb scratch). Equal to the single convolution up to roundoff (zero
+   !< extension between the passes only near a non-periodic face, which no support reaches).
+   implicit none
+   class(prism_cpu_object), intent(in)    :: self
+   character(1),            intent(in)    :: kernel
+   real(R8P),               intent(inout) :: fa(1:,1:,1:), fb(1:,1:,1:)
+   integer(I4P),            intent(in)    :: axis
+   real(R8P)                              :: w(0:6,3)
+   integer(I4P)                           :: nf, first(3), ntaps(3), f
+
+   call matched_factors(solver=self%pic%current_conserving_solver, q=self%pic%esirkepov_q, hs=self%fdv_half_stencils(1), &
+                        kernel=kernel, nf=nf, first=first, ntaps=ntaps, w=w)
+   do f=1, nf
+      call filter_matched_box_axis(input=fa, output=fb, axis=axis, w=w(0:ntaps(f)-1,f), first=first(f), &
+                                   periodic=self%pic%bc%is_periodic(axis))
+      fa = fb
+   enddo
+   endsubroutine filter_matched_passes
+
    subroutine matched_shape_1d(self, axis, b, x, ic, radius, w)
    !< Base-shape weights of the matched current and charge along one axis, on the cells ic-radius..ic+radius: closed
    !< B-spline (bspline_closed_weights) or Gaussian normalized on the stencil, as compute_pic_esirkepov_displacement. Cell
@@ -5256,12 +5277,19 @@ contains
       case(2) ; e1 = 1_I4P ; e2 = 3_I4P
       case(3) ; e1 = 1_I4P ; e2 = 2_I4P
       endselect
-      call filter_matched_box_axis(input=jc(d,:,:,:,b), output=fa, axis=d, w=qw(0:nq-1), first=qfirst, &
-                                   periodic=self%pic%bc%is_periodic(d))
-      call filter_matched_box_axis(input=fa, output=fb, axis=e1, w=p(-radius:radius), first=-radius, &
-                                   periodic=self%pic%bc%is_periodic(e1))
-      call filter_matched_box_axis(input=fb, output=fa, axis=e2, w=p(-radius:radius), first=-radius, &
-                                   periodic=self%pic%bc%is_periodic(e2))
+      if (self%pic%factorized_filters) then
+         fa = jc(d,:,:,:,b)
+         call filter_matched_passes(self=self, kernel='Q', fa=fa, fb=fb, axis=d)
+         call filter_matched_passes(self=self, kernel='P', fa=fa, fb=fb, axis=e1)
+         call filter_matched_passes(self=self, kernel='P', fa=fa, fb=fb, axis=e2)
+      else
+         call filter_matched_box_axis(input=jc(d,:,:,:,b), output=fa, axis=d, w=qw(0:nq-1), first=qfirst, &
+                                      periodic=self%pic%bc%is_periodic(d))
+         call filter_matched_box_axis(input=fa, output=fb, axis=e1, w=p(-radius:radius), first=-radius, &
+                                      periodic=self%pic%bc%is_periodic(e1))
+         call filter_matched_box_axis(input=fb, output=fa, axis=e2, w=p(-radius:radius), first=-radius, &
+                                      periodic=self%pic%bc%is_periodic(e2))
+      endif
       jc(d,:,:,:,b) = fa
    enddo
    deallocate(fa, fb)
@@ -5325,12 +5353,19 @@ contains
    enddo
    ! P along every axis, on the block
    allocate(fa(self%ni,self%nj,self%nk), fb(self%ni,self%nj,self%nk))
-   call filter_matched_box_axis(input=q(self%nv,1:self%ni,1:self%nj,1:self%nk,b), output=fa, axis=1_I4P, &
-                                w=p(-radius:radius), first=-radius, periodic=self%pic%bc%is_periodic(1))
-   call filter_matched_box_axis(input=fa, output=fb, axis=2_I4P, w=p(-radius:radius), first=-radius, &
-                                periodic=self%pic%bc%is_periodic(2))
-   call filter_matched_box_axis(input=fb, output=fa, axis=3_I4P, w=p(-radius:radius), first=-radius, &
-                                periodic=self%pic%bc%is_periodic(3))
+   if (self%pic%factorized_filters) then
+      fa = q(self%nv,1:self%ni,1:self%nj,1:self%nk,b)
+      call filter_matched_passes(self=self, kernel='P', fa=fa, fb=fb, axis=1_I4P)
+      call filter_matched_passes(self=self, kernel='P', fa=fa, fb=fb, axis=2_I4P)
+      call filter_matched_passes(self=self, kernel='P', fa=fa, fb=fb, axis=3_I4P)
+   else
+      call filter_matched_box_axis(input=q(self%nv,1:self%ni,1:self%nj,1:self%nk,b), output=fa, axis=1_I4P, &
+                                   w=p(-radius:radius), first=-radius, periodic=self%pic%bc%is_periodic(1))
+      call filter_matched_box_axis(input=fa, output=fb, axis=2_I4P, w=p(-radius:radius), first=-radius, &
+                                   periodic=self%pic%bc%is_periodic(2))
+      call filter_matched_box_axis(input=fb, output=fa, axis=3_I4P, w=p(-radius:radius), first=-radius, &
+                                   periodic=self%pic%bc%is_periodic(3))
+   endif
    q(self%nv,1:self%ni,1:self%nj,1:self%nk,b) = fa
    endsubroutine deposit_matched_charge_box
 
