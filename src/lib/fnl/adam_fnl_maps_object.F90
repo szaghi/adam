@@ -33,6 +33,10 @@ type :: maps_fnl_object
                                                                         !< seam fill guard's part once per ghost (#157 B2).
    integer(I8P), pointer :: comm_map_recv_ghost_cell_gpu(:,:) => null() !< Communication map, `fec` information, cell order.
    integer(I8P), pointer :: comm_map_send_ghost_cell_gpu(:,:) => null() !< Communication map, `fec` information, cell order.
+   integer(I4P), pointer :: comm_map_send_density_rows_gpu(:) => null() !< The density rows of the flag-4 cells of
+                                                                        !< comm_map_send_ghost_cell_gpu (#157 B3; none: null).
+   real(R8P),    pointer :: seam_rho_send_gpu(:)              => null() !< Clamped density per row of
+                                                                        !< comm_map_send_ghost_cell_gpu (at those rows).
    real(R8P),    pointer :: send_buffer_ghost_gpu(:)          => null() !< Send buffer of ghost cells.
    real(R8P),    pointer :: recv_buffer_ghost_gpu(:)          => null() !< Receive buffer of ghost cells.
    integer(I8P), pointer :: local_map_bc_crown_gpu(:,:,:)     => null() !< Local map for face BC ghost cells, "crown" order.
@@ -116,8 +120,21 @@ contains
       endif
       if (verbose_) call mpih_fnl%print_message('skip local_map_ghost_cell_gpu (CPU map not allocated)')
    endif
+   if (associated(self%comm_map_send_density_rows_gpu)) then
+      call dev_free(self%comm_map_send_density_rows_gpu, mydev)
+      nullify(self%comm_map_send_density_rows_gpu)
+   endif
+   if (associated(self%seam_rho_send_gpu)) then
+      call dev_free(self%seam_rho_send_gpu, mydev)
+      nullify(self%seam_rho_send_gpu)
+   endif
    if (allocated(maps%comm_map_send_ghost_cell)) then
       call dev_assign_to_device(dst=self%comm_map_send_ghost_cell_gpu, src=maps%comm_map_send_ghost_cell)
+      ! the seam fill guard once per fine ghost (#157 B3): the density row of each flag-4 cell (its variables are
+      ! contiguous rows, in order) and a scratch value per row
+      if (maps%seam_density_var > 0_I4P) &
+         call make_prolongation_rows(map=maps%comm_map_send_ghost_cell, cflag=7, prol_gpu=self%comm_map_send_density_rows_gpu, &
+                                     rho_gpu=self%seam_rho_send_gpu, cvar=5, var=maps%seam_density_var)
       if (verbose_) call mpih_fnl%print_message('copy comm_map_send_ghost_cell done ('// &
          trim(str(count(maps%comm_map_send_ghost_cell(:,7) == 4_I8P)))//' seam flag-4 rows)')
    else
@@ -240,6 +257,14 @@ contains
       call dev_free(self%comm_map_send_ghost_cell_gpu, mydev)
       nullify(self%comm_map_send_ghost_cell_gpu)
    endif
+   if (associated(self%comm_map_send_density_rows_gpu)) then
+      call dev_free(self%comm_map_send_density_rows_gpu, mydev)
+      nullify(self%comm_map_send_density_rows_gpu)
+   endif
+   if (associated(self%seam_rho_send_gpu)) then
+      call dev_free(self%seam_rho_send_gpu, mydev)
+      nullify(self%seam_rho_send_gpu)
+   endif
    if (associated(self%send_buffer_ghost_gpu)) then
       call dev_free(self%send_buffer_ghost_gpu, mydev)
       nullify(self%send_buffer_ghost_gpu)
@@ -274,18 +299,25 @@ contains
    endif
    endsubroutine destroy
 
-   subroutine make_prolongation_rows(map, cflag, prol_gpu, rho_gpu)
+   subroutine make_prolongation_rows(map, cflag, prol_gpu, rho_gpu, cvar, var)
    !< The device list of the flag-4 (coarse->fine) rows of a ghost-cell map and a scratch value per row, for the seam
-   !< fill guard computed once per fine ghost (#157 B2); a map with no flag-4 row leaves both null. The caller frees any
-   !< previous allocation.
-   integer(I8P),          intent(in)    :: map(1:,1:)  !< Ghost-cell map (host).
-   integer(I4P),          intent(in)    :: cflag       !< Column of the kind flag.
-   integer(I4P), pointer, intent(inout) :: prol_gpu(:) !< The flag-4 rows (device).
-   real(R8P),    pointer, intent(inout) :: rho_gpu(:)  !< Scratch, one value per row (device).
-   integer(I4P), allocatable            :: rows(:)     !< The flag-4 rows (host).
-   integer(I4P)                         :: r           !< Counter.
+   !< fill guard computed once per fine ghost (#157 B2, B3); with `cvar` and `var` (a map with a row per variable), the
+   !< flag-4 rows of variable `var` only. A map with no such row leaves both null. The caller frees any previous
+   !< allocation.
+   integer(I8P),          intent(in)           :: map(1:,1:)  !< Ghost-cell map (host).
+   integer(I4P),          intent(in)           :: cflag       !< Column of the kind flag.
+   integer(I4P), pointer, intent(inout)        :: prol_gpu(:) !< The flag-4 rows (device).
+   real(R8P),    pointer, intent(inout)        :: rho_gpu(:)  !< Scratch, one value per row (device).
+   integer(I4P),          intent(in), optional :: cvar        !< Column of the variable.
+   integer(I4P),          intent(in), optional :: var         !< Variable.
+   integer(I4P), allocatable                   :: rows(:)     !< The flag-4 rows (host).
+   integer(I4P)                                :: r           !< Counter.
 
-   rows = pack([(r, r=1, size(map, dim=1))], map(:,cflag) == 4_I8P)
+   if (present(cvar) .and. present(var)) then
+      rows = pack([(r, r=1, size(map, dim=1))], map(:,cflag) == 4_I8P .and. map(:,cvar) == int(var, I8P))
+   else
+      rows = pack([(r, r=1, size(map, dim=1))], map(:,cflag) == 4_I8P)
+   endif
    if (size(rows, dim=1) == 0) return
    call dev_assign_to_device(dst=prol_gpu, src=rows)
    call dev_assign_to_device(dst=rho_gpu, src=spread(0._R8P, dim=1, ncopies=size(map, dim=1)))

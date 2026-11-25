@@ -270,11 +270,18 @@ contains
 
    subroutine populate_send_buffer_ghost_gpu_dev(ngc, seam_ghost_fill, seam_restriction, ri, rj, rk,              &
                                                  comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu,     &
-                                                 seam_density_var)
+                                                 seam_density_var, density_rows_gpu, seam_rho_gpu)
    !< Polulate send buffer ghost GPU.
    !<
    !< A fine->coarse row averages the `ri*rj*rk` fine cells of its coarse ghost: 2 per refined axis, 1 on an axis the
    !< tree never refines (quadtree z, issue #46).
+   !<
+   !< The rows are one per (cell, variable), the variables of a cell contiguous and in order (`make_comm_map_send_ghost_
+   !< cell`). With the seam fill guard on (#101), its part that is the same for every variable of a fine ghost (the
+   !< interpolated density, clamped) is computed once per ghost, by a kernel over the density rows of the coarse->fine
+   !< cells (`density_rows_gpu`), into `seam_rho_gpu` at that row (#157 B3, as the local fill, #157 B2, and the CPU's
+   !< `update_ghost_mpi`); the pack reads it back per variable at row `sf - (v - density_var)`. The same arithmetic as the
+   !< per-row form (`interp_seam_ghost_gpu_dev`): bitwise. With the guard off, the kernel of the per-row form.
    integer(I4P),          intent(in)    :: ngc                                    !< Ghost cells number.
    integer(I4P),          intent(in)    :: seam_ghost_fill                        !< Seam ghost-fill regime (flag-4 rows).
    integer(I4P),          intent(in)    :: seam_restriction                       !< Seam restriction regime (flag-8 rows).
@@ -282,16 +289,88 @@ contains
    integer(I8P), pointer, intent(in)    :: comm_map_send_ghost_cell_gpu(:,:)      !< Comm map, cell information.
    real(R8P),    pointer, intent(inout) :: send_buffer_ghost_gpu(:)               !< Send buffer of ghost cells.
    integer(I4P),          intent(in)    :: seam_density_var                       !< Seam fill density guard (#101).
+   integer(I4P), pointer, intent(in)    :: density_rows_gpu(:)                    !< The density rows of the flag-4 cells
+                                                                                  !< (none: unassociated).
+   real(R8P),    pointer, intent(in)    :: seam_rho_gpu(:)                        !< Clamped density per row (scratch,
+                                                                                  !< at the density rows of flag-4 cells).
    real(R8P),             intent(inout) :: q_gpu(1:,    &
                                                  1-ngc:,&
                                                  1-ngc:,&
                                                  1-ngc:,&
                                                  1:)                              !< Field component to be updated.
-   integer(I4P)                         :: ic, jc, kc, sf                         !< Counter.
+   integer(I4P)                         :: ic, jc, kc, sf, p                      !< Counter.
    integer(I4P)                         :: b_send, i_send, j_send, k_send, v_send !< Send indexes.
    integer(I4P)                         :: c_recv                                 !< Counter.
    integer(I4P)                         :: one_or_eight                           !< Flag triggering 8 cells mean.
+   integer(I4P)                         :: meta                                   !< Seam metadata of a row.
+   real(R8P)                            :: value_                                 !< Coarse->fine ghost value.
+   real(R8P)                            :: interpolant                            !< Interpolant of a variable.
+   real(R8P)                            :: rho                                    !< Clamped density of a fine ghost.
 
+   if (seam_density_var > 0_I4P .and. associated(density_rows_gpu) .and. associated(comm_map_send_ghost_cell_gpu)) then
+      ! the guard's part of every fine ghost, once (#157 B3); real donor cells only. Scalar temporaries are the actual
+      ! arguments of the device routines (see update_ghost_local_gpu_dev).
+      !$acc parallel loop independent gang vector DEVICEVAR(comm_map_send_ghost_cell_gpu, q_gpu, seam_rho_gpu, density_rows_gpu) &
+      !$acc& private(sf, meta, b_send, i_send, j_send, k_send, interpolant, rho)
+      !$omp OMPLOOP DEVICEPTR(comm_map_send_ghost_cell_gpu, q_gpu, seam_rho_gpu, density_rows_gpu) &
+      !$omp& private(sf, meta, b_send, i_send, j_send, k_send, interpolant, rho)
+      do p=1, size(density_rows_gpu, dim=1)
+         sf     = density_rows_gpu(p)
+         b_send = int(comm_map_send_ghost_cell_gpu(sf,1), I4P)
+         i_send = int(comm_map_send_ghost_cell_gpu(sf,2), I4P)
+         j_send = int(comm_map_send_ghost_cell_gpu(sf,3), I4P)
+         k_send = int(comm_map_send_ghost_cell_gpu(sf,4), I4P)
+         meta   = int(comm_map_send_ghost_cell_gpu(sf,8), I4P)
+         interpolant = interp_seam_value_gpu_dev(regime=seam_ghost_fill, meta=meta, ngc=ngc, q_gpu=q_gpu,          &
+                                                 v=seam_density_var, b_send=b_send, i_send=i_send, j_send=j_send,  &
+                                                 k_send=k_send)
+         rho = seam_guard_density_gpu_dev(meta=meta, ngc=ngc, q_gpu=q_gpu, b_send=b_send, i_send=i_send,          &
+                                          j_send=j_send, k_send=k_send, density_var=seam_density_var, rho_in=interpolant)
+         seam_rho_gpu(sf) = rho
+      enddo
+      !$acc parallel loop independent DEVICEVAR(comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu, seam_rho_gpu) &
+      !$acc& private(meta, value_, interpolant, rho)
+      !$omp OMPLOOP DEVICEPTR(comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu, seam_rho_gpu) &
+      !$omp& private(meta, value_, interpolant, rho)
+      do sf=1, size(comm_map_send_ghost_cell_gpu, dim=1)
+         b_send       = comm_map_send_ghost_cell_gpu(sf,1)
+         i_send       = comm_map_send_ghost_cell_gpu(sf,2)
+         j_send       = comm_map_send_ghost_cell_gpu(sf,3)
+         k_send       = comm_map_send_ghost_cell_gpu(sf,4)
+         v_send       = comm_map_send_ghost_cell_gpu(sf,5)
+         c_recv       = comm_map_send_ghost_cell_gpu(sf,6)
+         one_or_eight = comm_map_send_ghost_cell_gpu(sf,7)
+         if (one_or_eight==1) then
+            send_buffer_ghost_gpu(c_recv) = q_gpu(b_send,i_send,j_send,k_send,v_send)
+         elseif (one_or_eight==4) then
+            ! coarse->fine seam interpolation, pack-side (issue #21 N2, ported #22 F3); metadata in column 8
+            meta = int(comm_map_send_ghost_cell_gpu(sf,8), I4P)
+            interpolant = 0._R8P ! the guarded density row takes the clamped density: its interpolant is not needed
+            if (v_send /= seam_density_var) interpolant = interp_seam_value_gpu_dev(regime=seam_ghost_fill, meta=meta,  &
+                                                                                   ngc=ngc, q_gpu=q_gpu, v=v_send,      &
+                                                                                   b_send=b_send, i_send=i_send,        &
+                                                                                   j_send=j_send, k_send=k_send)
+            rho = seam_rho_gpu(sf - v_send + seam_density_var)
+            value_ = seam_guard_value_gpu_dev(meta=meta, ngc=ngc, q_gpu=q_gpu, v=v_send, b_send=b_send,                &
+                                              i_send=i_send, j_send=j_send, k_send=k_send, density_var=seam_density_var, &
+                                              rho=rho, value_in=interpolant)
+            send_buffer_ghost_gpu(c_recv) = value_
+         elseif (seam_restriction /= SEAM_RESTRICT_MEAN .and. comm_map_send_ghost_cell_gpu(sf,8) /= 0) then
+            ! fine->coarse restriction, 6-point Lagrange or WENO, pack-side (#68 C2, C3); meta in column 8
+            send_buffer_ghost_gpu(c_recv) = restrict_seam_high_order_gpu_dev(                                         &
+                                               meta=int(comm_map_send_ghost_cell_gpu(sf,8), I4P), ngc=ngc, q_gpu=q_gpu, &
+                                               v=v_send, b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
+         else
+            send_buffer_ghost_gpu(c_recv) = 0._R8P
+            do kc=0,rk-1 ; do jc=0,rj-1 ; do ic=0,ri-1
+               send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) + &
+                                               q_gpu(b_send,i_send+ic,j_send+jc,k_send+kc,v_send)
+            enddo ; enddo ; enddo
+            send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) / real(ri*rj*rk, R8P)
+         endif
+      enddo
+      return
+   endif
    if (associated(comm_map_send_ghost_cell_gpu)) then
       !$acc parallel loop independent DEVICEVAR(comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu)
       !$omp OMPLOOP DEVICEPTR(comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu)
@@ -655,8 +734,9 @@ contains
    !< Device twin of `field_object%interp_seam_ghost`: the interpolant of `interp_seam_value_gpu_dev`, with the guard of
    !< issue #101 when `density_var > 0` (the density, followed by the three momenta: `seam_guard_density_gpu_dev`, then
    !< `seam_guard_value_gpu_dev`). This per-row form recomputes the ghost's part of the guard (the density interpolated
-   !< and clamped) for every variable, so the rows of one ghost decide alike whatever their order; the local fill
-   !< computes that part once per ghost (`update_ghost_local_gpu_dev`, #157 B2) with the same arithmetic.
+   !< and clamped) for every variable, so the rows of one ghost decide alike whatever their order; the local fill and
+   !< the MPI pack compute that part once per ghost (`update_ghost_local_gpu_dev`, `populate_send_buffer_ghost_gpu_dev`,
+   !< #157 B2, B3) with the same arithmetic. Its callers: the fills with the guard off, the inter-realm seam pack.
    integer(I4P), intent(in) :: regime           !< Active fill regime (SEAM_FILL_*).
    integer(I4P), intent(in) :: meta             !< Packed interpolation metadata (see seam_meta_pack).
    integer(I4P), intent(in) :: ngc              !< Ghost cells number (bounds of q_gpu).

@@ -121,7 +121,7 @@ All routines carry `!$acc parallel loop independent` and `DEVICEVAR` on every de
 | `compute_normL2_residuals_dev` | L2 norm `√(Σ dq²)` per variable, `reduction(+:)` |
 | `copy_transpose_gpu_cpu_dev` | Transpose `(nb,ni,nj,nk,nv)` → `(nv,ni,nj,nk,nb)` on the device |
 | `pack_blocks_transposed_dev`, `unpack_blocks_transposed_dev` | Layout transposition of the state |
-| `populate_send_buffer_ghost_gpu_dev` | Pack ghosts into the MPI send buffer (1-cell and 8-cell AMR averaging) |
+| `populate_send_buffer_ghost_gpu_dev` | Pack ghosts into the MPI send buffer: copies, fine → coarse restrictions, coarse → fine seam interpolations; with the density guard on, a first kernel computes the guard's part once per fine ghost, at the cell's density row ([#157](https://github.com/szaghi/adam/issues/157) B3) |
 | `receive_recv_buffer_ghost_gpu_dev` | Unpack the MPI receive buffer into ghosts |
 | `update_ghost_local_gpu_dev` | Intra-rank block-to-block ghost update: copies, fine → coarse restrictions (mean, 6-point Lagrange, WENO) and coarse → fine seam interpolations; with the density guard on, a first kernel computes the guard's part once per fine ghost, then the guarded fill; with the guard off, a fill without the guard's code ([#157](https://github.com/szaghi/adam/issues/157)) |
 | `seam_guard_density_gpu_dev`, `seam_guard_value_gpu_dev` | The density guard of the seam fill ([#101](https://github.com/szaghi/adam/issues/101)) in two parts, device twins of the CPU's `seam_guard_prepare` and `seam_guard_value`: the interpolated density of a fine ghost clamped to its bound (once per ghost), then its application to one variable |
@@ -191,7 +191,9 @@ communication tables to the device, so ghost packing and unpacking need no CPU s
 | `local_map_ghost_cell_gpu` | 10 | `(b_src, b_dst, i_src, j_src, k_src, i_dst, j_dst, k_dst, mode, meta)` |
 | `local_map_ghost_cell_prol_gpu` | — | The `mode = 4` rows of `local_map_ghost_cell_gpu` (null if none) |
 | `seam_rho_gpu` | — | Scratch of the local fill, one value per row: the clamped density of each `mode = 4` row (the guard's part, once per fine ghost) |
-| `comm_map_send_ghost_cell_gpu` | 7 | `(b_src, i, j, k, v_offset, buf_idx, mode)` |
+| `comm_map_send_ghost_cell_gpu` | 8 | `(b_src, i, j, k, v, buf_idx, mode, meta)`, one row per cell and variable, the variables of a cell contiguous and in order |
+| `comm_map_send_density_rows_gpu` | — | The density rows of the `mode = 4` cells of the send map (null if none or the guard is off) |
+| `seam_rho_send_gpu` | — | Scratch of the pack, one value per row: the clamped density at those rows |
 | `comm_map_recv_ghost_cell_gpu` | 6 | `(buf_idx, b_dst, i, j, k, v_offset)` |
 | `send_buffer_ghost_gpu`, `recv_buffer_ghost_gpu` | — | Packed MPI buffers |
 | `local_map_bc_crown_gpu` | — | Boundary-condition crown map |

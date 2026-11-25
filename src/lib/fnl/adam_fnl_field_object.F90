@@ -400,7 +400,9 @@ contains
                                               rk=self%maps%refine_ratio(3),                                        &
                                               comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
                                               send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu,               &
-                                              q_gpu=q_gpu, seam_density_var=density_var)
+                                              q_gpu=q_gpu, seam_density_var=density_var,                           &
+                                              density_rows_gpu=self%maps%comm_map_send_density_rows_gpu,           &
+                                              seam_rho_gpu=self%maps%seam_rho_send_gpu)
    endif
 
    if (do_step(2)) then
