@@ -26,6 +26,11 @@ type :: maps_fnl_object
    ! (nvfortran traps it as "Null pointer for tmp$r"). A default-initialised
    ! pointer component starts every instance in a defined, disassociated state.
    integer(I8P), pointer :: local_map_ghost_cell_gpu(:,:)     => null() !< Local map for ghost cells updating, cells order.
+   integer(I4P), pointer :: local_map_ghost_cell_prol_gpu(:)  => null() !< The flag-4 (coarse->fine) rows of
+                                                                        !< local_map_ghost_cell_gpu (#157 B2; none: null).
+   real(R8P),    pointer :: seam_rho_gpu(:)                   => null() !< Clamped density per row of
+                                                                        !< local_map_ghost_cell_gpu (its flag-4 rows): the
+                                                                        !< seam fill guard's part once per ghost (#157 B2).
    integer(I8P), pointer :: comm_map_recv_ghost_cell_gpu(:,:) => null() !< Communication map, `fec` information, cell order.
    integer(I8P), pointer :: comm_map_send_ghost_cell_gpu(:,:) => null() !< Communication map, `fec` information, cell order.
    real(R8P),    pointer :: send_buffer_ghost_gpu(:)          => null() !< Send buffer of ghost cells.
@@ -89,8 +94,19 @@ contains
    self%refine_ratio    = maps%refine_ratio
    self%seam_restriction = maps%seam_restriction
    self%seam_density_var = maps%seam_density_var
+   if (associated(self%local_map_ghost_cell_prol_gpu)) then
+      call dev_free(self%local_map_ghost_cell_prol_gpu, mydev)
+      nullify(self%local_map_ghost_cell_prol_gpu)
+   endif
+   if (associated(self%seam_rho_gpu)) then
+      call dev_free(self%seam_rho_gpu, mydev)
+      nullify(self%seam_rho_gpu)
+   endif
    if (allocated(maps%local_map_ghost_cell)) then
       call dev_assign_to_device(dst=self%local_map_ghost_cell_gpu, src=maps%local_map_ghost_cell)
+      ! the seam fill guard once per fine ghost (#157 B2): the flag-4 rows and a scratch value per row
+      call make_prolongation_rows(map=maps%local_map_ghost_cell, cflag=9, prol_gpu=self%local_map_ghost_cell_prol_gpu, &
+                                  rho_gpu=self%seam_rho_gpu)
       if (verbose_) call mpih_fnl%print_message('copy local_map_ghost_cell_gpu done ('// &
          trim(str(count(maps%local_map_ghost_cell(:,9) == 4_I8P)))//' seam flag-4 rows)')
    else
@@ -208,6 +224,14 @@ contains
       call dev_free(self%local_map_ghost_cell_gpu, mydev)
       nullify(self%local_map_ghost_cell_gpu)
    endif
+   if (associated(self%seam_rho_gpu)) then
+      call dev_free(self%seam_rho_gpu, mydev)
+      nullify(self%seam_rho_gpu)
+   endif
+   if (associated(self%local_map_ghost_cell_prol_gpu)) then
+      call dev_free(self%local_map_ghost_cell_prol_gpu, mydev)
+      nullify(self%local_map_ghost_cell_prol_gpu)
+   endif
    if (associated(self%comm_map_recv_ghost_cell_gpu)) then
       call dev_free(self%comm_map_recv_ghost_cell_gpu, mydev)
       nullify(self%comm_map_recv_ghost_cell_gpu)
@@ -249,6 +273,23 @@ contains
       nullify(self%seam_mpi_recv_cell_gpu)
    endif
    endsubroutine destroy
+
+   subroutine make_prolongation_rows(map, cflag, prol_gpu, rho_gpu)
+   !< The device list of the flag-4 (coarse->fine) rows of a ghost-cell map and a scratch value per row, for the seam
+   !< fill guard computed once per fine ghost (#157 B2); a map with no flag-4 row leaves both null. The caller frees any
+   !< previous allocation.
+   integer(I8P),          intent(in)    :: map(1:,1:)  !< Ghost-cell map (host).
+   integer(I4P),          intent(in)    :: cflag       !< Column of the kind flag.
+   integer(I4P), pointer, intent(inout) :: prol_gpu(:) !< The flag-4 rows (device).
+   real(R8P),    pointer, intent(inout) :: rho_gpu(:)  !< Scratch, one value per row (device).
+   integer(I4P), allocatable            :: rows(:)     !< The flag-4 rows (host).
+   integer(I4P)                         :: r           !< Counter.
+
+   rows = pack([(r, r=1, size(map, dim=1))], map(:,cflag) == 4_I8P)
+   if (size(rows, dim=1) == 0) return
+   call dev_assign_to_device(dst=prol_gpu, src=rows)
+   call dev_assign_to_device(dst=rho_gpu, src=spread(0._R8P, dim=1, ncopies=size(map, dim=1)))
+   endsubroutine make_prolongation_rows
 
    subroutine initialize(self, maps)
    !< Initialize maps from the (realm-local) CPU `maps`.

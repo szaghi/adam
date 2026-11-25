@@ -274,7 +274,9 @@ contains
                                    ri=self%maps%refine_ratio(1),                                      &
                                    rj=self%maps%refine_ratio(2),                                      &
                                    rk=self%maps%refine_ratio(3),q_gpu=q_gpu,                          &
-                                   seam_density_var=density_var)
+                                   seam_density_var=density_var,                                      &
+                                   prolongation_rows_gpu=self%maps%local_map_ghost_cell_prol_gpu,     &
+                                   seam_rho_gpu=self%maps%seam_rho_gpu)
    endsubroutine update_ghost_local_gpu
 
    subroutine reduce_ghost_local_gpu(self, q_gpu, v_first, v_last)
