@@ -137,6 +137,8 @@ one launch, a branch per row (V0). The variants:
 | D2 | D1 batched in shape classes, the member blocks innermost | D1 with the uniform benchmark's coalescing |
 | V0ng | V0 with the density guard off | the guard's cost |
 | D3 | prolongation per coarse anchor (tricubic, guard off): the 8 children's footprints gathered once, each child by ADAM's `seam_interpolate_tricubic` | the reads the children share |
+| V0p, V0png | since [#157](https://github.com/szaghi/adam/issues/157): the kernel of b8641a59 (its guard function copied verbatim into the harness), guard on and off | the before of #157 in the same run |
+| V0k, V0kng | since #157: ADAM's kernel on the rows sorted by kind, guard on and off | grouping the rows by kind |
 
 An owner mask (one integer per stored cell) reproduces the last-writer rule for the descriptor kernels. **Every variant,
 every regime pair, both GPUs: bit for bit identical to its reference** (V0, and V0ng for D3).
@@ -180,13 +182,45 @@ the same total row count; with the per-row costs above that implies about 26 % p
 
 1. **The density guard is the first target**, before any change of data structure: compute the density, its bound and
    the guard decision once per fine ghost and reuse them for the other variables (the same operations, done once:
-   bitwise). It is worth up to half of the 2:1 fill.
+   bitwise). It is worth up to half of the 2:1 fill. **Applied** ([below](#applied-the-density-guard-once-per-ghost)).
 2. **The prolongation operators are arithmetic** (5–23 ns per row): they belong to the first track. Sharing the
    children's footprints has to be cooperative (threads of a block through shared memory); the serial per-anchor thread
    is ruled out.
-3. **Group the rows by kind**: free with today's maps, bitwise, up to 38 % on the A30.
+3. **Group the rows by kind**: free with today's maps, bitwise, up to 38 % on the A30. **Measured with the guard
+   once: slower on the H100, not applied** ([below](#applied-the-density-guard-once-per-ghost)).
 4. **Descriptors need structure, not only compression**: few, regular, non-overlapping by construction (no owner mask),
    member blocks contiguous, the seam metadata precomputed per class.
+
+### Applied: the density guard once per ghost
+
+[#157](https://github.com/szaghi/adam/issues/157) B2 (2026-11-25) splits the device guard as the CPU's: a first
+kernel over the coarse-to-fine rows computes each fine ghost's clamped density once (`seam_guard_density_gpu_dev`) into
+a scratch value per row, and the fill applies it to each variable (`seam_guard_value_gpu_dev`); with the guard off the
+fill runs a kernel without the guard's code. The benchmark checks it in every run: bit for bit against the b8641a59
+kernel (V0p) on every regime pair and both GPUs, and against the CPU fill.
+
+![#157 on the production-like grid: the b8641a59 fill, the guard once per ghost, and the rows sorted by kind; guard on and off, H100 and A30](/developer/amr-ghost-i157.png)
+
+| Production-like grid (ms) | H100 before | H100 #157 | A30 before | A30 #157 |
+|---|---|---|---|---|
+| tricubic / mean (the defaults) | 2.54 | 1.67 (−34 %) | 7.83 | 6.77 (−14 %) |
+| quintic / lagrange6 | 3.94 | 2.37 (−40 %) | 13.58 | 7.16 (−47 %) |
+| quintic-mp / mean | 5.18 | 2.94 (−43 %) | 17.26 | 8.96 (−48 %) |
+| weno6 / weno6 | 8.57 | 5.22 (−39 %) | 31.61 | 19.76 (−37 %) |
+
+- **Every grid and regime pair is faster: 20–43 % on the H100, 3–50 % on the A30.** The tricubic fill on the H100 is
+  now 0.46 ms above its guard-off floor, against 1.39 ms before.
+- **With the guard off** (PRISM, and FLUME's non-state fields), against the b8641a59 kernel in the same run, the 6-point
+  regimes gain 8–20 % on the H100 and 5–19 % on the A30; tricubic moves by −0.3 to +6.3 % on the H100 (−12 to +2 % on
+  the A30): the b8641a59 kernel carried the guard's code unused, and that compiled shape happened to suit the
+  copy-dominated tricubic fill on the H100.
+- **Grouping the rows by kind does not pay with the guard once.** The same kernel on the rows sorted by kind is slower
+  on the H100 in 18 of 22 runs (guard off up to +16 %): the heavy prolongation threads become the tail of the launch,
+  while in ADAM's order they run beside the copies. The A30 still prefers the sorted rows (up to −33 %). The H100 is the
+  reference, and the guard-once kernel does not depend on the order, so the rows keep ADAM's order.
+
+Per-case numbers, the nvfortran hazards met on the way and the repeatability notes are in the benchmark's README
+(`src/tests/perf/ghost-fill/amr/README.md`, "#157").
 
 ## What it does not cover
 
@@ -205,7 +239,7 @@ the same total row count; with the per-row costs above that implies about 26 % p
    of description of its neighbourhood, including the 2:1 faces.
 2. **2:1 seams: the guard and the operators first.** The 2:1 benchmark shows the seam rows are arithmetic (the
    prolongation operators and, above all, the density guard), not data movement: a descriptor form of them pays only
-   once the guard is computed once per ghost and the footprints are shared cooperatively.
+   once the guard is computed once per ghost (done, #157 B2) and the footprints are shared cooperatively (#157 D).
 3. **One pass per refresh.** Local fill, boundary conditions and the blend run as three passes over three maps today;
    with slab descriptors they can be one fused pass per ghost refresh, which matters most where the refreshes are many
    (12 per step with the immersed body).

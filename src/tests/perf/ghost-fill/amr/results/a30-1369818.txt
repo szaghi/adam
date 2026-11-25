@@ -1,0 +1,341 @@
+# host gnode20.e4-cluster.lan 2026-11-25T13:51:49+01:00; nvfortran 26.9-0 64-bit target on x86-64 Linux -tp icelake-server ; varset iac_nvf
+0, NVIDIA A30, 24576 MiB, 1440 MHz, 0x0000000000000001
+## 24 2 0.75 tricubic mean 30 16.0
+# b  24 base level  2 box 0.750 fill tricubic restriction mean
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      7.945 ms
+V0p ADAM rows, guard per variable median      7.782 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      5.789 ms  bitwise vs V0 T  (guard off: V0kng      3.407 ms)
+V0s ADAM rows, one launch/kind   median      5.747 ms  (copy, restr, prol      2.346     0.315     3.077)  bitwise T
+D2  shape classes, one launch/kind median     12.641 ms  (copy, restr, prol      1.970     0.206    10.468)  bitwise T
+D1  descriptors, one launch/kind   median     15.978 ms  (copy, restr, prol      2.736     0.234    13.004)  bitwise T
+V0ng ADAM rows, guard off         median      3.362 ms  (prolongation rows      0.740)
+D3  prolongation per anchor (tricubic, guard off) median      1.500 ms  bitwise vs V0ng prolongation T
+
+## 24 2 0.75 tricubic lagrange6 30 16.0
+# b  24 base level  2 box 0.750 fill tricubic restriction lagrange6
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      6.403 ms
+V0p ADAM rows, guard per variable median      8.501 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      6.209 ms  bitwise vs V0 T  (guard off: V0kng      3.851 ms)
+V0s ADAM rows, one launch/kind   median      6.227 ms  (copy, restr, prol      2.344     0.794     3.075)  bitwise T
+D2  shape classes, one launch/kind median     13.229 ms  (copy, restr, prol      1.971     0.789    10.468)  bitwise T
+D1  descriptors, one launch/kind   median     16.603 ms  (copy, restr, prol      2.735     0.866    13.007)  bitwise T
+V0ng ADAM rows, guard off         median      3.879 ms  (prolongation rows      0.740)
+D3  prolongation per anchor (tricubic, guard off) median      1.502 ms  bitwise vs V0ng prolongation T
+
+## 24 2 0.75 tricubic weno6 30 16.0
+# b  24 base level  2 box 0.750 fill tricubic restriction weno6
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      9.737 ms
+V0p ADAM rows, guard per variable median     11.533 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      9.608 ms  bitwise vs V0 T  (guard off: V0kng      7.389 ms)
+V0s ADAM rows, one launch/kind   median      9.856 ms  (copy, restr, prol      2.347     4.428     3.077)  bitwise T
+D2  shape classes, one launch/kind median     16.348 ms  (copy, restr, prol      1.970     3.914    10.468)  bitwise T
+D1  descriptors, one launch/kind   median     20.101 ms  (copy, restr, prol      2.736     4.353    13.007)  bitwise T
+V0ng ADAM rows, guard off         median      7.183 ms  (prolongation rows      0.740)
+D3  prolongation per anchor (tricubic, guard off) median      1.499 ms  bitwise vs V0ng prolongation T
+
+## 24 2 0.75 quintic mean 30 16.0
+# b  24 base level  2 box 0.750 fill quintic restriction mean
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      6.590 ms
+V0p ADAM rows, guard per variable median     12.739 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      6.482 ms  bitwise vs V0 T  (guard off: V0kng      4.800 ms)
+V0s ADAM rows, one launch/kind   median      6.513 ms  (copy, restr, prol      2.345     0.315     3.846)  bitwise T
+D2  shape classes, one launch/kind median     11.768 ms  (copy, restr, prol      1.968     0.207     9.586)  bitwise T
+D1  descriptors, one launch/kind   median     12.748 ms  (copy, restr, prol      2.738     0.235     9.765)  bitwise T
+V0ng ADAM rows, guard off         median      4.763 ms  (prolongation rows      2.254)
+
+## 24 2 0.75 quintic lagrange6 30 16.0
+# b  24 base level  2 box 0.750 fill quintic restriction lagrange6
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      7.158 ms
+V0p ADAM rows, guard per variable median     13.520 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      6.927 ms  bitwise vs V0 T  (guard off: V0kng      5.253 ms)
+V0s ADAM rows, one launch/kind   median      6.997 ms  (copy, restr, prol      2.346     0.794     3.849)  bitwise T
+D2  shape classes, one launch/kind median     12.349 ms  (copy, restr, prol      1.969     0.790     9.582)  bitwise T
+D1  descriptors, one launch/kind   median     13.382 ms  (copy, restr, prol      2.735     0.867     9.762)  bitwise T
+V0ng ADAM rows, guard off         median      5.350 ms  (prolongation rows      2.254)
+
+## 24 2 0.75 quintic weno6 30 16.0
+# b  24 base level  2 box 0.750 fill quintic restriction weno6
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median     11.539 ms
+V0p ADAM rows, guard per variable median     16.358 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median     10.293 ms  bitwise vs V0 T  (guard off: V0kng      8.727 ms)
+V0s ADAM rows, one launch/kind   median     10.626 ms  (copy, restr, prol      2.346     4.427     3.847)  bitwise T
+D2  shape classes, one launch/kind median     15.468 ms  (copy, restr, prol      1.969     3.912     9.586)  bitwise T
+D1  descriptors, one launch/kind   median     16.873 ms  (copy, restr, prol      2.736     4.355     9.767)  bitwise T
+V0ng ADAM rows, guard off         median      8.447 ms  (prolongation rows      2.252)
+
+## 24 2 0.75 weno6 mean 30 16.0
+# b  24 base level  2 box 0.750 fill weno6 restriction mean
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median     15.875 ms
+V0p ADAM rows, guard per variable median     27.335 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median     15.635 ms  bitwise vs V0 T  (guard off: V0kng     13.609 ms)
+V0s ADAM rows, one launch/kind   median     15.686 ms  (copy, restr, prol      2.346     0.315    13.024)  bitwise T
+D2  shape classes, one launch/kind median     28.793 ms  (copy, restr, prol      1.970     0.207    26.602)  bitwise T
+D1  descriptors, one launch/kind   median     36.804 ms  (copy, restr, prol      2.736     0.235    33.827)  bitwise T
+V0ng ADAM rows, guard off         median     13.395 ms  (prolongation rows     10.843)
+
+## 24 2 0.75 weno6 lagrange6 30 16.0
+# b  24 base level  2 box 0.750 fill weno6 restriction lagrange6
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median     16.260 ms
+V0p ADAM rows, guard per variable median     27.997 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median     16.064 ms  bitwise vs V0 T  (guard off: V0kng     14.041 ms)
+V0s ADAM rows, one launch/kind   median     16.172 ms  (copy, restr, prol      2.345     0.794    13.027)  bitwise T
+D2  shape classes, one launch/kind median     29.381 ms  (copy, restr, prol      1.968     0.789    26.607)  bitwise T
+D1  descriptors, one launch/kind   median     37.444 ms  (copy, restr, prol      2.736     0.867    33.821)  bitwise T
+V0ng ADAM rows, guard off         median     13.782 ms  (prolongation rows     10.842)
+
+## 24 2 0.75 weno6 weno6 30 16.0
+# b  24 base level  2 box 0.750 fill weno6 restriction weno6
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median     19.757 ms
+V0p ADAM rows, guard per variable median     31.391 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median     19.594 ms  bitwise vs V0 T  (guard off: V0kng     17.621 ms)
+V0s ADAM rows, one launch/kind   median     19.880 ms  (copy, restr, prol      2.346     4.434    13.106)  bitwise T
+D2  shape classes, one launch/kind median     32.504 ms  (copy, restr, prol      1.968     3.910    26.600)  bitwise T
+D1  descriptors, one launch/kind   median     40.935 ms  (copy, restr, prol      2.737     4.354    33.809)  bitwise T
+V0ng ADAM rows, guard off         median     17.365 ms  (prolongation rows     10.841)
+
+## 24 2 0.75 quintic-mp mean 30 16.0
+# b  24 base level  2 box 0.750 fill quintic-mp restriction mean
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      8.979 ms
+V0p ADAM rows, guard per variable median     17.272 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      8.768 ms  bitwise vs V0 T  (guard off: V0kng      6.827 ms)
+V0s ADAM rows, one launch/kind   median      8.774 ms  (copy, restr, prol      2.345     0.314     6.120)  bitwise T
+D2  shape classes, one launch/kind median     17.027 ms  (copy, restr, prol      1.970     0.207    14.850)  bitwise T
+D1  descriptors, one launch/kind   median     20.062 ms  (copy, restr, prol      2.735     0.235    17.076)  bitwise T
+V0ng ADAM rows, guard off         median      6.962 ms  (prolongation rows      4.211)
+
+## 24 2 0.75 quintic-mp lagrange6 30 16.0
+# b  24 base level  2 box 0.750 fill quintic-mp restriction lagrange6
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      9.562 ms
+V0p ADAM rows, guard per variable median     18.093 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      9.201 ms  bitwise vs V0 T  (guard off: V0kng      7.272 ms)
+V0s ADAM rows, one launch/kind   median      9.255 ms  (copy, restr, prol      2.346     0.794     6.105)  bitwise T
+D2  shape classes, one launch/kind median     17.604 ms  (copy, restr, prol      1.968     0.790    14.844)  bitwise T
+D1  descriptors, one launch/kind   median     20.693 ms  (copy, restr, prol      2.737     0.867    17.075)  bitwise T
+V0ng ADAM rows, guard off         median      7.539 ms  (prolongation rows      4.215)
+
+## 24 2 0.75 quintic-mp weno6 30 16.0
+# b  24 base level  2 box 0.750 fill quintic-mp restriction weno6
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median     12.825 ms
+V0p ADAM rows, guard per variable median     21.142 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median     12.619 ms  bitwise vs V0 T  (guard off: V0kng     10.839 ms)
+V0s ADAM rows, one launch/kind   median     12.893 ms  (copy, restr, prol      2.345     4.431     6.105)  bitwise T
+D2  shape classes, one launch/kind median     20.723 ms  (copy, restr, prol      1.969     3.911    14.843)  bitwise T
+D1  descriptors, one launch/kind   median     24.172 ms  (copy, restr, prol      2.736     4.353    17.075)  bitwise T
+V0ng ADAM rows, guard off         median     10.810 ms  (prolongation rows      4.220)
+
+## 24 2 0.25 tricubic mean 30 16.0
+# b  24 base level  2 box 0.250 fill tricubic restriction mean
+# blocks      71 cells     0.982 M, levels   2-  3
+# descriptors     1058 (copy, restriction, prolongation:      978      19      61)
+# rows     665550 (copy, restriction, prolongation:     631962      5859     27729)
+# cells the descriptors cover (copy, restriction, prolongation)     631962      5859     27729 (minus the rows: the duplicates the dedupe removed)
+# shape classes    106 (copy, restriction, prolongation:     26    19    61)
+V0  ADAM rows, one launch       median      1.307 ms
+V0p ADAM rows, guard per variable median      1.515 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      1.028 ms  bitwise vs V0 T  (guard off: V0kng      0.727 ms)
+V0s ADAM rows, one launch/kind   median      1.005 ms  (copy, restr, prol      0.582     0.038     0.370)  bitwise T
+D2  shape classes, one launch/kind median      1.924 ms  (copy, restr, prol      0.453     0.071     1.392)  bitwise T
+D1  descriptors, one launch/kind   median      2.129 ms  (copy, restr, prol      0.677     0.071     1.375)  bitwise T
+V0ng ADAM rows, guard off         median      0.697 ms  (prolongation rows      0.091)
+D3  prolongation per anchor (tricubic, guard off) median      0.222 ms  bitwise vs V0ng prolongation T
+
+## 24 2 0.25 weno6 weno6 30 16.0
+# b  24 base level  2 box 0.250 fill weno6 restriction weno6
+# blocks      71 cells     0.982 M, levels   2-  3
+# descriptors     1058 (copy, restriction, prolongation:      978      19      61)
+# rows     665550 (copy, restriction, prolongation:     631962      5859     27729)
+# cells the descriptors cover (copy, restriction, prolongation)     631962      5859     27729 (minus the rows: the duplicates the dedupe removed)
+# shape classes    106 (copy, restriction, prolongation:     26    19    61)
+V0  ADAM rows, one launch       median      3.679 ms
+V0p ADAM rows, guard per variable median      3.554 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      2.436 ms  bitwise vs V0 T  (guard off: V0kng      2.137 ms)
+V0s ADAM rows, one launch/kind   median      2.548 ms  (copy, restr, prol      0.581     0.476     1.481)  bitwise T
+D2  shape classes, one launch/kind median      4.541 ms  (copy, restr, prol      0.454     0.501     3.585)  bitwise T
+D1  descriptors, one launch/kind   median      4.772 ms  (copy, restr, prol      0.677     0.507     3.582)  bitwise T
+V0ng ADAM rows, guard off         median      2.077 ms  (prolongation rows      1.187)
+
+## 24 2 0.5 tricubic mean 30 16.0
+# b  24 base level  2 box 0.500 fill tricubic restriction mean
+# blocks     120 cells     1.659 M, levels   2-  3
+# descriptors     2152 (copy, restriction, prolongation:     1694     127     331)
+# rows    1239084 (copy, restriction, prolongation:    1091286     27729    120069)
+# cells the descriptors cover (copy, restriction, prolongation)    1091286     27729    120069 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      3.323 ms
+V0p ADAM rows, guard per variable median      3.679 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      2.509 ms  bitwise vs V0 T  (guard off: V0kng      1.436 ms)
+V0s ADAM rows, one launch/kind   median      2.481 ms  (copy, restr, prol      0.970     0.137     1.364)  bitwise T
+D2  shape classes, one launch/kind median      5.246 ms  (copy, restr, prol      0.765     0.112     4.369)  bitwise T
+D1  descriptors, one launch/kind   median      6.952 ms  (copy, restr, prol      1.119     0.122     5.709)  bitwise T
+V0ng ADAM rows, guard off         median      1.384 ms  (prolongation rows      0.332)
+D3  prolongation per anchor (tricubic, guard off) median      0.694 ms  bitwise vs V0ng prolongation T
+
+## 24 2 0.5 weno6 weno6 30 16.0
+# b  24 base level  2 box 0.500 fill weno6 restriction weno6
+# blocks     120 cells     1.659 M, levels   2-  3
+# descriptors     2152 (copy, restriction, prolongation:     1694     127     331)
+# rows    1239084 (copy, restriction, prolongation:    1091286     27729    120069)
+# cells the descriptors cover (copy, restriction, prolongation)    1091286     27729    120069 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      9.134 ms
+V0p ADAM rows, guard per variable median     13.465 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      8.501 ms  bitwise vs V0 T  (guard off: V0kng      7.588 ms)
+V0s ADAM rows, one launch/kind   median      8.644 ms  (copy, restr, prol      0.970     1.896     5.765)  bitwise T
+D2  shape classes, one launch/kind median     13.100 ms  (copy, restr, prol      0.766     1.838    10.504)  bitwise T
+D1  descriptors, one launch/kind   median     17.832 ms  (copy, restr, prol      1.119     1.918    14.784)  bitwise T
+V0ng ADAM rows, guard off         median      7.402 ms  (prolongation rows      4.735)
+
+## 16 2 0.5 tricubic mean 30 16.0
+# b  16 base level  2 box 0.500 fill tricubic restriction mean
+# blocks     120 cells     0.492 M, levels   2-  3
+# descriptors     2152 (copy, restriction, prolongation:     1694     127     331)
+# rows     605052 (copy, restriction, prolongation:     528246     14049     62757)
+# cells the descriptors cover (copy, restriction, prolongation)     528246     14049     62757 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      1.834 ms
+V0p ADAM rows, guard per variable median      2.487 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      1.314 ms  bitwise vs V0 T  (guard off: V0kng      0.703 ms)
+V0s ADAM rows, one launch/kind   median      1.272 ms  (copy, restr, prol      0.444     0.073     0.745)  bitwise T
+D2  shape classes, one launch/kind median      2.913 ms  (copy, restr, prol      0.396     0.082     2.429)  bitwise T
+D1  descriptors, one launch/kind   median      3.786 ms  (copy, restr, prol      0.569     0.086     3.114)  bitwise T
+V0ng ADAM rows, guard off         median      0.668 ms  (prolongation rows      0.175)
+D3  prolongation per anchor (tricubic, guard off) median      0.464 ms  bitwise vs V0ng prolongation T
+
+## 16 2 0.5 quintic lagrange6 30 16.0
+# b  16 base level  2 box 0.500 fill quintic restriction lagrange6
+# blocks     120 cells     0.492 M, levels   2-  3
+# descriptors     2152 (copy, restriction, prolongation:     1694     127     331)
+# rows     605052 (copy, restriction, prolongation:     528246     14049     62757)
+# cells the descriptors cover (copy, restriction, prolongation)     528246     14049     62757 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      2.275 ms
+V0p ADAM rows, guard per variable median      3.347 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      1.485 ms  bitwise vs V0 T  (guard off: V0kng      1.054 ms)
+V0s ADAM rows, one launch/kind   median      1.545 ms  (copy, restr, prol      0.445     0.164     0.906)  bitwise T
+D2  shape classes, one launch/kind median      2.727 ms  (copy, restr, prol      0.394     0.213     2.091)  bitwise T
+D1  descriptors, one launch/kind   median      3.143 ms  (copy, restr, prol      0.569     0.214     2.317)  bitwise T
+V0ng ADAM rows, guard off         median      1.176 ms  (prolongation rows      0.472)
+
+## 32 2 0.5 tricubic mean 30 16.0
+# b  32 base level  2 box 0.500 fill tricubic restriction mean
+# blocks     120 cells     3.932 M, levels   2-  3
+# descriptors     2152 (copy, restriction, prolongation:     1694     127     331)
+# rows    2098908 (copy, restriction, prolongation:    1857078     46017    195813)
+# cells the descriptors cover (copy, restriction, prolongation)    1857078     46017    195813 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      5.869 ms
+V0p ADAM rows, guard per variable median      5.826 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      4.298 ms  bitwise vs V0 T  (guard off: V0kng      2.559 ms)
+V0s ADAM rows, one launch/kind   median      4.260 ms  (copy, restr, prol      1.795     0.218     2.236)  bitwise T
+D2  shape classes, one launch/kind median      8.280 ms  (copy, restr, prol      1.228     0.152     6.900)  bitwise T
+D1  descriptors, one launch/kind   median     11.237 ms  (copy, restr, prol      1.887     0.169     9.180)  bitwise T
+V0ng ADAM rows, guard off         median      2.516 ms  (prolongation rows      0.547)
+D3  prolongation per anchor (tricubic, guard off) median      0.982 ms  bitwise vs V0ng prolongation T
+
+## 32 2 0.5 quintic lagrange6 30 16.0
+# b  32 base level  2 box 0.500 fill quintic restriction lagrange6
+# blocks     120 cells     3.932 M, levels   2-  3
+# descriptors     2152 (copy, restriction, prolongation:     1694     127     331)
+# rows    2098908 (copy, restriction, prolongation:    1857078     46017    195813)
+# cells the descriptors cover (copy, restriction, prolongation)    1857078     46017    195813 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      7.108 ms
+V0p ADAM rows, guard per variable median      9.728 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median      5.022 ms  bitwise vs V0 T  (guard off: V0kng      3.765 ms)
+V0s ADAM rows, one launch/kind   median      5.076 ms  (copy, restr, prol      1.793     0.539     2.736)  bitwise T
+D2  shape classes, one launch/kind median      7.866 ms  (copy, restr, prol      1.224     0.585     6.045)  bitwise T
+D1  descriptors, one launch/kind   median      9.551 ms  (copy, restr, prol      1.888     0.596     7.053)  bitwise T
+V0ng ADAM rows, guard off         median      3.958 ms  (prolongation rows      1.511)
+
+## 24 3 0.5 tricubic mean 20 16.0 40
+# b  24 base level  3 box 0.500 fill tricubic restriction mean
+# blocks     960 cells    13.271 M, levels   3-  4
+# descriptors    20824 (copy, restriction, prolongation:    18674     631    1519)
+# rows   11252304 (copy, restriction, prolongation:   10633086    120069    499149)
+# cells the descriptors cover (copy, restriction, prolongation)   10633086    120069    499149 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median     15.425 ms
+V0p ADAM rows, guard per variable median     20.088 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median     16.157 ms  bitwise vs V0 T  (guard off: V0kng     11.046 ms)
+V0s ADAM rows, one launch/kind   median     16.036 ms  (copy, restr, prol      9.153     0.550     6.322)  bitwise T
+D2  shape classes, one launch/kind median     24.429 ms  (copy, restr, prol      9.787     0.330    14.309)  bitwise T
+D1  descriptors, one launch/kind   median     34.993 ms  (copy, restr, prol     10.758     0.364    23.874)  bitwise T
+V0ng ADAM rows, guard off         median     10.951 ms  (prolongation rows      1.425)
+D3  prolongation per anchor (tricubic, guard off) median      2.602 ms  bitwise vs V0ng prolongation T
+
+## 24 3 0.5 weno6 weno6 20 16.0 40
+# b  24 base level  3 box 0.500 fill weno6 restriction weno6
+# blocks     960 cells    13.271 M, levels   3-  4
+# descriptors    20824 (copy, restriction, prolongation:    18674     631    1519)
+# rows   11252304 (copy, restriction, prolongation:   10633086    120069    499149)
+# cells the descriptors cover (copy, restriction, prolongation)   10633086    120069    499149 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median     39.683 ms
+V0p ADAM rows, guard per variable median     65.489 ms  bitwise vs V0 T
+V0k ADAM rows by kind          median     43.266 ms  bitwise vs V0 T  (guard off: V0kng     39.423 ms)
+V0s ADAM rows, one launch/kind   median     43.470 ms  (copy, restr, prol      9.154     8.280    26.027)  bitwise T
+D2  shape classes, one launch/kind median     62.129 ms  (copy, restr, prol      9.809     7.956    44.356)  bitwise T
+D1  descriptors, one launch/kind   median     83.191 ms  (copy, restr, prol     10.752     8.276    64.139)  bitwise T
+V0ng ADAM rows, guard off         median     38.827 ms  (prolongation rows     22.275)
+
+0, 1440 MHz, 0x0000000000000000

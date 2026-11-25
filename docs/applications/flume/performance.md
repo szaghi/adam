@@ -204,7 +204,9 @@ is nvfortran 26.3 with CUDA 12.9; every job checked first that no GPU was thrott
 
 The tables, the jobs and the method are in the speedup README's "ESA SpaceHPC" section; the 8-node points are queued.
 How far the ghost fill itself is from the GPU's memory floor (10–16 % of the copy rate today, 43–57 % with structured
-slab copies, 3–5.5 times faster) is measured in the [ghost-fill benchmark](/developer/ghost-fill-benchmark).
+slab copies, 3–5.5 times faster) is measured in the [ghost-fill benchmark](/developer/ghost-fill-benchmark), and so is
+the 2:1 fill of an AMR grid, whose density guard now runs once per fine ghost (20–43 % faster on the H100,
+[#157](https://github.com/szaghi/adam/issues/157)).
 
 ## Device memory
 
@@ -302,7 +304,7 @@ the accuracy-first paths:
 |---|---|---|
 | The regrid runs on the host at every regrid step | 22–27 % of a runtime step on 4 A30, also when the grid does not change | per-phase timers, then marking on the device |
 | The runtime layout keeps sibling sets whole and splits every realm from rank 0 | the CPU runtime step stops at 64 ranks; legs 1 and 3 gain nothing from runtime AMR on the CPU node | offset or joint split of the realms, weighted by cells; split sibling sets between regrids |
-| A cell of the sphere's AMR grid costs twice a uniform cell on the A30 | grid efficiency 0.51 on 4 A30 | one kernel per kind of ghost row (copy, interpolation, restriction), then a cheaper interpolation |
+| A cell of the sphere's AMR grid costs twice a uniform cell on the A30 | grid efficiency 0.51 on 4 A30 | [#157](https://github.com/szaghi/adam/issues/157): the density guard once per fine ghost, **applied** (the 2:1 fill 20–43 % faster on the H100 benchmark, 3–50 % on the A30; the sphere's step not re-measured); one kernel per kind of row, measured, not applied (slower on the H100); structured descriptors and a cooperative prolongation planned ([ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-density-guard-once-per-ghost)) |
 | A 2-D block stores ghost layers along its null axis; realms share the device equally | the step fits ~1.7 M cells per A30 | no ghosts on a null axis; device share in proportion to stored cells |
 | The FNL job's free-memory check sees the batch node only | multi-node jobs | check every node |
 

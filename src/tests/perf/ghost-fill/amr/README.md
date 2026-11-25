@@ -26,6 +26,9 @@ metadata, deduplicated so that the last descriptor covering a ghost wins (#22 F1
 | D2 | D1 batched in shape classes (same kind, ranges, shifts), the member blocks innermost | D1 with the uniform benchmark's coalescing |
 | V0ng | V0 with the density guard off | the guard's cost; the reference of D3 |
 | D3 | prolongation per coarse anchor (tricubic, guard off): the union of its 8 children's 4^3 footprints gathered once, each child interpolated by ADAM's `seam_interpolate_tricubic` on its slice | the reads the children of an anchor share |
+| V0p | since #157: the kernel of b8641a59 (a verbatim copy of its `interp_seam_ghost_gpu_dev` in the harness: the guard recomputed per variable) on the same rows | the before of #157 in the same run, and its bitwise check |
+| V0png | since #157: V0p with the guard off | the b8641a59 guard-off fill in the same run |
+| V0k, V0kng | since #157: ADAM's kernel on a copy of the rows sorted by kind (copy, restriction, prolongation), guard on and off | #157 A1, rows grouped by kind |
 
 Overlapping descriptors: an owner mask (one int32 per stored cell of every block, from the descriptor order) gives each
 ghost its winning descriptor; D1, D2 and D3 write a ghost only from its owner, ADAM's last-writer rule. **Every variant
@@ -100,15 +103,70 @@ total row count: the difference is the mix. With the per-row costs above, 2c's l
 against 9.7 % in the box: plausible for a refinement that hugs a sphere over three levels (more seam surface per volume
 than a box), but 2c's row mix is not measured.
 
+## #157: the density guard once per fine ghost (2026-11-25)
+
+The first two actions of [#157](https://github.com/szaghi/adam/issues/157), measured with this benchmark.
+
+**B2, applied.** The guard's part that is the same for every variable of a fine ghost (its interpolated density,
+clamped to its bound) is computed once, by a first kernel over the coarse->fine rows, into a scratch value per row;
+the fill reads it back per variable (`seam_guard_density_gpu_dev`, `seam_guard_value_gpu_dev`, the device twins of the
+CPU's `seam_guard_prepare` and `seam_guard_value`). With the guard off the fill runs a kernel without the guard's code.
+Bitwise: V0 against V0p (the b8641a59 kernel), every run, every regime pair, both GPUs; and V0 against the CPU fill
+(`field_object%update_ghost_local`) on tricubic and weno6 (quintic and quintic-mp differ CPU/GPU in the b8641a59
+kernel already, in the same blocks).
+
+Results: `results/h100-184279.txt` (SpaceHPC H100, job 184279), `results/a30-1369818.txt` and `results/a30-1369821.txt`
+(medooza A30, two passes of the same kernel: the A30's guarded fill is bimodal between passes, 10 of 22 cases within
+1 %, up to 38 % apart, as in the study, so the figures take the lower; its guard-off fill repeats within 1.2 %; the H100
+reproduces an earlier pass within 1.6 %).
+
+![#157 on the production-like grid, guard on and off, H100 and A30](../../../../../docs/public/developer/amr-ghost-i157.png)
+
+**The fill on the production-like grid** (ms; "before" is the study's run of b8641a59, its V0 reproduced by V0p
+within 1 % on the H100):
+
+| Prolongation / restriction | H100 before | H100 #157 | A30 before | A30 #157 |
+|---|---|---|---|---|
+| tricubic / mean | 2.54 | 1.67 (-34 %) | 7.83 | 6.77 (-14 %) |
+| tricubic / lagrange6 | 2.67 | 1.80 (-32 %) | 11.51 | 6.40 (-44 %) |
+| quintic / lagrange6 | 3.94 | 2.37 (-40 %) | 13.58 | 7.16 (-47 %) |
+| quintic-mp / mean | 5.18 | 2.94 (-43 %) | 17.26 | 8.96 (-48 %) |
+| weno6 / mean | 7.53 | 4.32 (-43 %) | 27.52 | 15.78 (-43 %) |
+| weno6 / weno6 | 8.57 | 5.22 (-39 %) | 31.61 | 19.76 (-37 %) |
+
+- **Every case is faster: H100 -20 to -43 %, A30 -3 to -50 %** (the other grids: refined fraction, block edge 16 and
+  32, the larger load). The tricubic fill (1.67 ms on the H100) is now 0.46 ms above its guard-off floor (1.21),
+  against 1.39 before.
+- **Guard off** (the fill of PRISM and of FLUME's non-state fields), against the b8641a59 kernel with the guard off in
+  the same run (V0png): the 6-point regimes 8-20 % faster on the H100, 5-19 % on the A30; tricubic -0.3 to +6.3 % on
+  the H100, -12 to +2 % on the A30. The b8641a59 kernel carried the guard's code unused at `density_var = 0`, and that
+  compiled shape suits the copy-dominated tricubic fill on the H100; keeping a second device implementation of the
+  guard for it is the alternative, not taken.
+
+**A1, rows grouped by kind: measured, not applied.** The study's per-kind launches suggested that sorting the rows by
+kind would remove the branch divergence (up to 38 % on the A30). With B2, V0k (the same kernel on the rows sorted by
+kind) is slower than ADAM's order on the H100 in 18 of 22 runs (guard on up to +6 %, guard off up to +16 %): sorted,
+the heavy prolongation threads are the tail of the launch, while in ADAM's order they run next to the copies. The A30
+still prefers the sorted rows (faster in 20 of 22 runs, up to -33 %; +9 % at the larger load). The H100 is the
+reference; B2 does not depend on the row order.
+
+**Two nvfortran 26.9 hazards** found while building B2 (both avoided with scalar temporaries):
+- an element of a `deviceptr` scratch array passed by reference to an `acc routine seq` function inside a collapse(2)
+  kernel faulted (CUDA error 700, A30, H100 and the WSL box);
+- `rho = f(..., rho_in=rho)` (an actual argument that is also the assignment target of the function result) returned
+  a wrong density in device code (37 of 120 blocks against the CPU fill).
+
 ## What it says for the redesign
 
 1. **The density guard is the first target of the 2:1 fill**, before any data-structure change: compute the density,
    its bound and the guard decision once per fine ghost and reuse them for the other variables (bitwise: the same
-   operations, done once). On this grid it is worth up to half of the fill.
+   operations, done once). On this grid it is worth up to half of the fill. **Applied (#157 B2): -20 to -43 % on the
+   H100, -3 to -50 % on the A30.**
 2. **The prolongation operators are compute, not data movement**: 5-23 ns per row, 14-64 copy rows. They belong to the
    first track (arithmetic) more than to the second; a block-cooperative kernel (the children of a set of anchors
    sharing their footprints through shared memory) is the path the per-thread D3 rules out.
-3. **Group the rows by kind**: free with today's maps, bitwise, up to 38 % on the A30.
+3. **Group the rows by kind**: free with today's maps, bitwise, up to 38 % on the A30. **Measured with B2 (#157 A1):
+   slower on the H100, not applied.**
 4. **Descriptors need structure, not just compression**: on AMR the gain of the uniform slabs comes back only if the
    descriptors are few and regular (non-overlapping by construction, no owner mask, member blocks contiguous) and the
    seam metadata stays precomputed per class rather than per cell.

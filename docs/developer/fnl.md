@@ -123,7 +123,8 @@ All routines carry `!$acc parallel loop independent` and `DEVICEVAR` on every de
 | `pack_blocks_transposed_dev`, `unpack_blocks_transposed_dev` | Layout transposition of the state |
 | `populate_send_buffer_ghost_gpu_dev` | Pack ghosts into the MPI send buffer (1-cell and 8-cell AMR averaging) |
 | `receive_recv_buffer_ghost_gpu_dev` | Unpack the MPI receive buffer into ghosts |
-| `update_ghost_local_gpu_dev` | Intra-rank block-to-block ghost update, with AMR coarse↔fine averaging |
+| `update_ghost_local_gpu_dev` | Intra-rank block-to-block ghost update: copies, fine → coarse restrictions (mean, 6-point Lagrange, WENO) and coarse → fine seam interpolations; with the density guard on, a first kernel computes the guard's part once per fine ghost, then the guarded fill; with the guard off, a fill without the guard's code ([#157](https://github.com/szaghi/adam/issues/157)) |
+| `seam_guard_density_gpu_dev`, `seam_guard_value_gpu_dev` | The density guard of the seam fill ([#101](https://github.com/szaghi/adam/issues/101)) in two parts, device twins of the CPU's `seam_guard_prepare` and `seam_guard_value`: the interpolated density of a fine ghost clamped to its bound (once per ghost), then its application to one variable |
 
 ## WENO reconstruction
 
@@ -187,13 +188,19 @@ communication tables to the device, so ghost packing and unpacking need no CPU s
 
 | Device array | Columns | Content |
 |--------------|---------|---------|
-| `local_map_ghost_cell_gpu` | 9 | `(b_src, b_dst, i_src, j_src, k_src, i_dst, j_dst, k_dst, mode)` |
+| `local_map_ghost_cell_gpu` | 10 | `(b_src, b_dst, i_src, j_src, k_src, i_dst, j_dst, k_dst, mode, meta)` |
+| `local_map_ghost_cell_prol_gpu` | — | The `mode = 4` rows of `local_map_ghost_cell_gpu` (null if none) |
+| `seam_rho_gpu` | — | Scratch of the local fill, one value per row: the clamped density of each `mode = 4` row (the guard's part, once per fine ghost) |
 | `comm_map_send_ghost_cell_gpu` | 7 | `(b_src, i, j, k, v_offset, buf_idx, mode)` |
 | `comm_map_recv_ghost_cell_gpu` | 6 | `(buf_idx, b_dst, i, j, k, v_offset)` |
 | `send_buffer_ghost_gpu`, `recv_buffer_ghost_gpu` | — | Packed MPI buffers |
 | `local_map_bc_crown_gpu` | — | Boundary-condition crown map |
 
-`mode = 1`: one-to-one cells (same level); `mode = 8`: eight-cell average (fine → coarse at an AMR interface).
+`mode = 1`: one-to-one cells (same level); `mode = 8`: fine → coarse restriction at an AMR interface (the mean of the
+2×2×2 fine cells, or the 6-point Lagrange or WENO restriction coded in `meta`); `mode = 4`: coarse → fine interpolation
+of the seam ghost (regime of `[amr] seam_ghost_fill`, anchor and octant packed in `meta`). The rows keep the order of
+the map build: grouping them by kind was measured and is slower on the H100 with the guard once per ghost (the
+prolongations become the tail of the launch; [ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-density-guard-once-per-ghost)).
 
 | Method | Purpose |
 |--------|---------|

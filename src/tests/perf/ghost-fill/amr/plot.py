@@ -3,7 +3,10 @@
 
 Reads every `results/h100-*.txt` and `results/a30-*.txt` of run.sh (in job order, a later run of a case replacing an
 earlier one) and writes into --out, each with its silver-ink
-twin `<name>-dark.png` under --theme both (docs/scripts/figure_theme.py):
+twin `<name>-dark.png` under --theme both (docs/scripts/figure_theme.py). The files of the study (2026-11-25, the
+kernel of b8641a59) draw the first three figures; the files of the #157 kernel (they have a V0p line: the density
+guard once per fine ghost, with the b8641a59 kernel and the rows sorted by kind measured in the same run) draw the
+fourth:
 
     amr-ghost-kinds.png     the fill on the production-like grid (253 blocks of 24^3, levels 2-3, 2.87 M rows) for every
                             prolongation x restriction pair, split by kind (copy, restriction, prolongation: the V0s
@@ -13,6 +16,10 @@ twin `<name>-dark.png` under --theme both (docs/scripts/figure_theme.py):
     amr-ghost-variants.png  the variants on that grid for the default pair (tricubic / mean) and the WENO pair: today
                             (V0), split by kind (V0s), descriptor kernels (D1, D2), guard off (V0ng) and, for the
                             prolongation, the per-anchor kernel (D3) against V0ng's prolongation
+    amr-ghost-i157.png      #157 on that grid, every regime pair, H100 and A30, the density guard on and off: the fill
+                            of b8641a59 (the study's V0 and V0ng), the #157 fill (V0: the guard once per fine ghost,
+                            ADAM's row order; V0ng: the kernel without the guard) and the same kernel on the rows
+                            sorted by kind (V0k, V0kng: action A1)
 
 Needs matplotlib and numpy (on WSL: exe/.regression-venv/bin/python).
 
@@ -55,6 +62,10 @@ ROWS = re.compile(
     r"^# rows\s+(\d+) \(copy, restriction, prolongation:\s+(\d+)\s+(\d+)\s+(\d+)\)"
 )
 V0 = re.compile(r"^V0  .*median\s+([\d.]+) ms")
+V0P = re.compile(r"^V0p .*median\s+([\d.]+) ms\s+bitwise vs V0 (\w)")
+V0K = re.compile(
+    r"^V0k .*median\s+([\d.]+) ms\s+bitwise vs V0 (\w)\s+\(guard off: V0kng\s+([\d.]+) ms\)"
+)
 SPLIT = re.compile(
     r"^(V0s|D1|D2) .*median\s+([\d.]+) ms\s+\(copy, restr, prol\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\)\s+bitwise (\w)"
 )
@@ -84,6 +95,14 @@ def read(path: Path) -> list[Run]:
             runs[-1]["rows"] = [int(m.group(k)) for k in (2, 3, 4)]
         elif m := V0.match(line):
             runs[-1]["V0"] = float(m.group(1))
+        elif m := V0P.match(line):
+            if m.group(2) != "T":
+                sys.exit(f"plot.py: {path.name}: V0p not bitwise in {runs[-1]}")
+            runs[-1]["V0p"] = float(m.group(1))
+        elif m := V0K.match(line):
+            if m.group(2) != "T":
+                sys.exit(f"plot.py: {path.name}: V0k not bitwise in {runs[-1]}")
+            runs[-1]["V0k"] = (float(m.group(1)), float(m.group(3)))
         elif m := SPLIT.match(line):
             if m.group(6) != "T":
                 sys.exit(
@@ -278,6 +297,62 @@ def fig_variants(data: dict[str, list[Run]], out: Path) -> None:
     plt.close(fig)
 
 
+def fig_i157(
+    study: dict[str, list[Run]], after: dict[str, list[Run]], out: Path
+) -> None:
+    """Per regime pair, guard on (top) and off (bottom): b8641a59, #157 (ADAM's row order), the rows sorted by kind."""
+    fig, axes = plt.subplots(2, 2, figsize=(11.0, 7.6), layout="constrained")
+    short = {
+        "tricubic": "tric",
+        "quintic": "quin",
+        "quintic-mp": "q-mp",
+        "weno6": "weno6",
+        "mean": "mean",
+        "lagrange6": "lag6",
+    }
+    labels = [f"{short[f]}\n{short[r]}" for f in FILLS for r in RESTRS]
+    names = (
+        ("b8641a59 (the study's run)", PAPER_PALETTE[2]),
+        ("#157: guard once per ghost, ADAM's row order", PAPER_PALETTE[1]),
+        ("#157 on the rows sorted by kind (A1)", PAPER_PALETTE[4]),
+    )
+    w = 0.27
+    for col, gpu in enumerate(after):
+        for row, guard in enumerate(("on", "off")):
+            ax = axes[row, col]
+            for x, (f, r) in enumerate((f, r) for f in FILLS for r in RESTRS):
+                old, new = prod(study[gpu], f, r), prod(after[gpu], f, r)
+                if guard == "on":
+                    vals = (old["V0"], new["V0"], new["V0k"][0])
+                else:
+                    vals = (old["V0ng"][0], new["V0ng"][0], new["V0k"][1])
+                for k, ((name, c), v) in enumerate(zip(names, vals, strict=True)):
+                    ax.bar(
+                        x + (k - 1) * w,
+                        v,
+                        width=w,
+                        color=c,
+                        label=name if x == 0 else None,
+                    )
+                ax.text(
+                    x,
+                    vals[1],
+                    f"{100 * (vals[1] / vals[0] - 1):+.0f}%",
+                    ha="center",
+                    va="bottom",
+                    fontsize=5.5,
+                )
+            ax.set_xticks(range(len(labels)), labels, fontsize=6.5)
+            ax.set_title(f"{gpu}, density guard {guard}", fontsize=10)
+            ax.grid(axis="y", alpha=0.3)
+        axes[1, col].set_xlabel("prolongation / restriction regime")
+    for row in range(2):
+        axes[row, 0].set_ylabel("ms per fill (2:1 grid, 253 blocks of 24^3)")
+    axes[0, 0].legend(fontsize=8, frameon=False, loc="upper left")
+    fig.savefig(out, dpi=DPI)
+    plt.close(fig)
+
+
 def main() -> int:
     """Read the newest result file of each GPU, draw the three figures in every requested theme."""
     parser = argparse.ArgumentParser(
@@ -288,6 +363,7 @@ def main() -> int:
     parser.add_argument("--theme", choices=("light", "dark", "both"), default="light")
     args = parser.parse_args()
     data: dict[str, list[Run]] = {}
+    after: dict[str, list[Run]] = {}
     for gpu, pattern in (("H100", "h100-*.txt"), ("A30", "a30-*.txt")):
         files = sorted(
             args.results.glob(pattern),
@@ -298,22 +374,41 @@ def main() -> int:
         merged: dict[
             tuple, Run
         ] = {}  # every file, in job order: a later run of the same case replaces it
+        merged_after: dict[tuple, Run] = {}
         for path in files:
-            for run in read(path):
+            runs = read(path)
+            if any("V0p" in run for run in runs):  # the #157 kernel
+                for run in runs:
+                    key = (run["b"], run["base"], run["box"], run["fill"], run["restr"])
+                    if key in merged_after:
+                        # the A30's guarded fill is bimodal between passes (README, "#157"): keep the lower times
+                        for v in ("V0", "V0p"):
+                            run[v] = min(run[v], merged_after[key][v])
+                        run["V0k"] = tuple(
+                            map(min, run["V0k"], merged_after[key]["V0k"])
+                        )
+                    merged_after[key] = run
+                continue
+            for run in runs:
                 key = (run["b"], run["base"], run["box"], run["fill"], run["restr"])
                 if key in merged:
                     # V0 on the A30 ran 3-34 % slow in a few passes (README, "Repeatability"): keep its lower time
                     run["V0"] = min(run["V0"], merged[key]["V0"])
                 merged[key] = run
         data[gpu] = list(merged.values())
+        if merged_after:
+            after[gpu] = list(merged_after.values())
     args.out.mkdir(parents=True, exist_ok=True)
     for t in themes(args.theme):
         with theme(t):
             fig_kinds(data, args.out / "amr-ghost-kinds.png")
             fig_row_cost(data, args.out / "amr-ghost-row-cost.png")
             fig_variants(data, args.out / "amr-ghost-variants.png")
+            if len(after) == 2:
+                fig_i157(data, after, args.out / "amr-ghost-i157.png")
     print(
-        f"plot.py: amr-ghost-{{kinds,row-cost,variants}}.png in {args.out} ({args.theme})"
+        f"plot.py: amr-ghost-{{kinds,row-cost,variants}}.png"
+        f"{' and amr-ghost-i157.png' if len(after) == 2 else ''} in {args.out} ({args.theme})"
     )
     return 0
 
