@@ -365,7 +365,7 @@ CPU node's spread or worse).
 | 1 | subnormal arithmetic | CPU, developed states | -35 % (1 node) to -47 % (8 nodes) on 2a | **applied**: the GNU optimized builds link with `-mdaz-ftz` (below) |
 | 2 | GPU halo between nodes at 1.5 GB/s | FNL, multi-node | up to ~9 ms of the ~12 ms per exchange (estimate at 23.5 GB/s host path plus the two device copies) | stage the inter-node halo through pinned host buffers; or GPUDirect RDMA on medooza (`nvidia_peermem`, admins); on the H100 nodes, which have GPUDirect RDMA, an exchange between nodes waits ~1.4 ms ("ESA SpaceHPC"), so the cluster fix is the answer: host staging in the code was declined as medooza-specific (#156) |
 | 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges; on the H100 nodes the body's cost is the local fills, BC and pack/unpack, not MPI, so the restriction must cover them too (#156 L2) |
-| 4 | the two `MPI_Barrier` per ghost exchange | both | 0.4-1.2 % (GPU), none (CPU) | remove (bitwise identical in every pair) |
+| 4 | the two `MPI_Barrier` per ghost exchange | both | 0.4-1.2 % (GPU), none (CPU) | **applied** (2026-11-25): removed from `update_ghost_mpi` / `update_ghost_mpi_gpu`, the suites bitwise (medooza jobs 1369786, 1369787) |
 | 5 | across-the-pairs link in a node (17.7 GB/s) | FNL, 4 A30 | the 13-30 % of "Grid size" | rank order that keeps neighbours in an NVLink pair (medooza only: the H100 nodes are NV6 all-to-all, no such step) |
 
 **Applied (2026-11-24): `-mdaz-ftz`.** The GNU optimized template links with `-mdaz-ftz` (`fobos.d/templates.fobos`,
@@ -486,7 +486,7 @@ leaving it.
   waitall +2.5), its kernels 10. Its 12 exchanges per step multiply the local fills and the boundary conditions as
   much as the MPI exchanges: lever 2 of #156 (restricted eikonal exchanges) must restrict all three.
 - **The two barriers** of every exchange cost 0.1-2.8 ms per step with the body (0.1-1.2 % of the step), growing
-  with the node count; the 8-node plan times them off.
+  with the node count; the 8-node plan times them off. Removed from the code since (2026-11-25): these runs predate it.
 
 ### The accuracy-first paths: runtime AMR and 2-D (baselines)
 

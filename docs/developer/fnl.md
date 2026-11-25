@@ -99,7 +99,10 @@ exchanges with its own decomposition.
 
 ### GPU-direct ghost exchange
 
-`update_ghost_mpi_gpu` posts `MPI_Isend`/`MPI_Irecv` directly on the device ghost buffers (`send_buffer_ghost_gpu`,
+`update_ghost_mpi_gpu` posts `MPI_Isend`/`MPI_Irecv` directly on the device ghost buffers and waits with
+`MPI_Waitall`, with no global barrier before or after (removed 2026-11-25: after the wait the rank's buffers are done,
+and MPI's non-overtaking rule matches every message to the receive of its own exchange; a rank with no message posts
+nothing, so the exchange is not collective). It posts on the device ghost buffers (`send_buffer_ghost_gpu`,
 `recv_buffer_ghost_gpu`), which lets CUDA-aware MPI use GPUDirect RDMA. There is no host-staging fallback. Measured with `ucx_perftest` (33 MB,
 [performance](/applications/flume/performance#another-machine-h100-nodes-with-gpudirect-rdma)): GPU to GPU between nodes
 52.4 GB/s on ESA SpaceHPC (H100, GPUDirect RDMA through dma-buf), 1.5 GB/s on medooza (A30, no GPUDirect RDMA: UCX

@@ -177,7 +177,7 @@ with the CPU build flushing subnormals it is 11.4.
 | 1 | subnormal arithmetic (CPU) | −35 to −47 % per step on developed states | **applied**: the GNU builds link with `-mdaz-ftz`, flush to zero from the start ([build notes](/start/install)) |
 | 2 | GPU halo between nodes at 1.5 GB/s | up to ~9 ms of the ~12 ms per exchange (estimate) | GPUDirect RDMA on the cluster: on the H100 nodes, which have it, an exchange between nodes waits ~1.4 ms ([below](#another-machine-h100-nodes-with-gpudirect-rdma)); host staging in the code was declined as specific to medooza |
 | 3 | 12 ghost exchanges per step with an immersed body | up to 9 of the 12 | exchange only what the eikonal iterations need, in the local fills and the boundary conditions too (on the H100 nodes those, not MPI, carry the body's cost); [#156](https://github.com/szaghi/adam/issues/156) |
-| 4 | two global barriers per ghost exchange | 0.4–1.2 % on the A30 nodes, 0.1–1.2 % on the H100 nodes | remove (results bitwise identical); #156 |
+| 4 | two global barriers per ghost exchange | 0.4–1.2 % on the A30 nodes, 0.1–1.2 % on the H100 nodes | **applied** (2026-11-25): removed from `update_ghost_mpi` and `update_ghost_mpi_gpu`; FLUME, PRISM and RIPPLE suites bitwise on both backends |
 | 5 | the link between the NVLink pairs (17.7 GB/s) | part of the 13–30 % of the third and fourth A30 | place neighbouring subdomains on the same NVLink pair (medooza only: the H100 nodes join every pair by NVLink and show no such step) |
 
 ## Another machine: H100 nodes with GPUDirect RDMA

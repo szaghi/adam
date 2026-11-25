@@ -2643,8 +2643,9 @@ contains
                                                                           !< FD path does not accumulate seam fluxes).
 
    if (present(flux_register)) continue ! FV-only machinery; accepted for interface conformance
-   ! The ghost update is collective (MPI_Barrier in update_ghost_mpi_gpu): a rank that owns no block of this realm
-   ! takes part too, as on the CPU, or the ranks that own blocks wait for it forever (issue #52).
+   ! A rank that owns no block of this realm calls the ghost update too, as on the CPU. Until #156 L1 the update was
+   ! collective (two MPI_Barrier in update_ghost_mpi_gpu) and skipping it hung the others (issue #52); it no longer is,
+   ! and the call stays: it posts nothing and returns.
    if (present(s)) then
       call self%update_ghost(q_gpu=q_gpu, s=s)
    else

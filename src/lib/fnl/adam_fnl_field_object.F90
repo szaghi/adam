@@ -425,14 +425,14 @@ contains
    endif
 
    if (do_step(3)) then
+      ! No barrier before or after (issue #156 L1), as in the CPU update_ghost_mpi: after MPI_WAITALL the receive buffer
+      ! is filled and the send buffer free; tag reuse across exchanges is safe by MPI's non-overtaking rule.
       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
-      call MPI_Barrier(MPI_COMM_WORLD, error)
       call receive_recv_buffer_ghost_gpu_dev(ngc=ngc,                                                             &
                                              comm_map_recv_ghost_cell_gpu=self%maps%comm_map_recv_ghost_cell_gpu, &
                                              recv_buffer_ghost_gpu=self%maps%recv_buffer_ghost_gpu,               &
                                              q_gpu=q_gpu)
    endif
-   call MPI_Barrier(MPI_COMM_WORLD, error)
    endassociate
    endsubroutine update_ghost_mpi_gpu
 endmodule adam_fnl_field_object
