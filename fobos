@@ -113,6 +113,11 @@ $HDF5_PREFIX = lib/hdf5/develop/amd/latest
 # (include -> .../include, lib -> .../lib64). LOCAL, not for commit.
 $HDF5_PREFIX = /home/giarossi/hdf5-2.2.0-shim
 
+[varset:thera_amd_afar244]
+# thera, mbycklin's spack modules: rocm-afar-drop/24.4.0 + rocm-openmpi/5.0.11 + rocm-hdf5/1.14.6 (the HDF5 built with that
+# Open MPI; thera_amd's prefix belongs to another build). LOCAL, not for commit.
+$HDF5_PREFIX = /mnt/thera/data/incoming/mbycklin/spack/install/linux-zen4/hdf5-1.14.6-hmpxzyfqvatccxu4bta5coowqbighzbh
+
 [varset:thera_amd]
 $HDF5_PREFIX = /mnt/thera/data/incoming/mbycklin/spack/install/linux-zen4/hdf5-1.14.6-zwo77eq6dyjllcapikwnnc7v4lrjknik
 
