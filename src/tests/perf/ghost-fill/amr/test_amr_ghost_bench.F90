@@ -22,12 +22,18 @@ program test_amr_ghost_bench
 !<        metadata computed on the device by ADAM's own pure routines, the value by ADAM's own operators
 !<        (interp_seam_ghost_gpu_dev, restrict_seam_high_order_gpu_dev, the mean as in V0);
 !<   D2   D1 with the descriptors batched into shape classes (same kind, ranges and shifts: only the blocks differ), the
-!<        member innermost so that consecutive threads touch consecutive blocks (the uniform benchmark's V3/V5 layout).
+!<        member innermost so that consecutive threads touch consecutive blocks (the uniform benchmark's V3/V5 layout);
+!<   V0ng V0 with the density guard off (timing of the interpolation alone, and the reference of D3);
+!<   D3   prolongation per coarse anchor (tricubic only, guard off): the union of its children's 4^3 footprints gathered
+!<        once, then every child interpolated by ADAM's seam_interpolate_tricubic on its slice: the reads the 8 children
+!<        of one anchor share are made once; bitwise equal to V0ng's prolongation.
 !< Overlapping descriptors: an owner mask (int32 per stored cell of every block, built on the host from the descriptor
 !< order) gives each ghost the descriptor that wins; D1/D2 write a ghost only from its owner. This is ADAM's
 !< last-writer rule, so every variant must equal V0 bit for bit; each is checked after its timing.
 !<
-!< Usage: test_amr_ghost_bench b base box fill restriction nrep mem_gb
+!< Usage: test_amr_ghost_bench b base box fill restriction nrep mem_gb [fields]
+!<   fields: the block-sized fields realm_object%initialize budgets per block (default 170, its own default): the
+!<   block capacity is 0.85 mem_gb / (fields x block bytes); a larger grid needs fewer fields or more memory
 !<   fill:        tricubic | quintic | weno6 | quintic-mp        restriction: mean | lagrange6 | weno6
 !< Output: the grid and its descriptor and row counts by kind, then per variant the median time of a fill (and per kind
 !< for V0s, D1, D2), and the bitwise check.
@@ -40,6 +46,7 @@ use :: adam_fnl_field_object,           only : field_fnl_object
 use :: adam_fnl_field_kernels,          only : update_ghost_local_gpu_dev, interp_seam_ghost_gpu_dev, &
                                                restrict_seam_high_order_gpu_dev
 use :: adam_fnl_mpih_global,            only : mpih_fnl
+use :: adam_seam_interpolation_library, only : SEAM_FILL_TRICUBIC, seam_interpolate_tricubic
 use :: adam_seam_interpolation_library, only : SEAM_RESTRICT_MEAN, SEAM_SUB_COINCIDENT, seam_shift_anchor_pos,      &
                                                seam_tricubic_centered_pos, seam_compatible_centered_pos,            &
                                                seam_quintic_centered_pos, seam_meta_pack, seam_restriction_code,   &
@@ -63,7 +70,7 @@ real(R8P),    allocatable   :: q(:,:,:,:,:)         !< Host field (v, i, j, k, b
 real(R8P),    allocatable   :: q_t(:,:,:,:,:)       !< Host transposed field (b, i, j, k, v), the initial state.
 real(R8P),    allocatable   :: q_ref(:,:,:,:,:)     !< V0's result (b, i, j, k, v).
 real(R8P),    allocatable   :: q_chk(:,:,:,:,:)     !< A variant's result.
-integer(I4P)                :: b, nb, ngc, n, base, nrep, ri, rj, rk, fill, restr, ierr
+integer(I4P)                :: b, nb, ngc, n, base, nrep, ri, rj, rk, fill, restr, ierr, nfields
 real(R8P)                   :: box, mem_gb
 character(len=32)           :: arg, fill_name, restr_name
 character(:), allocatable   :: filename
@@ -76,6 +83,8 @@ integer(I4P)                :: d1n(0:2)             !< Descriptors per kind.
 integer(I4P), allocatable   :: d1l(:), d1p(:)       !< Concatenated lists and prefixes (kind segments).
 integer(I4P)                :: d1o(0:3)             !< Segment offsets into d1l.
 integer(I4P)                :: d1w(0:2)             !< Work items per kind.
+integer(I4P), allocatable   :: d3p(:)               !< D3: prefix of the anchors of the prolongation descriptors.
+integer(I4P)                :: d3w                  !< D3: anchors.
 ! D2: shape classes
 integer(I4P)                :: ncls                 !< Classes.
 integer(I4P), allocatable   :: crep(:), cnm(:), cmo(:), cmem(:), cpre(:) !< Representative, members, member offset, members, prefix.
@@ -98,20 +107,21 @@ call time_v0()
 call time_v0s()
 call time_d(2_I4P)
 call time_d(1_I4P)
+call time_v0ng_d3()
 call mpih%finalize
 
 contains
    subroutine get_args()
    !< b base box fill restriction nrep mem_gb.
-   character(len=32) :: a(7)
+   character(len=32) :: a(8)
    integer(I4P)      :: k
 
-   a = [character(len=32) :: '24', '3', '0.5', 'tricubic', 'mean', '30', '8.0']
-   do k=1, min(7, command_argument_count())
+   a = [character(len=32) :: '24', '3', '0.5', 'tricubic', 'mean', '30', '8.0', '170']
+   do k=1, min(8, command_argument_count())
       call get_command_argument(k, a(k))
    enddo
    read(a(1), *) n ; read(a(2), *) base ; read(a(3), *) box ; fill_name = a(4) ; restr_name = a(5)
-   read(a(6), *) nrep ; read(a(7), *) mem_gb
+   read(a(6), *) nrep ; read(a(7), *) mem_gb ; read(a(8), *) nfields
    endsubroutine get_args
 
    subroutine build_realm()
@@ -121,7 +131,7 @@ contains
 
    filename = 'amr-ghost-bench.ini'
    call write_input()
-   call realm%initialize(filename=filename, memory_avail=mem_gb, nv=NV)
+   call realm%initialize(filename=filename, memory_avail=mem_gb, nv=NV, fields_number=nfields)
    ngc = realm%adam%grid%ngc
    allocate(q(NV,1-ngc:n+ngc,1-ngc:n+ngc,1-ngc:n+ngc,1:realm%adam%field%nb))
    q = 1._R8P
@@ -284,6 +294,14 @@ contains
       enddo
       d1w(k) = w
    enddo
+   ! D3 table: the anchors of each prolongation descriptor (no r^3 factor)
+   allocate(d3p(0:d1n(2)))
+   d3p(0) = 0
+   do m=1, d1n(2)
+      f = d1l(d1o(2) + m)
+      d3p(m) = d3p(m-1) + product(dhi(:,f) - dlo(:,f) + 1)
+   enddo
+   d3w = d3p(d1n(2))
    ! D2 tables: shape classes (kind, lo, hi, dl), members sorted by receiver block
    allocate(key(10,nf), order(nf))
    do f=1, nf
@@ -394,7 +412,7 @@ contains
       endselect
    enddo
    endassociate
-   !$acc enter data copyin(dbr, dbs, dkind, dlo, dhi, ddl, owner, d1l, d1p, d1o, crep, cnm, cmo, cmem, cpre, c2o)
+   !$acc enter data copyin(dbr, dbs, dkind, dlo, dhi, ddl, owner, d1l, d1p, d1o, crep, cnm, cmo, cmem, cpre, c2o, d3p)
    endsubroutine build_device_state
 
    subroutine reset()
@@ -525,6 +543,110 @@ contains
          tk*1e3_R8P, ')  bitwise ', all(q_chk == q_ref)
    if (.not.all(q_chk == q_ref)) print '(A,I12)', '   cells that differ: ', count(q_chk /= q_ref)
    endsubroutine time_d
+
+   subroutine time_v0ng_d3()
+   !< V0ng (guard off): the whole fill and its prolongation rows; D3 (tricubic only): the prolongation per anchor,
+   !< checked bit for bit against V0ng's prolongation.
+   integer(I4P) :: r
+   real(R8P)    :: t0, tall, tprol
+   real(R8P), allocatable :: q_ng(:,:,:,:,:)
+
+   call reset()
+   do r=1, 3 ; call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu, seam_guard=.false.) ; enddo
+   do r=1, nrep
+      !$acc wait
+      t0 = wall() ; call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu, seam_guard=.false.) ; !$acc wait
+      t(r) = wall() - t0
+   enddo
+   tall = median(t)
+   ! V0ng's prolongation rows alone, from the initial state (the reference of D3)
+   call reset()
+   do r=1, nrep
+      !$acc wait
+      t0 = wall()
+      if (nrows_k(2) > 0) call update_ghost_local_gpu_dev(ngc=ngc, seam_ghost_fill=fill, seam_restriction=restr, ri=ri, &
+                                  rj=rj, rk=rk, l_map_ghost_cell_gpu=rows_k2, q_gpu=q_gpu, seam_density_var=0)
+      !$acc wait
+      t(r) = wall() - t0
+   enddo
+   tprol = median(t)
+   call fetch(q_ng)
+   print '(A,F10.3,A,F10.3,A)', 'V0ng ADAM rows, guard off         median ', tall*1e3_R8P, ' ms  (prolongation rows ', &
+         tprol*1e3_R8P, ')'
+   if (fill /= SEAM_FILL_TRICUBIC .or. d3w == 0) return
+   call reset()
+   do r=1, 2 ; call run_d3(q_gpu) ; enddo
+   do r=1, nrep
+      !$acc wait
+      t0 = wall() ; call run_d3(q_gpu) ; !$acc wait
+      t(r) = wall() - t0
+   enddo
+   call fetch(q_chk)
+   print '(A,F10.3,A,L1)', 'D3  prolongation per anchor (tricubic, guard off) median ', median(t)*1e3_R8P, &
+         ' ms  bitwise vs V0ng prolongation ', all(q_chk == q_ng)
+   endsubroutine time_v0ng_d3
+
+   subroutine run_d3(qd)
+   !< Tricubic prolongation per coarse anchor: gather the union of the children's footprints, interpolate each child.
+   real(R8P), intent(inout) :: qd(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P) :: v, w, lo_, hi_, mid, m, f, loc, cnt(3), e(3), i, j, kk, ic, jc, kc, d, sub(3), p4(3), rcv(3)
+   integer(I4P) :: olo(3), ohi(3), ii, jj, kq, nijk(3), rr(3), s0
+   logical      :: alive(0:1,0:1,0:1)
+   real(R8P)    :: fpu(-3:3,-3:3,-3:3), fp4(4,4,4)
+
+   nijk = [n, n, n] ; rr = [ri, rj, rk] ; s0 = d1o(2)
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(qd) present(dbr, dbs, dlo, dhi, ddl, owner, d1l, d3p) &
+   !$acc& private(lo_, hi_, mid, m, f, loc, cnt, e, i, j, kk, ic, jc, kc, d, sub, p4, rcv, olo, ohi, ii, jj, kq, alive, &
+   !$acc&         fpu, fp4)
+   do v=1, NV
+      do w=0, d3w-1
+         lo_ = 1 ; hi_ = d1n(2)
+         do while (lo_ < hi_)
+            mid = (lo_ + hi_) / 2
+            if (d3p(mid) <= w) then
+               lo_ = mid + 1
+            else
+               hi_ = mid
+            endif
+         enddo
+         m = lo_ ; f = d1l(s0 + m) ; loc = w - d3p(m - 1)
+         cnt = dhi(:,f) - dlo(:,f) + 1
+         e(1) = mod(loc, cnt(1)) ; e(2) = mod(loc / cnt(1), cnt(2)) ; e(3) = loc / (cnt(1) * cnt(2))
+         i = dlo(1,f) + e(1) ; j = dlo(2,f) + e(2) ; kk = dlo(3,f) + e(3)
+         ! the children this anchor writes, and the union of their footprint offsets
+         olo = 99 ; ohi = -99
+         do kc=0, rk-1 ; do jc=0, rj-1 ; do ic=0, ri-1
+            rcv = [rr(1)*i + ddl(1,f) + ic, rr(2)*j + ddl(2,f) + jc, rr(3)*kk + ddl(3,f) + kc]
+            alive(ic,jc,kc) = all(rcv >= 1-ngc) .and. all(rcv <= n+ngc)
+            if (alive(ic,jc,kc)) alive(ic,jc,kc) = owner(dbr(f),rcv(1),rcv(2),rcv(3)) == f
+            if (.not.alive(ic,jc,kc)) cycle
+            sub = [ic, jc, kc] + 1
+            do d=1, 3
+               p4(d) = seam_shift_anchor_pos(anchor=merge(i, merge(j, kk, d == 2), d == 1), n_cells=nijk(d),           &
+                                             p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4)
+               olo(d) = min(olo(d), 1 - p4(d)) ; ohi(d) = max(ohi(d), 4 - p4(d))
+            enddo
+         enddo ; enddo ; enddo
+         if (olo(1) > ohi(1)) cycle
+         do kq=olo(3), ohi(3) ; do jj=olo(2), ohi(2) ; do ii=olo(1), ohi(1)
+            fpu(ii,jj,kq) = qd(dbs(f), i+ii, j+jj, kk+kq, v)
+         enddo ; enddo ; enddo
+         do kc=0, rk-1 ; do jc=0, rj-1 ; do ic=0, ri-1
+            if (.not.alive(ic,jc,kc)) cycle
+            sub = [ic, jc, kc] + 1
+            do d=1, 3
+               p4(d) = seam_shift_anchor_pos(anchor=merge(i, merge(j, kk, d == 2), d == 1), n_cells=nijk(d),           &
+                                             p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4)
+            enddo
+            do kq=1, 4 ; do jj=1, 4 ; do ii=1, 4
+               fp4(ii,jj,kq) = fpu(ii-p4(1), jj-p4(2), kq-p4(3))
+            enddo ; enddo ; enddo
+            rcv = [rr(1)*i + ddl(1,f) + ic, rr(2)*j + ddl(2,f) + jc, rr(3)*kk + ddl(3,f) + kc]
+            qd(dbr(f),rcv(1),rcv(2),rcv(3),v) = seam_interpolate_tricubic(footprint=fp4, sub=sub, anchor_pos=p4)
+         enddo ; enddo ; enddo
+      enddo
+   enddo
+   endsubroutine run_d3
 
    subroutine run_desc(variant, k, qd)
    !< One kind, over the descriptors: D1 flat (one work item per cell of a descriptor), D2 by shape class (the

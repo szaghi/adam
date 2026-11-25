@@ -86,5 +86,6 @@ What it means for a FLUME step (H100, phase timer of the uniform sphere, the loc
 and the MPI pack/unpack use the same per-row maps and are not measured here. As track 1 shortens the face kernel the
 same milliseconds weigh more.
 
-**Not covered:** the 2:1 seam rows (interpolation, restriction), the boundary-condition rows, the MPI pack/unpack, an
-unstructured (AMR) neighbourhood: here every block has 26 same-level neighbours.
+**Not covered here:** the boundary-condition rows, the MPI pack/unpack. The 2:1 seam rows and AMR neighbourhoods are
+measured by the second benchmark, `amr/` (README there): on a 2:1 grid the cost moves to the prolongation rows and the
+density guard of the seam fill.

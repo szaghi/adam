@@ -13,11 +13,14 @@ OUT=$(readlink -f "$OUT")
    || { tail -30 "$OUT.build.log"; exit 3; }
 EXE="$REPO/exe/test_amr_ghost_bench_fnl"
 WORK="$(dirname "$OUT")/work-$$" ; mkdir -p "$WORK" ; cd "$WORK"
-run() { echo "## $*" ; mpirun -np 1 "$EXE" "$@" 2>&1 | grep -E '^#|^V0|^D1|^D2|differ|rror|STOP' ; echo ; }
+run() { echo "## $*" ; mpirun -np 1 "$EXE" "$@" 2>&1 | grep -E '^#|^V0|^D[0-9]|differ|rror|STOP' ; echo ; }
 {
    echo "# host $(hostname) $(date -Is); $(nvfortran --version | grep -m1 nvfortran); varset $VARSET"
    nvidia-smi --query-gpu=index,name,memory.total,clocks.max.sm,clocks_event_reasons.active --format=csv,noheader
    # b base box fill restriction nrep mem_gb
+   if [[ ${RUN_ONLY:-} == large ]]; then
+      for pair in "tricubic mean" "weno6 weno6"; do run 24 3 0.5 $pair 20 16.0 40; done
+   else
    # 1) the production-like grid (2c: 24^3 blocks, ~254 per GPU): every regime pair
    for fill in tricubic quintic weno6 quintic-mp; do
       for restr in mean lagrange6 weno6; do run 24 2 0.75 $fill $restr 30 16.0; done
@@ -31,7 +34,8 @@ run() { echo "## $*" ; mpirun -np 1 "$EXE" "$@" 2>&1 | grep -E '^#|^V0|^D1|^D2|d
       for pair in "tricubic mean" "quintic lagrange6"; do run $b 2 0.5 $pair 30 16.0; done
    done
    # 4) a larger load (base level 3: 960 blocks of 24^3, 13 M cells)
-   for pair in "tricubic mean" "weno6 weno6"; do run 24 3 0.5 $pair 20 24.0; done
+   for pair in "tricubic mean" "weno6 weno6"; do run 24 3 0.5 $pair 20 16.0 40; done
+   fi
    nvidia-smi --query-gpu=index,clocks.sm,clocks_event_reasons.active --format=csv,noheader
 } > "$OUT" 2>&1
 cd .. && rm -rf "$WORK"

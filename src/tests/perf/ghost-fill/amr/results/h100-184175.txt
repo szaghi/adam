@@ -1,0 +1,30 @@
+# host gpu-007 2026-11-25T11:15:37+01:00; nvfortran 26.3-0 64-bit target on x86-64 Linux -tp znver4 ; varset spacehpc_nvf
+0, NVIDIA H100, 95830 MiB, 1980 MHz, 0x0000000000000001
+## 24 3 0.5 tricubic mean 20 16.0 40
+# b  24 base level  3 box 0.500 fill tricubic restriction mean
+# blocks     960 cells    13.271 M, levels   3-  4
+# descriptors    20824 (copy, restriction, prolongation:    18674     631    1519)
+# rows   11252304 (copy, restriction, prolongation:   10633086    120069    499149)
+# cells the descriptors cover (copy, restriction, prolongation)   10633086    120069    499149 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      6.182 ms
+V0s ADAM rows, one launch/kind   median      6.080 ms  (copy, restr, prol      3.325     0.152     2.597)  bitwise T
+D2  shape classes, one launch/kind median      6.510 ms  (copy, restr, prol      3.370     0.143     2.987)  bitwise T
+D1  descriptors, one launch/kind   median      9.600 ms  (copy, restr, prol      4.267     0.159     5.158)  bitwise T
+V0ng ADAM rows, guard off         median      3.635 ms  (prolongation rows      0.428)
+D3  prolongation per anchor (tricubic, guard off) median      0.941 ms  bitwise vs V0ng prolongation T
+
+## 24 3 0.5 weno6 weno6 20 16.0 40
+# b  24 base level  3 box 0.500 fill weno6 restriction weno6
+# blocks     960 cells    13.271 M, levels   3-  4
+# descriptors    20824 (copy, restriction, prolongation:    18674     631    1519)
+# rows   11252304 (copy, restriction, prolongation:   10633086    120069    499149)
+# cells the descriptors cover (copy, restriction, prolongation)   10633086    120069    499149 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median     16.736 ms
+V0s ADAM rows, one launch/kind   median     16.595 ms  (copy, restr, prol      3.323     1.840    11.369)  bitwise T
+D2  shape classes, one launch/kind median     17.467 ms  (copy, restr, prol      3.378     1.680    12.388)  bitwise T
+D1  descriptors, one launch/kind   median     22.694 ms  (copy, restr, prol      4.267     1.827    16.559)  bitwise T
+V0ng ADAM rows, guard off         median      9.946 ms  (prolongation rows      4.998)
+
+0, 1980 MHz, 0x0000000000000000
