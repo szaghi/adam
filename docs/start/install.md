@@ -168,7 +168,8 @@ variable, not a shell environment variable: exporting it has no effect. NVF vars
 | `iac_gnu` | medooza cluster: gfortran 16.2.0 + Open MPI 5.0.11 | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — | — |
 | `iac_nvf` | medooza cluster: nvfortran 26.9, CUDA 12.9 | `lib/hdf5/develop/iac/nvf/26.9` | `cc80,cuda12.9` | `,lto` |
 | `leonardo` | Leonardo, Spack NVHPC 24.5 | Spack path | `cc80` | (off) |
-| `spacehpc` | Cray PE | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` | (off) |
+| `spacehpc` | Cray PE (stale: HDF5 of nvidia 23.3) | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` | (off) |
+| `spacehpc_nvf` | ESA SpaceHPC (4 H100 per node): `module load nvhpc-hpcx-cuda12/26.3` (nvfortran 26.3) | `lib/hdf5/develop/spacehpc/nvf/26.3` (built on the cluster) | `cc90,cuda12.9` | `,lto` |
 
 `$NVF_CC` can also pin the CUDA toolkit, as `iac_nvf` does (`cc80,cuda12.9`, issue #102). nvfortran otherwise targets
 the CUDA of the build machine's driver, and on a node with no driver (a login node) its newest bundled CUDA: a binary

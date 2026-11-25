@@ -100,7 +100,10 @@ exchanges with its own decomposition.
 ### GPU-direct ghost exchange
 
 `update_ghost_mpi_gpu` posts `MPI_Isend`/`MPI_Irecv` directly on the device ghost buffers (`send_buffer_ghost_gpu`,
-`recv_buffer_ghost_gpu`), which lets CUDA-aware MPI use GPUDirect RDMA. There is no host-staging fallback. On the WSL2
+`recv_buffer_ghost_gpu`), which lets CUDA-aware MPI use GPUDirect RDMA. There is no host-staging fallback. Measured with `ucx_perftest` (33 MB,
+[performance](/applications/flume/performance#another-machine-h100-nodes-with-gpudirect-rdma)): GPU to GPU between nodes
+52.4 GB/s on ESA SpaceHPC (H100, GPUDirect RDMA through dma-buf), 1.5 GB/s on medooza (A30, no GPUDirect RDMA: UCX
+stages the buffers through host memory). On the WSL2
 development box this path aborts with two or more ranks unless UCX is forced eager (`UCX_RNDV_THRESH=inf`); that
 setting is WSL-only and a regression on a cluster. Details: [GPU5](/cookbook/gpu#gpu5-run-on-a-development-box-with-wsl2-not-on-a-cluster).
 

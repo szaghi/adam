@@ -1,7 +1,8 @@
 # Performance: GPU and CPU nodes, uniform-grid scaling
 
-What a GPU node buys over a CPU node, what sets the cost of a cell on an A30, and how FLUME scales inside a node and
-across nodes. **Scaling is measured and claimed on uniform 3-D grids only.** Runtime AMR (the host regrid, 2:1 seams,
+What a GPU node buys over a CPU node, what sets the cost of a cell on an A30 and on an H100, and how FLUME scales inside
+a node and across nodes, on two machines: medooza (4 A30 per node, no GPUDirect RDMA) and ESA SpaceHPC (4 H100 per node,
+GPUDirect RDMA). **Scaling is measured and claimed on uniform 3-D grids only.** Runtime AMR (the host regrid, 2:1 seams,
 reflux, the runtime rank layout) and the 2-D quadtree path (ghost layers along the null axis) are implemented for
 accuracy and not yet optimised for performance: their timings are kept as baselines at the end of the page
 ([The accuracy-first paths](#the-accuracy-first-paths-runtime-amr-and-2-d)), with no scaling claim.
@@ -174,10 +175,10 @@ with the CPU build flushing subnormals it is 11.4.
 | # | Cost | Gain | Proposal |
 |---|---|---|---|
 | 1 | subnormal arithmetic (CPU) | −35 to −47 % per step on developed states | **applied**: the GNU builds link with `-mdaz-ftz`, flush to zero from the start ([build notes](/start/install)) |
-| 2 | GPU halo between nodes at 1.5 GB/s | up to ~9 ms of the ~12 ms per exchange (estimate) | stage the inter-node halo through pinned host memory, or enable GPUDirect RDMA on the cluster |
-| 3 | 12 ghost exchanges per step with an immersed body | up to 9 of the 12 | exchange only what the eikonal iterations need |
-| 4 | two global barriers per ghost exchange | 0.4–1.2 % on the GPU | remove (results bitwise identical) |
-| 5 | the link between the NVLink pairs (17.7 GB/s) | part of the 13–30 % of the third and fourth A30 | place neighbouring subdomains on the same NVLink pair |
+| 2 | GPU halo between nodes at 1.5 GB/s | up to ~9 ms of the ~12 ms per exchange (estimate) | GPUDirect RDMA on the cluster: on the H100 nodes, which have it, an exchange between nodes waits ~1.4 ms ([below](#another-machine-h100-nodes-with-gpudirect-rdma)); host staging in the code was declined as specific to medooza |
+| 3 | 12 ghost exchanges per step with an immersed body | up to 9 of the 12 | exchange only what the eikonal iterations need, in the local fills and the boundary conditions too (on the H100 nodes those, not MPI, carry the body's cost); [#156](https://github.com/szaghi/adam/issues/156) |
+| 4 | two global barriers per ghost exchange | 0.4–1.2 % on the A30 nodes, 0.1–1.2 % on the H100 nodes | remove (results bitwise identical); #156 |
+| 5 | the link between the NVLink pairs (17.7 GB/s) | part of the 13–30 % of the third and fourth A30 | place neighbouring subdomains on the same NVLink pair (medooza only: the H100 nodes join every pair by NVLink and show no such step) |
 
 ## Another machine: H100 nodes with GPUDirect RDMA
 
@@ -283,10 +284,12 @@ the accuracy-first paths:
 
 ## Limits
 
-- One machine (A30, Xeon Gold 6338); the AMD MI300X node of the plan is not measured yet.
+- Two machines: the full matrix on medooza (A30, Xeon Gold 6338), the uniform sphere only on ESA SpaceHPC (H100, no
+  CPU node measured there); the AMD MI300X node of the plan is not measured yet.
 - The matrix and its multi-node runs use 24³ blocks; the grid study shows 38³–48³ blocks are ~16 % cheaper per cell
   on one A30, so the multi-node numbers are not the best this hardware gives.
-- Up to 8 nodes (32 A30), the most medooza schedules.
+- Up to 8 nodes (32 A30), the most medooza schedules; up to 4 nodes (16 H100) on SpaceHPC so far (the 8-node job is
+  queued).
 - The windows are short (110 steps); two residual biases were measured and are not in these numbers: printing the
   progress lines on every rank costs nothing measurable, and computing the conservation integrals every step costs
   0.9 % on 4 A30.
@@ -305,4 +308,5 @@ the accuracy-first paths:
 Open MPI 5.0.11 (`iac_gnu`) on medooza (Intel Xeon Gold 6338, 64 ranks per node), FNL nvfortran 26.9, CUDA 12.9, LTO
 (`iac_nvf`) on NVIDIA A30 (4 per node): the matrix 2026-11-23 (jobs 1369400-1369597, 1369616), the grid study and the
 rank placement 2026-11-24 (jobs 1369668-1369679, 1369687-1369691), the CPU weak pairs (1369694-1369698);
-`speedup/run.sh` windows, `analyze.py`, `matrix_plot.py` and `grid_study_plot.py`.*
+`speedup/run.sh` windows, `analyze.py`, `matrix_plot.py` and `grid_study_plot.py`. H100: ESA SpaceHPC, nvfortran 26.3,
+CUDA 12.9, LTO (`spacehpc_nvf`), NVIDIA H100 (4 per node), the 2026-11-24 tree (`2a67b16c`), jobs 183592-183629.*

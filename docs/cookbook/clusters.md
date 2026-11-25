@@ -53,7 +53,22 @@ For FNL, one rank per GPU:
 srun --mpi=pmix -n "$SLURM_NTASKS" ./adam_flume_fnl input.ini
 ```
 
+Under **PBS Pro** (ESA SpaceHPC, `src/tests/flume/speedup/jobs/spacehpc-fnl.pbs`), one rank per GPU on whole nodes:
+
+```bash
+#PBS -l select=2:ngpus=4:ncpus=96:mpiprocs=4:mem=400gb
+#PBS -l place=excl
+module purge; module load nvhpc-hpcx-cuda12/26.3
+mpirun -machinefile "$PBS_NODEFILE" --map-by ppr:4:node -np 8 ./adam_flume_fnl input.ini
+```
+
+Open MPI forwards to the ranks only the environment variables named with `-x`; PBS passes no arguments to a job
+script (the speedup jobs read a plan file named in `-v`).
+
 **Rules.**
+- **Check the GPUs before timing.** A GPU with a hardware power brake or thermal slowdown runs several times slower
+  without an error (an H100 at 495 of 1980 MHz was 4.3 times slower): read `nvidia-smi
+  --query-gpu=clocks_event_reasons.active,enforced.power.limit` on every node first, as `spacehpc-fnl.pbs` does.
 - **Same toolchain at run time as at build time.** Load the compiler and MPI of the varset the executable was built
   with; HDF5 and the MPI Fortran modules are compiler-specific.
 - **Give `--mem`.** On the CPU backend a rank's block budget is the node's memory, capped by the job's cgroup limit
