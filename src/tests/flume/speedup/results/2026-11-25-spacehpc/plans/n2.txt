@@ -1,0 +1,9 @@
+# 2 nodes (8 H100): strong scaling of 2a and wg-l4b38, phase runs with and without the body, GPU to GPU between nodes
+sh bash $SPEEDUP_DIR/results/2026-11-25-spacehpc/netbw.sh > $W/logs/netbw-n2-${PBS_JOBID%%.*}.txt 2>&1
+windows --np 8 --cases 2a --work $W/matrix
+windows --np 8 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/grid-study
+sh for t in n2-ib n2-noib; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; done
+ADAM_PHASE_TIMING=1 windows --np 8 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n2-ib --exe $HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 NOIB_EXE=$HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl windows --np 8 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n2-noib --exe $SPEEDUP_DIR/jobs/noib-exe.sh
+analyze $W/matrix
+analyze $W/grid-study

@@ -337,7 +337,8 @@ Use `-fbounds-check -fcheck=all` (GNU) or `-check all -traceback` (Intel) during
     | `leonardo` | Spack path (NVHPC 24.5) | Spack | `cc80` |
     | `iac_gnu` | medooza: gfortran 16.2.0 + Open MPI 5.0.11 (`source /ifs/hpc/home/szaghi/gnu/gnu.sh`) | `lib/hdf5/develop/iac/gnu/16.2.0/openmpi-5.0.11` | — |
     | `iac_nvf` | medooza: nvfortran 26.9, CUDA 12.9 (`source /ifs/hpc/home/szaghi/nvidia/nvhpc.sh`) | `lib/hdf5/develop/iac/nvf/26.9` | `cc80,cuda12.9` |
-    | `spacehpc` | Cray PE | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` |
+    | `spacehpc` | Cray PE (stale: nvidia 23.3) | `/opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3` | `cc90` |
+    | `spacehpc_nvf` | ESA SpaceHPC (4 H100 per gpu4_std node): `module purge; module load nvhpc-hpcx-cuda12/26.3` (nvfortran 26.3, the newest SDK there) | `lib/hdf5/develop/spacehpc/nvf/26.3` (built on the cluster) | `cc90,cuda12.9` |
 
   - **`$NVF_LTO`**: device link-time optimisation of the optimized NVF OpenACC modes, `-gpu=$NVF_CC$NVF_LTO`
     (`template-nvf` and the cuFFT modes that override `lflags`; never the debug modes). `,lto` in `local_nvf` and

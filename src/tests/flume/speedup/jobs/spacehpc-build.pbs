@@ -1,0 +1,26 @@
+#!/bin/bash
+# FLUME speedup matrix on ESA SpaceHPC (PBS Pro): build the fnl-nvf leg with build.sh in a batch job (#133).
+#
+#   qsub -q cpu_std -l select=1:ncpus=32:mem=64gb -l walltime=02:00:00 -v TREE=$HOME/adam jobs/spacehpc-build.pbs
+#
+# TREE is the ADAM tree to build (default $HOME/adam); the executable lands in $TREE/src/tests/flume/speedup/exe/fnl-nvf/.
+# The cpu_std nodes are AMD EPYC Genoa like the gpu4_std ones (nvfortran -fast targets the build host's CPU); the CUDA
+# driver library exists only on GPU nodes, so the link takes the CUDA 12.9 stubs (the Xall campaign's lesson).
+# FoBiS 3.19 lives in ~/.venv-fobis-3.19 (installed offline from wheels: the login node has no internet).
+#PBS -N adam-build
+#PBS -j oe
+#PBS -o /lustre/projects/1026/CALCOLI/adam/speedup-133/logs/
+set -euo pipefail
+module purge
+module load nvhpc-hpcx-cuda12/26.3 python/3.11.14-cnapenc
+export PATH=$HOME/.venv-fobis-3.19/bin:$PATH
+NVHPC_ROOT=$(dirname "$(dirname "$(dirname "$(command -v nvfortran)")")")
+export LIBRARY_PATH=$NVHPC_ROOT/cuda/12.9/lib64/stubs${LIBRARY_PATH:+:$LIBRARY_PATH}
+TREE=${TREE:-$HOME/adam}
+echo "job ${PBS_JOBID:-} $(date -Is) $(hostname) $(lscpu | sed -n 's/^Model name: *//p') tree $TREE"
+cd "$TREE/src/tests/flume/speedup"
+./build.sh fnl-nvf --varset "${VARSET:-spacehpc_nvf}" --jobs "${JOBS:-32}"
+exe=exe/fnl-nvf/adam_flume_fnl
+ldd "$exe" | grep -E 'cudart|libmpi\.so|libacc|not found' || true
+! ldd "$exe" | grep -q 'not found' || { echo "spacehpc-build.pbs: unresolved libraries" >&2 ; exit 3 ; }
+echo "BUILD-DONE $(date -Is)"

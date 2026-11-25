@@ -1,0 +1,16 @@
+# 8 nodes (32 H100): strong scaling of 2a and wg-l4b38, phase runs with and without the body, GPU to GPU between nodes
+sh bash $SPEEDUP_DIR/results/2026-11-25-spacehpc/netbw.sh > $W/logs/netbw-n8-${PBS_JOBID%%.*}.txt 2>&1
+windows --np 32 --cases 2a --work $W/matrix
+windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/grid-study
+sh for t in n8-ib n8-noib; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; done
+ADAM_PHASE_TIMING=1 windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n8-ib --exe $HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 NOIB_EXE=$HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n8-noib --exe $SPEEDUP_DIR/jobs/noib-exe.sh
+analyze $W/matrix
+analyze $W/grid-study
+# #156 inputs: the two barriers off (bitwise in every medooza pair), and all 4 HCAs instead of the site's 2
+sh for t in n8-ib-bar0 n8-ib-4nic; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; done
+ADAM_PHASE_TIMING=1 ADAM_GHOST_BARRIER=0 windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n8-ib-bar0 --exe $HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 UCX_NET_DEVICES=mlx5_0:1,mlx5_1:1,mlx5_2:1,mlx5_3:1 windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/n8-ib-4nic --exe $HOME/adam-phase/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+# the weak point at 14.2 M per H100 (2a on 4 H100 is n1-a's); last: its warm-up writes a 35 GB dump
+chain --np 32 --cases w2-sphere-l5 --work $W/matrix
+analyze $W/matrix

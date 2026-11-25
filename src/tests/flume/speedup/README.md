@@ -695,6 +695,9 @@ never (leg 3): a flow with more churn pays more regrid.
 | `jobs/medooza-bind-fnl.sh` | the FNL executable with each rank pinned to its A30's NUMA node (`run.sh --exe` with an absolute path; "Rank placement") |
 | `matrix_plot.py` | the summary figures from `summary.csv`: backend speedup per case, AMR decomposition per leg, grind time (matplotlib; `--theme both` writes the docs' dark twins) |
 | `jobs/medooza-{cpu,fnl}.slurm` | the medooza jobs: one run.sh stage per job, outputs on `/ifs` |
+| `jobs/spacehpc-build.pbs`, `jobs/spacehpc-fnl.pbs` | the ESA SpaceHPC (PBS) jobs: the fnl-nvf build on a CPU node; a plan of run.sh stages behind a GPU health guard |
+| `jobs/noib-exe.sh` | a `run.sh --exe` wrapper that drops the sphere's `[solids]`/`[solid_N]` sections (the runs without the body) |
+| `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |
 | `profile-couette3d/` | the profiling case (outside the matrix; shares the executables of `build.sh`) |
@@ -763,6 +766,28 @@ R chain --np 32 --cases wg-l4b38        # in an 8-node job: cold start and windo
 
 A work tree other than the study's needs the warm-up dumps linked: `ln -s $W/grid-study/dumps/<case>
 <work>/dumps/<case>`. The CPU node: `./run.sh windows --backend cpu --np 64` with the same conf and cases.
+
+**ESA SpaceHPC, `fnl-nvf` on H100** (2026-11-25; PBS Pro, queue `gpu4_std`: 4 H100 per node; the same rules as
+medooza: builds and runs in batch jobs, at most 4 jobs at once; build tree `~/adam`, runs on
+`/lustre/projects/1026/CALCOLI/adam/speedup-133`). The login node has no internet: the tree, the fetched dependencies,
+the HDF5 sources and the FoBiS wheels are copied from a workstation (`rsync`); FoBiS 3.19 lives in `~/.venv-fobis-3.19`.
+The toolchain is the Xall campaign's (`module purge; module load nvhpc-hpcx-cuda12/26.3`: nvfortran 26.3, HPC-X 2.25.1,
+CUDA 12.9 pinned because the module defaults to 13.1, which the nodes' driver 570 cannot run), the varset
+`spacehpc_nvf`; its HDF5 2.3.0 (`ab5df552`) is built on the cluster with the `scripts/hdf5_build.sh` steps.
+
+```bash
+qsub -q cpu_std -l select=1:ncpus=32:mem=96gb -l walltime=02:30:00 -v TREE=$HOME/adam jobs/spacehpc-build.pbs
+qsub -q gpu4_std -l select=<nodes>:ngpus=4:ncpus=96:mpiprocs=4:mem=400gb -l place=excl -l walltime=04:00:00 \
+     -v PLAN=<plan file>,SPEEDUP_DIR=$HOME/adam/src/tests/flume/speedup jobs/spacehpc-fnl.pbs
+```
+
+PBS gives a job script no arguments, so `jobs/spacehpc-fnl.pbs` runs a **plan**: one `run.sh` invocation per line
+(with `VAR=value` prefixes for the ranks: `ADAM_PHASE_TIMING`, `ADAM_GHOST_BARRIER`, `UCX_*`, `NOIB_EXE`), `analyze
+<work>` and `sh <command>` lines; the plans of 2026-11-25 are in `results/2026-11-25-spacehpc/plans/`. Before the plan
+it stops (exit 42) if any GPU of the job shows a hardware slowdown, thermal or power-brake bit or a lowered power limit
+(the Xall campaign met a power-braked node, `gpu-015`, 4.3x slower), and it logs every GPU's SM clock each second; the
+job log ends with the busy mean and minimum clock per GPU. `jobs/noib-exe.sh` (a `run.sh --exe` wrapper, `NOIB_EXE` =
+the executable) runs the sphere without its immersed body.
 
 **AMD node, `fnl-amd`** (Giacomo Rossi). The windows start from the dumps written on medooza, so every backend times
 the same bits (D3):

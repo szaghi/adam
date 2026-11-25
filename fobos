@@ -168,3 +168,12 @@ $NVF_LTO     = ,lto
 [varset:spacehpc]
 $HDF5_PREFIX = /opt/cray/pe/hdf5/1.14.3.3/nvidia/23.3
 $NVF_CC      = cc90
+
+[varset:spacehpc_nvf]
+# ESA SpaceHPC, 4 H100 per gpu4_std node (issue #133, 2026-11-25): `module purge; module load nvhpc-hpcx-cuda12/26.3`
+# (nvfortran 26.3, the newest SDK there; HPC-X 2.25.1). The module carries CUDA 12.9 and 13.1 and picks 13.1, which
+# the nodes' driver cannot run: cuda12.9 is pinned. The HDF5 (2.3.0, develop ab5df552) is built with that toolchain
+# on the cluster (scripts/hdf5_build.sh recipe). No $NVF_SPLIT: a CUDA 12.9 device link (#131).
+$HDF5_PREFIX = lib/hdf5/develop/spacehpc/nvf/26.3
+$NVF_CC      = cc90,cuda12.9
+$NVF_LTO     = ,lto

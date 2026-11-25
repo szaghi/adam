@@ -1,0 +1,52 @@
+#!/bin/bash
+# SpaceHPC GPU node reconnaissance for issue #133 (2026-11-25): health, topology, NICs, GPUDirect, UCX transports, GPU to
+# GPU bandwidth inside one node (ucx_perftest, 33 MB tag_bw, as on medooza: results/2026-11-24/phase/network.txt).
+# With 2 nodes (select=2) it also measures host->host and cuda->cuda between the nodes.
+#   qsub -q gpu4_std -l select=1:ngpus=4:ncpus=96:mpiprocs=4:mem=400gb -l place=excl -l walltime=00:20:00 recon.pbs
+#PBS -N adam-recon
+#PBS -j oe
+#PBS -o /lustre/projects/1026/CALCOLI/adam/speedup-133/logs/
+set -uo pipefail
+module purge
+module load nvhpc-hpcx-cuda12/26.3
+cd "$PBS_O_WORKDIR" || exit 1
+nodes=( $(sort -u "$PBS_NODEFILE") )
+echo "job $PBS_JOBID $(date -Is) nodes ${nodes[*]}"
+echo "== module"; module -t list 2>&1
+UCXBIN=$(dirname "$(command -v ucx_info)")
+echo "ucx: $UCXBIN"; ucx_info -v
+echo "== node ${nodes[0]}"
+lscpu | grep -E "Model name|^CPU\(s\)|Socket|NUMA node"
+numactl -H | head -12
+nvidia-smi --query-gpu=index,name,pci.bus_id,driver_version,memory.total,clocks.max.sm,clocks.sm,power.draw,enforced.power.limit,power.default_limit,clocks_event_reasons.active,ecc.errors.uncorrected.volatile.total --format=csv
+nvidia-smi topo -m
+nvidia-smi nvlink -s -i 0 2>&1 | head -20
+echo "== kernel modules"; cat /sys/module/nvidia/version; lsmod | grep -E "nvidia|gdrdrv|mlx5_ib|peermem" 
+echo "== IB"; ibv_devinfo 2>&1 | grep -E "hca_id|state|link_layer|active_mtu"; ibstat 2>&1 | grep -E "CA '|Rate|State|Link layer"
+echo "== UCX devices"; ucx_info -d 2>&1 | grep -E "Transport|Device" | paste - - | sort -u | head -40
+echo "== env"; env | grep -E "^UCX_|^OMPI_" | sort
+P=$UCXBIN/ucx_perftest; S=33554432
+bw() { # label, server env, client env, client host
+   local lab=$1 senv=$2 cenv=$3 host=$4 port=$((13337 + RANDOM % 1000))
+   env $senv $P -t tag_bw -m ${5:-cuda} -s $S -n 60 -p $port > /tmp/srv.$$ 2>&1 & local sp=$!
+   sleep 3
+   echo "$lab: $(env $cenv $P $host -t tag_bw -m ${5:-cuda} -s $S -n 60 -p $port 2>&1 | grep Final)"
+   wait $sp
+}
+echo "== intra-node GPU to GPU (33 MB tag_bw)"
+for b in 1 2 3; do bw "GPU0->GPU$b" CUDA_VISIBLE_DEVICES=0 CUDA_VISIBLE_DEVICES=$b localhost; done
+bw "GPU1->GPU2" CUDA_VISIBLE_DEVICES=1 CUDA_VISIBLE_DEVICES=2 localhost
+bw "host->host same node" CUDA_VISIBLE_DEVICES=0 CUDA_VISIBLE_DEVICES=0 localhost host
+if (( ${#nodes[@]} > 1 )); then
+   echo "== inter-node ${nodes[0]} -> ${nodes[1]}"
+   for m in host cuda; do
+      port=$((14337 + RANDOM % 1000))
+      mpirun -np 1 --host "${nodes[1]}" -x CUDA_VISIBLE_DEVICES=0 $P -t tag_bw -m $m -s $S -n 60 -p $port > /tmp/srv.$$ 2>&1 & sp=$!
+      sleep 5
+      echo "inter-node $m->$m: $(CUDA_VISIBLE_DEVICES=0 $P "${nodes[1]}" -t tag_bw -m $m -s $S -n 60 -p $port 2>&1 | grep Final)"
+      wait $sp; cat /tmp/srv.$$ | tail -2
+   done
+   echo "== second node health"
+   mpirun -np 1 --host "${nodes[1]}" nvidia-smi --query-gpu=index,clocks.sm,enforced.power.limit,clocks_event_reasons.active --format=csv
+fi
+echo RECON-DONE
