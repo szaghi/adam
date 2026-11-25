@@ -4286,16 +4286,12 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
-   if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.false.)
-   endif
+   ! The stamp (compute_coils_current_time_zero, compute_coils_current) reads coil_amplitude: the corrected amplitude of
+   ! this coil's own current goes there, as for the other coil kinds; A(n) keeps the input current.
+   self%coil%coil_amplitude(n) = self%coil%A(n)
+   call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                              A=self%coil%coil_amplitude(n), sigma=sigma, n=n, &
+                                                              adjust_amplitude=.true.)
 
    endassociate
 
@@ -4510,16 +4506,12 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
-   if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.false.)
-   endif
+   ! The stamp (compute_coils_current_time_zero, compute_coils_current) reads coil_amplitude: the corrected amplitude of
+   ! this coil's own current goes there, as for the other coil kinds; A(n) keeps the input current.
+   self%coil%coil_amplitude(n) = self%coil%A(n)
+   call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                              A=self%coil%coil_amplitude(n), sigma=sigma, n=n, &
+                                                              adjust_amplitude=.true.)
 
    endassociate
 
@@ -4734,16 +4726,12 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
-   if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.false.)
-   endif
+   ! The stamp (compute_coils_current_time_zero, compute_coils_current) reads coil_amplitude: the corrected amplitude of
+   ! this coil's own current goes there, as for the other coil kinds; A(n) keeps the input current.
+   self%coil%coil_amplitude(n) = self%coil%A(n)
+   call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                              A=self%coil%coil_amplitude(n), sigma=sigma, n=n, &
+                                                              adjust_amplitude=.true.)
 
    endassociate
 
