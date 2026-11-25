@@ -363,9 +363,9 @@ CPU node's spread or worse).
 | # | Cost | Where | Gain | Proposal |
 |---|---|---|---|---|
 | 1 | subnormal arithmetic | CPU, developed states | -35 % (1 node) to -47 % (8 nodes) on 2a | **applied**: the GNU optimized builds link with `-mdaz-ftz` (below) |
-| 2 | GPU halo between nodes at 1.5 GB/s | FNL, multi-node | up to ~9 ms of the ~12 ms per exchange (estimate at 23.5 GB/s host path plus the two device copies) | stage the inter-node halo through pinned host buffers; or GPUDirect RDMA on medooza (`nvidia_peermem`, admins); on the H100 nodes, which have GPUDirect RDMA, an exchange between nodes waits ~1.4 ms ("ESA SpaceHPC"), so the cluster fix is the answer: host staging in the code was declined as medooza-specific (#156) |
-| 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges; on the H100 nodes the body's cost is the local fills, BC and pack/unpack, not MPI, so the restriction must cover them too (#156 L2) |
-| 4 | the two `MPI_Barrier` per ghost exchange | both | 0.4-1.2 % (GPU), none (CPU) | **applied** (2026-11-25): removed from `update_ghost_mpi` / `update_ghost_mpi_gpu`, the suites bitwise (medooza jobs 1369786, 1369787) |
+| 2 | GPU halo between nodes at 1.5 GB/s | FNL, multi-node | up to ~9 ms of the ~12 ms per exchange (estimate at 23.5 GB/s host path plus the two device copies) | stage the inter-node halo through pinned host buffers; or GPUDirect RDMA on medooza (`nvidia_peermem`, admins); on the H100 nodes, which have GPUDirect RDMA, an exchange between nodes waits 0.9-1.4 ms ("ESA SpaceHPC"), so the cluster fix is the answer: host staging in the code was declined as medooza-specific (#156) |
+| 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges; on one H100 node the body's cost is the local fills, BC and pack/unpack, on 8 H100 nodes the MPI exchange is its largest part (15 of 37 ms per step) and the body takes the strong efficiency from 0.955 to 0.829, so the restriction must cover all of them (#156 L2) |
+| 4 | the two `MPI_Barrier` per ghost exchange | both | 0.4-1.2 % (A30), 1.3 % (8 H100 nodes), none (CPU) | **applied** (2026-11-25): removed from `update_ghost_mpi` / `update_ghost_mpi_gpu`, the suites bitwise (medooza jobs 1369786, 1369787) |
 | 5 | across-the-pairs link in a node (17.7 GB/s) | FNL, 4 A30 | the 13-30 % of "Grid size" | rank order that keeps neighbours in an NVLink pair (medooza only: the H100 nodes are NV6 all-to-all, no such step) |
 
 **Applied (2026-11-24): `-mdaz-ftz`.** The GNU optimized template links with `-mdaz-ftz` (`fobos.d/templates.fobos`,
@@ -387,10 +387,11 @@ Owner, 2026-11-24: before the ghost-exchange optimisation ([#156](https://github
 analysis on SpaceHPC, a machine with other GPUs and another communication layout, for the next optimisation rounds.
 The uniform sphere only, `fnl-nvf`, the protocol above (windows of 3 x (10, 110) steps, cold starts of 20 steps for
 the `wg-*` cases, 2a from its warm-up to t_w); the kit and the toolchain in "How to run". Every plan job passed the
-GPU health guard and ran every GPU at 1980 MHz with no throttle bit (`results/2026-11-25-spacehpc/logs/`); spreads are
-at most 0.9 %, most below 0.2 %. Jobs: reconnaissance 183592, builds 183595/183606, plans 183607 (1 node: 2a,
-`wg-l4b38`), 183608 (1 node: the grid study), 183628 (2 nodes), 183629 (4 nodes); the 8-node job 183633 waits in the queue (the plan in `plans/n8.txt`: the 8-node strong
-points, the weak pairs and the phase runs with the barriers off and with all 4 HCAs).
+GPU health guard and ran every GPU at 1980 MHz with no throttle bit (`results/2026-11-25-spacehpc/logs/`; in 183633 one
+idle GPU read 345 MHz once, between two runs, at 70 W); spreads are at most 0.9 %, most below 0.2 %. Jobs:
+reconnaissance 183592, builds 183595/183606, plans 183607 (1 node: 2a, `wg-l4b38`), 183608 (1 node: the grid study),
+183628 (2 nodes), 183629 (4 nodes), 183633 (8 nodes, `plans/n8.txt`: the 8-node strong points, the weak point
+`w2-sphere-l5`, the phase runs with and without the body, with the barriers off and with all 4 HCAs).
 
 **The node** (job 183592, `gpu-011`; `recon.pbs`): 4 NVIDIA H100 (95.8 GiB, 700 W, driver 570.124.06), 2 AMD EPYC
 9454 (4 NUMA domains); **every GPU pair is joined by 6 NVLinks** (NV6, all-to-all; 124.8 GB/s GPU to GPU for every
@@ -448,9 +449,9 @@ little work per kernel launch, as the profile of the small cases showed on the A
 
 | Case | Cells | 1 node | 2 nodes | 4 nodes | 8 nodes |
 |---|---|---|---|---|---|
-| 2a (24^3, body), H100 | 56.6 M | 0.2541 | 0.1371 (0.927) | 0.0780 (0.814) | queued |
+| 2a (24^3, body), H100 | 56.6 M | 0.2541 | 0.1371 (0.927) | 0.0780 (0.814) | 0.0462 (0.687) |
 | 2a, A30 (medooza) | 56.6 M | 0.780 | 0.491 (0.79) | 0.260 (0.75) | 0.167 (0.58) |
-| `wg-l4b38` (38^3, body), H100 | 225 M | 0.8613 | 0.4508 (0.955) | 0.2387 (0.902) | queued |
+| `wg-l4b38` (38^3, body), H100 | 225 M | 0.8613 | 0.4508 (0.955) | 0.2387 (0.902) | 0.1303 (0.826) |
 | cells per H100, 2a / `wg-l4b38` | | 14.2 M / 56.2 M | 7.08 M / 28.1 M | 3.54 M / 14.0 M | 1.77 M / 7.02 M |
 
 On 2a the H100 loses less from 1 to 2 and to 4 nodes than the A30 (0.927 and 0.814 against 0.79 and 0.75) although
@@ -458,35 +459,77 @@ it holds the same cells and finishes a step 3.1-3.6 times sooner, so the exchang
 the network makes up for it. At 4 nodes 2a has 3.54 M cells per H100 in 24^3 blocks, where one H100 alone already
 (2a's own grid on 2 H100 of one node, `wg-b24`) costs 20.4 ns per cell-step against 18.0 at 14.2 M: of the 4.0 ns
 that 2a loses from 1 to 4 nodes (22.0 against 18.0), ~2.4 come from the load and the exchange inside a node, ~1.6 from
-leaving it.
+leaving it. On 8 nodes (1.77 M cells per H100) the same split gives 5.9 of the 8.1 ns lost (26.1 against 18.0) to the
+load and the node (`wg-b24` on 4 H100: 23.9 ns at 1.77 M cells per GPU) and 2.2 to the network: 2a's 0.687 is mostly
+a grid too small for 32 H100, not the network.
+
+**Weak scaling across nodes** (g in ns per cell-step at a fixed load per H100; one node against 8 nodes; without the
+body: the phase-timer runs below, whose step costs agree with the windows within 0.4 %):
+
+| Cells per H100 | Blocks | One node | 8 nodes (32 H100) | Inter-node efficiency | A30 (medooza) |
+|---|---|---|---|---|---|
+| 14.2 M | 24^3 | 18.0 (2a) | 19.6 (`w2-sphere-l5`, 453 M cells) | **0.92** | 0.80 |
+| 7.02 M | 38^3 | 16.9 (`wg-b38`) | 18.6 (`wg-l4b38`, 225 M cells) | **0.91** | 0.75 |
+| 7.02 M, no body | 38^3 | 12.8 (`wg-b38`) | 13.2 (`wg-l4b38`) | **0.97** | 0.90 |
+
+Leaving the node costs **~1 ms per ghost exchange** on the H100 nodes, with or without the body: (18.6 - 16.9) ns x
+7.02 M / 12 exchanges = 0.99 ms with it, (13.23 - 12.82) x 7.02 M / 3 = 0.96 ms without, against 9.7-9.8 ms on medooza
+(same grids and loads). The two 8-node runs move 1.63 G (`w2-sphere-l5`, 0.2776 s per step) and 1.72 G cell-steps per
+second (`wg-l4b38`, 0.1303 s), 3.5 and 3.6 times the 32 A30 (462 and 478 M).
 
 **Where a step's time goes on the H100** (the phase timer of "Where a step's time goes", applied to the same tree,
 `~/adam-phase`, built separately; its `ADAM_FTZ` switch removed for nvfortran 26.3, which does not resolve
 `ieee_set_underflow_mode(gradual=)`, irrelevant on the GPU; ms per step, means over the ranks, `wg-l4b38` strong and
 `wg-b38` on one node, with the body and without it; reports in `results/2026-11-25-spacehpc/phase/reports/`):
 
-| Phase | `wg-b38` 1 node, 7.02 M/GPU | `wg-l4b38` 1 node, 56.2 M | 2 nodes, 28.1 M | 4 nodes, 14.0 M |
-|---|---|---|---|---|
-| step, body | 119.0 | 861.3 | 452.2 | 238.5 |
-| face fluxes | 72.5 | 603.2 | 298.3 | 145.0 |
-| ghost local | 13.4 | 113.5 | 56.3 | 27.3 |
-| BC + blend | 16.8 | 48.4 | 28.6 | 17.5 |
-| **ghost MPI** | 4.6 | 19.5 | 29.1 | 27.8 |
-| ... `MPI_WAITALL` | 1.2 | 4.0 | 16.8 | 15.9 |
-| ... pack + unpack | 3.2 | 14.9 | 11.3 | 9.0 |
-| IB kernels | 2.0 | 9.6 | 4.9 | 2.5 |
-| step, no body | 90.0 | 709.7 | 358.1 | 180.4 |
-| ghost MPI, no body (`MPI_WAITALL`) | 1.5 (0.6) | 5.4 (1.5) | 7.2 (3.9) | 7.0 (3.7) |
+| Phase | `wg-b38` 1 node, 7.02 M/GPU | `wg-l4b38` 1 node, 56.2 M | 2 nodes, 28.1 M | 4 nodes, 14.0 M | 8 nodes, 7.02 M |
+|---|---|---|---|---|---|
+| step, body | 119.0 | 861.3 | 452.2 | 238.5 | 129.9 |
+| face fluxes | 72.5 | 603.2 | 298.3 | 145.0 | 72.4 |
+| ghost local | 13.4 | 113.5 | 56.3 | 27.3 | 13.4 |
+| BC + blend | 16.8 | 48.4 | 28.6 | 17.5 | 12.4 |
+| **ghost MPI** | 4.6 | 19.5 | 29.1 | 27.8 | 20.3 |
+| ... `MPI_WAITALL` | 1.2 | 4.0 | 16.8 | 15.9 | 10.8 |
+| ... pack + unpack | 3.2 | 14.9 | 11.3 | 9.0 | 6.1 |
+| ... the two barriers | 0.1 | 0.4 | 1.0 | 2.8 | 3.3 |
+| IB kernels | 2.0 | 9.6 | 4.9 | 2.5 | 1.3 |
+| step, no body | 90.0 | 709.7 | 358.1 | 180.4 | 92.9 |
+| ghost MPI, no body (`MPI_WAITALL`) | 1.5 (0.6) | 5.4 (1.5) | 7.2 (3.9) | 7.0 (3.7) | 5.1 (2.7) |
+| strong efficiency from 1 node, body / no body | | 1 / 1 | 0.952 / 0.991 | 0.903 / 0.984 | **0.829 / 0.955** |
 
-- **Between nodes, an exchange costs ~1.4 ms in `MPI_WAITALL` on the H100 nodes** (16.8 and 15.9 ms per step over 12
-  exchanges at 2 and 4 nodes, halos of 28 and 14 M cells per GPU), against ~12 ms on medooza at 8 nodes with the
-  smaller halos of 7 M cells per A30: GPUDirect RDMA removes the host staging that dominated there.
-- **The immersed body's cost is ghost work on the device, not network**: on one node it adds 152 ms per step to
+- **Between nodes, an exchange costs 0.9-1.4 ms in `MPI_WAITALL` on the H100 nodes** (16.8, 15.9 and 10.8 ms per
+  step over 12 exchanges at 2, 4 and 8 nodes, 28, 14 and 7.0 M cells per GPU), against ~12 ms on medooza at 8 nodes
+  with 7 M cells per A30: GPUDirect RDMA removes the host staging that dominated there.
+- **On one node the immersed body's cost is ghost work on the device, not network**: it adds 152 ms per step to
   `wg-l4b38` (861 against 710), of which local ghost fill +85, BC and blend +36, MPI +14 (mostly pack and unpack, the
   waitall +2.5), its kernels 10. Its 12 exchanges per step multiply the local fills and the boundary conditions as
   much as the MPI exchanges: lever 2 of #156 (restricted eikonal exchanges) must restrict all three.
-- **The two barriers** of every exchange cost 0.1-2.8 ms per step with the body (0.1-1.2 % of the step), growing
-  with the node count; the 8-node plan times them off. Removed from the code since (2026-11-25): these runs predate it.
+- **The two barriers** of every exchange cost 0.1-3.3 ms per step with the body (0.1-2.5 % of the step), growing
+  with the node count. Removed from the code since (2026-11-25, b8641a59); these runs predate it, and the 8-node plan
+  timed them off (below).
+- **On 8 nodes the body is the multi-node loss.** Without it the 225 M-cell grid keeps 0.955 of one node's throughput
+  on 32 H100; with it 0.829. Against the ideal (one node's phase / 8) the step with the body loses 22.2 ms: the MPI
+  exchange +17.9 (its waitall +10.3), boundary conditions and blend +6.4 (unevenly spread: 9.0 to 15.9 ms over the
+  ranks), while the face fluxes gain 3.0 (smaller arrays per GPU). Without the body it loses 4.2 ms (MPI +4.5,
+  boundary conditions +1.6, fluxes -3.2). The body adds 40 % to the 8-node step (36.9 ms on 92.9) against 21 % on one
+  node, and here the MPI exchange is its largest part: MPI 15.2, local ghost fill 10.0, boundary conditions 9.3, its
+  kernels 1.3.
+
+**The 8-node variants** (`wg-l4b38` with the body on 32 H100, the phase timer, one window of 110 steps each; ms per
+step, means over the ranks; the windows' spread at this size is 0.1-0.2 %):
+
+| Run | Step | Ghost MPI | `MPI_WAITALL` | The two barriers |
+|---|---|---|---|---|
+| as run (the site's 2 HCAs, barriers on) | 129.9 | 20.3 | 10.8 | 3.3 |
+| barriers off (`ADAM_GHOST_BARRIER=0`) | 128.2 (-1.3 %) | 18.2 | 11.9 | 0 |
+| all 4 HCAs (`UCX_NET_DEVICES=mlx5_0:1,...,mlx5_3:1`) | 130.7 (+0.6 %) | 21.1 | 10.2 | 4.6 |
+
+- **The barriers' removal saves 1.6 ms per step on 8 nodes** (1.3 %), half of the 3.3 ms they took: the ranks that
+  waited at the barriers now wait in `MPI_WAITALL` (+1.1 ms). The same as on 8 A30 nodes (1.2 %), so the bitwise
+  removal (b8641a59) pays on both machines.
+- **All four HCAs buy nothing**: the step is 0.6 % slower (the waitall 0.6 ms shorter, the barriers 1.3 ms longer).
+  One HCA per GPU moves 46.6 GB/s against 52.0 through the site's pair (`netbw-n8-183633.txt`). Keep the site's
+  setting.
 
 ### The accuracy-first paths: runtime AMR and 2-D (baselines)
 
