@@ -45,7 +45,7 @@ regime pair, both GPUs: identical.**
 4. a larger load: base level 3, box 0.5 (960 blocks, 13 M cells; `fields` 40 so the capacity holds the block indices).
 
 Jobs: ESA SpaceHPC, one NVIDIA H100 (nvfortran 26.3, `spacehpc_nvf`): 184161 (V0, V0s, D1, D2), 184174 (with V0ng,
-D3), 184175 (the larger load); medooza, one NVIDIA A30 (nvfortran 26.9, `iac_nvf`): 1369803, 1369806. Results in
+D3), 184175 (the larger load); medooza, one NVIDIA A30 (nvfortran 26.9, `iac_nvf`): 1369803, 1369806, 1369807 (the larger load). Results in
 `results/`, figures by `plot.py` (in the docs page, below).
 
 **Repeatability.** Every case ran twice per GPU (the two passes). On the H100 every time reproduces within 0.1 %. On
@@ -90,7 +90,8 @@ figures take the lower V0 of the two passes, the divergence figures below quote 
 - **The same at 4 times the load** (base level 3, 960 blocks, 13.3 M cells, 11.3 M rows of which 4.4 % prolongation;
   job 184175): tricubic / mean V0 6.18 ms (copy 3.33, restriction 0.15, prolongation 2.60), copy 0.31 ns per row,
   tricubic prolongation 5.2 ns, weno6 22.8 ns; guard off, the tricubic prolongation 0.43 ms (the guard 84 %); D3 0.94
-  against 0.43, 2.2x slower.
+  against 0.43, 2.2x slower. The A30 at the same load (job 1369807): V0 20.2 ms (copy 9.55, restriction 0.55,
+  prolongation 9.36), guard off 1.20 (the guard 87 %), D3 2.60, 2.2x slower; every variant bitwise.
 - The A30 shows the same split, 2.6-4.3x slower per row (row costs and second-pass numbers in `results/`).
 
 **Production check.** The copy rows reproduce FLUME: on the A30 the copy launch costs 2.44 ms for 2.53 M rows, FLUME's
