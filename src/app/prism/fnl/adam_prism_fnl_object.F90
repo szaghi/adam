@@ -128,7 +128,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! IC/BC/sources
       procedure, pass(self) :: apply_fwl_correction    !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current   !< Compute current coils sources.
-      procedure, pass(self) :: verify_no_pic_deposition_on_coils_dev !< Guard against PIC deposition on coil cells.
+      procedure, pass(self) :: register_pic_deposition_on_coils_dev !< Keep the plasma current a deposit put on coil cells.
       procedure, pass(self) :: mark_by_j_vec_total_variation !< Override: device TV marker (common default error_stops).
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
@@ -590,10 +590,13 @@ contains
       call self%pic_fnl%copy_cpu_gpu(pic=self%pic, q_pic=self%q_pic, pic_fields=self%pic_fields, &
                                      verbose=verbose)
    if (allocated(self%buf_6D_R8P)) then
-      call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid, buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
+      call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid, blocks_number=self%blocks_number, &
+                                      buf6D=self%buf_6D_R8P, db6=self%db6, hb6=self%hb6)
    else
-      call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid)
+      call self%coil_fnl%copy_cpu_gpu(coil=self%coil, grid=self%adam%grid, blocks_number=self%blocks_number)
    endif
+   ! the host plasma slots (the t0 deposit) are on the device now: on FNL the device owns them from here on
+   call self%coil%invalidate_support
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
    endsubroutine copy_cpu_gpu
 
@@ -1164,6 +1167,10 @@ contains
                                      var_jz        = var_jz       ,&
                                      j_vec_gpu     = self%coil_fnl%j_vec_gpu,&
                                      q_gpu         = q_gpu)
+      ! the plasma current the last deposit into this state put on the support (none without overlap): a stage time
+      ! means a stage state, else the committed q
+      call self%coil_fnl%restore_plasma_dev(ngc=ngc, q_gpu=q_gpu, slot=merge(COIL_SLOT_STAGE, COIL_SLOT_COMMITTED, &
+                                            present(gamm)), var_jx=var_Jx, var_jy=var_Jy, var_jz=var_Jz)
 
       ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
       s = 1._R8P ; if (td > 0._R8P) s = time_s / td ; s = max(0._R8P, min(1._R8P, s))
@@ -1273,91 +1280,48 @@ contains
       endsubroutine apply_j_vec_kernel
    endsubroutine compute_coils_current
 
-   subroutine verify_no_pic_deposition_on_coils_dev(self, q_gpu, check_current, check_charge, context)
-   !< Ensure device-side PIC deposition does not populate cells carrying analytic coil current.
-   class(prism_fnl_object), intent(in)              :: self                                               !< The equation.
-   real(R8P),               intent(in)              :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Deposited field.
-   logical,                 intent(in),    optional :: check_current                                      !< Check Jx/Jy/Jz overlap.
-   logical,                 intent(in),    optional :: check_charge                                       !< Check rho overlap.
-   character(*),            intent(in),    optional :: context                                            !< Call-site label.
-   logical                                         :: do_current                                          !< Check current overlap.
-   logical                                         :: do_charge                                           !< Check charge overlap.
-   character(len=:), allocatable                   :: context_ !< Context label, local copy.
-   integer(I4P)                                    :: overlap_current !< Reduction flag for current overlap.
-   integer(I4P)                                    :: overlap_charge !< Reduction flag for charge overlap.
-   integer(I4P)                                    :: nv_q                                                !< Runtime q width.
+   subroutine register_pic_deposition_on_coils_dev(self, q_gpu, stage, check_current, check_charge, context)
+   !< Device twin of prism_common_object%register_pic_deposition_on_coils: right after a PIC deposit into q_gpu, plasma
+   !< current or charge on the coil support is no longer an error. The current is kept (committed or stage slot) and summed
+   !< with the coil current by every later coil stamp of that state; the first occurrence is warned and repeated at the
+   !< end of the run (report_plasma_on_coils). Collective (with coils): the overlap is reduced over the ranks and, when
+   !< found, the ghosts of q_gpu are refreshed before the support (ghost cells included) is kept. Without overlap q_gpu
+   !< is untouched.
+   class(prism_fnl_object), intent(inout)        :: self          !< The equation.
+   real(R8P),               intent(inout)        :: q_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Deposited field.
+   logical,                 intent(in)           :: stage         !< q_gpu is a stage state (else the committed one).
+   logical,                 intent(in), optional :: check_current !< The J rows hold a fresh deposit.
+   logical,                 intent(in), optional :: check_charge  !< The charge row holds a fresh deposit.
+   character(*),            intent(in), optional :: context       !< Call-site label.
+   logical                                       :: do_current    !< Check current overlap.
+   logical                                       :: do_charge     !< Check charge overlap.
+   logical                                       :: overlap(2)    !< Plasma current, charge on the support.
+   character(len=:), allocatable                 :: context_      !< Context label, local copy.
+   integer(I4P)                                  :: ierr          !< MPI error.
 
+   if (self%coil%total_coils_number <= 0_I4P) return
    do_current = .false. ; if (present(check_current)) do_current = check_current
    do_charge  = .false. ; if (present(check_charge )) do_charge  = check_charge
    if ((.not. do_current) .and. (.not. do_charge)) return
-   if (self%coil%total_coils_number <= 0_I4P) return
-
-   context_ = 'PIC deposition'
-   if (present(context)) context_ = trim(context)
-
-   overlap_current = 0_I4P
-   overlap_charge  = 0_I4P
-   nv_q = int(size(q_gpu, dim=5), I4P)
-
-   if (do_current .or. do_charge) then
-      call verify_no_pic_deposition_on_coils_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,          &
-         blocks_number=self%blocks_number, coils_number=self%coil%total_coils_number, &
-         var_jx=self%physics%var_Jx, var_jy=self%physics%var_Jy, var_jz=self%physics%var_Jz, &
-         nv_q=nv_q, do_current=merge(1_I4P,0_I4P,do_current),         &
-         do_charge=merge(1_I4P,0_I4P,do_charge), j_vec_gpu=self%coil_fnl%j_vec_gpu, &
-         q_gpu=q_gpu, overlap_current=overlap_current, overlap_charge=overlap_charge)
+   context_ = 'PIC deposition' ; if (present(context)) context_ = trim(context)
+   call self%coil_fnl%detect_plasma_dev(ngc=self%ngc, q_gpu=q_gpu, var_jx=self%physics%var_Jx,                   &
+                                        var_jy=self%physics%var_Jy, var_jz=self%physics%var_Jz,                 &
+                                        check_current=do_current, check_charge=do_charge,                       &
+                                        overlap_current=overlap(1), overlap_charge=overlap(2))
+   call MPI_ALLREDUCE(MPI_IN_PLACE, overlap, 2, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, ierr)
+   if (do_current) then
+      if (overlap(1)) then
+         call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+         call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                                  comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                                  q_gpu=q_gpu)
+      endif
+      call self%coil_fnl%capture_plasma_dev(ngc=self%ngc, q_gpu=q_gpu, slot=merge(COIL_SLOT_STAGE, COIL_SLOT_COMMITTED, &
+                                            stage), var_jx=self%physics%var_Jx, var_jy=self%physics%var_Jy,            &
+                                            var_jz=self%physics%var_Jz, active=overlap(1))
    endif
-
-   if (overlap_current /= 0_I4P) then
-      call mpih_fnl%error_stop(msg=': '//trim(context_)//' deposited plasma current on a coil cell')
-   endif
-   if (overlap_charge /= 0_I4P) then
-      call mpih_fnl%error_stop(msg=': '//trim(context_)//' deposited plasma charge on a coil cell')
-   endif
-
-   contains
-      subroutine verify_no_pic_deposition_on_coils_dev_kernel(ni, nj, nk, ngc, blocks_number, coils_number,       &
-                                                              var_jx, var_jy, var_jz, nv_q, do_current, do_charge, &
-                                                              j_vec_gpu, q_gpu, overlap_current, overlap_charge)
-      !< Check overlap between PIC deposition and coil support on device.
-      integer(I4P), intent(in)    :: ni, nj, nk, ngc, blocks_number, coils_number       !< Grid / coil sizes.
-      integer(I4P), intent(in)    :: var_jx, var_jy, var_jz, nv_q                        !< Variable indexes.
-      integer(I4P), intent(in)    :: do_current, do_charge                               !< Integerized logicals.
-      real(R8P),    intent(in)    :: j_vec_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:)           !< Analytic coil support.
-      real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                  !< Deposited field.
-      integer(I4P), intent(inout) :: overlap_current, overlap_charge                     !< Host reduction flags.
-      integer(I4P)                :: b, i, j, k, n                                       !< Counters.
-      logical                     :: has_coil                                             !< Coil support at cell.
-
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(j_vec_gpu, q_gpu) &
-      !$acc& firstprivate(ni, nj, nk, ngc, blocks_number, coils_number, var_jx, var_jy, var_jz, nv_q, do_current, do_charge) &
-      !$acc& reduction(max: overlap_current, overlap_charge)
-      !$omp OMPLOOP collapse(4) DEVICEPTR(j_vec_gpu, q_gpu) &
-      !$omp& firstprivate(ni, nj, nk, ngc, blocks_number, coils_number, var_jx, var_jy, var_jz, nv_q, do_current, do_charge) &
-      !$omp& reduction(max: overlap_current, overlap_charge)
-      do k=1-ngc, nk+ngc
-      do j=1-ngc, nj+ngc
-      do i=1-ngc, ni+ngc
-      do b=1, blocks_number
-         has_coil = .false.
-         !$acc loop seq
-         do n=1, coils_number
-            has_coil = has_coil .or. any(j_vec_gpu(b,i,j,k,1:3,n) /= 0._R8P)
-         enddo
-         if (.not. has_coil) cycle
-         if (do_current /= 0_I4P) then
-            if ((q_gpu(b,i,j,k,var_jx) /= 0._R8P) .or. (q_gpu(b,i,j,k,var_jy) /= 0._R8P) .or. &
-                (q_gpu(b,i,j,k,var_jz) /= 0._R8P)) overlap_current = 1_I4P
-         endif
-         if (do_charge /= 0_I4P) then
-            if (q_gpu(b,i,j,k,nv_q) /= 0._R8P) overlap_charge = 1_I4P
-         endif
-      enddo
-      enddo
-      enddo
-      enddo
-      endsubroutine verify_no_pic_deposition_on_coils_dev_kernel
-   endsubroutine verify_no_pic_deposition_on_coils_dev
+   if (any(overlap)) call self%coil%record_overlap(it=self%time%it, context=context_)
+   endsubroutine register_pic_deposition_on_coils_dev
 
    subroutine mark_by_j_vec_total_variation(self, tv_tol, delta_type, delta_fine, delta_coarse, threshold, do_init)
    !< Mark blocks to be refined/derefined by the value of total variation of j_vec, FNL (device) backend.
@@ -5346,8 +5310,8 @@ contains
                                           v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
       call self%accumulate_charge_conservation_current(q_gpu=u, &
                                                        weight=self%ts%stage_weight(s), s=s)
-      call self%verify_no_pic_deposition_on_coils_dev(q_gpu=u, check_current=.true., &
-                                                      context='integrate_rk_ssp_pic(stage current)')
+      call self%register_pic_deposition_on_coils_dev(q_gpu=u, stage=.true., check_current=.true., &
+                                                     context='integrate_rk_ssp_pic(stage current)')
       call self%compute_coils_current(q_gpu=u, gamm=self%ts%stage_time(s))
       call self%compute_residuals_dev(q_gpu=u, dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
@@ -5383,8 +5347,8 @@ contains
    call self%pic_fnl%particle_weighting_dev(field_fnl=self%field_fnl, field=self%adam%field, grid=self%adam%grid, &
                                             q_gpu=self%q_gpu, q_pic_gpu=self%pic_fnl%q_pic_gpu, nv=self%nv)
    call self%fold_deposited_ghosts_dev(q_gpu=self%q_gpu, v_first=self%nv, v_last=self%nv)
-   call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
-                                                   context='integrate_rk_ssp_pic(final deposition)')
+   call self%register_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, stage=.false., check_current=.true., check_charge=.true., &
+                                                  context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%finalize_charge_conservation_diagnostic
    ! the particle terms of the plasma frequencies, while q_pic, pic_fields and the map are aligned (issue #129, R7)
@@ -5541,8 +5505,8 @@ contains
                                 hq=cc%h_gpu(:,:,:,:,:,s), dt=self%time%dt)
       endif
       call self%accumulate_charge_conservation_current(q_gpu=u, weight=self%ts%stage_weight(s), s=s)
-      call self%verify_no_pic_deposition_on_coils_dev(q_gpu=u, check_current=.true., &
-                                                      context='integrate_rk_ssp_pic_charge_conserving(stage current)')
+      call self%register_pic_deposition_on_coils_dev(q_gpu=u, stage=.true., check_current=.true., &
+                                                     context='integrate_rk_ssp_pic_charge_conserving(stage current)')
       call self%compute_coils_current(q_gpu=u, gamm=self%ts%stage_time(s))
       ! the field ghosts were exchanged before the gather and since then only the current changed, which the residual
       ! reads pointwise: skip the residual's exchange (#111), keep its boundary conditions and coil re-stamp
@@ -5583,8 +5547,9 @@ contains
       call cc%solve_dispatch(field_fnl=self%field_fnl, q=self%q_gpu, var_jx=var_jx, hq=cc%h_gpu(:,:,:,:,:,nrk), &
                              dt=self%time%dt)
    endif
-   call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
-                                                   context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
+   call self%register_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, stage=.false., check_current=.true., &
+                                                  check_charge=.true., &
+                                                  context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
    call self%compute_coils_current(q_gpu=self%q_gpu)
    endassociate
    ! the particle terms of the plasma frequencies, while q_pic, pic_fields and the map are aligned (issue #129, R7)
@@ -5641,8 +5606,7 @@ contains
       call cc%solve_dispatch(field_fnl=self%field_fnl, q=self%q_gpu, var_jx=self%physics%var_jx, &
                              hq=cc%h_gpu(:,:,:,:,:,1), dt=self%time%dt)
    endif
-   call self%verify_no_pic_deposition_on_coils_dev(q_gpu=self%q_gpu, check_current=.true., check_charge=.true., &
-                                                   context='initialize_pic_conserving_current_time_zero')
+   ! plasma on coil cells is registered on the host by compute_coils_current_time_zero, once initialize_coils built J_vec
    call dev_memcpy_from_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q, src=self%q_gpu, buf=self%buf_5D_R8P)
    endassociate
    endsubroutine initialize_pic_conserving_current_time_zero
@@ -5911,6 +5875,7 @@ contains
    !call self%compute_energy_error !Cazzo
    call self%save_simulation_data
    call self%io%close_file_residuals
+   call self%report_plasma_on_coils
    if (mpih_fnl%myrank == 0) then
       inquire(unit=self%io%energy_history_unit, opened=is_open)
       if (is_open) close(self%io%energy_history_unit)

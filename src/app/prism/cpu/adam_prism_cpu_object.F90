@@ -538,6 +538,10 @@ contains
                enddo
             enddo
          enddo
+         ! the plasma current the last deposit into this state put on the support (none without overlap): a stage time
+         ! means a stage state, else the committed q
+         call self%coil%restore_plasma(q=q, slot=merge(COIL_SLOT_STAGE, COIL_SLOT_COMMITTED, present(gamma)), &
+                                       var_jx=var_Jx, var_jy=var_Jy, var_jz=var_Jz)
 
          ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
          if (td > 0._R8P) then
@@ -1944,6 +1948,7 @@ contains
    !call self%compute_energy_error
    call self%save_simulation_data
    call self%io%close_file_residuals
+   call self%report_plasma_on_coils
    !call self%save_energy_error(is_to_close=.true.)
    !call mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
    !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_D))))))
@@ -2093,7 +2098,7 @@ contains
       !< Compute coil power of vector field starting from ivar.
       integer(I4P), intent(in)  :: ivar        !< Starting position of vector field.
       real(R8P),    intent(out) :: coil_power  !< Coil power of the vector field.
-      integer(I4P)              :: i,j,k,b     !< Counter.
+      integer(I4P)              :: i,j,k,b,c   !< Counter.
 
       coil_power = 0.0_R8P
       associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,         &
@@ -2112,6 +2117,19 @@ contains
       enddo
       enddo
       enddo
+      ! the plasma current summed on the coil support is not the coil's: take its work out (no overlap, nothing kept)
+      if (self%coil%support_valid .and. self%coil%plasma_j_active(COIL_SLOT_COMMITTED)) then
+         do c=1, self%coil%support_interior
+            b = self%coil%support(1,c) ; i = self%coil%support(2,c)
+            j = self%coil%support(3,c) ; k = self%coil%support(4,c)
+            if (abs(minval(J_vec(:,i,j,k,b,:))) >= 1E-12_R8P) then
+               coil_power = coil_power + (self%q(VAR_DX  ,i,j,k,b)*self%coil%plasma_j(1,c,COIL_SLOT_COMMITTED) + &
+                                          self%q(VAR_DX+1,i,j,k,b)*self%coil%plasma_j(2,c,COIL_SLOT_COMMITTED) + &
+                                          self%q(VAR_DX+2,i,j,k,b)*self%coil%plasma_j(3,c,COIL_SLOT_COMMITTED))/EPS0* &
+                                         (dx(b)*dy(b)*dz(b))
+            endif
+         enddo
+      endif
       endassociate
       endsubroutine compute_coil_power
 
@@ -4239,8 +4257,8 @@ contains
                                        q_pic=up, nv=self%nv)
       call self%fold_deposited_ghosts(q=q_stage, v_first=self%physics%var_Jx, v_last=self%physics%var_Jz)
       call self%accumulate_charge_conservation_current(q=q_stage, weight=self%ts%stage_weight(s))
-      call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
-                                                  context='integrate_rk_ssp_pic(stage current)')
+      call self%register_pic_deposition_on_coils(q=q_stage, stage=.true., check_current=.true., &
+                                                 context='integrate_rk_ssp_pic(stage current)')
       call self%compute_coils_current(q=q_stage, gamma=self%ts%stage_time(s))
       !Calcolo residui Maxwell
       call self%compute_residuals(q=q_stage, dq=self%dq, s=s)
@@ -4273,8 +4291,8 @@ contains
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%fold_deposited_ghosts(q=self%q, v_first=self%nv, v_last=self%nv)
    call self%finalize_charge_conservation_diagnostic
-   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
-                                               context='integrate_rk_ssp_pic(final deposition)')
+   call self%register_pic_deposition_on_coils(q=self%q, stage=.false., check_current=.true., check_charge=.true., &
+                                              context='integrate_rk_ssp_pic(final deposition)')
    call self%compute_coils_current(q=self%q)
    ! the particle terms of the plasma frequencies, while q_pic, pic_fields and the map are aligned (issue #129, R7)
    if (self%plasma_freq%active) call self%compute_plasma_frequencies(cells=.false.)
@@ -4400,8 +4418,8 @@ contains
          call solve_pic_charge_conserving_current_dispatch(self=self, q=q_stage, hq=h_q(:,:,:,:,:,s,1))
       endif
       call self%accumulate_charge_conservation_current(q=q_stage, weight=self%ts%stage_weight(s))
-      call self%verify_no_pic_deposition_on_coils(q=q_stage, check_current=.true., &
-                                                  context='integrate_rk_ssp_pic_charge_conserving(stage current)')
+      call self%register_pic_deposition_on_coils(q=q_stage, stage=.true., check_current=.true., &
+                                                 context='integrate_rk_ssp_pic_charge_conserving(stage current)')
       call self%compute_coils_current(q=q_stage, gamma=self%ts%stage_time(s))
       ! the field ghosts were exchanged before the gather and since then only the current changed, which the residual
       ! reads pointwise: skip the residual's exchange (#111), keep its boundary conditions and coil re-stamp
@@ -4436,8 +4454,8 @@ contains
    else
       call solve_pic_charge_conserving_current_dispatch(self=self, q=self%q, hq=h_q(:,:,:,:,:,nrk,1))
    endif
-   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
-                                               context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
+   call self%register_pic_deposition_on_coils(q=self%q, stage=.false., check_current=.true., check_charge=.true., &
+                                              context='integrate_rk_ssp_pic_charge_conserving(final deposition)')
    call self%compute_coils_current(q=self%q)
    ! the particle terms of the plasma frequencies, while q_pic, pic_fields and the map are aligned (issue #129, R7)
    if (self%plasma_freq%active) call self%compute_plasma_frequencies(cells=.false.)
@@ -5450,8 +5468,6 @@ contains
       allocate(j_box(1:3,1:self%ni,1:self%nj,1:self%nk,1:self%blocks_number))
       call deposit_matched_current(self=self, q_ref=q_minus, q_to=q_plus, jc=j_box)
       call store_matched_current(self=self, q=self%q, jc=j_box)
-      call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
-                                                  context='initialize_pic_conserving_current_time_zero')
       return
    endif
    call compute_pic_esirkepov_displacement(self=self, q_ref=q_minus, q_to=q_plus, h_dir=h_dir)
@@ -5466,8 +5482,7 @@ contains
    else
       call solve_pic_charge_conserving_current_dispatch(self=self, q=self%q, hq=h_dir)
    endif
-   call self%verify_no_pic_deposition_on_coils(q=self%q, check_current=.true., check_charge=.true., &
-                                               context='initialize_pic_conserving_current_time_zero')
+   ! plasma on coil cells is registered by compute_coils_current_time_zero, once initialize_coils has built J_vec
    endsubroutine initialize_pic_conserving_current_time_zero
 
    subroutine check_conserving_single_block(self)
