@@ -3652,7 +3652,7 @@ contains
    !<
    !< The face fluxes of a null direction are never computed: they keep their zero initialization. On the staged path
    !< (AMR seam faces), the seam face fluxes of every stage are accumulated into the forest's flux register. With
-   !< immersed solids, the eikonal extrapolation fills the solid cells first (`n_eikonal` Jacobi sweeps, each followed by
+   !< immersed solids, the eikonal extrapolation fills the solid cells first (`n_eikonal` Jacobi sweeps, each but the last followed by
    !< a ghost exchange, then the wall inversion), and the flux difference uses the spacing cut by the surface.
    class(flume_cpu_object),     intent(inout)           :: self          !< The equation.
    real(R8P),                   intent(inout)           :: q(1:,         &
@@ -3674,7 +3674,9 @@ contains
       call self%update_ghost(q=q)
       do e=1, self%ib%n_eikonal
          call self%ib%evolve_eikonal(field=self%adam%field, grid=self%adam%grid, q=q, dq=dq)
-         call self%update_ghost(q=q)
+         ! the exchange after the last sweep is the main one below: invert_eikonal and apply_floors are pointwise on
+         ! the interior cells and read no ghost cell, so the main update_ghost fills the same ghosts (issue #156, lever 2)
+         if (e < self%ib%n_eikonal) call self%update_ghost(q=q)
       enddo
       call self%ib%invert_eikonal(field=self%adam%field, grid=self%adam%grid, q=q)
    endif
@@ -3940,7 +3942,9 @@ contains
       call self%update_ghost(q=q)
       do e=1, self%ib%n_eikonal
          call self%ib%evolve_eikonal(field=self%adam%field, grid=self%adam%grid, q=q, dq=dq)
-         call self%update_ghost(q=q)
+         ! the exchange after the last sweep is the main one below: invert_eikonal and apply_floors are pointwise on
+         ! the interior cells and read no ghost cell, so the main update_ghost fills the same ghosts (issue #156, lever 2)
+         if (e < self%ib%n_eikonal) call self%update_ghost(q=q)
       enddo
       call self%ib%invert_eikonal(field=self%adam%field, grid=self%adam%grid, q=q)
    endif

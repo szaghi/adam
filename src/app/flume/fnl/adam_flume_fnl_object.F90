@@ -3993,7 +3993,9 @@ contains
       do e=1, self%ib%n_eikonal
          call self%ib_fnl%evolve_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, dq_gpu=dq_gpu, &
                                          q_gpu=q_gpu, dxyz_gpu=self%field_fnl%dxyz_gpu)
-         call self%update_ghost(q_gpu=q_gpu)
+         ! the exchange after the last sweep is the main one below: invert_eikonal and apply_floors are pointwise on
+         ! the interior cells and read no ghost cell, so the main update_ghost fills the same ghosts (issue #156, lever 2)
+         if (e < self%ib%n_eikonal) call self%update_ghost(q_gpu=q_gpu)
       enddo
       call self%ib_fnl%invert_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, q_gpu=q_gpu)
    endif
@@ -4327,7 +4329,9 @@ contains
       do e=1, self%ib%n_eikonal
          call self%ib_fnl%evolve_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, dq_gpu=dq_gpu, &
                                          q_gpu=q_gpu, dxyz_gpu=self%field_fnl%dxyz_gpu)
-         call self%update_ghost(q_gpu=q_gpu)
+         ! the exchange after the last sweep is the main one below: invert_eikonal and apply_floors are pointwise on
+         ! the interior cells and read no ghost cell, so the main update_ghost fills the same ghosts (issue #156, lever 2)
+         if (e < self%ib%n_eikonal) call self%update_ghost(q_gpu=q_gpu)
       enddo
       call self%ib_fnl%invert_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, q_gpu=q_gpu)
    endif
