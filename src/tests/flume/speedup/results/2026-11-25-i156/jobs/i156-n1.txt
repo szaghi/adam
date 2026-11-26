@@ -1,0 +1,6 @@
+# Night 2026-11-25-i156-l2 (#156 lever 2), 1 node (4 H100): wg-l4b38 with the body, phase timer, A (d68d5f97) and B (no
+# ghost update after the last eikonal sweep), the 1-node point of the README phase table; the 2026-11-25 dumps
+sh for t in i156A-n1 i156B-n1; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; done
+ADAM_PHASE_TIMING=1 windows --np 4 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/i156A-n1 --exe $HOME/adam-i156A/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 windows --np 4 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/i156B-n1 --exe $HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+sh PBS_JOBID=$PBS_JOBID bash /lustre/projects/1026/CALCOLI/adam/speedup-133/i156/i156-amr.pbs > /lustre/projects/1026/CALCOLI/adam/speedup-133/i156/i156-amr.$PBS_JOBID.out 2>&1

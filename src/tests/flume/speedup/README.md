@@ -364,7 +364,7 @@ CPU node's spread or worse).
 |---|---|---|---|---|
 | 1 | subnormal arithmetic | CPU, developed states | -35 % (1 node) to -47 % (8 nodes) on 2a | **applied**: the GNU optimized builds link with `-mdaz-ftz` (below) |
 | 2 | GPU halo between nodes at 1.5 GB/s | FNL, multi-node | up to ~9 ms of the ~12 ms per exchange (estimate at 23.5 GB/s host path plus the two device copies) | stage the inter-node halo through pinned host buffers; or GPUDirect RDMA on medooza (`nvidia_peermem`, admins); on the H100 nodes, which have GPUDirect RDMA, an exchange between nodes waits 0.9-1.4 ms ("ESA SpaceHPC"), so the cluster fix is the answer: host staging in the code was declined as medooza-specific (#156) |
-| 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges; on one H100 node the body's cost is the local fills, BC and pack/unpack, on 8 H100 nodes the MPI exchange is its largest part (15 of 37 ms per step) and the body takes the strong efficiency from 0.955 to 0.829, so the restriction must cover all of them (#156 L2) |
+| 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges; on one H100 node the body's cost is the local fills, BC and pack/unpack, on 8 H100 nodes the MPI exchange is its largest part (15 of 37 ms per step) and the body takes the strong efficiency from 0.955 to 0.829, so the restriction must cover all of them (#156 L2). **First part applied** (2026-11-25): no exchange after the last eikonal sweep, 12 -> 9, bitwise, -5.2 % (1 node) to -8.5 % (8 nodes) on 4/32 H100, the body's extra cost -30 % ("ESA SpaceHPC") |
 | 4 | the two `MPI_Barrier` per ghost exchange | both | 0.4-1.2 % (A30), 1.3 % (8 H100 nodes), none (CPU) | **applied** (2026-11-25): removed from `update_ghost_mpi` / `update_ghost_mpi_gpu`, the suites bitwise (medooza jobs 1369786, 1369787) |
 | 5 | across-the-pairs link in a node (17.7 GB/s) | FNL, 4 A30 | the 13-30 % of "Grid size" | rank order that keeps neighbours in an NVLink pair (medooza only: the H100 nodes are NV6 all-to-all, no such step) |
 
@@ -530,6 +530,37 @@ step, means over the ranks; the windows' spread at this size is 0.1-0.2 %):
 - **All four HCAs buy nothing**: the step is 0.6 % slower (the waitall 0.6 ms shorter, the barriers 1.3 ms longer).
   One HCA per GPU moves 46.6 GB/s against 52.0 through the site's pair (`netbw-n8-183633.txt`). Keep the site's
   setting.
+
+**#156 lever 2, first part: no ghost exchange after the last eikonal sweep (2026-11-25).** With a body each stage
+exchanged the ghosts before the eikonal sweeps, after each sweep and once more after the wall inversion and the floors.
+The inversion and the floors read and write only the cell itself, so the exchange after the last sweep filled ghosts
+the next one rewrites from the same interior: dropped, 12 -> 9 per step, bitwise (medooza `shock-cylinder-ib` CPU and
+FNL, A and B built in one tree; the sphere 2a/2b/2c on 4 H100, every step's residuals and integrals). A = d68d5f97 and
+B = A + the change, both with the phase timer (`results/2026-11-25-i156/jobs/apply_phase_timer.py`, the 2026-11-24
+script updated for the removed barriers), in the same jobs (184502: 1 node; 184501: 8 nodes, A run again after B:
+128.5 both times); medians of 3 windows, ms per step:
+
+| Phase | `wg-l4b38` 1 node, A | B | 8 nodes, A | B | 2a 8 nodes, A | B |
+|---|---|---|---|---|---|---|
+| step | 860.7 | **815.5 (-5.2 %)** | 128.5 | **117.6 (-8.5 %)** | 45.5 | **39.4 (-13.3 %)** |
+| ghost local | 111.9 | 83.8 | 13.2 | 9.9 | 5.2 | 3.9 |
+| ghost MPI (`MPI_WAITALL`) | 19.8 (4.3) | 15.1 (3.5) | 18.8 (12.3) | 14.2 (9.3) | 8.1 (5.4) | 5.9 (3.9) |
+| BC + blend | 48.8 | 36.3 | 12.6 | 9.4 | 10.0 | 7.5 |
+| face fluxes | 603.3 | 603.2 | 72.3 | 72.3 | 18.7 | 18.7 |
+
+- **Each ghost phase falls by a quarter, as 9/12 predicts**, and nothing else moves; the gain was predicted from the
+  phase table within 1 ms on one node (45 against 45.1 ms) and on 8 (11.5 against 11.0).
+- **The gain grows with the node count**: the step's ghost share does. Strong efficiency from 1 to 8 nodes: `wg-l4b38`
+  0.837 -> 0.867, 2a 0.694 -> 0.739 (its 1-node step from the windows below). The body's extra cost (against the
+  no-body step of the phase table above, 709.7 and 92.9 ms) falls from 151 to 106 ms on one node and from 35.6 to 24.7
+  on 8: -30 % on both.
+- **The sphere's #133 windows on 4 H100** (A/B alternated run by run, `analyze.py`): 2a uniform 0.2527 -> 0.2333 s
+  per step (-7.7 %), 2b runtime AMR 0.1986 -> 0.1868 (-6.0 %), 2c frozen AMR 0.1149 -> 0.1038 (-9.6 %)
+  (`results/2026-11-25-i156/spacehpc/summary-{A,B}.md`).
+- **What remains of lever 2**: the exchange before the sweeps and the one between them still update every ghost of
+  every block, although the sweeps read only the first ghost layer next to a solid cell on a block face. Restricting
+  them to those cells (row masks rebuilt with the maps, the same local/MPI/BC/blend pipeline over the masked rows, so
+  still bitwise) would leave 3 full exchanges per step; #156.
 
 ### The accuracy-first paths: runtime AMR and 2-D (baselines)
 
@@ -923,6 +954,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `jobs/spacehpc-build.pbs`, `jobs/spacehpc-fnl.pbs` | the ESA SpaceHPC (PBS) jobs: the fnl-nvf build on a CPU node; a plan of run.sh stages behind a GPU health guard |
 | `jobs/noib-exe.sh` | a `run.sh --exe` wrapper that drops the sphere's `[solids]`/`[solid_N]` sections (the runs without the body) |
 | `results/2026-11-25-i157/` | the AMR legs before and after #157 (the guard once per ghost): the medooza and SpaceHPC summaries per executable, `ab_table.py` (the before/after tables), `acc_table.py` (the kernel table from `NVCOMPILER_ACC_TIME` logs, interleaving-proof), the job scripts, the logs and the compressed kernel-time logs |
+| `results/2026-11-25-i156/` | #156 lever 2, first part (no exchange after the last eikonal sweep) on SpaceHPC: the sphere windows' summaries per executable, the phase-timer reports of `wg-l4b38` (1 and 8 nodes) and 2a (8 nodes), the medooza bitwise gate jobs, the SpaceHPC jobs and plans, the updated `apply_phase_timer.py`, `fetch.sh`, the logs |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |
