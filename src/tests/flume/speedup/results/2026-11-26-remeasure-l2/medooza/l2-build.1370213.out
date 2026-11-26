@@ -1,0 +1,22 @@
+MD5 mismatches: 0
+Loading intel/slurm
+  Loading requirement: intel/nvidia/cuda-12.3.2 intel/gcc-8.5.0/hwloc-2.10.0
+    intel/gcc-8.5.0/pmix-5.0.1 intel/gcc-8.5.0/ucx-1.15.0
+Loading intel/slurm
+  Loading requirement: intel/nvidia/cuda-12.3.2 intel/gcc-8.5.0/hwloc-2.10.0
+    intel/gcc-8.5.0/pmix-5.0.1 intel/gcc-8.5.0/ucx-1.15.0
+Loading nvhpc-hpcx-cuda12/26.9
+  Loading requirement: hpcx
+09:33:12 builds cpu rc 0, fnl rc 0 after 1389 s
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/adam-l2/src/tests/flume/speedup/exe/cpu/:
+total 16040
+drwxrwxr-x 2 szaghi szaghi       32 Nov 26 08:38 .
+drwxrwxr-x 4 szaghi szaghi       46 Nov 26 08:37 ..
+-rwxrwxr-x 1 szaghi szaghi 16331232 Nov 26 08:38 adam_flume_cpu
+
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/adam-l2/src/tests/flume/speedup/exe/fnl-nvf/:
+total 149784
+drwxrwxr-x 2 szaghi szaghi        32 Nov 26 09:00 .
+drwxrwxr-x 4 szaghi szaghi        46 Nov 26 08:37 ..
+-rwxrwxr-x 1 szaghi szaghi 153235296 Nov 26 09:00 adam_flume_fnl
+L2-BUILD-DONE

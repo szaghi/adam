@@ -143,9 +143,11 @@ the two grid-study grids are at 1.8 and 7.0 M cells per A30, below 2a's 14.2 M.
 | | 1 node | 2 nodes | 4 nodes | 8 nodes |
 |---|---|---|---|---|
 | fnl-nvf (4 A30 per node) | 0.780 | 0.491 (0.79) | 0.260 (0.75) | 0.167 (0.58) |
+| fnl-nvf, since #156 lever 2 (HEAD 0984b5f5, 2026-11-26) | 0.5745 | 0.3111 (0.923) | 0.1604 (0.895) | 0.08524 (0.842) |
 | cells per A30 | 14.2 M | 7.08 M | 3.54 M | 1.77 M |
 | cpu (64 ranks per node) | 12.7 | 6.48 (0.98) | 3.24 (0.98) | 2.31 (0.69; job 1369694) |
 | cpu, linked with `-mdaz-ftz` | 8.917 | - | - | 1.224 (0.91; jobs 1369732, 1369733) |
+| cpu, `-mdaz-ftz`, since #156 lever 2 | 7.9 (median of 6: 7.73-8.29) | - | - | 1.17 (~0.84; 1.04-1.19; jobs 1370215, 1370224, 1370259, 1370260) |
 
 **Weak scaling, uniform sphere** (g = step cost x devices / N, ns per cell-step; 24^3 blocks). The weak efficiency of
 the 2026-11-23 version mixed two costs: the cross-pair exchange inside a node (1 -> 4 A30) and the network (one node
@@ -157,8 +159,14 @@ the 2026-11-23 version mixed two costs: the cross-pair exchange inside a node (1
 | 7.02 M | 38^3 | 50.5 (`wg-b38`) | 67.0 (`wg-l4b38`, 225 M cells, 8 nodes; job 1369691) | **0.75**, measured |
 | 7.08 M | 24^3 | ~58.7, not run (`wg-b38` x 51.0/43.9, the 1-A30 block factor) | 69.4 (2a, 2 nodes) | ~0.85, estimate |
 | 7.02 M, no body | 38^3 | 37.1 (`wg-b38`, the sphere dropped) | 41.3 (`wg-l4b38`, the sphere dropped; jobs 1369710, 1369711) | **0.90**, measured |
+| 14.2 M, since #156 lever 2 | 24^3 | 40.6 (2a) | 42.7 (`w2-sphere-l5`) | **0.95**, measured |
+| 7.02 M, since #156 lever 2 | 38^3 | 38.4 (`wg-b38`) | 41.4 (`wg-l4b38`) | **0.93**, measured |
 
-**Without the immersed body the 8-node pair keeps 0.90** (the same grids and dumps, `[solids]` dropped from each
+**Since #156 lever 2 (2026-11-26) the body costs the 8-node pairs almost nothing** (the rows above: HEAD 0984b5f5,
+built and run in the work tree `speedup-133/l2` with the matrix's and the grid study's dumps, jobs 1370213-1370224,
+`results/2026-11-26-remeasure-l2/medooza/`): its eikonal exchanges now fill only the block faces next to it, and a cell
+of the sphere costs 26 % less on one node. The paragraphs below describe the code before it. **Without the immersed
+body the 8-node pair keeps 0.90** (the same grids and dumps, `[solids]` dropped from each
 rank's input by `speedup-133/noib-fnl.sh`, a `run.sh --exe` wrapper; `results/2026-11-24/gpu-weak-noib/`). The cost of
 leaving the node is the same per ghost exchange in both runs, 9.7-9.8 ms ((67.0 - 50.5) ns x 7.02 M / 12 exchanges per
 step with the body, its eikonal extension exchanging the ghosts 4 times per stage; (41.3 - 37.1) x 7.02 M / 3 without):
@@ -987,6 +995,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `results/2026-11-25-i157/` | the AMR legs before and after #157 (the guard once per ghost): the medooza and SpaceHPC summaries per executable, `ab_table.py` (the before/after tables), `acc_table.py` (the kernel table from `NVCOMPILER_ACC_TIME` logs, interleaving-proof), the job scripts, the logs and the compressed kernel-time logs |
 | `results/2026-11-25-i156/` | #156 lever 2, first part (no exchange after the last eikonal sweep) on SpaceHPC: the sphere windows' summaries per executable, the phase-timer reports of `wg-l4b38` (1 and 8 nodes) and 2a (8 nodes), the medooza bitwise gate jobs, the SpaceHPC jobs and plans, the updated `apply_phase_timer.py`, `fetch.sh`, the logs |
 | `results/2026-11-26-i156-l2b/` | #156 lever 2, second part: the ceiling (both eikonal exchanges skipped, measurement only; `jobs/ceiling-C-vs-B.diff`), the no-body floor, part 2 with BC and blend in full (D) and final (E): the phase-timer reports, the bitwise logs of the sphere, the job logs, plans and scripts (`apply_phase_timer_l2b.py`: the phase timer on the part-2 tree, FNL only) |
+| `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (when its maintenance ends) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |

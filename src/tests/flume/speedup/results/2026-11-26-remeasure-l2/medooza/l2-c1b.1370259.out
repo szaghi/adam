@@ -1,0 +1,22 @@
+Loading intel/slurm
+  Loading requirement: intel/nvidia/cuda-12.3.2 intel/gcc-8.5.0/hwloc-2.10.0
+    intel/gcc-8.5.0/pmix-5.0.1 intel/gcc-8.5.0/ucx-1.15.0
+job 1370259 gnode04 np 64 cpu cases 2a 2026-11-26T11:12:24+01:00
+>> windows, cpu, 64 ranks: 2a-sphere-uniform -> windows/cpu-np64
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2-cpu2/dumps/leg2/warmup/sphere-restart: step 663, time 0.15, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2-cpu2/windows/cpu-np64/2a-sphere-uniform/dump/sphere-restart: 64 ranks, rule siblings, blocks per rank [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
+   windows/cpu-np64/2a-sphere-uniform/r1-n10: wall 208.288 s, exit 0
+      forest timing (max over ranks, s): loop    76.8205, steps    76.6731, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/2a-sphere-uniform/r1-n110: wall 1186.412 s, exit 0
+      forest timing (max over ranks, s): loop   858.4216, steps   856.0855, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/2a-sphere-uniform/r2-n10: wall 95.563 s, exit 0
+      forest timing (max over ranks, s): loop    79.0342, steps    78.5956, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/2a-sphere-uniform/r2-n110: wall 942.604 s, exit 0
+      forest timing (max over ranks, s): loop   900.6665, steps   899.5894, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/2a-sphere-uniform/r3-n10: wall 416.405 s, exit 0
+      forest timing (max over ranks, s): loop    76.9898, steps    76.8779, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/2a-sphere-uniform/r3-n110: wall 1021.020 s, exit 0
+      forest timing (max over ranks, s): loop   856.3447, steps   855.1923, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, cpu, 64 ranks, work /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2-cpu2)
+L2 cpu np 64 2a rc 0
+L2-RUN-DONE rc 0 2026-11-26T12:17:28+01:00

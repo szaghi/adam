@@ -1,0 +1,28 @@
+Loading intel/slurm
+  Loading requirement: intel/nvidia/cuda-12.3.2 intel/gcc-8.5.0/hwloc-2.10.0
+    intel/gcc-8.5.0/pmix-5.0.1 intel/gcc-8.5.0/ucx-1.15.0
+Loading nvhpc-hpcx-cuda12/26.9
+  Loading requirement: hpcx
+0, 24056 MiB
+1, 24056 MiB
+2, 24056 MiB
+3, 24056 MiB
+job 1370219 gnode[03-04,08-09] np 16 fnl-nvf cases 2a 2026-11-26T09:45:14+01:00
+>> windows, fnl-nvf, 16 ranks: 2a-sphere-uniform -> windows/fnl-nvf-np16
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2/dumps/leg2/warmup/sphere-restart: step 663, time 0.15, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2/windows/fnl-nvf-np16/2a-sphere-uniform/dump/sphere-restart: 16 ranks, rule siblings, blocks per rank [256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256]
+   windows/fnl-nvf-np16/2a-sphere-uniform/r1-n10: wall 128.399 s, exit 0
+      forest timing (max over ranks, s): loop     2.1298, steps     2.0773, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np16/2a-sphere-uniform/r1-n110: wall 172.169 s, exit 0
+      forest timing (max over ranks, s): loop    18.2147, steps    17.6378, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np16/2a-sphere-uniform/r2-n10: wall 122.134 s, exit 0
+      forest timing (max over ranks, s): loop     2.4977, steps     2.4446, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np16/2a-sphere-uniform/r2-n110: wall 142.353 s, exit 0
+      forest timing (max over ranks, s): loop    18.5338, steps    17.9691, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np16/2a-sphere-uniform/r3-n10: wall 121.906 s, exit 0
+      forest timing (max over ranks, s): loop     2.6671, steps     2.6069, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np16/2a-sphere-uniform/r3-n110: wall 167.873 s, exit 0
+      forest timing (max over ranks, s): loop    18.2370, steps    17.6445, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 16 ranks, work /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2)
+L2 fnl-nvf np 16 2a rc 0
+L2-RUN-DONE rc 0 2026-11-26T09:59:57+01:00

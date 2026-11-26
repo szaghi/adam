@@ -44,7 +44,7 @@ T(CPU node) / T(GPU node) on the uniform grids:
 
 | Case | Grid | Blocks | GPU node / CPU node |
 |---|---|---|---|
-| 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 11.4 (16.3 before the CPU build flushed subnormals) |
+| 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 13.8 since #156 lever 2 (11.4 before it; 16.3 before the CPU build flushed subnormals) |
 | 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 13.8 |
 | sphere, grid study | 7.08 M cells, L3 | 512 of 24³ | 11.9 |
 | sphere, grid study | 28.1 M cells, L3 | 512 of 38³ | 12.6 |
@@ -104,15 +104,23 @@ also opens a context on GPU 0, which then has 0.9 GB less free memory than the o
 |---|---|---|---|---|
 | GPU nodes (4 A30 each) | 0.780 | 0.491 | 0.260 | 0.167 |
 | efficiency | 1 | 0.79 | 0.75 | 0.58 |
+| **GPU nodes, since #156 lever 2** | **0.5745** | **0.311** | **0.160** | **0.0852** |
+| efficiency | 1 | **0.92** | **0.90** | **0.84** |
 | cells per A30 | 14.2 M | 7.08 M | 3.54 M | 1.77 M |
 | CPU nodes (64 cores each), gradual underflow | 12.7 | 6.48 | 3.24 | 2.31 |
 | efficiency | 1 | 0.98 | 0.98 | 0.69 |
 | CPU nodes, linked with `-mdaz-ftz` | 8.92 | – | – | 1.22 |
 | efficiency | 1 | – | – | 0.91 |
+| **CPU nodes, `-mdaz-ftz`, since #156 lever 2** | **7.9** | – | – | **1.17** |
+| efficiency | 1 | – | – | ~0.84 |
 
-The GPU efficiency at 8 nodes is set by the load as much as by the network: 1.77 M cells per A30 in 24³ blocks is
-where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns per cell-step against 55.1 at
-14.2 M). The largest run is the L5 sphere, 453 M cells on 32 A30 (8 nodes), at 0.98 s per step.
+Since #156 lever 2 (2026-11-26, the immersed body's ghost exchanges cut from 12 to 3 full ones per step, the other
+6 restricted to the cells its eikonal sweeps read) one node runs the sphere 26 % faster and 8 nodes keep 0.84 of
+its throughput instead of 0.58: on medooza, without GPUDirect RDMA, the body's exchanges were most of the multi-node
+loss. What remains at 8 nodes is mostly the load: 1.77 M cells per A30 in 24³ blocks is where the one-node curve
+already rises. The CPU node gains too (8.92 → 7.9 s, the same fewer exchanges), but its runs scatter: two jobs of 3
+repetitions each gave 7.7–8.3 s on one node and 1.04–1.19 s on 8, so its efficiency (~0.84 against 0.91) is within
+that noise. The largest run is the L5 sphere, 453 M cells on 32 A30 (8 nodes), at 0.604 s per step (0.98 before).
 
 **Weak scaling of the uniform sphere** (g in ns per cell-step; inter-node efficiency = g on one 4-A30 node / g on
 8 nodes at the same cells per A30 and the same blocks: an octree level is 8 times the cells, so 4 A30 pair with 32):
@@ -122,11 +130,16 @@ where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns 
 | 14.2 M | 24³ | 55.1 (2a, 56.6 M cells) | 69.3 (L5, 453 M cells) | 0.80 |
 | 7.02 M | 38³ | 50.5 (L3, 28.1 M cells) | 67.0 (L4, 225 M cells) | 0.75 |
 | 7.02 M, no body | 38³ | 37.1 | 41.3 | 0.90 |
+| **14.2 M, since #156 lever 2** | 24³ | **40.6** | **42.7** | **0.95** |
+| **7.02 M, since #156 lever 2** | 38³ | **38.4** | **41.4** | **0.93** |
 
-- **The multi-node loss follows the ghost exchanges.** Without the immersed body the same 8-node pair keeps 0.90. In
-  both runs leaving the node costs 9.7–9.8 ms per ghost exchange; the body's eikonal extension exchanges the ghosts
-  4 times per stage instead of once (12 exchanges per step against 3), so it loses 4 times as much.
-- **Leaving the node costs 20–25 % per cell on 8 nodes** with the immersed body at 7–14 M cells per A30. The pair at 38³
+- **The multi-node loss followed the ghost exchanges.** Without the immersed body the same 8-node pair kept 0.90. In
+  both runs leaving the node cost 9.7–9.8 ms per ghost exchange; the body's eikonal extension exchanged the ghosts
+  4 times per stage instead of once (12 exchanges per step against 3), so it lost 4 times as much. Since #156 lever 2
+  the extension's exchanges fill only the few block faces next to the body: with the body the pairs now keep 0.95
+  and 0.93, and a cell of the sphere costs 26–24 % less on one node.
+- **Leaving the node cost 20–25 % per cell on 8 nodes** with the immersed body at 7–14 M cells per A30 before #156
+  lever 2, 5–7 % since. The pair at 38³
   blocks loses more than the one at 24³ although its blocks carry fewer ghost cells: its cells are 15 % cheaper, and at
   half the load per A30 the same exchange weighs more. In throughput the two 8-node runs are equal (478 and 462 M
   cell-steps per second).
