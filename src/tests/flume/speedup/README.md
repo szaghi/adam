@@ -364,7 +364,7 @@ CPU node's spread or worse).
 |---|---|---|---|---|
 | 1 | subnormal arithmetic | CPU, developed states | -35 % (1 node) to -47 % (8 nodes) on 2a | **applied**: the GNU optimized builds link with `-mdaz-ftz` (below) |
 | 2 | GPU halo between nodes at 1.5 GB/s | FNL, multi-node | up to ~9 ms of the ~12 ms per exchange (estimate at 23.5 GB/s host path plus the two device copies) | stage the inter-node halo through pinned host buffers; or GPUDirect RDMA on medooza (`nvidia_peermem`, admins); on the H100 nodes, which have GPUDirect RDMA, an exchange between nodes waits 0.9-1.4 ms ("ESA SpaceHPC"), so the cluster fix is the answer: host staging in the code was declined as medooza-specific (#156) |
-| 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges; on one H100 node the body's cost is the local fills, BC and pack/unpack, on 8 H100 nodes the MPI exchange is its largest part (15 of 37 ms per step) and the body takes the strong efficiency from 0.955 to 0.829, so the restriction must cover all of them (#156 L2). **First part applied** (2026-11-25): no exchange after the last eikonal sweep, 12 -> 9, bitwise, -5.2 % (1 node) to -8.5 % (8 nodes) on 4/32 H100, the body's extra cost -30 % ("ESA SpaceHPC") |
+| 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges; on one H100 node the body's cost is the local fills, BC and pack/unpack, on 8 H100 nodes the MPI exchange is its largest part (15 of 37 ms per step) and the body takes the strong efficiency from 0.955 to 0.829, so the restriction must cover all of them (#156 L2). **Applied** (2026-11-25/26, bitwise): no exchange after the last eikonal sweep (12 -> 9), then the two remaining eikonal exchanges restricted to the cells the sweeps read: the step -11 % (4 H100) to -19 % (32 H100) more, the body's multi-node loss gone ("ESA SpaceHPC") |
 | 4 | the two `MPI_Barrier` per ghost exchange | both | 0.4-1.2 % (A30), 1.3 % (8 H100 nodes), none (CPU) | **applied** (2026-11-25): removed from `update_ghost_mpi` / `update_ghost_mpi_gpu`, the suites bitwise (medooza jobs 1369786, 1369787) |
 | 5 | across-the-pairs link in a node (17.7 GB/s) | FNL, 4 A30 | the 13-30 % of "Grid size" | rank order that keeps neighbours in an NVLink pair (medooza only: the H100 nodes are NV6 all-to-all, no such step) |
 
@@ -557,10 +557,41 @@ script updated for the removed barriers), in the same jobs (184502: 1 node; 1845
 - **The sphere's #133 windows on 4 H100** (A/B alternated run by run, `analyze.py`): 2a uniform 0.2527 -> 0.2333 s
   per step (-7.7 %), 2b runtime AMR 0.1986 -> 0.1868 (-6.0 %), 2c frozen AMR 0.1149 -> 0.1038 (-9.6 %)
   (`results/2026-11-25-i156/spacehpc/summary-{A,B}.md`).
-- **What remains of lever 2**: the exchange before the sweeps and the one between them still update every ghost of
-  every block, although the sweeps read only the first ghost layer next to a solid cell on a block face. Restricting
-  them to those cells (row masks rebuilt with the maps, the same local/MPI/BC/blend pipeline over the masked rows, so
-  still bitwise) would leave 3 full exchanges per step; #156.
+- **What remained of lever 2** (done in the second part, below): the exchange before the sweeps and the one between
+  them updated every ghost of every block, although the sweeps read only the first ghost layer next to a solid cell on
+  a block face.
+
+**#156 lever 2, second part: the eikonal exchanges fill only the cells the sweeps read (2026-11-26).** A sweep updates
+the interior cells inside a solid (phi > 0) from their six face neighbours, so between the first exchange of a stage
+and the main one the only ghost values read are in the ghost layer next to a solid cell on a block face. FLUME builds,
+with phi after every map build (`make_ib_maps`, from `compute_phi`), the realm's ghost maps restricted to those
+cells (`maps_object%make_restricted_ghost_maps`: the local rows by receiving cell; the MPI rows through one exchange
+in which each receiver flags its receive slots back to the senders, both sides renumbering the kept slots in buffer
+order), and the exchanges before and between the sweeps run through them (`update_ghost(ib_rows=.true.)`, both
+backends; FNL `update_ghost_{local,mpi}_gpu_maps`). The boundary conditions run only when a flagged cell is filled by
+no kept row (a physical, null-axis or inter-realm ghost), the positivity blend only when some kept row of any rank is
+not a plain copy; restricted maps older than the realm's ghost maps fall back to the full update. On `shock-cylinder-ib`
+the restricted maps hold 944 of 61,368 local rows and 1,080 of 100,860 MPI receive slots (8,432 of 240,216 and 4,360 of
+187,980 after its regrids). Bitwise: `shock-cylinder-ib` CPU (WSL and medooza) and FNL (medooza, A30), A and B built
+in one tree; the sphere 2c, 2b and 2a on 4 H100, every step's residuals and integrals.
+
+Before the code, its ceiling: an executable with the two exchanges simply skipped (measurement only, wrong results)
+bounds what it can buy. SpaceHPC, phase timer, medians of 3 windows, ms per step (jobs 184669-184691;
+`results/2026-11-26-i156-l2b/`):
+
+| Case | Part 1 | Ceiling (skipped) | **Part 2** | Part 2, BC and blend in full | No body |
+|---|---|---|---|---|---|
+| `wg-l4b38`, 4 H100 | 815.5 | 727.0 | **726.1 (-11.0 %)** | 750.6 | - |
+| `wg-l4b38`, 32 H100 | 117.4 | 94.3 | **94.6 (-19.4 %)** | 100.8 | 92.5 |
+| 2a, 4 H100 | 233.0 | 194.5 | **195.1 (-16.3 %)** | 208.0 | - |
+| 2a, 32 H100 | 39.7 | 27.9 | **27.8 (-30.1 %)** | 33.3 | 27.1 |
+
+- **Part 2 reaches its ceiling**: the restricted exchanges cost nothing measurable. A first version that kept the
+  boundary conditions and the blend in full stopped 6 ms short on 8 nodes: those two kernels scan every block.
+- **The body no longer costs a multi-node loss**: on 8 nodes its extra cost falls from 24.9 to 2.1 ms per step (its own
+  kernels 1.3), and the 225 M-cell grid keeps 0.959 of one node's throughput on 32 H100 (part 1: 0.868; without the body
+  0.955 on 2026-11-25), the 2a sphere 0.878 (part 1: 0.733). Over both parts of lever 2 the step is 15.6 % cheaper on 4
+  H100 and 26.4 % on 32 (860.7 -> 726.1 and 128.5 -> 94.6 ms), the 2a sphere 39 % on 32 (45.5 -> 27.8).
 
 ### The accuracy-first paths: runtime AMR and 2-D (baselines)
 
@@ -955,6 +986,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `jobs/noib-exe.sh` | a `run.sh --exe` wrapper that drops the sphere's `[solids]`/`[solid_N]` sections (the runs without the body) |
 | `results/2026-11-25-i157/` | the AMR legs before and after #157 (the guard once per ghost): the medooza and SpaceHPC summaries per executable, `ab_table.py` (the before/after tables), `acc_table.py` (the kernel table from `NVCOMPILER_ACC_TIME` logs, interleaving-proof), the job scripts, the logs and the compressed kernel-time logs |
 | `results/2026-11-25-i156/` | #156 lever 2, first part (no exchange after the last eikonal sweep) on SpaceHPC: the sphere windows' summaries per executable, the phase-timer reports of `wg-l4b38` (1 and 8 nodes) and 2a (8 nodes), the medooza bitwise gate jobs, the SpaceHPC jobs and plans, the updated `apply_phase_timer.py`, `fetch.sh`, the logs |
+| `results/2026-11-26-i156-l2b/` | #156 lever 2, second part: the ceiling (both eikonal exchanges skipped, measurement only; `jobs/ceiling-C-vs-B.diff`), the no-body floor, part 2 with BC and blend in full (D) and final (E): the phase-timer reports, the bitwise logs of the sphere, the job logs, plans and scripts (`apply_phase_timer_l2b.py`: the phase timer on the part-2 tree, FNL only) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |

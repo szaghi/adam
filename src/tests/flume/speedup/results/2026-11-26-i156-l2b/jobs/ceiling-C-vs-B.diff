@@ -1,0 +1,8 @@
+12c12
+<       call self%update_ghost(q_gpu=q_gpu)
+---
+>       continue ! CEILING: U0 skipped (measurement only, wrong results)
+20c20
+<          if (e < self%ib%n_eikonal) call self%update_ghost(q_gpu=q_gpu)
+---
+>          continue ! CEILING: U1 skipped

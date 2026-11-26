@@ -1,0 +1,5 @@
+# Night 2026-11-26-i156-l2b: the floor of #156 lever 2: B (HEAD 4a029436 + phase timer) WITHOUT the body ([solids]
+# dropped by noib-exe.sh), 8 nodes, wg-l4b38 and 2a (the no-body phase runs of 2026-11-25 predate the barrier removal)
+sh mkdir -p $W/phase/l2b-Bnoib-n8/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/l2b-Bnoib-n8/dumps/wg-l4b38; ln -sfn $W/matrix/dumps/leg2 $W/phase/l2b-Bnoib-n8/dumps/leg2
+ADAM_PHASE_TIMING=1 NOIB_EXE=$HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/l2b-Bnoib-n8 --exe $SPEEDUP_DIR/jobs/noib-exe.sh
+ADAM_PHASE_TIMING=1 NOIB_EXE=$HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl windows --np 32 --cases 2a --conf $W/grid-study.conf --work $W/phase/l2b-Bnoib-n8 --exe $SPEEDUP_DIR/jobs/noib-exe.sh
